@@ -269,3 +269,171 @@ fixing it (no new work over unfinished work). Two standing candidates for
 any slack: persist review transcripts (three ticks flagged), and harden
 the drive workflow's pr step so commit hygiene / PR title / PR-body
 evidence stop drifting.
+
+---
+
+## 2026-08-27 — tick on `flow/drive-f59e279-08271341` (base `f59e279`)
+
+**Work package:** WP-3 — `agent` step + Appendix A (gate-1 ladder rung (c)),
+from `ops/NEXT.md` (written by this tick's assess; `ops/DIRECTIVES.md` carried
+no active directives and no PR was open at assess time, so gate work was
+permitted). Delivered on this branch in two implementation commits:
+
+- `bb38c96` — `ensure_supported`'s blanket agent refusal retired; agent steps
+  dispatch over the existing out-of-band worker path. Rule 1/2:
+  `step.attempt.started` carries per-surface `revision_id` and per-stream
+  `read_offset`, sourced from the worker as opaque strings (no mounts — gate 6).
+  Rule 4: `reset` / `inspect` / `manual` all real, `manual` parking on
+  `wait.human` and never re-dispatching. Rule 5: `effect.record` is a real verb
+  returning `{deduped}` from the journal-boundary unique key, and
+  `step.complete` carries the kernel's own `EffectRef`s instead of the worker's
+  claims (`server.rs:238`'s hardcoded `Vec::new()` is gone). Rule 6: the end-pin
+  chain is enforced in the fold — a success without `end_pins` and a broken
+  chain are both `StateError`s. Rule 7: a rung-(c) crash sweep over five kill
+  points against the real binary. `engine.rs` split to `engine/drive.rs`,
+  `state.rs` split to `state/budget.rs` per the package's own size constraint.
+- `e207a71` — closes all ten findings of the first review pass (see below),
+  with four more subject splits (`machine/recovery.rs`, `state/pins.rs`,
+  `server/client.rs`, `server/tests/agent/{pins,contract}.rs`).
+
+Scope held: no RFC, charter or `workflows/` edits; `PermissionsSpec` still
+data-only; no live agent CLI or model call anywhere in the gate — the stub
+worker speaks the real protocol over the real socket, the rung-(b)
+`llm_support.rs` pattern.
+
+**Verify (re-run by the Lead on the PR branch at log time, hermetic
+`ops/cargo.sh`, no manually exported env vars):**
+
+- `cd kernel && ../ops/cargo.sh test --workspace` — **65 passed, 0 failed**
+  (16 + 0 + 18 + 23 + 3 + 5), exit 0. Baseline was 47 and the DoD floor ≥ 47;
+  no suite shrank (relayflowd lib 8→16, crash_resume 13→18, core lib 19→23,
+  spec_parity 2→3, journal 5). Verbatim tail:
+
+  ```
+     Doc-tests relayflowd_journal
+
+  running 0 tests
+
+  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  ```
+
+- `cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings` — exit 0.
+  Verbatim tail:
+
+  ```
+      Checking relayflowd v0.1.0 (/Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/relayflowd)
+      Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.72s
+  ```
+
+- `cd kernel && ../ops/cargo.sh fmt --check` — exit 0, no output (0 bytes).
+
+- `cd sdk && npm test` — **56 passed, 0 failed** (5 files; DoD floor ≥ 54),
+  exit 0. Verbatim tail:
+
+  ```
+   Test Files  5 passed (5)
+        Tests  56 passed (56)
+     Start at  14:55:44
+     Duration  305ms (transform 118ms, setup 0ms, collect 450ms, tests 80ms, environment 0ms, prepare 224ms)
+  ```
+
+- Size constraint: `find kernel -name '*.rs' -not -path '*/target/*' | xargs wc -l`
+  → largest is `relayflowd/src/server/session.rs` at **441**; nothing over 500.
+
+**Review verdict: REVIEW_PASSED — and for the first time it is *read from a
+persisted transcript*, not inferred from workflow gating.** The review step's
+`ops/reviews/` wiring fired, which closes a gap this log has carried for three
+ticks. Two passes are on disk:
+
+- `ops/reviews/20260827-1415-review.md` — **REVIEW_FAILED**, ten findings
+  (3× P1, 3× P2, 4× P3). Three were reproduced defects that left a run wedged
+  with a raw `internal` error and no terminal journal entry — the failure class
+  the package's own DoD forbids — and one of them was a regression on the
+  rung-(b) path that shipped green in PR #4.
+- `ops/reviews/20260827-1452-review.md` — **REVIEW_PASSED** on `e207a71`, with
+  all ten findings re-checked one by one against shipped code and three of the
+  new guards **mutation-verified** as load-bearing (each mutation applied, suite
+  run, file restored byte-for-byte): reverting the `parked`/`waiting_worker`
+  distinction reproduces the original 30.58s timeout end to end through the real
+  CLI; removing the `worker_holds` decline fails its named test;
+  short-circuiting `resolve_agent_pins` wedges the run so its test never
+  completes. `crash_resume` was run 3× back to back (18 each, 0.77–0.82s) — no
+  flake.
+
+The red→green loop working on its own output is the notable thing this tick:
+the reviewer found real defects, the package fixed them, the second pass proved
+the fixes load-bearing rather than accepting them.
+
+**PR:** [#7 — flow/drive f59e279 08271341](https://github.com/AgentWorkforce/flows/pull/7)
+(OPEN, MERGEABLE, 39 files; CodeRabbit and Devin Review both SUCCESS; no human
+review yet). The Lead does not merge — awaiting human review, per the charter.
+
+**Honest state of gate 1:** still open, on two counts.
+
+1. Rung (c) is closed **on the branch, not on `main`** — it becomes true only
+   when PR #7 merges. Rungs (a) and (b) are closed on `main` (PRs #2 and #4).
+2. Even with #7 merged, gate 1's done-when does **not** hold: its second clause
+   is the **`flows check` preflight (covenant 2)**, which does not exist (no
+   `check`/preflight symbol in `sdk/src`, no CLI binary in `sdk/package.json`).
+
+**Process drift a human should see at merge — and the root cause is now
+pinpointed.** The PR title is again the branch name and the PR body is again
+the boilerplate `"Automated drive tick. Work package: see ops/NEXT.md in
+diff…"` line, for the fourth consecutive tick, despite `ops/NEXT.md` requiring
+the four verify tails verbatim in the PR body. This is not the agent ignoring
+the instruction — it is `workflows/drive.yaml:108-115`, whose `pr` step is a
+`deterministic` command that (a) hardcodes that body string, so the tails can
+**never** land there, (b) builds the commit subject as
+`grep -m1 -oE 'WP-[0-9]+[^\n]*' ops/NEXT.md | cut -c1-60`, which is a *byte*
+cut across the multibyte em-dash and truncated `07f2a14` to the literal
+`` drive: WP-3 — `age ``, and (c) calls `gh pr create --fill`, which falls back
+to the branch name for the title whenever the branch has more than one commit.
+Fixing the `pr` step — not re-instructing the agent — is what stops this
+recurring. Commit hygiene itself is *better* than prior ticks: both
+implementation commits name WP-3 and describe their work; only the log-step
+commit is mangled.
+
+Two more items for the merge reader:
+
+- **The branch was not rebased before the PR opened**, though the 14:52 review
+  asked for it. `main` moved twice after the merge base `e0d65f1` (`3ad378c`,
+  `2a83a3b`, both `ops/`-only), so a local `git diff main..HEAD` reports 42
+  files and shows `ops/RUN-CONTRACT.md`, `ops/SCOREBOARD.md` and part of
+  `ops/BACKLOG.md` as deletions this branch never made. GitHub's own diff uses
+  the merge base and is honest (39 files) — the trap is local only.
+- **The review's two residual findings were not carried anywhere durable.** The
+  14:52 pass said they belong in the PR body and the backlog; the PR body is
+  boilerplate and `ops/BACKLOG.md` gained only the regression-suite item this
+  tick. This log commit adds them to the backlog so they are not lost with the
+  transcript. Neither blocks: **P2-A** — `agent_pins_available`
+  (`engine.rs:316-328`) and `worker_holds` (`session.rs:353-355`) disagree once
+  a step has started, so a step pinned to a surface the attached worker does not
+  hold burns one journaled attempt per resume forever (`max_iterations` never
+  binds, because `abandonment_actions` gates on `semantic_executions` and a
+  crashed attempt consumes none); the run stays honestly `parked`, performs no
+  effect and heals when a compatible worker attaches, and it is unreachable in
+  the shipped rung-(c) flow. **P3-B** — a non-agent completion may still journal
+  unvalidated `started_pins`/`end_pins` (the symmetric case to the `effects`
+  claim that P2-6 closed); harmless today because `apply_step_completed` only
+  reads `end_pins` for agent steps.
+
+Also carried forward honestly from the review, so it is not re-discovered as
+new: an undispatchable agent step parks the whole run even when an independent
+deterministic step is `Runnable`. That shape is **pre-existing** on `main`
+(`engine.rs:220-239` at `e0d65f1`), not a WP-3 regression. And v0's
+record-before-perform effect path is **at-most-once, not exactly-once** — this
+is a disclosure in `kernel/DESIGN.md` §1.9 rather than a fix, which is what
+`ops/NEXT.md` prescribed; closing it needs the mount as writer (gate 4).
+
+**Likely next package:** the **`flows check` preflight (covenant 2)** — gate
+1's remaining done-when clause, explicitly named as "the package after this
+one" in this tick's `ops/NEXT.md`, and now unblocked because the preflight must
+be able to refuse a rung-(c) flow and rung (c) is real. *Unless* the next
+tick's assess finds PR #7 awaiting review fixes, in which case the package is
+fixing it (no new work over unfinished work). Note for that assess: PR #6
+(`flows/relaycast-500-regression`) is open as a **DRAFT** and is not this
+loop's work — decide explicitly whether a draft PR counts as unfinished work
+before treating it as a blocker. Standing candidates for slack, in order:
+harden `workflows/drive.yaml`'s `pr` step (title, body evidence, the `cut -c`
+truncation) — four ticks of the same drift with a now-known root cause; then
+the two residual WP-3 findings above.
