@@ -44,15 +44,19 @@ workflows:
           # Deterministic steps do not inherit the launching shell's env, so the
           # target is read from a file the operator writes before the run:
           #   echo 8 > .review-target
-          set -u
+          set -eu
           if [ ! -f .review-target ]; then
             echo "FETCH_FAILED: .review-target missing — write the PR number to it first"; exit 1
           fi
           PR=$(tr -dc '0-9' < .review-target)
           [ -n "$PR" ] || { echo "FETCH_FAILED: .review-target holds no PR number"; exit 1; }
-          gh pr view "$PR" --json headRefName,title,url > /tmp/pr-$PR.json
-          gh pr diff "$PR" > /tmp/pr-$PR.diff
-          echo "target PR #$PR, $(wc -l < /tmp/pr-$PR.diff) diff lines"
+          metadata=/tmp/pr-$PR.json
+          diff=/tmp/pr-$PR.diff
+          gh pr view "$PR" --json headRefName,title,url > "$metadata"
+          gh pr diff "$PR" > "$diff"
+          [ -s "$metadata" ] || { echo "FETCH_FAILED: PR metadata is empty"; exit 1; }
+          [ -s "$diff" ] || { echo "FETCH_FAILED: PR diff is empty"; exit 1; }
+          echo "target PR #$PR, $(wc -l < "$diff") diff lines"
           echo FETCHED
 
       - name: lens-maintainability
@@ -146,16 +150,20 @@ workflows:
           PR=$(tr -dc '0-9' < .review-target 2>/dev/null)
           fail=0
           for lens in maintainability history structure; do
-            f=$(ls -t ops/reviews/*-pr${PR}-${lens}.md 2>/dev/null | head -1)
+            f=$(ls -1 ops/reviews/*-pr${PR}-${lens}.md 2>/dev/null | sort | tail -1)
             if [ -z "$f" ]; then
               echo "SWARM_FAILED: $lens produced no transcript"; fail=1; continue
+            fi
+            if [ ! -s "$f" ]; then
+              echo "SWARM_FAILED: $lens transcript is empty ($f)"; fail=1; continue
             fi
             if ! git cat-file -e "HEAD:$f" 2>/dev/null; then
               echo "SWARM_FAILED: $lens transcript is not committed ($f)"; fail=1; continue
             fi
-            if grep -q "REVIEW_FAILED" "$f"; then
+            verdict=$(tail -n 1 "$f" | tr -d '\r')
+            if [ "$verdict" = "REVIEW_FAILED" ]; then
               echo "SWARM_FAILED: $lens rejected — see $f"; fail=1
-            elif grep -q "REVIEW_PASSED" "$f"; then
+            elif [ "$verdict" = "REVIEW_PASSED" ]; then
               echo "ok: $lens passed ($f)"
             else
               echo "SWARM_FAILED: $lens transcript carries no verdict ($f)"; fail=1

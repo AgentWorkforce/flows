@@ -1143,3 +1143,148 @@ by reading PR #8's live state first:
    wait behind gate 1.
 
 TICK_LOGGED
+
+## 2026-08-27 18:34 EDT — WP-5: clear PR #8's review-swarm rejection
+
+**Work package:** `ops/NEXT.md` WP-5. No new gate work. PR #8 remained the
+only unfinished work, and gate 1 remained AMBER.
+
+### Why this tick exists, including the evidence-loss failure
+
+The first `workflows/review-swarm.yaml` run at 17:45 returned
+**SWARM_FAILED**: structure passed; history and maintainability rejected. Its
+cited `20260827-1745-pr8-*.md` transcripts were not in any branch or commit.
+The reflog showed two later `reset: moving to origin/main` entries. Each lens
+had been told only to `git add` its transcript; the hard resets therefore
+destroyed the staged files. An uncommitted verdict was not durable evidence.
+
+The workflow now serializes its shared Git-index writes, tells every lens to
+commit only its own transcript, confirms it with `git cat-file`, and makes the
+aggregate refuse an absent, empty, uncommitted, or verdict-less artifact. The
+first repaired run (`d37bd96c940ab855762a6e86`) demonstrated the durability
+fix: three transcript-only commits survived the run:
+
+```text
+808debd review(pr8): maintainability transcript
+fc3e422 review(pr8): history transcript
+6d6c817 review(pr8): structure transcript
+```
+
+That run honestly returned **SWARM_FAILED** (maintainability/history failed,
+structure passed). It surfaced two product-contract gaps and a provenance gap;
+no passing claim was made:
+
+- `FlowSpec.name` still claimed `string` after validation accepted an absent
+  name. `FlowSpec.name` and `KernelRunSpec.name` are now both optional;
+  `compileSpec` and `toKernelSpec` omit the absent key, and a test pins it.
+- The path-resolution paragraph said every relative CLI path was flow-relative,
+  while a project default is correctly relative to its declaring `flows.json`.
+  The wording is corrected and a nested-flow test distinguishes the bases.
+- The WP-5 assess commit had lived only on the tick branch. `ops/NEXT.md` now
+  carries the WP-5 package in PR #8's durable tree.
+
+The workflow's aggregate also had the legacy runner's implicit retry count,
+which attempted to turn a rejecting review into an agent repair. The run was
+stopped before mutation; `aggregate.maxIterations` is now 1.
+
+### Independent-gate discipline and review round two
+
+The first repaired run used the branch workflow and therefore could not clear
+the repository's “never edit a gate that judges your own work” rail. All
+subsequent verdict runs use the immutable workflow blob already owned by
+`main`, not PR #8's changed gate. Before round two, the launch verified:
+
+```text
+immutable gate blob 446d937a218751b11fdb40256f419a8e8cd4f7c9
+```
+
+That is exactly `main:workflows/review-swarm.yaml`; it was executed from
+`/tmp/review-swarm-main.yaml` through `scripts/run-workflow.sh`, while the
+reviewed worktree remained PR #8. Cloud-observable run
+`3434ff17dd26687053d3eb55` returned **SWARM_FAILED**: structure passed;
+history and maintainability rejected. Its three transcripts were committed
+individually as `037d7a1`, `6228b4f`, and `db3160e`.
+
+Round two found three aggregate defects, all repaired in the branch workflow:
+
+- fetch used `set -u`, so failed `gh` calls could leave empty files and still
+  print `FETCHED`; it now uses `set -eu` and requires non-empty metadata/diff;
+- whole-transcript token matching could turn a passing review that discussed a
+  prior rejection into a false failure; only the final verdict line now counts;
+- `ls -t` chose by mtimes Git does not preserve; filename timestamps are now
+  selected deterministically with `sort | tail -1`.
+
+The independent gate remains the only source accepted for the next verdict.
+The branch workflow is implementation under review, not its own judge.
+
+### Original F1–F5 repairs
+
+- **F1:** `validateSpec` accepts only schema `0.1.0`, accepts an absent optional
+  name, and refuses `9.9.9` before preflight.
+- **F2:** the four-rung anonymous resolution law is restored; the platform
+  default is declared but honestly marked unimplemented at gate 1.
+- **F3:** gate 6 again records the harness design-partner priority; the backlog
+  no longer demotes it and retains only the deterministic-command P1.
+- **F4:** the truncated `823e35a` subject remains untouched. `73bdb59` is the
+  landed generator guard; no rebase, squash, force-push, or rewrite occurred.
+- **F5:** `kernelToAuthoring` is exported beside `toKernelSpec`; all three
+  ladder flows pin the normalized authoring → kernel → authoring round trip.
+
+### Verification on the repaired tree
+
+`(cd kernel && ../ops/cargo.sh test --workspace)` — exit 0, **72 passed,
+0 failed** (18 + 19 + 26 + 3 + 6; doc-tests 0 ×3). Verbatim tail:
+
+```text
+   Doc-tests relayflowd_journal
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+`(cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)` — exit 0.
+Verbatim tail:
+
+```text
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+```
+
+`(cd kernel && ../ops/cargo.sh fmt --check)` — exit 0, empty output.
+
+`(cd sdk && npm run build)` — exit 0. Verbatim output:
+
+```text
+npm notice run @relayflows/sdk@0.1.0 build
+npm notice run tsc
+```
+
+`(cd sdk && npm test)` — exit 0, **106 passed, 0 failed**, 7 files.
+Verbatim tail:
+
+```text
+ Test Files  7 passed (7)
+      Tests  106 passed (106)
+   Start at  18:33:08
+   Duration  769ms (transform 257ms, setup 0ms, collect 779ms, tests 587ms, environment 1ms, prepare 328ms)
+```
+
+Real-CLI version refusal, verbatim:
+
+```text
+$ node sdk/dist/cli.js check /tmp/bad-version.flow.yaml
+REFUSED [invalid_spec] spec.version: unsupported version "9.9.9" (expected "0.1.0")
+exit=2
+```
+
+The seven existing behavioral cases were rerun on this tree: all three ladder
+flows printed `CHECK PASSED` and exited 0; `cli_missing`,
+`cli_unauthenticated`, `cli_unresolved`, and `no_executor` each printed its
+typed refusal and exited 2.
+
+### Honest gate state
+
+Gate 1 is still **AMBER**. Clause 1 is closed on `main`; clause 2 remains only
+on open PR #8. A human must merge #8 and re-run verification on merged `main`
+before the gate can move. This worker does not merge and has not claimed a
+passing swarm verdict while any lens rejects.
