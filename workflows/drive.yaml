@@ -42,7 +42,9 @@ workflows:
         dependsOn: [sync]
         task: |
           You are the Relayflow Lead (charter/LEAD.md). Assess the repo:
-          read docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,
+          FIRST read ops/DIRECTIVES.md — standing human directives outrank
+          the backlog; if one is unsatisfied, it IS the work package.
+          Then read docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,
           `git log --oneline -15`, `gh pr list --state open` and open PR review
           state, kernel/ and sdk/ test status. Then write ops/NEXT.md: the
           SINGLE highest-priority work package toward the current gate
