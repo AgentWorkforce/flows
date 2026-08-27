@@ -53,3 +53,12 @@ gate's needs. Not commitments; ordering is the Lead's call with evidence.
   cross-account 404 messaging, cron-succeeded-into-void) · relay#1620
   (`--daemon` $bunfs argv crash + `worker status` blind to cloud liveness).
   Executable acceptance: `regressions/` on main.
+- **Cloud sandbox runs die in `sync`: no git remote.** With the Relaycast 500
+  cleared, cloud launches now provision a sandbox and execute the flow, then
+  fail at `drive.yaml`'s first step: `fatal: 'origin' does not appear to be a
+  git repository` (runs 9fc8d996, ff35187a, 06505b94 — 2026-08-27). The flow
+  assumes a checkout with a remote, which holds locally and not in a fresh
+  sandbox. Fix is flows-side: materialize the repo into the sandbox (relayfile
+  github mount, as the personas do) or make `sync` clone when `origin` is
+  absent. This is the last known gap between local ticks and machine-
+  independent scheduled execution.
