@@ -1,6 +1,10 @@
 //! Gate-1 rung (a) crash injection against the real `relayflowd` binary.
 //! Every recovery path invokes the binary's `resume` subcommand.
 
+#[path = "crash_resume/agent.rs"]
+mod agent;
+#[path = "crash_resume/agent_support.rs"]
+mod agent_support;
 #[path = "crash_resume/concurrency.rs"]
 mod concurrency;
 #[path = "crash_resume/llm.rs"]

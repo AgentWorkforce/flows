@@ -25,6 +25,8 @@ pub enum EntryType {
     StreamAppended,
     #[serde(rename = "effect.recorded")]
     EffectRecorded,
+    #[serde(rename = "effect.confirmed")]
+    EffectConfirmed,
     #[serde(rename = "epoch.summary")]
     EpochSummary,
     #[serde(rename = "segment.closed")]
@@ -45,6 +47,7 @@ impl EntryType {
             Self::WaitCompleted => "wait.completed",
             Self::StreamAppended => "stream.appended",
             Self::EffectRecorded => "effect.recorded",
+            Self::EffectConfirmed => "effect.confirmed",
             Self::EpochSummary => "epoch.summary",
             Self::SegmentClosed => "segment.closed",
             Self::RunCompleted => "run.completed",
@@ -62,6 +65,7 @@ impl EntryType {
             "wait.completed" => Self::WaitCompleted,
             "stream.appended" => Self::StreamAppended,
             "effect.recorded" => Self::EffectRecorded,
+            "effect.confirmed" => Self::EffectConfirmed,
             "epoch.summary" => Self::EpochSummary,
             "segment.closed" => Self::SegmentClosed,
             "run.completed" => Self::RunCompleted,
@@ -182,6 +186,12 @@ pub struct StepCompletedPayload {
     pub end_pins: Option<Pins>,
     #[serde(default)]
     pub effects: Vec<EffectRef>,
+    /// Worker-supplied execution context for `inspect` recovery. This is
+    /// evidence from the failed attempt, not a command to replay it. The
+    /// protocol boundary that admits it (`step.complete`) caps its size; the
+    /// journal itself stores whatever was admitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trajectory_tail: Option<Value>,
     #[serde(default)]
     pub budget: Budget,
     pub completed_by: String,
@@ -282,6 +292,18 @@ pub struct StreamAppendedPayload {
     pub message: Value,
 }
 
+/// Appendix A rule 5. The record *elects* one attempt to perform the
+/// writeback; this entry says the elected attempt performed it. Until it
+/// exists the election is provisional, and a later attempt may reclaim it —
+/// otherwise a worker that died between electing and calling the provider
+/// would suppress an effect that never happened.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EffectConfirmedPayload {
+    pub surface_path: String,
+    pub idempotency_key: String,
+    pub agent_identity: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EffectRecordedPayload {
     pub surface_path: String,
@@ -289,6 +311,10 @@ pub struct EffectRecordedPayload {
     pub revision_before: String,
     pub revision_after: String,
     pub agent_identity: String,
+    /// True when a *confirmed* election already covers this
+    /// `(step_id, idempotency_key, surface_path)`: the writeback has provably
+    /// happened, so this attempt must not call the provider. An election that
+    /// was never confirmed does not dedupe — this attempt reclaims it.
     pub deduped: bool,
 }
 

@@ -48,6 +48,9 @@ export { validateSpec, type ValidationResult } from './validate.js';
 
 export type {
   CompletionReason,
+  EffectRecordParams,
+  EffectRecordResult,
+  EffectRef,
   EventEmitParams,
   EventEmitResult,
   HelloParams,
@@ -55,6 +58,7 @@ export type {
   JournalReadParams,
   JournalReadResult,
   ProtocolError,
+  Pins,
   Request,
   Response,
   RunGetParams,

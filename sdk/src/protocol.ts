@@ -48,6 +48,8 @@ export type Verb =
   | 'run.watch'
   | 'worker.attach'
   | 'step.heartbeat'
+  | 'effect.record'
+  | 'effect.confirm'
   | 'step.complete'
   | 'event.emit'
   | 'stream.append'
@@ -111,6 +113,13 @@ export interface RunWatchResult {
 export interface WorkerAttachParams {
   worker_id: string;
   step_types: StepType[];
+  /**
+   * The surfaces this worker holds, as opaque revisions/offsets. Required when
+   * `step_types` includes `agent` — an agent attempt's start pins come from
+   * here (Appendix A rule 2), so an agent worker with no pins is refused at
+   * attach rather than failing in the middle of a run.
+   */
+  pins?: Pins;
 }
 export interface WorkerAttachResult {
   worker_id: string;
@@ -124,9 +133,12 @@ export interface StepDispatchEvent {
   spec: unknown;
   lease_id: string;
   idempotency_key: string;
-  pins: {
-    workspace?: { surface: string; revision_id: string }[];
-    streams?: { stream: string; read_offset: number }[];
+  pins: Pins;
+  recovery?: {
+    mode: 'reset' | 'inspect' | 'manual';
+    restore_pins?: Pins;
+    previous_completion_reason?: CompletionReason;
+    trajectory_tail?: unknown;
   };
   lease_deadline_ms: number;
 }
@@ -153,6 +165,49 @@ export type CompletionReason =
   | 'budget_exceeded'
   | 'canceled';
 
+export interface Pins {
+  workspace?: { surface: string; revision_id: string }[];
+  streams?: { stream: string; read_offset: number }[];
+}
+
+export interface EffectRef {
+  surface_path: string;
+  idempotency_key: string;
+}
+
+export interface EffectRecordParams {
+  run_id: string;
+  step_id: string;
+  attempt: number;
+  idempotency_key: string;
+  surface_path: string;
+  revision_before: string;
+  revision_after: string;
+}
+export interface EffectRecordResult {
+  /**
+   * True only when a *confirmed* election already covers this
+   * `(step_id, idempotency_key, surface_path)`: the writeback provably
+   * happened, so this attempt must not call the provider. An election that was
+   * never confirmed does not dedupe — this attempt reclaims it and owes the
+   * call, which is what keeps an effect from being lost to a worker that died
+   * between recording and performing.
+   */
+  deduped: boolean;
+}
+
+/** Phase two: the elected attempt performed the writeback. */
+export interface EffectConfirmParams {
+  run_id: string;
+  step_id: string;
+  attempt: number;
+  idempotency_key: string;
+  surface_path: string;
+}
+export interface EffectConfirmResult {
+  confirmed: string;
+}
+
 export interface StepCompleteParams {
   run_id: string;
   step_id: string;
@@ -161,10 +216,11 @@ export interface StepCompleteParams {
   completionReason: CompletionReason;
   output?: unknown;
   usage?: { tokens_in: number; tokens_out: number; dollars: string };
-  end_pins?: {
-    workspace?: { surface: string; revision_id: string }[];
-    streams?: { stream: string; read_offset: number }[];
-  };
+  started_pins?: Pins;
+  end_pins?: Pins;
+  effects?: EffectRef[];
+  /** `inspect` evidence for the next attempt. Rejected over 16 KiB of JSON. */
+  trajectory_tail?: unknown;
 }
 export type StepCompleteResult = RunOutcome;
 
@@ -215,6 +271,8 @@ export interface VerbContract {
   'run.watch': { params: RunWatchParams; result: RunWatchResult };
   'worker.attach': { params: WorkerAttachParams; result: WorkerAttachResult };
   'step.heartbeat': { params: StepHeartbeatParams; result: StepHeartbeatResult };
+  'effect.record': { params: EffectRecordParams; result: EffectRecordResult };
+  'effect.confirm': { params: EffectConfirmParams; result: EffectConfirmResult };
   'step.complete': { params: StepCompleteParams; result: StepCompleteResult };
   'event.emit': { params: EventEmitParams; result: EventEmitResult };
   'stream.append': { params: StreamAppendParams; result: StreamAppendResult };

@@ -1,0 +1,38 @@
+# Gate-1 ladder rung (c): deterministic + agent + deterministic.
+version: '0.1.0'
+name: hello-agent
+description: A harnessed agent with pinned state, recovery, and deduped effects.
+steps:
+  - id: greet
+    type: deterministic
+    command: "printf hello"
+    verification:
+      type: output_contains
+      value: hello
+  - id: edit
+    type: agent
+    dependsOn: [greet]
+    instruction: "Produce the hello artifact through the deterministic test stub."
+    recoveryMode: reset
+    maxIterations: 2
+    surfaces:
+      workspace:
+        - surface: repo
+      streams:
+        - stream: agent-notes
+      external:
+        - /provider/item
+    permissions:
+      fileGlobs: ["artifacts/**"]
+      accessPreset: readwrite
+    verification:
+      type: output_contains
+      value: agent-ok
+  - id: finish
+    type: deterministic
+    dependsOn: [edit]
+    command: "printf done"
+budget:
+  maxTokensIn: 64
+  maxTokensOut: 32
+  maxDollars: "0.02"

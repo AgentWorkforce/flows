@@ -13,6 +13,8 @@ use tempfile::tempdir;
 use super::*;
 use crate::worker::LeaseProbe;
 
+mod agent;
+
 fn shared_writer() -> (SharedWriter, UnixStream) {
     let (writer, peer) = UnixStream::pair().unwrap();
     (Arc::new(Mutex::new(writer)), peer)

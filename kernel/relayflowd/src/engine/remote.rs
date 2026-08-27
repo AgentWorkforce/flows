@@ -1,13 +1,17 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use relayflowd_core::{
     AttemptResult, Budget, Clock, CompletionReason, EffectRef, EntryType, JournalEntry, Pins,
-    StepState, StreamAppendedPayload, WaitCompletedPayload, WaitCompletionReason, WaitEventPayload,
-    abandonment_actions, completion_actions,
+    StepKind, StepState, StreamAppendedPayload, WaitCompletedPayload, WaitCompletionReason,
+    WaitEventPayload, abandonment_actions, completion_actions,
 };
 use relayflowd_journal::SqliteJournal;
 use serde_json::Value;
 
-use super::{DriveOptions, Engine, RunOutcome, ensure_supported};
+use super::{
+    DriveOptions, Engine, RunOutcome,
+    effects::{recorded_effects, reject_unconfirmed_elections, unconfirmed_elections},
+    validate_agent_pins,
+};
 use crate::clock::WallClock;
 use crate::worker::LeaseProbe;
 
@@ -19,8 +23,10 @@ pub struct OutOfBandCompletion {
     pub output: Value,
     pub budget: Budget,
     pub completed_by: String,
+    pub started_pins: Option<Pins>,
     pub end_pins: Option<Pins>,
     pub effects: Vec<EffectRef>,
+    pub trajectory_tail: Option<Value>,
 }
 
 impl Engine<WallClock> {
@@ -34,7 +40,6 @@ impl Engine<WallClock> {
     ) -> Result<RunOutcome> {
         let mut journal = self.open_run(run_id)?;
         let spec = journal.run_spec().context("read run spec")?;
-        ensure_supported(&spec)?;
         let state = self.load_state(&journal, spec.clone())?;
         let step = spec
             .step(step_id)
@@ -52,15 +57,47 @@ impl Engine<WallClock> {
         if attempt != completion.attempt || idempotency_key != &completion.idempotency_key {
             bail!("step {step_id} completion does not match its active lease")
         }
-        let failure_reason = (completion.completion_reason != CompletionReason::Success)
+        let mut failure_reason = (completion.completion_reason != CompletionReason::Success)
             .then_some(completion.completion_reason);
+        // A rejected completion names the mistake in the journal. `output` is
+        // nulled for every non-success, so the detail rides the completion's
+        // verification record — the same channel a failed gate uses.
+        let mut failure_detail = None;
+        let mut reject = |error: anyhow::Error| {
+            failure_reason = Some(CompletionReason::WorkerError);
+            failure_detail = Some(format!("{error:#}"));
+        };
+        let effects = if matches!(step.kind, StepKind::Agent { .. }) {
+            let recorded = recorded_effects(&journal, &step, completion.attempt)?;
+            let unconfirmed = unconfirmed_elections(&journal, &step, completion.attempt)?;
+            if let Err(error) =
+                validate_agent_completion(&step, runtime, &completion, &recorded, &unconfirmed)
+            {
+                reject(error);
+            }
+            recorded
+        } else if completion.effects.is_empty() {
+            Vec::new()
+        } else {
+            // Only an agent step declares external surfaces (Appendix A rule 1)
+            // and only `effect.record` journals the fact behind an effect
+            // (rule 3). An effect claimed by any other step type is undeclared
+            // and unbacked, so the completion fails closed rather than
+            // journaling a writeback nothing witnessed.
+            reject(anyhow!(
+                "step {step_id} is not an agent step and cannot claim effects"
+            ));
+            Vec::new()
+        };
         let result = AttemptResult {
             output: completion.output,
             budget: completion.budget,
             completed_by: completion.completed_by,
             end_pins: completion.end_pins,
-            effects: completion.effects,
+            effects,
+            trajectory_tail: completion.trajectory_tail,
             failure_reason,
+            failure_detail,
         };
         for action in completion_actions(
             run_id,
@@ -105,7 +142,6 @@ impl Engine<WallClock> {
         }
         let mut journal = self.open_run(run_id)?;
         let spec = journal.run_spec().context("read run spec")?;
-        ensure_supported(&spec)?;
         let state = self.load_state(&journal, spec.clone())?;
         let actions = abandonment_actions(&state, step_id, attempt, reason, self.clock.now_ms());
         if actions.is_empty() {
@@ -223,6 +259,56 @@ impl Engine<WallClock> {
         }
         Ok(open.len())
     }
+}
+
+fn validate_agent_completion(
+    step: &relayflowd_core::StepSpec,
+    runtime: &relayflowd_core::StepRuntime,
+    completion: &OutOfBandCompletion,
+    recorded_effects: &[EffectRef],
+    unconfirmed: &[String],
+) -> Result<()> {
+    reject_unconfirmed_elections(completion, unconfirmed)?;
+    let expected_start = runtime
+        .last_start_pins
+        .as_ref()
+        .context("agent attempt has no journaled start pins")?;
+    let reported_start = completion
+        .started_pins
+        .as_ref()
+        .context("agent completion omitted started_pins")?;
+    if reported_start != expected_start {
+        bail!("agent reported starting from pins other than its journaled pin")
+    }
+    if let Some(end_pins) = &completion.end_pins {
+        validate_agent_pins(step, end_pins)?;
+    } else if completion.completion_reason == CompletionReason::Success {
+        bail!("successful agent completion omitted end_pins")
+    }
+
+    let recorded = recorded_effects
+        .iter()
+        .map(|effect| {
+            (
+                effect.surface_path.as_str(),
+                effect.idempotency_key.as_str(),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let carried = completion
+        .effects
+        .iter()
+        .map(|effect| {
+            (
+                effect.surface_path.as_str(),
+                effect.idempotency_key.as_str(),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    if carried != recorded {
+        bail!("agent completion effects do not match its journaled effect facts")
+    }
+    Ok(())
 }
 
 fn next_stream_offset(journal: &SqliteJournal, stream: &str) -> Result<u64> {

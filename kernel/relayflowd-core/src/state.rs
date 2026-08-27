@@ -5,12 +5,16 @@ use thiserror::Error;
 
 use crate::{
     entry::{
-        Budget, CompletionReason, Disposition, EntryType, EpochSummaryPayload, JournalEntry,
+        Budget, CompletionReason, Disposition, EntryType, EpochSummaryPayload, JournalEntry, Pins,
         RunCompletedPayload, RunCompletionReason, SleepUntilPayload, StepCompletedPayload,
         WaitCompletedPayload, WaitCompletionReason,
     },
-    spec::RunSpec,
+    spec::{RunSpec, StepKind, StepType},
 };
+
+mod budget;
+mod pins;
+use budget::add_budget;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StepState {
@@ -47,6 +51,12 @@ pub struct StepRuntime {
     /// result, so they do not count; `max_iterations` bounds this counter,
     /// never the raw attempt number.
     pub semantic_executions: u32,
+    /// Agent recovery facts retained across the retry backoff. They are
+    /// reconstructed solely from journal entries on every resume.
+    pub last_start_pins: Option<Pins>,
+    pub last_end_pins: Option<Pins>,
+    pub last_completion_reason: Option<CompletionReason>,
+    pub trajectory_tail: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +67,8 @@ pub struct RunState {
     pub memo: BTreeMap<String, Value>,
     pub budget: Budget,
     pub completion: Option<RunCompletionReason>,
+    /// Appendix A rule 6 chain head: the last successful agent completion.
+    pub current_pins: Option<Pins>,
 }
 
 impl RunState {
@@ -79,6 +91,10 @@ impl RunState {
                             state: StepState::Pending,
                             attempts: 0,
                             semantic_executions: 0,
+                            last_start_pins: None,
+                            last_end_pins: None,
+                            last_completion_reason: None,
+                            trajectory_tail: None,
                         },
                     )
                 })
@@ -87,6 +103,7 @@ impl RunState {
             memo: BTreeMap::new(),
             budget: Budget::default(),
             completion: None,
+            current_pins: None,
         };
 
         for entry in entries {
@@ -97,6 +114,7 @@ impl RunState {
                 EntryType::EpochSummary => state.apply_epoch(entry)?,
                 EntryType::StepAttemptStarted => {
                     let payload: crate::entry::AttemptStartedPayload = decode(entry)?;
+                    state.validate_start_pins(entry, &payload)?;
                     let step = state.step_mut(entry)?;
                     let attempt = entry.attempt.ok_or(StateError::MissingAttempt(entry.seq))?;
                     step.attempts = step.attempts.max(attempt);
@@ -105,6 +123,9 @@ impl RunState {
                         lease_deadline_ms: payload.lease_deadline_ms,
                         idempotency_key: payload.idempotency_key,
                     };
+                    if payload.step_type == StepType::Agent {
+                        step.last_start_pins = Some(payload.pins);
+                    }
                 }
                 EntryType::StepCompleted => state.apply_step_completed(entry)?,
                 EntryType::SleepUntil => {
@@ -146,6 +167,7 @@ impl RunState {
                 EntryType::RunSpawned
                 | EntryType::StreamAppended
                 | EntryType::EffectRecorded
+                | EntryType::EffectConfirmed
                 | EntryType::SegmentClosed => {}
             }
         }
@@ -207,12 +229,28 @@ impl RunState {
             .step_id
             .clone()
             .ok_or(StateError::MissingStep(entry.seq))?;
+        let is_agent = matches!(
+            self.spec.step(&step_id).map(|step| &step.kind),
+            Some(StepKind::Agent { .. })
+        );
+        if is_agent
+            && payload.disposition == Disposition::StepDone
+            && payload.completion_reason == CompletionReason::Success
+            && payload.end_pins.is_none()
+        {
+            return Err(StateError::MissingEndPins(step_id));
+        }
         let step = self
             .steps
             .get_mut(&step_id)
             .ok_or_else(|| StateError::UnknownStep(step_id.clone()))?;
         let attempt = entry.attempt.ok_or(StateError::MissingAttempt(entry.seq))?;
         step.attempts = step.attempts.max(attempt);
+        if is_agent {
+            step.last_end_pins = payload.end_pins.clone();
+            step.last_completion_reason = Some(payload.completion_reason);
+            step.trajectory_tail = payload.trajectory_tail.clone();
+        }
         if !matches!(
             payload.completion_reason,
             CompletionReason::Crashed | CompletionReason::LeaseExpired
@@ -237,6 +275,10 @@ impl RunState {
         if payload.disposition == Disposition::StepDone
             && payload.completion_reason == CompletionReason::Success
         {
+            if is_agent {
+                self.current_pins =
+                    pins::chain_forward(self.current_pins.take(), payload.end_pins.clone());
+            }
             self.memo.insert(step_id, payload.output);
         }
         Ok(())
@@ -251,8 +293,17 @@ impl RunState {
                 state: StepState::Pending,
                 attempts: 0,
                 semantic_executions: 0,
+                last_start_pins: None,
+                last_end_pins: None,
+                last_completion_reason: None,
+                trajectory_tail: None,
             };
         }
+        // No epoch writer populates `pinned_revisions` yet, and a workspace-only
+        // reconstruction would silently drop stream pins and break the very chain
+        // `validate_start_pins` enforces. Until epochs carry full pins, an epoch
+        // resets the chain head rather than half-restoring it.
+        self.current_pins = None;
         for (id, done) in payload.steps_done {
             let step = self
                 .steps
@@ -334,46 +385,6 @@ fn decode<T: serde::de::DeserializeOwned>(entry: &JournalEntry) -> Result<T, Sta
     })
 }
 
-fn add_budget(total: &mut Budget, value: &Budget) -> Result<(), StateError> {
-    total.tokens_in = total.tokens_in.saturating_add(value.tokens_in);
-    total.tokens_out = total.tokens_out.saturating_add(value.tokens_out);
-    total.dollars = add_decimal_strings(&total.dollars, &value.dollars)?;
-    Ok(())
-}
-
-fn add_decimal_strings(left: &str, right: &str) -> Result<String, StateError> {
-    fn parts(value: &str) -> Result<(u128, usize), StateError> {
-        let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
-        if whole.is_empty()
-            || !whole.bytes().all(|byte| byte.is_ascii_digit())
-            || !fraction.bytes().all(|byte| byte.is_ascii_digit())
-        {
-            return Err(StateError::InvalidDollars(value.to_owned()));
-        }
-        let digits = format!("{whole}{fraction}")
-            .parse::<u128>()
-            .map_err(|_| StateError::InvalidDollars(value.to_owned()))?;
-        Ok((digits, fraction.len()))
-    }
-    let (left_value, left_scale) = parts(left)?;
-    let (right_value, right_scale) = parts(right)?;
-    let scale = left_scale.max(right_scale);
-    let scaled_left =
-        left_value.saturating_mul(10_u128.saturating_pow((scale - left_scale) as u32));
-    let scaled_right =
-        right_value.saturating_mul(10_u128.saturating_pow((scale - right_scale) as u32));
-    let sum = scaled_left.saturating_add(scaled_right);
-    if scale == 0 {
-        return Ok(sum.to_string());
-    }
-    let divisor = 10_u128.saturating_pow(scale as u32);
-    let fraction = format!("{:0scale$}", sum % divisor, scale = scale);
-    Ok(format!("{}.{fraction}", sum / divisor)
-        .trim_end_matches('0')
-        .trim_end_matches('.')
-        .to_owned())
-}
-
 #[derive(Debug, Error)]
 pub enum StateError {
     #[error(transparent)]
@@ -386,6 +397,17 @@ pub enum StateError {
     MissingAttempt(i64),
     #[error("journal references unknown step {0}")]
     UnknownStep(String),
+    #[error("agent step {0} completed successfully without end pins")]
+    MissingEndPins(String),
+    #[error(
+        "agent step {step} broke its pin chain from {chain_source}: expected {expected:?}, got {actual:?}"
+    )]
+    BrokenPinChain {
+        step: String,
+        chain_source: String,
+        expected: Box<Pins>,
+        actual: Box<Pins>,
+    },
     #[error("invalid payload at journal sequence {seq}: {source}")]
     Payload {
         seq: i64,

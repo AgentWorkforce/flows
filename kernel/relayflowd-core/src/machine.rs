@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use ulid::Ulid;
@@ -6,10 +7,10 @@ use crate::{
     entry::{
         AttemptStartedPayload, Budget, CompletionReason, Disposition, EffectRef, EntryType,
         JournalEntry, Pins, RunCompletedPayload, RunCompletionReason, SleepUntilPayload,
-        StepCompletedPayload, WaitCompletedPayload, WaitCompletionReason, WaitHumanPayload,
+        StepCompletedPayload, WaitCompletedPayload, WaitCompletionReason,
     },
     retry::backoff_delay_ms,
-    spec::{RecoveryMode, StepKind, StepSpec, StepType},
+    spec::{AgentSurfaces, RecoveryMode, StepKind, StepSpec, StepType},
     state::{RunState, StepState},
     verify::verify,
 };
@@ -31,6 +32,7 @@ pub enum Action {
         idempotency_key: String,
         lease_deadline_ms: i64,
         pins: Pins,
+        recovery: Option<RecoveryInstruction>,
     },
     ArmTimer {
         at_ms: i64,
@@ -47,8 +49,13 @@ pub struct AttemptResult {
     pub completed_by: String,
     pub end_pins: Option<Pins>,
     pub effects: Vec<EffectRef>,
+    pub trajectory_tail: Option<Value>,
     /// Execution failures bypass verification but still follow retry policy.
     pub failure_reason: Option<CompletionReason>,
+    /// Why the attempt was rejected, in the vocabulary of whoever rejected it.
+    /// A failed completion journals a null `output` — this is the only place a
+    /// rejection can name its own cause, so a dropped detail is a lost error.
+    pub failure_detail: Option<String>,
 }
 
 impl AttemptResult {
@@ -59,9 +66,21 @@ impl AttemptResult {
             completed_by: completed_by.into(),
             end_pins: None,
             effects: Vec::new(),
+            trajectory_tail: None,
             failure_reason: None,
+            failure_detail: None,
         }
     }
+}
+
+/// Agent-only retry context carried to the worker. It is derived entirely
+/// from journaled attempt facts, so a resume produces the same instruction.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RecoveryInstruction {
+    pub mode: RecoveryMode,
+    pub restore_pins: Option<Pins>,
+    pub previous_completion_reason: Option<CompletionReason>,
+    pub trajectory_tail: Option<Value>,
 }
 
 pub fn next_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
@@ -115,16 +134,87 @@ pub fn next_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
     timers
 }
 
+/// Appendix A rule 6 chains pins **per surface**: a surface this step declares
+/// that the run has already pinned carries that revision forward. Surfaces the
+/// chain has never produced are deliberately left out — the dispatcher sources
+/// those from the worker at start (rule 2). Consecutive agent steps therefore
+/// need not declare the same surface set.
+/// The per-surface chain carry for a step, for hosts that must resolve the
+/// worker-sourced gaps before the start entry is journaled. Non-agent steps
+/// carry no pins.
+pub fn carried_pins_for(chain: Option<&Pins>, step: &StepSpec) -> Pins {
+    match &step.kind {
+        StepKind::Agent { surfaces, .. } => carried_pins(chain, surfaces),
+        _ => Pins::default(),
+    }
+}
+
+pub(crate) fn carried_pins(chain: Option<&Pins>, surfaces: &AgentSurfaces) -> Pins {
+    let Some(chain) = chain else {
+        return Pins::default();
+    };
+    Pins {
+        workspace: surfaces
+            .workspace
+            .iter()
+            .filter_map(|declared| {
+                chain
+                    .workspace
+                    .iter()
+                    .find(|pin| pin.surface == declared.surface)
+                    .cloned()
+            })
+            .collect(),
+        streams: surfaces
+            .streams
+            .iter()
+            .filter_map(|declared| {
+                chain
+                    .streams
+                    .iter()
+                    .find(|pin| pin.stream == declared.stream)
+                    .cloned()
+            })
+            .collect(),
+    }
+}
+
 fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -> Vec<Action> {
     let key = idempotency_key(&state.run_id, &step.id);
     let recovery_mode = match &step.kind {
         StepKind::Agent { recovery_mode, .. } => Some(*recovery_mode),
         _ => None,
     };
-    // Pins are runtime facts (Appendix A rule 2): the revision/offset of each
-    // declared surface at attempt start. Gate-1 deterministic steps are pure
-    // (no pins), and no agent worker is attached yet to observe revisions.
-    let pins = Pins::default();
+    let runtime = &state.steps[&step.id];
+    let (pins, recovery) = match &step.kind {
+        StepKind::Agent {
+            recovery_mode,
+            surfaces,
+            ..
+        } => {
+            let retry_pins = match recovery_mode {
+                RecoveryMode::Inspect => runtime
+                    .last_end_pins
+                    .as_ref()
+                    .or(runtime.last_start_pins.as_ref()),
+                RecoveryMode::Reset | RecoveryMode::Manual => runtime.last_start_pins.as_ref(),
+            };
+            let pins = match retry_pins {
+                Some(pins) => pins.clone(),
+                None => carried_pins(state.current_pins.as_ref(), surfaces),
+            };
+            let recovery = RecoveryInstruction {
+                mode: *recovery_mode,
+                restore_pins: (runtime.last_completion_reason.is_some()
+                    && *recovery_mode == RecoveryMode::Reset)
+                    .then(|| pins.clone()),
+                previous_completion_reason: runtime.last_completion_reason,
+                trajectory_tail: runtime.trajectory_tail.clone(),
+            };
+            (pins, Some(recovery))
+        }
+        _ => (Pins::default(), None),
+    };
     let executor = if step.step_type() == StepType::Deterministic {
         "kernel"
     } else {
@@ -162,6 +252,7 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
             idempotency_key: key,
             lease_deadline_ms,
             pins,
+            recovery,
         },
     };
     vec![Action::Append(started), execute]
@@ -180,10 +271,20 @@ pub fn completion_actions(
     result: AttemptResult,
     now_ms: i64,
 ) -> Vec<Action> {
-    let verification = result
-        .failure_reason
-        .is_none()
-        .then(|| verify(step, &result.output));
+    // A rejected attempt records why it was rejected. `output` is nulled for
+    // every non-success, so without this the reason exists only in the
+    // taxonomy label and the diagnostic is gone.
+    let verification = match &result.failure_reason {
+        None => Some(verify(step, &result.output)),
+        Some(_) => result
+            .failure_detail
+            .as_ref()
+            .map(|detail| crate::entry::VerificationRecord {
+                gate: "execution".to_owned(),
+                verdict: crate::entry::VerificationVerdict::Fail,
+                detail: detail.clone(),
+            }),
+    };
     let verified = verification
         .as_ref()
         .is_some_and(|record| record.verdict == crate::entry::VerificationVerdict::Pass);
@@ -230,6 +331,7 @@ pub fn completion_actions(
             verification,
             end_pins: result.end_pins,
             effects: result.effects,
+            trajectory_tail: result.trajectory_tail,
             budget: result.budget,
             completed_by: result.completed_by,
             next_attempt_at_ms,
@@ -250,136 +352,6 @@ pub fn completion_actions(
             },
         )));
         actions.push(Action::ArmTimer { at_ms: wake_at_ms });
-    }
-    actions
-}
-
-pub fn recovery_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
-    recovery_actions_filtered(state, now_ms, &|_, _| false)
-}
-
-/// Recovery for a live server: `lease_is_active(step_id, attempt)` reports an
-/// attempt whose worker still holds a valid, heartbeating lease. Those attempts
-/// are left running; only genuinely dead attempts (worker detached, or lease
-/// deadline passed) are abandoned.
-pub fn recovery_actions_filtered(
-    state: &RunState,
-    now_ms: i64,
-    lease_is_active: &dyn Fn(&str, u32) -> bool,
-) -> Vec<Action> {
-    let mut actions = Vec::new();
-    for spec in &state.spec.steps {
-        let runtime = &state.steps[&spec.id];
-        let StepState::Running {
-            attempt,
-            lease_deadline_ms,
-            ..
-        } = runtime.state
-        else {
-            continue;
-        };
-        if lease_is_active(&spec.id, attempt) {
-            continue;
-        }
-        let reason = if now_ms >= lease_deadline_ms {
-            CompletionReason::LeaseExpired
-        } else {
-            CompletionReason::Crashed
-        };
-        actions.extend(abandonment_actions(
-            state, &spec.id, attempt, reason, now_ms,
-        ));
-    }
-    actions
-}
-
-/// Record one dead leased attempt without charging a semantic iteration.
-/// Used both by journal recovery and by a live protocol session noticing its
-/// attached worker has disappeared.
-pub fn abandonment_actions(
-    state: &RunState,
-    step_id: &str,
-    attempt: u32,
-    reason: CompletionReason,
-    now_ms: i64,
-) -> Vec<Action> {
-    let Some(spec) = state.spec.step(step_id) else {
-        return Vec::new();
-    };
-    let Some(runtime) = state.steps.get(step_id) else {
-        return Vec::new();
-    };
-    if !matches!(runtime.state, StepState::Running { attempt: active, .. } if active == attempt) {
-        return Vec::new();
-    }
-    let manual = matches!(
-        spec.kind,
-        StepKind::Agent {
-            recovery_mode: RecoveryMode::Manual,
-            ..
-        }
-    );
-    let may_retry = runtime.semantic_executions < spec.max_iterations;
-    let next_attempt_at_ms = (may_retry && !manual).then(|| {
-        now_ms.saturating_add(backoff_delay_ms(
-            &spec.retry,
-            &idempotency_key(&state.run_id, step_id),
-            attempt,
-        ) as i64)
-    });
-    let mut actions = vec![Action::Append(JournalEntry::new(
-        EntryType::StepCompleted,
-        state.run_id.clone(),
-        Some(step_id.to_owned()),
-        Some(attempt),
-        now_ms,
-        StepCompletedPayload {
-            completion_reason: reason,
-            disposition: if manual {
-                Disposition::Park
-            } else if may_retry {
-                Disposition::Retry
-            } else {
-                Disposition::StepDone
-            },
-            output: Value::Null,
-            verification: None,
-            end_pins: None,
-            effects: vec![],
-            budget: Budget::default(),
-            completed_by: "kernel".to_owned(),
-            next_attempt_at_ms,
-        },
-    ))];
-    if manual {
-        actions.push(Action::Append(JournalEntry::new(
-            EntryType::WaitHuman,
-            state.run_id.clone(),
-            Some(step_id.to_owned()),
-            Some(attempt),
-            now_ms,
-            WaitHumanPayload {
-                wait_id: deterministic_ulid(&state.run_id, step_id, attempt, now_ms, "manual"),
-                prompt: "An agent attempt crashed with a dirty workspace".to_owned(),
-                requested_of: "run-owner".to_owned(),
-                options: Some(vec!["retry".to_owned(), "cancel".to_owned()]),
-                timeout_at_ms: None,
-                diff_ref: Some("pinned-revision..current".to_owned()),
-            },
-        )));
-    } else if let Some(wake_at_ms) = next_attempt_at_ms {
-        actions.push(Action::Append(JournalEntry::new(
-            EntryType::SleepUntil,
-            state.run_id.clone(),
-            Some(step_id.to_owned()),
-            Some(attempt),
-            now_ms,
-            SleepUntilPayload {
-                wait_id: retry_wait_id(&state.run_id, step_id, attempt, wake_at_ms),
-                wake_at_ms,
-                reason: "retry_backoff".to_owned(),
-            },
-        )));
     }
     actions
 }
@@ -440,6 +412,9 @@ fn deterministic_ulid(
         .fold(0_u128, |value, byte| (value << 8) | u128::from(*byte));
     Ulid::from_parts(at_ms.max(0) as u64, random).to_string()
 }
+
+mod recovery;
+pub use recovery::{abandonment_actions, recovery_actions, recovery_actions_filtered};
 
 #[cfg(test)]
 mod tests;

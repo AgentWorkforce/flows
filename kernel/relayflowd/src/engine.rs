@@ -1,22 +1,22 @@
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
-    thread,
-    time::Duration,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
 use relayflowd_core::{
-    Action, Clock, EntryType, Journal, JournalEntry, RunCompletionReason, RunSpawnedPayload,
-    RunSpec, RunState, StepKind, completion_actions, next_actions, recovery_actions_filtered,
+    Clock, EntryType, Journal, JournalEntry, RunSpawnedPayload, RunSpec, RunState, StepKind,
+    recovery_actions_filtered,
 };
 use relayflowd_journal::{Registry, SqliteJournal};
 use sha2::{Digest, Sha256};
 use ulid::Ulid;
 
-use crate::worker::{JournalObserver, StepDispatch, StepDispatcher};
-use crate::{clock::WallClock, exec_det};
+use crate::clock::WallClock;
+use crate::worker::{JournalObserver, StepDispatcher};
 
+mod drive;
+mod effects;
 mod model;
 mod remote;
 pub use model::{RunOutcome, RunSnapshot, RunStatus};
@@ -98,7 +98,6 @@ impl<C: Clock> Engine<C> {
         options: DriveOptions,
     ) -> Result<RunOutcome> {
         spec.validate().context("invalid run spec")?;
-        ensure_supported(&spec)?;
         let run_id = Ulid::new().to_string();
         let path = self.run_path(&run_id);
         let now_ms = self.clock.now_ms();
@@ -161,7 +160,6 @@ impl<C: Clock> Engine<C> {
                 .context("repair missing run registry entry")?;
         }
         let spec = journal.run_spec().context("read run spec")?;
-        ensure_supported(&spec)?;
         let state = self.load_state(&journal, spec.clone())?;
         for action in recovery_actions_filtered(&state, self.clock.now_ms(), lease_is_active) {
             self.persist_only(&mut journal, action)?;
@@ -185,209 +183,6 @@ impl<C: Clock> Engine<C> {
         self.open_run(run_id)?
             .scan_from(from_seq, limit)
             .context("read journal entries")
-    }
-
-    fn drive(
-        &self,
-        mut journal: SqliteJournal,
-        spec: RunSpec,
-        options: DriveOptions,
-    ) -> Result<RunOutcome> {
-        let initial_completed = self.load_state(&journal, spec.clone())?.completed_steps();
-        let mut pause_consumed = false;
-        loop {
-            let state = self.load_state(&journal, spec.clone())?;
-            if let Some(reason) = state.completion {
-                return Ok(outcome_from_state(&state, reason));
-            }
-            if options.stop_after.is_some_and(|limit| {
-                state.completed_steps().saturating_sub(initial_completed) >= limit
-            }) {
-                self.registry()?
-                    .set_status(&state.run_id, "interrupted", None)?;
-                return Ok(RunOutcome {
-                    run_id: state.run_id.clone(),
-                    status: RunStatus::Interrupted,
-                    completion_reason: None,
-                    completed_steps: state.completed_steps(),
-                });
-            }
-            if !pause_consumed && should_pause(&state, &options) {
-                pause_consumed = true;
-                thread::sleep(Duration::from_secs(300));
-            }
-
-            if let Some(worker_class) = state.spec.steps.iter().find_map(|step| {
-                matches!(
-                    state.steps[&step.id].state,
-                    relayflowd_core::StepState::Runnable
-                )
-                .then_some(step.step_type())
-                .filter(|step_type| *step_type != relayflowd_core::StepType::Deterministic)
-            }) && !self
-                .dispatcher
-                .as_ref()
-                .is_some_and(|dispatcher| dispatcher.available(worker_class))
-            {
-                self.registry()?.set_status(&state.run_id, "parked", None)?;
-                return Ok(RunOutcome {
-                    run_id: state.run_id.clone(),
-                    status: RunStatus::Parked,
-                    completion_reason: None,
-                    completed_steps: state.completed_steps(),
-                });
-            }
-
-            let actions = next_actions(&state, self.clock.now_ms());
-            if actions.is_empty() {
-                // A live out-of-band attempt is still executing: the run keeps
-                // waiting for its worker; re-parking it would erase the lease.
-                let active_lease =
-                    state
-                        .spec
-                        .steps
-                        .iter()
-                        .find_map(|step| match state.steps[&step.id].state {
-                            relayflowd_core::StepState::Running {
-                                lease_deadline_ms, ..
-                            } if step.step_type() != relayflowd_core::StepType::Deterministic => {
-                                Some(lease_deadline_ms)
-                            }
-                            _ => None,
-                        });
-                match active_lease {
-                    Some(deadline_ms) => self.registry()?.set_status(
-                        &state.run_id,
-                        "waiting_worker",
-                        Some(deadline_ms),
-                    )?,
-                    None => self.registry()?.set_status(&state.run_id, "parked", None)?,
-                }
-                return Ok(RunOutcome {
-                    run_id: state.run_id.clone(),
-                    status: RunStatus::Parked,
-                    completion_reason: None,
-                    completed_steps: state.completed_steps(),
-                });
-            }
-            for action in actions {
-                match action {
-                    Action::Append(mut entry) => {
-                        self.assign_executor(&mut entry)?;
-                        self.append(&mut journal, &entry)?;
-                    }
-                    Action::ExecDeterministic { step, attempt } => {
-                        let result = exec_det::execute(&step);
-                        // Completed semantic executions before this attempt;
-                        // crashed attempts are excluded so they never consume
-                        // `max_iterations` allowance.
-                        let semantic_executions = state.steps[&step.id].semantic_executions;
-                        for action in completion_actions(
-                            journal.run_id(),
-                            &step,
-                            attempt,
-                            semantic_executions,
-                            result,
-                            self.clock.now_ms(),
-                        ) {
-                            self.interpret_non_execution(&mut journal, action)?;
-                        }
-                    }
-                    Action::Dispatch {
-                        step,
-                        attempt,
-                        worker_class,
-                        lease_id,
-                        idempotency_key,
-                        lease_deadline_ms,
-                        pins,
-                    } => {
-                        let assigned = self
-                            .dispatcher
-                            .as_ref()
-                            .map(|dispatcher| {
-                                dispatcher.dispatch(StepDispatch {
-                                    run_id: state.run_id.clone(),
-                                    step_id: step.id.clone(),
-                                    attempt,
-                                    step_type: worker_class,
-                                    spec: step,
-                                    lease_id,
-                                    idempotency_key,
-                                    pins,
-                                    lease_deadline_ms,
-                                })
-                            })
-                            .transpose()?
-                            .unwrap_or(false);
-                        self.registry()?.set_status(
-                            &state.run_id,
-                            if assigned { "waiting_worker" } else { "parked" },
-                            Some(lease_deadline_ms),
-                        )?;
-                        return Ok(RunOutcome {
-                            run_id: state.run_id.clone(),
-                            status: RunStatus::Parked,
-                            completion_reason: None,
-                            completed_steps: state.completed_steps(),
-                        });
-                    }
-                    Action::ArmTimer { at_ms } => {
-                        // `next_actions` exposes every durable timer. This
-                        // synchronous rung sleeps only until the earliest one,
-                        // then reloads state before choosing more work.
-                        self.wait_for_timer(&journal, at_ms)?;
-                        break;
-                    }
-                    Action::CompleteRun { reason } => {
-                        self.registry()?.set_status(
-                            journal.run_id(),
-                            if reason == RunCompletionReason::Success {
-                                "completed"
-                            } else {
-                                "failed"
-                            },
-                            None,
-                        )?;
-                        let final_state = self.load_state(&journal, spec.clone())?;
-                        return Ok(outcome_from_state(&final_state, reason));
-                    }
-                }
-            }
-        }
-    }
-
-    fn interpret_non_execution(&self, journal: &mut SqliteJournal, action: Action) -> Result<()> {
-        match action {
-            Action::Append(entry) => {
-                self.append(journal, &entry)?;
-            }
-            Action::ArmTimer { at_ms } => self.wait_for_timer(journal, at_ms)?,
-            _ => bail!("completion emitted an invalid execution action"),
-        }
-        Ok(())
-    }
-
-    fn persist_only(&self, journal: &mut SqliteJournal, action: Action) -> Result<()> {
-        match action {
-            Action::Append(entry) => {
-                self.append(journal, &entry)?;
-                Ok(())
-            }
-            _ => bail!("recovery emitted a non-journal action"),
-        }
-    }
-
-    fn wait_for_timer(&self, journal: &SqliteJournal, at_ms: i64) -> Result<()> {
-        self.registry()?
-            .set_status(journal.run_id(), "sleeping", Some(at_ms))?;
-        let remaining = at_ms.saturating_sub(self.clock.now_ms());
-        if remaining > 0 {
-            thread::sleep(Duration::from_millis(remaining as u64));
-        }
-        self.registry()?
-            .set_status(journal.run_id(), "running", None)?;
-        Ok(())
     }
 
     fn load_state(&self, journal: &SqliteJournal, spec: RunSpec) -> Result<RunState> {
@@ -426,6 +221,113 @@ impl<C: Clock> Engine<C> {
         Ok(())
     }
 
+    fn prepare_start_entry(&self, state: &RunState, entry: &mut JournalEntry) -> Result<()> {
+        if entry.entry_type != EntryType::StepAttemptStarted {
+            return Ok(());
+        }
+        let mut payload: relayflowd_core::AttemptStartedPayload =
+            serde_json::from_value(entry.payload.clone())?;
+        if payload.step_type != relayflowd_core::StepType::Agent {
+            return Ok(());
+        }
+        let step_id = entry
+            .step_id
+            .as_deref()
+            .context("agent start has no step id")?;
+        let step = state
+            .spec
+            .step(step_id)
+            .with_context(|| format!("run has no step {step_id}"))?;
+        payload.pins = self.resolve_agent_pins(step, &payload.pins)?;
+        validate_agent_pins(step, &payload.pins)?;
+        entry.payload = serde_json::to_value(payload)?;
+        Ok(())
+    }
+
+    /// Complete a step's start pins. The state machine has already carried
+    /// forward every declared surface the run's pin chain covers (Appendix A
+    /// rule 6); the gaps are surfaces this run has never pinned, and only the
+    /// worker holding them can report their revision (rule 2). Consecutive
+    /// agent steps may therefore declare entirely different surfaces.
+    fn resolve_agent_pins(
+        &self,
+        step: &relayflowd_core::StepSpec,
+        carried: &relayflowd_core::Pins,
+    ) -> Result<relayflowd_core::Pins> {
+        let StepKind::Agent { surfaces, .. } = &step.kind else {
+            return Ok(carried.clone());
+        };
+        let covered = surfaces.workspace.iter().all(|declared| {
+            carried
+                .workspace
+                .iter()
+                .any(|pin| pin.surface == declared.surface)
+        }) && surfaces.streams.iter().all(|declared| {
+            carried
+                .streams
+                .iter()
+                .any(|pin| pin.stream == declared.stream)
+        });
+        // Only ask the worker when the chain leaves a gap; a fully covered step
+        // must not depend on a worker still holding a surface it once reported.
+        let worker = if covered {
+            relayflowd_core::Pins::default()
+        } else {
+            self.dispatcher
+                .as_ref()
+                .context("agent dispatch requires an attached worker")?
+                .starting_pins(step)?
+        };
+        // Project onto the declared surfaces, in declared order: a surface this
+        // step does not declare is outside its contract (Appendix A rule 1) and
+        // must not be journaled as one of its pins, however the chain got it.
+        Ok(relayflowd_core::Pins {
+            workspace: surfaces
+                .workspace
+                .iter()
+                .filter_map(|declared| {
+                    carried
+                        .workspace
+                        .iter()
+                        .chain(worker.workspace.iter())
+                        .find(|pin| pin.surface == declared.surface)
+                        .cloned()
+                })
+                .collect(),
+            streams: surfaces
+                .streams
+                .iter()
+                .filter_map(|declared| {
+                    carried
+                        .streams
+                        .iter()
+                        .chain(worker.streams.iter())
+                        .find(|pin| pin.stream == declared.stream)
+                        .cloned()
+                })
+                .collect(),
+        })
+    }
+
+    /// Preflight for Appendix A rule 2: can the attached worker pin every
+    /// surface this agent step declares that the chain has not already pinned?
+    /// A worker that cannot is not a compatible worker for this step — the run
+    /// parks until one that can attaches, rather than failing mid-drive with an
+    /// untyped error after `run.start` has already journaled the spawn.
+    pub(super) fn agent_pins_available(
+        &self,
+        state: &RunState,
+        step: &relayflowd_core::StepSpec,
+    ) -> bool {
+        let carried = relayflowd_core::carried_pins_for(state.current_pins.as_ref(), step);
+        let carried = state.steps[&step.id]
+            .last_start_pins
+            .clone()
+            .unwrap_or(carried);
+        self.resolve_agent_pins(step, &carried)
+            .is_ok_and(|pins| validate_agent_pins(step, &pins).is_ok())
+    }
+
     fn open_run(&self, run_id: &str) -> Result<SqliteJournal> {
         let registered = self.registry()?.lookup(run_id)?;
         let path = registered
@@ -443,32 +345,41 @@ impl<C: Clock> Engine<C> {
     }
 }
 
-fn should_pause(state: &RunState, options: &DriveOptions) -> bool {
-    if options.pause_before_completion && state.all_steps_succeeded() {
-        return true;
-    }
-    let Some(step_id) = options.pause_before_step.as_deref() else {
-        return false;
+fn validate_agent_pins(
+    step: &relayflowd_core::StepSpec,
+    pins: &relayflowd_core::Pins,
+) -> Result<()> {
+    let StepKind::Agent { surfaces, .. } = &step.kind else {
+        return Ok(());
     };
-    state.spec.steps.iter().find_map(|step| {
-        matches!(
-            state.steps[&step.id].state,
-            relayflowd_core::StepState::Runnable
-        )
-        .then_some(step.id.as_str())
-    }) == Some(step_id)
-}
-
-fn ensure_supported(spec: &RunSpec) -> Result<()> {
-    if let Some(step) = spec
-        .steps
+    let expected_workspace = surfaces
+        .workspace
         .iter()
-        .find(|step| matches!(step.kind, StepKind::Agent { .. }))
+        .map(|surface| surface.surface.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let actual_workspace = pins
+        .workspace
+        .iter()
+        .map(|pin| pin.surface.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected_streams = surfaces
+        .streams
+        .iter()
+        .map(|surface| surface.stream.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let actual_streams = pins
+        .streams
+        .iter()
+        .map(|pin| pin.stream.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    if expected_workspace != actual_workspace
+        || expected_streams != actual_streams
+        || expected_workspace.len() != pins.workspace.len()
+        || expected_streams.len() != pins.streams.len()
     {
         bail!(
-            "step {} is {:?}; agent dispatch is not available until gate-1 rung (c)",
-            step.id,
-            step.step_type()
+            "agent step {} pins do not cover its declared workspace and stream surfaces",
+            step.id
         );
     }
     Ok(())

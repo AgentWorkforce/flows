@@ -68,6 +68,7 @@ Payload:
 | `verification` | `{gate, verdict: pass\|fail, detail}` or null |
 | `end_pins` | agent steps: `{workspace: [{surface, revision_id}], streams: [{stream, read_offset}]}` — Appendix A rule 6: the next step's starting state **is** this |
 | `effects` | list of `{surface_path, idempotency_key}` dedupe keys recorded this attempt |
+| `trajectory_tail` | agent failure only: worker-supplied tail injected into an `inspect` retry; `step.complete` rejects one over 16 KiB of canonical JSON |
 | `budget` | `{tokens_in, tokens_out, dollars}` — exact; zero for memoized replay by construction (no entry is written on replay) |
 | `completed_by` | `kernel` \| worker id — out-of-band completion uses the same entry, same discipline |
 | `next_attempt_at_ms` | when `disposition=retry`: computed backoff+jitter wake time |
@@ -104,6 +105,26 @@ Appendix A rule 3: the mount write is the effect record. Payload:
 `surface_path`, `idempotency_key`, `revision_before`, `revision_after`,
 `agent_identity`, `deduped` (bool — true when a second attempt's write was
 suppressed by the dedupe table and no provider call occurred).
+
+### 1.9a `effect.confirmed`
+Phase two of the same writeback. Payload: `surface_path`, `idempotency_key`,
+`agent_identity`. The election in 1.9 says who *owes* the provider call; this
+entry says it was made. Only the attempt holding the election may append it;
+anything else is refused.
+
+**v0 delivery semantics: exactly-once effects, across a crash mid-writeback.**
+Recording is two-phase — **elect → perform → confirm**. The election is
+appended *before* the provider call, so the journal boundary picks one winner
+and a concurrent retry is suppressed rather than merely detected afterwards.
+An election that was never confirmed proves nothing: the attempt holding it may
+have died between recording and calling, so the *next* attempt reclaims it and
+`deduped` stays `false`. Only a confirmed election suppresses (`deduped: true`).
+A successful agent completion holding an unconfirmed election it won is refused
+(`worker_error`) — the provider call it owes is unaccounted for. Appendix A
+rule 5's "one provider call" therefore holds in both directions: never twice,
+and never zero. Rule 3's "the mount write **is** the effect record" still does
+not, because v0 splits recording from performing; collapsing the two phases
+needs the mount to be the writer (gate 4).
 
 ### 1.10 `epoch.summary`
 First entry of every segment after the first (decision #8). Resume reads
@@ -173,10 +194,17 @@ CREATE TABLE effects (           -- Appendix A rule 5: dedupe at the mount bound
   idempotency_key TEXT NOT NULL,
   surface_path    TEXT NOT NULL,
   entry_seq       INTEGER NOT NULL,      -- the effect.recorded entry that won
+  attempt         INTEGER NOT NULL,      -- which attempt holds the election
+  confirmed_seq   INTEGER,               -- the effect.confirmed entry, or NULL
   PRIMARY KEY (step_id, idempotency_key, surface_path)
 ) WITHOUT ROWID;
--- INSERT OR IGNORE; a conflict means the effect already happened: suppress the
--- provider call and journal effect.recorded{deduped:true}.
+-- The one index table that is not append-only: an election moves to the live
+-- attempt on reclaim and gains its confirmation. It stays rebuildable from
+-- effect.recorded/effect.confirmed entries alone.
+-- A row with confirmed_seq set means the effect already happened: suppress the
+-- provider call and journal effect.recorded{deduped:true}. A row still NULL is
+-- an attempt that may have died before calling its provider, so a *later*
+-- attempt reclaims it (deduped:false) and owes the call itself.
 
 CREATE TABLE stream_index (      -- INSERT-only projection of stream.appended
   stream    TEXT    NOT NULL,
@@ -341,9 +369,11 @@ Minimal verb set for gate 1:
 | `run.resume` | `{run_id}` → `{run_id, state}` | §3 memoized resume |
 | `run.get` | `{run_id}` → `{status, steps, budget}` | snapshot for legibility |
 | `run.watch` | `{run_id}` → stream of `{event: "entry", data: Entry}` | every appended entry, pushed |
-| `worker.attach` | `{worker_id, step_types: ["llm","agent"]}` → `{}` | connection becomes a worker; receives `step.dispatch` events `{run_id, step_id, attempt, step_type, spec, idempotency_key, pins, lease_deadline_ms}` |
+| `worker.attach` | `{worker_id, step_types: ["llm","agent"], pins}` → `{}` | connection becomes a worker; agent workers **must** supply opaque initial workspace revisions/stream offsets (refused otherwise) and receive `step.dispatch` events with pins plus recovery context. A step whose declared surfaces no attached worker holds parks — it is not dispatched |
 | `step.heartbeat` | `{run_id, step_id, attempt, lease_id}` → `{lease_deadline_ms}` | renew the lease; the one lease primitive |
-| `step.complete` | `{run_id, step_id, attempt, idempotency_key, completionReason, output, usage, end_pins}` → `{}` | completes a dispatched step — **also the out-of-band path**: any worker holding the idempotency key may call it, journaled with the same discipline; kernel then runs verification and decides the edge |
+| `effect.record` | `{run_id, step_id, attempt, idempotency_key, surface_path, revision_before, revision_after}` → `{deduped}` | phase one: agent records a writeback before performing it; the journal boundary elects one provider-call winner. `deduped:false` means this attempt owes the call **and** the `effect.confirm` that closes it |
+| `effect.confirm` | `{run_id, step_id, attempt, idempotency_key, surface_path}` → `{confirmed}` | phase two: the elected attempt made the provider call. Until it lands the election is reclaimable by a later attempt, so a worker that dies mid-writeback loses nothing; only the election holder may confirm |
+| `step.complete` | `{run_id, step_id, attempt, idempotency_key, completionReason, output, usage, started_pins, end_pins, effects, trajectory_tail}` → `{}` | completes a dispatched step — **also the out-of-band path**: the lease holder reports its actual start/end pins and journaled effect refs; kernel verifies them, runs the gate, and decides the edge |
 | `event.emit` | `{run_id, event_key, payload}` → `{matched: n}` | satisfies `wait.event`; a human response arrives here too, closing `wait.human` with `completionReason: human_responded` |
 | `stream.append` | `{run_id, stream, message}` → `{offset}` | durable channel write; journals `stream.appended` |
 | `stream.read` | `{run_id, stream, from_offset, limit}` → `{messages, next_offset}` | at-least-once replayable read; committing the consumer offset happens via the reader's step pins, not a verb |

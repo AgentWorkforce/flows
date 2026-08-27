@@ -17,8 +17,8 @@ pub use clock::{Clock, SimClock};
 pub use entry::*;
 pub use journal::{Journal, JournalError, MemoryJournal};
 pub use machine::{
-    Action, AttemptResult, abandonment_actions, completion_actions, next_actions, recovery_actions,
-    recovery_actions_filtered,
+    Action, AttemptResult, RecoveryInstruction, abandonment_actions, carried_pins_for,
+    completion_actions, next_actions, recovery_actions, recovery_actions_filtered,
 };
 pub use spec::*;
 pub use state::{RunState, StateError, StepRuntime, StepState};

@@ -79,7 +79,10 @@ pub fn execute(step: &StepSpec) -> AttemptResult {
         completed_by: "kernel".to_owned(),
         end_pins: None,
         effects: vec![],
+        trajectory_tail: None,
         failure_reason: timed_out.then_some(CompletionReason::Timeout),
+        failure_detail: timed_out
+            .then(|| format!("step exceeded its {} ms timeout", timeout.as_millis())),
     }
 }
 
@@ -117,7 +120,9 @@ fn worker_error(detail: &str) -> AttemptResult {
         completed_by: "kernel".to_owned(),
         end_pins: None,
         effects: vec![],
+        trajectory_tail: None,
         failure_reason: Some(CompletionReason::WorkerError),
+        failure_detail: Some(detail.to_owned()),
     }
 }
 

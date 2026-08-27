@@ -167,7 +167,9 @@ fn all_backing_off_steps_return_timers() {
         completed_by: "kernel".to_owned(),
         end_pins: None,
         effects: Vec::new(),
+        trajectory_tail: None,
         failure_reason: Some(CompletionReason::WorkerError),
+        failure_detail: Some("stub rejection".to_owned()),
     };
     let mut entries = Vec::new();
     for step in &spec.steps {
@@ -189,4 +191,175 @@ fn all_backing_off_steps_return_timers() {
             Action::ArmTimer { at_ms: 1_200 },
         ]
     );
+}
+
+fn agent_spec(mode: &str) -> crate::RunSpec {
+    crate::RunSpec::parse(&json!({
+        "steps": [{
+            "id": "agent",
+            "type": "agent",
+            "instruction": "edit the workspace",
+            "recovery_mode": mode,
+            "max_iterations": 2,
+            "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0},
+            "surfaces": {"workspace": [{"surface": "repo"}]}
+        }]
+    }))
+    .unwrap()
+}
+
+fn workspace_pins(revision_id: &str) -> Pins {
+    Pins {
+        workspace: vec![crate::WorkspacePin {
+            surface: "repo".to_owned(),
+            revision_id: revision_id.to_owned(),
+        }],
+        streams: vec![],
+    }
+}
+
+fn started_agent(spec: &crate::RunSpec, pins: Pins) -> JournalEntry {
+    let state = RunState::fold("run", spec.clone(), &[]).unwrap();
+    let Action::Append(mut started) = next_actions(&state, 10).remove(0) else {
+        panic!("agent start must be journaled")
+    };
+    let mut payload: AttemptStartedPayload =
+        serde_json::from_value(started.payload.clone()).unwrap();
+    payload.pins = pins;
+    started.payload = serde_json::to_value(payload).unwrap();
+    started
+}
+
+#[test]
+fn reset_recovery_dispatches_the_original_pinned_revision() {
+    let spec = agent_spec("reset");
+    let pinned = workspace_pins("rev-clean");
+    let started = started_agent(&spec, pinned.clone());
+    let running = RunState::fold("run", spec.clone(), &[started.clone()]).unwrap();
+    let recovered = recovery_actions(&running, 20);
+    let entries = vec![
+        started,
+        recovered[0].clone().into_append(),
+        recovered[1].clone().into_append(),
+    ];
+    let backoff = RunState::fold("run", spec.clone(), &entries).unwrap();
+    let Action::Append(timer_fired) = next_actions(&backoff, 20).remove(0) else {
+        panic!("retry timer must fire")
+    };
+    let mut ready_entries = entries;
+    ready_entries.push(timer_fired);
+    let ready = RunState::fold("run", spec, &ready_entries).unwrap();
+    let actions = next_actions(&ready, 20);
+    let Action::Dispatch { pins, recovery, .. } = &actions[1] else {
+        panic!("replacement attempt must dispatch")
+    };
+    assert_eq!(pins, &pinned);
+    assert_eq!(
+        recovery.as_ref().unwrap().restore_pins.as_ref(),
+        Some(&pinned)
+    );
+    assert_eq!(
+        recovery.as_ref().unwrap().previous_completion_reason,
+        Some(CompletionReason::Crashed)
+    );
+}
+
+#[test]
+fn inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail() {
+    let spec = agent_spec("inspect");
+    let clean = workspace_pins("rev-clean");
+    let dirty = workspace_pins("rev-dirty");
+    let started = started_agent(&spec, clean);
+    let running = RunState::fold("run", spec.clone(), &[started.clone()]).unwrap();
+    let result = AttemptResult {
+        output: Value::Null,
+        budget: Budget::default(),
+        completed_by: "worker".to_owned(),
+        end_pins: Some(dirty.clone()),
+        effects: vec![],
+        trajectory_tail: Some(json!(["edited file"])),
+        failure_reason: Some(CompletionReason::WorkerError),
+        failure_detail: Some("stub rejection".to_owned()),
+    };
+    let completed = completion_actions(
+        "run",
+        &spec.steps[0],
+        1,
+        running.steps["agent"].semantic_executions,
+        result,
+        20,
+    );
+    let mut entries = vec![started];
+    entries.extend(completed.into_iter().filter_map(|action| match action {
+        Action::Append(entry) => Some(entry),
+        _ => None,
+    }));
+    let backoff = RunState::fold("run", spec.clone(), &entries).unwrap();
+    let Action::Append(timer_fired) = next_actions(&backoff, 20).remove(0) else {
+        panic!("retry timer must fire")
+    };
+    entries.push(timer_fired);
+    let ready = RunState::fold("run", spec, &entries).unwrap();
+    let actions = next_actions(&ready, 20);
+    let Action::Dispatch { pins, recovery, .. } = &actions[1] else {
+        panic!("inspect retry must dispatch")
+    };
+    let recovery = recovery.as_ref().unwrap();
+    assert_eq!(pins, &dirty);
+    assert_eq!(
+        recovery.previous_completion_reason,
+        Some(CompletionReason::WorkerError)
+    );
+    assert_eq!(recovery.trajectory_tail, Some(json!(["edited file"])));
+    assert!(recovery.restore_pins.is_none());
+}
+
+#[test]
+fn manual_recovery_parks_needs_human_and_never_redispatches() {
+    let spec = agent_spec("manual");
+    let started = started_agent(&spec, workspace_pins("rev-clean"));
+    let running = RunState::fold("run", spec.clone(), &[started.clone()]).unwrap();
+    let recovered = recovery_actions(&running, 20);
+    let Action::Append(wait) = &recovered[1] else {
+        panic!(
+            "manual recovery must park on wait.human: {:?}",
+            recovered[1]
+        )
+    };
+    assert_eq!(wait.entry_type, EntryType::WaitHuman);
+    // Appendix A rule 4: the human is handed a diff of the *pinned* revision vs.
+    // current state, so the reference must name the surface and the revision the
+    // attempt actually started from — not a constant.
+    let human: crate::entry::WaitHumanPayload =
+        serde_json::from_value(wait.payload.clone()).unwrap();
+    assert_eq!(human.diff_ref.as_deref(), Some("repo@rev-clean..current"));
+    assert!(
+        human.prompt.contains("agent") && human.prompt.contains("run"),
+        "the prompt must name the step and run it parked: {}",
+        human.prompt
+    );
+    let mut entries = vec![started];
+    entries.extend(recovered.into_iter().filter_map(|action| match action {
+        Action::Append(entry) => Some(entry),
+        _ => None,
+    }));
+    let parked = RunState::fold("run", spec, &entries).unwrap();
+    assert!(matches!(
+        parked.steps["agent"].state,
+        StepState::NeedsHuman { .. }
+    ));
+    assert!(next_actions(&parked, 30).is_empty());
+}
+
+trait AppendAction {
+    fn into_append(self) -> JournalEntry;
+}
+
+impl AppendAction for Action {
+    fn into_append(self) -> JournalEntry {
+        match self {
+            Action::Append(entry) => entry,
+            _ => panic!("expected journal append"),
+        }
+    }
 }

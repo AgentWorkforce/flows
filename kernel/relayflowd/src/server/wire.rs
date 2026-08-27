@@ -1,4 +1,4 @@
-use relayflowd_core::{Budget, CompletionReason, Pins, StepType};
+use relayflowd_core::{Budget, CompletionReason, EffectRef, Pins, StepType};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -52,6 +52,8 @@ pub(super) struct RunIdParams {
 pub(super) struct WorkerAttachParams {
     pub worker_id: String,
     pub step_types: Vec<StepType>,
+    #[serde(default)]
+    pub pins: Pins,
 }
 
 #[derive(Deserialize)]
@@ -77,7 +79,35 @@ pub(super) struct StepCompleteParams {
     #[serde(default)]
     pub usage: Budget,
     #[serde(default)]
+    pub started_pins: Option<Pins>,
+    #[serde(default)]
     pub end_pins: Option<Pins>,
+    #[serde(default)]
+    pub effects: Vec<EffectRef>,
+    #[serde(default)]
+    pub trajectory_tail: Option<Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct EffectRecordParams {
+    pub run_id: String,
+    pub step_id: String,
+    pub attempt: u32,
+    pub idempotency_key: String,
+    pub surface_path: String,
+    pub revision_before: String,
+    pub revision_after: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct EffectConfirmParams {
+    pub run_id: String,
+    pub step_id: String,
+    pub attempt: u32,
+    pub idempotency_key: String,
+    pub surface_path: String,
 }
 
 #[derive(Deserialize)]
