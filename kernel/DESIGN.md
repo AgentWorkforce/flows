@@ -351,7 +351,7 @@ Minimal verb set for gate 1:
 | `run.resume` | `{run_id}` → `{run_id, state}` | §3 memoized resume |
 | `run.get` | `{run_id}` → `{status, steps, budget}` | snapshot for legibility |
 | `run.watch` | `{run_id}` → stream of `{event: "entry", data: Entry}` | every appended entry, pushed |
-| `worker.attach` | `{worker_id, step_types: ["llm","agent"], pins}` → `{}` | connection becomes a worker; agent workers supply opaque initial workspace revisions/stream offsets and receive `step.dispatch` events with pins plus recovery context |
+| `worker.attach` | `{worker_id, step_types: ["llm","agent"], pins}` → `{}` | connection becomes a worker; agent workers **must** supply opaque initial workspace revisions/stream offsets (refused otherwise) and receive `step.dispatch` events with pins plus recovery context. A step whose declared surfaces no attached worker holds parks — it is not dispatched |
 | `step.heartbeat` | `{run_id, step_id, attempt, lease_id}` → `{lease_deadline_ms}` | renew the lease; the one lease primitive |
 | `effect.record` | `{run_id, step_id, attempt, idempotency_key, surface_path, revision_before, revision_after}` → `{deduped}` | agent records a writeback before performing it; the journal boundary elects one provider-call winner |
 | `step.complete` | `{run_id, step_id, attempt, idempotency_key, completionReason, output, usage, started_pins, end_pins, effects, trajectory_tail}` → `{}` | completes a dispatched step — **also the out-of-band path**: the lease holder reports its actual start/end pins and journaled effect refs; kernel verifies them, runs the gate, and decides the edge |

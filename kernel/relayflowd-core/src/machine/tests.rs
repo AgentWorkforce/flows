@@ -320,13 +320,24 @@ fn manual_recovery_parks_needs_human_and_never_redispatches() {
     let started = started_agent(&spec, workspace_pins("rev-clean"));
     let running = RunState::fold("run", spec.clone(), &[started.clone()]).unwrap();
     let recovered = recovery_actions(&running, 20);
-    assert!(matches!(
-        recovered[1],
-        Action::Append(JournalEntry {
-            entry_type: EntryType::WaitHuman,
-            ..
-        })
-    ));
+    let Action::Append(wait) = &recovered[1] else {
+        panic!(
+            "manual recovery must park on wait.human: {:?}",
+            recovered[1]
+        )
+    };
+    assert_eq!(wait.entry_type, EntryType::WaitHuman);
+    // Appendix A rule 4: the human is handed a diff of the *pinned* revision vs.
+    // current state, so the reference must name the surface and the revision the
+    // attempt actually started from — not a constant.
+    let human: crate::entry::WaitHumanPayload =
+        serde_json::from_value(wait.payload.clone()).unwrap();
+    assert_eq!(human.diff_ref.as_deref(), Some("repo@rev-clean..current"));
+    assert!(
+        human.prompt.contains("agent") && human.prompt.contains("run"),
+        "the prompt must name the step and run it parked: {}",
+        human.prompt
+    );
     let mut entries = vec![started];
     entries.extend(recovered.into_iter().filter_map(|action| match action {
         Action::Append(entry) => Some(entry),

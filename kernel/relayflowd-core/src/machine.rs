@@ -7,7 +7,7 @@ use crate::{
     entry::{
         AttemptStartedPayload, Budget, CompletionReason, Disposition, EffectRef, EntryType,
         JournalEntry, Pins, RunCompletedPayload, RunCompletionReason, SleepUntilPayload,
-        StepCompletedPayload, WaitCompletedPayload, WaitCompletionReason, WaitHumanPayload,
+        StepCompletedPayload, WaitCompletedPayload, WaitCompletionReason,
     },
     retry::backoff_delay_ms,
     spec::{AgentSurfaces, RecoveryMode, StepKind, StepSpec, StepType},
@@ -356,159 +356,6 @@ pub fn completion_actions(
     actions
 }
 
-pub fn recovery_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
-    recovery_actions_filtered(state, now_ms, &|_, _| false)
-}
-
-/// Recovery for a live server: `lease_is_active(step_id, attempt)` reports an
-/// attempt whose worker still holds a valid, heartbeating lease. Those attempts
-/// are left running; only genuinely dead attempts (worker detached, or lease
-/// deadline passed) are abandoned.
-pub fn recovery_actions_filtered(
-    state: &RunState,
-    now_ms: i64,
-    lease_is_active: &dyn Fn(&str, u32) -> bool,
-) -> Vec<Action> {
-    let mut actions = Vec::new();
-    for spec in &state.spec.steps {
-        let runtime = &state.steps[&spec.id];
-        let StepState::Running {
-            attempt,
-            lease_deadline_ms,
-            ..
-        } = runtime.state
-        else {
-            continue;
-        };
-        if lease_is_active(&spec.id, attempt) {
-            continue;
-        }
-        let reason = if now_ms >= lease_deadline_ms {
-            CompletionReason::LeaseExpired
-        } else {
-            CompletionReason::Crashed
-        };
-        actions.extend(abandonment_actions(
-            state, &spec.id, attempt, reason, now_ms,
-        ));
-    }
-    actions
-}
-
-/// Record one dead leased attempt without charging a semantic iteration.
-/// Used both by journal recovery and by a live protocol session noticing its
-/// attached worker has disappeared.
-pub fn abandonment_actions(
-    state: &RunState,
-    step_id: &str,
-    attempt: u32,
-    reason: CompletionReason,
-    now_ms: i64,
-) -> Vec<Action> {
-    let Some(spec) = state.spec.step(step_id) else {
-        return Vec::new();
-    };
-    let Some(runtime) = state.steps.get(step_id) else {
-        return Vec::new();
-    };
-    if !matches!(runtime.state, StepState::Running { attempt: active, .. } if active == attempt) {
-        return Vec::new();
-    }
-    let manual = matches!(
-        spec.kind,
-        StepKind::Agent {
-            recovery_mode: RecoveryMode::Manual,
-            ..
-        }
-    );
-    let may_retry = runtime.semantic_executions < spec.max_iterations;
-    let next_attempt_at_ms = (may_retry && !manual).then(|| {
-        now_ms.saturating_add(backoff_delay_ms(
-            &spec.retry,
-            &idempotency_key(&state.run_id, step_id),
-            attempt,
-        ) as i64)
-    });
-    let mut actions = vec![Action::Append(JournalEntry::new(
-        EntryType::StepCompleted,
-        state.run_id.clone(),
-        Some(step_id.to_owned()),
-        Some(attempt),
-        now_ms,
-        StepCompletedPayload {
-            completion_reason: reason,
-            disposition: if manual {
-                Disposition::Park
-            } else if may_retry {
-                Disposition::Retry
-            } else {
-                Disposition::StepDone
-            },
-            output: Value::Null,
-            verification: None,
-            end_pins: None,
-            effects: vec![],
-            trajectory_tail: None,
-            budget: Budget::default(),
-            completed_by: "kernel".to_owned(),
-            next_attempt_at_ms,
-        },
-    ))];
-    if manual {
-        actions.push(Action::Append(JournalEntry::new(
-            EntryType::WaitHuman,
-            state.run_id.clone(),
-            Some(step_id.to_owned()),
-            Some(attempt),
-            now_ms,
-            WaitHumanPayload {
-                wait_id: deterministic_ulid(&state.run_id, step_id, attempt, now_ms, "manual"),
-                prompt: format!(
-                    "agent step {step_id} of run {} ended {reason:?} with a dirty workspace; \
-                     a human must inspect it before another attempt",
-                    state.run_id
-                ),
-                requested_of: "run-owner".to_owned(),
-                options: Some(vec!["retry".to_owned(), "cancel".to_owned()]),
-                timeout_at_ms: None,
-                diff_ref: dirty_diff_ref(runtime.last_start_pins.as_ref()),
-            },
-        )));
-    } else if let Some(wake_at_ms) = next_attempt_at_ms {
-        actions.push(Action::Append(JournalEntry::new(
-            EntryType::SleepUntil,
-            state.run_id.clone(),
-            Some(step_id.to_owned()),
-            Some(attempt),
-            now_ms,
-            SleepUntilPayload {
-                wait_id: retry_wait_id(&state.run_id, step_id, attempt, wake_at_ms),
-                wake_at_ms,
-                reason: "retry_backoff".to_owned(),
-            },
-        )));
-    }
-    actions
-}
-
-/// Appendix A rule 4: the `manual` park hands the human a diff of the pinned
-/// revision vs. current state. The reference names each pinned surface and the
-/// revision the attempt started from — the only revision the kernel knows.
-/// Without journaled start pins there is nothing to diff against.
-fn dirty_diff_ref(start_pins: Option<&Pins>) -> Option<String> {
-    let pins = start_pins?;
-    if pins.workspace.is_empty() {
-        return None;
-    }
-    Some(
-        pins.workspace
-            .iter()
-            .map(|pin| format!("{}@{}..current", pin.surface, pin.revision_id))
-            .collect::<Vec<_>>()
-            .join(","),
-    )
-}
-
 pub fn idempotency_key(run_id: &str, step_id: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(run_id.as_bytes());
@@ -565,6 +412,9 @@ fn deterministic_ulid(
         .fold(0_u128, |value, byte| (value << 8) | u128::from(*byte));
     Ulid::from_parts(at_ms.max(0) as u64, random).to_string()
 }
+
+mod recovery;
+pub use recovery::{abandonment_actions, recovery_actions, recovery_actions_filtered};
 
 #[cfg(test)]
 mod tests;

@@ -112,6 +112,12 @@ export interface RunWatchResult {
 export interface WorkerAttachParams {
   worker_id: string;
   step_types: StepType[];
+  /**
+   * The surfaces this worker holds, as opaque revisions/offsets. Required when
+   * `step_types` includes `agent` — an agent attempt's start pins come from
+   * here (Appendix A rule 2), so an agent worker with no pins is refused at
+   * attach rather than failing in the middle of a run.
+   */
   pins?: Pins;
 }
 export interface WorkerAttachResult {
@@ -192,6 +198,7 @@ export interface StepCompleteParams {
   started_pins?: Pins;
   end_pins?: Pins;
   effects?: EffectRef[];
+  /** `inspect` evidence for the next attempt. Rejected over 16 KiB of JSON. */
   trajectory_tail?: unknown;
 }
 export type StepCompleteResult = RunOutcome;
