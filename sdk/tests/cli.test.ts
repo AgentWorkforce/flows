@@ -54,7 +54,9 @@ function ladderVariant(name: string, mutate: (flow: Record<string, unknown>) => 
 const LADDER_FAULTS = [
   ['cli_missing', (flow) => { flow['cli'] = join(PREFLIGHT, 'absent-cli'); }],
   ['cli_unauthenticated', (flow) => { flow['cli'] = join(PREFLIGHT, 'unauthenticated-cli'); }],
-  ['cli_unresolved', (flow) => { delete flow['cli']; }],
+  // Relocation into ladderVariant's empty flows.json is the fault: it removes
+  // the project CLI fallback, while the ladder YAML itself has no cli field.
+  ['cli_unresolved', () => {}],
   ['no_executor', (flow) => {
     flow['cli'] = join(PREFLIGHT, 'authenticated-cli');
     flow['triggers'] = [{ id: 'induced-schedule', executor: 'absent-executor' }];

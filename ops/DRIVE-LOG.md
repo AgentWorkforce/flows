@@ -461,6 +461,10 @@ ladder canonical JSON/hash fixtures were regenerated and both parity suites
 pin them. The kernel regression enumerates every failed-step
 `CompletionReason` and proves the failed run ends in typed `step_failed`.
 
+[ERRATA R4 — this describes the superseded 16:03 tree. After the F3 repair,
+all three canonical JSON files and their `.sha256` pins are byte-identical to
+`main`; see "WP-4 review round 2 + record correction" and the WP-4-FIX tick.]
+
 **Definition of done (hermetic `ops/cargo.sh`, no manually exported env):**
 
 - `cd kernel && ../ops/cargo.sh test --workspace` — **72 passed, 0 failed**
@@ -494,6 +498,10 @@ pin them. The kernel regression enumerates every failed-step
 - `cd sdk && npm test` — **76 passed, 0 failed**, 7 files, exit 0. Verbatim
   tail:
 
+  [ERRATA R2 — this 76-test result and tail are pre-fix evidence from the 16:03
+  tree, not evidence for the shipped diff. See "WP-4 review round 2 + record
+  correction" and the WP-4-FIX tick for executed evidence from the final tree.]
+
   ```
    Test Files  7 passed (7)
         Tests  76 passed (76)
@@ -521,10 +529,17 @@ the green gates. A local full-diff and fail-closed-path audit found and fixed
 one compiled-spec issue before final verification: type-specific unknown keys
 and malformed retry policies now refuse instead of being dropped.
 
+[ERRATA R1 — false as of `823e35a`: two review transcripts and a repair note
+are committed in this same diff. See "WP-4 review round 2 + record correction"
+and the WP-4-FIX third-review transcript.]
+
 **Gate state:** gate 1 is GREEN in this branch on both clauses. The scoreboard
 records the correction from its premature rung-only GREEN through AMBER and
 the evidence that closes preflight. It becomes repository state only when a
 human merges the PR; this worker does not merge.
+
+[ERRATA R3 — this overstates the gate. Gate 1 remains AMBER while clause 2 is
+unmerged; see "WP-4 review round 2 + record correction" and the WP-4-FIX tick.]
 
 ---
 
@@ -537,12 +552,12 @@ preceding entry was written at 16:03, plus the record correction that round
 demanded. Two adversarial reviews and one repair pass landed in that window and
 none of them are described above, because the entry above predates them.
 
-### Errata against the 16:03 entry (it is wrong on three points)
+### Errata against the 16:03 entry (it is wrong on four points)
 
-The preceding entry is left byte-for-byte intact — this log is append-only, so
-the corrections are recorded here as errata rather than by editing a committed
-entry. A human or the next tick may decide the stronger remedy of amending it;
-this worker did not rewrite history to make itself look better.
+The preceding entry's original text is left byte-for-byte intact — this log is
+append-only, so the corrections are recorded here as errata, with bracketed
+forward pointers inserted at each stale site. No committed claim was rewritten
+or history changed to make this work look better.
 
 - **R1 — "no independent review transcript was produced" is false as of now.**
   It was true when written. Three transcripts landed afterwards and are
@@ -556,6 +571,10 @@ this worker did not rewrite history to make itself look better.
 - **R3 — "gate 1 is GREEN in this branch on both clauses" overstates it.** It
   is AMBER, for the reasons in *Gate state* below. `ops/SCOREBOARD.md` already
   said AMBER while the entry beside it said GREEN.
+- **R4 — "the three ladder canonical JSON/hash fixtures were regenerated" is
+  superseded.** After the F3 repair, all three canonical JSON files and their
+  `.sha256` pins are byte-identical to `main`; the final diff ships no fixture
+  regeneration.
 - One further stale number, found and fixed in this tick:
   `ops/SCOREBOARD.md:8` cited "SDK 95 tests" against a measured 99. Corrected
   to 99 in this commit. That is the only file besides this log that this tick
