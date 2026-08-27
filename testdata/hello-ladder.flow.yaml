@@ -3,10 +3,12 @@
 # sdk/tests/spec-parity.test.ts into hello-ladder.spec.canonical.json, which
 # kernel/relayflowd-core/tests/spec_parity.rs must parse fail-closed and hash
 # to the identical spec_hash (hello-ladder.spec.sha256).
+# The CLI these rungs hire is resolved at preflight from the project
+# default (testdata/flows.json), so the canonical spec and its hash pin
+# name no environment-specific binary and no test fixture.
 version: '0.1.0'
 name: hello-ladder
 description: One flow, all three rungs — the single spec dialect end to end.
-cli: ./preflight/authenticated-cli
 steps:
   - id: greet
     type: deterministic

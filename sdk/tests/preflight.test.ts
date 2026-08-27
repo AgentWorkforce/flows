@@ -69,7 +69,42 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(PREFLIGHT_WARNING_KINDS).toContain(result.diagnostics[0]!.kind);
   });
 
-  it('exhaustively maps every predicate refusal path to the declared taxonomy', () => {
+  // Covenant 2 permits refusing *or* warning, but not silence. A deterministic
+  // step that resolves, one that does not, and one that cannot be probed must
+  // each leave a declared warning behind — and none of them may refuse.
+  it.each([
+    ['unprovable_effects', probes()],
+    ['command_unresolved', probes({ command: () => false })],
+    ['command_unprovable', probes({ command: () => { throw new Error('probe unavailable'); } })],
+  ] as const)('never passes a deterministic step silently: warns %s', (kind, injected) => {
+    const result = preflight(flow({ id: 'inspect', type: 'deterministic', command: 'inspect-thing --now' }), { probes: injected });
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'warning', kind, stepId: 'inspect' }),
+    ]);
+  });
+
+  it('reaches every declared warning kind and leaks no probe exception text', () => {
+    const scenarios = [
+      preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), { probes: probes() }),
+      preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), { probes: probes({ command: () => false }) }),
+      preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), { probes: probes({ command: () => { throw new Error('raw secret'); } }) }),
+    ];
+    const warningKinds = scenarios.flatMap((result) => result.diagnostics)
+      .filter((diagnostic) => diagnostic.severity === 'warning')
+      .map((diagnostic) => diagnostic.kind);
+
+    expect(new Set(warningKinds)).toEqual(new Set(PREFLIGHT_WARNING_KINDS));
+    expect(scenarios.every((result) => result.ok)).toBe(true);
+    expect(JSON.stringify(scenarios)).not.toContain('raw secret');
+  });
+
+  // This asserts reachability: every declared kind is produced by some path.
+  // The converse — that no path produces an *undeclared* kind — is enforced by
+  // the compiler, since PreflightRefusal.kind is typed to the declared union
+  // and `tsc --noEmit` runs as part of `npm test`. Recorded so the guarantee is
+  // not read as coming from this test alone.
+  it('reaches every declared refusal kind, with the converse held by the type', () => {
     const scenarios = [
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: false, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: true, authenticated: false }) }) }),

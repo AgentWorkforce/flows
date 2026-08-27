@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CliIo } from '../src/cli.js';
 import {
@@ -12,6 +13,8 @@ import {
 } from '../src/failure-kinds.js';
 
 const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata');
+const PREFLIGHT = join(TESTDATA, 'preflight');
+const LADDER = ['hello-ladder', 'hello-llm', 'hello-agent'] as const;
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
@@ -30,9 +33,37 @@ function run(path: string, json = false): { code: number; stdout: string[]; stde
   return { code, stdout: output.stdout, stderr: output.stderr };
 }
 
+/**
+ * RFC-0001 §96 makes *the ladder flows* the subject of the refusal clause, so
+ * the fault is induced on the canonical flows themselves rather than on a
+ * stand-in fixture. The variant is compiled from the real YAML and written to a
+ * throwaway directory with its own empty flows.json, so resolution is hermetic:
+ * nothing mutates PATH, the canon on disk, or an ambient project config.
+ */
+function ladderVariant(name: string, mutate: (flow: Record<string, unknown>) => void): string {
+  const directory = mkdtempSync(join(tmpdir(), 'flows-ladder-'));
+  temporaryDirectories.push(directory);
+  const flow = parseYaml(readFileSync(join(TESTDATA, `${name}.flow.yaml`), 'utf8')) as Record<string, unknown>;
+  mutate(flow);
+  writeFileSync(join(directory, 'flows.json'), JSON.stringify({ executors: [] }));
+  const path = join(directory, `${name}.flow.yaml`);
+  writeFileSync(path, stringifyYaml(flow));
+  return path;
+}
+
+const LADDER_FAULTS = [
+  ['cli_missing', (flow) => { flow['cli'] = join(PREFLIGHT, 'absent-cli'); }],
+  ['cli_unauthenticated', (flow) => { flow['cli'] = join(PREFLIGHT, 'unauthenticated-cli'); }],
+  ['cli_unresolved', (flow) => { delete flow['cli']; }],
+  ['no_executor', (flow) => {
+    flow['cli'] = join(PREFLIGHT, 'authenticated-cli');
+    flow['triggers'] = [{ id: 'induced-schedule', executor: 'absent-executor' }];
+  }],
+] as const satisfies ReadonlyArray<readonly [string, (flow: Record<string, unknown>) => void]>;
+
 describe('flows check CLI', () => {
   it('passes all three canonical ladder flows and prints their resolved CLI', () => {
-    for (const name of ['hello-ladder', 'hello-llm', 'hello-agent']) {
+    for (const name of LADDER) {
       const result = run(join(TESTDATA, `${name}.flow.yaml`));
       expect(result.code, name).toBe(0);
       expect(result.stdout.join('\n'), name).toContain('RESOLVED');
@@ -50,6 +81,46 @@ describe('flows check CLI', () => {
     const result = run(join(TESTDATA, 'preflight', name));
     expect(result.code).toBe(2);
     expect(result.stderr.join('\n')).toContain(`REFUSED [${kind}]`);
+  });
+
+  // Control for the induced-fault cases below: relocated but unmutated, every
+  // ladder flow still passes. Without this the refusals could be an artifact of
+  // the temp directory rather than of the fault, and the suite would be green
+  // for the wrong reason.
+  it.each(LADDER)('passes relocated ladder flow %s when no fault is induced', (name) => {
+    const result = run(ladderVariant(name, (flow) => { flow['cli'] = join(PREFLIGHT, 'authenticated-cli'); }));
+    expect(result.code, name).toBe(0);
+    expect(result.stdout.join('\n'), name).toContain('CHECK PASSED');
+  });
+
+  it.each(LADDER.flatMap((name) => LADDER_FAULTS.map(([kind, mutate]) => [name, kind, mutate] as const)))(
+    'refuses ladder flow %s with %s under an induced fault',
+    (name, kind, mutate) => {
+      const result = run(ladderVariant(name, mutate));
+      expect(result.code, `${name}/${kind}`).toBe(2);
+      expect(result.stderr.join('\n'), `${name}/${kind}`).toContain(`REFUSED [${kind}]`);
+    },
+  );
+
+  // The positive counterparts of the refusal fixtures: a declared CLI that
+  // resolves, a trigger whose executor is registered in flows.json, and a
+  // deterministic step that warns without refusing. Asserted end-to-end through
+  // the CLI, where the unit tests only cover the predicates.
+  it.each([
+    ['cli-declared.flow.yaml', 'RESOLVED'],
+    ['trigger-declared.flow.yaml', 'CHECK PASSED'],
+    ['warning.flow.yaml', 'CHECK PASSED'],
+  ] as const)('accepts %s without refusing', (name, expected) => {
+    const result = run(join(PREFLIGHT, name));
+    expect(result.code, name).toBe(0);
+    expect(result.stdout.join('\n'), name).toContain(expected);
+    expect(result.stderr.join('\n'), name).not.toContain('REFUSED');
+  });
+
+  it('warns on an unprovable deterministic effect while still passing the flow', () => {
+    const result = run(join(PREFLIGHT, 'warning.flow.yaml'));
+    expect(result.code).toBe(0);
+    expect(result.stderr.join('\n')).toContain('WARNING [unprovable_effects]');
   });
 
   it('emits parseable JSON whose diagnostics all carry declared kinds', () => {

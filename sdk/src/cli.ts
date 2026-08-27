@@ -51,7 +51,11 @@ class CheckFailure extends Error {
 
 export function runCli(args: readonly string[], io: CliIo = PROCESS_IO): number {
   const parsed = parseArgs(args);
-  if (parsed instanceof CheckFailure) return emitInputFailure(parsed, parsed.kind === 'invalid_invocation' ? undefined : args.at(-1), false, io);
+  // No path is known yet, and `--json` is honoured even when the invocation
+  // itself is what failed — a caller parsing stdout gets a report either way.
+  if (parsed instanceof CheckFailure) {
+    return emitInputFailure(parsed, undefined, args.includes('--json'), io);
+  }
 
   const absolutePath = resolve(parsed.path);
   try {

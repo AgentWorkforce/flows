@@ -164,6 +164,14 @@ function probeTrigger(
   }
 }
 
+/**
+ * A deterministic step is never silently accepted: every one leaves exactly one
+ * warning naming which state it is in. These warn rather than refuse because a
+ * string command is executed as `/bin/sh -c` (kernel `exec_det.rs`), so an
+ * unresolved first word may still be a shell builtin, function, or assignment —
+ * refusing would reject valid flows. Warning keeps covenant 2's "refuses or
+ * warns on anything it cannot prove" true without inventing false certainty.
+ */
 function warnOnUnprovableEffects(
   step: StepSpec,
   probes: PreflightProbes,
@@ -171,21 +179,40 @@ function warnOnUnprovableEffects(
 ): void {
   if (step.type !== 'deterministic') return;
   const binary = firstCommandWord(step.command);
-  let exists = false;
-  try {
-    exists = binary !== undefined && probes.command(binary);
-  } catch {
-    // The effect claim remains unprovable whether the environment probe itself
-    // was unavailable or the binary resolved.
-  }
-  if (exists) {
+  if (binary === undefined) {
     diagnostics.push({
+      severity: 'warning',
+      kind: 'command_unprovable',
+      stepId: step.id,
+      message: `Step "${step.id}" has no command word to check, so nothing about it can be proven before execution.`,
+    });
+    return;
+  }
+  let exists: boolean;
+  try {
+    exists = probes.command(binary);
+  } catch {
+    diagnostics.push({
+      severity: 'warning',
+      kind: 'command_unprovable',
+      stepId: step.id,
+      message: `Step "${step.id}" command "${binary}" could not be probed, so its presence is unproven before execution.`,
+    });
+    return;
+  }
+  diagnostics.push(exists
+    ? {
       severity: 'warning',
       kind: 'unprovable_effects',
       stepId: step.id,
       message: `Step "${step.id}" command "${binary}" resolves, but its effects cannot be proven before execution.`,
+    }
+    : {
+      severity: 'warning',
+      kind: 'command_unresolved',
+      stepId: step.id,
+      message: `Step "${step.id}" command "${binary}" does not resolve as an executable; it runs only if the shell supplies it.`,
     });
-  }
 }
 
 function firstCommandWord(command: string): string | undefined {
