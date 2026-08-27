@@ -39,11 +39,18 @@ workflows:
       - name: fetch
         type: deterministic
         command: |
+          # Deterministic steps do not inherit the launching shell's env, so the
+          # target is read from a file the operator writes before the run:
+          #   echo 8 > .review-target
           set -u
-          : "${PR_NUMBER:?PR_NUMBER must be set}"
-          gh pr view "$PR_NUMBER" --json headRefName,title,url > /tmp/pr-$PR_NUMBER.json
-          gh pr diff "$PR_NUMBER" > /tmp/pr-$PR_NUMBER.diff
-          wc -l /tmp/pr-$PR_NUMBER.diff
+          if [ ! -f .review-target ]; then
+            echo "FETCH_FAILED: .review-target missing — write the PR number to it first"; exit 1
+          fi
+          PR=$(tr -dc '0-9' < .review-target)
+          [ -n "$PR" ] || { echo "FETCH_FAILED: .review-target holds no PR number"; exit 1; }
+          gh pr view "$PR" --json headRefName,title,url > /tmp/pr-$PR.json
+          gh pr diff "$PR" > /tmp/pr-$PR.diff
+          echo "target PR #$PR, $(wc -l < /tmp/pr-$PR.diff) diff lines"
           echo FETCHED
 
       - name: lens-maintainability
@@ -51,15 +58,15 @@ workflows:
         agent: maintainability
         dependsOn: [fetch]
         task: |
-          Review PR $PR_NUMBER (diff at /tmp/pr-$PR_NUMBER.diff, metadata at
-          /tmp/pr-$PR_NUMBER.json) through ONE lens: maintainability.
+          Review the PR whose number is in .review-target (diff at
+          /tmp/pr-<n>.diff, metadata at /tmp/pr-<n>.json) through ONE lens: maintainability.
           Ask: could a stranger read this in six months and change it safely?
           Name unclear boundaries, implicit contracts, missing failure handling,
           comments that assert what the code does not do, and tests that would
           not fail if the behavior broke.
           Read AGENTS.md and docs/RFC-0001-everything-is-a-relayflow.md first.
           Write your complete review to
-          ops/reviews/$(date +%Y%m%d-%H%M)-pr${PR_NUMBER}-maintainability.md
+          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-maintainability.md
           and `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
         verification:
           type: output_contains
@@ -72,7 +79,7 @@ workflows:
         agent: history
         dependsOn: [fetch]
         task: |
-          Review PR $PR_NUMBER (diff at /tmp/pr-$PR_NUMBER.diff) through ONE
+          Review the PR whose number is in .review-target (diff at /tmp/pr-<n>.diff) through ONE
           lens: does this change fit the story of the code?
           Run `git log --oneline -40` and read ops/DRIVE-LOG.md, ops/NEXT.md and
           ops/DIRECTIVES.md if present. Ask: does it repeat a mistake the log
@@ -80,7 +87,7 @@ workflows:
           Does it reintroduce something a previous commit deliberately removed?
           Does the commit message tell the truth about the diff?
           Write your complete review to
-          ops/reviews/$(date +%Y%m%d-%H%M)-pr${PR_NUMBER}-history.md and
+          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-history.md and
           `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
         verification:
           type: output_contains
@@ -93,14 +100,14 @@ workflows:
         agent: structure
         dependsOn: [fetch]
         task: |
-          Review PR $PR_NUMBER (diff at /tmp/pr-$PR_NUMBER.diff) through ONE
+          Review the PR whose number is in .review-target (diff at /tmp/pr-<n>.diff) through ONE
           lens: structure. Boundaries, coupling, file size and single purpose,
           whether the shape matches RFC-0001 (closed kernel vocabulary, helpers
           over primitives, fail-closed, completionReason discipline) and
           AGENTS.md. Name anything that puts product logic in the kernel, adds
           a primitive instead of a helper, or grows a file past its purpose.
           Write your complete review to
-          ops/reviews/$(date +%Y%m%d-%H%M)-pr${PR_NUMBER}-structure.md and
+          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-structure.md and
           `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
         verification:
           type: output_contains
@@ -115,9 +122,10 @@ workflows:
           # Any single honest refusal blocks the merge. A missing transcript is
           # a refusal too: an unpersisted verdict is not evidence.
           set -u
+          PR=$(tr -dc '0-9' < .review-target 2>/dev/null)
           fail=0
           for lens in maintainability history structure; do
-            f=$(ls -t ops/reviews/*-pr${PR_NUMBER}-${lens}.md 2>/dev/null | head -1)
+            f=$(ls -t ops/reviews/*-pr${PR}-${lens}.md 2>/dev/null | head -1)
             if [ -z "$f" ]; then
               echo "SWARM_FAILED: $lens produced no transcript"; fail=1; continue
             fi
