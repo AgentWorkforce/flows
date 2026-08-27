@@ -1,6 +1,6 @@
 use std::{
     io::Read,
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
     thread,
     time::Duration,
 };
@@ -35,6 +35,15 @@ pub fn execute(step: &StepSpec) -> AttemptResult {
         }
     };
     process.stdout(Stdio::piped()).stderr(Stdio::piped());
+    // Run the command in its own process group so a timeout can kill every
+    // descendant. Killing only the shell leaves children that inherited the
+    // stdout/stderr pipes alive, and the reader-thread joins below would then
+    // block far past `timeout_ms`.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        process.process_group(0);
+    }
     let mut child = match process.spawn() {
         Ok(child) => child,
         Err(error) => return worker_error(&format!("failed to spawn command: {error}")),
@@ -48,11 +57,11 @@ pub fn execute(step: &StepSpec) -> AttemptResult {
     let (status, timed_out) = match child.wait_timeout(timeout) {
         Ok(Some(status)) => (Some(status), false),
         Ok(None) => {
-            let _ = child.kill();
+            kill_process_group(&mut child);
             (child.wait().ok(), true)
         }
         Err(error) => {
-            let _ = child.kill();
+            kill_process_group(&mut child);
             let _ = child.wait();
             return worker_error(&format!("failed while waiting for command: {error}"));
         }
@@ -72,6 +81,22 @@ pub fn execute(step: &StepSpec) -> AttemptResult {
         effects: vec![],
         failure_reason: timed_out.then_some(CompletionReason::Timeout),
     }
+}
+
+/// Kill the command's whole process group (the child was spawned as its own
+/// group leader, so the group id is the child's pid), then the child itself as
+/// a fallback. SIGKILL to `-pid` reaches every descendant still in the group,
+/// closing the inherited stdout/stderr pipes so the reader joins return.
+fn kill_process_group(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        let pid = child.id() as i32;
+        // SAFETY: plain libc kill(2) on a negative pid — no memory at play.
+        unsafe {
+            libc::kill(-pid, libc::SIGKILL);
+        }
+    }
+    let _ = child.kill();
 }
 
 fn read_all(mut reader: impl Read) -> Vec<u8> {
@@ -122,5 +147,34 @@ mod tests {
         .unwrap();
         let result = execute(&step);
         assert_eq!(result.failure_reason, Some(CompletionReason::Timeout));
+    }
+
+    #[test]
+    fn timeout_kills_the_whole_process_group() {
+        // The backgrounded sleep inherits the stdout/stderr pipes. If a
+        // timeout killed only the shell, the reader joins would block until
+        // the sleep exits (~30s). Killing the process group must bound the
+        // whole call near timeout_ms.
+        let step: StepSpec = serde_json::from_value(json!({
+            "id": "orphan", "type": "deterministic",
+            "command": "sleep 30 & echo started; wait",
+            "timeout_ms": 250
+        }))
+        .unwrap();
+        let started = std::time::Instant::now();
+        let result = execute(&step);
+        let elapsed = started.elapsed();
+        assert_eq!(result.failure_reason, Some(CompletionReason::Timeout));
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "timeout must not wait on orphaned descendants (took {elapsed:?})"
+        );
+        assert!(
+            result.output["stdout_tail"]
+                .as_str()
+                .unwrap()
+                .contains("started"),
+            "output produced before the timeout is still captured"
+        );
     }
 }

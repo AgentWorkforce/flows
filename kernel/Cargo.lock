@@ -900,6 +900,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "libc",
  "relayflowd-core",
  "relayflowd-journal",
  "serde",

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { JournalClient } from '../src/journal-client.js';
+import { compileYaml } from '../src/compile.js';
 import { PROTOCOL_VERSION } from '../src/protocol.js';
 import type { FlowSpec } from '../src/spec.js';
 
@@ -74,6 +75,43 @@ function startLoopback(path: string, handlers: {
   return server;
 }
 
+let lastStartedSpec: Record<string, unknown> | null = null;
+
+// A faithful mini-mirror of `RunSpec::parse` (kernel/relayflowd-core/src/spec.rs):
+// snake_case keys only, per-type step key sets, flat v0 verification. Returns
+// an error message, or null when the spec is in the kernel dialect.
+function kernelDialectError(spec: unknown): string | null {
+  if (typeof spec !== 'object' || spec === null) return 'spec: expected an object';
+  const rootAllowed = new Set(['version', 'name', 'description', 'steps', 'budget']);
+  for (const key of Object.keys(spec)) {
+    if (!rootAllowed.has(key)) return `unknown field "${key}" at spec`;
+  }
+  const steps = (spec as { steps?: unknown }).steps;
+  if (!Array.isArray(steps)) return 'steps: expected an array';
+  const common = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification'];
+  const byType: Record<string, string[]> = {
+    deterministic: ['command', 'timeout_ms'],
+    llm: ['prompt', 'model'],
+    agent: ['instruction', 'recovery_mode', 'surfaces', 'permissions'],
+  };
+  for (const [index, step] of steps.entries()) {
+    const st = step as Record<string, unknown>;
+    const kindFields = byType[st.type as string];
+    if (kindFields === undefined) return `steps[${index}]: unknown type`;
+    const allowed = new Set([...common, ...kindFields]);
+    for (const key of Object.keys(st)) {
+      if (!allowed.has(key)) return `unknown field "${key}" at steps[${index}]`;
+    }
+    if (st.verification !== undefined) {
+      const gateAllowed = new Set(['output_contains', 'json_schema']);
+      for (const key of Object.keys(st.verification as Record<string, unknown>)) {
+        if (!gateAllowed.has(key)) return `unknown field "${key}" at steps[${index}].verification`;
+      }
+    }
+  }
+  return null;
+}
+
 describe('JournalClient: protocol v0 over unix socket', () => {
   let path: string;
   let server: Server;
@@ -85,8 +123,16 @@ describe('JournalClient: protocol v0 over unix socket', () => {
         sendOk(ctx);
       },
       'run.start': (ctx, params) => {
-        const spec = params.spec as FlowSpec;
-        // Kernel validates spec (zero-agent legal) and appends run.spawned.
+        // Mirror the kernel's fail-closed `RunSpec::parse`: only the kernel
+        // dialect is accepted — an authoring-shape spec (camelCase keys,
+        // tagged verification) is rejected, exactly like the real server.
+        const dialectError = kernelDialectError(params.spec);
+        if (dialectError !== null) {
+          ctx.send({ id: ctx.id, ok: false, error: { code: 'invalid_spec', message: dialectError } });
+          return;
+        }
+        lastStartedSpec = params.spec as Record<string, unknown>;
+        const spec = params.spec as { name?: string };
         sendResult(ctx, { run_id: 'run-01' });
         // Server-pushed entry event for run.watch subscribers would follow.
         ctx.send({ event: 'run.spawned', data: { run_id: 'run-01', name: spec.name } });
@@ -127,6 +173,43 @@ describe('JournalClient: protocol v0 over unix socket', () => {
     await client.hello('sdk-test');
     const res = await client.runStart(HELLO_SPEC);
     expect(res.run_id).toBe('run-01');
+  });
+
+  it('round-trips a spec straight from compileYaml through run.start in the kernel dialect', async () => {
+    // Authoring sugar the kernel's RunSpec::parse rejects verbatim:
+    // maxIterations, dependsOn, tagged verification. runStart must convert
+    // via toKernelSpec, or the fail-closed loopback double rejects the frame.
+    const flow = compileYaml(`
+version: '0.1.0'
+name: ladder-roundtrip
+steps:
+  - id: fetch
+    type: deterministic
+    command: echo hi
+    maxIterations: 3
+  - id: check
+    type: deterministic
+    command: grep hi out.txt
+    dependsOn: [fetch]
+    verification:
+      type: output_contains
+      value: hi
+`);
+    client = new JournalClient(path, { requestTimeoutMs: 2000 });
+    await client.connect();
+    await client.hello('sdk-test');
+    lastStartedSpec = null;
+    const res = await client.runStart(flow);
+    expect(res.run_id).toBe('run-01');
+    // What crossed the wire is the kernel dialect, not the authoring shape.
+    const wired = lastStartedSpec as Record<string, unknown>;
+    expect(wired).not.toBeNull();
+    const check = (wired.steps as Record<string, unknown>[])[1];
+    expect(check.depends_on).toEqual(['fetch']);
+    expect(check.max_iterations).toBe(1);
+    expect(check.verification).toEqual({ output_contains: 'hi' });
+    expect(check.dependsOn).toBeUndefined();
+    expect((wired.steps as Record<string, unknown>[])[0].max_iterations).toBe(3);
   });
 
   it('demultiplexes server-pushed events', async () => {

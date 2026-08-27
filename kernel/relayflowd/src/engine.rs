@@ -145,10 +145,15 @@ impl<C: Clock> Engine<C> {
                     }
                     Action::ExecDeterministic { step, attempt } => {
                         let result = exec_det::execute(&step);
+                        // Completed semantic executions before this attempt;
+                        // crashed attempts are excluded so they never consume
+                        // `max_iterations` allowance.
+                        let semantic_executions = state.steps[&step.id].semantic_executions;
                         for action in completion_actions(
                             journal.run_id(),
                             &step,
                             attempt,
+                            semantic_executions,
                             result,
                             self.clock.now_ms(),
                         ) {

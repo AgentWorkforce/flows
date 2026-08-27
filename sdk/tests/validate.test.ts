@@ -131,6 +131,92 @@ describe('validate: rejects malformed specs', () => {
   });
 });
 
+describe('validate: fail-closed on unknown keys (RFC covenant 2)', () => {
+  const step = { id: 'a', type: 'deterministic', command: 'x' };
+
+  it('rejects the depends_on typo with the authoring-vocabulary suggestion', () => {
+    // The regression this pins: `depends_on` used to pass validation and be
+    // silently discarded, so step ordering was lost.
+    const r = validateSpec({
+      version: '0.1.0',
+      name: 'x',
+      steps: [step, { id: 'b', type: 'deterministic', command: 'y', depends_on: ['a'] }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toContain('unknown key "depends_on" — did you mean "dependsOn"?');
+  });
+
+  it('rejects unknown keys at the root level', () => {
+    const r = validateSpec({ version: '0.1.0', name: 'x', steps: [step], budgets: {} });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toContain('spec: unknown key "budgets" — did you mean "budget"?');
+  });
+
+  it('rejects unknown keys at the budget level', () => {
+    const r = validateSpec({ version: '0.1.0', name: 'x', budget: { max_dollars: '1.50' }, steps: [step] });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toContain('spec.budget: unknown key "max_dollars" — did you mean "maxDollars"?');
+  });
+
+  it('rejects unknown keys at the step level, including per-type fields', () => {
+    const r = validateSpec({
+      version: '0.1.0',
+      name: 'x',
+      steps: [
+        { id: 'a', type: 'deterministic', command: 'x', max_iterations: 2 },
+        { id: 'b', type: 'llm', prompt: 'p', instruction: 'not an llm field' },
+      ],
+    });
+    expect(r.ok).toBe(false);
+    const joined = r.errors.join(' ');
+    expect(joined).toContain('spec.steps[0]: unknown key "max_iterations" — did you mean "maxIterations"?');
+    expect(joined).toContain('spec.steps[1]: unknown key "instruction"');
+  });
+
+  it('rejects unknown keys at the verification level', () => {
+    const r = validateSpec({
+      version: '0.1.0',
+      name: 'x',
+      steps: [{ ...step, verification: { type: 'output_contains', value: 'hi', values: 'oops' } }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toContain('unknown key "values" — did you mean "value"?');
+  });
+
+  it('rejects unknown keys at the surfaces level (object and items)', () => {
+    const r = validateSpec({
+      version: '0.1.0',
+      name: 'x',
+      steps: [{
+        id: 'a',
+        type: 'agent',
+        instruction: 't',
+        surfaces: { workspaces: [{ surface: 'w' }], workspace: [{ surface: 'w', writable: true }] },
+      }],
+    });
+    expect(r.ok).toBe(false);
+    const joined = r.errors.join(' ');
+    expect(joined).toContain('unknown key "workspaces" — did you mean "workspace"?');
+    expect(joined).toContain('surfaces.workspace[0]: unknown key "writable"');
+  });
+
+  it('rejects unknown keys at the permissions level', () => {
+    const r = validateSpec({
+      version: '0.1.0',
+      name: 'x',
+      steps: [{ id: 'a', type: 'agent', instruction: 't', permissions: { file_globs: ['*'] } }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toContain('unknown key "file_globs" — did you mean "fileGlobs"?');
+  });
+
+  it('names allowed keys when no valid key is close', () => {
+    const r = validateSpec({ version: '0.1.0', name: 'x', steps: [step], zzzzzzzz: 1 });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toContain('spec: unknown key "zzzzzzzz" (expected one of');
+  });
+});
+
 describe('compile: surfaces validation failures as CompileError', () => {
   it('throws CompileError with the offending messages for a malformed YAML spec', () => {
     expect(() =>

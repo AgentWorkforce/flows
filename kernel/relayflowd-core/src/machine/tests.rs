@@ -39,6 +39,7 @@ fn verification_failure_schedules_a_durable_retry() {
         "run",
         &spec.steps[0],
         1,
+        0,
         AttemptResult::successful(json!({"exit_code": 0, "stdout_tail": "wrong"}), "kernel"),
         1_000,
     );
@@ -68,6 +69,7 @@ fn successful_memo_is_never_scheduled_again() {
         "run",
         &spec.steps[0],
         1,
+        0,
         AttemptResult::successful(json!({"exit_code": 0, "stdout_tail": "hello"}), "kernel"),
         1_000,
     )
@@ -88,4 +90,52 @@ fn successful_memo_is_never_scheduled_again() {
             .iter()
             .any(|action| matches!(action, Action::ExecDeterministic { .. }))
     );
+}
+
+#[test]
+fn crashed_attempt_does_not_consume_an_iteration() {
+    // max_iterations 2: crash attempt 1, verification-fail the replacement
+    // (attempt 2) — one semantic iteration must remain, so the step retries
+    // instead of exhausting after a single semantic result.
+    let spec = retrying_spec();
+    let fresh = RunState::fold("run", spec.clone(), &[]).unwrap();
+    let Action::Append(started) = next_actions(&fresh, 10).remove(0) else {
+        panic!("attempt 1 must journal its lease");
+    };
+
+    // kill -9 between steps: attempt 1 is Running with no result. Recovery
+    // must record the dead attempt as a retry, not a consumed iteration.
+    let state = RunState::fold("run", spec.clone(), &[started.clone()]).unwrap();
+    assert_eq!(state.steps["hello"].semantic_executions, 0);
+    let recovery = recovery_actions(&state, 1_000);
+    let Action::Append(crashed) = &recovery[0] else {
+        panic!("recovery must journal the dead attempt");
+    };
+    let crash_payload: StepCompletedPayload =
+        serde_json::from_value(crashed.payload.clone()).unwrap();
+    assert_eq!(crash_payload.disposition, Disposition::Retry);
+
+    // The replacement (attempt 2) completes but fails verification. Raw
+    // attempt number 2 == max_iterations, yet only one semantic execution has
+    // happened — the step must still have an iteration remaining.
+    let state = RunState::fold("run", spec.clone(), &[started, crashed.clone()]).unwrap();
+    assert_eq!(state.steps["hello"].semantic_executions, 0);
+    let actions = completion_actions(
+        "run",
+        &spec.steps[0],
+        2,
+        state.steps["hello"].semantic_executions,
+        AttemptResult::successful(json!({"exit_code": 0, "stdout_tail": "wrong"}), "kernel"),
+        2_000,
+    );
+    let Action::Append(completed) = &actions[0] else {
+        panic!("completion must journal");
+    };
+    let payload: StepCompletedPayload = serde_json::from_value(completed.payload.clone()).unwrap();
+    assert_eq!(
+        payload.completion_reason,
+        CompletionReason::VerificationFailed
+    );
+    assert_eq!(payload.disposition, Disposition::Retry);
+    assert!(payload.next_attempt_at_ms.is_some());
 }

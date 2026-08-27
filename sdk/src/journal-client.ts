@@ -21,6 +21,7 @@ import {
   type Response,
   type ServerEvent,
 } from './protocol.js';
+import { toKernelSpec } from './compile.js';
 import type { FlowSpec, StepType } from './spec.js';
 
 export interface JournalClientOptions {
@@ -157,9 +158,16 @@ export class JournalClient extends EventEmitter {
     return this.request('hello', { protocol: PROTOCOL_VERSION, client });
   }
 
-  /** Validate spec (zero-agent flows legal), create run file, append `run.spawned`. */
+  /**
+   * Validate spec (zero-agent flows legal), create run file, append
+   * `run.spawned`. Takes the authoring `FlowSpec` and converts it to the
+   * kernel dialect at the boundary (`toKernelSpec`): the kernel's
+   * `RunSpec::parse` is fail-closed and rejects authoring keys like
+   * `maxIterations`/`dependsOn`, so sending the authoring shape verbatim
+   * could never start a run.
+   */
   runStart(spec: FlowSpec): Promise<VerbContract['run.start']['result']> {
-    return this.request('run.start', { spec });
+    return this.request('run.start', { spec: toKernelSpec(spec) });
   }
 
   /** §3 memoized resume. */

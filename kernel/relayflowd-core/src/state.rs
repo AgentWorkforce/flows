@@ -40,7 +40,13 @@ pub enum StepState {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StepRuntime {
     pub state: StepState,
+    /// Highest attempt number observed (crashed and completed alike).
     pub attempts: u32,
+    /// Completed *semantic* executions — attempts that finished and produced
+    /// a verifiable result. Crashed/lease-expired attempts died without a
+    /// result, so they do not count; `max_iterations` bounds this counter,
+    /// never the raw attempt number.
+    pub semantic_executions: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +78,7 @@ impl RunState {
                         StepRuntime {
                             state: StepState::Pending,
                             attempts: 0,
+                            semantic_executions: 0,
                         },
                     )
                 })
@@ -206,6 +213,14 @@ impl RunState {
             .ok_or_else(|| StateError::UnknownStep(step_id.clone()))?;
         let attempt = entry.attempt.ok_or(StateError::MissingAttempt(entry.seq))?;
         step.attempts = step.attempts.max(attempt);
+        if !matches!(
+            payload.completion_reason,
+            CompletionReason::Crashed | CompletionReason::LeaseExpired
+        ) {
+            // The attempt ran to completion and produced a result the gate
+            // could judge; only these consume `max_iterations` allowance.
+            step.semantic_executions = step.semantic_executions.saturating_add(1);
+        }
         step.state = match payload.disposition {
             Disposition::StepDone => StepState::Done {
                 completion_reason: payload.completion_reason,
@@ -235,6 +250,7 @@ impl RunState {
             *runtime = StepRuntime {
                 state: StepState::Pending,
                 attempts: 0,
+                semantic_executions: 0,
             };
         }
         for (id, done) in payload.steps_done {
@@ -256,6 +272,10 @@ impl RunState {
                 .get_mut(&id)
                 .ok_or_else(|| StateError::UnknownStep(id.clone()))?;
             step.attempts = open.attempt;
+            // The epoch summary predates the semantic counter; assume every
+            // prior attempt was semantic. Conservative: a squashed journal can
+            // grant fewer iterations than the live one, never more.
+            step.semantic_executions = open.attempt.saturating_sub(1);
             step.state = match open.state.as_str() {
                 "running" => StepState::Running {
                     attempt: open.attempt,

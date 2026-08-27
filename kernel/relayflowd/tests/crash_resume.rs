@@ -103,6 +103,20 @@ fn sigkill_mid_run_preserves_completed_effects_and_replaces_the_dead_attempt() {
         .status()
         .unwrap();
     assert!(group_killed.success());
+    // exec_det spawns the step's shell as its own process-group leader (so a
+    // timeout can kill the whole tree), which also detaches it from the group
+    // killed above. A machine crash takes the step down too: find the shell
+    // by its unique command line and SIGKILL its group as well, so no orphan
+    // finishes the effect on the dead run's behalf.
+    let step_shells = Command::new("pgrep")
+        .args(["-f", gate.to_str().unwrap()])
+        .output()
+        .unwrap();
+    for pid in String::from_utf8_lossy(&step_shells.stdout).split_whitespace() {
+        let _ = Command::new("/bin/kill")
+            .args(["-9", &format!("-{pid}")])
+            .status();
+    }
     child.wait().unwrap();
     assert_eq!(
         fs::read_to_string(&marker).unwrap(),

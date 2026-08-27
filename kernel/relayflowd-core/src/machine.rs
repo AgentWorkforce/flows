@@ -152,10 +152,16 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
     vec![Action::Append(started), execute]
 }
 
+/// `semantic_executions` is the number of *completed* semantic executions
+/// before this attempt (`StepRuntime::semantic_executions`). The attempt being
+/// completed here ran to a result, so it is the `semantic_executions + 1`-th
+/// semantic execution; `max_iterations` bounds that count, never the raw
+/// attempt number — a crashed attempt must not consume iteration allowance.
 pub fn completion_actions(
     run_id: &str,
     step: &StepSpec,
     attempt: u32,
+    semantic_executions: u32,
     result: AttemptResult,
     now_ms: i64,
 ) -> Vec<Action> {
@@ -166,7 +172,7 @@ pub fn completion_actions(
     let verified = verification
         .as_ref()
         .is_some_and(|record| record.verdict == crate::entry::VerificationVerdict::Pass);
-    let may_retry = attempt < step.max_iterations;
+    let may_retry = semantic_executions.saturating_add(1) < step.max_iterations;
     let (reason, disposition, output, next_attempt_at_ms) = if verified {
         (
             CompletionReason::Success,
@@ -236,11 +242,12 @@ pub fn completion_actions(
 pub fn recovery_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
     let mut actions = Vec::new();
     for spec in &state.spec.steps {
+        let runtime = &state.steps[&spec.id];
         let StepState::Running {
             attempt,
             lease_deadline_ms,
             ..
-        } = state.steps[&spec.id].state
+        } = runtime.state
         else {
             continue;
         };
@@ -256,10 +263,10 @@ pub fn recovery_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
                 ..
             }
         );
-        // A dead attempt produced no result, so it does not consume the final
-        // semantic iteration. Permit one replacement attempt even when the
-        // default max_iterations is one.
-        let may_retry = attempt <= spec.max_iterations;
+        // A dead attempt produced no result, so it consumes no semantic
+        // iteration at all: a replacement is permitted as long as completed
+        // semantic executions have not exhausted `max_iterations`.
+        let may_retry = runtime.semantic_executions < spec.max_iterations;
         let next_attempt_at_ms = (may_retry && !manual).then(|| {
             now_ms.saturating_add(backoff_delay_ms(
                 &spec.retry,

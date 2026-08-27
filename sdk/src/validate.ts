@@ -36,12 +36,51 @@ const RECOVERY_MODES: ReadonlySet<RecoveryMode> = new Set([
 const DECIMAL_RE = /^\d+(\.\d+)?$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
 
+// Allowed keys per authoring object level. Validation is fail-closed on
+// unknown keys (AGENTS.md rule 4; RFC covenant 2): a typo'd key like
+// `depends_on` must be an error naming the nearest valid key, never a
+// silently discarded field — silently dropping `dependsOn` loses ordering.
+const ROOT_KEYS = ['version', 'name', 'description', 'steps', 'budget'] as const;
+const BUDGET_KEYS = ['maxTokensIn', 'maxTokensOut', 'maxDollars'] as const;
+const STEP_COMMON_KEYS = ['id', 'type', 'dependsOn', 'verification', 'maxIterations', 'timeoutMs'] as const;
+const STEP_TYPE_KEYS: Record<StepType, readonly string[]> = {
+  deterministic: ['command'],
+  llm: ['prompt', 'model'],
+  agent: ['instruction', 'surfaces', 'recoveryMode', 'permissions'],
+};
+const VERIFICATION_KEYS: Record<string, readonly string[]> = {
+  exit_code: ['type', 'expect'],
+  output_contains: ['type', 'value'],
+  json_schema: ['type', 'schema'],
+};
+const SURFACES_KEYS = ['workspace', 'streams', 'external'] as const;
+const WORKSPACE_SURFACE_KEYS = ['surface'] as const;
+const STREAM_SURFACE_KEYS = ['stream'] as const;
+const PERMISSIONS_KEYS = ['fileGlobs', 'networkAllowlist', 'accessPreset'] as const;
+
 class Validator {
   private errors: string[] = [];
   private ids = new Set<string>();
 
   fail(msg: string): void {
     this.errors.push(msg);
+  }
+
+  /**
+   * Reject unknown keys at an authoring object level, suggesting the nearest
+   * valid key. Errors speak the author's vocabulary (RFC covenant 1):
+   * `unknown key "depends_on" — did you mean "dependsOn"?`.
+   */
+  private checkKeys(obj: Record<string, unknown>, allowed: readonly string[], at: string): void {
+    for (const key of Object.keys(obj)) {
+      if (allowed.includes(key)) continue;
+      const suggestion = nearestKey(key, allowed);
+      this.fail(
+        suggestion !== null
+          ? `${at}: unknown key "${key}" — did you mean "${suggestion}"?`
+          : `${at}: unknown key "${key}" (expected one of ${allowed.join(' | ')})`,
+      );
+    }
   }
 
   result(): ValidationResult {
@@ -54,6 +93,7 @@ class Validator {
       return this.result();
     }
     const s = spec as Record<string, unknown>;
+    this.checkKeys(s, ROOT_KEYS, 'spec');
 
     if (!isNonEmptyString(s['version'])) {
       this.fail('spec.version: expected a non-empty semver string (e.g. "0.1.0")');
@@ -91,6 +131,7 @@ class Validator {
       this.fail('spec.budget: expected an object');
       return;
     }
+    this.checkKeys(b, BUDGET_KEYS, 'spec.budget');
     const budget = b as BudgetSpec;
     if (
       budget.maxTokensIn !== undefined &&
@@ -132,6 +173,7 @@ class Validator {
       return;
     }
     const type = st['type'] as StepType;
+    this.checkKeys(st, [...STEP_COMMON_KEYS, ...STEP_TYPE_KEYS[type]], at);
 
     if (st['dependsOn'] !== undefined) {
       if (!Array.isArray(st['dependsOn']) || !(st['dependsOn'] as unknown[]).every(isNonEmptyString)) {
@@ -172,6 +214,10 @@ class Validator {
       return;
     }
     const gate = v as unknown as VerificationSpec & { expect?: unknown };
+    const gateKeys = typeof gate.type === 'string' ? VERIFICATION_KEYS[gate.type] : undefined;
+    if (gateKeys !== undefined) {
+      this.checkKeys(v, gateKeys, at);
+    }
     if (gate.type === 'exit_code') {
       // v0 judges exit_code == 0 exactly (kernel DESIGN.md §4). Fail closed
       // rather than compile a spec whose gate the kernel cannot enforce.
@@ -223,14 +269,23 @@ class Validator {
       return;
     }
     const s = surfaces as Record<string, unknown>;
+    this.checkKeys(s, SURFACES_KEYS, at);
     if (s['workspace'] !== undefined) {
       if (!Array.isArray(s['workspace']) || !(s['workspace'] as unknown[]).every((w) => isObject(w) && isNonEmptyString((w as Record<string, unknown>)['surface']))) {
         this.fail(`${at}.workspace: expected an array of {surface: string}`);
+      } else {
+        for (const [i, w] of (s['workspace'] as Record<string, unknown>[]).entries()) {
+          this.checkKeys(w, WORKSPACE_SURFACE_KEYS, `${at}.workspace[${i}]`);
+        }
       }
     }
     if (s['streams'] !== undefined) {
       if (!Array.isArray(s['streams']) || !(s['streams'] as unknown[]).every((w) => isObject(w) && isNonEmptyString((w as Record<string, unknown>)['stream']))) {
         this.fail(`${at}.streams: expected an array of {stream: string}`);
+      } else {
+        for (const [i, w] of (s['streams'] as Record<string, unknown>[]).entries()) {
+          this.checkKeys(w, STREAM_SURFACE_KEYS, `${at}.streams[${i}]`);
+        }
       }
     }
     if (s['external'] !== undefined) {
@@ -245,6 +300,7 @@ class Validator {
       this.fail(`${at}: expected an object`);
       return;
     }
+    this.checkKeys(p as Record<string, unknown>, PERMISSIONS_KEYS, at);
     if (p.accessPreset !== undefined && p.accessPreset !== 'readonly' && p.accessPreset !== 'readwrite') {
       this.fail(`${at}.accessPreset: expected readonly | readwrite`);
     }
@@ -297,6 +353,43 @@ class Validator {
 /** Validate a parsed spec object. Returns `{ok, errors}`; never throws. */
 export function validateSpec(spec: unknown): ValidationResult {
   return new Validator().run(spec);
+}
+
+// --- unknown-key suggestions ------------------------------------------------
+
+/**
+ * The nearest valid key for a typo, or null when nothing is close. A key that
+ * differs only in casing/separators (`depends_on` -> `dependsOn`) always
+ * matches; otherwise small edit distances catch plain misspellings.
+ */
+function nearestKey(key: string, allowed: readonly string[]): string | null {
+  const normalize = (value: string): string => value.toLowerCase().replace(/[_-]/g, '');
+  let best: string | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const candidate of allowed) {
+    if (normalize(candidate) === normalize(key)) return candidate;
+    const distance = levenshtein(key.toLowerCase(), candidate.toLowerCase());
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = candidate;
+    }
+  }
+  return best !== null && bestDistance <= 3 && bestDistance < best.length ? best : null;
+}
+
+function levenshtein(a: string, b: string): number {
+  let previous: number[] = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current: number[] = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const deletion = (previous[j] ?? 0) + 1;
+      const insertion = (current[j - 1] ?? 0) + 1;
+      const substitution = (previous[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1);
+      current[j] = Math.min(deletion, insertion, substitution);
+    }
+    previous = current;
+  }
+  return previous[b.length] ?? 0;
 }
 
 // --- predicates -------------------------------------------------------------

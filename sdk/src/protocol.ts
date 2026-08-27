@@ -9,7 +9,7 @@
 //
 // This module is the typed wire surface; `journal-client.ts` implements it.
 
-import type { FlowSpec, StepType } from './spec.js';
+import type { KernelRunSpec, StepType } from './spec.js';
 
 /** Stamped per segment; readers read every past version, writers write newest. */
 export const PROTOCOL_VERSION = 0 as const;
@@ -66,7 +66,13 @@ export interface HelloResult {
 }
 
 export interface RunStartParams {
-  spec: FlowSpec;
+  /**
+   * The kernel spec dialect — the ONE boundary shape `RunSpec::parse`
+   * accepts (snake_case, flat v0 verification, defaults materialized).
+   * The authoring `FlowSpec` never crosses the wire; `JournalClient.runStart`
+   * converts via `toKernelSpec`.
+   */
+  spec: KernelRunSpec;
 }
 export interface RunStartResult {
   run_id: string;
