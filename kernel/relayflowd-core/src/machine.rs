@@ -255,6 +255,18 @@ pub fn completion_actions(
 }
 
 pub fn recovery_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
+    recovery_actions_filtered(state, now_ms, &|_, _| false)
+}
+
+/// Recovery for a live server: `lease_is_active(step_id, attempt)` reports an
+/// attempt whose worker still holds a valid, heartbeating lease. Those attempts
+/// are left running; only genuinely dead attempts (worker detached, or lease
+/// deadline passed) are abandoned.
+pub fn recovery_actions_filtered(
+    state: &RunState,
+    now_ms: i64,
+    lease_is_active: &dyn Fn(&str, u32) -> bool,
+) -> Vec<Action> {
     let mut actions = Vec::new();
     for spec in &state.spec.steps {
         let runtime = &state.steps[&spec.id];
@@ -266,6 +278,9 @@ pub fn recovery_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
         else {
             continue;
         };
+        if lease_is_active(&spec.id, attempt) {
+            continue;
+        }
         let reason = if now_ms >= lease_deadline_ms {
             CompletionReason::LeaseExpired
         } else {

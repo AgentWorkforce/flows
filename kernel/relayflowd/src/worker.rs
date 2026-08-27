@@ -30,3 +30,10 @@ pub trait StepDispatcher: Send + Sync {
 pub trait JournalObserver: Send + Sync {
     fn appended(&self, entry: &JournalEntry);
 }
+
+/// Answers whether a leased attempt still has a live worker behind it: the
+/// connection is attached and its (heartbeat-renewed) lease deadline has not
+/// passed. A live resume must not presume such attempts dead.
+pub trait LeaseProbe: Send + Sync {
+    fn lease_active(&self, run_id: &str, step_id: &str, attempt: u32, now_ms: i64) -> bool;
+}

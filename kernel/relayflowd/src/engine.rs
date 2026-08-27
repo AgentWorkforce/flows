@@ -8,7 +8,7 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use relayflowd_core::{
     Action, Clock, EntryType, Journal, JournalEntry, RunCompletionReason, RunSpawnedPayload,
-    RunSpec, RunState, StepKind, completion_actions, next_actions, recovery_actions,
+    RunSpec, RunState, StepKind, completion_actions, next_actions, recovery_actions_filtered,
 };
 use relayflowd_journal::{Registry, SqliteJournal};
 use sha2::{Digest, Sha256};
@@ -140,6 +140,19 @@ impl<C: Clock> Engine<C> {
 
     #[doc(hidden)]
     pub fn resume_with_options(&self, run_id: &str, options: DriveOptions) -> Result<RunOutcome> {
+        self.resume_filtered(run_id, options, &|_, _| false)
+    }
+
+    /// Shared resume path. `lease_is_active(step_id, attempt)` marks attempts
+    /// that still have a live worker lease; those are left running instead of
+    /// being presumed dead. Offline resume passes a constant `false`: with no
+    /// server, no lease can be live.
+    pub(crate) fn resume_filtered(
+        &self,
+        run_id: &str,
+        options: DriveOptions,
+        lease_is_active: &dyn Fn(&str, u32) -> bool,
+    ) -> Result<RunOutcome> {
         let mut journal = self.open_run(run_id)?;
         let registry = self.registry()?;
         if registry.lookup(run_id)?.is_none() {
@@ -150,7 +163,7 @@ impl<C: Clock> Engine<C> {
         let spec = journal.run_spec().context("read run spec")?;
         ensure_supported(&spec)?;
         let state = self.load_state(&journal, spec.clone())?;
-        for action in recovery_actions(&state, self.clock.now_ms()) {
+        for action in recovery_actions_filtered(&state, self.clock.now_ms(), lease_is_active) {
             self.persist_only(&mut journal, action)?;
         }
         self.drive(journal, spec, options)
@@ -227,7 +240,29 @@ impl<C: Clock> Engine<C> {
 
             let actions = next_actions(&state, self.clock.now_ms());
             if actions.is_empty() {
-                self.registry()?.set_status(&state.run_id, "parked", None)?;
+                // A live out-of-band attempt is still executing: the run keeps
+                // waiting for its worker; re-parking it would erase the lease.
+                let active_lease =
+                    state
+                        .spec
+                        .steps
+                        .iter()
+                        .find_map(|step| match state.steps[&step.id].state {
+                            relayflowd_core::StepState::Running {
+                                lease_deadline_ms, ..
+                            } if step.step_type() != relayflowd_core::StepType::Deterministic => {
+                                Some(lease_deadline_ms)
+                            }
+                            _ => None,
+                        });
+                match active_lease {
+                    Some(deadline_ms) => self.registry()?.set_status(
+                        &state.run_id,
+                        "waiting_worker",
+                        Some(deadline_ms),
+                    )?,
+                    None => self.registry()?.set_status(&state.run_id, "parked", None)?,
+                }
                 return Ok(RunOutcome {
                     run_id: state.run_id.clone(),
                     status: RunStatus::Parked,

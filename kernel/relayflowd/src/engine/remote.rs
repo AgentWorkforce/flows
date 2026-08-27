@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use super::{DriveOptions, Engine, RunOutcome, ensure_supported};
 use crate::clock::WallClock;
+use crate::worker::LeaseProbe;
 
 #[derive(Debug, Clone)]
 pub struct OutOfBandCompletion {
@@ -74,15 +75,28 @@ impl Engine<WallClock> {
         self.drive(journal, spec, DriveOptions::default())
     }
 
-    /// Explain a live worker disconnect immediately, then make the unfinished
-    /// step eligible for another lease without consuming an iteration.
+    /// Resume driven from a live server: attempts whose worker still holds a
+    /// valid, heartbeating lease are left running; only genuinely dead
+    /// attempts (worker detached, or lease deadline passed) are recovered.
+    pub fn resume_live(&self, run_id: &str, leases: &dyn LeaseProbe) -> Result<RunOutcome> {
+        let now_ms = self.clock.now_ms();
+        self.resume_filtered(run_id, DriveOptions::default(), &|step_id, attempt| {
+            leases.lease_active(run_id, step_id, attempt, now_ms)
+        })
+    }
+
+    /// Explain a dead leased attempt (worker disconnect or lease expiry), then
+    /// make the unfinished step eligible for another lease without consuming
+    /// an iteration. Returns `Ok(None)` when the attempt is no longer the
+    /// active lease — its completion is already journaled, nothing to record.
+    /// A journal failure is an error: the abandonment MUST NOT be dropped.
     pub fn abandon_out_of_band(
         &self,
         run_id: &str,
         step_id: &str,
         attempt: u32,
         reason: CompletionReason,
-    ) -> Result<RunOutcome> {
+    ) -> Result<Option<RunOutcome>> {
         if !matches!(
             reason,
             CompletionReason::Crashed | CompletionReason::LeaseExpired
@@ -95,19 +109,29 @@ impl Engine<WallClock> {
         let state = self.load_state(&journal, spec.clone())?;
         let actions = abandonment_actions(&state, step_id, attempt, reason, self.clock.now_ms());
         if actions.is_empty() {
-            bail!("step {step_id} attempt {attempt} has no active lease")
+            return Ok(None);
         }
         for action in actions {
             self.persist_only(&mut journal, action)?;
         }
         let state = self.load_state(&journal, spec)?;
         self.registry()?.set_status(run_id, "parked", None)?;
-        Ok(RunOutcome {
+        Ok(Some(RunOutcome {
             run_id: run_id.to_owned(),
             status: super::RunStatus::Parked,
             completion_reason: None,
             completed_steps: state.completed_steps(),
-        })
+        }))
+    }
+
+    /// Durably record a heartbeat-renewed lease deadline. The journal pins the
+    /// lease grant at attempt start; renewals are operational state, persisted
+    /// in the run registry so they survive alongside the in-memory hub.
+    pub fn renew_lease(&self, run_id: &str, lease_deadline_ms: i64) -> Result<()> {
+        self.registry()?
+            .renew_deadline(run_id, lease_deadline_ms)
+            .context("persist renewed lease deadline")?;
+        Ok(())
     }
 
     pub fn append_stream(

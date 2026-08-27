@@ -61,6 +61,23 @@ impl Registry {
         Ok(())
     }
 
+    /// Durably extend a waiting run's lease deadline (heartbeat renewal).
+    /// Returns whether a waiting_worker row was updated; a run that has moved
+    /// on (completed, parked) is left untouched — the caller's lease check,
+    /// not this locator, decides whether the heartbeat itself is valid.
+    pub fn renew_deadline(
+        &self,
+        run_id: &str,
+        lease_deadline_ms: i64,
+    ) -> Result<bool, JournalStoreError> {
+        let changed = self.connection.execute(
+            "UPDATE runs SET next_wake_at_ms = ?2
+             WHERE run_id = ?1 AND status = 'waiting_worker'",
+            params![run_id, lease_deadline_ms],
+        )?;
+        Ok(changed > 0)
+    }
+
     pub fn lookup(&self, run_id: &str) -> Result<Option<RegistryRecord>, JournalStoreError> {
         self.connection
             .query_row(

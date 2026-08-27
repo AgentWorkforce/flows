@@ -6,10 +6,10 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use relayflowd_core::{JournalEntry, StepType};
+use relayflowd_core::{CompletionReason, JournalEntry, StepType};
 use serde_json::json;
 
-use crate::worker::{JournalObserver, StepDispatch, StepDispatcher};
+use crate::worker::{JournalObserver, LeaseProbe, StepDispatch, StepDispatcher};
 
 const LEASE_RENEWAL_MS: i64 = 30_000;
 
@@ -24,10 +24,23 @@ struct Worker {
     writer: Writer,
 }
 
-#[derive(Clone)]
+/// A watcher starts in replay mode: live appends are buffered (keyed by
+/// journal seq) until the registrant has replayed the snapshot and reports the
+/// sequence cursor it replayed through. Buffered entries at or below that
+/// cursor were already replayed and are dropped; the rest flush in order.
+/// Registration-before-replay plus this dedupe closes the gap where an entry
+/// appended between snapshot and registration was missed forever.
+enum WatchDelivery {
+    Replaying {
+        buffered: Vec<(i64, serde_json::Value)>,
+    },
+    Live,
+}
+
 struct Watcher {
     connection_id: u64,
     writer: Writer,
+    delivery: WatchDelivery,
 }
 
 #[derive(Clone)]
@@ -45,6 +58,15 @@ pub struct AbandonedLease {
     pub attempt: u32,
 }
 
+/// A dead attempt whose completion could not be journaled yet. Fail closed:
+/// it is retained here and retried by the reconciler until the journal
+/// records it — never silently dropped.
+#[derive(Debug, Clone)]
+pub struct PendingAbandonment {
+    pub lease: AbandonedLease,
+    pub reason: CompletionReason,
+}
+
 #[derive(Default)]
 struct Sessions {
     workers: Vec<Worker>,
@@ -55,9 +77,24 @@ struct Sessions {
 #[derive(Default)]
 pub struct ProtocolHub {
     sessions: Mutex<Sessions>,
+    /// Per-run write serialization: every mutating verb for a run (resume,
+    /// out-of-band completion, abandonment, stream append, event emit) holds
+    /// this lock across its load-state -> decide -> append sequence, so the
+    /// scheduling decision is atomic and a step can never be double-dispatched.
+    run_locks: Mutex<BTreeMap<String, Arc<Mutex<()>>>>,
+    pending_abandonments: Mutex<Vec<PendingAbandonment>>,
 }
 
 impl ProtocolHub {
+    pub fn run_lock(&self, run_id: &str) -> Arc<Mutex<()>> {
+        self.run_locks
+            .lock()
+            .expect("run locks lock")
+            .entry(run_id.to_owned())
+            .or_default()
+            .clone()
+    }
+
     pub fn attach_worker(
         &self,
         connection_id: u64,
@@ -77,6 +114,8 @@ impl ProtocolHub {
         });
     }
 
+    /// Register a watcher BEFORE its journal replay. Live appends buffer until
+    /// `watch_ready` supplies the replayed-through cursor.
     pub fn watch(&self, connection_id: u64, run_id: String, writer: Writer) {
         let mut sessions = self.sessions.lock().expect("protocol sessions lock");
         let watchers = sessions.watchers.entry(run_id).or_default();
@@ -84,7 +123,45 @@ impl ProtocolHub {
         watchers.push(Watcher {
             connection_id,
             writer,
+            delivery: WatchDelivery::Replaying {
+                buffered: Vec::new(),
+            },
         });
+    }
+
+    /// Flush entries buffered during replay (deduped against the replay
+    /// cursor) and switch the watcher live.
+    pub fn watch_ready(&self, connection_id: u64, run_id: &str, replayed_through_seq: i64) {
+        let mut sessions = self.sessions.lock().expect("protocol sessions lock");
+        let Some(watchers) = sessions.watchers.get_mut(run_id) else {
+            return;
+        };
+        watchers.retain_mut(|watcher| {
+            if watcher.connection_id != connection_id {
+                return true;
+            }
+            let buffered = match std::mem::replace(&mut watcher.delivery, WatchDelivery::Live) {
+                WatchDelivery::Replaying { buffered } => buffered,
+                WatchDelivery::Live => return true,
+            };
+            for (seq, frame) in buffered {
+                if seq <= replayed_through_seq {
+                    continue;
+                }
+                if write_frame(&watcher.writer, &frame).is_err() {
+                    return false;
+                }
+            }
+            true
+        });
+    }
+
+    /// Drop a watcher whose replay failed before it went live.
+    pub fn unwatch(&self, connection_id: u64, run_id: &str) {
+        let mut sessions = self.sessions.lock().expect("protocol sessions lock");
+        if let Some(watchers) = sessions.watchers.get_mut(run_id) {
+            watchers.retain(|watcher| watcher.connection_id != connection_id);
+        }
     }
 
     pub fn heartbeat(
@@ -124,6 +201,44 @@ impl ProtocolHub {
             .expect("protocol sessions lock")
             .assignments
             .remove(key);
+    }
+
+    /// Assignments whose (heartbeat-renewed) lease deadline has passed. The
+    /// worker may still hold an open socket — a hung worker is exactly the
+    /// case the expiry reconciler exists for. Assignments are NOT removed
+    /// here; they are released via `finish` only once the abandonment is
+    /// durably journaled, so a failed journal write is retried next sweep.
+    pub fn expired_assignments(&self, now_ms: i64) -> Vec<AbandonedLease> {
+        self.sessions
+            .lock()
+            .expect("protocol sessions lock")
+            .assignments
+            .iter()
+            .filter(|(_, assignment)| now_ms >= assignment.lease_deadline_ms)
+            .map(|((run_id, step_id, attempt), _)| AbandonedLease {
+                run_id: run_id.clone(),
+                step_id: step_id.clone(),
+                attempt: *attempt,
+            })
+            .collect()
+    }
+
+    /// Retain an abandonment whose journal append failed, for reconciler retry.
+    pub fn queue_abandonment(&self, lease: AbandonedLease, reason: CompletionReason) {
+        self.pending_abandonments
+            .lock()
+            .expect("pending abandonments lock")
+            .push(PendingAbandonment { lease, reason });
+    }
+
+    /// Drain the retry queue; the reconciler re-queues what still fails.
+    pub fn take_pending_abandonments(&self) -> Vec<PendingAbandonment> {
+        std::mem::take(
+            &mut *self
+                .pending_abandonments
+                .lock()
+                .expect("pending abandonments lock"),
+        )
     }
 
     pub fn detach(&self, connection_id: u64) -> Vec<AbandonedLease> {
@@ -202,6 +317,18 @@ impl StepDispatcher for ProtocolHub {
     }
 }
 
+impl LeaseProbe for ProtocolHub {
+    fn lease_active(&self, run_id: &str, step_id: &str, attempt: u32, now_ms: i64) -> bool {
+        let key = (run_id.to_owned(), step_id.to_owned(), attempt);
+        self.sessions
+            .lock()
+            .expect("protocol sessions lock")
+            .assignments
+            .get(&key)
+            .is_some_and(|assignment| now_ms < assignment.lease_deadline_ms)
+    }
+}
+
 impl JournalObserver for ProtocolHub {
     fn appended(&self, entry: &JournalEntry) {
         let mut sessions = self.sessions.lock().expect("protocol sessions lock");
@@ -209,7 +336,13 @@ impl JournalObserver for ProtocolHub {
             return;
         };
         let frame = json!({"event": "entry", "data": entry});
-        watchers.retain(|watcher| write_frame(&watcher.writer, &frame).is_ok());
+        watchers.retain_mut(|watcher| match &mut watcher.delivery {
+            WatchDelivery::Replaying { buffered } => {
+                buffered.push((entry.seq, frame.clone()));
+                true
+            }
+            WatchDelivery::Live => write_frame(&watcher.writer, &frame).is_ok(),
+        });
     }
 }
 

@@ -8,11 +8,16 @@ use serde_json::{Value, json};
 use crate::{Engine, OutOfBandCompletion};
 
 #[cfg(unix)]
+mod reconcile;
+#[cfg(unix)]
 mod session;
 #[cfg(unix)]
 use session::{ProtocolHub, SharedWriter, write_frame};
 mod wire;
 use wire::*;
+
+#[cfg(all(test, unix))]
+mod tests;
 
 type ProtocolResult<T> = std::result::Result<T, (&'static str, String)>;
 
@@ -37,6 +42,7 @@ pub fn serve(data_dir: &Path) -> Result<()> {
     let listener = UnixListener::bind(&socket_path)
         .with_context(|| format!("bind socket {}", socket_path.display()))?;
     let hub = Arc::new(ProtocolHub::default());
+    reconcile::spawn_reconciler(data_dir.to_path_buf(), hub.clone());
     let next_connection = Arc::new(AtomicU64::new(1));
     for connection in listener.incoming() {
         let connection = connection?;
@@ -55,21 +61,38 @@ pub fn serve(data_dir: &Path) -> Result<()> {
                     break;
                 }
             }
-            let dispatcher: Arc<dyn crate::worker::StepDispatcher> = hub.clone();
-            let observer: Arc<dyn crate::worker::JournalObserver> = hub.clone();
-            let engine = Engine::with_runtime(&data_dir, dispatcher, observer);
-            for lease in hub.detach(connection_id) {
-                let _ = engine.abandon_out_of_band(
-                    &lease.run_id,
-                    &lease.step_id,
-                    lease.attempt,
-                    CompletionReason::Crashed,
-                );
-            }
+            abandon_connection(&data_dir, &hub, connection_id);
             Ok::<_, anyhow::Error>(())
         });
     }
     Ok(())
+}
+
+/// Explain every lease a closed connection held. Fail closed: a journal
+/// append that fails is logged AND the abandonment is retained for the
+/// reconciler to retry — the journal must eventually record the completion,
+/// never silently lose an active attempt.
+#[cfg(unix)]
+fn abandon_connection(data_dir: &Path, hub: &std::sync::Arc<ProtocolHub>, connection_id: u64) {
+    let dispatcher: std::sync::Arc<dyn crate::worker::StepDispatcher> = hub.clone();
+    let observer: std::sync::Arc<dyn crate::worker::JournalObserver> = hub.clone();
+    let engine = Engine::with_runtime(data_dir, dispatcher, observer);
+    for lease in hub.detach(connection_id) {
+        let lock = hub.run_lock(&lease.run_id);
+        let _guard = lock.lock().expect("run lock");
+        if let Err(error) = engine.abandon_out_of_band(
+            &lease.run_id,
+            &lease.step_id,
+            lease.attempt,
+            CompletionReason::Crashed,
+        ) {
+            eprintln!(
+                "relayflowd: error: failed to journal crashed completion for run {} step {} attempt {}: {error:#}; retained for reconciler retry",
+                lease.run_id, lease.step_id, lease.attempt
+            );
+            hub.queue_abandonment(lease, CompletionReason::Crashed);
+        }
+    }
 }
 
 #[cfg(not(unix))]
@@ -135,9 +158,16 @@ fn handle_request(
         }
         "run.resume" => {
             let params: RunIdParams = decode_params(request.params)?;
+            // Per-run serialization: the load-state -> next_actions -> append
+            // sequence must be atomic, or two concurrent resumes both see a
+            // step Runnable and double-dispatch the same attempt.
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            // Live resume: attempts with a valid, heartbeating lease on this
+            // hub stay running; only genuinely dead attempts are recovered.
             to_value(
                 engine
-                    .resume(&params.run_id, None)
+                    .resume_live(&params.run_id, hub.as_ref())
                     .map_err(internal_error)?,
             )
         }
@@ -147,15 +177,7 @@ fn handle_request(
         }
         "run.watch" => {
             let params: RunIdParams = decode_params(request.params)?;
-            let entries = engine
-                .journal_entries(&params.run_id, 1, usize::MAX)
-                .map_err(internal_error)?;
-            hub.watch(connection_id, params.run_id.clone(), writer.clone());
-            for entry in entries {
-                write_frame(writer, &json!({"event": "entry", "data": entry}))
-                    .map_err(internal_error)?;
-            }
-            Ok(json!({"watching": params.run_id}))
+            watch_with_replay(&engine, hub, connection_id, &params.run_id, writer, || ())
         }
         "worker.attach" => {
             let params: WorkerAttachParams = decode_params(request.params)?;
@@ -175,11 +197,18 @@ fn handle_request(
             let deadline = hub
                 .heartbeat(
                     connection_id,
-                    &(params.run_id, params.step_id, params.attempt),
+                    &(params.run_id.clone(), params.step_id, params.attempt),
                     &params.lease_id,
                     now_ms(),
                 )
                 .map_err(protocol_conflict)?;
+            // Durable renewal: persist the extended deadline so the lease the
+            // reconciler sweeps against is recorded, not memory-only. A failed
+            // write fails the heartbeat — the worker must not believe its
+            // lease was extended when nothing durable says so.
+            engine
+                .renew_lease(&params.run_id, deadline)
+                .map_err(internal_error)?;
             Ok(json!({"lease_deadline_ms": deadline}))
         }
         "step.complete" => {
@@ -189,6 +218,8 @@ fn handle_request(
                 params.step_id.clone(),
                 params.attempt,
             );
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
             let worker_id = hub
                 .completion_worker(connection_id, &key)
                 .map_err(protocol_conflict)?;
@@ -213,6 +244,8 @@ fn handle_request(
         }
         "event.emit" => {
             let params: EventEmitParams = decode_params(request.params)?;
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
             let matched = engine
                 .emit_event(&params.run_id, &params.event_key, params.payload)
                 .map_err(internal_error)?;
@@ -220,6 +253,8 @@ fn handle_request(
         }
         "stream.append" => {
             let params: StreamAppendParams = decode_params(request.params)?;
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
             let offset = engine
                 .append_stream(
                     &params.run_id,
@@ -258,6 +293,40 @@ fn handle_request(
             format!("unknown journal protocol verb {}", request.verb),
         )),
     }
+}
+
+/// Register the watcher BEFORE replaying, then replay and hand the hub the
+/// sequence cursor the replay covered. Entries appended concurrently are
+/// buffered by the hub and flushed deduped against that cursor, so nothing
+/// appended between snapshot and registration can be missed — that ordering
+/// gap no longer exists. `after_register` is a test seam pinning the race
+/// window between registration and the snapshot read.
+#[cfg(unix)]
+fn watch_with_replay(
+    engine: &Engine,
+    hub: &std::sync::Arc<ProtocolHub>,
+    connection_id: u64,
+    run_id: &str,
+    writer: &SharedWriter,
+    after_register: impl FnOnce(),
+) -> ProtocolResult<Value> {
+    hub.watch(connection_id, run_id.to_owned(), writer.clone());
+    after_register();
+    let replay = (|| -> Result<()> {
+        let entries = engine.journal_entries(run_id, 1, usize::MAX)?;
+        let replayed_through_seq = entries.last().map(|entry| entry.seq).unwrap_or(0);
+        for entry in entries {
+            write_frame(writer, &json!({"event": "entry", "data": entry}))?;
+        }
+        hub.watch_ready(connection_id, run_id, replayed_through_seq);
+        Ok(())
+    })();
+    if let Err(error) = replay {
+        // Fail closed: never leave a half-registered watcher buffering forever.
+        hub.unwatch(connection_id, run_id);
+        return Err(internal_error(error));
+    }
+    Ok(json!({"watching": run_id}))
 }
 
 fn decode_params<T: DeserializeOwned>(params: Value) -> ProtocolResult<T> {
@@ -375,57 +444,4 @@ pub fn resume_via_socket(data_dir: &Path, run_id: &str) -> Result<Option<crate::
 #[cfg(not(unix))]
 pub fn resume_via_socket(_data_dir: &Path, _run_id: &str) -> Result<Option<crate::RunOutcome>> {
     Ok(None)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{
-        os::unix::net::UnixStream,
-        sync::{Arc, Mutex},
-    };
-
-    use tempfile::tempdir;
-
-    use super::*;
-
-    #[test]
-    fn hello_enforces_protocol_version() {
-        let directory = tempdir().unwrap();
-        let hub = Arc::new(ProtocolHub::default());
-        let (writer, _peer) = UnixStream::pair().unwrap();
-        let writer = Arc::new(Mutex::new(writer));
-        let response = handle_line(
-            directory.path(),
-            &hub,
-            1,
-            &writer,
-            r#"{"id":1,"verb":"hello","params":{"protocol":0,"client":"test"}}"#,
-        );
-        assert!(response.ok);
-        let mismatch = handle_line(
-            directory.path(),
-            &hub,
-            1,
-            &writer,
-            r#"{"id":2,"verb":"hello","params":{"protocol":1,"client":"test"}}"#,
-        );
-        assert!(!mismatch.ok);
-    }
-
-    #[test]
-    fn run_start_fails_closed_on_an_unknown_verification_key() {
-        let directory = tempdir().unwrap();
-        let hub = Arc::new(ProtocolHub::default());
-        let (writer, _peer) = UnixStream::pair().unwrap();
-        let writer = Arc::new(Mutex::new(writer));
-        let response = handle_line(
-            directory.path(),
-            &hub,
-            1,
-            &writer,
-            r#"{"id":3,"verb":"run.start","params":{"spec":{"steps":[{"id":"x","type":"deterministic","command":"true","verification":{"output_contain":"x"}}]}}}"#,
-        );
-        assert!(!response.ok);
-        assert_eq!(response.error.unwrap().code, "invalid_spec");
-    }
 }
