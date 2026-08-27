@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use ulid::Ulid;
@@ -9,7 +10,7 @@ use crate::{
         StepCompletedPayload, WaitCompletedPayload, WaitCompletionReason, WaitHumanPayload,
     },
     retry::backoff_delay_ms,
-    spec::{RecoveryMode, StepKind, StepSpec, StepType},
+    spec::{AgentSurfaces, RecoveryMode, StepKind, StepSpec, StepType},
     state::{RunState, StepState},
     verify::verify,
 };
@@ -31,6 +32,7 @@ pub enum Action {
         idempotency_key: String,
         lease_deadline_ms: i64,
         pins: Pins,
+        recovery: Option<RecoveryInstruction>,
     },
     ArmTimer {
         at_ms: i64,
@@ -47,8 +49,13 @@ pub struct AttemptResult {
     pub completed_by: String,
     pub end_pins: Option<Pins>,
     pub effects: Vec<EffectRef>,
+    pub trajectory_tail: Option<Value>,
     /// Execution failures bypass verification but still follow retry policy.
     pub failure_reason: Option<CompletionReason>,
+    /// Why the attempt was rejected, in the vocabulary of whoever rejected it.
+    /// A failed completion journals a null `output` — this is the only place a
+    /// rejection can name its own cause, so a dropped detail is a lost error.
+    pub failure_detail: Option<String>,
 }
 
 impl AttemptResult {
@@ -59,9 +66,21 @@ impl AttemptResult {
             completed_by: completed_by.into(),
             end_pins: None,
             effects: Vec::new(),
+            trajectory_tail: None,
             failure_reason: None,
+            failure_detail: None,
         }
     }
+}
+
+/// Agent-only retry context carried to the worker. It is derived entirely
+/// from journaled attempt facts, so a resume produces the same instruction.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RecoveryInstruction {
+    pub mode: RecoveryMode,
+    pub restore_pins: Option<Pins>,
+    pub previous_completion_reason: Option<CompletionReason>,
+    pub trajectory_tail: Option<Value>,
 }
 
 pub fn next_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
@@ -115,16 +134,87 @@ pub fn next_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
     timers
 }
 
+/// Appendix A rule 6 chains pins **per surface**: a surface this step declares
+/// that the run has already pinned carries that revision forward. Surfaces the
+/// chain has never produced are deliberately left out — the dispatcher sources
+/// those from the worker at start (rule 2). Consecutive agent steps therefore
+/// need not declare the same surface set.
+/// The per-surface chain carry for a step, for hosts that must resolve the
+/// worker-sourced gaps before the start entry is journaled. Non-agent steps
+/// carry no pins.
+pub fn carried_pins_for(chain: Option<&Pins>, step: &StepSpec) -> Pins {
+    match &step.kind {
+        StepKind::Agent { surfaces, .. } => carried_pins(chain, surfaces),
+        _ => Pins::default(),
+    }
+}
+
+pub(crate) fn carried_pins(chain: Option<&Pins>, surfaces: &AgentSurfaces) -> Pins {
+    let Some(chain) = chain else {
+        return Pins::default();
+    };
+    Pins {
+        workspace: surfaces
+            .workspace
+            .iter()
+            .filter_map(|declared| {
+                chain
+                    .workspace
+                    .iter()
+                    .find(|pin| pin.surface == declared.surface)
+                    .cloned()
+            })
+            .collect(),
+        streams: surfaces
+            .streams
+            .iter()
+            .filter_map(|declared| {
+                chain
+                    .streams
+                    .iter()
+                    .find(|pin| pin.stream == declared.stream)
+                    .cloned()
+            })
+            .collect(),
+    }
+}
+
 fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -> Vec<Action> {
     let key = idempotency_key(&state.run_id, &step.id);
     let recovery_mode = match &step.kind {
         StepKind::Agent { recovery_mode, .. } => Some(*recovery_mode),
         _ => None,
     };
-    // Pins are runtime facts (Appendix A rule 2): the revision/offset of each
-    // declared surface at attempt start. Gate-1 deterministic steps are pure
-    // (no pins), and no agent worker is attached yet to observe revisions.
-    let pins = Pins::default();
+    let runtime = &state.steps[&step.id];
+    let (pins, recovery) = match &step.kind {
+        StepKind::Agent {
+            recovery_mode,
+            surfaces,
+            ..
+        } => {
+            let retry_pins = match recovery_mode {
+                RecoveryMode::Inspect => runtime
+                    .last_end_pins
+                    .as_ref()
+                    .or(runtime.last_start_pins.as_ref()),
+                RecoveryMode::Reset | RecoveryMode::Manual => runtime.last_start_pins.as_ref(),
+            };
+            let pins = match retry_pins {
+                Some(pins) => pins.clone(),
+                None => carried_pins(state.current_pins.as_ref(), surfaces),
+            };
+            let recovery = RecoveryInstruction {
+                mode: *recovery_mode,
+                restore_pins: (runtime.last_completion_reason.is_some()
+                    && *recovery_mode == RecoveryMode::Reset)
+                    .then(|| pins.clone()),
+                previous_completion_reason: runtime.last_completion_reason,
+                trajectory_tail: runtime.trajectory_tail.clone(),
+            };
+            (pins, Some(recovery))
+        }
+        _ => (Pins::default(), None),
+    };
     let executor = if step.step_type() == StepType::Deterministic {
         "kernel"
     } else {
@@ -162,6 +252,7 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
             idempotency_key: key,
             lease_deadline_ms,
             pins,
+            recovery,
         },
     };
     vec![Action::Append(started), execute]
@@ -180,10 +271,20 @@ pub fn completion_actions(
     result: AttemptResult,
     now_ms: i64,
 ) -> Vec<Action> {
-    let verification = result
-        .failure_reason
-        .is_none()
-        .then(|| verify(step, &result.output));
+    // A rejected attempt records why it was rejected. `output` is nulled for
+    // every non-success, so without this the reason exists only in the
+    // taxonomy label and the diagnostic is gone.
+    let verification = match &result.failure_reason {
+        None => Some(verify(step, &result.output)),
+        Some(_) => result
+            .failure_detail
+            .as_ref()
+            .map(|detail| crate::entry::VerificationRecord {
+                gate: "execution".to_owned(),
+                verdict: crate::entry::VerificationVerdict::Fail,
+                detail: detail.clone(),
+            }),
+    };
     let verified = verification
         .as_ref()
         .is_some_and(|record| record.verdict == crate::entry::VerificationVerdict::Pass);
@@ -230,6 +331,7 @@ pub fn completion_actions(
             verification,
             end_pins: result.end_pins,
             effects: result.effects,
+            trajectory_tail: result.trajectory_tail,
             budget: result.budget,
             completed_by: result.completed_by,
             next_attempt_at_ms,
@@ -346,6 +448,7 @@ pub fn abandonment_actions(
             verification: None,
             end_pins: None,
             effects: vec![],
+            trajectory_tail: None,
             budget: Budget::default(),
             completed_by: "kernel".to_owned(),
             next_attempt_at_ms,
@@ -360,11 +463,15 @@ pub fn abandonment_actions(
             now_ms,
             WaitHumanPayload {
                 wait_id: deterministic_ulid(&state.run_id, step_id, attempt, now_ms, "manual"),
-                prompt: "An agent attempt crashed with a dirty workspace".to_owned(),
+                prompt: format!(
+                    "agent step {step_id} of run {} ended {reason:?} with a dirty workspace; \
+                     a human must inspect it before another attempt",
+                    state.run_id
+                ),
                 requested_of: "run-owner".to_owned(),
                 options: Some(vec!["retry".to_owned(), "cancel".to_owned()]),
                 timeout_at_ms: None,
-                diff_ref: Some("pinned-revision..current".to_owned()),
+                diff_ref: dirty_diff_ref(runtime.last_start_pins.as_ref()),
             },
         )));
     } else if let Some(wake_at_ms) = next_attempt_at_ms {
@@ -382,6 +489,24 @@ pub fn abandonment_actions(
         )));
     }
     actions
+}
+
+/// Appendix A rule 4: the `manual` park hands the human a diff of the pinned
+/// revision vs. current state. The reference names each pinned surface and the
+/// revision the attempt started from — the only revision the kernel knows.
+/// Without journaled start pins there is nothing to diff against.
+fn dirty_diff_ref(start_pins: Option<&Pins>) -> Option<String> {
+    let pins = start_pins?;
+    if pins.workspace.is_empty() {
+        return None;
+    }
+    Some(
+        pins.workspace
+            .iter()
+            .map(|pin| format!("{}@{}..current", pin.surface, pin.revision_id))
+            .collect::<Vec<_>>()
+            .join(","),
+    )
 }
 
 pub fn idempotency_key(run_id: &str, step_id: &str) -> String {

@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use relayflowd_core::{CompletionReason, JournalEntry, StepType};
+use relayflowd_core::{CompletionReason, JournalEntry, Pins, StepKind, StepSpec, StepType};
 use serde_json::json;
 
 use crate::worker::{JournalObserver, LeaseProbe, StepDispatch, StepDispatcher};
@@ -21,6 +21,7 @@ struct Worker {
     connection_id: u64,
     worker_id: String,
     step_types: Vec<StepType>,
+    pins: Pins,
     writer: Writer,
 }
 
@@ -100,6 +101,7 @@ impl ProtocolHub {
         connection_id: u64,
         worker_id: String,
         step_types: Vec<StepType>,
+        pins: Pins,
         writer: Writer,
     ) {
         let mut sessions = self.sessions.lock().expect("protocol sessions lock");
@@ -110,6 +112,7 @@ impl ProtocolHub {
             connection_id,
             worker_id,
             step_types,
+            pins,
             writer,
         });
     }
@@ -284,16 +287,72 @@ impl StepDispatcher for ProtocolHub {
         self.executor(step_type).is_some()
     }
 
+    fn starting_pins(&self, step: &StepSpec) -> Result<Pins> {
+        let sessions = self.sessions.lock().expect("protocol sessions lock");
+        // Same selection rule as `dispatch` — the first worker handling the
+        // class — so the pins journaled at start belong to the worker that
+        // receives the attempt. `dispatch` re-checks the worker id it resolved
+        // against the pin source and declines rather than dispatching to a
+        // worker whose starting state was never journaled.
+        let worker =
+            select_worker(&sessions, StepType::Agent).context("no agent worker is attached")?;
+        let StepKind::Agent { surfaces, .. } = &step.kind else {
+            return Ok(Pins::default());
+        };
+        let workspace = surfaces
+            .workspace
+            .iter()
+            .map(|surface| {
+                worker
+                    .pins
+                    .workspace
+                    .iter()
+                    .find(|pin| pin.surface == surface.surface)
+                    .cloned()
+                    .with_context(|| {
+                        format!(
+                            "worker {} omitted revision for surface {}",
+                            worker.worker_id, surface.surface
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let streams = surfaces
+            .streams
+            .iter()
+            .map(|surface| {
+                worker
+                    .pins
+                    .streams
+                    .iter()
+                    .find(|pin| pin.stream == surface.stream)
+                    .cloned()
+                    .with_context(|| {
+                        format!(
+                            "worker {} omitted read offset for stream {}",
+                            worker.worker_id, surface.stream
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Pins { workspace, streams })
+    }
+
     fn dispatch(&self, dispatch: StepDispatch) -> Result<bool> {
         let mut sessions = self.sessions.lock().expect("protocol sessions lock");
-        let Some(worker) = sessions
-            .workers
-            .iter()
-            .find(|worker| worker.step_types.contains(&dispatch.step_type))
-            .cloned()
-        else {
+        let Some(worker) = select_worker(&sessions, dispatch.step_type).cloned() else {
             return Ok(false);
         };
+        // Appendix A rule 2: the pins journaled at start are the state this
+        // attempt must begin from, and they were sourced from whichever worker
+        // `select_worker` returned then. If a detach or a second attachment has
+        // changed that answer, the worker now selected may never have reported
+        // those surfaces — dispatching would hand it a starting state it cannot
+        // honor. Decline instead; the run parks and re-dispatches from pins the
+        // holding worker actually reported.
+        if !worker_holds(&worker, &dispatch.pins) {
+            return Ok(false);
+        }
         write_frame(
             &worker.writer,
             &json!({"event": "step.dispatch", "data": dispatch}),
@@ -315,6 +374,31 @@ impl StepDispatcher for ProtocolHub {
         );
         Ok(true)
     }
+}
+
+/// The single worker-selection rule, shared by pin sourcing and dispatch.
+fn select_worker(sessions: &Sessions, step_type: StepType) -> Option<&Worker> {
+    sessions
+        .workers
+        .iter()
+        .find(|worker| worker.step_types.contains(&step_type))
+}
+
+/// Does this worker report every surface the attempt is pinned to?
+fn worker_holds(worker: &Worker, pins: &Pins) -> bool {
+    pins.workspace.iter().all(|pin| {
+        worker
+            .pins
+            .workspace
+            .iter()
+            .any(|held| held.surface == pin.surface)
+    }) && pins.streams.iter().all(|pin| {
+        worker
+            .pins
+            .streams
+            .iter()
+            .any(|held| held.stream == pin.stream)
+    })
 }
 
 impl LeaseProbe for ProtocolHub {

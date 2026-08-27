@@ -39,6 +39,20 @@ fn the_kernel_parses_the_rung_b_spec_and_stamps_the_same_hash() {
     );
 }
 
+#[test]
+fn the_kernel_parses_the_rung_c_agent_spec_and_stamps_the_same_hash() {
+    assert_parity(
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/hello-agent.spec.canonical.json"
+        )),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/hello-agent.spec.sha256"
+        )),
+    );
+}
+
 fn assert_parity(canonical_fixture: &str, expected_hash: &str) {
     let value: Value = serde_json::from_str(canonical_fixture.trim()).unwrap();
     let spec = RunSpec::parse(&value).expect("kernel must parse the SDK's compiled spec");

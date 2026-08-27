@@ -41,6 +41,7 @@ function startLoopback(path: string, handlers: {
   'run.watch'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'worker.attach'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'step.heartbeat'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'effect.record'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'step.complete'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'event.emit'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'journal.read'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
@@ -82,6 +83,9 @@ function startLoopback(path: string, handlers: {
             break;
           case 'step.heartbeat':
             handlers['step.heartbeat']?.(ctx, req.params);
+            break;
+          case 'effect.record':
+            handlers['effect.record']?.(ctx, req.params);
             break;
           case 'step.complete':
             handlers['step.complete']?.(ctx, req.params);
@@ -204,6 +208,9 @@ describe('JournalClient: protocol v0 over unix socket', () => {
       'step.heartbeat': (ctx, params) => {
         sendResult(ctx, { lease_deadline_ms: params.lease_id === 'lease-1' ? 2000 : -1 });
       },
+      'effect.record': (ctx, params) => {
+        sendResult(ctx, { deduped: params.surface_path === '/github/pull/1' });
+      },
       'step.complete': (ctx, params) => {
         sendResult(ctx, params.completionReason === 'success' ? undefined : null);
       },
@@ -315,6 +322,10 @@ steps:
     expect(lease.idempotency_key).toBe('key-1');
     const heartbeat = await client.stepHeartbeat('run-01', 'model', 1, 'lease-1');
     expect(heartbeat.lease_deadline_ms).toBe(2000);
+    const effect = await client.effectRecord(
+      'run-01', 'model', 1, 'key-1', '/github/pull/1', 'rev-a', 'rev-b',
+    );
+    expect(effect.deduped).toBe(true);
     await client.stepComplete('run-01', 'model', 1, 'key-1', 'success', {
       output: { answer: 4 },
       usage: { tokens_in: 6, tokens_out: 3, dollars: '0.001' },

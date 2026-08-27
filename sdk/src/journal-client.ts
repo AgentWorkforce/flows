@@ -16,6 +16,8 @@ import type { VerbContract } from './protocol.js';
 import {
   PROTOCOL_VERSION,
   type CompletionReason,
+  type EffectRef,
+  type Pins,
   type Request,
   type Response,
   type ServerEvent,
@@ -184,8 +186,29 @@ export class JournalClient extends EventEmitter {
   }
 
   /** Connection becomes a worker; receives `step.dispatch` events. */
-  workerAttach(workerId: string, stepTypes: StepType[]): Promise<VerbContract['worker.attach']['result']> {
-    return this.request('worker.attach', { worker_id: workerId, step_types: stepTypes });
+  workerAttach(workerId: string, stepTypes: StepType[], pins?: Pins): Promise<VerbContract['worker.attach']['result']> {
+    return this.request('worker.attach', { worker_id: workerId, step_types: stepTypes, pins });
+  }
+
+  /** Record a writeback before calling its provider; skip the call when deduped. */
+  effectRecord(
+    runId: string,
+    stepId: string,
+    attempt: number,
+    idempotencyKey: string,
+    surfacePath: string,
+    revisionBefore: string,
+    revisionAfter: string,
+  ): Promise<VerbContract['effect.record']['result']> {
+    return this.request('effect.record', {
+      run_id: runId,
+      step_id: stepId,
+      attempt,
+      idempotency_key: idempotencyKey,
+      surface_path: surfacePath,
+      revision_before: revisionBefore,
+      revision_after: revisionAfter,
+    });
   }
 
   /** Renew the lease — the one lease primitive. */
@@ -213,10 +236,10 @@ export class JournalClient extends EventEmitter {
     extra: {
       output?: unknown;
       usage?: { tokens_in: number; tokens_out: number; dollars: string };
-      end_pins?: {
-        workspace?: { surface: string; revision_id: string }[];
-        streams?: { stream: string; read_offset: number }[];
-      };
+      started_pins?: Pins;
+      end_pins?: Pins;
+      effects?: EffectRef[];
+      trajectory_tail?: unknown;
     } = {},
   ): Promise<VerbContract['step.complete']['result']> {
     return this.request('step.complete', {

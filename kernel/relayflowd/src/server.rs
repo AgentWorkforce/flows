@@ -1,7 +1,7 @@
 use std::{io, path::Path};
 
 use anyhow::{Context, Result};
-use relayflowd_core::{CompletionReason, PROTOCOL_VERSION, RunSpec};
+use relayflowd_core::{CompletionReason, PROTOCOL_VERSION, RunSpec, StepType};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
@@ -13,6 +13,10 @@ mod reconcile;
 mod session;
 #[cfg(unix)]
 use session::{ProtocolHub, SharedWriter, write_frame};
+
+/// Cap on the worker-supplied `inspect` trajectory tail. It is evidence for a
+/// human and for the next attempt's prompt, not a transcript store.
+const TRAJECTORY_TAIL_MAX_BYTES: usize = 16 * 1024;
 mod wire;
 use wire::*;
 
@@ -184,10 +188,25 @@ fn handle_request(
             if params.step_types.is_empty() {
                 return Err(("bad_request", "worker must accept a step type".to_owned()));
             }
+            // Appendix A rule 2: an agent attempt is journaled with the opaque
+            // revisions the worker reports. A worker that accepts agent steps
+            // and reports no surface at all can never supply them, and that is
+            // provable here — refusing the attach keeps the failure out of the
+            // middle of a run that has already started.
+            if params.step_types.contains(&StepType::Agent)
+                && params.pins.workspace.is_empty()
+                && params.pins.streams.is_empty()
+            {
+                return Err((
+                    "bad_request",
+                    "an agent worker must attach with the pins of the surfaces it holds".to_owned(),
+                ));
+            }
             hub.attach_worker(
                 connection_id,
                 params.worker_id.clone(),
                 params.step_types,
+                params.pins,
                 writer.clone(),
             );
             Ok(json!({"worker_id": params.worker_id}))
@@ -213,6 +232,18 @@ fn handle_request(
         }
         "step.complete" => {
             let params: StepCompleteParams = decode_params(request.params)?;
+            // `trajectory_tail` is journaled evidence, re-decoded on every fold.
+            // Bound it here, at the boundary that admits it, so "bounded" is a
+            // fact rather than a claim in a doc comment.
+            if let Some(tail) = &params.trajectory_tail
+                && serde_json::to_vec(tail).map_or(0, |bytes| bytes.len())
+                    > TRAJECTORY_TAIL_MAX_BYTES
+            {
+                return Err((
+                    "bad_request",
+                    format!("trajectory_tail exceeds {TRAJECTORY_TAIL_MAX_BYTES} bytes"),
+                ));
+            }
             let key = (
                 params.run_id.clone(),
                 params.step_id.clone(),
@@ -234,13 +265,41 @@ fn handle_request(
                         output: params.output,
                         budget: params.usage,
                         completed_by: worker_id,
+                        started_pins: params.started_pins,
                         end_pins: params.end_pins,
-                        effects: Vec::new(),
+                        effects: params.effects,
+                        trajectory_tail: params.trajectory_tail,
                     },
                 )
                 .map_err(internal_error)?;
             hub.finish(&key);
             to_value(outcome)
+        }
+        "effect.record" => {
+            let params: EffectRecordParams = decode_params(request.params)?;
+            let key = (
+                params.run_id.clone(),
+                params.step_id.clone(),
+                params.attempt,
+            );
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            let worker_id = hub
+                .completion_worker(connection_id, &key)
+                .map_err(protocol_conflict)?;
+            let deduped = engine
+                .record_effect(
+                    &params.run_id,
+                    &params.step_id,
+                    params.attempt,
+                    &params.idempotency_key,
+                    &params.surface_path,
+                    &params.revision_before,
+                    &params.revision_after,
+                    &worker_id,
+                )
+                .map_err(internal_error)?;
+            Ok(json!({"deduped": deduped}))
         }
         "event.emit" => {
             let params: EventEmitParams = decode_params(request.params)?;

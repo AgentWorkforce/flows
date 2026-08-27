@@ -48,6 +48,7 @@ export type Verb =
   | 'run.watch'
   | 'worker.attach'
   | 'step.heartbeat'
+  | 'effect.record'
   | 'step.complete'
   | 'event.emit'
   | 'stream.append'
@@ -111,6 +112,7 @@ export interface RunWatchResult {
 export interface WorkerAttachParams {
   worker_id: string;
   step_types: StepType[];
+  pins?: Pins;
 }
 export interface WorkerAttachResult {
   worker_id: string;
@@ -124,9 +126,12 @@ export interface StepDispatchEvent {
   spec: unknown;
   lease_id: string;
   idempotency_key: string;
-  pins: {
-    workspace?: { surface: string; revision_id: string }[];
-    streams?: { stream: string; read_offset: number }[];
+  pins: Pins;
+  recovery?: {
+    mode: 'reset' | 'inspect' | 'manual';
+    restore_pins?: Pins;
+    previous_completion_reason?: CompletionReason;
+    trajectory_tail?: unknown;
   };
   lease_deadline_ms: number;
 }
@@ -153,6 +158,29 @@ export type CompletionReason =
   | 'budget_exceeded'
   | 'canceled';
 
+export interface Pins {
+  workspace?: { surface: string; revision_id: string }[];
+  streams?: { stream: string; read_offset: number }[];
+}
+
+export interface EffectRef {
+  surface_path: string;
+  idempotency_key: string;
+}
+
+export interface EffectRecordParams {
+  run_id: string;
+  step_id: string;
+  attempt: number;
+  idempotency_key: string;
+  surface_path: string;
+  revision_before: string;
+  revision_after: string;
+}
+export interface EffectRecordResult {
+  deduped: boolean;
+}
+
 export interface StepCompleteParams {
   run_id: string;
   step_id: string;
@@ -161,10 +189,10 @@ export interface StepCompleteParams {
   completionReason: CompletionReason;
   output?: unknown;
   usage?: { tokens_in: number; tokens_out: number; dollars: string };
-  end_pins?: {
-    workspace?: { surface: string; revision_id: string }[];
-    streams?: { stream: string; read_offset: number }[];
-  };
+  started_pins?: Pins;
+  end_pins?: Pins;
+  effects?: EffectRef[];
+  trajectory_tail?: unknown;
 }
 export type StepCompleteResult = RunOutcome;
 
@@ -215,6 +243,7 @@ export interface VerbContract {
   'run.watch': { params: RunWatchParams; result: RunWatchResult };
   'worker.attach': { params: WorkerAttachParams; result: WorkerAttachResult };
   'step.heartbeat': { params: StepHeartbeatParams; result: StepHeartbeatResult };
+  'effect.record': { params: EffectRecordParams; result: EffectRecordResult };
   'step.complete': { params: StepCompleteParams; result: StepCompleteResult };
   'event.emit': { params: EventEmitParams; result: EventEmitResult };
   'stream.append': { params: StreamAppendParams; result: StreamAppendResult };

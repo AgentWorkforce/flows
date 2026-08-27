@@ -99,13 +99,17 @@ pub struct ServerGuard(Option<Child>);
 
 impl ServerGuard {
     pub fn start(fixture: &LlmFixture) -> Self {
+        Self::start_at(&fixture.data_dir, &fixture.socket())
+    }
+
+    pub fn start_at(data_dir: &Path, socket: &Path) -> Self {
         let child = Command::new(env!("CARGO_BIN_EXE_relayflowd"))
-            .args(["--data-dir", fixture.data_dir.to_str().unwrap(), "serve"])
+            .args(["--data-dir", data_dir.to_str().unwrap(), "serve"])
             .process_group(0)
             .spawn()
             .unwrap();
         wait_until("llm protocol socket", || {
-            UnixStream::connect(fixture.socket()).is_ok()
+            UnixStream::connect(socket).is_ok()
         });
         Self(Some(child))
     }

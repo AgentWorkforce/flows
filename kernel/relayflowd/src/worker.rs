@@ -1,5 +1,5 @@
 use anyhow::Result;
-use relayflowd_core::{JournalEntry, Pins, StepSpec, StepType};
+use relayflowd_core::{JournalEntry, Pins, RecoveryInstruction, StepSpec, StepType};
 use serde::Serialize;
 
 /// A durable attempt made available to an out-of-band worker.
@@ -13,6 +13,8 @@ pub struct StepDispatch {
     pub lease_id: String,
     pub idempotency_key: String,
     pub pins: Pins,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<RecoveryInstruction>,
     pub lease_deadline_ms: i64,
 }
 
@@ -21,6 +23,12 @@ pub trait StepDispatcher: Send + Sync {
     fn executor(&self, step_type: StepType) -> Option<String>;
 
     fn available(&self, step_type: StepType) -> bool;
+
+    /// Opaque starting revisions/offsets reported by the selected worker for
+    /// the first agent attempt. Later attempts are derived from the journal.
+    fn starting_pins(&self, _step: &StepSpec) -> Result<Pins> {
+        Ok(Pins::default())
+    }
 
     /// Returns `false` when no compatible worker is attached.
     fn dispatch(&self, dispatch: StepDispatch) -> Result<bool>;

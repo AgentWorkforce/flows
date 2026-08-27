@@ -68,6 +68,7 @@ Payload:
 | `verification` | `{gate, verdict: pass\|fail, detail}` or null |
 | `end_pins` | agent steps: `{workspace: [{surface, revision_id}], streams: [{stream, read_offset}]}` — Appendix A rule 6: the next step's starting state **is** this |
 | `effects` | list of `{surface_path, idempotency_key}` dedupe keys recorded this attempt |
+| `trajectory_tail` | agent failure only: worker-supplied tail injected into an `inspect` retry; `step.complete` rejects one over 16 KiB of canonical JSON |
 | `budget` | `{tokens_in, tokens_out, dollars}` — exact; zero for memoized replay by construction (no entry is written on replay) |
 | `completed_by` | `kernel` \| worker id — out-of-band completion uses the same entry, same discipline |
 | `next_attempt_at_ms` | when `disposition=retry`: computed backoff+jitter wake time |
@@ -104,6 +105,15 @@ Appendix A rule 3: the mount write is the effect record. Payload:
 `surface_path`, `idempotency_key`, `revision_before`, `revision_after`,
 `agent_identity`, `deduped` (bool — true when a second attempt's write was
 suppressed by the dedupe table and no provider call occurred).
+
+**v0 delivery semantics: at-most-once, not exactly-once.** The record is
+appended *before* the provider call, so the journal boundary elects one winner
+and a retry is suppressed rather than merely detected afterwards. The cost is
+the crash window between the append and the call: the effect never happens, yet
+the next attempt reads `deduped: true` and skips it. Appendix A rule 5's "one
+provider call" holds; rule 3's "the mount write **is** the effect record" does
+not, because v0 splits recording from performing. Closing it needs the mount to
+be the writer (gate 4), not a second record.
 
 ### 1.10 `epoch.summary`
 First entry of every segment after the first (decision #8). Resume reads
@@ -341,9 +351,10 @@ Minimal verb set for gate 1:
 | `run.resume` | `{run_id}` → `{run_id, state}` | §3 memoized resume |
 | `run.get` | `{run_id}` → `{status, steps, budget}` | snapshot for legibility |
 | `run.watch` | `{run_id}` → stream of `{event: "entry", data: Entry}` | every appended entry, pushed |
-| `worker.attach` | `{worker_id, step_types: ["llm","agent"]}` → `{}` | connection becomes a worker; receives `step.dispatch` events `{run_id, step_id, attempt, step_type, spec, idempotency_key, pins, lease_deadline_ms}` |
+| `worker.attach` | `{worker_id, step_types: ["llm","agent"], pins}` → `{}` | connection becomes a worker; agent workers supply opaque initial workspace revisions/stream offsets and receive `step.dispatch` events with pins plus recovery context |
 | `step.heartbeat` | `{run_id, step_id, attempt, lease_id}` → `{lease_deadline_ms}` | renew the lease; the one lease primitive |
-| `step.complete` | `{run_id, step_id, attempt, idempotency_key, completionReason, output, usage, end_pins}` → `{}` | completes a dispatched step — **also the out-of-band path**: any worker holding the idempotency key may call it, journaled with the same discipline; kernel then runs verification and decides the edge |
+| `effect.record` | `{run_id, step_id, attempt, idempotency_key, surface_path, revision_before, revision_after}` → `{deduped}` | agent records a writeback before performing it; the journal boundary elects one provider-call winner |
+| `step.complete` | `{run_id, step_id, attempt, idempotency_key, completionReason, output, usage, started_pins, end_pins, effects, trajectory_tail}` → `{}` | completes a dispatched step — **also the out-of-band path**: the lease holder reports its actual start/end pins and journaled effect refs; kernel verifies them, runs the gate, and decides the edge |
 | `event.emit` | `{run_id, event_key, payload}` → `{matched: n}` | satisfies `wait.event`; a human response arrives here too, closing `wait.human` with `completionReason: human_responded` |
 | `stream.append` | `{run_id, stream, message}` → `{offset}` | durable channel write; journals `stream.appended` |
 | `stream.read` | `{run_id, stream, from_offset, limit}` → `{messages, next_offset}` | at-least-once replayable read; committing the consumer offset happens via the reader's step pins, not a verb |

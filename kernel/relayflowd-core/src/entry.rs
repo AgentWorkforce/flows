@@ -182,6 +182,12 @@ pub struct StepCompletedPayload {
     pub end_pins: Option<Pins>,
     #[serde(default)]
     pub effects: Vec<EffectRef>,
+    /// Worker-supplied execution context for `inspect` recovery. This is
+    /// evidence from the failed attempt, not a command to replay it. The
+    /// protocol boundary that admits it (`step.complete`) caps its size; the
+    /// journal itself stores whatever was admitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trajectory_tail: Option<Value>,
     #[serde(default)]
     pub budget: Budget,
     pub completed_by: String,
