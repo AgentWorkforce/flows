@@ -1,0 +1,138 @@
+{
+  "version": "0.1.0",
+  "suite": "regressions",
+  "authoredOn": "2026-08-27",
+  "dialect": "flows-v2 (docs/SURFACE.md)",
+  "dormant": true,
+  "dormancy": "No flow here declares an `on()` trigger, no schedule is registered, nothing is deployed, and nothing references this directory from a drive loop or CI job. The suite runs only when a human or the Garden invokes `flows run` explicitly.",
+  "adoptBy": "software-garden",
+  "adoptWhen": "flows run in cloud and the gates listed per pair have closed; the Garden should then run each red case (expect pass) and each green case (expect fail) as the standing proof the bug is still open, and flip the pair to green-only once the fix lands.",
+  "typecheck": {
+    "command": "cd sdk && npx tsc -p ../regressions/tsconfig.json",
+    "optIn": true,
+    "note": "Not part of `npm test`. Types come from regressions/surface.d.ts, a declaration-only slice of the v2 surface; delete it once @relayflows/surface exists."
+  },
+  "surfaceGaps": [
+    {
+      "id": "declared-failure-assertion",
+      "need": "A red case must assert that an operation fails in a declared way. The surface has no `expect(kind)` form, so every red probe is a deterministic step that always exits 0 and prints the observed status/body for a postfix gate to judge.",
+      "blocks": ["enrollment-token-bearer-auth", "cross-account-workspace-404"]
+    },
+    {
+      "id": "rendered-ui-assertion",
+      "need": "No browser helper, so `the UI shows this string` is not assertable. The cross-account pair asserts the API-level cause instead: the response body carries no code the client could branch on.",
+      "blocks": ["cross-account-workspace-404"]
+    },
+    {
+      "id": "darwin-arm64-placement",
+      "need": "gate 7's sandbox router has no macOS pool; the bun-compiled argv bug does not reproduce under node or `bun run`.",
+      "blocks": ["worker-daemon-bun-argv"]
+    },
+    {
+      "id": "multi-principal-run",
+      "need": "Two or three credential principals inside one run (CLI bearer, browser session, in-account non-owner). Expressed as `principals/<name>` mount paths and an `as:` argument; gate 8 must make that real and non-ambient.",
+      "blocks": ["enrollment-token-bearer-auth", "cross-account-workspace-404"]
+    }
+  ],
+  "pairs": [
+    {
+      "slug": "enrollment-token-bearer-auth",
+      "bug": "POST /api/v1/workers/enrollment-tokens gates on requireSessionAuth, so a valid CLI bearer is answered 403 and worker enrollment has no headless/self-host/CI path.",
+      "red": "enrollment-token-bearer-auth.red.flow.ts",
+      "green": "enrollment-token-bearer-auth.green.flow.ts",
+      "upstream": "cloud#3202",
+      "requiredGates": ["gate-1", "gate-6", "gate-8"],
+      "blockedUntil": [
+        "gate-1: a relayflow can run at all",
+        "gate-6: a relayfile adapter for AgentWorkforce cloud (f.cloud helper namespace)",
+        "gate-8: per-principal scoped credentials resolved through the proxy, not ambient env"
+      ],
+      "dependsOn": [],
+      "evidence": {
+        "files": [
+          "AgentWorkforce/cloud packages/web/app/api/v1/workers/enrollment-tokens/route.ts:113-115"
+        ],
+        "strings": ["{\"error\":\"Forbidden\"} (HTTP 403)"],
+        "observedOn": "2026-08-27"
+      }
+    },
+    {
+      "slug": "worker-daemon-bun-argv",
+      "bug": "`cloud worker start --daemon` re-execs the bun-compiled binary with argv[1] = /$bunfs/root/agent-relay-darwin-arm64; the child dies instantly while the CLI prints 'Cloud worker daemon started: <pid>'.",
+      "red": "worker-daemon-bun-argv.red.flow.ts",
+      "green": "worker-daemon-bun-argv.green.flow.ts",
+      "upstream": "to file — relay CLI",
+      "requiredGates": ["gate-1", "gate-6", "gate-7"],
+      "blockedUntil": [
+        "gate-1: a relayflow can run at all",
+        "gate-6: cloud helper for worker liveness/heartbeat reads",
+        "gate-7: a darwin-arm64 sandbox profile — the bug is invisible under node or `bun run`"
+      ],
+      "dependsOn": ["enrollment-token-bearer-auth"],
+      "evidence": {
+        "files": [
+          "AgentWorkforce/relay packages/cli/src/cli/commands/cloud-worker.ts:266",
+          "AgentWorkforce/relay packages/cli/src/cli/commands/cloud-worker.ts:279",
+          "AgentWorkforce/relay packages/cli/src/cli/commands/cloud-worker.ts:396"
+        ],
+        "strings": [
+          "error: unknown command '/$bunfs/root/agent-relay-darwin-arm64'",
+          "Cloud worker daemon started: <pid>"
+        ],
+        "observedOn": "2026-08-27"
+      }
+    },
+    {
+      "slug": "cron-succeeded-into-void",
+      "bug": "RelayCron marks a fired schedule lastTriggerStatus: 'succeeded' as soon as the launch POST returns a runId, even with no worker to claim it — a covenant-2 'succeeded' that did nothing.",
+      "red": "cron-succeeded-into-void.red.flow.ts",
+      "green": "cron-succeeded-into-void.green.flow.ts",
+      "upstream": "to file — cloud RelayCron",
+      "requiredGates": ["gate-1", "gate-2", "gate-6"],
+      "blockedUntil": [
+        "gate-1: a relayflow can run at all",
+        "gate-2: the trigger plane, its executor-liveness check and sweep",
+        "gate-6: cloud helper for schedules, workers and run journals"
+      ],
+      "dependsOn": ["enrollment-token-bearer-auth"],
+      "evidence": {
+        "files": [
+          "AgentWorkforce/cloud packages/web/app/api/v1/workflows/schedules/trigger/route.ts:178-192"
+        ],
+        "runIds": ["8e3e5916", "740c3a27"],
+        "schedule": "flows-drive",
+        "strings": ["lastTriggerStatus: \"succeeded\" with no run artifacts, no branch, no PR"],
+        "observedOn": "2026-08-27"
+      }
+    },
+    {
+      "slug": "cross-account-workspace-404",
+      "bug": "A workspace belonging to another account answers 404 with no code and no user-facing message; the client maps every non-ok response to 'Check your workspace permissions', so a not-found condition is reported as a permissions problem.",
+      "red": "cross-account-workspace-404.red.flow.ts",
+      "green": "cross-account-workspace-404.green.flow.ts",
+      "upstream": "to file — cloud",
+      "requiredGates": ["gate-1", "gate-6", "gate-8"],
+      "blockedUntil": [
+        "gate-1: a relayflow can run at all",
+        "gate-6: a relayfile adapter for AgentWorkforce cloud",
+        "gate-8: three principals in one run (owner session, other-account session, in-account non-owner)"
+      ],
+      "dependsOn": [],
+      "evidence": {
+        "files": [
+          "AgentWorkforce/cloud packages/web/app/api/v1/workers/enrollment-tokens/route.ts:29-32",
+          "AgentWorkforce/cloud packages/web/components/workers/NewWorkerForm.tsx:91-92"
+        ],
+        "workspaces": {
+          "khaliq@agentrelay.com": "50587328-441d-4acb-b8f3-dbe1b3c5de99",
+          "khaliqgant@gmail.com": "0fb35c2e-861f-4d44-848e-fa3f5a3e192e"
+        },
+        "strings": [
+          "{\"error\":\"Workspace not found\"} (HTTP 404)",
+          "Could not create an enrollment token. Check your workspace permissions and try again."
+        ],
+        "observedOn": "2026-08-27"
+      }
+    }
+  ]
+}
