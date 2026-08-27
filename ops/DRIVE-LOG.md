@@ -916,3 +916,230 @@ Clause 1 is merged and closed on `main`. Clause 2 is implemented, reconciled,
 verified, reviewed, and mergeable on PR #8, but remains unmerged branch state.
 Only a human merge followed by a fresh run on `main` may move gate 1 off AMBER.
 No new gate work begins before that action.
+
+## 2026-08-27 17:31 EDT — WP-4-FIX tick: round-4 review verdict, re-verified at `51251c5`
+
+**Work package:** WP-4-FIX from `ops/NEXT.md` — land PR #8 by clearing its
+standing `REVIEW_FAILED`, reconciling the branch with `main`, correcting the
+shipped record, and triaging the open bot findings. **No new gate work.** This
+entry records the state *after* the round-4 review, which landed in `51251c5`
+and is therefore not covered by the preceding entry.
+
+Branch `flow/drive-57e923c-08271542` at `51251c5`, identical to
+`origin/flow/drive-57e923c-08271542` and to PR #8's `headRefOid` (0 ahead,
+0 behind origin). The only commit added since the previous entry is `51251c5`,
+which adds `ops/reviews/20260827-1726-review.md` (337 lines) and **changes no
+code** — `git show --stat 51251c5` lists that one file.
+
+### Verify — re-executed in this tick on the working tree at `51251c5`
+
+Hermetic `ops/cargo.sh`, no exported env. These are measured numbers, not
+inherited ones.
+
+- `(cd kernel && ../ops/cargo.sh test --workspace)` — **exit 0, 72 passed,
+  0 failed** (18 + 0 + 19 + 26 + 3 + 6; doc-tests 0 ×3). Verbatim tail:
+
+  ```text
+     Doc-tests relayflowd_journal
+
+  running 0 tests
+
+  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  ```
+
+- `(cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)` — **exit 0**.
+  Verbatim output (a warm target dir, so the crate lines are cached away —
+  reported as it actually printed, not as the previous entry's fuller output):
+
+  ```text
+      Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+  ```
+
+- `(cd kernel && ../ops/cargo.sh fmt --check)` — **exit 0, empty output**
+  (0 bytes).
+
+- `(cd sdk && npm run build)` — **exit 0**. Verbatim output:
+
+  ```text
+  > @relayflows/sdk@0.1.0 build
+  > tsc
+  ```
+
+- `(cd sdk && npm test)` — **exit 0, 99 passed, 0 failed, 7 files**. Verbatim
+  tail:
+
+  ```text
+   ✓ tests/validate.test.ts (32 tests) 24ms
+   ✓ tests/journal-client.test.ts (12 tests) 40ms
+   ✓ tests/cli.test.ts (30 tests) 385ms
+
+   Test Files  7 passed (7)
+        Tests  99 passed (99)
+     Start at  17:31:11
+     Duration  877ms (transform 318ms, setup 0ms, collect 935ms, tests 517ms, environment 1ms, prepare 939ms)
+  ```
+
+Floors held: kernel 72 ≥ 70, SDK 99 ≥ 58.
+
+### Behavioral gate — all seven cases re-run from `sdk/dist` at `51251c5`
+
+```text
+$ node sdk/dist/cli.js check testdata/hello-ladder.flow.yaml
+WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+RESOLVED step "plan" cli "./preflight/authenticated-cli" from project
+RESOLVED step "act" cli "./preflight/authenticated-cli" from project
+CHECK PASSED testdata/hello-ladder.flow.yaml
+exit=0
+
+$ node sdk/dist/cli.js check testdata/hello-llm.flow.yaml
+WARNING [unprovable_effects] Step "greet" command "printf" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "finish" command "printf" resolves, but its effects cannot be proven before execution.
+RESOLVED step "answer" cli "./preflight/authenticated-cli" from project
+CHECK PASSED testdata/hello-llm.flow.yaml
+exit=0
+
+$ node sdk/dist/cli.js check testdata/hello-agent.flow.yaml
+WARNING [unprovable_effects] Step "greet" command "printf" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "finish" command "printf" resolves, but its effects cannot be proven before execution.
+RESOLVED step "edit" cli "./preflight/authenticated-cli" from project
+CHECK PASSED testdata/hello-agent.flow.yaml
+exit=0
+
+$ node sdk/dist/cli.js check testdata/preflight/cli-missing.flow.yaml
+REFUSED [cli_missing] Step "answer" declares CLI "./missing-cli", but it is missing.
+RESOLVED step "answer" cli "./missing-cli" from step
+exit=2
+
+$ node sdk/dist/cli.js check testdata/preflight/cli-unauthenticated.flow.yaml
+REFUSED [cli_unauthenticated] Step "edit" declares CLI "./unauthenticated-cli", but its auth probe failed.
+RESOLVED step "edit" cli "./unauthenticated-cli" from step
+exit=2
+
+$ node sdk/dist/cli.js check testdata/preflight/cli-unresolved.flow.yaml
+REFUSED [cli_unresolved] Step "answer" has no CLI at step, flow, or project level.
+exit=2
+
+$ node sdk/dist/cli.js check testdata/preflight/no-executor.flow.yaml
+WARNING [unprovable_effects] Step "ready" command "printf" resolves, but its effects cannot be proven before execution.
+REFUSED [no_executor] Trigger "orphaned-schedule" has no registered executor "absent-executor".
+exit=2
+```
+
+Three passes, four refusals, one refusal code each — unchanged from the
+previous entry's run.
+
+### Review verdict — read from the persisted transcripts, not inferred
+
+Two passing transcripts now stand on this branch:
+
+- `ops/reviews/20260827-1714-review.md` — round 3, judged the record repair and
+  the merge with `main`. Ends `REVIEW_PASSED`.
+- `ops/reviews/20260827-1726-review.md` — **round 4**, added by `51251c5` and
+  **not covered by the previous log entry**. It reviewed `git diff main`
+  (40 files, +3023 / −224) at `6eaac2f`, assumed all four prior transcripts
+  could be wrong, and re-measured every falsifiable claim itself: kernel 72,
+  SDK 99, the structural line counts, all seven behavioral outputs. It raised
+  six non-blocking observations (N1–N6, provenance / record-hygiene /
+  follow-up scoping; N2 the only one touching the shipped diff, predating this
+  tick and repairable in a line) and ends:
+
+  ```text
+  REVIEW_PASSED
+  ```
+
+The standing `REVIEW_FAILED` in `ops/reviews/20260827-1627-review.md` is
+therefore cleared by two later independent passes, on their merits and on
+re-executed evidence. Neither CodeRabbit's nor Devin's SUCCESS check is cited
+as review signal (`ops/RUN-CONTRACT.md` §3 bar 1); both are still green without
+having reviewed.
+
+**The round-4 transcript carries its own 17:29 errata**, worth surfacing: it
+originally spelled the failing-verdict sentinel out in prose, and the
+`verdict` gate's substring match read that discussion as a rejection —
+`VERDICT_FAILED` on a transcript whose verdict was, and always was, a pass.
+Two references were reworded; no finding, number, or verdict changed. That
+sharp edge was flagged for the human rather than repaired, because
+`workflows/` is a file that judges this work.
+
+### Codex findings — still triaged, still unbuilt
+
+Both inline `chatgpt-codex-connector` comments carry replies posted at HEAD
+`57c0c3e` (21:17:44Z and 21:17:45Z): **P1** (`sdk/src/preflight.ts` — refuse a
+path-like deterministic command word that does not exist; keep the warning for
+a bare word that `/bin/sh -c` may resolve as a builtin) and **P2**
+(`sdk/src/cli.ts` — `flows check` accepts `version: 9.9.9` that the kernel's
+`RunSpec::validate` rejects). Neither is implemented here; both are filed
+together in `ops/BACKLOG.md` as "check accepts what the kernel later refuses".
+No new bot or human comment has arrived since 21:17:46Z.
+
+### PR #8 — open, mergeable, unmerged by this loop
+
+https://github.com/AgentWorkforce/flows/pull/8 — *WP-4 — `flows check`
+preflight (covenant 2)*, **OPEN**, not a draft, head `51251c5`. Live query in
+this tick, verbatim:
+
+```json
+{"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","mergedAt":null,"reviewDecision":"","state":"OPEN"}
+```
+
+`reviewDecision` is empty: no human approval exists. Khaliq's **BLOCKED — do
+not merge** comment (20:29:24Z) was answered point by point at HEAD
+(21:17:46Z) but has **not been withdrawn by its author**. An answered block is
+not a lifted block. This worker did not merge, and does not hold the authority
+to.
+
+### `main` moved under this branch — three commits, no conflict
+
+`origin/main` advanced from `73bdb59` to `f59d9cd` during this tick. The branch
+is now **7 ahead, 3 behind**:
+
+```text
+f59d9cd fix(drive): verdict reads the last verdict token, not any mention of one
+09f6dd5 feat(review-swarm): our own review team — three lenses, three model families
+59f3680 regressions: relaycast workspace-key repair answers an untyped 500 (#6)
+```
+
+`f59d9cd` fixes exactly the `verdict`-gate sharp edge the round-4 errata
+flagged, from `main`'s side, in the file this loop is barred from touching.
+`59f3680` merged PR #6, so the only PR this loop tracks is now #8.
+GitHub still reports `MERGEABLE` / `CLEAN` against the new `main`, so no
+further reconciliation is required for the merge to be possible; the branch is
+merely behind, not conflicting.
+
+### Gate state — gate 1 remains **AMBER**, honestly
+
+Clause 1 (the a/b/c ladder surviving `kill -9` with exact budget accounting) is
+merged and closed on `main`. Clause 2 (`flows check` preflight, covenant 2) is
+implemented, reconciled, verified, reviewed twice-passing, and mergeable —
+**but only on PR #8's branch, which is not repository state.** Nothing in this
+tick moves the gate. It flips to GREEN only after a human merges PR #8 *and* a
+fresh verify runs on `main` — not on this branch's word, and not on this
+entry's.
+
+`ops/SCOREBOARD.md` reads AMBER for gate 1 on both `main` and this branch, and
+is correct as written.
+
+### Likely next package
+
+**No new gate work opens this tick.** The drive rule binds: PR #8 is
+unfinished, and the only remaining action on it — merging — is a human's.
+Every DoD item WP-4-FIX assigned to this loop is now executed and evidenced.
+
+The next tick's package is therefore contingent, and the assess should decide
+by reading PR #8's live state first:
+
+1. **If a human has merged PR #8** — the package is a gate-1 confirmation run:
+   re-verify the five commands and the seven behavioral cases *on `main`*, and
+   only then move the scoreboard's gate-1 row off AMBER. Gate selection among
+   gates 2 / 5 / 6 reopens after that; the scoreboard names gate 6
+   (integrations via relayfile) as a candidate, not a commitment.
+2. **If PR #8 is still open** — there is no code work left to invent for it.
+   The defensible options are to merge `origin/main` (`f59d9cd`) into the
+   branch again to keep it current, and to clear the round-4 N2 record-hygiene
+   observation in a line. Neither is required while GitHub reports `CLEAN`, and
+   neither is a reason to manufacture new work over a PR awaiting a human.
+3. **Not next, in either case:** the P1/P2 backlog item, the release pipeline,
+   `f.browser`, the cloud-sandbox `sync` remote, and the PR-shepherd flow. All
+   wait behind gate 1.
+
+TICK_LOGGED
