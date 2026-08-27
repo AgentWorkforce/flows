@@ -81,10 +81,22 @@ workflows:
         type: deterministic
         dependsOn: [build]
         command: |
-          ok=0
-          if [ -d kernel ]; then (cd kernel && ../ops/cargo.sh test --workspace 2>&1 | tail -5) || ok=1; fi
-          if [ -f sdk/package.json ]; then (cd sdk && npm test 2>&1 | tail -5) || ok=1; fi
-          [ $ok -eq 0 ] && echo VERIFY_PASS || { echo VERIFY_FAIL; exit 1; }
+          # A gate that cannot fail is not a gate. Never pipe a test command
+          # into tail inside the status check: the pipeline's status is tail's.
+          set -u
+          ran=0; ok=0
+          if [ -d kernel ]; then
+            out=$(cd kernel && ../ops/cargo.sh test --workspace 2>&1); rc=$?
+            echo "$out" | tail -8; ran=1; [ $rc -eq 0 ] || ok=1
+          fi
+          if [ -f sdk/package.json ]; then
+            out=$(cd sdk && npm test 2>&1); rc=$?
+            echo "$out" | tail -8; ran=1; [ $rc -eq 0 ] || ok=1
+          fi
+          if [ "$ran" -eq 0 ]; then
+            echo "VERIFY_FAIL: no suite found — a verify that runs nothing cannot pass"; exit 1
+          fi
+          [ "$ok" -eq 0 ] && echo VERIFY_PASS || { echo VERIFY_FAIL; exit 1; }
         timeoutMs: 1200000
 
       - name: review
