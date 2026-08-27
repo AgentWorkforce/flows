@@ -145,7 +145,8 @@ workflows:
         type: deterministic
         dependsOn: [verdict]
         command: |
-          git add -A && git commit -m "drive: $(grep -m1 -oE 'WP-[0-9]+[^\n]*' ops/NEXT.md | cut -c1-60 || echo work-package)" && \
+          title=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md | sed "s/[[:space:]]*$//" || echo "work package"); \
+          git add -A && git commit -m "drive: $title" && \
           git push -u origin HEAD && \
           gh pr create --fill --body "Automated drive tick. Work package: see ops/NEXT.md in diff. Verification and adversarial review passed in-run. A human merges." 2>&1 | tail -2 && \
           echo PR_OPENED

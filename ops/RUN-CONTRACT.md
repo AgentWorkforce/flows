@@ -30,6 +30,12 @@ Drive both programs to their next milestones without babysitting:
 
 1. `gh pr view <n> --json mergeable,mergeStateStatus,statusCheckRollup` →
    `MERGEABLE` + `CLEAN`, every check SUCCESS. Snapshots go stale; re-verify.
+   **A green check is not review signal.** On PR #8 both bots were green while
+   neither had reviewed — CodeRabbit rate-limited into skipping, Devin's trial
+   expired. Confirm a bot actually produced findings (or an explicit
+   "reviewed N files") before counting it; otherwise treat the PR as having no
+   external review and lean entirely on the adversarial gate plus my own
+   reading of the diff.
 2. Every inline review comment triaged **at HEAD**, with a reply recording the
    audit. Never silently wave, never silently dismiss.
 3. The tick's own gates genuinely ran: `VERIFY_PASS` from a suite that
