@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
-use relayflowd::{Engine, RunStatus, engine::read_spec, server};
+use relayflowd::{DriveOptions, Engine, RunStatus, engine::read_spec, server};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -27,6 +27,12 @@ enum Command {
         /// Test/debug boundary: return after this many newly completed steps.
         #[arg(long, hide = true)]
         stop_after: Option<usize>,
+        /// Test/debug boundary: pause before the named runnable step.
+        #[arg(long, hide = true)]
+        pause_before_step: Option<String>,
+        /// Test/debug boundary: pause after all steps, before run completion.
+        #[arg(long, hide = true)]
+        pause_before_completion: bool,
     },
     /// Resume a run from its durable journal.
     Resume {
@@ -46,8 +52,18 @@ fn main() -> Result<()> {
             spec,
             created_by,
             stop_after,
+            pause_before_step,
+            pause_before_completion,
         } => {
-            let outcome = engine.start(read_spec(&spec)?, &created_by, stop_after)?;
+            let outcome = engine.start_with_options(
+                read_spec(&spec)?,
+                &created_by,
+                DriveOptions {
+                    stop_after,
+                    pause_before_step,
+                    pause_before_completion,
+                },
+            )?;
             println!("{}", serde_json::to_string(&outcome)?);
             if outcome.status == RunStatus::Failed {
                 bail!("run {} failed", outcome.run_id);
