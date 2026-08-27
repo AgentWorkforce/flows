@@ -1,0 +1,23 @@
+[package]
+name = "relayflowd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+relayflowd-core = { path = "../relayflowd-core" }
+relayflowd-journal = { path = "../relayflowd-journal" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+ulid.workspace = true
+wait-timeout.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+

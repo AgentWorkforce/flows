@@ -24,6 +24,16 @@ deterministic step          # a pure script — no LLM anywhere (legal; today's 
 
 `llm` is a **kernel-level step type distinct from `agent`**: it has no workspace, its output is a value, and its verification is the rail that makes a prompt reliable. Most flows a customer writes on day one are deterministic + llm steps; agents are the rung you climb to when the step needs hands.
 
+### The two covenants
+
+Every gate, surface, and SDK is bound by two covenants, born from real cofounder friction with the current engine:
+
+**Covenant 1 — easy to write, easy to read.** A relayflow's spec reads like the plan it came from. The measure is the **cofounder test**: a technical founder writes their first working relayflow in under ten minutes without reading engine docs, and can read a stranger's flow aloud and say what it does. Error messages name the author's mistake in the author's vocabulary, never engine internals. Sage is the zero-syntax on-ramp (conversation → spec). Authoring friction is a gate-blocking defect, not a docs problem.
+
+**Covenant 2 — no unexpected failures.** A relayflow may fail only in ways it declared. Two mechanisms enforce this:
+- **Preflight.** At submit time the engine proves everything provable — spec validity, CLI existence *and auth health*, credential scopes, integration mounts, a worker existing to execute every trigger — and **refuses or warns before the run starts** on anything it cannot prove. Nothing may fail at minute 27 that was checkable at minute 0. (Evidence from the first dogfood run, 2026-08-27: an unknown `cli: grok` passed `--dry-run` and killed the run 27 minutes in; gemini's auth was dead and was discovered mid-run; a cron trigger reported `succeeded` into a void with no worker enrolled.)
+- **Typed failure.** At runtime every failure is one of a closed set of declared kinds (`gate_failed`, `verification_failed`, `budget_exceeded`, `needs_human`, `environment_lost`, …), journaled with its `completionReason`. A raw stack trace, a silent wrong-workspace run, or a "succeeded" that did nothing is by definition a kernel bug. A flow with unprovable assumptions starts only after stating them to its author.
+
 The engine underneath must be **competitive with Temporal and Inngest** as durable execution, and **agentic-leading** where those engines are structurally blind:
 
 | Capability | Temporal | Inngest | Relayflows target |
@@ -81,7 +91,7 @@ Gates 5–8 are horizontal capabilities that start as soon as gate 1 holds and a
 
 **Forces into existence:** `@relayflows/kernel` (charter phase 4 + 5): append-only fsync'd journal that *fails the step* when the write fails (fail-closed, no `homeFallback` silently leaving the relayfile mount), idempotency keys, leases, durable timers, `completionReason`, **out-of-band step completion** — a step an external worker finishes asynchronously (Native's render workers), journaled with the same `completionReason` discipline as in-process steps — and **durable channels**: an inter-agent message is a journal append with consumer offsets, at-least-once and replayable, so coordination in flight survives `kill -9` like every other kind of state.
 
-**Done when:** the canonical hello *ladder* — (a) a pure deterministic flow with zero agents (legalizing what today's validator rejects), (b) the same flow plus a bare `llm` step with a verification gate, (c) the same flow plus an `agent` step — each survives `kill -9` at every step boundary and between them, resumes completing only unfinished work, and its journal replays *results, not code*. Budget accounting is exact: the resumed run's token spend equals one execution of each step.
+**Done when:** the canonical hello *ladder* — (a) a pure deterministic flow with zero agents (legalizing what today's validator rejects), (b) the same flow plus a bare `llm` step with a verification gate, (c) the same flow plus an `agent` step — each survives `kill -9` at every step boundary and between them, resumes completing only unfinished work, and its journal replays *results, not code*. Budget accounting is exact: the resumed run's token spend equals one execution of each step. **Preflight holds (covenant 2):** `flows check` refuses the ladder flows when a declared CLI is missing or unauthenticated or a trigger has no executor, warns on unprovable assumptions before starting, and the failure taxonomy is closed — every failed run's journal terminates in a declared failure kind, never a raw error.
 
 **Exists today:** `runner.ts` (11,560 lines, no checkpoint, no backoff) — the thing being replaced. The YAML/TS/Python authoring surface survives as compilers targeting the journal protocol.
 

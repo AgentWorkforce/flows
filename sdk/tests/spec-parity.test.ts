@@ -1,0 +1,33 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import { compileYamlToCanonicalJson, compileAndHash } from '../src/compile.js';
+
+// The SDK half of the cross-boundary spec-parity gate. The shared fixture in
+// testdata/ pins one spec dialect at the SDK<->kernel seam: this test proves
+// the compiler emits exactly the fixture's canonical JSON and hash, and
+// kernel/relayflowd-core/tests/spec_parity.rs proves the kernel parses that
+// same artifact fail-closed and stamps the identical spec_hash. Together they
+// make "sha256(canonical JSON) == kernel spec_hash" a tested fact, not a
+// comment.
+
+const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata');
+
+function fixture(name: string): string {
+  return readFileSync(join(TESTDATA, name), 'utf8');
+}
+
+describe('spec parity: one dialect at the SDK<->kernel boundary', () => {
+  it('compiles the ladder fixture to the pinned canonical JSON', () => {
+    const yaml = fixture('hello-ladder.flow.yaml');
+    const canonical = compileYamlToCanonicalJson(yaml);
+    expect(canonical).toBe(fixture('hello-ladder.spec.canonical.json').trim());
+  });
+
+  it('hashes the ladder fixture to the pinned spec_hash', () => {
+    const yaml = fixture('hello-ladder.flow.yaml');
+    const { hash } = compileAndHash(yaml);
+    expect(hash).toBe(fixture('hello-ladder.spec.sha256').trim());
+  });
+});

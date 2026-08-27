@@ -24,8 +24,15 @@ agents:
     cli: opencode
     preset: worker
     role: TypeScript engineer. Implements the authoring SDK and spec compiler.
+  # Adversary provenance (run of 2026-08-27): the original adversary was
+  # `cli: grok`, which failed — grok is not a registered CLI. The gemini
+  # fallback failed too (broken auth). claude performed the review, and the
+  # verdict was independently spot-checked outside the runner. Changing the
+  # reviewer mid-run was an operator action, logged in
+  # docs/bootstrap-report.md. The gate-integrity rail (agents may not edit
+  # gates that judge them) was not violated: no judged agent edited this gate.
   - name: adversary
-    cli: grok
+    cli: claude
     preset: reviewer
     role: Adversarial reviewer. Tries to refute that the work meets RFC-0001 and AGENTS.md.
 
