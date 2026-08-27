@@ -1,0 +1,154 @@
+version: '1.0'
+name: flows-bootstrap-gate1
+description: >
+  Bootstrap the flows clean slate toward Gate 1 (a relayflow can run):
+  kernel design doc, Rust relayflowd skeleton with journal + memoization,
+  TS SDK skeleton speaking the journal protocol, adversarial review.
+  Orchestrated by the previous-generation engine, per RFC-0001 §2 rule 1.
+
+swarm:
+  pattern: dag
+  channel: flows-bootstrap
+  timeoutMs: 5400000
+
+agents:
+  - name: architect
+    cli: claude
+    preset: analyst
+    role: Kernel architect. Reads docs/RFC-0001 and writes precise design docs.
+  - name: kernel-dev
+    cli: codex
+    preset: worker
+    role: Rust systems engineer. Implements relayflowd per the design doc.
+  - name: sdk-dev
+    cli: opencode
+    preset: worker
+    role: TypeScript engineer. Implements the authoring SDK and spec compiler.
+  - name: adversary
+    cli: grok
+    preset: reviewer
+    role: Adversarial reviewer. Tries to refute that the work meets RFC-0001 and AGENTS.md.
+
+workflows:
+  - name: gate1-skeleton
+    steps:
+      - name: design
+        type: agent
+        agent: architect
+        task: |
+          Read docs/RFC-0001-everything-is-a-relayflow.md (all of it, including
+          Appendix A) and AGENTS.md. Write kernel/DESIGN.md specifying, concretely:
+          1. The journal entry types (step.attempt.started, step.completed,
+             wait.event, wait.human, sleep.until, run.spawned, epoch summary)
+             with exact field lists, including completionReason on every
+             completion and the Appendix A pin fields (revision ids, stream
+             offsets, idempotency key).
+          2. The SQLite schema for the journal (one file per run cell,
+             append-only tables, segment-per-epoch).
+          3. The step state machine for the hello ladder: deterministic step,
+             llm step, agent step — including memoized resume semantics.
+          4. The crate layout for kernel/ as a cargo workspace: relayflowd-core
+             (no I/O, simulated clock), relayflowd-journal (SQLite),
+             relayflowd (binary).
+          5. The journal protocol v0 for SDKs (JSON over unix socket): the
+             minimal verbs needed for gate 1.
+          Keep it tight. No speculative features beyond gate 1.
+          End your output with the line DESIGN_COMPLETE.
+        verification:
+          type: output_contains
+          value: DESIGN_COMPLETE
+        timeoutMs: 1800000
+
+      - name: kernel-skeleton
+        type: agent
+        agent: kernel-dev
+        dependsOn: [design]
+        maxIterations: 3
+        task: |
+          Read kernel/DESIGN.md, docs/RFC-0001-everything-is-a-relayflow.md and
+          AGENTS.md. Implement the kernel/ cargo workspace exactly per the
+          design:
+          - relayflowd-core: step state machine, memoized resume, retry policy
+            with backoff+jitter, simulated clock. Pure — no I/O.
+          - relayflowd-journal: append-only SQLite journal, fsync on append,
+            a failed write fails the step. Segment-per-epoch scaffolding.
+          - relayflowd: binary wiring core+journal; can execute a run spec JSON
+            containing deterministic steps (the ladder's first rung) end to end,
+            and resume an interrupted run re-executing only unfinished steps.
+          Write tests, including a crash-resume test: execute half a run,
+          drop the process state, reopen the journal, resume, assert completed
+          steps did not re-execute. cargo test must pass. Keep files small and
+          single-purpose per AGENTS.md.
+          End your output with the line KERNEL_SKELETON_DONE.
+        verification:
+          type: output_contains
+          value: KERNEL_SKELETON_DONE
+        timeoutMs: 3600000
+
+      - name: kernel-tests
+        type: deterministic
+        dependsOn: [kernel-skeleton]
+        command: cd kernel && cargo test --workspace 2>&1 | tail -20
+        timeoutMs: 900000
+
+      - name: sdk-skeleton
+        type: agent
+        agent: sdk-dev
+        dependsOn: [design]
+        maxIterations: 3
+        task: |
+          Read kernel/DESIGN.md, docs/RFC-0001-everything-is-a-relayflow.md and
+          AGENTS.md. Implement sdk/ as a TypeScript package (npm, vitest):
+          - Spec types mirroring RFC §1's ladder: deterministic | llm | agent
+            steps, verification gates, flow spec. Zero-agent flows are legal.
+          - A YAML → spec JSON compiler with schema validation.
+          - A journal-protocol v0 client stub matching kernel/DESIGN.md §5.
+          - Tests: compile a pure-deterministic hello flow and a
+            deterministic+llm flow to spec JSON; validate rejects malformed
+            specs. npm test must pass.
+          End your output with the line SDK_SKELETON_DONE.
+        verification:
+          type: output_contains
+          value: SDK_SKELETON_DONE
+        timeoutMs: 2700000
+
+      - name: sdk-tests
+        type: deterministic
+        dependsOn: [sdk-skeleton]
+        command: cd sdk && npm install --no-audit --no-fund >/dev/null 2>&1 && npm test 2>&1 | tail -15
+        timeoutMs: 900000
+
+      - name: adversarial-review
+        type: agent
+        agent: adversary
+        dependsOn: [kernel-tests, sdk-tests]
+        task: |
+          Read docs/RFC-0001-everything-is-a-relayflow.md, AGENTS.md,
+          kernel/DESIGN.md, and the full contents of kernel/ and sdk/.
+          Adversarially review: try to refute that this skeleton satisfies the
+          gate-1 direction — journal append-only and fail-closed? completed
+          steps replay as results, not code? completionReason everywhere?
+          files small and single-purpose? tests real or theater? List every
+          violation with file:line. If violations exist, end with
+          REVIEW_FAILED. If the skeleton honestly meets the bar, end with
+          REVIEW_PASSED.
+        verification:
+          type: output_contains
+          value: REVIEW_PASSED
+        maxIterations: 1
+        timeoutMs: 1800000
+
+      - name: report
+        type: agent
+        agent: architect
+        dependsOn: [adversarial-review]
+        task: |
+          Write docs/bootstrap-report.md: what was built, test results verbatim,
+          review verdict, what gate 1 still needs (kill -9 harness against the
+          real binary, llm step, agent step + Appendix A pins), and the next
+          three work packages in priority order. Honest state only.
+          End with REPORT_DONE.
+        verification:
+          type: output_contains
+          value: REPORT_DONE
+        timeoutMs: 1200000
