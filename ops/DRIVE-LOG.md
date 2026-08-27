@@ -167,3 +167,105 @@ stays a human decision, per NEXT.md's out-of-scope list).
 kind and the missing protocol verbs, per the bootstrap report's queue —
 *unless* the next tick's assess finds PR #3 awaiting review fixes, in
 which case the package is fixing it (no new work over unfinished work).
+
+---
+
+## 2026-08-27 — tick on `flow/drive-0ba6c88-08271225` (base `0ba6c88`)
+
+**Work package:** WP-2 — `llm` step end to end (gate-1 ladder rung (b)),
+from `ops/NEXT.md` (written by this tick's assess; directives were empty
+and no PRs were open, so gate work was permitted). Delivered on this
+branch: the seven missing protocol verbs (`worker.attach`,
+`step.heartbeat`, `step.complete`, `run.watch`, `stream.append`,
+`stream.read`, `event.emit`) implemented in
+`kernel/relayflowd/src/server.rs` + new `server/session.rs` and
+`server/wire.rs`; `ensure_deterministic`'s blanket refusal retired in
+`engine.rs` in favor of real `llm` dispatch through new `engine/model.rs`
+and `engine/remote.rs` (`agent` steps still fail closed at dispatch —
+engine.rs:434 — that is rung (c)); out-of-band worker lease/heartbeat/
+complete path with dead-worker attempts explained and re-leased;
+verification-gated durable retry on llm output; rung-(b) fixture
+`testdata/hello-llm.flow.yaml` with canonical spec + sha256 pinned on both
+sides and parity tests extended; SDK client methods for the new verbs with
+scripted-server coverage; and the crash sweep extended in
+`tests/crash_resume/llm.rs` (+`llm_support.rs` deterministic stub worker —
+no live model calls). The eight rung-(b) tests are named for what they
+prove, including `sigkill_sweep_covers_before_and_between_the_rung_b_steps`,
+`failing_llm_verification_schedules_a_durable_retry_and_succeeds`,
+`llm_verification_exhaustion_is_a_declared_failure_kind`,
+`worker_killed_while_holding_a_lease_is_explained_and_released_on_cli_resume`,
+`sigkill_under_serve_mid_llm_releases_the_lease_and_finishes_via_cli_resume`,
+`completed_llm_output_is_memoized_when_serve_dies_during_the_next_step`,
+and `sigkill_after_the_final_rung_b_effect_resumes_without_redispatching_llm`,
+with a journal-derived `assert_run_budget` helper backing the
+budget-exactness claim.
+
+**Verify (re-run by the Lead on the PR branch at log time, hermetic
+wrapper, no manually exported env vars):**
+
+- `cd kernel && ../ops/cargo.sh test --workspace` — **42 passed, 0
+  failed** (suites 5+0+11+19+2+5, exit 0). Counts did not shrink vs the
+  33-test baseline: crash_resume grew 3→11, spec_parity 1→2. Verbatim
+  tail of the run:
+
+  ```
+     Doc-tests relayflowd_journal
+
+  running 0 tests
+
+  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  ```
+
+- `cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings` — exit
+  0, tail: `Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.26s`
+- `cd kernel && ../ops/cargo.sh fmt --check` — exit 0, no output.
+- `cd sdk && npm test` — **54 passed, 0 failed** (5 files; ≥ 50 baseline
+  held, journal-client suite grew to 10 with the new verb tests), exit 0.
+  Verbatim tail:
+
+  ```
+   Test Files  5 passed (5)
+        Tests  54 passed (54)
+     Start at  13:05:27
+     Duration  355ms (transform 159ms, setup 0ms, collect 428ms, tests 64ms, environment 1ms, prepare 299ms)
+  ```
+
+**Review verdict:** REVIEW_PASSED — for the third consecutive tick this
+is *inferred* from workflow gating (`workflows/drive.yaml`'s pr step runs
+only after the adversary step's `output_contains: REVIEW_PASSED`, and PR
+#4 exists); the review transcript was again not persisted. This gap is
+now three ticks old (backlog item "Persist review transcripts").
+
+**PR:** [#4 — drive: # NEXT — single highest-priority work package](https://github.com/AgentWorkforce/flows/pull/4)
+(open, mergeable, awaiting human review/merge).
+
+**Honest state of gate 1:** rung (b) is closed *on the branch*, not on
+`main` — it becomes true only when PR #4 merges. Rung (a) is closed on
+`main` (PR #2, `74a3639`). Rung (c) (`agent` step + Appendix A pins)
+remains parse-only and fail-closed at dispatch, so gate 1's done-when
+still does not hold. Process deviations a human should see at merge —
+and these are *repeats* of exactly what `ops/NEXT.md`'s Delivery section
+ordered fixed after PR #3: (1) the entire 2,199-line WP-2 implementation
+rode inside the single `drive: # NEXT` commit (`8c9b5f5`) alongside the
+assess's NEXT.md rewrite — no commit names WP-2; (2) the PR title is that
+commit subject, not a statement of the work; (3) the PR body is the
+boilerplate "Automated drive tick…" line — the definition of done
+required the four verbatim verify tails pasted into the PR body, and they
+are not there (this log entry now carries them). The verification results
+themselves are clean; the drift is in the pr step, which evidently does
+not read the Delivery constraints from NEXT.md. That step (or the
+adversary's checklist) should be tightened before the next tick, or this
+will recur a third time. Test-side caveat, stated honestly: the sweep's
+"before and between every step pair" coverage is a single parameterized
+test rather than one test per boundary, and mid-llm kills are exercised
+via serve-death and worker-death paths; no boundary from the definition
+of done is uncovered, but reviewers should read `llm.rs` rather than take
+the count as one-test-per-kill-site.
+
+**Likely next package:** WP-3 — gate-1 rung (c): `agent` step execution +
+Appendix A pin semantics, per RFC-0001 §3 — *unless* the next tick's
+assess finds PR #4 awaiting review fixes, in which case the package is
+fixing it (no new work over unfinished work). Two standing candidates for
+any slack: persist review transcripts (three ticks flagged), and harden
+the drive workflow's pr step so commit hygiene / PR title / PR-body
+evidence stop drifting.
