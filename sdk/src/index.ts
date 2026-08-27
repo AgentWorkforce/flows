@@ -60,6 +60,7 @@ export {
 } from './preflight.js';
 export {
   CHECK_FAILURE_KINDS,
+  CHECK_INPUT_FAILURE_KINDS,
   PREFLIGHT_FAILURE_KINDS,
   PREFLIGHT_WARNING_KINDS,
   isCheckFailureKind,
@@ -67,6 +68,7 @@ export {
   type PreflightFailureKind,
   type PreflightWarningKind,
 } from './failure-kinds.js';
+export { runCli, type CheckInputDiagnostic, type CheckReport, type CliIo } from './cli.js';
 
 export type {
   CompletionReason,

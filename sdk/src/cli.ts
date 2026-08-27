@@ -10,6 +10,7 @@ import type { FlowSpec } from './spec.js';
 import type { CheckFailureKind } from './failure-kinds.js';
 import {
   preflight,
+  type CliResolution,
   type PreflightDiagnostic,
   type PreflightProbes,
 } from './preflight.js';
@@ -21,15 +22,15 @@ interface ProjectConfig {
   path?: string;
 }
 
-interface CheckReport {
+export interface CheckReport {
   ok: boolean;
   path?: string;
   projectConfigPath?: string;
-  resolutions: ReturnType<typeof preflight>['resolutions'];
+  resolutions: CliResolution[];
   diagnostics: Array<PreflightDiagnostic | CheckInputDiagnostic>;
 }
 
-interface CheckInputDiagnostic {
+export interface CheckInputDiagnostic {
   severity: 'refusal';
   kind: CheckFailureKind;
   message: string;
@@ -237,12 +238,25 @@ function emitReport(report: CheckReport, json: boolean, io: CliIo): void {
 
 function isKernelSpec(value: unknown): boolean {
   if (!isObject(value) || !Array.isArray(value['steps'])) return false;
-  // Any kernel-only step key selects the boundary dialect. A minimal authoring
-  // step may share all other keys with a defaulted kernel step.
-  const kernelKeys = ['depends_on', 'max_iterations', 'retry', 'timeout_ms', 'recovery_mode'];
-  return value['steps'].some(
-    (step) => isObject(step) && kernelKeys.some((key) => key in step),
-  );
+  // Select the boundary dialect from snake_case keys or nested verification /
+  // policy shapes. Compiler-emitted kernel specs always carry `retry`; the
+  // additional shapes cover other producers that omit default fields. A
+  // document with no marker is ambiguous and is validated as authoring input.
+  const kernelStepKeys = ['depends_on', 'max_iterations', 'retry', 'timeout_ms', 'recovery_mode'];
+  const kernelBudgetKeys = ['max_tokens_in', 'max_tokens_out', 'max_dollars'];
+  const kernelVerificationKeys = ['output_contains', 'json_schema'];
+  const kernelPermissionKeys = ['file_globs', 'network_allowlist', 'access_preset'];
+  return hasAnyKey(value['budget'], kernelBudgetKeys) || value['steps'].some((step) => (
+    isObject(step) && (
+      kernelStepKeys.some((key) => key in step)
+      || hasAnyKey(step['verification'], kernelVerificationKeys)
+      || hasAnyKey(step['permissions'], kernelPermissionKeys)
+    )
+  ));
+}
+
+function hasAnyKey(value: unknown, keys: readonly string[]): boolean {
+  return isObject(value) && keys.some((key) => key in value);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

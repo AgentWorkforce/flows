@@ -17,8 +17,13 @@ export interface CliProbeResult {
   authenticated: boolean;
 }
 
-/** Environment facts are injected; this module performs no I/O. */
+/**
+ * Environment facts are injected; this module performs no I/O. A probe may
+ * throw when its fact cannot be collected. Preflight catches that boundary and
+ * emits `probe_failed` (or `command_unprovable` for a deterministic command).
+ */
 export interface PreflightProbes {
+  /** Resolve relative paths against the file implied by `source`, then probe `auth status`. */
   cli(cli: string, source: CliResolutionSource): CliProbeResult;
   executor(trigger: TriggerSpec): boolean;
   command(binary: string): boolean;
@@ -141,7 +146,7 @@ function probeResolvedCli(
       kind: 'cli_unauthenticated',
       stepId: resolution.stepId,
       cli: resolution.cli,
-      message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but its auth probe failed.`,
+      message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but "${resolution.cli} auth status" exited non-zero; authenticate it or implement that probe to return exit 0 when authenticated.`,
     });
   }
 }

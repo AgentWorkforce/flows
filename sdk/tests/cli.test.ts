@@ -4,11 +4,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { afterEach, describe, expect, it } from 'vitest';
-import { runCli, type CliIo } from '../src/cli.js';
+import { runCli, type CheckReport, type CliIo } from '../src/cli.js';
 import {
-  CHECK_FAILURE_KINDS,
   CHECK_INPUT_FAILURE_KINDS,
-  PREFLIGHT_FAILURE_KINDS,
   isCheckFailureKind,
 } from '../src/failure-kinds.js';
 
@@ -16,6 +14,12 @@ const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'test
 const PREFLIGHT = join(TESTDATA, 'preflight');
 const LADDER = ['hello-ladder', 'hello-llm', 'hello-agent'] as const;
 const temporaryDirectories: string[] = [];
+const KERNEL_RETRY = {
+  initial_backoff_ms: 100,
+  max_backoff_ms: 60_000,
+  multiplier: 2,
+  jitter_percent: 20,
+};
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
@@ -33,6 +37,14 @@ function run(path: string, json = false): { code: number; stdout: string[]; stde
   return { code, stdout: output.stdout, stderr: output.stderr };
 }
 
+/** Every temporary CLI fixture gets a config boundary, so `/tmp/flows.json` cannot affect it. */
+function temporaryProject(prefix = 'flows-check-'): string {
+  const directory = mkdtempSync(join(tmpdir(), prefix));
+  temporaryDirectories.push(directory);
+  writeFileSync(join(directory, 'flows.json'), JSON.stringify({ executors: [] }));
+  return directory;
+}
+
 /**
  * RFC-0001 §96 makes *the ladder flows* the subject of the refusal clause, so
  * the fault is induced on the canonical flows themselves rather than on a
@@ -41,11 +53,9 @@ function run(path: string, json = false): { code: number; stdout: string[]; stde
  * nothing mutates PATH, the canon on disk, or an ambient project config.
  */
 function ladderVariant(name: string, mutate: (flow: Record<string, unknown>) => void): string {
-  const directory = mkdtempSync(join(tmpdir(), 'flows-ladder-'));
-  temporaryDirectories.push(directory);
+  const directory = temporaryProject('flows-ladder-');
   const flow = parseYaml(readFileSync(join(TESTDATA, `${name}.flow.yaml`), 'utf8')) as Record<string, unknown>;
   mutate(flow);
-  writeFileSync(join(directory, 'flows.json'), JSON.stringify({ executors: [] }));
   const path = join(directory, `${name}.flow.yaml`);
   writeFileSync(path, stringifyYaml(flow));
   return path;
@@ -125,11 +135,36 @@ describe('flows check CLI', () => {
     expect(result.stderr.join('\n')).toContain('WARNING [unprovable_effects]');
   });
 
-  it('emits parseable JSON whose diagnostics all carry declared kinds', () => {
-    const result = run(join(TESTDATA, 'preflight', 'cli-missing.flow.yaml'), true);
-    expect(result.code).toBe(2);
-    const report = JSON.parse(result.stdout.join('\n')) as { diagnostics: Array<{ kind: string }> };
-    expect(report.diagnostics.length).toBeGreaterThan(0);
+  it('pins the complete JSON report for a pass and a refusal', () => {
+    const configPath = join(PREFLIGHT, 'flows.json');
+    const passPath = join(PREFLIGHT, 'cli-declared.flow.yaml');
+    const pass = run(passPath, true);
+    expect(pass.code).toBe(0);
+    expect(JSON.parse(pass.stdout.join('\n')) as CheckReport).toEqual({
+      ok: true,
+      path: passPath,
+      projectConfigPath: configPath,
+      resolutions: [{ stepId: 'answer', cli: './authenticated-cli', source: 'step' }],
+      diagnostics: [],
+    });
+
+    const refusalPath = join(PREFLIGHT, 'cli-missing.flow.yaml');
+    const refusal = run(refusalPath, true);
+    expect(refusal.code).toBe(2);
+    const report = JSON.parse(refusal.stdout.join('\n')) as CheckReport;
+    expect(report).toEqual({
+      ok: false,
+      path: refusalPath,
+      projectConfigPath: configPath,
+      resolutions: [{ stepId: 'answer', cli: './missing-cli', source: 'step' }],
+      diagnostics: [{
+        severity: 'refusal',
+        kind: 'cli_missing',
+        stepId: 'answer',
+        cli: './missing-cli',
+        message: 'Step "answer" declares CLI "./missing-cli", but it is missing.',
+      }],
+    });
     expect(report.diagnostics.every((entry) => isCheckFailureKind(entry.kind))).toBe(true);
   });
 
@@ -139,29 +174,42 @@ describe('flows check CLI', () => {
     expect(result.stdout.join('\n')).toContain('CHECK PASSED');
   });
 
-  it('recognizes a kernel spec when defaulted sentinel keys are omitted', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'flows-check-'));
-    temporaryDirectories.push(directory);
-    const compiled = JSON.parse(readFileSync(join(TESTDATA, 'hello-ladder.spec.canonical.json'), 'utf8')) as {
-      cli?: string;
-      steps: Array<Record<string, unknown>>;
-    };
-    compiled.cli = join(PREFLIGHT, 'authenticated-cli');
-    for (const step of compiled.steps) {
-      delete step['depends_on'];
-      delete step['max_iterations'];
-    }
-    const path = join(directory, 'defaulted-kernel.spec.json');
-    writeFileSync(path, JSON.stringify(compiled));
+  it.each([
+    ['depends_on', { version: '0.1.0', steps: [{ id: 'a', type: 'deterministic', command: 'printf ok', depends_on: [] }] }],
+    ['max_iterations', { version: '0.1.0', steps: [{ id: 'a', type: 'deterministic', command: 'printf ok', max_iterations: 1 }] }],
+    ['retry', { version: '0.1.0', steps: [{ id: 'a', type: 'deterministic', command: 'printf ok', retry: KERNEL_RETRY }] }],
+    ['timeout_ms', { version: '0.1.0', steps: [{ id: 'a', type: 'deterministic', command: 'printf ok', timeout_ms: 5_000 }] }],
+    ['recovery_mode', {
+      version: '0.1.0',
+      cli: join(PREFLIGHT, 'authenticated-cli'),
+      steps: [{ id: 'a', type: 'agent', instruction: 'act', recovery_mode: 'reset' }],
+    }],
+    ['verification.output_contains', {
+      version: '0.1.0',
+      steps: [{ id: 'a', type: 'deterministic', command: 'printf ok', verification: { output_contains: 'ok' } }],
+    }],
+    ['budget.max_tokens_out', {
+      version: '0.1.0',
+      budget: { max_tokens_out: 10 },
+      steps: [{ id: 'a', type: 'deterministic', command: 'printf ok' }],
+    }],
+    ['permissions.file_globs', {
+      version: '0.1.0',
+      cli: join(PREFLIGHT, 'authenticated-cli'),
+      steps: [{ id: 'a', type: 'agent', instruction: 'act', permissions: { file_globs: ['src/**'] } }],
+    }],
+  ] as const)('recognizes kernel dialect from %s alone', (marker, spec) => {
+    const directory = temporaryProject();
+    const path = join(directory, `${marker.replace('.', '-')}.spec.json`);
+    writeFileSync(path, JSON.stringify(spec));
 
     const result = run(path);
-    expect(result.code).toBe(0);
-    expect(result.stdout.join('\n')).toContain('CHECK PASSED');
+    expect(result.code, result.stderr.join('\n')).toBe(0);
+    expect(result.stdout.join('\n'), marker).toContain('CHECK PASSED');
   });
 
   it('rejects type-specific unknown fields in compiled specs instead of dropping them', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'flows-check-'));
-    temporaryDirectories.push(directory);
+    const directory = temporaryProject();
     const compiled = JSON.parse(readFileSync(join(TESTDATA, 'hello-ladder.spec.canonical.json'), 'utf8')) as {
       steps: Array<Record<string, unknown>>;
     };
@@ -175,8 +223,7 @@ describe('flows check CLI', () => {
   });
 
   it('rejects non-default compiled retry policies instead of dropping them', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'flows-check-'));
-    temporaryDirectories.push(directory);
+    const directory = temporaryProject();
     const compiled = JSON.parse(readFileSync(join(TESTDATA, 'hello-ladder.spec.canonical.json'), 'utf8')) as {
       steps: Array<{ retry: Record<string, unknown> }>;
     };
@@ -199,8 +246,7 @@ describe('flows check CLI', () => {
   });
 
   it('resolves a project CLI path relative to the flows.json that declares it', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'flows-check-'));
-    temporaryDirectories.push(directory);
+    const directory = temporaryProject();
     const flowDirectory = join(directory, 'nested');
     mkdirSync(flowDirectory);
     writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli: './authenticated-cli', executors: [] }));
@@ -218,8 +264,7 @@ describe('flows check CLI', () => {
   });
 
   it('uses the nearest flows.json as a whole project boundary and names it on refusal', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'flows-check-'));
-    temporaryDirectories.push(directory);
+    const directory = temporaryProject();
     const nested = join(directory, 'nested');
     const flowDirectory = join(nested, 'flows');
     mkdirSync(flowDirectory, { recursive: true });
@@ -235,8 +280,7 @@ describe('flows check CLI', () => {
   });
 
   it('maps every input refusal path to its declared kind without raw exceptions', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'flows-check-'));
-    temporaryDirectories.push(directory);
+    const directory = temporaryProject();
     const malformed = join(directory, 'malformed.flow.yaml');
     writeFileSync(malformed, 'not: [valid');
     const valid = join(directory, 'valid.flow.yaml');
@@ -254,7 +298,6 @@ describe('flows check CLI', () => {
 
     const kinds = outputs.map((output) => output.match(/\[([^\]]+)]/)?.[1]);
     expect(new Set(kinds)).toEqual(new Set(CHECK_INPUT_FAILURE_KINDS));
-    expect(new Set([...CHECK_INPUT_FAILURE_KINDS, ...PREFLIGHT_FAILURE_KINDS])).toEqual(new Set(CHECK_FAILURE_KINDS));
     expect(outputs.join('\n')).not.toContain('SyntaxError');
     expect(kinds.every((kind) => kind !== undefined && isCheckFailureKind(kind))).toBe(true);
   });

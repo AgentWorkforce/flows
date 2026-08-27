@@ -47,6 +47,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
 
     expect(missing.diagnostics).toContainEqual(expect.objectContaining({ kind: 'cli_missing', stepId: 'missing-step', cli: 'absent' }));
     expect(unauthenticated.diagnostics).toContainEqual(expect.objectContaining({ kind: 'cli_unauthenticated', stepId: 'auth-step', cli: 'locked' }));
+    expect(unauthenticated.diagnostics[0]?.message).toContain('"locked auth status" exited non-zero');
   });
 
   it('refuses unresolved CLIs and triggers with no registered executor', () => {
@@ -66,7 +67,6 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(result.diagnostics).toEqual([
       expect.objectContaining({ severity: 'warning', kind: 'unprovable_effects', stepId: 'inspect' }),
     ]);
-    expect(PREFLIGHT_WARNING_KINDS).toContain(result.diagnostics[0]!.kind);
   });
 
   // Covenant 2 permits refusing *or* warning, but not silence. A deterministic
@@ -118,6 +118,5 @@ describe('preflight: CLI resolution and refusal predicates', () => {
 
     expect(new Set(refusalKinds)).toEqual(new Set(PREFLIGHT_FAILURE_KINDS));
     expect(JSON.stringify(scenarios)).not.toContain('raw secret');
-    expect(refusalKinds).not.toContain('unknown');
   });
 });

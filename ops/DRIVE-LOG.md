@@ -1313,3 +1313,28 @@ file on refusal, and pins a parent-CLI/child-executors layout. The same review
 identified a redundant general retry-range guard: only the exact authoring
 defaults are representable, so the single fail-closed equality check now owns
 that refusal and its CLI test pins the specific field message.
+
+Before round five, `origin/main` was merged normally to make PR #8 mergeable;
+the add/add workflow conflict kept this branch's durable evidence semantics.
+The conflict reconstruction accidentally included two local shell-startup
+diagnostic lines in merge commit `06c4efe`; `3293ff3` removed exactly those
+lines immediately, with no history rewrite, and the workflow dry-run passed.
+
+Round five, canonical run `bdd2c7c9128037f70c44029c`, reviewed mergeable head
+`3293ff3` through the immutable main-owned gate. Structure and history passed;
+maintainability rejected and the aggregate returned **SWARM_FAILED**. Its four
+blocking maintainability findings were repaired without adding gate work:
+
+- redundant assertions that could not fail were removed; the injected-probe
+  contract now states its exception boundary, auth refusal names the exact
+  `auth status` contract, and SDK comments call CLI fields inert preflight data;
+- the exported JSON report now has exported types and exact pass/refusal shape
+  tests, including resolutions and project-config provenance;
+- dialect detection now recognizes every snake-case sentinel plus kernel budget,
+  verification, and permission shapes, with one CLI test per discriminator and
+  an honest comment for inherently ambiguous documents;
+- every temporary CLI fixture now creates its own `flows.json` boundary, so an
+  ambient `/tmp/flows.json` cannot turn a refusal test green or red.
+
+The repaired SDK suite passes **118 tests** across 7 files. Gate 1 remains
+**AMBER** until a human merges PR #8 and re-verifies clause 2 on `main`.

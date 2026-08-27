@@ -123,7 +123,7 @@ export interface LlmStepSpec extends BaseStepSpec {
   type: 'llm';
   prompt: string;
   model?: string;
-  /** Agent CLI selected for this step. Overrides the flow/project default. */
+  /** Inert preflight declaration; overrides the flow/project CLI default. */
   cli?: string;
 }
 
@@ -136,7 +136,7 @@ export interface LlmStepSpec extends BaseStepSpec {
 export interface AgentStepSpec extends BaseStepSpec {
   type: 'agent';
   instruction: string;
-  /** Agent CLI selected for this step. Overrides the flow/project default. */
+  /** Inert preflight declaration; overrides the flow/project CLI default. */
   cli?: string;
   surfaces?: AgentSurfaces;
   recoveryMode?: RecoveryMode;
@@ -163,7 +163,7 @@ export interface FlowSpec {
   version: string;
   name?: string;
   description?: string;
-  /** Default agent CLI for llm/agent steps that do not declare one. */
+  /** Inert preflight default for llm/agent steps that do not declare a CLI. */
   cli?: string;
   /** Declarations checked by preflight; gate 1 never dispatches them. */
   triggers?: TriggerSpec[];
