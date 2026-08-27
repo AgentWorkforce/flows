@@ -3,19 +3,11 @@
 Items the Lead should weigh in assess after ops/DIRECTIVES.md and the current
 gate's needs. Not commitments; ordering is the Lead's call with evidence.
 
-Gate 1's `flows check` preflight is closed by WP-4 on the current branch; it is
-not a backlog item. The next assess should choose among gate 2 and horizontal
-gates 5–8 after this branch lands rather than inheriting the old gate-6
-"next up" annotation as a commitment.
-
-- **Close `flows check` / kernel acceptance gaps (Codex P1 + P2).** One
-  follow-up package for the two cases where preflight accepts a spec the kernel
-  later refuses: (P1) refuse a path-like deterministic command word (contains
-  `/`) when that path does not exist, while retaining the warning for bare words
-  that may be shell builtins, functions, or assignments; (P2) validate the
-  checked spec against the kernel dialect, including the supported version and
-  the kernel's optional `name`, so `CHECK PASSED` implies `RunSpec::validate`
-  accepts it. Filed from PR #8; deliberately not implemented in WP-4-FIX.
+- **Close the deterministic-command preflight gap (Codex P1).** Refuse a
+  path-like deterministic command word (contains `/`) when that path does not
+  exist, while retaining the warning for bare words that may be shell builtins,
+  functions, or assignments. Filed from PR #8; deliberately not implemented
+  in WP-4-FIX.
 - **Release pipeline (relay pattern, NOT crates.io):** cross-compile
   `relayflowd` per platform in CI, bundle binaries into the npm `flows`
   CLI/SDK + curl installer for self-host cells (see `../relay`

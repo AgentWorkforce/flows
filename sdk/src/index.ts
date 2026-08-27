@@ -43,6 +43,7 @@ export {
   compileSpec,
   compileYaml,
   compileYamlToCanonicalJson,
+  kernelToAuthoring,
   toKernelSpec,
   CompileError,
 } from './compile.js';

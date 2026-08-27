@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:pat
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { parse as parseYaml } from 'yaml';
-import { CompileError, compileSpec } from './compile.js';
+import { CompileError, compileSpec, kernelToAuthoring } from './compile.js';
 import type { FlowSpec } from './spec.js';
 import type { CheckFailureKind } from './failure-kinds.js';
 import {
@@ -228,141 +228,12 @@ function isKernelSpec(value: unknown): boolean {
   return value['steps'].some((step) => isObject(step) && ('depends_on' in step || 'max_iterations' in step));
 }
 
-function kernelToAuthoring(value: unknown): unknown {
-  const root = requireObject(value, ['version', 'name', 'description', 'cli', 'triggers', 'steps', 'budget']);
-  const steps = requireArray(root['steps']).map(kernelStepToAuthoring);
-  return {
-    ...copy(root, ['version', 'name', 'description', 'cli', 'triggers']),
-    steps,
-    ...(root['budget'] !== undefined ? { budget: kernelBudgetToAuthoring(root['budget']) } : {}),
-  };
-}
-
-function kernelStepToAuthoring(value: unknown): unknown {
-  const unionKeys = [
-    'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification',
-    'command', 'timeout_ms', 'prompt', 'model', 'cli', 'instruction',
-    'recovery_mode', 'surfaces', 'permissions',
-  ] as const;
-  const step = requireObject(value, unionKeys);
-  const type = step['type'];
-  const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification'] as const;
-  const typeKeys = type === 'deterministic'
-    ? ['command', 'timeout_ms'] as const
-    : type === 'llm'
-      ? ['prompt', 'model', 'cli'] as const
-      : type === 'agent'
-        ? ['instruction', 'cli', 'recovery_mode', 'surfaces', 'permissions'] as const
-        : [];
-  assertKeys(step, [...commonKeys, ...typeKeys]);
-  if (step['retry'] !== undefined) validateKernelRetry(step['retry']);
-  const common = {
-    id: step['id'],
-    type,
-    ...(step['depends_on'] !== undefined ? { dependsOn: step['depends_on'] } : {}),
-    ...(step['max_iterations'] !== undefined ? { maxIterations: step['max_iterations'] } : {}),
-    ...kernelVerificationToAuthoring(step['verification']),
-  };
-  if (type === 'deterministic') {
-    return { ...common, command: step['command'], ...(step['timeout_ms'] !== undefined ? { timeoutMs: step['timeout_ms'] } : {}) };
-  }
-  if (type === 'llm') {
-    return { ...common, prompt: step['prompt'], ...copy(step, ['model', 'cli']) };
-  }
-  if (type === 'agent') {
-    return {
-      ...common,
-      instruction: step['instruction'],
-      ...(step['recovery_mode'] !== undefined ? { recoveryMode: step['recovery_mode'] } : {}),
-      ...copy(step, ['cli', 'surfaces']),
-      ...(step['permissions'] !== undefined ? { permissions: kernelPermissionsToAuthoring(step['permissions']) } : {}),
-    };
-  }
-  return common;
-}
-
-function validateKernelRetry(value: unknown): void {
-  const retry = requireObject(value, [
-    'initial_backoff_ms', 'max_backoff_ms', 'multiplier', 'jitter_percent',
-  ]);
-  const initial = retry['initial_backoff_ms'];
-  const maximum = retry['max_backoff_ms'];
-  const multiplier = retry['multiplier'];
-  const jitter = retry['jitter_percent'];
-  if (![initial, maximum, multiplier, jitter].every(isNonNegativeInteger)
-    || (multiplier as number) === 0
-    || (jitter as number) > 100
-    || (maximum as number) < (initial as number)) {
-    throw new CheckFailure('invalid_spec', 'Compiled spec contains an invalid retry policy.');
-  }
-}
-
-function kernelVerificationToAuthoring(value: unknown): Record<string, unknown> {
-  if (value === undefined) return {};
-  const verification = requireObject(value, ['output_contains', 'json_schema']);
-  if (verification['output_contains'] !== undefined && verification['json_schema'] !== undefined) {
-    throw new CheckFailure('invalid_spec', 'Compiled verification may not contain two gates in spec v0.1.0.');
-  }
-  if (verification['output_contains'] !== undefined) {
-    return { verification: { type: 'output_contains', value: verification['output_contains'] } };
-  }
-  if (verification['json_schema'] !== undefined) {
-    return { verification: { type: 'json_schema', schema: verification['json_schema'] } };
-  }
-  return {};
-}
-
-function kernelBudgetToAuthoring(value: unknown): unknown {
-  const budget = requireObject(value, ['max_tokens_in', 'max_tokens_out', 'max_dollars']);
-  return {
-    ...(budget['max_tokens_in'] !== undefined ? { maxTokensIn: budget['max_tokens_in'] } : {}),
-    ...(budget['max_tokens_out'] !== undefined ? { maxTokensOut: budget['max_tokens_out'] } : {}),
-    ...(budget['max_dollars'] !== undefined ? { maxDollars: budget['max_dollars'] } : {}),
-  };
-}
-
-function kernelPermissionsToAuthoring(value: unknown): unknown {
-  const permissions = requireObject(value, ['file_globs', 'network_allowlist', 'access_preset']);
-  return {
-    ...(permissions['file_globs'] !== undefined ? { fileGlobs: permissions['file_globs'] } : {}),
-    ...(permissions['network_allowlist'] !== undefined ? { networkAllowlist: permissions['network_allowlist'] } : {}),
-    ...(permissions['access_preset'] !== undefined ? { accessPreset: permissions['access_preset'] } : {}),
-  };
-}
-
-function requireObject(value: unknown, allowed: readonly string[]): Record<string, unknown> {
-  if (!isObject(value)) {
-    throw new CheckFailure('invalid_spec', 'Compiled spec contains an unknown or malformed object.');
-  }
-  assertKeys(value, allowed);
-  return value;
-}
-
-function assertKeys(value: Record<string, unknown>, allowed: readonly string[]): void {
-  if (Object.keys(value).some((key) => !allowed.includes(key))) {
-    throw new CheckFailure('invalid_spec', 'Compiled spec contains an unknown or malformed object.');
-  }
-}
-
-function requireArray(value: unknown): unknown[] {
-  if (!Array.isArray(value)) throw new CheckFailure('invalid_spec', 'Compiled spec steps must be an array.');
-  return value;
-}
-
-function copy(value: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
-  return Object.fromEntries(keys.filter((key) => value[key] !== undefined).map((key) => [key, value[key]]));
-}
-
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
-}
-
-function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
 if (process.argv[1] !== undefined && pathToFileURL(process.argv[1]).href === import.meta.url) {

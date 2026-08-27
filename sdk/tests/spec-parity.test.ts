@@ -2,7 +2,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { compileYamlToCanonicalJson, compileAndHash } from '../src/compile.js';
+import {
+  compileAndHash,
+  compileYaml,
+  compileYamlToCanonicalJson,
+  kernelToAuthoring,
+  toKernelSpec,
+} from '../src/compile.js';
 
 // The SDK half of the cross-boundary spec-parity gate. The shared fixture in
 // testdata/ pins one spec dialect at the SDK<->kernel seam: this test proves
@@ -30,6 +36,11 @@ describe('spec parity: one dialect at the SDK<->kernel boundary', () => {
       const yaml = fixture(`${name}.flow.yaml`);
       const { hash } = compileAndHash(yaml);
       expect(hash).toBe(fixture(`${name}.spec.sha256`).trim());
+    });
+
+    it(`round-trips ${name} across the kernel dialect`, () => {
+      const flow = compileYaml(fixture(`${name}.flow.yaml`));
+      expect(kernelToAuthoring(toKernelSpec(flow))).toEqual(flow);
     });
   }
 });

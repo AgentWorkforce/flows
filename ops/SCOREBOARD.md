@@ -10,7 +10,7 @@ Every row starts RED and moves only on evidence. AMBER blocks nothing here
 | 3 — Software Garden | RED | not started |
 | 4 — chief / harness | RED | not started |
 | 5 — memory | RED | scoped by harness directive 3 (relayfile + relayhistory per customer) |
-| 6 — integrations via relayfile | RED | eligible after gate 1; the next assess chooses among gates 2 and 5–8 from current evidence |
+| 6 — integrations via relayfile | RED | **next up** — harness (design partner) needs slack/notion helpers; also unblocks its `REPLACE-WHEN: gate-2` shims |
 | 7 — sandbox routing | RED | regression suite needs darwin-arm64 placement |
 | 8 — identity + credentials | RED | regression suite needs multi-principal runs |
 | 9 — self-improving agents | RED | depends on 5 + 8 |

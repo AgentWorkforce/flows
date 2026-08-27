@@ -13,17 +13,22 @@ describe('validate: rejects malformed specs', () => {
     expect(validateSpec([]).ok).toBe(false);
   });
 
-  it('rejects missing or malformed version/name', () => {
+  it('rejects a missing version', () => {
     const r = validateSpec({ steps: [{ id: 'a', type: 'deterministic', command: 'x' }] });
     expect(r.ok).toBe(false);
     expect(r.errors.join(' ')).toContain('version');
-    expect(r.errors.join(' ')).toContain('name');
   });
 
-  it('rejects a non-semver version', () => {
-    const r = validateSpec({ version: '1.0', name: 'x', steps: [{ id: 'a', type: 'deterministic', command: 'x' }] });
+  it('rejects a version the kernel does not support', () => {
+    const r = validateSpec({ version: '9.9.9', name: 'x', steps: [{ id: 'a', type: 'deterministic', command: 'x' }] });
     expect(r.ok).toBe(false);
-    expect(r.errors.join(' ')).toContain('semver');
+    expect(r.errors.join(' ')).toContain('unsupported version "9.9.9"');
+  });
+
+  it('rejects a malformed optional name', () => {
+    const r = validateSpec({ version: '0.1.0', name: '', steps: [{ id: 'a', type: 'deterministic', command: 'x' }] });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toContain('name');
   });
 
   it('rejects an empty steps array', () => {
@@ -251,6 +256,23 @@ steps:
 });
 
 describe('validate: accepts the legal zero-agent flow', () => {
+  it('accepts the kernel-supported schema version', () => {
+    const result = validateSpec({
+      version: '0.1.0',
+      name: 'supported-version',
+      steps: [{ id: 'a', type: 'deterministic', command: 'echo hi' }],
+    });
+    expect(result).toEqual({ ok: true, errors: [] });
+  });
+
+  it('accepts a spec without a name because the kernel treats it as optional', () => {
+    const result = validateSpec({
+      version: '0.1.0',
+      steps: [{ id: 'a', type: 'deterministic', command: 'echo hi' }],
+    });
+    expect(result).toEqual({ ok: true, errors: [] });
+  });
+
   it('accepts a pure-deterministic spec — zero agents/llm is legal (RFC §1)', () => {
     const spec: FlowSpec = {
       version: '0.1.0',

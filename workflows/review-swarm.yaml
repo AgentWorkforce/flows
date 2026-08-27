@@ -1,0 +1,164 @@
+version: '1.0'
+name: flows-review-swarm
+description: >
+  Three independent reviewers, three lenses, three model families — the review
+  team RFC-0001 §2 rule 7 requires. Exists because external bots are not
+  review signal: on PR #8 CodeRabbit was rate-limited into skipping and Devin's
+  trial expired, both reporting SUCCESS. Our own review must not depend on
+  someone else's quota.
+
+  Invoke after writing the PR number to .review-target. Each lens commits its
+  own transcript to ops/reviews/; the aggregate step fails the run if ANY lens
+  rejects, so a single honest refusal blocks the merge.
+
+swarm:
+  pattern: dag
+  channel: flows-review
+  timeoutMs: 3600000
+  # Each lens is independent, but its evidence commit shares one Git index.
+  # Serialize the steps so every transcript receives its own durable commit.
+  maxConcurrency: 1
+
+agents:
+  # Deliberately three different model families: a shared blind spot in one
+  # harness must not become the whole team's blind spot.
+  - name: maintainability
+    cli: claude
+    preset: reviewer
+    role: Reviews for maintainability — will a stranger understand and safely change this in six months?
+  - name: history
+    cli: codex
+    preset: reviewer
+    role: Reviews the change against the story of the code — does it fit what the repo has been becoming?
+  - name: structure
+    cli: opencode
+    preset: reviewer
+    role: Reviews structure — boundaries, coupling, whether the shape matches the contract in RFC-0001.
+
+workflows:
+  - name: review-pr
+    steps:
+      - name: fetch
+        type: deterministic
+        command: |
+          # Deterministic steps do not inherit the launching shell's env, so the
+          # target is read from a file the operator writes before the run:
+          #   echo 8 > .review-target
+          set -u
+          if [ ! -f .review-target ]; then
+            echo "FETCH_FAILED: .review-target missing — write the PR number to it first"; exit 1
+          fi
+          PR=$(tr -dc '0-9' < .review-target)
+          [ -n "$PR" ] || { echo "FETCH_FAILED: .review-target holds no PR number"; exit 1; }
+          gh pr view "$PR" --json headRefName,title,url > /tmp/pr-$PR.json
+          gh pr diff "$PR" > /tmp/pr-$PR.diff
+          echo "target PR #$PR, $(wc -l < /tmp/pr-$PR.diff) diff lines"
+          echo FETCHED
+
+      - name: lens-maintainability
+        type: agent
+        agent: maintainability
+        dependsOn: [fetch]
+        task: |
+          Review the PR whose number is in .review-target (diff at
+          /tmp/pr-<n>.diff, metadata at /tmp/pr-<n>.json) through ONE lens: maintainability.
+          Ask: could a stranger read this in six months and change it safely?
+          Name unclear boundaries, implicit contracts, missing failure handling,
+          comments that assert what the code does not do, and tests that would
+          not fail if the behavior broke.
+          Read AGENTS.md and docs/RFC-0001-everything-is-a-relayflow.md first.
+          Set TRANSCRIPT to
+          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-maintainability.md,
+          write the complete review there, and end the transcript with exactly
+          REVIEW_PASSED or REVIEW_FAILED. Persist the evidence in this same step:
+          `git add -- "$TRANSCRIPT"` then
+          `git commit --only -m "review(pr$(cat .review-target)): maintainability transcript" -- "$TRANSCRIPT"`.
+          Do not stage or commit any other file. Confirm the commit with
+          `git cat-file -e "HEAD:$TRANSCRIPT"`. End your output with the same
+          verdict token as the transcript.
+        verification:
+          type: output_contains
+          value: "REVIEW_"
+        maxIterations: 1
+        timeoutMs: 1800000
+
+      - name: lens-history
+        type: agent
+        agent: history
+        dependsOn: [lens-maintainability]
+        task: |
+          Review the PR whose number is in .review-target (diff at /tmp/pr-<n>.diff) through ONE
+          lens: does this change fit the story of the code?
+          Run `git log --oneline -40` and read ops/DRIVE-LOG.md, ops/NEXT.md and
+          ops/DIRECTIVES.md if present. Ask: does it repeat a mistake the log
+          already records? Does it contradict a settled decision in RFC-0001?
+          Does it reintroduce something a previous commit deliberately removed?
+          Does the commit message tell the truth about the diff?
+          Set TRANSCRIPT to
+          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-history.md,
+          write the complete review there, and end the transcript with exactly
+          REVIEW_PASSED or REVIEW_FAILED. Persist the evidence in this same step:
+          `git add -- "$TRANSCRIPT"` then
+          `git commit --only -m "review(pr$(cat .review-target)): history transcript" -- "$TRANSCRIPT"`.
+          Do not stage or commit any other file. Confirm the commit with
+          `git cat-file -e "HEAD:$TRANSCRIPT"`. End your output with the same
+          verdict token as the transcript.
+        verification:
+          type: output_contains
+          value: "REVIEW_"
+        maxIterations: 1
+        timeoutMs: 1800000
+
+      - name: lens-structure
+        type: agent
+        agent: structure
+        dependsOn: [lens-history]
+        task: |
+          Review the PR whose number is in .review-target (diff at /tmp/pr-<n>.diff) through ONE
+          lens: structure. Boundaries, coupling, file size and single purpose,
+          whether the shape matches RFC-0001 (closed kernel vocabulary, helpers
+          over primitives, fail-closed, completionReason discipline) and
+          AGENTS.md. Name anything that puts product logic in the kernel, adds
+          a primitive instead of a helper, or grows a file past its purpose.
+          Set TRANSCRIPT to
+          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-structure.md,
+          write the complete review there, and end the transcript with exactly
+          REVIEW_PASSED or REVIEW_FAILED. Persist the evidence in this same step:
+          `git add -- "$TRANSCRIPT"` then
+          `git commit --only -m "review(pr$(cat .review-target)): structure transcript" -- "$TRANSCRIPT"`.
+          Do not stage or commit any other file. Confirm the commit with
+          `git cat-file -e "HEAD:$TRANSCRIPT"`. End your output with the same
+          verdict token as the transcript.
+        verification:
+          type: output_contains
+          value: "REVIEW_"
+        maxIterations: 1
+        timeoutMs: 1800000
+
+      - name: aggregate
+        type: deterministic
+        dependsOn: [lens-maintainability, lens-history, lens-structure]
+        command: |
+          # Any single honest refusal blocks the merge. A missing transcript is
+          # a refusal too: an unpersisted verdict is not evidence.
+          set -u
+          PR=$(tr -dc '0-9' < .review-target 2>/dev/null)
+          fail=0
+          for lens in maintainability history structure; do
+            f=$(ls -t ops/reviews/*-pr${PR}-${lens}.md 2>/dev/null | head -1)
+            if [ -z "$f" ]; then
+              echo "SWARM_FAILED: $lens produced no transcript"; fail=1; continue
+            fi
+            if ! git cat-file -e "HEAD:$f" 2>/dev/null; then
+              echo "SWARM_FAILED: $lens transcript is not committed ($f)"; fail=1; continue
+            fi
+            if grep -q "REVIEW_FAILED" "$f"; then
+              echo "SWARM_FAILED: $lens rejected — see $f"; fail=1
+            elif grep -q "REVIEW_PASSED" "$f"; then
+              echo "ok: $lens passed ($f)"
+            else
+              echo "SWARM_FAILED: $lens transcript carries no verdict ($f)"; fail=1
+            fi
+          done
+          [ $fail -eq 0 ] && echo SWARM_PASSED || exit 1
+        timeoutMs: 120000

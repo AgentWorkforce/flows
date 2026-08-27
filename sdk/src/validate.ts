@@ -16,6 +16,7 @@ import type {
   TriggerSpec,
   VerificationSpec,
 } from './spec.js';
+import { SPEC_SCHEMA_VERSION } from './spec.js';
 
 export interface ValidationResult {
   ok: boolean;
@@ -35,7 +36,6 @@ const RECOVERY_MODES: ReadonlySet<RecoveryMode> = new Set([
 ]);
 
 const DECIMAL_RE = /^\d+(\.\d+)?$/;
-const SEMVER_RE = /^\d+\.\d+\.\d+$/;
 
 // Allowed keys per authoring object level. Validation is fail-closed on
 // unknown keys (AGENTS.md rule 4; RFC covenant 2): a typo'd key like
@@ -98,12 +98,12 @@ class Validator {
     this.checkKeys(s, ROOT_KEYS, 'spec');
 
     if (!isNonEmptyString(s['version'])) {
-      this.fail('spec.version: expected a non-empty semver string (e.g. "0.1.0")');
-    } else if (!SEMVER_RE.test(s['version'] as string)) {
-      this.fail(`spec.version: "${s['version']}" is not semver (MAJOR.MINOR.PATCH)`);
+      this.fail(`spec.version: expected supported version "${SPEC_SCHEMA_VERSION}"`);
+    } else if (s['version'] !== SPEC_SCHEMA_VERSION) {
+      this.fail(`spec.version: unsupported version "${s['version']}" (expected "${SPEC_SCHEMA_VERSION}")`);
     }
 
-    if (!isNonEmptyString(s['name'])) {
+    if (s['name'] !== undefined && !isNonEmptyString(s['name'])) {
       this.fail('spec.name: expected a non-empty string');
     }
 
