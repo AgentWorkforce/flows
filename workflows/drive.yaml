@@ -94,8 +94,11 @@ workflows:
         task: |
           Review `git diff main` against ops/NEXT.md (scope), AGENTS.md
           (standards) and RFC-0001 (semantics). Try to refute. List violations
-          with file:line. End with REVIEW_PASSED only if the diff honestly
-          meets the bar and stays in scope; otherwise REVIEW_FAILED.
+          with file:line. FIRST write your complete review (findings, evidence,
+          verdict rationale) to ops/reviews/$(date +%Y%m%d-%H%M)-review.md and
+          `git add` it — an unpersisted verdict is not evidence. Then end with
+          REVIEW_PASSED only if the diff honestly meets the bar and stays in
+          scope; otherwise REVIEW_FAILED.
         verification:
           type: output_contains
           value: REVIEW_PASSED
@@ -106,7 +109,7 @@ workflows:
         type: deterministic
         dependsOn: [review]
         command: |
-          git add -A && git commit -m "drive: $(head -1 ops/NEXT.md | cut -c1-60)" && \
+          git add -A && git commit -m "drive: $(grep -m1 -oE 'WP-[0-9]+[^\n]*' ops/NEXT.md | cut -c1-60 || echo work-package)" && \
           git push -u origin HEAD && \
           gh pr create --fill --body "Automated drive tick. Work package: see ops/NEXT.md in diff. Verification and adversarial review passed in-run. A human merges." 2>&1 | tail -2 && \
           echo PR_OPENED

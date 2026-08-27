@@ -14,3 +14,9 @@ gate's needs. Not commitments; ordering is the Lead's call with evidence.
   ops/ per tick until the kernel journal owns it.
 - **Re-register cloud schedules from current drive.yaml** once a worker
   exists (registered bytes lag main), and delete stale schedule c8b6b7d0.
+- **Customer harness is a named design partner** (`sales/harness` — authored on
+  flows v2): its filed requirements rank gate work. First expected asks:
+  `on()` triggers (gate 2), slack/notion helpers (gate 6), `f.human` channel
+  delivery (covenant 3), memory scopes (gate 5).
+- **PR titles from the pr step** leak the NEXT.md markdown header — use the
+  work-package name.

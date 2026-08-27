@@ -24,15 +24,17 @@ deterministic step          # a pure script — no LLM anywhere (legal; today's 
 
 `llm` is a **kernel-level step type distinct from `agent`**: it has no workspace, its output is a value, and its verification is the rail that makes a prompt reliable. Most flows a customer writes on day one are deterministic + llm steps; agents are the rung you climb to when the step needs hands.
 
-### The two covenants
+### The three covenants
 
-Every gate, surface, and SDK is bound by two covenants, born from real cofounder friction with the current engine:
+Every gate, surface, and SDK is bound by three covenants, born from real cofounder friction with the current engine:
 
 **Covenant 1 — easy to write, easy to read.** A relayflow's spec reads like the plan it came from. The measure is the **cofounder test**: a technical founder writes their first working relayflow in under ten minutes without reading engine docs, and can read a stranger's flow aloud and say what it does. Error messages name the author's mistake in the author's vocabulary, never engine internals. Sage is the zero-syntax on-ramp (conversation → spec). Authoring friction is a gate-blocking defect, not a docs problem.
 
 **Covenant 2 — no unexpected failures.** A relayflow may fail only in ways it declared. Two mechanisms enforce this:
 - **Preflight.** At submit time the engine proves everything provable — spec validity, CLI existence *and auth health*, credential scopes, integration mounts, a worker existing to execute every trigger — and **refuses or warns before the run starts** on anything it cannot prove. Nothing may fail at minute 27 that was checkable at minute 0. (Evidence from the first dogfood run, 2026-08-27: an unknown `cli: grok` passed `--dry-run` and killed the run 27 minutes in; gemini's auth was dead and was discovered mid-run; a cron trigger reported `succeeded` into a void with no worker enrolled.)
 - **Typed failure.** At runtime every failure is one of a closed set of declared kinds (`gate_failed`, `verification_failed`, `budget_exceeded`, `needs_human`, `environment_lost`, …), journaled with its `completionReason`. A raw stack trace, a silent wrong-workspace run, or a "succeeded" that did nothing is by definition a kernel bug. A flow with unprovable assumptions starts only after stating them to its author.
+
+**Covenant 3 — goals, not babysitting.** A flow given a goal runs to completion or to a *declared* human gate — it never stops to ask permission for work inside its scope, and it never ends a report with "want me to start it?" (if the next step is in scope, it is already started). Human approval exists only where the flow declared it (`f.human`, merge gates, customer-visible actions, budget ceilings), and when such a gate is reached the ask is **delivered, not displayed**: routed to the human's channels — Slack, WhatsApp, Telegram, iMessage — carrying the evidence, the exact question, and a one-tap answer, while the run parks durably and every run *not* blocked on that answer keeps driving. Ten, twenty, thirty concurrent flows must generate approximately zero questions and a short, well-contexted approval queue — or the system has failed this covenant.
 
 The engine underneath must be **competitive with Temporal and Inngest** as durable execution, and **agentic-leading** where those engines are structurally blind:
 

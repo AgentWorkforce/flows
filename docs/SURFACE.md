@@ -74,6 +74,8 @@ No process runs between events: the handler wakes, executes to its next await, p
      auditor: { cli: claude, memory: true, tools: { mcp: [semgrep] }, workspace: readonly }  # 3. escalated
    ```
    Defining your team's reviewer = writing `reviewer.flow.ts` (identity + memory + body); other flows compose it with `use:` / `f.agent(reviewer, task)`. Persona import is flow composition, not a special mechanism.
+
+   **Anonymous resolution law:** `f.agent\`task\`` with no name is the *default agent*, resolved (never guessed) in order: step options → flow header → project config (`flows.json`) → platform default. The elaborated definition — cli, identity (derived from the flow: `<flow>/agent`), workspace scopes, budget, tools — is printed by `flows check` and validated at preflight (covenant 2): you are told exactly who you hired before the run starts, and a missing/unauthenticated resolution refuses at submit, never at minute 27.
 7. **Two dialects, one journal.** Declarative YAML — data, fully preflightable, sage's compile target, gate 9's self-authoring output. Imperative TS — journal-memoized function, maximum ergonomics. YAML is canonical; TS is the power tool. TS preflights its declared surface (agents, helpers, tools, identity), not arbitrary control flow — declared honestly per covenant 2.
 
 ## 3. Plugins: the kernel is closed, the surface is open
