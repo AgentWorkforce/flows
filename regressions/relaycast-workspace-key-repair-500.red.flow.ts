@@ -49,9 +49,32 @@
 //              `relaycast-cloud` (plan enterprise), so the UPDATE branch runs,
 //              not the INSERT branch.
 //
+// NOT REPRODUCING as of 2026-08-27 18:46-18:52Z. Four launches were fired with
+// a `wrangler tail` attached to `relaycast-cloud-api`; all four reached
+// POST /internal/workspaces/rw_7ccfea89/api-key, all four answered 200 with
+// zero exceptions, and one run reached `running` with a sandbox. Across the
+// whole window rw_7ccfea89's stored api_key_hash was UNCHANGED (800c08fc13…
+// before and after), so each push was a self-update — and a self-update can
+// never violate workspaces_api_key_hash_unique. That disfavours the
+// constraint-collision reading of the original 500s and favours a transient
+// fault on the same unguarded path, unless the control plane's stored key was
+// different at 18:00-18:24Z and has since changed. That last possibility is
+// unverifiable from here: the prod Neon row was not reachable (the on-disk
+// NEON_APP_DATABASE_URL points at a dev branch).
+//
+// The DEFECT is unchanged either way, and is what this pair exists for: the
+// route runs its D1 statements with no try/catch, so ANY database fault —
+// permanent or transient — reaches the operator as a bare, untyped
+// "500 Internal Server Error". A transient fault is the worse case, because
+// the caller cannot tell it apart from a permanent one and retries forever,
+// which is exactly what these three jobs did.
+//
+// This flow therefore reproduces only while the underlying fault window is
+// open. Judge the defect by reading routes.ts, not by this flow's exit code.
+//
 // UPSTREAM to file — relaycast-cloud
 //
-// This flow PASSES while the bug is present.
+// This flow PASSES while the bug is present (see NOT REPRODUCING above).
 //
 // RUN-WHEN: gate-1, gate-6 (a relayfile adapter for the relaycast gateway),
 //           gate-8 (the internal bearer resolved from a mount, not ambient env)

@@ -14,6 +14,16 @@
 //               payload.data.workspace_id === relaycastWorkspaceId)
 //          Jobs 9a26d44d / 0c96a292 / 09e842f0, 2026-08-27,
 //            "Relaycast workspace key repair failed: 500 Internal Server Error"
+//
+// FALSE-GREEN WARNING. As of 2026-08-27 18:52Z this flow PASSES against
+// production — four launches, four 200s — while routes.ts is STILL unguarded,
+// because the underlying fault window closed on its own rather than because
+// the code was fixed. That is exactly why the suite's rule is red-and-green in
+// the SAME run: a green here proves the endpoint is healthy right now, not
+// that the unguarded path is gone. Until the fix lands, judge this pair by
+// reading routes.ts. The surface cannot yet inject a dependency fault, so the
+// unguarded path is not directly assertable from a flow (see MANIFEST
+// surfaceGaps: dependency-fault-injection).
 // UPSTREAM to file — relaycast-cloud
 //
 // The fix wraps the D1 statements and maps the one constraint that can fire —

@@ -52,6 +52,27 @@ automatically the moment its gates close.
 | `cross-account-workspace-404` | Another account's workspace answers 404 with no code and no user message; the client renders every non-ok response as a permissions problem. | `cloud .../enrollment-tokens/route.ts:29-32` (404 `{"error":"Workspace not found"}`), `cloud packages/web/components/workers/NewWorkerForm.tsx:91-92`; workspaces `50587328-…` (khaliq@agentrelay.com) vs `0fb35c2e-…` (khaliqgant@gmail.com) | gate-1, gate-6, gate-8 | to file — cloud |
 | `relaycast-workspace-key-repair-500` | Relaycast's internal workspace-key repair route does its D1 write with no `try`/`catch`, so a `workspaces_api_key_hash_unique` violation escapes the worker as a bare non-JSON 500 — and every cloud workflow launch for the workspace dies with an HTTP status line instead of a named condition. | `relaycast-cloud packages/relaycast/src/fleet/routes.ts:550-566` (unguarded `UPDATE`/`INSERT`), `:587-594` (dispatch), `packages/relaycast/src/entrypoints/cloudflare.ts:182-183` (no wrap); caller `cloud packages/web/lib/workflows/relay-workspace.ts:222-243`, message at `:238-241`; jobs `9a26d44d` (manual, failed), `0c96a292` + `09e842f0` (cron, launching) — all `Relaycast workspace key repair failed: 500 Internal Server Error`; app ws `50587328-…` → relay ws `rw_7ccfea89` | gate-1, gate-6, gate-8 | to file — relaycast-cloud |
 
+### `relaycast-workspace-key-repair-500` is not reproducing
+
+Re-checked 2026-08-27 18:46-18:52Z: four launches fired with a `wrangler tail`
+attached, and all four repair calls answered **200 with zero exceptions**; one
+run reached `running` with a sandbox. `rw_7ccfea89`'s stored `api_key_hash` was
+unchanged across the whole window, so each push was a self-update — which can
+never violate `workspaces_api_key_hash_unique`. The original 500s therefore look
+more like a transient fault than a constraint collision, though a key change
+between 18:24Z and 18:46Z cannot be excluded from here.
+
+The defect is unchanged: the route still runs its D1 statements with no
+`try`/`catch`, so any database fault — permanent or transient — still reaches
+the operator as a bare, untyped `500 Internal Server Error`. A transient fault
+is the worse case, because the caller cannot tell it apart from a permanent one
+and retries forever.
+
+This makes the pair the suite's first **false-green** hazard: the green case
+passes against healthy production while the defective code is still deployed.
+Until a flow can inject a dependency fault, judge this pair by reading
+`routes.ts`, not by its exit code.
+
 Three of these are covenant violations, not merely defects:
 `cron-succeeded-into-void` is covenant 2 verbatim — *"a 'succeeded' that did
 nothing is by definition a kernel bug"* — and so, in its own way, is

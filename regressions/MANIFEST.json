@@ -49,6 +49,13 @@
       "blocks": [
         "relaycast-workspace-key-repair-500"
       ]
+    },
+    {
+      "id": "dependency-fault-injection",
+      "need": "A red case cannot force a downstream dependency to fail, so a defect that only shows when a dependency errors (here: an unguarded D1 write that turns any database fault into an untyped 500) is observable only while a real fault window happens to be open. Without injection the green case can pass against healthy production while the defective code is still deployed — a false green the suite must not mistake for a fix.",
+      "blocks": [
+        "relaycast-workspace-key-repair-500"
+      ]
     }
   ],
   "pairs": [
@@ -224,8 +231,17 @@
           "the usage_classification/classification_source CHECK constraints are satisfied by every row (0 violating), so they are ruled out",
           "D1 relaycast-cloud is 3.49 GB with 911,908 writes in 24h, so a size or write-availability fault is ruled out"
         ],
-        "observedOn": "2026-08-27"
-      }
+        "observedOn": "2026-08-27",
+        "nonReproduction": {
+          "observedOn": "2026-08-27T18:46Z-18:52Z",
+          "method": "four launches fired via `agent-relay cloud run workflows/drive.yaml` with `wrangler tail relaycast-cloud-api` attached",
+          "result": "4/4 reached POST /internal/workspaces/rw_7ccfea89/api-key and answered 200 with zero exceptions; one run reached `running` with a sandbox, so the launch path completed past the repair",
+          "keyHashUnchanged": "rw_7ccfea89 api_key_hash stayed 800c08fc13… before and after, so each push was a self-update, which can never violate workspaces_api_key_hash_unique",
+          "implication": "disfavours the constraint-collision reading of the original 500s and favours a transient fault on the same unguarded path; not fully settled because the prod Neon row holding the control plane's stored key was unreachable (on-disk NEON_APP_DATABASE_URL points at a dev branch), so a key change between 18:24Z and 18:46Z cannot be excluded",
+          "defectUnchanged": "the route still runs its D1 statements with no try/catch, so any database fault — permanent or transient — still reaches the operator as a bare untyped 500"
+        }
+      },
+      "status": "red case not currently reproducing; the defect in routes.ts is unfixed. Judge by reading the source, not by the flow's exit code, until gate-6/8 and dependency-fault injection exist."
     }
   ]
 }
