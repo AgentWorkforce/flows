@@ -1,15 +1,14 @@
 # Relayflow kernel
 
-Run the kernel gate from this directory with plain Cargo commands:
+Run the kernel gate from this directory through the repository wrapper:
 
 ```sh
-cargo test --workspace
-cargo clippy --workspace -- -D warnings
-cargo fmt --check
+../ops/cargo.sh test --workspace
+../ops/cargo.sh clippy --workspace -- -D warnings
+../ops/cargo.sh fmt --check
 ```
 
-`.cargo/config.toml` redirects the locked crates.io dependencies to the
-repo-local `vendor/` source. This keeps clean-checkout builds deterministic and
-avoids reliance on the machine's `CARGO_HOME`; update the source alongside
-`Cargo.lock` with
-`CARGO_HOME="$(pwd)/.cargo-home" cargo vendor --locked vendor`.
+The wrapper sets `CARGO_HOME` to the repository-local `.cargo-home/` directory.
+This keeps dependency downloads isolated from machine state, including a broken
+`~/.cargo/registry` symlink, without committing vendored crate sources. Cargo
+still resolves the exact dependency versions pinned in `Cargo.lock`.

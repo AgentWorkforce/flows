@@ -95,7 +95,7 @@ workflows:
       - name: kernel-tests
         type: deterministic
         dependsOn: [kernel-skeleton]
-        command: cd kernel && cargo test --workspace 2>&1 | tail -20
+        command: cd kernel && ../ops/cargo.sh test --workspace 2>&1 | tail -20
         timeoutMs: 900000
 
       - name: sdk-skeleton

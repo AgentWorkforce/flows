@@ -82,7 +82,7 @@ workflows:
         dependsOn: [build]
         command: |
           ok=0
-          if [ -d kernel ]; then (cd kernel && cargo test --workspace 2>&1 | tail -5) || ok=1; fi
+          if [ -d kernel ]; then (cd kernel && ../ops/cargo.sh test --workspace 2>&1 | tail -5) || ok=1; fi
           if [ -f sdk/package.json ]; then (cd sdk && npm test 2>&1 | tail -5) || ok=1; fi
           [ $ok -eq 0 ] && echo VERIFY_PASS || { echo VERIFY_FAIL; exit 1; }
         timeoutMs: 1200000
