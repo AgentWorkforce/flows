@@ -226,7 +226,7 @@ pub fn assert_exact_journal(
     );
 }
 
-fn only_run_id(data_dir: &Path) -> String {
+pub fn only_run_id(data_dir: &Path) -> String {
     only_run_id_if_present(data_dir).expect("expected exactly one run journal")
 }
 

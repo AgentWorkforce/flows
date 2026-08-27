@@ -1,0 +1,33 @@
+# Gate-1 ladder rung (b): deterministic + bare llm + deterministic.
+version: '0.1.0'
+name: hello-llm
+description: A bare llm result verified as kernel control flow.
+steps:
+  - id: greet
+    type: deterministic
+    command: "printf hello"
+    verification:
+      type: output_contains
+      value: hello
+  - id: answer
+    type: llm
+    dependsOn: [greet]
+    prompt: "Return JSON with integer field answer for 2+2."
+    model: deterministic-test-stub
+    maxIterations: 2
+    verification:
+      type: json_schema
+      schema:
+        type: object
+        required: [answer]
+        properties:
+          answer:
+            type: integer
+  - id: finish
+    type: deterministic
+    dependsOn: [answer]
+    command: "printf done"
+budget:
+  maxTokensIn: 32
+  maxTokensOut: 16
+  maxDollars: "0.01"

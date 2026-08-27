@@ -70,7 +70,15 @@ fn main() -> Result<()> {
             }
         }
         Command::Resume { run_id, stop_after } => {
-            let outcome = engine.resume(&run_id, stop_after)?;
+            let outcome = if stop_after.is_none() {
+                if let Some(outcome) = server::resume_via_socket(&cli.data_dir, &run_id)? {
+                    outcome
+                } else {
+                    engine.resume(&run_id, None)?
+                }
+            } else {
+                engine.resume(&run_id, stop_after)?
+            };
             println!("{}", serde_json::to_string(&outcome)?);
             if outcome.status == RunStatus::Failed {
                 bail!("run {} failed", outcome.run_id);

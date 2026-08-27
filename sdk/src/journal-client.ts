@@ -5,9 +5,8 @@
 // server-pushed events, and is fail-closed: a connection drop or write error
 // rejects every pending request (a journal write that fails fails the step;
 // AGENTS.md rule 4). The kernel binary (`kernel/relayflowd serve`) speaks
-// this transport; its gate-1 rung serves `hello`, `run.start`, `run.resume`,
-// `run.get`, and `journal.read`, and rejects the remaining typed verbs
-// explicitly. The client's own framing and failure behavior is covered by a
+// this transport, including out-of-band leases, watches, events, and durable
+// stream plumbing. The client's framing and failure behavior is covered by a
 // loopback double in tests.
 
 import { EventEmitter } from 'node:events';
@@ -180,12 +179,12 @@ export class JournalClient extends EventEmitter {
    * Open a push stream of every appended entry. Resolves once subscribed;
    * entries arrive as `'entry'` events: `client.on('entry', (entry) => …)`.
    */
-  runWatch(runId: string): Promise<void> {
+  runWatch(runId: string): Promise<VerbContract['run.watch']['result']> {
     return this.request('run.watch', { run_id: runId });
   }
 
   /** Connection becomes a worker; receives `step.dispatch` events. */
-  workerAttach(workerId: string, stepTypes: StepType[]): Promise<void> {
+  workerAttach(workerId: string, stepTypes: StepType[]): Promise<VerbContract['worker.attach']['result']> {
     return this.request('worker.attach', { worker_id: workerId, step_types: stepTypes });
   }
 
@@ -219,7 +218,7 @@ export class JournalClient extends EventEmitter {
         streams?: { stream: string; read_offset: number }[];
       };
     } = {},
-  ): Promise<void> {
+  ): Promise<VerbContract['step.complete']['result']> {
     return this.request('step.complete', {
       run_id: runId,
       step_id: stepId,

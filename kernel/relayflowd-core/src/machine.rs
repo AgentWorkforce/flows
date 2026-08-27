@@ -27,6 +27,10 @@ pub enum Action {
         step: StepSpec,
         attempt: u32,
         worker_class: StepType,
+        lease_id: String,
+        idempotency_key: String,
+        lease_deadline_ms: i64,
+        pins: Pins,
     },
     ArmTimer {
         at_ms: i64,
@@ -126,6 +130,8 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
     } else {
         "unassigned"
     };
+    let lease_id = deterministic_ulid(&state.run_id, &step.id, attempt, now_ms, "lease");
+    let lease_deadline_ms = now_ms.saturating_add(LEASE_DURATION_MS);
     let started = JournalEntry::new(
         EntryType::StepAttemptStarted,
         state.run_id.clone(),
@@ -134,12 +140,12 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
         now_ms,
         AttemptStartedPayload {
             step_type: step.step_type(),
-            idempotency_key: key,
-            lease_id: deterministic_ulid(&state.run_id, &step.id, attempt, now_ms, "lease"),
-            lease_deadline_ms: now_ms.saturating_add(LEASE_DURATION_MS),
+            idempotency_key: key.clone(),
+            lease_id: lease_id.clone(),
+            lease_deadline_ms,
             executor: executor.to_owned(),
             recovery_mode,
-            pins,
+            pins: pins.clone(),
             max_iterations: step.max_iterations,
         },
     );
@@ -152,6 +158,10 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
             step: step.clone(),
             attempt,
             worker_class,
+            lease_id,
+            idempotency_key: key,
+            lease_deadline_ms,
+            pins,
         },
     };
     vec![Action::Append(started), execute]
@@ -261,78 +271,100 @@ pub fn recovery_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
         } else {
             CompletionReason::Crashed
         };
-        let manual = matches!(
-            spec.kind,
-            StepKind::Agent {
-                recovery_mode: RecoveryMode::Manual,
-                ..
-            }
-        );
-        // A dead attempt produced no result, so it consumes no semantic
-        // iteration at all: a replacement is permitted as long as completed
-        // semantic executions have not exhausted `max_iterations`.
-        let may_retry = runtime.semantic_executions < spec.max_iterations;
-        let next_attempt_at_ms = (may_retry && !manual).then(|| {
-            now_ms.saturating_add(backoff_delay_ms(
-                &spec.retry,
-                &idempotency_key(&state.run_id, &spec.id),
-                attempt,
-            ) as i64)
-        });
+        actions.extend(abandonment_actions(
+            state, &spec.id, attempt, reason, now_ms,
+        ));
+    }
+    actions
+}
+
+/// Record one dead leased attempt without charging a semantic iteration.
+/// Used both by journal recovery and by a live protocol session noticing its
+/// attached worker has disappeared.
+pub fn abandonment_actions(
+    state: &RunState,
+    step_id: &str,
+    attempt: u32,
+    reason: CompletionReason,
+    now_ms: i64,
+) -> Vec<Action> {
+    let Some(spec) = state.spec.step(step_id) else {
+        return Vec::new();
+    };
+    let Some(runtime) = state.steps.get(step_id) else {
+        return Vec::new();
+    };
+    if !matches!(runtime.state, StepState::Running { attempt: active, .. } if active == attempt) {
+        return Vec::new();
+    }
+    let manual = matches!(
+        spec.kind,
+        StepKind::Agent {
+            recovery_mode: RecoveryMode::Manual,
+            ..
+        }
+    );
+    let may_retry = runtime.semantic_executions < spec.max_iterations;
+    let next_attempt_at_ms = (may_retry && !manual).then(|| {
+        now_ms.saturating_add(backoff_delay_ms(
+            &spec.retry,
+            &idempotency_key(&state.run_id, step_id),
+            attempt,
+        ) as i64)
+    });
+    let mut actions = vec![Action::Append(JournalEntry::new(
+        EntryType::StepCompleted,
+        state.run_id.clone(),
+        Some(step_id.to_owned()),
+        Some(attempt),
+        now_ms,
+        StepCompletedPayload {
+            completion_reason: reason,
+            disposition: if manual {
+                Disposition::Park
+            } else if may_retry {
+                Disposition::Retry
+            } else {
+                Disposition::StepDone
+            },
+            output: Value::Null,
+            verification: None,
+            end_pins: None,
+            effects: vec![],
+            budget: Budget::default(),
+            completed_by: "kernel".to_owned(),
+            next_attempt_at_ms,
+        },
+    ))];
+    if manual {
         actions.push(Action::Append(JournalEntry::new(
-            EntryType::StepCompleted,
+            EntryType::WaitHuman,
             state.run_id.clone(),
-            Some(spec.id.clone()),
+            Some(step_id.to_owned()),
             Some(attempt),
             now_ms,
-            StepCompletedPayload {
-                completion_reason: reason,
-                disposition: if manual {
-                    Disposition::Park
-                } else if may_retry {
-                    Disposition::Retry
-                } else {
-                    Disposition::StepDone
-                },
-                output: Value::Null,
-                verification: None,
-                end_pins: None,
-                effects: vec![],
-                budget: Budget::default(),
-                completed_by: "kernel".to_owned(),
-                next_attempt_at_ms,
+            WaitHumanPayload {
+                wait_id: deterministic_ulid(&state.run_id, step_id, attempt, now_ms, "manual"),
+                prompt: "An agent attempt crashed with a dirty workspace".to_owned(),
+                requested_of: "run-owner".to_owned(),
+                options: Some(vec!["retry".to_owned(), "cancel".to_owned()]),
+                timeout_at_ms: None,
+                diff_ref: Some("pinned-revision..current".to_owned()),
             },
         )));
-        if manual {
-            actions.push(Action::Append(JournalEntry::new(
-                EntryType::WaitHuman,
-                state.run_id.clone(),
-                Some(spec.id.clone()),
-                Some(attempt),
-                now_ms,
-                WaitHumanPayload {
-                    wait_id: deterministic_ulid(&state.run_id, &spec.id, attempt, now_ms, "manual"),
-                    prompt: "An agent attempt crashed with a dirty workspace".to_owned(),
-                    requested_of: "run-owner".to_owned(),
-                    options: Some(vec!["retry".to_owned(), "cancel".to_owned()]),
-                    timeout_at_ms: None,
-                    diff_ref: Some("pinned-revision..current".to_owned()),
-                },
-            )));
-        } else if let Some(wake_at_ms) = next_attempt_at_ms {
-            actions.push(Action::Append(JournalEntry::new(
-                EntryType::SleepUntil,
-                state.run_id.clone(),
-                Some(spec.id.clone()),
-                Some(attempt),
-                now_ms,
-                SleepUntilPayload {
-                    wait_id: retry_wait_id(&state.run_id, &spec.id, attempt, wake_at_ms),
-                    wake_at_ms,
-                    reason: "retry_backoff".to_owned(),
-                },
-            )));
-        }
+    } else if let Some(wake_at_ms) = next_attempt_at_ms {
+        actions.push(Action::Append(JournalEntry::new(
+            EntryType::SleepUntil,
+            state.run_id.clone(),
+            Some(step_id.to_owned()),
+            Some(attempt),
+            now_ms,
+            SleepUntilPayload {
+                wait_id: retry_wait_id(&state.run_id, step_id, attempt, wake_at_ms),
+                wake_at_ms,
+                reason: "retry_backoff".to_owned(),
+            },
+        )));
     }
     actions
 }

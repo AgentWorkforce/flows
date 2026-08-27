@@ -1,5 +1,6 @@
 use std::{
     path::{Path, PathBuf},
+    sync::Arc,
     thread,
     time::Duration,
 };
@@ -10,11 +11,17 @@ use relayflowd_core::{
     RunSpec, RunState, StepKind, completion_actions, next_actions, recovery_actions,
 };
 use relayflowd_journal::{Registry, SqliteJournal};
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use ulid::Ulid;
 
+use crate::worker::{JournalObserver, StepDispatch, StepDispatcher};
 use crate::{clock::WallClock, exec_det};
+
+mod model;
+mod remote;
+pub use model::{RunOutcome, RunSnapshot, RunStatus};
+use model::{outcome_from_state, snapshot_from_state};
+pub use remote::OutOfBandCompletion;
 
 #[derive(Debug, Clone, Default)]
 #[doc(hidden)]
@@ -29,6 +36,8 @@ pub struct DriveOptions {
 pub struct Engine<C = WallClock> {
     data_dir: PathBuf,
     clock: C,
+    dispatcher: Option<Arc<dyn StepDispatcher>>,
+    observer: Option<Arc<dyn JournalObserver>>,
 }
 
 impl Engine<WallClock> {
@@ -36,6 +45,21 @@ impl Engine<WallClock> {
         Self {
             data_dir: data_dir.into(),
             clock: WallClock,
+            dispatcher: None,
+            observer: None,
+        }
+    }
+
+    pub fn with_runtime(
+        data_dir: impl Into<PathBuf>,
+        dispatcher: Arc<dyn StepDispatcher>,
+        observer: Arc<dyn JournalObserver>,
+    ) -> Self {
+        Self {
+            data_dir: data_dir.into(),
+            clock: WallClock,
+            dispatcher: Some(dispatcher),
+            observer: Some(observer),
         }
     }
 }
@@ -45,6 +69,8 @@ impl<C: Clock> Engine<C> {
         Self {
             data_dir: data_dir.into(),
             clock,
+            dispatcher: None,
+            observer: None,
         }
     }
 
@@ -72,15 +98,16 @@ impl<C: Clock> Engine<C> {
         options: DriveOptions,
     ) -> Result<RunOutcome> {
         spec.validate().context("invalid run spec")?;
-        ensure_deterministic(&spec)?;
+        ensure_supported(&spec)?;
         let run_id = Ulid::new().to_string();
         let path = self.run_path(&run_id);
         let now_ms = self.clock.now_ms();
         let mut journal =
             SqliteJournal::create(&path, &run_id, now_ms).context("create run journal")?;
         let spec_value = serde_json::to_value(&spec)?;
-        journal
-            .append(&JournalEntry::new(
+        self.append(
+            &mut journal,
+            &JournalEntry::new(
                 EntryType::RunSpawned,
                 run_id.clone(),
                 None,
@@ -93,8 +120,8 @@ impl<C: Clock> Engine<C> {
                     journal_version: relayflowd_core::JOURNAL_VERSION,
                     created_by: created_by.to_owned(),
                 },
-            ))
-            .map_err(|error| anyhow!(error))?;
+            ),
+        )?;
         self.registry()?
             .register(&run_id, &path)
             .context("register run")?;
@@ -121,7 +148,7 @@ impl<C: Clock> Engine<C> {
                 .context("repair missing run registry entry")?;
         }
         let spec = journal.run_spec().context("read run spec")?;
-        ensure_deterministic(&spec)?;
+        ensure_supported(&spec)?;
         let state = self.load_state(&journal, spec.clone())?;
         for action in recovery_actions(&state, self.clock.now_ms()) {
             self.persist_only(&mut journal, action)?;
@@ -177,6 +204,27 @@ impl<C: Clock> Engine<C> {
                 thread::sleep(Duration::from_secs(300));
             }
 
+            if let Some(worker_class) = state.spec.steps.iter().find_map(|step| {
+                matches!(
+                    state.steps[&step.id].state,
+                    relayflowd_core::StepState::Runnable
+                )
+                .then_some(step.step_type())
+                .filter(|step_type| *step_type != relayflowd_core::StepType::Deterministic)
+            }) && !self
+                .dispatcher
+                .as_ref()
+                .is_some_and(|dispatcher| dispatcher.available(worker_class))
+            {
+                self.registry()?.set_status(&state.run_id, "parked", None)?;
+                return Ok(RunOutcome {
+                    run_id: state.run_id.clone(),
+                    status: RunStatus::Parked,
+                    completion_reason: None,
+                    completed_steps: state.completed_steps(),
+                });
+            }
+
             let actions = next_actions(&state, self.clock.now_ms());
             if actions.is_empty() {
                 self.registry()?.set_status(&state.run_id, "parked", None)?;
@@ -189,8 +237,9 @@ impl<C: Clock> Engine<C> {
             }
             for action in actions {
                 match action {
-                    Action::Append(entry) => {
-                        journal.append(&entry).map_err(|error| anyhow!(error))?;
+                    Action::Append(mut entry) => {
+                        self.assign_executor(&mut entry)?;
+                        self.append(&mut journal, &entry)?;
                     }
                     Action::ExecDeterministic { step, attempt } => {
                         let result = exec_det::execute(&step);
@@ -209,8 +258,44 @@ impl<C: Clock> Engine<C> {
                             self.interpret_non_execution(&mut journal, action)?;
                         }
                     }
-                    Action::Dispatch { worker_class, .. } => {
-                        bail!("no {worker_class:?} worker is attached to the deterministic rung")
+                    Action::Dispatch {
+                        step,
+                        attempt,
+                        worker_class,
+                        lease_id,
+                        idempotency_key,
+                        lease_deadline_ms,
+                        pins,
+                    } => {
+                        let assigned = self
+                            .dispatcher
+                            .as_ref()
+                            .map(|dispatcher| {
+                                dispatcher.dispatch(StepDispatch {
+                                    run_id: state.run_id.clone(),
+                                    step_id: step.id.clone(),
+                                    attempt,
+                                    step_type: worker_class,
+                                    spec: step,
+                                    lease_id,
+                                    idempotency_key,
+                                    pins,
+                                    lease_deadline_ms,
+                                })
+                            })
+                            .transpose()?
+                            .unwrap_or(false);
+                        self.registry()?.set_status(
+                            &state.run_id,
+                            if assigned { "waiting_worker" } else { "parked" },
+                            Some(lease_deadline_ms),
+                        )?;
+                        return Ok(RunOutcome {
+                            run_id: state.run_id.clone(),
+                            status: RunStatus::Parked,
+                            completion_reason: None,
+                            completed_steps: state.completed_steps(),
+                        });
                     }
                     Action::ArmTimer { at_ms } => {
                         // `next_actions` exposes every durable timer. This
@@ -220,8 +305,15 @@ impl<C: Clock> Engine<C> {
                         break;
                     }
                     Action::CompleteRun { reason } => {
-                        self.registry()?
-                            .set_status(journal.run_id(), "completed", None)?;
+                        self.registry()?.set_status(
+                            journal.run_id(),
+                            if reason == RunCompletionReason::Success {
+                                "completed"
+                            } else {
+                                "failed"
+                            },
+                            None,
+                        )?;
                         let final_state = self.load_state(&journal, spec.clone())?;
                         return Ok(outcome_from_state(&final_state, reason));
                     }
@@ -233,7 +325,7 @@ impl<C: Clock> Engine<C> {
     fn interpret_non_execution(&self, journal: &mut SqliteJournal, action: Action) -> Result<()> {
         match action {
             Action::Append(entry) => {
-                journal.append(&entry).map_err(|error| anyhow!(error))?;
+                self.append(journal, &entry)?;
             }
             Action::ArmTimer { at_ms } => self.wait_for_timer(journal, at_ms)?,
             _ => bail!("completion emitted an invalid execution action"),
@@ -244,7 +336,7 @@ impl<C: Clock> Engine<C> {
     fn persist_only(&self, journal: &mut SqliteJournal, action: Action) -> Result<()> {
         match action {
             Action::Append(entry) => {
-                journal.append(&entry).map_err(|error| anyhow!(error))?;
+                self.append(journal, &entry)?;
                 Ok(())
             }
             _ => bail!("recovery emitted a non-journal action"),
@@ -269,6 +361,34 @@ impl<C: Clock> Engine<C> {
             .scan_segment(segment)
             .map_err(|error| anyhow!(error))?;
         RunState::fold(journal.run_id(), spec, &entries).context("fold run journal")
+    }
+
+    fn append(&self, journal: &mut SqliteJournal, entry: &JournalEntry) -> Result<JournalEntry> {
+        let persisted = journal.append(entry).map_err(|error| anyhow!(error))?;
+        if let Some(observer) = &self.observer {
+            observer.appended(&persisted);
+        }
+        Ok(persisted)
+    }
+
+    fn assign_executor(&self, entry: &mut JournalEntry) -> Result<()> {
+        if entry.entry_type != EntryType::StepAttemptStarted {
+            return Ok(());
+        }
+        let mut payload: relayflowd_core::AttemptStartedPayload =
+            serde_json::from_value(entry.payload.clone())?;
+        if payload.step_type == relayflowd_core::StepType::Deterministic {
+            return Ok(());
+        }
+        if let Some(executor) = self
+            .dispatcher
+            .as_ref()
+            .and_then(|dispatcher| dispatcher.executor(payload.step_type))
+        {
+            payload.executor = executor;
+            entry.payload = serde_json::to_value(payload)?;
+        }
+        Ok(())
     }
 
     fn open_run(&self, run_id: &str) -> Result<SqliteJournal> {
@@ -304,14 +424,14 @@ fn should_pause(state: &RunState, options: &DriveOptions) -> bool {
     }) == Some(step_id)
 }
 
-fn ensure_deterministic(spec: &RunSpec) -> Result<()> {
+fn ensure_supported(spec: &RunSpec) -> Result<()> {
     if let Some(step) = spec
         .steps
         .iter()
-        .find(|step| !matches!(step.kind, StepKind::Deterministic { .. }))
+        .find(|step| matches!(step.kind, StepKind::Agent { .. }))
     {
         bail!(
-            "step {} is {:?}; this binary rung executes deterministic steps only",
+            "step {} is {:?}; agent dispatch is not available until gate-1 rung (c)",
             step.id,
             step.step_type()
         );
@@ -330,68 +450,6 @@ fn canonical_hash(value: &serde_json::Value) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
-}
-
-fn outcome_from_state(state: &RunState, reason: RunCompletionReason) -> RunOutcome {
-    RunOutcome {
-        run_id: state.run_id.clone(),
-        status: if reason == RunCompletionReason::Success {
-            RunStatus::Completed
-        } else {
-            RunStatus::Failed
-        },
-        completion_reason: Some(reason),
-        completed_steps: state.completed_steps(),
-    }
-}
-
-fn snapshot_from_state(state: &RunState) -> RunSnapshot {
-    RunSnapshot {
-        run_id: state.run_id.clone(),
-        status: match state.completion {
-            Some(RunCompletionReason::Success) => RunStatus::Completed,
-            Some(_) => RunStatus::Failed,
-            None if state.steps.values().any(|step| {
-                matches!(step.state, relayflowd_core::StepState::NeedsHuman { .. })
-            }) =>
-            {
-                RunStatus::Parked
-            }
-            None => RunStatus::Running,
-        },
-        steps: state
-            .steps
-            .iter()
-            .map(|(id, runtime)| (id.clone(), format!("{:?}", runtime.state)))
-            .collect(),
-        budget: state.budget.clone(),
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum RunStatus {
-    Running,
-    Completed,
-    Failed,
-    Interrupted,
-    Parked,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RunOutcome {
-    pub run_id: String,
-    pub status: RunStatus,
-    pub completion_reason: Option<RunCompletionReason>,
-    pub completed_steps: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RunSnapshot {
-    pub run_id: String,
-    pub status: RunStatus,
-    pub steps: std::collections::BTreeMap<String, String>,
-    pub budget: relayflowd_core::Budget,
 }
 
 pub fn read_spec(path: &Path) -> Result<RunSpec> {

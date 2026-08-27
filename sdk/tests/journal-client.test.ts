@@ -36,8 +36,16 @@ interface FrameCtx {
 function startLoopback(path: string, handlers: {
   hello?: (ctx: FrameCtx) => void;
   'run.start'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'run.resume'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'run.get'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'run.watch'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'worker.attach'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'step.heartbeat'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'step.complete'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'event.emit'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'journal.read'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'stream.append'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'stream.read'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
 }): Server {
   const server = createServer((socket) => {
     let buffer = '';
@@ -60,11 +68,35 @@ function startLoopback(path: string, handlers: {
           case 'run.start':
             handlers['run.start']?.(ctx, req.params);
             break;
+          case 'run.resume':
+            handlers['run.resume']?.(ctx, req.params);
+            break;
+          case 'run.get':
+            handlers['run.get']?.(ctx, req.params);
+            break;
+          case 'run.watch':
+            handlers['run.watch']?.(ctx, req.params);
+            break;
+          case 'worker.attach':
+            handlers['worker.attach']?.(ctx, req.params);
+            break;
+          case 'step.heartbeat':
+            handlers['step.heartbeat']?.(ctx, req.params);
+            break;
+          case 'step.complete':
+            handlers['step.complete']?.(ctx, req.params);
+            break;
+          case 'event.emit':
+            handlers['event.emit']?.(ctx, req.params);
+            break;
           case 'journal.read':
             handlers['journal.read']?.(ctx, req.params);
             break;
           case 'stream.append':
             handlers['stream.append']?.(ctx, req.params);
+            break;
+          case 'stream.read':
+            handlers['stream.read']?.(ctx, req.params);
             break;
           default:
             send({ id: req.id, ok: false, error: { code: 'unknown_verb', message: req.verb } });
@@ -147,6 +179,39 @@ describe('JournalClient: protocol v0 over unix socket', () => {
         const ok = params.run_id === 'run-01' && params.stream === 'results'
           && (params.message as { hello?: string })?.hello === 'world';
         sendResult(ctx, { offset: ok ? 7 : -1 });
+      },
+      'run.resume': (ctx, params) => {
+        sendResult(ctx, { run_id: params.run_id, status: 'completed', completed_steps: 2 });
+      },
+      'run.get': (ctx) => {
+        sendResult(ctx, { status: 'running', steps: [], budget: { tokens_in: 0, tokens_out: 0, dollars: '0' } });
+      },
+      'run.watch': (ctx, params) => {
+        sendResult(ctx, undefined);
+        ctx.send({ event: 'entry', data: { run_id: params.run_id, seq: 2 } });
+      },
+      'worker.attach': (ctx, params) => {
+        sendResult(ctx, undefined);
+        ctx.send({
+          event: 'step.dispatch',
+          data: {
+            run_id: 'run-01', step_id: 'model', attempt: 1, step_type: 'llm',
+            spec: {}, lease_id: 'lease-1', idempotency_key: 'key-1', pins: {},
+            lease_deadline_ms: 1000, worker_id: params.worker_id,
+          },
+        });
+      },
+      'step.heartbeat': (ctx, params) => {
+        sendResult(ctx, { lease_deadline_ms: params.lease_id === 'lease-1' ? 2000 : -1 });
+      },
+      'step.complete': (ctx, params) => {
+        sendResult(ctx, params.completionReason === 'success' ? undefined : null);
+      },
+      'event.emit': (ctx, params) => {
+        sendResult(ctx, { matched: params.event_key === 'approved' ? 1 : 0 });
+      },
+      'stream.read': (ctx, params) => {
+        sendResult(ctx, { messages: [{ offset: params.from_offset }], next_offset: 8 });
       },
     });
   });
@@ -238,12 +303,56 @@ steps:
     expect(sa.offset).toBe(7); // loopback echoes 7 only if the wire params matched
   });
 
-  it('fails closed when the server returns an error', async () => {
-    // Use a verb the loopback does not implement -> unknown_verb.
+  it('wires every out-of-band worker verb and receives dispatch events', async () => {
     client = new JournalClient(path, { requestTimeoutMs: 2000 });
     await client.connect();
-    await client.hello('sdk-test');
-    await expect(client.runResume('run-01')).rejects.toThrow(/unknown_verb/);
+    const dispatch = new Promise<Record<string, unknown>>((resolve) => {
+      client.once('step.dispatch', (data) => resolve(data as Record<string, unknown>));
+    });
+    await client.workerAttach('worker-1', ['llm']);
+    const lease = await dispatch;
+    expect(lease.lease_id).toBe('lease-1');
+    expect(lease.idempotency_key).toBe('key-1');
+    const heartbeat = await client.stepHeartbeat('run-01', 'model', 1, 'lease-1');
+    expect(heartbeat.lease_deadline_ms).toBe(2000);
+    await client.stepComplete('run-01', 'model', 1, 'key-1', 'success', {
+      output: { answer: 4 },
+      usage: { tokens_in: 6, tokens_out: 3, dollars: '0.001' },
+    });
+  });
+
+  it('wires run watch, resume/get, events, and replayable stream reads', async () => {
+    client = new JournalClient(path, { requestTimeoutMs: 2000 });
+    await client.connect();
+    const entry = new Promise<Record<string, unknown>>((resolve) => {
+      client.once('entry', (data) => resolve(data as Record<string, unknown>));
+    });
+    await client.runWatch('run-01');
+    expect((await entry).seq).toBe(2);
+    expect((await client.runResume('run-01')).run_id).toBe('run-01');
+    expect((await client.runGet('run-01')).status).toBe('running');
+    expect((await client.eventEmit('run-01', 'approved', { ok: true })).matched).toBe(1);
+    const read = await client.streamRead('run-01', 'results', 7, 10);
+    expect(read.next_offset).toBe(8);
+    expect(read.messages).toEqual([{ offset: 7 }]);
+  });
+
+  it('fails closed when the server returns an error', async () => {
+    const errorPath = sockPath();
+    const errorServer = startLoopback(errorPath, {
+      'run.resume': (ctx) => {
+        ctx.send({ id: ctx.id, ok: false, error: { code: 'journal_write_failed', message: 'disk full' } });
+      },
+    });
+    try {
+      client = new JournalClient(errorPath, { requestTimeoutMs: 2000 });
+      await client.connect();
+      await expect(client.runResume('run-01')).rejects.toThrow(/journal_write_failed/);
+    } finally {
+      client?.close();
+      await new Promise<void>((r) => errorServer.close(() => r()));
+      rmSync(errorPath, { force: true });
+    }
   });
 
   it('fails closed on connection drop (pending requests reject)', async () => {

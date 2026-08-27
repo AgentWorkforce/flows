@@ -74,51 +74,46 @@ export interface RunStartParams {
    */
   spec: KernelRunSpec;
 }
-export interface RunStartResult {
+export type RunStatus = 'running' | 'completed' | 'failed' | 'interrupted' | 'parked';
+export type RunCompletionReason = 'success' | 'step_failed' | 'canceled' | 'budget_exceeded';
+
+export interface RunOutcome {
   run_id: string;
+  status: RunStatus;
+  completion_reason: RunCompletionReason | null;
+  completed_steps: number;
 }
+export type RunStartResult = RunOutcome;
 
 export interface RunResumeParams {
   run_id: string;
 }
-export interface RunResumeResult {
-  run_id: string;
-  state: RunState;
-}
-
-export type RunStatus = 'running' | 'waiting' | 'parked' | 'done' | 'failed';
-
-export interface StepRunState {
-  step_id: string;
-  status: RunStatus;
-  attempt?: number;
-  completionReason?: string;
-  output?: unknown;
-}
-
-export interface RunState {
-  status: RunStatus;
-  steps: StepRunState[];
-  budget: { tokens_in: number; tokens_out: number; dollars: string };
-}
+export type RunResumeResult = RunOutcome;
 
 export interface RunGetParams {
   run_id: string;
 }
 export interface RunGetResult {
+  run_id: string;
   status: RunStatus;
-  steps: StepRunState[];
+  steps: Record<string, string>;
   budget: { tokens_in: number; tokens_out: number; dollars: string };
 }
 
 export interface RunWatchParams {
   run_id: string;
 }
+export interface RunWatchResult {
+  watching: string;
+}
 /** `run.watch` opens a push stream of `{event: "entry", data: Entry}`. */
 
 export interface WorkerAttachParams {
   worker_id: string;
   step_types: StepType[];
+}
+export interface WorkerAttachResult {
+  worker_id: string;
 }
 /** Server then pushes `step.dispatch` events to the attached worker. */
 export interface StepDispatchEvent {
@@ -127,6 +122,7 @@ export interface StepDispatchEvent {
   attempt: number;
   step_type: StepType;
   spec: unknown;
+  lease_id: string;
   idempotency_key: string;
   pins: {
     workspace?: { surface: string; revision_id: string }[];
@@ -170,6 +166,7 @@ export interface StepCompleteParams {
     streams?: { stream: string; read_offset: number }[];
   };
 }
+export type StepCompleteResult = RunOutcome;
 
 export interface EventEmitParams {
   run_id: string;
@@ -215,10 +212,10 @@ export interface VerbContract {
   'run.start': { params: RunStartParams; result: RunStartResult };
   'run.resume': { params: RunResumeParams; result: RunResumeResult };
   'run.get': { params: RunGetParams; result: RunGetResult };
-  'run.watch': { params: RunWatchParams; result: void };
-  'worker.attach': { params: WorkerAttachParams; result: void };
+  'run.watch': { params: RunWatchParams; result: RunWatchResult };
+  'worker.attach': { params: WorkerAttachParams; result: WorkerAttachResult };
   'step.heartbeat': { params: StepHeartbeatParams; result: StepHeartbeatResult };
-  'step.complete': { params: StepCompleteParams; result: void };
+  'step.complete': { params: StepCompleteParams; result: StepCompleteResult };
   'event.emit': { params: EventEmitParams; result: EventEmitResult };
   'stream.append': { params: StreamAppendParams; result: StreamAppendResult };
   'stream.read': { params: StreamReadParams; result: StreamReadResult };
