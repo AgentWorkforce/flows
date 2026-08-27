@@ -1,296 +1,286 @@
 # NEXT — single highest-priority work package
 
-Written by the Relayflow Lead (`charter/LEAD.md`) at assess time,
-2026-08-27, on `flow/drive-57e923c-08271542` (base `57e923c`).
+Written by the Relayflow Lead on 2026-08-27 (assess tick on branch
+`flow/drive-57e923c-08271632`, HEAD = `57e923c` = `origin/main`).
 
-## Assessment
-
-### Directives — none outstanding
-
-`ops/DIRECTIVES.md` carries its header and **zero active directives**.
-Directive 1 ("stay lean", 2026-08-27) was satisfied and removed by PR #3
-(`0ba6c88`), which is the documented removal discipline. Nothing in the
-directives file outranks the backlog this tick.
-
-### Open PRs — none awaiting fixes; no unfinished work to resume
-
-`gh pr list --state open` returns exactly one PR:
-
-- **PR #6 — `regressions: relaycast workspace-key repair answers an untyped
-  500`** (`flows/relaycast-500-regression`), **DRAFT**, MERGEABLE, CodeRabbit
-  SUCCESS, Devin Review SUCCESS, `reviewDecision: ""`, `reviews: []`.
-
-The previous tick's log explicitly asked this assess to *decide* whether a
-draft PR counts as unfinished work. **Ruling: it does not block, and it is not
-this loop's work.** Reasons, recorded so the decision is not re-litigated:
-
-1. It has **no review awaiting fixes** — CodeRabbit deliberately skipped it as
-   a draft, Devin passed, no human review is requested. There is no review
-   feedback to address, so the "never start new work over unfinished work" rule
-   has nothing to bite on.
-2. It documents a defect in **another repository** (`relaycast-cloud`
-   `packages/relaycast/src/fleet/routes.ts:523` runs its D1 statements with no
-   `try`/`catch`). The fix is already filed as **AgentWorkforce/relaycast-cloud#88**.
-   No code in this repo can close it.
-3. Its author has already recorded, on the PR, that the pair is the suite's
-   **first false-green hazard** (the red case stopped reproducing at 18:46Z;
-   4/4 repair calls answered 200). It is correctly parked as a draft *because*
-   it should not be judged by its exit code yet. Promoting it to ready would be
-   the dishonest move, not the diligent one.
-
-It stays a draft. It is not a gate-1 dependency.
-
-### Gate 1 — **its done-when does not hold, and the scoreboard overstates it**
-
-This is the finding that sets this tick's package.
-
-`ops/SCOREBOARD.md` currently reads **GREEN** for gate 1, on the evidence "all
-three rungs merged: (a) deterministic #2/#3, (b) llm #4, (c) `agent` +
-Appendix A #7 (`ca6b80a`)." That evidence is real and I re-verified it below.
-But RFC-0001 §3 gate 1's **done-when has two clauses**, and the flip commit
-(`57e923c`) addresses only the first:
-
-> **Done when:** the canonical hello *ladder* — (a) … (b) … (c) … — each
-> survives `kill -9` … Budget accounting is exact … **Preflight holds
-> (covenant 2):** `flows check` refuses the ladder flows when a declared CLI is
-> missing or unauthenticated or a trigger has no executor, warns on unprovable
-> assumptions before starting, and the failure taxonomy is closed — every
-> failed run's journal terminates in a declared failure kind, never a raw
-> error.
-
-**Clause 2 is unsatisfied. `flows check` does not exist.** Verified this tick,
-not taken from the prior log:
-
-- No `bin` key in `sdk/package.json` — there is no `flows` executable at all.
-- `sdk/src/` is seven files (`canonical`, `compile`, `index`, `journal-client`,
-  `protocol`, `spec`, `validate`); no `cli.ts`, no `preflight.ts`.
-- No `preflight` symbol anywhere outside `docs/`, `ops/` prose, one Rust
-  doc-comment (`kernel/relayflowd/src/engine/drive.rs:279`) and a test name.
-- `sdk/src/spec.ts` has **no `cli` declaration** on `AgentStepSpec`
-  (`:134-140` is `type`/`instruction`/`surfaces`/`recoveryMode`/`permissions`)
-  and **no `triggers`** at root (`ROOT_KEYS` in `validate.ts:43` is
-  `version, name, description, steps, budget`). So neither refusal condition
-  named in the done-when is even *expressible* in the spec today.
-
-The prior tick's own DRIVE-LOG (`:376-377`) and NEXT.md (`:53-56`, `:201`) both
-say this plainly and name the preflight as "the package after this one." The
-scoreboard flip landed 26 minutes after that log without citing the clause. Its
-"Residual" note discusses only the DESIGN.md §1.9 double-effect window — a
-different, correctly-disclosed issue.
-
-**Read this as an accounting error to correct, not a ruling to overturn.** The
-commit message argues the rungs, not the preflight; it does not claim clause 2
-holds. Correcting the row to AMBER is part of this package. Flagging it for the
-human: a gate row is a claim about company progress ahead of the 2026-09-15 YC
-presentation, and it should not read GREEN on half its done-when.
-
-Because gate 1's done-when does not hold, **gate 1 is still the current gate**,
-and the scoreboard's "gate 6 — **next up**" is premature for the same reason.
-
-### Test status — verified independently this tick, all green
-
-Hermetic `ops/cargo.sh` (no manually exported env), from `main`'s tree at
-`57e923c`:
-
-- `cd kernel && ../ops/cargo.sh test --workspace` — **70 passed, 0 failed**,
-  exit 0 (18 + 0 + 19 + 24 + 3 + 6 + 0 doc-tests ×3).
-- `cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings` — exit 0.
-- `cd kernel && ../ops/cargo.sh fmt --check` — exit 0, no output.
-- `cd sdk && npm test` — **58 passed, 0 failed**, 5 files, exit 0
-  (`deterministic-llm` 5, `validate` 30, `hello-deterministic` 5,
-  `journal-client` 12, `spec-parity` 6).
-
-These match the scoreboard's "Kernel 70 tests, SDK 58, clippy/fmt clean."
-Clause 1 of the done-when is genuinely closed on `main`. Nothing is red.
-
-### Backlog — nothing outranks the open gate-1 clause
-
-Release pipeline, schedule re-registration, PR-shepherd flow, the harness
-design-partner asks, `f.browser`, computer use, the cloud-sandbox git-remote
-gap: every one is gate-2-or-later, or below gate 1's needs. None of them close
-gate 1. The regression suite is dormant by its own MANIFEST until gates
-1/2/6/7/8. Per the charter, the open gate's remaining clause wins.
+**Work package: WP-4-FIX — clear the standing `REVIEW_FAILED` on PR #8.**
+This is fix-the-open-PR work. No new gate work is permitted this tick.
 
 ---
 
-## Work package: WP-4 — `flows check` preflight (covenant 2), gate 1's second done-when clause
+## Assessment snapshot (evidence, gathered this tick)
 
-### Objective
+### 1. Standing directives — checked first, per `ops/DIRECTIVES.md`
 
-Make `flows check` real: a CLI that **refuses a flow before any run starts**
-for each condition RFC-0001 §3 gate 1 names, **warns** (without refusing) on
-assumptions it cannot prove, and emits **only declared failure kinds** — never
-a raw error string. When this lands, gate 1's done-when holds in full and the
-scoreboard row flips to GREEN on both clauses instead of one.
-
-The three ladder flows in `testdata/` are the subjects: `flows check` must pass
-them clean as authored, and refuse each one under an induced fault.
-
-Two spec surfaces have to exist for the done-when's own words to be
-expressible, and they are in scope **as data only**, sized to this gate
-(AGENTS.md rule 6 — no speculative abstraction):
-
-- **A declared CLI** on agent (and `llm`) steps, so "a declared CLI is missing
-  or unauthenticated" has a subject. Resolution follows `docs/SURFACE.md:78`
-  order but implements only: step options → flow header → `flows.json`. A
-  resolution that runs out of sources **refuses**; it never guesses a platform
-  default. "You are told exactly who you hired before the run starts."
-- **A declared trigger** at root, so "a trigger has no executor" has a subject.
-  **Data and check only** — no matching, no dispatch, no liveness sweep. The
-  trigger *plane* is gate 2 and stays there.
-
-### Files in scope
-
-New:
-- `sdk/src/cli.ts` — `flows` entrypoint; `check` subcommand only.
-- `sdk/src/preflight.ts` — the predicates, pure and injectable (probes passed
-  in, so tests never touch a real PATH or network).
-- `sdk/src/failure-kinds.ts` — the closed refusal taxonomy.
-- `sdk/tests/preflight.test.ts`, `sdk/tests/cli.test.ts`.
-- `testdata/preflight/` — fixtures: a flow with a declared CLI, a flow with a
-  declared trigger, and the induced-fault variants.
-
-Modified:
-- `sdk/src/spec.ts` — `cli` on `AgentStepSpec`/`LlmStepSpec`, flow-header
-  default, root `triggers`.
-- `sdk/src/validate.ts` — new keys in `ROOT_KEYS` / `STEP_TYPE_KEYS`; still
-  fail-closed on unknown keys (the existing discipline at `:39-58`).
-- `sdk/src/index.ts` — export `preflight`, the kinds, the new types.
-- `sdk/package.json` — `"bin": { "flows": "./dist/cli.js" }`; `build` must run
-  before the CLI is invocable.
-- `kernel/relayflowd-core/src/spec.rs` — parity for the new fields.
-- `testdata/hello-{ladder,llm,agent}.flow.yaml` + their
-  `.spec.canonical.json` + `.spec.sha256` — regenerate; `spec-parity.test.ts`
-  pins these and will fail loudly if they are not.
-- `docs/SURFACE.md` — only if the shipped surface diverges from what §78/§92
-  already describe. Prefer conforming to the doc over editing it.
-- `ops/SCOREBOARD.md` — gate 1 **GREEN → AMBER** with clause 2 named as the
-  reason, in the same PR that then closes it; gate 6's "next up" annotation
-  corrected to follow gate 1.
-- `ops/BACKLOG.md`, `ops/DRIVE-LOG.md`, `ops/NEXT.md`.
-
-### Definition of done
-
-**Refusals — each must be reproducible from a command, name its kind, and exit non-zero:**
-
-1. `cli_missing` — a step declares a CLI absent from PATH. `flows check`
-   refuses **before** any run starts, names the step id and the CLI, exits `2`.
-2. `cli_unauthenticated` — the CLI resolves but its auth probe fails. Distinct
-   kind, distinct message; never collapsed into `cli_missing` (covenant 1: the
-   error names the condition the operator must act on).
-3. `cli_unresolved` — no `cli` at step, header, or `flows.json`. Refuses rather
-   than guessing a default.
-4. `no_executor` — a declared trigger with no registered executor. The kind is
-   spelled **`no_executor`** to match what
-   `regressions/cron-succeeded-into-void.green.flow.ts:10` already expects, so
-   the dormant suite does not need editing when it wakes.
-
-**Warnings — must NOT refuse:** at least one unprovable-assumption warning
-(e.g. a `deterministic` command whose binary resolves but whose effects are
-unknowable; budget headroom against declared `maxDollars`). Warnings go to
-stderr, are marked as warnings, and leave exit `0`. A run that is merely
-un-provable is not a run that is refused.
-
-**Taxonomy closure (the clause's last sentence):**
-
-- A test asserts **exhaustively** that every refusal path returns a declared
-  kind — no raw `Error.message`, no `unknown`, no stringified exception,
-  reaches the operator or the `--json` output.
-- A test asserts every failed-run journal terminates in a declared
-  `CompletionReason` (`kernel/relayflowd-core/src/entry.rs:159-169`), holding
-  the existing kernel-side guarantee against regression.
-
-**Commands that must pass (all exit 0 unless stated), re-run on the PR branch and quoted verbatim in the PR body:**
+**No active directives.** `ops/DIRECTIVES.md` carries only its header; the one
+directive it ever held (*stay lean — de-vendor kernel deps*, 2026-08-27) was
+satisfied and removed by PR #3 (`0ba6c88`). Verified against the file's full
+history, not its current text alone:
 
 ```
-cd kernel && ../ops/cargo.sh test --workspace          # >= 70 passed, 0 failed; no suite shrinks
-cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings
-cd kernel && ../ops/cargo.sh fmt --check
-cd sdk && npm run build
-cd sdk && npm test                                     # >= 58 passed + the new preflight/cli tests, 0 failed
+$ git log --oneline -- ops/DIRECTIVES.md
+0ba6c88 flow/de vendor wrapper e715601 (#3)     <- removed directive 1 (satisfied)
+45db231 ops: standing human directives ...      <- added directive 1
 ```
 
-Behavioral gate — the ladder flows, clean and under induced fault:
+Nothing in the directives file outranks gate work this tick.
+
+**But a human instruction of directive weight sits on PR #8 itself.** Khaliq
+commented at `2026-08-27T20:29:24Z`:
+
+> **BLOCKED — do not merge. The reviewer rejected this diff twice; the PR
+> opened anyway.** … Next tick picks this up as fix-the-open-PR work per the
+> drive rule.
+
+That comment names this tick's package. It is honored as the first item, ahead
+of the backlog and ahead of gate selection.
+
+### 2. Open PRs
+
+| PR | Title | State | Bearing on this tick |
+|---|---|---|---|
+| **#8** | WP-4 — `flows check` preflight (covenant 2) | **OPEN, MERGEABLE, human-blocked** | **This tick's work.** Standing verdict is `REVIEW_FAILED` (two rounds). |
+| #6 | regressions: relaycast workspace-key repair answers an untyped 500 | OPEN, **draft** | Not this loop's work. Documents a defect in `relaycast-cloud` (filed as AgentWorkforce/relaycast-cloud#88) that no code in this repo can close. Prior ruling stands; out of scope. |
+
+The drive rule — *never start new work over unfinished work* — binds this tick.
+Gate selection (gates 2 / 5 / 6) does **not** reopen until PR #8 is merged.
+
+### 3. PR #8 review state — read, not inferred from tokens
+
+Two persisted adversarial transcripts on `flow/drive-57e923c-08271542`, both
+ending `REVIEW_FAILED`:
+
+- `ops/reviews/20260827-1611-review.md` — **REVIEW_FAILED** on three code
+  findings: F1 (HIGH) fail-open on an unprovable deterministic command; F2 the
+  clause's literal subject (the *ladder* flows under induced fault) untested;
+  F3 a self-certifying gate resting on a stub baked into the canonical gate-1
+  artifacts and their hash pins.
+- `ops/reviews/20260827-1620-wp4-fixes.md` — the repair note answering them.
+- `ops/reviews/20260827-1627-review.md` — **REVIEW_FAILED**, round 2. It
+  confirms F1/F2/F3 are genuinely closed, re-ran every DoD command on its own
+  tree, and states verbatim: *"The code is sound. Nothing below asks for a code
+  change."* It fails the diff on **record honesty**, not engineering.
+
+Round 2's open findings, and their status after `6a425b6` (pushed 2 minutes
+*after* Khaliq's blocking comment, so his comment does not account for it):
+
+| # | Finding | Status now | Left to do |
+|---|---|---|---|
+| R1 | `ops/DRIVE-LOG.md:516` says *"no independent review transcript was produced"* in the same commit that adds a 290-line `REVIEW_FAILED` transcript | Errata appended ~180 lines later; **the false sentence still stands unmarked at :516** | Mark it in place |
+| R2 | Three different SDK counts for one measurement — DRIVE-LOG `76`, SCOREBOARD `95`, actual `99` | SCOREBOARD corrected to 99; DRIVE-LOG's `76` tail still quoted as *verbatim evidence* at :494,:499 | Mark it in place; **PR #8's body still ships the 76 tail** |
+| R3 | `ops/DRIVE-LOG.md:524` re-asserts *"gate 1 is GREEN in this branch on both clauses"* while `SCOREBOARD.md` in the same diff says AMBER | Errata appended; **the false sentence still stands unmarked at :524** | Mark it in place |
+| R4 | `ops/DRIVE-LOG.md:460` says the three ladder canonical/hash fixtures *"were regenerated"* — they are byte-identical to `main` | **Not covered by the errata at all** | Add to errata + mark in place |
+| R5 | `sdk/tests/cli.test.ts:57` — `delete flow['cli']` is a dead no-op; the ladder YAMLs carry no top-level `cli` key, so the refusal actually comes from the relocated empty `flows.json` | **Open** | Delete the dead mutation, name the real fault source |
+
+R5 verified independently this tick: `git show
+origin/flow/drive-57e923c-08271542:testdata/hello-ladder.flow.yaml` has no
+top-level `cli:` key (F3's repair removed it), so the mutation at `:57` cannot
+change anything. AGENTS.md rule 6 (no dead code), and the label misnames where
+the fault originates.
+
+### 4. Tests on `main` (this machine, hermetic `ops/cargo.sh`, no exported env)
+
+- `cd kernel && ../ops/cargo.sh test --workspace` → **70 passed, 0 failed**
+  (18 + 0 + 19 + 24 + 3 + 6; doc-tests 0 ×3), exit 0.
+- `cd sdk && npm test` → **58 passed, 0 failed** (5 files), exit 0.
+
+Both match `ops/SCOREBOARD.md`'s cited numbers. Main is green; the WP-4 branch
+adds +2 kernel and +41 SDK tests on top (72 / 99, per two independent runs).
+
+### 5. Gate 1 does **not** hold — `ops/SCOREBOARD.md` on `main` is wrong today
+
+RFC-0001 §3 gate 1's done-when has **two** clauses, read in full:
+
+> **Done when:** the canonical hello *ladder* … each survives `kill -9` … and
+> its journal replays *results, not code*. … **Preflight holds (covenant 2):**
+> `flows check` refuses the ladder flows when a declared CLI is missing or
+> unauthenticated or a trigger has no executor, warns on unprovable
+> assumptions before starting, and the failure taxonomy is closed …
+
+Clause 1 is closed and merged (`ca6b80a`, PR #7). **Clause 2 is unmerged** — it
+is PR #8. `ops/SCOREBOARD.md` on `main` nonetheless reads **GREEN** for gate 1.
+The WP-4 branch already corrects that row to **AMBER** with clause 2 named; the
+correction reaches `main` when PR #8 merges. Until then, `main`'s scoreboard
+overstates a gate on half its done-when — the exact defect this package exists
+to close. See the operator note below for the immediate-correction option.
+
+### 6. Three operator commits are unreachable — flagged, not fixed
+
+Khaliq's blocking comment says the review-gate fix landed "`c6c3a8b` on main."
+It is **not on `main`**. `git ls-remote origin refs/heads/main` →
+`57e923c414…`, and `git branch -a --contains c6c3a8b` is empty. Three commits
+exist only as dangling objects in this local clone:
 
 ```
-node sdk/dist/cli.js check testdata/hello-ladder.flow.yaml   # exit 0
-node sdk/dist/cli.js check testdata/hello-llm.flow.yaml      # exit 0
-node sdk/dist/cli.js check testdata/hello-agent.flow.yaml    # exit 0
-node sdk/dist/cli.js check testdata/preflight/cli-missing.flow.yaml          # exit 2, kind cli_missing
-node sdk/dist/cli.js check testdata/preflight/cli-unauthenticated.flow.yaml  # exit 2, kind cli_unauthenticated
-node sdk/dist/cli.js check testdata/preflight/no-executor.flow.yaml          # exit 2, kind no_executor
-node sdk/dist/cli.js check --json testdata/preflight/cli-missing.flow.yaml | python3 -m json.tool
+73bdb59  ops: a green bot check is not review signal; stop truncating PR titles
+c6c3a8b  fix(drive): typed review verdicts — an honest REVIEW_FAILED is no longer a crash
+8c10321  ops(scoreboard): correct gate 1 back to AMBER — preflight clause unmet
 ```
 
-The `--json` output must parse and every entry must carry a declared kind.
-Induced faults must come from injected probes or fixture config, **not** from
-mutating the developer's PATH — the gate has to run identically on a fresh
-machine and in CI.
+Consequence, stated plainly: **`workflows/drive.yaml` in the tree still carries
+the defective gate** (`output_contains: REVIEW_PASSED` at `maxIterations: 1`,
+lines 115–117), so the loop can again open a PR over a truthful rejection. The
+Lead does not repair this — `workflows/drive.yaml` and `ops/RUN-CONTRACT.md`
+are the gate that judges this work, and editing them is barred by the charter's
+hard rails and by AGENTS.md. Recovery is a cherry-pick of those three SHAs
+while they remain in this object store; `git gc` will eventually reap them.
 
-**Structural:**
+---
 
-- `find kernel -name '*.rs' -not -path '*/target/*' | xargs wc -l` — largest
-  file under 500 lines (AGENTS.md rule 1).
-- No file in `sdk/src/` over 500 lines (`validate.ts` is already 411 — split it
-  rather than growing it past the line).
-- A gate that runs nothing is a failure: the PR body states the *executed* test
-  counts, not the intent.
+## Objective
 
-### Explicitly OUT of scope for this tick
+Make PR #8 mergeable on its merits: leave **no false statement** in the ops
+record it ships, carry **executed** evidence in its PR body, remove the one
+dead test mutation, and obtain a **third adversarial review returning
+`REVIEW_PASSED`** — because a verdict is not overturned by the party it was
+issued against.
 
-- **The trigger plane** — matching, dispatch, `EventFrameV1`, schedules,
-  liveness sweeping, `stale_after` reconciliation. Gate 2. `triggers:` is
-  inert data that `check` reads and nothing executes.
-- **`flows run` / `flows build` / `flows deploy`**, content-addressed bundles,
-  digests, signing (RFC settled decisions #14, `SURFACE.md:92`). `check` is the
-  only subcommand.
-- **The v2 `@relayflows/surface` dialect.** `flows check` operates on the YAML
-  dialect and compiled specs. Running it against `regressions/*.flow.ts`
-  (`regressions/README.md:30`) needs a surface that does not exist; matching
-  the `no_executor` kind name is the whole of this tick's obligation there.
-- **Real mounts / relayfile adapters** (gate 6); **permission enforcement** —
-  `PermissionsSpec` stays data-only (gate 8); **memory scopes** (gate 5).
-- **Live agent CLI or model invocations.** Auth probes are injected in tests;
-  no provider call anywhere in the gate.
-- **PR #6** — draft, upstream fix filed as relaycast-cloud#88. Do not promote,
-  do not merge, do not rework.
-- **The two residual WP-3 findings** — P2-A (`agent_pins_available` vs
-  `worker_holds` disagreement burning one journaled attempt per resume) and
-  P3-B (unvalidated `started_pins`/`end_pins` on non-agent completions). Both
-  recorded in DRIVE-LOG, neither blocking, both unreachable in the shipped
-  rung-(c) flow. Backlog.
-- **The DESIGN.md §1.9 at-most-once effect window.** Needs the mount as writer;
-  gate 4. Disclosed, not fixed.
-- **The cloud-sandbox `origin` gap** and schedule re-registration — real, but
-  gate-2/7 adjacent and not a gate-1 clause.
-- **RFC or charter edits**, and any history rewrite of the PR #2-era vendored
-  blobs (a human decision).
+No feature work. No new gate work. The code under review is sound by two
+independent reviews; this package changes the record and one dead test line.
 
-### Known drift this tick will hit — fix the workflow, do not re-instruct the agent
+## Branch and PR discipline
 
-`workflows/drive.yaml`'s `pr` step has produced a branch-name title and a
-boilerplate body for **four consecutive ticks**, with the root cause already
-pinpointed in DRIVE-LOG: `:126` hardcodes the body string (so verify tails can
-never land there), `:124` builds the subject with `grep … | cut -c1-60`, a
-*byte* cut that severs the multibyte em-dash, and `:126` calls
-`gh pr create --fill`, which falls back to the branch name for the title on
-multi-commit branches. (DRIVE-LOG cites this as `:108-115`; that citation is
-stale — `:108-115` is the review step. The real lines are `:124` and `:126`.) If the package completes with slack, hardening that
-`pr` step is the **first** standing candidate — it is a two-line fix to a
-four-tick recurrence. It is not the package itself: gate 1's open clause
-outranks process drift.
+- Work **on `flow/drive-57e923c-08271542`** (PR #8's head). Check it out, commit
+  the fixes there, push.
+- **Update PR #8 in place** (`gh pr edit 8 --body-file …`). Do **not** open
+  PR #9. Do **not** rebase, squash, force-push, or rewrite that branch's
+  history — the review transcripts and Khaliq's comment reference its commits.
+- Reply to Khaliq's blocking comment on PR #8 with a point-by-point audit of
+  each item he raised, at HEAD (`gh pr comment 8`). Never silently wave.
+- **Do not merge.** Charter hard rail. `ops/RUN-CONTRACT.md` §2's AUTO-MERGE
+  authority belongs to Khaliq's autonomous-actor persona, not to this loop.
 
-### Delivery
+## Files in scope
 
-One PR against `main` from a `flow/` branch. Every commit message names WP-4.
-The PR title states the work package name (not the branch). The PR body carries
-the five verify tails **verbatim** plus the behavioral-gate outputs above. The
-review step must leave its transcript in `ops/reviews/` — if it does not
-produce a file, say so in DRIVE-LOG rather than inferring a verdict from
-workflow gating. Rebase on `main` before opening, so the local diff and
-GitHub's merge-base diff agree.
+- `ops/DRIVE-LOG.md` — in-place errata markers on the four false/superseded
+  sentences (see DoD 1), plus this tick's own appended entry.
+- `sdk/tests/cli.test.ts` — delete the dead `cli_unresolved` mutation (R5).
+- `ops/reviews/<timestamp>-review.md` — the third review transcript, committed.
+- `ops/NEXT.md` — this file, carried onto the branch (the original WP-4 package
+  text stays retrievable at `git show 823e35a:ops/NEXT.md`; the review
+  transcripts' line references resolve against that revision).
+- `ops/SCOREBOARD.md` — only if the third review or the re-run changes a number.
+  The AMBER row is already correct on the branch; do not touch its state.
+- PR #8's body and a PR #8 comment (via `gh`, not files).
 
-The Lead does not merge: report and await human review, per the charter's hard
-rails.
+## Definition of done
 
-ASSESS_DONE
+**1. The record carries no unmarked falsehood.** `ops/DRIVE-LOG.md` is
+append-only by its own stated discipline, and the errata at the end already
+exist — but a reader hitting line 516 must not read a false sentence with no
+signal. **Lead's ruling (this is a decision, not an open question):** keep the
+original text byte-intact and annotate each of the four sentences *in place*
+with a bracketed marker naming the finding and pointing forward, e.g.
+
+```
+**Review:** no independent review transcript was produced.
+[ERRATA R1 — false as of 823e35a; three transcripts are committed in this
+same diff. See "WP-4 review round 2 + record correction" below.]
+```
+
+Required at four sites: `:460` (R4, regenerated → byte-identical to `main`),
+`:494`/`:499` (R2, the 76-test tail is pre-fix), `:516` (R1), `:524` (R3).
+R4 must also be added to the errata list in the round-2 entry, which currently
+covers only R1–R3. Verify with:
+
+```
+grep -n "ERRATA" ops/DRIVE-LOG.md      # >= 4 hits, one per site
+grep -n "R4" ops/DRIVE-LOG.md          # R4 present in the errata list
+```
+
+**2. R5 closed.** `sdk/tests/cli.test.ts`'s `LADDER_FAULTS` entry for
+`cli_unresolved` no longer contains `delete flow['cli']`. The case stays — it
+is the genuine `cli_unresolved` path — but its comment names the real fault
+source (the relocated empty `flows.json`), and the fault table has no no-op
+mutation. `grep -n "delete flow\['cli'\]" sdk/tests/cli.test.ts` → no hits.
+The suite must still refuse all three ladder flows with `cli_unresolved`; if
+deleting the mutation makes that case pass instead of refuse, the test was
+green for the wrong reason and **that is a finding to report, not to paper
+over**.
+
+**3. Every command below passes, executed in this tick, tails quoted verbatim
+into both `ops/DRIVE-LOG.md` and PR #8's body.** Superseded tails are not
+evidence — this is the R2 defect and re-committing it fails the package.
+
+```
+cd kernel && ../ops/cargo.sh test --workspace          # exit 0
+cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings   # exit 0
+cd kernel && ../ops/cargo.sh fmt --check               # exit 0, empty output
+cd sdk && npm run build                                # exit 0
+cd sdk && npm test                                     # exit 0
+```
+
+Expected on this branch: kernel **72 passed, 0 failed**; SDK **99 passed, 0
+failed** (7 files) — minus any test removed by DoD 2, in which case report the
+new number as measured, never as expected.
+
+**4. The behavioral gate re-runs, from the current tree, all seven cases:**
+
+```
+node sdk/dist/cli.js check testdata/hello-ladder.flow.yaml   # exit 0, CHECK PASSED
+node sdk/dist/cli.js check testdata/hello-llm.flow.yaml      # exit 0, CHECK PASSED
+node sdk/dist/cli.js check testdata/hello-agent.flow.yaml    # exit 0, CHECK PASSED
+node sdk/dist/cli.js check testdata/preflight/cli-missing.flow.yaml          # exit 2, REFUSED [cli_missing]
+node sdk/dist/cli.js check testdata/preflight/cli-unauthenticated.flow.yaml  # exit 2, REFUSED [cli_unauthenticated]
+node sdk/dist/cli.js check testdata/preflight/cli-unresolved.flow.yaml       # exit 2, REFUSED [cli_unresolved]
+node sdk/dist/cli.js check testdata/preflight/no-executor.flow.yaml          # exit 2, REFUSED [no_executor]
+```
+
+**5. A third adversarial review runs and returns `REVIEW_PASSED`,** with its
+transcript persisted to `ops/reviews/` and `git add`ed. The reviewer must be
+told: rounds 1 and 2 are on the branch, read them; the code was already found
+sound; judge whether R1–R5 are closed and whether the shipped record is true.
+**If it returns `REVIEW_FAILED`, no PR update ships** — log the verdict, leave
+PR #8 exactly as it is, and let the next tick continue. An honest refusal is a
+result, not a failure to route around.
+
+**6. PR #8 is updated in place** — body rebuilt from the executed evidence
+(DoD 3 + 4), and a comment posted replying to Khaliq's block, item by item:
+what was fixed, where, and what is left for a human. `gh pr view 8 --json
+mergeable,mergeStateStatus,statusCheckRollup` re-verified live and recorded.
+Per `73bdb59`'s (unreachable) intent, a **green bot check is not review
+signal** — CodeRabbit was rate-limited into skipping and Devin's trial expired
+on this PR. Do not cite either as external review.
+
+**7. `ops/DRIVE-LOG.md` gains this tick's entry** with: the package, what
+changed, the five verify tails verbatim, the behavioral-gate output, the third
+review's verdict *as read*, PR #8's live state, and honest gate state — gate 1
+**AMBER**, clause 2 unmerged.
+
+## Explicitly OUT of scope this tick
+
+- **Any code change to `sdk/src/**` or `kernel/**`.** Two independent reviews
+  found the WP-4 implementation sound. The only source edit permitted is the
+  dead-mutation deletion in `sdk/tests/cli.test.ts` (DoD 2).
+- **`workflows/drive.yaml` and `ops/RUN-CONTRACT.md`** — the gate that judges
+  this work. Barred by the charter's hard rails and AGENTS.md. The review-gate
+  defect and the `cut -c1-60` PR-title truncation are operator items; report
+  them, do not fix them. (§6 above.)
+- **Restoring the three dangling operator commits.** Report the SHAs; the human
+  decides. Two of the three edit the gate.
+- **Rewriting `ops/DRIVE-LOG.md` history** or amending the 16:03 entry's text.
+  In-place errata markers only (DoD 1) — the original text stays byte-intact.
+- **Any new gate work** — gates 2, 5, 6, 7, 8. Gate selection reopens only
+  after PR #8 merges. The scoreboard's gate-6 "next up" is a candidate, not a
+  commitment; the next assess chooses on evidence.
+- **PR #6** (`flows/relaycast-500-regression`, draft). Prior ruling stands: it
+  documents a `relaycast-cloud` defect that no code here can close.
+- **Merging anything.** Charter hard rail: the Lead opens PRs and reports.
+- **Backlog items** — release pipeline, `f.browser`, cloud-sandbox `sync`
+  remote, PR-shepherd flow. All wait behind PR #8.
+- **Regenerating canonical fixtures.** They are byte-identical to `main` and
+  must stay that way (this is what R4 corrects the record to say).
+
+## Operator actions — for the human, not for this loop
+
+1. **`main`'s scoreboard reads GREEN for gate 1 while clause 2 is unmerged.**
+   The correction ships with PR #8. If it should be true on `main` *now*,
+   cherry-pick `8c10321` — it is recoverable only while it survives `git gc`.
+2. **Re-push the three unreachable commits** (`8c10321`, `c6c3a8b`, `73bdb59`).
+   Until `c6c3a8b` is on `main`, the review gate still cannot express an honest
+   refusal, and a future tick can open a PR over a `REVIEW_FAILED` again — the
+   precise failure that produced this package.
+3. **`docs/SURFACE.md:78` deletes the "→ platform default" rung** from the
+   anonymous-resolution law. Pre-authorized by the WP-4 package and consistent
+   with it, but it narrows a surface doctrine. Confirm the rung is abandoned
+   rather than deferred. Non-blocking; flagged in the PR.
