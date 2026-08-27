@@ -18,6 +18,24 @@ pub struct StepDispatch {
     pub lease_deadline_ms: i64,
 }
 
+/// What became of one dispatch attempt. Every answer is a declared outcome the
+/// caller journals or acts on — a dispatch never fails silently.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DispatchOutcome {
+    /// The lease is with a worker that holds the attempt's starting state.
+    Dispatched,
+    /// No attached worker takes this step class, or none reports the surfaces
+    /// the attempt is pinned to. The run parks until one attaches.
+    NoWorker,
+    /// A worker takes the class and reports every pinned surface, but at
+    /// different revisions/offsets than the attempt was elected against — the
+    /// pin source detached and this is its replacement. Dispatching would hand
+    /// it a starting state it is not in, so the attempt fails closed instead
+    /// (Appendix A rule 2) and the step is re-elected from what a worker
+    /// actually holds.
+    PinMismatch { detail: String },
+}
+
 /// The binary owns scheduling; transports only deliver its durable leases.
 pub trait StepDispatcher: Send + Sync {
     fn executor(&self, step_type: StepType) -> Option<String>;
@@ -30,8 +48,7 @@ pub trait StepDispatcher: Send + Sync {
         Ok(Pins::default())
     }
 
-    /// Returns `false` when no compatible worker is attached.
-    fn dispatch(&self, dispatch: StepDispatch) -> Result<bool>;
+    fn dispatch(&self, dispatch: StepDispatch) -> Result<DispatchOutcome>;
 }
 
 /// Journal watches are projections. Notification happens only after append.

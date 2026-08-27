@@ -102,6 +102,16 @@ pub(super) struct EffectRecordParams {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(super) struct EffectConfirmParams {
+    pub run_id: String,
+    pub step_id: String,
+    pub attempt: u32,
+    pub idempotency_key: String,
+    pub surface_path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct EventEmitParams {
     pub run_id: String,
     pub event_key: String,

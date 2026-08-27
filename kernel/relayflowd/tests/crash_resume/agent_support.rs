@@ -142,11 +142,9 @@ pub fn start_run(fixture: &AgentFixture) -> String {
     result["run_id"].as_str().unwrap().to_owned()
 }
 
-pub fn record_effect(
-    fixture: &AgentFixture,
-    worker: &mut ProtocolClient,
-    dispatch: &Value,
-) -> Result<bool> {
+/// Phase one only: win (or reclaim) the election and stop. This is the worker
+/// that dies between recording the writeback and calling its provider.
+pub fn elect_effect(worker: &mut ProtocolClient, dispatch: &Value) -> Result<bool> {
     let result = worker.request(
         "effect.record",
         json!({
@@ -159,7 +157,18 @@ pub fn record_effect(
             "revision_after": "provider-rev-b"
         }),
     )?;
-    let deduped = result["deduped"].as_bool().unwrap();
+    Ok(result["deduped"].as_bool().unwrap())
+}
+
+/// The whole Appendix A rule 5 sequence a well-behaved worker runs: elect,
+/// perform, confirm. The provider call is a line in a file, so the test can
+/// count exactly how many happened.
+pub fn record_effect(
+    fixture: &AgentFixture,
+    worker: &mut ProtocolClient,
+    dispatch: &Value,
+) -> Result<bool> {
+    let deduped = elect_effect(worker, dispatch)?;
     if !deduped {
         writeln!(
             OpenOptions::new()
@@ -168,8 +177,22 @@ pub fn record_effect(
                 .open(&fixture.provider_calls)?,
             "provider-called"
         )?;
+        confirm_effect(worker, dispatch)?;
     }
     Ok(deduped)
+}
+
+pub fn confirm_effect(worker: &mut ProtocolClient, dispatch: &Value) -> Result<Value> {
+    worker.request(
+        "effect.confirm",
+        json!({
+            "run_id": dispatch["run_id"],
+            "step_id": dispatch["step_id"],
+            "attempt": dispatch["attempt"],
+            "idempotency_key": dispatch["idempotency_key"],
+            "surface_path": "/provider/item"
+        }),
+    )
 }
 
 pub fn complete(worker: &mut ProtocolClient, dispatch: &Value) -> Result<Value> {

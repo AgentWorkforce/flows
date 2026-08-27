@@ -227,3 +227,111 @@ fn consecutive_agent_steps_on_different_surfaces_each_start_from_their_own_pins(
         "no step may fail on a heterogeneous surface chain"
     );
 }
+
+/// Appendix A rule 2, at the dispatch boundary. The pins journaled at start
+/// describe the worker they were elected against. If that worker disconnects
+/// and its replacement stands at different revisions, the attempt must not be
+/// handed to it: holding the surface *name* is not holding the state. The
+/// decision is journaled as a declared `worker_error`, never a silent decline
+/// that leaves the lease to expire unexplained.
+#[test]
+fn a_replacement_worker_at_a_different_revision_is_not_dispatched_the_stale_pins() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let (source_writer, source_peer) = shared_writer();
+    let attached = request(
+        data_dir,
+        &hub,
+        81,
+        &source_writer,
+        r#"{"id":"attach","verb":"worker.attach","params":{"worker_id":"pin-source","step_types":["agent"],"pins":{"workspace":[{"surface":"repo","revision_id":"rev-one"}]}}}"#,
+    );
+    assert!(attached.ok, "worker.attach failed: {:?}", attached.error);
+    let mut source_reader = BufReader::new(source_peer);
+    let (control_writer, _control_peer) = shared_writer();
+    let spec = json!({
+        "steps": [{
+            "id": "edit",
+            "type": "agent",
+            "instruction": "edit",
+            // `inspect` continues in the workspace the dead attempt left, so
+            // the dispatch is not an instruction to restore — the worker must
+            // already be standing at the pinned revision.
+            "recovery_mode": "inspect",
+            "max_iterations": 1,
+            "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0},
+            "surfaces": {"workspace": [{"surface": "repo"}]}
+        }]
+    });
+    let started = request(
+        data_dir,
+        &hub,
+        82,
+        &control_writer,
+        &json!({"id": "start", "verb": "run.start", "params": {"spec": spec}}).to_string(),
+    );
+    assert!(started.ok, "run.start failed: {:?}", started.error);
+    let run_id = started.result.unwrap()["run_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let first = read_frame(&mut source_reader)["data"].clone();
+    assert_eq!(first["pins"]["workspace"][0]["revision_id"], "rev-one");
+
+    // The elected worker dies; its replacement reports the same surface at a
+    // revision the run never pinned.
+    abandon_connection(data_dir, &hub, 81);
+    let (replacement_writer, replacement_peer) = shared_writer();
+    let attached = request(
+        data_dir,
+        &hub,
+        83,
+        &replacement_writer,
+        r#"{"id":"attach","verb":"worker.attach","params":{"worker_id":"replacement","step_types":["agent"],"pins":{"workspace":[{"surface":"repo","revision_id":"rev-two"}]}}}"#,
+    );
+    assert!(attached.ok, "worker.attach failed: {:?}", attached.error);
+
+    let resumed = request(
+        data_dir,
+        &hub,
+        82,
+        &control_writer,
+        &json!({"id": "resume", "verb": "run.resume", "params": {"run_id": run_id}}).to_string(),
+    );
+    assert!(resumed.ok, "run.resume failed: {:?}", resumed.error);
+
+    // Nothing was dispatched against the stale pins.
+    replacement_peer
+        .set_read_timeout(Some(std::time::Duration::from_millis(300)))
+        .unwrap();
+    let mut replacement_reader = BufReader::new(replacement_peer);
+    let mut leaked = String::new();
+    assert!(
+        std::io::BufRead::read_line(&mut replacement_reader, &mut leaked).is_err(),
+        "the replacement must not receive the departed worker's pins: {leaked}"
+    );
+
+    // ...and the refusal is a declared, journaled decision, not a silent stall.
+    let completions = step_completions(data_dir, &run_id);
+    let refusal = completions
+        .last()
+        .expect("the undispatchable attempt is journaled");
+    assert_eq!(refusal.completion_reason, CompletionReason::WorkerError);
+    assert_eq!(refusal.disposition, Disposition::StepDone);
+    let detail = refusal
+        .verification
+        .as_ref()
+        .expect("a rejected attempt names its cause")
+        .detail
+        .clone();
+    assert!(
+        detail.contains("rev-one") && detail.contains("rev-two"),
+        "the journaled reason names both revisions: {detail}"
+    );
+    assert_eq!(
+        Engine::new(data_dir).snapshot(&run_id).unwrap().status,
+        crate::RunStatus::Failed,
+        "the run ends in a declared failure rather than an unexplained park"
+    );
+}

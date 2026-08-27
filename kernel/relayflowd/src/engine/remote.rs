@@ -1,13 +1,17 @@
 use anyhow::{Context, Result, anyhow, bail};
 use relayflowd_core::{
-    AttemptResult, Budget, Clock, CompletionReason, EffectRecordedPayload, EffectRef, EntryType,
-    JournalEntry, Pins, StepKind, StepState, StreamAppendedPayload, WaitCompletedPayload,
-    WaitCompletionReason, WaitEventPayload, abandonment_actions, completion_actions,
+    AttemptResult, Budget, Clock, CompletionReason, EffectRef, EntryType, JournalEntry, Pins,
+    StepKind, StepState, StreamAppendedPayload, WaitCompletedPayload, WaitCompletionReason,
+    WaitEventPayload, abandonment_actions, completion_actions,
 };
 use relayflowd_journal::SqliteJournal;
 use serde_json::Value;
 
-use super::{DriveOptions, Engine, RunOutcome, validate_agent_pins};
+use super::{
+    DriveOptions, Engine, RunOutcome,
+    effects::{recorded_effects, reject_unconfirmed_elections, unconfirmed_elections},
+    validate_agent_pins,
+};
 use crate::clock::WallClock;
 use crate::worker::LeaseProbe;
 
@@ -65,7 +69,10 @@ impl Engine<WallClock> {
         };
         let effects = if matches!(step.kind, StepKind::Agent { .. }) {
             let recorded = recorded_effects(&journal, &step, completion.attempt)?;
-            if let Err(error) = validate_agent_completion(&step, runtime, &completion, &recorded) {
+            let unconfirmed = unconfirmed_elections(&journal, &step, completion.attempt)?;
+            if let Err(error) =
+                validate_agent_completion(&step, runtime, &completion, &recorded, &unconfirmed)
+            {
                 reject(error);
             }
             recorded
@@ -191,66 +198,6 @@ impl Engine<WallClock> {
         Ok(offset)
     }
 
-    /// Append the effect fact before the worker calls its provider. The
-    /// journal's unique key decides the winner atomically and reports whether
-    /// this attempt must suppress the provider call.
-    #[allow(clippy::too_many_arguments)]
-    pub fn record_effect(
-        &self,
-        run_id: &str,
-        step_id: &str,
-        attempt: u32,
-        idempotency_key: &str,
-        surface_path: &str,
-        revision_before: &str,
-        revision_after: &str,
-        agent_identity: &str,
-    ) -> Result<bool> {
-        let mut journal = self.open_run(run_id)?;
-        let spec = journal.run_spec().context("read run spec")?;
-        let state = self.load_state(&journal, spec.clone())?;
-        let step = spec
-            .step(step_id)
-            .with_context(|| format!("run {run_id} has no step {step_id}"))?;
-        let StepKind::Agent { surfaces, .. } = &step.kind else {
-            bail!("step {step_id} is not an agent step")
-        };
-        if !surfaces.external.iter().any(|path| path == surface_path) {
-            bail!("effect path {surface_path} is not declared by agent step {step_id}")
-        }
-        let StepState::Running {
-            attempt: active_attempt,
-            idempotency_key: active_key,
-            ..
-        } = &state.steps[step_id].state
-        else {
-            bail!("step {step_id} has no active lease")
-        };
-        if *active_attempt != attempt || active_key != idempotency_key {
-            bail!("effect does not match the active agent attempt")
-        }
-        let persisted = self.append(
-            &mut journal,
-            &JournalEntry::new(
-                EntryType::EffectRecorded,
-                run_id,
-                Some(step_id.to_owned()),
-                Some(attempt),
-                self.clock.now_ms(),
-                EffectRecordedPayload {
-                    surface_path: surface_path.to_owned(),
-                    idempotency_key: idempotency_key.to_owned(),
-                    revision_before: revision_before.to_owned(),
-                    revision_after: revision_after.to_owned(),
-                    agent_identity: agent_identity.to_owned(),
-                    deduped: false,
-                },
-            ),
-        )?;
-        let effect: EffectRecordedPayload = serde_json::from_value(persisted.payload)?;
-        Ok(effect.deduped)
-    }
-
     pub fn read_stream(
         &self,
         run_id: &str,
@@ -319,7 +266,9 @@ fn validate_agent_completion(
     runtime: &relayflowd_core::StepRuntime,
     completion: &OutOfBandCompletion,
     recorded_effects: &[EffectRef],
+    unconfirmed: &[String],
 ) -> Result<()> {
+    reject_unconfirmed_elections(completion, unconfirmed)?;
     let expected_start = runtime
         .last_start_pins
         .as_ref()
@@ -360,34 +309,6 @@ fn validate_agent_completion(
         bail!("agent completion effects do not match its journaled effect facts")
     }
     Ok(())
-}
-
-fn recorded_effects(
-    journal: &SqliteJournal,
-    step: &relayflowd_core::StepSpec,
-    attempt: u32,
-) -> Result<Vec<EffectRef>> {
-    let recorded = journal
-        .scan_all()
-        .context("read recorded effects")?
-        .into_iter()
-        .filter(|entry| {
-            entry.entry_type == EntryType::EffectRecorded
-                && entry.step_id.as_deref() == Some(step.id.as_str())
-                && entry.attempt == Some(attempt)
-        })
-        .map(|entry| {
-            let effect: EffectRecordedPayload = serde_json::from_value(entry.payload)?;
-            Ok((effect.surface_path, effect.idempotency_key))
-        })
-        .collect::<Result<std::collections::BTreeSet<_>>>()?;
-    Ok(recorded
-        .into_iter()
-        .map(|(surface_path, idempotency_key)| EffectRef {
-            surface_path,
-            idempotency_key,
-        })
-        .collect())
 }
 
 fn next_stream_offset(journal: &SqliteJournal, stream: &str) -> Result<u64> {

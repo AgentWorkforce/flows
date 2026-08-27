@@ -167,6 +167,7 @@ impl RunState {
                 EntryType::RunSpawned
                 | EntryType::StreamAppended
                 | EntryType::EffectRecorded
+                | EntryType::EffectConfirmed
                 | EntryType::SegmentClosed => {}
             }
         }
@@ -275,7 +276,8 @@ impl RunState {
             && payload.completion_reason == CompletionReason::Success
         {
             if is_agent {
-                self.current_pins = payload.end_pins.clone();
+                self.current_pins =
+                    pins::chain_forward(self.current_pins.take(), payload.end_pins.clone());
             }
             self.memo.insert(step_id, payload.output);
         }

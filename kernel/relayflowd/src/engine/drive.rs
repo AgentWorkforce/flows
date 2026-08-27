@@ -2,12 +2,16 @@ use std::{thread, time::Duration};
 
 use anyhow::{Result, bail};
 use relayflowd_core::{
-    Action, Clock, RunCompletionReason, RunSpec, RunState, completion_actions, next_actions,
+    Action, AttemptResult, Clock, CompletionReason, RunCompletionReason, RunSpec, RunState,
+    completion_actions, next_actions,
 };
 use relayflowd_journal::SqliteJournal;
 
 use super::{DriveOptions, Engine, RunOutcome, RunStatus, outcome_from_state};
-use crate::{exec_det, worker::StepDispatch};
+use crate::{
+    exec_det,
+    worker::{DispatchOutcome, StepDispatch},
+};
 
 impl<C: Clock> Engine<C> {
     pub(super) fn drive(
@@ -88,7 +92,7 @@ impl<C: Clock> Engine<C> {
                             .last_start_pins
                             .clone()
                             .unwrap_or_default();
-                        let assigned = self
+                        let outcome = self
                             .dispatcher
                             .as_ref()
                             .map(|dispatcher| {
@@ -97,7 +101,7 @@ impl<C: Clock> Engine<C> {
                                     step_id: step.id.clone(),
                                     attempt,
                                     step_type: worker_class,
-                                    spec: step,
+                                    spec: step.clone(),
                                     lease_id,
                                     idempotency_key,
                                     pins,
@@ -106,10 +110,29 @@ impl<C: Clock> Engine<C> {
                                 })
                             })
                             .transpose()?
-                            .unwrap_or(false);
+                            .unwrap_or(DispatchOutcome::NoWorker);
+                        // Appendix A rule 2: a worker standing at revisions
+                        // other than the attempt's pins cannot start from the
+                        // journaled state. The attempt fails closed with a
+                        // declared reason instead of running against pins
+                        // nothing holds, and the step re-elects on the retry.
+                        if let DispatchOutcome::PinMismatch { detail } = outcome {
+                            self.fail_dispatch_closed(
+                                &mut journal,
+                                &started_state,
+                                &step,
+                                attempt,
+                                detail,
+                            )?;
+                            break;
+                        }
                         self.registry()?.set_status(
                             &state.run_id,
-                            if assigned { "waiting_worker" } else { "parked" },
+                            if outcome == DispatchOutcome::Dispatched {
+                                "waiting_worker"
+                            } else {
+                                "parked"
+                            },
                             Some(lease_deadline_ms),
                         )?;
                         return Ok(parked_outcome(&state, RunStatus::Parked));
@@ -134,6 +157,38 @@ impl<C: Clock> Engine<C> {
                 }
             }
         }
+    }
+
+    /// Journal a dispatch that could not be honored as a declared `worker_error`
+    /// completion of the attempt. It runs through the same completion path as
+    /// any other rejected attempt, so retry policy and the failure taxonomy
+    /// hold: the step retries against whatever a worker actually reports, and
+    /// exhausting `max_iterations` ends the run with a declared reason rather
+    /// than an expired lease nobody explained.
+    fn fail_dispatch_closed(
+        &self,
+        journal: &mut SqliteJournal,
+        state: &RunState,
+        step: &relayflowd_core::StepSpec,
+        attempt: u32,
+        detail: String,
+    ) -> Result<()> {
+        let mut result = AttemptResult::successful(serde_json::Value::Null, "kernel");
+        result.failure_reason = Some(CompletionReason::WorkerError);
+        result.failure_detail = Some(format!(
+            "attempt was not dispatched: the attached worker does not hold its starting pins ({detail})"
+        ));
+        for action in completion_actions(
+            journal.run_id(),
+            step,
+            attempt,
+            state.steps[&step.id].semantic_executions,
+            result,
+            self.clock.now_ms(),
+        ) {
+            self.interpret_non_execution(journal, action)?;
+        }
+        Ok(())
     }
 
     pub(super) fn interpret_non_execution(

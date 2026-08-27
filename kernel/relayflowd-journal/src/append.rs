@@ -1,4 +1,6 @@
-use relayflowd_core::{EffectRecordedPayload, EntryType, JournalEntry, StreamAppendedPayload};
+use relayflowd_core::{
+    EffectConfirmedPayload, EffectRecordedPayload, EntryType, JournalEntry, StreamAppendedPayload,
+};
 use rusqlite::{OptionalExtension, Row, Transaction, TransactionBehavior, params};
 use serde_json::{Map, Value};
 
@@ -43,23 +45,8 @@ pub(crate) fn insert_entry(
     let mut persisted = entry.clone();
     persisted.segment_id = segment_id;
 
-    let new_effect = if entry.entry_type == EntryType::EffectRecorded {
-        let mut effect: EffectRecordedPayload = serde_json::from_value(entry.payload.clone())?;
-        let step_id = entry
-            .step_id
-            .as_deref()
-            .ok_or(JournalStoreError::MissingStep("effect.recorded"))?;
-        let winner: Option<i64> = transaction
-            .query_row(
-                "SELECT entry_seq FROM effects
-                 WHERE step_id = ?1 AND idempotency_key = ?2 AND surface_path = ?3",
-                params![step_id, effect.idempotency_key, effect.surface_path],
-                |row| row.get(0),
-            )
-            .optional()?;
-        effect.deduped = winner.is_some();
-        persisted.payload = serde_json::to_value(&effect)?;
-        (!effect.deduped).then_some((step_id.to_owned(), effect))
+    let election = if entry.entry_type == EntryType::EffectRecorded {
+        Some(elect_effect(transaction, entry, &mut persisted)?)
     } else {
         None
     };
@@ -99,11 +86,25 @@ pub(crate) fn insert_entry(
     let seq = transaction.last_insert_rowid();
     persisted.seq = seq;
 
-    if let Some((step_id, effect)) = new_effect {
+    if entry.entry_type == EntryType::EffectConfirmed {
+        confirm_effect(transaction, entry, seq)?;
+    }
+    if let Some(Election::Won {
+        step_id,
+        idempotency_key,
+        surface_path,
+        attempt,
+    }) = election
+    {
+        // The election row is an index of who owes the provider call. Winning
+        // it a second time is a reclaim of an election nobody confirmed, so the
+        // row moves to the live attempt rather than being inserted twice.
         transaction.execute(
-            "INSERT INTO effects(step_id, idempotency_key, surface_path, entry_seq)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![step_id, effect.idempotency_key, effect.surface_path, seq],
+            "INSERT INTO effects(step_id, idempotency_key, surface_path, entry_seq, attempt, confirmed_seq)
+             VALUES (?1, ?2, ?3, ?4, ?5, NULL)
+             ON CONFLICT(step_id, idempotency_key, surface_path)
+             DO UPDATE SET entry_seq = ?4, attempt = ?5",
+            params![step_id, idempotency_key, surface_path, seq, attempt],
         )?;
     }
     if let Some(stream) = stream {
@@ -114,6 +115,100 @@ pub(crate) fn insert_entry(
     }
     persisted.run_id = run_id.to_owned();
     Ok(persisted)
+}
+
+/// Who owes the provider call after this `effect.recorded` append.
+enum Election {
+    /// This attempt must perform the writeback and then confirm it.
+    Won {
+        step_id: String,
+        idempotency_key: String,
+        surface_path: String,
+        attempt: u32,
+    },
+    /// A confirmed election already covers it: suppress the provider call.
+    Deduped,
+}
+
+/// Appendix A rule 5, made atomic with the provider call. Election alone never
+/// suppresses a retry: only a *confirmed* election proves the writeback
+/// happened. An election left unconfirmed — the worker died between recording
+/// and calling the provider — is reclaimed by the next attempt, so the effect
+/// still happens exactly once rather than never.
+fn elect_effect(
+    transaction: &Transaction<'_>,
+    entry: &JournalEntry,
+    persisted: &mut JournalEntry,
+) -> Result<Election, JournalStoreError> {
+    let mut effect: EffectRecordedPayload = serde_json::from_value(entry.payload.clone())?;
+    let step_id = entry
+        .step_id
+        .as_deref()
+        .ok_or(JournalStoreError::MissingStep("effect.recorded"))?;
+    let attempt = entry.attempt.ok_or(JournalStoreError::MissingAttempt {
+        entry: "effect.recorded",
+    })?;
+    let held: Option<(u32, Option<i64>)> = transaction
+        .query_row(
+            "SELECT attempt, confirmed_seq FROM effects
+             WHERE step_id = ?1 AND idempotency_key = ?2 AND surface_path = ?3",
+            params![step_id, effect.idempotency_key, effect.surface_path],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    // A live attempt re-recording its own unconfirmed election has not proven
+    // anything, but it is still the holder: reclaim belongs to a *later*
+    // attempt, which by construction means the holder is dead.
+    effect.deduped = matches!(held, Some((holder, confirmed))
+        if confirmed.is_some() || holder == attempt);
+    persisted.payload = serde_json::to_value(&effect)?;
+    Ok(if effect.deduped {
+        Election::Deduped
+    } else {
+        Election::Won {
+            step_id: step_id.to_owned(),
+            idempotency_key: effect.idempotency_key,
+            surface_path: effect.surface_path,
+            attempt,
+        }
+    })
+}
+
+/// Close the election this attempt won: the provider call happened, so no later
+/// attempt may reclaim it. Fail closed — an attempt that does not hold the
+/// election cannot confirm one.
+fn confirm_effect(
+    transaction: &Transaction<'_>,
+    entry: &JournalEntry,
+    seq: i64,
+) -> Result<(), JournalStoreError> {
+    let effect: EffectConfirmedPayload = serde_json::from_value(entry.payload.clone())?;
+    let step_id = entry
+        .step_id
+        .as_deref()
+        .ok_or(JournalStoreError::MissingStep("effect.confirmed"))?;
+    let attempt = entry.attempt.ok_or(JournalStoreError::MissingAttempt {
+        entry: "effect.confirmed",
+    })?;
+    let changed = transaction.execute(
+        "UPDATE effects SET confirmed_seq = ?5
+         WHERE step_id = ?1 AND idempotency_key = ?2 AND surface_path = ?3 AND attempt = ?4",
+        params![
+            step_id,
+            effect.idempotency_key,
+            effect.surface_path,
+            attempt,
+            seq
+        ],
+    )?;
+    if changed == 0 {
+        return Err(JournalStoreError::UnelectedEffect {
+            step_id: step_id.to_owned(),
+            surface_path: effect.surface_path,
+            attempt,
+        });
+    }
+    Ok(())
 }
 
 pub(crate) fn entry_from_row(row: &Row<'_>, run_id: &str) -> Result<JournalEntry, rusqlite::Error> {

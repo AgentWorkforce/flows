@@ -102,3 +102,41 @@ impl RunState {
         Ok(())
     }
 }
+
+/// Appendix A rule 6: completion pins the end state, and the next step's start
+/// *is* that end state. A step declares only its own surfaces (rule 1), so its
+/// `end_pins` speak for those surfaces alone — a surface it never named is
+/// untouched by it and its pinned revision is still the chain's truth. The
+/// chain therefore merges per surface; replacing it wholesale would drop a
+/// revision an earlier step pinned the moment an intermediate step declared a
+/// different surface, and the next step to declare it would source it from a
+/// worker as if the run had never pinned it.
+pub(super) fn chain_forward(chain: Option<Pins>, end_pins: Option<Pins>) -> Option<Pins> {
+    let Some(end_pins) = end_pins else {
+        return chain;
+    };
+    let Some(mut merged) = chain else {
+        return Some(end_pins);
+    };
+    for pin in end_pins.workspace {
+        match merged
+            .workspace
+            .iter_mut()
+            .find(|held| held.surface == pin.surface)
+        {
+            Some(held) => *held = pin,
+            None => merged.workspace.push(pin),
+        }
+    }
+    for pin in end_pins.streams {
+        match merged
+            .streams
+            .iter_mut()
+            .find(|held| held.stream == pin.stream)
+        {
+            Some(held) => *held = pin,
+            None => merged.streams.push(pin),
+        }
+    }
+    Some(merged)
+}

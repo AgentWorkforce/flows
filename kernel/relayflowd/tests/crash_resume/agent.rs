@@ -13,7 +13,8 @@ use relayflowd_core::{
 
 use super::{
     agent_support::{
-        AgentFixture, attached_worker, complete, record_effect, spawn_resume, start_run,
+        AgentFixture, attached_worker, complete, elect_effect, record_effect, spawn_resume,
+        start_run,
     },
     support::{
         completed_step_count, journal_entries, kill_group, kill_process_group, read_pid,
@@ -214,6 +215,85 @@ fn rung_c_sigkill_between_agent_completion_and_final_effect_memoizes_the_agent()
         finish_starts, 2,
         "only the unfinished final step is retried"
     );
+    assert_exact_agent_budget(&entries);
+}
+
+/// Appendix A rule 5 at its hardest boundary: the worker is SIGKILLed *after*
+/// the journal elected it to perform the writeback and *before* it called the
+/// provider. A one-phase election would have marked the effect done and every
+/// retry would have skipped it, so the run would complete with the declared
+/// effect never having happened. Election alone must not suppress: the
+/// unconfirmed election is reclaimed and the effect happens exactly once.
+#[test]
+fn rung_c_crash_between_effect_election_and_the_provider_call_performs_it_exactly_once() {
+    let fixture = AgentFixture::new("elect-then-crash", "reset");
+    let mut server = fixture.server();
+    let mut worker = attached_worker(&fixture, "electing-agent-stub");
+    let run_id = start_run(&fixture);
+    let first = worker.event("step.dispatch").unwrap();
+    assert_eq!(first["attempt"], 1);
+
+    // Elected, then dead: no provider call, no confirmation.
+    assert!(!elect_effect(&mut worker, &first).unwrap());
+    assert_eq!(fixture.provider_call_count(), 0);
+    server.kill();
+    drop(worker);
+
+    let _restarted = fixture.server();
+    let mut replacement = attached_worker(&fixture, "replacement-agent-stub");
+    let resume = spawn_resume(&fixture, &run_id);
+    let second = replacement.event("step.dispatch").unwrap();
+    assert_eq!(second["attempt"], 2);
+    // The unconfirmed election does not permanently suppress the effect: this
+    // attempt reclaims it, performs it, and confirms.
+    assert!(
+        !record_effect(&fixture, &mut replacement, &second).unwrap(),
+        "an election nobody confirmed must be reclaimable"
+    );
+    assert_eq!(fixture.provider_call_count(), 1);
+    assert_eq!(
+        complete(&mut replacement, &second).unwrap()["status"],
+        "completed"
+    );
+    let output = resume.wait_with_output().unwrap();
+    assert!(output.status.success(), "resume failed: {output:?}");
+    let outcome: RunOutcome = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(outcome.status, RunStatus::Completed);
+
+    // Exactly one provider call across both attempts, and the journal explains
+    // both: attempt 1 elected and was not deduped, attempt 2 reclaimed.
+    assert_eq!(fixture.provider_call_count(), 1);
+    let entries = journal_entries(&fixture.data_dir).unwrap();
+    let effects = entries
+        .iter()
+        .filter(|entry| entry.entry_type == EntryType::EffectRecorded)
+        .map(|entry| {
+            (
+                entry.attempt,
+                serde_json::from_value::<EffectRecordedPayload>(entry.payload.clone()).unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(effects.len(), 2);
+    assert!(!effects[0].1.deduped, "attempt 1 won the election");
+    assert!(!effects[1].1.deduped, "attempt 2 reclaimed it");
+    let confirmations = entries
+        .iter()
+        .filter(|entry| entry.entry_type == EntryType::EffectConfirmed)
+        .map(|entry| entry.attempt)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        confirmations,
+        vec![Some(2)],
+        "only the attempt that called the provider confirms"
+    );
+    let completions = agent_completions(&entries);
+    assert_eq!(completions.len(), 2);
+    assert!(matches!(
+        completions[0].completion_reason,
+        CompletionReason::Crashed | CompletionReason::LeaseExpired
+    ));
+    assert_eq!(completions[1].completion_reason, CompletionReason::Success);
     assert_exact_agent_budget(&entries);
 }
 

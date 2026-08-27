@@ -257,6 +257,13 @@ fn handle_request(
             let worker_id = hub
                 .completion_worker(connection_id, &key)
                 .map_err(protocol_conflict)?;
+            // The worker moved the surfaces its completion pins; the hub's view
+            // of what it holds moves with it *before* the completion drives the
+            // run, so the next attempt's chained pins are checked against the
+            // worker's real state rather than its attach snapshot.
+            if let Some(end_pins) = &params.end_pins {
+                hub.advance_worker_pins(connection_id, end_pins);
+            }
             let outcome = engine
                 .complete_out_of_band(
                     &params.run_id,
@@ -303,6 +310,30 @@ fn handle_request(
                 )
                 .map_err(internal_error)?;
             Ok(json!({"deduped": deduped}))
+        }
+        "effect.confirm" => {
+            let params: EffectConfirmParams = decode_params(request.params)?;
+            let key = (
+                params.run_id.clone(),
+                params.step_id.clone(),
+                params.attempt,
+            );
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            let worker_id = hub
+                .completion_worker(connection_id, &key)
+                .map_err(protocol_conflict)?;
+            engine
+                .confirm_effect(
+                    &params.run_id,
+                    &params.step_id,
+                    params.attempt,
+                    &params.idempotency_key,
+                    &params.surface_path,
+                    &worker_id,
+                )
+                .map_err(internal_error)?;
+            Ok(json!({"confirmed": params.surface_path}))
         }
         "event.emit" => {
             let params: EventEmitParams = decode_params(request.params)?;

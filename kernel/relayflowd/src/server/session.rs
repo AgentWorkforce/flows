@@ -9,12 +9,15 @@ use anyhow::{Context, Result, bail};
 use relayflowd_core::{CompletionReason, JournalEntry, Pins, StepKind, StepSpec, StepType};
 use serde_json::json;
 
-use crate::worker::{JournalObserver, LeaseProbe, StepDispatch, StepDispatcher};
+use crate::worker::{DispatchOutcome, JournalObserver, LeaseProbe, StepDispatch, StepDispatcher};
 
 const LEASE_RENEWAL_MS: i64 = 30_000;
 
 type Writer = Arc<Mutex<UnixStream>>;
 type AssignmentKey = (String, String, u32);
+
+mod matching;
+use matching::{pin_value_mismatch, select_worker, worker_holds};
 
 #[derive(Clone)]
 struct Worker {
@@ -115,6 +118,44 @@ impl ProtocolHub {
             pins,
             writer,
         });
+    }
+
+    /// A worker's advertised state is only true until it changes it. A step it
+    /// completes moves the surfaces that completion pins, so the hub's view
+    /// must move with it — otherwise the next attempt's pins, chained from
+    /// those very end pins, would read as a mismatch against a stale snapshot.
+    /// Merged per surface: a completion speaks only for what it declared.
+    pub fn advance_worker_pins(&self, connection_id: u64, end_pins: &Pins) {
+        let mut sessions = self.sessions.lock().expect("protocol sessions lock");
+        let Some(worker) = sessions
+            .workers
+            .iter_mut()
+            .find(|worker| worker.connection_id == connection_id)
+        else {
+            return;
+        };
+        for pin in &end_pins.workspace {
+            match worker
+                .pins
+                .workspace
+                .iter_mut()
+                .find(|held| held.surface == pin.surface)
+            {
+                Some(held) => held.revision_id = pin.revision_id.clone(),
+                None => worker.pins.workspace.push(pin.clone()),
+            }
+        }
+        for pin in &end_pins.streams {
+            match worker
+                .pins
+                .streams
+                .iter_mut()
+                .find(|held| held.stream == pin.stream)
+            {
+                Some(held) => held.read_offset = pin.read_offset,
+                None => worker.pins.streams.push(pin.clone()),
+            }
+        }
     }
 
     /// Register a watcher BEFORE its journal replay. Live appends buffer until
@@ -338,10 +379,10 @@ impl StepDispatcher for ProtocolHub {
         Ok(Pins { workspace, streams })
     }
 
-    fn dispatch(&self, dispatch: StepDispatch) -> Result<bool> {
+    fn dispatch(&self, dispatch: StepDispatch) -> Result<DispatchOutcome> {
         let mut sessions = self.sessions.lock().expect("protocol sessions lock");
         let Some(worker) = select_worker(&sessions, dispatch.step_type).cloned() else {
-            return Ok(false);
+            return Ok(DispatchOutcome::NoWorker);
         };
         // Appendix A rule 2: the pins journaled at start are the state this
         // attempt must begin from, and they were sourced from whichever worker
@@ -351,7 +392,15 @@ impl StepDispatcher for ProtocolHub {
         // honor. Decline instead; the run parks and re-dispatches from pins the
         // holding worker actually reported.
         if !worker_holds(&worker, &dispatch.pins) {
-            return Ok(false);
+            return Ok(DispatchOutcome::NoWorker);
+        }
+        // Holding the surface *names* is not holding the state. Unless this
+        // dispatch is itself the instruction to move (a `reset` retry carries
+        // `restore_pins`), the worker must already be at the exact revisions
+        // and offsets the attempt was elected against; a replacement standing
+        // at different ones would start from unjournaled state.
+        if let Some(detail) = pin_value_mismatch(&worker, &dispatch) {
+            return Ok(DispatchOutcome::PinMismatch { detail });
         }
         write_frame(
             &worker.writer,
@@ -372,33 +421,8 @@ impl StepDispatcher for ProtocolHub {
                 lease_deadline_ms: dispatch.lease_deadline_ms,
             },
         );
-        Ok(true)
+        Ok(DispatchOutcome::Dispatched)
     }
-}
-
-/// The single worker-selection rule, shared by pin sourcing and dispatch.
-fn select_worker(sessions: &Sessions, step_type: StepType) -> Option<&Worker> {
-    sessions
-        .workers
-        .iter()
-        .find(|worker| worker.step_types.contains(&step_type))
-}
-
-/// Does this worker report every surface the attempt is pinned to?
-fn worker_holds(worker: &Worker, pins: &Pins) -> bool {
-    pins.workspace.iter().all(|pin| {
-        worker
-            .pins
-            .workspace
-            .iter()
-            .any(|held| held.surface == pin.surface)
-    }) && pins.streams.iter().all(|pin| {
-        worker
-            .pins
-            .streams
-            .iter()
-            .any(|held| held.stream == pin.stream)
-    })
 }
 
 impl LeaseProbe for ProtocolHub {

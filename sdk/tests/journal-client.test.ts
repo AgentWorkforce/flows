@@ -42,6 +42,7 @@ function startLoopback(path: string, handlers: {
   'worker.attach'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'step.heartbeat'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'effect.record'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'effect.confirm'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'step.complete'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'event.emit'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'journal.read'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
@@ -86,6 +87,9 @@ function startLoopback(path: string, handlers: {
             break;
           case 'effect.record':
             handlers['effect.record']?.(ctx, req.params);
+            break;
+          case 'effect.confirm':
+            handlers['effect.confirm']?.(ctx, req.params);
             break;
           case 'step.complete':
             handlers['step.complete']?.(ctx, req.params);
@@ -387,6 +391,129 @@ steps:
   it('rejects requests when not connected', async () => {
     client = new JournalClient(path);
     await expect(client.hello('x')).rejects.toThrow(/not connected/);
+  });
+});
+
+/// Appendix A rule 5 at the SDK boundary. The double below is a faithful
+/// mini-mirror of the kernel's election table (`kernel/relayflowd-journal`):
+/// an election only suppresses a later attempt once it has been *confirmed*,
+/// and an unconfirmed election is reclaimed by the next attempt. What is being
+/// proven here is the client: that performing an effect cannot leave the
+/// election and the provider call separated.
+describe('JournalClient: an effect election is atomic with its provider call', () => {
+  interface Election {
+    attempt: number;
+    confirmed: boolean;
+  }
+
+  function startElectionServer(path: string, elections: Map<string, Election>): Server {
+    return startLoopback(path, {
+      'effect.record': (ctx, params) => {
+        const key = `${params.step_id}|${params.idempotency_key}|${params.surface_path}`;
+        const attempt = params.attempt as number;
+        const held = elections.get(key);
+        const deduped = held !== undefined && (held.confirmed || held.attempt === attempt);
+        if (!deduped) elections.set(key, { attempt, confirmed: false });
+        sendResult(ctx, { deduped });
+      },
+      'effect.confirm': (ctx, params) => {
+        const key = `${params.step_id}|${params.idempotency_key}|${params.surface_path}`;
+        const held = elections.get(key);
+        if (held === undefined || held.attempt !== params.attempt) {
+          ctx.send({
+            id: ctx.id,
+            ok: false,
+            error: { code: 'internal', message: 'does not hold the election' },
+          });
+          return;
+        }
+        elections.set(key, { attempt: held.attempt, confirmed: true });
+        sendResult(ctx, { confirmed: params.surface_path });
+      },
+    });
+  }
+
+  const effect = (attempt: number) => ({
+    runId: 'run-01',
+    stepId: 'agent',
+    attempt,
+    idempotencyKey: 'stable',
+    surfacePath: '/provider/item',
+    revisionBefore: 'rev-a',
+    revisionAfter: 'rev-b',
+  });
+
+  it('performs the effect exactly once when an attempt dies between electing and calling', async () => {
+    const path = sockPath();
+    const elections = new Map<string, Election>();
+    const server = startElectionServer(path, elections);
+    const clients: JournalClient[] = [];
+    const attempt = async (n: number, perform: () => Promise<void>): Promise<boolean> => {
+      const client = new JournalClient(path, { requestTimeoutMs: 2000 });
+      clients.push(client);
+      await client.connect();
+      return client.performEffect(effect(n), perform);
+    };
+    let providerCalls = 0;
+    try {
+      // Attempt 1 wins the election and dies before the provider call — the
+      // crash window a one-phase record leaves open.
+      await expect(
+        attempt(1, async () => {
+          throw new Error('SIGKILL between election and provider call');
+        }),
+      ).rejects.toThrow();
+      expect(providerCalls).toBe(0);
+
+      // Attempt 2 reclaims the election nobody confirmed and performs it.
+      const performed = await attempt(2, async () => {
+        providerCalls += 1;
+      });
+      expect(performed).toBe(true);
+      expect(providerCalls).toBe(1);
+
+      // Attempt 3 is suppressed by the now-confirmed election: exactly once.
+      const again = await attempt(3, async () => {
+        providerCalls += 1;
+      });
+      expect(again).toBe(false);
+      expect(providerCalls).toBe(1);
+    } finally {
+      for (const client of clients) client.close();
+      await new Promise<void>((r) => server.close(() => r()));
+      rmSync(path, { force: true });
+    }
+  });
+
+  it('leaves an unconfirmed election reclaimable rather than suppressing the effect forever', async () => {
+    const path = sockPath();
+    const elections = new Map<string, Election>();
+    const server = startElectionServer(path, elections);
+    let client: JournalClient | undefined;
+    try {
+      client = new JournalClient(path, { requestTimeoutMs: 2000 });
+      await client.connect();
+      // A bare election — the shape a caller reaching past `performEffect`
+      // would leave behind — must not read as done to the next attempt.
+      const elected = await client.effectRecord(
+        'run-01', 'agent', 1, 'stable', '/provider/item', 'rev-a', 'rev-b',
+      );
+      expect(elected.deduped).toBe(false);
+      const next = await client.effectRecord(
+        'run-01', 'agent', 2, 'stable', '/provider/item', 'rev-a', 'rev-b',
+      );
+      expect(next.deduped).toBe(false);
+      // Only a confirmation closes it.
+      await client.effectConfirm('run-01', 'agent', 2, 'stable', '/provider/item');
+      const after = await client.effectRecord(
+        'run-01', 'agent', 3, 'stable', '/provider/item', 'rev-a', 'rev-b',
+      );
+      expect(after.deduped).toBe(true);
+    } finally {
+      client?.close();
+      await new Promise<void>((r) => server.close(() => r()));
+      rmSync(path, { force: true });
+    }
   });
 });
 

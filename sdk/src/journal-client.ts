@@ -190,7 +190,14 @@ export class JournalClient extends EventEmitter {
     return this.request('worker.attach', { worker_id: workerId, step_types: stepTypes, pins });
   }
 
-  /** Record a writeback before calling its provider; skip the call when deduped. */
+  /**
+   * Phase one of the writeback protocol (Appendix A rule 5): ask the journal to
+   * elect this attempt to perform the effect. **Do not call this directly to
+   * perform an effect** — use {@link performEffect}, which cannot leave the
+   * election and the provider call separated. A `false` here means this attempt
+   * owes the provider call *and* the {@link effectConfirm} that closes it;
+   * returning from `effectRecord` without doing both leaves the election open.
+   */
   effectRecord(
     runId: string,
     stepId: string,
@@ -209,6 +216,76 @@ export class JournalClient extends EventEmitter {
       revision_before: revisionBefore,
       revision_after: revisionAfter,
     });
+  }
+
+  /**
+   * Phase two: the provider call this attempt was elected for has happened.
+   * Confirming closes the election so no later attempt reclaims it. Only the
+   * attempt holding the election may confirm it; the kernel refuses anything
+   * else.
+   */
+  effectConfirm(
+    runId: string,
+    stepId: string,
+    attempt: number,
+    idempotencyKey: string,
+    surfacePath: string,
+  ): Promise<VerbContract['effect.confirm']['result']> {
+    return this.request('effect.confirm', {
+      run_id: runId,
+      step_id: stepId,
+      attempt,
+      idempotency_key: idempotencyKey,
+      surface_path: surfacePath,
+    });
+  }
+
+  /**
+   * Perform one declared external effect exactly once: elect, perform, confirm.
+   *
+   * Election alone is not a promise that the writeback happened — a worker that
+   * dies between `effect.record` and its provider call would otherwise leave a
+   * winner nothing ever performed, and every retry would skip the call while
+   * the run completed as if the effect had occurred. Holding the three phases
+   * inside one call is what makes them inseparable at this boundary: `perform`
+   * runs only for the attempt that won the election, and the election is closed
+   * only after `perform` returns. A `perform` that throws leaves the election
+   * unconfirmed and therefore reclaimable, so the next attempt performs it.
+   *
+   * Returns whether this attempt made the provider call; `false` means a
+   * confirmed election already covered it.
+   */
+  async performEffect(
+    effect: {
+      runId: string;
+      stepId: string;
+      attempt: number;
+      idempotencyKey: string;
+      surfacePath: string;
+      revisionBefore: string;
+      revisionAfter: string;
+    },
+    perform: () => Promise<void>,
+  ): Promise<boolean> {
+    const { deduped } = await this.effectRecord(
+      effect.runId,
+      effect.stepId,
+      effect.attempt,
+      effect.idempotencyKey,
+      effect.surfacePath,
+      effect.revisionBefore,
+      effect.revisionAfter,
+    );
+    if (deduped) return false;
+    await perform();
+    await this.effectConfirm(
+      effect.runId,
+      effect.stepId,
+      effect.attempt,
+      effect.idempotencyKey,
+      effect.surfacePath,
+    );
+    return true;
   }
 
   /** Renew the lease — the one lease primitive. */

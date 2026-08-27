@@ -49,6 +49,7 @@ export type Verb =
   | 'worker.attach'
   | 'step.heartbeat'
   | 'effect.record'
+  | 'effect.confirm'
   | 'step.complete'
   | 'event.emit'
   | 'stream.append'
@@ -184,7 +185,27 @@ export interface EffectRecordParams {
   revision_after: string;
 }
 export interface EffectRecordResult {
+  /**
+   * True only when a *confirmed* election already covers this
+   * `(step_id, idempotency_key, surface_path)`: the writeback provably
+   * happened, so this attempt must not call the provider. An election that was
+   * never confirmed does not dedupe — this attempt reclaims it and owes the
+   * call, which is what keeps an effect from being lost to a worker that died
+   * between recording and performing.
+   */
   deduped: boolean;
+}
+
+/** Phase two: the elected attempt performed the writeback. */
+export interface EffectConfirmParams {
+  run_id: string;
+  step_id: string;
+  attempt: number;
+  idempotency_key: string;
+  surface_path: string;
+}
+export interface EffectConfirmResult {
+  confirmed: string;
 }
 
 export interface StepCompleteParams {
@@ -251,6 +272,7 @@ export interface VerbContract {
   'worker.attach': { params: WorkerAttachParams; result: WorkerAttachResult };
   'step.heartbeat': { params: StepHeartbeatParams; result: StepHeartbeatResult };
   'effect.record': { params: EffectRecordParams; result: EffectRecordResult };
+  'effect.confirm': { params: EffectConfirmParams; result: EffectConfirmResult };
   'step.complete': { params: StepCompleteParams; result: StepCompleteResult };
   'event.emit': { params: EventEmitParams; result: EventEmitResult };
   'stream.append': { params: StreamAppendParams; result: StreamAppendResult };

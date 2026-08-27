@@ -16,6 +16,7 @@ use crate::clock::WallClock;
 use crate::worker::{JournalObserver, StepDispatcher};
 
 mod drive;
+mod effects;
 mod model;
 mod remote;
 pub use model::{RunOutcome, RunSnapshot, RunStatus};
