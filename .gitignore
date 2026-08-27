@@ -1,5 +1,8 @@
 node_modules/
 target/
+# vendored crate sources are immutable inputs to the build; nothing under
+# kernel/vendor may be swallowed by the target/ rule (cc ships src/target/)
+!kernel/vendor/**
 dist/
 *.log
 .DS_Store
