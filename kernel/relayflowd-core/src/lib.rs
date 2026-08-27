@@ -16,7 +16,10 @@ pub mod verify;
 pub use clock::{Clock, SimClock};
 pub use entry::*;
 pub use journal::{Journal, JournalError, MemoryJournal};
-pub use machine::{Action, AttemptResult, completion_actions, next_actions, recovery_actions};
+pub use machine::{
+    Action, AttemptResult, abandonment_actions, completion_actions, next_actions, recovery_actions,
+    recovery_actions_filtered,
+};
 pub use spec::*;
 pub use state::{RunState, StateError, StepRuntime, StepState};
 

@@ -11,18 +11,36 @@ use relayflowd_core::RunSpec;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-const CANONICAL: &str = include_str!(concat!(
+const LADDER_CANONICAL: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../testdata/hello-ladder.spec.canonical.json"
 ));
-const SPEC_SHA256: &str = include_str!(concat!(
+const LADDER_SHA256: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../testdata/hello-ladder.spec.sha256"
 ));
 
 #[test]
 fn the_kernel_parses_the_sdk_compiled_spec_and_stamps_the_same_hash() {
-    let value: Value = serde_json::from_str(CANONICAL.trim()).unwrap();
+    assert_parity(LADDER_CANONICAL, LADDER_SHA256);
+}
+
+#[test]
+fn the_kernel_parses_the_rung_b_spec_and_stamps_the_same_hash() {
+    assert_parity(
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/hello-llm.spec.canonical.json"
+        )),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/hello-llm.spec.sha256"
+        )),
+    );
+}
+
+fn assert_parity(canonical_fixture: &str, expected_hash: &str) {
+    let value: Value = serde_json::from_str(canonical_fixture.trim()).unwrap();
     let spec = RunSpec::parse(&value).expect("kernel must parse the SDK's compiled spec");
     spec.validate().expect("the ladder fixture is a valid spec");
 
@@ -33,7 +51,7 @@ fn the_kernel_parses_the_sdk_compiled_spec_and_stamps_the_same_hash() {
     let canonical = serde_json::to_string(&reserialized).unwrap();
     assert_eq!(
         canonical,
-        CANONICAL.trim(),
+        canonical_fixture.trim(),
         "kernel round-trip must reproduce the SDK's canonical JSON byte-for-byte"
     );
 
@@ -41,5 +59,5 @@ fn the_kernel_parses_the_sdk_compiled_spec_and_stamps_the_same_hash() {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect();
-    assert_eq!(hash, SPEC_SHA256.trim(), "spec_hash parity with the SDK");
+    assert_eq!(hash, expected_hash.trim(), "spec_hash parity with the SDK");
 }

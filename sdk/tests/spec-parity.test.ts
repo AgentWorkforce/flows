@@ -19,15 +19,17 @@ function fixture(name: string): string {
 }
 
 describe('spec parity: one dialect at the SDK<->kernel boundary', () => {
-  it('compiles the ladder fixture to the pinned canonical JSON', () => {
-    const yaml = fixture('hello-ladder.flow.yaml');
-    const canonical = compileYamlToCanonicalJson(yaml);
-    expect(canonical).toBe(fixture('hello-ladder.spec.canonical.json').trim());
-  });
+  for (const name of ['hello-ladder', 'hello-llm']) {
+    it(`compiles ${name} to the pinned canonical JSON`, () => {
+      const yaml = fixture(`${name}.flow.yaml`);
+      const canonical = compileYamlToCanonicalJson(yaml);
+      expect(canonical).toBe(fixture(`${name}.spec.canonical.json`).trim());
+    });
 
-  it('hashes the ladder fixture to the pinned spec_hash', () => {
-    const yaml = fixture('hello-ladder.flow.yaml');
-    const { hash } = compileAndHash(yaml);
-    expect(hash).toBe(fixture('hello-ladder.spec.sha256').trim());
-  });
+    it(`hashes ${name} to the pinned spec_hash`, () => {
+      const yaml = fixture(`${name}.flow.yaml`);
+      const { hash } = compileAndHash(yaml);
+      expect(hash).toBe(fixture(`${name}.spec.sha256`).trim());
+    });
+  }
 });
