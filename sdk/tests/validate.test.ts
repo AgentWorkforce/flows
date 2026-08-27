@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { validateSpec } from '../src/validate.js';
-import { compileYaml, CompileError } from '../src/compile.js';
+import { compileSpec, compileYaml, CompileError } from '../src/compile.js';
 import type { FlowSpec } from '../src/spec.js';
 
 // Fail-closed (AGENTS.md rule 4): a malformed spec is rejected with a concrete
@@ -266,11 +266,12 @@ describe('validate: accepts the legal zero-agent flow', () => {
   });
 
   it('accepts a spec without a name because the kernel treats it as optional', () => {
-    const result = validateSpec({
+    const nameless = {
       version: '0.1.0',
       steps: [{ id: 'a', type: 'deterministic', command: 'echo hi' }],
-    });
-    expect(result).toEqual({ ok: true, errors: [] });
+    };
+    expect(validateSpec(nameless)).toEqual({ ok: true, errors: [] });
+    expect(compileSpec(nameless)).not.toHaveProperty('name');
   });
 
   it('accepts a pure-deterministic spec — zero agents/llm is legal (RFC §1)', () => {

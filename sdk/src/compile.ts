@@ -70,7 +70,7 @@ export function compileSpec(spec: unknown): FlowSpec {
   const steps = input.steps.map(compileStep);
   const flow: FlowSpec = {
     version: input.version,
-    name: input.name,
+    ...(input.name !== undefined ? { name: input.name } : {}),
     ...(input.description !== undefined ? { description: input.description } : {}),
     ...(input.cli !== undefined ? { cli: input.cli } : {}),
     ...(input.triggers !== undefined ? { triggers: input.triggers } : {}),
@@ -144,7 +144,7 @@ const KERNEL_RETRY_DEFAULTS = {
 export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
   return {
     version: flow.version,
-    name: flow.name,
+    ...(flow.name !== undefined ? { name: flow.name } : {}),
     ...(flow.description !== undefined ? { description: flow.description } : {}),
     ...(flow.cli !== undefined ? { cli: flow.cli } : {}),
     ...(flow.triggers !== undefined ? { triggers: flow.triggers } : {}),

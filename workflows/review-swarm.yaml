@@ -138,6 +138,7 @@ workflows:
       - name: aggregate
         type: deterministic
         dependsOn: [lens-maintainability, lens-history, lens-structure]
+        maxIterations: 1
         command: |
           # Any single honest refusal blocks the merge. A missing transcript is
           # a refusal too: an unpersisted verdict is not evidence.

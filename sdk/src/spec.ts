@@ -161,7 +161,7 @@ export interface TriggerSpec {
 export interface FlowSpec {
   /** Spec schema semver (RFC §7). Compilers always emit latest. */
   version: string;
-  name: string;
+  name?: string;
   description?: string;
   /** Default agent CLI for llm/agent steps that do not declare one. */
   cli?: string;

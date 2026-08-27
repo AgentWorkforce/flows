@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -174,6 +174,23 @@ describe('flows check CLI', () => {
     expect(result.code).toBe(0);
     expect(result.stdout.join('\n')).toContain('from project');
     expect(result.stdout.join('\n')).toContain('../authenticated-cli');
+  });
+
+  it('resolves a project CLI path relative to the flows.json that declares it', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'flows-check-'));
+    temporaryDirectories.push(directory);
+    const flowDirectory = join(directory, 'nested');
+    mkdirSync(flowDirectory);
+    writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli: './authenticated-cli', executors: [] }));
+    const cli = join(directory, 'authenticated-cli');
+    writeFileSync(cli, '#!/bin/sh\n[ "$1 $2" = "auth status" ]\n');
+    chmodSync(cli, 0o755);
+    const flow = join(flowDirectory, 'project-cli.flow.yaml');
+    writeFileSync(flow, "version: '0.1.0'\nsteps:\n  - id: answer\n    type: llm\n    prompt: answer\n");
+
+    const result = run(flow);
+    expect(result.code).toBe(0);
+    expect(result.stdout.join('\n')).toContain('RESOLVED step "answer" cli "./authenticated-cli" from project');
   });
 
   it('maps every input refusal path to its declared kind without raw exceptions', () => {
