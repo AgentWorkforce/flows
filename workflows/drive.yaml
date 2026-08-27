@@ -132,13 +132,16 @@ workflows:
           if [ -z "$latest" ]; then
             echo "VERDICT_UNKNOWN: no persisted review transcript — an unpersisted verdict is not evidence"; exit 1
           fi
-          if grep -q "REVIEW_FAILED" "$latest"; then
-            echo "VERDICT_FAILED: reviewer rejected this diff — see $latest"; exit 1
-          fi
-          if grep -q "REVIEW_PASSED" "$latest"; then
-            echo "VERDICT_PASS ($latest)"; exit 0
-          fi
-          echo "VERDICT_UNKNOWN: $latest carries no verdict"; exit 1
+          # The verdict is the LAST verdict token in the transcript, not any
+          # mention of one: a passing review that discusses a previous
+          # REVIEW_FAILED must not be read as a rejection. (It was, on the
+          # first outing of this gate.)
+          v=$(grep -oE "REVIEW_(PASSED|FAILED)" "$latest" | tail -1)
+          case "$v" in
+            REVIEW_FAILED) echo "VERDICT_FAILED: reviewer rejected this diff — see $latest"; exit 1 ;;
+            REVIEW_PASSED) echo "VERDICT_PASS ($latest)"; exit 0 ;;
+            *) echo "VERDICT_UNKNOWN: $latest carries no verdict"; exit 1 ;;
+          esac
         timeoutMs: 120000
 
       - name: pr

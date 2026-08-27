@@ -16,22 +16,46 @@
     {
       "id": "declared-failure-assertion",
       "need": "A red case must assert that an operation fails in a declared way. The surface has no `expect(kind)` form, so every red probe is a deterministic step that always exits 0 and prints the observed status/body for a postfix gate to judge.",
-      "blocks": ["enrollment-token-bearer-auth", "cross-account-workspace-404"]
+      "blocks": [
+        "enrollment-token-bearer-auth",
+        "cross-account-workspace-404"
+      ]
     },
     {
       "id": "rendered-ui-assertion",
       "need": "No browser helper, so `the UI shows this string` is not assertable. The cross-account pair asserts the API-level cause instead: the response body carries no code the client could branch on.",
-      "blocks": ["cross-account-workspace-404"]
+      "blocks": [
+        "cross-account-workspace-404"
+      ]
     },
     {
       "id": "darwin-arm64-placement",
       "need": "gate 7's sandbox router has no macOS pool; the bun-compiled argv bug does not reproduce under node or `bun run`.",
-      "blocks": ["worker-daemon-bun-argv"]
+      "blocks": [
+        "worker-daemon-bun-argv"
+      ]
     },
     {
       "id": "multi-principal-run",
       "need": "Two or three credential principals inside one run (CLI bearer, browser session, in-account non-owner). Expressed as `principals/<name>` mount paths and an `as:` argument; gate 8 must make that real and non-ambient.",
-      "blocks": ["enrollment-token-bearer-auth", "cross-account-workspace-404"]
+      "blocks": [
+        "enrollment-token-bearer-auth",
+        "cross-account-workspace-404"
+      ]
+    },
+    {
+      "id": "service-internal-principal-mount",
+      "need": "The relaycast gateway's internal maintenance API is guarded by a shared service bearer, not a user session. It still has to resolve from `<mount>/principals/<name>/token` like every other credential (gate 8), and the workspace key being re-registered must be read inline from the cloud mount so no secret enters the flow source or the journal. Needs a relayfile adapter for the relaycast gateway (gate 6) exposing base_url, principals/cloud-control-plane, and relay-workspaces/<id>/relaycast_api_key.",
+      "blocks": [
+        "relaycast-workspace-key-repair-500"
+      ]
+    },
+    {
+      "id": "dependency-fault-injection",
+      "need": "A red case cannot force a downstream dependency to fail, so a defect that only shows when a dependency errors (here: an unguarded D1 write that turns any database fault into an untyped 500) is observable only while a real fault window happens to be open. Without injection the green case can pass against healthy production while the defective code is still deployed — a false green the suite must not mistake for a fix.",
+      "blocks": [
+        "relaycast-workspace-key-repair-500"
+      ]
     }
   ],
   "pairs": [
@@ -41,7 +65,11 @@
       "red": "enrollment-token-bearer-auth.red.flow.ts",
       "green": "enrollment-token-bearer-auth.green.flow.ts",
       "upstream": "cloud#3202",
-      "requiredGates": ["gate-1", "gate-6", "gate-8"],
+      "requiredGates": [
+        "gate-1",
+        "gate-6",
+        "gate-8"
+      ],
       "blockedUntil": [
         "gate-1: a relayflow can run at all",
         "gate-6: a relayfile adapter for AgentWorkforce cloud (f.cloud helper namespace)",
@@ -52,7 +80,9 @@
         "files": [
           "AgentWorkforce/cloud packages/web/app/api/v1/workers/enrollment-tokens/route.ts:113-115"
         ],
-        "strings": ["{\"error\":\"Forbidden\"} (HTTP 403)"],
+        "strings": [
+          "{\"error\":\"Forbidden\"} (HTTP 403)"
+        ],
         "observedOn": "2026-08-27"
       }
     },
@@ -62,13 +92,19 @@
       "red": "worker-daemon-bun-argv.red.flow.ts",
       "green": "worker-daemon-bun-argv.green.flow.ts",
       "upstream": "to file — relay CLI",
-      "requiredGates": ["gate-1", "gate-6", "gate-7"],
+      "requiredGates": [
+        "gate-1",
+        "gate-6",
+        "gate-7"
+      ],
       "blockedUntil": [
         "gate-1: a relayflow can run at all",
         "gate-6: cloud helper for worker liveness/heartbeat reads",
         "gate-7: a darwin-arm64 sandbox profile — the bug is invisible under node or `bun run`"
       ],
-      "dependsOn": ["enrollment-token-bearer-auth"],
+      "dependsOn": [
+        "enrollment-token-bearer-auth"
+      ],
       "evidence": {
         "files": [
           "AgentWorkforce/relay packages/cli/src/cli/commands/cloud-worker.ts:266",
@@ -88,20 +124,31 @@
       "red": "cron-succeeded-into-void.red.flow.ts",
       "green": "cron-succeeded-into-void.green.flow.ts",
       "upstream": "to file — cloud RelayCron",
-      "requiredGates": ["gate-1", "gate-2", "gate-6"],
+      "requiredGates": [
+        "gate-1",
+        "gate-2",
+        "gate-6"
+      ],
       "blockedUntil": [
         "gate-1: a relayflow can run at all",
         "gate-2: the trigger plane, its executor-liveness check and sweep",
         "gate-6: cloud helper for schedules, workers and run journals"
       ],
-      "dependsOn": ["enrollment-token-bearer-auth"],
+      "dependsOn": [
+        "enrollment-token-bearer-auth"
+      ],
       "evidence": {
         "files": [
           "AgentWorkforce/cloud packages/web/app/api/v1/workflows/schedules/trigger/route.ts:178-192"
         ],
-        "runIds": ["8e3e5916", "740c3a27"],
+        "runIds": [
+          "8e3e5916",
+          "740c3a27"
+        ],
         "schedule": "flows-drive",
-        "strings": ["lastTriggerStatus: \"succeeded\" with no run artifacts, no branch, no PR"],
+        "strings": [
+          "lastTriggerStatus: \"succeeded\" with no run artifacts, no branch, no PR"
+        ],
         "observedOn": "2026-08-27"
       }
     },
@@ -111,7 +158,11 @@
       "red": "cross-account-workspace-404.red.flow.ts",
       "green": "cross-account-workspace-404.green.flow.ts",
       "upstream": "to file — cloud",
-      "requiredGates": ["gate-1", "gate-6", "gate-8"],
+      "requiredGates": [
+        "gate-1",
+        "gate-6",
+        "gate-8"
+      ],
       "blockedUntil": [
         "gate-1: a relayflow can run at all",
         "gate-6: a relayfile adapter for AgentWorkforce cloud",
@@ -133,6 +184,64 @@
         ],
         "observedOn": "2026-08-27"
       }
+    },
+    {
+      "slug": "relaycast-workspace-key-repair-500",
+      "bug": "POST /internal/workspaces/:id/api-key performs its D1 write with no try/catch, so a constraint error (workspaces_api_key_hash_unique) escapes the handler and the worker fetch; Cloudflare returns a bare non-JSON 500 and the cloud launch path can only print the HTTP status text. Every workflow launch for the workspace fails with no named condition.",
+      "red": "relaycast-workspace-key-repair-500.red.flow.ts",
+      "green": "relaycast-workspace-key-repair-500.green.flow.ts",
+      "upstream": "to file — relaycast-cloud",
+      "requiredGates": [
+        "gate-1",
+        "gate-6",
+        "gate-8"
+      ],
+      "blockedUntil": [
+        "gate-1: a relayflow can run at all",
+        "gate-6: a relayfile adapter for the relaycast gateway (base_url, principals, relay-workspace key reads)",
+        "gate-8: the internal service bearer resolved through the proxy, not ambient env"
+      ],
+      "dependsOn": [],
+      "evidence": {
+        "files": [
+          "AgentWorkforce/relaycast-cloud packages/relaycast/src/fleet/routes.ts:523",
+          "AgentWorkforce/relaycast-cloud packages/relaycast/src/fleet/routes.ts:550-566",
+          "AgentWorkforce/relaycast-cloud packages/relaycast/src/fleet/routes.ts:587-594",
+          "AgentWorkforce/relaycast-cloud packages/relaycast/src/entrypoints/cloudflare.ts:182-183",
+          "AgentWorkforce/cloud packages/web/lib/workflows/relay-workspace.ts:222-243",
+          "AgentWorkforce/cloud packages/web/lib/workflows/relay-workspace.ts:238-241"
+        ],
+        "jobIds": [
+          "9a26d44d",
+          "0c96a292",
+          "09e842f0"
+        ],
+        "workspaces": {
+          "appWorkspace": "50587328-441d-4acb-b8f3-dbe1b3c5de99",
+          "relayWorkspace": "rw_7ccfea89"
+        },
+        "strings": [
+          "Relaycast workspace key repair failed: 500 Internal Server Error"
+        ],
+        "verifiedReadOnly": [
+          "prod worker relaycast-cloud-api serves https://cast.agentrelay.com; cloud RELAYCAST_URL resolves to it (cloud infra/relaycast.ts:376-378)",
+          "live probe with an invalid internal bearer returns typed JSON 401 {\"error\":{\"code\":\"unauthorized\"}} — the route is deployed and the secret IS configured, so neither 401 nor the typed 503 explains the 500",
+          "rw_7ccfea89 exists in the prod D1 `relaycast-cloud` (plan enterprise), so the UPDATE branch runs, not the INSERT branch",
+          "the live workspaces table has exactly one uniqueness constraint reachable from that UPDATE — workspaces_api_key_hash_unique — and no triggers",
+          "the usage_classification/classification_source CHECK constraints are satisfied by every row (0 violating), so they are ruled out",
+          "D1 relaycast-cloud is 3.49 GB with 911,908 writes in 24h, so a size or write-availability fault is ruled out"
+        ],
+        "observedOn": "2026-08-27",
+        "nonReproduction": {
+          "observedOn": "2026-08-27T18:46Z-18:52Z",
+          "method": "four launches fired via `agent-relay cloud run workflows/drive.yaml` with `wrangler tail relaycast-cloud-api` attached",
+          "result": "4/4 reached POST /internal/workspaces/rw_7ccfea89/api-key and answered 200 with zero exceptions; one run reached `running` with a sandbox, so the launch path completed past the repair",
+          "keyHashUnchanged": "rw_7ccfea89 api_key_hash stayed 800c08fc13… before and after, so each push was a self-update, which can never violate workspaces_api_key_hash_unique",
+          "implication": "disfavours the constraint-collision reading of the original 500s and favours a transient fault on the same unguarded path; not fully settled because the prod Neon row holding the control plane's stored key was unreachable (on-disk NEON_APP_DATABASE_URL points at a dev branch), so a key change between 18:24Z and 18:46Z cannot be excluded",
+          "defectUnchanged": "the route still runs its D1 statements with no try/catch, so any database fault — permanent or transient — still reaches the operator as a bare untyped 500"
+        }
+      },
+      "status": "red case not currently reproducing; the defect in routes.ts is unfixed. Judge by reading the source, not by the flow's exit code, until gate-6/8 and dependency-fault injection exist."
     }
   ]
 }
