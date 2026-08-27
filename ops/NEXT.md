@@ -43,6 +43,33 @@ Bring PR #8 to a state where `workflows/review-swarm.yaml` returns
 **SWARM_PASSED with three persisted, committed transcripts**, without widening
 gate 1's done-when and without rewriting the branch's history.
 
+### Retry correction after the timed-out build — controls over earlier text
+
+The independent, `main`-owned review of `c8c15a0` produced three staged
+transcripts at 19:21–19:24: history and structure passed; maintainability
+failed on M1–M3. Preserve and commit those transcripts as rejection evidence.
+The following directions supersede conflicting F0 instructions later in this
+file for this retry:
+
+1. **Do not ship a change to `workflows/review-swarm.yaml` in PR #8.** The
+   maintainability lens correctly applied the rail that a branch cannot edit
+   the gate judging that branch. Restore that file to `origin/main` here; land
+   the durability hardening separately, judged by the pre-change swarm.
+2. **Use the immutable `origin/main` workflow for PR #8's final verdict.** Its
+   reviewers stage evidence. Commit each transcript explicitly after the run,
+   without staging or committing product files with it. This preserves this
+   run's evidence without making PR #8 its own judge.
+3. **Close M2 and M3 before re-review.** State honestly that `flows check`
+   performs preflight while direct `run.start` does not, both in the inert
+   kernel field comment and `docs/SURFACE.md`. Make kernel-dialect conversion
+   errors name the dialect marker, object path, and unknown key; pin the mixed
+   `timeoutMs` + `depends_on` case through the real CLI.
+
+The timed-out worker already left localized M2/M3 repairs in the working tree
+and the three rejected transcripts staged. Verify and finish those changes;
+do not repeat the five completed review rounds. The final review must bind to
+the new PR head and all three lenses must pass honestly.
+
 ---
 
 ## The findings, independently verified by this assess

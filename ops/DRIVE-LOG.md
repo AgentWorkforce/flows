@@ -1338,3 +1338,95 @@ blocking maintainability findings were repaired without adding gate work:
 
 The repaired SDK suite passes **118 tests** across 7 files. Gate 1 remains
 **AMBER** until a human merges PR #8 and re-verifies clause 2 on `main`.
+
+### Retry correction — main-owned judge and durable final repairs
+
+The timed-out build left a correction in the working tree that supersedes the
+earlier instruction to change `workflows/review-swarm.yaml`. The correction is
+now committed in `ops/NEXT.md`: PR #8 must not edit its own judge. The workflow
+in this branch is byte-identical to `origin/main`; the unchanged main-owned
+workflow stages review evidence, and this branch commits each transcript
+explicitly after the run. The durability hardening belongs in a separate PR
+judged by the pre-change swarm.
+
+The main-owned review of `c8c15a0` at 19:21–19:24 produced three transcripts.
+History and structure passed; maintainability rejected M1–M3. They were
+preserved without product files in `a6f6afb`, closing the immediate recurrence
+of F0: staged evidence is not durable, and the earlier 17:45 transcripts were
+lost when later hard resets discarded the shared index.
+
+`e074a92` then made only the retry's localized repairs:
+
+- restored `workflows/review-swarm.yaml` to the exact `origin/main` blob;
+- disclosed in the inert kernel field comment and `docs/SURFACE.md` that
+  `flows check` performs preflight while direct `run.start` does not; and
+- made compiled-dialect failures name the marker that selected the dialect,
+  the object path, and the unknown key, with the mixed `timeoutMs` plus
+  `depends_on` case pinned through the real CLI.
+
+Main-owned run `64363bfa9c515ac2a5b744fe` reviewed `e074a92`. History and
+structure passed; maintainability rejected because three new kernel validation
+variants and the SDK duplicate-trigger rule survived deletion with both suites
+green. The aggregate printed `SWARM_FAILED`; its legacy automatic repair retry
+was stopped before mutation. The three transcripts were committed separately
+as `6819ff4`, `0fd7810`, and `6111906`.
+
+`4f8ecf8` answered that mutation evidence without widening the package. The
+existing kernel test now distinguishes `EmptyCli`, both invalid-trigger fields,
+`DuplicateTrigger`, the exact malformed-trigger parse variant, and
+`EmptyStepCli`. The SDK suite now asserts the exact duplicate-trigger
+diagnostic. The kernel test count remains the required 72 because the new
+assertions extend the existing preflight test.
+
+Verification at `4f8ecf8`:
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests relayflowd_journal
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+All five non-doc suites total **72 passed, 0 failed** (18 + 19 + 26 + 3 + 6).
+
+```text
+$ (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.21s
+
+$ (cd kernel && ../ops/cargo.sh fmt --check)
+# exit 0, empty output
+
+$ (cd sdk && npm run build)
+> @relayflows/sdk@0.1.0 build
+> tsc
+
+$ (cd sdk && npm test)
+ Test Files  7 passed (7)
+      Tests  121 passed (121)
+```
+
+The real CLI still refuses the kernel-incompatible version at submit:
+
+```text
+REFUSED [invalid_spec] spec.version: unsupported version "9.9.9" (expected "0.1.0")
+exit=2
+```
+
+The seven recorded behavioral cases were rerun: all three ladder flows printed
+`CHECK PASSED` and exited 0; `cli_missing`, `cli_unauthenticated`,
+`cli_unresolved`, and `no_executor` printed their typed refusals and exited 2.
+
+Main-owned run `bcb3310dbf0d864d17d44319` reviewed `4f8ecf8`. Structure and
+maintainability passed; history rejected because this retry correction still
+lived only in the working tree and this log stopped at `c8c15a0`. The aggregate
+again printed `SWARM_FAILED` and its repair retry was stopped before mutation.
+Its three transcripts were committed separately as `ced536d`, `4ab656c`, and
+`26cafde`. This append-only correction closes that provenance finding without
+rewriting prior commits or deleting any rejection evidence.
+
+Gate 1 remains **AMBER**. Clause 1 is closed on `main`; clause 2 exists only on
+open PR #8 until a human merges it and re-verifies on merged `main`.
