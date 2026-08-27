@@ -1,6 +1,0 @@
---fail
---location
---retry 3
---retry-connrefused
---show-error
---silent
