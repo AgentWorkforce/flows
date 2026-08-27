@@ -1,0 +1,7 @@
+version: '0.1.0'
+name: preflight-cli-declared
+steps:
+  - id: answer
+    type: llm
+    cli: ./authenticated-cli
+    prompt: "Return ok."

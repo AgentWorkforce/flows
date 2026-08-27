@@ -3,6 +3,11 @@
 Items the Lead should weigh in assess after ops/DIRECTIVES.md and the current
 gate's needs. Not commitments; ordering is the Lead's call with evidence.
 
+Gate 1's `flows check` preflight is closed by WP-4 on the current branch; it is
+not a backlog item. The next assess should choose among gate 2 and horizontal
+gates 5–8 after this branch lands rather than inheriting the old gate-6
+"next up" annotation as a commitment.
+
 - **Release pipeline (relay pattern, NOT crates.io):** cross-compile
   `relayflowd` per platform in CI, bundle binaries into the npm `flows`
   CLI/SDK + curl installer for self-host cells (see `../relay`

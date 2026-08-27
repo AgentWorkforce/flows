@@ -1,0 +1,3 @@
+#!/bin/sh
+# Deterministic preflight fixture: installed, but auth is unhealthy.
+exit 1

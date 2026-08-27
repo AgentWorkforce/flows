@@ -1,0 +1,7 @@
+version: '0.1.0'
+name: preflight-cli-unauthenticated
+steps:
+  - id: edit
+    type: agent
+    cli: ./unauthenticated-cli
+    instruction: "Produce the fixture artifact."

@@ -1,0 +1,9 @@
+version: '0.1.0'
+name: preflight-no-executor
+triggers:
+  - id: orphaned-schedule
+    executor: absent-executor
+steps:
+  - id: ready
+    type: deterministic
+    command: "printf ready"

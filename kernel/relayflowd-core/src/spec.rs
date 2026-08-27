@@ -29,6 +29,13 @@ pub struct RunSpec {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Default CLI for llm/agent steps. Preflight resolves step → flow →
+    /// project config before the kernel is asked to start a run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli: Option<String>,
+    /// Inert gate-1 declarations. Matching and dispatch belong to gate 2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub triggers: Vec<TriggerSpec>,
     #[serde(default)]
     pub steps: Vec<StepSpec>,
     /// Budget envelope (RFC settled decision #10). Carried and journaled from
@@ -58,6 +65,20 @@ impl RunSpec {
             return Err(SpecError::UnsupportedVersion(self.version.clone()));
         }
 
+        if self.cli.as_ref().is_some_and(|cli| cli.trim().is_empty()) {
+            return Err(SpecError::EmptyCli);
+        }
+
+        let mut trigger_ids = BTreeSet::new();
+        for trigger in &self.triggers {
+            if trigger.id.trim().is_empty() || trigger.executor.trim().is_empty() {
+                return Err(SpecError::InvalidTrigger(trigger.id.clone()));
+            }
+            if !trigger_ids.insert(trigger.id.clone()) {
+                return Err(SpecError::DuplicateTrigger(trigger.id.clone()));
+            }
+        }
+
         let mut ids = BTreeSet::new();
         for step in &self.steps {
             if step.id.trim().is_empty() {
@@ -68,6 +89,13 @@ impl RunSpec {
             }
             if step.max_iterations == 0 {
                 return Err(SpecError::ZeroIterations(step.id.clone()));
+            }
+            let cli = match &step.kind {
+                StepKind::Llm { cli, .. } | StepKind::Agent { cli, .. } => cli,
+                StepKind::Deterministic { .. } => &None,
+            };
+            if cli.as_ref().is_some_and(|value| value.trim().is_empty()) {
+                return Err(SpecError::EmptyStepCli(step.id.clone()));
             }
             step.retry.validate(&step.id)?;
         }
@@ -113,8 +141,14 @@ const STEP_COMMON_FIELDS: &[&str] = &[
     "verification",
 ];
 const STEP_DETERMINISTIC_FIELDS: &[&str] = &["command", "timeout_ms"];
-const STEP_LLM_FIELDS: &[&str] = &["prompt", "model"];
-const STEP_AGENT_FIELDS: &[&str] = &["instruction", "recovery_mode", "surfaces", "permissions"];
+const STEP_LLM_FIELDS: &[&str] = &["prompt", "model", "cli"];
+const STEP_AGENT_FIELDS: &[&str] = &[
+    "instruction",
+    "cli",
+    "recovery_mode",
+    "surfaces",
+    "permissions",
+];
 
 fn reject_unknown_step_fields(value: &Value) -> Result<(), SpecError> {
     let Some(steps) = value.get("steps").and_then(Value::as_array) else {
@@ -204,9 +238,13 @@ pub enum StepKind {
         prompt: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cli: Option<String>,
     },
     Agent {
         instruction: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cli: Option<String>,
         #[serde(default)]
         recovery_mode: RecoveryMode,
         /// Declared mutable surfaces (RFC Appendix A rule 1) — names only.
@@ -292,6 +330,13 @@ pub struct PermissionsSpec {
 pub enum AccessPreset {
     Readonly,
     Readwrite,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TriggerSpec {
+    pub id: String,
+    pub executor: String,
 }
 
 /// Budget envelope: tokens are integers; money is a decimal string, never a
@@ -380,8 +425,16 @@ pub enum SpecError {
     UnknownField { at: String, field: String },
     #[error("malformed run spec: {0}")]
     Malformed(String),
+    #[error("flow cli cannot be empty")]
+    EmptyCli,
+    #[error("trigger {0} must declare a non-empty id and executor")]
+    InvalidTrigger(String),
+    #[error("duplicate trigger id: {0}")]
+    DuplicateTrigger(String),
     #[error("step id cannot be empty")]
     EmptyStepId,
+    #[error("step {0} cli cannot be empty")]
+    EmptyStepCli(String),
     #[error("duplicate step id: {0}")]
     DuplicateStep(String),
     #[error("step {0} must allow at least one iteration")]

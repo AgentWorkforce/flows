@@ -6,6 +6,7 @@
 version: '0.1.0'
 name: hello-ladder
 description: One flow, all three rungs — the single spec dialect end to end.
+cli: ./preflight/authenticated-cli
 steps:
   - id: greet
     type: deterministic

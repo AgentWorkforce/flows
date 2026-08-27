@@ -98,9 +98,12 @@ fn the_full_ladder_parses_in_the_one_dialect() {
     let spec = RunSpec::parse(&json!({
         "version": "0.1.0",
         "name": "ladder",
+        "cli": "claude",
+        "triggers": [{"id": "hourly", "executor": "worker-a"}],
         "steps": [
             {"id": "a", "type": "deterministic", "command": "true", "timeout_ms": 5000},
             {"id": "b", "type": "llm", "prompt": "plan", "model": "claude-sonnet-5",
+             "cli": "codex",
              "depends_on": ["a"], "verification": {"json_schema": {"type": "object"}}},
             {"id": "c", "type": "agent", "instruction": "edit", "depends_on": ["b"],
              "recovery_mode": "inspect",
@@ -113,4 +116,24 @@ fn the_full_ladder_parses_in_the_one_dialect() {
     .unwrap();
     assert!(spec.validate().is_ok());
     assert_eq!(spec.steps[2].step_type(), StepType::Agent);
+    assert_eq!(spec.cli.as_deref(), Some("claude"));
+    assert_eq!(spec.triggers[0].executor, "worker-a");
+}
+
+#[test]
+fn preflight_data_is_fail_closed() {
+    let malformed = RunSpec::parse(&json!({
+        "triggers": [{"id": "hourly", "executor": "worker-a", "worker": "guessed"}],
+        "steps": [{"id": "a", "type": "llm", "prompt": "p", "cli": ""}]
+    }));
+    assert!(malformed.is_err());
+
+    let empty_cli = RunSpec::parse(&json!({
+        "steps": [{"id": "a", "type": "llm", "prompt": "p", "cli": ""}]
+    }))
+    .unwrap();
+    assert_eq!(
+        empty_cli.validate(),
+        Err(SpecError::EmptyStepCli("a".to_owned()))
+    );
 }

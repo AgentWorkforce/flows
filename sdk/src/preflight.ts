@@ -1,0 +1,194 @@
+import type { FlowSpec, StepSpec, TriggerSpec } from './spec.js';
+import type {
+  PreflightFailureKind,
+  PreflightWarningKind,
+} from './failure-kinds.js';
+
+export type CliResolutionSource = 'step' | 'flow' | 'project';
+
+export interface CliResolution {
+  stepId: string;
+  cli: string;
+  source: CliResolutionSource;
+}
+
+export interface CliProbeResult {
+  exists: boolean;
+  authenticated: boolean;
+}
+
+/** Environment facts are injected; this module performs no I/O. */
+export interface PreflightProbes {
+  cli(cli: string, source: CliResolutionSource): CliProbeResult;
+  executor(trigger: TriggerSpec): boolean;
+  command(binary: string): boolean;
+}
+
+export interface PreflightOptions {
+  projectCli?: string;
+  probes: PreflightProbes;
+}
+
+export interface PreflightRefusal {
+  severity: 'refusal';
+  kind: PreflightFailureKind;
+  message: string;
+  stepId?: string;
+  cli?: string;
+  triggerId?: string;
+  executor?: string;
+}
+
+export interface PreflightWarning {
+  severity: 'warning';
+  kind: PreflightWarningKind;
+  message: string;
+  stepId?: string;
+}
+
+export type PreflightDiagnostic = PreflightRefusal | PreflightWarning;
+
+export interface PreflightResult {
+  ok: boolean;
+  resolutions: CliResolution[];
+  diagnostics: PreflightDiagnostic[];
+}
+
+export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightResult {
+  const diagnostics: PreflightDiagnostic[] = [];
+  const resolutions: CliResolution[] = [];
+
+  for (const step of flow.steps) {
+    warnOnUnprovableEffects(step, options.probes, diagnostics);
+    if (step.type === 'deterministic') continue;
+
+    const resolution = resolveCli(step, flow, options.projectCli);
+    if (resolution === undefined) {
+      diagnostics.push({
+        severity: 'refusal',
+        kind: 'cli_unresolved',
+        stepId: step.id,
+        message: `Step "${step.id}" has no CLI at step, flow, or project level.`,
+      });
+      continue;
+    }
+    resolutions.push(resolution);
+    probeResolvedCli(resolution, options.probes, diagnostics);
+  }
+
+  for (const trigger of flow.triggers ?? []) {
+    probeTrigger(trigger, options.probes, diagnostics);
+  }
+
+  return {
+    ok: !diagnostics.some((diagnostic) => diagnostic.severity === 'refusal'),
+    resolutions,
+    diagnostics,
+  };
+}
+
+function resolveCli(
+  step: Extract<StepSpec, { type: 'llm' | 'agent' }>,
+  flow: FlowSpec,
+  projectCli: string | undefined,
+): CliResolution | undefined {
+  if (step.cli !== undefined) return { stepId: step.id, cli: step.cli, source: 'step' };
+  if (flow.cli !== undefined) return { stepId: step.id, cli: flow.cli, source: 'flow' };
+  if (projectCli !== undefined) return { stepId: step.id, cli: projectCli, source: 'project' };
+  return undefined;
+}
+
+function probeResolvedCli(
+  resolution: CliResolution,
+  probes: PreflightProbes,
+  diagnostics: PreflightDiagnostic[],
+): void {
+  let result: CliProbeResult;
+  try {
+    result = probes.cli(resolution.cli, resolution.source);
+  } catch {
+    diagnostics.push({
+      severity: 'refusal',
+      kind: 'probe_failed',
+      stepId: resolution.stepId,
+      cli: resolution.cli,
+      message: `Could not verify CLI "${resolution.cli}" for step "${resolution.stepId}".`,
+    });
+    return;
+  }
+  if (!result.exists) {
+    diagnostics.push({
+      severity: 'refusal',
+      kind: 'cli_missing',
+      stepId: resolution.stepId,
+      cli: resolution.cli,
+      message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but it is missing.`,
+    });
+  } else if (!result.authenticated) {
+    diagnostics.push({
+      severity: 'refusal',
+      kind: 'cli_unauthenticated',
+      stepId: resolution.stepId,
+      cli: resolution.cli,
+      message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but its auth probe failed.`,
+    });
+  }
+}
+
+function probeTrigger(
+  trigger: TriggerSpec,
+  probes: PreflightProbes,
+  diagnostics: PreflightDiagnostic[],
+): void {
+  let registered: boolean;
+  try {
+    registered = probes.executor(trigger);
+  } catch {
+    diagnostics.push({
+      severity: 'refusal',
+      kind: 'probe_failed',
+      triggerId: trigger.id,
+      executor: trigger.executor,
+      message: `Could not verify executor "${trigger.executor}" for trigger "${trigger.id}".`,
+    });
+    return;
+  }
+  if (!registered) {
+    diagnostics.push({
+      severity: 'refusal',
+      kind: 'no_executor',
+      triggerId: trigger.id,
+      executor: trigger.executor,
+      message: `Trigger "${trigger.id}" has no registered executor "${trigger.executor}".`,
+    });
+  }
+}
+
+function warnOnUnprovableEffects(
+  step: StepSpec,
+  probes: PreflightProbes,
+  diagnostics: PreflightDiagnostic[],
+): void {
+  if (step.type !== 'deterministic') return;
+  const binary = firstCommandWord(step.command);
+  let exists = false;
+  try {
+    exists = binary !== undefined && probes.command(binary);
+  } catch {
+    // The effect claim remains unprovable whether the environment probe itself
+    // was unavailable or the binary resolved.
+  }
+  if (exists) {
+    diagnostics.push({
+      severity: 'warning',
+      kind: 'unprovable_effects',
+      stepId: step.id,
+      message: `Step "${step.id}" command "${binary}" resolves, but its effects cannot be proven before execution.`,
+    });
+  }
+}
+
+function firstCommandWord(command: string): string | undefined {
+  const match = command.trim().match(/^(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
+  return match?.[1] ?? match?.[2] ?? match?.[3];
+}

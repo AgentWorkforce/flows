@@ -11,6 +11,7 @@ steps:
       value: hello
   - id: answer
     type: llm
+    cli: ./preflight/authenticated-cli
     dependsOn: [greet]
     prompt: "Return JSON with integer field answer for 2+2."
     model: deterministic-test-stub

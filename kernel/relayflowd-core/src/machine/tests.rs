@@ -63,6 +63,47 @@ fn verification_failure_schedules_a_durable_retry() {
 }
 
 #[test]
+fn every_failed_run_terminates_with_declared_completion_reasons() {
+    let failure_reasons = [
+        CompletionReason::VerificationFailed,
+        CompletionReason::RetriesExhausted,
+        CompletionReason::LeaseExpired,
+        CompletionReason::Crashed,
+        CompletionReason::Timeout,
+        CompletionReason::WorkerError,
+        CompletionReason::BudgetExceeded,
+        CompletionReason::Canceled,
+    ];
+
+    for reason in failure_reasons {
+        let spec = retrying_spec();
+        let mut step = spec.steps[0].clone();
+        step.max_iterations = 1;
+        let mut result = AttemptResult::successful(Value::Null, "test");
+        result.failure_reason = Some(reason);
+        result.failure_detail = Some("declared test failure".to_owned());
+        let Action::Append(completed) =
+            completion_actions("run", &step, 1, 0, result, 10).remove(0)
+        else {
+            panic!("failed attempt must append a typed completion");
+        };
+        let payload: StepCompletedPayload = serde_json::from_value(completed.payload.clone())
+            .expect("failed completion must deserialize to the closed payload");
+        assert_eq!(payload.completion_reason, reason);
+
+        let mut failed_spec = spec;
+        failed_spec.steps[0] = step;
+        let state = RunState::fold("run", failed_spec, &[completed]).unwrap();
+        let Action::Append(run_completed) = next_actions(&state, 20).remove(0) else {
+            panic!("failed step must terminate the run in its journal");
+        };
+        let terminal: RunCompletedPayload = serde_json::from_value(run_completed.payload)
+            .expect("run completion reason must be a declared enum value");
+        assert_eq!(terminal.completion_reason, RunCompletionReason::StepFailed);
+    }
+}
+
+#[test]
 fn successful_memo_is_never_scheduled_again() {
     let spec = retrying_spec();
     let Action::Append(completed) = completion_actions(

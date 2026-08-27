@@ -11,6 +11,7 @@ steps:
       value: hello
   - id: edit
     type: agent
+    cli: ./preflight/authenticated-cli
     dependsOn: [greet]
     instruction: "Produce the hello artifact through the deterministic test stub."
     recoveryMode: reset

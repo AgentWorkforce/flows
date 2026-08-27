@@ -275,3 +275,31 @@ describe('validate: accepts the legal zero-agent flow', () => {
     expect(validateSpec(spec).ok).toBe(true);
   });
 });
+
+describe('validate: preflight declarations', () => {
+  it('accepts CLI defaults and inert trigger data', () => {
+    const result = validateSpec({
+      version: '0.1.0',
+      name: 'preflight-data',
+      cli: 'claude',
+      triggers: [{ id: 'hourly', executor: 'worker-a' }],
+      steps: [{ id: 'answer', type: 'llm', prompt: 'p', cli: 'codex' }],
+    });
+    expect(result).toEqual({ ok: true, errors: [] });
+  });
+
+  it('rejects malformed and unknown trigger/CLI fields fail-closed', () => {
+    const result = validateSpec({
+      version: '0.1.0',
+      name: 'bad-preflight-data',
+      cli: '',
+      triggers: [{ id: 'hourly', executor: '', worker: 'guessed' }],
+      steps: [{ id: 'answer', type: 'llm', prompt: 'p', cli: '' }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('spec.cli');
+    expect(result.errors.join(' ')).toContain('unknown key "worker"');
+    expect(result.errors.join(' ')).toContain('executor');
+    expect(result.errors.join(' ')).toContain('steps[0].cli');
+  });
+});

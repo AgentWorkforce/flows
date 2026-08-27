@@ -1,0 +1,3 @@
+#!/bin/sh
+# Deterministic preflight fixture: the auth probe is healthy.
+test "$1" = "auth" && test "$2" = "status"

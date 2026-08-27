@@ -72,6 +72,8 @@ export function compileSpec(spec: unknown): FlowSpec {
     version: input.version,
     name: input.name,
     ...(input.description !== undefined ? { description: input.description } : {}),
+    ...(input.cli !== undefined ? { cli: input.cli } : {}),
+    ...(input.triggers !== undefined ? { triggers: input.triggers } : {}),
     steps,
     ...(input.budget !== undefined ? { budget: input.budget } : {}),
   };
@@ -103,6 +105,7 @@ function compileStep(step: StepSpec): StepSpec {
         type: 'llm',
         prompt: s.prompt,
         ...(s.model !== undefined ? { model: s.model } : {}),
+        ...(s.cli !== undefined ? { cli: s.cli } : {}),
       };
     }
     case 'agent': {
@@ -112,6 +115,7 @@ function compileStep(step: StepSpec): StepSpec {
         ...base,
         type: 'agent',
         instruction: s.instruction,
+        ...(s.cli !== undefined ? { cli: s.cli } : {}),
         recoveryMode,
         ...(s.surfaces !== undefined ? { surfaces: s.surfaces } : {}),
         ...(s.permissions !== undefined ? { permissions: s.permissions } : {}),
@@ -142,6 +146,8 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
     version: flow.version,
     name: flow.name,
     ...(flow.description !== undefined ? { description: flow.description } : {}),
+    ...(flow.cli !== undefined ? { cli: flow.cli } : {}),
+    ...(flow.triggers !== undefined ? { triggers: flow.triggers } : {}),
     steps: flow.steps.map(toKernelStep),
     ...(flow.budget !== undefined
       ? {
@@ -178,6 +184,7 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
         type: 'llm',
         prompt: step.prompt,
         ...(step.model !== undefined ? { model: step.model } : {}),
+        ...(step.cli !== undefined ? { cli: step.cli } : {}),
       };
     }
     case 'agent': {
@@ -186,6 +193,7 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
         ...common,
         type: 'agent',
         instruction: step.instruction,
+        ...(step.cli !== undefined ? { cli: step.cli } : {}),
         recovery_mode: step.recoveryMode ?? 'reset',
       };
       const surfaces = {

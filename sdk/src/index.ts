@@ -21,6 +21,7 @@ export type {
   KernelRunSpec,
   KernelStepCommon,
   KernelStepSpec,
+  KernelTriggerSpec,
   KernelVerificationSpec,
   LlmStepSpec,
   OutputContainsGate,
@@ -29,6 +30,7 @@ export type {
   StreamSurface,
   StepSpec,
   StepType,
+  TriggerSpec,
   VerificationGateType,
   VerificationSpec,
   WorkspaceSurface,
@@ -45,6 +47,25 @@ export {
   CompileError,
 } from './compile.js';
 export { validateSpec, type ValidationResult } from './validate.js';
+
+export {
+  preflight,
+  type CliResolution,
+  type CliResolutionSource,
+  type PreflightDiagnostic,
+  type PreflightOptions,
+  type PreflightProbes,
+  type PreflightResult,
+} from './preflight.js';
+export {
+  CHECK_FAILURE_KINDS,
+  PREFLIGHT_FAILURE_KINDS,
+  PREFLIGHT_WARNING_KINDS,
+  isCheckFailureKind,
+  type CheckFailureKind,
+  type PreflightFailureKind,
+  type PreflightWarningKind,
+} from './failure-kinds.js';
 
 export type {
   CompletionReason,

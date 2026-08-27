@@ -1,225 +1,296 @@
 # NEXT — single highest-priority work package
 
-Written by the Relayflow Lead on 2026-08-27 (assess tick on branch
-`flow/drive-f59e279-08271341`, HEAD = `f59e279`, identical to `origin/main`).
+Written by the Relayflow Lead (`charter/LEAD.md`) at assess time,
+2026-08-27, on `flow/drive-57e923c-08271542` (base `57e923c`).
 
-## Assessment snapshot (evidence)
+## Assessment
 
-- **Standing directives checked first** (`ops/DIRECTIVES.md`): **no active
-  directives** — the file carries only its header; directive 1 (de-vendor
-  kernel deps) was satisfied and removed by PR #3. Nothing outranks gate work
-  this tick.
-- **Open PRs: none.** `gh pr list --state open` → empty. PRs #1–#4 are all
-  MERGED (#4 merged 2026-08-27T17:04Z as `f59e279`). **Nothing is awaiting
-  review fixes**, so new gate work is permitted (the "no new work over
-  unfinished work" rule does not bind this tick).
-  - PR #4 drew five findings from the Codex reviewer (3× P1 concurrency /
-    lease, 1× P1 error-swallowing, 1× P2 watch gap). All five were fixed
-    before merge, each pinned by a mutation-verified test; the evidence is
-    persisted at `ops/reviews/20260827-1334-pr4-fixes.md`. No follow-up is
-    outstanding from that review.
-- **Tests on `main` at assessment time** (this machine, hermetic
-  `ops/cargo.sh`, no manually exported env vars):
-  - `cd kernel && ../ops/cargo.sh test --workspace` → **47 passed, 0 failed**
-    (8 + 13 + 19 + 2 + 5 across relayflowd lib, crash_resume, core lib,
-    spec_parity, journal lib), exit 0.
-  - `cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings` → exit 0.
-  - `cd kernel && ../ops/cargo.sh fmt --check` → exit 0, no output.
-  - `cd sdk && npm test` → **54 passed, 0 failed** (5 files), exit 0.
-- **Current gate: gate 1** (RFC-0001 §3). Its done-when does **not** hold:
-  - Rung (a) — pure deterministic flow, exhaustive SIGKILL sweep, budget
-    exactness — **closed on `main`** (PR #2, `74a3639`).
-  - Rung (b) — the same flow plus a bare `llm` step with a verification gate,
-    out-of-band worker, memoized output — **closed on `main`** (PR #4,
-    `f59e279`); all twelve protocol v0 verbs are implemented in
-    `kernel/relayflowd/src/server.rs`.
-  - Rung (c) — the same flow plus an `agent` step with Appendix A pins —
-    **does not exist.** `ensure_supported`
-    (`kernel/relayflowd/src/engine.rs:462`, called at `:101` and `:164`)
-    honestly fails closed on any `agent` step. Spec/SDK modelling is already
-    in place and unexercised: `StepKind::Agent`
-    (`kernel/relayflowd-core/src/spec.rs:208`), `AgentSurfaces`, `RecoveryMode`
-    (`:239`), `PermissionsSpec`, journal `Pins` / `WorkspacePin` / `StreamPin`
-    (`kernel/relayflowd-core/src/entry.rs:133`), `end_pins` + `effects` on
-    `StepCompletedPayload` (`:176`), `EffectRecordedPayload` (`:286`), and the
-    journal-boundary effect dedupe table with a unique
-    `(step_id, idempotency_key, surface_path)` winner
-    (`kernel/relayflowd-journal/src/append.rs:46`, test
-    `effects_are_deduplicated_at_the_journal_boundary`,
-    `kernel/relayflowd-journal/src/lib.rs:312`). `recovery_mode` is journaled
-    at attempt start (`machine.rs:120`) and **acted on nowhere** — recovery
-    (`recovery_actions_filtered`, `machine.rs:265`) ignores it. Nothing ever
-    appends an `effect.recorded` entry outside the journal crate's own test.
-  - The second done-when clause — **`flows check` preflight (covenant 2)** —
-    also does not exist (no `check`/preflight symbol anywhere in `sdk/src`,
-    no CLI binary in `sdk/package.json`). That is the package *after* this
-    one; the ladder rung comes first because the preflight must be able to
-    refuse a rung-(c) flow, which requires rung (c) to be real.
-- **Backlog** (`ops/BACKLOG.md`): release pipeline, schedule re-registration,
-  PR-shepherd flow, harness design-partner asks — all gate-2+ or below gate-1
-  needs; none block rung (c). Two previously-flagged process gaps are now
-  fixed at the workflow level (`workflows/drive.yaml`: the review step writes
-  `ops/reviews/…-review.md`, the pr step names the WP) — this tick should
-  confirm they actually fire rather than re-plan them.
+### Directives — none outstanding
 
-## Work package: WP-3 — `agent` step + Appendix A (gate-1 ladder rung (c))
+`ops/DIRECTIVES.md` carries its header and **zero active directives**.
+Directive 1 ("stay lean", 2026-08-27) was satisfied and removed by PR #3
+(`0ba6c88`), which is the documented removal discipline. Nothing in the
+directives file outranks the backlog this tick.
+
+### Open PRs — none awaiting fixes; no unfinished work to resume
+
+`gh pr list --state open` returns exactly one PR:
+
+- **PR #6 — `regressions: relaycast workspace-key repair answers an untyped
+  500`** (`flows/relaycast-500-regression`), **DRAFT**, MERGEABLE, CodeRabbit
+  SUCCESS, Devin Review SUCCESS, `reviewDecision: ""`, `reviews: []`.
+
+The previous tick's log explicitly asked this assess to *decide* whether a
+draft PR counts as unfinished work. **Ruling: it does not block, and it is not
+this loop's work.** Reasons, recorded so the decision is not re-litigated:
+
+1. It has **no review awaiting fixes** — CodeRabbit deliberately skipped it as
+   a draft, Devin passed, no human review is requested. There is no review
+   feedback to address, so the "never start new work over unfinished work" rule
+   has nothing to bite on.
+2. It documents a defect in **another repository** (`relaycast-cloud`
+   `packages/relaycast/src/fleet/routes.ts:523` runs its D1 statements with no
+   `try`/`catch`). The fix is already filed as **AgentWorkforce/relaycast-cloud#88**.
+   No code in this repo can close it.
+3. Its author has already recorded, on the PR, that the pair is the suite's
+   **first false-green hazard** (the red case stopped reproducing at 18:46Z;
+   4/4 repair calls answered 200). It is correctly parked as a draft *because*
+   it should not be judged by its exit code yet. Promoting it to ready would be
+   the dishonest move, not the diligent one.
+
+It stays a draft. It is not a gate-1 dependency.
+
+### Gate 1 — **its done-when does not hold, and the scoreboard overstates it**
+
+This is the finding that sets this tick's package.
+
+`ops/SCOREBOARD.md` currently reads **GREEN** for gate 1, on the evidence "all
+three rungs merged: (a) deterministic #2/#3, (b) llm #4, (c) `agent` +
+Appendix A #7 (`ca6b80a`)." That evidence is real and I re-verified it below.
+But RFC-0001 §3 gate 1's **done-when has two clauses**, and the flip commit
+(`57e923c`) addresses only the first:
+
+> **Done when:** the canonical hello *ladder* — (a) … (b) … (c) … — each
+> survives `kill -9` … Budget accounting is exact … **Preflight holds
+> (covenant 2):** `flows check` refuses the ladder flows when a declared CLI is
+> missing or unauthenticated or a trigger has no executor, warns on unprovable
+> assumptions before starting, and the failure taxonomy is closed — every
+> failed run's journal terminates in a declared failure kind, never a raw
+> error.
+
+**Clause 2 is unsatisfied. `flows check` does not exist.** Verified this tick,
+not taken from the prior log:
+
+- No `bin` key in `sdk/package.json` — there is no `flows` executable at all.
+- `sdk/src/` is seven files (`canonical`, `compile`, `index`, `journal-client`,
+  `protocol`, `spec`, `validate`); no `cli.ts`, no `preflight.ts`.
+- No `preflight` symbol anywhere outside `docs/`, `ops/` prose, one Rust
+  doc-comment (`kernel/relayflowd/src/engine/drive.rs:279`) and a test name.
+- `sdk/src/spec.ts` has **no `cli` declaration** on `AgentStepSpec`
+  (`:134-140` is `type`/`instruction`/`surfaces`/`recoveryMode`/`permissions`)
+  and **no `triggers`** at root (`ROOT_KEYS` in `validate.ts:43` is
+  `version, name, description, steps, budget`). So neither refusal condition
+  named in the done-when is even *expressible* in the spec today.
+
+The prior tick's own DRIVE-LOG (`:376-377`) and NEXT.md (`:53-56`, `:201`) both
+say this plainly and name the preflight as "the package after this one." The
+scoreboard flip landed 26 minutes after that log without citing the clause. Its
+"Residual" note discusses only the DESIGN.md §1.9 double-effect window — a
+different, correctly-disclosed issue.
+
+**Read this as an accounting error to correct, not a ruling to overturn.** The
+commit message argues the rungs, not the preflight; it does not claim clause 2
+holds. Correcting the row to AMBER is part of this package. Flagging it for the
+human: a gate row is a claim about company progress ahead of the 2026-09-15 YC
+presentation, and it should not read GREEN on half its done-when.
+
+Because gate 1's done-when does not hold, **gate 1 is still the current gate**,
+and the scoreboard's "gate 6 — **next up**" is premature for the same reason.
+
+### Test status — verified independently this tick, all green
+
+Hermetic `ops/cargo.sh` (no manually exported env), from `main`'s tree at
+`57e923c`:
+
+- `cd kernel && ../ops/cargo.sh test --workspace` — **70 passed, 0 failed**,
+  exit 0 (18 + 0 + 19 + 24 + 3 + 6 + 0 doc-tests ×3).
+- `cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings` — exit 0.
+- `cd kernel && ../ops/cargo.sh fmt --check` — exit 0, no output.
+- `cd sdk && npm test` — **58 passed, 0 failed**, 5 files, exit 0
+  (`deterministic-llm` 5, `validate` 30, `hello-deterministic` 5,
+  `journal-client` 12, `spec-parity` 6).
+
+These match the scoreboard's "Kernel 70 tests, SDK 58, clippy/fmt clean."
+Clause 1 of the done-when is genuinely closed on `main`. Nothing is red.
+
+### Backlog — nothing outranks the open gate-1 clause
+
+Release pipeline, schedule re-registration, PR-shepherd flow, the harness
+design-partner asks, `f.browser`, computer use, the cloud-sandbox git-remote
+gap: every one is gate-2-or-later, or below gate 1's needs. None of them close
+gate 1. The regression suite is dormant by its own MANIFEST until gates
+1/2/6/7/8. Per the charter, the open gate's remaining clause wins.
+
+---
+
+## Work package: WP-4 — `flows check` preflight (covenant 2), gate 1's second done-when clause
 
 ### Objective
 
-Make ladder rung (c) real: the hello flow plus an `agent` step runs end to end
-on the real `relayflowd` binary, dispatched to an out-of-band worker, with RFC
-Appendix A honored as *mechanism* — pins on start, effects as deduped journaled
-facts, recovery modes that actually change what the next attempt sees, and
-completion pinning the end state that defines the next step's start. It
-survives `kill -9` at every boundary and mid-attempt, resumes completing only
-unfinished work, and its budget accounting stays exact.
+Make `flows check` real: a CLI that **refuses a flow before any run starts**
+for each condition RFC-0001 §3 gate 1 names, **warns** (without refusing) on
+assumptions it cannot prove, and emits **only declared failure kinds** — never
+a raw error string. When this lands, gate 1's done-when holds in full and the
+scoreboard row flips to GREEN on both clauses instead of one.
 
-Concretely:
+The three ladder flows in `testdata/` are the subjects: `flows check` must pass
+them clean as authored, and refuse each one under an induced fault.
 
-1. **Dispatch.** Retire `ensure_supported`'s blanket agent refusal
-   (`engine.rs:462`) in favor of real `agent` dispatch over the existing
-   out-of-band worker path (`worker.attach` → `step.dispatch` →
-   `step.heartbeat` → `step.complete`). An `agent` step with no compatible
-   worker attached parks as `waiting_worker` exactly like `llm` — never
-   silently succeeds.
-2. **Pin on start (rule 2).** `step.attempt.started` for an agent step carries
-   the declared surfaces' pins: a `revision_id` per declared workspace surface
-   and a `read_offset` per declared stream, alongside the attempt's stable
-   idempotency key (`sha256(run_id ‖ step_id)`, stable across attempts per
-   DESIGN.md §1.2) and the step's `recovery_mode`. Revision ids stay **opaque
-   strings supplied by the worker** — mounts are a gate-6 concern (DESIGN.md
-   §5 "Not in v0"); the kernel journals, chains and enforces them, and never
-   computes one.
-3. **Effects are journaled facts, deduped at the boundary (rules 3 and 5).**
-   A worker records a writeback *before* performing it and learns whether it is
-   a duplicate: an `effect.recorded` append returning `{deduped}` from the
-   existing dedupe table, so a second attempt's provider call is suppressed
-   rather than merely detected afterwards. This needs a worker-facing path
-   (an `effect.record` verb is the straightforward shape); if a verb is added,
-   `kernel/DESIGN.md` §5's verb table is updated in the same PR — the doc and
-   the protocol never diverge. `step.complete` carries the attempt's
-   `EffectRef` list (today `server.rs:238` hardcodes `Vec::new()`).
-4. **Recovery modes are honored or refused (rule 4).** A declared mode that is
-   silently downgraded is a fail-open, so each of `reset` / `inspect` /
-   `manual` must either be implemented or **refused at `run.start`** with a
-   declared error. `reset` must be implemented in full: after a dead attempt,
-   the next attempt is dispatched with the pinned revision to restore to, and
-   the kernel fails the attempt closed (`worker_error`) if the worker reports
-   starting from anything other than the pinned revision. `inspect` starts the
-   next attempt in the dirty workspace with the failed attempt's
-   `completionReason` and trajectory tail injected into the dispatch;
-   `manual` parks the step as `needs_human` via `wait.human` carrying a
-   diff reference, and never re-dispatches.
-5. **Completion pins the end state (rule 6).** `step.completed` records
-   `end_pins`; the next agent step's `step.attempt.started` pins *are* those
-   end pins — a broken chain (a step starting from a revision no completion
-   produced) is a hard error, not a warning.
-6. **Crash-injection gate for agent steps (rule 7).** Extend the
-   `kernel/relayflowd/tests/crash_resume` sweep to a rung-(c) fixture: kill
-   before the first step, between every step pair, mid-agent-attempt with a
-   worker holding a lease, after the final effect, and under `serve`; resume
-   through the real `relayflowd resume` CLI. Under `reset`, kill mid-edit and
-   assert (a) the second attempt observed the pinned revision, (b) the
-   provider observed exactly one effect, (c) the journal explains both
-   attempts with declared `completionReason`s.
+Two spec surfaces have to exist for the done-when's own words to be
+expressible, and they are in scope **as data only**, sized to this gate
+(AGENTS.md rule 6 — no speculative abstraction):
 
-The agent worker in the test gate is a **deterministic in-test stub** speaking
-the real protocol over the real socket (the rung-(b) `llm_support.rs` stub is
-the pattern). No live CLI agent, no network, no model call: what is being
-proven is kernel semantics — pins, dedupe, recovery, memoization, budget.
+- **A declared CLI** on agent (and `llm`) steps, so "a declared CLI is missing
+  or unauthenticated" has a subject. Resolution follows `docs/SURFACE.md:78`
+  order but implements only: step options → flow header → `flows.json`. A
+  resolution that runs out of sources **refuses**; it never guesses a platform
+  default. "You are told exactly who you hired before the run starts."
+- **A declared trigger** at root, so "a trigger has no executor" has a subject.
+  **Data and check only** — no matching, no dispatch, no liveness sweep. The
+  trigger *plane* is gate 2 and stays there.
 
 ### Files in scope
 
-- `kernel/relayflowd/src/engine.rs` — retire the agent refusal; agent dispatch
-  paths. **The file is 498 lines and AGENTS.md rule 1 caps design smell at
-  ~500** — split the drive loop out as part of this package rather than
-  growing it.
-- `kernel/relayflowd/src/engine/remote.rs`, `src/worker.rs`,
-  `src/server.rs`, `src/server/{session,wire,reconcile}.rs` — agent dispatch
-  payload (pins, recovery instruction, trajectory tail), effect recording
-  path, `step.complete` carrying `effects`/`end_pins`.
-- `kernel/relayflowd-core/src/{machine,state,entry,spec}.rs` — recovery-mode
-  branching in recovery/next-attempt actions, end-pin chaining, park-on-manual;
-  only what rung (c) needs (no speculative abstraction, AGENTS.md rule 6).
-- `kernel/relayflowd-journal/src/{append,lib}.rs` — only if effect recording
-  needs a surface beyond the existing dedupe table (prefer the existing one).
-- `kernel/relayflowd/tests/crash_resume/` — rung-(c) sweep + agent stub-worker
-  support module.
-- `testdata/hello-agent.flow.yaml` + canonical spec + `.sha256`, pinned on
-  both sides; parity tests extended
-  (`kernel/relayflowd-core/tests/spec_parity.rs`,
-  `sdk/tests/spec-parity.test.ts`).
-- `sdk/src/` — only if the effect path adds a verb the client must speak
-  (`journal-client.ts`, `protocol.ts`) plus its test coverage.
-- `kernel/DESIGN.md` — §5 verb table and §1.9/§3 agent-step prose kept true to
-  what ships. **Not** the RFC, **not** the charter.
+New:
+- `sdk/src/cli.ts` — `flows` entrypoint; `check` subcommand only.
+- `sdk/src/preflight.ts` — the predicates, pure and injectable (probes passed
+  in, so tests never touch a real PATH or network).
+- `sdk/src/failure-kinds.ts` — the closed refusal taxonomy.
+- `sdk/tests/preflight.test.ts`, `sdk/tests/cli.test.ts`.
+- `testdata/preflight/` — fixtures: a flow with a declared CLI, a flow with a
+  declared trigger, and the induced-fault variants.
+
+Modified:
+- `sdk/src/spec.ts` — `cli` on `AgentStepSpec`/`LlmStepSpec`, flow-header
+  default, root `triggers`.
+- `sdk/src/validate.ts` — new keys in `ROOT_KEYS` / `STEP_TYPE_KEYS`; still
+  fail-closed on unknown keys (the existing discipline at `:39-58`).
+- `sdk/src/index.ts` — export `preflight`, the kinds, the new types.
+- `sdk/package.json` — `"bin": { "flows": "./dist/cli.js" }`; `build` must run
+  before the CLI is invocable.
+- `kernel/relayflowd-core/src/spec.rs` — parity for the new fields.
+- `testdata/hello-{ladder,llm,agent}.flow.yaml` + their
+  `.spec.canonical.json` + `.spec.sha256` — regenerate; `spec-parity.test.ts`
+  pins these and will fail loudly if they are not.
+- `docs/SURFACE.md` — only if the shipped surface diverges from what §78/§92
+  already describe. Prefer conforming to the doc over editing it.
+- `ops/SCOREBOARD.md` — gate 1 **GREEN → AMBER** with clause 2 named as the
+  reason, in the same PR that then closes it; gate 6's "next up" annotation
+  corrected to follow gate 1.
+- `ops/BACKLOG.md`, `ops/DRIVE-LOG.md`, `ops/NEXT.md`.
 
 ### Definition of done
 
-All of the following pass on the flow branch with no manually exported env
-vars; paste the verbatim tails into the PR body:
+**Refusals — each must be reproducible from a command, name its kind, and exit non-zero:**
 
-```sh
-(cd kernel && ../ops/cargo.sh test --workspace)              # green, incl. the rung-(c) sweep
-(cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
-(cd kernel && ../ops/cargo.sh fmt --check)
-(cd sdk && npm test)
+1. `cli_missing` — a step declares a CLI absent from PATH. `flows check`
+   refuses **before** any run starts, names the step id and the CLI, exits `2`.
+2. `cli_unauthenticated` — the CLI resolves but its auth probe fails. Distinct
+   kind, distinct message; never collapsed into `cli_missing` (covenant 1: the
+   error names the condition the operator must act on).
+3. `cli_unresolved` — no `cli` at step, header, or `flows.json`. Refuses rather
+   than guessing a default.
+4. `no_executor` — a declared trigger with no registered executor. The kind is
+   spelled **`no_executor`** to match what
+   `regressions/cron-succeeded-into-void.green.flow.ts:10` already expects, so
+   the dormant suite does not need editing when it wakes.
+
+**Warnings — must NOT refuse:** at least one unprovable-assumption warning
+(e.g. a `deterministic` command whose binary resolves but whose effects are
+unknowable; budget headroom against declared `maxDollars`). Warnings go to
+stderr, are marked as warnings, and leave exit `0`. A run that is merely
+un-provable is not a run that is refused.
+
+**Taxonomy closure (the clause's last sentence):**
+
+- A test asserts **exhaustively** that every refusal path returns a declared
+  kind — no raw `Error.message`, no `unknown`, no stringified exception,
+  reaches the operator or the `--json` output.
+- A test asserts every failed-run journal terminates in a declared
+  `CompletionReason` (`kernel/relayflowd-core/src/entry.rs:159-169`), holding
+  the existing kernel-side guarantee against regression.
+
+**Commands that must pass (all exit 0 unless stated), re-run on the PR branch and quoted verbatim in the PR body:**
+
+```
+cd kernel && ../ops/cargo.sh test --workspace          # >= 70 passed, 0 failed; no suite shrinks
+cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings
+cd kernel && ../ops/cargo.sh fmt --check
+cd sdk && npm run build
+cd sdk && npm test                                     # >= 58 passed + the new preflight/cli tests, 0 failed
 ```
 
-Counts must not shrink: kernel **≥ 47** passing (today's baseline) plus the new
-rung-(c) tests, sdk **≥ 54** passing. Additionally, each of these holds, pinned
-by a test named for what it proves:
+Behavioral gate — the ladder flows, clean and under induced fault:
 
-- SIGKILL at every boundary of the rung-(c) flow (before the first step,
-  between every pair, mid-agent-attempt with a worker attached, after the final
-  effect, and under `serve`) → resume via the real `relayflowd resume` CLI
-  completes only unfinished work; completed steps replay as results.
-- Appendix A rule 7 under `reset`: kill mid-edit → the second attempt's
-  dispatch carries the pinned revision, the stub provider's effect counter
-  reads exactly 1, and both attempts appear in the journal with declared
-  `completionReason`s.
-- An attempt that reports starting from a revision other than its pin under
-  `reset` fails closed with a declared failure kind (never a raw error).
-- `inspect` starts the retry in the dirty workspace with the prior attempt's
-  tail present in the dispatch; `manual` parks `needs_human` and does not
-  re-dispatch — or, for any mode not implemented, `run.start` refuses the spec
-  with a declared error (a silently downgraded mode is a defect).
-- Effect dedupe end-to-end: two attempts writing the same
-  `(step_id, idempotency_key, surface_path)` produce one provider call and a
-  second `effect.recorded` with `deduped: true`.
-- End-pin chaining: a step's start pins equal the previous completion's
-  `end_pins`; a broken chain is a hard error with a test.
-- Journal-derived budget assertion extended to rung (c): the resumed run's
-  token spend equals one execution of each step.
-- Failure taxonomy stays closed: every failed rung-(c) run's journal
-  terminates in a declared failure kind.
-- No file in `kernel/` exceeds 500 lines after the change
-  (`find kernel -name '*.rs' -not -path '*/target/*' | xargs wc -l`).
+```
+node sdk/dist/cli.js check testdata/hello-ladder.flow.yaml   # exit 0
+node sdk/dist/cli.js check testdata/hello-llm.flow.yaml      # exit 0
+node sdk/dist/cli.js check testdata/hello-agent.flow.yaml    # exit 0
+node sdk/dist/cli.js check testdata/preflight/cli-missing.flow.yaml          # exit 2, kind cli_missing
+node sdk/dist/cli.js check testdata/preflight/cli-unauthenticated.flow.yaml  # exit 2, kind cli_unauthenticated
+node sdk/dist/cli.js check testdata/preflight/no-executor.flow.yaml          # exit 2, kind no_executor
+node sdk/dist/cli.js check --json testdata/preflight/cli-missing.flow.yaml | python3 -m json.tool
+```
 
-### Out of scope for this tick
+The `--json` output must parse and every entry must carry a declared kind.
+Induced faults must come from injected probes or fixture config, **not** from
+mutating the developer's PATH — the gate has to run identically on a fresh
+machine and in CI.
 
-- **`flows check` preflight (covenant 2)** — gate 1's other done-when clause;
-  it is the next package, not this one.
-- **Real mounts / relayfile** (gate 6). Revision ids stay opaque strings from
-  the worker, per DESIGN.md §5.
-- **Permission enforcement** (`PermissionsSpec`, `access_preset`) — gate 8;
-  carried as data only, as today.
-- **Live agent CLI or model calls** anywhere in the test gate; a real-provider
-  run is follow-up evidence work.
-- **Durable-channel semantics beyond stream pins** (consumer-offset
-  management as a verb), gates 2–9, the release pipeline, and every other
-  `ops/BACKLOG.md` item.
+**Structural:**
+
+- `find kernel -name '*.rs' -not -path '*/target/*' | xargs wc -l` — largest
+  file under 500 lines (AGENTS.md rule 1).
+- No file in `sdk/src/` over 500 lines (`validate.ts` is already 411 — split it
+  rather than growing it past the line).
+- A gate that runs nothing is a failure: the PR body states the *executed* test
+  counts, not the intent.
+
+### Explicitly OUT of scope for this tick
+
+- **The trigger plane** — matching, dispatch, `EventFrameV1`, schedules,
+  liveness sweeping, `stale_after` reconciliation. Gate 2. `triggers:` is
+  inert data that `check` reads and nothing executes.
+- **`flows run` / `flows build` / `flows deploy`**, content-addressed bundles,
+  digests, signing (RFC settled decisions #14, `SURFACE.md:92`). `check` is the
+  only subcommand.
+- **The v2 `@relayflows/surface` dialect.** `flows check` operates on the YAML
+  dialect and compiled specs. Running it against `regressions/*.flow.ts`
+  (`regressions/README.md:30`) needs a surface that does not exist; matching
+  the `no_executor` kind name is the whole of this tick's obligation there.
+- **Real mounts / relayfile adapters** (gate 6); **permission enforcement** —
+  `PermissionsSpec` stays data-only (gate 8); **memory scopes** (gate 5).
+- **Live agent CLI or model invocations.** Auth probes are injected in tests;
+  no provider call anywhere in the gate.
+- **PR #6** — draft, upstream fix filed as relaycast-cloud#88. Do not promote,
+  do not merge, do not rework.
+- **The two residual WP-3 findings** — P2-A (`agent_pins_available` vs
+  `worker_holds` disagreement burning one journaled attempt per resume) and
+  P3-B (unvalidated `started_pins`/`end_pins` on non-agent completions). Both
+  recorded in DRIVE-LOG, neither blocking, both unreachable in the shipped
+  rung-(c) flow. Backlog.
+- **The DESIGN.md §1.9 at-most-once effect window.** Needs the mount as writer;
+  gate 4. Disclosed, not fixed.
+- **The cloud-sandbox `origin` gap** and schedule re-registration — real, but
+  gate-2/7 adjacent and not a gate-1 clause.
 - **RFC or charter edits**, and any history rewrite of the PR #2-era vendored
   blobs (a human decision).
 
+### Known drift this tick will hit — fix the workflow, do not re-instruct the agent
+
+`workflows/drive.yaml`'s `pr` step has produced a branch-name title and a
+boilerplate body for **four consecutive ticks**, with the root cause already
+pinpointed in DRIVE-LOG: `:126` hardcodes the body string (so verify tails can
+never land there), `:124` builds the subject with `grep … | cut -c1-60`, a
+*byte* cut that severs the multibyte em-dash, and `:126` calls
+`gh pr create --fill`, which falls back to the branch name for the title on
+multi-commit branches. (DRIVE-LOG cites this as `:108-115`; that citation is
+stale — `:108-115` is the review step. The real lines are `:124` and `:126`.) If the package completes with slack, hardening that
+`pr` step is the **first** standing candidate — it is a two-line fix to a
+four-tick recurrence. It is not the package itself: gate 1's open clause
+outranks process drift.
+
 ### Delivery
 
-One PR against `main` from a `flow/` branch. Every commit message names WP-3;
-the PR title states the work; the PR body carries the four verify tails
-verbatim plus the Appendix A assertions above. The review step must leave its
-transcript in `ops/reviews/` (this is the first tick where that wiring is
-expected to fire — if it does not produce a file, say so in DRIVE-LOG rather
-than inferring a verdict from gating). The Lead does not merge: report and
-await human review, per the charter's hard rails.
+One PR against `main` from a `flow/` branch. Every commit message names WP-4.
+The PR title states the work package name (not the branch). The PR body carries
+the five verify tails **verbatim** plus the behavioral-gate outputs above. The
+review step must leave its transcript in `ops/reviews/` — if it does not
+produce a file, say so in DRIVE-LOG rather than inferring a verdict from
+workflow gating. Rebase on `main` before opening, so the local diff and
+GitHub's merge-base diff agree.
+
+The Lead does not merge: report and await human review, per the charter's hard
+rails.
 
 ASSESS_DONE

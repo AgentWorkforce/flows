@@ -437,3 +437,91 @@ before treating it as a blocker. Standing candidates for slack, in order:
 harden `workflows/drive.yaml`'s `pr` step (title, body evidence, the `cut -c`
 truncation) — four ticks of the same drift with a now-known root cause; then
 the two residual WP-3 findings above.
+
+---
+
+## 2026-08-27 — WP-4 `flows check` preflight
+
+**Work package:** WP-4 — covenant-2 preflight, gate 1's second done-when
+clause, from `ops/NEXT.md`. The SDK now ships the `flows check` binary and a
+pure preflight evaluator whose environment probes are injected. Agent CLI
+resolution is step → flow header → nearest `flows.json`, with no guessed
+platform default. The four required author-facing refusal kinds are distinct:
+`cli_missing`, `cli_unauthenticated`, `cli_unresolved`, and `no_executor`.
+Unexpected probe failures and CLI input failures also terminate in the closed
+declared taxonomy. Resolved deterministic commands emit
+`unprovable_effects` warnings to stderr without refusing.
+
+The spec carries `cli` on `llm`/`agent` steps, a flow-header `cli`, and inert
+root `triggers`; the SDK compiler and Rust parser preserve those fields across
+the canonical boundary. No trigger matching, dispatch, provider call,
+permission enforcement, or live model/agent invocation was added. Fixture
+executables and injected probes make missing/auth faults hermetic. The three
+ladder canonical JSON/hash fixtures were regenerated and both parity suites
+pin them. The kernel regression enumerates every failed-step
+`CompletionReason` and proves the failed run ends in typed `step_failed`.
+
+**Definition of done (hermetic `ops/cargo.sh`, no manually exported env):**
+
+- `cd kernel && ../ops/cargo.sh test --workspace` — **72 passed, 0 failed**
+  (18 + 0 + 19 + 26 + 3 + 6; doc-tests 0 ×3), exit 0. Verbatim tail:
+
+  ```
+     Doc-tests relayflowd_journal
+
+  running 0 tests
+
+  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  ```
+
+- `cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings` — exit 0.
+  Verbatim tail:
+
+  ```
+      Checking relayflowd v0.1.0 (/Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/relayflowd)
+      Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.68s
+  ```
+
+- `cd kernel && ../ops/cargo.sh fmt --check` — exit 0, no output.
+
+- `cd sdk && npm run build` — exit 0. Verbatim output:
+
+  ```
+  npm notice run @relayflows/sdk@0.1.0 build
+  npm notice run tsc
+  ```
+
+- `cd sdk && npm test` — **76 passed, 0 failed**, 7 files, exit 0. Verbatim
+  tail:
+
+  ```
+   Test Files  7 passed (7)
+        Tests  76 passed (76)
+     Start at  16:03:45
+     Duration  412ms (transform 179ms, setup 0ms, collect 592ms, tests 224ms, environment 1ms, prepare 329ms)
+  ```
+
+**Behavioral gate:** all three ladder flows exited 0, printed their resolved
+CLI source, and emitted only warnings on unprovable deterministic effects.
+The `cli-missing`, `cli-unauthenticated`, `cli-unresolved`, and `no-executor`
+fixtures each exited 2 with its exact declared kind. The required JSON pipe
+exited 0 through `python3 -m json.tool`; its single diagnostic carried
+`"kind": "cli_missing"`. The clean warning and project-default fixtures are
+also pinned by CLI tests.
+
+**Structural gate:** the largest Rust file is
+`kernel/relayflowd/src/server.rs` at **468** lines; the largest SDK source is
+`sdk/src/validate.ts` at **454**. No source file reaches 500 lines.
+
+**Review:** no independent review transcript was produced. The Veto MCP server
+required by the repository wrapper was not present in this non-interactive
+worker's available tools, and spawning/messaging review agents was explicitly
+forbidden by the invocation. This entry does not infer `REVIEW_PASSED` from
+the green gates. A local full-diff and fail-closed-path audit found and fixed
+one compiled-spec issue before final verification: type-specific unknown keys
+and malformed retry policies now refuse instead of being dropped.
+
+**Gate state:** gate 1 is GREEN in this branch on both clauses. The scoreboard
+records the correction from its premature rung-only GREEN through AMBER and
+the evidence that closes preflight. It becomes repository state only when a
+human merges the PR; this worker does not merge.
