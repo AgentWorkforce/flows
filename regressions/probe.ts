@@ -52,3 +52,62 @@ export function field(body: string, key: string): unknown {
     return undefined;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Relaycast hosted gateway (cast.agentrelay.com).
+//
+// The internal maintenance API is guarded by a shared bearer, not a user
+// session, so it is still a *principal* in the gate-8 sense: the cloud control
+// plane is the only caller allowed to present it. Keeping it at
+// `<mount>/principals/<name>/token` means the same rule holds as for every
+// other credential here — the filesystem path IS the permission, and nothing is
+// inherited from ambient env (SURFACE.md §2.3).
+//
+// The workspace API key being re-registered is itself a secret, so it is read
+// from the cloud mount inline (`$(cat …)`) rather than written into the flow
+// source: the mount read is the record, never the token (Appendix A rule 3).
+
+export const RELAYCAST_MOUNT = "mnt/relaycast-gateway";
+
+/** Shell expression yielding a relay workspace's stored relaycast API key. */
+export function storedRelaycastKey(relayWorkspaceId: string): string {
+  return `$(cat ${CLOUD_MOUNT}/relay-workspaces/${relayWorkspaceId}/relaycast_api_key)`;
+}
+
+/**
+ * Build the deterministic command for one internal-API probe against the
+ * relaycast gateway. Like `probe()`, it always exits 0 and prints
+ * `<body>\n<status>` so a postfix gate can judge the observed response.
+ */
+export function relaycastProbe(input: {
+  method: string;
+  path: string;
+  /** Principal directory under `<mount>/principals/` — the credential scope. */
+  principal: string;
+  /** Raw JSON body; may embed `$(cat …)` so no secret enters the flow source. */
+  rawJson?: string;
+}): string {
+  const payload = input.rawJson === undefined ? "" : ` -d '${input.rawJson}'`;
+  return [
+    "curl -sS -w '\\n%{http_code}'",
+    `-X ${input.method}`,
+    `"$(cat ${RELAYCAST_MOUNT}/base_url)${input.path}"`,
+    `-H "Authorization: Bearer $(cat ${RELAYCAST_MOUNT}/principals/${input.principal}/token)"`,
+    "-H 'Content-Type: application/json'",
+    payload,
+  ].join(" ").trim();
+}
+
+/** Read a nested field of a JSON response body; `undefined` if absent. */
+export function nested(body: string, ...path: string[]): unknown {
+  try {
+    let cursor: unknown = JSON.parse(body);
+    for (const key of path) {
+      if (typeof cursor !== "object" || cursor === null) return undefined;
+      cursor = (cursor as Record<string, unknown>)[key];
+    }
+    return cursor;
+  } catch {
+    return undefined;
+  }
+}
