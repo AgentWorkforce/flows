@@ -5,7 +5,7 @@ Every row starts RED and moves only on evidence. AMBER blocks nothing here
 
 | Gate | State | Evidence |
 |---|---|---|
-| 1 — a relayflow can run | **GREEN** | all three rungs merged: (a) deterministic #2/#3, (b) llm #4, (c) `agent` + Appendix A #7 (`ca6b80a`). Kernel 70 tests, SDK 58, clippy/fmt clean — verified independently, not on the gate's word. Residual documented in DESIGN.md §1.9: a worker dying after the provider call but before confirming performs an effect twice; closing it needs the mount as writer (gate 4). |
+| 1 — a relayflow can run | **AMBER** | *(corrected: I marked this GREEN on the ladder evidence alone; gate 1's done-when has a second clause — `flows check` preflight per covenant 2 — which is unmet. Tick 5's Lead caught it and picked WP-4 accordingly.)* All three rungs merged: (a) deterministic #2/#3, (b) llm #4, (c) `agent` + Appendix A #7 (`ca6b80a`). Kernel 70 tests, SDK 58, clippy/fmt clean — verified independently, not on the gate's word. Residual documented in DESIGN.md §1.9: a worker dying after the provider call but before confirming performs an effect twice; closing it needs the mount as writer (gate 4). |
 | 2 — proactive agent | RED | not started; harness shims wait on it |
 | 3 — Software Garden | RED | not started |
 | 4 — chief / harness | RED | not started |
