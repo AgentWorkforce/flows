@@ -1,0 +1,31 @@
+version: '1.0'
+name: flows-watchdog
+description: Daily liveness check + digest for the autonomous drive loop.
+swarm:
+  pattern: pipeline
+  channel: flows-drive
+  timeoutMs: 1800000
+agents:
+  - name: watchdog
+    cli: claude
+    preset: analyst
+    role: Liveness auditor and digest writer for the flows drive loop.
+workflows:
+  - name: watchdog-tick
+    steps:
+      - name: check
+        type: agent
+        agent: watchdog
+        task: |
+          Health-check the autonomous build. Inspect: freshness of
+          ops/DRIVE-LOG.md on origin (last entry < 24h?), `gh pr list` for PRs
+          idle > 48h, presence of ops/NEEDS_HUMAN.md on any open branch,
+          `agent-relay cloud schedules` for the flows-drive row. Post ONE
+          message to the flows-drive channel: either
+          "HEALTHY: <one-line digest + merge queue>" or
+          "ATTENTION @khaliq: <exactly what is stuck and the one action needed>".
+          End with WATCHDOG_DONE.
+        verification:
+          type: output_contains
+          value: WATCHDOG_DONE
+        timeoutMs: 1200000

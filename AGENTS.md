@@ -30,3 +30,11 @@ writing code. If your work contradicts it, your work is wrong.
 - **Never edit a gate that judges your own work.**
 - **Report honestly.** If tests fail, say so with output. Unverified work is
   unfinished work.
+
+## Observability
+
+Every workflow run MUST join the canonical cloud workspace so humans can follow
+it live (observer links, channels). The broker is pinned via
+`agent-relay workspace rebind default`; launch runs through
+`scripts/run-workflow.sh`. A run that lands in an ephemeral/local workspace is
+a defect (Nabis #7 family) — fix the binding, don't proceed silently.

@@ -1,0 +1,124 @@
+version: '1.0'
+name: flows-drive
+description: >
+  The Relayflow Lead's tick. Runs on a schedule; each tick assesses repo
+  state, executes the single highest-priority work package toward the current
+  gate, verifies deterministically, gets adversarial review, opens a PR, and
+  logs an honest report. Escalates to Khaliq only on needs_human. Charter:
+  charter/LEAD.md. Constitution: docs/RFC-0001-everything-is-a-relayflow.md.
+
+swarm:
+  pattern: dag
+  channel: flows-drive
+  timeoutMs: 10800000
+
+agents:
+  - name: lead
+    cli: claude
+    preset: analyst
+    role: The Relayflow Lead. Assesses state, plans one work package, reports honestly.
+  - name: builder
+    cli: codex
+    preset: worker
+    role: Implements the work package. Rust for kernel/, TypeScript for sdk/.
+  - name: adversary
+    cli: grok
+    preset: reviewer
+    role: Adversarial reviewer against RFC-0001 and AGENTS.md.
+
+workflows:
+  - name: drive-tick
+    steps:
+      - name: sync
+        type: deterministic
+        command: |
+          git fetch origin && git checkout main && git pull --ff-only origin main && \
+          git checkout -B flow/drive-$(git rev-parse --short origin/main)-$(date +%m%d%H%M) && \
+          echo SYNCED
+
+      - name: assess
+        type: agent
+        agent: lead
+        dependsOn: [sync]
+        task: |
+          You are the Relayflow Lead (charter/LEAD.md). Assess the repo:
+          read docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,
+          `git log --oneline -15`, `gh pr list --state open` and open PR review
+          state, kernel/ and sdk/ test status. Then write ops/NEXT.md: the
+          SINGLE highest-priority work package toward the current gate
+          (gate 1 until its done-when in RFC-0001 §3 holds), with: objective,
+          files in scope, definition of done (must include passing commands),
+          and what is explicitly OUT of scope for this tick. If an open PR is
+          awaiting fixes from review, the work package is fixing it — never
+          start new work over unfinished work. If work is blocked on a human
+          decision, write ops/NEEDS_HUMAN.md stating the exact question and end
+          with BLOCKED_NEEDS_HUMAN; otherwise end with ASSESS_DONE.
+        verification:
+          type: output_contains
+          value: ASSESS_DONE
+        timeoutMs: 1800000
+
+      - name: build
+        type: agent
+        agent: builder
+        dependsOn: [assess]
+        maxIterations: 3
+        task: |
+          Read ops/NEXT.md, AGENTS.md, and the relevant parts of
+          docs/RFC-0001-everything-is-a-relayflow.md. Implement exactly that
+          work package — nothing more. Run the definition-of-done commands
+          yourself and iterate until they pass. Keep files small and
+          single-purpose. End with BUILD_DONE only when the definition of done
+          passes locally; paste the passing output.
+        verification:
+          type: output_contains
+          value: BUILD_DONE
+        timeoutMs: 5400000
+
+      - name: verify
+        type: deterministic
+        dependsOn: [build]
+        command: |
+          ok=0
+          if [ -d kernel ]; then (cd kernel && cargo test --workspace 2>&1 | tail -5) || ok=1; fi
+          if [ -f sdk/package.json ]; then (cd sdk && npm test 2>&1 | tail -5) || ok=1; fi
+          [ $ok -eq 0 ] && echo VERIFY_PASS || { echo VERIFY_FAIL; exit 1; }
+        timeoutMs: 1200000
+
+      - name: review
+        type: agent
+        agent: adversary
+        dependsOn: [verify]
+        task: |
+          Review `git diff main` against ops/NEXT.md (scope), AGENTS.md
+          (standards) and RFC-0001 (semantics). Try to refute. List violations
+          with file:line. End with REVIEW_PASSED only if the diff honestly
+          meets the bar and stays in scope; otherwise REVIEW_FAILED.
+        verification:
+          type: output_contains
+          value: REVIEW_PASSED
+        maxIterations: 1
+        timeoutMs: 1800000
+
+      - name: pr
+        type: deterministic
+        dependsOn: [review]
+        command: |
+          git add -A && git commit -m "drive: $(head -1 ops/NEXT.md | cut -c1-60)" && \
+          git push -u origin HEAD && \
+          gh pr create --fill --body "Automated drive tick. Work package: see ops/NEXT.md in diff. Verification and adversarial review passed in-run. A human merges." 2>&1 | tail -2 && \
+          echo PR_OPENED
+
+      - name: log
+        type: agent
+        agent: lead
+        dependsOn: [pr]
+        task: |
+          Append one dated entry to ops/DRIVE-LOG.md: work package, verify
+          output summary (verbatim tail), review verdict, PR link, honest state
+          of the current gate, and the likely next package. Commit and push to
+          the current branch. End with TICK_LOGGED.
+        verification:
+          type: output_contains
+          value: TICK_LOGGED
+        timeoutMs: 900000
