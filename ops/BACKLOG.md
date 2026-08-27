@@ -35,3 +35,21 @@ gate's needs. Not commitments; ordering is the Lead's call with evidence.
   error (covenant 1). Written in the v2 dialect against a surface that does not
   exist yet; nothing runs until gates 1/2/6/7/8 close per `regressions/MANIFEST.json`.
   The Garden should adopt them once flows run in cloud.
+- **`f.browser` helper (gate-6 family, plugin-shaped).** Escape hatch for the
+  long tail: SaaS with no API, customer portals, vendor dashboards — what the
+  50 relayfile adapters will never cover. Backed by the existing
+  `browser-primitive` (kept deliberately by the 0825 charter). Ships under the
+  plugin contract: compiles to kernel primitives, declares its preflight. NOT
+  needed for the regression suite — asserting UI strings is brittle and tests
+  the symptom; assert at the API where the condition is known.
+- **Computer use — deferred, behind heavier rails.** Browser automation covers
+  ~95%; desktop control adds native apps and installers. Highest-blast-radius
+  primitive we could ship: unscoped clicking defeats path-scoped permissions
+  (`workspace: readonly` means nothing if an agent can click Delete in a GUI).
+  Needs per-run browser profile, no shared cookie jar, screen-region and app
+  allowlists, and every action journaled as an effect before it is covenant-2
+  compliant.
+- **Upstream issues (2026-08-27):** cloud#3202 (bearer-auth enrolment,
+  cross-account 404 messaging, cron-succeeded-into-void) · relay#1620
+  (`--daemon` $bunfs argv crash + `worker status` blind to cloud liveness).
+  Executable acceptance: `regressions/` on main.
