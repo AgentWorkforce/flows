@@ -22,7 +22,7 @@ agents:
     preset: worker
     role: Implements the work package. Rust for kernel/, TypeScript for sdk/.
   - name: adversary
-    cli: grok
+    cli: claude
     preset: reviewer
     role: Adversarial reviewer against RFC-0001 and AGENTS.md.
 
