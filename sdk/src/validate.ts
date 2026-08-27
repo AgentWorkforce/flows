@@ -1,0 +1,318 @@
+// Spec validation — fail-closed (AGENTS.md rule 4). The compiler runs every
+// spec through this before emitting JSON; a malformed spec is rejected with a
+// concrete error, never silently coerced. Zero-agent flows are legal: there is
+// no requirement that any step be `llm` or `agent`.
+
+import type {
+  AgentStepSpec,
+  BudgetSpec,
+  DeterministicStepSpec,
+  FlowSpec,
+  LlmStepSpec,
+  PermissionsSpec,
+  RecoveryMode,
+  StepSpec,
+  StepType,
+  VerificationSpec,
+} from './spec.js';
+
+export interface ValidationResult {
+  ok: boolean;
+  errors: string[];
+}
+
+const STEP_TYPES: ReadonlySet<StepType> = new Set([
+  'deterministic',
+  'llm',
+  'agent',
+]);
+
+const RECOVERY_MODES: ReadonlySet<RecoveryMode> = new Set([
+  'reset',
+  'inspect',
+  'manual',
+]);
+
+const DECIMAL_RE = /^\d+(\.\d+)?$/;
+const SEMVER_RE = /^\d+\.\d+\.\d+$/;
+
+class Validator {
+  private errors: string[] = [];
+  private ids = new Set<string>();
+
+  fail(msg: string): void {
+    this.errors.push(msg);
+  }
+
+  result(): ValidationResult {
+    return { ok: this.errors.length === 0, errors: this.errors };
+  }
+
+  run(spec: unknown): ValidationResult {
+    if (!isObject(spec)) {
+      this.fail('spec: expected an object');
+      return this.result();
+    }
+    const s = spec as Record<string, unknown>;
+
+    if (!isNonEmptyString(s['version'])) {
+      this.fail('spec.version: expected a non-empty semver string (e.g. "0.1.0")');
+    } else if (!SEMVER_RE.test(s['version'] as string)) {
+      this.fail(`spec.version: "${s['version']}" is not semver (MAJOR.MINOR.PATCH)`);
+    }
+
+    if (!isNonEmptyString(s['name'])) {
+      this.fail('spec.name: expected a non-empty string');
+    }
+
+    if (s['description'] !== undefined && typeof s['description'] !== 'string') {
+      this.fail('spec.description: expected a string');
+    }
+
+    if (s['budget'] !== undefined) this.validateBudget(s['budget']);
+
+    if (!Array.isArray(s['steps']) || s['steps'].length === 0) {
+      this.fail('spec.steps: expected a non-empty array');
+      return this.result();
+    }
+
+    const steps = s['steps'] as unknown[];
+    for (let i = 0; i < steps.length; i++) {
+      this.validateStep(steps[i], i);
+    }
+
+    // Dependents must reference real step ids and form a DAG (no cycles).
+    this.validateDeps(steps as StepSpec[]);
+    return this.result();
+  }
+
+  private validateBudget(b: unknown): void {
+    if (!isObject(b)) {
+      this.fail('spec.budget: expected an object');
+      return;
+    }
+    const budget = b as BudgetSpec;
+    if (
+      budget.maxTokensIn !== undefined &&
+      !isNonNegInt(budget.maxTokensIn)
+    ) {
+      this.fail('spec.budget.maxTokensIn: expected a non-negative integer');
+    }
+    if (
+      budget.maxTokensOut !== undefined &&
+      !isNonNegInt(budget.maxTokensOut)
+    ) {
+      this.fail('spec.budget.maxTokensOut: expected a non-negative integer');
+    }
+    if (budget.maxDollars !== undefined) {
+      if (typeof budget.maxDollars !== 'string' || !DECIMAL_RE.test(budget.maxDollars)) {
+        this.fail('spec.budget.maxDollars: expected a decimal string, e.g. "1.50"');
+      }
+    }
+  }
+
+  private validateStep(step: unknown, index: number): void {
+    const at = `spec.steps[${index}]`;
+    if (!isObject(step)) {
+      this.fail(`${at}: expected an object`);
+      return;
+    }
+    const st = step as Record<string, unknown>;
+
+    if (!isNonEmptyString(st['id'])) {
+      this.fail(`${at}.id: expected a non-empty string`);
+    } else if (this.ids.has(st['id'] as string)) {
+      this.fail(`${at}.id: duplicate step id "${st['id']}"`);
+    } else {
+      this.ids.add(st['id'] as string);
+    }
+
+    if (!isNonEmptyString(st['type']) || !STEP_TYPES.has(st['type'] as StepType)) {
+      this.fail(`${at}.type: expected one of deterministic | llm | agent`);
+      return;
+    }
+    const type = st['type'] as StepType;
+
+    if (st['dependsOn'] !== undefined) {
+      if (!Array.isArray(st['dependsOn']) || !(st['dependsOn'] as unknown[]).every(isNonEmptyString)) {
+        this.fail(`${at}.dependsOn: expected an array of step ids`);
+      }
+    }
+
+    if (st['verification'] !== undefined) {
+      this.validateVerification(st['verification'], `${at}.verification`);
+    }
+
+    if (st['maxIterations'] !== undefined && !isPosInt(st['maxIterations'])) {
+      this.fail(`${at}.maxIterations: expected a positive integer`);
+    }
+
+    if (st['timeoutMs'] !== undefined && !isPosInt(st['timeoutMs'])) {
+      this.fail(`${at}.timeoutMs: expected a positive integer`);
+    }
+    if (st['timeoutMs'] !== undefined && type !== 'deterministic') {
+      // The v0.1.0 spec dialect carries timeout_ms on deterministic steps
+      // only; llm/agent timeouts land with worker dispatch. Fail closed
+      // rather than silently drop the field.
+      this.fail(`${at}.timeoutMs: only deterministic steps carry a timeout in spec v0.1.0`);
+    }
+
+    if (type === 'deterministic') {
+      this.validateDeterministic(st as unknown as DeterministicStepSpec, at);
+    } else if (type === 'llm') {
+      this.validateLlm(st as unknown as LlmStepSpec, at);
+    } else {
+      this.validateAgent(st as unknown as AgentStepSpec, at);
+    }
+  }
+
+  private validateVerification(v: unknown, at: string): void {
+    if (!isObject(v)) {
+      this.fail(`${at}: expected an object`);
+      return;
+    }
+    const gate = v as unknown as VerificationSpec & { expect?: unknown };
+    if (gate.type === 'exit_code') {
+      // v0 judges exit_code == 0 exactly (kernel DESIGN.md §4). Fail closed
+      // rather than compile a spec whose gate the kernel cannot enforce.
+      if (gate.expect !== undefined && gate.expect !== 0) {
+        this.fail(`${at}.expect: v0 exit_code gate judges exit_code == 0; a custom expect is not supported`);
+      }
+    } else if (gate.type === 'output_contains') {
+      if (typeof gate.value !== 'string' || gate.value.length === 0) {
+        this.fail(`${at}.value: expected a non-empty string`);
+      }
+    } else if (gate.type === 'json_schema') {
+      if (!isObject(gate.schema)) {
+        this.fail(`${at}.schema: expected a JSON Schema object`);
+      }
+    } else {
+      this.fail(`${at}.type: expected exit_code | output_contains | json_schema`);
+    }
+  }
+
+  private validateDeterministic(st: DeterministicStepSpec, at: string): void {
+    if (!isNonEmptyString(st.command)) {
+      this.fail(`${at}.command: expected a non-empty string`);
+    }
+  }
+
+  private validateLlm(st: LlmStepSpec, at: string): void {
+    if (!isNonEmptyString(st.prompt)) {
+      this.fail(`${at}.prompt: expected a non-empty string`);
+    }
+    if (st.model !== undefined && typeof st.model !== 'string') {
+      this.fail(`${at}.model: expected a string`);
+    }
+  }
+
+  private validateAgent(st: AgentStepSpec, at: string): void {
+    if (!isNonEmptyString(st.instruction)) {
+      this.fail(`${at}.instruction: expected a non-empty string`);
+    }
+    if (st.recoveryMode !== undefined && !RECOVERY_MODES.has(st.recoveryMode)) {
+      this.fail(`${at}.recoveryMode: expected reset | inspect | manual`);
+    }
+    if (st.surfaces !== undefined) this.validateSurfaces(st.surfaces, `${at}.surfaces`);
+    if (st.permissions !== undefined) this.validatePermissions(st.permissions, `${at}.permissions`);
+  }
+
+  private validateSurfaces(surfaces: AgentStepSpec['surfaces'], at: string): void {
+    if (!isObject(surfaces)) {
+      this.fail(`${at}: expected an object`);
+      return;
+    }
+    const s = surfaces as Record<string, unknown>;
+    if (s['workspace'] !== undefined) {
+      if (!Array.isArray(s['workspace']) || !(s['workspace'] as unknown[]).every((w) => isObject(w) && isNonEmptyString((w as Record<string, unknown>)['surface']))) {
+        this.fail(`${at}.workspace: expected an array of {surface: string}`);
+      }
+    }
+    if (s['streams'] !== undefined) {
+      if (!Array.isArray(s['streams']) || !(s['streams'] as unknown[]).every((w) => isObject(w) && isNonEmptyString((w as Record<string, unknown>)['stream']))) {
+        this.fail(`${at}.streams: expected an array of {stream: string}`);
+      }
+    }
+    if (s['external'] !== undefined) {
+      if (!Array.isArray(s['external']) || !(s['external'] as unknown[]).every(isNonEmptyString)) {
+        this.fail(`${at}.external: expected an array of path strings`);
+      }
+    }
+  }
+
+  private validatePermissions(p: PermissionsSpec, at: string): void {
+    if (!isObject(p)) {
+      this.fail(`${at}: expected an object`);
+      return;
+    }
+    if (p.accessPreset !== undefined && p.accessPreset !== 'readonly' && p.accessPreset !== 'readwrite') {
+      this.fail(`${at}.accessPreset: expected readonly | readwrite`);
+    }
+    if (p.fileGlobs !== undefined && !(Array.isArray(p.fileGlobs) && p.fileGlobs.every(isNonEmptyString))) {
+      this.fail(`${at}.fileGlobs: expected an array of strings`);
+    }
+    if (p.networkAllowlist !== undefined && !(Array.isArray(p.networkAllowlist) && p.networkAllowlist.every(isNonEmptyString))) {
+      this.fail(`${at}.networkAllowlist: expected an array of strings`);
+    }
+  }
+
+  private validateDeps(steps: StepSpec[]): void {
+    const known = this.ids;
+    const adj = new Map<string, string[]>();
+    for (const step of steps) {
+      const deps = step.dependsOn ?? [];
+      for (const d of deps) {
+        if (!known.has(d)) {
+          this.fail(`spec.steps: step "${step.id}" dependsOn unknown step "${d}"`);
+        }
+      }
+      adj.set(step.id, deps);
+    }
+    // Cycle detection (DFS, WHITE/GRAY/BLACK).
+    const WHITE = 0, GRAY = 1, BLACK = 2;
+    const color = new Map<string, number>();
+    for (const id of adj.keys()) color.set(id, WHITE);
+    const stack: string[] = [];
+    const dfs = (id: string): void => {
+      color.set(id, GRAY);
+      stack.push(id);
+      const deps = adj.get(id) ?? [];
+      for (const d of deps) {
+        const c = color.get(d);
+        if (c === GRAY) {
+          this.fail(`spec.steps: dependency cycle detected at "${d}" (path: ${[...stack].join(' -> ')} -> ${d})`);
+        } else if (c === WHITE) {
+          dfs(d);
+        }
+      }
+      stack.pop();
+      color.set(id, BLACK);
+    };
+    for (const id of adj.keys()) {
+      if (color.get(id) === WHITE) dfs(id);
+    }
+  }
+}
+
+/** Validate a parsed spec object. Returns `{ok, errors}`; never throws. */
+export function validateSpec(spec: unknown): ValidationResult {
+  return new Validator().run(spec);
+}
+
+// --- predicates -------------------------------------------------------------
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === 'string' && v.length > 0;
+}
+
+function isNonNegInt(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0;
+}
+
+function isPosInt(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v > 0;
+}

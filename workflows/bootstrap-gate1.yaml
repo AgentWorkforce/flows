@@ -25,7 +25,7 @@ agents:
     preset: worker
     role: TypeScript engineer. Implements the authoring SDK and spec compiler.
   - name: adversary
-    cli: grok
+    cli: claude
     preset: reviewer
     role: Adversarial reviewer. Tries to refute that the work meets RFC-0001 and AGENTS.md.
 

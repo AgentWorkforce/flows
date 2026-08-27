@@ -1,0 +1,45 @@
+# The canonical hello ladder (RFC-0001 §3 gate 1): deterministic + llm + agent.
+# Source of the shared SDK<->kernel spec-parity fixture. Compiled by
+# sdk/tests/spec-parity.test.ts into hello-ladder.spec.canonical.json, which
+# kernel/relayflowd-core/tests/spec_parity.rs must parse fail-closed and hash
+# to the identical spec_hash (hello-ladder.spec.sha256).
+version: '0.1.0'
+name: hello-ladder
+description: One flow, all three rungs — the single spec dialect end to end.
+steps:
+  - id: greet
+    type: deterministic
+    command: "echo hello"
+    timeoutMs: 5000
+    verification:
+      type: output_contains
+      value: "hello"
+  - id: plan
+    type: llm
+    dependsOn: [greet]
+    prompt: "Reply with JSON {answer: number} for 2+2."
+    model: claude-sonnet-5
+    maxIterations: 3
+    verification:
+      type: json_schema
+      schema:
+        type: object
+        required: [answer]
+  - id: act
+    type: agent
+    dependsOn: [plan]
+    instruction: "Apply the plan to the repo."
+    recoveryMode: inspect
+    surfaces:
+      workspace:
+        - surface: repo/
+      streams:
+        - stream: results
+      external:
+        - pr://github/example
+    permissions:
+      accessPreset: readwrite
+      fileGlobs: ["src/**"]
+budget:
+  maxTokensOut: 2000
+  maxDollars: "1.50"
