@@ -112,16 +112,41 @@ workflows:
           REVIEW_PASSED only if the diff honestly meets the bar and stays in
           scope; otherwise REVIEW_FAILED.
         verification:
+          # Accept EITHER verdict: an honest REVIEW_FAILED must be
+          # distinguishable from a crashed reviewer. The verdict step below
+          # decides the run's fate; this gate only proves the reviewer spoke.
           type: output_contains
-          value: REVIEW_PASSED
+          value: "REVIEW_"
         maxIterations: 1
         timeoutMs: 1800000
 
-      - name: pr
+      - name: verdict
         type: deterministic
         dependsOn: [review]
         command: |
-          git add -A && git commit -m "drive: $(grep -m1 -oE 'WP-[0-9]+[^\n]*' ops/NEXT.md | cut -c1-60 || echo work-package)" && \
+          # Typed outcome, not a token: a truthful REVIEW_FAILED stops the run
+          # cleanly (no PR, no retry loop); a crash never reaches here because
+          # the review gate requires the reviewer to have spoken at all.
+          set -u
+          latest=$(ls -t ops/reviews/*.md 2>/dev/null | head -1)
+          if [ -z "$latest" ]; then
+            echo "VERDICT_UNKNOWN: no persisted review transcript — an unpersisted verdict is not evidence"; exit 1
+          fi
+          if grep -q "REVIEW_FAILED" "$latest"; then
+            echo "VERDICT_FAILED: reviewer rejected this diff — see $latest"; exit 1
+          fi
+          if grep -q "REVIEW_PASSED" "$latest"; then
+            echo "VERDICT_PASS ($latest)"; exit 0
+          fi
+          echo "VERDICT_UNKNOWN: $latest carries no verdict"; exit 1
+        timeoutMs: 120000
+
+      - name: pr
+        type: deterministic
+        dependsOn: [verdict]
+        command: |
+          title=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md | sed "s/[[:space:]]*$//" || echo "work package"); \
+          git add -A && git commit -m "drive: $title" && \
           git push -u origin HEAD && \
           gh pr create --fill --body "Automated drive tick. Work package: see ops/NEXT.md in diff. Verification and adversarial review passed in-run. A human merges." 2>&1 | tail -2 && \
           echo PR_OPENED
