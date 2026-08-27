@@ -89,7 +89,21 @@ The herdr model: first-party helpers are just plugins that ship in the box; the 
 
 `flows build` seals a flow into a content-addressed, immutable bundle: canonical spec JSON, compiled TS with pinned deps, helper/plugin lockfile, assets, preflight declaration, identity signature — `flow@sha256:…`, pushed to a bucket/registry. `flows deploy` points a trigger at a digest; `flows run flow@sha256:…` executes from the bucket on any cell, no checkout. Preflight runs at build time for everything build-provable and again at deploy time for environment facts (credentials, workers, MCP servers). The working tree is for authoring; **production only ever runs digests.**
 
-## 5. Open surface questions (for gate-1 SDK work)
+## 5. Invocation: three ways in
+
+A deployed flow is reachable three ways, all landing on the same digest and the same journal:
+
+1. **Events** — `on(...)` triggers: relayfile webhooks, mentions, file changes.
+2. **Schedules** — RelayCron: durable alarms + sweep.
+3. **Direct call** — a flow is a *function*:
+   - CLI: `flows run release-note --input '{"branch":"main"}'` (or `flows run flow@sha256:…`)
+   - HTTP: every deployed flow is an endpoint — `POST /flows/release-note` returns the result for short flows, or a run handle (`202 + run id`) to poll/stream for long ones
+   - SDK: `await flows.call("release-note", input)` from any app (this is how sage and consumer apps invoke pipelines)
+   - Flow-to-flow: `f.dispatch("garden/implement", plan)` — same mechanism, child run with its own journal
+
+The caller always gets the same contract back: a typed result on completion, or a durable run handle it can await, stream, or abandon — the run finishes either way, journaled.
+
+## 6. Open surface questions (for gate-1 SDK work)
 
 - `gate:` in YAML: tiny expression language (`length < 200`) vs named checks only. Leaning: a deliberately small expression grammar + named checks for everything else.
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
