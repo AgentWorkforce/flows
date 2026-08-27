@@ -73,7 +73,9 @@ export function compileSpec(spec: unknown): FlowSpec {
     ...(input.name !== undefined ? { name: input.name } : {}),
     ...(input.description !== undefined ? { description: input.description } : {}),
     ...(input.cli !== undefined ? { cli: input.cli } : {}),
-    ...(input.triggers !== undefined ? { triggers: input.triggers } : {}),
+    // The kernel omits an empty trigger list when serializing RunSpec. Normalize
+    // it here so the authoring shape and boundary shape retain one hashable form.
+    ...(input.triggers?.length ? { triggers: input.triggers } : {}),
     steps,
     ...(input.budget !== undefined ? { budget: input.budget } : {}),
   };
@@ -147,7 +149,7 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
     ...(flow.name !== undefined ? { name: flow.name } : {}),
     ...(flow.description !== undefined ? { description: flow.description } : {}),
     ...(flow.cli !== undefined ? { cli: flow.cli } : {}),
-    ...(flow.triggers !== undefined ? { triggers: flow.triggers } : {}),
+    ...(flow.triggers?.length ? { triggers: flow.triggers } : {}),
     steps: flow.steps.map(toKernelStep),
     ...(flow.budget !== undefined
       ? {
@@ -163,8 +165,8 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
 
 /**
  * Map the kernel boundary dialect back to the normalized authoring shape.
- * This is the inverse of `toKernelSpec` for flows returned by `compileSpec`.
- * Unknown keys and malformed kernel-only policy fields fail closed.
+ * This is the inverse of `toKernelSpec` over specs this compiler emits.
+ * Kernel-only values with no authoring representation are refused.
  */
 export function kernelToAuthoring(value: unknown): unknown {
   const root = requireKernelObject(value, ['version', 'name', 'description', 'cli', 'triggers', 'steps', 'budget']);
@@ -239,6 +241,13 @@ function validateKernelRetry(value: unknown): void {
     || (jitter as number) > 100
     || (maximum as number) < (initial as number)) {
     throw new CompileError(['compiled spec contains an invalid retry policy']);
+  }
+  for (const [field, expected] of Object.entries(KERNEL_RETRY_DEFAULTS)) {
+    if (retry[field] !== expected) {
+      throw new CompileError([
+        `compiled spec retry.${field} must equal the authoring default ${expected}`,
+      ]);
+    }
   }
 }
 

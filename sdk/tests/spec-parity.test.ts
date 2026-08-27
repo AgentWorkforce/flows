@@ -43,4 +43,41 @@ describe('spec parity: one dialect at the SDK<->kernel boundary', () => {
       expect(kernelToAuthoring(toKernelSpec(flow))).toEqual(flow);
     });
   }
+
+  it('normalizes empty triggers exactly as kernel serialization does', () => {
+    const yaml = `${fixture('hello-ladder.flow.yaml')}\ntriggers: []\n`;
+    const flow = compileYaml(yaml);
+    expect(flow.triggers).toBeUndefined();
+    expect(kernelToAuthoring(toKernelSpec(flow))).toEqual(flow);
+    expect(compileYamlToCanonicalJson(yaml)).toBe(fixture('hello-ladder.spec.canonical.json').trim());
+    expect(compileAndHash(yaml).hash).toBe(fixture('hello-ladder.spec.sha256').trim());
+  });
+
+  it('refuses a kernel retry policy the authoring dialect cannot represent', () => {
+    const flow = compileYaml(fixture('hello-ladder.flow.yaml'));
+    const kernel = toKernelSpec(flow);
+    kernel.steps[0]!.retry.initial_backoff_ms = 5;
+    expect(() => kernelToAuthoring(kernel)).toThrow('retry.initial_backoff_ms');
+  });
+
+  it('round-trips flow, trigger, and step CLI declarations', () => {
+    const flow = compileYaml(`
+version: '0.1.0'
+name: preflight-round-trip
+cli: project-cli
+triggers:
+  - id: hourly
+    executor: worker-a
+steps:
+  - id: answer
+    type: llm
+    prompt: answer
+    cli: llm-cli
+  - id: edit
+    type: agent
+    instruction: edit
+    cli: agent-cli
+`);
+    expect(kernelToAuthoring(toKernelSpec(flow))).toEqual(flow);
+  });
 });

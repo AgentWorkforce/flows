@@ -1288,3 +1288,15 @@ Gate 1 is still **AMBER**. Clause 1 is closed on `main`; clause 2 remains only
 on open PR #8. A human must merge #8 and re-run verification on merged `main`
 before the gate can move. This worker does not merge and has not claimed a
 passing swarm verdict while any lens rejects.
+
+Round three used the same immutable main-owned gate. History and structure
+passed; maintainability rejected on two newly reproduced boundary cases. This
+corrects the round-three structure transcript's claim that the dialect seam was
+“lossless”: an empty `triggers` array hashed differently across SDK/kernel, and
+a valid non-default kernel retry policy was silently replaced by authoring
+defaults. The evidence transcript remains unchanged; this append-only record
+supersedes that sentence. The repairs normalize empty triggers before hashing,
+refuse non-default retry values the authoring dialect cannot represent, and pin
+both cases. A direct round trip now also exercises flow/step CLI fields and a
+non-empty trigger declaration. The branch swarm additionally stamps the fetched
+PR head into every transcript and refuses stale evidence.

@@ -225,7 +225,12 @@ function emitReport(report: CheckReport, json: boolean, io: CliIo): void {
 
 function isKernelSpec(value: unknown): boolean {
   if (!isObject(value) || !Array.isArray(value['steps'])) return false;
-  return value['steps'].some((step) => isObject(step) && ('depends_on' in step || 'max_iterations' in step));
+  // Any kernel-only step key selects the boundary dialect. A minimal authoring
+  // step may share all other keys with a defaulted kernel step.
+  const kernelKeys = ['depends_on', 'max_iterations', 'retry', 'timeout_ms', 'recovery_mode'];
+  return value['steps'].some(
+    (step) => isObject(step) && kernelKeys.some((key) => key in step),
+  );
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

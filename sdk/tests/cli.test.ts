@@ -139,6 +139,26 @@ describe('flows check CLI', () => {
     expect(result.stdout.join('\n')).toContain('CHECK PASSED');
   });
 
+  it('recognizes a kernel spec when defaulted sentinel keys are omitted', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'flows-check-'));
+    temporaryDirectories.push(directory);
+    const compiled = JSON.parse(readFileSync(join(TESTDATA, 'hello-ladder.spec.canonical.json'), 'utf8')) as {
+      cli?: string;
+      steps: Array<Record<string, unknown>>;
+    };
+    compiled.cli = join(PREFLIGHT, 'authenticated-cli');
+    for (const step of compiled.steps) {
+      delete step['depends_on'];
+      delete step['max_iterations'];
+    }
+    const path = join(directory, 'defaulted-kernel.spec.json');
+    writeFileSync(path, JSON.stringify(compiled));
+
+    const result = run(path);
+    expect(result.code).toBe(0);
+    expect(result.stdout.join('\n')).toContain('CHECK PASSED');
+  });
+
   it('rejects type-specific unknown fields in compiled specs instead of dropping them', () => {
     const directory = mkdtempSync(join(tmpdir(), 'flows-check-'));
     temporaryDirectories.push(directory);

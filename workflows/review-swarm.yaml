@@ -52,9 +52,12 @@ workflows:
           [ -n "$PR" ] || { echo "FETCH_FAILED: .review-target holds no PR number"; exit 1; }
           metadata=/tmp/pr-$PR.json
           diff=/tmp/pr-$PR.diff
-          gh pr view "$PR" --json headRefName,title,url > "$metadata"
+          head_file=/tmp/pr-$PR.head
+          gh pr view "$PR" --json headRefName,headRefOid,title,url > "$metadata"
+          node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(value.headRefOid || "")' "$metadata" > "$head_file"
           gh pr diff "$PR" > "$diff"
           [ -s "$metadata" ] || { echo "FETCH_FAILED: PR metadata is empty"; exit 1; }
+          [ -s "$head_file" ] || { echo "FETCH_FAILED: PR head is empty"; exit 1; }
           [ -s "$diff" ] || { echo "FETCH_FAILED: PR diff is empty"; exit 1; }
           echo "target PR #$PR, $(wc -l < "$diff") diff lines"
           echo FETCHED
@@ -74,7 +77,9 @@ workflows:
           Set TRANSCRIPT to
           ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-maintainability.md,
           write the complete review there, and end the transcript with exactly
-          REVIEW_PASSED or REVIEW_FAILED. Persist the evidence in this same step:
+          REVIEW_PASSED or REVIEW_FAILED. Before that final verdict line, include
+          `reviewed-head: $(cat /tmp/pr-$(cat .review-target).head)` on its own
+          line. Persist the evidence in this same step:
           `git add -- "$TRANSCRIPT"` then
           `git commit --only -m "review(pr$(cat .review-target)): maintainability transcript" -- "$TRANSCRIPT"`.
           Do not stage or commit any other file. Confirm the commit with
@@ -101,7 +106,9 @@ workflows:
           Set TRANSCRIPT to
           ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-history.md,
           write the complete review there, and end the transcript with exactly
-          REVIEW_PASSED or REVIEW_FAILED. Persist the evidence in this same step:
+          REVIEW_PASSED or REVIEW_FAILED. Before that final verdict line, include
+          `reviewed-head: $(cat /tmp/pr-$(cat .review-target).head)` on its own
+          line. Persist the evidence in this same step:
           `git add -- "$TRANSCRIPT"` then
           `git commit --only -m "review(pr$(cat .review-target)): history transcript" -- "$TRANSCRIPT"`.
           Do not stage or commit any other file. Confirm the commit with
@@ -127,7 +134,9 @@ workflows:
           Set TRANSCRIPT to
           ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-structure.md,
           write the complete review there, and end the transcript with exactly
-          REVIEW_PASSED or REVIEW_FAILED. Persist the evidence in this same step:
+          REVIEW_PASSED or REVIEW_FAILED. Before that final verdict line, include
+          `reviewed-head: $(cat /tmp/pr-$(cat .review-target).head)` on its own
+          line. Persist the evidence in this same step:
           `git add -- "$TRANSCRIPT"` then
           `git commit --only -m "review(pr$(cat .review-target)): structure transcript" -- "$TRANSCRIPT"`.
           Do not stage or commit any other file. Confirm the commit with
@@ -148,6 +157,10 @@ workflows:
           # a refusal too: an unpersisted verdict is not evidence.
           set -u
           PR=$(tr -dc '0-9' < .review-target 2>/dev/null)
+          reviewed_head=$(cat /tmp/pr-$PR.head 2>/dev/null)
+          if [ -z "$reviewed_head" ]; then
+            echo "SWARM_FAILED: fetched PR head is missing"; exit 1
+          fi
           fail=0
           for lens in maintainability history structure; do
             f=$(ls -1 ops/reviews/*-pr${PR}-${lens}.md 2>/dev/null | sort | tail -1)
@@ -159,6 +172,9 @@ workflows:
             fi
             if ! git cat-file -e "HEAD:$f" 2>/dev/null; then
               echo "SWARM_FAILED: $lens transcript is not committed ($f)"; fail=1; continue
+            fi
+            if ! grep -Fxq "reviewed-head: $reviewed_head" "$f"; then
+              echo "SWARM_FAILED: $lens reviewed a different commit ($f)"; fail=1; continue
             fi
             verdict=$(tail -n 1 "$f" | tr -d '\r')
             if [ "$verdict" = "REVIEW_FAILED" ]; then
