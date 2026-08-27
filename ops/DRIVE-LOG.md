@@ -1300,3 +1300,16 @@ refuse non-default retry values the authoring dialect cannot represent, and pin
 both cases. A direct round trip now also exercises flow/step CLI fields and a
 non-empty trigger declaration. The branch swarm additionally stamps the fetched
 PR head into every transcript and refuses stale evidence.
+
+Round four, canonical run `52e3b49347c0e4c8b8e72dd4`, reviewed
+`3d9b9ce` through the immutable main-owned gate. Structure and history passed;
+maintainability rejected, so the aggregate returned **SWARM_FAILED** and its
+legacy retry was stopped before mutation. The blocker reproduced an unwritten
+nearest-`flows.json` rule: a nested config shadows outer configs as a whole,
+but neither success output nor an unresolved-CLI refusal named the selected
+file. The repair documents the upward search and nearest-wins-no-merge boundary,
+prints the selected config path for project resolutions, names the shadowing
+file on refusal, and pins a parent-CLI/child-executors layout. The same review
+identified a redundant general retry-range guard: only the exact authoring
+defaults are representable, so the single fail-closed equality check now owns
+that refusal and its CLI test pins the specific field message.

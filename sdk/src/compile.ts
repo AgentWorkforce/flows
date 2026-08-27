@@ -232,16 +232,6 @@ function validateKernelRetry(value: unknown): void {
   const retry = requireKernelObject(value, [
     'initial_backoff_ms', 'max_backoff_ms', 'multiplier', 'jitter_percent',
   ]);
-  const initial = retry['initial_backoff_ms'];
-  const maximum = retry['max_backoff_ms'];
-  const multiplier = retry['multiplier'];
-  const jitter = retry['jitter_percent'];
-  if (![initial, maximum, multiplier, jitter].every(isNonNegativeInteger)
-    || (multiplier as number) === 0
-    || (jitter as number) > 100
-    || (maximum as number) < (initial as number)) {
-    throw new CompileError(['compiled spec contains an invalid retry policy']);
-  }
   for (const [field, expected] of Object.entries(KERNEL_RETRY_DEFAULTS)) {
     if (retry[field] !== expected) {
       throw new CompileError([
@@ -309,10 +299,6 @@ function copyDefined(value: Record<string, unknown>, keys: readonly string[]): R
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
 function toKernelStep(step: StepSpec): KernelStepSpec {

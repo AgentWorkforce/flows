@@ -18,11 +18,13 @@ interface ProjectConfig {
   cli?: string;
   executors: string[];
   directory: string;
+  path?: string;
 }
 
 interface CheckReport {
   ok: boolean;
   path?: string;
+  projectConfigPath?: string;
   resolutions: ReturnType<typeof preflight>['resolutions'];
   diagnostics: Array<PreflightDiagnostic | CheckInputDiagnostic>;
 }
@@ -62,10 +64,16 @@ export function runCli(args: readonly string[], io: CliIo = PROCESS_IO): number 
     const flow = readFlow(absolutePath);
     const config = readProjectConfig(dirname(absolutePath));
     const probes = systemProbes(dirname(absolutePath), config);
-    const result = preflight(flow, { projectCli: config.cli, probes });
+    const result = preflight(flow, {
+      projectCli: config.cli,
+      projectConfigPath: config.path,
+      projectSearchStart: dirname(absolutePath),
+      probes,
+    });
     const report: CheckReport = {
       ok: result.ok,
       path: parsed.path,
+      ...(config.path !== undefined ? { projectConfigPath: config.path } : {}),
       resolutions: result.resolutions,
       diagnostics: result.diagnostics,
     };
@@ -141,6 +149,7 @@ function readProjectConfig(start: string): ProjectConfig {
     ...(value['cli'] !== undefined ? { cli: value['cli'] as string } : {}),
     executors: (value['executors'] as string[] | undefined) ?? [],
     directory: dirname(configPath),
+    path: configPath,
   };
 }
 
@@ -218,7 +227,10 @@ function emitReport(report: CheckReport, json: boolean, io: CliIo): void {
     return;
   }
   for (const resolution of report.resolutions) {
-    io.stdout(`RESOLVED step "${resolution.stepId}" cli "${resolution.cli}" from ${resolution.source}`);
+    const config = resolution.source === 'project' && report.projectConfigPath !== undefined
+      ? ` (${report.projectConfigPath})`
+      : '';
+    io.stdout(`RESOLVED step "${resolution.stepId}" cli "${resolution.cli}" from ${resolution.source}${config}`);
   }
   if (report.ok) io.stdout(`CHECK PASSED ${report.path ?? ''}`.trimEnd());
 }

@@ -26,6 +26,8 @@ export interface PreflightProbes {
 
 export interface PreflightOptions {
   projectCli?: string;
+  projectConfigPath?: string;
+  projectSearchStart?: string;
   probes: PreflightProbes;
 }
 
@@ -68,7 +70,7 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
         severity: 'refusal',
         kind: 'cli_unresolved',
         stepId: step.id,
-        message: `Step "${step.id}" has no CLI at step, flow, or project level.`,
+        message: unresolvedCliMessage(step.id, options),
       });
       continue;
     }
@@ -85,6 +87,15 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
     resolutions,
     diagnostics,
   };
+}
+
+function unresolvedCliMessage(stepId: string, options: PreflightOptions): string {
+  const context = options.projectConfigPath !== undefined
+    ? ` Nearest project config "${options.projectConfigPath}" declares no cli; outer configs are shadowed.`
+    : options.projectSearchStart !== undefined
+      ? ` No flows.json was found from "${options.projectSearchStart}" to the filesystem root.`
+      : '';
+  return `Step "${stepId}" has no CLI at step, flow, or project level.${context}`;
 }
 
 function resolveCli(

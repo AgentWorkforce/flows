@@ -174,7 +174,7 @@ describe('flows check CLI', () => {
     expect(result.stderr.join('\n')).toContain('REFUSED [invalid_spec]');
   });
 
-  it('rejects malformed compiled retry policies instead of trusting them', () => {
+  it('rejects non-default compiled retry policies instead of dropping them', () => {
     const directory = mkdtempSync(join(tmpdir(), 'flows-check-'));
     temporaryDirectories.push(directory);
     const compiled = JSON.parse(readFileSync(join(TESTDATA, 'hello-ladder.spec.canonical.json'), 'utf8')) as {
@@ -186,13 +186,15 @@ describe('flows check CLI', () => {
 
     const result = run(path);
     expect(result.code).toBe(2);
-    expect(result.stderr.join('\n')).toContain('REFUSED [invalid_spec]');
+    expect(result.stderr.join('\n')).toContain('retry.multiplier must equal the authoring default 2');
   });
 
   it('loads the final CLI resolution source from the nearest flows.json', () => {
     const result = run(join(TESTDATA, 'preflight', 'project-default', 'project-cli.flow.yaml'));
     expect(result.code).toBe(0);
-    expect(result.stdout.join('\n')).toContain('from project');
+    expect(result.stdout.join('\n')).toContain(
+      `from project (${join(TESTDATA, 'preflight', 'project-default', 'flows.json')})`,
+    );
     expect(result.stdout.join('\n')).toContain('../authenticated-cli');
   });
 
@@ -210,7 +212,26 @@ describe('flows check CLI', () => {
 
     const result = run(flow);
     expect(result.code).toBe(0);
-    expect(result.stdout.join('\n')).toContain('RESOLVED step "answer" cli "./authenticated-cli" from project');
+    expect(result.stdout.join('\n')).toContain(
+      `RESOLVED step "answer" cli "./authenticated-cli" from project (${join(directory, 'flows.json')})`,
+    );
+  });
+
+  it('uses the nearest flows.json as a whole project boundary and names it on refusal', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'flows-check-'));
+    temporaryDirectories.push(directory);
+    const nested = join(directory, 'nested');
+    const flowDirectory = join(nested, 'flows');
+    mkdirSync(flowDirectory, { recursive: true });
+    writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli: './authenticated-cli', executors: [] }));
+    writeFileSync(join(nested, 'flows.json'), JSON.stringify({ executors: [] }));
+    const path = join(flowDirectory, 'shadowed.flow.yaml');
+    writeFileSync(path, "version: '0.1.0'\nsteps:\n  - id: answer\n    type: llm\n    prompt: answer\n");
+
+    const result = run(path);
+    expect(result.code).toBe(2);
+    expect(result.stderr.join('\n')).toContain(`Nearest project config "${join(nested, 'flows.json')}" declares no cli`);
+    expect(result.stderr.join('\n')).toContain('outer configs are shadowed');
   });
 
   it('maps every input refusal path to its declared kind without raw exceptions', () => {
