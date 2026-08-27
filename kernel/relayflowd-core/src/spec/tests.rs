@@ -126,7 +126,42 @@ fn preflight_data_is_fail_closed() {
         "triggers": [{"id": "hourly", "executor": "worker-a", "worker": "guessed"}],
         "steps": [{"id": "a", "type": "llm", "prompt": "p", "cli": ""}]
     }));
-    assert!(malformed.is_err());
+    assert!(
+        matches!(malformed, Err(SpecError::Malformed(ref message)) if message.contains("unknown field `worker`")),
+        "{malformed:?}"
+    );
+
+    let empty_flow_cli = RunSpec::parse(&json!({
+        "cli": "",
+        "steps": [{"id": "a", "type": "deterministic", "command": "true"}]
+    }))
+    .unwrap();
+    assert_eq!(empty_flow_cli.validate(), Err(SpecError::EmptyCli));
+
+    for (id, executor) in [("", "worker-a"), ("hourly", "")] {
+        let invalid_trigger = RunSpec::parse(&json!({
+            "triggers": [{"id": id, "executor": executor}],
+            "steps": [{"id": "a", "type": "deterministic", "command": "true"}]
+        }))
+        .unwrap();
+        assert_eq!(
+            invalid_trigger.validate(),
+            Err(SpecError::InvalidTrigger(id.to_owned()))
+        );
+    }
+
+    let duplicate_trigger = RunSpec::parse(&json!({
+        "triggers": [
+            {"id": "hourly", "executor": "worker-a"},
+            {"id": "hourly", "executor": "worker-b"}
+        ],
+        "steps": [{"id": "a", "type": "deterministic", "command": "true"}]
+    }))
+    .unwrap();
+    assert_eq!(
+        duplicate_trigger.validate(),
+        Err(SpecError::DuplicateTrigger("hourly".to_owned()))
+    );
 
     let empty_cli = RunSpec::parse(&json!({
         "steps": [{"id": "a", "type": "llm", "prompt": "p", "cli": ""}]

@@ -311,6 +311,19 @@ describe('validate: preflight declarations', () => {
     expect(result).toEqual({ ok: true, errors: [] });
   });
 
+  it('rejects duplicate trigger ids', () => {
+    const result = validateSpec({
+      version: '0.1.0',
+      triggers: [
+        { id: 'hourly', executor: 'worker-a' },
+        { id: 'hourly', executor: 'worker-b' },
+      ],
+      steps: [{ id: 'ready', type: 'deterministic', command: 'true' }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('spec.triggers[1].id: duplicate trigger id "hourly"');
+  });
+
   it('rejects malformed and unknown trigger/CLI fields fail-closed', () => {
     const result = validateSpec({
       version: '0.1.0',
