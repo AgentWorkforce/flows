@@ -736,3 +736,183 @@ question above; then the two residual WP-3 findings (P2-A, P3-B). PR #6
 tick's `ops/NEXT.md` to be neither blocking nor this loop's work, and that
 ruling stands — it documents a defect in `relaycast-cloud` (filed as
 AgentWorkforce/relaycast-cloud#88) that no code in this repo can close.
+
+---
+
+## 2026-08-27 — WP-4-FIX: PR #8 reconciled, reviewed, and made mergeable
+
+**Work package:** WP-4-FIX from `ops/NEXT.md`: clear PR #8's standing
+`REVIEW_FAILED`, reconcile it with `main`, correct the shipped record, close
+R5's dead test mutation, and triage both open Codex findings without starting
+new gate work.
+
+`origin/main` at `73bdb59` was merged into the existing
+`flow/drive-57e923c-08271542` branch as two-parent merge `29f681f` (parents
+`6a425b6` and `73bdb59`). No rebase, squash, force-push, or history rewrite
+occurred. The only conflict was `ops/SCOREBOARD.md`; its resolution keeps
+main's corrective parenthetical, retains gate 1 **AMBER**, adds the branch's
+preflight evidence, and uses the measured 72/99 counts below. Main's typed
+`review` + deterministic `verdict` steps arrived unchanged with the merge.
+
+**Record and R1–R5:** the four stale sites in the 16:03 entry retain their
+original text and now carry in-place `[ERRATA R1]` through `[ERRATA R4]`
+forward pointers. R4 is also present in the round-2 errata list. The stale
+no-review claim, 76-test result, branch-GREEN claim, and fixture-regeneration
+claim are therefore no longer unmarked. All six canonical JSON / `.sha256`
+fixtures are byte-identical to `main`. `sdk/tests/cli.test.ts` no longer
+deletes a nonexistent `flow['cli']`; its comment names relocation into the
+empty `flows.json` as the actual `cli_unresolved` fault. A targeted verbose run
+passed the fixture case and all three ladder cases: 4 passed, 26 skipped,
+exit 0.
+
+**Backlog:** one item records P1 and P2 together as cases where check can accept
+what the kernel later refuses. No `sdk/src/**` or `kernel/**` behavior changed
+in WP-4-FIX.
+
+### Verify — executed on the merged tree in this tick
+
+- `(cd kernel && ../ops/cargo.sh test --workspace)` — exit 0, **72 passed,
+  0 failed** (18 + 0 + 19 + 26 + 3 + 6; doc-tests 0 ×3). Verbatim tail:
+
+  ```text
+     Doc-tests relayflowd_journal
+
+  running 0 tests
+
+  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  ```
+
+- `(cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)` — exit 0.
+  Verbatim output:
+
+  ```text
+      Checking relayflowd-core v0.1.0 (/Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/relayflowd-core)
+      Checking relayflowd-journal v0.1.0 (/Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/relayflowd-journal)
+      Checking relayflowd v0.1.0 (/Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/relayflowd)
+      Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.75s
+  ```
+
+- `(cd kernel && ../ops/cargo.sh fmt --check)` — exit 0, empty output.
+
+- `(cd sdk && npm run build)` — exit 0. Verbatim output:
+
+  ```text
+  > @relayflows/sdk@0.1.0 build
+  > tsc
+  ```
+
+- `(cd sdk && npm test)` — exit 0, **99 passed, 0 failed**, 7 files. Verbatim
+  tail:
+
+  ```text
+   Test Files  7 passed (7)
+        Tests  99 passed (99)
+     Start at  17:12:51
+     Duration  879ms (transform 297ms, setup 0ms, collect 728ms, tests 703ms, environment 1ms, prepare 427ms)
+  ```
+
+**Structural gate, verbatim:**
+
+```text
+     465 kernel/relayflowd/src/server/session.rs
+     468 kernel/relayflowd/src/server.rs
+   10045 total
+     370 sdk/src/cli.ts
+     454 sdk/src/validate.ts
+    2385 total
+```
+
+### Behavioral gate — all seven cases executed on the merged tree
+
+```text
+$ node sdk/dist/cli.js check testdata/hello-ladder.flow.yaml
+WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+RESOLVED step "plan" cli "./preflight/authenticated-cli" from project
+RESOLVED step "act" cli "./preflight/authenticated-cli" from project
+CHECK PASSED testdata/hello-ladder.flow.yaml
+exit=0
+
+$ node sdk/dist/cli.js check testdata/hello-llm.flow.yaml
+WARNING [unprovable_effects] Step "greet" command "printf" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "finish" command "printf" resolves, but its effects cannot be proven before execution.
+RESOLVED step "answer" cli "./preflight/authenticated-cli" from project
+CHECK PASSED testdata/hello-llm.flow.yaml
+exit=0
+
+$ node sdk/dist/cli.js check testdata/hello-agent.flow.yaml
+WARNING [unprovable_effects] Step "greet" command "printf" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "finish" command "printf" resolves, but its effects cannot be proven before execution.
+RESOLVED step "edit" cli "./preflight/authenticated-cli" from project
+CHECK PASSED testdata/hello-agent.flow.yaml
+exit=0
+
+$ node sdk/dist/cli.js check testdata/preflight/cli-missing.flow.yaml
+REFUSED [cli_missing] Step "answer" declares CLI "./missing-cli", but it is missing.
+RESOLVED step "answer" cli "./missing-cli" from step
+exit=2
+
+$ node sdk/dist/cli.js check testdata/preflight/cli-unauthenticated.flow.yaml
+REFUSED [cli_unauthenticated] Step "edit" declares CLI "./unauthenticated-cli", but its auth probe failed.
+RESOLVED step "edit" cli "./unauthenticated-cli" from step
+exit=2
+
+$ node sdk/dist/cli.js check testdata/preflight/cli-unresolved.flow.yaml
+REFUSED [cli_unresolved] Step "answer" has no CLI at step, flow, or project level.
+exit=2
+
+$ node sdk/dist/cli.js check testdata/preflight/no-executor.flow.yaml
+WARNING [unprovable_effects] Step "ready" command "printf" resolves, but its effects cannot be proven before execution.
+REFUSED [no_executor] Trigger "orphaned-schedule" has no registered executor "absent-executor".
+exit=2
+```
+
+### Review verdict — read from the persisted transcript
+
+`ops/reviews/20260827-1714-review.md` is the third adversarial review. It read
+rounds 1 and 2, audited R1–R5, re-checked merge integrity and scope, and ends:
+
+```text
+REVIEW_PASSED
+```
+
+The verdict is taken from that transcript, not inferred from test or workflow
+status.
+
+### Codex inline findings — triaged at pushed HEAD `57c0c3e`
+
+- **P1:** partly right; current warn-not-refuse behavior is defensible for a
+  bare command word because `/bin/sh -c` may resolve a builtin, function, or
+  assignment. The minute-zero case is real for a path-like word containing `/`
+  whose path does not exist. Reply posted at HEAD; backlog follow-up says to
+  refuse that narrow case and retain the warning otherwise.
+- **P2:** genuine and unfixed; `flows check` can accept a version the kernel
+  rejects and reject a kernel-valid spec whose optional `name` is absent.
+  Reply posted at HEAD; the shared backlog follow-up requires exact
+  kernel-dialect validation.
+
+Neither finding is implemented in this fix-only package. CodeRabbit and Devin
+green checks are not cited as review signal.
+
+### PR #8 — updated in place, not merged
+
+The PR body was rebuilt from the five executed results and all seven behavioral
+outputs above. Both inline Codex comments received replies at pushed HEAD. A
+point-by-point reply to Khaliq's blocking comment records the corrected log,
+fresh evidence, merge reconciliation, R5 closure, third review, and the human
+merge decision that remains.
+
+Within 60 seconds of those updates, the required live query returned verbatim:
+
+```json
+{"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","reviewDecision":"","statusCheckRollup":[{"__typename":"StatusContext","context":"CodeRabbit","startedAt":"2026-08-27T21:16:24Z","state":"SUCCESS","targetUrl":""},{"__typename":"StatusContext","context":"Devin Review","startedAt":"2026-08-27T21:16:17Z","state":"SUCCESS","targetUrl":"https://app.devin.ai/review/agentworkforce/flows/pull/8"}]}
+```
+
+PR: https://github.com/AgentWorkforce/flows/pull/8 — **OPEN**, `MERGEABLE` /
+`CLEAN`. This worker did not merge it.
+
+### Gate state — gate 1 remains **AMBER**
+
+Clause 1 is merged and closed on `main`. Clause 2 is implemented, reconciled,
+verified, reviewed, and mergeable on PR #8, but remains unmerged branch state.
+Only a human merge followed by a fresh run on `main` may move gate 1 off AMBER.
+No new gate work begins before that action.
