@@ -16,6 +16,16 @@ use ulid::Ulid;
 
 use crate::{clock::WallClock, exec_det};
 
+#[derive(Debug, Clone, Default)]
+#[doc(hidden)]
+pub struct DriveOptions {
+    pub stop_after: Option<usize>,
+    /// Test/debug hook: pause immediately before this runnable step starts.
+    pub pause_before_step: Option<String>,
+    /// Test/debug hook: pause after every step is durable, before run completion.
+    pub pause_before_completion: bool,
+}
+
 pub struct Engine<C = WallClock> {
     data_dir: PathBuf,
     clock: C,
@@ -44,6 +54,23 @@ impl<C: Clock> Engine<C> {
         created_by: &str,
         stop_after: Option<usize>,
     ) -> Result<RunOutcome> {
+        self.start_with_options(
+            spec,
+            created_by,
+            DriveOptions {
+                stop_after,
+                ..DriveOptions::default()
+            },
+        )
+    }
+
+    #[doc(hidden)]
+    pub fn start_with_options(
+        &self,
+        spec: RunSpec,
+        created_by: &str,
+        options: DriveOptions,
+    ) -> Result<RunOutcome> {
         spec.validate().context("invalid run spec")?;
         ensure_deterministic(&spec)?;
         let run_id = Ulid::new().to_string();
@@ -71,18 +98,35 @@ impl<C: Clock> Engine<C> {
         self.registry()?
             .register(&run_id, &path)
             .context("register run")?;
-        self.drive(journal, spec, stop_after)
+        self.drive(journal, spec, options)
     }
 
     pub fn resume(&self, run_id: &str, stop_after: Option<usize>) -> Result<RunOutcome> {
+        self.resume_with_options(
+            run_id,
+            DriveOptions {
+                stop_after,
+                ..DriveOptions::default()
+            },
+        )
+    }
+
+    #[doc(hidden)]
+    pub fn resume_with_options(&self, run_id: &str, options: DriveOptions) -> Result<RunOutcome> {
         let mut journal = self.open_run(run_id)?;
+        let registry = self.registry()?;
+        if registry.lookup(run_id)?.is_none() {
+            registry
+                .register(run_id, &self.run_path(run_id))
+                .context("repair missing run registry entry")?;
+        }
         let spec = journal.run_spec().context("read run spec")?;
         ensure_deterministic(&spec)?;
         let state = self.load_state(&journal, spec.clone())?;
         for action in recovery_actions(&state, self.clock.now_ms()) {
             self.persist_only(&mut journal, action)?;
         }
-        self.drive(journal, spec, stop_after)
+        self.drive(journal, spec, options)
     }
 
     pub fn snapshot(&self, run_id: &str) -> Result<RunSnapshot> {
@@ -107,15 +151,16 @@ impl<C: Clock> Engine<C> {
         &self,
         mut journal: SqliteJournal,
         spec: RunSpec,
-        stop_after: Option<usize>,
+        options: DriveOptions,
     ) -> Result<RunOutcome> {
         let initial_completed = self.load_state(&journal, spec.clone())?.completed_steps();
+        let mut pause_consumed = false;
         loop {
             let state = self.load_state(&journal, spec.clone())?;
             if let Some(reason) = state.completion {
                 return Ok(outcome_from_state(&state, reason));
             }
-            if stop_after.is_some_and(|limit| {
+            if options.stop_after.is_some_and(|limit| {
                 state.completed_steps().saturating_sub(initial_completed) >= limit
             }) {
                 self.registry()?
@@ -126,6 +171,10 @@ impl<C: Clock> Engine<C> {
                     completion_reason: None,
                     completed_steps: state.completed_steps(),
                 });
+            }
+            if !pause_consumed && should_pause(&state, &options) {
+                pause_consumed = true;
+                thread::sleep(Duration::from_secs(300));
             }
 
             let actions = next_actions(&state, self.clock.now_ms());
@@ -163,7 +212,13 @@ impl<C: Clock> Engine<C> {
                     Action::Dispatch { worker_class, .. } => {
                         bail!("no {worker_class:?} worker is attached to the deterministic rung")
                     }
-                    Action::ArmTimer { at_ms } => self.wait_for_timer(&journal, at_ms)?,
+                    Action::ArmTimer { at_ms } => {
+                        // `next_actions` exposes every durable timer. This
+                        // synchronous rung sleeps only until the earliest one,
+                        // then reloads state before choosing more work.
+                        self.wait_for_timer(&journal, at_ms)?;
+                        break;
+                    }
                     Action::CompleteRun { reason } => {
                         self.registry()?
                             .set_status(journal.run_id(), "completed", None)?;
@@ -231,6 +286,22 @@ impl<C: Clock> Engine<C> {
     fn run_path(&self, run_id: &str) -> PathBuf {
         self.data_dir.join("runs").join(format!("{run_id}.sqlite3"))
     }
+}
+
+fn should_pause(state: &RunState, options: &DriveOptions) -> bool {
+    if options.pause_before_completion && state.all_steps_succeeded() {
+        return true;
+    }
+    let Some(step_id) = options.pause_before_step.as_deref() else {
+        return false;
+    };
+    state.spec.steps.iter().find_map(|step| {
+        matches!(
+            state.steps[&step.id].state,
+            relayflowd_core::StepState::Runnable
+        )
+        .then_some(step.id.as_str())
+    }) == Some(step_id)
 }
 
 fn ensure_deterministic(spec: &RunSpec) -> Result<()> {
@@ -328,7 +399,7 @@ pub fn read_spec(path: &Path) -> Result<RunSpec> {
     let value: serde_json::Value = serde_json::from_slice(&bytes)
         .with_context(|| format!("parse run spec {}", path.display()))?;
     // Fail closed: unknown fields are an error, never a silently dropped gate.
-    let spec = RunSpec::parse(&value)
-        .with_context(|| format!("parse run spec {}", path.display()))?;
+    let spec =
+        RunSpec::parse(&value).with_context(|| format!("parse run spec {}", path.display()))?;
     Ok(spec)
 }

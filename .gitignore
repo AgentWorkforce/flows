@@ -6,3 +6,4 @@ dist/
 .agent-relay/
 .env
 .agentworkforce/
+.cargo-home/

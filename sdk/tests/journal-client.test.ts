@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { JournalClient } from '../src/journal-client.js';
-import { compileYaml } from '../src/compile.js';
+import { compileYaml, toKernelSpec } from '../src/compile.js';
 import { PROTOCOL_VERSION } from '../src/protocol.js';
-import type { FlowSpec } from '../src/spec.js';
+import type { FlowSpec, KernelRunSpec } from '../src/spec.js';
 
 // Protocol-v0 client tests over a real unix socket. The transport is real
 // (newline-delimited JSON frames over `node:net`), but the server side is a
@@ -20,11 +20,12 @@ function sockPath(): string {
   return join(tmpdir(), `rf-${randomUUID().slice(0, 8)}.sock`);
 }
 
-const HELLO_SPEC: FlowSpec = {
+const HELLO_FLOW: FlowSpec = {
   version: '0.1.0',
   name: 'client-roundtrip',
   steps: [{ id: 'greet', type: 'deterministic', command: 'echo hi' }],
 };
+const HELLO_SPEC: KernelRunSpec = toKernelSpec(HELLO_FLOW);
 
 interface FrameCtx {
   id: string;
@@ -177,8 +178,8 @@ describe('JournalClient: protocol v0 over unix socket', () => {
 
   it('round-trips a spec straight from compileYaml through run.start in the kernel dialect', async () => {
     // Authoring sugar the kernel's RunSpec::parse rejects verbatim:
-    // maxIterations, dependsOn, tagged verification. runStart must convert
-    // via toKernelSpec, or the fail-closed loopback double rejects the frame.
+    // maxIterations, dependsOn, tagged verification. The caller must compile
+    // via toKernelSpec before invoking the kernel-dialect journal boundary.
     const flow = compileYaml(`
 version: '0.1.0'
 name: ladder-roundtrip
@@ -199,7 +200,7 @@ steps:
     await client.connect();
     await client.hello('sdk-test');
     lastStartedSpec = null;
-    const res = await client.runStart(flow);
+    const res = await client.runStart(toKernelSpec(flow));
     expect(res.run_id).toBe('run-01');
     // What crossed the wire is the kernel dialect, not the authoring shape.
     const wired = lastStartedSpec as Record<string, unknown>;

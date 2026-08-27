@@ -76,6 +76,7 @@ pub fn next_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
         return complete_run_actions(state, RunCompletionReason::Success, None, now_ms);
     }
 
+    let mut timers = Vec::new();
     for spec in &state.spec.steps {
         let runtime = &state.steps[&spec.id];
         match runtime.state {
@@ -97,13 +98,17 @@ pub fn next_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
                 ))];
             }
             StepState::Backoff { wake_at_ms, .. } => {
-                return vec![Action::ArmTimer { at_ms: wake_at_ms }];
+                timers.push(Action::ArmTimer { at_ms: wake_at_ms });
             }
             StepState::Runnable => return start_actions(state, spec, runtime.attempts + 1, now_ms),
             _ => {}
         }
     }
-    Vec::new()
+    timers.sort_by_key(|action| match action {
+        Action::ArmTimer { at_ms } => *at_ms,
+        _ => unreachable!("the timer collection contains only timers"),
+    });
+    timers
 }
 
 fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -> Vec<Action> {

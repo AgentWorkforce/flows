@@ -139,3 +139,54 @@ fn crashed_attempt_does_not_consume_an_iteration() {
     assert_eq!(payload.disposition, Disposition::Retry);
     assert!(payload.next_attempt_at_ms.is_some());
 }
+
+#[test]
+fn all_backing_off_steps_return_timers() {
+    let spec = crate::RunSpec::parse(&json!({
+        "steps": [
+            {
+                "id": "first",
+                "type": "deterministic",
+                "command": "false",
+                "max_iterations": 2,
+                "retry": {"initial_backoff_ms": 200, "max_backoff_ms": 200, "multiplier": 1, "jitter_percent": 0}
+            },
+            {
+                "id": "second",
+                "type": "deterministic",
+                "command": "false",
+                "max_iterations": 2,
+                "retry": {"initial_backoff_ms": 100, "max_backoff_ms": 100, "multiplier": 1, "jitter_percent": 0}
+            }
+        ]
+    }))
+    .unwrap();
+    let result = AttemptResult {
+        output: Value::Null,
+        budget: Budget::default(),
+        completed_by: "kernel".to_owned(),
+        end_pins: None,
+        effects: Vec::new(),
+        failure_reason: Some(CompletionReason::WorkerError),
+    };
+    let mut entries = Vec::new();
+    for step in &spec.steps {
+        entries.extend(
+            completion_actions("run", step, 1, 0, result.clone(), 1_000)
+                .into_iter()
+                .filter_map(|action| match action {
+                    Action::Append(entry) => Some(entry),
+                    _ => None,
+                }),
+        );
+    }
+
+    let state = RunState::fold("run", spec, &entries).unwrap();
+    assert_eq!(
+        next_actions(&state, 1_050),
+        vec![
+            Action::ArmTimer { at_ms: 1_100 },
+            Action::ArmTimer { at_ms: 1_200 },
+        ]
+    );
+}

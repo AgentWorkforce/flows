@@ -49,7 +49,8 @@ impl RunSpec {
     /// here; every non-flattened struct denies unknown fields via serde.
     pub fn parse(value: &Value) -> Result<Self, SpecError> {
         reject_unknown_step_fields(value)?;
-        serde_json::from_value(value.clone()).map_err(|error| SpecError::Malformed(error.to_string()))
+        serde_json::from_value(value.clone())
+            .map_err(|error| SpecError::Malformed(error.to_string()))
     }
 
     pub fn validate(&self) -> Result<(), SpecError> {
