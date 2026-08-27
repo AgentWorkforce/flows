@@ -525,3 +525,195 @@ and malformed retry policies now refuse instead of being dropped.
 records the correction from its premature rung-only GREEN through AMBER and
 the evidence that closes preflight. It becomes repository state only when a
 human merges the PR; this worker does not merge.
+
+---
+
+## 2026-08-27 — WP-4 review round 2 + record correction (`flow/drive-57e923c-08271542`, base `57e923c`)
+
+**Work package:** still **WP-4 — the covenant-2 `flows check` preflight** (gate
+1's second done-when clause, from `ops/NEXT.md`). No new work was started over
+it. This tick is the log obligation for the review round that ran *after* the
+preceding entry was written at 16:03, plus the record correction that round
+demanded. Two adversarial reviews and one repair pass landed in that window and
+none of them are described above, because the entry above predates them.
+
+### Errata against the 16:03 entry (it is wrong on three points)
+
+The preceding entry is left byte-for-byte intact — this log is append-only, so
+the corrections are recorded here as errata rather than by editing a committed
+entry. A human or the next tick may decide the stronger remedy of amending it;
+this worker did not rewrite history to make itself look better.
+
+- **R1 — "no independent review transcript was produced" is false as of now.**
+  It was true when written. Three transcripts landed afterwards and are
+  committed at `823e35a`: `ops/reviews/20260827-1611-review.md`
+  (**REVIEW_FAILED**), `ops/reviews/20260827-1620-wp4-fixes.md` (the repair),
+  and `ops/reviews/20260827-1627-review.md` (**REVIEW_FAILED**). The claim must
+  not be read forward.
+- **R2 — the `npm test` tail quoted above (76 passed, 7 files, 16:03:45) is
+  superseded.** It is a pre-fix count. The current tree is **99 passed**. The
+  quoted block is verbatim but no longer evidence for the shipped diff.
+- **R3 — "gate 1 is GREEN in this branch on both clauses" overstates it.** It
+  is AMBER, for the reasons in *Gate state* below. `ops/SCOREBOARD.md` already
+  said AMBER while the entry beside it said GREEN.
+- One further stale number, found and fixed in this tick:
+  `ops/SCOREBOARD.md:8` cited "SDK 95 tests" against a measured 99. Corrected
+  to 99 in this commit. That is the only file besides this log that this tick
+  touched.
+
+### Review verdict: REVIEW_FAILED (second pass, 16:27) — on the record, not the code
+
+Round 1 (16:11) returned **REVIEW_FAILED** on three findings: **F1 (HIGH)** a
+fail-open — an unresolvable deterministic command passed `check` with `ok: true`
+and zero diagnostics, inside the very covenant-2 clause the package exists to
+close; **F2** the clause's literal subject (the *ladder* flows under induced
+fault) was never tested, substituted by stand-in fixtures without disclosure;
+**F3** a self-certifying behavioral gate resting on a stub committed into the
+canonical gate-1 artifacts and their hash pins.
+
+The repair (16:20) answered all three by changing code, not by re-arguing:
+`sdk/src/preflight.ts:167-213` now leaves exactly one warning on **every**
+deterministic step across all three knowable states (`unprovable_effects`,
+`command_unresolved`, `command_unprovable`, the latter two declared in
+`sdk/src/failure-kinds.ts:23-33`); warn-not-refuse was chosen because
+`kernel/relayflowd/src/exec_det.rs:22-27` runs string commands through
+`/bin/sh -c`, so an unresolved first word may be a builtin — the executor was
+read, not assumed.
+
+Round 2 (16:27) confirmed **F1/F2/F3 are genuinely closed**, re-ran every DoD
+command on its own, and still returned **REVIEW_FAILED** — explicitly stating
+"no code change is required." The remaining grounds were R1/R2/R3 above: the
+`ops/DRIVE-LOG.md` deliverable denied the review that produced the fix, quoted
+a superseded test count as verbatim evidence, and re-asserted a GREEN the
+scoreboard beside it had already retracted. This tick's entry is the response
+to that verdict. **A third review has not run, so the verdict standing on the
+record is REVIEW_FAILED.** This entry does not upgrade it.
+
+### Verify — re-executed in this tick from the current tree (hermetic `ops/cargo.sh`, no exported env)
+
+- `cd kernel && ../ops/cargo.sh test --workspace` — exit 0, **72 passed, 0
+  failed** (18 + 0 + 19 + 26 + 3 + 6; doc-tests 0 ×3). Verbatim tail:
+
+  ```
+     Doc-tests relayflowd_journal
+
+  running 0 tests
+
+  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  ```
+
+- `cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings` — exit 0.
+  Verbatim tail:
+
+  ```
+      Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+  ```
+
+- `cd kernel && ../ops/cargo.sh fmt --check` — exit 0, output 0 bytes.
+
+- `cd sdk && npm run build` — exit 0. Verbatim output:
+
+  ```
+  > @relayflows/sdk@0.1.0 build
+  > tsc
+  ```
+
+- `cd sdk && npm test` (`tsc --noEmit && vitest run`) — exit 0, **99 passed, 0
+  failed**, 7 files. Verbatim tail:
+
+  ```
+   Test Files  7 passed (7)
+        Tests  99 passed (99)
+     Start at  16:29:31
+     Duration  762ms (transform 275ms, setup 0ms, collect 818ms, tests 473ms, environment 2ms, prepare 443ms)
+  ```
+
+**Behavioral gate, re-run against `sdk/dist/cli.js` in this tick** — the three
+ladder flows exit 0 (`CHECK PASSED hello-ladder|hello-llm|hello-agent`), and
+each induced fault exits 2 with its exact declared kind:
+
+```
+cli-missing          exit=2  REFUSED [cli_missing] Step "answer" declares CLI "./missing-cli", but it is missing.
+cli-unauthenticated  exit=2  REFUSED [cli_unauthenticated] Step "edit" declares CLI "./unauthenticated-cli", but its auth probe failed.
+cli-unresolved       exit=2  REFUSED [cli_unresolved] Step "answer" has no CLI at step, flow, or project level.
+no-executor          exit=2  REFUSED [no_executor] Trigger "orphaned-schedule" has no registered executor "absent-executor".
+```
+
+`check --json preflight/cli-missing.flow.yaml | python3 -m json.tool` exits 0
+and carries exactly one diagnostic, `"kind": "cli_missing"`, `"ok": false`.
+
+**Structural:** largest kernel `.rs` is `kernel/relayflowd/src/server.rs` at
+**468**; largest SDK source is `sdk/src/validate.ts` at **454**. Under 500.
+
+**PR:** https://github.com/AgentWorkforce/flows/pull/8 — *WP-4 — flows check
+preflight (covenant 2)*, **OPEN**, not a draft, MERGEABLE, `reviewDecision: ""`
+(no human review requested yet). Checks: CodeRabbit "pass" but rate-limited to
+a skipped review; Devin Review "pass" with "Full review skipped: trial expired
+and no credits remaining". **Neither bot actually reviewed this diff** — the
+two green check marks on PR #8 carry no review signal and must not be read as
+independent confirmation.
+
+### Gate state — gate 1 is **AMBER**, honestly
+
+Clause 1 (the three ladder rungs) is merged and closed on `main` (#2/#3, #4,
+#7 `ca6b80a`). Clause 2's implementation is complete on this branch and was
+independently re-verified by a reviewer who ran every DoD command on its own
+tree. It is nevertheless **not closed**, on two counts, either of which alone
+blocks GREEN:
+
+1. **PR #8 is unmerged.** Branch state is not repository state; this worker
+   does not merge, and no human has reviewed it.
+2. **The standing review verdict is REVIEW_FAILED.** Round 2 said the code is
+   sound and the record was not. This entry answers the record grounds, but a
+   verdict is not overturned by the party it was issued against.
+
+Residual carried forward unchanged and not re-discovered as new: v0's
+record-before-perform effect path is **at-most-once, not exactly-once**
+(disclosed in `kernel/DESIGN.md` §1.9, closable only with the mount as writer —
+gate 4); **P2-A** the `agent_pins_available` / `worker_holds` disagreement
+(`engine.rs:316-328`, `session.rs:353-355`); **P3-B** unvalidated
+`started_pins`/`end_pins` on non-agent completions; and the pre-existing (on
+`main` at `e0d65f1`) shape where an undispatchable agent step parks a whole run
+even when an independent deterministic step is `Runnable`.
+
+### Harness drift observed this tick (for the human, not for this worker to fix)
+
+- **The review gate cannot express an honest refusal.**
+  `workflows/drive.yaml:114-116` verifies the review step with
+  `output_contains: REVIEW_PASSED` at `maxIterations: 1`, so a truthful
+  `REVIEW_FAILED` reaches the harness as `failed_verification` —
+  indistinguishable from a reviewer that crashed. That conflation is what
+  routed a well-evidenced refusal into a repair loop. The 16:20 repair note
+  deliberately left it unchanged, correctly: widening the gate to accept
+  `REVIEW_FAILED` would let the `pr` step run on a refused diff, and editing
+  the gate that judges your own work is what AGENTS.md forbids. The right shape
+  is probably a third outcome that routes back to `build`. **Human's call.**
+- **The `pr` step's commit-title truncation recurred, fifth tick running.**
+  `workflows/drive.yaml`'s `cut -c1-60` produced the literal commit title of
+  `823e35a`, cut mid-word and mid-parenthesis:
+
+  ```
+  drive: WP-4 — `flows check` preflight (cove
+  ```
+
+  Root cause is known; the fix keeps getting deferred behind gate work.
+
+### Likely next package
+
+**A third adversarial review pass on the corrected record**, since the standing
+verdict is REVIEW_FAILED and R1–R3 are the only open grounds; no code work is
+queued behind it. If that pass returns REVIEW_PASSED, the package after it is
+**not new gate work** but the human merge of PR #8, which is what flips gate 1
+to GREEN in `ops/SCOREBOARD.md`.
+
+Only once gate 1 is merged does gate selection reopen: per the scoreboard, gate
+6 (integrations via relayfile) is eligible after gate 1, with gates 2 and 5
+also in the frame — that choice belongs to the next assess on current evidence,
+not to this entry. Standing candidates for slack, in order: harden
+`workflows/drive.yaml`'s `pr` step (title, body evidence, the `cut -c`
+truncation) — five ticks of the same drift; then the review-gate third-outcome
+question above; then the two residual WP-3 findings (P2-A, P3-B). PR #6
+(`flows/relaycast-500-regression`) remains a **draft**, was ruled in this
+tick's `ops/NEXT.md` to be neither blocking nor this loop's work, and that
+ruling stands — it documents a defect in `relaycast-cloud` (filed as
+AgentWorkforce/relaycast-cloud#88) that no code in this repo can close.
