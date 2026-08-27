@@ -1,0 +1,133 @@
+version: '1.0'
+name: flows-review-swarm
+description: >
+  Three independent reviewers, three lenses, three model families — the review
+  team RFC-0001 §2 rule 7 requires. Exists because external bots are not
+  review signal: on PR #8 CodeRabbit was rate-limited into skipping and Devin's
+  trial expired, both reporting SUCCESS. Our own review must not depend on
+  someone else's quota.
+
+  Invoke with PR_NUMBER set. Each lens persists its own transcript to
+  ops/reviews/; the aggregate step fails the run if ANY lens rejects, so a
+  single honest refusal blocks the merge.
+
+swarm:
+  pattern: dag
+  channel: flows-review
+  timeoutMs: 3600000
+  maxConcurrency: 3
+
+agents:
+  # Deliberately three different model families: a shared blind spot in one
+  # harness must not become the whole team's blind spot.
+  - name: maintainability
+    cli: claude
+    preset: reviewer
+    role: Reviews for maintainability — will a stranger understand and safely change this in six months?
+  - name: history
+    cli: codex
+    preset: reviewer
+    role: Reviews the change against the story of the code — does it fit what the repo has been becoming?
+  - name: structure
+    cli: opencode
+    preset: reviewer
+    role: Reviews structure — boundaries, coupling, whether the shape matches the contract in RFC-0001.
+
+workflows:
+  - name: review-pr
+    steps:
+      - name: fetch
+        type: deterministic
+        command: |
+          set -u
+          : "${PR_NUMBER:?PR_NUMBER must be set}"
+          gh pr view "$PR_NUMBER" --json headRefName,title,url > /tmp/pr-$PR_NUMBER.json
+          gh pr diff "$PR_NUMBER" > /tmp/pr-$PR_NUMBER.diff
+          wc -l /tmp/pr-$PR_NUMBER.diff
+          echo FETCHED
+
+      - name: lens-maintainability
+        type: agent
+        agent: maintainability
+        dependsOn: [fetch]
+        task: |
+          Review PR $PR_NUMBER (diff at /tmp/pr-$PR_NUMBER.diff, metadata at
+          /tmp/pr-$PR_NUMBER.json) through ONE lens: maintainability.
+          Ask: could a stranger read this in six months and change it safely?
+          Name unclear boundaries, implicit contracts, missing failure handling,
+          comments that assert what the code does not do, and tests that would
+          not fail if the behavior broke.
+          Read AGENTS.md and docs/RFC-0001-everything-is-a-relayflow.md first.
+          Write your complete review to
+          ops/reviews/$(date +%Y%m%d-%H%M)-pr${PR_NUMBER}-maintainability.md
+          and `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
+        verification:
+          type: output_contains
+          value: "REVIEW_"
+        maxIterations: 1
+        timeoutMs: 1800000
+
+      - name: lens-history
+        type: agent
+        agent: history
+        dependsOn: [fetch]
+        task: |
+          Review PR $PR_NUMBER (diff at /tmp/pr-$PR_NUMBER.diff) through ONE
+          lens: does this change fit the story of the code?
+          Run `git log --oneline -40` and read ops/DRIVE-LOG.md, ops/NEXT.md and
+          ops/DIRECTIVES.md if present. Ask: does it repeat a mistake the log
+          already records? Does it contradict a settled decision in RFC-0001?
+          Does it reintroduce something a previous commit deliberately removed?
+          Does the commit message tell the truth about the diff?
+          Write your complete review to
+          ops/reviews/$(date +%Y%m%d-%H%M)-pr${PR_NUMBER}-history.md and
+          `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
+        verification:
+          type: output_contains
+          value: "REVIEW_"
+        maxIterations: 1
+        timeoutMs: 1800000
+
+      - name: lens-structure
+        type: agent
+        agent: structure
+        dependsOn: [fetch]
+        task: |
+          Review PR $PR_NUMBER (diff at /tmp/pr-$PR_NUMBER.diff) through ONE
+          lens: structure. Boundaries, coupling, file size and single purpose,
+          whether the shape matches RFC-0001 (closed kernel vocabulary, helpers
+          over primitives, fail-closed, completionReason discipline) and
+          AGENTS.md. Name anything that puts product logic in the kernel, adds
+          a primitive instead of a helper, or grows a file past its purpose.
+          Write your complete review to
+          ops/reviews/$(date +%Y%m%d-%H%M)-pr${PR_NUMBER}-structure.md and
+          `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
+        verification:
+          type: output_contains
+          value: "REVIEW_"
+        maxIterations: 1
+        timeoutMs: 1800000
+
+      - name: aggregate
+        type: deterministic
+        dependsOn: [lens-maintainability, lens-history, lens-structure]
+        command: |
+          # Any single honest refusal blocks the merge. A missing transcript is
+          # a refusal too: an unpersisted verdict is not evidence.
+          set -u
+          fail=0
+          for lens in maintainability history structure; do
+            f=$(ls -t ops/reviews/*-pr${PR_NUMBER}-${lens}.md 2>/dev/null | head -1)
+            if [ -z "$f" ]; then
+              echo "SWARM_FAILED: $lens produced no transcript"; fail=1; continue
+            fi
+            if grep -q "REVIEW_FAILED" "$f"; then
+              echo "SWARM_FAILED: $lens rejected — see $f"; fail=1
+            elif grep -q "REVIEW_PASSED" "$f"; then
+              echo "ok: $lens passed ($f)"
+            else
+              echo "SWARM_FAILED: $lens transcript carries no verdict ($f)"; fail=1
+            fi
+          done
+          [ $fail -eq 0 ] && echo SWARM_PASSED || exit 1
+        timeoutMs: 120000

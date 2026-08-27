@@ -64,7 +64,11 @@ Rules of the program:
 4. **No gate may weaken another's invariant.** The sandbox-program runs already proved why: a repair agent must never be able to edit the gate that judges it (charter phase 1b). Gate definitions are owned outside the mutating agent's write scope.
 5. **The rulebook is alive.** The repo runs `../workflows`-style maintenance flows continuously (`maintain-agent-rules` is the template): standards rules are **added when a review surfaces a new failure class and pruned when they stop firing** — the rulebook grows and shrinks with evidence, never by accretion.
 6. **Features solidify into the catalog.** As each relayflows feature lands it is solidified three ways (`feature-catalog-guardian-audit` is the template): **tests** pin the deterministic code, **live runs** exercise the agentic product features continuously against the real codebase (a feature that stops working in a real run is a red gate, not a stale demo), and **evals** score the agentic behavior that tests can't pin.
-7. **Every PR is met by a review swarm.** Several proactive review agents fire on each PR — distinct lenses, minimally: **maintainability**, **git history** (does this change fit the story of the code), and **code structure** — the pattern already run on hoopsheet. Each reviewer is itself a relayflow (a gate-2 proactive agent triggered by the PR event), so the review system is built out of the thing it reviews.
+7. **Every PR is met by a review swarm — our own, not a vendor's.** External
+   review bots are not review signal: on PR #8 both reported SUCCESS while
+   neither had reviewed (one rate-limited into skipping, one on an expired
+   trial). A merge bar that counts a green vendor check is measuring quota,
+   not quality. `workflows/review-swarm.yaml` is the answer: Several proactive review agents fire on each PR — distinct lenses, minimally: **maintainability**, **git history** (does this change fit the story of the code), and **code structure** — the pattern already run on hoopsheet. Each reviewer is itself a relayflow (a gate-2 proactive agent triggered by the PR event), so the review system is built out of the thing it reviews.
 
 ### The Relayflow Lead
 
