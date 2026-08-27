@@ -117,12 +117,17 @@ function readFlow(path: string): FlowSpec {
   }
 
   try {
-    const authoring = isKernelSpec(parsed) ? kernelToAuthoring(parsed) : parsed;
+    const marker = kernelDialectMarker(parsed);
+    const authoring = marker === undefined ? parsed : kernelToAuthoring(parsed);
     return compileSpec(authoring);
   } catch (error) {
     if (error instanceof CheckFailure) throw error;
     if (error instanceof CompileError) {
-      throw new CheckFailure('invalid_spec', error.errors.join('; '));
+      const marker = kernelDialectMarker(parsed);
+      const dialect = marker === undefined
+        ? ''
+        : `Flow "${path}" was read as a compiled kernel spec because ${marker} is present. `;
+      throw new CheckFailure('invalid_spec', `${dialect}${error.errors.join('; ')}`);
     }
     throw new CheckFailure('invalid_spec', `Flow "${path}" is not a valid Relayflow spec.`);
   }
@@ -236,8 +241,8 @@ function emitReport(report: CheckReport, json: boolean, io: CliIo): void {
   if (report.ok) io.stdout(`CHECK PASSED ${report.path ?? ''}`.trimEnd());
 }
 
-function isKernelSpec(value: unknown): boolean {
-  if (!isObject(value) || !Array.isArray(value['steps'])) return false;
+function kernelDialectMarker(value: unknown): string | undefined {
+  if (!isObject(value) || !Array.isArray(value['steps'])) return undefined;
   // Select the boundary dialect from snake_case keys or nested verification /
   // policy shapes. Compiler-emitted kernel specs always carry `retry`; the
   // additional shapes cover other producers that omit default fields. A
@@ -246,17 +251,22 @@ function isKernelSpec(value: unknown): boolean {
   const kernelBudgetKeys = ['max_tokens_in', 'max_tokens_out', 'max_dollars'];
   const kernelVerificationKeys = ['output_contains', 'json_schema'];
   const kernelPermissionKeys = ['file_globs', 'network_allowlist', 'access_preset'];
-  return hasAnyKey(value['budget'], kernelBudgetKeys) || value['steps'].some((step) => (
-    isObject(step) && (
-      kernelStepKeys.some((key) => key in step)
-      || hasAnyKey(step['verification'], kernelVerificationKeys)
-      || hasAnyKey(step['permissions'], kernelPermissionKeys)
-    )
-  ));
+  const budget = firstPresentKey(value['budget'], kernelBudgetKeys);
+  if (budget !== undefined) return `spec.budget.${budget}`;
+  for (const [index, step] of value['steps'].entries()) {
+    if (!isObject(step)) continue;
+    const stepKey = firstPresentKey(step, kernelStepKeys);
+    if (stepKey !== undefined) return `spec.steps[${index}].${stepKey}`;
+    const verification = firstPresentKey(step['verification'], kernelVerificationKeys);
+    if (verification !== undefined) return `spec.steps[${index}].verification.${verification}`;
+    const permission = firstPresentKey(step['permissions'], kernelPermissionKeys);
+    if (permission !== undefined) return `spec.steps[${index}].permissions.${permission}`;
+  }
+  return undefined;
 }
 
-function hasAnyKey(value: unknown, keys: readonly string[]): boolean {
-  return isObject(value) && keys.some((key) => key in value);
+function firstPresentKey(value: unknown, keys: readonly string[]): string | undefined {
+  return isObject(value) ? keys.find((key) => key in value) : undefined;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

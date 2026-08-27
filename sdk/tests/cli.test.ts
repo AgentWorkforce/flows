@@ -74,6 +74,53 @@ const LADDER_FAULTS = [
 ] as const satisfies ReadonlyArray<readonly [string, (flow: Record<string, unknown>) => void]>;
 
 describe('flows check CLI', () => {
+  it('explains kernel-dialect routing and names the offending mixed-dialect key', () => {
+    const directory = temporaryProject();
+    const path = join(directory, 'mixed.flow.yaml');
+    writeFileSync(path, `
+version: '0.1.0'
+name: mixed
+steps:
+  - id: first
+    type: deterministic
+    command: printf one
+    timeoutMs: 5000
+  - id: second
+    type: deterministic
+    command: printf two
+    depends_on: [first]
+`);
+
+    const result = run(path);
+    expect(result.code).toBe(2);
+    expect(result.stderr.join('\n')).toContain(
+      'read as a compiled kernel spec because spec.steps[1].depends_on is present',
+    );
+    expect(result.stderr.join('\n')).toContain('spec.steps[0]: unknown key "timeoutMs"');
+  });
+
+  it('names an unknown key and its location in a compiled kernel spec', () => {
+    const directory = temporaryProject();
+    const path = join(directory, 'unknown-kernel-key.json');
+    writeFileSync(path, JSON.stringify({
+      version: '0.1.0',
+      steps: [{
+        id: 'first',
+        type: 'deterministic',
+        command: 'printf one',
+        depends_on: [],
+        max_iterations: 1,
+        retry: KERNEL_RETRY,
+        verification: {},
+        mystery: true,
+      }],
+    }));
+
+    const result = run(path);
+    expect(result.code).toBe(2);
+    expect(result.stderr.join('\n')).toContain('spec.steps[0]: unknown key "mystery"');
+  });
+
   it('passes all three canonical ladder flows and prints their resolved CLI', () => {
     for (const name of LADDER) {
       const result = run(join(TESTDATA, `${name}.flow.yaml`));

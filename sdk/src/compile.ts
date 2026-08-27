@@ -169,22 +169,29 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
  * Kernel-only values with no authoring representation are refused.
  */
 export function kernelToAuthoring(value: unknown): unknown {
-  const root = requireKernelObject(value, ['version', 'name', 'description', 'cli', 'triggers', 'steps', 'budget']);
-  const steps = requireKernelArray(root['steps']).map(kernelStepToAuthoring);
+  const root = requireKernelObject(
+    value,
+    ['version', 'name', 'description', 'cli', 'triggers', 'steps', 'budget'],
+    'spec',
+  );
+  const steps = requireKernelArray(root['steps'], 'spec.steps')
+    .map((step, index) => kernelStepToAuthoring(step, `spec.steps[${index}]`));
   return {
     ...copyDefined(root, ['version', 'name', 'description', 'cli', 'triggers']),
     steps,
-    ...(root['budget'] !== undefined ? { budget: kernelBudgetToAuthoring(root['budget']) } : {}),
+    ...(root['budget'] !== undefined
+      ? { budget: kernelBudgetToAuthoring(root['budget'], 'spec.budget') }
+      : {}),
   };
 }
 
-function kernelStepToAuthoring(value: unknown): unknown {
+function kernelStepToAuthoring(value: unknown, at: string): unknown {
   const unionKeys = [
     'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification',
     'command', 'timeout_ms', 'prompt', 'model', 'cli', 'instruction',
     'recovery_mode', 'surfaces', 'permissions',
   ] as const;
-  const step = requireKernelObject(value, unionKeys);
+  const step = requireKernelObject(value, unionKeys, at);
   const type = step['type'];
   const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification'] as const;
   const typeKeys = type === 'deterministic'
@@ -194,8 +201,8 @@ function kernelStepToAuthoring(value: unknown): unknown {
       : type === 'agent'
         ? ['instruction', 'cli', 'recovery_mode', 'surfaces', 'permissions'] as const
         : [];
-  assertKernelKeys(step, [...commonKeys, ...typeKeys]);
-  if (step['retry'] !== undefined) validateKernelRetry(step['retry']);
+  assertKernelKeys(step, [...commonKeys, ...typeKeys], at);
+  if (step['retry'] !== undefined) validateKernelRetry(step['retry'], `${at}.retry`);
   const dependsOn = step['depends_on'];
   const common = {
     id: step['id'],
@@ -204,7 +211,7 @@ function kernelStepToAuthoring(value: unknown): unknown {
       ? { dependsOn }
       : {}),
     ...(step['max_iterations'] !== undefined ? { maxIterations: step['max_iterations'] } : {}),
-    ...kernelVerificationToAuthoring(type, step['verification']),
+    ...kernelVerificationToAuthoring(type, step['verification'], `${at}.verification`),
   };
   if (type === 'deterministic') {
     return {
@@ -222,30 +229,36 @@ function kernelStepToAuthoring(value: unknown): unknown {
       instruction: step['instruction'],
       ...(step['recovery_mode'] !== undefined ? { recoveryMode: step['recovery_mode'] } : {}),
       ...copyDefined(step, ['cli', 'surfaces']),
-      ...(step['permissions'] !== undefined ? { permissions: kernelPermissionsToAuthoring(step['permissions']) } : {}),
+      ...(step['permissions'] !== undefined
+        ? { permissions: kernelPermissionsToAuthoring(step['permissions'], `${at}.permissions`) }
+        : {}),
     };
   }
   return common;
 }
 
-function validateKernelRetry(value: unknown): void {
+function validateKernelRetry(value: unknown, at: string): void {
   const retry = requireKernelObject(value, [
     'initial_backoff_ms', 'max_backoff_ms', 'multiplier', 'jitter_percent',
-  ]);
+  ], at);
   for (const [field, expected] of Object.entries(KERNEL_RETRY_DEFAULTS)) {
     if (retry[field] !== expected) {
       throw new CompileError([
-        `compiled spec retry.${field} must equal the authoring default ${expected}`,
+        `${at}.${field} must equal the authoring default ${expected}`,
       ]);
     }
   }
 }
 
-function kernelVerificationToAuthoring(type: unknown, value: unknown): Record<string, unknown> {
+function kernelVerificationToAuthoring(
+  type: unknown,
+  value: unknown,
+  at: string,
+): Record<string, unknown> {
   if (value === undefined) return {};
-  const verification = requireKernelObject(value, ['output_contains', 'json_schema']);
+  const verification = requireKernelObject(value, ['output_contains', 'json_schema'], at);
   if (verification['output_contains'] !== undefined && verification['json_schema'] !== undefined) {
-    throw new CompileError(['compiled verification may not contain two gates in spec v0.1.0']);
+    throw new CompileError([`${at} may not contain two gates in spec v0.1.0`]);
   }
   if (verification['output_contains'] !== undefined) {
     return { verification: { type: 'output_contains', value: verification['output_contains'] } };
@@ -256,8 +269,8 @@ function kernelVerificationToAuthoring(type: unknown, value: unknown): Record<st
   return type === 'deterministic' ? { verification: { type: 'exit_code' } } : {};
 }
 
-function kernelBudgetToAuthoring(value: unknown): unknown {
-  const budget = requireKernelObject(value, ['max_tokens_in', 'max_tokens_out', 'max_dollars']);
+function kernelBudgetToAuthoring(value: unknown, at: string): unknown {
+  const budget = requireKernelObject(value, ['max_tokens_in', 'max_tokens_out', 'max_dollars'], at);
   return {
     ...(budget['max_tokens_in'] !== undefined ? { maxTokensIn: budget['max_tokens_in'] } : {}),
     ...(budget['max_tokens_out'] !== undefined ? { maxTokensOut: budget['max_tokens_out'] } : {}),
@@ -265,8 +278,8 @@ function kernelBudgetToAuthoring(value: unknown): unknown {
   };
 }
 
-function kernelPermissionsToAuthoring(value: unknown): unknown {
-  const permissions = requireKernelObject(value, ['file_globs', 'network_allowlist', 'access_preset']);
+function kernelPermissionsToAuthoring(value: unknown, at: string): unknown {
+  const permissions = requireKernelObject(value, ['file_globs', 'network_allowlist', 'access_preset'], at);
   return {
     ...(permissions['file_globs'] !== undefined ? { fileGlobs: permissions['file_globs'] } : {}),
     ...(permissions['network_allowlist'] !== undefined ? { networkAllowlist: permissions['network_allowlist'] } : {}),
@@ -274,22 +287,33 @@ function kernelPermissionsToAuthoring(value: unknown): unknown {
   };
 }
 
-function requireKernelObject(value: unknown, allowed: readonly string[]): Record<string, unknown> {
+function requireKernelObject(
+  value: unknown,
+  allowed: readonly string[],
+  at: string,
+): Record<string, unknown> {
   if (!isObject(value)) {
-    throw new CompileError(['compiled spec contains an unknown or malformed object']);
+    throw new CompileError([`${at}: expected an object`]);
   }
-  assertKernelKeys(value, allowed);
+  assertKernelKeys(value, allowed, at);
   return value;
 }
 
-function assertKernelKeys(value: Record<string, unknown>, allowed: readonly string[]): void {
-  if (Object.keys(value).some((key) => !allowed.includes(key))) {
-    throw new CompileError(['compiled spec contains an unknown or malformed object']);
+function assertKernelKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  at: string,
+): void {
+  const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (unknown.length > 0) {
+    throw new CompileError([
+      `${at}: unknown ${unknown.length === 1 ? 'key' : 'keys'} ${unknown.map((key) => `"${key}"`).join(', ')} (expected one of ${allowed.join(' | ')})`,
+    ]);
   }
 }
 
-function requireKernelArray(value: unknown): unknown[] {
-  if (!Array.isArray(value)) throw new CompileError(['compiled spec steps must be an array']);
+function requireKernelArray(value: unknown, at: string): unknown[] {
+  if (!Array.isArray(value)) throw new CompileError([`${at}: expected an array`]);
   return value;
 }
 

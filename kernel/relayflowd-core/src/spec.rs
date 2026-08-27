@@ -29,8 +29,9 @@ pub struct RunSpec {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// Default CLI for llm/agent steps. Preflight resolves step → flow →
-    /// project config before the kernel is asked to start a run.
+    /// Default CLI declaration for llm/agent steps. `flows check` resolves
+    /// step → flow → project config. The kernel treats this as inert data;
+    /// `run.start` does not invoke the surface preflight in gate 1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cli: Option<String>,
     /// Inert gate-1 declarations. Matching and dispatch belong to gate 2.
