@@ -1,6 +1,6 @@
 # regressions — executable bug reports, red then green
 
-Four platform bugs were found on 2026-08-27, during the first dogfood runs. Each
+Five platform bugs were found on 2026-08-27, during the first dogfood runs. Each
 one is written here twice, in the flows v2 dialect (`docs/SURFACE.md`):
 
 - **`<slug>.red.flow.ts`** — reproduces the failure. Its gates assert the
@@ -21,7 +21,7 @@ declares an `on()` trigger, none is deployed, and nothing outside `regressions/`
 references it except one backlog line in `ops/BACKLOG.md`. They are written
 against `@relayflows/surface` — the v2 authoring surface, which does not exist
 yet. `regressions/surface.d.ts` is a declaration-only slice of it: the exact
-shapes these four pairs need, so the file doubles as a requirements list for
+shapes these pairs need, so the file doubles as a requirements list for
 gate-1 SDK work. Delete it when the real surface ships.
 
 ## Running them, once the kernel can
@@ -50,14 +50,19 @@ automatically the moment its gates close.
 | `worker-daemon-bun-argv` | `cloud worker start --daemon` re-execs the bun-compiled binary with `process.argv[1]`, which is a virtual `$bunfs` path; the child dies at once while the CLI reports success. | `relay packages/cli/src/cli/commands/cloud-worker.ts:266` (`process.argv[1] ?? 'agent-relay'`), `:279` (spawn `process.execPath`), `:396` (success log); `error: unknown command '/$bunfs/root/agent-relay-darwin-arm64'` | gate-1, gate-6, gate-7 | to file — relay CLI |
 | `cron-succeeded-into-void` | A fired schedule is marked `lastTriggerStatus: "succeeded"` as soon as the launch POST returns a runId, even with no worker to claim it. A schedule can be silently zero forever. | `cloud packages/web/app/api/v1/workflows/schedules/trigger/route.ts:178-192`; runs `8e3e5916` and `740c3a27` on schedule `flows-drive` — both succeeded, nothing executed, no branch, no PR | gate-1, gate-2, gate-6 | to file — cloud RelayCron |
 | `cross-account-workspace-404` | Another account's workspace answers 404 with no code and no user message; the client renders every non-ok response as a permissions problem. | `cloud .../enrollment-tokens/route.ts:29-32` (404 `{"error":"Workspace not found"}`), `cloud packages/web/components/workers/NewWorkerForm.tsx:91-92`; workspaces `50587328-…` (khaliq@agentrelay.com) vs `0fb35c2e-…` (khaliqgant@gmail.com) | gate-1, gate-6, gate-8 | to file — cloud |
+| `relaycast-workspace-key-repair-500` | Relaycast's internal workspace-key repair route does its D1 write with no `try`/`catch`, so a `workspaces_api_key_hash_unique` violation escapes the worker as a bare non-JSON 500 — and every cloud workflow launch for the workspace dies with an HTTP status line instead of a named condition. | `relaycast-cloud packages/relaycast/src/fleet/routes.ts:550-566` (unguarded `UPDATE`/`INSERT`), `:587-594` (dispatch), `packages/relaycast/src/entrypoints/cloudflare.ts:182-183` (no wrap); caller `cloud packages/web/lib/workflows/relay-workspace.ts:222-243`, message at `:238-241`; jobs `9a26d44d` (manual, failed), `0c96a292` + `09e842f0` (cron, launching) — all `Relaycast workspace key repair failed: 500 Internal Server Error`; app ws `50587328-…` → relay ws `rw_7ccfea89` | gate-1, gate-6, gate-8 | to file — relaycast-cloud |
 
-Two of these are covenant violations, not merely defects:
+Three of these are covenant violations, not merely defects:
 `cron-succeeded-into-void` is covenant 2 verbatim — *"a 'succeeded' that did
 nothing is by definition a kernel bug"* — and so, in its own way, is
 `worker-daemon-bun-argv`: the CLI reports a pid for a process that is already
 gone. `cross-account-workspace-404` is covenant 1: the error names the wrong
 condition in the user's vocabulary, so the user retries with permissions they
-already have.
+already have. `relaycast-workspace-key-repair-500` is covenant 1 in its harshest
+form — the response names *no* condition at all. The failure is permanent and
+fully knowable at the point it is raised (the route holds the workspace id, the
+key, and the constraint that rejected it), yet the operator is handed
+`500 Internal Server Error` and retries a launch that can never succeed.
 
 ## What the dialect cannot say yet
 
@@ -83,6 +88,13 @@ gap in the surface:
    `mnt/agentworkforce-cloud/principals/<name>/token` mount reads plus an `as:`
    argument on each helper verb — the filesystem path *is* the permission — but
    gate 8 has to make that real and non-ambient before any of it holds.
-5. **Durable waiting is a helper, not a verb.** `f.cloud.workers.awaitHeartbeat`
+5. **No service-principal mount.** The relaycast gateway's internal API is
+   guarded by a shared service bearer rather than a user session, but it still
+   has to resolve from `<mount>/principals/<name>/token` like every other
+   credential, and the workspace key it re-registers has to be read inline from
+   the cloud mount so no secret reaches the flow source or the journal.
+   `relaycast-workspace-key-repair-500` declares both and waits on gates 6 and 8.
+
+6. **Durable waiting is a helper, not a verb.** `f.cloud.workers.awaitHeartbeat`
    compiles to a kernel wait, which the plugin contract permits. If waiting
    turns out to be common enough in authored flows, it wants a name of its own.
