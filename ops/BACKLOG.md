@@ -28,3 +28,10 @@ gate's needs. Not commitments; ordering is the Lead's call with evidence.
   and the relayflow review swarm (hoopsheet pattern), pushes fixes, replies,
   and closes itself at merge. The flow IS the PR's lifecycle. Khaliq,
   2026-08-27 — natural first real consumer of `on()` + relayfile PR trees.
+- **Regression suite (`regressions/`, dormant):** red/green flow pairs for the
+  four platform bugs found 2026-08-27 — enrollment-token bearer auth
+  (cloud#3202), the `--daemon` `$bunfs` argv re-exec, RelayCron's `succeeded`
+  into a void (covenant 2), and the cross-account 404 rendered as a permissions
+  error (covenant 1). Written in the v2 dialect against a surface that does not
+  exist yet; nothing runs until gates 1/2/6/7/8 close per `regressions/MANIFEST.json`.
+  The Garden should adopt them once flows run in cloud.

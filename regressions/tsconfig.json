@@ -1,0 +1,16 @@
+{
+  "//": "OPT-IN typecheck for the dormant regression suite. Not referenced by sdk/package.json and not part of `npm test`. Run explicitly: cd sdk && npx tsc -p ../regressions/tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": []
+  },
+  "include": ["*.ts"]
+}
