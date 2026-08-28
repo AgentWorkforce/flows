@@ -5,7 +5,7 @@ Every row starts RED and moves only on evidence. AMBER blocks nothing here
 
 | Gate | State | Evidence |
 |---|---|---|
-| 1 — a relayflow can run | **GREEN** | Closed on `main` at `9e1d9eb` (PR #8, merged by Khaliq). Verified by me on a clean worktree off `origin/main`, not on branch evidence: kernel **72 passed / 0 failed**, sdk **131 passed / 8 files**. Preflight proven behaviorally through the built binary `sdk/dist/cli.js`: `cli_missing`, `cli_unauthenticated`, `cli_unresolved` each REFUSE with exit 2; `hello-ladder` passes with an `unprovable_effects` warning (silence is not a state). Residual, documented in DESIGN.md §1.9: a worker dying after the provider call but before confirming performs an effect twice — closing it needs gate 4's mount-as-writer. |
+| 1 — a relayflow can run | **GREEN** | Closed on `main` at `9e1d9eb` (PR #8, merged by Khaliq) and extended on WP-10 by the live authored-surface seam: the built `sdk/dist/cli.js` submits `hello-deterministic.flow.yaml` to a real `relayflowd`, parks `hello-llm` and `hello-agent` with typed step details, journals `step_failed`, and resumes after `kill -9` with one successful completion per step. Branch verification: kernel **73 passed / 0 failed**, SDK **143 passed / 9 files**, including **7/7** built-binary and **4/4** live-kernel cases. Residual, documented in DESIGN.md §1.9: a worker dying after the provider call but before confirming performs an effect twice — closing it needs gate 4's mount-as-writer. |
 | 2 — proactive agent | RED | not started; harness shims wait on it |
 | 3 — Software Garden | RED | not started |
 | 4 — chief / harness | RED | not started |
