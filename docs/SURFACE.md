@@ -82,6 +82,10 @@ No process runs between events: the handler wakes, executes to its next await, p
    **Project-config discovery:** starting in the flow file's directory, `flows check` walks parent directories through the filesystem root and selects the first readable `flows.json`. That nearest file is the whole project config; it is not merged with outer files. A nearer config therefore defines a self-contained nested project boundary and prevents accidental inheritance of outer credentials or executors. The selected path is printed with project-level resolutions and named in an unresolved-CLI refusal; if it declares no `cli`, outer configs remain shadowed.
 7. **Two dialects, one journal.** Declarative YAML — data, fully preflightable, sage's compile target, gate 9's self-authoring output. Imperative TS — journal-memoized function, maximum ergonomics. YAML is canonical; TS is the power tool. TS preflights its declared surface (agents, helpers, tools, identity), not arbitrary control flow — declared honestly per covenant 2.
 
+The authoring surface deliberately narrows `steps: []`: `flows check` refuses
+it as `invalid_spec`, while the kernel accepts it. This is a chosen
+authoring-time narrowing, not a kernel guarantee.
+
 ## 3. Plugins: the kernel is closed, the surface is open
 
 The herdr model: first-party helpers are just plugins that ship in the box; the community brings the rest.

@@ -1,357 +1,335 @@
 # NEXT — single highest-priority work package
 
-**Tick:** assess at `45cc352` (2026-08-27, ~17:55 local / 21:55Z)
-**Gate:** 1 — a relayflow can run (RFC-0001 §3). Clause 1 (the hello ladder)
-is closed on `main`. Clause 2 (`flows check` preflight, covenant 2) is
-implemented **on PR #8's branch and blocked in review**.
+Written by the Relayflow Lead on 2026-08-27 (assess tick on branch
+`flow/drive-45cc352-08272018`, HEAD = `45cc352`, identical to `origin/main`).
 
 ---
 
-## WP-5 — clear the review swarm's rejection of PR #8
+## Assessment snapshot (evidence, measured this tick)
 
-### Why this package and not new work
+### 1. Standing directives — checked first, none active
 
-`ops/DIRECTIVES.md` carries no unsatisfied standing directive. Its only
-historical directive (stay lean — de-vendor kernel deps) was satisfied and
-removed by PR #3 (`0ba6c88`); the file is now a header with no entries. So the
-package comes from the gate, and the gate's rule is the run contract's: **no
-new work over unfinished work.**
+`ops/DIRECTIVES.md` carries only its header paragraph; there is no numbered
+directive in the file. Directive 1 (de-vendor kernel deps) was satisfied and
+removed by PR #3. **Nothing outranks the gate/PR work this tick.**
 
-PR #8 (`WP-4 — flows check preflight (covenant 2)`, branch
-`flow/drive-57e923c-08271542`, OPEN, MERGEABLE) is unfinished. It is the only
-open PR, and on 2026-08-27T21:48Z the first run of `workflows/review-swarm.yaml`
-posted **SWARM_FAILED — 2 of 3 lenses reject**:
+### 2. Open PRs — one, and it is rejected at its own head
 
-| Lens | Model | Verdict |
-|---|---|---|
-| structure | opencode | PASSED |
-| history | codex | **FAILED** — 4 findings |
-| maintainability | claude | **FAILED** |
+`gh pr list --state open` → exactly one:
 
-The PR comment ends: *"PR stays blocked. The next drive tick takes these
-findings as its package."* This is that tick.
+| PR | Title | Head branch | Head OID | State |
+|---|---|---|---|---|
+| #8 | WP-4 — `flows check` preflight (covenant 2) | `flow/drive-57e923c-08271542` | `4ce3ff9` | OPEN, not draft, MERGEABLE / CLEAN |
 
-Do not be misled by the PR body's "Third adversarial review → REVIEW_PASSED"
-or by the two green status checks. Both bot checks are known-empty signal on
-this very PR (CodeRabbit rate-limited into skipping, Devin's trial expired) —
-that is the documented reason the swarm exists (`73bdb59`, `09f6dd5`). The
-swarm is the review of record and it says no.
+**PR #8's own review of record at its current head is `REVIEW_FAILED`.**
+The head commit `4ce3ff9` *is* the rejection: `review(pr8): independent diff
+review at d129750 — REVIEW_FAILED`, persisting
+`ops/reviews/20260827-2011-review.md`, whose last line is `REVIEW_FAILED`.
+Nothing has been committed since to answer it.
+
+The PR body currently advertises a passing swarm and does **not** mention this
+rejection:
+
+| Run | Reviewed head | Maintainability | History | Structure | Aggregate |
+|---|---|---|---|---|---|
+| Initial swarm, 17:45 EDT | earlier head | FAILED | FAILED | PASSED | **SWARM_FAILED** |
+| Final main-owned swarm `b242b77ed0270c99fa5be416` | `a8c9110` | PASSED | PASSED | PASSED | **SWARM_PASSED** |
+| *(absent from the body)* standalone diff review, 20:11 EDT | `d129750` | — | — | — | **REVIEW_FAILED** |
+
+The swarm's `SWARM_PASSED` is real and I am not disputing it — it reviewed
+`a8c9110`, and `git diff a8c9110 HEAD -- sdk kernel docs workflows testdata` is
+empty, so it binds to the current product tree. But a *later*, independent
+reviewer read the same diff against `ops/NEXT.md`, re-ran every gate itself, and
+rejected on evidence-integrity grounds. A PR whose newest review says
+`REVIEW_FAILED` is awaiting fixes. **Per the charter and the run contract, that
+makes fixing PR #8 the work package. No new gate work starts over it.**
+
+The three findings, each verified by me as still true at `4ce3ff9`:
+
+- **V1 (P2) — a false measured fact in the gate-state record.**
+  `ops/SCOREBOARD.md` line 8 on the PR branch reads
+  *"Measured on this tree: kernel 72 tests, SDK 99 tests, 0 failed, clippy/fmt
+  clean."* Kernel 72 is right; **SDK 99 is wrong — that tree has 121.** The
+  figure was written at `6a425b6` and never updated across the WP-5 rounds that
+  added 22 tests. This is the one file that records gate state, the diff edits
+  exactly this line, and "Measured on this tree" makes it a claim about the
+  current tree. It understates rather than overstates, so nothing downstream is
+  inflated — but a stale measurement in the gate record is precisely the defect
+  class this whole package exists to eliminate.
+- **V2 (P3) — the durable log never records the passing round.**
+  `ops/DRIVE-LOG.md` on the PR branch stops at the `4f8ecf8` round and its last
+  word on the swarm is `SWARM_FAILED` (7 occurrences; verified
+  `grep -n "SWARM_PASSED\|a8c9110" ops/DRIVE-LOG.md` on that branch returns
+  **nothing**). The verdict survives in the PR body and the three committed
+  transcripts, so this is a freshness gap and not a false claim — but a human
+  reading only the in-repo log concludes PR #8 is still rejected.
+- **V3 (P3) — an undisclosed check/kernel asymmetry.** `sdk/src/validate.ts`
+  refuses `steps: []` (`REFUSED [invalid_spec] spec.steps: expected a non-empty
+  array`, exit 2) while the kernel accepts it — `RunSpec.steps` is
+  `#[serde(default)]` (`kernel/relayflowd-core/src/spec.rs:39-40`) and
+  `RunSpec::validate` (`:64-127`) has no empty-steps check. Same false-red class
+  as F1's `name` case. Degenerate and defensible, but **undisclosed**: I
+  confirmed `docs/SURFACE.md` on the PR branch says nothing about it.
+
+The reviewer's own remediation estimate: *"two documentation edits (V1 one line;
+V2 one appended paragraph). No product code needs to change."*
+
+### 3. Tests on `main` at assessment time
+
+This machine, hermetic `ops/cargo.sh`, no manually exported env vars:
+
+| Command | Result |
+|---|---|
+| `(cd kernel && ../ops/cargo.sh test --workspace)` | **70 passed, 0 failed** (18 + 19 + 24 + 3 + 6; doc-tests 0 ×3), exit 0 |
+| `(cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)` | exit 0, no warnings |
+| `(cd kernel && ../ops/cargo.sh fmt --check)` | exit 0, empty output |
+| `(cd sdk && npm test)` | **58 passed, 0 failed** (5 files), exit 0 |
+
+These are the `main` baselines and they match `ops/SCOREBOARD.md`'s gate-1 row
+on `main` (kernel 70 / SDK 58). The 72/121 figures belong to the PR #8 branch.
+
+### 4. Gate state — gate 1, still AMBER, correctly
+
+RFC-0001 §3 gate 1's done-when has two clauses:
+
+- **Clause 1 — the hello ladder** (a) deterministic, (b) + `llm` with a
+  verification gate, (c) + `agent`, each surviving `kill -9` at every step
+  boundary with exact budget accounting. **Closed on `main`** (PRs #2/#3, #4,
+  #7 / `ca6b80a`).
+- **Clause 2 — preflight holds (covenant 2):** `flows check` refuses the ladder
+  flows when a declared CLI is missing or unauthenticated or a trigger has no
+  executor, warns on unprovable assumptions before starting, and the failure
+  taxonomy is closed. **Implemented only on PR #8's branch — not on `main`.**
+
+So gate 1 is AMBER and stays AMBER. It flips to GREEN only after a human merges
+PR #8 and the result is re-verified on merged `main`. Closing PR #8's review is
+therefore not a detour from gate 1 — it is the shortest remaining path to it.
+
+Gates 2–9: RED, not started (per `ops/SCOREBOARD.md`).
+
+---
+
+## Work package: WP-6 — close the 20:11 review's findings on PR #8
 
 ### Objective
 
-Bring PR #8 to a state where `workflows/review-swarm.yaml` returns
-**SWARM_PASSED with three persisted, committed transcripts**, without widening
-gate 1's done-when and without rewriting the branch's history.
+Take PR #8 from `REVIEW_FAILED` to a clean, re-reviewed head that a human can
+merge, **without touching product code and without rewriting history**. The
+substance of the preflight is done and independently confirmed; what is
+outstanding is that the branch's evidence record contradicts the branch's own
+measurements, and that the newest review verdict is not represented in the PR.
 
-### Retry correction after the timed-out build — controls over earlier text
+Three sub-objectives:
 
-The independent, `main`-owned review of `c8c15a0` produced three staged
-transcripts at 19:21–19:24: history and structure passed; maintainability
-failed on M1–M3. Preserve and commit those transcripts as rejection evidence.
-The following directions supersede conflicting F0 instructions later in this
-file for this retry:
+1. Make `ops/SCOREBOARD.md`'s measured claim true (V1).
+2. Make `ops/DRIVE-LOG.md` the honest, complete, append-only record of every
+   review round on this PR — **including the 20:11 rejection and this repair**
+   (V2, extended).
+3. Disclose the `steps: []` asymmetry in `docs/SURFACE.md` (V3), so it is a
+   stated narrowing rather than a hidden one.
 
-1. **Do not ship a change to `workflows/review-swarm.yaml` in PR #8.** The
-   maintainability lens correctly applied the rail that a branch cannot edit
-   the gate judging that branch. Restore that file to `origin/main` here; land
-   the durability hardening separately, judged by the pre-change swarm.
-2. **Use the immutable `origin/main` workflow for PR #8's final verdict.** Its
-   reviewers stage evidence. Commit each transcript explicitly after the run,
-   without staging or committing product files with it. This preserves this
-   run's evidence without making PR #8 its own judge.
-3. **Close M2 and M3 before re-review.** State honestly that `flows check`
-   performs preflight while direct `run.start` does not, both in the inert
-   kernel field comment and `docs/SURFACE.md`. Make kernel-dialect conversion
-   errors name the dialect marker, object path, and unknown key; pin the mixed
-   `timeoutMs` + `depends_on` case through the real CLI.
+Then re-run the review swarm against the repaired head and update the PR body's
+review-of-record table so the rejection is visible, not quietly superseded.
 
-The timed-out worker already left localized M2/M3 repairs in the working tree
-and the three rejected transcripts staged. Verify and finish those changes;
-do not repeat the five completed review rounds. The final review must bind to
-the new PR head and all three lenses must pass honestly.
+### Branch discipline — read this before the first command
 
----
+- **Work on `flow/drive-57e923c-08271542`** — PR #8's existing head branch.
+  Do **not** open a new branch and do **not** open a second PR. Fixing the
+  open PR means adding commits to it.
+- **Copy this `ops/NEXT.md` onto that branch** as part of the first fix commit,
+  so the PR carries the package it is judged against. (This file was written on
+  the assess branch `flow/drive-45cc352-08272018`.)
+- **Append only.** No rebase, no squash, no `--amend`, no force-push, no
+  deletion or edit-in-place of any prior rejection evidence. The `20260827-2011`
+  transcript stays byte-intact; corrections are made by *appending* errata and
+  new rounds. Prior rounds' `SWARM_FAILED` records stay.
+- **Never edit the gate that judges you.** `workflows/review-swarm.yaml` must
+  remain byte-identical to `origin/main` on this branch. Any hardening of the
+  swarm is a separate PR judged by the pre-change swarm.
+- The branch's merge-base is `origin/main` @ `45cc352`, which is `main`'s tip,
+  so two-dot and three-dot diffs agree today. Verify both anyway before
+  reporting a file count.
 
-## The findings, independently verified by this assess
+### Files in scope
 
-I re-derived each finding from the diff rather than taking the swarm's word.
-This matters because **the swarm's own transcripts no longer exist** (F0).
+Editable by this package:
 
-### F0 — P1 — the swarm's evidence was destroyed; an unpersisted verdict is not evidence
+- `ops/SCOREBOARD.md` — V1: the gate-1 row's measured-counts sentence only.
+- `ops/DRIVE-LOG.md` — V2: **appended** text only.
+- `docs/SURFACE.md` — V3: one short disclosure of the `steps: []` narrowing.
+- `ops/NEXT.md` — carry this file onto the branch.
+- `ops/BACKLOG.md` — optional: record V3 as a durable item if you additionally
+  want the kernel-side symmetry fix tracked (the fix itself is out of scope).
+- `ops/reviews/` — new transcripts only, each committed alone.
+- PR #8's body, via `gh pr edit 8 --body-file` (not a repo file, but in scope).
 
-The PR comment cites `ops/reviews/20260827-1745-pr8-history.md` and
-`ops/reviews/20260827-1745-pr8-maintainability.md`. Neither file exists — not in
-the working tree, not on `main`, not on `pr8-head`, not in any branch
-(`git log --all --diff-filter=A -- 'ops/reviews/*1745*'` → empty).
+**Not editable by this package** (any diff here fails the package):
 
-Root cause, from the reflog: each lens step is told to write its transcript and
-`git add` it (`workflows/review-swarm.yaml`, all three lens tasks) — **stage,
-never commit**. The swarm ran ~17:45–17:48 local; the reflog then shows
-`HEAD@{4}` and `HEAD@{2}` both `reset: moving to origin/main`. A hard reset
-discards staged-but-uncommitted files. `ops/reviews/` has an mtime of 17:50 and
-contains nothing newer than `20260827-1531`.
+- `kernel/**`, `sdk/src/**`, `sdk/tests/**`, `testdata/**` — product code and
+  fixtures are done and confirmed; changing them re-opens the whole review.
+- `workflows/**` — especially `review-swarm.yaml`.
+- Any existing file under `ops/reviews/`.
 
-This violates the aggregate step's own stated rule, in the same file:
+### Definition of done
 
-> `# A missing transcript is a refusal too: an unpersisted verdict is not evidence.`
+Every item must hold, and every command below must be run on the branch and its
+verbatim tail pasted into the PR body.
 
-The aggregate correctly fails on a missing transcript, but nothing makes the
-transcript durable in the first place. Fix the workflow so each lens **commits**
-its transcript, not merely stages it.
-
-### F1 — P1 — `flows check` passes specs the kernel refuses, and refuses specs the kernel accepts
-
-The covenant-2 promise is refusal at submit, never at minute 27. On PR #8 it
-breaks in **both** directions. Verified at `pr8-head`:
-
-- **False green.** `kernel/relayflowd-core/src/spec.rs:63-66` —
-  `if self.version != SPEC_VERSION { return Err(SpecError::UnsupportedVersion(..)) }`
-  with `SPEC_VERSION = "0.1.0"` (`spec.rs:21`). `sdk/src/validate.ts:100-104`
-  accepts **any** semver-shaped string. So `version: 9.9.9` prints
-  `CHECK PASSED`, and the kernel then rejects the run.
-- **False red.** `RunSpec.name` is `Option<String>` (`spec.rs:29-30`) — optional
-  to the kernel. `sdk/src/validate.ts:106-108` hard-fails a spec without a
-  non-empty `name`. So `flows check` refuses a spec the kernel would accept.
-
-The PR body admits this ("P2 is genuine and remains unfixed here") and files it
-to the backlog as a follow-up. That triage is what the history lens rejects, and
-it is right to: gate 1's done-when says *"the failure taxonomy is closed — every
-failed run's journal terminates in a declared failure kind."* A preflight that
-green-lights a spec the kernel will refuse leaves the failure taxonomy open at
-exactly the seam preflight exists to close. **This is inside clause 2, not
-after it.**
-
-### F2 — P1 — a settled decision was silently deleted, not deferred
-
-`git diff main...pr8-head -- docs/SURFACE.md` narrows the **anonymous
-resolution law** from four rungs to three:
+**1. V1 closed and true.** `ops/SCOREBOARD.md`'s gate-1 row states SDK and
+kernel test counts that equal what `npm test` and `cargo test` print on that
+tree *at the time you write it*. Measure first, then write the measured number —
+do not copy `121` from this file. Expected `72` kernel / `121` SDK; if either
+differs, the measured value wins and the discrepancy is disclosed in the log.
 
 ```
-- ... step options → flow header → project config (`flows.json`) → platform default.
-+ ... step options → flow header → project config (`flows.json`). Resolution stops
-+ there: a platform may provision an explicit project default, but `flows check`
-+ never invents an implicit one.
+grep -c 'SDK 99 tests' ops/SCOREBOARD.md   # must be 0
 ```
 
-`docs/SURFACE.md` records decisions settled earlier the same day. The
-implementation was written to refuse when the three rungs miss, and then the law
-was edited down to match the implementation. The PR body relegates this to
-"Human follow-up 1: Confirm `docs/SURFACE.md:78` intentionally abandons, rather
-than defers, the anonymous 'platform default' rung" — i.e. it ships the change
-to a settled decision and asks for permission afterwards. The charter is
-explicit: the Lead encodes and enforces the constitution and never contradicts
-it; changing it is Khaliq's decision, proposed by PR.
+**2. V2 closed.** `ops/DRIVE-LOG.md` gains an appended section that records, in
+order and by hash:
 
-The fix does **not** require a human decision, because a correct option exists
-that changes no law: state the rung as **deferred, unimplemented** rather than
-deleting it. The behavior (refuse with `cli_unresolved`) stays exactly as built.
-
-### F3 — P2 — a recorded design-partner priority was overridden without evidence
-
-`ops/SCOREBOARD.md`, gate 6:
+- the final main-owned swarm run `b242b77ed0270c99fa5be416` at `a8c9110` →
+  `SWARM_PASSED`, naming its three committed transcripts
+  (`20260827-1958-pr8-history.md`, `20260827-1958-pr8-structure.md`,
+  `20260827-2002-pr8-maintainability.md`) and the fact that
+  `git diff a8c9110 <head> -- sdk kernel docs workflows testdata` is empty, so
+  the passing review binds to the shipped product tree;
+- the 20:11 standalone review at `d129750` → **`REVIEW_FAILED`**, with V1/V2/V3
+  stated plainly — this rejection must appear in the durable log, not only in a
+  transcript;
+- this WP-6 repair round and its own re-review verdict.
 
 ```
-- | 6 — integrations via relayfile | RED | **next up** — harness (design partner)
--   needs slack/notion helpers; also unblocks its `REPLACE-WHEN: gate-2` shims |
-+ | 6 — integrations via relayfile | RED | eligible after gate 1; the next assess
-+   chooses among gates 2 and 5–8 from current evidence |
+grep -c 'SWARM_PASSED' ops/DRIVE-LOG.md      # must be >= 1
+grep -c 'a8c9110'      ops/DRIVE-LOG.md      # must be >= 1
+grep -c 'REVIEW_FAILED' ops/DRIVE-LOG.md     # must be >= 1
 ```
 
-and the branch's `ops/BACKLOG.md` adds a preamble instructing the next assess
-*"not [to inherit] the old gate-6 'next up' annotation as a commitment."*
+**3. V3 closed by disclosure.** `docs/SURFACE.md` states that the authoring
+surface deliberately narrows `steps: []` — refused at `flows check` with
+`invalid_spec`, accepted by the kernel — and that this is a chosen
+authoring-time narrowing, not a kernel guarantee. One short paragraph. **Do not
+change the kernel to match**; that is out of scope (see below).
 
-`ops/BACKLOG.md` on `main` records the countervailing fact: *"Customer harness
-is a named design partner (`sales/harness`) — its filed requirements rank gate
-work,"* naming slack/notion helpers (gate 6) among its first asks. Charter duty 4
-requires tracking design-partner evidence. A preflight PR is not the place to
-demote a design partner's filed requirement, and no evidence was offered for the
-demotion. Restore it; if the Lead wants to re-rank the gates, that is its own
-package with its own argument.
-
-### F4 — P3 — the commit history repeats an already-recorded defect
-
-`823e35a` — `` drive: WP-4 — `flows check` preflight (cove `` — is the truncated
-commit subject that `ops/DRIVE-LOG.md` diagnosed in tick 5 (a byte-wise
-`cut -c1-60` across a multibyte em-dash in `workflows/drive.yaml`'s `pr` step).
-The generator was fixed on `main` in `73bdb59`, after this commit was written.
-
-**Do not force-push to repair this.** The PR body states as fact that no rebase,
-squash, force-push, or history rewrite occurred, and reviewers have triaged
-against that claim. The honest close is a note in the PR body pointing at
-`73bdb59` as the landed guard, plus the regression test named in the DoD below.
-
-### F5 — P2 — the dialect converter has no round-trip test
-
-The maintainability lens's quotable ask: *"the cheapest guard that would have
-caught this class: a round-trip test asserting `kernelToAuthoring(toKernelSpec(flow))`
-structurally equals `flow`."*
-
-Verified: `toKernelSpec` is exported from `sdk/src/compile.ts:144`, but
-`kernelToAuthoring` is a **private function inside the CLI**
-(`sdk/src/cli.ts:231`, used at `cli.ts:111`). The two halves of one bijection
-live in different modules and only one is testable. Move `kernelToAuthoring`
-next to its inverse in `compile.ts`, export it, and pin the round trip.
-
----
-
-## Files in scope
-
-| File | Change |
-|---|---|
-| `workflows/review-swarm.yaml` | F0 — each lens **commits** its transcript (not just `git add`); aggregate keeps failing on a missing or verdict-less transcript |
-| `ops/reviews/20260827-*-pr8-*.md` | F0 — re-run the swarm; the three new transcripts are committed artifacts |
-| `sdk/src/validate.ts` | F1 — version must equal `SPEC_SCHEMA_VERSION`; `name` becomes optional, matching `RunSpec.name: Option<String>` |
-| `sdk/src/compile.ts` | F5 — receives `kernelToAuthoring`, exported |
-| `sdk/src/cli.ts` | F5 — imports it instead of defining it |
-| `sdk/src/index.ts` | F5 — re-export if the test needs it |
-| `sdk/tests/validate.test.ts` | F1 — both directions pinned |
-| `sdk/tests/spec-parity.test.ts` | F5 — the round-trip property |
-| `docs/SURFACE.md` | F2 — platform-default rung restored as *deferred*, wording below |
-| `ops/SCOREBOARD.md` | F3 — gate-6 design-partner priority restored |
-| `ops/BACKLOG.md` | F3 — drop the preamble that demotes it; F1 item drops the P2 half (now built), keeps the P1 deterministic-command half |
-| `ops/DRIVE-LOG.md` | the tick entry: swarm verdict, F0 root cause, verify tails |
-| PR #8 body | F4 note; replace the "third review PASSED" framing with the swarm result |
-
-### Wording to use for F2 (`docs/SURFACE.md`)
-
-Restore the four-rung law and mark the fourth rung's status honestly — the law
-is unchanged, the implementation is disclosed:
-
-> **Anonymous resolution law:** `f.agent\`task\`` with no name is the *default
-> agent*, resolved (never guessed) in order: step options → flow header →
-> project config (`flows.json`) → platform default. *The platform-default rung
-> is declared but not yet implemented: no platform default is provisioned as of
-> gate 1, so a flow that reaches this rung refuses with `cli_unresolved` rather
-> than guessing. `flows check` never invents an implicit default.*
-
-Keep the new **Preflightable-CLI contract** paragraph — it is additive and
-consistent with the law.
-
----
-
-## Definition of done
-
-Every command run from the repo root unless noted. Paste verbatim tails.
-
-**Prerequisite — check out the right branch.** The `sync` step cut this tick's
-branch from `main`; PR #8 lives on `flow/drive-57e923c-08271542`. Fixes
-committed anywhere else will not update the PR:
+**4. Product tree untouched since the reviewed commit.** PR #8 of course changes
+product code relative to `main` — that is the package. What must not change is
+the product tree *since the commit the passing swarm reviewed*, because that
+equivalence is the only thing that lets `a8c9110`'s `SWARM_PASSED` bind to the
+head. Both must print nothing (I verified both are empty at `4ce3ff9`):
 
 ```
-git fetch origin && git checkout flow/drive-57e923c-08271542
-git log --oneline -1        # expect 3e403b6, the branch tip
+git diff a8c9110 HEAD -- kernel sdk testdata workflows docs
+git diff main    HEAD -- workflows/
 ```
 
-1. **Kernel unaffected and green.**
-   ```
-   (cd kernel && ../ops/cargo.sh test --workspace)      # exit 0
-   (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)   # exit 0
-   (cd kernel && ../ops/cargo.sh fmt --check)           # exit 0, empty
-   ```
-   Baseline measured on `main` at `45cc352` this tick: **70 passed, 0 failed**
-   (18 + 19 + 24 + 3 + 6; doc-tests 0 ×3), clippy clean, fmt clean. The branch
-   adds 2 spec tests → expect **72**. No kernel source change is in scope, so a
-   count other than 72 means something unintended moved.
+The first also guards `docs/` — so make the V3 disclosure edit to
+`docs/SURFACE.md` **before** the re-review in item 8, and let the re-review be
+what re-establishes the equivalence. State this explicitly in the PR body:
+after WP-6, the binding commit for the product tree is the WP-6 head, not
+`a8c9110`.
 
-2. **SDK builds and tests green, with the new guards.**
-   ```
-   (cd sdk && npm run build)   # exit 0
-   (cd sdk && npm test)        # exit 0
-   ```
-   Branch baseline is 99 tests. Expect **≥ 103** — at least four new:
-   - `version: '9.9.9'` → `validateSpec` **fails** (kernel dialect).
-   - `version: '0.1.0'` → passes.
-   - a spec with **no `name`** → passes (kernel treats `name` as optional).
-   - `kernelToAuthoring(toKernelSpec(flow))` deep-equals `flow` for all three
-     ladder flows in `testdata/`.
+**5. History intact.** `a8c9110`, `d129750`, `497bc10`, `7062800`, `4ce3ff9`
+are all still ancestors of the head, unmodified:
 
-3. **F1 proven end to end through the real CLI**, not only in unit tests:
-   ```
-   printf 'version: "9.9.9"\nname: v\nsteps:\n  - id: s\n    type: deterministic\n    command: "true"\n' > /tmp/bad-version.flow.yaml
-   node sdk/dist/cli.js check /tmp/bad-version.flow.yaml   # expect exit 2, refusal names the version
-   ```
-   And the seven behavioral cases already in the PR body still produce their
-   recorded output (3 × `CHECK PASSED` exit 0, 4 × refusal exit 2).
+```
+for c in a8c9110 d129750 497bc10 7062800 4ce3ff9; do
+  git merge-base --is-ancestor $c HEAD && echo "$c ok" || echo "$c MISSING"; done
+```
 
-4. **F2/F3 restored.** Both diffs read as restorations:
-   ```
-   git diff main...HEAD -- docs/SURFACE.md ops/SCOREBOARD.md
-   ```
-   `docs/SURFACE.md` shows the four-rung law with the deferral note (net: the
-   Preflightable-CLI paragraph added, the law's rungs unchanged).
-   `ops/SCOREBOARD.md` gate 6 again carries the harness design-partner text;
-   gate 1 stays **AMBER** with its updated clause-2 evidence.
+**6. Gates re-run green on the repaired head**, verbatim tails in the PR body:
 
-5. **F0 fixed and demonstrated.** `workflows/review-swarm.yaml` commits each
-   transcript. Then re-run the swarm against PR #8 and show:
-   ```
-   echo 8 > .review-target
-   # run workflows/review-swarm.yaml
-   git log --oneline -5 -- ops/reviews/     # three new transcripts, committed
-   ls ops/reviews/*-pr8-*.md                # maintainability, history, structure
-   ```
-   The aggregate step prints **SWARM_PASSED**. A lens that still rejects means
-   this package is not done — iterate on the finding, do not re-run for a
-   friendlier verdict.
+```
+(cd kernel && ../ops/cargo.sh test --workspace)          # exit 0, expect 72 passed / 0 failed
+(cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)  # exit 0
+(cd kernel && ../ops/cargo.sh fmt --check)               # exit 0, empty
+(cd sdk && npm run build)                                # exit 0
+(cd sdk && npm test)                                     # exit 0, expect 121 passed / 0 failed
+```
 
-6. **PR #8 updated honestly.** Body carries: the swarm verdict table (old
-   SWARM_FAILED → new SWARM_PASSED), the F0 disclosure that the first swarm's
-   transcripts were lost to a hard reset and what changed so it cannot recur,
-   the F4 note pointing at `73bdb59`, and the verbatim tails from 1–3. The
-   "third adversarial review → REVIEW_PASSED" claim is corrected in place
-   (errata style, as this branch already does), not deleted. Bot check statuses
-   are not cited as review evidence.
+Because this package changes no product code, any movement in these numbers is
+itself a finding and must be investigated before the PR is updated.
 
-7. **`ops/DRIVE-LOG.md`** gains this tick's entry: the SWARM_FAILED verdict that
-   set the package, F0's root cause with the reflog evidence, what was fixed,
-   the verify tails, and the honest gate-1 state (AMBER until a human merges #8
-   and it re-verifies on `main`).
+**7. The preflight behavioral cases still pass on the repaired head** — the same
+set the PR body records, re-run, not copied:
 
----
+```
+node sdk/dist/cli.js check testdata/hello-ladder.flow.yaml   # CHECK PASSED, exit 0
+node sdk/dist/cli.js check testdata/hello-llm.flow.yaml      # CHECK PASSED, exit 0
+node sdk/dist/cli.js check testdata/hello-agent.flow.yaml    # CHECK PASSED, exit 0
+```
 
-## Explicitly OUT of scope this tick
+plus the four typed refusals, each exiting 2 with its declared kind named:
 
-- **Any new gate-1 feature, and any gate 2–9 work.** Clause 2 is written; this
-  tick makes it landable.
-- **The deterministic-command P1** (refuse a path-like command word containing
-  `/` when the path does not exist; keep warning for bare words that may be
-  shell builtins/functions/assignments). Stays a backlog item. F1 is in scope
-  because it is a *dialect disagreement between check and kernel*; this one is a
-  judgment call about shell resolution and needs its own package.
-- **Force-push, rebase, squash, or any history rewrite of
-  `flow/drive-57e923c-08271542`.** F4 is closed by disclosure plus the landed
-  guard. The PR's no-rewrite claim must stay true.
-- **Merging.** The Lead never merges (charter, hard rails). This ends at a PR a
-  human can merge.
-- **Re-ranking the gates / choosing the post-gate-1 package.** F3 restores the
-  recorded priority; it does not settle what comes next. That is next tick's
-  assess, after #8 merges.
-- **`workflows/drive.yaml`'s `pr` step** beyond what `73bdb59` and `f59d9cd`
-  already landed.
-- **Registering or re-registering cloud schedules**, and the sandbox
-  no-git-remote failure. Backlog.
+```
+node sdk/dist/cli.js check testdata/preflight/cli-missing.flow.yaml          # cli_missing
+node sdk/dist/cli.js check testdata/preflight/cli-unauthenticated.flow.yaml  # cli_unauthenticated
+node sdk/dist/cli.js check testdata/preflight/cli-unresolved.flow.yaml       # cli_unresolved
+node sdk/dist/cli.js check testdata/preflight/no-executor.flow.yaml          # no_executor
+```
 
----
+and the kernel-version refusal through the real CLI (`spec.version: unsupported
+version "9.9.9" (expected "0.1.0")`, exit 2).
 
-## Traps this tick will hit if unwarned
+**8. Re-reviewed and passing.** Run the review swarm against the repaired head
+using the **`origin/main` copy of the workflow**:
 
-1. **Wrong branch.** `sync` cuts from `main`. PR #8 is on
-   `flow/drive-57e923c-08271542`. Check out that branch first (DoD prerequisite).
-2. **Local `git diff main..HEAD` lies on this branch.** Use three-dot
-   `main...HEAD` (merge base). Two-dot reports `ops/` files as deletions the
-   branch never made — the same trap tick 5's log recorded for PR #7.
-3. **Green bot checks are not review signal on this PR specifically.** Verified:
-   CodeRabbit skipped (rate limit), Devin's trial expired. Both report SUCCESS.
-4. **`git add` is not persistence.** That is F0's whole lesson. Anything a step
-   produces as evidence must be committed in the same step, or a later
-   `git reset --hard` erases it — which is exactly how this PR's blocking review
-   was lost.
+```
+echo 8 > .review-target
+# run workflows/review-swarm.yaml with PR_NUMBER=8
+```
 
----
+The aggregate must print `SWARM_PASSED`. Each lens's transcript is committed in
+**its own commit touching only that file** — the F0 evidence-loss failure (two
+hard resets discarded staged, uncommitted transcripts) must not recur. If any
+lens rejects, that rejection is the next round's work: fix, re-run, and record
+both rounds. Do not paper over a rejection by re-running until it passes.
 
-## Gate 1 state after this package
+**9. The PR body tells the whole truth.** `gh pr edit 8` so the review-of-record
+table includes **all** rounds in order — the 17:45 `SWARM_FAILED`, the
+`a8c9110` `SWARM_PASSED`, the 20:11 `REVIEW_FAILED` with V1/V2/V3, and the WP-6
+repair round with its verdict — plus the verbatim DoD tails from items 6 and 7.
+The existing F0 disclosure and the standalone-review errata stay. Deleting or
+softening the 20:11 rejection is a package failure.
 
-Still **AMBER**. Clause 1 closed on `main`. Clause 2 becomes repository state
-only when a human merges PR #8; the gate flips to GREEN only after a fresh
-verification run on merged `main`. This package does not flip the gate and must
-not claim to.
+**10. Gate 1 stays AMBER.** `ops/SCOREBOARD.md` continues to say gate 1 flips to
+GREEN only after a human merges PR #8 and re-verifies on merged `main`. **The
+Lead does not merge** (charter, Hard rails). This package ends with an updated,
+re-reviewed, still-open PR #8 and an honest report.
+
+### Explicitly OUT of scope for this tick
+
+- **Merging PR #8.** A human merges. Do not merge, do not enable auto-merge.
+- **Any product-code change** — kernel, `sdk/src`, `sdk/tests`, `testdata`.
+  Including: making the kernel refuse `steps: []` to close V3 symmetrically.
+  V3 is closed *by disclosure* this tick; the kernel-side fix is backlog-sized
+  and belongs to a later package.
+- **Editing `workflows/review-swarm.yaml`** in any way on this branch, including
+  the durability hardening the F0 disclosure proposes. Separate PR, judged by
+  the pre-change swarm.
+- **Hardening `workflows/drive.yaml`'s `pr` step** (hardcoded body, the
+  `cut -c1-60` byte cut across the em-dash, `--fill` falling back to the branch
+  name for the title). Five ticks of the same drift with a pinpointed root
+  cause — it is the strongest standing candidate for the *next* package, and it
+  is still not a reason to add a workflow change to a PR under review.
+- **The two residual WP-3 findings** (P2-A `agent_pins_available` vs
+  `worker_holds`; P3-B unvalidated `started_pins`/`end_pins` on non-agent
+  completions). Recorded in `ops/BACKLOG.md`; neither fails open.
+- **Gate 2+ work of any kind** — triggers, dispatch, provider integration,
+  permission enforcement, live model calls, live agent CLI invocation, slack /
+  notion helpers.
+- **The cloud-sandbox `origin` gap** and the regression suite. Backlog.
+- **Rebasing this branch onto `main`.** The merge-base is `main`'s tip; there is
+  nothing to gain and a history-rewrite rail to lose.
+
+### Why this and not the preflight follow-on
+
+Because the charter's rule is unconditional: an open PR awaiting fixes from
+review is the work package, and new work never starts over unfinished work.
+PR #8 is that PR. The countervailing argument — that the swarm already returned
+`SWARM_PASSED` on an equivalent tree, so the branch is really done — is exactly
+the reasoning that produced two of the last three process failures on this
+repo: a verdict was treated as settled while a later, more specific check said
+otherwise. The 20:11 reviewer re-ran every gate itself and found a false
+measured claim in the gate-state record. It is a two-line fix. It costs one
+short tick and it leaves gate 1's second clause standing on a PR whose evidence
+record is true — which is the whole point of covenant 2.
