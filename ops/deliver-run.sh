@@ -58,9 +58,15 @@ if git diff --quiet && git diff --cached --quiet; then
   exit 0
 fi
 
-# Never deliver the sandbox's own scaffolding.
-git checkout --quiet -- .workflow-env 2>/dev/null || true
-rm -f .workflow-env 2>/dev/null || true
+# Never deliver the sandbox's own scaffolding or a materialized toolchain.
+# Run f18ec684's patch carried .rustup-home/ toolchain files alongside three
+# real source changes; delivering those would put a 20MB toolchain in a PR.
+for junk in .workflow-env .rustup-home .rustup .cargo-home .relayflows-toolchain node_modules; do
+  rm -rf "$junk" 2>/dev/null || true
+done
+# Anything still staged from an ignored path is not this tick's work.
+git rm -r --cached --quiet --ignore-unmatch \
+  .workflow-env .rustup-home .rustup .cargo-home .relayflows-toolchain 2>/dev/null || true
 
 title="drive: cloud run ${run_id%%-*}"
 if [ -f ops/NEXT.md ]; then
