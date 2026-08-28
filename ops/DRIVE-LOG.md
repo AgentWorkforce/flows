@@ -1747,3 +1747,90 @@ The passing lenses retain only non-blocking prospective/coverage observations
 in their transcripts; no current path produces a false `CHECK PASSED` or a
 factually false operator diagnostic. Gate 1 remains **AMBER** until a human
 merges PR #8 and re-verifies the merged `main` tree. The Lead does not merge.
+
+### WP-8 — clean builds make the shipped CLI executable
+
+This 2026-08-27 22:02 EDT tick repaired PR #8's order-dependent SDK gate.
+The work began from an isolated checkout of `79226ec` with both
+`sdk/node_modules/` and `sdk/dist/` absent. In the required install-then-build
+order, `npm ci` followed by `npm run build` produced:
+
+```text
+-rw-r--r--  1 khaliqgant  wheel  11114 Aug 27 21:58 dist/cli.js
+```
+
+The full SDK suite then reproduced the assessed defect at exit 1:
+
+```text
+FAIL  tests/bin.test.ts > built flows binary > refuses through a symlink to the built artifact
+FAIL  tests/bin.test.ts > built flows binary > refuses through a symlinked directory component
+Test Files  1 failed | 7 passed (8)
+     Tests  2 failed | 128 passed (130)
+```
+
+Commit `6fab45a` makes `build` run the single-purpose
+`sdk/scripts/make-cli-executable.mjs` after `tsc`; `prepare` routes packaging
+through the same build. The script sets `dist/cli.js` to `0755` on POSIX and
+degrades to a no-op on Windows. `bin.test.ts` now names and asserts the build's
+executable-artifact invariant.
+
+The guard was proved load-bearing. The three edited files were hashed, the
+mode step was removed from `build`, and the existing `dist/` was moved aside
+so the mutation rebuilt from absence. The mutated build produced mode `0644`;
+the full suite failed the new mode assertion and both symlink entry points:
+
+```text
+FAIL  tests/bin.test.ts > built flows binary > build produces an executable CLI artifact
+FAIL  tests/bin.test.ts > built flows binary > refuses through a symlink to the built artifact
+FAIL  tests/bin.test.ts > built flows binary > refuses through a symlinked directory component
+Test Files  1 failed | 7 passed (8)
+     Tests  3 failed | 128 passed (131)
+```
+
+The build clause was restored byte-for-byte. The post-restore SHA-256 values
+matched the pre-mutation values: `package.json`
+`a8b421014207d9f2e2e6ad081da472b5d401b6c8bde0b6b7af08ae7834da0fea`,
+the mode script
+`d8c079f5ece7f23a7361bb6b725e0d068ee9158cb8bd34baa4af54bfcfe92b4c`,
+and `bin.test.ts`
+`f2256a5f00aa9de83fa1064d5482a9177d867d310537a50c89b0e0d0696bf97a`.
+
+A second detached worktree at `6fab45a` began with `node_modules/` and `dist/`
+absent and no manually exported environment variables. Its clean-room gate
+passed:
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+test result: ok. 18 passed; 0 failed
+test result: ok. 0 passed; 0 failed
+test result: ok. 19 passed; 0 failed
+test result: ok. 26 passed; 0 failed
+test result: ok. 3 passed; 0 failed
+test result: ok. 6 passed; 0 failed
+doc-tests: 0 failed (72 total passed)
+
+$ (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
+    Checking relayflowd-core v0.1.0 (/private/tmp/pr8-clean.HTbunl/kernel/relayflowd-core)
+    Checking relayflowd-journal v0.1.0 (/private/tmp/pr8-clean.HTbunl/kernel/relayflowd-journal)
+    Checking relayflowd v0.1.0 (/private/tmp/pr8-clean.HTbunl/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.74s
+
+$ (cd kernel && ../ops/cargo.sh fmt --check)
+exit 0, empty output
+
+$ (cd sdk && npm ci && npm run build && npm test)
+ Test Files  8 passed (8)
+      Tests  131 passed (131)
+   Start at  22:01:52
+   Duration  1.86s (transform 308ms, setup 0ms, collect 765ms, tests 2.41s, environment 4ms, prepare 590ms)
+
+$ ls -l sdk/dist/cli.js
+-rwxr-xr-x  1 khaliqgant  wheel  11114 Aug 27 22:01 sdk/dist/cli.js
+
+$ git status --porcelain
+```
+
+No new `ops/reviews/` transcript was produced in this non-interactive WP-8
+repair; the existing changed-code swarm transcripts at `c6d7266` remain the
+PR's review signal. PR #8 stays open until its final-head clean-room rerun and
+the live merge bar are checked.
