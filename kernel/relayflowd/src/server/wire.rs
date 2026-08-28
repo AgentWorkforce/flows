@@ -120,6 +120,13 @@ pub(super) struct EventEmitParams {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(super) struct EventSubmitParams {
+    pub spec: Value,
+    pub event: relayflowd_core::Event,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct StreamAppendParams {
     pub run_id: String,
     pub stream: String,

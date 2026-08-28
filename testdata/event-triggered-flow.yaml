@@ -1,0 +1,13 @@
+version: '0.1.0'
+name: event-triggered-flow
+triggers:
+  - id: test-ping
+    executor: agent-worker
+    eventType: test.ping
+    pattern: {}
+    dedupeKeyTemplate: '{{event.type}}:{{payload.message}}'
+steps:
+  - id: log-event
+    type: agent
+    instruction: Log the triggering event payload from the wake context.
+    recoveryMode: reset

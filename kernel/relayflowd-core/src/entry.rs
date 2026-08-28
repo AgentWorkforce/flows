@@ -9,6 +9,12 @@ use crate::spec::{RecoveryMode, StepType};
 pub enum EntryType {
     #[serde(rename = "run.spawned")]
     RunSpawned,
+    #[serde(rename = "event.received")]
+    EventReceived,
+    #[serde(rename = "subscription.registered")]
+    SubscriptionRegistered,
+    #[serde(rename = "subscription.matched")]
+    SubscriptionMatched,
     #[serde(rename = "step.attempt.started")]
     StepAttemptStarted,
     #[serde(rename = "step.completed")]
@@ -39,6 +45,9 @@ impl EntryType {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::RunSpawned => "run.spawned",
+            Self::EventReceived => "event.received",
+            Self::SubscriptionRegistered => "subscription.registered",
+            Self::SubscriptionMatched => "subscription.matched",
             Self::StepAttemptStarted => "step.attempt.started",
             Self::StepCompleted => "step.completed",
             Self::WaitEvent => "wait.event",
@@ -57,6 +66,9 @@ impl EntryType {
     pub fn parse(value: &str) -> Option<Self> {
         Some(match value {
             "run.spawned" => Self::RunSpawned,
+            "event.received" => Self::EventReceived,
+            "subscription.registered" => Self::SubscriptionRegistered,
+            "subscription.matched" => Self::SubscriptionMatched,
             "step.attempt.started" => Self::StepAttemptStarted,
             "step.completed" => Self::StepCompleted,
             "wait.event" => Self::WaitEvent,

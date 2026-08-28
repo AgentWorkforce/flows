@@ -6,6 +6,7 @@
 
 pub mod clock;
 pub mod entry;
+pub mod event;
 pub mod journal;
 pub mod machine;
 pub mod retry;
@@ -15,6 +16,7 @@ pub mod verify;
 
 pub use clock::{Clock, SimClock};
 pub use entry::*;
+pub use event::{Event, EventError};
 pub use journal::{Journal, JournalError, MemoryJournal};
 pub use machine::{
     Action, AttemptResult, RecoveryInstruction, abandonment_actions, carried_pins_for,

@@ -31,6 +31,10 @@ impl Registry {
                file TEXT NOT NULL,
                status TEXT NOT NULL,
                next_wake_at_ms INTEGER
+             ) WITHOUT ROWID;
+             CREATE TABLE IF NOT EXISTS event_dedupe (
+               dedupe_key TEXT PRIMARY KEY,
+               run_id TEXT NOT NULL
              ) WITHOUT ROWID;",
         )?;
         Ok(Self { connection })
@@ -94,6 +98,28 @@ impl Registry {
                 },
             )
             .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn claim_event(
+        &self,
+        dedupe_key: &str,
+        run_id: &str,
+    ) -> Result<Option<String>, JournalStoreError> {
+        let changed = self.connection.execute(
+            "INSERT OR IGNORE INTO event_dedupe(dedupe_key, run_id) VALUES (?1, ?2)",
+            params![dedupe_key, run_id],
+        )?;
+        if changed == 1 {
+            return Ok(None);
+        }
+        self.connection
+            .query_row(
+                "SELECT run_id FROM event_dedupe WHERE dedupe_key = ?1",
+                [dedupe_key],
+                |row| row.get(0),
+            )
+            .map(Some)
             .map_err(Into::into)
     }
 }
