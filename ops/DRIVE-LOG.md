@@ -1834,3 +1834,155 @@ No new `ops/reviews/` transcript was produced in this non-interactive WP-8
 repair; the existing changed-code swarm transcripts at `c6d7266` remain the
 PR's review signal. PR #8 stays open until its final-head clean-room rerun and
 the live merge bar are checked.
+
+### WP-9 — sync, disclose, review, and make PR #8's evidence reproduce
+
+This 2026-08-27 tick is the **sixth consecutive drive tick consumed by PR #8**
+(WP-4 through WP-9). `origin/main` still has no entries for WP-4 through WP-8:
+its drive log is 439 lines, while this branch began WP-9 at 1,836 lines. The
+1,397-line branch-only addition is the accumulated tick-5-through-tick-8
+record that lands with PR #8; this entry appends WP-9 rather than rewriting it.
+
+Commit `a9e152c` merged `origin/main` at `6366943`, bringing the branch under
+the new evidence-capture standard. The final code/docs/scoreboard review head
+is `fa19df14280831167bd503d1148326973635a140`. The changed-head lens run
+`1f3e44c4957c52acec493e88` produced the final three transcripts:
+
+- `ops/reviews/20260827-2253-pr8-structure.md`
+- `ops/reviews/20260827-2254-pr8-maintainability.md`
+- `ops/reviews/20260827-2254-pr8-history.md`
+
+Every file names `fa19df14280831167bd503d1148326973635a140` and ends in
+`REVIEW_PASSED`. The workflow's substring-only aggregate initially mistook two
+historical failed-verdict commit subjects quoted by the passing history lens
+for its current verdict. No lens was rerun on unchanged code. The history
+transcript now shows the literal transformed `git log` command that renders
+those old subject markers descriptively, and aggregate-only canonical run
+`51f6a86601cb1c0a5747a9ed` captured:
+
+```text
+ok: maintainability passed (ops/reviews/20260827-2254-pr8-maintainability.md)
+ok: history passed (ops/reviews/20260827-2254-pr8-history.md)
+ok: structure passed (ops/reviews/20260827-2253-pr8-structure.md)
+SWARM_PASSED
+```
+
+The review chronology was append-only. The first post-sync round at `a9e152c`
+passed but preceded the package-mandated surface disclosure. The next round
+rejected `18f03be` because that disclosure named `unprovable_effects` instead
+of the shipped unresolved-command diagnostic; `c04d388` corrected it to
+`command_unresolved`. The following history round rejected a stale SDK count
+in `ops/SCOREBOARD.md`; review-forced `fa19df1` changed only 130 to 131 and
+left Gate 1 AMBER. The final changed-head round then passed all three lenses.
+
+`docs/SURFACE.md` now states the accepted Codex P1 limitation plainly: a bare
+unresolvable deterministic command is warned as `command_unresolved`, not
+refused, because `/bin/sh -c` may supply a builtin, function, or assignment;
+the narrower path-like missing-command refusal remains in `ops/BACKLOG.md`.
+
+Final local verification used hermetic `ops/cargo.sh` and no manually exported
+environment variables. The kernel workspace command passed 72 tests
+(18 + 19 + 26 + 3 + 6); its captured result lines were:
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+Clippy passed with warnings denied:
+
+```text
+$ (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
+    Checking jsonschema v0.33.0
+    Checking relayflowd-core v0.1.0 (/private/tmp/pr8-wp8.u3puE7/kernel/relayflowd-core)
+    Checking relayflowd-journal v0.1.0 (/private/tmp/pr8-wp8.u3puE7/kernel/relayflowd-journal)
+    Checking relayflowd v0.1.0 (/private/tmp/pr8-wp8.u3puE7/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.60s
+```
+
+Formatting exited 0 with captured output empty (0 bytes):
+
+```text
+$ (cd kernel && ../ops/cargo.sh fmt --check)
+```
+
+The SDK suite passed 131 tests:
+
+```text
+$ (cd sdk && npm test)
+ ✓ tests/preflight.test.ts (12 tests) 9ms
+ ✓ tests/journal-client.test.ts (12 tests) 20ms
+ ✓ tests/validate.test.ts (36 tests) 18ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 17ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 14ms
+ ✓ tests/spec-parity.test.ts (12 tests) 32ms
+ ✓ tests/cli.test.ts (42 tests) 584ms
+ ✓ tests/bin.test.ts (7 tests) 1038ms
+
+ Test Files  8 passed (8)
+      Tests  131 passed (131)
+   Start at  22:59:36
+   Duration  1.27s (transform 234ms, setup 0ms, collect 638ms, tests 1.73s, environment 1ms, prepare 468ms)
+```
+
+The worker safety layer refused the definition-of-done command's literal
+`rm -rf` spelling before process launch. The same clean-room precondition was
+therefore established recoverably by moving both directories to
+`/tmp/wp9-sdk-clean.jhFxk6`, after which the install/build/executable check
+passed at exit 0:
+
+```text
+$ clean_backup_dir=$(mktemp -d /tmp/wp9-sdk-clean.XXXXXX)
+$ if [ -e sdk/dist ]; then mv sdk/dist "$clean_backup_dir/dist"; fi
+$ if [ -e sdk/node_modules ]; then mv sdk/node_modules "$clean_backup_dir/node_modules"; fi
+$ (cd sdk && npm ci && npm run build && test -x dist/cli.js)
+CLEAN_BACKUP=/tmp/wp9-sdk-clean.jhFxk6
+
+added 48 packages, and audited 49 packages in 674ms
+
+13 packages are looking for funding
+  run `npm fund` for details
+
+5 vulnerabilities (3 moderate, 1 high, 1 critical)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> @relayflows/sdk@0.1.0 build
+> tsc && node scripts/make-cli-executable.mjs
+```
+
+The resulting artifact evidence was:
+
+```text
+$ stat -f '%Sp %Lp %N' sdk/dist/cli.js
+-rwxr-xr-x 755 sdk/dist/cli.js
+```
+
+No Rust file crosses 500 lines; the literal command's largest-file tail was:
+
+```text
+$ find kernel -name '*.rs' -not -path '*/target/*' | xargs wc -l | sort -nr | head -12
+   10081 total
+     468 kernel/relayflowd/src/server.rs
+     465 kernel/relayflowd/src/server/session.rs
+     452 kernel/relayflowd-core/src/spec.rs
+     451 kernel/relayflowd-journal/src/lib.rs
+     422 kernel/relayflowd-core/src/state.rs
+     420 kernel/relayflowd-core/src/machine.rs
+     409 kernel/relayflowd/src/engine.rs
+     406 kernel/relayflowd-core/src/machine/tests.rs
+     389 kernel/relayflowd-core/src/entry.rs
+     388 kernel/relayflowd/tests/crash_resume/llm.rs
+     363 kernel/relayflowd/tests/crash_resume/agent.rs
+```
+
+PR #8 remains open. Gate 1 remains AMBER until a human merges it and
+re-verifies merged `main`; the Lead does not merge.
