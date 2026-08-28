@@ -279,12 +279,18 @@ steps:
     const llmLease = await llmDispatch;
     const llmParked = await llmStart;
     expect(llmLease.step_type).toBe('llm');
-    expect((await client.stepHeartbeat(
+    const heartbeat = await client.stepHeartbeat(
       llmLease.run_id,
       llmLease.step_id,
       llmLease.attempt,
       llmLease.lease_id,
-    )).lease_deadline_ms).toBeGreaterThan(Date.now());
+    );
+    expect(heartbeat.lease_deadline_ms).toBeGreaterThan(Date.now());
+    expect((await client.runGet(llmLease.run_id)).steps[llmLease.step_id]).toMatchObject({
+      type: 'llm',
+      state: 'running',
+      lease_deadline_ms: heartbeat.lease_deadline_ms,
+    });
     const llmDone = await client.stepComplete(
       llmLease.run_id,
       llmLease.step_id,
