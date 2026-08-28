@@ -32,8 +32,63 @@ workflows:
       - name: sync
         type: deterministic
         command: |
-          git fetch origin && git checkout main && git pull --ff-only origin main && \
-          git checkout -B flow/drive-$(git rev-parse --short origin/main)-$(date +%m%d%H%M) && \
+          # Materialize the repo; never assume it. This step assumed a clone
+          # with an `origin` remote and so every cloud tick died here with
+          # `fatal: 'origin' does not appear to be a git repository` (runs
+          # 9fc8d996, ff35187a, 06505b94, 4cf36ea7, b33c2c9a).
+          #
+          # A cloud workflow sandbox does NOT get a clone. The platform's own
+          # materialization is the code sync: the CLI tars the `git ls-files`
+          # set and the bootstrap extracts it into the code mount, then runs
+          # `git init` over it. Files yes, `.git` history and remotes no.
+          # A checkout with a remote only exists on a host that already has one
+          # (laptop, fleet node). Both shapes are supported below; neither is
+          # assumed, and an unmaterialized sandbox fails closed and typed
+          # rather than failing later as an unexplained tool error.
+          set -eu
+          echo "SYNC_WORKDIR=$(pwd)"
+
+          missing=""
+          for required in AGENTS.md docs/RFC-0001-everything-is-a-relayflow.md ops/DIRECTIVES.md kernel sdk; do
+            [ -e "$required" ] || missing="$missing $required"
+          done
+          if [ -n "$missing" ]; then
+            echo "SYNC_FAIL_NOT_MATERIALIZED: the repo is not present in this execution environment." >&2
+            echo "  missing:$missing" >&2
+            echo "  cwd: $(pwd)" >&2
+            echo "  A cloud run must upload the working tree: \`agent-relay cloud run\`" >&2
+            echo "  syncs code by default; \`--no-sync-code\` produces exactly this state." >&2
+            exit 78
+          fi
+          echo "SYNC_MATERIALIZED=ok"
+
+          git rev-parse --git-dir >/dev/null 2>&1 || git init -q
+          git config user.email "lead@relayflows.local"
+          git config user.name "Relayflow Lead"
+
+          if git remote get-url origin >/dev/null 2>&1; then
+            # Real checkout (laptop / fleet node): take the true origin/main.
+            echo "SYNC_MODE=remote"
+            git fetch --quiet origin
+            git checkout --quiet -B main origin/main
+            base=$(git rev-parse --short origin/main)
+          else
+            # Sandbox snapshot: there is no remote to fetch and nothing to
+            # rebase onto. The snapshot IS the base. Commit it so the tick has
+            # a parent to diff against — `git diff main` in the review step
+            # needs a `main` that exists.
+            echo "SYNC_MODE=snapshot"
+            if ! git rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+              git add -A
+              git commit --quiet -m "snapshot base for this tick" || true
+            fi
+            git branch --quiet -f main HEAD 2>/dev/null || git checkout --quiet -b main
+            base=$(git rev-parse --short HEAD)
+          fi
+
+          git checkout --quiet -B "flow/drive-${base}-$(date +%m%d%H%M)"
+          echo "SYNC_BASE=$base"
+          echo "SYNC_BRANCH=$(git rev-parse --abbrev-ref HEAD)"
           echo SYNCED
 
       - name: assess
@@ -148,10 +203,33 @@ workflows:
         type: deterministic
         dependsOn: [verdict]
         command: |
-          title=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md | sed "s/[[:space:]]*$//" || echo "work package"); \
-          git add -A && git commit -m "drive: $title" && \
-          git push -u origin HEAD && \
-          gh pr create --fill --body "Automated drive tick. Work package: see ops/NEXT.md in diff. Verification and adversarial review passed in-run. A human merges." 2>&1 | tail -2 && \
+          # Delivery is the one thing a tick cannot fake. `git push` needs a
+          # remote and `gh pr create` needs an authenticated gh; a cloud
+          # workflow sandbox has neither (it gets no GitHub token — see
+          # ops/reviews/*-cloud-execution.md). Rather than dying on an opaque
+          # `fatal: 'origin' does not appear...` after five expensive steps,
+          # each precondition is named before it is used, and an environment
+          # that cannot deliver says so in one typed line.
+          set -eu
+          title=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md | sed "s/[[:space:]]*$//" || echo "work package")
+          git add -A
+          git commit -m "drive: $title" || echo "PR_NOTE: nothing new to commit"
+
+          if ! git remote get-url origin >/dev/null 2>&1; then
+            echo "PR_BLOCKED_NO_REMOTE: this environment has no git remote, so the tick's" >&2
+            echo "  work cannot be delivered from here. The diff is committed on" >&2
+            echo "  $(git rev-parse --abbrev-ref HEAD) inside the sandbox only." >&2
+            echo "  Recover it with: agent-relay cloud sync \$RUN_ID" >&2
+            exit 75
+          fi
+          if ! gh auth status >/dev/null 2>&1; then
+            echo "PR_BLOCKED_NO_GH_AUTH: a remote exists but gh is not authenticated," >&2
+            echo "  so the branch can be pushed but no PR can be opened." >&2
+            exit 75
+          fi
+
+          git push -u origin HEAD
+          gh pr create --fill --body "Automated drive tick. Work package: see ops/NEXT.md in diff. Verification and adversarial review passed in-run. A human merges." 2>&1 | tail -2
           echo PR_OPENED
 
       - name: log
