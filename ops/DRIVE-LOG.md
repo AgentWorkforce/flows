@@ -1581,3 +1581,69 @@ H1 is repaired in scope. B1 requires edits under `sdk/src/**` and `sdk/tests/**`
 which WP-6 explicitly forbids; the package says any such diff fails. The failed
 round is therefore preserved rather than papered over by rerunning unchanged
 product code. PR #8 remains open and Gate 1 remains **AMBER**.
+
+### WP-7 — shipped-entrypoint and probe-contract fixes, before re-review
+
+This 2026-08-27 21:04 EDT entry records the fixed product tree before the
+required new swarm. Commit `5189e69` closes F1/F2/F4/F5/F8 in code, fixtures,
+and tests; commit `9aecc41` closes F6/F7/F9/F10 in the surface contract,
+backlog, and controlling work package. F11 is disclosed in the refreshed PR
+body as a reviewer-forced correction caused by the WP-6 H1 transcript.
+
+The built artifact now resolves every component of `process.argv[1]` through
+`realpathSync` before comparing with `import.meta.url`. If that entry path is
+absent, deleted, or unreadable, the module is treated as an import and does
+not crash or guess that an unrelated host process invoked it. A signal-killed
+`auth status` and a resolver process that cannot be started both reach
+`probe_failed`. One `preflight()` call memoises by `(cli, source)`.
+
+Fresh pre-review measurements on `9aecc41`:
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+test result: ok. 18 passed; 0 failed
+test result: ok. 0 passed; 0 failed
+test result: ok. 19 passed; 0 failed
+test result: ok. 26 passed; 0 failed
+test result: ok. 3 passed; 0 failed
+test result: ok. 6 passed; 0 failed
+doc-tests: 0 failed (72 total passed)
+
+$ (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.32s
+
+$ (cd kernel && ../ops/cargo.sh fmt --check)
+exit 0, empty output
+
+$ (cd sdk && npm run build)
+> tsc
+exit 0
+
+$ (cd sdk && npm test)
+Test Files  8 passed (8)
+     Tests  127 passed (127)
+```
+
+The seven original behavioral cases pass through `node sdk/dist/cli.js`: all
+three ladder flows print `CHECK PASSED` at exit 0, while `cli_missing`,
+`cli_unauthenticated`, `cli_unresolved`, and `no_executor` print their typed
+`REFUSED` kind at exit 2. Both a symlink directly to `dist/cli.js` and a
+symlinked directory component now print `REFUSED [cli_missing]`, exit 2. The
+signal fixture and `env PATH=` case print `REFUSED [probe_failed]`, exit 2.
+The three-step shared-CLI fixture prints `CHECK PASSED` and its own log contains
+exactly one `auth status` line.
+
+Mutation verification temporarily restored the old non-realpath guard and ran
+the full SDK suite. Both new symlink tests failed with received exit 0 instead
+of expected exit 2 (`2 failed | 125 passed`); restoring the clause returned
+`sdk/src/cli.ts` to blob `75cbefbbaabc6b50734dc8fdff9928c1f3a3eec8`,
+after which all 127 tests passed.
+
+The workflow guard is empty and the package-local kernel guard is empty:
+`git diff origin/main HEAD -- workflows/` and
+`git diff b43cd0f HEAD -- kernel/` print nothing. The literal work-package
+command `git diff origin/main HEAD -- kernel/` still lists the three kernel
+files introduced earlier by PR #8, before WP-7; reverting them would erase
+the open PR's required spec-parity work and is out of scope. This baseline
+contradiction is preserved rather than hidden. All ten cited commits remain
+ancestors. Gate 1 remains **AMBER** and PR #8 remains open.
