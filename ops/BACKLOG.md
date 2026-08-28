@@ -84,3 +84,31 @@ gate's needs. Not commitments; ordering is the Lead's call with evidence.
   complete caller environment. Gate 8 must replace ambient inheritance with
   an explicit scoped or allowlisted probe environment before untrusted or
   self-authored flow specs are checked under privileged credentials.
+
+## Carried from PR #8 at squash (2026-08-28)
+
+Eight findings stood open in the final passing transcript
+(`ops/reviews/20260827-2331-pr8-maintainability.md`) and were not carried into
+this ledger when #8 merged; the DRIVE-LOG called its three-item residual list
+complete. Recorded here so they are tracked rather than lost — found by tick
+12's reviewer (F4), which is exactly the kind of drop a squash makes invisible.
+
+- **F1** — `probeFailedMessage`'s fall-through asserts *"timed out"* about any
+  new detail. A wrong reason is worse than none: it sends the operator to fix
+  a timeout that did not happen.
+- **F2** — two probe timeouts duplicated per call site; the classifier's type
+  does not bind them to the spawn option, so they can drift apart silently.
+- **F3** — the `timeout:*` production path has no end-to-end coverage.
+- **F5** — `every_failed_run_terminates_with_declared_completion_reasons`
+  iterates a hand-maintained list; a new reason added without touching the list
+  is untested (drift = silent regression, the registry lesson again).
+- **F6** — `SpecError::InvalidTrigger` collapses two distinct faults into one
+  message.
+- **F8b** — `validateKernelRetry` names an authoring rule as if the kernel
+  imposed it — a doc claim the kernel does not make.
+- **F9** — `probeTrigger` catches every error with no classification, so a
+  broken probe environment is indistinguishable from a bad trigger.
+- **F10** — small load-bearing boundary details a reader will trip over.
+
+Rule this produced: **a merge must not shrink the open-findings ledger.** What
+a review leaves open moves here before the PR closes, or it is lost.
