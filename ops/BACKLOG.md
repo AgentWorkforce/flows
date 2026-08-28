@@ -138,3 +138,23 @@ error TS2688: Cannot find type definition file for 'node'.
 
 Both must hold on a laptop AND in a sandbox; a fix that only works in one is
 the defect it replaces.
+
+## A review that lands after the work cannot steer it (2026-08-28)
+
+Tick 15b recorded an ordering fault against itself: the review meant to steer
+its implementation landed 02:58, fifteen minutes *after* implementation began
+at 02:43. This is structural, not incidental — `drive.yaml`'s DAG runs
+`review` after `build`, so any review commissioned to validate a *plan* is
+guaranteed to arrive too late to change it.
+
+Two candidate shapes, to decide deliberately:
+- **Gate the plan, not just the diff:** add a `plan-review` step between
+  `assess` and `build`, cheap and scoped to the work package's reasoning. Tick
+  15b's own assessment carried two substantive errors (an overstated RFC
+  mandate, a wrong claim about the wire format) that a plan review would have
+  caught before 25 minutes of building.
+- **Accept it and stop pretending:** if review only ever judges the diff, then
+  a tick must not describe its review as steering the implementation.
+
+Either is honest. The current state — a post-hoc review described as guidance
+— is the thing to remove.
