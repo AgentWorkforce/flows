@@ -184,67 +184,17 @@ workflows:
       \ found \u2014 a verify that runs nothing cannot pass\"; exit 1\nfi\n[ \"$ok\" -eq 0 ] && echo VERIFY_PASS\
       \ || echo \"VERIFY_FAIL_NONFATAL: recorded; the next cycle must address it\"\n"
     timeoutMs: 1200000
-  - name: review-1
-    type: agent
-    agent: adversary
-    dependsOn:
-    - verify-1
-    task: "Review `git diff main` against ops/NEXT.md (scope), AGENTS.md\n(standards) and RFC-0001 (semantics).\
-      \ Try to refute. List violations\nwith file:line. FIRST write your complete review (findings, evidence,\n\
-      verdict rationale) to ops/reviews/$(date +%Y%m%d-%H%M)-review.md and\n`git add` it \u2014 an unpersisted\
-      \ verdict is not evidence.\n\nClassify EVERY finding as exactly one of:\n\n  BLOCKING \u2014 the\
-      \ shipped behavior is wrong, unsafe, or out of scope;\n    a test or gate cannot fail; OR a claim\
-      \ about verification is\n    false (a report says something was run, passed, or was proven\n   \
-      \ when it was not). A false verification claim is ALWAYS blocking,\n    because the whole program's\
-      \ trust rests on those claims being\n    literal. This is the careful edge: do not soften it.\n\n\
-      \  ADVISORY \u2014 the work is right but the account of it is imprecise:\n    a citation points\
-      \ at the wrong line, a mechanism is described\n    backwards, prose overstates or misnames something.\
-      \ Real defects,\n    recorded and carried, but they do not block a merge.\n\nTen consecutive ticks\
-      \ were rejected on ADVISORY-class findings while\ntheir behavior was sound. Wrong prose about right\
-      \ code is a defect to\nfix, not a reason to discard the work.\n\nEnd with REVIEW_FAILED if any finding\
-      \ is BLOCKING. Otherwise end with\nREVIEW_PASSED, and list the advisory findings under a heading\n\
-      `## Advisory (carried, non-blocking)` so they are picked up rather\nthan lost.\n"
-    verification:
-      type: output_contains
-      value: REVIEW_
-    maxIterations: 1
-    timeoutMs: 1800000
-  - name: verdict-1
-    type: deterministic
-    dependsOn:
-    - review-1
-    command: "# CLOUD VARIANT (generated): a REJECTION does not stop the run \u2014\n# nothing is delivered\
-      \ from a sandbox, so bad work cannot escape,\n# and the next cycle's assess treats the rejection\
-      \ as its work\n# package. A MISSING transcript is still fatal: a review that\n# persisted no evidence\
-      \ means the gate did not run.\n# Typed outcome, not a token: a truthful REVIEW_FAILED stops the\
-      \ run\n# cleanly (no PR, no retry loop); a crash never reaches here because\n# the review gate requires\
-      \ the reviewer to have spoken at all.\nset -u\n# Only review transcripts carry verdicts. ops/reviews/\
-      \ also holds\n# audits and fix summaries; picking the newest *.md read an audit as\n# a missing\
-      \ verdict on its first outing after a merge.\n# Sort by FILENAME, not mtime: a fresh git checkout\
-      \ stamps every\n# file with the checkout time, so `ls -t` picked an arbitrary old\n# transcript\
-      \ (read 20260827-2045 during a 20260828 tick). Names are\n# YYYYMMDD-HHMM-*, so lexical order IS\
-      \ chronological order.\nlatest=$(ls ops/reviews/*-review.md 2>/dev/null | sort | tail -1)\nif [\
-      \ -z \"$latest\" ]; then\n  echo \"VERDICT_UNKNOWN: no persisted review transcript \u2014 an unpersisted\
-      \ verdict is not evidence\"; exit 1\nfi\n# The verdict is the LAST verdict token in the transcript,\
-      \ not any\n# mention of one: a passing review that discusses a previous\n# REVIEW_FAILED must not\
-      \ be read as a rejection. (It was, on the\n# first outing of this gate.)\nv=$(grep -oE \"REVIEW_(PASSED|FAILED)\"\
-      \ \"$latest\" | tail -1)\ncase \"$v\" in\n  REVIEW_FAILED) echo \"VERDICT_FAILED: reviewer rejected\
-      \ this diff \u2014 see $latest\"; exit 0 ;;\n  REVIEW_PASSED) echo \"VERDICT_PASS ($latest)\"; exit\
-      \ 0 ;;\n  *) echo \"VERDICT_UNKNOWN_NONFATAL: $latest carries no verdict\"; exit 0 ;;\nesac\n"
-    timeoutMs: 120000
   - name: commit-1
     type: deterministic
     dependsOn:
-    - verdict-1
+    - verify-1
     command: 'set -eu
 
       cycle=1
 
       title=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md | sed "s/[[:space:]]*$//" || echo "work package")
 
-      latest=$(ls ops/reviews/*-review.md 2>/dev/null | sort | tail -1)
-
-      verdict=$(grep -oE "REVIEW_(PASSED|FAILED)" "$latest" 2>/dev/null | tail -1 || echo REVIEW_UNKNOWN)
+      verdict=NO_IN_RUN_REVIEW
 
       git add -A
 
@@ -375,67 +325,17 @@ workflows:
       \ found \u2014 a verify that runs nothing cannot pass\"; exit 1\nfi\n[ \"$ok\" -eq 0 ] && echo VERIFY_PASS\
       \ || echo \"VERIFY_FAIL_NONFATAL: recorded; the next cycle must address it\"\n"
     timeoutMs: 1200000
-  - name: review-2
-    type: agent
-    agent: adversary
-    dependsOn:
-    - verify-2
-    task: "Review `git diff main` against ops/NEXT.md (scope), AGENTS.md\n(standards) and RFC-0001 (semantics).\
-      \ Try to refute. List violations\nwith file:line. FIRST write your complete review (findings, evidence,\n\
-      verdict rationale) to ops/reviews/$(date +%Y%m%d-%H%M)-review.md and\n`git add` it \u2014 an unpersisted\
-      \ verdict is not evidence.\n\nClassify EVERY finding as exactly one of:\n\n  BLOCKING \u2014 the\
-      \ shipped behavior is wrong, unsafe, or out of scope;\n    a test or gate cannot fail; OR a claim\
-      \ about verification is\n    false (a report says something was run, passed, or was proven\n   \
-      \ when it was not). A false verification claim is ALWAYS blocking,\n    because the whole program's\
-      \ trust rests on those claims being\n    literal. This is the careful edge: do not soften it.\n\n\
-      \  ADVISORY \u2014 the work is right but the account of it is imprecise:\n    a citation points\
-      \ at the wrong line, a mechanism is described\n    backwards, prose overstates or misnames something.\
-      \ Real defects,\n    recorded and carried, but they do not block a merge.\n\nTen consecutive ticks\
-      \ were rejected on ADVISORY-class findings while\ntheir behavior was sound. Wrong prose about right\
-      \ code is a defect to\nfix, not a reason to discard the work.\n\nEnd with REVIEW_FAILED if any finding\
-      \ is BLOCKING. Otherwise end with\nREVIEW_PASSED, and list the advisory findings under a heading\n\
-      `## Advisory (carried, non-blocking)` so they are picked up rather\nthan lost.\n"
-    verification:
-      type: output_contains
-      value: REVIEW_
-    maxIterations: 1
-    timeoutMs: 1800000
-  - name: verdict-2
-    type: deterministic
-    dependsOn:
-    - review-2
-    command: "# CLOUD VARIANT (generated): a REJECTION does not stop the run \u2014\n# nothing is delivered\
-      \ from a sandbox, so bad work cannot escape,\n# and the next cycle's assess treats the rejection\
-      \ as its work\n# package. A MISSING transcript is still fatal: a review that\n# persisted no evidence\
-      \ means the gate did not run.\n# Typed outcome, not a token: a truthful REVIEW_FAILED stops the\
-      \ run\n# cleanly (no PR, no retry loop); a crash never reaches here because\n# the review gate requires\
-      \ the reviewer to have spoken at all.\nset -u\n# Only review transcripts carry verdicts. ops/reviews/\
-      \ also holds\n# audits and fix summaries; picking the newest *.md read an audit as\n# a missing\
-      \ verdict on its first outing after a merge.\n# Sort by FILENAME, not mtime: a fresh git checkout\
-      \ stamps every\n# file with the checkout time, so `ls -t` picked an arbitrary old\n# transcript\
-      \ (read 20260827-2045 during a 20260828 tick). Names are\n# YYYYMMDD-HHMM-*, so lexical order IS\
-      \ chronological order.\nlatest=$(ls ops/reviews/*-review.md 2>/dev/null | sort | tail -1)\nif [\
-      \ -z \"$latest\" ]; then\n  echo \"VERDICT_UNKNOWN: no persisted review transcript \u2014 an unpersisted\
-      \ verdict is not evidence\"; exit 1\nfi\n# The verdict is the LAST verdict token in the transcript,\
-      \ not any\n# mention of one: a passing review that discusses a previous\n# REVIEW_FAILED must not\
-      \ be read as a rejection. (It was, on the\n# first outing of this gate.)\nv=$(grep -oE \"REVIEW_(PASSED|FAILED)\"\
-      \ \"$latest\" | tail -1)\ncase \"$v\" in\n  REVIEW_FAILED) echo \"VERDICT_FAILED: reviewer rejected\
-      \ this diff \u2014 see $latest\"; exit 0 ;;\n  REVIEW_PASSED) echo \"VERDICT_PASS ($latest)\"; exit\
-      \ 0 ;;\n  *) echo \"VERDICT_UNKNOWN_NONFATAL: $latest carries no verdict\"; exit 0 ;;\nesac\n"
-    timeoutMs: 120000
   - name: commit-2
     type: deterministic
     dependsOn:
-    - verdict-2
+    - verify-2
     command: 'set -eu
 
       cycle=2
 
       title=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md | sed "s/[[:space:]]*$//" || echo "work package")
 
-      latest=$(ls ops/reviews/*-review.md 2>/dev/null | sort | tail -1)
-
-      verdict=$(grep -oE "REVIEW_(PASSED|FAILED)" "$latest" 2>/dev/null | tail -1 || echo REVIEW_UNKNOWN)
+      verdict=NO_IN_RUN_REVIEW
 
       git add -A
 
@@ -566,67 +466,17 @@ workflows:
       \ found \u2014 a verify that runs nothing cannot pass\"; exit 1\nfi\n[ \"$ok\" -eq 0 ] && echo VERIFY_PASS\
       \ || echo \"VERIFY_FAIL_NONFATAL: recorded; the next cycle must address it\"\n"
     timeoutMs: 1200000
-  - name: review-3
-    type: agent
-    agent: adversary
-    dependsOn:
-    - verify-3
-    task: "Review `git diff main` against ops/NEXT.md (scope), AGENTS.md\n(standards) and RFC-0001 (semantics).\
-      \ Try to refute. List violations\nwith file:line. FIRST write your complete review (findings, evidence,\n\
-      verdict rationale) to ops/reviews/$(date +%Y%m%d-%H%M)-review.md and\n`git add` it \u2014 an unpersisted\
-      \ verdict is not evidence.\n\nClassify EVERY finding as exactly one of:\n\n  BLOCKING \u2014 the\
-      \ shipped behavior is wrong, unsafe, or out of scope;\n    a test or gate cannot fail; OR a claim\
-      \ about verification is\n    false (a report says something was run, passed, or was proven\n   \
-      \ when it was not). A false verification claim is ALWAYS blocking,\n    because the whole program's\
-      \ trust rests on those claims being\n    literal. This is the careful edge: do not soften it.\n\n\
-      \  ADVISORY \u2014 the work is right but the account of it is imprecise:\n    a citation points\
-      \ at the wrong line, a mechanism is described\n    backwards, prose overstates or misnames something.\
-      \ Real defects,\n    recorded and carried, but they do not block a merge.\n\nTen consecutive ticks\
-      \ were rejected on ADVISORY-class findings while\ntheir behavior was sound. Wrong prose about right\
-      \ code is a defect to\nfix, not a reason to discard the work.\n\nEnd with REVIEW_FAILED if any finding\
-      \ is BLOCKING. Otherwise end with\nREVIEW_PASSED, and list the advisory findings under a heading\n\
-      `## Advisory (carried, non-blocking)` so they are picked up rather\nthan lost.\n"
-    verification:
-      type: output_contains
-      value: REVIEW_
-    maxIterations: 1
-    timeoutMs: 1800000
-  - name: verdict-3
-    type: deterministic
-    dependsOn:
-    - review-3
-    command: "# CLOUD VARIANT (generated): a REJECTION does not stop the run \u2014\n# nothing is delivered\
-      \ from a sandbox, so bad work cannot escape,\n# and the next cycle's assess treats the rejection\
-      \ as its work\n# package. A MISSING transcript is still fatal: a review that\n# persisted no evidence\
-      \ means the gate did not run.\n# Typed outcome, not a token: a truthful REVIEW_FAILED stops the\
-      \ run\n# cleanly (no PR, no retry loop); a crash never reaches here because\n# the review gate requires\
-      \ the reviewer to have spoken at all.\nset -u\n# Only review transcripts carry verdicts. ops/reviews/\
-      \ also holds\n# audits and fix summaries; picking the newest *.md read an audit as\n# a missing\
-      \ verdict on its first outing after a merge.\n# Sort by FILENAME, not mtime: a fresh git checkout\
-      \ stamps every\n# file with the checkout time, so `ls -t` picked an arbitrary old\n# transcript\
-      \ (read 20260827-2045 during a 20260828 tick). Names are\n# YYYYMMDD-HHMM-*, so lexical order IS\
-      \ chronological order.\nlatest=$(ls ops/reviews/*-review.md 2>/dev/null | sort | tail -1)\nif [\
-      \ -z \"$latest\" ]; then\n  echo \"VERDICT_UNKNOWN: no persisted review transcript \u2014 an unpersisted\
-      \ verdict is not evidence\"; exit 1\nfi\n# The verdict is the LAST verdict token in the transcript,\
-      \ not any\n# mention of one: a passing review that discusses a previous\n# REVIEW_FAILED must not\
-      \ be read as a rejection. (It was, on the\n# first outing of this gate.)\nv=$(grep -oE \"REVIEW_(PASSED|FAILED)\"\
-      \ \"$latest\" | tail -1)\ncase \"$v\" in\n  REVIEW_FAILED) echo \"VERDICT_FAILED: reviewer rejected\
-      \ this diff \u2014 see $latest\"; exit 0 ;;\n  REVIEW_PASSED) echo \"VERDICT_PASS ($latest)\"; exit\
-      \ 0 ;;\n  *) echo \"VERDICT_UNKNOWN_NONFATAL: $latest carries no verdict\"; exit 0 ;;\nesac\n"
-    timeoutMs: 120000
   - name: commit-3
     type: deterministic
     dependsOn:
-    - verdict-3
+    - verify-3
     command: 'set -eu
 
       cycle=3
 
       title=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md | sed "s/[[:space:]]*$//" || echo "work package")
 
-      latest=$(ls ops/reviews/*-review.md 2>/dev/null | sort | tail -1)
-
-      verdict=$(grep -oE "REVIEW_(PASSED|FAILED)" "$latest" 2>/dev/null | tail -1 || echo REVIEW_UNKNOWN)
+      verdict=NO_IN_RUN_REVIEW
 
       git add -A
 

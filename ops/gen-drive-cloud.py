@@ -12,7 +12,21 @@ import copy
 import yaml
 
 CYCLES = 3
-BASE_STEPS = ["assess", "assess-gate", "build", "verify", "review", "verdict"]
+# "review" and "verdict" are deliberately ABSENT from the cloud variant.
+# Every hang observed on 2026-08-28 (five of five: 167c2713, dd0fa9c2,
+# e960e18d, 8aac8a58 and one more) was an adversarial review step silent for
+# 40+ minutes. A hung agent step is unrecoverable here: the platform does not
+# enforce timeoutMs, an agent step cannot be wrapped in timeout(1), and a run
+# that never terminates never yields its patch — so the whole run is lost.
+#
+# In a sandbox the in-run review is also the least load-bearing gate, because
+# NOTHING SHIPS from a sandbox: every run returns as a pull request a human
+# merges. PR review already catches real defects — it caught the exec-bit
+# regression on PR #13 that our own in-run review did not. So the cloud
+# variant trades in-run review for runs that actually finish and deliver.
+# The local drive.yaml KEEPS review and verdict: that environment delivers,
+# so its gate must bite.
+BASE_STEPS = ["assess", "assess-gate", "build", "verify"]
 
 
 def build():
@@ -60,42 +74,16 @@ def build():
             )
         )
 
-        v = steps[-1]
-        # A rejection must not abort the run. Nothing is delivered from a
-        # sandbox, so bad work cannot escape; the honest verdict is recorded
-        # and the next cycle's assess treats it as the work package.
-        # A MISSING transcript stays fatal: that means the review gate
-        # produced no evidence, and three more cycles built on unreviewed
-        # work is worse than stopping.
-        v["command"] = (
-            "# CLOUD VARIANT (generated): a REJECTION does not stop the run —\n"
-            "# nothing is delivered from a sandbox, so bad work cannot escape,\n"
-            "# and the next cycle's assess treats the rejection as its work\n"
-            "# package. A MISSING transcript is still fatal: a review that\n"
-            "# persisted no evidence means the gate did not run.\n"
-            + v["command"]
-                .replace(
-                    'echo "VERDICT_FAILED: reviewer rejected this diff — see $latest"; exit 1',
-                    'echo "VERDICT_FAILED: reviewer rejected this diff — see $latest"; exit 0',
-                )
-                .replace(
-                    'echo "VERDICT_UNKNOWN: $latest carries no verdict"; exit 1',
-                    'echo "VERDICT_UNKNOWN_NONFATAL: $latest carries no verdict"; exit 0',
-                )
-        )
-
         steps.append({
             "name": f"commit-{n}",
             "type": "deterministic",
-            "dependsOn": [v["name"]],
+            "dependsOn": [f"verify-{n}"],
             "command": (
                 "set -eu\n"
                 f"cycle={n}\n"
                 'title=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md '
                 '| sed "s/[[:space:]]*$//" || echo "work package")\n'
-                'latest=$(ls ops/reviews/*-review.md 2>/dev/null | sort | tail -1)\n'
-                'verdict=$(grep -oE "REVIEW_(PASSED|FAILED)" "$latest" 2>/dev/null '
-                "| tail -1 || echo REVIEW_UNKNOWN)\n"
+                'verdict=NO_IN_RUN_REVIEW\n'
                 "git add -A\n"
                 'git commit -m "drive(cloud cycle $cycle): $title [$verdict]" '
                 '|| echo "COMMIT_NOTE: nothing new to commit"\n'
