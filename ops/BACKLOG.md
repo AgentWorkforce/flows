@@ -112,3 +112,29 @@ complete. Recorded here so they are tracked rather than lost — found by tick
 
 Rule this produced: **a merge must not shrink the open-findings ledger.** What
 a review leaves open moves here before the PR closes, or it is lost.
+
+## Cloud sandbox verify gaps (2026-08-28, captured from run 404a8386)
+
+The first cloud tick reached `verify` — sync ✅, assess ✅ (claude), build ✅
+(codex) — and failed there on two environment facts, both ours to fix:
+
+```
+Step "verify" failed: /usr/bin/zsh: line 6: ../ops/cargo.sh: Permission denied
+
+> @relayflows/sdk@0.1.0 test
+> tsc --noEmit && vitest run
+error TS2688: Cannot find type definition file for 'node'.
+```
+
+- **The executable bit does not survive the snapshot upload.** `ops/cargo.sh`
+  arrives non-executable. Invoke it as `sh ops/cargo.sh` (or restore the mode
+  in-step) rather than depending on file mode — the same "reproducible by
+  construction, not by ambient file mode" rule a reviewer already made us
+  learn once on a clean checkout.
+- **`sdk/node_modules` is absent.** The snapshot carries `git ls-files`, so
+  dependencies are not there. `verify` must install (`npm ci`) when
+  `node_modules` is missing, and fail closed with a typed reason if install
+  itself fails.
+
+Both must hold on a laptop AND in a sandbox; a fix that only works in one is
+the defect it replaces.
