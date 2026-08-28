@@ -43,6 +43,23 @@ def build():
             steps.append(s)
             prev = s["name"]
 
+        # verify: same reasoning as verdict below. In a sandbox nothing is
+        # delivered, so a failed verify cannot ship anything; killing the run
+        # would throw away the remaining cycles instead of letting the next
+        # assess treat the failure as its work package. The failure is still
+        # recorded loudly, and it still gets its 3 repair attempts first.
+        vf = next(x for x in steps if x["name"] == f"verify-{n}")
+        vf["command"] = (
+            "# CLOUD VARIANT (generated): a FAILED verify is recorded and the\n"
+            "# run continues. Nothing is delivered from a sandbox, so a failure\n"
+            "# here cannot ship; the next cycle's assess treats it as the work\n"
+            "# package. On a delivering environment verify stays fatal.\n"
+            + vf["command"].replace(
+                '[ "$ok" -eq 0 ] && echo VERIFY_PASS || { echo VERIFY_FAIL; exit 1; }',
+                '[ "$ok" -eq 0 ] && echo VERIFY_PASS || echo "VERIFY_FAIL_NONFATAL: recorded; the next cycle must address it"',
+            )
+        )
+
         v = steps[-1]
         # A rejection must not abort the run. Nothing is delivered from a
         # sandbox, so bad work cannot escape; the honest verdict is recorded
