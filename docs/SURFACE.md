@@ -79,6 +79,15 @@ No process runs between events: the handler wakes, executes to its next await, p
 
    **Preflightable-CLI contract:** to be checkable, a declared `cli` must answer `<cli> auth status` — exit `0` for authenticated, non-zero for not. `flows check` resolves the binary (a path is taken relative to the file that declares it — the flow for a step/flow-level `cli`, the project config for a `flows.json` default — while a bare name resolves via `PATH`) and runs that probe once per resolved `(cli, source)`: a path that does not resolve as an executable is `cli_missing`, and non-zero is `cli_unauthenticated`. A probe process that cannot be started, is terminated by a signal, or exceeds the 10-second auth-probe timeout is `probe_failed`; the diagnostic carries that classified cause without exposing raw process errors. The probe executes the flow-declared CLI with the checking process's complete caller environment inherited. This is the whole contract — preflight never sends a prompt, never spends a token, and never invokes any other subcommand. A non-zero refusal names the exact `auth status` probe and tells the operator to authenticate the CLI or implement the probe to return exit `0`; health is never assumed.
 
+   **Accepted deterministic-command limitation (Codex P1):** `flows check`
+   warns with `unprovable_effects`, rather than refusing, when a deterministic
+   command's first word cannot be resolved. A bare word is not provably absent
+   under `/bin/sh -c` because it may be a shell builtin, function, or
+   assignment. The narrower path-like missing-command refusal is also not yet
+   implemented; it is tracked in `ops/BACKLOG.md` under “Close the
+   deterministic-command preflight gap.” Consequently, `cli_missing` applies
+   to declared `llm` and `agent` CLIs, not deterministic command words.
+
    **Project-config discovery:** starting in the flow file's directory, `flows check` walks parent directories through the filesystem root and selects the first readable `flows.json`. That nearest file is the whole project config; it is not merged with outer files. Its schema is `{ "cli"?: <non-empty string>, "executors"?: <non-empty string>[] }`; unknown keys fail closed as `config_invalid`. A nearer config therefore defines a self-contained nested project boundary and prevents accidental inheritance of outer credentials or executors. The selected path is printed with project-level resolutions and named in an unresolved-CLI refusal; if it declares no `cli`, outer configs remain shadowed. At gate 1, a trigger executor is considered registered only when its name is present in this author-written `executors` array; `flows check` does not yet contact a registry, broker, or RelayCron, and absence is `no_executor`.
 7. **Two dialects, one journal.** Declarative YAML — data, fully preflightable, sage's compile target, gate 9's self-authoring output. Imperative TS — journal-memoized function, maximum ergonomics. YAML is canonical; TS is the power tool. TS preflights its declared surface (agents, helpers, tools, identity), not arbitrary control flow — declared honestly per covenant 2.
 
