@@ -19,7 +19,8 @@
     "src"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/make-cli-executable.mjs",
+    "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "tsc --noEmit && vitest run",
     "test:watch": "vitest"

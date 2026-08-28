@@ -2,6 +2,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -62,6 +63,10 @@ function expectMissingCliRefusal(result: ReturnType<typeof invoke>): void {
 }
 
 describe('built flows binary', () => {
+  it('build produces an executable CLI artifact', () => {
+    expect(statSync(BUILT_CLI).mode & 0o111).not.toBe(0);
+  });
+
   it('refuses through a symlink to the built artifact', () => {
     const entry = join(temporaryDirectory(), 'flows');
     symlinkSync(BUILT_CLI, entry);
