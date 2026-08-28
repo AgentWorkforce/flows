@@ -557,6 +557,7 @@ describe('flows run/resume CLI over the journal protocol', () => {
   it('bounds a worker wait by its lease and reports what it is waiting for', async () => {
     const dataDir = temporaryProject('flows-run-lease-');
     const leaseDeadlineMs = Date.now() + 150;
+    let snapshots = 0;
     await startCliLoopback(dataDir, {
       hello: sendOk,
       'run.start': (ctx) => sendResult(ctx, {
@@ -565,13 +566,24 @@ describe('flows run/resume CLI over the journal protocol', () => {
         completion_reason: null,
         completed_steps: 1,
       }),
-      'run.get': (ctx) => sendResult(ctx, {
+      'run.get': (ctx) => {
+        const running = snapshots++ < 4;
+        sendResult(ctx, {
+          run_id: 'run-stale-worker',
+          status: running ? 'running' : 'completed',
+          steps: {
+            answer: running
+              ? { type: 'llm', state: 'running', lease_deadline_ms: leaseDeadlineMs }
+              : { type: 'llm', state: 'done' },
+          },
+          budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+        });
+      },
+      'run.resume': (ctx) => sendResult(ctx, {
         run_id: 'run-stale-worker',
-        status: 'running',
-        steps: {
-          answer: { type: 'llm', state: 'running', lease_deadline_ms: leaseDeadlineMs },
-        },
-        budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+        status: 'completed',
+        completion_reason: 'success',
+        completed_steps: 3,
       }),
     });
     const output = capture();
