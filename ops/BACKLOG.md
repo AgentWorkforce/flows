@@ -245,3 +245,28 @@ a located fault, not a diagnosed one.
 **Operational consequence for us:** a 500 from `cloud logs` is not evidence
 about the run. Read `workflow_runs` directly (neonctl → psql) before drawing any
 conclusion about whether a run progressed.
+
+## I reproduced the pipe-status bug in my own hands (2026-08-28)
+
+Running `git checkout -q main 2>&1 | tail -2 && git reset -q --hard origin/main`
+in the primary checkout: the checkout **failed** (`fatal: 'main' is already used
+by worktree at '/private/tmp/flows-ops'`), but a pipeline's exit status is the
+status of its *last* command, so `tail` returned 0 and the `&&` proceeded. The
+reset then ran on the still-checked-out `flow/drive-c52d6df-08280519`,
+discarding a modified `ops/NEXT.md` and the staged
+`ops/reviews/20260828-0605-review.md`.
+
+This is the *same* fault the `verify` step was hardened against
+(`workflows/drive.yaml`: "Never pipe a test command into tail inside the status
+check: the pipeline's status is tail's"). Knowing the rule and writing the
+transcript of it did not stop me from doing it by hand ten hours later.
+
+**Recovered:** the staged review survived as an unreachable blob
+(`git fsck --unreachable`, blob `f7848f8`) and is restored in this commit —
+249 lines, verdict `REVIEW_FAILED`. Nothing on `origin` was lost: the branch
+pointer moved locally only, and origin still held `c52d6df`.
+
+**Standard to apply, not just to gates:** never join a status-bearing command to
+a formatter with a pipe. Capture first, format second:
+`out=$(cmd 2>&1); rc=$?; echo "$out" | tail -2; [ $rc -eq 0 ] || exit 1`.
+A rule that lives only inside one YAML step is a rule the operator will break.
