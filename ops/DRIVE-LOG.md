@@ -3393,3 +3393,127 @@ CLEAN_PRECONDITION dist=absent
 zsh:5: read-only variable: status
 DIST_RESTORED
 ```
+
+### Final-head revalidation after heartbeat-renewal correction
+
+Self-review found that the journal snapshot exposed the original lease grant
+while `step.heartbeat` persisted renewals in the run registry. Commit `41441d0`
+overlays the registry's current deadline onto a running out-of-band step, and
+the real protocol conformance test now asserts the renewed value returned by
+`run.get`. Because this product change followed the first full run above, the
+commands below supersede those results as the final-head evidence.
+
+```text
+$ (cd kernel && ../ops/cargo.sh build)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+
+$ (cd sdk && npm ci && npm run build)
+added 48 packages, and audited 49 packages in 881ms
+
+13 packages are looking for funding
+  run `npm fund` for details
+
+5 vulnerabilities (3 moderate, 1 high, 1 critical)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+npm notice run @relayflows/sdk@0.1.0 build
+npm notice run tsc && node scripts/make-cli-executable.mjs
+```
+
+Every kernel result line from final head `41441d0`:
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+```text
+$ (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
+    Checking relayflowd v0.1.0 (/Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.85s
+
+$ (cd kernel && ../ops/cargo.sh fmt --check)
+```
+
+```text
+$ (cd sdk && npm test)
+> @relayflows/sdk@0.1.0 test
+> npm run build && vitest run
+
+> @relayflows/sdk@0.1.0 build
+> tsc && node scripts/make-cli-executable.mjs
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/sdk
+
+ ✓ tests/preflight.test.ts (12 tests) 6ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 11ms
+ ✓ tests/validate.test.ts (36 tests) 10ms
+ ✓ tests/journal-client.test.ts (13 tests) 74ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 9ms
+ ✓ tests/spec-parity.test.ts (15 tests) 21ms
+ ✓ tests/bin.test.ts (7 tests) 452ms
+ ✓ tests/cli.test.ts (50 tests) 746ms
+ ✓ tests/live-kernel.test.ts (7 tests) 33459ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 535ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32143ms
+
+ Test Files  9 passed (9)
+      Tests  150 passed (150)
+   Start at  03:48:00
+   Duration  33.74s (transform 281ms, setup 0ms, collect 710ms, tests 34.79s, environment 2ms, prepare 481ms)
+```
+
+```text
+$ (cd sdk && move dist and node_modules aside; npm ci; npm test; test -x dist/cli.js)
+CLEAN_PRECONDITION dist=absent node_modules=absent backup=/tmp/wp12-sdk-final-clean.qpXKLK
+
+added 48 packages, and audited 49 packages in 517ms
+
+13 packages are looking for funding
+  run `npm fund` for details
+
+5 vulnerabilities (3 moderate, 1 high, 1 critical)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> @relayflows/sdk@0.1.0 test
+> npm run build && vitest run
+
+> @relayflows/sdk@0.1.0 build
+> tsc && node scripts/make-cli-executable.mjs
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/sdk
+
+ ✓ tests/preflight.test.ts (12 tests) 4ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 8ms
+ ✓ tests/validate.test.ts (36 tests) 11ms
+ ✓ tests/journal-client.test.ts (13 tests) 75ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 10ms
+ ✓ tests/spec-parity.test.ts (15 tests) 28ms
+ ✓ tests/bin.test.ts (7 tests) 520ms
+ ✓ tests/cli.test.ts (50 tests) 739ms
+ ✓ tests/live-kernel.test.ts (7 tests) 33400ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 515ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32134ms
+
+ Test Files  9 passed (9)
+      Tests  150 passed (150)
+   Start at  03:48:46
+   Duration  33.69s (transform 254ms, setup 0ms, collect 668ms, tests 34.79s, environment 1ms, prepare 404ms)
+
+CLEAN_ACCEPTANCE built_cli=executable
+```
