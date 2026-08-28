@@ -1,6 +1,7 @@
 # PR #8 — maintainability review
 
 **Lens:** could a stranger read this in six months and change it safely?
+**Reviewed head:** `fa19df14280831167bd503d1148326973635a140`
 **Scope:** code + preflight docs shipped in PR #8 (docs/SURFACE.md, sdk/src/*,
 sdk/tests/*, kernel/relayflowd-core/src/spec.rs, spec/tests.rs, machine/tests.rs,
 testdata/preflight/*, ops/BACKLOG.md). Non-code ops files (DRIVE-LOG,
@@ -212,7 +213,7 @@ A stranger reading this line has to reason about JSON.stringify collisions
 across arbitrary CLI strings that might contain `","`. `JSON.stringify` is
 lossless for two strings, so it's correct today — but the intent is "key
 by (cli, source)", not "produce a canonical serialization." A
-`` `${resolution.cli} ${resolution.source}` `` or a nested `Map<string,
+`` `${resolution.cli}${resolution.source}` `` or a nested `Map<string,
 Map<string, CliProbeOutcome>>` communicates the intent directly. Minor,
 but the file's other comments are careful about "source is load-bearing"
 (`preflight.ts:141-143`); the cache-key line does not match that care.
