@@ -69,25 +69,43 @@ workflows:
     agent: lead
     dependsOn:
     - sync
-    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST read ops/DIRECTIVES.md\
-      \ \u2014 standing human directives outrank\nthe backlog; if one is unsatisfied, it IS the work package.\n\
-      Then read docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`,\
-      \ `gh pr list --state open` and open PR review\nstate, kernel/ and sdk/ test status. Then write\
-      \ ops/NEXT.md: the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until\
-      \ its done-when in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must\
-      \ include passing commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\n\
-      awaiting fixes from review, the work package is fixing it \u2014 never\nstart new work over unfinished\
-      \ work. If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question\
-      \ and end\nwith BLOCKED_NEEDS_HUMAN; otherwise end with ASSESS_DONE.\n"
+    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST read ops/STATE.md \u2014\
+      \ it is ground truth about gates and open\nPRs for an environment with no git history, and it names\
+      \ the known\nsandbox faults that are NOT reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing\
+      \ human directives outrank the backlog;\nif one is unsatisfied, it IS the work package.\nThen read\
+      \ docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`, `gh pr\
+      \ list --state open` and open PR review\nstate, kernel/ and sdk/ test status. Then write ops/NEXT.md:\
+      \ the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until its done-when\
+      \ in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must include passing\
+      \ commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\nawaiting fixes\
+      \ from review, the work package is fixing it \u2014 never\nstart new work over unfinished work.\
+      \ If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question and\
+      \ the\noptions \u2014 and then STILL end with ASSESS_DONE. The assess-gate step\nbelow reads that\
+      \ file and parks the run with a typed outcome.\nALWAYS end with ASSESS_DONE, blocked or not: this\
+      \ gate cannot tell a\ndifferent final token from a crashed agent, so on run 54ebd998 the\nLead correctly\
+      \ reported BLOCKED_NEEDS_HUMAN three times and was\nscored as failing three times. Saying you are\
+      \ blocked is a result,\nnot a failure \u2014 but it must be said in the file, not the token.\n"
     verification:
       type: output_contains
       value: ASSESS_DONE
     timeoutMs: 1800000
+  - name: assess-gate-1
+    type: deterministic
+    dependsOn:
+    - assess-1
+    command: "# A typed park, not a crash. The assess step cannot express \"blocked\"\n# in its final\
+      \ token (its gate only recognises ASSESS_DONE), so the\n# Lead writes ops/NEEDS_HUMAN.md instead\
+      \ and this step reads it.\nset -u\nif [ -f ops/NEEDS_HUMAN.md ]; then\n  echo \"ASSESS_BLOCKED_NEEDS_HUMAN:\
+      \ the Lead escalated a decision it cannot make.\"\n  echo \"--- ops/NEEDS_HUMAN.md ---\"\n  cat\
+      \ ops/NEEDS_HUMAN.md\n  exit 75\nfi\nif [ ! -f ops/NEXT.md ]; then\n  echo \"ASSESS_FAIL: no ops/NEXT.md\
+      \ \u2014 an assessment that named no work package did not assess\"\n  exit 1\nfi\necho \"ASSESS_GATE_PASS\
+      \ ($(grep -m1 -oE 'WP-[0-9]+[^|]*' ops/NEXT.md || echo 'work package'))\"\n"
+    timeoutMs: 120000
   - name: build-1
     type: agent
     agent: builder
     dependsOn:
-    - assess-1
+    - assess-gate-1
     maxIterations: 3
     task: "Read ops/NEXT.md, AGENTS.md, and the relevant parts of\ndocs/RFC-0001-everything-is-a-relayflow.md.\
       \ Implement exactly that\nwork package \u2014 nothing more. Run the definition-of-done commands\n\
@@ -206,25 +224,43 @@ workflows:
     agent: lead
     dependsOn:
     - commit-1
-    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST read ops/DIRECTIVES.md\
-      \ \u2014 standing human directives outrank\nthe backlog; if one is unsatisfied, it IS the work package.\n\
-      Then read docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`,\
-      \ `gh pr list --state open` and open PR review\nstate, kernel/ and sdk/ test status. Then write\
-      \ ops/NEXT.md: the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until\
-      \ its done-when in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must\
-      \ include passing commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\n\
-      awaiting fixes from review, the work package is fixing it \u2014 never\nstart new work over unfinished\
-      \ work. If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question\
-      \ and end\nwith BLOCKED_NEEDS_HUMAN; otherwise end with ASSESS_DONE.\n"
+    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST read ops/STATE.md \u2014\
+      \ it is ground truth about gates and open\nPRs for an environment with no git history, and it names\
+      \ the known\nsandbox faults that are NOT reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing\
+      \ human directives outrank the backlog;\nif one is unsatisfied, it IS the work package.\nThen read\
+      \ docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`, `gh pr\
+      \ list --state open` and open PR review\nstate, kernel/ and sdk/ test status. Then write ops/NEXT.md:\
+      \ the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until its done-when\
+      \ in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must include passing\
+      \ commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\nawaiting fixes\
+      \ from review, the work package is fixing it \u2014 never\nstart new work over unfinished work.\
+      \ If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question and\
+      \ the\noptions \u2014 and then STILL end with ASSESS_DONE. The assess-gate step\nbelow reads that\
+      \ file and parks the run with a typed outcome.\nALWAYS end with ASSESS_DONE, blocked or not: this\
+      \ gate cannot tell a\ndifferent final token from a crashed agent, so on run 54ebd998 the\nLead correctly\
+      \ reported BLOCKED_NEEDS_HUMAN three times and was\nscored as failing three times. Saying you are\
+      \ blocked is a result,\nnot a failure \u2014 but it must be said in the file, not the token.\n"
     verification:
       type: output_contains
       value: ASSESS_DONE
     timeoutMs: 1800000
+  - name: assess-gate-2
+    type: deterministic
+    dependsOn:
+    - assess-2
+    command: "# A typed park, not a crash. The assess step cannot express \"blocked\"\n# in its final\
+      \ token (its gate only recognises ASSESS_DONE), so the\n# Lead writes ops/NEEDS_HUMAN.md instead\
+      \ and this step reads it.\nset -u\nif [ -f ops/NEEDS_HUMAN.md ]; then\n  echo \"ASSESS_BLOCKED_NEEDS_HUMAN:\
+      \ the Lead escalated a decision it cannot make.\"\n  echo \"--- ops/NEEDS_HUMAN.md ---\"\n  cat\
+      \ ops/NEEDS_HUMAN.md\n  exit 75\nfi\nif [ ! -f ops/NEXT.md ]; then\n  echo \"ASSESS_FAIL: no ops/NEXT.md\
+      \ \u2014 an assessment that named no work package did not assess\"\n  exit 1\nfi\necho \"ASSESS_GATE_PASS\
+      \ ($(grep -m1 -oE 'WP-[0-9]+[^|]*' ops/NEXT.md || echo 'work package'))\"\n"
+    timeoutMs: 120000
   - name: build-2
     type: agent
     agent: builder
     dependsOn:
-    - assess-2
+    - assess-gate-2
     maxIterations: 3
     task: "Read ops/NEXT.md, AGENTS.md, and the relevant parts of\ndocs/RFC-0001-everything-is-a-relayflow.md.\
       \ Implement exactly that\nwork package \u2014 nothing more. Run the definition-of-done commands\n\
@@ -343,25 +379,43 @@ workflows:
     agent: lead
     dependsOn:
     - commit-2
-    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST read ops/DIRECTIVES.md\
-      \ \u2014 standing human directives outrank\nthe backlog; if one is unsatisfied, it IS the work package.\n\
-      Then read docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`,\
-      \ `gh pr list --state open` and open PR review\nstate, kernel/ and sdk/ test status. Then write\
-      \ ops/NEXT.md: the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until\
-      \ its done-when in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must\
-      \ include passing commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\n\
-      awaiting fixes from review, the work package is fixing it \u2014 never\nstart new work over unfinished\
-      \ work. If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question\
-      \ and end\nwith BLOCKED_NEEDS_HUMAN; otherwise end with ASSESS_DONE.\n"
+    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST read ops/STATE.md \u2014\
+      \ it is ground truth about gates and open\nPRs for an environment with no git history, and it names\
+      \ the known\nsandbox faults that are NOT reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing\
+      \ human directives outrank the backlog;\nif one is unsatisfied, it IS the work package.\nThen read\
+      \ docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`, `gh pr\
+      \ list --state open` and open PR review\nstate, kernel/ and sdk/ test status. Then write ops/NEXT.md:\
+      \ the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until its done-when\
+      \ in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must include passing\
+      \ commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\nawaiting fixes\
+      \ from review, the work package is fixing it \u2014 never\nstart new work over unfinished work.\
+      \ If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question and\
+      \ the\noptions \u2014 and then STILL end with ASSESS_DONE. The assess-gate step\nbelow reads that\
+      \ file and parks the run with a typed outcome.\nALWAYS end with ASSESS_DONE, blocked or not: this\
+      \ gate cannot tell a\ndifferent final token from a crashed agent, so on run 54ebd998 the\nLead correctly\
+      \ reported BLOCKED_NEEDS_HUMAN three times and was\nscored as failing three times. Saying you are\
+      \ blocked is a result,\nnot a failure \u2014 but it must be said in the file, not the token.\n"
     verification:
       type: output_contains
       value: ASSESS_DONE
     timeoutMs: 1800000
+  - name: assess-gate-3
+    type: deterministic
+    dependsOn:
+    - assess-3
+    command: "# A typed park, not a crash. The assess step cannot express \"blocked\"\n# in its final\
+      \ token (its gate only recognises ASSESS_DONE), so the\n# Lead writes ops/NEEDS_HUMAN.md instead\
+      \ and this step reads it.\nset -u\nif [ -f ops/NEEDS_HUMAN.md ]; then\n  echo \"ASSESS_BLOCKED_NEEDS_HUMAN:\
+      \ the Lead escalated a decision it cannot make.\"\n  echo \"--- ops/NEEDS_HUMAN.md ---\"\n  cat\
+      \ ops/NEEDS_HUMAN.md\n  exit 75\nfi\nif [ ! -f ops/NEXT.md ]; then\n  echo \"ASSESS_FAIL: no ops/NEXT.md\
+      \ \u2014 an assessment that named no work package did not assess\"\n  exit 1\nfi\necho \"ASSESS_GATE_PASS\
+      \ ($(grep -m1 -oE 'WP-[0-9]+[^|]*' ops/NEXT.md || echo 'work package'))\"\n"
+    timeoutMs: 120000
   - name: build-3
     type: agent
     agent: builder
     dependsOn:
-    - assess-3
+    - assess-gate-3
     maxIterations: 3
     task: "Read ops/NEXT.md, AGENTS.md, and the relevant parts of\ndocs/RFC-0001-everything-is-a-relayflow.md.\
       \ Implement exactly that\nwork package \u2014 nothing more. Run the definition-of-done commands\n\

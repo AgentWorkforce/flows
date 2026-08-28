@@ -97,8 +97,11 @@ workflows:
         dependsOn: [sync]
         task: |
           You are the Relayflow Lead (charter/LEAD.md). Assess the repo:
-          FIRST read ops/DIRECTIVES.md — standing human directives outrank
-          the backlog; if one is unsatisfied, it IS the work package.
+          FIRST read ops/STATE.md — it is ground truth about gates and open
+          PRs for an environment with no git history, and it names the known
+          sandbox faults that are NOT reasons to block. Then read
+          ops/DIRECTIVES.md — standing human directives outrank the backlog;
+          if one is unsatisfied, it IS the work package.
           Then read docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,
           `git log --oneline -15`, `gh pr list --state open` and open PR review
           state, kernel/ and sdk/ test status. Then write ops/NEXT.md: the
@@ -108,17 +111,44 @@ workflows:
           and what is explicitly OUT of scope for this tick. If an open PR is
           awaiting fixes from review, the work package is fixing it — never
           start new work over unfinished work. If work is blocked on a human
-          decision, write ops/NEEDS_HUMAN.md stating the exact question and end
-          with BLOCKED_NEEDS_HUMAN; otherwise end with ASSESS_DONE.
+          decision, write ops/NEEDS_HUMAN.md stating the exact question and the
+          options — and then STILL end with ASSESS_DONE. The assess-gate step
+          below reads that file and parks the run with a typed outcome.
+          ALWAYS end with ASSESS_DONE, blocked or not: this gate cannot tell a
+          different final token from a crashed agent, so on run 54ebd998 the
+          Lead correctly reported BLOCKED_NEEDS_HUMAN three times and was
+          scored as failing three times. Saying you are blocked is a result,
+          not a failure — but it must be said in the file, not the token.
         verification:
           type: output_contains
           value: ASSESS_DONE
         timeoutMs: 1800000
 
+      - name: assess-gate
+        type: deterministic
+        dependsOn: [assess]
+        command: |
+          # A typed park, not a crash. The assess step cannot express "blocked"
+          # in its final token (its gate only recognises ASSESS_DONE), so the
+          # Lead writes ops/NEEDS_HUMAN.md instead and this step reads it.
+          set -u
+          if [ -f ops/NEEDS_HUMAN.md ]; then
+            echo "ASSESS_BLOCKED_NEEDS_HUMAN: the Lead escalated a decision it cannot make."
+            echo "--- ops/NEEDS_HUMAN.md ---"
+            cat ops/NEEDS_HUMAN.md
+            exit 75
+          fi
+          if [ ! -f ops/NEXT.md ]; then
+            echo "ASSESS_FAIL: no ops/NEXT.md — an assessment that named no work package did not assess"
+            exit 1
+          fi
+          echo "ASSESS_GATE_PASS ($(grep -m1 -oE 'WP-[0-9]+[^|]*' ops/NEXT.md || echo 'work package'))"
+        timeoutMs: 120000
+
       - name: build
         type: agent
         agent: builder
-        dependsOn: [assess]
+        dependsOn: [assess-gate]
         maxIterations: 3
         task: |
           Read ops/NEXT.md, AGENTS.md, and the relevant parts of

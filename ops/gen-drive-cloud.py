@@ -12,7 +12,7 @@ import copy
 import yaml
 
 CYCLES = 3
-BASE_STEPS = ["assess", "build", "verify", "review", "verdict"]
+BASE_STEPS = ["assess", "assess-gate", "build", "verify", "review", "verdict"]
 
 
 def build():
