@@ -179,3 +179,29 @@ Options, to decide rather than patch reflexively:
 
 Whatever is chosen, the failure must be legible: a build that hangs at 0% CPU
 for an hour told us nothing until someone read `ps`.
+
+## Ten consecutive rejections; the last three were about the account, not the code (2026-08-28)
+
+Ticks 8–17 all ended `VERDICT_FAILED`. The findings shrank steadily — broken
+feature → inert binary → non-reproducing test → unverifiable claim → one
+mis-attributed output block → an inverted mechanism description with a wrong
+line citation. That is convergence, and every rejection named something real.
+
+But the last three rejections were against the **assessment's account of the
+work**, not the work: a mutation-verified label that did not reproduce, a
+`gh pr list` block attributed to the wrong command, an inverted B1.3 mechanism
+with an unrelated citation, and an asserted absence that did not reproduce.
+The code under them passed its gates each time.
+
+**The tuning question for Khaliq, deliberately left open:** should a defect in
+the *description* block a merge as hard as a defect in the *behavior*?
+
+- Keep as-is: the account is part of the deliverable; a wrong claim in a report
+  is how a reviewer is deceived, and this program has been burned by exactly
+  that (a green bot that reviewed nothing, a verify that ran nothing).
+- Split the verdict: behavior-blocking findings stop the run; account-blocking
+  findings become required errata on the PR but do not block. Risk: the errata
+  queue becomes the place true claims go to be ignored.
+
+Recording rather than choosing: relaxing a standard at 06:00 while the author
+is asleep is exactly the move this program's rails exist to prevent.
