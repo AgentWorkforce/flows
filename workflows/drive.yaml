@@ -142,6 +142,30 @@ workflows:
             echo "ASSESS_FAIL: no ops/NEXT.md — an assessment that named no work package did not assess"
             exit 1
           fi
+          # The assessment must have WRITTEN this tick's package, not merely
+          # left the previous one in place. On run 457a6102 assess reported
+          # "The work package is written to ops/NEXT.md" and the very next step
+          # read the OLD file — the logs carry the reason:
+          #   "relayfile flush failed after the command succeeded (exit 1);
+          #    a later agent step may see stale files"
+          # The builder then correctly refused to invent scope, but only after
+          # a whole build step had been spent. Catch it here instead: if
+          # ops/NEXT.md is identical to the base, the assessment did not land,
+          # whoever is at fault.
+          if git diff --quiet main -- ops/NEXT.md 2>/dev/null; then
+            echo "ASSESS_FAIL_STALE_NEXT: ops/NEXT.md is unchanged from the base commit."
+            echo "  The assess step reported success but its work package did not reach this step,"
+            echo "  so the builder would be handed the PREVIOUS tick's file. Failing here rather"
+            echo "  than letting a build proceed against scope nobody wrote this tick."
+            exit 1
+          fi
+          # A package with no definition of done cannot be verified, and the
+          # builder cannot honestly report BUILD_DONE against it.
+          if ! grep -qiE "definition of done|definition-of-done" ops/NEXT.md; then
+            echo "ASSESS_FAIL_NO_DOD: ops/NEXT.md names no definition of done."
+            echo "  A work package without passing commands is not buildable and not verifiable."
+            exit 1
+          fi
           echo "ASSESS_GATE_PASS ($(grep -m1 -oE 'WP-[0-9]+[^|]*' ops/NEXT.md || echo 'work package'))"
         timeoutMs: 120000
 
