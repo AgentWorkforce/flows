@@ -311,13 +311,25 @@ workflows:
           git add -A
           git commit -m "drive: $title" || echo "PR_NOTE: nothing new to commit"
 
+          # Two delivery paths, because the two environments differ in kind.
+          # A checkout with a remote and an authenticated gh pushes and opens a
+          # PR directly. A cloud sandbox has NEITHER — by design, since cloud
+          # keeps raw GitHub tokens out of workflow sandboxes — so it delivers
+          # through the server-side proxy instead, which takes file contents.
           if ! git remote get-url origin >/dev/null 2>&1; then
-            echo "PR_BLOCKED_NO_REMOTE: this environment has no git remote, so the tick's" >&2
-            echo "  work cannot be delivered from here. The diff is committed on" >&2
+            if [ -n "${CLOUD_API_URL:-}" ] && [ -n "${RELAYFILE_TOKEN:-}" ]; then
+              echo "PR_MODE=proxy (no git remote; delivering via the cloud PR endpoint)"
+              node ops/open-pr.mjs
+              exit $?
+            fi
+            echo "PR_BLOCKED_NO_REMOTE: this environment has no git remote and no" >&2
+            echo "  CLOUD_API_URL/RELAYFILE_TOKEN to deliver through, so the tick's" >&2
+            echo "  work cannot leave here. The diff is committed on" >&2
             echo "  $(git rev-parse --abbrev-ref HEAD) inside the sandbox only." >&2
             echo "  Recover it with: agent-relay cloud sync \$RUN_ID" >&2
             exit 75
           fi
+          echo "PR_MODE=git (remote present)"
           if ! gh auth status >/dev/null 2>&1; then
             echo "PR_BLOCKED_NO_GH_AUTH: a remote exists but gh is not authenticated," >&2
             echo "  so the branch can be pushed but no PR can be opened." >&2
