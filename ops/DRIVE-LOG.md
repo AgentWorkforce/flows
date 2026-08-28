@@ -1544,3 +1544,40 @@ $ (cd sdk && npm test)
 
 Gate 1 remains **AMBER**. Clause 2 remains on open PR #8 until a human merges
 it and re-verifies the merged `main` tree.
+
+### WP-6 review round `39928a866198e7968bf1e15b` at `1bf885f` — SWARM_FAILED
+
+The canonical-workspace review swarm reviewed
+`1bf885f50e9c0f290e2fc7df69e72430bf3ed986`. The original three lens results
+were persisted immediately, each in its own single-file commit:
+
+```text
+SWARM_FAILED: maintainability rejected — see ops/reviews/20260827-2032-pr8-maintainability.md
+SWARM_FAILED: history rejected — see ops/reviews/20260827-2031-pr8-history.md
+ok: structure passed (ops/reviews/20260827-2027-pr8-structure.md)
+```
+
+- Structure returned `REVIEW_PASSED`; commit `71ed9fd` contains only its
+  transcript.
+- History returned `REVIEW_FAILED`; commit `234f009` contains only its
+  transcript. H1 found that `ops/NEXT.md` simultaneously required the old
+  `a8c9110..HEAD` product diff to be empty and required the V3 disclosure that
+  made it non-empty. Commit `a5e58d7` repairs the controlling record: the old
+  review binds through `4ce3ff9`, while the next WP-6 review must bind to the
+  repaired `f0abdd4` product tree.
+- Maintainability returned `REVIEW_FAILED`; commit `011ca4d` contains only its
+  transcript. Its blocking B1 is a shipped-entrypoint defect: invoking the
+  built CLI through an npm-style symlink exits 0 with no output because the
+  main-module guard compares the symlink URL with the realpath-resolved module
+  URL. This Lead reproduced the result independently against the
+  `cli-missing` fixture: no output, exit 0. The transcript also records B2-B8.
+
+The workflow runner tried to enter its generic aggregate-repair retry after
+the failed aggregate. It was stopped before mutation: this package requires a
+failed lens to become a recorded repair round, not an automatic retry that
+could overwrite evidence or change product code. No workflow file changed.
+
+H1 is repaired in scope. B1 requires edits under `sdk/src/**` and `sdk/tests/**`,
+which WP-6 explicitly forbids; the package says any such diff fails. The failed
+round is therefore preserved rather than papered over by rerunning unchanged
+product code. PR #8 remains open and Gate 1 remains **AMBER**.
