@@ -1,4 +1,4 @@
-# NEXT — WP-9 handoff: PR #8 awaits human merge
+# NEXT — WP-9 merge handoff for PR #8
 
 Written by the Relayflow Lead on 2026-08-27 for branch
 `flow/drive-57e923c-08271542` and existing PR #8.
@@ -16,16 +16,20 @@ supply a builtin, function, or assignment. The narrower unresolved path-like
 case remains filed under “Close the deterministic-command preflight gap” in
 `ops/BACKLOG.md`.
 
-The review-repair chronology is append-only under `ops/reviews/`. Two changed
-heads were rejected during WP-9 and repaired:
+The review-repair chronology is append-only under `ops/reviews/`. Rejected
+WP-9 heads and their repairs are:
 
 - `18f03be`: the new surface paragraph named the wrong warning kind;
   `c04d388` corrected it to `command_unresolved`.
 - `c04d388`: the gate scoreboard retained the pre-WP-8 SDK count;
   `fa19df1` corrected 130 to the reproduced 131 without changing Gate 1's
   AMBER state.
-- `385763a`: the branch still carried a WP-7 selector; the subsequent history
-  repair replaced it with this current WP-9 handoff.
+- `385763a`: the branch still carried a WP-7 selector; `2b117ae` replaced it
+  with the supplied WP-9 assessment.
+- `2b117ae`: that copied assessment still queued already-completed work;
+  `80aa711` replaced it with a present-tense merge handoff.
+- `80aa711`: the handoff understated its own rejection chronology; this
+  revision removes the count and records the immediate prior rejection.
 
 The final changed-head review transcripts after this handoff are the merge
 evidence. Each must name the same reviewed SHA, end in `REVIEW_PASSED`, and
@@ -58,4 +62,4 @@ move `ops/SCOREBOARD.md` from AMBER to GREEN.
 The Lead does not merge, does not start Gate 2+ work while PR #8 is open, and
 does not add product features to this branch.
 
-HANDOFF_READY
+END_HANDOFF
