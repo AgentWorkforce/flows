@@ -318,3 +318,23 @@ output attached. That is the evidence standard working unsupervised.
 **Next step:** reproduce under load (`--test-threads=1`, and repeated runs
 under `stress`/`taskset`) rather than assuming it is unreproducible locally.
 A test that hangs is worse than one that fails: it consumes a whole run.
+
+## Removed the flows-drive-v3 schedule — it could only ever fail (2026-08-28)
+
+Deleted schedule `9bc4a577`. It fired `drive-tick` every 4 hours and died at
+`SYNC_FAIL_NOT_MATERIALIZED` every single time, because a SCHEDULED run's
+workdir (`/project/workflows/schedules/<id>`) contains no repo — only manual
+runs get the uploaded snapshot. It has never once done work.
+
+Keeping it cost more than the zero it produced: every failure looked like a
+real failure in run listings, and both the autopilot and the hang sweeper had
+to reason about runs that were dead on arrival.
+
+**This is not a decision to stop scheduling drive work.** It is deferred until
+cloud can materialize code for scheduled runs — see the entry above on that
+gap. Until then the loop is fed by `ops/launch-gate.sh` (manual runs, which do
+get a snapshot) from a host that can upload.
+
+Still active and working: `flows-watchdog` (daily digest) and
+`flows-hang-sweeper` (every 30 min) — both single-agent flows that need no
+repo, which is exactly why they succeed where drive-tick cannot.
