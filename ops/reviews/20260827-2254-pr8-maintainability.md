@@ -213,7 +213,7 @@ A stranger reading this line has to reason about JSON.stringify collisions
 across arbitrary CLI strings that might contain `","`. `JSON.stringify` is
 lossless for two strings, so it's correct today — but the intent is "key
 by (cli, source)", not "produce a canonical serialization." A
-`` `${resolution.cli}${resolution.source}` `` or a nested `Map<string,
+`` `${resolution.cli}\0${resolution.source}` `` or a nested `Map<string,
 Map<string, CliProbeOutcome>>` communicates the intent directly. Minor,
 but the file's other comments are careful about "source is load-bearing"
 (`preflight.ts:141-143`); the cache-key line does not match that care.
