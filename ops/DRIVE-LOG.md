@@ -1430,3 +1430,68 @@ rewriting prior commits or deleting any rejection evidence.
 
 Gate 1 remains **AMBER**. Clause 1 is closed on `main`; clause 2 exists only on
 open PR #8 until a human merges it and re-verifies on merged `main`.
+
+### Final main-owned swarm — `b242b77ed0270c99fa5be416` at `a8c9110` — SWARM_PASSED
+
+Appended so the durable log's last word on the swarm is not the earlier
+`SWARM_FAILED`. The prior rejections above stand unedited; this is an
+append-only correction, not a rewrite.
+
+The final main-owned run reviewed `a8c911043adab2e6f4882bee6b821dfefa06f3a3`
+with the `workflows/review-swarm.yaml` that is byte-identical to `origin/main`
+(`git diff main HEAD -- workflows/` is empty — the gate judging this branch was
+never edited by it). All three lenses passed:
+
+```text
+ok: maintainability passed (ops/reviews/20260827-2002-pr8-maintainability.md)
+ok: history passed (ops/reviews/20260827-1958-pr8-history.md)
+ok: structure passed (ops/reviews/20260827-1958-pr8-structure.md)
+SWARM_PASSED
+```
+
+Each transcript was committed alone, touching only itself, immediately after
+the run: `7062800` (history, 173 lines), `497bc10` (structure, 201),
+`d129750` (maintainability, 304). Each carries `REVIEW_PASSED` as its last
+verdict token.
+
+The transcripts bind to the current tree: `git diff a8c9110 HEAD -- sdk kernel
+docs workflows testdata` is empty, so reviewing `a8c9110` is equivalent to
+reviewing the PR head for every product file. Commits after `a8c9110` touch
+only `ops/`.
+
+A subsequent independent diff review (`ops/reviews/20260827-2011-review.md`,
+commit `4ce3ff9`) returned `REVIEW_FAILED` on two documentation findings, both
+now closed in this round:
+
+- **V1 (P2)** — `ops/SCOREBOARD.md` gate-1 row claimed "Measured on this tree:
+  … SDK 99 tests". The tree has **121**. The figure was written at `6a425b6`
+  and never updated across the WP-5 rounds that added 22 tests. Corrected to
+  121. The stale number understated, so nothing downstream was overstated, but
+  a gate record carrying a stale measurement is exactly the defect this package
+  exists to eliminate.
+- **V2 (P3)** — this log never recorded the final passing round. Closed by this
+  entry.
+- **V3 (P3)** — residual undisclosed `steps: []` asymmetry (SDK refuses, kernel
+  accepts). Non-blocking per the reviewer and degenerate; recorded in
+  `ops/BACKLOG.md` rather than fixed here, since closing it would touch kernel
+  code that is out of WP-5 scope.
+
+Re-measured independently at this round, not copied forward:
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+72 passed, 0 failed (18 + 19 + 26 + 3 + 6; doc-tests 0)
+
+$ (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
+exit 0, no warnings
+
+$ (cd kernel && ../ops/cargo.sh fmt --check)
+exit 0, empty
+
+$ (cd sdk && npm test)
+ Test Files  7 passed (7)
+      Tests  121 passed (121)
+```
+
+Gate 1 remains **AMBER**. Clause 2 still lives only on open PR #8; it flips to
+GREEN only after a human merges it and re-verifies on merged `main`.

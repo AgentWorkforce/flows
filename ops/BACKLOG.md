@@ -67,3 +67,14 @@ gate's needs. Not commitments; ordering is the Lead's call with evidence.
   github mount, as the personas do) or make `sync` clone when `origin` is
   absent. This is the last known gap between local ticks and machine-
   independent scheduled execution.
+- **Undisclosed `steps: []` check/kernel asymmetry (P3, WP-4 review V3).** The
+  authoring surface refuses an empty step list —
+  `REFUSED [invalid_spec] spec.steps: expected a non-empty array`, exit 2 —
+  while the kernel accepts it: `RunSpec.steps` is `#[serde(default)]`
+  (`kernel/relayflowd-core/src/spec.rs:39-40`) and `RunSpec::validate` has no
+  empty-steps check, so the loops no-op and it returns `Ok(())`. Same false-red
+  class as the WP-5 F1 `name` case, and degenerate (a zero-step flow is
+  meaningless; refusing it at authoring is defensible), so it was raised
+  non-blocking. Close it by either refusing empty steps in the kernel too, or
+  noting in `docs/SURFACE.md` that the authoring surface deliberately narrows
+  this case. Deliberately not fixed in WP-5: the kernel option is out of scope.
