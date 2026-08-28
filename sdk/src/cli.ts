@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { accessSync, constants, readFileSync } from 'node:fs';
+import { accessSync, constants, readFileSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -191,7 +191,7 @@ function probeCli(cli: string, directory: string): { exists: boolean; authentica
     stdio: 'ignore',
     timeout: 10_000,
   });
-  if (result.error !== undefined) throw new Error('probe failed');
+  if (result.error !== undefined || result.signal !== null) throw new Error('probe failed');
   return { exists: true, authenticated: result.status === 0 };
 }
 
@@ -206,6 +206,7 @@ function resolveExecutable(command: string, directory: string): string | undefin
     }
   }
   const result = spawnSync('which', [command], { encoding: 'utf8', timeout: 5_000 });
+  if (result.error !== undefined) throw result.error;
   return result.status === 0 ? result.stdout.trim() : undefined;
 }
 
@@ -277,6 +278,17 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
 
-if (process.argv[1] !== undefined && pathToFileURL(process.argv[1]).href === import.meta.url) {
+function isDirectInvocation(entryPath: string | undefined): boolean {
+  if (entryPath === undefined) return false;
+  try {
+    return pathToFileURL(realpathSync(entryPath)).href === import.meta.url;
+  } catch {
+    // A missing, deleted, or unreadable argv[1] is treated as an import. The
+    // module stays safe to load without guessing that an unrelated host is us.
+    return false;
+  }
+}
+
+if (isDirectInvocation(process.argv[1])) {
   process.exitCode = runCli(process.argv.slice(2));
 }

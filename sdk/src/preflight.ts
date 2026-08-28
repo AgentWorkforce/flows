@@ -64,6 +64,7 @@ export interface PreflightResult {
 export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightResult {
   const diagnostics: PreflightDiagnostic[] = [];
   const resolutions: CliResolution[] = [];
+  const cliProbeResults = new Map<string, CliProbeResult | null>();
 
   for (const step of flow.steps) {
     warnOnUnprovableEffects(step, options.probes, diagnostics);
@@ -80,7 +81,7 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
       continue;
     }
     resolutions.push(resolution);
-    probeResolvedCli(resolution, options.probes, diagnostics);
+    probeResolvedCli(resolution, options.probes, cliProbeResults, diagnostics);
   }
 
   for (const trigger of flow.triggers ?? []) {
@@ -117,12 +118,20 @@ function resolveCli(
 function probeResolvedCli(
   resolution: CliResolution,
   probes: PreflightProbes,
+  cache: Map<string, CliProbeResult | null>,
   diagnostics: PreflightDiagnostic[],
 ): void {
-  let result: CliProbeResult;
-  try {
-    result = probes.cli(resolution.cli, resolution.source);
-  } catch {
+  const cacheKey = JSON.stringify([resolution.cli, resolution.source]);
+  let result = cache.get(cacheKey);
+  if (result === undefined) {
+    try {
+      result = probes.cli(resolution.cli, resolution.source);
+    } catch {
+      result = null;
+    }
+    cache.set(cacheKey, result);
+  }
+  if (result === null) {
     diagnostics.push({
       severity: 'refusal',
       kind: 'probe_failed',

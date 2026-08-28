@@ -50,6 +50,31 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(unauthenticated.diagnostics[0]?.message).toContain('"locked auth status" exited non-zero');
   });
 
+  it('probes a shared CLI once per preflight call', () => {
+    let probeCount = 0;
+    const sharedCliFlow: FlowSpec = {
+      version: '0.1.0',
+      name: 'shared-cli',
+      cli: 'shared-cli',
+      steps: [
+        { id: 'one', type: 'llm', prompt: 'one' },
+        { id: 'two', type: 'agent', instruction: 'two' },
+        { id: 'three', type: 'llm', prompt: 'three' },
+      ],
+    };
+    const injected = probes({
+      cli: () => {
+        probeCount += 1;
+        return { exists: true, authenticated: true };
+      },
+    });
+
+    expect(preflight(sharedCliFlow, { probes: injected }).ok).toBe(true);
+    expect(probeCount).toBe(1);
+    expect(preflight(sharedCliFlow, { probes: injected }).ok).toBe(true);
+    expect(probeCount).toBe(2);
+  });
+
   it('refuses unresolved CLIs and triggers with no registered executor', () => {
     const unresolved = preflight(flow({ id: 'answer', type: 'llm', prompt: 'p' }), { probes: probes() });
     const noExecutor = preflight({
