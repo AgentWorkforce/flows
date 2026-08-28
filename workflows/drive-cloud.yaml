@@ -69,22 +69,27 @@ workflows:
     agent: lead
     dependsOn:
     - sync
-    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST read ops/STATE.md \u2014\
-      \ it is ground truth about gates and open\nPRs for an environment with no git history, and it names\
-      \ the known\nsandbox faults that are NOT reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing\
-      \ human directives outrank the backlog;\nif one is unsatisfied, it IS the work package.\nThen read\
-      \ docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`, `gh pr\
-      \ list --state open` and open PR review\nstate, kernel/ and sdk/ test status. Then write ops/NEXT.md:\
-      \ the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until its done-when\
-      \ in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must include passing\
-      \ commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\nawaiting fixes\
-      \ from review, the work package is fixing it \u2014 never\nstart new work over unfinished work.\
-      \ If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question and\
-      \ the\noptions \u2014 and then STILL end with ASSESS_DONE. The assess-gate step\nbelow reads that\
-      \ file and parks the run with a typed outcome.\nALWAYS end with ASSESS_DONE, blocked or not: this\
-      \ gate cannot tell a\ndifferent final token from a crashed agent, so on run 54ebd998 the\nLead correctly\
-      \ reported BLOCKED_NEEDS_HUMAN three times and was\nscored as failing three times. Saying you are\
-      \ blocked is a result,\nnot a failure \u2014 but it must be said in the file, not the token.\n"
+    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST, if ops/TARGET.md exists,\
+      \ it names the ONE gate this run must\nwork on. It is the operator's scoping decision and it overrides\
+      \ your\nown judgement about priority \u2014 several runs execute in parallel, each\npinned to a\
+      \ different gate, and a run that wanders outside its target\nwill collide with a sibling. Stay inside\
+      \ it or, if the target is\ngenuinely unreachable, say so in ops/NEEDS_HUMAN.md rather than\nsilently\
+      \ choosing different work.\nThen read ops/STATE.md \u2014 it is ground truth about gates and open\n\
+      PRs for an environment with no git history, and it names the known\nsandbox faults that are NOT\
+      \ reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing human directives outrank the backlog;\n\
+      if one is unsatisfied, it IS the work package.\nThen read docs/bootstrap-report.md and ops/DRIVE-LOG.md\
+      \ if they exist,\n`git log --oneline -15`, `gh pr list --state open` and open PR review\nstate,\
+      \ kernel/ and sdk/ test status. Then write ops/NEXT.md: the\nSINGLE highest-priority work package\
+      \ toward the current gate\n(gate 1 until its done-when in RFC-0001 \xA73 holds), with: objective,\n\
+      files in scope, definition of done (must include passing commands),\nand what is explicitly OUT\
+      \ of scope for this tick. If an open PR is\nawaiting fixes from review, the work package is fixing\
+      \ it \u2014 never\nstart new work over unfinished work. If work is blocked on a human\ndecision,\
+      \ write ops/NEEDS_HUMAN.md stating the exact question and the\noptions \u2014 and then STILL end\
+      \ with ASSESS_DONE. The assess-gate step\nbelow reads that file and parks the run with a typed outcome.\n\
+      ALWAYS end with ASSESS_DONE, blocked or not: this gate cannot tell a\ndifferent final token from\
+      \ a crashed agent, so on run 54ebd998 the\nLead correctly reported BLOCKED_NEEDS_HUMAN three times\
+      \ and was\nscored as failing three times. Saying you are blocked is a result,\nnot a failure \u2014\
+      \ but it must be said in the file, not the token.\n"
     verification:
       type: output_contains
       value: ASSESS_DONE
@@ -255,22 +260,27 @@ workflows:
     agent: lead
     dependsOn:
     - commit-1
-    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST read ops/STATE.md \u2014\
-      \ it is ground truth about gates and open\nPRs for an environment with no git history, and it names\
-      \ the known\nsandbox faults that are NOT reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing\
-      \ human directives outrank the backlog;\nif one is unsatisfied, it IS the work package.\nThen read\
-      \ docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`, `gh pr\
-      \ list --state open` and open PR review\nstate, kernel/ and sdk/ test status. Then write ops/NEXT.md:\
-      \ the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until its done-when\
-      \ in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must include passing\
-      \ commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\nawaiting fixes\
-      \ from review, the work package is fixing it \u2014 never\nstart new work over unfinished work.\
-      \ If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question and\
-      \ the\noptions \u2014 and then STILL end with ASSESS_DONE. The assess-gate step\nbelow reads that\
-      \ file and parks the run with a typed outcome.\nALWAYS end with ASSESS_DONE, blocked or not: this\
-      \ gate cannot tell a\ndifferent final token from a crashed agent, so on run 54ebd998 the\nLead correctly\
-      \ reported BLOCKED_NEEDS_HUMAN three times and was\nscored as failing three times. Saying you are\
-      \ blocked is a result,\nnot a failure \u2014 but it must be said in the file, not the token.\n"
+    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST, if ops/TARGET.md exists,\
+      \ it names the ONE gate this run must\nwork on. It is the operator's scoping decision and it overrides\
+      \ your\nown judgement about priority \u2014 several runs execute in parallel, each\npinned to a\
+      \ different gate, and a run that wanders outside its target\nwill collide with a sibling. Stay inside\
+      \ it or, if the target is\ngenuinely unreachable, say so in ops/NEEDS_HUMAN.md rather than\nsilently\
+      \ choosing different work.\nThen read ops/STATE.md \u2014 it is ground truth about gates and open\n\
+      PRs for an environment with no git history, and it names the known\nsandbox faults that are NOT\
+      \ reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing human directives outrank the backlog;\n\
+      if one is unsatisfied, it IS the work package.\nThen read docs/bootstrap-report.md and ops/DRIVE-LOG.md\
+      \ if they exist,\n`git log --oneline -15`, `gh pr list --state open` and open PR review\nstate,\
+      \ kernel/ and sdk/ test status. Then write ops/NEXT.md: the\nSINGLE highest-priority work package\
+      \ toward the current gate\n(gate 1 until its done-when in RFC-0001 \xA73 holds), with: objective,\n\
+      files in scope, definition of done (must include passing commands),\nand what is explicitly OUT\
+      \ of scope for this tick. If an open PR is\nawaiting fixes from review, the work package is fixing\
+      \ it \u2014 never\nstart new work over unfinished work. If work is blocked on a human\ndecision,\
+      \ write ops/NEEDS_HUMAN.md stating the exact question and the\noptions \u2014 and then STILL end\
+      \ with ASSESS_DONE. The assess-gate step\nbelow reads that file and parks the run with a typed outcome.\n\
+      ALWAYS end with ASSESS_DONE, blocked or not: this gate cannot tell a\ndifferent final token from\
+      \ a crashed agent, so on run 54ebd998 the\nLead correctly reported BLOCKED_NEEDS_HUMAN three times\
+      \ and was\nscored as failing three times. Saying you are blocked is a result,\nnot a failure \u2014\
+      \ but it must be said in the file, not the token.\n"
     verification:
       type: output_contains
       value: ASSESS_DONE
@@ -441,22 +451,27 @@ workflows:
     agent: lead
     dependsOn:
     - commit-2
-    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST read ops/STATE.md \u2014\
-      \ it is ground truth about gates and open\nPRs for an environment with no git history, and it names\
-      \ the known\nsandbox faults that are NOT reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing\
-      \ human directives outrank the backlog;\nif one is unsatisfied, it IS the work package.\nThen read\
-      \ docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`, `gh pr\
-      \ list --state open` and open PR review\nstate, kernel/ and sdk/ test status. Then write ops/NEXT.md:\
-      \ the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until its done-when\
-      \ in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must include passing\
-      \ commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\nawaiting fixes\
-      \ from review, the work package is fixing it \u2014 never\nstart new work over unfinished work.\
-      \ If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question and\
-      \ the\noptions \u2014 and then STILL end with ASSESS_DONE. The assess-gate step\nbelow reads that\
-      \ file and parks the run with a typed outcome.\nALWAYS end with ASSESS_DONE, blocked or not: this\
-      \ gate cannot tell a\ndifferent final token from a crashed agent, so on run 54ebd998 the\nLead correctly\
-      \ reported BLOCKED_NEEDS_HUMAN three times and was\nscored as failing three times. Saying you are\
-      \ blocked is a result,\nnot a failure \u2014 but it must be said in the file, not the token.\n"
+    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST, if ops/TARGET.md exists,\
+      \ it names the ONE gate this run must\nwork on. It is the operator's scoping decision and it overrides\
+      \ your\nown judgement about priority \u2014 several runs execute in parallel, each\npinned to a\
+      \ different gate, and a run that wanders outside its target\nwill collide with a sibling. Stay inside\
+      \ it or, if the target is\ngenuinely unreachable, say so in ops/NEEDS_HUMAN.md rather than\nsilently\
+      \ choosing different work.\nThen read ops/STATE.md \u2014 it is ground truth about gates and open\n\
+      PRs for an environment with no git history, and it names the known\nsandbox faults that are NOT\
+      \ reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing human directives outrank the backlog;\n\
+      if one is unsatisfied, it IS the work package.\nThen read docs/bootstrap-report.md and ops/DRIVE-LOG.md\
+      \ if they exist,\n`git log --oneline -15`, `gh pr list --state open` and open PR review\nstate,\
+      \ kernel/ and sdk/ test status. Then write ops/NEXT.md: the\nSINGLE highest-priority work package\
+      \ toward the current gate\n(gate 1 until its done-when in RFC-0001 \xA73 holds), with: objective,\n\
+      files in scope, definition of done (must include passing commands),\nand what is explicitly OUT\
+      \ of scope for this tick. If an open PR is\nawaiting fixes from review, the work package is fixing\
+      \ it \u2014 never\nstart new work over unfinished work. If work is blocked on a human\ndecision,\
+      \ write ops/NEEDS_HUMAN.md stating the exact question and the\noptions \u2014 and then STILL end\
+      \ with ASSESS_DONE. The assess-gate step\nbelow reads that file and parks the run with a typed outcome.\n\
+      ALWAYS end with ASSESS_DONE, blocked or not: this gate cannot tell a\ndifferent final token from\
+      \ a crashed agent, so on run 54ebd998 the\nLead correctly reported BLOCKED_NEEDS_HUMAN three times\
+      \ and was\nscored as failing three times. Saying you are blocked is a result,\nnot a failure \u2014\
+      \ but it must be said in the file, not the token.\n"
     verification:
       type: output_contains
       value: ASSESS_DONE

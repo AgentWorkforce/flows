@@ -97,7 +97,14 @@ workflows:
         dependsOn: [sync]
         task: |
           You are the Relayflow Lead (charter/LEAD.md). Assess the repo:
-          FIRST read ops/STATE.md — it is ground truth about gates and open
+          FIRST, if ops/TARGET.md exists, it names the ONE gate this run must
+          work on. It is the operator's scoping decision and it overrides your
+          own judgement about priority — several runs execute in parallel, each
+          pinned to a different gate, and a run that wanders outside its target
+          will collide with a sibling. Stay inside it or, if the target is
+          genuinely unreachable, say so in ops/NEEDS_HUMAN.md rather than
+          silently choosing different work.
+          Then read ops/STATE.md — it is ground truth about gates and open
           PRs for an environment with no git history, and it names the known
           sandbox faults that are NOT reasons to block. Then read
           ops/DIRECTIVES.md — standing human directives outrank the backlog;
