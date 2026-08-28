@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use relayflowd_core::{Budget, RunCompletionReason, RunState};
+use relayflowd_core::{Budget, RunCompletionReason, RunState, StepState, StepType};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -25,8 +25,29 @@ pub struct RunOutcome {
 pub struct RunSnapshot {
     pub run_id: String,
     pub status: RunStatus,
-    pub steps: BTreeMap<String, String>,
+    pub steps: BTreeMap<String, StepSnapshot>,
     pub budget: Budget,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StepSnapshot {
+    #[serde(rename = "type")]
+    pub step_type: StepType,
+    pub state: StepStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_deadline_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StepStatus {
+    Pending,
+    Runnable,
+    Running,
+    Backoff,
+    Waiting,
+    NeedsHuman,
+    Done,
 }
 
 pub(super) fn outcome_from_state(state: &RunState, reason: RunCompletionReason) -> RunOutcome {
@@ -57,9 +78,31 @@ pub(super) fn snapshot_from_state(state: &RunState) -> RunSnapshot {
             None => RunStatus::Running,
         },
         steps: state
+            .spec
             .steps
             .iter()
-            .map(|(id, runtime)| (id.clone(), format!("{:?}", runtime.state)))
+            .map(|step| {
+                let runtime = &state.steps[&step.id];
+                let (step_state, lease_deadline_ms) = match runtime.state {
+                    StepState::Pending => (StepStatus::Pending, None),
+                    StepState::Runnable => (StepStatus::Runnable, None),
+                    StepState::Running {
+                        lease_deadline_ms, ..
+                    } => (StepStatus::Running, Some(lease_deadline_ms)),
+                    StepState::Backoff { .. } => (StepStatus::Backoff, None),
+                    StepState::Waiting { .. } => (StepStatus::Waiting, None),
+                    StepState::NeedsHuman { .. } => (StepStatus::NeedsHuman, None),
+                    StepState::Done { .. } => (StepStatus::Done, None),
+                };
+                (
+                    step.id.clone(),
+                    StepSnapshot {
+                        step_type: step.step_type(),
+                        state: step_state,
+                        lease_deadline_ms,
+                    },
+                )
+            })
             .collect(),
         budget: state.budget.clone(),
     }

@@ -95,10 +95,23 @@ export type RunResumeResult = RunOutcome;
 export interface RunGetParams {
   run_id: string;
 }
+export type StepStatus =
+  | 'pending'
+  | 'runnable'
+  | 'running'
+  | 'backoff'
+  | 'waiting'
+  | 'needs_human'
+  | 'done';
+export interface StepSnapshot {
+  type: StepType;
+  state: StepStatus;
+  lease_deadline_ms?: number;
+}
 export interface RunGetResult {
   run_id: string;
   status: RunStatus;
-  steps: Record<string, string>;
+  steps: Record<string, StepSnapshot>;
   budget: { tokens_in: number; tokens_out: number; dollars: string };
 }
 

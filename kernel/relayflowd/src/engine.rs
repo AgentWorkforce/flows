@@ -19,7 +19,7 @@ mod drive;
 mod effects;
 mod model;
 mod remote;
-pub use model::{RunOutcome, RunSnapshot, RunStatus};
+pub use model::{RunOutcome, RunSnapshot, RunStatus, StepSnapshot, StepStatus};
 use model::{outcome_from_state, snapshot_from_state};
 pub use remote::OutOfBandCompletion;
 

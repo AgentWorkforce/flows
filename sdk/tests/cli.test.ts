@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CheckReport, type CliIo } from '../src/cli.js';
+import { runFlow } from '../src/cli/run.js';
 import {
   CHECK_INPUT_FAILURE_KINDS,
   isCheckFailureKind,
@@ -21,7 +22,7 @@ import {
 
 const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata');
 const PREFLIGHT = join(TESTDATA, 'preflight');
-const LADDER = ['hello-ladder', 'hello-llm', 'hello-agent'] as const;
+const LADDER = ['hello-deterministic', 'hello-llm', 'hello-agent'] as const;
 const temporaryDirectories: string[] = [];
 const loopbackServers: Server[] = [];
 const KERNEL_RETRY = {
@@ -144,7 +145,9 @@ steps:
     for (const name of LADDER) {
       const result = await run(join(TESTDATA, `${name}.flow.yaml`));
       expect(result.code, name).toBe(0);
-      expect(result.stdout.join('\n'), name).toContain('RESOLVED');
+      if (name !== 'hello-deterministic') {
+        expect(result.stdout.join('\n'), name).toContain('RESOLVED');
+      }
       expect(result.stdout.join('\n'), name).toContain('CHECK PASSED');
       expect(result.stderr.some((line) => line.startsWith('WARNING [unprovable_effects]')), name).toBe(true);
     }
@@ -171,7 +174,9 @@ steps:
     expect(result.stdout.join('\n'), name).toContain('CHECK PASSED');
   });
 
-  it.each(LADDER.flatMap((name) => LADDER_FAULTS.map(([kind, mutate]) => [name, kind, mutate] as const)))(
+  it.each(LADDER.flatMap((name) => LADDER_FAULTS
+    .filter(([kind]) => name !== 'hello-deterministic' || kind === 'no_executor')
+    .map(([kind, mutate]) => [name, kind, mutate] as const)))(
     'refuses ladder flow %s with %s under an induced fault',
     async (name, kind, mutate) => {
       const result = await run(ladderVariant(name, mutate));
@@ -436,7 +441,11 @@ describe('flows run/resume CLI over the journal protocol', () => {
       'run.get': (ctx) => sendResult(ctx, {
         run_id: 'run-parked',
         status: 'parked',
-        steps: { greet: 'Completed', answer: 'Runnable', finish: 'Pending' },
+        steps: {
+          greet: { type: 'deterministic', state: 'done' },
+          answer: { type: 'llm', state: 'runnable' },
+          finish: { type: 'deterministic', state: 'pending' },
+        },
         budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
       }),
     });
@@ -449,6 +458,56 @@ describe('flows run/resume CLI over the journal protocol', () => {
     expect(code).toBe(3);
     expect(output.stderr.join('\n')).toContain('PARKED [run_parked]');
     expect(output.stderr.join('\n')).toContain('step "answer" (llm)');
+  });
+
+  it('reports a needs_human agent step as parked for human recovery', async () => {
+    const dataDir = temporaryProject('flows-run-human-');
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'run.start': (ctx) => sendResult(ctx, {
+        run_id: 'run-human',
+        status: 'parked',
+        completion_reason: null,
+        completed_steps: 0,
+      }),
+      'run.get': (ctx) => sendResult(ctx, {
+        run_id: 'run-human',
+        status: 'parked',
+        steps: { edit: { type: 'agent', state: 'needs_human' } },
+        budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+      }),
+    });
+    const output = capture();
+
+    const code = await runCli([
+      'run', '--data-dir', dataDir, join(TESTDATA, 'hello-agent.flow.yaml'),
+    ], output.io);
+
+    expect(code).toBe(3);
+    expect(output.stderr.join('\n')).toContain('PARKED [run_parked]');
+    expect(output.stderr.join('\n')).toContain('waiting for human recovery');
+    expect(output.stderr.join('\n')).not.toContain('protocol_error');
+  });
+
+  it('classifies a typed hello refusal as a protocol error, not an unreachable daemon', async () => {
+    const dataDir = temporaryProject('flows-run-mismatch-');
+    await startCliLoopback(dataDir, {
+      hello: (ctx) => ctx.send({
+        id: ctx.id,
+        ok: false,
+        error: { code: 'protocol_mismatch', message: 'upgrade the client' },
+      }),
+    });
+    const output = capture();
+
+    const code = await runCli([
+      'run', '--data-dir', dataDir, join(TESTDATA, 'hello-deterministic.flow.yaml'),
+    ], output.io);
+
+    expect(code).toBe(1);
+    expect(output.stderr.join('\n')).toContain('FAILED [protocol_error]');
+    expect(output.stderr.join('\n')).toContain('protocol_mismatch');
+    expect(output.stderr.join('\n')).not.toContain('daemon_unreachable');
   });
 
   it('follows a dispatched worker step instead of reporting a protocol error', async () => {
@@ -468,9 +527,11 @@ describe('flows run/resume CLI over the journal protocol', () => {
           run_id: 'run-worker',
           status: running ? 'running' : 'completed',
           steps: {
-            greet: 'Done',
-            answer: running ? 'Running' : 'Done',
-            finish: running ? 'Pending' : 'Done',
+            greet: { type: 'deterministic', state: 'done' },
+            answer: running
+              ? { type: 'llm', state: 'running', lease_deadline_ms: Date.now() + 5_000 }
+              : { type: 'llm', state: 'done' },
+            finish: { type: 'deterministic', state: running ? 'pending' : 'done' },
           },
           budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
         });
@@ -491,6 +552,98 @@ describe('flows run/resume CLI over the journal protocol', () => {
     expect(code).toBe(0);
     expect(output.stdout.join('\n')).toContain('completionReason: success');
     expect(output.stderr.join('\n')).not.toContain('protocol_error');
+  });
+
+  it('bounds a worker wait by its lease and reports what it is waiting for', async () => {
+    const dataDir = temporaryProject('flows-run-lease-');
+    const leaseDeadlineMs = Date.now() + 150;
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'run.start': (ctx) => sendResult(ctx, {
+        run_id: 'run-stale-worker',
+        status: 'parked',
+        completion_reason: null,
+        completed_steps: 1,
+      }),
+      'run.get': (ctx) => sendResult(ctx, {
+        run_id: 'run-stale-worker',
+        status: 'running',
+        steps: {
+          answer: { type: 'llm', state: 'running', lease_deadline_ms: leaseDeadlineMs },
+        },
+        budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+      }),
+    });
+    const output = capture();
+
+    const code = await runCli([
+      'run', '--data-dir', dataDir, join(TESTDATA, 'hello-llm.flow.yaml'),
+    ], output.io);
+
+    expect(code).toBe(1);
+    expect(output.stderr.join('\n')).toContain('WAITING [worker_lease]');
+    expect(output.stderr.join('\n')).toContain(`until ${leaseDeadlineMs}`);
+    expect(output.stderr.join('\n')).toContain('worker lease for step "answer" expired');
+  });
+
+  it('allows a caller to cancel a worker-lease wait', async () => {
+    const dataDir = temporaryProject('flows-run-cancel-');
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'run.start': (ctx) => sendResult(ctx, {
+        run_id: 'run-cancel',
+        status: 'parked',
+        completion_reason: null,
+        completed_steps: 1,
+      }),
+      'run.get': (ctx) => sendResult(ctx, {
+        run_id: 'run-cancel',
+        status: 'running',
+        steps: {
+          answer: { type: 'llm', state: 'running', lease_deadline_ms: Date.now() + 5_000 },
+        },
+        budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+      }),
+    });
+    const controller = new AbortController();
+
+    const execution = await runFlow(
+      join(TESTDATA, 'hello-llm.flow.yaml'),
+      dataDir,
+      { signal: controller.signal, onWait: () => controller.abort() },
+    );
+
+    expect(execution.exitCode).toBe(1);
+    expect(execution.report.diagnostics).toContainEqual(expect.objectContaining({
+      kind: 'protocol_error',
+      message: expect.stringContaining('was canceled'),
+    }));
+  });
+
+  it('resumes a parked run from snapshot step types without reading journal sequence one', async () => {
+    const dataDir = temporaryProject('flows-resume-snapshot-');
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'run.resume': (ctx) => sendResult(ctx, {
+        run_id: 'run-current-epoch',
+        status: 'parked',
+        completion_reason: null,
+        completed_steps: 1,
+      }),
+      'run.get': (ctx) => sendResult(ctx, {
+        run_id: 'run-current-epoch',
+        status: 'parked',
+        steps: { answer: { type: 'llm', state: 'runnable' } },
+        budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+      }),
+    });
+    const output = capture();
+
+    const code = await runCli(['resume', '--data-dir', dataDir, 'run-current-epoch'], output.io);
+
+    expect(code).toBe(3);
+    expect(output.stderr.join('\n')).toContain('step "answer" (llm)');
+    expect(output.stderr.join('\n')).not.toContain('journal.read');
   });
 
   it('maps only run_not_found resumes to exit 2', async () => {

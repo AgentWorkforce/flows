@@ -57,10 +57,20 @@ export async function runCli(
   }
 
   const execution = parsed.command === 'run'
-    ? await runFlow(parsed.value, parsed.dataDir)
-    : await resumeFlow(parsed.value, parsed.dataDir);
+    ? await runFlow(parsed.value, parsed.dataDir, { onWait: (progress) => emitWait(progress, io) })
+    : await resumeFlow(parsed.value, parsed.dataDir, { onWait: (progress) => emitWait(progress, io) });
   emitRunReport(execution, parsed.json, io);
   return execution.exitCode;
+}
+
+function emitWait(
+  progress: { runId: string; stepId: string; stepType: string; leaseDeadlineMs: number },
+  io: CliIo,
+): void {
+  io.stderr(
+    `WAITING [worker_lease] Run "${progress.runId}" step "${progress.stepId}" (${progress.stepType}) `
+      + `is running under a worker lease until ${progress.leaseDeadlineMs}.`,
+  );
 }
 
 function parseArgs(args: readonly string[]): ParsedArgs | undefined {

@@ -132,13 +132,19 @@ The exit codes are part of the surface contract:
 | `0` | The run completed with `completionReason: success`. |
 | `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. |
 | `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
-| `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type. |
+| `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. |
 
 At gate 1 no `llm` or `agent` worker is attached by the CLI. Reaching either
 step therefore returns the durable parked outcome instead of hanging or
 reporting success. Event, schedule, deployed-digest, HTTP, SDK-call, and
 flow-to-flow invocation remain later-gate surface work; they are not shipped
 by this CLI.
+
+When a worker is attached, the CLI follows the typed snapshot while its lease
+is live and prints `WAITING [worker_lease]` with the step and lease deadline.
+If the lease expires without a completion, the command fails closed instead of
+polling forever. A manual-recovery agent whose worker dies parks in
+`needs_human`; the same exit-3 report says it is waiting for human recovery.
 
 `flows resume` reports `run_unavailable` only when relayflowd returns the
 typed `run_not_found` refusal. A dropped connection, request failure, or

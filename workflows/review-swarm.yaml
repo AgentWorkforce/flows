@@ -115,9 +115,22 @@ workflows:
         maxIterations: 1
         timeoutMs: 1800000
 
-      - name: aggregate
+      - name: persist-transcripts
         type: deterministic
         dependsOn: [lens-maintainability, lens-history, lens-structure]
+        command: |
+          # Lens verdicts are evidence even when the aggregate rejects. Commit
+          # exactly the review files the lenses staged before any later reset
+          # can destroy them.
+          set -u
+          PR=$(tr -dc '0-9' < .review-target 2>/dev/null)
+          if ! git diff --cached --quiet -- ops/reviews/; then
+            git commit -m "ops(review): persist PR #${PR} swarm transcripts" -- ops/reviews/
+          fi
+
+      - name: aggregate
+        type: deterministic
+        dependsOn: [persist-transcripts]
         command: |
           # Any single honest refusal blocks the merge. A missing transcript is
           # a refusal too: an unpersisted verdict is not evidence.

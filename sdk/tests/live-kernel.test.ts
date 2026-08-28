@@ -150,7 +150,11 @@ steps:
       'run', '--data-dir', dataDir, join(TESTDATA, 'hello-llm.flow.yaml'),
     ]);
     const lease = await dispatched;
-    expect((await worker.runGet(lease.run_id)).steps[lease.step_id]).toMatch(/^Running/);
+    expect((await worker.runGet(lease.run_id)).steps[lease.step_id]).toEqual({
+      type: 'llm',
+      state: 'running',
+      lease_deadline_ms: lease.lease_deadline_ms,
+    });
     await worker.stepComplete(
       lease.run_id,
       lease.step_id,
@@ -164,6 +168,48 @@ steps:
     expect(completed.status, completed.stderr).toBe(0);
     expect(completed.stdout).toContain('completionReason: success');
     expect(completed.stderr).not.toContain('protocol_error');
+  });
+
+  it('reports a real manual-recovery NeedsHuman state as parked', async () => {
+    const dataDir = temporaryDirectory('flows-live-human-');
+    await startDaemon(dataDir);
+    const flow = join(dataDir, 'manual.flow.yaml');
+    writeFileSync(flow, `
+version: '0.1.0'
+steps:
+  - id: edit
+    type: agent
+    cli: ${JSON.stringify(join(TESTDATA, 'preflight', 'authenticated-cli'))}
+    instruction: Edit the repository.
+    recoveryMode: manual
+    maxIterations: 2
+    surfaces:
+      workspace:
+        - surface: repo
+`);
+    const worker = await connectClient(dataDir);
+    await worker.hello('live-manual-worker');
+    const dispatched = eventOnce<StepDispatchEvent>(worker, 'step.dispatch');
+    await worker.workerAttach('live-manual-agent', ['agent'], {
+      workspace: [{ surface: 'repo', revision_id: 'rev-a' }],
+      streams: [],
+    });
+
+    const running = invokeCliAsync(['run', '--data-dir', dataDir, flow]);
+    const lease = await dispatched;
+    worker.close();
+    const parked = await running;
+
+    expect(parked.status, parked.stderr).toBe(3);
+    expect(parked.stderr).toContain('WAITING [worker_lease]');
+    expect(parked.stderr).toContain('PARKED [run_parked]');
+    expect(parked.stderr).toContain('waiting for human recovery');
+    expect(parked.stderr).not.toContain('protocol_error');
+    const inspector = await connectClient(dataDir);
+    expect((await inspector.runGet(lease.run_id)).steps[lease.step_id]).toMatchObject({
+      type: 'agent',
+      state: 'needs_human',
+    });
   });
 
   it('preflights before journaling and names an unreachable socket', async () => {
@@ -334,7 +380,10 @@ steps:
     const beforeClient = await connectClient(dataDir);
     const before = (await beforeClient.journalRead(runId, 1)).entries;
     expect(successfulCompletions(before)).toEqual({ one: 1 });
-    expect((await beforeClient.runGet(runId)).steps['two']).toMatch(/^Running/);
+    expect((await beforeClient.runGet(runId)).steps['two']).toMatchObject({
+      type: 'deterministic',
+      state: 'running',
+    });
     beforeClient.close();
     clients.splice(clients.indexOf(beforeClient), 1);
 

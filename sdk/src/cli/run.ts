@@ -8,7 +8,7 @@ import type {
   RunOutcome,
   RunStatus,
 } from '../protocol.js';
-import type { KernelRunSpec, KernelStepSpec, StepType } from '../spec.js';
+import type { StepType } from '../spec.js';
 import {
   checkFlow,
   type CheckInputDiagnostic,
@@ -49,7 +49,23 @@ export interface RunExecution {
   report: RunReport;
 }
 
-export async function runFlow(path: string, dataDir: string): Promise<RunExecution> {
+export interface RunProgress {
+  runId: string;
+  stepId: string;
+  stepType: Extract<StepType, 'llm' | 'agent'>;
+  leaseDeadlineMs: number;
+}
+
+export interface RunLifecycleOptions {
+  signal?: AbortSignal;
+  onWait?: (progress: RunProgress) => void;
+}
+
+export async function runFlow(
+  path: string,
+  dataDir: string,
+  options: RunLifecycleOptions = {},
+): Promise<RunExecution> {
   const checked = checkFlow(path);
   if (!checked.report.ok || checked.flow === undefined) {
     return { exitCode: 2, report: fromCheckReport('run', checked.report) };
@@ -63,7 +79,7 @@ export async function runFlow(path: string, dataDir: string): Promise<RunExecuti
   try {
     const spec = toKernelSpec(checked.flow);
     const outcome = await client.runStart(spec);
-    return await classifyOutcome(client, 'run', outcome, checked.report, socketPath, spec);
+    return await classifyOutcome(client, 'run', outcome, checked.report, socketPath, options);
   } catch (error) {
     return protocolFailure('run', checked.report, socketPath, error);
   } finally {
@@ -71,7 +87,11 @@ export async function runFlow(path: string, dataDir: string): Promise<RunExecuti
   }
 }
 
-export async function resumeFlow(runId: string, dataDir: string): Promise<RunExecution> {
+export async function resumeFlow(
+  runId: string,
+  dataDir: string,
+  options: RunLifecycleOptions = {},
+): Promise<RunExecution> {
   const socketPath = socketFor(dataDir);
   const base = emptyReport('resume');
   const client = new JournalClient(socketPath);
@@ -80,7 +100,7 @@ export async function resumeFlow(runId: string, dataDir: string): Promise<RunExe
 
   try {
     const outcome = await client.runResume(runId);
-    return await classifyOutcome(client, 'resume', outcome, base, socketPath);
+    return await classifyOutcome(client, 'resume', outcome, base, socketPath, options);
   } catch (error) {
     if (!(error instanceof JournalProtocolError) || error.code !== 'run_not_found') {
       return protocolFailure('resume', base, socketPath, error, runId);
@@ -112,8 +132,6 @@ async function connect(
   const socketPath = socketFor(dataDir);
   try {
     await client.connect();
-    await client.hello(`flows-${command}`);
-    return undefined;
   } catch {
     client.close();
     return {
@@ -132,6 +150,13 @@ async function connect(
       },
     };
   }
+  try {
+    await client.hello(`flows-${command}`);
+    return undefined;
+  } catch (error) {
+    client.close();
+    return protocolFailure(command, base, socketPath, error);
+  }
 }
 
 async function classifyOutcome(
@@ -140,18 +165,20 @@ async function classifyOutcome(
   outcome: RunOutcome,
   base: CheckReport | RunReport,
   socketPath: string,
-  knownSpec?: KernelRunSpec,
+  options: RunLifecycleOptions,
 ): Promise<RunExecution> {
   let current = outcome;
   let parkedStep: ParkedStep | undefined;
+  let needsHuman = false;
   while (current.status === 'parked') {
-    const inspection = await inspectOutOfBandStep(client, current.run_id, knownSpec);
+    const inspection = await inspectOutOfBandStep(client, current.run_id);
     if (inspection?.parkedStep !== undefined) {
       parkedStep = inspection.parkedStep;
+      needsHuman = inspection.needsHuman;
       break;
     }
-    if (inspection?.runningStepId !== undefined) {
-      await waitForRunningStep(client, current.run_id, inspection.runningStepId);
+    if (inspection?.runningStep !== undefined) {
+      await waitForRunningStep(client, current.run_id, inspection.runningStep, options);
       current = await client.runResume(current.run_id);
       continue;
     }
@@ -195,7 +222,9 @@ async function classifyOutcome(
         diagnostics: [...report.diagnostics, {
           severity: 'parked',
           kind: 'run_parked',
-          message: `Run "${current.run_id}" parked at step "${parkedStep.id}" (${parkedStep.type}): no worker is attached for step type "${parkedStep.type}".`,
+          message: needsHuman
+            ? `Run "${current.run_id}" parked at step "${parkedStep.id}" (${parkedStep.type}): waiting for human recovery after the worker attempt failed.`
+            : `Run "${current.run_id}" parked at step "${parkedStep.id}" (${parkedStep.type}): no worker is attached for step type "${parkedStep.type}".`,
         }],
       },
     };
@@ -208,53 +237,85 @@ async function classifyOutcome(
 interface OutOfBandInspection {
   status: RunStatus;
   parkedStep?: ParkedStep;
-  runningStepId?: string;
+  needsHuman: boolean;
+  runningStep?: RunningStep;
+}
+
+interface RunningStep extends ParkedStep {
+  leaseDeadlineMs: number;
 }
 
 async function inspectOutOfBandStep(
   client: JournalClient,
   runId: string,
-  knownSpec?: KernelRunSpec,
 ): Promise<OutOfBandInspection | undefined> {
-  const spec = knownSpec ?? await readRunSpec(client, runId);
-  if (spec === undefined) return undefined;
   const snapshot = await client.runGet(runId);
-  const parkedStep = spec.steps.find((step): step is KernelStepSpec & { type: 'llm' | 'agent' } =>
-    step.type !== 'deterministic' && snapshot.steps[step.id] === 'Runnable',
+  const entries = Object.entries(snapshot.steps);
+  const humanEntry = entries.find(([, step]) =>
+    step.type !== 'deterministic' && step.state === 'needs_human',
   );
-  const runningStep = spec.steps.find((step) =>
-    step.type !== 'deterministic' && isRunningStepState(snapshot.steps[step.id]),
+  const runnableEntry = entries.find(([, step]) =>
+    step.type !== 'deterministic' && step.state === 'runnable',
   );
+  const runningEntry = entries.find(([, step]) =>
+    step.type !== 'deterministic' && step.state === 'running',
+  );
+  const parkedEntry = humanEntry ?? runnableEntry;
+  const parkedStep = parkedEntry === undefined ? undefined : {
+    id: parkedEntry[0],
+    type: parkedEntry[1].type as Extract<StepType, 'llm' | 'agent'>,
+  };
+  const runningStep = runningEntry === undefined ? undefined : {
+    id: runningEntry[0],
+    type: runningEntry[1].type as Extract<StepType, 'llm' | 'agent'>,
+    leaseDeadlineMs: runningEntry[1].lease_deadline_ms ?? Number.NaN,
+  };
   return {
     status: snapshot.status,
+    needsHuman: humanEntry !== undefined,
     ...(parkedStep !== undefined ? { parkedStep } : {}),
-    ...(runningStep !== undefined ? { runningStepId: runningStep.id } : {}),
+    ...(runningStep !== undefined ? { runningStep } : {}),
   };
 }
 
 async function waitForRunningStep(
   client: JournalClient,
   runId: string,
-  stepId: string,
+  runningStep: RunningStep,
+  options: RunLifecycleOptions,
 ): Promise<void> {
-  while (true) {
-    await delay(50);
-    const snapshot = await client.runGet(runId);
-    if (!isRunningStepState(snapshot.steps[stepId])) return;
+  let leaseDeadlineMs = runningStep.leaseDeadlineMs;
+  if (!Number.isFinite(leaseDeadlineMs)) {
+    throw new Error(`running step "${runningStep.id}" omitted lease_deadline_ms`);
   }
-}
-
-function isRunningStepState(state: string | undefined): boolean {
-  return state === 'Running' || state?.startsWith('Running {') === true;
-}
-
-async function readRunSpec(client: JournalClient, runId: string): Promise<KernelRunSpec | undefined> {
-  const { entries } = await client.journalRead(runId, 1, 1);
-  const entry = entries[0];
-  if (!isObject(entry) || entry['entry_type'] !== 'run.spawned') return undefined;
-  const payload = entry['payload'];
-  if (!isObject(payload) || !isObject(payload['spec'])) return undefined;
-  return payload['spec'] as unknown as KernelRunSpec;
+  options.onWait?.({
+    runId,
+    stepId: runningStep.id,
+    stepType: runningStep.type,
+    leaseDeadlineMs,
+  });
+  while (true) {
+    throwIfCanceled(options.signal, runningStep.id);
+    const remainingMs = leaseDeadlineMs - Date.now();
+    if (remainingMs <= 0) {
+      throw new Error(
+        `worker lease for step "${runningStep.id}" expired at ${leaseDeadlineMs} without completion`,
+      );
+    }
+    await delay(Math.min(50, remainingMs), options.signal);
+    const snapshot = await client.runGet(runId);
+    const step = snapshot.steps[runningStep.id];
+    if (step?.state !== 'running') return;
+    if (step.lease_deadline_ms !== undefined && step.lease_deadline_ms !== leaseDeadlineMs) {
+      leaseDeadlineMs = step.lease_deadline_ms;
+      options.onWait?.({
+        runId,
+        stepId: runningStep.id,
+        stepType: runningStep.type,
+        leaseDeadlineMs,
+      });
+    }
+  }
 }
 
 function protocolFailure(
@@ -306,10 +367,24 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'unknown protocol error';
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+function throwIfCanceled(signal: AbortSignal | undefined, stepId: string): void {
+  if (signal?.aborted === true) throw new Error(`waiting for running step "${stepId}" was canceled`);
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolveDelay, rejectDelay) => {
+    const finish = (): void => {
+      signal?.removeEventListener('abort', cancel);
+      resolveDelay();
+    };
+    const timer = setTimeout(finish, ms);
+    if (signal === undefined) return;
+    const cancel = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', cancel);
+      rejectDelay(new Error('worker wait canceled'));
+    };
+    if (signal.aborted) cancel();
+    else signal.addEventListener('abort', cancel, { once: true });
+  });
 }

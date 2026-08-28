@@ -4,4 +4,7 @@ pub mod exec_det;
 pub mod server;
 pub mod worker;
 
-pub use engine::{DriveOptions, Engine, OutOfBandCompletion, RunOutcome, RunSnapshot, RunStatus};
+pub use engine::{
+    DriveOptions, Engine, OutOfBandCompletion, RunOutcome, RunSnapshot, RunStatus, StepSnapshot,
+    StepStatus,
+};

@@ -165,17 +165,13 @@ fn handle_request(
         }
         "run.resume" => {
             let params: RunIdParams = decode_params(request.params)?;
-            let safe_id = !params.run_id.is_empty()
-                && params.run_id.chars().all(|character| {
-                    character.is_ascii_alphanumeric() || matches!(character, '-' | '_')
-                });
-            let exists = safe_id
-                && data_dir
-                    .join("runs")
-                    .join(format!("{}.sqlite3", params.run_id))
-                    .try_exists()
-                    .map_err(|error| internal_error(error.into()))?;
-            if !exists {
+            let registry = relayflowd_journal::Registry::open(data_dir.join("relayflowd.sqlite3"))
+                .map_err(|error| internal_error(error.into()))?;
+            if registry
+                .lookup(&params.run_id)
+                .map_err(|error| internal_error(error.into()))?
+                .is_none()
+            {
                 return Err((
                     "run_not_found",
                     format!("run {} does not exist", params.run_id),
