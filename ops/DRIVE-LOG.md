@@ -1495,3 +1495,52 @@ $ (cd sdk && npm test)
 
 Gate 1 remains **AMBER**. Clause 2 still lives only on open PR #8; it flips to
 GREEN only after a human merges it and re-verifies on merged `main`.
+
+### WP-6 — repair the 20:11 rejection before re-review
+
+This 2026-08-27 20:25 EDT entry is append-only. It corrects the preceding
+round's incomplete treatment of the independent review without changing that
+round or any earlier rejection evidence.
+
+The review chronology at the start of WP-6 is:
+
+1. Main-owned swarm run `b242b77ed0270c99fa5be416` reviewed `a8c9110` and
+   returned `SWARM_PASSED`. Its three separately committed transcripts are
+   `ops/reviews/20260827-1958-pr8-history.md`,
+   `ops/reviews/20260827-1958-pr8-structure.md`, and
+   `ops/reviews/20260827-2002-pr8-maintainability.md`. At the later pre-WP-6
+   head `4ce3ff9`, `git diff a8c9110 4ce3ff9 -- sdk kernel docs workflows
+   testdata` was empty, so that passing review bound to the shipped product
+   tree at that head.
+2. The 20:11 standalone review in
+   `ops/reviews/20260827-2011-review.md` reviewed `d129750` and was committed
+   alone at `4ce3ff9`; it returned `REVIEW_FAILED`. It found V1, the false
+   `SDK 99 tests` measurement in `ops/SCOREBOARD.md`; V2, this durable log's
+   omission of the final passing swarm; and V3, the undisclosed `steps: []`
+   check/kernel asymmetry.
+3. The existing local repair commit `d8117b3` corrected V1 to the independently
+   measured SDK count of 121 and appended the missing swarm history, but it
+   described V3 as closed by a backlog entry. That was incomplete under WP-6.
+   Commit `f0abdd4` carries `ops/NEXT.md` onto the PR branch and closes V3 in
+   `docs/SURFACE.md`: the authoring surface deliberately refuses `steps: []`
+   as `invalid_spec` while the kernel accepts it, and the document identifies
+   this as an authoring-time narrowing rather than a kernel guarantee.
+
+The changed documentation means `a8c9110` is no longer the binding commit for
+the WP-6 product tree. The next review swarm must review this repaired head;
+its run id, reviewed hash, separately committed transcripts, and aggregate
+verdict will be appended after the run rather than predicted here.
+
+Fresh measurements on `f0abdd4`, before writing this entry:
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+72 passed, 0 failed (18 + 19 + 26 + 3 + 6; doc-tests 0)
+
+$ (cd sdk && npm test)
+ Test Files  7 passed (7)
+      Tests  121 passed (121)
+```
+
+Gate 1 remains **AMBER**. Clause 2 remains on open PR #8 until a human merges
+it and re-verifies the merged `main` tree.
