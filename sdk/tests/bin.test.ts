@@ -10,23 +10,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SDK = join(ROOT, 'sdk');
 const BUILT_CLI = join(SDK, 'dist', 'cli.js');
 const PREFLIGHT = join(ROOT, 'testdata', 'preflight');
 const temporaryDirectories: string[] = [];
-
-beforeAll(() => {
-  // These tests exercise the published artifact, so they build it themselves
-  // instead of relying on a developer to have run the DoD build beforehand.
-  const build = spawnSync('npm', ['run', 'build'], {
-    cwd: SDK,
-    encoding: 'utf8',
-  });
-  expect(build.status, build.stderr || build.stdout).toBe(0);
-});
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {

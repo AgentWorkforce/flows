@@ -25,14 +25,25 @@ import {
 import type { KernelRunSpec, StepType } from './spec.js';
 
 export interface JournalClientOptions {
-  /** Override the per-request timeout (ms). Default 30000. */
+  /** Override the timeout for bounded protocol requests (ms). Default 30000. */
   requestTimeoutMs?: number;
 }
 
 interface Pending {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+/** A structured rejection returned by relayflowd over the journal protocol. */
+export class JournalProtocolError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(`${code}: ${message}`);
+    this.name = 'JournalProtocolError';
+    this.code = code;
+  }
 }
 
 export class JournalClient extends EventEmitter {
@@ -104,9 +115,9 @@ export class JournalClient extends EventEmitter {
       const pending = this.pending.get(res.id);
       if (!pending) return; // reply for an already-timed-out request
       this.pending.delete(res.id);
-      clearTimeout(pending.timer);
+      if (pending.timer !== undefined) clearTimeout(pending.timer);
       if (res.ok) pending.resolve(res.result);
-      else pending.reject(new Error(`${res.error.code}: ${res.error.message}`));
+      else pending.reject(new JournalProtocolError(res.error.code, res.error.message));
     } else {
       const ev = msg as ServerEvent;
       this.emit(ev.event, ev.data);
@@ -116,7 +127,7 @@ export class JournalClient extends EventEmitter {
 
   private failAll(err: Error): void {
     for (const [, p] of this.pending) {
-      clearTimeout(p.timer);
+      if (p.timer !== undefined) clearTimeout(p.timer);
       p.reject(err);
     }
     this.pending.clear();
@@ -125,6 +136,7 @@ export class JournalClient extends EventEmitter {
   private request<V extends keyof VerbContract>(
     verb: V,
     params: VerbContract[V]['params'],
+    timeoutMs: number | null = this.requestTimeoutMs,
   ): Promise<VerbContract[V]['result']> {
     return new Promise((resolve, reject) => {
       if (!this.socket || this.socket.destroyed) {
@@ -133,16 +145,16 @@ export class JournalClient extends EventEmitter {
       }
       const id = randomUUID();
       const frame: Request = { id, verb: verb as string, params };
-      const timer = setTimeout(() => {
+      const timer = timeoutMs === null ? undefined : setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`journal client: ${verb} timed out after ${this.requestTimeoutMs}ms`));
-      }, this.requestTimeoutMs);
+        reject(new Error(`journal client: ${verb} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
       this.socket.write(JSON.stringify(frame) + '\n', (err) => {
         if (err) {
           const p = this.pending.get(id);
           if (p) {
-            clearTimeout(p.timer);
+            if (p.timer !== undefined) clearTimeout(p.timer);
             this.pending.delete(id);
             p.reject(new Error(`journal client: ${verb} write failed: ${err.message}`));
           }
@@ -164,12 +176,12 @@ export class JournalClient extends EventEmitter {
    * with `toKernelSpec` before crossing this journal-protocol boundary.
    */
   runStart(spec: KernelRunSpec): Promise<VerbContract['run.start']['result']> {
-    return this.request('run.start', { spec });
+    return this.request('run.start', { spec }, null);
   }
 
   /** §3 memoized resume. */
   runResume(runId: string): Promise<VerbContract['run.resume']['result']> {
-    return this.request('run.resume', { run_id: runId });
+    return this.request('run.resume', { run_id: runId }, null);
   }
 
   /** Snapshot for legibility. */

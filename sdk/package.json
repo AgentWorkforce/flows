@@ -22,7 +22,7 @@
     "build": "tsc && node scripts/make-cli-executable.mjs",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
-    "test": "tsc --noEmit && vitest run",
+    "test": "npm run build && vitest run",
     "test:watch": "vitest"
   },
   "license": "UNLICENSED",

@@ -1,13 +1,18 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { createServer, type Server, type Socket } from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import type { Server } from 'node:net';
 import { rmSync } from 'node:fs';
-import { JournalClient } from '../src/journal-client.js';
+import { JournalClient, JournalProtocolError } from '../src/journal-client.js';
 import { compileYaml, toKernelSpec } from '../src/compile.js';
 import { PROTOCOL_VERSION } from '../src/protocol.js';
-import type { FlowSpec, KernelRunSpec } from '../src/spec.js';
+import {
+  HELLO_SPEC,
+  kernelDialectError,
+  sendOk,
+  sendResult,
+  sockPath,
+  startLoopback,
+  type FrameCtx,
+} from './journal-client-loopback.js';
 
 // Protocol-v0 client tests over a real unix socket. The transport is real
 // (newline-delimited JSON frames over `node:net`), but the server side is a
@@ -16,142 +21,7 @@ import type { FlowSpec, KernelRunSpec } from '../src/spec.js';
 // and fail-closed behavior on errors and connection drops. Kernel semantics
 // are proven in `kernel/relayflowd/` (unit + crash-injection tests).
 
-function sockPath(): string {
-  return join(tmpdir(), `rf-${randomUUID().slice(0, 8)}.sock`);
-}
-
-const HELLO_FLOW: FlowSpec = {
-  version: '0.1.0',
-  name: 'client-roundtrip',
-  steps: [{ id: 'greet', type: 'deterministic', command: 'echo hi' }],
-};
-const HELLO_SPEC: KernelRunSpec = toKernelSpec(HELLO_FLOW);
-
-interface FrameCtx {
-  id: string;
-  socket: Socket;
-  send: (obj: unknown) => void;
-}
-
-function startLoopback(path: string, handlers: {
-  hello?: (ctx: FrameCtx) => void;
-  'run.start'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'run.resume'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'run.get'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'run.watch'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'worker.attach'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'step.heartbeat'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'effect.record'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'effect.confirm'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'step.complete'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'event.emit'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'journal.read'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'stream.append'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'stream.read'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-}): Server {
-  const server = createServer((socket) => {
-    let buffer = '';
-    const send = (obj: unknown): void => {
-      socket.write(JSON.stringify(obj) + '\n');
-    };
-    socket.on('data', (chunk) => {
-      buffer += chunk.toString('utf8');
-      let nl: number;
-      while ((nl = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, nl);
-        buffer = buffer.slice(nl + 1);
-        if (line.length === 0) continue;
-        const req = JSON.parse(line) as { id: string; verb: string; params: Record<string, unknown> };
-        const ctx: FrameCtx = { id: req.id, socket, send };
-        switch (req.verb) {
-          case 'hello':
-            handlers.hello?.(ctx);
-            break;
-          case 'run.start':
-            handlers['run.start']?.(ctx, req.params);
-            break;
-          case 'run.resume':
-            handlers['run.resume']?.(ctx, req.params);
-            break;
-          case 'run.get':
-            handlers['run.get']?.(ctx, req.params);
-            break;
-          case 'run.watch':
-            handlers['run.watch']?.(ctx, req.params);
-            break;
-          case 'worker.attach':
-            handlers['worker.attach']?.(ctx, req.params);
-            break;
-          case 'step.heartbeat':
-            handlers['step.heartbeat']?.(ctx, req.params);
-            break;
-          case 'effect.record':
-            handlers['effect.record']?.(ctx, req.params);
-            break;
-          case 'effect.confirm':
-            handlers['effect.confirm']?.(ctx, req.params);
-            break;
-          case 'step.complete':
-            handlers['step.complete']?.(ctx, req.params);
-            break;
-          case 'event.emit':
-            handlers['event.emit']?.(ctx, req.params);
-            break;
-          case 'journal.read':
-            handlers['journal.read']?.(ctx, req.params);
-            break;
-          case 'stream.append':
-            handlers['stream.append']?.(ctx, req.params);
-            break;
-          case 'stream.read':
-            handlers['stream.read']?.(ctx, req.params);
-            break;
-          default:
-            send({ id: req.id, ok: false, error: { code: 'unknown_verb', message: req.verb } });
-        }
-      }
-    });
-  });
-  server.listen(path);
-  return server;
-}
-
 let lastStartedSpec: Record<string, unknown> | null = null;
-
-// A faithful mini-mirror of `RunSpec::parse` (kernel/relayflowd-core/src/spec.rs):
-// snake_case keys only, per-type step key sets, flat v0 verification. Returns
-// an error message, or null when the spec is in the kernel dialect.
-function kernelDialectError(spec: unknown): string | null {
-  if (typeof spec !== 'object' || spec === null) return 'spec: expected an object';
-  const rootAllowed = new Set(['version', 'name', 'description', 'steps', 'budget']);
-  for (const key of Object.keys(spec)) {
-    if (!rootAllowed.has(key)) return `unknown field "${key}" at spec`;
-  }
-  const steps = (spec as { steps?: unknown }).steps;
-  if (!Array.isArray(steps)) return 'steps: expected an array';
-  const common = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification'];
-  const byType: Record<string, string[]> = {
-    deterministic: ['command', 'timeout_ms'],
-    llm: ['prompt', 'model'],
-    agent: ['instruction', 'recovery_mode', 'surfaces', 'permissions'],
-  };
-  for (const [index, step] of steps.entries()) {
-    const st = step as Record<string, unknown>;
-    const kindFields = byType[st.type as string];
-    if (kindFields === undefined) return `steps[${index}]: unknown type`;
-    const allowed = new Set([...common, ...kindFields]);
-    for (const key of Object.keys(st)) {
-      if (!allowed.has(key)) return `unknown field "${key}" at steps[${index}]`;
-    }
-    if (st.verification !== undefined) {
-      const gateAllowed = new Set(['output_contains', 'json_schema']);
-      for (const key of Object.keys(st.verification as Record<string, unknown>)) {
-        if (!gateAllowed.has(key)) return `unknown field "${key}" at steps[${index}].verification`;
-      }
-    }
-  }
-  return null;
-}
 
 describe('JournalClient: protocol v0 over unix socket', () => {
   let path: string;
@@ -362,11 +232,39 @@ steps:
     try {
       client = new JournalClient(errorPath, { requestTimeoutMs: 2000 });
       await client.connect();
-      await expect(client.runResume('run-01')).rejects.toThrow(/journal_write_failed/);
+      const rejected = client.runResume('run-01');
+      await expect(rejected).rejects.toBeInstanceOf(JournalProtocolError);
+      await expect(rejected).rejects.toMatchObject({ code: 'journal_write_failed' });
     } finally {
       client?.close();
       await new Promise<void>((r) => errorServer.close(() => r()));
       rmSync(errorPath, { force: true });
+    }
+  });
+
+  it('does not apply the bounded request timeout to run lifecycle requests', async () => {
+    const lifecyclePath = sockPath();
+    const lifecycleServer = startLoopback(lifecyclePath, {
+      'run.start': (ctx) => {
+        setTimeout(() => sendResult(ctx, {
+          run_id: 'slow-run',
+          status: 'completed',
+          completion_reason: 'success',
+          completed_steps: 1,
+        }), 50);
+      },
+    });
+    try {
+      client = new JournalClient(lifecyclePath, { requestTimeoutMs: 10 });
+      await client.connect();
+      await expect(client.runStart(HELLO_SPEC)).resolves.toMatchObject({
+        run_id: 'slow-run',
+        status: 'completed',
+      });
+    } finally {
+      client?.close();
+      await new Promise<void>((r) => lifecycleServer.close(() => r()));
+      rmSync(lifecyclePath, { force: true });
     }
   });
 
@@ -516,13 +414,3 @@ describe('JournalClient: an effect election is atomic with its provider call', (
     }
   });
 });
-
-// --- helpers ---
-
-function sendOk(ctx: FrameCtx): void {
-  ctx.send({ id: ctx.id, ok: true, result: { protocol: PROTOCOL_VERSION, server: 'relayflowd-test' } });
-}
-
-function sendResult(ctx: FrameCtx, result: unknown): void {
-  ctx.send({ id: ctx.id, ok: true, result });
-}

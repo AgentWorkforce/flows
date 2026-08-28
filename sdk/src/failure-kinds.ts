@@ -32,12 +32,26 @@ export const PREFLIGHT_WARNING_KINDS = [
   'command_unprovable',
 ] as const;
 
+/** Closed outcome taxonomy owned by the `flows run` / `flows resume` surface. */
+export const RUN_FAILURE_KINDS = [
+  'daemon_unreachable',
+  'protocol_error',
+  'run_parked',
+  'run_unavailable',
+] as const;
+
 export type PreflightFailureKind = (typeof PREFLIGHT_FAILURE_KINDS)[number];
 export type CheckFailureKind = (typeof CHECK_FAILURE_KINDS)[number];
 export type PreflightWarningKind = (typeof PREFLIGHT_WARNING_KINDS)[number];
+export type RunFailureKind = (typeof RUN_FAILURE_KINDS)[number];
 
 const CHECK_FAILURE_KIND_SET: ReadonlySet<string> = new Set(CHECK_FAILURE_KINDS);
+const RUN_FAILURE_KIND_SET: ReadonlySet<string> = new Set(RUN_FAILURE_KINDS);
 
 export function isCheckFailureKind(value: string): value is CheckFailureKind {
   return CHECK_FAILURE_KIND_SET.has(value);
+}
+
+export function isRunFailureKind(value: string): value is RunFailureKind {
+  return RUN_FAILURE_KIND_SET.has(value);
 }

@@ -125,6 +125,28 @@ fn run_start_fails_closed_on_an_unknown_verification_key() {
     assert_eq!(response.error.unwrap().code, "invalid_spec");
 }
 
+#[test]
+fn run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let runs = data_dir.join("runs");
+    std::fs::create_dir_all(&runs).unwrap();
+    std::fs::File::create(runs.join("orphan.sqlite3")).unwrap();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, _peer) = shared_writer();
+
+    let response = request(
+        data_dir,
+        &hub,
+        1,
+        &writer,
+        r#"{"id":"resume","verb":"run.resume","params":{"run_id":"orphan"}}"#,
+    );
+
+    let error = response.error.expect("orphan file must be refused");
+    assert_eq!(error.code, "run_not_found");
+}
+
 /// Finding 3: a hung worker that stops heartbeating past its lease deadline —
 /// socket still open, so no disconnect fires — must not leave the run in
 /// waiting_worker forever. The reconciler journals a `lease_expired`

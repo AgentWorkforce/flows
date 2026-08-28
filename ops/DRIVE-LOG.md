@@ -1986,3 +1986,1584 @@ $ find kernel -name '*.rs' -not -path '*/target/*' | xargs wc -l | sort -nr | he
 
 PR #8 remains open. Gate 1 remains AMBER until a human merges it and
 re-verifies merged `main`; the Lead does not merge.
+
+### WP-10 — `flows run` / `flows resume` cross the live authored-surface seam
+
+This 2026-08-28 tick finished the six unfinished paths named by
+`ops/NEXT.md`. Commit `5b1226e` makes the shipped CLI dispatch `check`, `run`,
+and `resume`; declares the run-surface outcome taxonomy; pins the standalone
+deterministic fixture on the SDK and kernel sides; and exercises the built CLI
+against a live `relayflowd`. The live cases prove deterministic success,
+typed parking for both `llm` and `agent`, a failed journal terminal carrying
+`completionReason: step_failed`, preflight before journaling, an unreachable
+daemon creating no run artifact, and one successful completion per step after
+kill-and-resume.
+
+Veto MCP was not exposed in this non-interactive subprocess, so no Veto
+review or scan is claimed. Local diff checks and every package DoD command ran
+instead. The exact DoD below ran from clean implementation commit `5b1226e`.
+The initial and post-verification status command produced zero bytes:
+
+```text
+$ git status --porcelain
+```
+
+The kernel workspace passed 73 tests (18 + 19 + 26 + 4 + 6), including the
+new deterministic parity case. Literal output:
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running unittests src/lib.rs (target/debug/deps/relayflowd-399037c915557fdb)
+
+running 18 tests
+test server::client::tests::resume_waits_while_the_heartbeat_renewed_lease_is_live ... ok
+test server::tests::agent::contract::an_agent_worker_attaching_without_pins_is_refused_at_attach ... ok
+test exec_det::tests::captures_deterministic_output ... ok
+test exec_det::tests::timeout_has_an_explicit_completion_reason ... ok
+test server::tests::agent::contract::an_oversized_trajectory_tail_is_refused_at_step_complete ... ok
+test server::tests::agent::contract::agent_without_a_compatible_worker_parks_without_starting ... ok
+test server::tests::agent::contract::an_agent_worker_missing_a_declared_surface_parks_the_run_instead_of_erroring ... ok
+test server::tests::agent::contract::an_llm_completion_claiming_an_effect_fails_closed_with_the_reason_journaled ... ok
+test server::tests::hello_enforces_protocol_version ... ok
+test server::tests::run_start_fails_closed_on_an_unknown_verification_key ... ok
+test server::tests::agent::contract::a_replacement_worker_that_never_reported_the_pinned_surface_is_not_dispatched_to ... ok
+test server::tests::a_failed_disconnect_journal_append_is_retained_and_retried_not_dropped ... ok
+test server::tests::agent::pins::consecutive_agent_steps_on_different_surfaces_each_start_from_their_own_pins ... ok
+test server::tests::agent::pins::reset_worker_reporting_a_revision_other_than_its_pin_fails_closed_as_worker_error ... ok
+test server::tests::stopped_heartbeats_past_the_deadline_journal_lease_expired_and_release_the_step ... ok
+test exec_det::tests::timeout_kills_the_whole_process_group ... ok
+test server::tests::agent::pins::a_replacement_worker_at_a_different_revision_is_not_dispatched_the_stale_pins ... ok
+test server::tests::an_entry_appended_during_watch_registration_is_delivered_exactly_once ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running unittests src/main.rs (target/debug/deps/relayflowd-9e21fa47745f4fb0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/crash_resume.rs (target/debug/deps/crash_resume-e6635a3f0d48512c)
+
+running 19 tests
+test agent::resume_without_a_worker_parks_immediately_instead_of_timing_out ... ok
+test agent::rung_c_sigkill_after_final_effect_replays_results_without_redispatch ... ok
+test concurrency::live_resume_leaves_an_active_lease_running ... ok
+test concurrency::concurrent_resumes_lease_exactly_one_attempt ... ok
+test agent::rung_c_reset_sigkill_mid_edit_restores_pins_dedupes_effect_and_explains_attempts ... ok
+test agent::rung_c_crash_between_effect_election_and_the_provider_call_performs_it_exactly_once ... ok
+test llm::serve_plumbs_watch_events_and_replayable_stream_verbs ... ok
+test llm::failing_llm_verification_schedules_a_durable_retry_and_succeeds ... ok
+test llm::llm_verification_exhaustion_is_a_declared_failure_kind ... ok
+test agent::rung_c_sigkill_between_agent_completion_and_final_effect_memoizes_the_agent ... ok
+test agent::rung_c_sigkill_boundaries_resume_only_unfinished_steps_via_real_cli ... ok
+test llm::sigkill_after_the_final_rung_b_effect_resumes_without_redispatching_llm ... ok
+test llm::completed_llm_output_is_memoized_when_serve_dies_during_the_next_step ... ok
+test llm::worker_killed_while_holding_a_lease_is_explained_and_released_on_cli_resume ... ok
+test sigkill_mid_step_replaces_and_explains_the_dead_attempt ... ok
+test llm::sigkill_under_serve_mid_llm_releases_the_lease_and_finishes_via_cli_resume ... ok
+test sigkill_sweep_covers_every_hello_step_boundary ... ok
+test sigkill_under_serve_resumes_the_socket_started_run ... ok
+test llm::sigkill_sweep_covers_before_and_between_the_rung_b_steps ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s
+
+     Running unittests src/lib.rs (target/debug/deps/relayflowd_core-b1fe3b3250e9e7a2)
+
+running 26 tests
+test clock::tests::simulated_clock_is_explicitly_advanced ... ok
+test journal::tests::memory_journal_assigns_sequences_and_rolls_epochs ... ok
+test machine::tests::machine_starts_runnable_step_with_stable_effect_key ... ok
+test machine::tests::all_backing_off_steps_return_timers ... ok
+test machine::tests::successful_memo_is_never_scheduled_again ... ok
+test machine::tests::crashed_attempt_does_not_consume_an_iteration ... ok
+test machine::tests::manual_recovery_parks_needs_human_and_never_redispatches ... ok
+test retry::tests::jitter_is_repeatable_and_bounded ... ok
+test machine::tests::verification_failure_schedules_a_durable_retry ... ok
+test spec::tests::a_misspelled_step_level_key_is_a_parse_error ... ok
+test machine::tests::reset_recovery_dispatches_the_original_pinned_revision ... ok
+test spec::tests::a_misspelled_verification_gate_key_is_a_parse_error_not_a_dropped_gate ... ok
+test machine::tests::inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail ... ok
+test spec::tests::cycles_are_rejected ... ok
+test spec::tests::zero_agent_flow_is_valid ... ok
+test spec::tests::unknown_root_and_nested_fields_are_rejected ... ok
+test machine::tests::every_failed_run_terminates_with_declared_completion_reasons ... ok
+test state::tests::budget_decimal_strings_add_without_floats ... ok
+test spec::tests::the_full_ladder_parses_in_the_one_dialect ... ok
+test state::tests::completed_output_is_memoized_and_unlocks_dependents ... ok
+test verify::tests::deterministic_output_requires_successful_exit_and_content ... ok
+test spec::tests::spec_version_is_semver_and_gated ... ok
+test spec::tests::preflight_data_is_fail_closed ... ok
+test state::tests::end_pin_chain_is_enforced_and_a_broken_chain_is_a_hard_error ... ok
+test state::tests::a_completion_that_omits_a_surface_does_not_drop_it_from_the_pin_chain ... ok
+test verify::tests::json_schema_is_a_control_gate ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/spec_parity.rs (target/debug/deps/spec_parity-bbda6cf1e1cf1c19)
+
+running 4 tests
+test the_kernel_parses_the_deterministic_rung_and_stamps_the_same_hash ... ok
+test the_kernel_parses_the_rung_b_spec_and_stamps_the_same_hash ... ok
+test the_kernel_parses_the_rung_c_agent_spec_and_stamps_the_same_hash ... ok
+test the_kernel_parses_the_sdk_compiled_spec_and_stamps_the_same_hash ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/relayflowd_journal-d13cb7954335385c)
+
+running 6 tests
+test registry::tests::registry_is_a_rebuildable_run_locator ... ok
+test tests::failed_commit_is_returned_not_swallowed ... ok
+test tests::rollover_is_atomic_scaffolding_for_epoch_resume ... ok
+test tests::append_is_durable_and_monotonic_after_reopen ... ok
+test tests::effects_are_deduplicated_at_the_journal_boundary ... ok
+test tests::an_unconfirmed_election_is_reclaimed_by_the_next_attempt_not_treated_as_done ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests relayflowd
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests relayflowd_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests relayflowd_journal
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+Clippy passed with warnings denied:
+
+```text
+$ (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.20s
+```
+
+Rust formatting exited 0 with zero output bytes:
+
+```text
+$ (cd kernel && ../ops/cargo.sh fmt --check)
+```
+
+The kernel build produced an executable daemon:
+
+```text
+$ (cd kernel && ../ops/cargo.sh build && test -x target/debug/relayflowd && ls -l target/debug/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+-rwxr-xr-x  1 khaliqgant  staff  22712808 Aug 28 00:32 target/debug/relayflowd
+```
+
+The clean install, build, and full SDK suite passed 143 tests with no skipped
+tests. `bin.test.ts` ran all seven cases and `live-kernel.test.ts` ran all four:
+
+```text
+$ (cd sdk && npm ci && npm run build && npm test)
+
+added 48 packages, and audited 49 packages in 653ms
+
+13 packages are looking for funding
+  run `npm fund` for details
+
+5 vulnerabilities (3 moderate, 1 high, 1 critical)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> @relayflows/sdk@0.1.0 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+> @relayflows/sdk@0.1.0 test
+> tsc --noEmit && vitest run
+
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/sdk
+
+ ✓ tests/preflight.test.ts (12 tests) 11ms
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/target/debug/relayflowd
+LIVE_KERNEL flows=/Users/khaliqgant/Projects/AgentWorkforce/flows/sdk/dist/cli.js
+
+ ✓ tests/validate.test.ts (36 tests) 14ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 17ms
+ ✓ tests/journal-client.test.ts (12 tests) 85ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 21ms
+ ✓ tests/spec-parity.test.ts (15 tests) 58ms
+ ✓ tests/cli.test.ts (47 tests) 979ms
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=6381 run=01M13CPZ4HEJA91X7MGFPCB3QA
+
+ ✓ tests/live-kernel.test.ts (4 tests) 1518ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 1199ms
+ ✓ tests/bin.test.ts (7 tests) 1599ms
+
+ Test Files  9 passed (9)
+      Tests  143 passed (143)
+   Start at  01:15:34
+   Duration  1.94s (transform 384ms, setup 0ms, collect 1.06s, tests 4.30s, environment 1ms, prepare 670ms)
+```
+
+The behavioral proof used only the built CLI and live daemon. The failing
+flow was supplied through `/dev/stdin`; no fixture outside the package was
+added. The journal reads used the shipped SDK client against the same live
+daemon:
+
+```text
+BEHAVIOR_TMP=/tmp/wp10-clean-behavior.yBCapH
+$ node sdk/dist/cli.js run --data-dir /tmp/wp10-clean-behavior.yBCapH/main-data testdata/hello-deterministic.flow.yaml
+WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "shout" command "echo" resolves, but its effects cannot be proven before execution.
+RUN 01M13CQY51MEG1ZBY0YRN3PG5T completed (2 steps) completionReason: success
+exit=0
+$ node sdk/dist/cli.js run --data-dir /tmp/wp10-clean-behavior.yBCapH/main-data testdata/hello-llm.flow.yaml
+WARNING [unprovable_effects] Step "greet" command "printf" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "finish" command "printf" resolves, but its effects cannot be proven before execution.
+PARKED [run_parked] Run "01M13CQY7C506T64WDQJ2YSEGM" parked at step "answer" (llm): no worker is attached for step type "llm".
+RUN 01M13CQY7C506T64WDQJ2YSEGM parked (1 steps)
+exit=3
+$ node sdk/dist/cli.js run --data-dir /tmp/wp10-clean-behavior.yBCapH/main-data testdata/hello-agent.flow.yaml
+WARNING [unprovable_effects] Step "greet" command "printf" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "finish" command "printf" resolves, but its effects cannot be proven before execution.
+PARKED [run_parked] Run "01M13CQY9RMSX0X5C5QYB9CKPT" parked at step "edit" (agent): no worker is attached for step type "agent".
+RUN 01M13CQY9RMSX0X5C5QYB9CKPT parked (1 steps)
+exit=3
+$ node sdk/dist/cli.js run --data-dir /tmp/wp10-clean-behavior.yBCapH/main-data /dev/stdin <<< <non-zero flow>
+WARNING [command_unresolved] Step "fail" command "exit" does not resolve as an executable; it runs only if the shell supplies it.
+FAILED [step_failed] Run "01M13CQYBT7Z2K97RA5DQ9A1QQ" failed with completionReason: step_failed.
+RUN 01M13CQYBT7Z2K97RA5DQ9A1QQ failed (1 steps) completionReason: step_failed
+exit=1
+$ JournalClient.journalRead(01M13CQYBT7Z2K97RA5DQ9A1QQ) terminal completionReason
+{"entry_type":"run.completed","completionReason":"step_failed","failed_step_id":"fail"}
+$ node sdk/dist/cli.js run --data-dir /tmp/wp10-clean-behavior.yBCapH/absent-data testdata/hello-deterministic.flow.yaml
+WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "shout" command "echo" resolves, but its effects cannot be proven before execution.
+REFUSED [daemon_unreachable] No compatible relayflowd is listening at "/tmp/wp10-clean-behavior.yBCapH/absent-data/relayflowd.sock". Start it with: relayflowd --data-dir "/tmp/wp10-clean-behavior.yBCapH/absent-data" serve
+exit=2
+journal_files=0
+$ kernel/target/debug/relayflowd --data-dir /tmp/wp10-clean-behavior.yBCapH/resume-data run testdata/hello-deterministic.spec.canonical.json --stop-after 1
+{"run_id":"01M13CQYFDD2SX79JH85178HVX","status":"interrupted","completion_reason":null,"completed_steps":1}
+$ kill -9 7076 # relayflowd, run 01M13CQYFDD2SX79JH85178HVX interrupted after one step
+$ node sdk/dist/cli.js resume --data-dir /tmp/wp10-clean-behavior.yBCapH/resume-data 01M13CQYFDD2SX79JH85178HVX
+RUN 01M13CQYFDD2SX79JH85178HVX completed (2 steps) completionReason: success
+exit=0
+$ JournalClient.journalRead(01M13CQYFDD2SX79JH85178HVX) successful step.completed counts
+{"greet":1,"shout":1}
+```
+
+The exact package command confirms that no source under `kernel` or `sdk/src`
+crosses 500 lines:
+
+```text
+$ find kernel sdk/src -name '*.rs' -o -name '*.ts' | grep -v target | xargs wc -l | sort -nr | head -5
+   13024 total
+     468 kernel/relayflowd/src/server.rs
+     465 kernel/relayflowd/src/server/session.rs
+     454 sdk/src/validate.ts
+     452 kernel/relayflowd-core/src/spec.rs
+```
+
+Gate 1 remains GREEN with the live authored-surface seam now cited in
+`ops/SCOREBOARD.md`. The PR remains for human review and merge; this tick does
+not merge it.
+
+### WP-11 — repair PR #9 findings F1–F4 on rebased head
+
+Work ran in scratch worktree `/tmp/flows-wp11.eTPAfM`. The tick-owned checkout
+was not edited. The required Veto MCP server was not exposed to this worker;
+no Veto status, discovery, diff review, or scan result is claimed.
+
+#### Rebase and clean-state evidence
+
+```text
+$ git status --porcelain
+$ git fetch origin
+$ git rebase origin/main
+Rebasing (1/2)
+Rebasing (2/2)
+Successfully rebased and updated refs/heads/flow/drive-77b2457-08280058.
+$ git status --porcelain
+$ git log --oneline --decorate -n 3
+0fd332c (HEAD -> flow/drive-77b2457-08280058) Record WP-10 verification evidence
+b401efe Add flows run and resume live-kernel surface
+173423c (origin/main, origin/HEAD, ops-scratch2) ops(contract): state the worktree rule precisely — the tick owns main, I stay out
+```
+
+The repair commit reviewed below is
+`c83a367da2584f5a8711023993881d73bab6e06e`.
+
+#### Mutation verification — F1 lifecycle timeout
+
+Fixed-file hash before mutation:
+
+```text
+$ shasum -a 256 sdk/src/journal-client.ts
+ad8ce9d3664abea774a348837ec88fdffc9fd6622bdfb26af8331758b7def784  sdk/src/journal-client.ts
+```
+
+`runStart` and `runResume` were changed back to the bounded default. The
+focused regression failed:
+
+```text
+$ (cd sdk && npm test -- tests/journal-client.test.ts -t "does not apply the bounded request timeout to run lifecycle requests")
+
+ RUN  v2.1.9 /private/tmp/flows-wp11.eTPAfM/sdk
+
+ ❯ tests/journal-client.test.ts (13 tests | 1 failed | 12 skipped) 16ms
+   × JournalClient: protocol v0 over unix socket > does not apply the bounded request timeout to run lifecycle requests 15ms
+     → promise rejected "Error: journal client: run.start timed ou…" instead of resolving
+
+ FAIL  tests/journal-client.test.ts > JournalClient: protocol v0 over unix socket > does not apply the bounded request timeout to run lifecycle requests
+AssertionError: promise rejected "Error: journal client: run.start timed ou…" instead of resolving
+ ❯ tests/journal-client.test.ts:260:47
+
+Caused by: Error: journal client: run.start timed out after 10ms
+ ❯ Timeout._onTimeout src/journal-client.ts:150:16
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 skipped (13)
+```
+
+The two lifecycle calls were restored, the file returned to the exact hash,
+and the same test passed:
+
+```text
+$ (cd sdk && shasum -a 256 src/journal-client.ts && npm test -- tests/journal-client.test.ts -t "does not apply the bounded request timeout to run lifecycle requests")
+ad8ce9d3664abea774a348837ec88fdffc9fd6622bdfb26af8331758b7def784  src/journal-client.ts
+
+ RUN  v2.1.9 /private/tmp/flows-wp11.eTPAfM/sdk
+
+ ✓ tests/journal-client.test.ts (13 tests | 12 skipped) 57ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 12 skipped (13)
+```
+
+#### Mutation verification — F2 live worker dispatch
+
+Fixed-file hash before mutation:
+
+```text
+$ shasum -a 256 sdk/src/cli/run.ts
+d18a2b78c4862fdc478cd6eb3fd837be3952706c8e58a450457397dbccc5631e  sdk/src/cli/run.ts
+```
+
+Recognition of the journal snapshot's `Running` state was removed, the built
+CLI was regenerated, and the live worker test failed with the original false
+protocol error:
+
+```text
+$ (cd sdk && npm run build && npm test -- tests/live-kernel.test.ts -t "follows a live worker dispatch through flows run")
+
+ RUN  v2.1.9 /private/tmp/flows-wp11.eTPAfM/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/private/tmp/flows-wp11.eTPAfM/kernel/target/debug/relayflowd
+LIVE_KERNEL flows=/private/tmp/flows-wp11.eTPAfM/sdk/dist/cli.js
+
+ ❯ tests/live-kernel.test.ts (6 tests | 1 failed | 5 skipped) 126ms
+   × built flows CLI against live relayflowd > follows a live worker dispatch through flows run 125ms
+     → WARNING [unprovable_effects] Step "greet" command "printf" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "finish" command "printf" resolves, but its effects cannot be proven before execution.
+FAILED [protocol_error] relayflowd could not complete the run request: relayflowd returned status parked without a classifiable completion
+: expected 1 to be +0 // Object.is equality
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 skipped (6)
+```
+
+The predicate was restored byte-for-byte, its hash matched, the CLI was
+rebuilt, and the live test passed:
+
+```text
+$ (cd sdk && shasum -a 256 src/cli/run.ts && npm run build && npm test -- tests/live-kernel.test.ts -t "follows a live worker dispatch through flows run")
+d18a2b78c4862fdc478cd6eb3fd837be3952706c8e58a450457397dbccc5631e  src/cli/run.ts
+
+ RUN  v2.1.9 /private/tmp/flows-wp11.eTPAfM/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/private/tmp/flows-wp11.eTPAfM/kernel/target/debug/relayflowd
+LIVE_KERNEL flows=/private/tmp/flows-wp11.eTPAfM/sdk/dist/cli.js
+
+ ✓ tests/live-kernel.test.ts (6 tests | 5 skipped) 153ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 5 skipped (6)
+```
+
+#### Mutation verification — F3 real daemon kill
+
+Fixed-test hash before mutation:
+
+```text
+$ shasum -a 256 sdk/tests/live-kernel.test.ts
+fb6a1bb97802994beba681e38d0d9eb0960c32bdd56a23894af99a271d5b204d  sdk/tests/live-kernel.test.ts
+```
+
+The release marker was moved before `SIGKILL`, allowing the active run to
+finish and leaving only an idle daemon to kill. The gate detected the missing
+crash:
+
+```text
+$ (cd sdk && npm test -- tests/live-kernel.test.ts -t "resumes a three-step run with each successful completion exactly once")
+
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=75597 run=01M13HEME0BZWSM95RZPQ2XCRR after step=two finished
+
+ ❯ tests/live-kernel.test.ts (6 tests | 1 failed | 5 skipped) 164ms
+   × surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 164ms
+     → expected +0 to be 1 // Object.is equality
+
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/live-kernel.test.ts:347:32
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 skipped (6)
+```
+
+The kill ordering was restored byte-for-byte, its hash matched, and the same
+live test passed while naming the active state at the kill:
+
+```text
+$ (cd sdk && shasum -a 256 tests/live-kernel.test.ts && npm test -- tests/live-kernel.test.ts -t "resumes a three-step run with each successful completion exactly once")
+fb6a1bb97802994beba681e38d0d9eb0960c32bdd56a23894af99a271d5b204d  tests/live-kernel.test.ts
+
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=75855 run=01M13HEZEN52TFRQWC44DVTYJ7 while step=two state=Running
+
+ ✓ tests/live-kernel.test.ts (6 tests | 5 skipped) 280ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 5 skipped (6)
+```
+
+#### Mutation verification — F4 typed error, daemon code, classification
+
+Mapping all resume errors back to exit 2 made the classification test fail:
+
+```text
+$ (cd sdk && npm test -- tests/cli.test.ts -t "maps only run_not_found resumes to exit 2")
+
+ ❯ tests/cli.test.ts (48 tests | 1 failed | 47 skipped) 8ms
+   × flows run/resume CLI over the journal protocol > maps only run_not_found resumes to exit 2 8ms
+     → expected 2 to be 1 // Object.is equality
+
+AssertionError: expected 2 to be 1 // Object.is equality
+ ❯ tests/cli.test.ts:539:98
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 47 skipped (48)
+```
+
+Restoration returned `sdk/src/cli/run.ts` to its exact hash and passed:
+
+```text
+$ (cd sdk && shasum -a 256 src/cli/run.ts && npm test -- tests/cli.test.ts -t "maps only run_not_found resumes to exit 2")
+d18a2b78c4862fdc478cd6eb3fd837be3952706c8e58a450457397dbccc5631e  src/cli/run.ts
+
+ ✓ tests/cli.test.ts (48 tests | 47 skipped) 5ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 47 skipped (48)
+```
+
+Discarding the structured error code made the client test fail:
+
+```text
+$ (cd sdk && npm test -- tests/journal-client.test.ts -t "fails closed when the server returns an error")
+
+ ❯ tests/journal-client.test.ts (13 tests | 1 failed | 12 skipped) 7ms
+   × JournalClient: protocol v0 over unix socket > fails closed when the server returns an error 5ms
+     → expected Error: journal_write_failed: disk full to be an instance of JournalProtocolError
+
+AssertionError: expected Error: journal_write_failed: disk full to be an instance of JournalProtocolError
+ ❯ tests/journal-client.test.ts:236:7
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 skipped (13)
+```
+
+Restoration returned `sdk/src/journal-client.ts` to its exact hash and passed:
+
+```text
+$ (cd sdk && shasum -a 256 src/journal-client.ts && npm test -- tests/journal-client.test.ts -t "fails closed when the server returns an error")
+ad8ce9d3664abea774a348837ec88fdffc9fd6622bdfb26af8331758b7def784  src/journal-client.ts
+
+ ✓ tests/journal-client.test.ts (13 tests | 12 skipped) 4ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 12 skipped (13)
+```
+
+Removing the daemon's `run_not_found` branch and rebuilding made the live
+protocol assertion fail with the old misclassification:
+
+```text
+$ (cd sdk && npm test -- tests/live-kernel.test.ts -t "keeps JSON report-shaped")
+
+ ❯ tests/live-kernel.test.ts (6 tests | 1 failed | 5 skipped) 1306ms
+   × built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 1305ms
+     → expected JournalProtocolError: journal_write_faile… { code: '…' } to match object { code: 'run_not_found' }
+
+- Expected
++ Received
+
+- Object {
+-   "code": "run_not_found",
++ JournalProtocolError {
++   "code": "journal_write_failed",
+  }
+
+ ❯ tests/live-kernel.test.ts:114:5
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 skipped (6)
+```
+
+The daemon file was restored to its exact hash, rebuilt, and the same live
+test passed:
+
+```text
+$ (cd kernel && shasum -a 256 relayflowd/src/server.rs && ../ops/cargo.sh build)
+297677e695182f5c39f56c3b22ed1bfee048bc6cf49b4f38e5788fc1b0f68ad5  relayflowd/src/server.rs
+   Compiling relayflowd v0.1.0 (/private/tmp/flows-wp11.eTPAfM/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.95s
+$ (cd sdk && npm test -- tests/live-kernel.test.ts -t "keeps JSON report-shaped")
+
+ ✓ tests/live-kernel.test.ts (6 tests | 5 skipped) 878ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 877ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 5 skipped (6)
+```
+
+#### Final build-first verification at repaired head
+
+```text
+$ (cd kernel && ../ops/cargo.sh build)
+/Users/khaliqgant/.zshenv:.:1: no such file or directory: /tmp/agent37-rust-0820.DWSmuv/cargo/env
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.34s
+```
+
+```text
+$ (cd sdk && npm ci && npm run build)
+/Users/khaliqgant/.zshenv:.:1: no such file or directory: /tmp/agent37-rust-0820.DWSmuv/cargo/env
+
+added 48 packages, and audited 49 packages in 736ms
+
+13 packages are looking for funding
+  run `npm fund` for details
+
+5 vulnerabilities (3 moderate, 1 high, 1 critical)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+npm notice run @relayflows/sdk@0.1.0 build
+npm notice run tsc && node scripts/make-cli-executable.mjs
+```
+
+The full kernel suite executed 73 tests (18 + 19 + 26 + 4 + 6):
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+/Users/khaliqgant/.zshenv:.:1: no such file or directory: /tmp/agent37-rust-0820.DWSmuv/cargo/env
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/relayflowd-399037c915557fdb)
+
+running 18 tests
+test server::client::tests::resume_waits_while_the_heartbeat_renewed_lease_is_live ... ok
+test server::tests::agent::contract::an_agent_worker_attaching_without_pins_is_refused_at_attach ... ok
+test exec_det::tests::captures_deterministic_output ... ok
+test exec_det::tests::timeout_has_an_explicit_completion_reason ... ok
+test server::tests::agent::contract::an_oversized_trajectory_tail_is_refused_at_step_complete ... ok
+test server::tests::agent::contract::an_agent_worker_missing_a_declared_surface_parks_the_run_instead_of_erroring ... ok
+test server::tests::agent::contract::agent_without_a_compatible_worker_parks_without_starting ... ok
+test server::tests::agent::contract::an_llm_completion_claiming_an_effect_fails_closed_with_the_reason_journaled ... ok
+test server::tests::hello_enforces_protocol_version ... ok
+test server::tests::run_start_fails_closed_on_an_unknown_verification_key ... ok
+test server::tests::agent::contract::a_replacement_worker_that_never_reported_the_pinned_surface_is_not_dispatched_to ... ok
+test server::tests::a_failed_disconnect_journal_append_is_retained_and_retried_not_dropped ... ok
+test server::tests::agent::pins::consecutive_agent_steps_on_different_surfaces_each_start_from_their_own_pins ... ok
+test server::tests::agent::pins::reset_worker_reporting_a_revision_other_than_its_pin_fails_closed_as_worker_error ... ok
+test server::tests::stopped_heartbeats_past_the_deadline_journal_lease_expired_and_release_the_step ... ok
+test exec_det::tests::timeout_kills_the_whole_process_group ... ok
+test server::tests::agent::pins::a_replacement_worker_at_a_different_revision_is_not_dispatched_the_stale_pins ... ok
+test server::tests::an_entry_appended_during_watch_registration_is_delivered_exactly_once ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running unittests src/main.rs (target/debug/deps/relayflowd-9e21fa47745f4fb0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/crash_resume.rs (target/debug/deps/crash_resume-e6635a3f0d48512c)
+
+running 19 tests
+test agent::resume_without_a_worker_parks_immediately_instead_of_timing_out ... ok
+test agent::rung_c_sigkill_after_final_effect_replays_results_without_redispatch ... ok
+test concurrency::live_resume_leaves_an_active_lease_running ... ok
+test concurrency::concurrent_resumes_lease_exactly_one_attempt ... ok
+test agent::rung_c_crash_between_effect_election_and_the_provider_call_performs_it_exactly_once ... ok
+test llm::serve_plumbs_watch_events_and_replayable_stream_verbs ... ok
+test llm::failing_llm_verification_schedules_a_durable_retry_and_succeeds ... ok
+test agent::rung_c_reset_sigkill_mid_edit_restores_pins_dedupes_effect_and_explains_attempts ... ok
+test llm::llm_verification_exhaustion_is_a_declared_failure_kind ... ok
+test llm::sigkill_after_the_final_rung_b_effect_resumes_without_redispatching_llm ... ok
+test agent::rung_c_sigkill_boundaries_resume_only_unfinished_steps_via_real_cli ... ok
+test agent::rung_c_sigkill_between_agent_completion_and_final_effect_memoizes_the_agent ... ok
+test llm::completed_llm_output_is_memoized_when_serve_dies_during_the_next_step ... ok
+test llm::sigkill_under_serve_mid_llm_releases_the_lease_and_finishes_via_cli_resume ... ok
+test sigkill_mid_step_replaces_and_explains_the_dead_attempt ... ok
+test llm::worker_killed_while_holding_a_lease_is_explained_and_released_on_cli_resume ... ok
+test llm::sigkill_sweep_covers_before_and_between_the_rung_b_steps ... ok
+test sigkill_sweep_covers_every_hello_step_boundary ... ok
+test sigkill_under_serve_resumes_the_socket_started_run ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.94s
+
+     Running unittests src/lib.rs (target/debug/deps/relayflowd_core-b1fe3b3250e9e7a2)
+
+running 26 tests
+test clock::tests::simulated_clock_is_explicitly_advanced ... ok
+test journal::tests::memory_journal_assigns_sequences_and_rolls_epochs ... ok
+test machine::tests::machine_starts_runnable_step_with_stable_effect_key ... ok
+test machine::tests::all_backing_off_steps_return_timers ... ok
+test machine::tests::reset_recovery_dispatches_the_original_pinned_revision ... ok
+test retry::tests::jitter_is_repeatable_and_bounded ... ok
+test machine::tests::successful_memo_is_never_scheduled_again ... ok
+test spec::tests::a_misspelled_step_level_key_is_a_parse_error ... ok
+test spec::tests::cycles_are_rejected ... ok
+test spec::tests::a_misspelled_verification_gate_key_is_a_parse_error_not_a_dropped_gate ... ok
+test machine::tests::inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail ... ok
+test spec::tests::unknown_root_and_nested_fields_are_rejected ... ok
+test machine::tests::every_failed_run_terminates_with_declared_completion_reasons ... ok
+test spec::tests::preflight_data_is_fail_closed ... ok
+test spec::tests::zero_agent_flow_is_valid ... ok
+test spec::tests::spec_version_is_semver_and_gated ... ok
+test spec::tests::the_full_ladder_parses_in_the_one_dialect ... ok
+test state::tests::completed_output_is_memoized_and_unlocks_dependents ... ok
+test verify::tests::deterministic_output_requires_successful_exit_and_content ... ok
+test machine::tests::verification_failure_schedules_a_durable_retry ... ok
+test machine::tests::manual_recovery_parks_needs_human_and_never_redispatches ... ok
+test state::tests::budget_decimal_strings_add_without_floats ... ok
+test machine::tests::crashed_attempt_does_not_consume_an_iteration ... ok
+test state::tests::a_completion_that_omits_a_surface_does_not_drop_it_from_the_pin_chain ... ok
+test state::tests::end_pin_chain_is_enforced_and_a_broken_chain_is_a_hard_error ... ok
+test verify::tests::json_schema_is_a_control_gate ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/spec_parity.rs (target/debug/deps/spec_parity-bbda6cf1e1cf1c19)
+
+running 4 tests
+test the_kernel_parses_the_deterministic_rung_and_stamps_the_same_hash ... ok
+test the_kernel_parses_the_rung_b_spec_and_stamps_the_same_hash ... ok
+test the_kernel_parses_the_sdk_compiled_spec_and_stamps_the_same_hash ... ok
+test the_kernel_parses_the_rung_c_agent_spec_and_stamps_the_same_hash ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/relayflowd_journal-d13cb7954335385c)
+
+running 6 tests
+test registry::tests::registry_is_a_rebuildable_run_locator ... ok
+test tests::failed_commit_is_returned_not_swallowed ... ok
+test tests::rollover_is_atomic_scaffolding_for_epoch_resume ... ok
+test tests::append_is_durable_and_monotonic_after_reopen ... ok
+test tests::effects_are_deduplicated_at_the_journal_boundary ... ok
+test tests::an_unconfirmed_election_is_reclaimed_by_the_next_attempt_not_treated_as_done ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests relayflowd
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests relayflowd_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests relayflowd_journal
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+```text
+$ (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
+/Users/khaliqgant/.zshenv:.:1: no such file or directory: /tmp/agent37-rust-0820.DWSmuv/cargo/env
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+```
+
+Formatting exited 0. Its only captured output was the worker shell's stale
+environment warning; rustfmt itself emitted nothing:
+
+```text
+$ (cd kernel && ../ops/cargo.sh fmt --check)
+/Users/khaliqgant/.zshenv:.:1: no such file or directory: /tmp/agent37-rust-0820.DWSmuv/cargo/env
+```
+
+The complete SDK suite ran all nine files, including all six live-kernel tests:
+
+```text
+$ (cd sdk && npm test)
+/Users/khaliqgant/.zshenv:.:1: no such file or directory: /tmp/agent37-rust-0820.DWSmuv/cargo/env
+npm notice run @relayflows/sdk@0.1.0 test
+npm notice run tsc --noEmit && vitest run
+
+ RUN  v2.1.9 /private/tmp/flows-wp11.eTPAfM/sdk
+
+ ✓ tests/preflight.test.ts (12 tests) 6ms
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/private/tmp/flows-wp11.eTPAfM/kernel/target/debug/relayflowd
+LIVE_KERNEL flows=/private/tmp/flows-wp11.eTPAfM/sdk/dist/cli.js
+
+ ✓ tests/validate.test.ts (36 tests) 16ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 17ms
+ ✓ tests/journal-client.test.ts (13 tests) 68ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 10ms
+ ✓ tests/spec-parity.test.ts (15 tests) 22ms
+ ✓ tests/cli.test.ts (48 tests) 689ms
+ ✓ tests/bin.test.ts (7 tests) 1109ms
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=82029 run=01M13HWB1SMTS0S0AT9ZGFB8WY while step=two state=Running
+
+ ✓ tests/live-kernel.test.ts (6 tests) 33400ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 635ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32135ms
+
+ Test Files  9 passed (9)
+      Tests  147 passed (147)
+   Start at  02:45:21
+   Duration  33.68s (transform 307ms, setup 0ms, collect 738ms, tests 35.34s, environment 1ms, prepare 442ms)
+```
+
+#### PR review replies at repair head
+
+```text
+$ gh api repos/AgentWorkforce/flows/pulls/9/comments --paginate --jq '.[] | select(.in_reply_to_id == 3878120106 or .in_reply_to_id == 3878120108 or .in_reply_to_id == 3878120111 or .in_reply_to_id == 3878120116) | [.id, .in_reply_to_id, .commit_id, .body] | @tsv'
+3878476196	3878120111	c83a367da2584f5a8711023993881d73bab6e06e	Fixed in c83a367da2584f5a8711023993881d73bab6e06e. Audit: the CLI now starts the flow through the daemon that is SIGKILLed, records step two as Running before the kill, observes the first CLI fail closed, then resumes to exactly one successful completion per step with step two reasons [crashed, success]. Moving the kill after the active run completed made the regression fail.
+3878476208	3878120106	c83a367da2584f5a8711023993881d73bab6e06e	Fixed in c83a367da2584f5a8711023993881d73bab6e06e. Audit: run.start and run.resume now opt out of the bounded per-request timer; the 32-second live deterministic regression completed successfully, and reverting the lifecycle opt-out made the focused test fail with run.start timed out after 10ms.
+3878476210	3878120108	f435545f3ea2bf58d2036770bda3a8afffb6f9ab	Fixed in c83a367da2584f5a8711023993881d73bab6e06e. Audit: flows run now distinguishes a Runnable out-of-band step (no worker, exit 3) from a Running dispatched step, follows the latter over run.get, and resumes classification after it settles. The live attached-worker regression failed with protocol_error when Running recognition was removed and passed after restoration.
+3878476214	3878120116	c83a367da2584f5a8711023993881d73bab6e06e	Fixed in c83a367da2584f5a8711023993881d73bab6e06e. Audit: JournalClient now rejects daemon errors as JournalProtocolError with code; relayflowd returns run_not_found for a missing resume journal; resumeFlow maps only that code to run_unavailable/exit 2 and sends journal_write_failed, transport, and runtime failures to protocol_error/exit 1. Focused mutations of each layer failed their regressions and passed after restoration.
+```
+
+GitHub associates reply `3878476210` with the obsolete line's original commit,
+but its body explicitly audits and names the fixing head `c83a367…`; the other
+three reply records also carry that head directly.
+
+The adversarial review transcript is
+`ops/reviews/20260828-0244-pr9-adversarial.md`; it names the reviewed SHA and
+ends `REVIEW_PASSED`.
+
+#### Captured non-product execution failures
+
+These commands failed because they were launched from the wrong working
+directory; neither was treated as verification:
+
+```text
+$ (cd kernel && npm run typecheck)
+npm error code ENOENT
+npm error syscall open
+npm error path /private/tmp/flows-wp11.eTPAfM/kernel/package.json
+npm error errno -2
+npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/private/tmp/flows-wp11.eTPAfM/kernel/package.json'
+```
+
+```text
+$ (cd sdk && shasum -a 256 sdk/src/journal-client.ts)
+shasum: sdk/src/journal-client.ts: No such file or directory
+```
+
+The same cross-directory error recurred once while the F4 daemon mutation was
+active; the kernel build succeeded first, then npm failed before any test ran:
+
+```text
+$ (cd kernel && ../ops/cargo.sh build && npm test -- tests/live-kernel.test.ts -t "runs rung (a), parks rung (b), and keeps JSON report-shaped")
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.83s
+npm error code ENOENT
+npm error syscall open
+npm error path /private/tmp/flows-wp11.eTPAfM/kernel/package.json
+```
+
+The first corrected F4 selector still matched no tests because its parentheses
+were interpreted as a regex. It is recorded as a failed gate, not a pass; the
+executing `keeps JSON report-shaped` run above replaced it:
+
+```text
+$ (cd sdk && npm test -- tests/live-kernel.test.ts -t "runs rung (a), parks rung (b), and keeps JSON report-shaped")
+
+ ↓ tests/live-kernel.test.ts (6 tests | 6 skipped)
+
+ Test Files  1 skipped (1)
+      Tests  6 skipped (6)
+```
+
+## 2026-08-28 03:03 EDT — WP-11: assess PR #9, gate the assessment, log the tick (`flow/drive-615f97d-08280219`, base `615f97d`, head `d2e7472`)
+
+### Work package
+
+WP-11 as this tick executed it was **not** the repair itself. It was the
+assessment that names the repair and the gate on that assessment:
+
+- `ops/NEXT.md` rewritten (+221 / −65) from the stale WP-9 / PR #8 handoff to
+  "repair PR #9 under review before anything else" — the four Codex findings
+  (F1 30s `run.start` timeout, F2 dispatched-park misreported as
+  `protocol_error`, F3 crash test that injects no crash, F4 `run_unavailable`
+  asserted about errors it cannot see), each re-derived against the code at
+  PR #9's then-head `f435545` rather than accepted from the bot.
+- `ops/reviews/20260828-0258-review.md` — the adversarial transcript for that
+  assessment.
+- Committed as `d2e7472`, opened as PR #11.
+
+The **repair of PR #9 itself ran on PR #9's own branch**
+(`flow/drive-77b2457-08280058`), as `c83a367` (02:43 EDT) and `3616c0a`
+(02:49 EDT). Its evidence lives in that branch's `ops/DRIVE-LOG.md` under
+"WP-11 — repair PR #9 findings F1–F4 on rebased head." This tick did not
+produce that evidence and does not claim it.
+
+### Verify — re-executed in this tick, on this tick's head `d2e7472`
+
+This head is documentation-only relative to `615f97d`; the expected result is
+that both suites reproduce unchanged, and they do. Verbatim, no filtering —
+all nine kernel `test result:` lines are shown (the previous entry's elision
+was flagged as F5 in this tick's review):
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.81s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+EXIT=0
+```
+
+72 kernel tests (18 + 0 + 19 + 26 + 3 + 6, plus three empty doc-test targets).
+
+```text
+$ (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+CLIPPY_EXIT=0
+
+$ (cd kernel && ../ops/cargo.sh fmt --check)
+FMT_EXIT=0
+fmt stdout bytes: 0  stderr bytes: 0
+```
+
+```text
+$ (cd sdk && npm test)
+SDK_EXIT=0
+
+> @relayflows/sdk@0.1.0 test
+> tsc --noEmit && vitest run
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/sdk
+
+ ✓ tests/preflight.test.ts (12 tests) 7ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 20ms
+ ✓ tests/validate.test.ts (36 tests) 30ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 35ms
+ ✓ tests/journal-client.test.ts (12 tests) 38ms
+ ✓ tests/spec-parity.test.ts (12 tests) 37ms
+ ✓ tests/cli.test.ts (42 tests) 594ms
+ ✓ tests/bin.test.ts (7 tests) 1087ms
+
+ Test Files  8 passed (8)
+      Tests  131 passed (131)
+   Start at  03:02:46
+   Duration  1.36s (transform 282ms, setup 0ms, collect 887ms, tests 1.85s, environment 1ms, prepare 529ms)
+```
+
+```text
+$ git status --porcelain
+(empty)
+```
+
+**What this verify does and does not prove.** It proves this tick's head is
+clean and that the numbers `ops/NEXT.md` pastes reproduce byte-for-byte. It
+proves **nothing about PR #9's repair**, which is on a different branch and
+claims different totals: 73 kernel (the `spec_parity` target moves 3 → 4) and
+147 SDK across 9 files including all six `live-kernel` tests (33400ms). Those
+figures are read from `origin/flow/drive-77b2457-08280058`, not re-executed
+here. They must be re-run on the merge candidate before #9 is merged.
+
+### Review verdict — `REVIEW_PASSED`
+
+`ops/reviews/20260828-0258-review.md`, reviewing the working tree at `615f97d`
+(`ops/NEXT.md`, +221 / −65). Six findings, none blocking:
+
+- **F1** (substantive) — the assessment cited RFC-0001's closed-taxonomy clause
+  as compelling a typed `run_not_found`. The RFC scopes that clause to a run's
+  *journal*; `run.resume`'s protocol error set is a different taxonomy. The
+  change may be right on the fail-closed rail, but it is discretionary, not
+  RFC-mandated.
+- **F2** (substantive) — the assessment claimed `RunGetResult.steps` carries
+  the bare string `Running`. It does not: `snapshot_from_state` uses
+  `format!("{:?}")` on a struct variant, so the wire value is
+  `Running { attempt: …, lease_deadline_ms: …, idempotency_key: … }`. An
+  implementer copying the adjacent `=== 'Runnable'` check would have written a
+  comparison that silently never matches.
+- **F3–F6** (hygiene) — two imprecise line anchors, the filtered kernel output
+  noted above, and a DoD that says to rebase in a scratch worktree without
+  saying where steps 3–8 then run.
+
+The reviewer's own summary of what it could not break: both suites reproduce
+to the exact file and per-crate counts, all fourteen code citations resolve,
+all four Codex findings exist at the named commit with the named priorities and
+were genuinely untriaged, and the "no adversarial transcript for PR #9" claim
+verified against two separate trees.
+
+**Ordering fault, recorded against this tick.** The review recommends
+correcting F1 and F2 "before the implementation tick begins." The
+implementation tick had already begun — `c83a367` landed at 02:43, the review
+at 02:58. The recommendation arrived after the work it was meant to steer. It
+cost nothing this time (the repair independently wrote
+`state === 'Running' || state?.startsWith('Running {')`, which is F2's correct
+form, and the reviewer confirmed that empirically), but the gate ran behind the
+thing it was gating. `ops/NEXT.md` still carries the two wrong justifications
+and should be corrected in place before anyone reads it as doctrine.
+
+### PRs
+
+- **This tick — PR #11**: <https://github.com/AgentWorkforce/flows/pull/11> —
+  OPEN, head `d2e747251b15674ef061f539a6b037af18164dec`, `MERGEABLE` / `CLEAN`.
+  CodeRabbit and Devin both SUCCESS; per RUN-CONTRACT §3.1 that is not review
+  signal, and the substantive gate is the transcript above. Docs-only diff
+  (`ops/NEXT.md`, `ops/reviews/`).
+- **Under repair — PR #9**: <https://github.com/AgentWorkforce/flows/pull/9> —
+  OPEN, head `3616c0a521dfdcba41d94139b54bf3915f3891af`, `MERGEABLE` / `CLEAN`.
+  All four Codex inline comments now have replies naming `c83a367` and the
+  audit performed (verified through the API at 03:02, not assumed). Its own
+  adversarial transcript `ops/reviews/20260828-0244-pr9-adversarial.md` ends
+  `REVIEW_PASSED`.
+
+### Honest state of the gate
+
+**Gate 1 — GREEN on `main`, and this tick did not change that.** It closed at
+`9e1d9eb` (PR #8, merged by Khaliq) and was verified on a clean worktree off
+`origin/main`. Nothing in this tick or in PR #9 touches that basis. What PR #9
+adds is the *CLI surface* over the live kernel, and that surface is still
+unmerged.
+
+Three things are short of the merge bar for PR #9 and are recorded rather than
+waved:
+
+1. **The adversarial transcript reviewed `c83a367`, not the current head
+   `3616c0a`.** RUN-CONTRACT §3.2/§3.3 wants the verdict at HEAD. `3616c0a`
+   adds only `ops/DRIVE-LOG.md` and the transcript file itself — evidence, no
+   product code — so the exposure is small, but the transcript does not name
+   the SHA that would be merged.
+2. **The branch is one commit behind `origin/main`** (`b2535aa`, "verdict picks
+   the review by filename, not mtime"). GitHub reports `CLEAN`, but §3.5
+   requires the bar to be re-verified on the serialized head, and the 73/147
+   figures were produced against `173423c`.
+3. **The suite that proves the repair has not been re-executed by this tick.**
+   `live-kernel.test.ts` takes ~33s and hard-fails in `beforeAll` without both
+   binaries built; a skipped live suite is a failed DoD, not a pass, so it has
+   to actually run on the merge candidate.
+
+Gate 6 remains RED and marked "next up" on the scoreboard. It is not next up in
+practice: no new work over unfinished work, and PR #9 is unfinished work.
+
+### Likely next package
+
+**WP-12 — land PR #9 or say precisely why not.** Rebase
+`flow/drive-77b2457-08280058` onto `origin/main` at `b2535aa` in a scratch
+worktree; build kernel then SDK (ordering is load-bearing for the live suite);
+re-run the full DoD on the rebased head and capture it unfiltered — kernel
+`test --workspace`, clippy `-D warnings`, `fmt --check`, and `npm test` with
+`live-kernel.test.ts` among the files that **ran**; land an adversarial
+transcript naming the rebased SHA; then merge under the §2 grant if every
+clause holds, or leave #9 open with the failing clause named.
+
+Two smaller items ride along and should not be allowed to displace it:
+correcting the F1/F2 justifications in `ops/NEXT.md` (PR #11), and the cloud
+verify gaps filed at `615f97d` — `ops/cargo.sh` losing its exec bit in the
+snapshot and `node_modules` absent — which block unattended cloud ticks and
+are still unaddressed.
+
+---
+
+## 2026-08-28 03:43 EDT — WP-12: repair PR #9 to a reviewable superseding head
+
+### Work completed
+
+The tick committed its WP-12 assessment, merged both PR #9 and PR #11 histories,
+and preserved the append-only log in chronological order. F1–F8 and H1–H2 are
+fixed; F3 was fixed rather than deferred. `RunSnapshot` now carries a stable
+snake_case state, RFC step type, and running lease deadline per step. The CLI
+uses that snapshot to distinguish worker-unavailable, running, and
+`needs_human` states, so it no longer reads journal sequence 1 or parses Rust
+`Debug`. Typed hello refusals stay protocol failures, running-worker waits are
+observable/cancelable/lease-bounded, `run.resume` asks the journal registry,
+the ladder fixture names the actual deterministic rung, and `npm test` builds
+the CLI once before Vitest starts. The review swarm change adds only a
+transcript-persistence step and its dependency edge; lens prompts, verdict
+grep, and aggregate pass/fail logic are unchanged.
+
+The live F1 path is narrower than the assessment's wording: a
+worker-reported failure that exhausts `maxIterations` becomes a terminal failed
+step. The kernel enters `NeedsHuman` when a manual-recovery agent attempt is
+abandoned (worker disconnect or lease expiry). The live regression therefore
+attaches a real agent worker, dispatches the attempt, closes that worker, and
+asserts the resulting real `needs_human` snapshot and exit 3. No stub is
+described as a live test.
+
+Veto MCP was not exposed in this non-interactive subprocess, so no Veto scan is
+claimed. The local focused mutation gates, full suites, clippy, formatting,
+diff checks, and a committed adversarial transcript are the evidence used.
+
+### Mutation verification — literal red and restored-green captures
+
+Each mutation changed only the named production fix. The green commands include
+matching `HEAD` and worktree SHA-256 values, proving byte-for-byte restoration.
+
+#### F1 — `NeedsHuman` classification (live daemon + live worker)
+
+Mutation: recognize `runnable` where the fix recognizes `needs_human`.
+
+```text
+$ (cd sdk && npm test -- tests/live-kernel.test.ts -t 'manual-recovery NeedsHuman')
+ ❯ tests/live-kernel.test.ts (7 tests | 1 failed | 6 skipped) 161ms
+   × built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 160ms
+     → WAITING [worker_lease] Run "01M13MPM431ZQ42BCC8HC5FNKS" step "edit" (agent) is running under a worker lease until 1787902543291.
+FAILED [protocol_error] relayflowd could not complete the run request: relayflowd returned status parked without a classifiable completion
+: expected 1 to be 3 // Object.is equality
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+```
+
+```text
+$ printf 'HEAD '; git show HEAD:sdk/src/cli/run.ts | shasum -a 256; printf 'WORK '; shasum -a 256 sdk/src/cli/run.ts; (cd sdk && npm test -- tests/live-kernel.test.ts -t 'manual-recovery NeedsHuman')
+HEAD cb9c88aa46bf24ee28b9eb38c817c48de100b27eb277659786543f4326ac889a  -
+WORK cb9c88aa46bf24ee28b9eb38c817c48de100b27eb277659786543f4326ac889a  sdk/src/cli/run.ts
+ ✓ tests/live-kernel.test.ts (7 tests | 6 skipped) 143ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 6 skipped (7)
+```
+
+#### F2 — stable typed snapshot instead of Rust `Debug`
+
+Mutation: restore the old `BTreeMap<String, String>` and
+`format!("{:?}", runtime.state)` wire.
+
+```text
+$ (cd kernel && ../ops/cargo.sh build) && (cd sdk && npm test -- tests/live-kernel.test.ts -t 'follows a live worker dispatch')
+ ❯ tests/live-kernel.test.ts (7 tests | 1 failed | 6 skipped) 567ms
+   × built flows CLI against live relayflowd > follows a live worker dispatch through flows run 566ms
+     → expected 'Running { attempt: 1, lease_deadline_…' to deeply equal { type: 'llm', state: 'running', …(1) }
+
++ Received:
+"Running { attempt: 1, lease_deadline_ms: 1787902586742, idempotency_key: \"304f5681a965d3e9146623137fd63377c26dadbdb61498d0d598a365f6392449\" }"
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+```
+
+```text
+$ printf 'HEAD '; git show HEAD:kernel/relayflowd/src/engine/model.rs | shasum -a 256; printf 'WORK '; shasum -a 256 kernel/relayflowd/src/engine/model.rs; (cd kernel && ../ops/cargo.sh build) && (cd sdk && npm test -- tests/live-kernel.test.ts -t 'follows a live worker dispatch')
+HEAD 735b37fc9f769c4924f98fc90bdd8f668e4cc8854f75ad8634db041beeeb223e  -
+WORK 735b37fc9f769c4924f98fc90bdd8f668e4cc8854f75ad8634db041beeeb223e  kernel/relayflowd/src/engine/model.rs
+ ✓ tests/live-kernel.test.ts (7 tests | 6 skipped) 634ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 634ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 6 skipped (7)
+```
+
+#### F4 — typed hello refusal
+
+Mutation: put `connect()` and `hello()` back under the old bare catch.
+
+```text
+$ (cd sdk && npm test -- tests/cli.test.ts -t 'typed hello refusal')
+ ❯ tests/cli.test.ts (50 tests | 1 failed | 49 skipped) 16ms
+   × flows run/resume CLI over the journal protocol > classifies a typed hello refusal as a protocol error, not an unreachable daemon 16ms
+     → expected 2 to be 1 // Object.is equality
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 49 skipped (50)
+```
+
+```text
+$ printf 'HEAD '; git show HEAD:sdk/src/cli/run.ts | shasum -a 256; printf 'WORK '; shasum -a 256 sdk/src/cli/run.ts; (cd sdk && npm test -- tests/cli.test.ts -t 'typed hello refusal')
+HEAD cb9c88aa46bf24ee28b9eb38c817c48de100b27eb277659786543f4326ac889a  -
+WORK cb9c88aa46bf24ee28b9eb38c817c48de100b27eb277659786543f4326ac889a  sdk/src/cli/run.ts
+ ✓ tests/cli.test.ts (50 tests | 49 skipped) 14ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 49 skipped (50)
+```
+
+#### F5 — lease-bound wait
+
+Mutation: replace `leaseDeadlineMs - Date.now()` with the old unbounded
+50-millisecond poll. The double turns terminal after four snapshots so the
+unbounded behavior fails deterministically instead of hanging the verifier.
+
+```text
+$ (cd sdk && npm test -- tests/cli.test.ts -t 'bounds a worker wait by its lease')
+ ❯ tests/cli.test.ts (50 tests | 1 failed | 49 skipped) 243ms
+   × flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 242ms
+     → expected +0 to be 1 // Object.is equality
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 49 skipped (50)
+```
+
+```text
+$ printf 'HEAD '; git show HEAD:sdk/src/cli/run.ts | shasum -a 256; printf 'WORK '; shasum -a 256 sdk/src/cli/run.ts; (cd sdk && npm test -- tests/cli.test.ts -t 'bounds a worker wait by its lease')
+HEAD cb9c88aa46bf24ee28b9eb38c817c48de100b27eb277659786543f4326ac889a  -
+WORK cb9c88aa46bf24ee28b9eb38c817c48de100b27eb277659786543f4326ac889a  sdk/src/cli/run.ts
+ ✓ tests/cli.test.ts (50 tests | 49 skipped) 154ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 49 skipped (50)
+```
+
+The same focused file also pins explicit cancellation:
+`allows a caller to cancel a worker-lease wait`.
+
+#### F7 — registry-owned run existence
+
+Mutation: restore the hand-built `runs/<id>.sqlite3` existence check.
+
+```text
+$ (cd kernel && ../ops/cargo.sh test -p relayflowd run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run)
+running 1 test
+test server::tests::run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run ... FAILED
+
+thread 'server::tests::run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run' panicked at relayflowd/src/server/tests.rs:147:5:
+assertion `left == right` failed
+  left: "journal_write_failed"
+ right: "run_not_found"
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.01s
+```
+
+```text
+$ printf 'HEAD '; git show HEAD:kernel/relayflowd/src/server.rs | shasum -a 256; printf 'WORK '; shasum -a 256 kernel/relayflowd/src/server.rs; (cd kernel && ../ops/cargo.sh test -p relayflowd run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run)
+HEAD 1a394468adc4d9667568638737f4db9647028f847aadc25cef6d60b5f11ca74f  -
+WORK 1a394468adc4d9667568638737f4db9647028f847aadc25cef6d60b5f11ca74f  kernel/relayflowd/src/server.rs
+running 1 test
+test server::tests::run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.01s
+```
+
+#### F8 — build once before parallel tests
+
+Mutation: restore `test: tsc --noEmit && vitest run`, then move `dist`
+recoverably before invoking the live suite.
+
+```text
+$ (cd sdk && move dist aside; npm test -- tests/live-kernel.test.ts -t 'runs rung'; restore dist)
+CLEAN_PRECONDITION dist=absent
+ ❯ tests/live-kernel.test.ts (7 tests | 7 skipped) 3ms
+
+ FAIL  tests/live-kernel.test.ts [ tests/live-kernel.test.ts ]
+Error: LIVE_KERNEL_MISSING: built flows CLI does not name an executable file: /Users/khaliqgant/Projects/AgentWorkforce/flows/sdk/dist/cli.js. Build it with: (cd sdk && npm run build)
+
+ Test Files  1 failed (1)
+      Tests  7 skipped (7)
+```
+
+```text
+$ printf 'HEAD '; git show HEAD:sdk/package.json | shasum -a 256; printf 'WORK '; shasum -a 256 sdk/package.json; (cd sdk && move dist aside; npm test -- tests/live-kernel.test.ts -t 'runs rung')
+HEAD b7d86943af91f5bde015bac1b18c6b03a604bd4e4731c3dc70ede0b4d9fcaa78  -
+WORK b7d86943af91f5bde015bac1b18c6b03a604bd4e4731c3dc70ede0b4d9fcaa78  sdk/package.json
+CLEAN_PRECONDITION dist=absent backup=/tmp/wp12-f8-green.9N2CdW
+ ✓ tests/live-kernel.test.ts (7 tests | 6 skipped) 961ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 960ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 6 skipped (7)
+BUILT_CLI executable
+```
+
+### Final definition-of-done commands
+
+The shell environment prepended this unrelated warning to every invocation;
+it is recorded once rather than silently presented as product output:
+
+```text
+/Users/khaliqgant/.zshenv:.:1: no such file or directory: /tmp/agent37-rust-0820.DWSmuv/cargo/env
+```
+
+Build before test:
+
+```text
+$ (cd kernel && ../ops/cargo.sh build)
+   Compiling relayflowd v0.1.0 (/Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.32s
+
+$ (cd sdk && npm ci && npm run build)
+added 48 packages, and audited 49 packages in 12s
+
+13 packages are looking for funding
+  run `npm fund` for details
+
+5 vulnerabilities (3 moderate, 1 high, 1 critical)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+npm notice run @relayflows/sdk@0.1.0 build
+npm notice run tsc && node scripts/make-cli-executable.mjs
+```
+
+Kernel workspace: 74 tests (19 + 19 + 26 + 4 + 6), plus three empty
+doc-test targets. Every result line from the run:
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+```text
+$ (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
+    Checking relayflowd v0.1.0 (/Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.82s
+```
+
+Formatting exited 0 with empty command output:
+
+```text
+$ (cd kernel && ../ops/cargo.sh fmt --check)
+```
+
+Full SDK run after the required explicit build:
+
+```text
+$ (cd sdk && npm test)
+> @relayflows/sdk@0.1.0 test
+> npm run build && vitest run
+
+> @relayflows/sdk@0.1.0 build
+> tsc && node scripts/make-cli-executable.mjs
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/sdk
+
+ ✓ tests/preflight.test.ts (12 tests) 3ms
+ ✓ tests/validate.test.ts (36 tests) 15ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 9ms
+ ✓ tests/journal-client.test.ts (13 tests) 74ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 10ms
+ ✓ tests/spec-parity.test.ts (15 tests) 23ms
+ ✓ tests/bin.test.ts (7 tests) 531ms
+ ✓ tests/cli.test.ts (50 tests) 743ms
+ ✓ tests/live-kernel.test.ts (7 tests) 33392ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 513ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32165ms
+
+ Test Files  9 passed (9)
+      Tests  150 passed (150)
+   Start at  03:41:42
+   Duration  33.67s (transform 274ms, setup 0ms, collect 684ms, tests 34.80s, environment 1ms, prepare 353ms)
+```
+
+Clean-artifact acceptance. Both directories were moved, not deleted; the old
+artifacts remain recoverable at the printed backup path. `npm test` itself
+rebuilt `dist/cli.js` before Vitest started:
+
+```text
+$ (cd sdk && move dist and node_modules aside; npm ci; npm test; test -x dist/cli.js)
+CLEAN_PRECONDITION dist=absent node_modules=absent backup=/tmp/wp12-sdk-clean.EfUXXq
+
+added 48 packages, and audited 49 packages in 557ms
+
+13 packages are looking for funding
+  run `npm fund` for details
+
+5 vulnerabilities (3 moderate, 1 high, 1 critical)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> @relayflows/sdk@0.1.0 test
+> npm run build && vitest run
+
+> @relayflows/sdk@0.1.0 build
+> tsc && node scripts/make-cli-executable.mjs
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/sdk
+
+ ✓ tests/preflight.test.ts (12 tests) 3ms
+ ✓ tests/validate.test.ts (36 tests) 8ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 12ms
+ ✓ tests/journal-client.test.ts (13 tests) 78ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 9ms
+ ✓ tests/spec-parity.test.ts (15 tests) 23ms
+ ✓ tests/bin.test.ts (7 tests) 515ms
+ ✓ tests/cli.test.ts (50 tests) 718ms
+ ✓ tests/live-kernel.test.ts (7 tests) 33374ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 508ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32132ms
+
+ Test Files  9 passed (9)
+      Tests  150 passed (150)
+   Start at  03:42:35
+   Duration  33.64s (transform 270ms, setup 0ms, collect 635ms, tests 34.74s, environment 1ms, prepare 377ms)
+
+CLEAN_ACCEPTANCE built_cli=executable
+```
+
+### Delivery and supersession
+
+The pre-delivery status was empty, and the merged history contains PR #9's
+four commits and PR #11's two commits:
+
+```text
+$ git status --porcelain
+
+$ git log --oneline origin/main..HEAD
+5ebdf71 ops(review): record WP-12 adversarial verdict
+53cc507 ops: record final-head WP-12 revalidation
+41441d0 fix(kernel): expose heartbeat-renewed lease deadlines
+7f63fe8 ops: record WP-12 verification evidence
+31a0284 test(cli): make lease mutation terminate deterministically
+e1624b0 test(cli): avoid racing the human-park snapshot
+0d1d767 fix(cli): make parked lifecycle reporting protocol-safe
+d39db34 Merge remote-tracking branch 'origin/flow/drive-615f97d-08280219' into flow/drive-de5f378-08280313
+d5013e6 Merge remote-tracking branch 'origin/flow/drive-77b2457-08280058' into flow/drive-de5f378-08280313
+bcd4f20 ops: WP-12 assessment
+2da6a92 drive: WP-11 tick log — assessment gated, PR #9 short of the bar
+d2e7472 drive: WP-11: repair PR #9 under review before anything else
+3616c0a Record WP-11 repair evidence and adversarial review
+c83a367 Repair flows run and resume lifecycle reporting
+0fd332c Record WP-10 verification evidence
+b401efe Add flows run and resume live-kernel surface
+```
+
+```text
+$ gh pr create --base main --head flow/drive-de5f378-08280313 ...
+https://github.com/AgentWorkforce/flows/pull/12
+
+$ gh pr close 9 --comment 'Superseded by #12 ...'
+✓ Closed pull request AgentWorkforce/flows#9 (WP-10: `flows run` / `flows resume` — the authored ladder runs on the live kernel)
+
+$ gh pr close 11 --comment 'Superseded by #12 ...'
+✓ Closed pull request AgentWorkforce/flows#11 (drive: WP-11: repair PR #9 under review before anything else)
+```
+
+The new PR body links both predecessors and restates F1–F8 plus H1–H2. The
+remote state read back as:
+
+```text
+$ gh pr view 12 --json number,state,url,headRefName,baseRefName,title --jq '[.number,.state,.url,.headRefName,.baseRefName,.title] | @tsv'
+12	OPEN	https://github.com/AgentWorkforce/flows/pull/12	flow/drive-de5f378-08280313	main	Repair flows run/resume lifecycle and supersede PRs #9 and #11
+$ gh pr view 9 --json number,state --jq '[.number,.state] | @tsv'
+9	CLOSED
+$ gh pr view 11 --json number,state --jq '[.number,.state] | @tsv'
+11	CLOSED
+```
+
+### Captured iteration failures (not counted as verification)
+
+The first F6-focused run exposed the deterministic rung's lack of any agent
+CLI to resolve; the test matrix was corrected to apply CLI-auth faults only to
+the `llm`/`agent` rungs while retaining `no_executor` on the deterministic rung:
+
+```text
+$ (cd sdk && npm test -- tests/cli.test.ts)
+ ❯ tests/cli.test.ts (52 tests | 4 failed) 632ms
+   × flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 11ms
+   × flows check CLI > refuses ladder flow hello-deterministic with cli_missing under an induced fault 6ms
+   × flows check CLI > refuses ladder flow hello-deterministic with cli_unauthenticated under an induced fault 5ms
+   × flows check CLI > refuses ladder flow hello-deterministic with cli_unresolved under an induced fault 5ms
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 48 passed (52)
+```
+
+The first live F1 green assertion raced the daemon and incorrectly required a
+progress line even when the first CLI snapshot already saw `needs_human`:
+
+```text
+$ (cd sdk && npm test -- tests/live-kernel.test.ts -t 'manual-recovery NeedsHuman')
+ ❯ tests/live-kernel.test.ts (7 tests | 1 failed | 6 skipped) 94ms
+   × built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 93ms
+     → expected 'PARKED [run_parked] Run "01M13MNNY72Q…' to contain 'WAITING [worker_lease]'
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+```
+
+The first clean-artifact harness used zsh's reserved `status` variable and
+failed before npm ran. The moved artifact was restored immediately; this is not
+reported as an F8 red:
+
+```text
+CLEAN_PRECONDITION dist=absent
+zsh:5: read-only variable: status
+DIST_RESTORED
+```
+
+### Final-head revalidation after heartbeat-renewal correction
+
+Self-review found that the journal snapshot exposed the original lease grant
+while `step.heartbeat` persisted renewals in the run registry. Commit `41441d0`
+overlays the registry's current deadline onto a running out-of-band step, and
+the real protocol conformance test now asserts the renewed value returned by
+`run.get`. Because this product change followed the first full run above, the
+commands below supersede those results as the final-head evidence.
+
+```text
+$ (cd kernel && ../ops/cargo.sh build)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+
+$ (cd sdk && npm ci && npm run build)
+added 48 packages, and audited 49 packages in 881ms
+
+13 packages are looking for funding
+  run `npm fund` for details
+
+5 vulnerabilities (3 moderate, 1 high, 1 critical)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+npm notice run @relayflows/sdk@0.1.0 build
+npm notice run tsc && node scripts/make-cli-executable.mjs
+```
+
+Every kernel result line from final head `41441d0`:
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+```text
+$ (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
+    Checking relayflowd v0.1.0 (/Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.85s
+
+$ (cd kernel && ../ops/cargo.sh fmt --check)
+```
+
+```text
+$ (cd sdk && npm test)
+> @relayflows/sdk@0.1.0 test
+> npm run build && vitest run
+
+> @relayflows/sdk@0.1.0 build
+> tsc && node scripts/make-cli-executable.mjs
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/sdk
+
+ ✓ tests/preflight.test.ts (12 tests) 6ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 11ms
+ ✓ tests/validate.test.ts (36 tests) 10ms
+ ✓ tests/journal-client.test.ts (13 tests) 74ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 9ms
+ ✓ tests/spec-parity.test.ts (15 tests) 21ms
+ ✓ tests/bin.test.ts (7 tests) 452ms
+ ✓ tests/cli.test.ts (50 tests) 746ms
+ ✓ tests/live-kernel.test.ts (7 tests) 33459ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 535ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32143ms
+
+ Test Files  9 passed (9)
+      Tests  150 passed (150)
+   Start at  03:48:00
+   Duration  33.74s (transform 281ms, setup 0ms, collect 710ms, tests 34.79s, environment 2ms, prepare 481ms)
+```
+
+```text
+$ (cd sdk && move dist and node_modules aside; npm ci; npm test; test -x dist/cli.js)
+CLEAN_PRECONDITION dist=absent node_modules=absent backup=/tmp/wp12-sdk-final-clean.qpXKLK
+
+added 48 packages, and audited 49 packages in 517ms
+
+13 packages are looking for funding
+  run `npm fund` for details
+
+5 vulnerabilities (3 moderate, 1 high, 1 critical)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> @relayflows/sdk@0.1.0 test
+> npm run build && vitest run
+
+> @relayflows/sdk@0.1.0 build
+> tsc && node scripts/make-cli-executable.mjs
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/sdk
+
+ ✓ tests/preflight.test.ts (12 tests) 4ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 8ms
+ ✓ tests/validate.test.ts (36 tests) 11ms
+ ✓ tests/journal-client.test.ts (13 tests) 75ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 10ms
+ ✓ tests/spec-parity.test.ts (15 tests) 28ms
+ ✓ tests/bin.test.ts (7 tests) 520ms
+ ✓ tests/cli.test.ts (50 tests) 739ms
+ ✓ tests/live-kernel.test.ts (7 tests) 33400ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 515ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32134ms
+
+ Test Files  9 passed (9)
+      Tests  150 passed (150)
+   Start at  03:48:46
+   Duration  33.69s (transform 254ms, setup 0ms, collect 668ms, tests 34.79s, environment 1ms, prepare 404ms)
+
+CLEAN_ACCEPTANCE built_cli=executable
+```

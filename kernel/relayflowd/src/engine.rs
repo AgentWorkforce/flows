@@ -19,7 +19,7 @@ mod drive;
 mod effects;
 mod model;
 mod remote;
-pub use model::{RunOutcome, RunSnapshot, RunStatus};
+pub use model::{RunOutcome, RunSnapshot, RunStatus, StepSnapshot, StepStatus};
 use model::{outcome_from_state, snapshot_from_state};
 pub use remote::OutOfBandCompletion;
 
@@ -171,7 +171,17 @@ impl<C: Clock> Engine<C> {
         let journal = self.open_run(run_id)?;
         let spec = journal.run_spec().context("read run spec")?;
         let state = self.load_state(&journal, spec)?;
-        Ok(snapshot_from_state(&state))
+        let mut snapshot = snapshot_from_state(&state);
+        let registry_record = self.registry()?.lookup(run_id)?;
+        if let Some(record) = registry_record.filter(|record| record.status == "waiting_worker") {
+            for step in snapshot.steps.values_mut().filter(|step| {
+                step.step_type != relayflowd_core::StepType::Deterministic
+                    && step.state == model::StepStatus::Running
+            }) {
+                step.lease_deadline_ms = record.next_wake_at_ms;
+            }
+        }
+        Ok(snapshot)
     }
 
     pub fn journal_entries(
