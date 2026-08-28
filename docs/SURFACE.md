@@ -108,19 +108,37 @@ The herdr model: first-party helpers are just plugins that ship in the box; the 
 
 `flows build` seals a flow into a content-addressed, immutable bundle: canonical spec JSON, compiled TS with pinned deps, helper/plugin lockfile, assets, preflight declaration, identity signature — `flow@sha256:…`, pushed to a bucket/registry. `flows deploy` points a trigger at a digest; `flows run flow@sha256:…` executes from the bucket on any cell, no checkout. Preflight runs at build time for everything build-provable and again at deploy time for environment facts (credentials, workers, MCP servers). The working tree is for authoring; **production only ever runs digests.**
 
-## 5. Invocation: three ways in
+## 5. Invocation: the gate-1 CLI
 
-A deployed flow is reachable three ways, all landing on the same digest and the same journal:
+Gate 1 ships three CLI verbs over the journal protocol:
 
-1. **Events** — `on(...)` triggers: relayfile webhooks, mentions, file changes.
-2. **Schedules** — RelayCron: durable alarms + sweep.
-3. **Direct call** — a flow is a *function*:
-   - CLI: `flows run release-note --input '{"branch":"main"}'` (or `flows run flow@sha256:…`)
-   - HTTP: every deployed flow is an endpoint — `POST /flows/release-note` returns the result for short flows, or a run handle (`202 + run id`) to poll/stream for long ones
-   - SDK: `await flows.call("release-note", input)` from any app (this is how sage and consumer apps invoke pipelines)
-   - Flow-to-flow: `f.dispatch("garden/implement", plan)` — same mechanism, child run with its own journal
+```text
+flows check [--json] <flow.yaml|spec.json>
+flows run [--json] [--data-dir <dir>] <flow.yaml|spec.json>
+flows resume [--json] [--data-dir <dir>] <run-id>
+```
 
-The caller always gets the same contract back: a typed result on completion, or a durable run handle it can await, stream, or abandon — the run finishes either way, journaled.
+`check` compiles and preflights without starting a run. `run` performs that
+same preflight before contacting `relayflowd`, then submits the compiled spec
+to `<data-dir>/relayflowd.sock`; `resume` asks that daemon to continue an
+existing run from its journal. The data directory defaults to `.relayflowd`.
+Neither verb starts the daemon implicitly. `--json` writes one report-shaped
+object to stdout while diagnostics remain on stderr.
+
+The exit codes are part of the surface contract:
+
+| Exit | Outcome |
+|---:|---|
+| `0` | The run completed with `completionReason: success`. |
+| `1` | The run failed with a declared `completionReason`, or the daemon response violated the protocol. |
+| `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or unavailable resume target. |
+| `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type. |
+
+At gate 1 no `llm` or `agent` worker is attached by the CLI. Reaching either
+step therefore returns the durable parked outcome instead of hanging or
+reporting success. Event, schedule, deployed-digest, HTTP, SDK-call, and
+flow-to-flow invocation remain later-gate surface work; they are not shipped
+by this CLI.
 
 ## 6. Open surface questions (for gate-1 SDK work)
 

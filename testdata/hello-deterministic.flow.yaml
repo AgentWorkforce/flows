@@ -1,0 +1,18 @@
+# Gate-1 ladder rung (a): a pure deterministic flow with zero agents.
+version: '0.1.0'
+name: hello-deterministic
+description: The canonical hello ladder rung (a) — zero agents, legal.
+steps:
+  - id: greet
+    type: deterministic
+    command: "echo hello"
+    verification:
+      type: output_contains
+      value: "hello"
+  - id: shout
+    type: deterministic
+    dependsOn: [greet]
+    command: "echo HELLO"
+    verification:
+      type: output_contains
+      value: "HELLO"
