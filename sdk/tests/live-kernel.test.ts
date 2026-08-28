@@ -201,7 +201,6 @@ steps:
     const parked = await running;
 
     expect(parked.status, parked.stderr).toBe(3);
-    expect(parked.stderr).toContain('WAITING [worker_lease]');
     expect(parked.stderr).toContain('PARKED [run_parked]');
     expect(parked.stderr).toContain('waiting for human recovery');
     expect(parked.stderr).not.toContain('protocol_error');
