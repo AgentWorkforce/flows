@@ -38,3 +38,27 @@ it live (observer links, channels). The broker is pinned via
 `agent-relay workspace rebind default`; launch runs through
 `scripts/run-workflow.sh`. A run that lands in an ephemeral/local workspace is
 a defect (Nabis #7 family) — fix the binding, don't proceed silently.
+
+## Evidence is captured, not narrated
+
+Six consecutive review rounds on one PR rejected on *claims about evidence*
+rather than on the code, which was largely right. The recurring shape: a
+report asserts "mutation-verified", "re-executed", or "all seven cases pass",
+and the reviewer finds the claim does not reproduce.
+
+Therefore:
+
+1. **Every verification claim carries the literal command and its captured
+   output.** Not a summary of the output — the output. If you cannot paste it,
+   you may not make the claim.
+2. **"Mutation-verified" has one meaning:** you reverted the specific change,
+   ran the specific test, captured its failure, restored the change
+   byte-for-byte, and re-ran to capture the pass. Paste both. Anything less is
+   not mutation verification and must not be labeled as such.
+3. **Cite paths that exist.** A transcript path in a report is checked; a
+   wrong one reads as fabrication even when the work is real.
+4. **Prefer a smaller true claim to a larger unverifiable one.** "F1 fixed,
+   F2 not attempted" beats "all findings addressed" that fails on inspection.
+
+The code being right does not rescue a report that is wrong. A reviewer can
+only judge what it can check.
