@@ -205,3 +205,20 @@ the *description* block a merge as hard as a defect in the *behavior*?
 
 Recording rather than choosing: relaxing a standard at 06:00 while the author
 is asleep is exactly the move this program's rails exist to prevent.
+
+## The watchdog already runs in cloud; only the work loop does not (2026-08-28)
+
+Confirmed on a production flow, not a probe: `flows-watchdog` executed in a
+cloud sandbox and reported `WATCHDOG_DONE`, 1 passed / 0 failed (run
+`c018760b`). It is a single-agent flow with no git operations, so it never
+touches the materialization gap that kills `drive.yaml` at `sync`.
+
+Consequence worth stating plainly: **the liveness and escalation layer is
+already laptop-independent.** If the drive loop stops, the watchdog still
+notices and reports. What remains laptop-bound is the work loop, and only
+because a scheduled run's workdir (`/project/workflows/schedules/<id>`) has no
+repo — manual runs (`/project/workflows/runs/<id>`) do get the snapshot.
+
+Also unresolved: `agent-relay cloud logs <run>` returns 500 for the most recent
+scheduled drive run, so its outcome is unknown rather than assumed. With
+`neonctl` auth expired there is currently no fallback for reading run state.
