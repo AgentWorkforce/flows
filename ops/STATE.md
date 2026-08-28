@@ -8,7 +8,7 @@ it is authoritative when history is unavailable.
 **Keep it current. A stale STATE.md is worse than none:** it does not merely
 fail to help, it actively misleads an assessor that cannot check it.
 
-Last updated: 2026-08-28 20:10 UTC, by Khaliq's session, on `main`.
+Last updated: 2026-08-28 22:35 UTC, by Khaliq's session, on `main`.
 
 ## Where the program is
 
@@ -28,13 +28,28 @@ Last updated: 2026-08-28 20:10 UTC, by Khaliq's session, on `main`.
   now — the design partner needs it and it does not depend on old-engine flows.
   But gate 6 is NOT green until real flows run on it (RFC-0001 §2 rule 2: "a
   gate is green only when the real workload runs on it").
-- **Gate 2 — proactive agent: RED, and it is NEXT UP.** It is the first of the
-  2-4 sequence that gate 6 waits on.
+- **Gate 2 — proactive agent: AMBER, in progress, and it is the frontier.**
+  First code landed via **PR #14** (`e0f52e1`, merged 2026-08-28 22:01 UTC):
+  `kernel/relayflowd/src/engine/wake.rs` (event matching, dedupe claim, journal
+  entries), `relayflowd-core/src/event.rs` (Event, pattern matching, dedupe key
+  templating), `TriggerSpec` fields, a subscription registry keyed by
+  (flow, subscription, key) with claim repair, and the SDK's `event.submit`
+  verb plus trigger fields.
+  **Still missing before gate 2 can go green:** the wake-time CONTEXT contract
+  from RFC-0001 Appendix A — the agent step must receive context assembled AT
+  WAKE from an epoch summary plus the triggering event, never a resumed
+  session — and a test proving a second identical event does not
+  double-execute the effect.
 
 ## Open PRs
 
-**None.** Every flows PR opened to date is merged: #1–#8, #10, #12.
+**None.** Every flows PR opened to date is merged: #1–#8, #10, #12, #13, #14.
 PR #9 and PR #11 were superseded by #12 and are closed, not pending.
+
+- **#13** delivered the first cloud-produced work back as a PR.
+- **#14** delivered the first gate-2 kernel code, and its four P1 review
+  findings were fixed before merge (dedupe namespacing, claim repair for the
+  exactly-once path, SDK trigger fields, the `event.submit` verb).
 
 If you are an assessor and `ops/NEXT.md` describes WP-12 (repairing PR #9),
 that file is **stale** — #9 no longer exists as open work. Write a new
