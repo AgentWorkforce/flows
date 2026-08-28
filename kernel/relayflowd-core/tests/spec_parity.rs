@@ -26,6 +26,20 @@ fn the_kernel_parses_the_sdk_compiled_spec_and_stamps_the_same_hash() {
 }
 
 #[test]
+fn the_kernel_parses_the_deterministic_rung_and_stamps_the_same_hash() {
+    assert_parity(
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/hello-deterministic.spec.canonical.json"
+        )),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/hello-deterministic.spec.sha256"
+        )),
+    );
+}
+
+#[test]
 fn the_kernel_parses_the_rung_b_spec_and_stamps_the_same_hash() {
     assert_parity(
         include_str!(concat!(
