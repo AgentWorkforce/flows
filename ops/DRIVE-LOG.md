@@ -3013,3 +3013,383 @@ correcting the F1/F2 justifications in `ops/NEXT.md` (PR #11), and the cloud
 verify gaps filed at `615f97d` — `ops/cargo.sh` losing its exec bit in the
 snapshot and `node_modules` absent — which block unattended cloud ticks and
 are still unaddressed.
+
+---
+
+## 2026-08-28 03:43 EDT — WP-12: repair PR #9 to a reviewable superseding head
+
+### Work completed
+
+The tick committed its WP-12 assessment, merged both PR #9 and PR #11 histories,
+and preserved the append-only log in chronological order. F1–F8 and H1–H2 are
+fixed; F3 was fixed rather than deferred. `RunSnapshot` now carries a stable
+snake_case state, RFC step type, and running lease deadline per step. The CLI
+uses that snapshot to distinguish worker-unavailable, running, and
+`needs_human` states, so it no longer reads journal sequence 1 or parses Rust
+`Debug`. Typed hello refusals stay protocol failures, running-worker waits are
+observable/cancelable/lease-bounded, `run.resume` asks the journal registry,
+the ladder fixture names the actual deterministic rung, and `npm test` builds
+the CLI once before Vitest starts. The review swarm change adds only a
+transcript-persistence step and its dependency edge; lens prompts, verdict
+grep, and aggregate pass/fail logic are unchanged.
+
+The live F1 path is narrower than the assessment's wording: a
+worker-reported failure that exhausts `maxIterations` becomes a terminal failed
+step. The kernel enters `NeedsHuman` when a manual-recovery agent attempt is
+abandoned (worker disconnect or lease expiry). The live regression therefore
+attaches a real agent worker, dispatches the attempt, closes that worker, and
+asserts the resulting real `needs_human` snapshot and exit 3. No stub is
+described as a live test.
+
+Veto MCP was not exposed in this non-interactive subprocess, so no Veto scan is
+claimed. The local focused mutation gates, full suites, clippy, formatting,
+diff checks, and a committed adversarial transcript are the evidence used.
+
+### Mutation verification — literal red and restored-green captures
+
+Each mutation changed only the named production fix. The green commands include
+matching `HEAD` and worktree SHA-256 values, proving byte-for-byte restoration.
+
+#### F1 — `NeedsHuman` classification (live daemon + live worker)
+
+Mutation: recognize `runnable` where the fix recognizes `needs_human`.
+
+```text
+$ (cd sdk && npm test -- tests/live-kernel.test.ts -t 'manual-recovery NeedsHuman')
+ ❯ tests/live-kernel.test.ts (7 tests | 1 failed | 6 skipped) 161ms
+   × built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 160ms
+     → WAITING [worker_lease] Run "01M13MPM431ZQ42BCC8HC5FNKS" step "edit" (agent) is running under a worker lease until 1787902543291.
+FAILED [protocol_error] relayflowd could not complete the run request: relayflowd returned status parked without a classifiable completion
+: expected 1 to be 3 // Object.is equality
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+```
+
+```text
+$ printf 'HEAD '; git show HEAD:sdk/src/cli/run.ts | shasum -a 256; printf 'WORK '; shasum -a 256 sdk/src/cli/run.ts; (cd sdk && npm test -- tests/live-kernel.test.ts -t 'manual-recovery NeedsHuman')
+HEAD cb9c88aa46bf24ee28b9eb38c817c48de100b27eb277659786543f4326ac889a  -
+WORK cb9c88aa46bf24ee28b9eb38c817c48de100b27eb277659786543f4326ac889a  sdk/src/cli/run.ts
+ ✓ tests/live-kernel.test.ts (7 tests | 6 skipped) 143ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 6 skipped (7)
+```
+
+#### F2 — stable typed snapshot instead of Rust `Debug`
+
+Mutation: restore the old `BTreeMap<String, String>` and
+`format!("{:?}", runtime.state)` wire.
+
+```text
+$ (cd kernel && ../ops/cargo.sh build) && (cd sdk && npm test -- tests/live-kernel.test.ts -t 'follows a live worker dispatch')
+ ❯ tests/live-kernel.test.ts (7 tests | 1 failed | 6 skipped) 567ms
+   × built flows CLI against live relayflowd > follows a live worker dispatch through flows run 566ms
+     → expected 'Running { attempt: 1, lease_deadline_…' to deeply equal { type: 'llm', state: 'running', …(1) }
+
++ Received:
+"Running { attempt: 1, lease_deadline_ms: 1787902586742, idempotency_key: \"304f5681a965d3e9146623137fd63377c26dadbdb61498d0d598a365f6392449\" }"
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+```
+
+```text
+$ printf 'HEAD '; git show HEAD:kernel/relayflowd/src/engine/model.rs | shasum -a 256; printf 'WORK '; shasum -a 256 kernel/relayflowd/src/engine/model.rs; (cd kernel && ../ops/cargo.sh build) && (cd sdk && npm test -- tests/live-kernel.test.ts -t 'follows a live worker dispatch')
+HEAD 735b37fc9f769c4924f98fc90bdd8f668e4cc8854f75ad8634db041beeeb223e  -
+WORK 735b37fc9f769c4924f98fc90bdd8f668e4cc8854f75ad8634db041beeeb223e  kernel/relayflowd/src/engine/model.rs
+ ✓ tests/live-kernel.test.ts (7 tests | 6 skipped) 634ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 634ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 6 skipped (7)
+```
+
+#### F4 — typed hello refusal
+
+Mutation: put `connect()` and `hello()` back under the old bare catch.
+
+```text
+$ (cd sdk && npm test -- tests/cli.test.ts -t 'typed hello refusal')
+ ❯ tests/cli.test.ts (50 tests | 1 failed | 49 skipped) 16ms
+   × flows run/resume CLI over the journal protocol > classifies a typed hello refusal as a protocol error, not an unreachable daemon 16ms
+     → expected 2 to be 1 // Object.is equality
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 49 skipped (50)
+```
+
+```text
+$ printf 'HEAD '; git show HEAD:sdk/src/cli/run.ts | shasum -a 256; printf 'WORK '; shasum -a 256 sdk/src/cli/run.ts; (cd sdk && npm test -- tests/cli.test.ts -t 'typed hello refusal')
+HEAD cb9c88aa46bf24ee28b9eb38c817c48de100b27eb277659786543f4326ac889a  -
+WORK cb9c88aa46bf24ee28b9eb38c817c48de100b27eb277659786543f4326ac889a  sdk/src/cli/run.ts
+ ✓ tests/cli.test.ts (50 tests | 49 skipped) 14ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 49 skipped (50)
+```
+
+#### F5 — lease-bound wait
+
+Mutation: replace `leaseDeadlineMs - Date.now()` with the old unbounded
+50-millisecond poll. The double turns terminal after four snapshots so the
+unbounded behavior fails deterministically instead of hanging the verifier.
+
+```text
+$ (cd sdk && npm test -- tests/cli.test.ts -t 'bounds a worker wait by its lease')
+ ❯ tests/cli.test.ts (50 tests | 1 failed | 49 skipped) 243ms
+   × flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 242ms
+     → expected +0 to be 1 // Object.is equality
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 49 skipped (50)
+```
+
+```text
+$ printf 'HEAD '; git show HEAD:sdk/src/cli/run.ts | shasum -a 256; printf 'WORK '; shasum -a 256 sdk/src/cli/run.ts; (cd sdk && npm test -- tests/cli.test.ts -t 'bounds a worker wait by its lease')
+HEAD cb9c88aa46bf24ee28b9eb38c817c48de100b27eb277659786543f4326ac889a  -
+WORK cb9c88aa46bf24ee28b9eb38c817c48de100b27eb277659786543f4326ac889a  sdk/src/cli/run.ts
+ ✓ tests/cli.test.ts (50 tests | 49 skipped) 154ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 49 skipped (50)
+```
+
+The same focused file also pins explicit cancellation:
+`allows a caller to cancel a worker-lease wait`.
+
+#### F7 — registry-owned run existence
+
+Mutation: restore the hand-built `runs/<id>.sqlite3` existence check.
+
+```text
+$ (cd kernel && ../ops/cargo.sh test -p relayflowd run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run)
+running 1 test
+test server::tests::run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run ... FAILED
+
+thread 'server::tests::run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run' panicked at relayflowd/src/server/tests.rs:147:5:
+assertion `left == right` failed
+  left: "journal_write_failed"
+ right: "run_not_found"
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.01s
+```
+
+```text
+$ printf 'HEAD '; git show HEAD:kernel/relayflowd/src/server.rs | shasum -a 256; printf 'WORK '; shasum -a 256 kernel/relayflowd/src/server.rs; (cd kernel && ../ops/cargo.sh test -p relayflowd run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run)
+HEAD 1a394468adc4d9667568638737f4db9647028f847aadc25cef6d60b5f11ca74f  -
+WORK 1a394468adc4d9667568638737f4db9647028f847aadc25cef6d60b5f11ca74f  kernel/relayflowd/src/server.rs
+running 1 test
+test server::tests::run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.01s
+```
+
+#### F8 — build once before parallel tests
+
+Mutation: restore `test: tsc --noEmit && vitest run`, then move `dist`
+recoverably before invoking the live suite.
+
+```text
+$ (cd sdk && move dist aside; npm test -- tests/live-kernel.test.ts -t 'runs rung'; restore dist)
+CLEAN_PRECONDITION dist=absent
+ ❯ tests/live-kernel.test.ts (7 tests | 7 skipped) 3ms
+
+ FAIL  tests/live-kernel.test.ts [ tests/live-kernel.test.ts ]
+Error: LIVE_KERNEL_MISSING: built flows CLI does not name an executable file: /Users/khaliqgant/Projects/AgentWorkforce/flows/sdk/dist/cli.js. Build it with: (cd sdk && npm run build)
+
+ Test Files  1 failed (1)
+      Tests  7 skipped (7)
+```
+
+```text
+$ printf 'HEAD '; git show HEAD:sdk/package.json | shasum -a 256; printf 'WORK '; shasum -a 256 sdk/package.json; (cd sdk && move dist aside; npm test -- tests/live-kernel.test.ts -t 'runs rung')
+HEAD b7d86943af91f5bde015bac1b18c6b03a604bd4e4731c3dc70ede0b4d9fcaa78  -
+WORK b7d86943af91f5bde015bac1b18c6b03a604bd4e4731c3dc70ede0b4d9fcaa78  sdk/package.json
+CLEAN_PRECONDITION dist=absent backup=/tmp/wp12-f8-green.9N2CdW
+ ✓ tests/live-kernel.test.ts (7 tests | 6 skipped) 961ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 960ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 6 skipped (7)
+BUILT_CLI executable
+```
+
+### Final definition-of-done commands
+
+The shell environment prepended this unrelated warning to every invocation;
+it is recorded once rather than silently presented as product output:
+
+```text
+/Users/khaliqgant/.zshenv:.:1: no such file or directory: /tmp/agent37-rust-0820.DWSmuv/cargo/env
+```
+
+Build before test:
+
+```text
+$ (cd kernel && ../ops/cargo.sh build)
+   Compiling relayflowd v0.1.0 (/Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.32s
+
+$ (cd sdk && npm ci && npm run build)
+added 48 packages, and audited 49 packages in 12s
+
+13 packages are looking for funding
+  run `npm fund` for details
+
+5 vulnerabilities (3 moderate, 1 high, 1 critical)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+npm notice run @relayflows/sdk@0.1.0 build
+npm notice run tsc && node scripts/make-cli-executable.mjs
+```
+
+Kernel workspace: 74 tests (19 + 19 + 26 + 4 + 6), plus three empty
+doc-test targets. Every result line from the run:
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+```text
+$ (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
+    Checking relayflowd v0.1.0 (/Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.82s
+```
+
+Formatting exited 0 with empty command output:
+
+```text
+$ (cd kernel && ../ops/cargo.sh fmt --check)
+```
+
+Full SDK run after the required explicit build:
+
+```text
+$ (cd sdk && npm test)
+> @relayflows/sdk@0.1.0 test
+> npm run build && vitest run
+
+> @relayflows/sdk@0.1.0 build
+> tsc && node scripts/make-cli-executable.mjs
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/sdk
+
+ ✓ tests/preflight.test.ts (12 tests) 3ms
+ ✓ tests/validate.test.ts (36 tests) 15ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 9ms
+ ✓ tests/journal-client.test.ts (13 tests) 74ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 10ms
+ ✓ tests/spec-parity.test.ts (15 tests) 23ms
+ ✓ tests/bin.test.ts (7 tests) 531ms
+ ✓ tests/cli.test.ts (50 tests) 743ms
+ ✓ tests/live-kernel.test.ts (7 tests) 33392ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 513ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32165ms
+
+ Test Files  9 passed (9)
+      Tests  150 passed (150)
+   Start at  03:41:42
+   Duration  33.67s (transform 274ms, setup 0ms, collect 684ms, tests 34.80s, environment 1ms, prepare 353ms)
+```
+
+Clean-artifact acceptance. Both directories were moved, not deleted; the old
+artifacts remain recoverable at the printed backup path. `npm test` itself
+rebuilt `dist/cli.js` before Vitest started:
+
+```text
+$ (cd sdk && move dist and node_modules aside; npm ci; npm test; test -x dist/cli.js)
+CLEAN_PRECONDITION dist=absent node_modules=absent backup=/tmp/wp12-sdk-clean.EfUXXq
+
+added 48 packages, and audited 49 packages in 557ms
+
+13 packages are looking for funding
+  run `npm fund` for details
+
+5 vulnerabilities (3 moderate, 1 high, 1 critical)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> @relayflows/sdk@0.1.0 test
+> npm run build && vitest run
+
+> @relayflows/sdk@0.1.0 build
+> tsc && node scripts/make-cli-executable.mjs
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/sdk
+
+ ✓ tests/preflight.test.ts (12 tests) 3ms
+ ✓ tests/validate.test.ts (36 tests) 8ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 12ms
+ ✓ tests/journal-client.test.ts (13 tests) 78ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 9ms
+ ✓ tests/spec-parity.test.ts (15 tests) 23ms
+ ✓ tests/bin.test.ts (7 tests) 515ms
+ ✓ tests/cli.test.ts (50 tests) 718ms
+ ✓ tests/live-kernel.test.ts (7 tests) 33374ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 508ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32132ms
+
+ Test Files  9 passed (9)
+      Tests  150 passed (150)
+   Start at  03:42:35
+   Duration  33.64s (transform 270ms, setup 0ms, collect 635ms, tests 34.74s, environment 1ms, prepare 377ms)
+
+CLEAN_ACCEPTANCE built_cli=executable
+```
+
+### Captured iteration failures (not counted as verification)
+
+The first F6-focused run exposed the deterministic rung's lack of any agent
+CLI to resolve; the test matrix was corrected to apply CLI-auth faults only to
+the `llm`/`agent` rungs while retaining `no_executor` on the deterministic rung:
+
+```text
+$ (cd sdk && npm test -- tests/cli.test.ts)
+ ❯ tests/cli.test.ts (52 tests | 4 failed) 632ms
+   × flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 11ms
+   × flows check CLI > refuses ladder flow hello-deterministic with cli_missing under an induced fault 6ms
+   × flows check CLI > refuses ladder flow hello-deterministic with cli_unauthenticated under an induced fault 5ms
+   × flows check CLI > refuses ladder flow hello-deterministic with cli_unresolved under an induced fault 5ms
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 48 passed (52)
+```
+
+The first live F1 green assertion raced the daemon and incorrectly required a
+progress line even when the first CLI snapshot already saw `needs_human`:
+
+```text
+$ (cd sdk && npm test -- tests/live-kernel.test.ts -t 'manual-recovery NeedsHuman')
+ ❯ tests/live-kernel.test.ts (7 tests | 1 failed | 6 skipped) 94ms
+   × built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 93ms
+     → expected 'PARKED [run_parked] Run "01M13MNNY72Q…' to contain 'WAITING [worker_lease]'
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+```
+
+The first clean-artifact harness used zsh's reserved `status` variable and
+failed before npm ran. The moved artifact was restored immediately; this is not
+reported as an F8 red:
+
+```text
+CLEAN_PRECONDITION dist=absent
+zsh:5: read-only variable: status
+DIST_RESTORED
+```
