@@ -1,0 +1,85 @@
+#!/bin/sh
+# Turn a completed cloud run into a pull request, from a host that CAN deliver.
+#
+# Why this exists: a workflow sandbox cannot open a PR. It has no git remote and
+# no GitHub token, and the server-side proxy is not available to it either —
+# /api/v1/github/pull-request needs either a relayfile sponsor (which rides on
+# the auth of whoever LAUNCHED the run, and `agent-relay cloud run` launches
+# with a CLI token, so there is none) or CLI auth (which the sandbox lacks).
+#
+# So delivery happens from a host that already has both: a fleet node or the
+# laptop. `agent-relay cloud sync` brings the run's diff here, and ordinary
+# git/gh open the PR. No grant, no persona, no proxy.
+#
+# Usage: sh ops/deliver-run.sh <runId> [repo-dir]
+set -eu
+
+run_id="${1:-}"
+repo_dir="${2:-$(pwd)}"
+
+if [ -z "$run_id" ]; then
+  echo "DELIVER_FAIL_NO_RUN_ID: usage: sh ops/deliver-run.sh <runId> [repo-dir]" >&2
+  exit 64
+fi
+
+cd "$repo_dir"
+
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+  echo "DELIVER_FAIL_NOT_A_REPO: $repo_dir is not a git checkout." >&2
+  exit 64
+fi
+if ! git remote get-url origin >/dev/null 2>&1; then
+  echo "DELIVER_FAIL_NO_REMOTE: $repo_dir has no origin remote, so nothing can be pushed." >&2
+  exit 75
+fi
+if ! gh auth status >/dev/null 2>&1; then
+  echo "DELIVER_FAIL_NO_GH_AUTH: gh is not authenticated on this host." >&2
+  exit 75
+fi
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "DELIVER_FAIL_DIRTY_TREE: refusing to apply a run patch over uncommitted changes." >&2
+  git status --porcelain | head -10 >&2
+  exit 75
+fi
+
+git fetch --quiet origin
+branch="cloud/run-${run_id%%-*}"
+git checkout --quiet -B "$branch" origin/main
+
+echo "DELIVER_SYNC: applying run $run_id into $branch"
+if ! agent-relay cloud sync "$run_id" --dir "$repo_dir"; then
+  echo "DELIVER_FAIL_SYNC: could not apply the run patch. The run's work is still" >&2
+  echo "  intact in cloud; nothing was pushed." >&2
+  exit 75
+fi
+
+if git diff --quiet && git diff --cached --quiet; then
+  echo "DELIVER_SKIPPED_NO_CHANGES: run $run_id produced no diff against main."
+  exit 0
+fi
+
+# Never deliver the sandbox's own scaffolding.
+git checkout --quiet -- .workflow-env 2>/dev/null || true
+rm -f .workflow-env 2>/dev/null || true
+
+title="drive: cloud run ${run_id%%-*}"
+if [ -f ops/NEXT.md ]; then
+  wp=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md 2>/dev/null | sed 's/[[:space:]]*$//' || true)
+  [ -n "$wp" ] && title="drive: $wp"
+fi
+
+git add -A
+git commit --quiet -m "$title
+
+Work produced by cloud run $run_id in a workflow sandbox and delivered from
+this host, because a sandbox has no remote and no GitHub token.
+
+Verification and adversarial review ran in-run; see ops/reviews/ in the diff."
+
+git push --quiet -u origin "$branch"
+gh pr create --fill --body "Automated drive work from cloud run \`$run_id\`.
+
+The sandbox cannot open PRs (no remote, no GitHub token), so this was delivered
+from a host that can. Verification and adversarial review ran in-run — see
+\`ops/reviews/\` in the diff. **A human merges.**" 2>&1 | tail -2
+echo "DELIVER_PR_OPENED for run $run_id on $branch"
