@@ -22,6 +22,9 @@ enum Command {
     /// Start and execute a run spec JSON file.
     Run {
         spec: PathBuf,
+        /// Submit an event to the flow's subscriptions instead of starting directly.
+        #[arg(long)]
+        event: Option<String>,
         #[arg(long, default_value = "cli")]
         created_by: String,
         /// Test/debug boundary: return after this many newly completed steps.
@@ -50,11 +53,21 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Run {
             spec,
+            event,
             created_by,
             stop_after,
             pause_before_step,
             pause_before_completion,
         } => {
+            if let Some(event) = event {
+                let submitted = engine.submit_event(
+                    read_spec(&spec)?,
+                    serde_json::from_str(&event)?,
+                    &created_by,
+                )?;
+                println!("{}", serde_json::to_string(&submitted)?);
+                return Ok(());
+            }
             let outcome = engine.start_with_options(
                 read_spec(&spec)?,
                 &created_by,

@@ -14,6 +14,8 @@ pub struct StepDispatch {
     pub idempotency_key: String,
     pub pins: Pins,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub wake_context: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub recovery: Option<RecoveryInstruction>,
     pub lease_deadline_ms: i64,
 }

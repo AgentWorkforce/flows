@@ -356,6 +356,16 @@ fn handle_request(
                 .map_err(internal_error)?;
             Ok(json!({"matched": matched}))
         }
+        "event.submit" => {
+            let params: EventSubmitParams = decode_params(request.params)?;
+            let spec = RunSpec::parse(&params.spec)
+                .map_err(|error| ("invalid_spec", error.to_string()))?;
+            to_value(
+                engine
+                    .submit_event(spec, params.event, "protocol-v0")
+                    .map_err(internal_error)?,
+            )
+        }
         "stream.append" => {
             let params: StreamAppendParams = decode_params(request.params)?;
             let lock = hub.run_lock(&params.run_id);

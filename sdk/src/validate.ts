@@ -58,7 +58,17 @@ const SURFACES_KEYS = ['workspace', 'streams', 'external'] as const;
 const WORKSPACE_SURFACE_KEYS = ['surface'] as const;
 const STREAM_SURFACE_KEYS = ['stream'] as const;
 const PERMISSIONS_KEYS = ['fileGlobs', 'networkAllowlist', 'accessPreset'] as const;
-const TRIGGER_KEYS = ['id', 'executor'] as const;
+// A trigger may also declare an event subscription. Without these keys the
+// compiler rejects the very fixture the kernel advertises
+// (testdata/event-triggered-flow.yaml), so the feature is unauthorable through
+// the supported SDK path even though the kernel accepts it.
+const TRIGGER_KEYS = [
+  'id',
+  'executor',
+  'eventType',
+  'pattern',
+  'dedupeKeyTemplate',
+] as const;
 
 class Validator {
   private errors: string[] = [];

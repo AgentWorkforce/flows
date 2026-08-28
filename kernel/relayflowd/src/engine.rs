@@ -19,9 +19,11 @@ mod drive;
 mod effects;
 mod model;
 mod remote;
+mod wake;
 pub use model::{RunOutcome, RunSnapshot, RunStatus, StepSnapshot, StepStatus};
 use model::{outcome_from_state, snapshot_from_state};
 pub use remote::OutOfBandCompletion;
+pub use wake::EventSubmitOutcome;
 
 #[derive(Debug, Clone, Default)]
 #[doc(hidden)]
@@ -203,7 +205,11 @@ impl<C: Clock> Engine<C> {
         RunState::fold(journal.run_id(), spec, &entries).context("fold run journal")
     }
 
-    fn append(&self, journal: &mut SqliteJournal, entry: &JournalEntry) -> Result<JournalEntry> {
+    pub(super) fn append(
+        &self,
+        journal: &mut SqliteJournal,
+        entry: &JournalEntry,
+    ) -> Result<JournalEntry> {
         let persisted = journal.append(entry).map_err(|error| anyhow!(error))?;
         if let Some(observer) = &self.observer {
             observer.appended(&persisted);
@@ -346,11 +352,11 @@ impl<C: Clock> Engine<C> {
         SqliteJournal::open(&path).with_context(|| format!("open run journal {}", path.display()))
     }
 
-    fn registry(&self) -> Result<Registry> {
+    pub(super) fn registry(&self) -> Result<Registry> {
         Registry::open(self.data_dir.join("relayflowd.sqlite3")).context("open run registry")
     }
 
-    fn run_path(&self, run_id: &str) -> PathBuf {
+    pub(super) fn run_path(&self, run_id: &str) -> PathBuf {
         self.data_dir.join("runs").join(format!("{run_id}.sqlite3"))
     }
 }
@@ -400,7 +406,7 @@ fn validate_agent_pins(
 /// canonical form the SDK's `canonicalize()` produces. Parity is pinned by
 /// `relayflowd-core/tests/spec_parity.rs` and the SDK's `spec-parity` test
 /// over the shared `testdata/` fixture.
-fn canonical_hash(value: &serde_json::Value) -> String {
+pub(super) fn canonical_hash(value: &serde_json::Value) -> String {
     let bytes = serde_json::to_vec(value).expect("run spec serializes");
     Sha256::digest(bytes)
         .iter()

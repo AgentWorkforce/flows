@@ -105,6 +105,9 @@ impl<C: Clock> Engine<C> {
                                     lease_id,
                                     idempotency_key,
                                     pins,
+                                    wake_context: journal.scan_from(1, usize::MAX).ok().and_then(|entries| entries.into_iter()
+                                        .find(|entry| entry.entry_type == relayflowd_core::EntryType::SubscriptionMatched)
+                                        .and_then(|entry| entry.payload.get("wake_context").cloned())),
                                     recovery,
                                     lease_deadline_ms,
                                 })

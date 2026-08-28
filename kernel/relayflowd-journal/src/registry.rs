@@ -31,6 +31,18 @@ impl Registry {
                file TEXT NOT NULL,
                status TEXT NOT NULL,
                next_wake_at_ms INTEGER
+             ) WITHOUT ROWID;
+             -- The dedupe identity is (flow, subscription, key), not the key
+             -- alone. A bare key is globally unique, so two unrelated flows
+             -- that derive the same key -- both using a template like
+             -- `test.ping:hello` -- would collide, and the second flow's event
+             -- would be reported deduped without ever spawning a run.
+             CREATE TABLE IF NOT EXISTS event_dedupe (
+               flow_key TEXT NOT NULL,
+               subscription_id TEXT NOT NULL,
+               dedupe_key TEXT NOT NULL,
+               run_id TEXT NOT NULL,
+               PRIMARY KEY (flow_key, subscription_id, dedupe_key)
              ) WITHOUT ROWID;",
         )?;
         Ok(Self { connection })
@@ -95,6 +107,66 @@ impl Registry {
             )
             .optional()
             .map_err(Into::into)
+    }
+
+    /// Claim an event for exactly-once delivery.
+    ///
+    /// Returns `Ok(None)` when this caller won the claim and must spawn the
+    /// run, or `Ok(Some(existing_run_id))` when a live run already owns it.
+    ///
+    /// The claim is scoped to (flow, subscription, key): a bare key is
+    /// globally unique and would let unrelated subscriptions suppress one
+    /// another.
+    ///
+    /// A claim is only honoured when the run it names is actually registered.
+    /// The claim is written before the run's journal exists, so a crash in
+    /// between used to leave a claim pointing at a run that could never be
+    /// resumed -- every retry then answered "deduped" with no run, and the
+    /// event was lost silently. That is an exactly-once violation, not a
+    /// missed optimisation. An incomplete claim is now REPAIRED: it is handed
+    /// to the retrying caller, which spawns the run it names.
+    pub fn claim_event(
+        &self,
+        flow_key: &str,
+        subscription_id: &str,
+        dedupe_key: &str,
+        run_id: &str,
+    ) -> Result<Option<String>, JournalStoreError> {
+        let changed = self.connection.execute(
+            "INSERT OR IGNORE INTO event_dedupe(flow_key, subscription_id, dedupe_key, run_id)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![flow_key, subscription_id, dedupe_key, run_id],
+        )?;
+        if changed == 1 {
+            return Ok(None);
+        }
+
+        let existing: String = self.connection.query_row(
+            "SELECT run_id FROM event_dedupe
+             WHERE flow_key = ?1 AND subscription_id = ?2 AND dedupe_key = ?3",
+            params![flow_key, subscription_id, dedupe_key],
+            |row| row.get(0),
+        )?;
+
+        // Is the claimed run real? `runs` is written when the run is
+        // registered, after its journal exists.
+        let registered: i64 = self.connection.query_row(
+            "SELECT COUNT(1) FROM runs WHERE run_id = ?1",
+            params![&existing],
+            |row| row.get(0),
+        )?;
+        if registered > 0 {
+            return Ok(Some(existing));
+        }
+
+        // The prior claim never became a run. Repair it by taking it over, so
+        // the retry spawns rather than being told it is a duplicate.
+        self.connection.execute(
+            "UPDATE event_dedupe SET run_id = ?4
+             WHERE flow_key = ?1 AND subscription_id = ?2 AND dedupe_key = ?3",
+            params![flow_key, subscription_id, dedupe_key, run_id],
+        )?;
+        Ok(None)
     }
 }
 

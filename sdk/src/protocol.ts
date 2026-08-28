@@ -52,6 +52,7 @@ export type Verb =
   | 'effect.confirm'
   | 'step.complete'
   | 'event.emit'
+  | 'event.submit'
   | 'stream.append'
   | 'stream.read'
   | 'journal.read';
@@ -246,6 +247,27 @@ export interface EventEmitResult {
   matched: number;
 }
 
+/**
+ * Submit an external event to a flow that declares an event trigger. The
+ * kernel matches it against the spec's subscriptions and, on a first match,
+ * spawns a run; a repeat of the same (flow, subscription, key) is deduped.
+ */
+export interface EventSubmitParams {
+  spec: unknown;
+  event: {
+    type: string;
+    payload?: unknown;
+    /** Overrides the subscription's dedupeKeyTemplate when supplied. */
+    key?: string;
+  };
+}
+export interface EventSubmitResult {
+  matched: boolean;
+  deduped: boolean;
+  subscription_id?: string | null;
+  run?: unknown;
+}
+
 export interface StreamAppendParams {
   run_id: string;
   stream: string;
@@ -288,6 +310,7 @@ export interface VerbContract {
   'effect.confirm': { params: EffectConfirmParams; result: EffectConfirmResult };
   'step.complete': { params: StepCompleteParams; result: StepCompleteResult };
   'event.emit': { params: EventEmitParams; result: EventEmitResult };
+  'event.submit': { params: EventSubmitParams; result: EventSubmitResult };
   'stream.append': { params: StreamAppendParams; result: StreamAppendResult };
   'stream.read': { params: StreamReadParams; result: StreamReadResult };
   'journal.read': { params: JournalReadParams; result: JournalReadResult };

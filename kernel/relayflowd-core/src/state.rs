@@ -165,6 +165,9 @@ impl RunState {
                     state.completion = Some(payload.completion_reason);
                 }
                 EntryType::RunSpawned
+                | EntryType::EventReceived
+                | EntryType::SubscriptionRegistered
+                | EntryType::SubscriptionMatched
                 | EntryType::StreamAppended
                 | EntryType::EffectRecorded
                 | EntryType::EffectConfirmed

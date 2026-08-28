@@ -72,7 +72,22 @@ impl RunSpec {
 
         let mut trigger_ids = BTreeSet::new();
         for trigger in &self.triggers {
-            if trigger.id.trim().is_empty() || trigger.executor.trim().is_empty() {
+            if trigger.id.trim().is_empty()
+                || trigger.executor.trim().is_empty()
+                || trigger
+                    .event_type
+                    .as_ref()
+                    .is_some_and(|value| value.trim().is_empty())
+                || trigger
+                    .dedupe_key_template
+                    .as_ref()
+                    .is_some_and(|value| value.trim().is_empty())
+                || trigger
+                    .pattern
+                    .as_ref()
+                    .is_some_and(|value| crate::event::validate_pattern(value).is_err())
+                || trigger.event_type.is_some() != trigger.dedupe_key_template.is_some()
+            {
                 return Err(SpecError::InvalidTrigger(trigger.id.clone()));
             }
             if !trigger_ids.insert(trigger.id.clone()) {
@@ -338,6 +353,12 @@ pub enum AccessPreset {
 pub struct TriggerSpec {
     pub id: String,
     pub executor: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dedupe_key_template: Option<String>,
 }
 
 /// Budget envelope: tokens are integers; money is a decimal string, never a
