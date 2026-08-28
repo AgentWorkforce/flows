@@ -51,8 +51,24 @@ silently substitute different work: a run that reports progress on the wrong
 gate is worse than one that reports it is blocked.
 TARGET
 
+# The target must be TRACKED. `agent-relay cloud run` uploads the `git ls-files`
+# set, so an untracked file is silently not uploaded — which is exactly what
+# happened on run 167c2713: ops/TARGET.md never reached the sandbox, the Lead
+# never saw its pin, and it picked unrelated self-repair work while reporting
+# success. A pin that does not arrive is worse than no pin, because the run
+# still looks correctly scoped from outside.
+cd "$work"
+git add ops/TARGET.md
+git -c user.email=lead@relayflows.local -c user.name="Relayflow Lead" \
+  commit -q -m "target: pin this run to gate $gate"
+
+if ! git ls-files --error-unmatch ops/TARGET.md >/dev/null 2>&1; then
+  echo "LAUNCH_FAIL_TARGET_UNTRACKED: ops/TARGET.md is not tracked, so it would not be uploaded." >&2
+  exit 70
+fi
+
 echo "LAUNCH_GATE=$gate"
 echo "LAUNCH_WORKTREE=$work"
-cd "$work"
+echo "LAUNCH_TARGET_TRACKED=ok"
 agent-relay cloud run workflows/drive-cloud.yaml 2>&1 | grep -E "Run created|Status:"
 echo "LAUNCH_NOTE: worktree kept at $work — remove with 'git worktree remove --force $work'"
