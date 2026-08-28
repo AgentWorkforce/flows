@@ -52,7 +52,14 @@ Anything short of the bar → the PR stays open and the reason is recorded.
 - A gate that runs nothing fails. A "succeeded" that did nothing is a bug.
 - Instrument, don't guess, after two consecutive failed fixes on one symptom.
 - Battle-tested ≠ works-once.
-- Isolated git worktrees for my own edits while a tick holds the repo.
+- **Isolated git worktrees for ALL my repo operations while a tick is live** —
+  not only edits. On 2026-08-28 I ran `git checkout main && git reset --hard`
+  in the primary checkout to re-register a cloud schedule while tick 14 was
+  building there; it yanked the branch from under a running tick. The work
+  survived (`5b1226e`, rescued to `rescue/tick14-live-kernel`), but only by
+  luck of it being committed. If a command needs the repo, it runs in
+  `/tmp/flows-ops`; if it needs the flows CLI, it runs from a worktree, never
+  from the checkout a tick owns.
 - File-based reporting: `ops/DRIVE-LOG.md` per program, `ops/SCOREBOARD.md`
   for gate state. Surface to Khaliq only at action points.
 
