@@ -222,3 +222,26 @@ repo — manual runs (`/project/workflows/runs/<id>`) do get the snapshot.
 Also unresolved: `agent-relay cloud logs <run>` returns 500 for the most recent
 scheduled drive run, so its outcome is unknown rather than assumed. With
 `neonctl` auth expired there is currently no fallback for reading run state.
+
+## `cloud logs` 500 is an opaque storage read, not a lost run (2026-08-28)
+
+Reproduced and then un-reproduced: `agent-relay cloud logs 1bba6866` returned
+500 while the run was settling and returns the full log now. The run itself was
+never lost — the control plane had it the whole time (`workflow_runs.status =
+failed`, `exit code 78 SYNC_FAIL_NOT_MATERIALIZED`), which is the same
+scheduled-workdir gap already filed, not a new failure mode.
+
+The 500 comes from the generic catch in
+`cloud/packages/web/app/api/v1/workflows/runs/[runId]/logs/route.ts:181-190`.
+Only `NoSuchKey` / `NotFound` are handled specially (returning empty content);
+every other storage error falls through to `{ error: "Failed to read logs" },
+{ status: 500 }`. So "the log object is not readable yet" and "object storage
+is broken" are indistinguishable to a caller.
+
+What I could not determine: which storage error actually fired. The detail goes
+to `console.error` server-side, and I have no access to those logs — so this is
+a located fault, not a diagnosed one.
+
+**Operational consequence for us:** a 500 from `cloud logs` is not evidence
+about the run. Read `workflow_runs` directly (neonctl → psql) before drawing any
+conclusion about whether a run progressed.
