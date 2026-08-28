@@ -90,6 +90,22 @@ if [ -f ops/NEXT.md ]; then
   [ -n "$wp" ] && title="drive: $wp"
 fi
 
+# Restore executable bits the sandbox lost. A workflow sandbox does not
+# preserve the exec bit (observed repeatedly: ops/cargo.sh arrived
+# non-executable, esbuild failed EACCES), so a patch applied from one carries
+# mode 100644 for files git tracks as 100755. Delivering that silently breaks
+# every documented `ops/*.sh` invocation — caught by review on PR #13, where
+# ops/cargo.sh landed as 100644 against main's 100755.
+#
+# Trust the BASE's recorded modes, not the sandbox's filesystem.
+git add -A
+for tracked in $(git ls-tree -r "$base_ref" --format='%(objectmode) %(path)' \
+                | awk '$1 == "100755" { print $2 }'); do
+  if [ -f "$tracked" ]; then
+    chmod +x "$tracked" 2>/dev/null || true
+    git update-index --chmod=+x "$tracked" 2>/dev/null || true
+  fi
+done
 git add -A
 git commit --quiet -m "$title
 
