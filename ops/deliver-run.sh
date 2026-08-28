@@ -43,13 +43,29 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 git fetch --quiet origin
+
+# Branch from the base the run was LAUNCHED at, not from current main. A run's
+# patch is computed against the tree it was given; if main has moved since, the
+# patch will not apply. Proved against run f18ec684: its patch was rejected
+# with "ops/cargo.sh: patch does not apply" because that file had been rewritten
+# on main four times after the run started.
+base_ref="${DELIVER_BASE:-origin/main}"
+if [ -n "${DELIVER_BASE:-}" ]; then
+  echo "DELIVER_BASE_EXPLICIT: $base_ref"
+fi
+
 branch="cloud/run-${run_id%%-*}"
-git checkout --quiet -B "$branch" origin/main
+git checkout --quiet -B "$branch" "$base_ref"
 
 echo "DELIVER_SYNC: applying run $run_id into $branch"
 if ! agent-relay cloud sync "$run_id" --dir "$repo_dir"; then
-  echo "DELIVER_FAIL_SYNC: could not apply the run patch. The run's work is still" >&2
-  echo "  intact in cloud; nothing was pushed." >&2
+  echo "DELIVER_FAIL_SYNC: could not apply the run patch onto $base_ref." >&2
+  echo "  The usual cause is that main has moved since the run was launched: a run's" >&2
+  echo "  patch is computed against the tree it was given. Proved on run f18ec684," >&2
+  echo "  whose patch was rejected with 'ops/cargo.sh: patch does not apply' because" >&2
+  echo "  that file had been rewritten on main after the run started." >&2
+  echo "  Re-run against the launch base:  DELIVER_BASE=<sha> sh ops/deliver-run.sh $run_id" >&2
+  echo "  The run's work is still intact in cloud; nothing was pushed." >&2
   exit 75
 fi
 
