@@ -1,0 +1,4 @@
+#!/bin/sh
+# Deterministic preflight fixture: the auth probe is terminated by a signal.
+test "$1" = "auth" && test "$2" = "status" || exit 0
+kill -SEGV "$$"

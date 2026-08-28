@@ -1,4 +1,7 @@
 # Gate-1 ladder rung (b): deterministic + bare llm + deterministic.
+# The CLI these rungs hire is resolved at preflight from the project
+# default (testdata/flows.json), so the canonical spec and its hash pin
+# name no environment-specific binary and no test fixture.
 version: '0.1.0'
 name: hello-llm
 description: A bare llm result verified as kernel control flow.

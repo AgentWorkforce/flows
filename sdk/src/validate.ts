@@ -13,8 +13,10 @@ import type {
   RecoveryMode,
   StepSpec,
   StepType,
+  TriggerSpec,
   VerificationSpec,
 } from './spec.js';
+import { SPEC_SCHEMA_VERSION } from './spec.js';
 
 export interface ValidationResult {
   ok: boolean;
@@ -34,19 +36,18 @@ const RECOVERY_MODES: ReadonlySet<RecoveryMode> = new Set([
 ]);
 
 const DECIMAL_RE = /^\d+(\.\d+)?$/;
-const SEMVER_RE = /^\d+\.\d+\.\d+$/;
 
 // Allowed keys per authoring object level. Validation is fail-closed on
 // unknown keys (AGENTS.md rule 4; RFC covenant 2): a typo'd key like
 // `depends_on` must be an error naming the nearest valid key, never a
 // silently discarded field — silently dropping `dependsOn` loses ordering.
-const ROOT_KEYS = ['version', 'name', 'description', 'steps', 'budget'] as const;
+const ROOT_KEYS = ['version', 'name', 'description', 'cli', 'triggers', 'steps', 'budget'] as const;
 const BUDGET_KEYS = ['maxTokensIn', 'maxTokensOut', 'maxDollars'] as const;
 const STEP_COMMON_KEYS = ['id', 'type', 'dependsOn', 'verification', 'maxIterations', 'timeoutMs'] as const;
 const STEP_TYPE_KEYS: Record<StepType, readonly string[]> = {
   deterministic: ['command'],
-  llm: ['prompt', 'model'],
-  agent: ['instruction', 'surfaces', 'recoveryMode', 'permissions'],
+  llm: ['prompt', 'model', 'cli'],
+  agent: ['instruction', 'cli', 'surfaces', 'recoveryMode', 'permissions'],
 };
 const VERIFICATION_KEYS: Record<string, readonly string[]> = {
   exit_code: ['type', 'expect'],
@@ -57,6 +58,7 @@ const SURFACES_KEYS = ['workspace', 'streams', 'external'] as const;
 const WORKSPACE_SURFACE_KEYS = ['surface'] as const;
 const STREAM_SURFACE_KEYS = ['stream'] as const;
 const PERMISSIONS_KEYS = ['fileGlobs', 'networkAllowlist', 'accessPreset'] as const;
+const TRIGGER_KEYS = ['id', 'executor'] as const;
 
 class Validator {
   private errors: string[] = [];
@@ -96,18 +98,24 @@ class Validator {
     this.checkKeys(s, ROOT_KEYS, 'spec');
 
     if (!isNonEmptyString(s['version'])) {
-      this.fail('spec.version: expected a non-empty semver string (e.g. "0.1.0")');
-    } else if (!SEMVER_RE.test(s['version'] as string)) {
-      this.fail(`spec.version: "${s['version']}" is not semver (MAJOR.MINOR.PATCH)`);
+      this.fail(`spec.version: expected supported version "${SPEC_SCHEMA_VERSION}"`);
+    } else if (s['version'] !== SPEC_SCHEMA_VERSION) {
+      this.fail(`spec.version: unsupported version "${s['version']}" (expected "${SPEC_SCHEMA_VERSION}")`);
     }
 
-    if (!isNonEmptyString(s['name'])) {
+    if (s['name'] !== undefined && !isNonEmptyString(s['name'])) {
       this.fail('spec.name: expected a non-empty string');
     }
 
     if (s['description'] !== undefined && typeof s['description'] !== 'string') {
       this.fail('spec.description: expected a string');
     }
+
+    if (s['cli'] !== undefined && !isNonEmptyString(s['cli'])) {
+      this.fail('spec.cli: expected a non-empty string');
+    }
+
+    if (s['triggers'] !== undefined) this.validateTriggers(s['triggers']);
 
     if (s['budget'] !== undefined) this.validateBudget(s['budget']);
 
@@ -148,6 +156,33 @@ class Validator {
     if (budget.maxDollars !== undefined) {
       if (typeof budget.maxDollars !== 'string' || !DECIMAL_RE.test(budget.maxDollars)) {
         this.fail('spec.budget.maxDollars: expected a decimal string, e.g. "1.50"');
+      }
+    }
+  }
+
+  private validateTriggers(value: unknown): void {
+    if (!Array.isArray(value)) {
+      this.fail('spec.triggers: expected an array');
+      return;
+    }
+    const ids = new Set<string>();
+    for (const [index, trigger] of value.entries()) {
+      const at = `spec.triggers[${index}]`;
+      if (!isObject(trigger)) {
+        this.fail(`${at}: expected an object`);
+        continue;
+      }
+      this.checkKeys(trigger, TRIGGER_KEYS, at);
+      const candidate = trigger as unknown as TriggerSpec;
+      if (!isNonEmptyString(candidate.id)) {
+        this.fail(`${at}.id: expected a non-empty string`);
+      } else if (ids.has(candidate.id)) {
+        this.fail(`${at}.id: duplicate trigger id "${candidate.id}"`);
+      } else {
+        ids.add(candidate.id);
+      }
+      if (!isNonEmptyString(candidate.executor)) {
+        this.fail(`${at}.executor: expected a non-empty string`);
       }
     }
   }
@@ -250,6 +285,7 @@ class Validator {
     if (st.model !== undefined && typeof st.model !== 'string') {
       this.fail(`${at}.model: expected a string`);
     }
+    this.validateCli(st.cli, at);
   }
 
   private validateAgent(st: AgentStepSpec, at: string): void {
@@ -259,8 +295,15 @@ class Validator {
     if (st.recoveryMode !== undefined && !RECOVERY_MODES.has(st.recoveryMode)) {
       this.fail(`${at}.recoveryMode: expected reset | inspect | manual`);
     }
+    this.validateCli(st.cli, at);
     if (st.surfaces !== undefined) this.validateSurfaces(st.surfaces, `${at}.surfaces`);
     if (st.permissions !== undefined) this.validatePermissions(st.permissions, `${at}.permissions`);
+  }
+
+  private validateCli(cli: unknown, at: string): void {
+    if (cli !== undefined && !isNonEmptyString(cli)) {
+      this.fail(`${at}.cli: expected a non-empty string`);
+    }
   }
 
   private validateSurfaces(surfaces: AgentStepSpec['surfaces'], at: string): void {

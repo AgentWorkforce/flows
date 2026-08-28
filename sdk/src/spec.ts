@@ -123,6 +123,8 @@ export interface LlmStepSpec extends BaseStepSpec {
   type: 'llm';
   prompt: string;
   model?: string;
+  /** Inert preflight declaration; overrides the flow/project CLI default. */
+  cli?: string;
 }
 
 /**
@@ -134,12 +136,21 @@ export interface LlmStepSpec extends BaseStepSpec {
 export interface AgentStepSpec extends BaseStepSpec {
   type: 'agent';
   instruction: string;
+  /** Inert preflight declaration; overrides the flow/project CLI default. */
+  cli?: string;
   surfaces?: AgentSurfaces;
   recoveryMode?: RecoveryMode;
   permissions?: PermissionsSpec;
 }
 
 export type StepSpec = DeterministicStepSpec | LlmStepSpec | AgentStepSpec;
+
+/** Inert gate-1 trigger declaration. Matching and dispatch belong to gate 2. */
+export interface TriggerSpec {
+  id: string;
+  /** Executor registration required before this trigger may start a run. */
+  executor: string;
+}
 
 /**
  * A Relayflow spec in the authoring shape — the composable unit (RFC settled
@@ -150,8 +161,12 @@ export type StepSpec = DeterministicStepSpec | LlmStepSpec | AgentStepSpec;
 export interface FlowSpec {
   /** Spec schema semver (RFC §7). Compilers always emit latest. */
   version: string;
-  name: string;
+  name?: string;
   description?: string;
+  /** Inert preflight default for llm/agent steps that do not declare a CLI. */
+  cli?: string;
+  /** Declarations checked by preflight; gate 1 never dispatches them. */
+  triggers?: TriggerSpec[];
   steps: StepSpec[];
   budget?: BudgetSpec;
 }
@@ -204,6 +219,7 @@ export interface KernelLlmStep extends KernelStepCommon {
   type: 'llm';
   prompt: string;
   model?: string;
+  cli?: string;
 }
 
 export interface KernelAgentSurfaces {
@@ -221,6 +237,7 @@ export interface KernelPermissionsSpec {
 export interface KernelAgentStep extends KernelStepCommon {
   type: 'agent';
   instruction: string;
+  cli?: string;
   recovery_mode: RecoveryMode;
   surfaces?: KernelAgentSurfaces;
   permissions?: KernelPermissionsSpec;
@@ -234,11 +251,18 @@ export interface KernelBudgetSpec {
   max_dollars?: string;
 }
 
+export interface KernelTriggerSpec {
+  id: string;
+  executor: string;
+}
+
 /** The compiled spec as the kernel parses, journals, and hashes it. */
 export interface KernelRunSpec {
   version: string;
   name?: string;
   description?: string;
+  cli?: string;
+  triggers?: KernelTriggerSpec[];
   steps: KernelStepSpec[];
   budget?: KernelBudgetSpec;
 }

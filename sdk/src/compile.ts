@@ -70,8 +70,12 @@ export function compileSpec(spec: unknown): FlowSpec {
   const steps = input.steps.map(compileStep);
   const flow: FlowSpec = {
     version: input.version,
-    name: input.name,
+    ...(input.name !== undefined ? { name: input.name } : {}),
     ...(input.description !== undefined ? { description: input.description } : {}),
+    ...(input.cli !== undefined ? { cli: input.cli } : {}),
+    // The kernel omits an empty trigger list when serializing RunSpec. Normalize
+    // it here so the authoring shape and boundary shape retain one hashable form.
+    ...(input.triggers?.length ? { triggers: input.triggers } : {}),
     steps,
     ...(input.budget !== undefined ? { budget: input.budget } : {}),
   };
@@ -103,6 +107,7 @@ function compileStep(step: StepSpec): StepSpec {
         type: 'llm',
         prompt: s.prompt,
         ...(s.model !== undefined ? { model: s.model } : {}),
+        ...(s.cli !== undefined ? { cli: s.cli } : {}),
       };
     }
     case 'agent': {
@@ -112,6 +117,7 @@ function compileStep(step: StepSpec): StepSpec {
         ...base,
         type: 'agent',
         instruction: s.instruction,
+        ...(s.cli !== undefined ? { cli: s.cli } : {}),
         recoveryMode,
         ...(s.surfaces !== undefined ? { surfaces: s.surfaces } : {}),
         ...(s.permissions !== undefined ? { permissions: s.permissions } : {}),
@@ -140,8 +146,10 @@ const KERNEL_RETRY_DEFAULTS = {
 export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
   return {
     version: flow.version,
-    name: flow.name,
+    ...(flow.name !== undefined ? { name: flow.name } : {}),
     ...(flow.description !== undefined ? { description: flow.description } : {}),
+    ...(flow.cli !== undefined ? { cli: flow.cli } : {}),
+    ...(flow.triggers?.length ? { triggers: flow.triggers } : {}),
     steps: flow.steps.map(toKernelStep),
     ...(flow.budget !== undefined
       ? {
@@ -153,6 +161,168 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
         }
       : {}),
   };
+}
+
+/**
+ * Map the kernel boundary dialect back to the normalized authoring shape.
+ * This is the inverse of `toKernelSpec` over specs this compiler emits.
+ * Kernel-only values with no authoring representation are refused.
+ */
+export function kernelToAuthoring(value: unknown): unknown {
+  const root = requireKernelObject(
+    value,
+    ['version', 'name', 'description', 'cli', 'triggers', 'steps', 'budget'],
+    'spec',
+  );
+  const steps = requireKernelArray(root['steps'], 'spec.steps')
+    .map((step, index) => kernelStepToAuthoring(step, `spec.steps[${index}]`));
+  return {
+    ...copyDefined(root, ['version', 'name', 'description', 'cli', 'triggers']),
+    steps,
+    ...(root['budget'] !== undefined
+      ? { budget: kernelBudgetToAuthoring(root['budget'], 'spec.budget') }
+      : {}),
+  };
+}
+
+function kernelStepToAuthoring(value: unknown, at: string): unknown {
+  const unionKeys = [
+    'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification',
+    'command', 'timeout_ms', 'prompt', 'model', 'cli', 'instruction',
+    'recovery_mode', 'surfaces', 'permissions',
+  ] as const;
+  const step = requireKernelObject(value, unionKeys, at);
+  const type = step['type'];
+  const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification'] as const;
+  const typeKeys = type === 'deterministic'
+    ? ['command', 'timeout_ms'] as const
+    : type === 'llm'
+      ? ['prompt', 'model', 'cli'] as const
+      : type === 'agent'
+        ? ['instruction', 'cli', 'recovery_mode', 'surfaces', 'permissions'] as const
+        : [];
+  assertKernelKeys(step, [...commonKeys, ...typeKeys], at);
+  if (step['retry'] !== undefined) validateKernelRetry(step['retry'], `${at}.retry`);
+  const dependsOn = step['depends_on'];
+  const common = {
+    id: step['id'],
+    type,
+    ...(dependsOn !== undefined && (!Array.isArray(dependsOn) || dependsOn.length > 0)
+      ? { dependsOn }
+      : {}),
+    ...(step['max_iterations'] !== undefined ? { maxIterations: step['max_iterations'] } : {}),
+    ...kernelVerificationToAuthoring(type, step['verification'], `${at}.verification`),
+  };
+  if (type === 'deterministic') {
+    return {
+      ...common,
+      command: step['command'],
+      ...(step['timeout_ms'] !== undefined ? { timeoutMs: step['timeout_ms'] } : {}),
+    };
+  }
+  if (type === 'llm') {
+    return { ...common, prompt: step['prompt'], ...copyDefined(step, ['model', 'cli']) };
+  }
+  if (type === 'agent') {
+    return {
+      ...common,
+      instruction: step['instruction'],
+      ...(step['recovery_mode'] !== undefined ? { recoveryMode: step['recovery_mode'] } : {}),
+      ...copyDefined(step, ['cli', 'surfaces']),
+      ...(step['permissions'] !== undefined
+        ? { permissions: kernelPermissionsToAuthoring(step['permissions'], `${at}.permissions`) }
+        : {}),
+    };
+  }
+  return common;
+}
+
+function validateKernelRetry(value: unknown, at: string): void {
+  const retry = requireKernelObject(value, [
+    'initial_backoff_ms', 'max_backoff_ms', 'multiplier', 'jitter_percent',
+  ], at);
+  for (const [field, expected] of Object.entries(KERNEL_RETRY_DEFAULTS)) {
+    if (retry[field] !== expected) {
+      throw new CompileError([
+        `${at}.${field} must equal the authoring default ${expected}`,
+      ]);
+    }
+  }
+}
+
+function kernelVerificationToAuthoring(
+  type: unknown,
+  value: unknown,
+  at: string,
+): Record<string, unknown> {
+  if (value === undefined) return {};
+  const verification = requireKernelObject(value, ['output_contains', 'json_schema'], at);
+  if (verification['output_contains'] !== undefined && verification['json_schema'] !== undefined) {
+    throw new CompileError([`${at} may not contain two gates in spec v0.1.0`]);
+  }
+  if (verification['output_contains'] !== undefined) {
+    return { verification: { type: 'output_contains', value: verification['output_contains'] } };
+  }
+  if (verification['json_schema'] !== undefined) {
+    return { verification: { type: 'json_schema', schema: verification['json_schema'] } };
+  }
+  return type === 'deterministic' ? { verification: { type: 'exit_code' } } : {};
+}
+
+function kernelBudgetToAuthoring(value: unknown, at: string): unknown {
+  const budget = requireKernelObject(value, ['max_tokens_in', 'max_tokens_out', 'max_dollars'], at);
+  return {
+    ...(budget['max_tokens_in'] !== undefined ? { maxTokensIn: budget['max_tokens_in'] } : {}),
+    ...(budget['max_tokens_out'] !== undefined ? { maxTokensOut: budget['max_tokens_out'] } : {}),
+    ...(budget['max_dollars'] !== undefined ? { maxDollars: budget['max_dollars'] } : {}),
+  };
+}
+
+function kernelPermissionsToAuthoring(value: unknown, at: string): unknown {
+  const permissions = requireKernelObject(value, ['file_globs', 'network_allowlist', 'access_preset'], at);
+  return {
+    ...(permissions['file_globs'] !== undefined ? { fileGlobs: permissions['file_globs'] } : {}),
+    ...(permissions['network_allowlist'] !== undefined ? { networkAllowlist: permissions['network_allowlist'] } : {}),
+    ...(permissions['access_preset'] !== undefined ? { accessPreset: permissions['access_preset'] } : {}),
+  };
+}
+
+function requireKernelObject(
+  value: unknown,
+  allowed: readonly string[],
+  at: string,
+): Record<string, unknown> {
+  if (!isObject(value)) {
+    throw new CompileError([`${at}: expected an object`]);
+  }
+  assertKernelKeys(value, allowed, at);
+  return value;
+}
+
+function assertKernelKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  at: string,
+): void {
+  const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (unknown.length > 0) {
+    throw new CompileError([
+      `${at}: unknown ${unknown.length === 1 ? 'key' : 'keys'} ${unknown.map((key) => `"${key}"`).join(', ')} (expected one of ${allowed.join(' | ')})`,
+    ]);
+  }
+}
+
+function requireKernelArray(value: unknown, at: string): unknown[] {
+  if (!Array.isArray(value)) throw new CompileError([`${at}: expected an array`]);
+  return value;
+}
+
+function copyDefined(value: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  return Object.fromEntries(keys.filter((key) => value[key] !== undefined).map((key) => [key, value[key]]));
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function toKernelStep(step: StepSpec): KernelStepSpec {
@@ -178,6 +348,7 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
         type: 'llm',
         prompt: step.prompt,
         ...(step.model !== undefined ? { model: step.model } : {}),
+        ...(step.cli !== undefined ? { cli: step.cli } : {}),
       };
     }
     case 'agent': {
@@ -186,6 +357,7 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
         ...common,
         type: 'agent',
         instruction: step.instruction,
+        ...(step.cli !== undefined ? { cli: step.cli } : {}),
         recovery_mode: step.recoveryMode ?? 'reset',
       };
       const surfaces = {

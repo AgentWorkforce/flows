@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { validateSpec } from '../src/validate.js';
-import { compileYaml, CompileError } from '../src/compile.js';
+import { compileSpec, compileYaml, CompileError } from '../src/compile.js';
 import type { FlowSpec } from '../src/spec.js';
 
 // Fail-closed (AGENTS.md rule 4): a malformed spec is rejected with a concrete
@@ -13,17 +13,22 @@ describe('validate: rejects malformed specs', () => {
     expect(validateSpec([]).ok).toBe(false);
   });
 
-  it('rejects missing or malformed version/name', () => {
+  it('rejects a missing version', () => {
     const r = validateSpec({ steps: [{ id: 'a', type: 'deterministic', command: 'x' }] });
     expect(r.ok).toBe(false);
     expect(r.errors.join(' ')).toContain('version');
-    expect(r.errors.join(' ')).toContain('name');
   });
 
-  it('rejects a non-semver version', () => {
-    const r = validateSpec({ version: '1.0', name: 'x', steps: [{ id: 'a', type: 'deterministic', command: 'x' }] });
+  it('rejects a version the kernel does not support', () => {
+    const r = validateSpec({ version: '9.9.9', name: 'x', steps: [{ id: 'a', type: 'deterministic', command: 'x' }] });
     expect(r.ok).toBe(false);
-    expect(r.errors.join(' ')).toContain('semver');
+    expect(r.errors.join(' ')).toContain('unsupported version "9.9.9"');
+  });
+
+  it('rejects a malformed optional name', () => {
+    const r = validateSpec({ version: '0.1.0', name: '', steps: [{ id: 'a', type: 'deterministic', command: 'x' }] });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toContain('name');
   });
 
   it('rejects an empty steps array', () => {
@@ -251,6 +256,24 @@ steps:
 });
 
 describe('validate: accepts the legal zero-agent flow', () => {
+  it('accepts the kernel-supported schema version', () => {
+    const result = validateSpec({
+      version: '0.1.0',
+      name: 'supported-version',
+      steps: [{ id: 'a', type: 'deterministic', command: 'echo hi' }],
+    });
+    expect(result).toEqual({ ok: true, errors: [] });
+  });
+
+  it('accepts a spec without a name because the kernel treats it as optional', () => {
+    const nameless = {
+      version: '0.1.0',
+      steps: [{ id: 'a', type: 'deterministic', command: 'echo hi' }],
+    };
+    expect(validateSpec(nameless)).toEqual({ ok: true, errors: [] });
+    expect(compileSpec(nameless)).not.toHaveProperty('name');
+  });
+
   it('accepts a pure-deterministic spec — zero agents/llm is legal (RFC §1)', () => {
     const spec: FlowSpec = {
       version: '0.1.0',
@@ -273,5 +296,46 @@ describe('validate: accepts the legal zero-agent flow', () => {
       ],
     };
     expect(validateSpec(spec).ok).toBe(true);
+  });
+});
+
+describe('validate: preflight declarations', () => {
+  it('accepts CLI defaults and inert trigger data', () => {
+    const result = validateSpec({
+      version: '0.1.0',
+      name: 'preflight-data',
+      cli: 'claude',
+      triggers: [{ id: 'hourly', executor: 'worker-a' }],
+      steps: [{ id: 'answer', type: 'llm', prompt: 'p', cli: 'codex' }],
+    });
+    expect(result).toEqual({ ok: true, errors: [] });
+  });
+
+  it('rejects duplicate trigger ids', () => {
+    const result = validateSpec({
+      version: '0.1.0',
+      triggers: [
+        { id: 'hourly', executor: 'worker-a' },
+        { id: 'hourly', executor: 'worker-b' },
+      ],
+      steps: [{ id: 'ready', type: 'deterministic', command: 'true' }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain('spec.triggers[1].id: duplicate trigger id "hourly"');
+  });
+
+  it('rejects malformed and unknown trigger/CLI fields fail-closed', () => {
+    const result = validateSpec({
+      version: '0.1.0',
+      name: 'bad-preflight-data',
+      cli: '',
+      triggers: [{ id: 'hourly', executor: '', worker: 'guessed' }],
+      steps: [{ id: 'answer', type: 'llm', prompt: 'p', cli: '' }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('spec.cli');
+    expect(result.errors.join(' ')).toContain('unknown key "worker"');
+    expect(result.errors.join(' ')).toContain('executor');
+    expect(result.errors.join(' ')).toContain('steps[0].cli');
   });
 });

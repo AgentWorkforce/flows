@@ -1,0 +1,7 @@
+version: '0.1.0'
+name: preflight-cli-missing
+steps:
+  - id: answer
+    type: llm
+    cli: ./missing-cli
+    prompt: "Return ok."

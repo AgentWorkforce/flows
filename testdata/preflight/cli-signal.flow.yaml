@@ -1,0 +1,7 @@
+version: '0.1.0'
+name: preflight-cli-signal
+steps:
+  - id: crash
+    type: agent
+    cli: ./signal-probe-cli
+    instruction: "Exercise signal classification."

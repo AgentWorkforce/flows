@@ -1,0 +1,9 @@
+version: '0.1.0'
+name: preflight-trigger-declared
+triggers:
+  - id: fixture-event
+    executor: fixture-executor
+steps:
+  - id: ready
+    type: deterministic
+    command: "printf ready"

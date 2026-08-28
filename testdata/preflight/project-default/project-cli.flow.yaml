@@ -1,0 +1,6 @@
+version: '0.1.0'
+name: preflight-project-cli
+steps:
+  - id: answer
+    type: llm
+    prompt: "Return ok."

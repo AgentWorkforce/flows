@@ -1,0 +1,6 @@
+version: '0.1.0'
+name: preflight-warning
+steps:
+  - id: inspect
+    type: deterministic
+    command: "printf inspect"

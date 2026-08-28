@@ -1,0 +1,7 @@
+version: '0.1.0'
+name: preflight-empty-path
+steps:
+  - id: resolve
+    type: llm
+    cli: git
+    prompt: "Exercise resolution failure classification."

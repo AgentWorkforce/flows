@@ -1,0 +1,13 @@
+version: '0.1.0'
+name: preflight-shared-cli
+cli: ./counting-cli
+steps:
+  - id: first
+    type: llm
+    prompt: "First probe consumer."
+  - id: second
+    type: agent
+    instruction: "Second probe consumer."
+  - id: third
+    type: llm
+    prompt: "Third probe consumer."
