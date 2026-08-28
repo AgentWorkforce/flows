@@ -158,3 +158,24 @@ Two candidate shapes, to decide deliberately:
 
 Either is honest. The current state — a post-hoc review described as guidance
 — is the thing to remove.
+
+## `ops/cargo.sh`'s shared CARGO_HOME serializes concurrent runs (2026-08-28)
+
+Tick 16's `verify` hung 54 minutes at **0.0% CPU with 0.10s of CPU time**,
+holding `flows/.cargo-home/.global-cache`. Not compiling — blocked. Killing it
+let the step fail cleanly and the runner retry.
+
+Cause: the de-vendoring fix pointed `CARGO_HOME` at one repo-local directory
+so builds are hermetic. Every cargo invocation now contends for that single
+package-cache lock, and this program routinely runs cargo in several worktrees
+at once (a tick's verify plus an operator's independent verification). Hermetic
+and concurrent are not free together.
+
+Options, to decide rather than patch reflexively:
+- per-worktree `CARGO_HOME` (isolated, costs disk and re-download)
+- a lock-wait timeout in `ops/cargo.sh` that fails fast with a typed message
+  instead of hanging past the step budget
+- both: isolate, and still fail fast if a lock is somehow held
+
+Whatever is chosen, the failure must be legible: a build that hangs at 0% CPU
+for an hour told us nothing until someone read `ps`.
