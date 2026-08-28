@@ -146,6 +146,18 @@ workflows:
             # mode 100755, so the exec bit is lost somewhere in materialization
             # — which stage is NOT established, so no mechanism is claimed here.
             # `sh <script>` does not depend on the bit either way.
+            # Build BEFORE test: the SDK's live-kernel cases exec
+            # kernel/target/debug/relayflowd, and `cargo test` does not
+            # produce that binary. Without this the SDK suite fails 7 cases
+            # in any environment that has not built the kernel by hand
+            # (verified locally 2026-08-28: 143 passed/7 skipped/1 file
+            # failed before `cargo build`, 150 passed after).
+            out=$(cd kernel && sh ../ops/cargo.sh build 2>&1); rc=$?
+            if [ $rc -ne 0 ]; then
+              echo "$out" | tail -12
+              echo "VERIFY_FAIL: kernel build failed — the SDK cannot exercise a binary that does not exist"
+              exit 1
+            fi
             out=$(cd kernel && sh ../ops/cargo.sh test --workspace 2>&1); rc=$?
             echo "$out" | tail -8; ran=1; [ $rc -eq 0 ] || ok=1
           fi
@@ -162,6 +174,15 @@ workflows:
                 exit 1
               fi
             fi
+            # Restore exec bits. `npm ci` reported success (96 packages) and
+            # esbuild still failed with EACCES on run 909e18f6, so the mount
+            # this installs onto does not carry the executable bit. That is
+            # the same fault that left ops/cargo.sh non-executable. Which
+            # layer drops it is NOT established; this repairs the symptom
+            # where it is observed and is a no-op where the bit survives.
+            chmod -R +x sdk/node_modules/.bin 2>/dev/null || true
+            find sdk/node_modules -type d -name bin -path "*esbuild*" \
+              -exec chmod -R +x {} + 2>/dev/null || true
             out=$(cd sdk && npm test 2>&1); rc=$?
             echo "$out" | tail -8; ran=1; [ $rc -eq 0 ] || ok=1
           fi
