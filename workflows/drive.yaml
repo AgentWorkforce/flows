@@ -141,10 +141,27 @@ workflows:
           set -u
           ran=0; ok=0
           if [ -d kernel ]; then
-            out=$(cd kernel && ../ops/cargo.sh test --workspace 2>&1); rc=$?
+            # Invoke through `sh`: in a cloud sandbox this script was present
+            # but not executable (observed on run 4cf36ea7). Git tracks it as
+            # mode 100755, so the exec bit is lost somewhere in materialization
+            # — which stage is NOT established, so no mechanism is claimed here.
+            # `sh <script>` does not depend on the bit either way.
+            out=$(cd kernel && sh ../ops/cargo.sh test --workspace 2>&1); rc=$?
             echo "$out" | tail -8; ran=1; [ $rc -eq 0 ] || ok=1
           fi
           if [ -f sdk/package.json ]; then
+            # node_modules is not in `git ls-files`, so a sandbox has none.
+            # Install before testing, and treat a failed install as a failed
+            # verify rather than letting `npm test` report a confusing error.
+            if [ ! -d sdk/node_modules ]; then
+              echo "VERIFY_INSTALL: sdk/node_modules absent — installing"
+              out=$(cd sdk && npm ci 2>&1); rc=$?
+              if [ $rc -ne 0 ]; then
+                echo "$out" | tail -12
+                echo "VERIFY_FAIL: npm ci failed — cannot test what did not install"
+                exit 1
+              fi
+            fi
             out=$(cd sdk && npm test 2>&1); rc=$?
             echo "$out" | tail -8; ran=1; [ $rc -eq 0 ] || ok=1
           fi
@@ -163,9 +180,30 @@ workflows:
           (standards) and RFC-0001 (semantics). Try to refute. List violations
           with file:line. FIRST write your complete review (findings, evidence,
           verdict rationale) to ops/reviews/$(date +%Y%m%d-%H%M)-review.md and
-          `git add` it — an unpersisted verdict is not evidence. Then end with
-          REVIEW_PASSED only if the diff honestly meets the bar and stays in
-          scope; otherwise REVIEW_FAILED.
+          `git add` it — an unpersisted verdict is not evidence.
+
+          Classify EVERY finding as exactly one of:
+
+            BLOCKING — the shipped behavior is wrong, unsafe, or out of scope;
+              a test or gate cannot fail; OR a claim about verification is
+              false (a report says something was run, passed, or was proven
+              when it was not). A false verification claim is ALWAYS blocking,
+              because the whole program's trust rests on those claims being
+              literal. This is the careful edge: do not soften it.
+
+            ADVISORY — the work is right but the account of it is imprecise:
+              a citation points at the wrong line, a mechanism is described
+              backwards, prose overstates or misnames something. Real defects,
+              recorded and carried, but they do not block a merge.
+
+          Ten consecutive ticks were rejected on ADVISORY-class findings while
+          their behavior was sound. Wrong prose about right code is a defect to
+          fix, not a reason to discard the work.
+
+          End with REVIEW_FAILED if any finding is BLOCKING. Otherwise end with
+          REVIEW_PASSED, and list the advisory findings under a heading
+          `## Advisory (carried, non-blocking)` so they are picked up rather
+          than lost.
         verification:
           # Accept EITHER verdict: an honest REVIEW_FAILED must be
           # distinguishable from a crashed reviewer. The verdict step below
