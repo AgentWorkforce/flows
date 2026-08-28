@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Server } from 'node:net';
 import { rmSync } from 'node:fs';
-import { JournalClient } from '../src/journal-client.js';
+import { JournalClient, JournalProtocolError } from '../src/journal-client.js';
 import { compileYaml, toKernelSpec } from '../src/compile.js';
 import { PROTOCOL_VERSION } from '../src/protocol.js';
 import {
@@ -232,11 +232,39 @@ steps:
     try {
       client = new JournalClient(errorPath, { requestTimeoutMs: 2000 });
       await client.connect();
-      await expect(client.runResume('run-01')).rejects.toThrow(/journal_write_failed/);
+      const rejected = client.runResume('run-01');
+      await expect(rejected).rejects.toBeInstanceOf(JournalProtocolError);
+      await expect(rejected).rejects.toMatchObject({ code: 'journal_write_failed' });
     } finally {
       client?.close();
       await new Promise<void>((r) => errorServer.close(() => r()));
       rmSync(errorPath, { force: true });
+    }
+  });
+
+  it('does not apply the bounded request timeout to run lifecycle requests', async () => {
+    const lifecyclePath = sockPath();
+    const lifecycleServer = startLoopback(lifecyclePath, {
+      'run.start': (ctx) => {
+        setTimeout(() => sendResult(ctx, {
+          run_id: 'slow-run',
+          status: 'completed',
+          completion_reason: 'success',
+          completed_steps: 1,
+        }), 50);
+      },
+    });
+    try {
+      client = new JournalClient(lifecyclePath, { requestTimeoutMs: 10 });
+      await client.connect();
+      await expect(client.runStart(HELLO_SPEC)).resolves.toMatchObject({
+        run_id: 'slow-run',
+        status: 'completed',
+      });
+    } finally {
+      client?.close();
+      await new Promise<void>((r) => lifecycleServer.close(() => r()));
+      rmSync(lifecyclePath, { force: true });
     }
   });
 

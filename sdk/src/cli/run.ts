@@ -1,7 +1,7 @@
 import { join, resolve } from 'node:path';
 import { toKernelSpec } from '../compile.js';
 import type { RunFailureKind } from '../failure-kinds.js';
-import { JournalClient } from '../journal-client.js';
+import { JournalClient, JournalProtocolError } from '../journal-client.js';
 import type { PreflightDiagnostic } from '../preflight.js';
 import type {
   RunCompletionReason,
@@ -82,6 +82,9 @@ export async function resumeFlow(runId: string, dataDir: string): Promise<RunExe
     const outcome = await client.runResume(runId);
     return await classifyOutcome(client, 'resume', outcome, base, socketPath);
   } catch (error) {
+    if (!(error instanceof JournalProtocolError) || error.code !== 'run_not_found') {
+      return protocolFailure('resume', base, socketPath, error, runId);
+    }
     return {
       exitCode: 2,
       report: {
@@ -139,63 +142,110 @@ async function classifyOutcome(
   socketPath: string,
   knownSpec?: KernelRunSpec,
 ): Promise<RunExecution> {
+  let current = outcome;
+  let parkedStep: ParkedStep | undefined;
+  while (current.status === 'parked') {
+    const inspection = await inspectOutOfBandStep(client, current.run_id, knownSpec);
+    if (inspection?.parkedStep !== undefined) {
+      parkedStep = inspection.parkedStep;
+      break;
+    }
+    if (inspection?.runningStepId !== undefined) {
+      await waitForRunningStep(client, current.run_id, inspection.runningStepId);
+      current = await client.runResume(current.run_id);
+      continue;
+    }
+    if (inspection?.status === 'completed' || inspection?.status === 'failed') {
+      current = await client.runResume(current.run_id);
+      continue;
+    }
+    break;
+  }
+
   const report: RunReport = {
     ...fromBase(command, base),
-    ok: outcome.status === 'completed' && outcome.completion_reason === 'success',
-    runId: outcome.run_id,
+    ok: current.status === 'completed' && current.completion_reason === 'success',
+    runId: current.run_id,
     socketPath,
-    status: outcome.status,
-    ...(outcome.completion_reason !== null ? { completionReason: outcome.completion_reason } : {}),
-    completedSteps: outcome.completed_steps,
+    status: current.status,
+    ...(current.completion_reason !== null ? { completionReason: current.completion_reason } : {}),
+    completedSteps: current.completed_steps,
   };
 
   if (report.ok) return { exitCode: 0, report };
-  if (outcome.status === 'failed' && outcome.completion_reason !== null) {
+  if (current.status === 'failed' && current.completion_reason !== null) {
     return {
       exitCode: 1,
       report: {
         ...report,
         diagnostics: [...report.diagnostics, {
           severity: 'failure',
-          kind: outcome.completion_reason,
-          message: `Run "${outcome.run_id}" failed with completionReason: ${outcome.completion_reason}.`,
+          kind: current.completion_reason,
+          message: `Run "${current.run_id}" failed with completionReason: ${current.completion_reason}.`,
         }],
       },
     };
   }
-  if (outcome.status === 'parked') {
-    const parkedStep = await findParkedStep(client, outcome.run_id, knownSpec);
-    if (parkedStep !== undefined) {
-      return {
-        exitCode: 3,
-        report: {
-          ...report,
-          parkedStep,
-          diagnostics: [...report.diagnostics, {
-            severity: 'parked',
-            kind: 'run_parked',
-            message: `Run "${outcome.run_id}" parked at step "${parkedStep.id}" (${parkedStep.type}): no worker is attached for step type "${parkedStep.type}".`,
-          }],
-        },
-      };
-    }
+  if (current.status === 'parked' && parkedStep !== undefined) {
+    return {
+      exitCode: 3,
+      report: {
+        ...report,
+        parkedStep,
+        diagnostics: [...report.diagnostics, {
+          severity: 'parked',
+          kind: 'run_parked',
+          message: `Run "${current.run_id}" parked at step "${parkedStep.id}" (${parkedStep.type}): no worker is attached for step type "${parkedStep.type}".`,
+        }],
+      },
+    };
   }
   return protocolFailure(command, base, socketPath, new Error(
-    `relayflowd returned status ${outcome.status} without a classifiable completion`,
-  ), outcome.run_id);
+    `relayflowd returned status ${current.status} without a classifiable completion`,
+  ), current.run_id);
 }
 
-async function findParkedStep(
+interface OutOfBandInspection {
+  status: RunStatus;
+  parkedStep?: ParkedStep;
+  runningStepId?: string;
+}
+
+async function inspectOutOfBandStep(
   client: JournalClient,
   runId: string,
   knownSpec?: KernelRunSpec,
-): Promise<ParkedStep | undefined> {
+): Promise<OutOfBandInspection | undefined> {
   const spec = knownSpec ?? await readRunSpec(client, runId);
   if (spec === undefined) return undefined;
   const snapshot = await client.runGet(runId);
-  return spec.steps.find((step): step is KernelStepSpec & { type: 'llm' | 'agent' } =>
+  const parkedStep = spec.steps.find((step): step is KernelStepSpec & { type: 'llm' | 'agent' } =>
     step.type !== 'deterministic' && snapshot.steps[step.id] === 'Runnable',
   );
+  const runningStep = spec.steps.find((step) =>
+    step.type !== 'deterministic' && isRunningStepState(snapshot.steps[step.id]),
+  );
+  return {
+    status: snapshot.status,
+    ...(parkedStep !== undefined ? { parkedStep } : {}),
+    ...(runningStep !== undefined ? { runningStepId: runningStep.id } : {}),
+  };
+}
+
+async function waitForRunningStep(
+  client: JournalClient,
+  runId: string,
+  stepId: string,
+): Promise<void> {
+  while (true) {
+    await delay(50);
+    const snapshot = await client.runGet(runId);
+    if (!isRunningStepState(snapshot.steps[stepId])) return;
+  }
+}
+
+function isRunningStepState(state: string | undefined): boolean {
+  return state === 'Running' || state?.startsWith('Running {') === true;
 }
 
 async function readRunSpec(client: JournalClient, runId: string): Promise<KernelRunSpec | undefined> {
@@ -258,4 +308,8 @@ function errorMessage(error: unknown): string {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }

@@ -451,7 +451,49 @@ describe('flows run/resume CLI over the journal protocol', () => {
     expect(output.stderr.join('\n')).toContain('step "answer" (llm)');
   });
 
-  it('parses resume and maps an unavailable run to exit 2', async () => {
+  it('follows a dispatched worker step instead of reporting a protocol error', async () => {
+    const dataDir = temporaryProject('flows-run-worker-');
+    let snapshots = 0;
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'run.start': (ctx) => sendResult(ctx, {
+        run_id: 'run-worker',
+        status: 'parked',
+        completion_reason: null,
+        completed_steps: 1,
+      }),
+      'run.get': (ctx) => {
+        const running = snapshots++ === 0;
+        sendResult(ctx, {
+          run_id: 'run-worker',
+          status: running ? 'running' : 'completed',
+          steps: {
+            greet: 'Done',
+            answer: running ? 'Running' : 'Done',
+            finish: running ? 'Pending' : 'Done',
+          },
+          budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+        });
+      },
+      'run.resume': (ctx) => sendResult(ctx, {
+        run_id: 'run-worker',
+        status: 'completed',
+        completion_reason: 'success',
+        completed_steps: 3,
+      }),
+    });
+    const output = capture();
+
+    const code = await runCli([
+      'run', '--data-dir', dataDir, join(TESTDATA, 'hello-llm.flow.yaml'),
+    ], output.io);
+
+    expect(code).toBe(0);
+    expect(output.stdout.join('\n')).toContain('completionReason: success');
+    expect(output.stderr.join('\n')).not.toContain('protocol_error');
+  });
+
+  it('maps only run_not_found resumes to exit 2', async () => {
     const dataDir = temporaryProject('flows-resume-');
     await startCliLoopback(dataDir, {
       hello: sendOk,
@@ -465,6 +507,14 @@ describe('flows run/resume CLI over the journal protocol', () => {
           });
           return;
         }
+        if (params['run_id'] === 'write-failed') {
+          ctx.send({
+            id: ctx.id,
+            ok: false,
+            error: { code: 'journal_write_failed', message: 'disk full' },
+          });
+          return;
+        }
         ctx.send({
           id: ctx.id,
           ok: false,
@@ -474,6 +524,7 @@ describe('flows run/resume CLI over the journal protocol', () => {
     });
     const resumed = capture();
     const unavailable = capture();
+    const failed = capture();
 
     expect(await runCli(['resume', '--data-dir', dataDir, 'known-run'], resumed.io)).toBe(0);
     expect(resumed.stdout.join('\n')).toContain('completionReason: success');
@@ -484,6 +535,14 @@ describe('flows run/resume CLI over the journal protocol', () => {
       command: 'resume',
       runId: 'absent-run',
       diagnostics: [{ kind: 'run_unavailable' }],
+    });
+    expect(await runCli(['resume', '--json', '--data-dir', dataDir, 'write-failed'], failed.io)).toBe(1);
+    expect(failed.stderr.join('\n')).toContain('FAILED [protocol_error]');
+    expect(JSON.parse(failed.stdout.join('\n'))).toMatchObject({
+      ok: false,
+      command: 'resume',
+      runId: 'write-failed',
+      diagnostics: [{ kind: 'protocol_error' }],
     });
   });
 

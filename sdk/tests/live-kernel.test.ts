@@ -4,7 +4,6 @@ import {
   existsSync,
   lstatSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
   rmSync,
   writeFileSync,
@@ -14,7 +13,7 @@ import { dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { compileYaml, compileYamlToCanonicalJson, toKernelSpec } from '../src/compile.js';
+import { compileYaml, toKernelSpec } from '../src/compile.js';
 import { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 
@@ -110,6 +109,61 @@ steps:
       ok: false,
       diagnostics: [{ kind: 'invalid_invocation' }],
     });
+
+    const liveClient = await connectClient(dataDir);
+    await expect(liveClient.runResume('absent-run')).rejects.toMatchObject({
+      code: 'run_not_found',
+    });
+  });
+
+  it('allows a deterministic run to exceed the bounded request timeout', async () => {
+    const dataDir = temporaryDirectory('flows-live-long-run-');
+    await startDaemon(dataDir);
+    const flow = join(dataDir, 'long.flow.yaml');
+    writeFileSync(flow, `
+version: '0.1.0'
+steps:
+  - id: first
+    type: deterministic
+    command: sleep 16
+  - id: second
+    type: deterministic
+    dependsOn: [first]
+    command: sleep 16
+`);
+
+    const completed = invokeCli(['run', '--data-dir', dataDir, flow]);
+
+    expect(completed.status, completed.stderr).toBe(0);
+    expect(completed.stdout).toContain('completionReason: success');
+  }, 45_000);
+
+  it('follows a live worker dispatch through flows run', async () => {
+    const dataDir = temporaryDirectory('flows-live-worker-');
+    await startDaemon(dataDir);
+    const worker = await connectClient(dataDir);
+    await worker.hello('live-cli-worker');
+    const dispatched = eventOnce<StepDispatchEvent>(worker, 'step.dispatch');
+    await worker.workerAttach('live-cli-llm', ['llm']);
+
+    const running = invokeCliAsync([
+      'run', '--data-dir', dataDir, join(TESTDATA, 'hello-llm.flow.yaml'),
+    ]);
+    const lease = await dispatched;
+    expect((await worker.runGet(lease.run_id)).steps[lease.step_id]).toMatch(/^Running/);
+    await worker.stepComplete(
+      lease.run_id,
+      lease.step_id,
+      lease.attempt,
+      lease.idempotency_key,
+      'success',
+      { output: { answer: 4 }, usage: { tokens_in: 2, tokens_out: 1, dollars: '0.001' } },
+    );
+    const completed = await running;
+
+    expect(completed.status, completed.stderr).toBe(0);
+    expect(completed.stdout).toContain('completionReason: success');
+    expect(completed.stderr).not.toContain('protocol_error');
   });
 
   it('preflights before journaling and names an unreachable socket', async () => {
@@ -249,7 +303,16 @@ describe('surface resume after a real daemon kill', () => {
   it('resumes a three-step run with each successful completion exactly once', async () => {
     const directory = temporaryDirectory('flows-live-resume-');
     const dataDir = join(directory, 'data');
-    const yaml = `
+    const startedMarker = join(directory, 'second-started');
+    const releaseMarker = join(directory, 'release-first-attempt');
+    const slowCommand = [
+      `if [ -e ${JSON.stringify(startedMarker)} ]; then printf resumed`,
+      `else : > ${JSON.stringify(startedMarker)}`,
+      `while [ ! -e ${JSON.stringify(releaseMarker)} ]; do sleep 0.05; done`,
+      'fi',
+    ].join('; ');
+    const flow = join(directory, 'three-step.flow.yaml');
+    writeFileSync(flow, `
 version: '0.1.0'
 name: live-crash-resume
 steps:
@@ -259,48 +322,47 @@ steps:
   - id: two
     type: deterministic
     dependsOn: [one]
-    command: printf two
+    command: ${JSON.stringify(slowCommand)}
   - id: three
     type: deterministic
     dependsOn: [two]
     command: printf three
-`;
-    const specPath = join(directory, 'three-step.spec.json');
-    writeFileSync(specPath, compileYamlToCanonicalJson(yaml));
-    const interrupted = spawnSync(RELAYFLOWD, [
-      '--data-dir', dataDir, 'run', specPath, '--stop-after', '1',
-    ], { encoding: 'utf8' });
-    expect(interrupted.status, interrupted.stderr).toBe(0);
-    const initial = JSON.parse(interrupted.stdout) as { run_id: string; status: string };
-    expect(initial.status).toBe('interrupted');
-
+`);
     const firstDaemon = await startDaemon(dataDir);
+    const firstRun = invokeCliAsync(['run', '--data-dir', dataDir, flow]);
+    const runId = await waitForActiveRun(dataDir, startedMarker);
     const beforeClient = await connectClient(dataDir);
-    const before = (await beforeClient.journalRead(initial.run_id, 1)).entries;
+    const before = (await beforeClient.journalRead(runId, 1)).entries;
     expect(successfulCompletions(before)).toEqual({ one: 1 });
+    expect((await beforeClient.runGet(runId)).steps['two']).toMatch(/^Running/);
     beforeClient.close();
     clients.splice(clients.indexOf(beforeClient), 1);
 
-    console.log(`LIVE_KERNEL kill -9 pid=${firstDaemon.pid} run=${initial.run_id}`);
+    console.log(`LIVE_KERNEL kill -9 pid=${firstDaemon.pid} run=${runId} while step=two state=Running`);
     await stopDaemon(firstDaemon, 'SIGKILL');
     daemons.splice(daemons.indexOf(firstDaemon), 1);
+    const interrupted = await firstRun;
+    expect(interrupted.status).toBe(1);
+    expect(interrupted.stderr).toContain('FAILED [protocol_error]');
+    writeFileSync(releaseMarker, 'release');
     await startDaemon(dataDir);
 
     const resumed = invokeCli([
-      'resume', '--json', '--data-dir', dataDir, initial.run_id,
+      'resume', '--json', '--data-dir', dataDir, runId,
     ]);
     expect(resumed.status, resumed.stderr).toBe(0);
     expect(JSON.parse(resumed.stdout)).toMatchObject({
       ok: true,
       command: 'resume',
-      runId: initial.run_id,
+      runId,
       status: 'completed',
       completionReason: 'success',
     });
 
     const afterClient = await connectClient(dataDir);
-    const after = (await afterClient.journalRead(initial.run_id, 1)).entries;
+    const after = (await afterClient.journalRead(runId, 1)).entries;
     expect(successfulCompletions(after)).toEqual({ one: 1, two: 1, three: 1 });
+    expect(completionReasons(after, 'two')).toEqual(['crashed', 'success']);
   });
 });
 
@@ -360,6 +422,33 @@ function invokeCli(args: string[]) {
   });
 }
 
+function invokeCliAsync(args: string[]): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  const child = spawn(process.execPath, [BUILT_CLI, ...args], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  daemons.push(child);
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk));
+  child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk));
+  return new Promise((resolveExit) => child.once('exit', (status) => resolveExit({
+    status,
+    stdout: Buffer.concat(stdout).toString('utf8'),
+    stderr: Buffer.concat(stderr).toString('utf8'),
+  })));
+}
+
+async function waitForActiveRun(dataDir: string, marker: string): Promise<string> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const runs = join(dataDir, 'runs');
+    const journal = existsSync(runs)
+      ? readdirSync(runs).find((name) => /^[0-9A-Z]{26}\.sqlite3$/.test(name))
+      : undefined;
+    if (existsSync(marker) && journal !== undefined) return journal.slice(0, -'.sqlite3'.length);
+    await delay(20);
+  }
+  throw new Error(`run did not reach the marked in-flight step within 5000ms: ${marker}`);
+}
+
 function runArtifacts(dataDir: string): string[] {
   return readdirSync(dataDir).filter((name) => name !== 'relayflowd.sock').sort();
 }
@@ -382,6 +471,16 @@ function successfulCompletions(entries: unknown[]): Record<string, number> {
     counts[stepId] = (counts[stepId] ?? 0) + 1;
   }
   return counts;
+}
+
+function completionReasons(entries: unknown[], stepId: string): string[] {
+  return entries.flatMap((entry) => {
+    if (!isObject(entry) || entry['entry_type'] !== 'step.completed' || entry['step_id'] !== stepId) return [];
+    const payload = entry['payload'];
+    return isObject(payload) && typeof payload['completionReason'] === 'string'
+      ? [payload['completionReason']]
+      : [];
+  });
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

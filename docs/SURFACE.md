@@ -130,8 +130,8 @@ The exit codes are part of the surface contract:
 | Exit | Outcome |
 |---:|---|
 | `0` | The run completed with `completionReason: success`. |
-| `1` | The run failed with a declared `completionReason`, or the daemon response violated the protocol. |
-| `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or unavailable resume target. |
+| `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. |
+| `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
 | `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type. |
 
 At gate 1 no `llm` or `agent` worker is attached by the CLI. Reaching either
@@ -139,6 +139,12 @@ step therefore returns the durable parked outcome instead of hanging or
 reporting success. Event, schedule, deployed-digest, HTTP, SDK-call, and
 flow-to-flow invocation remain later-gate surface work; they are not shipped
 by this CLI.
+
+`flows resume` reports `run_unavailable` only when relayflowd returns the
+typed `run_not_found` refusal. A dropped connection, request failure, or
+`journal_write_failed` response exits 1 as `protocol_error`, because the
+journal may already have changed and the CLI cannot honestly claim the resume
+was refused before a write.
 
 ## 6. Open surface questions (for gate-1 SDK work)
 
