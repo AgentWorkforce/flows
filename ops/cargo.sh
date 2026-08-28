@@ -59,9 +59,24 @@ else
   # leave it in place.
   rm -rf "$toolchain_home"
   mkdir -p "$toolchain_home"
-  if ! curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-       | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path >&2; then
-    echo "CARGO_BOOTSTRAP_FAILED: rustup install did not succeed." >&2
+  # Bound the install ourselves. On run 457a6102 verify-1 sat for 31 minutes
+  # against a declared 20-minute step timeout with no output, so the platform's
+  # bound is not something to rely on: a step CAN outlive its timeoutMs. An
+  # unbounded `curl | sh` inside an unenforced timeout can hang for the whole
+  # 8-hour run budget.
+  timeout_bin=""
+  if command -v timeout >/dev/null 2>&1; then timeout_bin="timeout"
+  elif command -v gtimeout >/dev/null 2>&1; then timeout_bin="gtimeout"
+  fi
+  install_cmd="sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path"
+  if [ -n "$timeout_bin" ]; then
+    install_cmd="$timeout_bin ${RELAYFLOWS_TOOLCHAIN_INSTALL_TIMEOUT:-600} $install_cmd"
+  else
+    echo "CARGO_BOOTSTRAP_WARN: no timeout(1) available; the install is unbounded here." >&2
+  fi
+  if ! curl --proto '=https' --tlsv1.2 -sSf --max-time 300 https://sh.rustup.rs \
+       | $install_cmd >&2; then
+    echo "CARGO_BOOTSTRAP_FAILED: rustup install did not succeed (or exceeded its ${RELAYFLOWS_TOOLCHAIN_INSTALL_TIMEOUT:-600}s bound)." >&2
     exit 127
   fi
   if [ ! -x "$CARGO_HOME/bin/cargo" ]; then
