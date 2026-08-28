@@ -51,7 +51,21 @@ impl<C: Clock> Engine<C> {
             .map(Ok)
             .unwrap_or_else(|| relayflowd_core::event::dedupe_key(template, &event))?;
         let run_id = Ulid::new().to_string();
-        if self.registry()?.claim_event(&event_key, &run_id)?.is_some() {
+        // Scope the claim to this flow and subscription. A bare key is
+        // globally unique, so two flows deriving the same key would suppress
+        // one another; and the registry repairs a claim whose run was never
+        // registered, so a crash between claim and journal creation no longer
+        // loses the event.
+        // The flow's stable identity is the canonical hash of its spec — the
+        // same value the engine already journals as `spec_hash`. RunSpec has
+        // no id, and `name` is optional, so two unnamed flows would collide on
+        // a name-derived key.
+        let flow_key = crate::engine::canonical_hash(&serde_json::to_value(&spec)?);
+        if self
+            .registry()?
+            .claim_event(&flow_key, &trigger.id, &event_key, &run_id)?
+            .is_some()
+        {
             return Ok(EventSubmitOutcome {
                 matched: true,
                 deduped: true,
