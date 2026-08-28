@@ -1,0 +1,26 @@
+version: '1.0'
+name: cloud-repo-probe
+description: >
+  Proves whether a cloud workflow sandbox has the repository materialized with
+  a usable remote. Deliberately spawns no agent: deterministic steps only, so a
+  failure here is about materialization and nothing else.
+swarm:
+  pattern: pipeline
+  channel: cloud-probe
+  timeoutMs: 300000
+agents:
+  - name: unused
+    cli: codex
+    preset: worker
+    role: Declared because the schema requires a non-empty agents array; no step uses it.
+workflows:
+  - name: probe
+    steps:
+      - name: repo
+        type: deterministic
+        command: |
+          echo "pwd: $(pwd)"; ls -a | head -10
+          echo "--- remotes:"; git remote -v 2>&1 | head -4 || true
+          echo "--- head:"; git log --oneline -1 2>&1 || true
+          echo "--- token env present:"; env | grep -ciE "github|gh_token|installation" || true
+          echo REPO_PROBED
