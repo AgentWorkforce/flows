@@ -1986,3 +1986,191 @@ $ find kernel -name '*.rs' -not -path '*/target/*' | xargs wc -l | sort -nr | he
 
 PR #8 remains open. Gate 1 remains AMBER until a human merges it and
 re-verifies merged `main`; the Lead does not merge.
+
+## 2026-08-28 03:03 EDT — WP-11: assess PR #9, gate the assessment, log the tick (`flow/drive-615f97d-08280219`, base `615f97d`, head `d2e7472`)
+
+### Work package
+
+WP-11 as this tick executed it was **not** the repair itself. It was the
+assessment that names the repair and the gate on that assessment:
+
+- `ops/NEXT.md` rewritten (+221 / −65) from the stale WP-9 / PR #8 handoff to
+  "repair PR #9 under review before anything else" — the four Codex findings
+  (F1 30s `run.start` timeout, F2 dispatched-park misreported as
+  `protocol_error`, F3 crash test that injects no crash, F4 `run_unavailable`
+  asserted about errors it cannot see), each re-derived against the code at
+  PR #9's then-head `f435545` rather than accepted from the bot.
+- `ops/reviews/20260828-0258-review.md` — the adversarial transcript for that
+  assessment.
+- Committed as `d2e7472`, opened as PR #11.
+
+The **repair of PR #9 itself ran on PR #9's own branch**
+(`flow/drive-77b2457-08280058`), as `c83a367` (02:43 EDT) and `3616c0a`
+(02:49 EDT). Its evidence lives in that branch's `ops/DRIVE-LOG.md` under
+"WP-11 — repair PR #9 findings F1–F4 on rebased head." This tick did not
+produce that evidence and does not claim it.
+
+### Verify — re-executed in this tick, on this tick's head `d2e7472`
+
+This head is documentation-only relative to `615f97d`; the expected result is
+that both suites reproduce unchanged, and they do. Verbatim, no filtering —
+all nine kernel `test result:` lines are shown (the previous entry's elision
+was flagged as F5 in this tick's review):
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.81s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+EXIT=0
+```
+
+72 kernel tests (18 + 0 + 19 + 26 + 3 + 6, plus three empty doc-test targets).
+
+```text
+$ (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+CLIPPY_EXIT=0
+
+$ (cd kernel && ../ops/cargo.sh fmt --check)
+FMT_EXIT=0
+fmt stdout bytes: 0  stderr bytes: 0
+```
+
+```text
+$ (cd sdk && npm test)
+SDK_EXIT=0
+
+> @relayflows/sdk@0.1.0 test
+> tsc --noEmit && vitest run
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/sdk
+
+ ✓ tests/preflight.test.ts (12 tests) 7ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 20ms
+ ✓ tests/validate.test.ts (36 tests) 30ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 35ms
+ ✓ tests/journal-client.test.ts (12 tests) 38ms
+ ✓ tests/spec-parity.test.ts (12 tests) 37ms
+ ✓ tests/cli.test.ts (42 tests) 594ms
+ ✓ tests/bin.test.ts (7 tests) 1087ms
+
+ Test Files  8 passed (8)
+      Tests  131 passed (131)
+   Start at  03:02:46
+   Duration  1.36s (transform 282ms, setup 0ms, collect 887ms, tests 1.85s, environment 1ms, prepare 529ms)
+```
+
+```text
+$ git status --porcelain
+(empty)
+```
+
+**What this verify does and does not prove.** It proves this tick's head is
+clean and that the numbers `ops/NEXT.md` pastes reproduce byte-for-byte. It
+proves **nothing about PR #9's repair**, which is on a different branch and
+claims different totals: 73 kernel (the `spec_parity` target moves 3 → 4) and
+147 SDK across 9 files including all six `live-kernel` tests (33400ms). Those
+figures are read from `origin/flow/drive-77b2457-08280058`, not re-executed
+here. They must be re-run on the merge candidate before #9 is merged.
+
+### Review verdict — `REVIEW_PASSED`
+
+`ops/reviews/20260828-0258-review.md`, reviewing the working tree at `615f97d`
+(`ops/NEXT.md`, +221 / −65). Six findings, none blocking:
+
+- **F1** (substantive) — the assessment cited RFC-0001's closed-taxonomy clause
+  as compelling a typed `run_not_found`. The RFC scopes that clause to a run's
+  *journal*; `run.resume`'s protocol error set is a different taxonomy. The
+  change may be right on the fail-closed rail, but it is discretionary, not
+  RFC-mandated.
+- **F2** (substantive) — the assessment claimed `RunGetResult.steps` carries
+  the bare string `Running`. It does not: `snapshot_from_state` uses
+  `format!("{:?}")` on a struct variant, so the wire value is
+  `Running { attempt: …, lease_deadline_ms: …, idempotency_key: … }`. An
+  implementer copying the adjacent `=== 'Runnable'` check would have written a
+  comparison that silently never matches.
+- **F3–F6** (hygiene) — two imprecise line anchors, the filtered kernel output
+  noted above, and a DoD that says to rebase in a scratch worktree without
+  saying where steps 3–8 then run.
+
+The reviewer's own summary of what it could not break: both suites reproduce
+to the exact file and per-crate counts, all fourteen code citations resolve,
+all four Codex findings exist at the named commit with the named priorities and
+were genuinely untriaged, and the "no adversarial transcript for PR #9" claim
+verified against two separate trees.
+
+**Ordering fault, recorded against this tick.** The review recommends
+correcting F1 and F2 "before the implementation tick begins." The
+implementation tick had already begun — `c83a367` landed at 02:43, the review
+at 02:58. The recommendation arrived after the work it was meant to steer. It
+cost nothing this time (the repair independently wrote
+`state === 'Running' || state?.startsWith('Running {')`, which is F2's correct
+form, and the reviewer confirmed that empirically), but the gate ran behind the
+thing it was gating. `ops/NEXT.md` still carries the two wrong justifications
+and should be corrected in place before anyone reads it as doctrine.
+
+### PRs
+
+- **This tick — PR #11**: <https://github.com/AgentWorkforce/flows/pull/11> —
+  OPEN, head `d2e747251b15674ef061f539a6b037af18164dec`, `MERGEABLE` / `CLEAN`.
+  CodeRabbit and Devin both SUCCESS; per RUN-CONTRACT §3.1 that is not review
+  signal, and the substantive gate is the transcript above. Docs-only diff
+  (`ops/NEXT.md`, `ops/reviews/`).
+- **Under repair — PR #9**: <https://github.com/AgentWorkforce/flows/pull/9> —
+  OPEN, head `3616c0a521dfdcba41d94139b54bf3915f3891af`, `MERGEABLE` / `CLEAN`.
+  All four Codex inline comments now have replies naming `c83a367` and the
+  audit performed (verified through the API at 03:02, not assumed). Its own
+  adversarial transcript `ops/reviews/20260828-0244-pr9-adversarial.md` ends
+  `REVIEW_PASSED`.
+
+### Honest state of the gate
+
+**Gate 1 — GREEN on `main`, and this tick did not change that.** It closed at
+`9e1d9eb` (PR #8, merged by Khaliq) and was verified on a clean worktree off
+`origin/main`. Nothing in this tick or in PR #9 touches that basis. What PR #9
+adds is the *CLI surface* over the live kernel, and that surface is still
+unmerged.
+
+Three things are short of the merge bar for PR #9 and are recorded rather than
+waved:
+
+1. **The adversarial transcript reviewed `c83a367`, not the current head
+   `3616c0a`.** RUN-CONTRACT §3.2/§3.3 wants the verdict at HEAD. `3616c0a`
+   adds only `ops/DRIVE-LOG.md` and the transcript file itself — evidence, no
+   product code — so the exposure is small, but the transcript does not name
+   the SHA that would be merged.
+2. **The branch is one commit behind `origin/main`** (`b2535aa`, "verdict picks
+   the review by filename, not mtime"). GitHub reports `CLEAN`, but §3.5
+   requires the bar to be re-verified on the serialized head, and the 73/147
+   figures were produced against `173423c`.
+3. **The suite that proves the repair has not been re-executed by this tick.**
+   `live-kernel.test.ts` takes ~33s and hard-fails in `beforeAll` without both
+   binaries built; a skipped live suite is a failed DoD, not a pass, so it has
+   to actually run on the merge candidate.
+
+Gate 6 remains RED and marked "next up" on the scoreboard. It is not next up in
+practice: no new work over unfinished work, and PR #9 is unfinished work.
+
+### Likely next package
+
+**WP-12 — land PR #9 or say precisely why not.** Rebase
+`flow/drive-77b2457-08280058` onto `origin/main` at `b2535aa` in a scratch
+worktree; build kernel then SDK (ordering is load-bearing for the live suite);
+re-run the full DoD on the rebased head and capture it unfiltered — kernel
+`test --workspace`, clippy `-D warnings`, `fmt --check`, and `npm test` with
+`live-kernel.test.ts` among the files that **ran**; land an adversarial
+transcript naming the rebased SHA; then merge under the §2 grant if every
+clause holds, or leave #9 open with the failing clause named.
+
+Two smaller items ride along and should not be allowed to displace it:
+correcting the F1/F2 justifications in `ops/NEXT.md` (PR #11), and the cloud
+verify gaps filed at `615f97d` — `ops/cargo.sh` losing its exec bit in the
+snapshot and `node_modules` absent — which block unattended cloud ticks and
+are still unaddressed.
