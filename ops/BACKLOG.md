@@ -270,3 +270,30 @@ pointer moved locally only, and origin still held `c52d6df`.
 a formatter with a pipe. Capture first, format second:
 `out=$(cmd 2>&1); rc=$?; echo "$out" | tail -2; [ $rc -eq 0 ] || exit 1`.
 A rule that lives only inside one YAML step is a rule the operator will break.
+
+## Cancelling a cloud run destroys its work (2026-08-28)
+
+`agent-relay cloud sync <runId>` on a cancelled run returns
+`409 Conflict: Run is still in progress. Patch is available after completion.`
+— permanently. The run reads `cancelled` in `workflow_runs`, but the patch
+endpoint never treats it as complete. Verified on three cancelled runs
+(a89f78bf, 60508128, 457a6102): all yield zero files.
+
+**A `failed` run keeps its patch** — f18ec684 failed and its work was
+retrieved and delivered as PR #13. So the distinction is cancel-vs-fail, not
+success-vs-failure.
+
+**Operational consequence, learned the expensive way:** several runs were
+cancelled today because they were doomed on a known-fixed fault, and their work
+went with them. Do not cancel a run that has produced anything. Prefer letting
+it fail on its own — a failure is recoverable, a cancellation is not.
+
+The exception is a genuinely hung run. Steps outlive their `timeoutMs` without
+being killed (observed three times: verify-1 at 31min/20min bound, review-1 at
+36min/30min, plus an unbounded install of my own), so a hung run may never
+reach a state where its patch is available. There the work is unreachable
+either way and cancelling at least frees the budget.
+
+**Worth filing against cloud:** cancel should finalize a run so its patch stays
+retrievable. Work that reached a commit inside the sandbox is real, and losing
+it to an operator's cancel is a silent data loss.
