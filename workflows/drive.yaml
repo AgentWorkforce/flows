@@ -194,6 +194,27 @@ workflows:
           # into tail inside the status check: the pipeline's status is tail's.
           set -u
           ran=0; ok=0
+
+          # Bound every suite. timeoutMs is NOT enforced by the platform —
+          # observed three times on 2026-08-28 (verify-1 at 31min against a
+          # 20min bound, review-1 at 36min against 30min, plus an unbounded
+          # toolchain install). And the kernel suite now contains a test that
+          # intermittently hangs under sandbox timing:
+          # an_entry_appended_during_watch_registration_is_delivered_exactly_once
+          # ran past 60s in cloud while passing locally in 0.54s. Without a
+          # bound here, one hanging test consumes the entire run budget.
+          run_bounded() {
+            _label="$1"; shift
+            if command -v timeout >/dev/null 2>&1; then
+              timeout "${VERIFY_SUITE_TIMEOUT:-900}" "$@"
+            elif command -v gtimeout >/dev/null 2>&1; then
+              gtimeout "${VERIFY_SUITE_TIMEOUT:-900}" "$@"
+            else
+              echo "VERIFY_WARN: no timeout(1); $_label runs unbounded" >&2
+              "$@"
+            fi
+          }
+
           if [ -d kernel ]; then
             # Invoke through `sh`: in a cloud sandbox this script was present
             # but not executable (observed on run 4cf36ea7). Git tracks it as
@@ -212,8 +233,13 @@ workflows:
               echo "VERIFY_FAIL: kernel build failed — the SDK cannot exercise a binary that does not exist"
               exit 1
             fi
-            out=$(cd kernel && sh ../ops/cargo.sh test --workspace 2>&1); rc=$?
-            echo "$out" | tail -8; ran=1; [ $rc -eq 0 ] || ok=1
+            out=$(cd kernel && run_bounded "kernel suite" sh ../ops/cargo.sh test --workspace 2>&1); rc=$?
+            echo "$out" | tail -8; ran=1
+            if [ $rc -eq 124 ]; then
+              echo "VERIFY_SUITE_TIMEOUT: the kernel suite exceeded ${VERIFY_SUITE_TIMEOUT:-900}s and was killed."
+              echo "  A hanging test is a defect, not a pass — recording it as a failure."
+            fi
+            [ $rc -eq 0 ] || ok=1
           fi
           if [ -f sdk/package.json ]; then
             # node_modules is not in `git ls-files`, so a sandbox has none.
@@ -237,8 +263,12 @@ workflows:
             chmod -R +x sdk/node_modules/.bin 2>/dev/null || true
             find sdk/node_modules -type d -name bin -path "*esbuild*" \
               -exec chmod -R +x {} + 2>/dev/null || true
-            out=$(cd sdk && npm test 2>&1); rc=$?
-            echo "$out" | tail -8; ran=1; [ $rc -eq 0 ] || ok=1
+            out=$(cd sdk && run_bounded "sdk suite" npm test 2>&1); rc=$?
+            echo "$out" | tail -8; ran=1
+            if [ $rc -eq 124 ]; then
+              echo "VERIFY_SUITE_TIMEOUT: the sdk suite exceeded ${VERIFY_SUITE_TIMEOUT:-900}s and was killed."
+            fi
+            [ $rc -eq 0 ] || ok=1
           fi
           if [ "$ran" -eq 0 ]; then
             echo "VERIFY_FAIL: no suite found — a verify that runs nothing cannot pass"; exit 1

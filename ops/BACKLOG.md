@@ -297,3 +297,24 @@ either way and cancelling at least frees the budget.
 **Worth filing against cloud:** cancel should finalize a run so its patch stays
 retrievable. Work that reached a commit inside the sandbox is real, and losing
 it to an operator's cancel is a silent data loss.
+
+## A kernel test hangs intermittently under sandbox timing (2026-08-28)
+
+`an_entry_appended_during_watch_registration_is_delivered_exactly_once`
+(`kernel/relayflowd/src/server/tests.rs:209`) ran past 60 seconds in a cloud
+sandbox, including when run alone. The same test passes locally in 0.54s
+(19/19) and passed in cloud earlier the same day on run a89f78bf.
+
+So it is a **race in watch registration**, not a deterministic failure: an
+entry appended while a watch is being registered must be delivered exactly
+once, and the coordination between those two paths can evidently deadlock
+under different timing. This is gate-1 code that is marked GREEN, and the bug
+is real regardless of how rarely it shows.
+
+Found by the drive loop, not by us — the builder ran the definition-of-done
+commands, hit the hang, and refused to report BUILD_DONE with the literal
+output attached. That is the evidence standard working unsupervised.
+
+**Next step:** reproduce under load (`--test-threads=1`, and repeated runs
+under `stress`/`taskset`) rather than assuming it is unreproducible locally.
+A test that hangs is worse than one that fails: it consumes a whole run.
