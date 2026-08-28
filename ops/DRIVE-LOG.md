@@ -1690,3 +1690,30 @@ The aggregate runner entered its generic repair retry after printing the
 failure. It was interrupted before the repair agent could mutate a file, as
 WP-7 requires. No unchanged-code rerun occurred. Gate 1 remains **AMBER** and
 PR #8 remains open.
+
+Post-repair verification on `c46bd57` passed every local gate:
+
+```text
+$ (cd kernel && ../ops/cargo.sh test --workspace)
+72 passed, 0 failed (18 + 19 + 26 + 3 + 6; doc-tests 0)
+
+$ (cd kernel && ../ops/cargo.sh clippy --workspace -- -D warnings)
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+
+$ (cd kernel && ../ops/cargo.sh fmt --check)
+exit 0, empty output
+
+$ (cd sdk && npm run build)
+> tsc
+exit 0
+
+$ (cd sdk && npm test)
+Test Files  8 passed (8)
+     Tests  130 passed (130)
+```
+
+The M1 mutation guard was also executed before this pass: replacing the
+`(cli, source)` key with `cli` alone made the full suite fail exactly the new
+source-sensitive test (`1 failed | 129 passed`, observed calls `[step]` rather
+than `[step, project]`). Restoring the clause returned `sdk/src/preflight.ts`
+to blob `46cd0101d28277b92d0488babc3a286e2e26cd7e` byte-for-byte.
