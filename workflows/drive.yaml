@@ -183,7 +183,10 @@ workflows:
           # cleanly (no PR, no retry loop); a crash never reaches here because
           # the review gate requires the reviewer to have spoken at all.
           set -u
-          latest=$(ls -t ops/reviews/*.md 2>/dev/null | head -1)
+          # Only review transcripts carry verdicts. ops/reviews/ also holds
+          # audits and fix summaries; picking the newest *.md read an audit as
+          # a missing verdict on its first outing after a merge.
+          latest=$(ls -t ops/reviews/*-review.md 2>/dev/null | head -1)
           if [ -z "$latest" ]; then
             echo "VERDICT_UNKNOWN: no persisted review transcript — an unpersisted verdict is not evidence"; exit 1
           fi
