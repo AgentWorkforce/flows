@@ -81,6 +81,7 @@ describe('built flows binary', () => {
 
     expect(result.status, result.stderr).toBe(2);
     expect(result.stderr).toContain('REFUSED [probe_failed]');
+    expect(result.stderr).toContain('terminated by signal "SIGSEGV"');
     expect(result.stderr).not.toContain('cli_unauthenticated');
   });
 
@@ -92,7 +93,31 @@ describe('built flows binary', () => {
 
     expect(result.status, result.stderr).toBe(2);
     expect(result.stderr).toContain('REFUSED [probe_failed]');
+    expect(result.stderr).toContain('probe process could not be started');
     expect(result.stderr).not.toContain('cli_missing');
+  });
+
+  it('does not describe a present non-executable CLI as missing', () => {
+    const directory = temporaryDirectory();
+    const cli = join(directory, 'not-executable');
+    const flow = join(directory, 'not-executable.flow.yaml');
+    writeFileSync(join(directory, 'flows.json'), JSON.stringify({ executors: [] }));
+    writeFileSync(cli, '#!/bin/sh\nexit 0\n', { mode: 0o644 });
+    writeFileSync(flow, [
+      "version: '0.1.0'",
+      'steps:',
+      '  - id: answer',
+      '    type: llm',
+      '    cli: ./not-executable',
+      '    prompt: answer',
+      '',
+    ].join('\n'));
+
+    const result = invokeWithNode(flow);
+    expect(result.status, result.stderr).toBe(2);
+    expect(result.stderr).toContain('REFUSED [cli_missing]');
+    expect(result.stderr).toContain('does not resolve as an executable');
+    expect(result.stderr).not.toContain('but it is missing');
   });
 
   it('runs one auth probe for three steps sharing a flow CLI', () => {

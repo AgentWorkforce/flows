@@ -209,7 +209,7 @@ steps:
         kind: 'cli_missing',
         stepId: 'answer',
         cli: './missing-cli',
-        message: 'Step "answer" declares CLI "./missing-cli", but it is missing.',
+        message: 'Step "answer" declares CLI "./missing-cli", but it does not resolve as an executable.',
       }],
     });
     expect(report.diagnostics.every((entry) => isCheckFailureKind(entry.kind))).toBe(true);

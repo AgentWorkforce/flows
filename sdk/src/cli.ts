@@ -10,6 +10,7 @@ import type { FlowSpec } from './spec.js';
 import type { CheckFailureKind } from './failure-kinds.js';
 import {
   preflight,
+  CliProbeError,
   type CliResolution,
   type PreflightDiagnostic,
   type PreflightProbes,
@@ -191,7 +192,8 @@ function probeCli(cli: string, directory: string): { exists: boolean; authentica
     stdio: 'ignore',
     timeout: 10_000,
   });
-  if (result.error !== undefined || result.signal !== null) throw new Error('probe failed');
+  const failure = classifySpawnFailure(result.error, result.signal, 10_000);
+  if (failure !== undefined) throw failure;
   return { exists: true, authenticated: result.status === 0 };
 }
 
@@ -206,8 +208,23 @@ function resolveExecutable(command: string, directory: string): string | undefin
     }
   }
   const result = spawnSync('which', [command], { encoding: 'utf8', timeout: 5_000 });
-  if (result.error !== undefined) throw result.error;
+  const failure = classifySpawnFailure(result.error, result.signal, 5_000);
+  if (failure !== undefined) throw failure;
   return result.status === 0 ? result.stdout.trim() : undefined;
+}
+
+function classifySpawnFailure(
+  error: Error | undefined,
+  signal: NodeJS.Signals | null,
+  timeoutMs: 5_000 | 10_000,
+): CliProbeError | undefined {
+  if (error !== undefined) {
+    const detail = (error as NodeJS.ErrnoException).code === 'ETIMEDOUT'
+      ? `timeout:${timeoutMs}ms` as const
+      : 'spawn_failed' as const;
+    return new CliProbeError(detail);
+  }
+  return signal === null ? undefined : new CliProbeError(`signal:${signal}`);
 }
 
 function executableExists(command: string, directory: string): boolean {

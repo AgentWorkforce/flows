@@ -4,6 +4,7 @@ import {
   PREFLIGHT_WARNING_KINDS,
 } from '../src/failure-kinds.js';
 import {
+  CliProbeError,
   preflight,
   type CliProbeResult,
   type PreflightProbes,
@@ -73,6 +74,50 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(probeCount).toBe(1);
     expect(preflight(sharedCliFlow, { probes: injected }).ok).toBe(true);
     expect(probeCount).toBe(2);
+  });
+
+  it('keeps identical relative CLI strings separate across resolution sources', () => {
+    const seen: string[] = [];
+    const result = preflight({
+      version: '0.1.0',
+      name: 'source-sensitive-cli',
+      steps: [
+        { id: 'step-cli', type: 'llm', prompt: 'one', cli: './shared-cli' },
+        { id: 'project-cli', type: 'llm', prompt: 'two' },
+      ],
+    }, {
+      projectCli: './shared-cli',
+      probes: probes({
+        cli: (_cli, source) => {
+          seen.push(source);
+          return source === 'step'
+            ? { exists: true, authenticated: true }
+            : { exists: false, authenticated: false };
+        },
+      }),
+    });
+
+    expect(seen).toEqual(['step', 'project']);
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      kind: 'cli_missing',
+      stepId: 'project-cli',
+    }));
+  });
+
+  it('reports a classified probe cause without leaking raw exception text', () => {
+    const classified = preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), {
+      probes: probes({ cli: () => { throw new CliProbeError('timeout:10000ms'); } }),
+    });
+    const unclassified = preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), {
+      probes: probes({ cli: () => { throw new Error('raw secret'); } }),
+    });
+
+    expect(classified.diagnostics).toContainEqual(expect.objectContaining({
+      kind: 'probe_failed',
+      detail: 'timeout:10000ms',
+    }));
+    expect(classified.diagnostics[0]?.message).toContain('timed out after 10000ms');
+    expect(JSON.stringify(unclassified)).not.toContain('raw secret');
   });
 
   it('refuses unresolved CLIs and triggers with no registered executor', () => {
