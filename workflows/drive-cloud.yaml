@@ -1,0 +1,467 @@
+# GENERATED from workflows/drive.yaml by ops/gen-drive-cloud.py.
+# Do not hand-edit: change drive.yaml, then regenerate.
+version: '1.0'
+name: flows-drive-cloud
+description: 'The Lead''s tick, shaped for a cloud sandbox with the laptop closed.
+
+  A cloud sandbox has no git remote and no GitHub token, so this flow
+
+  never delivers: it runs 3 full work-package cycles back to back
+
+  in ONE sandbox, committing each to the sandbox branch. Recover the work
+
+  with `agent-relay cloud sync <runId>`. Nothing reaches main without a
+
+  human. GENERATED from workflows/drive.yaml by ops/gen-drive-cloud.py.
+
+  '
+swarm:
+  pattern: dag
+  channel: flows-drive-cloud
+  timeoutMs: 28800000
+agents:
+- name: lead
+  cli: claude
+  preset: analyst
+  role: The Relayflow Lead. Assesses state, plans one work package, reports honestly.
+- name: builder
+  cli: codex
+  preset: worker
+  role: Implements the work package. Rust for kernel/, TypeScript for sdk/.
+- name: adversary
+  cli: claude
+  preset: reviewer
+  role: Adversarial reviewer against RFC-0001 and AGENTS.md.
+workflows:
+- name: drive-cloud-loop
+  steps:
+  - name: sync
+    type: deterministic
+    command: "# Materialize the repo; never assume it. This step assumed a clone\n# with an `origin` remote\
+      \ and so every cloud tick died here with\n# `fatal: 'origin' does not appear to be a git repository`\
+      \ (runs\n# 9fc8d996, ff35187a, 06505b94, 4cf36ea7, b33c2c9a).\n#\n# A cloud workflow sandbox does\
+      \ NOT get a clone. The platform's own\n# materialization is the code sync: the CLI tars the `git\
+      \ ls-files`\n# set and the bootstrap extracts it into the code mount, then runs\n# `git init` over\
+      \ it. Files yes, `.git` history and remotes no.\n# A checkout with a remote only exists on a host\
+      \ that already has one\n# (laptop, fleet node). Both shapes are supported below; neither is\n# assumed,\
+      \ and an unmaterialized sandbox fails closed and typed\n# rather than failing later as an unexplained\
+      \ tool error.\nset -eu\necho \"SYNC_WORKDIR=$(pwd)\"\n\nmissing=\"\"\nfor required in AGENTS.md\
+      \ docs/RFC-0001-everything-is-a-relayflow.md ops/DIRECTIVES.md kernel sdk; do\n  [ -e \"$required\"\
+      \ ] || missing=\"$missing $required\"\ndone\nif [ -n \"$missing\" ]; then\n  echo \"SYNC_FAIL_NOT_MATERIALIZED:\
+      \ the repo is not present in this execution environment.\" >&2\n  echo \"  missing:$missing\" >&2\n\
+      \  echo \"  cwd: $(pwd)\" >&2\n  echo \"  A cloud run must upload the working tree: \\`agent-relay\
+      \ cloud run\\`\" >&2\n  echo \"  syncs code by default; \\`--no-sync-code\\` produces exactly this\
+      \ state.\" >&2\n  exit 78\nfi\necho \"SYNC_MATERIALIZED=ok\"\n\ngit rev-parse --git-dir >/dev/null\
+      \ 2>&1 || git init -q\ngit config user.email \"lead@relayflows.local\"\ngit config user.name \"\
+      Relayflow Lead\"\n\nif git remote get-url origin >/dev/null 2>&1; then\n  # Real checkout (laptop\
+      \ / fleet node): take the true origin/main.\n  echo \"SYNC_MODE=remote\"\n  git fetch --quiet origin\n\
+      \  git checkout --quiet -B main origin/main\n  base=$(git rev-parse --short origin/main)\nelse\n\
+      \  # Sandbox snapshot: there is no remote to fetch and nothing to\n  # rebase onto. The snapshot\
+      \ IS the base. Commit it so the tick has\n  # a parent to diff against \u2014 `git diff main` in\
+      \ the review step\n  # needs a `main` that exists.\n  echo \"SYNC_MODE=snapshot\"\n  if ! git rev-parse\
+      \ --verify --quiet HEAD >/dev/null 2>&1; then\n    git add -A\n    git commit --quiet -m \"snapshot\
+      \ base for this tick\" || true\n  fi\n  git branch --quiet -f main HEAD 2>/dev/null || git checkout\
+      \ --quiet -b main\n  base=$(git rev-parse --short HEAD)\nfi\n\ngit checkout --quiet -B \"flow/drive-${base}-$(date\
+      \ +%m%d%H%M)\"\necho \"SYNC_BASE=$base\"\necho \"SYNC_BRANCH=$(git rev-parse --abbrev-ref HEAD)\"\
+      \necho SYNCED\n"
+  - name: assess-1
+    type: agent
+    agent: lead
+    dependsOn:
+    - sync
+    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST read ops/DIRECTIVES.md\
+      \ \u2014 standing human directives outrank\nthe backlog; if one is unsatisfied, it IS the work package.\n\
+      Then read docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`,\
+      \ `gh pr list --state open` and open PR review\nstate, kernel/ and sdk/ test status. Then write\
+      \ ops/NEXT.md: the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until\
+      \ its done-when in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must\
+      \ include passing commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\n\
+      awaiting fixes from review, the work package is fixing it \u2014 never\nstart new work over unfinished\
+      \ work. If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question\
+      \ and end\nwith BLOCKED_NEEDS_HUMAN; otherwise end with ASSESS_DONE.\n"
+    verification:
+      type: output_contains
+      value: ASSESS_DONE
+    timeoutMs: 1800000
+  - name: build-1
+    type: agent
+    agent: builder
+    dependsOn:
+    - assess-1
+    maxIterations: 3
+    task: "Read ops/NEXT.md, AGENTS.md, and the relevant parts of\ndocs/RFC-0001-everything-is-a-relayflow.md.\
+      \ Implement exactly that\nwork package \u2014 nothing more. Run the definition-of-done commands\n\
+      yourself and iterate until they pass. Keep files small and\nsingle-purpose. End with BUILD_DONE\
+      \ only when the definition of done\npasses locally; paste the passing output.\n"
+    verification:
+      type: output_contains
+      value: BUILD_DONE
+    timeoutMs: 5400000
+  - name: verify-1
+    type: deterministic
+    dependsOn:
+    - build-1
+    command: "# A gate that cannot fail is not a gate. Never pipe a test command\n# into tail inside the\
+      \ status check: the pipeline's status is tail's.\nset -u\nran=0; ok=0\nif [ -d kernel ]; then\n\
+      \  # Invoke through `sh`: in a cloud sandbox this script was present\n  # but not executable (observed\
+      \ on run 4cf36ea7). Git tracks it as\n  # mode 100755, so the exec bit is lost somewhere in materialization\n\
+      \  # \u2014 which stage is NOT established, so no mechanism is claimed here.\n  # `sh <script>`\
+      \ does not depend on the bit either way.\n  out=$(cd kernel && sh ../ops/cargo.sh test --workspace\
+      \ 2>&1); rc=$?\n  echo \"$out\" | tail -8; ran=1; [ $rc -eq 0 ] || ok=1\nfi\nif [ -f sdk/package.json\
+      \ ]; then\n  # node_modules is not in `git ls-files`, so a sandbox has none.\n  # Install before\
+      \ testing, and treat a failed install as a failed\n  # verify rather than letting `npm test` report\
+      \ a confusing error.\n  if [ ! -d sdk/node_modules ]; then\n    echo \"VERIFY_INSTALL: sdk/node_modules\
+      \ absent \u2014 installing\"\n    out=$(cd sdk && npm ci 2>&1); rc=$?\n    if [ $rc -ne 0 ]; then\n\
+      \      echo \"$out\" | tail -12\n      echo \"VERIFY_FAIL: npm ci failed \u2014 cannot test what\
+      \ did not install\"\n      exit 1\n    fi\n  fi\n  out=$(cd sdk && npm test 2>&1); rc=$?\n  echo\
+      \ \"$out\" | tail -8; ran=1; [ $rc -eq 0 ] || ok=1\nfi\nif [ \"$ran\" -eq 0 ]; then\n  echo \"VERIFY_FAIL:\
+      \ no suite found \u2014 a verify that runs nothing cannot pass\"; exit 1\nfi\n[ \"$ok\" -eq 0 ]\
+      \ && echo VERIFY_PASS || { echo VERIFY_FAIL; exit 1; }\n"
+    timeoutMs: 1200000
+  - name: review-1
+    type: agent
+    agent: adversary
+    dependsOn:
+    - verify-1
+    task: "Review `git diff main` against ops/NEXT.md (scope), AGENTS.md\n(standards) and RFC-0001 (semantics).\
+      \ Try to refute. List violations\nwith file:line. FIRST write your complete review (findings, evidence,\n\
+      verdict rationale) to ops/reviews/$(date +%Y%m%d-%H%M)-review.md and\n`git add` it \u2014 an unpersisted\
+      \ verdict is not evidence.\n\nClassify EVERY finding as exactly one of:\n\n  BLOCKING \u2014 the\
+      \ shipped behavior is wrong, unsafe, or out of scope;\n    a test or gate cannot fail; OR a claim\
+      \ about verification is\n    false (a report says something was run, passed, or was proven\n   \
+      \ when it was not). A false verification claim is ALWAYS blocking,\n    because the whole program's\
+      \ trust rests on those claims being\n    literal. This is the careful edge: do not soften it.\n\n\
+      \  ADVISORY \u2014 the work is right but the account of it is imprecise:\n    a citation points\
+      \ at the wrong line, a mechanism is described\n    backwards, prose overstates or misnames something.\
+      \ Real defects,\n    recorded and carried, but they do not block a merge.\n\nTen consecutive ticks\
+      \ were rejected on ADVISORY-class findings while\ntheir behavior was sound. Wrong prose about right\
+      \ code is a defect to\nfix, not a reason to discard the work.\n\nEnd with REVIEW_FAILED if any finding\
+      \ is BLOCKING. Otherwise end with\nREVIEW_PASSED, and list the advisory findings under a heading\n\
+      `## Advisory (carried, non-blocking)` so they are picked up rather\nthan lost.\n"
+    verification:
+      type: output_contains
+      value: REVIEW_
+    maxIterations: 1
+    timeoutMs: 1800000
+  - name: verdict-1
+    type: deterministic
+    dependsOn:
+    - review-1
+    command: "# CLOUD VARIANT (generated): a REJECTION does not stop the run \u2014\n# nothing is delivered\
+      \ from a sandbox, so bad work cannot escape,\n# and the next cycle's assess treats the rejection\
+      \ as its work\n# package. A MISSING transcript is still fatal: a review that\n# persisted no evidence\
+      \ means the gate did not run.\n# Typed outcome, not a token: a truthful REVIEW_FAILED stops the\
+      \ run\n# cleanly (no PR, no retry loop); a crash never reaches here because\n# the review gate requires\
+      \ the reviewer to have spoken at all.\nset -u\n# Only review transcripts carry verdicts. ops/reviews/\
+      \ also holds\n# audits and fix summaries; picking the newest *.md read an audit as\n# a missing\
+      \ verdict on its first outing after a merge.\n# Sort by FILENAME, not mtime: a fresh git checkout\
+      \ stamps every\n# file with the checkout time, so `ls -t` picked an arbitrary old\n# transcript\
+      \ (read 20260827-2045 during a 20260828 tick). Names are\n# YYYYMMDD-HHMM-*, so lexical order IS\
+      \ chronological order.\nlatest=$(ls ops/reviews/*-review.md 2>/dev/null | sort | tail -1)\nif [\
+      \ -z \"$latest\" ]; then\n  echo \"VERDICT_UNKNOWN: no persisted review transcript \u2014 an unpersisted\
+      \ verdict is not evidence\"; exit 1\nfi\n# The verdict is the LAST verdict token in the transcript,\
+      \ not any\n# mention of one: a passing review that discusses a previous\n# REVIEW_FAILED must not\
+      \ be read as a rejection. (It was, on the\n# first outing of this gate.)\nv=$(grep -oE \"REVIEW_(PASSED|FAILED)\"\
+      \ \"$latest\" | tail -1)\ncase \"$v\" in\n  REVIEW_FAILED) echo \"VERDICT_FAILED: reviewer rejected\
+      \ this diff \u2014 see $latest\"; exit 0 ;;\n  REVIEW_PASSED) echo \"VERDICT_PASS ($latest)\"; exit\
+      \ 0 ;;\n  *) echo \"VERDICT_UNKNOWN_NONFATAL: $latest carries no verdict\"; exit 0 ;;\nesac\n"
+    timeoutMs: 120000
+  - name: commit-1
+    type: deterministic
+    dependsOn:
+    - verdict-1
+    command: 'set -eu
+
+      cycle=1
+
+      title=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md | sed "s/[[:space:]]*$//" || echo "work package")
+
+      latest=$(ls ops/reviews/*-review.md 2>/dev/null | sort | tail -1)
+
+      verdict=$(grep -oE "REVIEW_(PASSED|FAILED)" "$latest" 2>/dev/null | tail -1 || echo REVIEW_UNKNOWN)
+
+      git add -A
+
+      git commit -m "drive(cloud cycle $cycle): $title [$verdict]" || echo "COMMIT_NOTE: nothing new to
+      commit"
+
+      echo "CYCLE_${cycle}_COMMITTED verdict=$verdict head=$(git rev-parse --short HEAD)"
+
+      '
+    timeoutMs: 300000
+  - name: assess-2
+    type: agent
+    agent: lead
+    dependsOn:
+    - commit-1
+    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST read ops/DIRECTIVES.md\
+      \ \u2014 standing human directives outrank\nthe backlog; if one is unsatisfied, it IS the work package.\n\
+      Then read docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`,\
+      \ `gh pr list --state open` and open PR review\nstate, kernel/ and sdk/ test status. Then write\
+      \ ops/NEXT.md: the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until\
+      \ its done-when in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must\
+      \ include passing commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\n\
+      awaiting fixes from review, the work package is fixing it \u2014 never\nstart new work over unfinished\
+      \ work. If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question\
+      \ and end\nwith BLOCKED_NEEDS_HUMAN; otherwise end with ASSESS_DONE.\n"
+    verification:
+      type: output_contains
+      value: ASSESS_DONE
+    timeoutMs: 1800000
+  - name: build-2
+    type: agent
+    agent: builder
+    dependsOn:
+    - assess-2
+    maxIterations: 3
+    task: "Read ops/NEXT.md, AGENTS.md, and the relevant parts of\ndocs/RFC-0001-everything-is-a-relayflow.md.\
+      \ Implement exactly that\nwork package \u2014 nothing more. Run the definition-of-done commands\n\
+      yourself and iterate until they pass. Keep files small and\nsingle-purpose. End with BUILD_DONE\
+      \ only when the definition of done\npasses locally; paste the passing output.\n"
+    verification:
+      type: output_contains
+      value: BUILD_DONE
+    timeoutMs: 5400000
+  - name: verify-2
+    type: deterministic
+    dependsOn:
+    - build-2
+    command: "# A gate that cannot fail is not a gate. Never pipe a test command\n# into tail inside the\
+      \ status check: the pipeline's status is tail's.\nset -u\nran=0; ok=0\nif [ -d kernel ]; then\n\
+      \  # Invoke through `sh`: in a cloud sandbox this script was present\n  # but not executable (observed\
+      \ on run 4cf36ea7). Git tracks it as\n  # mode 100755, so the exec bit is lost somewhere in materialization\n\
+      \  # \u2014 which stage is NOT established, so no mechanism is claimed here.\n  # `sh <script>`\
+      \ does not depend on the bit either way.\n  out=$(cd kernel && sh ../ops/cargo.sh test --workspace\
+      \ 2>&1); rc=$?\n  echo \"$out\" | tail -8; ran=1; [ $rc -eq 0 ] || ok=1\nfi\nif [ -f sdk/package.json\
+      \ ]; then\n  # node_modules is not in `git ls-files`, so a sandbox has none.\n  # Install before\
+      \ testing, and treat a failed install as a failed\n  # verify rather than letting `npm test` report\
+      \ a confusing error.\n  if [ ! -d sdk/node_modules ]; then\n    echo \"VERIFY_INSTALL: sdk/node_modules\
+      \ absent \u2014 installing\"\n    out=$(cd sdk && npm ci 2>&1); rc=$?\n    if [ $rc -ne 0 ]; then\n\
+      \      echo \"$out\" | tail -12\n      echo \"VERIFY_FAIL: npm ci failed \u2014 cannot test what\
+      \ did not install\"\n      exit 1\n    fi\n  fi\n  out=$(cd sdk && npm test 2>&1); rc=$?\n  echo\
+      \ \"$out\" | tail -8; ran=1; [ $rc -eq 0 ] || ok=1\nfi\nif [ \"$ran\" -eq 0 ]; then\n  echo \"VERIFY_FAIL:\
+      \ no suite found \u2014 a verify that runs nothing cannot pass\"; exit 1\nfi\n[ \"$ok\" -eq 0 ]\
+      \ && echo VERIFY_PASS || { echo VERIFY_FAIL; exit 1; }\n"
+    timeoutMs: 1200000
+  - name: review-2
+    type: agent
+    agent: adversary
+    dependsOn:
+    - verify-2
+    task: "Review `git diff main` against ops/NEXT.md (scope), AGENTS.md\n(standards) and RFC-0001 (semantics).\
+      \ Try to refute. List violations\nwith file:line. FIRST write your complete review (findings, evidence,\n\
+      verdict rationale) to ops/reviews/$(date +%Y%m%d-%H%M)-review.md and\n`git add` it \u2014 an unpersisted\
+      \ verdict is not evidence.\n\nClassify EVERY finding as exactly one of:\n\n  BLOCKING \u2014 the\
+      \ shipped behavior is wrong, unsafe, or out of scope;\n    a test or gate cannot fail; OR a claim\
+      \ about verification is\n    false (a report says something was run, passed, or was proven\n   \
+      \ when it was not). A false verification claim is ALWAYS blocking,\n    because the whole program's\
+      \ trust rests on those claims being\n    literal. This is the careful edge: do not soften it.\n\n\
+      \  ADVISORY \u2014 the work is right but the account of it is imprecise:\n    a citation points\
+      \ at the wrong line, a mechanism is described\n    backwards, prose overstates or misnames something.\
+      \ Real defects,\n    recorded and carried, but they do not block a merge.\n\nTen consecutive ticks\
+      \ were rejected on ADVISORY-class findings while\ntheir behavior was sound. Wrong prose about right\
+      \ code is a defect to\nfix, not a reason to discard the work.\n\nEnd with REVIEW_FAILED if any finding\
+      \ is BLOCKING. Otherwise end with\nREVIEW_PASSED, and list the advisory findings under a heading\n\
+      `## Advisory (carried, non-blocking)` so they are picked up rather\nthan lost.\n"
+    verification:
+      type: output_contains
+      value: REVIEW_
+    maxIterations: 1
+    timeoutMs: 1800000
+  - name: verdict-2
+    type: deterministic
+    dependsOn:
+    - review-2
+    command: "# CLOUD VARIANT (generated): a REJECTION does not stop the run \u2014\n# nothing is delivered\
+      \ from a sandbox, so bad work cannot escape,\n# and the next cycle's assess treats the rejection\
+      \ as its work\n# package. A MISSING transcript is still fatal: a review that\n# persisted no evidence\
+      \ means the gate did not run.\n# Typed outcome, not a token: a truthful REVIEW_FAILED stops the\
+      \ run\n# cleanly (no PR, no retry loop); a crash never reaches here because\n# the review gate requires\
+      \ the reviewer to have spoken at all.\nset -u\n# Only review transcripts carry verdicts. ops/reviews/\
+      \ also holds\n# audits and fix summaries; picking the newest *.md read an audit as\n# a missing\
+      \ verdict on its first outing after a merge.\n# Sort by FILENAME, not mtime: a fresh git checkout\
+      \ stamps every\n# file with the checkout time, so `ls -t` picked an arbitrary old\n# transcript\
+      \ (read 20260827-2045 during a 20260828 tick). Names are\n# YYYYMMDD-HHMM-*, so lexical order IS\
+      \ chronological order.\nlatest=$(ls ops/reviews/*-review.md 2>/dev/null | sort | tail -1)\nif [\
+      \ -z \"$latest\" ]; then\n  echo \"VERDICT_UNKNOWN: no persisted review transcript \u2014 an unpersisted\
+      \ verdict is not evidence\"; exit 1\nfi\n# The verdict is the LAST verdict token in the transcript,\
+      \ not any\n# mention of one: a passing review that discusses a previous\n# REVIEW_FAILED must not\
+      \ be read as a rejection. (It was, on the\n# first outing of this gate.)\nv=$(grep -oE \"REVIEW_(PASSED|FAILED)\"\
+      \ \"$latest\" | tail -1)\ncase \"$v\" in\n  REVIEW_FAILED) echo \"VERDICT_FAILED: reviewer rejected\
+      \ this diff \u2014 see $latest\"; exit 0 ;;\n  REVIEW_PASSED) echo \"VERDICT_PASS ($latest)\"; exit\
+      \ 0 ;;\n  *) echo \"VERDICT_UNKNOWN_NONFATAL: $latest carries no verdict\"; exit 0 ;;\nesac\n"
+    timeoutMs: 120000
+  - name: commit-2
+    type: deterministic
+    dependsOn:
+    - verdict-2
+    command: 'set -eu
+
+      cycle=2
+
+      title=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md | sed "s/[[:space:]]*$//" || echo "work package")
+
+      latest=$(ls ops/reviews/*-review.md 2>/dev/null | sort | tail -1)
+
+      verdict=$(grep -oE "REVIEW_(PASSED|FAILED)" "$latest" 2>/dev/null | tail -1 || echo REVIEW_UNKNOWN)
+
+      git add -A
+
+      git commit -m "drive(cloud cycle $cycle): $title [$verdict]" || echo "COMMIT_NOTE: nothing new to
+      commit"
+
+      echo "CYCLE_${cycle}_COMMITTED verdict=$verdict head=$(git rev-parse --short HEAD)"
+
+      '
+    timeoutMs: 300000
+  - name: assess-3
+    type: agent
+    agent: lead
+    dependsOn:
+    - commit-2
+    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST read ops/DIRECTIVES.md\
+      \ \u2014 standing human directives outrank\nthe backlog; if one is unsatisfied, it IS the work package.\n\
+      Then read docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`,\
+      \ `gh pr list --state open` and open PR review\nstate, kernel/ and sdk/ test status. Then write\
+      \ ops/NEXT.md: the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until\
+      \ its done-when in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must\
+      \ include passing commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\n\
+      awaiting fixes from review, the work package is fixing it \u2014 never\nstart new work over unfinished\
+      \ work. If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question\
+      \ and end\nwith BLOCKED_NEEDS_HUMAN; otherwise end with ASSESS_DONE.\n"
+    verification:
+      type: output_contains
+      value: ASSESS_DONE
+    timeoutMs: 1800000
+  - name: build-3
+    type: agent
+    agent: builder
+    dependsOn:
+    - assess-3
+    maxIterations: 3
+    task: "Read ops/NEXT.md, AGENTS.md, and the relevant parts of\ndocs/RFC-0001-everything-is-a-relayflow.md.\
+      \ Implement exactly that\nwork package \u2014 nothing more. Run the definition-of-done commands\n\
+      yourself and iterate until they pass. Keep files small and\nsingle-purpose. End with BUILD_DONE\
+      \ only when the definition of done\npasses locally; paste the passing output.\n"
+    verification:
+      type: output_contains
+      value: BUILD_DONE
+    timeoutMs: 5400000
+  - name: verify-3
+    type: deterministic
+    dependsOn:
+    - build-3
+    command: "# A gate that cannot fail is not a gate. Never pipe a test command\n# into tail inside the\
+      \ status check: the pipeline's status is tail's.\nset -u\nran=0; ok=0\nif [ -d kernel ]; then\n\
+      \  # Invoke through `sh`: in a cloud sandbox this script was present\n  # but not executable (observed\
+      \ on run 4cf36ea7). Git tracks it as\n  # mode 100755, so the exec bit is lost somewhere in materialization\n\
+      \  # \u2014 which stage is NOT established, so no mechanism is claimed here.\n  # `sh <script>`\
+      \ does not depend on the bit either way.\n  out=$(cd kernel && sh ../ops/cargo.sh test --workspace\
+      \ 2>&1); rc=$?\n  echo \"$out\" | tail -8; ran=1; [ $rc -eq 0 ] || ok=1\nfi\nif [ -f sdk/package.json\
+      \ ]; then\n  # node_modules is not in `git ls-files`, so a sandbox has none.\n  # Install before\
+      \ testing, and treat a failed install as a failed\n  # verify rather than letting `npm test` report\
+      \ a confusing error.\n  if [ ! -d sdk/node_modules ]; then\n    echo \"VERIFY_INSTALL: sdk/node_modules\
+      \ absent \u2014 installing\"\n    out=$(cd sdk && npm ci 2>&1); rc=$?\n    if [ $rc -ne 0 ]; then\n\
+      \      echo \"$out\" | tail -12\n      echo \"VERIFY_FAIL: npm ci failed \u2014 cannot test what\
+      \ did not install\"\n      exit 1\n    fi\n  fi\n  out=$(cd sdk && npm test 2>&1); rc=$?\n  echo\
+      \ \"$out\" | tail -8; ran=1; [ $rc -eq 0 ] || ok=1\nfi\nif [ \"$ran\" -eq 0 ]; then\n  echo \"VERIFY_FAIL:\
+      \ no suite found \u2014 a verify that runs nothing cannot pass\"; exit 1\nfi\n[ \"$ok\" -eq 0 ]\
+      \ && echo VERIFY_PASS || { echo VERIFY_FAIL; exit 1; }\n"
+    timeoutMs: 1200000
+  - name: review-3
+    type: agent
+    agent: adversary
+    dependsOn:
+    - verify-3
+    task: "Review `git diff main` against ops/NEXT.md (scope), AGENTS.md\n(standards) and RFC-0001 (semantics).\
+      \ Try to refute. List violations\nwith file:line. FIRST write your complete review (findings, evidence,\n\
+      verdict rationale) to ops/reviews/$(date +%Y%m%d-%H%M)-review.md and\n`git add` it \u2014 an unpersisted\
+      \ verdict is not evidence.\n\nClassify EVERY finding as exactly one of:\n\n  BLOCKING \u2014 the\
+      \ shipped behavior is wrong, unsafe, or out of scope;\n    a test or gate cannot fail; OR a claim\
+      \ about verification is\n    false (a report says something was run, passed, or was proven\n   \
+      \ when it was not). A false verification claim is ALWAYS blocking,\n    because the whole program's\
+      \ trust rests on those claims being\n    literal. This is the careful edge: do not soften it.\n\n\
+      \  ADVISORY \u2014 the work is right but the account of it is imprecise:\n    a citation points\
+      \ at the wrong line, a mechanism is described\n    backwards, prose overstates or misnames something.\
+      \ Real defects,\n    recorded and carried, but they do not block a merge.\n\nTen consecutive ticks\
+      \ were rejected on ADVISORY-class findings while\ntheir behavior was sound. Wrong prose about right\
+      \ code is a defect to\nfix, not a reason to discard the work.\n\nEnd with REVIEW_FAILED if any finding\
+      \ is BLOCKING. Otherwise end with\nREVIEW_PASSED, and list the advisory findings under a heading\n\
+      `## Advisory (carried, non-blocking)` so they are picked up rather\nthan lost.\n"
+    verification:
+      type: output_contains
+      value: REVIEW_
+    maxIterations: 1
+    timeoutMs: 1800000
+  - name: verdict-3
+    type: deterministic
+    dependsOn:
+    - review-3
+    command: "# CLOUD VARIANT (generated): a REJECTION does not stop the run \u2014\n# nothing is delivered\
+      \ from a sandbox, so bad work cannot escape,\n# and the next cycle's assess treats the rejection\
+      \ as its work\n# package. A MISSING transcript is still fatal: a review that\n# persisted no evidence\
+      \ means the gate did not run.\n# Typed outcome, not a token: a truthful REVIEW_FAILED stops the\
+      \ run\n# cleanly (no PR, no retry loop); a crash never reaches here because\n# the review gate requires\
+      \ the reviewer to have spoken at all.\nset -u\n# Only review transcripts carry verdicts. ops/reviews/\
+      \ also holds\n# audits and fix summaries; picking the newest *.md read an audit as\n# a missing\
+      \ verdict on its first outing after a merge.\n# Sort by FILENAME, not mtime: a fresh git checkout\
+      \ stamps every\n# file with the checkout time, so `ls -t` picked an arbitrary old\n# transcript\
+      \ (read 20260827-2045 during a 20260828 tick). Names are\n# YYYYMMDD-HHMM-*, so lexical order IS\
+      \ chronological order.\nlatest=$(ls ops/reviews/*-review.md 2>/dev/null | sort | tail -1)\nif [\
+      \ -z \"$latest\" ]; then\n  echo \"VERDICT_UNKNOWN: no persisted review transcript \u2014 an unpersisted\
+      \ verdict is not evidence\"; exit 1\nfi\n# The verdict is the LAST verdict token in the transcript,\
+      \ not any\n# mention of one: a passing review that discusses a previous\n# REVIEW_FAILED must not\
+      \ be read as a rejection. (It was, on the\n# first outing of this gate.)\nv=$(grep -oE \"REVIEW_(PASSED|FAILED)\"\
+      \ \"$latest\" | tail -1)\ncase \"$v\" in\n  REVIEW_FAILED) echo \"VERDICT_FAILED: reviewer rejected\
+      \ this diff \u2014 see $latest\"; exit 0 ;;\n  REVIEW_PASSED) echo \"VERDICT_PASS ($latest)\"; exit\
+      \ 0 ;;\n  *) echo \"VERDICT_UNKNOWN_NONFATAL: $latest carries no verdict\"; exit 0 ;;\nesac\n"
+    timeoutMs: 120000
+  - name: commit-3
+    type: deterministic
+    dependsOn:
+    - verdict-3
+    command: 'set -eu
+
+      cycle=3
+
+      title=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md | sed "s/[[:space:]]*$//" || echo "work package")
+
+      latest=$(ls ops/reviews/*-review.md 2>/dev/null | sort | tail -1)
+
+      verdict=$(grep -oE "REVIEW_(PASSED|FAILED)" "$latest" 2>/dev/null | tail -1 || echo REVIEW_UNKNOWN)
+
+      git add -A
+
+      git commit -m "drive(cloud cycle $cycle): $title [$verdict]" || echo "COMMIT_NOTE: nothing new to
+      commit"
+
+      echo "CYCLE_${cycle}_COMMITTED verdict=$verdict head=$(git rev-parse --short HEAD)"
+
+      '
+    timeoutMs: 300000
+  - name: handoff
+    type: deterministic
+    dependsOn:
+    - commit-3
+    command: 'set -eu
+
+      echo "CLOUD_RUN_COMPLETE"
+
+      echo "branch: $(git rev-parse --abbrev-ref HEAD)"
+
+      echo "commits this run:"
+
+      git log --oneline -20 | sed "s/^/  /"
+
+      echo ""
+
+      echo "This work exists ONLY in this sandbox. Recover it with:"
+
+      echo "  agent-relay cloud sync <runId>"
+
+      echo "Nothing was pushed and no PR was opened: a sandbox has no"
+
+      echo "remote and no GitHub token. A human reviews and merges."
+
+      '
+    timeoutMs: 300000
