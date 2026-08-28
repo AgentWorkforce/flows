@@ -1717,3 +1717,33 @@ The M1 mutation guard was also executed before this pass: replacing the
 source-sensitive test (`1 failed | 129 passed`, observed calls `[step]` rather
 than `[step, project]`). Restoring the clause returned `sdk/src/preflight.ts`
 to blob `46cd0101d28277b92d0488babc3a286e2e26cd7e` byte-for-byte.
+
+### WP-7 repaired swarm `6b3c9b8507d10dfeeffb2392` at `c6d7266` — SWARM_PASSED
+
+This was a changed-head review, not an unchanged-code reroll: `e1c1f21`
+repaired maintainability M1/M2/M3, `c46bd57` repaired history H1/H2, and
+`c6d7266` recorded the independently re-executed 72/130 gate before the
+canonical-workspace swarm fetched PR #8 at
+`c6d726624ec8f0e5c67d1a8cfad0b88c03527d72`.
+
+```text
+ok: maintainability passed (ops/reviews/20260827-2131-pr8-maintainability.md)
+ok: history passed (ops/reviews/20260827-2127-pr8-history.md)
+ok: structure passed (ops/reviews/20260827-2125-pr8-structure.md)
+SWARM_PASSED
+```
+
+All three transcripts bind to `c6d7266` and end in `REVIEW_PASSED`. History
+names the full reviewed SHA; maintainability names its unique short SHA;
+structure omitted the SHA in its returned prose, so the Lead added a clearly
+labeled provenance line with the full SHA before attachment, without changing
+the review text or verdict. The transcripts were persisted while the checked-
+out head remained fixed, then fast-forwarded as three consecutive single-file
+commits: `94ae6fc` (structure), `5ddcac1` (history), and `82d1ff7`
+(maintainability). This satisfies the evidence-loss guard without changing the
+head under a still-running concurrent reviewer.
+
+The passing lenses retain only non-blocking prospective/coverage observations
+in their transcripts; no current path produces a false `CHECK PASSED` or a
+factually false operator diagnostic. Gate 1 remains **AMBER** until a human
+merges PR #8 and re-verifies the merged `main` tree. The Lead does not merge.
