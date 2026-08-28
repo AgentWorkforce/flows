@@ -52,8 +52,13 @@ Anything short of the bar → the PR stays open and the reason is recorded.
 - A gate that runs nothing fails. A "succeeded" that did nothing is a bug.
 - Instrument, don't guess, after two consecutive failed fixes on one symptom.
 - Battle-tested ≠ works-once.
-- **Isolated git worktrees for ALL my repo operations while a tick is live** —
-  not only edits. On 2026-08-28 I ran `git checkout main && git reset --hard`
+- **The tick owns the primary checkout; I stay out of it.** A tick's `sync`
+  does `git checkout main`, so ticks MUST run from
+  `~/Projects/AgentWorkforce/flows` — do not "fix" this by launching a tick
+  from a worktree (tried 2026-08-28; `sync` fails with
+  `'main' is already used by worktree`). The rule binds ME: every repo
+  operation of mine — edit, commit, reset, branch — happens in
+  `/tmp/flows-ops` while a tick is live. On 2026-08-28 I ran `git checkout main && git reset --hard`
   in the primary checkout to re-register a cloud schedule while tick 14 was
   building there; it yanked the branch from under a running tick. The work
   survived (`5b1226e`, rescued to `rescue/tick14-live-kernel`), but only by
