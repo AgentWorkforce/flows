@@ -192,8 +192,8 @@ order and by hash:
   `SWARM_PASSED`, naming its three committed transcripts
   (`20260827-1958-pr8-history.md`, `20260827-1958-pr8-structure.md`,
   `20260827-2002-pr8-maintainability.md`) and the fact that
-  `git diff a8c9110 <head> -- sdk kernel docs workflows testdata` is empty, so
-  the passing review binds to the shipped product tree;
+  `git diff a8c9110 4ce3ff9 -- sdk kernel docs workflows testdata` is empty, so
+  the passing review bound to the pre-WP-6 product tree at that head;
 - the 20:11 standalone review at `d129750` → **`REVIEW_FAILED`**, with V1/V2/V3
   stated plainly — this rejection must appear in the durable log, not only in a
   transcript;
@@ -211,22 +211,25 @@ surface deliberately narrows `steps: []` — refused at `flows check` with
 authoring-time narrowing, not a kernel guarantee. One short paragraph. **Do not
 change the kernel to match**; that is out of scope (see below).
 
-**4. Product tree untouched since the reviewed commit.** PR #8 of course changes
-product code relative to `main` — that is the package. What must not change is
-the product tree *since the commit the passing swarm reviewed*, because that
-equivalence is the only thing that lets `a8c9110`'s `SWARM_PASSED` bind to the
-head. Both must print nothing (I verified both are empty at `4ce3ff9`):
+**4. Product-tree bindings are explicit.** PR #8 of course changes product code
+relative to `main` — that is the package. Before WP-6, the product tree was
+unchanged since the commit the passing swarm reviewed, so `a8c9110`'s
+`SWARM_PASSED` bound through the rejected pre-repair head `4ce3ff9`. The V3
+disclosure then changes `docs/SURFACE.md` at `f0abdd4`, so the WP-6 re-review
+must bind to that repaired product tree instead. All three guards must print
+nothing:
 
 ```
-git diff a8c9110 HEAD -- kernel sdk testdata workflows docs
-git diff main    HEAD -- workflows/
+git diff a8c9110 4ce3ff9 -- kernel sdk testdata workflows docs
+git diff f0abdd4 HEAD     -- kernel sdk testdata workflows docs
+git diff main    HEAD     -- workflows/
 ```
 
-The first also guards `docs/` — so make the V3 disclosure edit to
-`docs/SURFACE.md` **before** the re-review in item 8, and let the re-review be
-what re-establishes the equivalence. State this explicitly in the PR body:
-after WP-6, the binding commit for the product tree is the WP-6 head, not
-`a8c9110`.
+The first two guards include `docs/`: the first preserves the historical
+binding claim and the second proves that no product path changed after the V3
+repair. Make the disclosure **before** the re-review in item 8. State explicitly
+in the PR body that after WP-6 the new review binds to the `f0abdd4` product
+tree, not to `a8c9110`.
 
 **5. History intact.** `a8c9110`, `d129750`, `497bc10`, `7062800`, `4ce3ff9`
 are all still ancestors of the head, unmodified:
