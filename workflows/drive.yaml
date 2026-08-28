@@ -186,7 +186,11 @@ workflows:
           # Only review transcripts carry verdicts. ops/reviews/ also holds
           # audits and fix summaries; picking the newest *.md read an audit as
           # a missing verdict on its first outing after a merge.
-          latest=$(ls -t ops/reviews/*-review.md 2>/dev/null | head -1)
+          # Sort by FILENAME, not mtime: a fresh git checkout stamps every
+          # file with the checkout time, so `ls -t` picked an arbitrary old
+          # transcript (read 20260827-2045 during a 20260828 tick). Names are
+          # YYYYMMDD-HHMM-*, so lexical order IS chronological order.
+          latest=$(ls ops/reviews/*-review.md 2>/dev/null | sort | tail -1)
           if [ -z "$latest" ]; then
             echo "VERDICT_UNKNOWN: no persisted review transcript — an unpersisted verdict is not evidence"; exit 1
           fi
