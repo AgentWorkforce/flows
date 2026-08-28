@@ -1,4 +1,3 @@
-/Users/khaliqgant/.zshenv:.:1: no such file or directory: /tmp/agent37-rust-0820.DWSmuv/cargo/env
 # NEXT — single highest-priority work package
 
 Written by the Relayflow Lead on 2026-08-27 (assess tick on branch
@@ -224,7 +223,7 @@ Scope and history guards (each must print nothing):
 
 ```
 git diff origin/main HEAD -- workflows/     # the gate that judges this is untouched
-git diff origin/main HEAD -- kernel/        # this package changes no kernel code
+git diff b43cd0f HEAD -- kernel/            # WP-7 changes no kernel code
 ```
 
 and every previously cited commit must still be an unmodified ancestor:

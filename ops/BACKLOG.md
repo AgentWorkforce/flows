@@ -67,7 +67,7 @@ gate's needs. Not commitments; ordering is the Lead's call with evidence.
   github mount, as the personas do) or make `sync` clone when `origin` is
   absent. This is the last known gap between local ticks and machine-
   independent scheduled execution.
-- **Undisclosed `steps: []` check/kernel asymmetry (P3, WP-4 review V3).** The
+- **Documented `steps: []` check/kernel asymmetry (P3, WP-4 review V3).** The
   authoring surface refuses an empty step list —
   `REFUSED [invalid_spec] spec.steps: expected a non-empty array`, exit 2 —
   while the kernel accepts it: `RunSpec.steps` is `#[serde(default)]`

@@ -1647,3 +1647,46 @@ files introduced earlier by PR #8, before WP-7; reverting them would erase
 the open PR's required spec-parity work and is out of scope. This baseline
 contradiction is preserved rather than hidden. All ten cited commits remain
 ancestors. Gate 1 remains **AMBER** and PR #8 remains open.
+
+### WP-7 swarm `35abbc9c46e2bcf74c2ec22f` at `3848738` — SWARM_FAILED and repaired
+
+The canonical-workspace swarm bound PR #8 to
+`3848738eae136d846bce309eabb862de54818549`. Its aggregate printed:
+
+```text
+SWARM_FAILED: maintainability rejected — see ops/reviews/20260827-2115-pr8-maintainability.md
+SWARM_FAILED: history rejected — see ops/reviews/20260827-2110-pr8-history.md
+ok: structure passed (ops/reviews/20260827-2108-pr8-structure.md)
+```
+
+Each transcript was committed alone as soon as its lens returned: structure
+at `8db1d99`, history at `f678af3`, and maintainability at `a70185f`. Structure
+and history explicitly name `3848738`. Maintainability names the later local
+ops-only head `f678af3` and states that `9aecc41` is the last code-bearing
+commit; the local head moved only because the earlier transcripts had already
+been committed under the evidence-loss guard. This failed round does not
+satisfy WP-7's exact-head transcript requirement and is not represented as if
+it did.
+
+History rejected two record regressions. H1 found that WP-7 inherited the
+literal `origin/main..HEAD` kernel guard even though PR #8 already contains
+three pre-WP-7 kernel files; the correct package baseline is `b43cd0f`. H2
+found that the stashed assessment restore accidentally wrote this machine's
+`.zshenv` diagnostic as the first line of `ops/NEXT.md`. Both are corrected
+in the next ops commit, reviewer-forced rather than silently waived. The
+backlog item's stale word “Undisclosed” is corrected at the same time.
+
+Maintainability passed the requested F1/F2/F4/F5/F8 product behavior but
+rejected three new seams. M1 showed that removing `source` from the memo key
+could turn two relative CLIs with different bases into a false `CHECK PASSED`
+while all 127 tests remained green. M2 showed a present non-executable file
+reported as “missing.” M3 showed `probe_failed` dropping whether the process
+could not start, was signal-killed, or timed out. Commit `e1c1f21` repairs all
+three with mutation-sensitive source coverage, truthful executable wording,
+and a classified non-secret detail (`spawn_failed`, signal, or timeout) in
+both text and JSON diagnostics.
+
+The aggregate runner entered its generic repair retry after printing the
+failure. It was interrupted before the repair agent could mutate a file, as
+WP-7 requires. No unchanged-code rerun occurred. Gate 1 remains **AMBER** and
+PR #8 remains open.
