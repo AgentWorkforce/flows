@@ -3353,6 +3353,56 @@ Run `npm audit` for details.
 CLEAN_ACCEPTANCE built_cli=executable
 ```
 
+### Delivery and supersession
+
+The pre-delivery status was empty, and the merged history contains PR #9's
+four commits and PR #11's two commits:
+
+```text
+$ git status --porcelain
+
+$ git log --oneline origin/main..HEAD
+5ebdf71 ops(review): record WP-12 adversarial verdict
+53cc507 ops: record final-head WP-12 revalidation
+41441d0 fix(kernel): expose heartbeat-renewed lease deadlines
+7f63fe8 ops: record WP-12 verification evidence
+31a0284 test(cli): make lease mutation terminate deterministically
+e1624b0 test(cli): avoid racing the human-park snapshot
+0d1d767 fix(cli): make parked lifecycle reporting protocol-safe
+d39db34 Merge remote-tracking branch 'origin/flow/drive-615f97d-08280219' into flow/drive-de5f378-08280313
+d5013e6 Merge remote-tracking branch 'origin/flow/drive-77b2457-08280058' into flow/drive-de5f378-08280313
+bcd4f20 ops: WP-12 assessment
+2da6a92 drive: WP-11 tick log — assessment gated, PR #9 short of the bar
+d2e7472 drive: WP-11: repair PR #9 under review before anything else
+3616c0a Record WP-11 repair evidence and adversarial review
+c83a367 Repair flows run and resume lifecycle reporting
+0fd332c Record WP-10 verification evidence
+b401efe Add flows run and resume live-kernel surface
+```
+
+```text
+$ gh pr create --base main --head flow/drive-de5f378-08280313 ...
+https://github.com/AgentWorkforce/flows/pull/12
+
+$ gh pr close 9 --comment 'Superseded by #12 ...'
+✓ Closed pull request AgentWorkforce/flows#9 (WP-10: `flows run` / `flows resume` — the authored ladder runs on the live kernel)
+
+$ gh pr close 11 --comment 'Superseded by #12 ...'
+✓ Closed pull request AgentWorkforce/flows#11 (drive: WP-11: repair PR #9 under review before anything else)
+```
+
+The new PR body links both predecessors and restates F1–F8 plus H1–H2. The
+remote state read back as:
+
+```text
+$ gh pr view 12 --json number,state,url,headRefName,baseRefName,title --jq '[.number,.state,.url,.headRefName,.baseRefName,.title] | @tsv'
+12	OPEN	https://github.com/AgentWorkforce/flows/pull/12	flow/drive-de5f378-08280313	main	Repair flows run/resume lifecycle and supersede PRs #9 and #11
+$ gh pr view 9 --json number,state --jq '[.number,.state] | @tsv'
+9	CLOSED
+$ gh pr view 11 --json number,state --jq '[.number,.state] | @tsv'
+11	CLOSED
+```
+
 ### Captured iteration failures (not counted as verification)
 
 The first F6-focused run exposed the deterministic rung's lack of any agent
