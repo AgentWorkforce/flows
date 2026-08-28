@@ -455,9 +455,10 @@ impl JournalObserver for ProtocolHub {
 }
 
 pub fn write_frame(writer: &Writer, value: &impl serde::Serialize) -> Result<()> {
+    let mut frame = serde_json::to_vec(value)?;
+    frame.push(b'\n');
     let mut writer = writer.lock().expect("protocol writer lock");
-    serde_json::to_writer(&mut *writer, value)?;
-    writer.write_all(b"\n")?;
+    writer.write_all(&frame)?;
     writer.flush()?;
     Ok(())
 }
