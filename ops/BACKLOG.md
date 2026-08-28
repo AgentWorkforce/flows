@@ -71,10 +71,16 @@ gate's needs. Not commitments; ordering is the Lead's call with evidence.
   authoring surface refuses an empty step list —
   `REFUSED [invalid_spec] spec.steps: expected a non-empty array`, exit 2 —
   while the kernel accepts it: `RunSpec.steps` is `#[serde(default)]`
-  (`kernel/relayflowd-core/src/spec.rs:39-40`) and `RunSpec::validate` has no
+  (`kernel/relayflowd-core/src/spec.rs`, `RunSpec::steps`) and
+  `RunSpec::validate` has no
   empty-steps check, so the loops no-op and it returns `Ok(())`. Same false-red
   class as the WP-5 F1 `name` case, and degenerate (a zero-step flow is
   meaningless; refusing it at authoring is defensible), so it was raised
   non-blocking. Close it by either refusing empty steps in the kernel too, or
   noting in `docs/SURFACE.md` that the authoring surface deliberately narrows
   this case. Deliberately not fixed in WP-5: the kernel option is out of scope.
+- **Scope the `flows check` CLI probe environment (gate 8; WP-7 F6).** Gate 1
+  intentionally discloses that `<cli> auth status` inherits the checker's
+  complete caller environment. Gate 8 must replace ambient inheritance with
+  an explicit scoped or allowlisted probe environment before untrusted or
+  self-authored flow specs are checked under privileged credentials.
