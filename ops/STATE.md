@@ -8,7 +8,7 @@ it is authoritative when history is unavailable.
 **Keep it current. A stale STATE.md is worse than none:** it does not merely
 fail to help, it actively misleads an assessor that cannot check it.
 
-Last updated: 2026-08-28 23:40 UTC, by Khaliq's session, on `main`.
+Last updated: 2026-08-29 01:35 UTC, by Khaliq's session, on `main`.
 
 ## Where the program is
 
@@ -41,15 +41,25 @@ Last updated: 2026-08-28 23:40 UTC, by Khaliq's session, on `main`.
   `matching_event_wakes_once_with_fresh_context ... ok` (1 passed). The
   wake-time context assembly is in `engine/wake.rs`; the idempotency proof is
   `kernel/relayflowd/tests/event_wake.rs`.
-  **What actually remains is the RFC's own bar, which is higher than the
-  primitives.** RFC-0001 §3 gate 2 is done when a real proactive workload
-  (`hn-monitor` or `linear`) runs as a relayflow — not when the kernel can wake
-  on an event. Rule 2 governs: a gate is green only when the real workload runs
-  on it. So gate 2 stays AMBER with its primitives complete.
+  **What remains is the RFC's own bar, which is higher than the primitives.**
+  RFC-0001 §3 gate 2 is done when a real proactive workload (`hn-monitor` or
+  `linear`) runs as a relayflow — not when the kernel can wake on an event.
+  Rule 2 governs: a gate is green only when the real workload runs on it.
+
+  **PR #15 (`079f7c4`) took the first step and no more.** It added
+  `testdata/hn-monitor.flow.yaml`, its canonical spec, and
+  `kernel/relayflowd/tests/hn_monitor_integration.rs`. Verified by hand:
+  `flows check` -> `CHECK PASSED`, and the integration test passes inside the
+  full workspace run (19+19+1+1+26+5 passed, 0 failed).
+
+  But `hn-monitor` does not yet monitor anything: the event is supplied by a
+  test, not by Hacker News. That is the shape of the bar, not the bar cleared.
+  **Gate 2 stays AMBER.** To go green it needs the flow woken by a real
+  external event and doing something observable with it.
 
 ## Open PRs
 
-**None.** Every flows PR opened to date is merged: #1–#8, #10, #12, #13, #14.
+**None.** Every flows PR opened to date is merged: #1–#8, #10, #12, #13, #14, #15.
 PR #9 and PR #11 were superseded by #12 and are closed, not pending.
 
 - **#13** delivered the first cloud-produced work back as a PR.
