@@ -35,6 +35,7 @@ export interface ValidatedWorkPackage {
 }
 
 export type WorkPackageValidationReason =
+  | 'unterminated_backticks'
   | 'missing_title'
   | 'missing_scope'
   | 'missing_definition_of_done';
@@ -78,6 +79,9 @@ export function validateWorkPackage(input: unknown): WorkPackageValidation {
   if (!isRecord(input) || !isNonEmptyString(input['title'])) {
     return { accepted: false, reason: 'missing_title' };
   }
+  if (hasUnterminatedBackticks(input)) {
+    return { accepted: false, reason: 'unterminated_backticks' };
+  }
   if (!isNonEmptyStringArray(input['files_in_scope'])) {
     return { accepted: false, reason: 'missing_scope' };
   }
@@ -85,6 +89,13 @@ export function validateWorkPackage(input: unknown): WorkPackageValidation {
     return { accepted: false, reason: 'missing_definition_of_done' };
   }
   return { accepted: true, work: input as unknown as ValidatedWorkPackage };
+}
+
+function hasUnterminatedBackticks(input: Record<string, unknown>): boolean {
+  const source = [input['title'], input['description']]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ');
+  return (source.match(/`/g)?.length ?? 0) % 2 === 1;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

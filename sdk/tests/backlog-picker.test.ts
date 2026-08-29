@@ -93,6 +93,18 @@ describe('backlog picker', () => {
 });
 
 describe('work package validation', () => {
+  it('refuses an entry with unterminated backticks using a typed reason', async () => {
+    const work = packageFromEntry({
+      title: 'Fix malformed scope extraction',
+      body: 'Update `sdk/src/backlog-picker.ts so scope cannot be mispaired.',
+    });
+
+    expect(await validate(work)).toEqual({
+      accepted: false,
+      reason: 'unterminated_backticks',
+    });
+  });
+
   it('uses a referenced code symbol as evidence of repository scope', async () => {
     const work = packageFromEntry({
       title: 'Refuse an entry with unterminated backticks',
