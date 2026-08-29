@@ -11,7 +11,17 @@ Run from the repo root:  python3 ops/gen-drive-cloud.py
 import copy
 import yaml
 
-CYCLES = 3
+# ONE cycle per run, on evidence. Cycle 1 completes cleanly in about ten
+# minutes (runs 6b6d456e and 1b0dedc8 both did). Cycle 2's assess step then
+# hangs — both those runs stalled at assess-2 past the 40-minute threshold and
+# had to be cancelled, which destroys the patch and so threw away the cycle-1
+# work that had already committed.
+#
+# Three cycles in one sandbox was meant to amortise startup. In practice it
+# converts a finished cycle into a lost one. A single-cycle run terminates,
+# yields its patch, and gets delivered as a PR; the next run is launched by
+# whatever is supervising. Short runs that finish beat long runs that hang.
+CYCLES = 1
 # "review" and "verdict" are deliberately ABSENT from the cloud variant.
 # Every hang observed on 2026-08-28 (five of five: 167c2713, dd0fa9c2,
 # e960e18d, 8aac8a58 and one more) was an adversarial review step silent for
@@ -44,7 +54,9 @@ def build():
         "human. GENERATED from workflows/drive.yaml by ops/gen-drive-cloud.py.\n"
     )
     out["swarm"]["channel"] = "flows-drive-cloud"
-    out["swarm"]["timeoutMs"] = 28800000  # 8h
+    out["swarm"]["timeoutMs"] = 3600000  # 1h — one cycle takes ~10 min; a run
+    # that has not finished in an hour is hung, not slow, and should stop
+    # burning budget rather than sit for eight hours.
 
     steps = [copy.deepcopy(src["sync"])]
     prev = "sync"
