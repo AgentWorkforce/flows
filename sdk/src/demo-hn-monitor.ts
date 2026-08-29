@@ -44,9 +44,14 @@ async function main(): Promise<void> {
     await pollHackerNewsOnce(spec, sink);
 
     let woke = 0;
+    const createdRunIds: string[] = [];
     for (const { storyId, outcome } of submissions) {
       const wake = outcome.run === undefined || outcome.run === null ? 'none' : 'created';
-      if (wake === 'created') woke += 1;
+      if (wake === 'created') {
+        woke += 1;
+        const runId = typeof outcome.run === 'string' ? outcome.run : (outcome.run as { run_id?: string })?.run_id;
+        if (runId) createdRunIds.push(runId);
+      }
       console.log(
         `Story ${String(storyId)}: matched=${outcome.matched} deduped=${outcome.deduped} wake=${wake}`,
       );
@@ -68,10 +73,36 @@ async function main(): Promise<void> {
       console.log(`PROVEN: ${woke} run(s) created from live Hacker News data via event.submit.`);
       console.log('        The event path — fetch, match, dedupe claim, wake — works end to end.');
       console.log('');
-      console.log('NOT PROVEN: that those runs EXECUTED. No agent worker is attached to this');
-      console.log('        kernel, so each run is created and then waits. Gate 2 asks whether a');
-      console.log('        workload RUNS as a relayflow; this shows it is woken, not that it ran.');
-      console.log('        Attach a worker and re-run to close that gap.');
+
+      // Do not ASSERT that nothing executed — ask the kernel and report what it
+      // says. The first version of this block hardcoded "no agent worker is
+      // attached", which would have been a false statement the moment someone
+      // attached one. Evidence is captured, not narrated.
+      const observed = createdRunIds[0];
+      if (observed === undefined) {
+        console.log('NOT PROVEN: that those runs EXECUTED — no run id came back to inspect.');
+      } else {
+        const snapshot = await client.runGet(observed);
+        const steps = Object.entries(snapshot.steps);
+        // A run nobody works sits in `runnable` — ready, with no worker to
+        // claim it. So "not pending" is NOT evidence of execution; only a step
+        // that reached `running` or `done` proves a worker picked it up.
+        const executed = steps.filter(([, step]) => step.state === 'running' || step.state === 'done').length;
+        const stateCounts = steps.map(([id, step]) => `${id}=${step.state}`).join(' ');
+        console.log(`Observed run ${observed}: status=${snapshot.status}, steps: ${stateCounts}`);
+        if (executed === 0) {
+          console.log('');
+          console.log('NOT PROVEN: that those runs EXECUTED. No step reached running or done,');
+          console.log('        which is what a created-but-unworked run looks like: `relayflowd serve`');
+          console.log('        alone attaches no agent worker. Gate 2 asks whether a workload RUNS');
+          console.log('        as a relayflow; this shows it is woken, not that it ran.');
+          console.log('        Attach a worker and re-run to close that gap.');
+        } else {
+          console.log('');
+          console.log(`ALSO PROVEN: execution happened — ${String(executed)} step(s) reached`);
+          console.log('        running or done, so a worker claimed this run. That is gate 2 proper.');
+        }
+      }
     } else {
       console.log('No runs were created. Either every story was already claimed (dedupe working');
       console.log('as intended on a repeat poll), or nothing matched the subscription.');
