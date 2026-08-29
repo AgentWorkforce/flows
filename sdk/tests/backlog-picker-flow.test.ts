@@ -124,6 +124,74 @@ describe('backlog-picker canonical spec', () => {
     }
   });
 
+  it('gives every canonical step the same field set, in the kernel\'s own names', () => {
+    // Comparing only `command` was not enough. PR #30 regenerated this file by
+    // copying `dependsOn` straight from the yaml, but the kernel reads
+    // `depends_on` — so the step that change added reached the kernel with no
+    // dependencies, no retry policy, no verification and no iteration cap,
+    // while two other steps carried a stray camelCase key alongside the real
+    // one. Every command matched, so the check above passed throughout. PR #35
+    // cleaned it up; this is the guard that would have caught it.
+    //
+    // The rule is shape, not content: whatever fields the kernel-authored
+    // steps carry, every step must carry, and no step may carry an authoring
+    // -surface alias the kernel does not read.
+    const root = join(__dirname, '..', '..');
+    const canonical = JSON.parse(
+      readFileSync(join(root, 'testdata', 'backlog-picker.spec.canonical.json'), 'utf8'),
+    ) as { steps: Array<Record<string, unknown>> };
+
+    expect(canonical.steps.length).toBeGreaterThan(1);
+    const fieldSets = canonical.steps.map((step) => Object.keys(step).sort().join(','));
+    const expected = fieldSets[0];
+    canonical.steps.forEach((step, index) => {
+      expect(
+        fieldSets[index],
+        `step "${String(step['id'])}" has a different field set than "${String(canonical.steps[0]?.['id'])}"`,
+      ).toBe(expected);
+    });
+
+    // camelCase is the authoring surface's spelling; the kernel reads snake_case.
+    for (const step of canonical.steps) {
+      const camel = Object.keys(step).filter((key) => /[a-z][A-Z]/.test(key));
+      expect(camel, `step "${String(step['id'])}" carries authoring-surface keys`).toEqual([]);
+    }
+  });
+
+  it('carries every dependency the yaml declares, under the kernel\'s key', () => {
+    // Consistency between steps is not enough, and review caught that (PR #37):
+    // if regeneration dropped `depends_on` from EVERY step, all field sets
+    // would still match and none would be camelCase, so both checks above pass
+    // while the kernel silently loses the whole dependency graph and runs the
+    // steps in the wrong order.
+    //
+    // So compare against the authority instead of against the siblings. The
+    // yaml declares the dependencies; the canonical spec must carry the same
+    // ones under `depends_on`. This cannot go stale as the kernel's schema
+    // grows, because it asserts a relationship rather than a field list.
+    const root = join(__dirname, '..', '..');
+    const flow = load(readFileSync(join(root, 'testdata', 'backlog-picker.flow.yaml'), 'utf8')) as {
+      steps: Array<{ id: string; dependsOn?: string[] }>;
+    };
+    const canonical = JSON.parse(
+      readFileSync(join(root, 'testdata', 'backlog-picker.spec.canonical.json'), 'utf8'),
+    ) as { steps: Array<{ id: string; depends_on?: string[] }> };
+
+    const canonicalById = new Map(canonical.steps.map((step) => [step.id, step]));
+    let declared = 0;
+    for (const step of flow.steps) {
+      if (step.dependsOn === undefined) continue;
+      declared += 1;
+      expect(
+        canonicalById.get(step.id)?.depends_on,
+        `step "${step.id}" loses the dependencies the yaml declares`,
+      ).toEqual(step.dependsOn);
+    }
+    // If the yaml ever stops declaring dependencies this test would assert
+    // nothing at all, and pass while proving nothing.
+    expect(declared, 'the flow yaml declares no dependencies to check').toBeGreaterThan(0);
+  });
+
   it('keeps directories and extensionless paths, and rejects prose', () => {
     const steps = stepCommands();
     const dir = mkdtempSync(join(tmpdir(), 'backlog-scope-'));
