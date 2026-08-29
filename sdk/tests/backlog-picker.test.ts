@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
-import { renderWorkPackage, selectBacklogEntry } from '../src/backlog-picker.js';
+import {
+  packageFromEntry,
+  renderWorkPackage,
+  selectBacklogEntry,
+} from '../src/backlog-picker.js';
 
 const BACKLOG = `# Backlog
 
@@ -89,6 +93,33 @@ describe('backlog picker', () => {
 });
 
 describe('work package validation', () => {
+  it('accepts an engineering task stated as an imperative outcome', async () => {
+    const work = packageFromEntry({
+      title: 'Refuse a path-like deterministic command word',
+      body: 'Update `sdk/src/preflight.ts` so a missing path is refused.',
+    });
+
+    expect(await validate(work)).toMatchObject({
+      accepted: true,
+      work: {
+        files_in_scope: ['sdk/src/preflight.ts'],
+        definition_of_done: ['Refuse a path-like deterministic command word'],
+      },
+    });
+  });
+
+  it('refuses a dated notes blob even when identifiers look actionable', async () => {
+    const work = packageFromEntry({
+      title: 'Upstream issues (2026-08-27):',
+      body: 'relay#1620 (`--daemon` crash + `worker status` blind). Acceptance: `regressions/`.',
+    });
+
+    expect(await validate(work)).toEqual({
+      accepted: false,
+      reason: 'missing_definition_of_done',
+    });
+  });
+
   it('accepts a package yielded by an actionable backlog', async () => {
     const entry = selectBacklogEntry(
       '# Backlog\n\n- **Validate packages** edit `sdk/src/backlog-picker.ts`; run `npm test`\n',
