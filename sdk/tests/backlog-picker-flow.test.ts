@@ -124,6 +124,40 @@ describe('backlog-picker canonical spec', () => {
     }
   });
 
+  it('gives every canonical step the same field set, in the kernel\'s own names', () => {
+    // Comparing only `command` was not enough. PR #30 regenerated this file by
+    // copying `dependsOn` straight from the yaml, but the kernel reads
+    // `depends_on` — so the step that change added reached the kernel with no
+    // dependencies, no retry policy, no verification and no iteration cap,
+    // while two other steps carried a stray camelCase key alongside the real
+    // one. Every command matched, so the check above passed throughout. PR #35
+    // cleaned it up; this is the guard that would have caught it.
+    //
+    // The rule is shape, not content: whatever fields the kernel-authored
+    // steps carry, every step must carry, and no step may carry an authoring
+    // -surface alias the kernel does not read.
+    const root = join(__dirname, '..', '..');
+    const canonical = JSON.parse(
+      readFileSync(join(root, 'testdata', 'backlog-picker.spec.canonical.json'), 'utf8'),
+    ) as { steps: Array<Record<string, unknown>> };
+
+    expect(canonical.steps.length).toBeGreaterThan(1);
+    const fieldSets = canonical.steps.map((step) => Object.keys(step).sort().join(','));
+    const expected = fieldSets[0];
+    canonical.steps.forEach((step, index) => {
+      expect(
+        fieldSets[index],
+        `step "${String(step['id'])}" has a different field set than "${String(canonical.steps[0]?.['id'])}"`,
+      ).toBe(expected);
+    });
+
+    // camelCase is the authoring surface's spelling; the kernel reads snake_case.
+    for (const step of canonical.steps) {
+      const camel = Object.keys(step).filter((key) => /[a-z][A-Z]/.test(key));
+      expect(camel, `step "${String(step['id'])}" carries authoring-surface keys`).toEqual([]);
+    }
+  });
+
   it('keeps directories and extensionless paths, and rejects prose', () => {
     const steps = stepCommands();
     const dir = mkdtempSync(join(tmpdir(), 'backlog-scope-'));
