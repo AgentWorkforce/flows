@@ -113,6 +113,13 @@ export { JOURNAL_WRITE_FAILED, PROTOCOL_VERSION } from './protocol.js';
 
 export { JournalClient, type JournalClientOptions } from './journal-client.js';
 
+export {
+  consumeWorkPackage,
+  type EmittedWorkPackage,
+  type WorkPackageConsumption,
+  type WorkPackageRefusalReason,
+} from './work-package-consumer.js';
+
 // Hacker News adapter — deliberately outside kernel/ (see sdk/src/hn-poller.ts).
 export {
   pollHackerNewsOnce,
