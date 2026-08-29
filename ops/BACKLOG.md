@@ -3,27 +3,24 @@
 Items the Lead should weigh in assess after ops/DIRECTIVES.md and the current
 gate's needs. Not commitments; ordering is the Lead's call with evidence.
 
-- **Gate-2 blocker: an agent step declaring no surfaces can never be executed.**
-  Two kernel rules are individually reasonable and jointly unsatisfiable.
-  `kernel/relayflowd/src/server.rs:211-218` refuses an agent worker whose
-  workspace AND streams pins are both empty ("an agent worker must attach with
-  the pins of the surfaces it holds"). `kernel/relayflowd/src/engine.rs:391-399`
-  (`validate_agent_pins`) then requires the worker's pins to EXACTLY EQUAL the
-  step's declared surfaces. For a step with `surfaces: null` the expected set is
-  empty, so: attaching with no pins is refused, and attaching with any pins
-  fails the equality check and the step is silently never dispatched —
-  `step_is_dispatchable` returns false and the run sits in `runnable` forever
-  with no error anywhere.
-  Observed: `testdata/hn-monitor.flow.yaml`'s `analyze-story` declares no
-  surfaces. A probe worker attaching with `workspace: []` is rejected at attach;
-  attaching with `[{surface: repo}]` succeeds but no `step.dispatch` arrives.
-  The contrast case is already covered and passing: the live-kernel test whose
-  flow declares `- surface: repo` and attaches a matching pin DOES dispatch.
-  This is why gate 2 cannot be proven end to end — PR #19's demo can show a run
-  created but never one executed.
-  Recommended fix is the dispatch side, not the demo: when a step declares no
-  surfaces, any attached agent worker should qualify. Changing the flow to
-  declare a surface would hide the rule conflict rather than resolve it.
+- **Gate-2 blocker: a run that parks for want of a worker is never re-driven
+  when one attaches.** Isolated with a controlled A/B on the same flow, same
+  pins, same kernel — only the ordering differs:
+      worker attaches BEFORE run starts -> DISPATCHED step=analyze-story
+      worker attaches AFTER  run starts -> NO_DISPATCH (12s)
+  `attach_worker` (`kernel/relayflowd/src/server/session.rs:102`) registers the
+  worker but does not revisit runs already parked, so a run that found no
+  worker at start sits in `runnable` forever with no error anywhere.
+  This is why gate 2 cannot be shown executing: the demo creates runs via
+  `event.submit` when nothing is attached, so every woken run parks permanently.
+  Fix direction: on worker attach, re-elect steps for runs parked awaiting a
+  worker of that type.
+  CORRECTION: an earlier version of this entry blamed a pin deadlock between
+  the Covenant 2 attach preflight and `validate_agent_pins`. That was wrong. A
+  surface-less agent step dispatches fine when the worker attaches first, and
+  the regression test written against the pin theory passed without any fix —
+  which is how the misdiagnosis was caught. Nothing in the pin rules needs to
+  change.
 
 - **Refuse an entry with unterminated backticks.** Salvaged from closed PR #32.
   The picker's scope and definition-of-done both come from backtick matching,
