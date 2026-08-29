@@ -1,107 +1,108 @@
-# NEXT — WP-GATE2-1: Proactive agent event subscription (gate 2)
+# NEXT — WP-GATE2-FINAL: Real workload proof for gate 2
 
 **Target gate:** Gate 2 (per ops/TARGET.md — this run is pinned to gate 2 only)
 
-**Work package:** WP-GATE2-1 — Implement event-triggered flow execution
+**Work package:** WP-GATE2-FINAL — Build hn-monitor as event-triggered flow
 
 ## Objective
 
-Build the foundational event subscription machinery for gate 2: a flow declares an event subscription; the kernel wakes it on a matching event; the agent step receives context assembled AT WAKE from an epoch summary plus the triggering event (not a resumed session); the wake is journaled as a fact; and a test proves a second identical event does not double-execute the effect.
+Close gate 2 by building a **real proactive workload** that runs as a relayflow. Gate 2 primitives are DONE per ops/STATE.md (engine/wake.rs assembles wake-time context; kernel/relayflowd/tests/event_wake.rs proves one wake per unique event). RFC-0001 §3 gate 2 done-when requires the real workload, not just primitives.
+
+Build **hn-monitor** as the smallest honest event-triggered flow that:
+- Subscribes to HN story events (simulated or real webhook payload structure)
+- Wakes on matching event
+- Performs a real agent task (analyze story, check criteria, post summary)
+- Exercises the wake path end-to-end
+
+Constraint: ONE cycle (~10 minutes of build time) — build the smallest true version, not a complete production system.
 
 ## Files in scope
 
-### Kernel (Rust):
-- `kernel/relayflowd-core/src/spec.rs` — extend `TriggerSpec` from a parse-only stub (current: `{id, executor}`) to a real event matcher with event type/pattern fields
-- `kernel/relayflowd-core/src/entry.rs` — add entry types for event ingress (`event.received`) and subscription state (`subscription.registered`, `subscription.matched`)
-- `kernel/relayflowd/src/engine.rs` — implement event matching logic and wake semantics (match incoming event → spawn run OR wake existing run at next epoch boundary)
-- `kernel/relayflowd/src/server/wire.rs` + `protocol.ts` — add protocol verbs for event submission (`event.submit`) and subscription management
-- NEW: `kernel/relayflowd-core/src/event.rs` — event matching engine (pattern types, matcher implementations)
-- NEW: `kernel/relayflowd/src/engine/wake.rs` — wake-from-event path with context assembly (epoch summary + triggering event payload)
+### New flow file:
+- `testdata/hn-monitor.flow.yaml` — event-triggered flow with:
+  - Trigger subscribing to `hn.story_posted` event type
+  - Pattern matching for stories (e.g., minimum score threshold)
+  - Dedupe key template to prevent double-processing
+  - Agent step that analyzes the story from wake context
+  - Simple verification (e.g., output must mention the story title)
 
-### SDK (TypeScript):
-- `sdk/src/spec.ts` — extend `TriggerSpec` interface to include event subscription fields (event type, pattern, dedupe key template)
-- `sdk/src/compile.ts` — compile YAML trigger declarations to kernel spec format
-- `sdk/src/protocol.ts` — add `event.submit` request/response types
-- `sdk/src/validate.ts` — validation rules for trigger specs (non-empty executor, valid event patterns)
+### SDK:
+- `sdk/src/compile.ts` — ensure event-triggered flows compile correctly (likely already works)
+- `sdk/dist/cli.js` — must resolve the hn-monitor flow via `check` command
 
-### Tests:
-- NEW: `kernel/relayflowd/tests/event_wake.rs` — the acceptance test: subscribe to event type X, submit event, assert wake happened and was journaled; submit identical event, assert NO second execution (idempotency by event dedupe key)
-- `sdk/tests/live-kernel.test.ts` — extend to cover event submission and subscription lifecycle
+### Kernel test:
+- `kernel/relayflowd/tests/hn_monitor_integration.rs` (NEW) — integration test that:
+  - Loads the hn-monitor flow spec
+  - Submits a simulated HN event via `submit_event`
+  - Asserts the run spawns and reaches Parked state
+  - Verifies journal entries (EventReceived, SubscriptionMatched)
+  - Verifies wake context contains the event payload
+  - Submits duplicate event, asserts dedupe works (no second run)
 
-### Testdata:
-- NEW: `testdata/event-triggered-flow.yaml` — minimal flow with one trigger subscription and one agent step that logs the triggering event payload
-- NEW: `testdata/event-triggered-flow.spec.canonical.json` — compiled spec for parity test
+OR extend existing `event_wake.rs` to use the hn-monitor flow instead of event-triggered-flow.
 
 ## Definition of done
 
 All of the following must pass:
 
-1. **Kernel tests pass:**
+1. **Flow file exists and resolves:**
    ```bash
-   cd kernel && cargo test --workspace
+   cd sdk && node dist/cli.js check ../testdata/hn-monitor.flow.yaml
    ```
-   Must include the new `event_wake.rs` test proving:
-   - Event submission reaches a subscribed flow
-   - Wake is journaled as `event.received` + `run.spawned` OR `wait.event` + `wait.completed`
-   - Context at wake = epoch summary + event payload (not a resumed agent session)
-   - Identical event submitted twice → exactly one execution (dedupe by event key)
+   Must succeed with preflight warnings (no executor registered, CLI missing) but NOT refuse for schema violations.
 
-2. **SDK tests pass:**
+2. **Kernel test passes:**
    ```bash
-   cd sdk && npm test
+   cd kernel && sh ../ops/cargo.sh test
    ```
-   Must include:
-   - Trigger spec validation (reject empty executor, invalid patterns)
-   - Event-triggered flow compiles to canonical spec and hashes correctly
-   - Live kernel test: submit event, poll run state, assert completion
+   Including a test that drives hn-monitor through `submit_event` with a realistic HN story event payload.
 
-3. **Spec parity holds:**
-   The event-triggered testdata flow compiles in SDK and parses in kernel with identical `spec_hash` (existing `spec_parity.rs` test extended to cover the new fixture)
+3. **The flow is honest, not mock:**
+   - Event payload structure matches real HN webhook format (story id, title, url, score, etc.)
+   - Agent instruction is a real task: "Analyze this HN story and determine if it's relevant to AI agents/automation. Output a summary with: story title, relevance score (1-10), and reasoning."
+   - Verification gate checks that output contains required fields
+   - NOT a no-op or echo step
 
-4. **Integration proof:**
-   ```bash
-   cd kernel && cargo run -- run testdata/event-triggered-flow.spec.canonical.json --event '{"type":"test.ping","payload":{"message":"hello"}}'
-   ```
-   Must:
-   - Spawn the run
-   - Execute the agent step with event payload in context
-   - Journal `event.received` entry with the event and matched subscription id
-   - Complete successfully
-   - Second invocation with same event → no new run (dedupe)
+4. **Wake path is exercised end-to-end:**
+   - Event submission → pattern matching → subscription claim → wake context assembly → agent receives triggering event in context
+   - All proven by journal inspection in the test
 
 5. **No regressions:**
-   All existing tests (deterministic, llm, agent crash-resume) still pass. Gate 1 remains green.
+   All existing tests still pass. Gate 1 remains green.
 
-## Explicitly OUT of scope for this work package
+## Explicitly OUT of scope
 
-- **Webhook ingress** — gate 2's done-when mentions "Webhook (`EventFrameV1` via relayfile's webhook server)" but that is the FULL gate 2 scope, not this package. This WP focuses on the KERNEL event machinery. Webhook routing is a separate package.
-- **Persona import** — gate 2 also specifies "persona import" as first-class; that is likewise a different WP (SDK surface + kernel integration).
-- **Trigger liveness checking** — RelayCron's `stale_after` reconciliation is mentioned in gate 2's done-when but is NOT required for basic event wake. Defer to a later WP.
-- **Multi-event orchestration** — one event type, one subscription, one wake. Complex event patterns (all-of, any-of, time windows) are future.
-- **Stream-based coordination** — RFC decision #7 says "channels are kernel streams" but gate 2 does not require durable channels to be implemented. Agent-to-agent messaging stays out of scope.
-- **hn-monitor migration** — gate 2's done-when says "hn-monitor runs as a relayflow in production" but that is the GATE ACCEPTANCE, not this WP. This WP builds the primitives; a follow-up WP migrates hn-monitor onto them.
-- **Gates 1, 3-9** — this run is pinned to gate 2; work on any other gate is a collision with sibling runs.
+- **Production deployment** — this is a flow file that proves the pattern, not deployed infrastructure
+- **Real HN API integration** — simulated events are fine; no network calls to HN required
+- **Webhook server** — event submission is via kernel's `submit_event` API, not HTTP webhook ingress (that's a future WP)
+- **Multiple triggers or complex patterns** — one trigger, one pattern, one subscription
+- **Trigger liveness/staleness detection** — defer to later
+- **Persona import** — defer to later
+- **hn-monitor's full feature set** — build the **smallest honest version** that exercises the wake path, not feature-complete hn-monitor
+- **Gates 1, 3-9** — this run is pinned to gate 2
 
-## Current state analysis
+## Current state
 
 **What exists:**
-- `TriggerSpec` struct exists in `kernel/relayflowd-core/src/spec.rs:338` but is a stub: `{id: String, executor: String}` with no event matching fields
-- Triggers are validated (non-empty id/executor, no duplicates) but never consumed — the comment on line 37 says "Inert gate-1 declarations. Matching and dispatch belong to gate 2."
-- Entry types exist for `wait.event` and `wait.completed` (lines 16, 22 in `entry.rs`) suggesting event-waiting was already sketched
-- Journal entry payload is `Value` (JSON) so event payloads can be stored as-is
+- Event primitives: wake.rs, event.rs, dedupe, pattern matching (PR #14, merged)
+- Test proving primitives: event_wake.rs passes (verified 2026-08-28 23:40 UTC per STATE.md)
+- Generic event-triggered-flow.yaml demonstrates the mechanics
 
-**What is missing (this WP builds):**
-- Event matching logic (pattern types, matcher)
-- Event submission protocol verb
-- Wake-from-event path in the engine
-- Context assembly at wake (epoch summary + event)
-- Idempotency by event dedupe key
-- Tests proving the above
+**What's missing (this WP delivers):**
+- A real workload flow (hn-monitor) vs. a generic test fixture
+- The bar shift from "primitives work" to "real workload runs as a relayflow" (RFC-0001 §3 rule 2)
 
-**Known issues:**
-- SDK tests currently fail (`error TS2688: Cannot find type definition file for 'node'`) — likely missing `@types/node` in devDependencies or bad tsconfig. Must fix before claiming tests pass.
-- No cargo in sandbox environment (STATE.md known fault #2) — kernel tests will run via `ops/cargo.sh` wrapper when that exists, or tests run locally and reported honestly.
+**Risk assessment:**
+- Time budget: ~10 minutes compile time
+- Scope: Can be minimal — one trigger, one step, honest task
+- Known working: event_wake.rs already proves the kernel path works
+- This WP is about authoring the flow and proving it compiles/resolves, not building new kernel code
 
----
+## Next step after this WP
 
-**Next step after this WP:** Either fix any review-identified issues in the resulting PR, OR (if this PR merges clean) WP-GATE2-2: webhook ingress integration (relayfile webhook server → kernel event submission).
+If this WP completes and gate 2 is green, the Lead writes ops/GATE2-EVIDENCE.md documenting:
+- Flow file path
+- Test proving it works
+- RFC-0001 §3 gate 2 done-when satisfied: "a real proactive workload runs as a relayflow"
+
+If blocked or the real hn-monitor scope is too large for one cycle, report in ops/NEEDS_HUMAN.md and still end with ASSESS_DONE.
