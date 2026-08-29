@@ -17,3 +17,12 @@ ops/autodrive.sh
 ops/gen-drive-cloud.py
 ops/FORBIDDEN_PATHS
 ops/IMMUTABLE_PATHS
+
+# Ground truth and the findings log. A drive run launched from an older base
+# will show later edits to these as deletions: run 7be717cb's PR removed 30
+# lines from ops/BACKLOG.md that way. Assess legitimately writes ops/NEXT.md —
+# that stays writable — but the record of what we have learned, and the file an
+# assessor reads as truth, are not a run's to rewrite.
+ops/BACKLOG.md
+ops/STATE.md
+ops/AUTODRIVE_BRIEF.md
