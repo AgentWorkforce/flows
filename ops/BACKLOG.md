@@ -4,6 +4,16 @@ Items the Lead should weigh in assess after ops/DIRECTIVES.md and the current
 gate's needs. Not commitments; ordering is the Lead's call with evidence.
 
 - **ROOT CAUSE: the relayfile flush cannot handle a large propagated tree.**
+  DOWNSTREAM SYMPTOM, now identified: the stale tree makes verify fail for
+  reasons that look unrelated. Run ae982aaa's verify logged
+  `VERIFY_INSTALL: sdk/node_modules absent - installing` and then 22 failures,
+  and was marked VERIFY_FAIL_NONFATAL — node_modules was missing at the start of
+  verify because the flush had not carried it. Do not chase those failures
+  individually; they are the flush.
+  A false trail worth recording: one of those 22 was `Test timed out in 5000ms`,
+  and on that basis PR #44 proposed raising the global vitest timeout six-fold.
+  The log contains exactly ONE timeout, not 22. #44 was closed. Count before
+  generalising from a log line.
   It fails in TWO ways, both volume-driven, and both non-fatal so the workflow
   reports success while later steps read stale files and the delivered patch
   loses the run's real work:
