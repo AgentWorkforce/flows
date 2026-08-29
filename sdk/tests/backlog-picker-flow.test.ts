@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
+import { pickBacklogEntry } from '../src/backlog-picker.js';
 
 /**
  * The backlog-picker flow's steps must agree with each other.
@@ -90,6 +91,29 @@ describe('backlog-picker flow', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('backlog-picker malformed entries', () => {
+  it('refuses a bold title with no body', () => {
+    expect(pickBacklogEntry('# Backlog\n\n- **Empty entry**\n')).toEqual({
+      ok: false,
+      reason: 'missing_body',
+    });
+  });
+
+  it('refuses an entry with an unterminated backtick', () => {
+    expect(pickBacklogEntry('# Backlog\n\n- **Broken command** run `npm test\n')).toEqual({
+      ok: false,
+      reason: 'unterminated_backtick',
+    });
+  });
+
+  it('refuses a bold bullet nested under another bullet', () => {
+    expect(pickBacklogEntry('# Backlog\n\n- Parent\n  - **Nested entry** must not be selected\n')).toEqual({
+      ok: false,
+      reason: 'nested_bullet',
+    });
   });
 });
 

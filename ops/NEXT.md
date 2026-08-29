@@ -1,49 +1,44 @@
-# NEXT — Gate 3: Build the work package consumer
+# NEXT — Gate 3: Harden backlog picker against malformed entries
 
-**Scope:** Gate 3 — close the Garden's loop. CODE task, SDK-side. The picker EMITS a work package (sdk/src/backlog-picker.ts + testdata/backlog-picker.flow.yaml, merged, four tested properties) and NOTHING consumes it — that is the missing half. Build the consumer: an SDK entrypoint taking an emitted package and turning it into something runnable, validating it has a title, a non-empty scope and a definition of done, and REFUSING with a typed reason when it does not, because a package that cannot be verified must not become work. NOTE: two previous attempts (ee5c9b3e, 06c0d6ab) did this correctly and their files were LOST before delivery by a platform fault — the build sandbox's .git points at a directory that does not exist, so writes cannot be captured. You are not duplicating live work.
+**Pinned to gate 3** per ops/TARGET.md.
 
 ## Objective
 
-Build the SDK entrypoint that takes an emitted work package and turns it into something runnable. The consumer must validate that the package has:
-- A title (non-empty string)
-- A non-empty scope
-- A definition of done
+The picker reads ops/BACKLOG.md and selects the first bold top-level bullet. Currently it handles well-formed entries but a malformed entry — a bold title with no body, an unterminated backtick, a bullet nested under another — can crash or produce a half-formed package. Add handling so malformed entries produce typed refusals, never crashes and never half-formed packages.
 
-When any of these is missing or invalid, the consumer REFUSES with a typed reason. A package that cannot be verified must not become work.
+## Scope from ops/TARGET.md
+
+> The picker reads whatever ops/BACKLOG.md contains. A malformed entry — a
+> bold title with no body, an unterminated backtick, a bullet nested under
+> another — should produce a typed refusal, never a crash and never a
+> half-formed package. Add the handling and the tests.
+
+Note: The consumer's file existence check (option b) is ALREADY implemented in sdk/src/work-package-consumer.ts:52-55 with the 'nonexistent_files' refusal reason. This work package implements option (a).
 
 ## Files in scope
 
-- `sdk/src/` (new consumer code)
-- `sdk/tests/` (new consumer tests)
-- NO changes to `kernel/` (PR #19 is open)
-- NO changes to `sdk/src/demo-hn-monitor.ts` (PR #19 is open)
+- sdk/src/backlog-picker.ts — add validation and typed refusal reasons
+- sdk/tests/backlog-picker-flow.test.ts — tests for malformed entry handling
+- sdk/src/index.ts — export new refusal types if needed
 
 ## Definition of done
 
-1. **SDK code exists** that consumes an emitted work package
-2. **Validation tests exist** for:
-   - Missing title → typed refusal
-   - Empty title → typed refusal
-   - Missing scope → typed refusal
-   - Empty scope → typed refusal
-   - Missing definition of done → typed refusal
-   - Empty definition of done → typed refusal
-   - Valid package → accepted
-3. **Every new test is confirmed to FAIL against current code** with literal output pasted
-4. **SDK test suite passes:**
+1. Code added to sdk/src/backlog-picker.ts that validates entries and returns typed refusal reasons
+2. Tests covering malformed cases: bold title with no body, unterminated backtick, nested bullet
+3. Tests covering existing behavior still passing
+4. Command passes:
    ```
-   cd sdk && npm test
+   cd /project/workflows/runs/fec0723e-4bcb-4512-a599-fc61e110dfa6/sdk && npm test
    ```
-   Paste the literal output showing all tests pass, 0 failed
-5. **Final verification** — as the LAST action, run:
+5. EVERY new test confirmed to FAIL against current code with literal failing output quoted in summary
+6. As LAST action, run and paste output:
    ```
    git status --porcelain
    ```
-   And paste the output to make lost writes visible immediately
 
-## Out of scope
+## Explicitly OUT of scope
 
-- Kernel changes (different PR)
-- Integration with hn-monitor (different PR)
-- Any changes to the backlog picker itself (already merged in PRs #20, #21, #22)
-- Changes to flow execution or scheduling
+- kernel/ changes
+- sdk/src/demo-hn-monitor.ts
+- anything under ops/
+- the consumer's file existence check (already implemented in work-package-consumer.ts:52-55)

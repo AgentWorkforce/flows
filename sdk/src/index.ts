@@ -119,6 +119,14 @@ export {
   type WorkPackageConsumption,
   type WorkPackageRefusalReason,
 } from './work-package-consumer.js';
+export {
+  pickBacklogEntry,
+  renderWorkPackage,
+  selectBacklogEntry,
+  type BacklogEntry,
+  type BacklogPickerRefusalReason,
+  type BacklogPickerResult,
+} from './backlog-picker.js';
 
 // Hacker News adapter — deliberately outside kernel/ (see sdk/src/hn-poller.ts).
 export {
