@@ -6,42 +6,51 @@ On main now, all merged and tested:
   - `sdk/src/work-package-consumer.ts` — judges one, refusing with a typed
     reason (missing_title / missing_scope / missing_definition_of_done /
     nonexistent_files)
-  - `testdata/backlog-picker.flow.yaml` — the flow. Its `select-entry` step now
-    scans for the first ACTIONABLE entry, validating candidates and skipping
-    the ones that fail, and exits nonzero with NO_ACTIONABLE_BACKLOG_ENTRY when
-    nothing qualifies.
+  - `testdata/backlog-picker.flow.yaml` — the flow. Its `select-entry` step
+    scans for the first ACTIONABLE entry, skipping ones that fail, and exits
+    nonzero with NO_ACTIONABLE_BACKLOG_ENTRY when nothing qualifies.
 
-Do NOT re-do any of the above. Malformed-backlog handling (PR #30) and the
-nonexistent-files check (PR #28) are DONE and merged. Three separate runs
-already produced duplicate implementations of the latter and all three were
-closed. A PR redoing either will be closed.
+Do NOT re-do any of the above. Malformed-backlog handling (#30) and the
+nonexistent-files check (#28) are DONE and merged. PRs #29, #31, #32 and #33
+were all closed for redoing merged work or for fixing the symptom instead of
+the cause. Read this brief fully before writing code.
 
-## The actual defect
+## The defect
 
-Run `select-entry` against the real ops/BACKLOG.md. It prints:
+Run `select-entry` against the real ops/BACKLOG.md today:
 
-    SKIPPED_UNACTIONABLE=10 ...
+    SKIPPED_UNACTIONABLE=13 Sharpen what the picker considers action[...];
+      Close the deterministic-command prefligh[missing_scope];
+      Release pipeline (relay pattern, NOT cra[missing_scope];
+      Persist review transcripts:[missing_scope]; ...
 
-and then selects a dated notes blob ("Upstream issues (2026-08-27):") as the
-work package. Ten genuine engineering tasks were skipped in favour of a list of
-links.
+Thirteen entries skipped. Nearly all of them are REAL engineering tasks — they
+are skipped because `validateWorkPackage` judges actionability on two shallow
+signals: does the text hold a backticked path, and does it hold a multi-word
+backticked phrase. A task written in prose fails both. A notes blob full of
+backticked identifiers passes both.
 
-The cause: `validateWorkPackage` decides "actionable" using only two shallow
-signals — does the text contain a backticked path, and does it contain a
-multi-word backticked phrase. A notes blob full of backticked identifiers
-passes both. A real task written in prose ("Refuse a path-like deterministic
-command word when that path does not exist") fails both.
+The refusal machinery is correct. What "actionable" MEANS is what is wrong.
 
-The guard is correct. The SELECTION is poor. That is what to fix.
+## Hard constraints — a PR violating any of these will be closed
+
+  - Do NOT match on entry titles, dates, or any literal string from the current
+    backlog. PR #33 was closed for adding
+    `/^upstream issues\s*\(\d{4}-\d{2}-\d{2}\)/` — it passed its stated goal
+    while skips went 10 -> 13. Special-casing the example is not the fix.
+  - Do NOT simply relax the checks until everything passes. Selecting a notes
+    blob is as wrong as skipping a real task.
+  - The fix must be a better DEFINITION of actionable work, applied uniformly.
 
 ## Definition of done, all of it
 
-  - a sharper notion of actionability in `sdk/src/backlog-picker.ts`, wired
-    into sdk/src/index.ts if it is a new export
-  - it must SELECT a real engineering task from the current ops/BACKLOG.md and
-    must NOT select the "Upstream issues" notes entry. Quote the literal
-    before/after `select-entry` output in your summary — the actual title it
-    picked before your change and after it.
+  - `SKIPPED_UNACTIONABLE` must fall BELOW 3 against the current
+    ops/BACKLOG.md, and the entry selected must be one a human would recognise
+    as engineering work. Quote the literal before/after `select-entry` output —
+    the full stderr line and the selected title, both runs.
+  - a test that runs `select-entry` against the REAL ops/BACKLOG.md, not a
+    fixture, and asserts the skip count stays low. (PR #33 had a good version
+    of this; reuse the idea.)
   - tests covering the new behaviour AND every existing test still passing
   - `cd sdk && npm test` green, and `cd kernel && sh ../ops/cargo.sh test` green
   - if you touch testdata/backlog-picker.flow.yaml you MUST regenerate
