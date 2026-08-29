@@ -633,3 +633,33 @@ than from the git message.
 The diagnostic itself was worth adding and should stay: asking the builder to
 print `git status --porcelain` as its last action is what made this correction
 possible at all.
+
+## Silent loss, caught with the work visible in the log (2026-08-29 17:50)
+
+Run fe94b247 built the `nonexistent_files` refusal for the work-package
+consumer. Its own build output shows the code:
+
+```
++        files_in_scope: ['sdk/src/does-not-exist.ts', ...],
++    ).toEqual({ accepted: false, reason: 'nonexistent_files' });
++  it('refuses a package with a mix of existent and nonexistent files', ...
+```
+
+The delivered patch contains none of it. `grep -c nonexistent_files
+sdk/src/work-package-consumer.ts` on the applied tree returns **0**, and the
+patch changes exactly one file. The builder wrote real code, showed it, and it
+did not reach the patch.
+
+This is the clearest instance yet: previously the loss was inferred from an
+empty diff, so "the agent never wrote anything" stayed a live explanation. Here
+the diff of the work appears verbatim in the build log and is absent from the
+capture. The agent is not the problem.
+
+Note the earlier retraction above still stands — a broken `.git` in the step
+sandbox is NOT the cause, since run a4980bfe had the same broken git and
+delivered its files in full. The distinguishing factor remains unknown.
+
+**Operational cost, measured:** of the runs autodrive has completed, most
+produced only ops/NEXT.md. At least one of those — this run — demonstrably
+built real code first. So the "empty run" rate overstates how often the loop
+fails to work and understates how often it works and loses the result.
