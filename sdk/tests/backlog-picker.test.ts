@@ -93,6 +93,35 @@ describe('backlog picker', () => {
 });
 
 describe('work package validation', () => {
+  it('refuses odd backtick counts and accepts even backtick counts', async () => {
+    const validateEntry = (body: string) => {
+      const work = packageFromEntry({
+          title: 'Update backlog validation',
+          body,
+      });
+      return validate({
+        ...work,
+        files_in_scope: ['sdk/src/backlog-picker.ts'],
+        definition_of_done: ['npm test'],
+      });
+    };
+
+    expect(await validateEntry('Update `sdk/src/backlog-picker.ts.')).toEqual({
+      accepted: false,
+      reason: 'unterminated_backticks',
+    });
+    expect(await validateEntry('Update `one` and `sdk/src/backlog-picker.ts.')).toEqual({
+      accepted: false,
+      reason: 'unterminated_backticks',
+    });
+    expect(await validateEntry('Update `sdk/src/backlog-picker.ts`.')).toMatchObject({
+      accepted: true,
+    });
+    expect(await validateEntry('Update backlog validation.')).toMatchObject({
+      accepted: true,
+    });
+  });
+
   it('uses a referenced code symbol as evidence of repository scope', async () => {
     const work = packageFromEntry({
       title: 'Refuse an entry with unterminated backticks',
