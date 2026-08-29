@@ -7,6 +7,7 @@ import {
   readdirSync,
   rmSync,
   writeFileSync,
+  readFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -169,6 +170,70 @@ steps:
     expect(completed.stdout).toContain('completionReason: success');
     expect(completed.stderr).not.toContain('protocol_error');
   });
+
+  it('can always get a parked run to a late-attaching worker', async () => {
+    // The contract that cost the most time to establish, so it is pinned here.
+    //
+    // A run started with no worker parks with its step in `runnable`. Attaching
+    // a worker afterwards does NOT re-drive it — `attach_worker`
+    // (server/session.rs) registers the worker and nothing revisits parked
+    // runs. That is deliberate, not a defect: the run is driven by whoever
+    // started it, and `run.resume` is the primitive that picks it back up.
+    //
+    // This matters for gate 2. The HN demo submits events while nothing is
+    // attached, so every woken run parks and stays parked — not because the
+    // kernel cannot execute it, but because nothing resumes it. Either attach
+    // the worker BEFORE submitting, or resume afterwards.
+    const dataDir = temporaryDirectory('flows-live-resume-');
+    await startDaemon(dataDir);
+    // Start from a canonical spec rather than compiling yaml: this test is
+    // about dispatch ordering, not about the authoring surface.
+    const spec = JSON.parse(
+      readFileSync(join(TESTDATA, 'hn-monitor.spec.canonical.json'), 'utf8'),
+    ) as Parameters<JournalClient['runStart']>[0];
+
+    const starter = await connectClient(dataDir);
+    await starter.hello('live-resume-starter');
+    const started = await starter.runStart(spec);
+    const runId = started.run_id;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    const worker = await connectClient(dataDir);
+    await worker.hello('live-resume-worker');
+    const dispatched = eventOnce<StepDispatchEvent>(worker, 'step.dispatch');
+    await worker.workerAttach('live-resume-agent', ['agent'], {
+      workspace: [{ surface: 'repo', revision_id: 'rev-a' }],
+      streams: [],
+    });
+
+    // Observation, deliberately NOT an assertion: today, attaching alone does
+    // not rescue the parked run. Review pushed back on asserting that (PR #36)
+    // and was right — pinning it would freeze a design decision that is still
+    // open, and block a future kernel that re-elects parked steps on attach.
+    // Either behaviour is acceptable here; what must hold is the line below.
+    const passive = await Promise.race([
+      dispatched,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+    ]);
+    if (passive !== null) {
+      // A kernel that re-drives on attach has satisfied the real requirement
+      // already — the step reached a worker. Nothing further to prove.
+      worker.close();
+      starter.close();
+      return;
+    }
+
+    // Otherwise run.resume must be able to pick it up.
+    await starter.runResume(runId);
+    const resumed = await Promise.race([
+      dispatched,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+    ]);
+    expect(resumed, 'run.resume must dispatch the parked step to the attached worker').not.toBeNull();
+
+    worker.close();
+    starter.close();
+  }, 45_000);
 
   it('reports a real manual-recovery NeedsHuman state as parked', async () => {
     const dataDir = temporaryDirectory('flows-live-human-');
