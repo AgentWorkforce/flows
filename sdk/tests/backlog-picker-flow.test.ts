@@ -34,6 +34,26 @@ function run(command: string, cwd: string): string {
 }
 
 describe('backlog-picker flow', () => {
+  it('selects engineering work rather than the real backlog upstream-notes entry', () => {
+    const root = join(__dirname, '..', '..');
+    const dir = mkdtempSync(join(tmpdir(), 'backlog-picker-real-'));
+    try {
+      mkdirSync(join(dir, 'ops'), { recursive: true });
+      writeFileSync(join(dir, 'ops', 'BACKLOG.md'), readFileSync(join(root, 'ops', 'BACKLOG.md')));
+
+      const steps = stepCommands();
+      run(steps['read-backlog'], dir);
+      const selected = JSON.parse(run(steps['select-entry'], dir)) as { title: string };
+
+      expect(selected.title).toBe(
+        'Documented `steps: []` check/kernel asymmetry (P3, WP-4 review V3).',
+      );
+      expect(selected.title).not.toContain('Upstream issues');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('emit-package describes the entry select-entry chose, even if the backlog changes between them', () => {
     const dir = mkdtempSync(join(tmpdir(), 'backlog-picker-'));
     try {

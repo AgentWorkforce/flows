@@ -31,6 +31,7 @@ export interface ValidatedWorkPackage {
 
 export type WorkPackageValidationReason =
   | 'missing_title'
+  | 'missing_action'
   | 'missing_scope'
   | 'missing_definition_of_done';
 
@@ -73,6 +74,9 @@ export function validateWorkPackage(input: unknown): WorkPackageValidation {
   if (!isRecord(input) || !isNonEmptyString(input['title'])) {
     return { accepted: false, reason: 'missing_title' };
   }
+  if (isDatedIssueRollup(input['title'])) {
+    return { accepted: false, reason: 'missing_action' };
+  }
   if (!isNonEmptyStringArray(input['files_in_scope'])) {
     return { accepted: false, reason: 'missing_scope' };
   }
@@ -80,6 +84,11 @@ export function validateWorkPackage(input: unknown): WorkPackageValidation {
     return { accepted: false, reason: 'missing_definition_of_done' };
   }
   return { accepted: true, work: input as unknown as ValidatedWorkPackage };
+}
+
+/** A dated issue rollup records context; it does not ask for an engineering change. */
+function isDatedIssueRollup(title: string): boolean {
+  return /^upstream issues\s*\(\d{4}-\d{2}-\d{2}\)\s*:?$/i.test(title.trim());
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

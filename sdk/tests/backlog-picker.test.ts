@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
-import { renderWorkPackage, selectBacklogEntry } from '../src/backlog-picker.js';
+import {
+  packageFromEntry,
+  renderWorkPackage,
+  selectBacklogEntry,
+  validateWorkPackage,
+} from '../src/backlog-picker.js';
 
 const BACKLOG = `# Backlog
 
@@ -89,6 +94,15 @@ describe('backlog picker', () => {
 });
 
 describe('work package validation', () => {
+  it('refuses a dated upstream-issue note that only lists links and acceptance context', () => {
+    const work = packageFromEntry({
+      title: 'Upstream issues (2026-08-27):',
+      body: 'cloud#3202 and relay#1620 (`worker status`). Executable acceptance: `regressions/` on main.',
+    });
+
+    expect(validateWorkPackage(work)).toEqual({ accepted: false, reason: 'missing_action' });
+  });
+
   it('accepts a package yielded by an actionable backlog', async () => {
     const entry = selectBacklogEntry(
       '# Backlog\n\n- **Validate packages** edit `sdk/src/backlog-picker.ts`; run `npm test`\n',
