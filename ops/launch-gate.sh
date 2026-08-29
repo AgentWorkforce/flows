@@ -31,8 +31,17 @@ if ! git rev-parse --git-dir >/dev/null 2>&1; then
   exit 64
 fi
 
+# ALWAYS fetch first. The worktree is created from the local `origin/main`
+# ref, which is only as fresh as the last fetch — and on 2026-08-29 a launch
+# that skipped the fetch built from a main predating a merged architectural
+# fix. The run then happily re-added the file that fix had removed, and
+# delivering it would have silently reverted the merge.
+git fetch --quiet origin
+
 work=$(mktemp -d "${TMPDIR:-/tmp}/flows-gate${gate}.XXXXXX")
 git worktree add -q -f --detach "$work" origin/main
+echo "LAUNCH_BASE=$(git rev-parse --short origin/main)"
+echo "LAUNCH_BASE_SUBJECT=$(git log -1 --format=%s origin/main | cut -c1-60)"
 
 cat > "$work/ops/TARGET.md" <<TARGET
 # TARGET — gate $gate
