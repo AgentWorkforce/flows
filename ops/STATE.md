@@ -8,7 +8,7 @@ it is authoritative when history is unavailable.
 **Keep it current. A stale STATE.md is worse than none:** it does not merely
 fail to help, it actively misleads an assessor that cannot check it.
 
-Last updated: 2026-08-29 08:30 UTC, by Khaliq's session, on `main`.
+Last updated: 2026-08-29 09:20 UTC, by Khaliq's session, on `main`.
 
 ## Where the program is
 
@@ -80,7 +80,13 @@ refinements are open in review and deliberately not blocking: reuse the
 selected snapshot instead of re-reading the file, and derive package metadata
 from the entry.
 
-Merged to date: #1–#8, #10, #12, #13, #14, #15, #16, #20.
+**#21 is also MERGED** — gate 3's picker is now correct in both directions:
+the two steps cannot disagree within a run (the backlog is snapshotted once),
+and no run inherits the previous run's selection (the entry file is cleared
+before selecting). Both properties have tests that were CONFIRMED TO FAIL
+without their fixes, which is the standard #18 still does not meet.
+
+Merged to date: #1–#8, #10, #12, #13, #14, #15, #16, #20, #21.
 PR #9 and PR #11 were superseded by #12 and are closed, not pending.
 
 - **#13** delivered the first cloud-produced work back as a PR.
