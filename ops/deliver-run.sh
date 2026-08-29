@@ -88,19 +88,31 @@ git rm -r --cached --quiet --ignore-unmatch \
 # for why this is a list rather than a git-history check: the file that
 # triggered it was never on main, so there was no deletion to detect, and three
 # runs resurrected it from stale sandbox trees while every gate stayed green.
-forbidden_list="ops/FORBIDDEN_PATHS"
-violations=""
-if [ -f "$forbidden_list" ]; then
-  changed=$(git status --porcelain | sed 's/^...//')
-  while IFS= read -r pattern; do
-    case "$pattern" in ''|'#'*) continue ;; esac
-    for path in $changed; do
-      case "$path" in
-        "$pattern"*) violations="$violations $path" ;;
-      esac
-    done
-  done < "$forbidden_list"
+# Read the list from origin/main, NOT from the working tree. This script
+# checks out $base_ref, and a base older than the list means the file is simply
+# absent — which is how the first version of this check silently skipped: it
+# tested [ -f ops/FORBIDDEN_PATHS ] against a base predating the list.
+forbidden_rules=$(git show origin/main:ops/FORBIDDEN_PATHS 2>/dev/null || true)
+if [ -z "$forbidden_rules" ]; then
+  # A missing denylist means NO protection. Say so; never skip in silence.
+  echo "DELIVER_FAIL_NO_DENYLIST: could not read ops/FORBIDDEN_PATHS from origin/main." >&2
+  echo "  Delivery refuses rather than proceeding unguarded — a guard that skips" >&2
+  echo "  quietly is how the previous two versions of this check let PR #17 through." >&2
+  exit 70
 fi
+
+violations=""
+changed=$(git status --porcelain | sed 's/^...//')
+printf '%s\n' "$forbidden_rules" | while IFS= read -r pattern; do
+  case "$pattern" in ''|'#'*) continue ;; esac
+  for path in $changed; do
+    case "$path" in
+      "$pattern"*) echo "$path" ;;
+    esac
+  done
+done > /tmp/.deliver-violations.$$ 2>/dev/null || true
+violations=$(cat /tmp/.deliver-violations.$$ 2>/dev/null | sort -u)
+rm -f /tmp/.deliver-violations.$$
 if [ -n "$violations" ]; then
   echo "DELIVER_FAIL_FORBIDDEN_PATH: this run touched paths ruled out in $forbidden_list:" >&2
   for path in $violations; do echo "    $path" >&2; done
