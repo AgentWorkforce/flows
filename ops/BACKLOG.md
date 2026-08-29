@@ -429,3 +429,28 @@ Until that exists, treat `BUILD_DONE` as "the builder finished", never as "the
 builder produced something". The loop currently RUNS reliably; whether it
 PRODUCES is a separate question and this gate is why we cannot yet answer it
 from the run's own output.
+
+## Committing the work package did NOT fix the handoff — correction (2026-08-29)
+
+The mitigation in `fa0cf98` — have assess `git commit` its package so it
+travels in history rather than as a loose file — **does not work**. Run
+505a1bde's Lead reported "The commit was created successfully" and
+`assess-gate` still failed with `ASSESS_FAIL_STALE_NEXT`, finding nothing in
+either the working tree or `main..HEAD`.
+
+So the commit does not survive the step boundary either. **Per-step sandboxes
+lose git objects the same way they lose loose files**, which makes the problem
+more fundamental than "files sometimes do not propagate": *no* state handoff
+between steps is reliable.
+
+Observed rate: of the last five drive runs, two reached `commit-1` and three
+died at `assess-gate-1` on this fault.
+
+The real fix is structural and should NOT be attempted tired: collapse assess
+and build into a SINGLE agent step so there is no handoff between them, and
+move the gate after that combined step. That trades the assess/build separation
+— which has caught genuine scope errors — for a loop that completes. It is a
+real tradeoff and deserves a clear head and Khaliq's view, not a 03:00 patch.
+
+Until then the loop works roughly two runs in five. Relaunching is the only
+mitigation, and it is a poor one.
