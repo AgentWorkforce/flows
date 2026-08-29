@@ -3,7 +3,7 @@ import { consumeWorkPackage } from '../src/work-package-consumer.js';
 
 const validPackage = {
   title: 'Build the work package consumer',
-  files_in_scope: ['sdk/src/', 'sdk/tests/'],
+  files_in_scope: ['src/work-package-consumer.ts', 'tests/work-package-consumer.test.ts'],
   definition_of_done: ['cd sdk && npm test'],
 };
 
@@ -55,6 +55,30 @@ describe('work package consumer', () => {
   it('accepts a valid package as runnable work', async () => {
     expect(await consume(validPackage)).toEqual({ accepted: true, work: validPackage });
   });
+
+  it('refuses one nonexistent file with a typed reason', async () => {
+    expect(
+      await consume({ ...validPackage, files_in_scope: ['does-not-exist.ts'] }),
+    ).toEqual({ accepted: false, reason: 'nonexistent_files' });
+  });
+
+  it('refuses multiple nonexistent files with a typed reason', async () => {
+    expect(
+      await consume({
+        ...validPackage,
+        files_in_scope: ['does-not-exist.ts', 'also-does-not-exist.ts'],
+      }),
+    ).toEqual({ accepted: false, reason: 'nonexistent_files' });
+  });
+
+  it('refuses a mix of existing and nonexistent files with a typed reason', async () => {
+    expect(
+      await consume({
+        ...validPackage,
+        files_in_scope: ['src/work-package-consumer.ts', 'does-not-exist.ts'],
+      }),
+    ).toEqual({ accepted: false, reason: 'nonexistent_files' });
+  });
 });
 
 describe('the Garden join: picker output feeds the consumer', () => {
@@ -83,7 +107,7 @@ describe('the Garden join: picker output feeds the consumer', () => {
       // An entry carrying a runnable command: that IS its definition of done.
       writeFileSync(
         join(dir, 'ops', 'BACKLOG.md'),
-        '# Backlog\n\n- **Actionable entry** touches `sdk/src/x.ts`, verified by `npm test --silent`\n',
+        '# Backlog\n\n- **Actionable entry** touches `src/work-package-consumer.ts`, verified by `npm test --silent`\n',
       );
       run(step('read-backlog'), dir);
       run(step('select-entry'), dir);
