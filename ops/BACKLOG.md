@@ -538,3 +538,44 @@ point a missing test fails because the command it names does not exist.
 
 The second is the real fix and it is a design change to the assess/verify
 contract. Worth Khaliq's view before building it.
+
+## ROOT CAUSE of silent file loss: the build sandbox has no working git (2026-08-29)
+
+Found by asking the builder to run `git status --porcelain` as its last action
+and paste the result. Run 06c0d6ab answered:
+
+```
+$ git status --porcelain
+fatal: not a git repository: /home/daytona/.project-git
+The workspace's `.git` file contains `gitdir: /home/daytona/.project-git`,
+but that directory doesn't exist
+```
+
+**The build step's workspace is not a git repository.** Its `.git` is a file
+containing a `gitdir:` pointer to a path that does not exist in that sandbox.
+The builder writes files correctly; they simply cannot be captured into the
+run's patch, because the mechanism that captures them needs a working repo.
+
+This explains every "silent file loss" observed today, and it is a better
+explanation than the one previously filed here ("propagation drops files"):
+
+- the agent reports success truthfully — it did the work;
+- the patch contains only files written by OTHER steps whose sandboxes happened
+  to have working git (assess writes ops/NEXT.md, which is why that file, and
+  only that file, keeps arriving);
+- nothing in the step result indicates loss.
+
+It also explains the stale-tree cases: a sandbox seeded from an unrelated
+archive is the same class of defect — the workspace is not the tree the run
+believes it is.
+
+**Not fixable from here.** Each step gets its own sandbox, so a repair in one
+does not help another, and the build step is an agent prompt with no
+deterministic preamble. The fix belongs in the platform: a step's workspace
+must be a valid repo, or the executor must capture changes without needing one.
+
+**Mitigation applied:** the build brief now asks for `git status --porcelain`
+as the final action. When it errors, the loss is visible in the log immediately
+rather than inferred from an empty patch twenty minutes later.
+
+Worth reporting to cloud with the literal output above.
