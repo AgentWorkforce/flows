@@ -52,6 +52,14 @@ rejection reasons and you can see why none of them worked:
 Twenty-five of twenty-seven rejections are SCOPE. Every attempt so far has been
 adjusting the wrong field.
 
+## Both fields are blocking, in different amounts
+
+    missing_scope:              25 of 27 rejections
+    entries with NO definition_of_done: 18 of 32
+
+Scope is the larger blocker, so start there — but a scope-only change tops out
+at 14 and cannot reach the target. Both need an additional route to qualifying.
+
 ## Why scope is empty
 
 `packageFromEntry` fills `files_in_scope` from backticked tokens that look like
@@ -84,14 +92,18 @@ That is the defect. Fix scope, not the definition of done.
     picker now selects, so that can be judged.
   - Do NOT add a condition that an entry must ALSO satisfy. Every attempt that
     did made the number worse. Add an alternative way to qualify instead.
-  - Do NOT touch `definition_of_done` expecting the number to move. Only 3 of
-    27 rejections are about it. Report the rejection-reason breakdown before
-    and after, so it is clear which field you actually changed.
+  - BOTH `files_in_scope` and `definition_of_done` need work, and the previous
+    version of this brief was WRONG to forbid touching the second. Run 5ecf7078
+    proved that by refusing the task with a reproduction: with scope forced
+    valid for every entry the ceiling is 14 of 32, because 18 entries produce no
+    definition_of_done at all. A scope-only fix cannot pass 20 — the target was
+    unreachable and the refusal was correct.
+    Report the rejection-reason breakdown before and after.
   - The fix must be a better DEFINITION of actionable work, applied uniformly.
 
 ## Definition of done, all of it
 
-  - the ACTIONABLE count above must rise from 4 to at least 20 of 30, and the
+  - the ACTIONABLE count above must rise from 5 to at least 20 of 32, and the
     entry selected must still be one a human would recognise as engineering
     work — do not get there by accepting everything. Quote the literal
     before/after output of that exact command.
