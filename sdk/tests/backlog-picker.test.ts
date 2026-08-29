@@ -108,9 +108,9 @@ describe('work package validation', () => {
     });
   });
 
-  it('refuses a dated notes blob even when identifiers look actionable', async () => {
+  it('refuses an observations blob even when identifiers look actionable', async () => {
     const work = packageFromEntry({
-      title: 'Upstream issues (2026-08-27):',
+      title: 'Incident observations',
       body: 'relay#1620 (`--daemon` crash + `worker status` blind). Acceptance: `regressions/`.',
     });
 

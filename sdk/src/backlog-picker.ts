@@ -15,9 +15,11 @@
 
 /** First bold top-level bullet: `- **Title** rest`. */
 const ENTRY = /^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/m;
-const ACTION_TITLE =
+/** Work describes a change or a required outcome; reference notes do not. */
+const WORK_INTENT =
+  /\b(?:add|build|change|close|create|document|fix|implement|must|persist|refuse|release|remove|rename|replace|sharpen|touch(?:es|ing)?|update|validate|verified by|wire)\b/i;
+const IMPERATIVE_TITLE =
   /^(?:add|build|change|close|create|document|fix|implement|persist|refuse|release|remove|rename|replace|sharpen|update|validate|wire)\b/i;
-const NOTES_TITLE = /^(?:notes?|release notes|upstream issues)\s*(?:\(|:|$)/i;
 
 export interface BacklogEntry {
   title: string;
@@ -122,11 +124,10 @@ export function packageFromEntry(entry: BacklogEntry): Record<string, unknown> {
   const explicitChecks = (entry.body.match(/`[^`]+`/g) || [])
     .map((candidate) => candidate.slice(1, -1))
     .filter((candidate) => /\s/.test(candidate));
-  const definitionOfDone = NOTES_TITLE.test(entry.title)
-    ? []
-    : explicitChecks.length > 0
+  const definitionOfDone =
+    explicitChecks.length > 0 && WORK_INTENT.test(`${entry.title} ${entry.body}`)
       ? explicitChecks
-      : ACTION_TITLE.test(entry.title)
+      : IMPERATIVE_TITLE.test(entry.title)
         ? [entry.title.replace(/[.:]\s*$/, '')]
         : [];
   return {
