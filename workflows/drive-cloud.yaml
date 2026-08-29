@@ -249,8 +249,17 @@ workflows:
       \ so there was\n# never anything to preserve for diagnosis here.\n#\n# Guarded with || true and\
       \ placed AFTER the pass/fail decision is\n# computed, so a cleanup problem can never change the\
       \ verdict.\nrm -rf sdk/node_modules 2>/dev/null || true\necho \"VERIFY_TREE_SLIMMED: removed sdk/node_modules\
-      \ before flush (ok=$ok)\"\n[ \"$ok\" -eq 0 ] && echo VERIFY_PASS || echo \"VERIFY_FAIL_NONFATAL:\
-      \ recorded; the next cycle must address it\"\n"
+      \ before flush (ok=$ok)\"\n\n# Measure the tree instead of guessing at it.\n#\n# The relayfile flush\
+      \ keeps failing (http 413) and three successive\n# hypotheses about WHY were wrong: kernel/target\
+      \ was removed and the\n# count barely moved; node_modules was removed and it still failed;\n# HOME\
+      \ turned out to be /home/daytona, outside the tree, so the\n# toolchain was never in it. Meanwhile\
+      \ the bootstrap reports ~1900\n# changed files against a repo of only 257 tracked ones, and the\n\
+      # delivered patch is 12 files. Nothing in the log says what the rest\n# are, so this prints it rather\
+      \ than inviting a fourth guess.\necho \"TREE_CENSUS: top directories by file count\"\nfind . -type\
+      \ f -not -path './.git/*' 2>/dev/null \\\n  | sed -E 's|^\\./||; s|/[^/]*$||' \\\n  | cut -d/ -f1-2\
+      \ \\\n  | sort | uniq -c | sort -rn | head -12 || true\necho \"TREE_CENSUS_TOTAL: $(find . -type\
+      \ f -not -path './.git/*' 2>/dev/null | wc -l | tr -d ' ')\"\n[ \"$ok\" -eq 0 ] && echo VERIFY_PASS\
+      \ || echo \"VERIFY_FAIL_NONFATAL: recorded; the next cycle must address it\"\n"
     timeoutMs: 1200000
   - name: commit-1
     type: deterministic

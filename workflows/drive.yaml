@@ -399,6 +399,23 @@ workflows:
           # computed, so a cleanup problem can never change the verdict.
           rm -rf sdk/node_modules 2>/dev/null || true
           echo "VERIFY_TREE_SLIMMED: removed sdk/node_modules before flush (ok=$ok)"
+
+          # Measure the tree instead of guessing at it.
+          #
+          # The relayfile flush keeps failing (http 413) and three successive
+          # hypotheses about WHY were wrong: kernel/target was removed and the
+          # count barely moved; node_modules was removed and it still failed;
+          # HOME turned out to be /home/daytona, outside the tree, so the
+          # toolchain was never in it. Meanwhile the bootstrap reports ~1900
+          # changed files against a repo of only 257 tracked ones, and the
+          # delivered patch is 12 files. Nothing in the log says what the rest
+          # are, so this prints it rather than inviting a fourth guess.
+          echo "TREE_CENSUS: top directories by file count"
+          find . -type f -not -path './.git/*' 2>/dev/null \
+            | sed -E 's|^\./||; s|/[^/]*$||' \
+            | cut -d/ -f1-2 \
+            | sort | uniq -c | sort -rn | head -12 || true
+          echo "TREE_CENSUS_TOTAL: $(find . -type f -not -path './.git/*' 2>/dev/null | wc -l | tr -d ' ')"
           [ "$ok" -eq 0 ] && echo VERIFY_PASS || { echo VERIFY_FAIL; exit 1; }
         timeoutMs: 1200000
 
