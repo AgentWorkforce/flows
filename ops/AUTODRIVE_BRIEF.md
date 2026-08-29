@@ -12,25 +12,35 @@ On main now, all merged and tested:
 
 Do NOT re-do any of the above. Malformed-backlog handling (#30) and the
 nonexistent-files check (#28) are DONE and merged. PRs #29, #31, #32 and #33
-were all closed for redoing merged work or for fixing the symptom instead of
+were closed, and #34 merged a partial improvement for redoing merged work or for fixing the symptom instead of
 the cause. Read this brief fully before writing code.
 
 ## The defect
 
-Run `select-entry` against the real ops/BACKLOG.md today:
+Measure every entry in the real ops/BACKLOG.md, not just the ones scanned
+before the first success:
 
-    SKIPPED_UNACTIONABLE=13 Sharpen what the picker considers action[...];
-      Close the deterministic-command prefligh[missing_scope];
-      Release pipeline (relay pattern, NOT cra[missing_scope];
-      Persist review transcripts:[missing_scope]; ...
+    node -e 'const fs=require("node:fs");
+      const sdk=require("./sdk/dist/backlog-picker.js");
+      const t=fs.readFileSync("ops/BACKLOG.md","utf8");
+      const e=[...t.matchAll(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/gm)]
+        .map(m=>({title:m[1],body:m[2].replace(/\s+/g," ").trim()}));
+      let ok=0; for(const x of e)
+        if(sdk.validateWorkPackage(sdk.packageFromEntry(x)).accepted) ok++;
+      console.log("TOTAL="+e.length+" ACTIONABLE="+ok)'
 
-Thirteen entries skipped. Nearly all of them are REAL engineering tasks — they
-are skipped because `validateWorkPackage` judges actionability on two shallow
-signals: does the text hold a backticked path, and does it hold a multi-word
-backticked phrase. A task written in prose fails both. A notes blob full of
-backticked identifiers passes both.
+Today that prints `TOTAL=30 ACTIONABLE=4`. Twenty-six entries are real
+engineering tasks the picker cannot select, nearly all for `missing_scope`,
+because `validateWorkPackage` judges actionability on two shallow signals: does
+the text hold a backticked path, and does it hold a multi-word backticked
+phrase. A task written in prose fails both.
 
 The refusal machinery is correct. What "actionable" MEANS is what is wrong.
+
+DO NOT use `SKIPPED_UNACTIONABLE` as your measure. It counts only the entries
+skipped BEFORE the first success, so it falls when a selectable entry happens to
+sit near the top of the file, with nothing improved. PR #34 was merged with
+`SKIPPED_UNACTIONABLE=1` and `ACTIONABLE` unchanged at 4.
 
 ## Hard constraints — a PR violating any of these will be closed
 
@@ -44,13 +54,13 @@ The refusal machinery is correct. What "actionable" MEANS is what is wrong.
 
 ## Definition of done, all of it
 
-  - `SKIPPED_UNACTIONABLE` must fall BELOW 3 against the current
-    ops/BACKLOG.md, and the entry selected must be one a human would recognise
-    as engineering work. Quote the literal before/after `select-entry` output —
-    the full stderr line and the selected title, both runs.
-  - a test that runs `select-entry` against the REAL ops/BACKLOG.md, not a
-    fixture, and asserts the skip count stays low. (PR #33 had a good version
-    of this; reuse the idea.)
+  - the ACTIONABLE count above must rise from 4 to at least 20 of 30, and the
+    entry selected must still be one a human would recognise as engineering
+    work — do not get there by accepting everything. Quote the literal
+    before/after output of that exact command.
+  - a test that runs the aggregate count against the REAL ops/BACKLOG.md, not a
+    fixture, and asserts it stays high. (PR #33 had a good version of the
+    run-against-the-real-backlog idea; reuse it with the aggregate measure.)
   - tests covering the new behaviour AND every existing test still passing
   - `cd sdk && npm test` green, and `cd kernel && sh ../ops/cargo.sh test` green
   - if you touch testdata/backlog-picker.flow.yaml you MUST regenerate
