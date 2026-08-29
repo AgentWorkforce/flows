@@ -1,0 +1,59 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { load } from 'js-yaml';
+import { describe, expect, it } from 'vitest';
+
+/**
+ * The backlog-picker flow's steps must agree with each other.
+ *
+ * Originally every step re-read ops/BACKLOG.md, so if the file changed between
+ * `select-entry` and `emit-package` the emitted package would describe an entry
+ * that was never selected — a Garden reporting work it did not choose. Review
+ * flagged it (PR #20, P2) and the fix snapshots the backlog once in
+ * `read-backlog`; this test is the proof that was asked for and not delivered.
+ *
+ * It runs the flow's ACTUAL shell commands rather than a reimplementation. A
+ * test of a paraphrase would pass while the flow stayed broken.
+ */
+function stepCommands(): Record<string, string> {
+  const flowPath = join(__dirname, '..', '..', 'testdata', 'backlog-picker.flow.yaml');
+  const flow = load(readFileSync(flowPath, 'utf8')) as { steps: Array<{ id: string; command: string }> };
+  return Object.fromEntries(flow.steps.map((s) => [s.id, s.command]));
+}
+
+function run(command: string, cwd: string): string {
+  return execFileSync('sh', ['-c', command], { cwd, encoding: 'utf8' });
+}
+
+describe('backlog-picker flow', () => {
+  it('emit-package describes the entry select-entry chose, even if the backlog changes between them', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'backlog-picker-'));
+    try {
+      mkdirSync(join(dir, 'ops'), { recursive: true });
+      writeFileSync(
+        join(dir, 'ops', 'BACKLOG.md'),
+        '# Backlog\n\n- **Original entry** the one that must win\n',
+      );
+
+      const steps = stepCommands();
+      run(steps['read-backlog'], dir);
+
+      const selected = run(steps['select-entry'], dir).trim();
+      expect(selected).toContain('Original entry');
+
+      // The backlog changes underneath the flow, mid-run.
+      writeFileSync(
+        join(dir, 'ops', 'BACKLOG.md'),
+        '# Backlog\n\n- **Swapped entry** must NOT appear in the package\n',
+      );
+
+      const emitted = run(steps['emit-package'], dir);
+      expect(emitted).toContain('Original entry');
+      expect(emitted).not.toContain('Swapped entry');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
