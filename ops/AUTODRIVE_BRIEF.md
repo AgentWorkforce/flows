@@ -42,6 +42,20 @@ skipped BEFORE the first success, so it falls when a selectable entry happens to
 sit near the top of the file, with nothing improved. PR #34 was merged with
 `SKIPPED_UNACTIONABLE=1` and `ACTIONABLE` unchanged at 4.
 
+## The specific mistake three attempts have made
+
+Every attempt so far has made the test STRICTER. #33 added a title regex, #34
+added a verb whitelist as an extra hurdle, #39 required a work-intent verb IN
+ADDITION TO the backticked checks — that one moved ACTIONABLE from 4 down to 3.
+
+The defect is that real tasks are being REJECTED. Adding conditions cannot fix
+a rejection problem. What is needed is another ROUTE TO ACCEPTANCE.
+
+Concretely: an entry with a clear work verb and a stated outcome should be
+actionable EVEN WHEN IT NAMES NO BACKTICKED PATH. That single case covers most
+of the ~26 currently-skipped entries. Requiring both signals cannot get there
+by construction, no matter how the signals are refined.
+
 ## Hard constraints — a PR violating any of these will be closed
 
   - Do NOT match on entry titles, dates, or any literal string from the current
@@ -49,7 +63,11 @@ sit near the top of the file, with nothing improved. PR #34 was merged with
     `/^upstream issues\s*\(\d{4}-\d{2}-\d{2}\)/` — it passed its stated goal
     while skips went 10 -> 13. Special-casing the example is not the fix.
   - Do NOT simply relax the checks until everything passes. Selecting a notes
-    blob is as wrong as skipping a real task.
+    blob is as wrong as skipping a real task — the count must rise BECAUSE real
+    tasks became selectable, not because the bar vanished. Report what the
+    picker now selects, so that can be judged.
+  - Do NOT add a condition that an entry must ALSO satisfy. Every attempt that
+    did made the number worse. Add an alternative way to qualify instead.
   - The fix must be a better DEFINITION of actionable work, applied uniformly.
 
 ## Definition of done, all of it
