@@ -1,0 +1,35 @@
+version: '0.1.0'
+name: hn-monitor
+description: Analyze newly posted Hacker News stories for agent and automation relevance.
+triggers:
+  - id: hn-story-posted
+    executor: agent-worker
+    eventType: hn.story_posted
+    pattern:
+      type: story
+    dedupeKeyTemplate: '{{event.type}}:{{payload.id}}'
+steps:
+  - id: analyze-story
+    type: agent
+    instruction: >-
+      Analyze the triggering HN story from the wake context and determine if it
+      is relevant to AI agents/automation. Output a JSON summary with: story
+      title, relevance score (1-10), and reasoning.
+    recoveryMode: reset
+    verification:
+      type: json_schema
+      schema:
+        type: object
+        required:
+          - story_title
+          - relevance_score
+          - reasoning
+        properties:
+          story_title:
+            type: string
+          relevance_score:
+            type: integer
+            minimum: 1
+            maximum: 10
+          reasoning:
+            type: string

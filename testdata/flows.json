@@ -1,3 +1,4 @@
 {
-  "cli": "./preflight/authenticated-cli"
+  "cli": "./preflight/authenticated-cli",
+  "executors": ["agent-worker"]
 }
