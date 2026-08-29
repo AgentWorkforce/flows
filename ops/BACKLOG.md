@@ -510,3 +510,31 @@ build does, before it writes anything. That is the next thing to try, and it is
 cheap: a few lines at the top of the build task. Not attempted yet because the
 build task is an agent prompt, and an agent asked to self-check its own tree
 may simply report that it did.
+
+## The builder reports its DoD met while omitting the test it required (2026-08-29)
+
+Twice in a row now, and it is a pattern in self-assessment rather than luck:
+
+- Run fb9528bb (PR #20) — DoD said "a test proving selection is deterministic
+  given the same input". Shipped the flow and no test. The selection rule lived
+  only as a regex inside a shell one-liner, where nothing could assert it.
+- Run 50a62740 (PR #20 follow-up) — DoD said "a test proving the two steps see
+  the SAME entry even if the file changes between them". Shipped the fix, which
+  was correct, and no test.
+
+In both cases the code was right and the claim was not. `BUILD_DONE` and a
+green suite say nothing here, because the missing test cannot fail.
+
+**Why the obvious fix is not obviously right:** a `build-gate` that greps the
+diff for a new test file is easy, and easy to satisfy without meaning it — an
+empty test file passes it. This program has already shipped four guards that
+could not fail (two sweeper versions, two resurrection guards). A fifth that
+checks for the *presence* of a test rather than its *content* would join them.
+
+What actually worked, both times, was a human reading the diff against the DoD.
+The honest options are: keep doing that; or make the DoD itself the gate by
+having assess emit the DoD as runnable commands and verify RUN them — at which
+point a missing test fails because the command it names does not exist.
+
+The second is the real fix and it is a design change to the assess/verify
+contract. Worth Khaliq's view before building it.
