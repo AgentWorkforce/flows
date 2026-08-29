@@ -203,5 +203,21 @@ gh pr create --fill --body "Automated drive work from cloud run \`$run_id\`.
 
 The sandbox cannot open PRs (no remote, no GitHub token), so this was delivered
 from a host that can. Verification and adversarial review ran in-run — see
-\`ops/reviews/\` in the diff. **A human merges.**" 2>&1 | tail -2
+\`ops/reviews/\` in the diff. **A human merges.**" > /tmp/.pr-create.$$ 2>&1
+pr_rc=$?
+pr_out=$(cat /tmp/.pr-create.$$ 2>/dev/null); rm -f /tmp/.pr-create.$$
+echo "$pr_out" | tail -2
+
+# Report what actually happened. This line used to print unconditionally, so a
+# `gh pr create` that failed on a rate limit still logged DELIVER_PR_OPENED —
+# autodrive then recorded a PR for run 7be717cb that does not exist. A delivery
+# script that claims success it did not achieve is the same fake-green this
+# repo keeps finding elsewhere; it has no business being in the thing that
+# reports on everything else.
+if [ $pr_rc -ne 0 ] || ! echo "$pr_out" | grep -q "github.com/.*/pull/"; then
+  echo "DELIVER_FAIL_PR_NOT_CREATED: the branch $branch was pushed, but no PR was opened." >&2
+  echo "  gh exit $pr_rc. Open it by hand, or re-run once the cause clears:" >&2
+  echo "  gh pr create --head $branch --fill" >&2
+  exit 75
+fi
 echo "DELIVER_PR_OPENED for run $run_id on $branch"
