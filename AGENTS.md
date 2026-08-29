@@ -33,11 +33,22 @@ writing code. If your work contradicts it, your work is wrong.
 
 ## Observability
 
-Every workflow run MUST join the canonical cloud workspace so humans can follow
-it live (observer links, channels). The broker is pinned via
-`agent-relay workspace rebind default`; launch runs through
-`scripts/run-workflow.sh`. A run that lands in an ephemeral/local workspace is
-a defect (Nabis #7 family) — fix the binding, don't proceed silently.
+Prefer launching runs through `scripts/run-workflow.sh`, which pins the broker
+to the canonical cloud workspace so humans can follow a run live via observer
+links and channels. That is how a run becomes watchable, and for any run a
+human may need to follow it is the right default.
+
+**It is not a correctness requirement, and a local run is not a defect.**
+RFC-0001 settled decision 7 makes relaycast a *projection, not a source of
+truth*: the journal is the record, and the workspace is one view onto it. A run
+that never joins a workspace is harder to watch; it is not less durable, less
+resumable, or less correct.
+
+This paragraph previously said every run MUST join the canonical workspace and
+that anything else was a defect. That predates decision 7 and outlived it — it
+caused a review to flag a local demo as a P1 defect when the demo was fine.
+A stale MUST is worse than a missing one: it spends reviewer attention, and it
+teaches people the rules are approximate.
 
 ## Evidence is captured, not narrated
 
