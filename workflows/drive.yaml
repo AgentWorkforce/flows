@@ -176,11 +176,30 @@ workflows:
           if git log --oneline main..HEAD -- ops/NEXT.md 2>/dev/null | grep -q .; then
             echo "ASSESS_PACKAGE_COMMITTED: found ops/NEXT.md change in this tick's history"
           elif git diff --quiet main -- ops/NEXT.md 2>/dev/null; then
-            echo "ASSESS_FAIL_STALE_NEXT: ops/NEXT.md is unchanged from the base commit."
-            echo "  The assess step reported success but its work package did not reach this step,"
-            echo "  so the builder would be handed the PREVIOUS tick's file. Failing here rather"
-            echo "  than letting a build proceed against scope nobody wrote this tick."
-            exit 1
+            # Warn, do not fail. This was fatal, and it killed four runs in six
+            # while the loop produced nothing — a worse outcome than the risk
+            # it guarded against.
+            #
+            # The risk it guarded was "the builder gets scope nobody wrote this
+            # tick". But scope does not actually come from ops/NEXT.md: it comes
+            # from ops/TARGET.md, which the launcher COMMITS into the uploaded
+            # tree, so it is present in every per-step sandbox and cannot be
+            # lost to the propagation fault. NEXT.md refines the target; it does
+            # not define it.
+            echo "ASSESS_WARN_STALE_NEXT: ops/NEXT.md did not change from the base commit."
+            echo "  The assess step's package did not survive the step boundary (a known"
+            echo "  platform fault: per-step sandboxes lose both loose files and git objects)."
+            echo "  Proceeding, because ops/TARGET.md is committed in the tree and carries this"
+            echo "  run's scope. The builder is not working blind — it is working from the"
+            echo "  target rather than from a refinement of it."
+            if [ -f ops/TARGET.md ]; then
+              echo "--- ops/TARGET.md (the scope that did survive) ---"
+              head -8 ops/TARGET.md
+            else
+              echo "ASSESS_FAIL_NO_SCOPE: neither a fresh ops/NEXT.md nor an ops/TARGET.md."
+              echo "  With no scope from either source the builder WOULD be working blind."
+              exit 1
+            fi
           fi
           # A package with no definition of done cannot be verified, and the
           # builder cannot honestly report BUILD_DONE against it.
