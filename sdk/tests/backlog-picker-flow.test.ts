@@ -158,6 +158,40 @@ describe('backlog-picker canonical spec', () => {
     }
   });
 
+  it('carries every dependency the yaml declares, under the kernel\'s key', () => {
+    // Consistency between steps is not enough, and review caught that (PR #37):
+    // if regeneration dropped `depends_on` from EVERY step, all field sets
+    // would still match and none would be camelCase, so both checks above pass
+    // while the kernel silently loses the whole dependency graph and runs the
+    // steps in the wrong order.
+    //
+    // So compare against the authority instead of against the siblings. The
+    // yaml declares the dependencies; the canonical spec must carry the same
+    // ones under `depends_on`. This cannot go stale as the kernel's schema
+    // grows, because it asserts a relationship rather than a field list.
+    const root = join(__dirname, '..', '..');
+    const flow = load(readFileSync(join(root, 'testdata', 'backlog-picker.flow.yaml'), 'utf8')) as {
+      steps: Array<{ id: string; dependsOn?: string[] }>;
+    };
+    const canonical = JSON.parse(
+      readFileSync(join(root, 'testdata', 'backlog-picker.spec.canonical.json'), 'utf8'),
+    ) as { steps: Array<{ id: string; depends_on?: string[] }> };
+
+    const canonicalById = new Map(canonical.steps.map((step) => [step.id, step]));
+    let declared = 0;
+    for (const step of flow.steps) {
+      if (step.dependsOn === undefined) continue;
+      declared += 1;
+      expect(
+        canonicalById.get(step.id)?.depends_on,
+        `step "${step.id}" loses the dependencies the yaml declares`,
+      ).toEqual(step.dependsOn);
+    }
+    // If the yaml ever stops declaring dependencies this test would assert
+    // nothing at all, and pass while proving nothing.
+    expect(declared, 'the flow yaml declares no dependencies to check').toBeGreaterThan(0);
+  });
+
   it('keeps directories and extensionless paths, and rejects prose', () => {
     const steps = stepCommands();
     const dir = mkdtempSync(join(tmpdir(), 'backlog-scope-'));
