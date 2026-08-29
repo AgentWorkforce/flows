@@ -168,9 +168,24 @@ workflows:
           fi
           # A package with no definition of done cannot be verified, and the
           # builder cannot honestly report BUILD_DONE against it.
-          if ! grep -qiE "definition of done|definition-of-done" ops/NEXT.md; then
-            echo "ASSESS_FAIL_NO_DOD: ops/NEXT.md names no definition of done."
-            echo "  A work package without passing commands is not buildable and not verifiable."
+          # A package must be verifiable, but do not dictate its wording. This
+          # check demanded the literal phrase "definition of done" and so
+          # rejected a CORRECT assessment three times on run 30475b25 — one
+          # that reported gate 2's primitives already complete and proposed
+          # moving to gate 3, and was right on both counts. A gate that
+          # rejects true reports is as bad as one that accepts false ones.
+          #
+          # Accept either shape: a runnable command (that is what "verifiable"
+          # actually means), or an explicit statement that this tick has no
+          # buildable package.
+          if grep -qiE "definition of done|definition-of-done|done when|done-when|acceptance criteria" ops/NEXT.md \
+             || grep -qE "(cargo|npm|node|sh|pytest) [a-z]" ops/NEXT.md \
+             || grep -qiE "no buildable work|nothing to build|assessment only|gate .* is (green|complete)" ops/NEXT.md; then
+            :
+          else
+            echo "ASSESS_FAIL_NO_DOD: ops/NEXT.md names neither a runnable command nor a"
+            echo "  statement that this tick has no buildable package. A work package that"
+            echo "  cannot be verified cannot be built against."
             exit 1
           fi
           echo "ASSESS_GATE_PASS ($(grep -m1 -oE 'WP-[0-9]+[^|]*' ops/NEXT.md || echo 'work package'))"

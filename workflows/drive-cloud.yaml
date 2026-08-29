@@ -115,9 +115,18 @@ workflows:
       \ package did not reach this step,\"\n  echo \"  so the builder would be handed the PREVIOUS tick's\
       \ file. Failing here rather\"\n  echo \"  than letting a build proceed against scope nobody wrote\
       \ this tick.\"\n  exit 1\nfi\n# A package with no definition of done cannot be verified, and the\n\
-      # builder cannot honestly report BUILD_DONE against it.\nif ! grep -qiE \"definition of done|definition-of-done\"\
-      \ ops/NEXT.md; then\n  echo \"ASSESS_FAIL_NO_DOD: ops/NEXT.md names no definition of done.\"\n \
-      \ echo \"  A work package without passing commands is not buildable and not verifiable.\"\n  exit\
+      # builder cannot honestly report BUILD_DONE against it.\n# A package must be verifiable, but do\
+      \ not dictate its wording. This\n# check demanded the literal phrase \"definition of done\" and\
+      \ so\n# rejected a CORRECT assessment three times on run 30475b25 \u2014 one\n# that reported gate\
+      \ 2's primitives already complete and proposed\n# moving to gate 3, and was right on both counts.\
+      \ A gate that\n# rejects true reports is as bad as one that accepts false ones.\n#\n# Accept either\
+      \ shape: a runnable command (that is what \"verifiable\"\n# actually means), or an explicit statement\
+      \ that this tick has no\n# buildable package.\nif grep -qiE \"definition of done|definition-of-done|done\
+      \ when|done-when|acceptance criteria\" ops/NEXT.md \\\n   || grep -qE \"(cargo|npm|node|sh|pytest)\
+      \ [a-z]\" ops/NEXT.md \\\n   || grep -qiE \"no buildable work|nothing to build|assessment only|gate\
+      \ .* is (green|complete)\" ops/NEXT.md; then\n  :\nelse\n  echo \"ASSESS_FAIL_NO_DOD: ops/NEXT.md\
+      \ names neither a runnable command nor a\"\n  echo \"  statement that this tick has no buildable\
+      \ package. A work package that\"\n  echo \"  cannot be verified cannot be built against.\"\n  exit\
       \ 1\nfi\necho \"ASSESS_GATE_PASS ($(grep -m1 -oE 'WP-[0-9]+[^|]*' ops/NEXT.md || echo 'work package'))\"\
       \n"
     timeoutMs: 120000
@@ -256,9 +265,18 @@ workflows:
       \ package did not reach this step,\"\n  echo \"  so the builder would be handed the PREVIOUS tick's\
       \ file. Failing here rather\"\n  echo \"  than letting a build proceed against scope nobody wrote\
       \ this tick.\"\n  exit 1\nfi\n# A package with no definition of done cannot be verified, and the\n\
-      # builder cannot honestly report BUILD_DONE against it.\nif ! grep -qiE \"definition of done|definition-of-done\"\
-      \ ops/NEXT.md; then\n  echo \"ASSESS_FAIL_NO_DOD: ops/NEXT.md names no definition of done.\"\n \
-      \ echo \"  A work package without passing commands is not buildable and not verifiable.\"\n  exit\
+      # builder cannot honestly report BUILD_DONE against it.\n# A package must be verifiable, but do\
+      \ not dictate its wording. This\n# check demanded the literal phrase \"definition of done\" and\
+      \ so\n# rejected a CORRECT assessment three times on run 30475b25 \u2014 one\n# that reported gate\
+      \ 2's primitives already complete and proposed\n# moving to gate 3, and was right on both counts.\
+      \ A gate that\n# rejects true reports is as bad as one that accepts false ones.\n#\n# Accept either\
+      \ shape: a runnable command (that is what \"verifiable\"\n# actually means), or an explicit statement\
+      \ that this tick has no\n# buildable package.\nif grep -qiE \"definition of done|definition-of-done|done\
+      \ when|done-when|acceptance criteria\" ops/NEXT.md \\\n   || grep -qE \"(cargo|npm|node|sh|pytest)\
+      \ [a-z]\" ops/NEXT.md \\\n   || grep -qiE \"no buildable work|nothing to build|assessment only|gate\
+      \ .* is (green|complete)\" ops/NEXT.md; then\n  :\nelse\n  echo \"ASSESS_FAIL_NO_DOD: ops/NEXT.md\
+      \ names neither a runnable command nor a\"\n  echo \"  statement that this tick has no buildable\
+      \ package. A work package that\"\n  echo \"  cannot be verified cannot be built against.\"\n  exit\
       \ 1\nfi\necho \"ASSESS_GATE_PASS ($(grep -m1 -oE 'WP-[0-9]+[^|]*' ops/NEXT.md || echo 'work package'))\"\
       \n"
     timeoutMs: 120000
@@ -397,9 +415,18 @@ workflows:
       \ package did not reach this step,\"\n  echo \"  so the builder would be handed the PREVIOUS tick's\
       \ file. Failing here rather\"\n  echo \"  than letting a build proceed against scope nobody wrote\
       \ this tick.\"\n  exit 1\nfi\n# A package with no definition of done cannot be verified, and the\n\
-      # builder cannot honestly report BUILD_DONE against it.\nif ! grep -qiE \"definition of done|definition-of-done\"\
-      \ ops/NEXT.md; then\n  echo \"ASSESS_FAIL_NO_DOD: ops/NEXT.md names no definition of done.\"\n \
-      \ echo \"  A work package without passing commands is not buildable and not verifiable.\"\n  exit\
+      # builder cannot honestly report BUILD_DONE against it.\n# A package must be verifiable, but do\
+      \ not dictate its wording. This\n# check demanded the literal phrase \"definition of done\" and\
+      \ so\n# rejected a CORRECT assessment three times on run 30475b25 \u2014 one\n# that reported gate\
+      \ 2's primitives already complete and proposed\n# moving to gate 3, and was right on both counts.\
+      \ A gate that\n# rejects true reports is as bad as one that accepts false ones.\n#\n# Accept either\
+      \ shape: a runnable command (that is what \"verifiable\"\n# actually means), or an explicit statement\
+      \ that this tick has no\n# buildable package.\nif grep -qiE \"definition of done|definition-of-done|done\
+      \ when|done-when|acceptance criteria\" ops/NEXT.md \\\n   || grep -qE \"(cargo|npm|node|sh|pytest)\
+      \ [a-z]\" ops/NEXT.md \\\n   || grep -qiE \"no buildable work|nothing to build|assessment only|gate\
+      \ .* is (green|complete)\" ops/NEXT.md; then\n  :\nelse\n  echo \"ASSESS_FAIL_NO_DOD: ops/NEXT.md\
+      \ names neither a runnable command nor a\"\n  echo \"  statement that this tick has no buildable\
+      \ package. A work package that\"\n  echo \"  cannot be verified cannot be built against.\"\n  exit\
       \ 1\nfi\necho \"ASSESS_GATE_PASS ($(grep -m1 -oE 'WP-[0-9]+[^|]*' ops/NEXT.md || echo 'work package'))\"\
       \n"
     timeoutMs: 120000

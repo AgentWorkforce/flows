@@ -8,7 +8,7 @@ it is authoritative when history is unavailable.
 **Keep it current. A stale STATE.md is worse than none:** it does not merely
 fail to help, it actively misleads an assessor that cannot check it.
 
-Last updated: 2026-08-28 22:35 UTC, by Khaliq's session, on `main`.
+Last updated: 2026-08-28 23:40 UTC, by Khaliq's session, on `main`.
 
 ## Where the program is
 
@@ -35,11 +35,17 @@ Last updated: 2026-08-28 22:35 UTC, by Khaliq's session, on `main`.
   templating), `TriggerSpec` fields, a subscription registry keyed by
   (flow, subscription, key) with claim repair, and the SDK's `event.submit`
   verb plus trigger fields.
-  **Still missing before gate 2 can go green:** the wake-time CONTEXT contract
-  from RFC-0001 Appendix A — the agent step must receive context assembled AT
-  WAKE from an epoch summary plus the triggering event, never a resumed
-  session — and a test proving a second identical event does not
-  double-execute the effect.
+  **Both pieces I previously listed as missing are in fact DONE**, and PR #14
+  carried them. Verified on `main` at 23:40 UTC, literally:
+  `sh ops/cargo.sh test -p relayflowd --test event_wake` ->
+  `matching_event_wakes_once_with_fresh_context ... ok` (1 passed). The
+  wake-time context assembly is in `engine/wake.rs`; the idempotency proof is
+  `kernel/relayflowd/tests/event_wake.rs`.
+  **What actually remains is the RFC's own bar, which is higher than the
+  primitives.** RFC-0001 §3 gate 2 is done when a real proactive workload
+  (`hn-monitor` or `linear`) runs as a relayflow — not when the kernel can wake
+  on an event. Rule 2 governs: a gate is green only when the real workload runs
+  on it. So gate 2 stays AMBER with its primitives complete.
 
 ## Open PRs
 
