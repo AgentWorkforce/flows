@@ -602,3 +602,34 @@ synchronisation rather than a timeout — two threads and a channel, so the
 ordering is forced rather than hoped for — and confirm it FAILS against the
 pre-fix server.rs before trusting it. Until then gate 1's GREEN carries this
 asterisk.
+
+## CORRECTION: broken git in the build sandbox is not the cause of file loss (2026-08-29)
+
+The entry above declared "ROOT CAUSE of silent file loss: the build sandbox has
+no working git". **That is wrong**, and run a4980bfe disproves it.
+
+That run's builder reported the same broken workspace:
+
+```
+$ git status --porcelain
+fatal: not a git repository: /home/daytona/.project-git
+```
+
+and its files were nonetheless captured and delivered in full —
+`sdk/src/work-package-consumer.ts`, its seven tests, and the index export, now
+PR #23. So the executor does not need a working repo in the step sandbox to
+capture changes, and a broken `.git` there is a red herring: it is present in
+runs that lose work AND in runs that do not.
+
+What I actually established was a correlation of one, and I called it a root
+cause on a single observation. The evidence that felt decisive — a precise,
+literal error message — was real but not load-bearing.
+
+**Still unexplained:** why runs ee5c9b3e and 06c0d6ab lost their SDK writes
+while a4980bfe, with the same broken git, kept them. The distinguishing factor
+is not known. Anyone picking this up should start from that question rather
+than from the git message.
+
+The diagnostic itself was worth adding and should stay: asking the builder to
+print `git status --porcelain` as its last action is what made this correction
+possible at all.
