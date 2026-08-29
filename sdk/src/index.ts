@@ -114,6 +114,13 @@ export { JOURNAL_WRITE_FAILED, PROTOCOL_VERSION } from './protocol.js';
 export { JournalClient, type JournalClientOptions } from './journal-client.js';
 
 export {
+  validateWorkPackage,
+  type ValidatedWorkPackage,
+  type WorkPackageValidation,
+  type WorkPackageValidationReason,
+} from './backlog-picker.js';
+
+export {
   consumeWorkPackage,
   type EmittedWorkPackage,
   type WorkPackageConsumption,
