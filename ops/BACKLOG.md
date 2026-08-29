@@ -579,3 +579,26 @@ as the final action. When it errors, the loss is visible in the log immediately
 rather than inferred from an empty patch twenty minutes later.
 
 Worth reporting to cloud with the literal output above.
+
+## The gate-1 race fix is merged with a test that proves nothing (2026-08-29)
+
+PR #18 is merged. The production change is sound and was reviewed: the run lock
+now makes an append's journal commit and hub notification atomic with respect
+to watch registration, and after review it was rescoped so the lock is NOT held
+across the blocking replay writes.
+
+**Its regression test has never been observed to fail.** I tried to demonstrate
+the failing direction and could not; review then identified why — the test's
+assertion rests on a 100ms `recv_timeout`, which is a scheduling race, so it
+can pass without the fix and fail spuriously with it.
+
+Merged anyway, deliberately: a real race in gate-1 code left unfixed is worse
+than a correct fix with a weak guard, and the fix's reasoning stands on its own.
+But this is a fix on trust, and it is the only change merged in this stretch
+that does not meet the standard everything else did.
+
+**The work:** rewrite the test around the `after_ready` seam with explicit
+synchronisation rather than a timeout — two threads and a channel, so the
+ordering is forced rather than hoped for — and confirm it FAILS against the
+pre-fix server.rs before trusting it. Until then gate 1's GREEN carries this
+asterisk.
