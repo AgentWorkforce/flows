@@ -1,73 +1,97 @@
-# NEXT — Gate 3: Sharpen backlog-picker actionability
+# NEXT — Fix scope extraction to recognize backticked symbols
 
-**Scope:** Gate 3 — Improve how the Garden decides what is WORTH working on. CODE task, SDK-side.
+**Gate 3 target from ops/TARGET.md:**
 
-On main now, all merged and tested:
-- `sdk/src/backlog-picker.ts` — proposes a work package from ops/BACKLOG.md; exports selectBacklogEntry / packageFromEntry / validateWorkPackage
-- `sdk/src/work-package-consumer.ts` — judges one, refusing with a typed reason (missing_title / missing_scope / missing_definition_of_done / nonexistent_files)
-- `testdata/backlog-picker.flow.yaml` — the flow. Its `select-entry` step now scans for the first ACTIONABLE entry, validating candidates and skipping the ones that fail, and exits nonzero with NO_ACTIONABLE_BACKLOG_ENTRY when nothing qualifies.
+> **Scope:** Improve how the Garden decides what is WORTH working on. CODE task, SDK-side.
+>
+> Do NOT re-do any of the above. Malformed-backlog handling (#30) and the
+> nonexistent-files check (#28) are DONE and merged. PRs #29, #31, #32 and #33
+> were closed, and #34 merged a partial improvement for redoing merged work or for fixing the symptom instead of
+> the cause. Read this brief fully before writing code.
 
-Do NOT re-do any of the above. Malformed-backlog handling (PR #30) and the nonexistent-files check (PR #28) are DONE and merged.
+## The defect (quoted from TARGET.md)
 
-## The actual defect
+Measure every entry in the real ops/BACKLOG.md, not just the ones scanned before the first success:
 
-Run `select-entry` against the real ops/BACKLOG.md. It prints:
+```
+node -e 'const fs=require("node:fs");
+  const sdk=require("./sdk/dist/backlog-picker.js");
+  const t=fs.readFileSync("ops/BACKLOG.md","utf8");
+  const e=[...t.matchAll(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/gm)]
+    .map(m=>({title:m[1],body:m[2].replace(/\s+/g," ").trim()}));
+  let ok=0; for(const x of e)
+    if(sdk.validateWorkPackage(sdk.packageFromEntry(x)).accepted) ok++;
+  console.log("TOTAL="+e.length+" ACTIONABLE="+ok)'
+```
 
-    SKIPPED_UNACTIONABLE=10 ...
+Today that prints `TOTAL=32 ACTIONABLE=4`. Twenty-eight entries are real engineering tasks the picker cannot select, nearly all for `missing_scope`.
 
-and then selects a dated notes blob ("Upstream issues (2026-08-27):") as the work package. Ten genuine engineering tasks were skipped in favour of a list of links.
+Current rejection breakdown:
+```
+rejection reasons: {"missing_scope":25,"missing_definition_of_done":3}
+```
 
-The cause: `validateWorkPackage` decides "actionable" using only two shallow signals — does the text contain a backticked path, and does it contain a multi-word backticked phrase. A notes blob full of backticked identifiers passes both. A real task written in prose ("Refuse a path-like deterministic command word when that path does not exist") fails both.
+**Twenty-five of twenty-eight rejections are SCOPE.** Every attempt so far (#33, #34, #39) changed `definition_of_done`, which is the wrong field.
 
-The guard is correct. The SELECTION is poor. That is what to fix.
+## Why scope is empty (quoted from TARGET.md)
+
+`packageFromEntry` fills `files_in_scope` from backticked tokens that look like paths — they must contain a `/`. Real entries mostly backtick SYMBOLS and COMMANDS instead:
+
+- "Refuse an entry with unterminated backticks."
+  backticked: `validateWorkPackage` `nested_bullet` `missing_body`
+  files_in_scope: []
+
+- "Half the drive runs complete but build nothing."
+  backticked: `agent-relay cloud logs <run-id>` `500 Internal Server Error`
+  files_in_scope: []
+
+A backticked symbol is perfectly good evidence of where work belongs — `validateWorkPackage` names a function that exists in exactly one file. The picker throws that signal away because it only pattern-matches slashes.
+
+**That is the defect. Fix scope, not the definition of done.**
 
 ## Objective
 
-Implement a sharper notion of actionability in `sdk/src/backlog-picker.ts` so that the backlog picker selects real engineering tasks and does NOT select notes entries.
+Change `packageFromEntry` in `sdk/src/backlog-picker.ts` to accept backticked symbols as scope evidence, not just backticked paths containing `/`.
 
 ## Files in scope
 
-- `sdk/src/backlog-picker.ts` — improve actionability detection
-- `sdk/src/index.ts` — wire in new export if it is needed
-- Tests for the new behavior
-- `testdata/backlog-picker.flow.yaml` — ONLY if changes needed
-- `testdata/backlog-picker.spec.canonical.json` — regenerate ONLY if yaml changes
+- `sdk/src/backlog-picker.ts` — the `packageFromEntry` function at line 109
+- `sdk/tests/backlog-picker.test.ts` — new tests required
+- `ops/BACKLOG.md` — the real backlog (read-only, for measurement)
 
-## Definition of done
+## Definition of done (all required, quoted from TARGET.md)
 
-All of the following must hold:
+1. **The ACTIONABLE count must rise from 4 to at least 20 of 32**, measured by the exact command above. Quote the literal before/after output.
 
-1. **Improved actionability logic** in `sdk/src/backlog-picker.ts` that distinguishes real engineering tasks from notes blobs
+2. **A test that runs the aggregate count against the REAL ops/BACKLOG.md** (not a fixture) and asserts it stays high (at least 20 actionable). PR #33 had a good version of this idea; reuse it with the aggregate measure.
 
-2. **Literal before/after evidence:**
-   - Quote the literal `select-entry` output BEFORE the change showing it selected "Upstream issues"
-   - Quote the literal `select-entry` output AFTER the change showing it selected a real engineering task
+3. **Tests covering the new behaviour AND every existing test still passing**.
 
-3. **Test coverage:**
-   - Tests covering the new behavior
-   - EVERY new test confirmed to FAIL against current code (quote the literal failing output)
-   - All existing tests still passing
+4. **`cd sdk && npm test` green**.
 
-4. **Green test suites:**
-   ```
-   cd sdk && npm test
-   cd kernel && sh ../ops/cargo.sh test
-   ```
-   Both must pass with output quoted.
+5. **If you touch testdata/backlog-picker.flow.yaml** you MUST regenerate testdata/backlog-picker.spec.canonical.json — the kernel consumes the canonical spec, not the yaml, and a drift test will fail you.
 
-5. **If testdata/backlog-picker.flow.yaml is modified:**
-   - Regenerate `testdata/backlog-picker.spec.canonical.json`
+6. **EVERY new test confirmed to FAIL against current code**, with the literal failing output quoted.
 
-6. **Final verification** — as the LAST action, run:
-   ```
-   git status --porcelain
-   ```
-   And paste the output
+7. **As your LAST action, run `git status --porcelain` and paste it**.
 
-## Out of scope
+8. **Report the rejection-reason breakdown before and after**, so it is clear which field you actually changed.
 
-- **DO NOT re-implement malformed-backlog handling** (PR #30, merged)
-- **DO NOT re-implement nonexistent-files check** (PR #28, merged)
-- Any work on other gates (1, 2, 4, 5, 6, 7, 8, 9)
-- Any changes to the consumer logic beyond what's needed for this specific defect
-- Performance optimizations unrelated to the selection problem
+9. **Report what the picker now selects**, so that can be judged — the count must rise BECAUSE real tasks became selectable, not because the bar vanished.
+
+## Hard constraints (from TARGET.md — a PR violating any of these will be closed)
+
+- Do NOT match on entry titles, dates, or any literal string from the current backlog
+- Do NOT simply relax the checks until everything passes — selecting a notes blob is as wrong as skipping a real task
+- Do NOT add a condition that an entry must ALSO satisfy — add an alternative way to qualify instead
+- Do NOT touch `definition_of_done` expecting the number to move — only 3 of 28 rejections are about it
+- The fix must be a better DEFINITION of actionable work, applied uniformly
+
+## Out of scope for this tick
+
+- Kernel changes — this is SDK-side only, gate 3
+- Changes to `validateWorkPackage` — it is correct, the input it receives is wrong
+- Changes to the flow yaml unless absolutely necessary
+- Work on any other gate
+- The nonexistent-files check — already merged in #28
+- Malformed-backlog handling — already merged in #30
