@@ -8,7 +8,7 @@ it is authoritative when history is unavailable.
 **Keep it current. A stale STATE.md is worse than none:** it does not merely
 fail to help, it actively misleads an assessor that cannot check it.
 
-Last updated: 2026-08-29 07:45 UTC, by Khaliq's session, on `main`.
+Last updated: 2026-08-29 08:30 UTC, by Khaliq's session, on `main`.
 
 ## Where the program is
 
@@ -71,11 +71,16 @@ Last updated: 2026-08-29 07:45 UTC, by Khaliq's session, on `main`.
   Hacker News:** real story ids woke the flow (`deduped=false wake=created`),
   and a second run of the same stories was refused (`deduped=true wake=none`).
   That is exactly-once holding on real external data.
-- **#20 — gate 3 first step** (`testdata/backlog-picker.flow.yaml` + canonical
-  spec). A flow that reads the backlog and emits a work package — the seed of
-  flows proposing their own next task. `flows check` passes; sdk 153/153.
+**#20 is MERGED** — gate 3's first code is on `main`:
+`testdata/backlog-picker.flow.yaml`, its canonical spec, and
+`sdk/src/backlog-picker.ts` with the selection rule extracted so it can be
+tested. Determinism is asserted across 25 repeated selections. Verified before
+merge on the branch: sdk 158/158, `flows check` -> CHECK PASSED. Two P2
+refinements are open in review and deliberately not blocking: reuse the
+selected snapshot instead of re-reading the file, and derive package metadata
+from the entry.
 
-Merged to date: #1–#8, #10, #12, #13, #14, #15, #16.
+Merged to date: #1–#8, #10, #12, #13, #14, #15, #16, #20.
 PR #9 and PR #11 were superseded by #12 and are closed, not pending.
 
 - **#13** delivered the first cloud-produced work back as a PR.
