@@ -108,16 +108,7 @@ function isNonEmptyStringArray(value: unknown): value is string[] {
  */
 export function packageFromEntry(entry: BacklogEntry): Record<string, unknown> {
   const blob = `${entry.title} ${entry.body}`;
-  const files = [
-    ...new Set(
-      [...blob.matchAll(/`([A-Za-z_][A-Za-z0-9._-]*(?:\/[A-Za-z0-9._-]*)+)`/g)]
-        .map((match) => match[1])
-        .filter(
-          (candidate): candidate is string =>
-            candidate !== undefined && !/^\/|\/\//.test(candidate),
-        ),
-    ),
-  ];
+  const files = scopeReferences(blob);
   const gate = blob.match(/\bgate[ -]?(\d+)\b/i);
   const explicitChecks = (entry.body.match(/`[^`]+`/g) || [])
     .map((candidate) => candidate.slice(1, -1))
@@ -136,4 +127,16 @@ export function packageFromEntry(entry: BacklogEntry): Record<string, unknown> {
     gate: gate ? Number(gate[1]) : null,
     definition_of_done: definitionOfDone,
   };
+}
+
+/** Backticked paths, symbols, and command references are explicit scope. */
+function scopeReferences(blob: string): string[] {
+  const references = [...blob.matchAll(/`([^`]+)`/g)]
+    .map((match) => match[1])
+    .filter((candidate): candidate is string => candidate !== undefined)
+    .filter((candidate) => {
+      if (/^\/|\/\//.test(candidate)) return false;
+      return !/\s/.test(candidate) || /--|<[^>]+>|\$[A-Za-z]/.test(candidate);
+    });
+  return [...new Set(references)];
 }
