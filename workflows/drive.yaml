@@ -370,6 +370,28 @@ workflows:
           if [ "$ran" -eq 0 ]; then
             echo "VERIFY_FAIL: no suite found — a verify that runs nothing cannot pass"; exit 1
           fi
+          # Shrink the tree before the flush that matters.
+          #
+          # The relayfile mount flush fails on a large tree — http 413, or a
+          # timeout waiting for the daemon to ack — and the failure is
+          # NON-FATAL, so the run reports success while later steps read stale
+          # files and the delivered patch silently loses the work. Five runs
+          # were lost this way. PR #38 took kernel/target out (4914 paths ->
+          # 0), which was not enough on its own: run 5ecf7078 still flushed
+          # 1932 files and still hit 413.
+          #
+          # sdk/node_modules is what remains — 1226 files, 52 MB, and already
+          # gitignored, so nothing downstream of here reads it: the suites have
+          # finished by this line, and commit/handoff touch only tracked files.
+          # Removing it after the gates pass costs nothing and takes the bulk
+          # of the payload out of every flush from here on.
+          #
+          # Guarded with || true and placed AFTER the pass/fail decision, so a
+          # cleanup problem can never turn a green verify red.
+          if [ "$ok" -eq 0 ]; then
+            rm -rf sdk/node_modules 2>/dev/null || true
+            echo "VERIFY_TREE_SLIMMED: removed sdk/node_modules before flush"
+          fi
           [ "$ok" -eq 0 ] && echo VERIFY_PASS || { echo VERIFY_FAIL; exit 1; }
         timeoutMs: 1200000
 

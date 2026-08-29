@@ -232,8 +232,20 @@ workflows:
       \  echo \"$out\" | tail -8; ran=1\n  if [ $rc -eq 124 ]; then\n    echo \"VERIFY_SUITE_TIMEOUT:\
       \ the sdk suite exceeded ${VERIFY_SUITE_TIMEOUT:-900}s and was killed.\"\n  fi\n  [ $rc -eq 0 ]\
       \ || ok=1\nfi\nif [ \"$ran\" -eq 0 ]; then\n  echo \"VERIFY_FAIL: no suite found \u2014 a verify\
-      \ that runs nothing cannot pass\"; exit 1\nfi\n[ \"$ok\" -eq 0 ] && echo VERIFY_PASS || echo \"\
-      VERIFY_FAIL_NONFATAL: recorded; the next cycle must address it\"\n"
+      \ that runs nothing cannot pass\"; exit 1\nfi\n# Shrink the tree before the flush that matters.\n\
+      #\n# The relayfile mount flush fails on a large tree \u2014 http 413, or a\n# timeout waiting for\
+      \ the daemon to ack \u2014 and the failure is\n# NON-FATAL, so the run reports success while later\
+      \ steps read stale\n# files and the delivered patch silently loses the work. Five runs\n# were lost\
+      \ this way. PR #38 took kernel/target out (4914 paths ->\n# 0), which was not enough on its own:\
+      \ run 5ecf7078 still flushed\n# 1932 files and still hit 413.\n#\n# sdk/node_modules is what remains\
+      \ \u2014 1226 files, 52 MB, and already\n# gitignored, so nothing downstream of here reads it: the\
+      \ suites have\n# finished by this line, and commit/handoff touch only tracked files.\n# Removing\
+      \ it after the gates pass costs nothing and takes the bulk\n# of the payload out of every flush\
+      \ from here on.\n#\n# Guarded with || true and placed AFTER the pass/fail decision, so a\n# cleanup\
+      \ problem can never turn a green verify red.\nif [ \"$ok\" -eq 0 ]; then\n  rm -rf sdk/node_modules\
+      \ 2>/dev/null || true\n  echo \"VERIFY_TREE_SLIMMED: removed sdk/node_modules before flush\"\nfi\n\
+      [ \"$ok\" -eq 0 ] && echo VERIFY_PASS || echo \"VERIFY_FAIL_NONFATAL: recorded; the next cycle must\
+      \ address it\"\n"
     timeoutMs: 1200000
   - name: commit-1
     type: deterministic
