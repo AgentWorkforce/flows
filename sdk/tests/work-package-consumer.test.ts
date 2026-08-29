@@ -9,7 +9,10 @@ const validPackage = {
 
 async function consume(input: unknown) {
   const module = await import('../src/work-package-consumer.js');
-  return module.consumeWorkPackage(input);
+  // Inject a permissive existence check: these tests exercise the OTHER
+  // refusal reasons, and should not also depend on whether fixture paths
+  // happen to exist on disk.
+  return module.consumeWorkPackage(input, () => true);
 }
 
 describe('work package consumer', () => {
@@ -88,7 +91,7 @@ describe('the Garden join: picker output feeds the consumer', () => {
       run(step('read-backlog'), dir);
       run(step('select-entry'), dir);
       const accepted = JSON.parse(run(step('emit-package'), dir));
-      expect(consumeWorkPackage(accepted).accepted, JSON.stringify(accepted)).toBe(true);
+      expect(consumeWorkPackage(accepted, () => true).accepted, JSON.stringify(accepted)).toBe(true);
 
       // An entry with no command names no way to verify itself.
       writeFileSync(
@@ -98,7 +101,7 @@ describe('the Garden join: picker output feeds the consumer', () => {
       run(step('read-backlog'), dir);
       run(step('select-entry'), dir);
       const refused = JSON.parse(run(step('emit-package'), dir));
-      const verdict = consumeWorkPackage(refused);
+      const verdict = consumeWorkPackage(refused, () => true);
       expect(verdict.accepted).toBe(false);
       expect(verdict.accepted === false && verdict.reason).toBe('missing_definition_of_done');
     } finally {
@@ -133,9 +136,19 @@ describe('scope existence', () => {
     expect(consumeWorkPackage(scoped, () => true).accepted).toBe(true);
   });
 
-  it('skips the check entirely when no pathExists is supplied', () => {
-    // Existing callers must not start failing because a new optional check
-    // exists. Absence of the checker means "not my job", not "assume missing".
-    expect(consumeWorkPackage(scoped).accepted).toBe(true);
+  it('checks the real filesystem when no checker is injected', () => {
+    // Review rejected making this opt-in (PR #28, P1): a caller using the
+    // one-argument API would silently skip the check, so the guard would not
+    // guard. The default must reach the filesystem — these paths do not exist,
+    // so the package is refused without anyone passing a checker.
+    const verdict = consumeWorkPackage(scoped);
+    expect(verdict.accepted).toBe(false);
+    expect(verdict.accepted === false && verdict.reason).toBe('nonexistent_files');
+  });
+
+  it('accepts a package scoping files that really are present', () => {
+    // Injection exists to make the check testable, not to disable it.
+    const real = { ...scoped, files_in_scope: ['package.json'] };
+    expect(consumeWorkPackage(real).accepted).toBe(true);
   });
 });
