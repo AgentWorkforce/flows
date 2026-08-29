@@ -172,10 +172,13 @@ workflows:
       \ is delivered from a sandbox, so a failure\n# here cannot ship; the next cycle's assess treats\
       \ it as the work\n# package. On a delivering environment verify stays fatal.\n# A gate that cannot\
       \ fail is not a gate. Never pipe a test command\n# into tail inside the status check: the pipeline's\
-      \ status is tail's.\nset -u\nran=0; ok=0\n\n# Bound every suite. timeoutMs is NOT enforced by the\
-      \ platform \u2014\n# observed three times on 2026-08-28 (verify-1 at 31min against a\n# 20min bound,\
-      \ review-1 at 36min against 30min, plus an unbounded\n# toolchain install). And the kernel suite\
-      \ now contains a test that\n# intermittently hangs under sandbox timing:\n# an_entry_appended_during_watch_registration_is_delivered_exactly_once\n\
+      \ status is tail's.\nset -u\nran=0; ok=0\n\n# Bound every long-running command, not just the suites.\
+      \ Run\n# 6d045b23 sat in verify for 29+ minutes: its suites were bounded but\n# `cargo build` and\
+      \ `npm ci` were not, so a cold sandbox installing a\n# toolchain and compiling from scratch had\
+      \ no ceiling at all.\n# Bounding half the step is not bounding the step.\n#\n# timeoutMs is NOT\
+      \ enforced by the platform \u2014\n# observed three times on 2026-08-28 (verify-1 at 31min against\
+      \ a\n# 20min bound, review-1 at 36min against 30min, plus an unbounded\n# toolchain install). And\
+      \ the kernel suite now contains a test that\n# intermittently hangs under sandbox timing:\n# an_entry_appended_during_watch_registration_is_delivered_exactly_once\n\
       # ran past 60s in cloud while passing locally in 0.54s. Without a\n# bound here, one hanging test\
       \ consumes the entire run budget.\nrun_bounded() {\n  _label=\"$1\"; shift\n  if command -v timeout\
       \ >/dev/null 2>&1; then\n    timeout \"${VERIFY_SUITE_TIMEOUT:-900}\" \"$@\"\n  elif command -v\
@@ -188,30 +191,31 @@ workflows:
       \ the SDK's live-kernel cases exec\n  # kernel/target/debug/relayflowd, and `cargo test` does not\n\
       \  # produce that binary. Without this the SDK suite fails 7 cases\n  # in any environment that\
       \ has not built the kernel by hand\n  # (verified locally 2026-08-28: 143 passed/7 skipped/1 file\n\
-      \  # failed before `cargo build`, 150 passed after).\n  out=$(cd kernel && sh ../ops/cargo.sh build\
-      \ 2>&1); rc=$?\n  if [ $rc -ne 0 ]; then\n    echo \"$out\" | tail -12\n    echo \"VERIFY_FAIL:\
-      \ kernel build failed \u2014 the SDK cannot exercise a binary that does not exist\"\n    exit 1\n\
-      \  fi\n  out=$(cd kernel && run_bounded \"kernel suite\" sh ../ops/cargo.sh test --workspace 2>&1);\
-      \ rc=$?\n  echo \"$out\" | tail -8; ran=1\n  if [ $rc -eq 124 ]; then\n    echo \"VERIFY_SUITE_TIMEOUT:\
-      \ the kernel suite exceeded ${VERIFY_SUITE_TIMEOUT:-900}s and was killed.\"\n    echo \"  A hanging\
-      \ test is a defect, not a pass \u2014 recording it as a failure.\"\n  fi\n  [ $rc -eq 0 ] || ok=1\n\
-      fi\nif [ -f sdk/package.json ]; then\n  # node_modules is not in `git ls-files`, so a sandbox has\
-      \ none.\n  # Install before testing, and treat a failed install as a failed\n  # verify rather than\
-      \ letting `npm test` report a confusing error.\n  if [ ! -d sdk/node_modules ]; then\n    echo \"\
-      VERIFY_INSTALL: sdk/node_modules absent \u2014 installing\"\n    out=$(cd sdk && npm ci 2>&1); rc=$?\n\
-      \    if [ $rc -ne 0 ]; then\n      echo \"$out\" | tail -12\n      echo \"VERIFY_FAIL: npm ci failed\
-      \ \u2014 cannot test what did not install\"\n      exit 1\n    fi\n  fi\n  # Restore exec bits.\
-      \ `npm ci` reported success (96 packages) and\n  # esbuild still failed with EACCES on run 909e18f6,\
-      \ so the mount\n  # this installs onto does not carry the executable bit. That is\n  # the same\
-      \ fault that left ops/cargo.sh non-executable. Which\n  # layer drops it is NOT established; this\
-      \ repairs the symptom\n  # where it is observed and is a no-op where the bit survives.\n  chmod\
-      \ -R +x sdk/node_modules/.bin 2>/dev/null || true\n  find sdk/node_modules -type d -name bin -path\
-      \ \"*esbuild*\" \\\n    -exec chmod -R +x {} + 2>/dev/null || true\n  out=$(cd sdk && run_bounded\
-      \ \"sdk suite\" npm test 2>&1); rc=$?\n  echo \"$out\" | tail -8; ran=1\n  if [ $rc -eq 124 ]; then\n\
-      \    echo \"VERIFY_SUITE_TIMEOUT: the sdk suite exceeded ${VERIFY_SUITE_TIMEOUT:-900}s and was killed.\"\
-      \n  fi\n  [ $rc -eq 0 ] || ok=1\nfi\nif [ \"$ran\" -eq 0 ]; then\n  echo \"VERIFY_FAIL: no suite\
-      \ found \u2014 a verify that runs nothing cannot pass\"; exit 1\nfi\n[ \"$ok\" -eq 0 ] && echo VERIFY_PASS\
-      \ || echo \"VERIFY_FAIL_NONFATAL: recorded; the next cycle must address it\"\n"
+      \  # failed before `cargo build`, 150 passed after).\n  out=$(cd kernel && run_bounded \"kernel\
+      \ build\" sh ../ops/cargo.sh build 2>&1); rc=$?\n  if [ $rc -ne 0 ]; then\n    echo \"$out\" | tail\
+      \ -12\n    echo \"VERIFY_FAIL: kernel build failed \u2014 the SDK cannot exercise a binary that\
+      \ does not exist\"\n    exit 1\n  fi\n  out=$(cd kernel && run_bounded \"kernel suite\" sh ../ops/cargo.sh\
+      \ test --workspace 2>&1); rc=$?\n  echo \"$out\" | tail -8; ran=1\n  if [ $rc -eq 124 ]; then\n\
+      \    echo \"VERIFY_SUITE_TIMEOUT: the kernel suite exceeded ${VERIFY_SUITE_TIMEOUT:-900}s and was\
+      \ killed.\"\n    echo \"  A hanging test is a defect, not a pass \u2014 recording it as a failure.\"\
+      \n  fi\n  [ $rc -eq 0 ] || ok=1\nfi\nif [ -f sdk/package.json ]; then\n  # node_modules is not in\
+      \ `git ls-files`, so a sandbox has none.\n  # Install before testing, and treat a failed install\
+      \ as a failed\n  # verify rather than letting `npm test` report a confusing error.\n  if [ ! -d\
+      \ sdk/node_modules ]; then\n    echo \"VERIFY_INSTALL: sdk/node_modules absent \u2014 installing\"\
+      \n    out=$(cd sdk && run_bounded \"npm ci\" npm ci 2>&1); rc=$?\n    if [ $rc -ne 0 ]; then\n \
+      \     echo \"$out\" | tail -12\n      echo \"VERIFY_FAIL: npm ci failed \u2014 cannot test what\
+      \ did not install\"\n      exit 1\n    fi\n  fi\n  # Restore exec bits. `npm ci` reported success\
+      \ (96 packages) and\n  # esbuild still failed with EACCES on run 909e18f6, so the mount\n  # this\
+      \ installs onto does not carry the executable bit. That is\n  # the same fault that left ops/cargo.sh\
+      \ non-executable. Which\n  # layer drops it is NOT established; this repairs the symptom\n  # where\
+      \ it is observed and is a no-op where the bit survives.\n  chmod -R +x sdk/node_modules/.bin 2>/dev/null\
+      \ || true\n  find sdk/node_modules -type d -name bin -path \"*esbuild*\" \\\n    -exec chmod -R\
+      \ +x {} + 2>/dev/null || true\n  out=$(cd sdk && run_bounded \"sdk suite\" npm test 2>&1); rc=$?\n\
+      \  echo \"$out\" | tail -8; ran=1\n  if [ $rc -eq 124 ]; then\n    echo \"VERIFY_SUITE_TIMEOUT:\
+      \ the sdk suite exceeded ${VERIFY_SUITE_TIMEOUT:-900}s and was killed.\"\n  fi\n  [ $rc -eq 0 ]\
+      \ || ok=1\nfi\nif [ \"$ran\" -eq 0 ]; then\n  echo \"VERIFY_FAIL: no suite found \u2014 a verify\
+      \ that runs nothing cannot pass\"; exit 1\nfi\n[ \"$ok\" -eq 0 ] && echo VERIFY_PASS || echo \"\
+      VERIFY_FAIL_NONFATAL: recorded; the next cycle must address it\"\n"
     timeoutMs: 1200000
   - name: commit-1
     type: deterministic

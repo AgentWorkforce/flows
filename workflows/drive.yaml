@@ -252,7 +252,13 @@ workflows:
           set -u
           ran=0; ok=0
 
-          # Bound every suite. timeoutMs is NOT enforced by the platform —
+          # Bound every long-running command, not just the suites. Run
+          # 6d045b23 sat in verify for 29+ minutes: its suites were bounded but
+          # `cargo build` and `npm ci` were not, so a cold sandbox installing a
+          # toolchain and compiling from scratch had no ceiling at all.
+          # Bounding half the step is not bounding the step.
+          #
+          # timeoutMs is NOT enforced by the platform —
           # observed three times on 2026-08-28 (verify-1 at 31min against a
           # 20min bound, review-1 at 36min against 30min, plus an unbounded
           # toolchain install). And the kernel suite now contains a test that
@@ -284,7 +290,7 @@ workflows:
             # in any environment that has not built the kernel by hand
             # (verified locally 2026-08-28: 143 passed/7 skipped/1 file
             # failed before `cargo build`, 150 passed after).
-            out=$(cd kernel && sh ../ops/cargo.sh build 2>&1); rc=$?
+            out=$(cd kernel && run_bounded "kernel build" sh ../ops/cargo.sh build 2>&1); rc=$?
             if [ $rc -ne 0 ]; then
               echo "$out" | tail -12
               echo "VERIFY_FAIL: kernel build failed — the SDK cannot exercise a binary that does not exist"
@@ -304,7 +310,7 @@ workflows:
             # verify rather than letting `npm test` report a confusing error.
             if [ ! -d sdk/node_modules ]; then
               echo "VERIFY_INSTALL: sdk/node_modules absent — installing"
-              out=$(cd sdk && npm ci 2>&1); rc=$?
+              out=$(cd sdk && run_bounded "npm ci" npm ci 2>&1); rc=$?
               if [ $rc -ne 0 ]; then
                 echo "$out" | tail -12
                 echo "VERIFY_FAIL: npm ci failed — cannot test what did not install"
