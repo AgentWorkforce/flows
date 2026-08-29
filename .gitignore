@@ -16,3 +16,4 @@ dist/
 .rustup/
 .relayflows-toolchain/
 .workflow-env
+.relayflow/

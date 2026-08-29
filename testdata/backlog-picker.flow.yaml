@@ -7,13 +7,17 @@ steps:
   - id: read-backlog
     type: deterministic
     command: "mkdir -p .relayflow && cat ops/BACKLOG.md > .relayflow/backlog-picker-source.md"
-  - id: select-entry
+  - id: build-sdk
     type: deterministic
     dependsOn: [read-backlog]
+    command: "cd sdk && npm ci --silent --no-audit --no-fund && npm run build --silent"
+  - id: select-entry
+    type: deterministic
+    dependsOn: [read-backlog, build-sdk]
     command: >-
-      node -e 'const fs=require("node:fs");fs.rmSync(".relayflow/backlog-picker-entry.json",{force:true});const text=fs.readFileSync(".relayflow/backlog-picker-source.md","utf8");const match=text.match(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/m);if(!match)process.exit(1);const entry={title:match[1],body:match[2].replace(/\s+/g," ").trim()};fs.writeFileSync(".relayflow/backlog-picker-entry.json",JSON.stringify(entry));process.stdout.write(JSON.stringify(entry))'
+      node -e 'const fs=require("node:fs");const P=require("node:path"),F=require("node:fs");const SDK=(()=>{if(process.env.RELAYFLOWS_SDK_DIST)return P.resolve(process.env.RELAYFLOWS_SDK_DIST,"backlog-picker.js");let c=process.cwd();for(;;){const f=P.join(c,"sdk","dist","backlog-picker.js");if(F.existsSync(f))return f;const up=P.dirname(c);if(up===c)throw new Error("SDK_DIST_NOT_FOUND: build the sdk or set RELAYFLOWS_SDK_DIST");c=up}})();const {validateWorkPackage,packageFromEntry:pack}=require(SDK);fs.rmSync(".relayflow/backlog-picker-entry.json",{force:true});const text=fs.readFileSync(".relayflow/backlog-picker-source.md","utf8");const entries=[...text.matchAll(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/gm)].map(m=>({title:m[1],body:m[2].replace(/\s+/g," ").trim()}));const skipped=[];for(const entry of entries){const verdict=validateWorkPackage(pack(entry));if(verdict.accepted){if(skipped.length)process.stderr.write("SKIPPED_UNACTIONABLE="+skipped.length+" "+skipped.join("; ")+"\n");fs.writeFileSync(".relayflow/backlog-picker-entry.json",JSON.stringify(entry));process.stdout.write(JSON.stringify(entry));process.exit(0)}skipped.push(entry.title.slice(0,40)+"["+verdict.reason+"]")}process.stderr.write("NO_ACTIONABLE_BACKLOG_ENTRY scanned="+entries.length+" "+skipped.join("; ")+"\n");process.exit(1)'
   - id: emit-package
     type: deterministic
     dependsOn: [select-entry]
     command: >-
-      node -e 'const fs=require("node:fs");const entry=JSON.parse(fs.readFileSync(".relayflow/backlog-picker-entry.json","utf8"));const text=entry.title+" "+entry.body;const files=[...new Set([...text.matchAll(/`([A-Za-z_][A-Za-z0-9._-]*(?:\/[A-Za-z0-9._-]*)+)`/g)].map(match=>match[1]).filter(candidate=>!/^\/|\/\//.test(candidate)))];const gate=text.match(/\bgate[ -]?(\d+)\b/i);process.stdout.write(JSON.stringify({title:entry.title,description:entry.body,files_in_scope:files,gate:gate?Number(gate[1]):null,definition_of_done:(entry.body.match(/`[^`]+`/g)||[]).map(c=>c.slice(1,-1)).filter(c=>/\s/.test(c))}))'
+      node -e 'const fs=require("node:fs");const P=require("node:path"),F=require("node:fs");const SDK=(()=>{if(process.env.RELAYFLOWS_SDK_DIST)return P.resolve(process.env.RELAYFLOWS_SDK_DIST,"backlog-picker.js");let c=process.cwd();for(;;){const f=P.join(c,"sdk","dist","backlog-picker.js");if(F.existsSync(f))return f;const up=P.dirname(c);if(up===c)throw new Error("SDK_DIST_NOT_FOUND: build the sdk or set RELAYFLOWS_SDK_DIST");c=up}})();const sdk=require(SDK);const entry=JSON.parse(fs.readFileSync(".relayflow/backlog-picker-entry.json","utf8"));const pkg=sdk.packageFromEntry(entry);const verdict=sdk.validateWorkPackage(pkg);if(!verdict.accepted){process.stderr.write("REFUSED_MALFORMED_BACKLOG_ENTRY reason="+verdict.reason+"\n");process.exit(1)}process.stdout.write(JSON.stringify(pkg))'
