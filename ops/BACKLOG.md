@@ -373,3 +373,32 @@ Two lessons, both about gates rather than about cloud:
 Supervision therefore lives on a fleet node (the autopilot) or a laptop. That
 is a single point of failure and should be named as one rather than papered
 over with a guard that does not guard.
+
+## A sandbox can silently discard every file an agent writes (2026-08-29)
+
+Run a2089144 failed all three assess-gate retries with
+`ASSESS_FAIL_STALE_NEXT`, and its final patch contained **zero changed files**.
+The Lead had done the work and said so:
+
+> "Now I have written ops/NEXT.md as required by the Lead charter.
+>  **WP-17: Make hn-monitor actually monitor** ..."
+
+So the agent wrote the file, reported truthfully, and the write vanished — not
+merely failing to propagate to the next step, but absent from the run's patch
+entirely. The related log line seen earlier is
+`relayfile flush failed after the command succeeded (exit 1); a later agent
+step may see stale files`.
+
+**Not universal.** Run b4e2c3fb, an hour earlier, delivered five files cleanly
+and became PR #15. So this is per-sandbox, and a retry lands in the same
+unhealthy sandbox — which is why all three attempts failed identically rather
+than one recovering.
+
+**Why it matters beyond this loop:** a step can succeed, report honestly, and
+lose its output, with nothing in the step's own result indicating loss. Any
+workflow on this platform that assumes "step succeeded" implies "step's writes
+survived" is wrong. `assess-gate` catches it here only because it re-reads the
+file from disk and compares against the base commit.
+
+Mitigation available to us: none platform-side. Relaunching lands in a fresh
+sandbox, which usually is healthy. Worth filing against cloud.
