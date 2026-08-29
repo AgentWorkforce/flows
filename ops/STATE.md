@@ -8,7 +8,7 @@ it is authoritative when history is unavailable.
 **Keep it current. A stale STATE.md is worse than none:** it does not merely
 fail to help, it actively misleads an assessor that cannot check it.
 
-Last updated: 2026-08-29 01:35 UTC, by Khaliq's session, on `main`.
+Last updated: 2026-08-29 07:45 UTC, by Khaliq's session, on `main`.
 
 ## Where the program is
 
@@ -52,14 +52,30 @@ Last updated: 2026-08-29 01:35 UTC, by Khaliq's session, on `main`.
   `flows check` -> `CHECK PASSED`, and the integration test passes inside the
   full workspace run (19+19+1+1+26+5 passed, 0 failed).
 
-  But `hn-monitor` does not yet monitor anything: the event is supplied by a
-  test, not by Hacker News. That is the shape of the bar, not the bar cleared.
-  **Gate 2 stays AMBER.** To go green it needs the flow woken by a real
-  external event and doing something observable with it.
+  **A real external event HAS now woken it** — see PR #19 above, verified
+  against live Hacker News with exactly-once holding across repeated polls.
+  Gate 2 stays AMBER only pending Khaliq's read on whether a manually-invoked
+  poller satisfies "runs as a relayflow" under rule 2, or whether it must be
+  scheduled and unattended first. That is a judgement, not a missing part.
 
 ## Open PRs
 
-**None.** Every flows PR opened to date is merged: #1–#8, #10, #12, #13, #14, #15.
+**Three are OPEN and awaiting Khaliq.** Do not duplicate this work:
+
+- **#18 — gate 1 race fix** (`kernel/relayflowd/src/server.rs`). Takes the run
+  lock so an append's journal commit and hub notification are atomic with
+  respect to registration. Kernel suite green. **Caveat on the PR:** its
+  regression test was never observed to FAIL without the fix, so the fix is
+  sound by reasoning but unproven against the bug.
+- **#19 — gate 2 demo** (`sdk/src/demo-hn-monitor.ts`). **Verified against live
+  Hacker News:** real story ids woke the flow (`deduped=false wake=created`),
+  and a second run of the same stories was refused (`deduped=true wake=none`).
+  That is exactly-once holding on real external data.
+- **#20 — gate 3 first step** (`testdata/backlog-picker.flow.yaml` + canonical
+  spec). A flow that reads the backlog and emits a work package — the seed of
+  flows proposing their own next task. `flows check` passes; sdk 153/153.
+
+Merged to date: #1–#8, #10, #12, #13, #14, #15, #16.
 PR #9 and PR #11 were superseded by #12 and are closed, not pending.
 
 - **#13** delivered the first cloud-produced work back as a PR.
