@@ -112,3 +112,12 @@ export type {
 export { JOURNAL_WRITE_FAILED, PROTOCOL_VERSION } from './protocol.js';
 
 export { JournalClient, type JournalClientOptions } from './journal-client.js';
+
+// Hacker News adapter — deliberately outside kernel/ (see sdk/src/hn-poller.ts).
+export {
+  pollHackerNewsOnce,
+  HN_TOP_STORIES_URL,
+  type EventSink,
+  type Fetcher,
+  type PollOptions,
+} from './hn-poller.js';

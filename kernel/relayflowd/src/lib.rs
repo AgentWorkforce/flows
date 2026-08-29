@@ -5,6 +5,6 @@ pub mod server;
 pub mod worker;
 
 pub use engine::{
-    DriveOptions, Engine, OutOfBandCompletion, RunOutcome, RunSnapshot, RunStatus, StepSnapshot,
-    StepStatus,
+    DriveOptions, Engine, OutOfBandCompletion, RunOutcome, RunSnapshot, RunStatus,
+    StepSnapshot, StepStatus,
 };
