@@ -20,10 +20,23 @@ gate's needs. Not commitments; ordering is the Lead's call with evidence.
   the propagated tree, keyed per worktree, and exports RELAYFLOWD_BIN so
   consumers follow the build. Measured locally: kernel/target in tree 4900 -> 0,
   whole tree 1550 files (1226 of them node_modules).
-  NOT YET PROVEN IN CLOUD. The first run whose base contains the fix is
-  5ecf7078 (base aac5718). Check its log for `relayfile flush failed`; if the
-  count is zero the fix holds. If flushes still fail, node_modules at 1226 files
-  is the next thing to move out.
+  TESTED IN CLOUD — the fix HELPED BUT DID NOT CLEAR IT. Run 5ecf7078, the first
+  whose base contains PR #38, still flushed badly:
+      target/debug references: 4914 -> 0   (the fix definitely took effect)
+      files changed:           ~4400 -> 1932
+      relayfile flush failed:  still 3, still http 413
+  So file count is not the trigger by itself: 1932 files still 413s while
+  76a4a8d1's 489 did not. The prediction written before this run — "if the count
+  is zero the fix holds" — was wrong, and is recorded as wrong.
+  REMAINING CONTRIBUTOR, and it is a platform defect: `sdk/node_modules` is
+  1226 files and 52 MB, and it is GITIGNORED (.gitignore line 1) — yet the mount
+  flush still counts and ships it. A flush that respected .gitignore would drop
+  node_modules, dist and target without any workaround on our side. That is the
+  right fix and it is not ours to make.
+  Workaround attempted and REJECTED: symlinking sdk/node_modules outside the
+  tree breaks TypeScript's type resolution (`Property 'ok' does not exist on
+  type 'Response'` — @types/node no longer resolves through the link). Not
+  viable without more surgery than it is worth.
   Diagnosis note: `agent-relay cloud logs <id>` returns 500, but
   `agent-relay cloud logs <id> --json` WORKS. Use --json.
 
