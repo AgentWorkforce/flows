@@ -413,9 +413,10 @@ fn handle_request(
 /// Register the watcher BEFORE replaying, then replay and hand the hub the
 /// sequence cursor the replay covered. Entries appended concurrently are
 /// buffered by the hub and flushed deduped against that cursor, so nothing
-/// appended between snapshot and registration can be missed — that ordering
-/// gap no longer exists. `after_register` is a test seam pinning the race
-/// window between registration and the snapshot read.
+/// appended between snapshot and registration can be missed. The run lock
+/// also keeps an append's journal commit and hub notification atomic with
+/// respect to registration, preventing a replayed entry from later arriving
+/// as live. `after_ready` is a test seam pinning that notification ordering.
 #[cfg(unix)]
 fn watch_with_replay(
     engine: &Engine,
@@ -423,17 +424,40 @@ fn watch_with_replay(
     connection_id: u64,
     run_id: &str,
     writer: &SharedWriter,
-    after_register: impl FnOnce(),
+    after_ready: impl FnOnce(),
 ) -> ProtocolResult<Value> {
-    hub.watch(connection_id, run_id.to_owned(), writer.clone());
-    after_register();
+    // The lock covers registration and the snapshot read, and NOTHING ELSE.
+    // Holding it across the replay writes would pin it for the duration of a
+    // blocking UnixStream write per historical entry — a slow or stalled
+    // reader would then block every other operation on this run. Review caught
+    // that (PR #18, P1) on the first version of this fix.
+    //
+    // Releasing before the writes is safe: what the lock must guarantee is
+    // that registration and the snapshot are atomic with respect to an
+    // append, so no entry can slip between them. Once both have happened the
+    // set is fixed. Live entries arriving during the writes are buffered by
+    // the hub and flushed deduped against `replayed_through_seq`.
+    let entries = {
+        let lock = hub.run_lock(run_id);
+        let _guard = lock.lock().expect("run lock");
+        hub.watch(connection_id, run_id.to_owned(), writer.clone());
+        match engine.journal_entries(run_id, 1, usize::MAX) {
+            Ok(entries) => entries,
+            Err(error) => {
+                drop(_guard);
+                hub.unwatch(connection_id, run_id);
+                return Err(internal_error(error));
+            }
+        }
+    };
+
     let replay = (|| -> Result<()> {
-        let entries = engine.journal_entries(run_id, 1, usize::MAX)?;
         let replayed_through_seq = entries.last().map(|entry| entry.seq).unwrap_or(0);
         for entry in entries {
             write_frame(writer, &json!({"event": "entry", "data": entry}))?;
         }
         hub.watch_ready(connection_id, run_id, replayed_through_seq);
+        after_ready();
         Ok(())
     })();
     if let Err(error) = replay {
