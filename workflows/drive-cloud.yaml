@@ -221,13 +221,22 @@ workflows:
     type: deterministic
     dependsOn:
     - verify-1
-    command: "set -eu\ncycle=1\ntitle=$(grep -m1 -oE \"WP-[0-9]+[^|]*\" ops/NEXT.md | sed \"s/[[:space:]]*$//\"\
-      \ || echo \"work package\")\nverdict=NO_IN_RUN_REVIEW\nif [ -f ops/FORBIDDEN_PATHS ]; then\n  while\
-      \ IFS= read -r p; do\n    case \"$p\" in ''|\\#*) continue ;; esac\n    if [ -e \"$p\" ]; then\n\
-      \      echo \"COMMIT_PURGED_FORBIDDEN: $p (stale tree residue)\"\n      rm -rf \"$p\"\n    fi\n\
-      \  done < ops/FORBIDDEN_PATHS\nfi\ngit add -A\ngit commit -m \"drive(cloud cycle $cycle): $title\
-      \ [$verdict]\" || echo \"COMMIT_NOTE: nothing new to commit\"\necho \"CYCLE_${cycle}_COMMITTED verdict=$verdict\
-      \ head=$(git rev-parse --short HEAD)\"\n"
+    command: 'set -eu
+
+      cycle=1
+
+      title=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md | sed "s/[[:space:]]*$//" || echo "work package")
+
+      verdict=NO_IN_RUN_REVIEW
+
+      git add -A
+
+      git commit -m "drive(cloud cycle $cycle): $title [$verdict]" || echo "COMMIT_NOTE: nothing new to
+      commit"
+
+      echo "CYCLE_${cycle}_COMMITTED verdict=$verdict head=$(git rev-parse --short HEAD)"
+
+      '
     timeoutMs: 300000
   - name: handoff
     type: deterministic
