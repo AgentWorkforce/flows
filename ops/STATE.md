@@ -8,7 +8,7 @@ it is authoritative when history is unavailable.
 **Keep it current. A stale STATE.md is worse than none:** it does not merely
 fail to help, it actively misleads an assessor that cannot check it.
 
-Last updated: 2026-08-29 16:50 UTC, by Khaliq's session, on `main`.
+Last updated: 2026-08-29 19:05 UTC, by Khaliq's session, on `main` (`428413b`).
 
 ## Where the program is
 
@@ -59,6 +59,31 @@ Last updated: 2026-08-29 16:50 UTC, by Khaliq's session, on `main`.
   scheduled and unattended first. That is a judgement, not a missing part.
 
 ## Open PRs
+
+**#28 is MERGED** (`428413b`) — the consumer refuses a package scoping files
+that do not exist (`nonexistent_files`). The check is **on by default** and the
+filesystem call is injectable only so it can be tested. Review rejected making
+it opt-in, and was right: a caller using the one-argument API would have
+silently skipped it, so the guard would not have guarded.
+
+**#29 and #31 were CLOSED as duplicates of #28.** Three separate drive runs
+produced the same feature with the design review had already rejected. The
+cause was structural, not the runs' fault: the autodrive brief kept asking for
+work that was sitting unmerged in #28, so every run rediscovered it. The brief
+has been retargeted. **Do not implement `nonexistent_files` again.**
+
+**#30 is OPEN** — malformed-backlog handling, with the review's P1 addressed:
+the flow now actually CALLS `validateWorkPackage`. `select-entry` scans for the
+first *actionable* entry and skips the ones that fail, exiting nonzero with
+`NO_ACTIONABLE_BACKLOG_ENTRY` when nothing qualifies. Verified rebased onto
+#28: sdk 179/179, kernel 11 suites / 0 failed.
+
+**Known defect, filed not fixed:** against the real `ops/BACKLOG.md`,
+`select-entry` prints `SKIPPED_UNACTIONABLE=10` and selects the dated
+"Upstream issues" notes blob. `validateWorkPackage` judges actionability on two
+shallow signals (a backticked path, a multi-word backticked phrase), so a notes
+blob passes and a real task written in prose fails. The guard is correct; the
+selection is poor. This is the current autodrive target.
 
 **Three are OPEN and awaiting Khaliq.** Do not duplicate this work:
 
