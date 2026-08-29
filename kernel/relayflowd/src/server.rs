@@ -426,11 +426,32 @@ fn watch_with_replay(
     writer: &SharedWriter,
     after_ready: impl FnOnce(),
 ) -> ProtocolResult<Value> {
-    let lock = hub.run_lock(run_id);
-    let _guard = lock.lock().expect("run lock");
-    hub.watch(connection_id, run_id.to_owned(), writer.clone());
+    // The lock covers registration and the snapshot read, and NOTHING ELSE.
+    // Holding it across the replay writes would pin it for the duration of a
+    // blocking UnixStream write per historical entry — a slow or stalled
+    // reader would then block every other operation on this run. Review caught
+    // that (PR #18, P1) on the first version of this fix.
+    //
+    // Releasing before the writes is safe: what the lock must guarantee is
+    // that registration and the snapshot are atomic with respect to an
+    // append, so no entry can slip between them. Once both have happened the
+    // set is fixed. Live entries arriving during the writes are buffered by
+    // the hub and flushed deduped against `replayed_through_seq`.
+    let entries = {
+        let lock = hub.run_lock(run_id);
+        let _guard = lock.lock().expect("run lock");
+        hub.watch(connection_id, run_id.to_owned(), writer.clone());
+        match engine.journal_entries(run_id, 1, usize::MAX) {
+            Ok(entries) => entries,
+            Err(error) => {
+                drop(_guard);
+                hub.unwatch(connection_id, run_id);
+                return Err(internal_error(error));
+            }
+        }
+    };
+
     let replay = (|| -> Result<()> {
-        let entries = engine.journal_entries(run_id, 1, usize::MAX)?;
         let replayed_through_seq = entries.last().map(|entry| entry.seq).unwrap_or(0);
         for entry in entries {
             write_frame(writer, &json!({"event": "entry", "data": entry}))?;
