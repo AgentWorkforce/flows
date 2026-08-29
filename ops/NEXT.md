@@ -1,98 +1,49 @@
-# NEXT — WP-GATE3-BACKLOG-PICKER: First honest step toward Software Garden
+# NEXT — Gate 3: Build the work package consumer
 
-**Target gate:** Gate 3 (per ops/TARGET.md — this run is pinned to gate 3 only)
-
-**Work package:** WP-GATE3-BACKLOG-PICKER — Build a flow that reads ops/BACKLOG.md and emits a structured work package
+**Scope:** Gate 3 — close the Garden's loop. CODE task, SDK-side. The picker EMITS a work package (sdk/src/backlog-picker.ts + testdata/backlog-picker.flow.yaml, merged, four tested properties) and NOTHING consumes it — that is the missing half. Build the consumer: an SDK entrypoint taking an emitted package and turning it into something runnable, validating it has a title, a non-empty scope and a definition of done, and REFUSING with a typed reason when it does not, because a package that cannot be verified must not become work. NOTE: two previous attempts (ee5c9b3e, 06c0d6ab) did this correctly and their files were LOST before delivery by a platform fault — the build sandbox's .git points at a directory that does not exist, so writes cannot be captured. You are not duplicating live work.
 
 ## Objective
 
-Gate 3 per RFC-0001 §3 is "a relayflow can power a factory → Software Garden." The done-when is a labeled issue flowing to a reviewed PR end-to-end. ops/TARGET.md directs: "Do the SMALLEST honest first step, not the whole thing. Good candidate: a flow that reads ops/BACKLOG.md, picks one entry by a deterministic rule, and emits a structured work package."
+Build the SDK entrypoint that takes an emitted work package and turns it into something runnable. The consumer must validate that the package has:
+- A title (non-empty string)
+- A non-empty scope
+- A definition of done
 
-**This is that smallest step**: a flow file that demonstrates gate-3 machinery (flows that build and improve other flows) without attempting the full discover→implement→review→merge DAG.
-
-## Current state
-
-- Gates 1 (GREEN) and 2 (AMBER, in progress) have working primitives on main
-- Gate 3 is RED (not started) per ops/SCOREBOARD.md
-- ops/BACKLOG.md exists with structured entries
-- No gate-3 flows exist yet
+When any of these is missing or invalid, the consumer REFUSES with a typed reason. A package that cannot be verified must not become work.
 
 ## Files in scope
 
-**New files to create:**
-- `testdata/backlog-picker.flow.yaml` — the flow spec that reads ops/BACKLOG.md and selects one entry
-- `testdata/backlog-picker.spec.canonical.json` — canonical compiled spec (via `flows check`)
-- `sdk/tests/backlog-picker.test.ts` — test proving deterministic selection given the same input
+- `sdk/src/` (new consumer code)
+- `sdk/tests/` (new consumer tests)
+- NO changes to `kernel/` (PR #19 is open)
+- NO changes to `sdk/src/demo-hn-monitor.ts` (PR #19 is open)
 
-**Files to modify:**
-- None required for the minimal step
+## Definition of done
 
-## Definition of done (all three required per ops/TARGET.md)
+1. **SDK code exists** that consumes an emitted work package
+2. **Validation tests exist** for:
+   - Missing title → typed refusal
+   - Empty title → typed refusal
+   - Missing scope → typed refusal
+   - Empty scope → typed refusal
+   - Missing definition of done → typed refusal
+   - Empty definition of done → typed refusal
+   - Valid package → accepted
+3. **Every new test is confirmed to FAIL against current code** with literal output pasted
+4. **SDK test suite passes:**
+   ```
+   cd sdk && npm test
+   ```
+   Paste the literal output showing all tests pass, 0 failed
+5. **Final verification** — as the LAST action, run:
+   ```
+   git status --porcelain
+   ```
+   And paste the output to make lost writes visible immediately
 
-1. **`flows check` resolves the flow** — `testdata/backlog-picker.flow.yaml` passes preflight validation with exit 0
+## Out of scope
 
-2. **A test proves selection is deterministic** — `sdk/tests/backlog-picker.test.ts` demonstrates that:
-   - Given the same ops/BACKLOG.md content, the flow always selects the same entry
-   - The selection rule is deterministic and documented (e.g., "first non-done entry", "alphabetically first", or similar)
-   - The test verifies structured output (the work package emitted has required fields)
-
-3. **`cd sdk && npm test` green** — all SDK tests pass including the new backlog-picker test
-
-## Implementation approach
-
-The SMALLEST working implementation:
-
-- **Flow structure:**
-  ```yaml
-  spec_version: "1.0"
-  name: backlog-picker
-  steps:
-    - name: read-backlog
-      type: deterministic
-      command: "cat ops/BACKLOG.md"
-    - name: select-entry
-      type: deterministic
-      command: # deterministic selection logic (e.g., first non-done entry)
-    - name: emit-package
-      type: deterministic
-      command: # output structured work package JSON
-  ```
-
-- **Deterministic rule examples:**
-  - First entry in the file
-  - First entry matching a pattern
-  - Alphabetically sorted first
-  - Line-number based
-
-  Choose the simplest that is defensible as "deterministic"
-
-- **Output format:** Structured JSON work package with fields like:
-  - `title`: work package name
-  - `description`: what needs to be done
-  - `files_in_scope`: estimated file paths
-  - `gate`: which gate this serves
-
-## Explicitly OUT of scope
-
-- LLM or agent steps (gate 1 is deterministic-only for now)
-- GitHub integration (creating actual issues or PRs)
-- The full discover→implement→review→merge DAG
-- Issue labeling, assignment, or tracking
-- Integration with the existing drive.yaml workflow
-- Any changes to kernel code
-- Changes to gates 1, 2, or 4-9
-- ops/FORBIDDEN_PATHS violations (no kernel/relayflowd/src/engine/hn_poller.rs)
-
-## Why this is the right work package
-
-Per ops/TARGET.md: "Gate 3 per RFC-0001 is the Garden: flows that build and improve other flows. Do the SMALLEST honest first step, not the whole thing. Good candidate: a flow that reads ops/BACKLOG.md, picks one entry by a deterministic rule, and emits a structured work package."
-
-This work package:
-- Stays strictly within gate 3 scope (SOFTWARE GARDEN foundation)
-- Is a CODE task as required
-- Does the smallest honest first step
-- Demonstrates "flows that build and improve other flows" (reading a backlog is the first step toward self-proposing work)
-- Has a clear, testable definition of done
-- Avoids all CONSTRAINTS from ops/TARGET.md (no server.rs, no hn-poller files)
-
-**ONE cycle, ten minutes.**
+- Kernel changes (different PR)
+- Integration with hn-monitor (different PR)
+- Any changes to the backlog picker itself (already merged in PRs #20, #21, #22)
+- Changes to flow execution or scheduling
