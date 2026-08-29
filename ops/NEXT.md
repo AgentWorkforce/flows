@@ -1,73 +1,83 @@
-# NEXT — Gate 3: Sharpen backlog-picker actionability
+# NEXT — Gate 3: Refuse backlog entry with unterminated backticks
 
-**Scope:** Gate 3 — Improve how the Garden decides what is WORTH working on. CODE task, SDK-side.
+**Scope:** Refuse a backlog entry whose backticks are unterminated. CODE task, SDK-side (gate 3).
 
-On main now, all merged and tested:
-- `sdk/src/backlog-picker.ts` — proposes a work package from ops/BACKLOG.md; exports selectBacklogEntry / packageFromEntry / validateWorkPackage
-- `sdk/src/work-package-consumer.ts` — judges one, refusing with a typed reason (missing_title / missing_scope / missing_definition_of_done / nonexistent_files)
-- `testdata/backlog-picker.flow.yaml` — the flow. Its `select-entry` step now scans for the first ACTIONABLE entry, validating candidates and skipping the ones that fail, and exits nonzero with NO_ACTIONABLE_BACKLOG_ENTRY when nothing qualifies.
+TARGET.md (ops/TARGET.md in the launch worktree, not propagated to the package) pins this run to gate 3. The picker's actionability problem is SOLVED and merged (PR #42): ACTIONABLE is 22 of 32 against the real ops/BACKLOG.md, above the target of 20. Do not touch `validateWorkPackage`'s accept/reject thresholds or re-tune scope extraction to raise that number. Five PRs (#33, #34, #39, #41, #42) worked that problem; four were closed. It is done.
 
-Do NOT re-do any of the above. Malformed-backlog handling (PR #30) and the nonexistent-files check (PR #28) are DONE and merged.
+## The task
 
-## The actual defect
+Scope and definition-of-done are both derived from backticked spans. An entry with an ODD number of backticks makes those spans wrong: the parser pairs the opening backtick with whatever backtick appears next, so text that was never meant to be code becomes scope, and real content is swallowed.
 
-Run `select-entry` against the real ops/BACKLOG.md. It prints:
+Since #42 widened what counts as scope — symbols and commands, not only paths — a mispaired span is now MORE likely to produce a plausible-looking but wrong `files_in_scope`, which is worse than an obviously empty one.
 
-    SKIPPED_UNACTIONABLE=10 ...
-
-and then selects a dated notes blob ("Upstream issues (2026-08-27):") as the work package. Ten genuine engineering tasks were skipped in favour of a list of links.
-
-The cause: `validateWorkPackage` decides "actionable" using only two shallow signals — does the text contain a backticked path, and does it contain a multi-word backticked phrase. A notes blob full of backticked identifiers passes both. A real task written in prose ("Refuse a path-like deterministic command word when that path does not exist") fails both.
-
-The guard is correct. The SELECTION is poor. That is what to fix.
+Add a typed refusal for it. Salvaged from closed PR #32, which proposed the check but wired it to nothing; two of its three proposed reasons were rejected on assessment (`nested_bullet` would have been a regression — the selection regex already skips indented bullets; `missing_body` is covered by the existing reasons). Only the unterminated-backtick case is real.
 
 ## Objective
 
-Implement a sharper notion of actionability in `sdk/src/backlog-picker.ts` so that the backlog picker selects real engineering tasks and does NOT select notes entries.
+Add a typed refusal reason for backlog entries with an odd backtick count, wire it into the validation flow, and verify it does not regress the ACTIONABLE count.
 
 ## Files in scope
 
-- `sdk/src/backlog-picker.ts` — improve actionability detection
-- `sdk/src/index.ts` — wire in new export if it is needed
-- Tests for the new behavior
-- `testdata/backlog-picker.flow.yaml` — ONLY if changes needed
-- `testdata/backlog-picker.spec.canonical.json` — regenerate ONLY if yaml changes
+- `sdk/src/backlog-picker.ts` — add `unterminated_backticks` to `WorkPackageValidationReason`, add checker function, wire it into `validateWorkPackage`
+- `sdk/src/index.ts` — export the new reason if needed (already exports `WorkPackageValidationReason`)
+- `sdk/tests/backlog-picker.test.ts` — tests for the new refusal, confirming it rejects entries with odd backtick counts
+- `testdata/backlog-picker.flow.yaml` — if modified, must regenerate canonical spec
+- `testdata/backlog-picker.spec.canonical.json` — regenerate if flow.yaml changes (kernel consumes this, drift tests will fail otherwise)
 
 ## Definition of done
 
 All of the following must hold:
 
-1. **Improved actionability logic** in `sdk/src/backlog-picker.ts` that distinguishes real engineering tasks from notes blobs
+1. **Typed refusal reason exists and is wired in**
+   - A new `WorkPackageValidationReason` value `'unterminated_backticks'` is added to `sdk/src/backlog-picker.ts`
+   - It is checked in `validateWorkPackage` BEFORE the function accepts the package
+   - PR #32 was closed for exporting a checker nothing called. Show the flow refusing such an entry.
 
-2. **Literal before/after evidence:**
-   - Quote the literal `select-entry` output BEFORE the change showing it selected "Upstream issues"
-   - Quote the literal `select-entry` output AFTER the change showing it selected a real engineering task
+2. **ACTIONABLE count preserved** — the ACTIONABLE count must still be ~21-22 of 32 before and after. A refusal that also rejects well-formed entries is a regression. Run this command and report the count before and after:
+   ```
+   node -e 'const fs=require("node:fs");
+     const sdk=require("./sdk/dist/backlog-picker.js");
+     const t=fs.readFileSync("ops/BACKLOG.md","utf8");
+     const e=[...t.matchAll(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/gm)]
+       .map(m=>({title:m[1],body:m[2].replace(/\s+/g," ").trim()}));
+     let ok=0; for(const x of e)
+       if(sdk.validateWorkPackage(sdk.packageFromEntry(x)).accepted) ok++;
+     console.log("TOTAL="+e.length+" ACTIONABLE="+ok)'
+   ```
 
-3. **Test coverage:**
-   - Tests covering the new behavior
-   - EVERY new test confirmed to FAIL against current code (quote the literal failing output)
-   - All existing tests still passing
+3. **New tests pass and fail correctly**
+   - Add tests to `sdk/tests/backlog-picker.test.ts` covering the new refusal reason:
+     - An entry with 1 backtick (odd) is refused with `unterminated_backticks`
+     - An entry with 3 backticks (odd) is refused with `unterminated_backticks`
+     - An entry with 2 backticks (even, well-formed) is accepted
+     - An entry with 0 backticks is accepted
+   - EVERY new test confirmed to FAIL against current code before implementing the fix
+   - Quote the literal failing output
 
-4. **Green test suites:**
+4. **All existing tests still pass**
    ```
    cd sdk && npm test
+   ```
+   All backlog-picker tests pass, all other SDK tests pass (ignore live-kernel failures — known sandbox fault per STATE.md)
+
+5. **Kernel tests still pass**
+   ```
    cd kernel && sh ../ops/cargo.sh test
    ```
-   Both must pass with output quoted.
+   All tests green
 
-5. **If testdata/backlog-picker.flow.yaml is modified:**
-   - Regenerate `testdata/backlog-picker.spec.canonical.json`
+6. **Canonical spec regenerated if flow changed**
+   - If `testdata/backlog-picker.flow.yaml` was modified, regenerate `testdata/backlog-picker.spec.canonical.json` — the kernel consumes the canonical spec, and two drift tests will fail if this is skipped
 
-6. **Final verification** — as the LAST action, run:
+7. **Final state clean** — as your LAST action, run:
    ```
    git status --porcelain
    ```
-   And paste the output
+   And paste it
 
 ## Out of scope
 
-- **DO NOT re-implement malformed-backlog handling** (PR #30, merged)
-- **DO NOT re-implement nonexistent-files check** (PR #28, merged)
-- Any work on other gates (1, 2, 4, 5, 6, 7, 8, 9)
-- Any changes to the consumer logic beyond what's needed for this specific defect
-- Performance optimizations unrelated to the selection problem
+- Tuning the accept/reject thresholds in `validateWorkPackage` — picker actionability is SOLVED per TARGET.md and STATE.md
+- Modifying scope extraction logic to raise ACTIONABLE count — already done in PR #42, merged
+- Working on any other gate — this run is pinned to gate 3, several runs execute in parallel, work outside this target collides with a sibling
+- Any refusal reasons other than `unterminated_backticks` — PR #32's `nested_bullet` and `missing_body` were rejected as regressions or already covered
