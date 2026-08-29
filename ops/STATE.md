@@ -8,7 +8,7 @@ it is authoritative when history is unavailable.
 **Keep it current. A stale STATE.md is worse than none:** it does not merely
 fail to help, it actively misleads an assessor that cannot check it.
 
-Last updated: 2026-08-29 19:05 UTC, by Khaliq's session, on `main` (`428413b`).
+Last updated: 2026-08-29 22:45 UTC, by Khaliq's session, on `main` (`ca3942e`).
 
 ## Where the program is
 
@@ -60,92 +60,50 @@ Last updated: 2026-08-29 19:05 UTC, by Khaliq's session, on `main` (`428413b`).
 
 ## Open PRs
 
-**#28 is MERGED** (`428413b`) — the consumer refuses a package scoping files
-that do not exist (`nonexistent_files`). The check is **on by default** and the
-filesystem call is injectable only so it can be tested. Review rejected making
-it opt-in, and was right: a caller using the one-argument API would have
-silently skipped it, so the guard would not have guarded.
+**Only #19 is open.** It is the gate-2 HN demo. All findings on it are
+addressed, it is green and mergeable, and it is waiting on Khaliq — not on work.
+It reports runs CREATED from live Hacker News and honestly declines to claim
+they EXECUTED.
 
-**#29 and #31 were CLOSED as duplicates of #28.** Three separate drive runs
-produced the same feature with the design review had already rejected. The
-cause was structural, not the runs' fault: the autodrive brief kept asking for
-work that was sitting unmerged in #28, so every run rediscovered it. The brief
-has been retargeted. **Do not implement `nonexistent_files` again.**
+## Merged since 19:00 — do NOT redo any of this
 
-**#30 is OPEN** — malformed-backlog handling, with the review's P1 addressed:
-the flow now actually CALLS `validateWorkPackage`. `select-entry` scans for the
-first *actionable* entry and skips the ones that fail, exiting nonzero with
-`NO_ACTIONABLE_BACKLOG_ENTRY` when nothing qualifies. Verified rebased onto
-#28: sdk 179/179, kernel 11 suites / 0 failed.
+- **#28** consumer refuses a package scoping files that do not exist
+  (`nonexistent_files`), on by default, filesystem call injectable for testing.
+- **#30** the backlog flow actually CALLS `validateWorkPackage`; `select-entry`
+  scans for the first actionable entry and skips the rest.
+- **#34** notes-style titles excluded, imperative titles serve as their own
+  definition of done.
+- **#35** canonical spec uses the kernel's `depends_on`, not the yaml's
+  `dependsOn`. A step added in #30 had reached the kernel with no dependencies,
+  no retry policy and no verification.
+- **#36** pins the gate-2 dispatch-ordering requirement.
+- **#37** the canonical spec is guarded by SHAPE, not just commands, and by the
+  dependencies the yaml declares.
+- **#38** builds outside the propagated tree (`CARGO_TARGET_DIR` keyed per
+  worktree) to shrink the relayfile flush payload.
+- **#41, #42** picker actionability: ACTIONABLE 5/32 -> 22/32 against the real
+  backlog, target was 20. **This item is CLOSED.** The "Upstream issues" notes
+  blob is still correctly refused.
 
-**Known defect, filed not fixed:** against the real `ops/BACKLOG.md`,
-`select-entry` prints `SKIPPED_UNACTIONABLE=10` and selects the dated
-"Upstream issues" notes blob. `validateWorkPackage` judges actionability on two
-shallow signals (a backticked path, a multi-word backticked phrase), so a notes
-blob passes and a real task written in prose fails. The guard is correct; the
-selection is poor. This is the current autodrive target.
+**Closed, not merged — do not resurrect:** #29, #31 (duplicates of #28), #32
+(exported a checker nothing called; two of its three refusal reasons were
+regressions), #33 (matched one literal entry title), #39 (made the count worse),
+#40 (a correct refusal of an impossible target — see below).
 
-**Three are OPEN and awaiting Khaliq.** Do not duplicate this work:
+## The failure mode that cost the most today
 
-- **#18 — gate 1 race fix** (`kernel/relayflowd/src/server.rs`). Takes the run
-  lock so an append's journal commit and hub notification are atomic with
-  respect to registration. Kernel suite green. **Caveat on the PR:** its
-  regression test was never observed to FAIL without the fix, so the fix is
-  sound by reasoning but unproven against the bug.
-- **#19 — gate 2 demo** (`sdk/src/demo-hn-monitor.ts`). **Verified against live
-  Hacker News:** real story ids woke the flow (`deduped=false wake=created`),
-  and a second run of the same stories was refused (`deduped=true wake=none`).
-  That is exactly-once holding on real external data.
-**#20 is MERGED** — gate 3's first code is on `main`:
-`testdata/backlog-picker.flow.yaml`, its canonical spec, and
-`sdk/src/backlog-picker.ts` with the selection rule extracted so it can be
-tested. Determinism is asserted across 25 repeated selections. Verified before
-merge on the branch: sdk 158/158, `flows check` -> CHECK PASSED. Two P2
-refinements are open in review and deliberately not blocking: reuse the
-selected snapshot instead of re-reading the file, and derive package metadata
-from the entry.
+Seven of roughly a dozen drive PRs were closed, and in nearly every case the
+brief was at fault, not the run:
 
-**#21 is also MERGED** — gate 3's picker is now correct in both directions:
-the two steps cannot disagree within a run (the backlog is snapshotted once),
-and no run inherits the previous run's selection (the entry file is cleared
-before selecting). Both properties have tests that were CONFIRMED TO FAIL
-without their fixes, which is the standard #18 still does not meet.
+- a target measurable by a counter that moved for the wrong reason;
+- a target naming a specific entry, satisfiable by a string match;
+- a target made unreachable by a constraint added in the same edit — run
+  5ecf7078 refused it and filed `ops/NEEDS_HUMAN.md` with a reproduction, which
+  was the correct call and better than the three PRs that met the letter of an
+  earlier target while changing nothing.
 
-**#22 is also MERGED.** Gate 3's picker now holds four properties, each with a
-test CONFIRMED TO FAIL without its fix:
-  1. the two steps agree within a run (backlog snapshotted once);
-  2. no run inherits the previous run's selection (entry cleared before
-     selecting);
-  3. the flow yaml and its canonical spec cannot silently diverge — the
-     canonical spec is what the KERNEL consumes, and a fix landing only in the
-     yaml never reaches what runs;
-  4. scope extraction keeps real paths (`regressions/`, `src/Dockerfile`) and
-     rejects prose (`contains \`/\``).
-
-**#18 and #23 are also MERGED.**
-- #18 put the gate-1 race fix on main (run lock scoped off the blocking replay
-  writes). Its regression test rests on a 100ms timeout and has NEVER been
-  observed to fail — gate 1's GREEN carries that asterisk, and ops/BACKLOG.md
-  names the rework.
-- #23 closed the Garden's loop: the consumer judges a package and refuses it
-  with a typed reason, and the picker now emits definition_of_done so its real
-  output is consumable. A test runs the flow's actual emit-package through the
-  consumer in both directions, so the halves cannot drift apart silently.
-
-Merged to date: #1–#8, #10, #12, #13, #14, #15, #16, #18, #20, #21, #22, #23.
-Still OPEN: **#19** (gate-2 demo) — CONFLICTING, needs a rebase, and one live
-question: the demo creates runs that never execute because no agent worker is
-attached, so it declares success for work that did not run.
-PR #9 and PR #11 were superseded by #12 and are closed, not pending.
-
-- **#13** delivered the first cloud-produced work back as a PR.
-- **#14** delivered the first gate-2 kernel code, and its four P1 review
-  findings were fixed before merge (dedupe namespacing, claim repair for the
-  exactly-once path, SDK trigger fields, the `event.submit` verb).
-
-If you are an assessor and `ops/NEXT.md` describes WP-12 (repairing PR #9),
-that file is **stale** — #9 no longer exists as open work. Write a new
-`ops/NEXT.md` for gate 6 rather than affirming the old one.
+If a run cannot hit a target, check the target is reachable before assuming the
+run is at fault.
 
 ## Known environment faults in a cloud sandbox
 
