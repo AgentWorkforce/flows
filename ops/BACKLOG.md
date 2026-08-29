@@ -3,6 +3,16 @@
 Items the Lead should weigh in assess after ops/DIRECTIVES.md and the current
 gate's needs. Not commitments; ordering is the Lead's call with evidence.
 
+- **Refuse an entry with unterminated backticks.** Salvaged from closed PR #32.
+  The picker's scope and definition-of-done both come from backtick matching,
+  so an entry with an odd number of backticks can yield a garbage scope that
+  still passes `validateWorkPackage`. Add it as a typed refusal and wire it
+  into the flow — PR #32 was closed partly because it exported the check
+  without any step calling it. Its other two proposed reasons were assessed and
+  rejected: `nested_bullet` would be a regression (main's `/^- \*\*/` anchor
+  already skips indented bullets) and `missing_body` is already covered by
+  `missing_scope` / `missing_definition_of_done`.
+
 - **Sharpen what the picker considers actionable.** `validateWorkPackage` in
   `sdk/src/backlog-picker.ts` judges actionability on two shallow signals: does
   the text hold a backticked path, and does it hold a multi-word backticked
