@@ -60,6 +60,23 @@ adjusting the wrong field.
 Scope is the larger blocker, so start there — but a scope-only change tops out
 at 14 and cannot reach the target. Both need an additional route to qualifying.
 
+## Where the previous attempt got to (PR #41, merged)
+
+`packageFromEntry` now calls `scopeReferences(blob)`, which accepts backticked
+symbols and command references as scope, not only slash-containing paths.
+EXTEND that function; do not re-derive the idea from scratch. Four runs in a row
+have restarted from zero and four have failed.
+
+Measured after #41:
+    entries WITH scope:              8 of 32   <- the binding constraint
+    entries WITH definition_of_done: 14 of 32
+    ACTIONABLE:                       5 of 32   target 20
+
+#41 moved scope from 7 to 8 because its filter declines any multi-word
+backticked phrase. Most real entries backtick prose like
+`500 Internal Server Error` alongside a genuine symbol, so widening WHICH
+backticked tokens count is worth more than adding new sources.
+
 ## Why scope is empty
 
 `packageFromEntry` fills `files_in_scope` from backticked tokens that look like
