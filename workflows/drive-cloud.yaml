@@ -82,20 +82,26 @@ workflows:
     dependsOn:
     - sync
     task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST, if ops/TARGET.md exists,\
-      \ it names the ONE gate this run must\nwork on. It is the operator's scoping decision and it overrides\
-      \ your\nown judgement about priority \u2014 several runs execute in parallel, each\npinned to a\
-      \ different gate, and a run that wanders outside its target\nwill collide with a sibling. Stay inside\
-      \ it or, if the target is\ngenuinely unreachable, say so in ops/NEEDS_HUMAN.md rather than\nsilently\
-      \ choosing different work.\nThen read ops/STATE.md \u2014 it is ground truth about gates and open\n\
-      PRs for an environment with no git history, and it names the known\nsandbox faults that are NOT\
-      \ reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing human directives outrank the backlog;\n\
-      if one is unsatisfied, it IS the work package.\nThen read docs/bootstrap-report.md and ops/DRIVE-LOG.md\
-      \ if they exist,\n`git log --oneline -15`, `gh pr list --state open` and open PR review\nstate,\
-      \ kernel/ and sdk/ test status. Then write ops/NEXT.md: the\nSINGLE highest-priority work package\
-      \ toward the current gate\n(gate 1 until its done-when in RFC-0001 \xA73 holds), with: objective,\n\
-      files in scope, definition of done (must include passing commands),\nand what is explicitly OUT\
-      \ of scope for this tick. If an open PR is\nawaiting fixes from review, the work package is fixing\
-      \ it \u2014 never\nstart new work over unfinished work. If work is blocked on a human\ndecision,\
+      \ it names the ONE gate this run must\nwork on. QUOTE its scope into ops/NEXT.md rather than citing\
+      \ the\npath: TARGET.md lives only in the throwaway launch worktree and is\nNOT part of the delivered\
+      \ diff, so a reviewer reading the PR sees a\nreference to a file that does not exist. Review flagged\
+      \ exactly that\non PR #19. Anything you rely on must appear in the package itself.\n\nAnd when you\
+      \ state that something passes, paste the literal command\nand its output. \"Three tests pass\" with\
+      \ no captured output is not a\nclaim a reviewer can check, and it was also flagged on PR #19. This\n\
+      is AGENTS.md's central standard, applied to your own reporting. It is the operator's scoping decision\
+      \ and it overrides your\nown judgement about priority \u2014 several runs execute in parallel, each\n\
+      pinned to a different gate, and a run that wanders outside its target\nwill collide with a sibling.\
+      \ Stay inside it or, if the target is\ngenuinely unreachable, say so in ops/NEEDS_HUMAN.md rather\
+      \ than\nsilently choosing different work.\nThen read ops/STATE.md \u2014 it is ground truth about\
+      \ gates and open\nPRs for an environment with no git history, and it names the known\nsandbox faults\
+      \ that are NOT reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing human directives outrank\
+      \ the backlog;\nif one is unsatisfied, it IS the work package.\nThen read docs/bootstrap-report.md\
+      \ and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`, `gh pr list --state open` and open\
+      \ PR review\nstate, kernel/ and sdk/ test status. Then write ops/NEXT.md: the\nSINGLE highest-priority\
+      \ work package toward the current gate\n(gate 1 until its done-when in RFC-0001 \xA73 holds), with:\
+      \ objective,\nfiles in scope, definition of done (must include passing commands),\nand what is explicitly\
+      \ OUT of scope for this tick. If an open PR is\nawaiting fixes from review, the work package is\
+      \ fixing it \u2014 never\nstart new work over unfinished work. If work is blocked on a human\ndecision,\
       \ write ops/NEEDS_HUMAN.md stating the exact question and the\noptions \u2014 and then STILL end\
       \ with ASSESS_DONE.\n\nCOMMIT YOUR WORK PACKAGE BEFORE YOU FINISH:\n  git add -A && git commit -m\
       \ \"assess: work package for this tick\"\nEach step runs in its OWN sandbox and files reach the\
