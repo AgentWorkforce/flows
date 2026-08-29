@@ -84,6 +84,31 @@ done
 git rm -r --cached --quiet --ignore-unmatch \
   .workflow-env .rustup-home .rustup .cargo-home .relayflows-toolchain 2>/dev/null || true
 
+# REFUSE to resurrect files that main deleted. A build step's sandbox can be
+# seeded from a stale orchestrator archive: on runs b87c671f and ad7ffc9a the
+# build produced kernel/relayflowd/src/engine/hn_poller.rs as a NEW file, which
+# PR #16 had deliberately removed from the kernel after review rejected an
+# in-kernel HTTP adapter. Both runs looked healthy — completed, BUILD_DONE,
+# tests green — and delivering either would have silently reverted a merged
+# architectural decision. Only reading the diff caught it, and reading diffs by
+# hand is not a control.
+resurrected=""
+for path in $(git diff --diff-filter=A --name-only "$base_ref"...HEAD 2>/dev/null); do
+  # Was this path deleted from the base's history rather than simply never present?
+  if git log --diff-filter=D --format=%H -1 "$base_ref" -- "$path" 2>/dev/null | grep -q .; then
+    resurrected="$resurrected $path"
+  fi
+done
+if [ -n "$resurrected" ]; then
+  echo "DELIVER_FAIL_RESURRECTED_FILES: this run re-added files that were deliberately deleted:" >&2
+  for path in $resurrected; do echo "    $path" >&2; done
+  echo "  A build seeded from a stale tree can undo a merged decision without any" >&2
+  echo "  failing test. Refusing to open a PR that reverts history." >&2
+  echo "  If the re-addition is intentional, deliver with DELIVER_ALLOW_RESURRECT=1." >&2
+  [ "${DELIVER_ALLOW_RESURRECT:-0}" = "1" ] || exit 75
+  echo "  DELIVER_ALLOW_RESURRECT=1 set — proceeding anyway." >&2
+fi
+
 title="drive: cloud run ${run_id%%-*}"
 if [ -f ops/NEXT.md ]; then
   wp=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md 2>/dev/null | sed 's/[[:space:]]*$//' || true)
