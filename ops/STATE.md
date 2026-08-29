@@ -8,7 +8,7 @@ it is authoritative when history is unavailable.
 **Keep it current. A stale STATE.md is worse than none:** it does not merely
 fail to help, it actively misleads an assessor that cannot check it.
 
-Last updated: 2026-08-29 10:05 UTC, by Khaliq's session, on `main`.
+Last updated: 2026-08-29 16:50 UTC, by Khaliq's session, on `main`.
 
 ## Where the program is
 
@@ -97,7 +97,20 @@ test CONFIRMED TO FAIL without its fix:
   4. scope extraction keeps real paths (`regressions/`, `src/Dockerfile`) and
      rejects prose (`contains \`/\``).
 
-Merged to date: #1–#8, #10, #12, #13, #14, #15, #16, #20, #21, #22.
+**#18 and #23 are also MERGED.**
+- #18 put the gate-1 race fix on main (run lock scoped off the blocking replay
+  writes). Its regression test rests on a 100ms timeout and has NEVER been
+  observed to fail — gate 1's GREEN carries that asterisk, and ops/BACKLOG.md
+  names the rework.
+- #23 closed the Garden's loop: the consumer judges a package and refuses it
+  with a typed reason, and the picker now emits definition_of_done so its real
+  output is consumable. A test runs the flow's actual emit-package through the
+  consumer in both directions, so the halves cannot drift apart silently.
+
+Merged to date: #1–#8, #10, #12, #13, #14, #15, #16, #18, #20, #21, #22, #23.
+Still OPEN: **#19** (gate-2 demo) — CONFLICTING, needs a rebase, and one live
+question: the demo creates runs that never execute because no agent worker is
+attached, so it declares success for work that did not run.
 PR #9 and PR #11 were superseded by #12 and are closed, not pending.
 
 - **#13** delivered the first cloud-produced work back as a PR.

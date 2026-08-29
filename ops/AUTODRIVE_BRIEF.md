@@ -1,27 +1,29 @@
-Close the gap between the Garden's two halves. CODE task, SDK-side.
+Harden the Garden's loop with a case it does not yet handle. CODE task, SDK-side.
 
-On main: `sdk/src/backlog-picker.ts` proposes a work package from
-ops/BACKLOG.md (four tested properties).
+On main now, all merged and tested:
+  - `sdk/src/backlog-picker.ts` — proposes a work package from ops/BACKLOG.md
+  - `sdk/src/work-package-consumer.ts` — judges one, refusing with a typed
+    reason (missing_title / missing_scope / missing_definition_of_done)
+  - `testdata/backlog-picker.flow.yaml` — the flow, with its canonical spec
+  - a test running the flow's real emit-package output through the consumer,
+    proving the two halves interoperate in both directions
 
-NOT on main: the consumer that judges a package. It exists in open PR #23
-(`sdk/src/work-package-consumer.ts`, seven tests) and has not been merged. An
-earlier version of this brief claimed it was on main; a run took that at face
-value, found only one half of the pair, and correctly escalated rather than
-inventing the other. It was right and the brief was wrong.
+So propose -> judge -> accept/refuse works end to end. What it does NOT do is
+survive a hostile or malformed backlog. Pick ONE of these and do it properly:
 
-Build the consumer's counterpart that CAN be built against main today: a
-validator for what the picker emits, living beside the picker, that returns
-either an accepted package or a typed refusal naming what is missing (no title,
-empty scope, no definition of done). Do not import from PR #23 — it is not
-merged, and a run must build against main, not against an open branch.
+  (a) The picker reads whatever ops/BACKLOG.md contains. A malformed entry — a
+      bold title with no body, an unterminated backtick, a bullet nested under
+      another — should produce a typed refusal, never a crash and never a
+      half-formed package. Add the handling and the tests.
 
-That is the Garden's smallest complete loop — propose, judge, accept-or-refuse
-— and nothing exercises it end to end today.
+  (b) The consumer accepts any package whose fields are present. It does not
+      check that files_in_scope names paths that EXIST, so a package can be
+      accepted while scoping files that are not there. Add that check as a new
+      typed refusal reason, with tests.
 
 Definition of done, all of it:
-  - a new exported function in sdk/src, wired into sdk/src/index.ts
-  - tests covering: a backlog that yields an acceptable package; a backlog that
-    yields one the consumer refuses; and an empty backlog
+  - code in sdk/src, wired into sdk/src/index.ts if it is a new export
+  - tests covering the new behaviour AND the existing behaviour still passing
   - `cd sdk && npm test` green
   - EVERY new test confirmed to FAIL against current code, with the literal
     failing output quoted in your summary
