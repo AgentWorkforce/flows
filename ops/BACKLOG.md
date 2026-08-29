@@ -402,3 +402,30 @@ file from disk and compares against the base commit.
 
 Mitigation available to us: none platform-side. Relaunching lands in a fresh
 sandbox, which usually is healthy. Worth filing against cloud.
+
+## BUILD_DONE is not evidence that anything was built (2026-08-29)
+
+Run 2560e02d completed a full cycle and reported `BUILD_DONE`, and its patch
+contained exactly one substantive file: `ops/NEXT.md`, the work package itself.
+Every other changed path was an exec-bit strip (`100755 -> 100644`) caused by
+the sandbox, not by the builder. No hn-monitor code was written despite that
+being the whole target of the run.
+
+This is the same shape as the hang sweeper that reported `SWEEPER_DONE` after
+inspecting nothing: **a completion token the agent emits regardless of whether
+work happened.** The verify step cannot catch it either — a build that changes
+nothing leaves the existing suites passing, so verify goes green on an empty
+build.
+
+What a fix looks like (deliberately NOT applied at 02:00 after a long chain of
+changes — this needs a clear head):
+- a `build-gate` step, mirroring `assess-gate`, that fails when
+  `git diff --stat main..HEAD` shows no change outside `ops/` — the builder
+  must have touched code, not just prose;
+- and it must ignore mode-only changes, or the sandbox's exec-bit stripping
+  will make an empty build look productive.
+
+Until that exists, treat `BUILD_DONE` as "the builder finished", never as "the
+builder produced something". The loop currently RUNS reliably; whether it
+PRODUCES is a separate question and this gate is why we cannot yet answer it
+from the run's own output.
