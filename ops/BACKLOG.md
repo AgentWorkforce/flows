@@ -454,3 +454,33 @@ real tradeoff and deserves a clear head and Khaliq's view, not a 03:00 patch.
 
 Until then the loop works roughly two runs in five. Relaunching is the only
 mitigation, and it is a poor one.
+
+## Holding the loop: the handoff fault now kills most runs (2026-08-29 03:35)
+
+Updated count, replacing the "two in five" estimate above. Of the last six
+drive runs:
+
+- **Reached commit:** b4e2c3fb (-> PR #15), a1055874 (-> PR #16)
+- **Died at assess-gate on the handoff fault:** a2089144, 2560e02d (recovered
+  on retry 3), 505a1bde, 5b0bb65c
+
+The last two were the same work package launched twice, both burning all three
+retries — 5b0bb65c in under ten minutes. Retry has stopped being a mitigation
+and is now just spending sandbox budget on a coin flip that has turned against
+us, so **I stopped launching** rather than keep paying for it.
+
+**What is NOT established:** whether the rate worsened because of load, because
+of something specific to this gate-1 race package, or because the fault is
+simply more frequent than the early sample suggested. Three plausible causes,
+no evidence separating them.
+
+**The decision waiting for Khaliq** is the structural one already described:
+collapse assess and build into a single agent step so there is no handoff
+between them. It would very likely fix this. It also gives up the assess/build
+separation, which earned its keep tonight — a builder refused to invent scope
+against a stale package, and a Lead escalated a spec contradiction rather than
+guessing. Trading a gate that has caught real errors for a loop that completes
+is a judgement about what this program values, not a mechanical fix.
+
+Everything else is healthy: PR #16 is open and green, main is clean, and the
+two PRs that did land tonight (#15, #16) came through this same loop.
