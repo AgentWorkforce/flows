@@ -93,13 +93,35 @@ describe('backlog picker', () => {
 });
 
 describe('work package validation', () => {
-  it('uses a backticked code symbol as scope evidence', () => {
+  it('uses a referenced code symbol as evidence of repository scope', async () => {
     const work = packageFromEntry({
-      title: 'Refuse malformed work packages',
-      body: 'Make `validateWorkPackage` reject an unterminated backtick.',
+      title: 'Refuse an entry with unterminated backticks',
+      body: 'Update `validateWorkPackage` to return a typed refusal for malformed input.',
     });
 
-    expect(work['files_in_scope']).toEqual(['validateWorkPackage']);
+    expect(await validate(work)).toMatchObject({
+      accepted: true,
+      work: {
+        files_in_scope: ['.'],
+        definition_of_done: ['Refuse an entry with unterminated backticks'],
+      },
+    });
+  });
+
+  it('keeps at least twenty real backlog entries actionable', async () => {
+    const backlog = readFileSync(join(__dirname, '..', '..', 'ops', 'BACKLOG.md'), 'utf8');
+    const entries = [...backlog.matchAll(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/gm)].map(
+      (match) => ({
+        title: match[1] ?? '',
+        body: (match[2] ?? '').replace(/\s+/g, ' ').trim(),
+      }),
+    );
+    const verdicts = await Promise.all(entries.map((entry) => validate(packageFromEntry(entry))));
+
+    const actionable = verdicts.filter(
+      (verdict) => (verdict as { accepted: boolean }).accepted,
+    ).length;
+    expect(actionable).toBeGreaterThanOrEqual(20);
   });
 
   it('accepts an engineering task stated as an imperative outcome', async () => {

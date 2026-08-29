@@ -15,9 +15,11 @@
 
 /** First bold top-level bullet: `- **Title** rest`. */
 const ENTRY = /^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/m;
-const ACTION_TITLE =
-  /^(?:add|build|change|close|create|document|fix|implement|persist|refuse|release|remove|rename|replace|sharpen|update|validate|wire)\b/i;
-const NOTES_TITLE = /^(?:notes?|release notes|upstream issues)\s*(?:\(|:|$)/i;
+const CODE_REFERENCE = /`([^`]+)`/g;
+// Outcomes include explicit changes and concrete defect statements. A list of
+// identifiers or links alone carries neither, so it cannot qualify as work.
+const ENGINEERING_OUTCOME =
+  /\b(?:add|asserts?|breaks?|build|cannot|capture|catches?|change|close|collapses?|cross-compile|delete|document|drift|duplicates?|fails?|fix|implement|invoke|leaks?|make|missing|must|needs?|no (?:end-to-end )?coverage|persist|refuse|register|replace|reserve|restore|run|scope|should|spawn|untested|update|use|validate|verified?|wire|wrong)\b/i;
 
 export interface BacklogEntry {
   title: string;
@@ -108,18 +110,27 @@ function isNonEmptyStringArray(value: unknown): value is string[] {
  */
 export function packageFromEntry(entry: BacklogEntry): Record<string, unknown> {
   const blob = `${entry.title} ${entry.body}`;
-  const files = scopeReferences(blob);
+  const references = [...entry.body.matchAll(CODE_REFERENCE)].map((match) => match[1] ?? '');
+  const files = [
+    ...new Set(
+      references
+        .filter(
+          (candidate): candidate is string =>
+            /^[A-Za-z_][A-Za-z0-9._-]*(?:\/[A-Za-z0-9._-]*)+$/.test(candidate) &&
+            !/^\/|\/\//.test(candidate),
+        ),
+    ),
+  ];
+  const hasEngineeringOutcome = ENGINEERING_OUTCOME.test(entry.body);
+  // A symbol or command locates work in this repository, but not necessarily
+  // one file. Preserve that honest breadth instead of discarding the signal.
+  if (files.length === 0 && references.length > 0 && hasEngineeringOutcome) {
+    files.push('.');
+  }
   const gate = blob.match(/\bgate[ -]?(\d+)\b/i);
-  const explicitChecks = (entry.body.match(/`[^`]+`/g) || [])
-    .map((candidate) => candidate.slice(1, -1))
-    .filter((candidate) => /\s/.test(candidate));
-  const definitionOfDone = NOTES_TITLE.test(entry.title)
-    ? []
-    : explicitChecks.length > 0
-      ? explicitChecks
-      : ACTION_TITLE.test(entry.title)
-        ? [entry.title.replace(/[.:]\s*$/, '')]
-        : [];
+  const definitionOfDone = hasEngineeringOutcome
+    ? [entry.title.replace(/[.:]\s*$/, '')]
+    : [];
   return {
     title: entry.title,
     description: entry.body,
@@ -127,16 +138,4 @@ export function packageFromEntry(entry: BacklogEntry): Record<string, unknown> {
     gate: gate ? Number(gate[1]) : null,
     definition_of_done: definitionOfDone,
   };
-}
-
-/** Backticked paths, symbols, and command references are explicit scope. */
-function scopeReferences(blob: string): string[] {
-  const references = [...blob.matchAll(/`([^`]+)`/g)]
-    .map((match) => match[1])
-    .filter((candidate): candidate is string => candidate !== undefined)
-    .filter((candidate) => {
-      if (/^\/|\/\//.test(candidate)) return false;
-      return !/\s/.test(candidate) || /--|<[^>]+>|\$[A-Za-z]/.test(candidate);
-    });
-  return [...new Set(references)];
 }
