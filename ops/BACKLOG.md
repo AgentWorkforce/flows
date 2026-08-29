@@ -84,15 +84,21 @@ gate's needs. Not commitments; ordering is the Lead's call with evidence.
   already skips indented bullets) and `missing_body` is already covered by
   `missing_scope` / `missing_definition_of_done`.
 
-- **Sharpen what the picker considers actionable.** `validateWorkPackage` in
-  `sdk/src/backlog-picker.ts` judges actionability on two shallow signals: does
-  the text hold a backticked path, and does it hold a multi-word backticked
-  phrase. Against the real `ops/BACKLOG.md` this makes `select-entry` print
-  `SKIPPED_UNACTIONABLE=10` and select the dated "Upstream issues" notes blob —
-  ten genuine tasks skipped in favour of a list of links, because a notes blob
-  full of backticked identifiers passes both signals while a task written in
-  prose fails both. The guard is correct; the selection is poor. Found while
-  wiring validation into the flow for PR #30 and deliberately not fixed there.
+- **DONE (PR #42, merged): sharpen what the picker considers actionable.**
+  Closed on 2026-08-29 after five attempts. Result measured against the real
+  ops/BACKLOG.md:
+      ACTIONABLE        5/32 -> 22/32   (target was 20)
+      entries w/ scope     8 -> 24
+      entries w/ dod      14 -> 27
+  Quality held: the "Upstream issues (2026-08-27):" notes blob is still refused,
+  as are log fragments (F2, F10, "Reached commit:"), and the entry now selected
+  is real engineering work.
+  What made the difference was the INPUT, not the runs. #33/#34/#39 chased
+  SKIPPED_UNACTIONABLE, a counter that falls when a selectable entry drifts to
+  the top of the file. The aggregate count replaced it, but paired with a ban on
+  touching definition_of_done that capped the ceiling at 14 against a target of
+  20 — run 5ecf7078 proved that and refused the package with a reproduction
+  rather than faking progress. Fixing the target is what unblocked it.
 
 - **Close the deterministic-command preflight gap (Codex P1).** Refuse a
   path-like deterministic command word (contains `/`) when that path does not
