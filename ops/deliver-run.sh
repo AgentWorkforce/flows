@@ -125,6 +125,18 @@ if [ -n "$violations" ]; then
   echo "  DELIVER_ALLOW_FORBIDDEN=1 set — proceeding anyway." >&2
 fi
 
+# A work package is not work. If the only substantive change is ops/NEXT.md,
+# this run assessed and produced nothing — either it genuinely had nothing to
+# build, or its code was lost by the capture fault. Opening a PR for that adds
+# review noise and, run unattended, accumulates it steadily.
+substantive=$(git status --porcelain | sed 's/^...//' | grep -vE '^(ops/NEXT\.md|ops/TARGET\.md)$' | head -1)
+if [ -z "$substantive" ]; then
+  echo "DELIVER_SKIPPED_ASSESSMENT_ONLY: the only change is a work package, not work."
+  echo "  Either the run had nothing to build, or its code did not survive capture."
+  echo "  Not opening a PR for a NEXT.md edit."
+  exit 0
+fi
+
 title="drive: cloud run ${run_id%%-*}"
 if [ -f ops/NEXT.md ]; then
   wp=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md 2>/dev/null | sed 's/[[:space:]]*$//' || true)
