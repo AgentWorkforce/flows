@@ -93,6 +93,9 @@ git rm -r --cached --quiet --ignore-unmatch \
 # absent — which is how the first version of this check silently skipped: it
 # tested [ -f ops/FORBIDDEN_PATHS ] against a base predating the list.
 forbidden_rules=$(git show origin/main:ops/FORBIDDEN_PATHS 2>/dev/null || true)
+# Harness files exist legitimately; a run modifying them is the defect.
+forbidden_rules="$forbidden_rules
+$(git show origin/main:ops/IMMUTABLE_PATHS 2>/dev/null || true)"
 if [ -z "$forbidden_rules" ]; then
   # A missing denylist means NO protection. Say so; never skip in silence.
   echo "DELIVER_FAIL_NO_DENYLIST: could not read ops/FORBIDDEN_PATHS from origin/main." >&2

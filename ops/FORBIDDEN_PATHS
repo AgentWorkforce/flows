@@ -19,17 +19,3 @@
 kernel/relayflowd/src/engine/hn_poller.rs
 kernel/relayflowd/tests/hn_poller.rs
 
-# A run must not modify the harness that runs it.
-#
-# Autodrive delivered a PR reverting ops/deliver-run.sh: the run had been
-# launched before a fix landed there, so its diff against current main read as
-# a deletion of that fix. Unattended, a run can silently undo the very guards
-# that decide whether its own output is safe to ship — including the guard that
-# would have caught it.
-#
-# These files change by human edit, never by a drive run.
-ops/deliver-run.sh
-ops/launch-gate.sh
-ops/autodrive.sh
-ops/gen-drive-cloud.py
-ops/FORBIDDEN_PATHS

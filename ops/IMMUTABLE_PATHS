@@ -1,0 +1,19 @@
+# Paths a drive run must not MODIFY. They exist in every tree — that is the
+# difference from ops/FORBIDDEN_PATHS, which lists paths that must never exist
+# at all and whose presence proves a stale sandbox.
+#
+# Conflating the two broke every run for half an hour: the harness files were
+# added to FORBIDDEN_PATHS, the sync-time stale check saw them present in a
+# perfectly good tree, and refused the sandbox with SYNC_FAIL_STALE_TREE. A
+# guard that fires on healthy input is worse than no guard.
+#
+# Why these: autodrive delivered a PR reverting ops/deliver-run.sh, because the
+# run predated a fix there. Unattended, a loop can silently undo the guards
+# that decide whether its own output ships — including the guard that would
+# have caught it.
+ops/deliver-run.sh
+ops/launch-gate.sh
+ops/autodrive.sh
+ops/gen-drive-cloud.py
+ops/FORBIDDEN_PATHS
+ops/IMMUTABLE_PATHS
