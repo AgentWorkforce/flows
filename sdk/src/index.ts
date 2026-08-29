@@ -115,6 +115,7 @@ export { JournalClient, type JournalClientOptions } from './journal-client.js';
 
 export {
   validateWorkPackage,
+  packageFromEntry,
   type ValidatedWorkPackage,
   type WorkPackageValidation,
   type WorkPackageValidationReason,

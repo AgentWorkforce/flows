@@ -77,7 +77,7 @@ describe('the Garden join: picker output feeds the consumer', () => {
     const flowPath = join(__dirname, '..', '..', 'testdata', 'backlog-picker.flow.yaml');
     const flow = load(readFileSync(flowPath, 'utf8')) as { steps: Array<{ id: string; command: string }> };
     const step = (id: string) => flow.steps.find((s) => s.id === id)!.command;
-    const run = (cmd: string, cwd: string) => execFileSync('sh', ['-c', cmd], { cwd, encoding: 'utf8' });
+    const run = (cmd: string, cwd: string) => execFileSync('sh', ['-c', cmd], { cwd, encoding: 'utf8', env: { ...process.env, RELAYFLOWS_SDK_DIST: join(__dirname, '..', 'dist') }, });
 
     const dir = mkdtempSync(join(tmpdir(), 'garden-join-'));
     try {
@@ -93,15 +93,38 @@ describe('the Garden join: picker output feeds the consumer', () => {
       const accepted = JSON.parse(run(step('emit-package'), dir));
       expect(consumeWorkPackage(accepted, () => true).accepted, JSON.stringify(accepted)).toBe(true);
 
-      // An entry with no command names no way to verify itself.
+      // An entry with no command names no way to verify itself. The refusal
+      // now happens EARLIER than it used to: PR #30 review required the flow
+      // to actually call the validator, so `select-entry` rejects an
+      // unactionable entry rather than letting emit-package hand a package
+      // nobody can act on to the consumer. Assert where the guard now lives.
       writeFileSync(
         join(dir, 'ops', 'BACKLOG.md'),
         '# Backlog\n\n- **Scoped but unverifiable** touches `sdk/src/y.ts` but names no command\n',
       );
       run(step('read-backlog'), dir);
-      run(step('select-entry'), dir);
-      const refused = JSON.parse(run(step('emit-package'), dir));
-      const verdict = consumeWorkPackage(refused, () => true);
+      let selectionRefused = '';
+      try {
+        run(step('select-entry'), dir);
+      } catch (error) {
+        selectionRefused = String((error as { stderr?: Buffer }).stderr ?? error);
+      }
+      expect(selectionRefused, 'select-entry must refuse an entry with no definition of done').toContain(
+        'missing_definition_of_done',
+      );
+
+      // The consumer remains the second line of defence: if such a package
+      // ever reaches it by another route, it still refuses with the same
+      // typed reason.
+      const verdict = consumeWorkPackage(
+        {
+          title: 'Scoped but unverifiable',
+          description: 'touches `sdk/src/y.ts` but names no command',
+          files_in_scope: ['sdk/src/y.ts'],
+          definition_of_done: [],
+        },
+        () => true,
+      );
       expect(verdict.accepted).toBe(false);
       expect(verdict.accepted === false && verdict.reason).toBe('missing_definition_of_done');
     } finally {

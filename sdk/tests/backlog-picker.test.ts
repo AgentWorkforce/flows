@@ -70,11 +70,16 @@ describe('backlog picker', () => {
         join(dir, '.relayflow', 'backlog-picker-entry.json'),
         JSON.stringify({
           title: 'Fix gate 3',
-          body: 'Update `src/file.ts`; prose that contains `/` is not a path.',
+          body: 'Update `src/file.ts`; prose that contains `/` is not a path, and `the scope is parsed` is the goal.',
         }),
       );
 
-      const output = execFileSync('sh', ['-c', command!], { cwd: dir, encoding: 'utf8' });
+      const output = execFileSync('sh', ['-c', command!], {
+        cwd: dir,
+        encoding: 'utf8',
+        // Steps run in a throwaway cwd; point them at the real built SDK.
+        env: { ...process.env, RELAYFLOWS_SDK_DIST: join(__dirname, '..', 'dist') },
+      });
       const workPackage = JSON.parse(output) as { files_in_scope: string[] };
       expect(workPackage.files_in_scope).toEqual(['src/file.ts']);
     } finally {

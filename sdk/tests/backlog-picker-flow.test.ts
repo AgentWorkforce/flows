@@ -24,7 +24,13 @@ function stepCommands(): Record<string, string> {
 }
 
 function run(command: string, cwd: string): string {
-  return execFileSync('sh', ['-c', command], { cwd, encoding: 'utf8' });
+  // The steps run in a throwaway cwd, so point them at the real built SDK
+  // rather than making them hunt for one that is not there.
+  return execFileSync('sh', ['-c', command], {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env, RELAYFLOWS_SDK_DIST: join(__dirname, '..', 'dist') },
+  });
 }
 
 describe('backlog-picker flow', () => {
@@ -34,7 +40,7 @@ describe('backlog-picker flow', () => {
       mkdirSync(join(dir, 'ops'), { recursive: true });
       writeFileSync(
         join(dir, 'ops', 'BACKLOG.md'),
-        '# Backlog\n\n- **Original entry** the one that must win\n',
+        '# Backlog\n\n- **Original entry** the one that must win, touching `sdk/src/a.ts` with `the picker still selects it`\n',
       );
 
       const steps = stepCommands();
@@ -69,7 +75,7 @@ describe('backlog-picker flow', () => {
       const steps = stepCommands();
 
       // Run one: a real entry, which populates the shared state.
-      writeFileSync(join(dir, 'ops', 'BACKLOG.md'), '# Backlog\n\n- **Yesterday entry** old\n');
+      writeFileSync(join(dir, 'ops', 'BACKLOG.md'), '# Backlog\n\n- **Yesterday entry** old, touching `sdk/src/a.ts` with `it must not be reused`\n');
       run(steps['read-backlog'], dir);
       run(steps['select-entry'], dir);
       expect(run(steps['emit-package'], dir)).toContain('Yesterday entry');
@@ -126,7 +132,7 @@ describe('backlog-picker canonical spec', () => {
       writeFileSync(
         join(dir, 'ops', 'BACKLOG.md'),
         '# Backlog\n\n- **Scope entry** touches `regressions/` and `src/Dockerfile` and `ops/BACKLOG.md`,\n' +
-          '  but a path that merely contains `/` is prose, not a file.\n',
+          '  but a path that merely contains `/` is prose, not a file, and `the scope is parsed` is the goal.\n',
       );
       run(steps['read-backlog'], dir);
       run(steps['select-entry'], dir);

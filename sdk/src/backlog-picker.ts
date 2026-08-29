@@ -93,3 +93,33 @@ function isNonEmptyString(value: unknown): value is string {
 function isNonEmptyStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.length > 0 && value.every(isNonEmptyString);
 }
+
+/**
+ * Build a work package from a backlog entry.
+ *
+ * This lives in the SDK because two flow steps need it: `select-entry` has to
+ * build a candidate package to know whether an entry is actionable at all, and
+ * `emit-package` has to build the package it emits. When the logic was inlined
+ * in both, the two could drift silently — the flow would select an entry on one
+ * rule and describe it by another.
+ */
+export function packageFromEntry(entry: BacklogEntry): Record<string, unknown> {
+  const blob = `${entry.title} ${entry.body}`;
+  const files = [
+    ...new Set(
+      [...blob.matchAll(/`([A-Za-z_][A-Za-z0-9._-]*(?:\/[A-Za-z0-9._-]*)+)`/g)]
+        .map((match) => match[1])
+        .filter((candidate): candidate is string => candidate !== undefined && !/^\/|\/\//.test(candidate)),
+    ),
+  ];
+  const gate = blob.match(/\bgate[ -]?(\d+)\b/i);
+  return {
+    title: entry.title,
+    description: entry.body,
+    files_in_scope: files,
+    gate: gate ? Number(gate[1]) : null,
+    definition_of_done: (entry.body.match(/`[^`]+`/g) || [])
+      .map((candidate) => candidate.slice(1, -1))
+      .filter((candidate) => /\s/.test(candidate)),
+  };
+}
