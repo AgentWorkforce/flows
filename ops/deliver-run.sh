@@ -105,7 +105,23 @@ if [ -z "$forbidden_rules" ]; then
 fi
 
 violations=""
-changed=$(git status --porcelain | sed 's/^...//')
+# Judge CONTENT, not mode. A sandbox strips the exec bit off every tracked
+# script, so `git status` reports ops/autodrive.sh and friends as modified in
+# EVERY run. Keying the guard on that made it refuse healthy runs outright —
+# the third guard here to fire on healthy input. deliver-run.sh restores modes
+# a few lines below; a mode-only difference is noise this check must ignore.
+changed=$(git diff --name-only --diff-filter=M 2>/dev/null; git status --porcelain | awk '$1 == "??" || $1 == "A" { print $2 }')
+changed=$(printf '%s\n' "$changed" | sort -u | while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  # Keep only files whose CONTENT differs; drop pure mode changes.
+  if ! git diff --quiet -- "$f" 2>/dev/null; then
+    if [ -n "$(git diff --numstat -- "$f" 2>/dev/null | awk '$1 != 0 || $2 != 0')" ]; then
+      echo "$f"
+    fi
+  else
+    echo "$f"
+  fi
+done)
 printf '%s\n' "$forbidden_rules" | while IFS= read -r pattern; do
   case "$pattern" in ''|'#'*) continue ;; esac
   for path in $changed; do
