@@ -106,3 +106,36 @@ describe('the Garden join: picker output feeds the consumer', () => {
     }
   });
 });
+
+describe('scope existence', () => {
+  const scoped = {
+    title: 'Real entry',
+    files_in_scope: ['sdk/src/a.ts', 'sdk/src/b.ts'],
+    definition_of_done: ['npm test'],
+  };
+
+  it('refuses a package scoping files that do not exist', () => {
+    // The picker derives files_in_scope from prose in ops/BACKLOG.md, so a
+    // stale or mistyped entry yields a package that reads as actionable and
+    // sends whoever picks it up hunting for a file that was never there.
+    const verdict = consumeWorkPackage(scoped, () => false);
+    expect(verdict.accepted).toBe(false);
+    expect(verdict.accepted === false && verdict.reason).toBe('nonexistent_files');
+  });
+
+  it('refuses when only some scoped files exist', () => {
+    const verdict = consumeWorkPackage(scoped, (p) => p === 'sdk/src/a.ts');
+    expect(verdict.accepted).toBe(false);
+    expect(verdict.accepted === false && verdict.reason).toBe('nonexistent_files');
+  });
+
+  it('accepts when every scoped file exists', () => {
+    expect(consumeWorkPackage(scoped, () => true).accepted).toBe(true);
+  });
+
+  it('skips the check entirely when no pathExists is supplied', () => {
+    // Existing callers must not start failing because a new optional check
+    // exists. Absence of the checker means "not my job", not "assume missing".
+    expect(consumeWorkPackage(scoped).accepted).toBe(true);
+  });
+});

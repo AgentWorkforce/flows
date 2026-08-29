@@ -10,22 +10,41 @@ export interface EmittedWorkPackage {
 export type WorkPackageRefusalReason =
   | 'missing_title'
   | 'missing_scope'
-  | 'missing_definition_of_done';
+  | 'missing_definition_of_done'
+  | 'nonexistent_files';
 
 export type WorkPackageConsumption =
   | { accepted: true; work: EmittedWorkPackage }
   | { accepted: false; reason: WorkPackageRefusalReason };
 
+/** Resolve a scoped path against the repository root; used to check existence. */
+export type PathExists = (path: string) => boolean;
+
 /**
  * Validate an emitted package before admitting it as runnable work.
  * Refusals are data so callers must handle an unverifiable package explicitly.
+ *
+ * `pathExists` is optional and injected. When supplied, a package scoping files
+ * that are not there is refused: the picker derives files_in_scope from prose
+ * in ops/BACKLOG.md, so a stale or mistyped entry produces a package that reads
+ * as actionable and sends whoever picks it up looking for something that does
+ * not exist. Checking is cheap; a wrong scope is not.
  */
-export function consumeWorkPackage(input: unknown): WorkPackageConsumption {
+export function consumeWorkPackage(
+  input: unknown,
+  pathExists?: PathExists,
+): WorkPackageConsumption {
   if (!isRecord(input) || !isNonEmptyString(input['title'])) {
     return { accepted: false, reason: 'missing_title' };
   }
   if (!isNonEmptyStringArray(input['files_in_scope'])) {
     return { accepted: false, reason: 'missing_scope' };
+  }
+  if (pathExists && isNonEmptyStringArray(input['files_in_scope'])) {
+    const missing = input['files_in_scope'].filter((p) => !pathExists(p));
+    if (missing.length > 0) {
+      return { accepted: false, reason: 'nonexistent_files' };
+    }
   }
   if (!isNonEmptyStringArray(input['definition_of_done'])) {
     return { accepted: false, reason: 'missing_definition_of_done' };
