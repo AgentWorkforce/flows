@@ -11,7 +11,7 @@ steps:
     type: deterministic
     dependsOn: [read-backlog]
     command: >-
-      node -e 'const fs=require("node:fs");const text=fs.readFileSync(".relayflow/backlog-picker-source.md","utf8");const match=text.match(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/m);if(!match)process.exit(1);const entry={title:match[1],body:match[2].replace(/\s+/g," ").trim()};fs.writeFileSync(".relayflow/backlog-picker-entry.json",JSON.stringify(entry));process.stdout.write(JSON.stringify(entry))'
+      node -e 'const fs=require("node:fs");fs.rmSync(".relayflow/backlog-picker-entry.json",{force:true});const text=fs.readFileSync(".relayflow/backlog-picker-source.md","utf8");const match=text.match(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/m);if(!match)process.exit(1);const entry={title:match[1],body:match[2].replace(/\s+/g," ").trim()};fs.writeFileSync(".relayflow/backlog-picker-entry.json",JSON.stringify(entry));process.stdout.write(JSON.stringify(entry))'
   - id: emit-package
     type: deterministic
     dependsOn: [select-entry]

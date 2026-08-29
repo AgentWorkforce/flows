@@ -56,4 +56,39 @@ describe('backlog-picker flow', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('does not emit a stale entry left by a previous run', () => {
+    // The snapshot fix introduced shared persistent state, and shared state
+    // leaks across runs: if select-entry finds nothing actionable it exits
+    // before writing, so emit-package would happily read the PREVIOUS run's
+    // entry and present it as this run's choice. Review caught it (PR #21, P1)
+    // — a fix for cross-step disagreement that created cross-run staleness.
+    const dir = mkdtempSync(join(tmpdir(), 'backlog-picker-stale-'));
+    try {
+      mkdirSync(join(dir, 'ops'), { recursive: true });
+      const steps = stepCommands();
+
+      // Run one: a real entry, which populates the shared state.
+      writeFileSync(join(dir, 'ops', 'BACKLOG.md'), '# Backlog\n\n- **Yesterday entry** old\n');
+      run(steps['read-backlog'], dir);
+      run(steps['select-entry'], dir);
+      expect(run(steps['emit-package'], dir)).toContain('Yesterday entry');
+
+      // Run two: nothing actionable. select-entry must fail AND must not leave
+      // the previous choice behind for emit-package to pick up.
+      writeFileSync(join(dir, 'ops', 'BACKLOG.md'), '# Backlog\n\nnothing actionable today\n');
+      run(steps['read-backlog'], dir);
+      expect(() => run(steps['select-entry'], dir)).toThrow();
+
+      let emitted = '';
+      try {
+        emitted = run(steps['emit-package'], dir);
+      } catch {
+        return; // Failing outright is the correct outcome.
+      }
+      expect(emitted).not.toContain('Yesterday entry');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
