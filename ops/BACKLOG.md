@@ -84,15 +84,10 @@ gate's needs. Not commitments; ordering is the Lead's call with evidence.
   which is how the misdiagnosis was caught. Nothing in the pin rules needs to
   change.
 
-- **Refuse an entry with unterminated backticks.** Salvaged from closed PR #32.
-  The picker's scope and definition-of-done both come from backtick matching,
-  so an entry with an odd number of backticks can yield a garbage scope that
-  still passes `validateWorkPackage`. Add it as a typed refusal and wire it
-  into the flow — PR #32 was closed partly because it exported the check
-  without any step calling it. Its other two proposed reasons were assessed and
-  rejected: `nested_bullet` would be a regression (main's `/^- \*\*/` anchor
-  already skips indented bullets) and `missing_body` is already covered by
-  `missing_scope` / `missing_definition_of_done`.
+- **DONE (PR #45, merged): refuse an entry with unterminated backticks.**
+  Wired into the flow, not merely exported — which is why PR #32's version of
+  the same idea was closed. No entry in the current backlog has an odd backtick
+  count, so the check does not fire on real data; its tests cover the case.
 
 - **DONE (PR #42, merged): sharpen what the picker considers actionable.**
   Closed on 2026-08-29 after five attempts. Result measured against the real
