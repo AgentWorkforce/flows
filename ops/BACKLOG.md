@@ -3,6 +3,21 @@
 Items the Lead should weigh in assess after ops/DIRECTIVES.md and the current
 gate's needs. Not commitments; ordering is the Lead's call with evidence.
 
+- **Half the drive runs complete but build nothing.** Measured across 20
+  completed runs in /tmp/autodrive.log on 2026-08-29:
+      9  DELIVER_PR_OPENED            (45%)
+      4  DELIVER_SKIPPED_NO_CHANGES   (20%)  run produced no diff at all
+      3  DELIVER_SKIPPED_ASSESSMENT_ONLY (15%)  only ops/NEXT.md, no work
+      3  DELIVER_FAIL_SYNC            (15%)
+      1  DELIVER_FAIL_FORBIDDEN_PATH   (5%)
+  Seven runs finished successfully and produced nothing — roughly 2.3 hours of
+  wall clock at ~20 min per run. The delivery guards correctly refuse them, so
+  nothing bad reaches main; the cost is throughput, not correctness.
+  BLOCKED on diagnosis: `agent-relay cloud logs <run-id>` returns
+  `500 Internal Server Error`, so there is no way to see whether the run ran out
+  of budget, failed its build step, or assessed and stopped. Fixing the 500 is
+  the prerequisite for fixing the waste rate.
+
 - **Gate-2 blocker: a run that parks for want of a worker is never re-driven
   when one attaches.** Isolated with a controlled A/B on the same flow, same
   pins, same kernel — only the ordering differs:
