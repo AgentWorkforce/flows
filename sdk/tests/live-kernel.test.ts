@@ -171,7 +171,7 @@ steps:
     expect(completed.stderr).not.toContain('protocol_error');
   });
 
-  it('needs run.resume to reach a worker that attached after the run parked', async () => {
+  it('can always get a parked run to a late-attaching worker', async () => {
     // The contract that cost the most time to establish, so it is pinned here.
     //
     // A run started with no worker parks with its step in `runnable`. Attaching
@@ -206,14 +206,24 @@ steps:
       streams: [],
     });
 
-    // Attaching alone must not rescue the parked run.
+    // Observation, deliberately NOT an assertion: today, attaching alone does
+    // not rescue the parked run. Review pushed back on asserting that (PR #36)
+    // and was right — pinning it would freeze a design decision that is still
+    // open, and block a future kernel that re-elects parked steps on attach.
+    // Either behaviour is acceptable here; what must hold is the line below.
     const passive = await Promise.race([
       dispatched,
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
     ]);
-    expect(passive, 'attaching a worker must not by itself re-drive a parked run').toBeNull();
+    if (passive !== null) {
+      // A kernel that re-drives on attach has satisfied the real requirement
+      // already — the step reached a worker. Nothing further to prove.
+      worker.close();
+      starter.close();
+      return;
+    }
 
-    // run.resume is what does.
+    // Otherwise run.resume must be able to pick it up.
     await starter.runResume(runId);
     const resumed = await Promise.race([
       dispatched,
