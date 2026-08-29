@@ -386,12 +386,19 @@ workflows:
           # Removing it after the gates pass costs nothing and takes the bulk
           # of the payload out of every flush from here on.
           #
-          # Guarded with || true and placed AFTER the pass/fail decision, so a
-          # cleanup problem can never turn a green verify red.
-          if [ "$ok" -eq 0 ]; then
-            rm -rf sdk/node_modules 2>/dev/null || true
-            echo "VERIFY_TREE_SLIMMED: removed sdk/node_modules before flush"
-          fi
+          # Runs on pass AND fail. The first version only slimmed on a green
+          # verify, to keep a failing run's tree intact for diagnosis. That
+          # defeated the fix: run ae982aaa ended VERIFY_FAIL_NONFATAL, so the
+          # cleanup was skipped, the tree stayed at 1842 files and the flush
+          # failed with three 413s — and the run still committed and delivered
+          # a PR. A run that delivers needs its flush to work whether or not
+          # its gates passed, and node_modules is reinstallable, so there was
+          # never anything to preserve for diagnosis here.
+          #
+          # Guarded with || true and placed AFTER the pass/fail decision is
+          # computed, so a cleanup problem can never change the verdict.
+          rm -rf sdk/node_modules 2>/dev/null || true
+          echo "VERIFY_TREE_SLIMMED: removed sdk/node_modules before flush (ok=$ok)"
           [ "$ok" -eq 0 ] && echo VERIFY_PASS || { echo VERIFY_FAIL; exit 1; }
         timeoutMs: 1200000
 

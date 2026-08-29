@@ -241,11 +241,16 @@ workflows:
       \ \u2014 1226 files, 52 MB, and already\n# gitignored, so nothing downstream of here reads it: the\
       \ suites have\n# finished by this line, and commit/handoff touch only tracked files.\n# Removing\
       \ it after the gates pass costs nothing and takes the bulk\n# of the payload out of every flush\
-      \ from here on.\n#\n# Guarded with || true and placed AFTER the pass/fail decision, so a\n# cleanup\
-      \ problem can never turn a green verify red.\nif [ \"$ok\" -eq 0 ]; then\n  rm -rf sdk/node_modules\
-      \ 2>/dev/null || true\n  echo \"VERIFY_TREE_SLIMMED: removed sdk/node_modules before flush\"\nfi\n\
-      [ \"$ok\" -eq 0 ] && echo VERIFY_PASS || echo \"VERIFY_FAIL_NONFATAL: recorded; the next cycle must\
-      \ address it\"\n"
+      \ from here on.\n#\n# Runs on pass AND fail. The first version only slimmed on a green\n# verify,\
+      \ to keep a failing run's tree intact for diagnosis. That\n# defeated the fix: run ae982aaa ended\
+      \ VERIFY_FAIL_NONFATAL, so the\n# cleanup was skipped, the tree stayed at 1842 files and the flush\n\
+      # failed with three 413s \u2014 and the run still committed and delivered\n# a PR. A run that delivers\
+      \ needs its flush to work whether or not\n# its gates passed, and node_modules is reinstallable,\
+      \ so there was\n# never anything to preserve for diagnosis here.\n#\n# Guarded with || true and\
+      \ placed AFTER the pass/fail decision is\n# computed, so a cleanup problem can never change the\
+      \ verdict.\nrm -rf sdk/node_modules 2>/dev/null || true\necho \"VERIFY_TREE_SLIMMED: removed sdk/node_modules\
+      \ before flush (ok=$ok)\"\n[ \"$ok\" -eq 0 ] && echo VERIFY_PASS || echo \"VERIFY_FAIL_NONFATAL:\
+      \ recorded; the next cycle must address it\"\n"
     timeoutMs: 1200000
   - name: commit-1
     type: deterministic
