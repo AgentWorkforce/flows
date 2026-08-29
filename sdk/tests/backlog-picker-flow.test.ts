@@ -92,3 +92,52 @@ describe('backlog-picker flow', () => {
     }
   });
 });
+
+describe('backlog-picker canonical spec', () => {
+  it('stays in sync with the flow yaml', () => {
+    // The canonical spec is what the kernel consumes. PR #22 fixed the path
+    // matcher in the yaml and left the canonical spec carrying the old
+    // permissive one, so the fix did not reach the thing that runs — review
+    // caught it. A divergence between the two is silent by nature: both files
+    // are valid, the tests over the yaml pass, and the kernel keeps executing
+    // the stale command.
+    const root = join(__dirname, '..', '..');
+    const flow = load(readFileSync(join(root, 'testdata', 'backlog-picker.flow.yaml'), 'utf8')) as {
+      steps: Array<{ id: string; command?: string }>;
+    };
+    const canonical = JSON.parse(
+      readFileSync(join(root, 'testdata', 'backlog-picker.spec.canonical.json'), 'utf8'),
+    ) as { steps: Array<{ id: string; command?: string }> };
+
+    const canonicalById = new Map(canonical.steps.map((s) => [s.id, s.command]));
+    for (const step of flow.steps) {
+      if (step.command === undefined) continue;
+      expect(canonicalById.get(step.id), `step "${step.id}" diverges from the canonical spec`).toBe(
+        step.command,
+      );
+    }
+  });
+
+  it('keeps directories and extensionless paths, and rejects prose', () => {
+    const steps = stepCommands();
+    const dir = mkdtempSync(join(tmpdir(), 'backlog-scope-'));
+    try {
+      mkdirSync(join(dir, 'ops'), { recursive: true });
+      writeFileSync(
+        join(dir, 'ops', 'BACKLOG.md'),
+        '# Backlog\n\n- **Scope entry** touches `regressions/` and `src/Dockerfile` and `ops/BACKLOG.md`,\n' +
+          '  but a path that merely contains `/` is prose, not a file.\n',
+      );
+      run(steps['read-backlog'], dir);
+      run(steps['select-entry'], dir);
+      const emitted = JSON.parse(run(steps['emit-package'], dir)) as { files_in_scope: string[] };
+
+      expect(emitted.files_in_scope).toContain('regressions/');
+      expect(emitted.files_in_scope).toContain('src/Dockerfile');
+      expect(emitted.files_in_scope).toContain('ops/BACKLOG.md');
+      expect(emitted.files_in_scope).not.toContain('/');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
