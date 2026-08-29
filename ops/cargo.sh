@@ -24,6 +24,33 @@ toolchain_home="${RELAYFLOWS_TOOLCHAIN_HOME:-$HOME/.relayflows-toolchain}"
 export CARGO_HOME="$toolchain_home/cargo"
 export RUSTUP_HOME="$toolchain_home/rustup"
 
+# Build OUTPUT must stay out of the propagated tree too, for a different and
+# sharper reason than the toolchain above.
+#
+# `kernel/target/debug` is about 4900 files. With it inside the tree, the
+# relayfile mount flush is rejected as too large and the run keeps going:
+#   relayfile flush failed after the command succeeded (exit 0); a later agent
+#   step may see stale files: ... notify flush: ... http 413 payload...
+# The failure is non-fatal, so the workflow reports success while later steps
+# read stale files and the delivered patch silently loses the run's real work.
+# Three runs lost their work exactly this way (fdb49a9c 4127 changed files,
+# ad98c2c3 4175, 52fa0752 3247 — three 413s each), against one that did not
+# (76a4a8d1, 489 files, no flush failure). Of 52fa0752's changed paths, 4914
+# matched target/debug and 1 matched node_modules, so this directory is the
+# whole of the problem.
+#
+# Anything that hardcodes kernel/target/debug must read RELAYFLOWD_BIN instead;
+# sdk/tests/live-kernel.test.ts already does.
+# Keyed per worktree. Review caught that a single shared target dir would be
+# used by every worktree under the same HOME (PR #38): cargo locks it, so the
+# builds are safe, but two different source trees sharing one target thrash
+# each other's artifacts and serialise behind the lock. The key is a hash of
+# the worktree's own path, so isolation is automatic and needs no bookkeeping.
+_worktree_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+_worktree_key=$(printf '%s' "$_worktree_root" | cksum | cut -d' ' -f1)
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$toolchain_home/target/$_worktree_key}"
+export RELAYFLOWD_BIN="${RELAYFLOWD_BIN:-$CARGO_TARGET_DIR/debug/relayflowd}"
+
 if command -v cargo >/dev/null 2>&1; then
   cargo_bin=cargo
 elif [ -x "${CARGO_INSTALL_ROOT:-}/bin/cargo" ]; then

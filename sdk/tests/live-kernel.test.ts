@@ -9,7 +9,7 @@ import {
   writeFileSync,
   readFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -22,9 +22,39 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SDK = join(ROOT, 'sdk');
 const BUILT_CLI = join(SDK, 'dist', 'cli.js');
 const TESTDATA = join(ROOT, 'testdata');
-const RELAYFLOWD = resolve(
-  process.env['RELAYFLOWD_BIN'] ?? join(ROOT, 'kernel', 'target', 'debug', 'relayflowd'),
-);
+// ops/cargo.sh builds into a target dir OUTSIDE the repo, because
+// kernel/target/debug is ~4900 files and its presence in the propagated tree
+// makes the sandbox's relayfile flush fail with HTTP 413 — non-fatally, so runs
+// silently lose their work. Resolution has to follow the build, or these cases
+// SKIP rather than fail and the suite reports a false green.
+const TOOLCHAIN_TARGET =
+  process.env['CARGO_TARGET_DIR'] ??
+  join(process.env['RELAYFLOWS_TOOLCHAIN_HOME'] ?? join(homedir(), '.relayflows-toolchain'), 'target');
+const RELAYFLOWD = resolve(process.env['RELAYFLOWD_BIN'] ?? locateRelayflowd());
+
+/**
+ * ops/cargo.sh builds into a target dir outside the repo, keyed per worktree so
+ * concurrent worktrees do not share one target. Resolution has to find that
+ * key without duplicating the hash, or these cases SKIP instead of failing and
+ * the suite reports a false green — and worse, a stale binary left at an older
+ * path gets exercised in place of the one just built.
+ */
+function locateRelayflowd(): string {
+  const direct = join(TOOLCHAIN_TARGET, 'debug', 'relayflowd');
+  if (existsSync(direct)) return direct;
+
+  // One level down: $toolchain/target/<worktree-key>/debug/relayflowd. Pick the
+  // most recently built, which is the one this checkout just produced.
+  const keyed = existsSync(TOOLCHAIN_TARGET)
+    ? readdirSync(TOOLCHAIN_TARGET)
+        .map((entry) => join(TOOLCHAIN_TARGET, entry, 'debug', 'relayflowd'))
+        .filter((candidate) => existsSync(candidate))
+        .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
+    : [];
+  if (keyed[0] !== undefined) return keyed[0];
+
+  return join(ROOT, 'kernel', 'target', 'debug', 'relayflowd');
+}
 const temporaryDirectories: string[] = [];
 const daemons: ChildProcess[] = [];
 const clients: JournalClient[] = [];
