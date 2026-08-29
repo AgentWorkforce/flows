@@ -96,6 +96,22 @@ def build():
                 'title=$(grep -m1 -oE "WP-[0-9]+[^|]*" ops/NEXT.md '
                 '| sed "s/[[:space:]]*$//" || echo "work package")\n'
                 'verdict=NO_IN_RUN_REVIEW\n'
+                # Purge forbidden paths BEFORE staging. `git add -A` sweeps in
+                # whatever the sandbox tree holds, and a per-step sandbox can be
+                # seeded from a stale orchestrator archive: four consecutive
+                # runs committed kernel/relayflowd/src/engine/hn_poller.rs this
+                # way, a file review had ruled out of the kernel. Telling the
+                # builder not to create it does not help — the builder never
+                # created it; the tree already had it and add -A took it.
+                'if [ -f ops/FORBIDDEN_PATHS ]; then\n'
+                '  while IFS= read -r p; do\n'
+                '    case "$p" in \'\'|\\#*) continue ;; esac\n'
+                '    if [ -e "$p" ]; then\n'
+                '      echo "COMMIT_PURGED_FORBIDDEN: $p (stale tree residue)"\n'
+                '      rm -rf "$p"\n'
+                '    fi\n'
+                '  done < ops/FORBIDDEN_PATHS\n'
+                'fi\n'
                 "git add -A\n"
                 'git commit -m "drive(cloud cycle $cycle): $title [$verdict]" '
                 '|| echo "COMMIT_NOTE: nothing new to commit"\n'
