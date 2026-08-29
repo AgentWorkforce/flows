@@ -16,6 +16,11 @@ Some preamble that is not an entry.
 - **Second entry** should not be chosen
 `;
 
+async function validate(input: unknown) {
+  const picker = (await import('../src/backlog-picker.js')) as Record<string, unknown>;
+  return (picker['validateWorkPackage'] as (value: unknown) => unknown)(input);
+}
+
 describe('backlog picker', () => {
   it('selects the first bold top-level bullet', () => {
     const entry = selectBacklogEntry(BACKLOG);
@@ -75,5 +80,65 @@ describe('backlog picker', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('work package validation', () => {
+  it('accepts a package yielded by an actionable backlog', async () => {
+    const entry = selectBacklogEntry(
+      '# Backlog\n\n- **Validate packages** edit `sdk/src/backlog-picker.ts`; run `npm test`\n',
+    );
+
+    expect(
+      await validate({
+        title: entry?.title,
+        files_in_scope: ['sdk/src/backlog-picker.ts'],
+        definition_of_done: ['npm test'],
+      }),
+    ).toEqual({
+      accepted: true,
+      work: {
+        title: 'Validate packages',
+        files_in_scope: ['sdk/src/backlog-picker.ts'],
+        definition_of_done: ['npm test'],
+      },
+    });
+  });
+
+  it('refuses a package yielded by an unverifiable backlog', async () => {
+    const entry = selectBacklogEntry('# Backlog\n\n- **Vague package** improve the SDK\n');
+
+    expect(
+      await validate({ files_in_scope: ['sdk/src/'], definition_of_done: ['npm test'] }),
+    ).toEqual({ accepted: false, reason: 'missing_title' });
+    expect(
+      await validate({
+        title: '   ',
+        files_in_scope: ['sdk/src/'],
+        definition_of_done: ['npm test'],
+      }),
+    ).toEqual({ accepted: false, reason: 'missing_title' });
+    expect(
+      await validate({ title: entry?.title, definition_of_done: ['npm test'] }),
+    ).toEqual({ accepted: false, reason: 'missing_scope' });
+    expect(
+      await validate({ title: entry?.title, files_in_scope: [], definition_of_done: [] }),
+    ).toEqual({ accepted: false, reason: 'missing_scope' });
+    expect(
+      await validate({ title: entry?.title, files_in_scope: ['sdk/src/'] }),
+    ).toEqual({ accepted: false, reason: 'missing_definition_of_done' });
+    expect(
+      await validate({
+        title: entry?.title,
+        files_in_scope: ['sdk/src/'],
+        definition_of_done: [],
+      }),
+    ).toEqual({ accepted: false, reason: 'missing_definition_of_done' });
+  });
+
+  it('refuses an empty backlog with a typed reason', async () => {
+    const entry = selectBacklogEntry('# Backlog\n');
+
+    expect(await validate(entry)).toEqual({ accepted: false, reason: 'missing_title' });
   });
 });
