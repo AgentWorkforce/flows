@@ -148,7 +148,19 @@ fi
 # this run assessed and produced nothing — either it genuinely had nothing to
 # build, or its code was lost by the capture fault. Opening a PR for that adds
 # review noise and, run unattended, accumulates it steadily.
-substantive=$(git status --porcelain | sed 's/^...//' | grep -vE '^(ops/NEXT\.md|ops/TARGET\.md)$' | head -1)
+# Content only. The sandbox strips exec bits, so every run shows scripts as
+# modified; counting those as substance let an assessment-only run through
+# again (run b09aa939). Mode noise has now fooled three separate guards here —
+# it must be filtered wherever a guard asks "did anything really change?".
+substantive=""
+for f in $(git status --porcelain | sed 's/^...//'); do
+  case "$f" in ops/NEXT.md|ops/TARGET.md) continue ;; esac
+  if git diff --quiet -- "$f" 2>/dev/null; then
+    substantive="$f"; break            # untracked/new file: real content
+  elif [ -n "$(git diff --numstat -- "$f" 2>/dev/null | awk '$1 != 0 || $2 != 0')" ]; then
+    substantive="$f"; break            # line changes: real content
+  fi
+done
 if [ -z "$substantive" ]; then
   echo "DELIVER_SKIPPED_ASSESSMENT_ONLY: the only change is a work package, not work."
   echo "  Either the run had nothing to build, or its code did not survive capture."
