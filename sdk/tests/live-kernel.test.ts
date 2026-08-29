@@ -9,7 +9,7 @@ import {
   writeFileSync,
   readFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -22,9 +22,25 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SDK = join(ROOT, 'sdk');
 const BUILT_CLI = join(SDK, 'dist', 'cli.js');
 const TESTDATA = join(ROOT, 'testdata');
+// ops/cargo.sh builds into a target dir OUTSIDE the repo, because
+// kernel/target/debug is ~4900 files and its presence in the propagated tree
+// makes the sandbox's relayfile flush fail with HTTP 413 — non-fatally, so runs
+// silently lose their work. Resolution has to follow the build, or these cases
+// SKIP rather than fail and the suite reports a false green.
+const TOOLCHAIN_TARGET =
+  process.env['CARGO_TARGET_DIR'] ??
+  join(process.env['RELAYFLOWS_TOOLCHAIN_HOME'] ?? join(homedir(), '.relayflows-toolchain'), 'target');
 const RELAYFLOWD = resolve(
-  process.env['RELAYFLOWD_BIN'] ?? join(ROOT, 'kernel', 'target', 'debug', 'relayflowd'),
+  process.env['RELAYFLOWD_BIN'] ??
+    firstExisting([
+      join(TOOLCHAIN_TARGET, 'debug', 'relayflowd'),
+      join(ROOT, 'kernel', 'target', 'debug', 'relayflowd'),
+    ]),
 );
+
+function firstExisting(candidates: string[]): string {
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+}
 const temporaryDirectories: string[] = [];
 const daemons: ChildProcess[] = [];
 const clients: JournalClient[] = [];
