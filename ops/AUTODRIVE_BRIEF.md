@@ -44,17 +44,33 @@ sit near the top of the file, with nothing improved. PR #34 was merged with
 
 ## The specific mistake three attempts have made
 
-Every attempt so far has made the test STRICTER. #33 added a title regex, #34
-added a verb whitelist as an extra hurdle, #39 required a work-intent verb IN
-ADDITION TO the backticked checks — that one moved ACTIONABLE from 4 down to 3.
+#33, #34 and #39 all changed how `definition_of_done` is computed. Measure the
+rejection reasons and you can see why none of them worked:
 
-The defect is that real tasks are being REJECTED. Adding conditions cannot fix
-a rejection problem. What is needed is another ROUTE TO ACCEPTANCE.
+    rejection reasons: {"missing_scope":25,"missing_definition_of_done":3}
 
-Concretely: an entry with a clear work verb and a stated outcome should be
-actionable EVEN WHEN IT NAMES NO BACKTICKED PATH. That single case covers most
-of the ~26 currently-skipped entries. Requiring both signals cannot get there
-by construction, no matter how the signals are refined.
+Twenty-five of twenty-seven rejections are SCOPE. Every attempt so far has been
+adjusting the wrong field.
+
+## Why scope is empty
+
+`packageFromEntry` fills `files_in_scope` from backticked tokens that look like
+paths — they must contain a `/`. Real entries mostly backtick SYMBOLS and
+COMMANDS instead:
+
+    "Refuse an entry with unterminated backticks."
+      backticked: `validateWorkPackage` `nested_bullet` `missing_body`
+      files_in_scope: []
+
+    "Half the drive runs complete but build nothing."
+      backticked: `agent-relay cloud logs <run-id>` `500 Internal Server Error`
+      files_in_scope: []
+
+A backticked symbol is perfectly good evidence of where work belongs —
+`validateWorkPackage` names a function that exists in exactly one file. The
+picker throws that signal away because it only pattern-matches slashes.
+
+That is the defect. Fix scope, not the definition of done.
 
 ## Hard constraints — a PR violating any of these will be closed
 
@@ -68,6 +84,9 @@ by construction, no matter how the signals are refined.
     picker now selects, so that can be judged.
   - Do NOT add a condition that an entry must ALSO satisfy. Every attempt that
     did made the number worse. Add an alternative way to qualify instead.
+  - Do NOT touch `definition_of_done` expecting the number to move. Only 3 of
+    27 rejections are about it. Report the rejection-reason breakdown before
+    and after, so it is clear which field you actually changed.
   - The fix must be a better DEFINITION of actionable work, applied uniformly.
 
 ## Definition of done, all of it
