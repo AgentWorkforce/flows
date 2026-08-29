@@ -338,3 +338,38 @@ get a snapshot) from a host that can upload.
 Still active and working: `flows-watchdog` (daily digest) and
 `flows-hang-sweeper` (every 30 min) — both single-agent flows that need no
 repo, which is exactly why they succeed where drive-tick cannot.
+
+## A cloud sandbox cannot run the agent-relay CLI — no cloud-side supervision (2026-08-28)
+
+Removed `workflows/hang-sweeper.yaml` and its schedule. The idea was a
+cloud-resident floor that would cancel hung runs even with every laptop and
+mini offline. It cannot work, and now we know why literally — the sweeper's own
+output:
+
+```
+SWEEPER_EVIDENCE:
+To authorize this machine, visit:
+  https://agentrelay.com/cloud/device
+**SWEEPER_BLIND**
+```
+
+A workflow sandbox is not authenticated with Agent Relay Cloud, and the device
+flow needs a human. So no scheduled workflow can inspect, cancel, or launch
+runs. **Cloud-side supervision of cloud runs is not currently possible.**
+
+Two lessons, both about gates rather than about cloud:
+
+1. The first version reported `SWEEPER_DONE` after inspecting nothing, for two
+   consecutive ticks, while a run hung for 67 minutes. Its gate was
+   `output_contains: SWEEPER_DONE` — a token the agent emits regardless. A
+   gate that cannot fail is not a gate, and it was built into the very thing
+   meant to catch failures.
+2. The second version keyed on `flows-hang-sweeper` appearing in output. It
+   still passed a `SWEEPER_BLIND` run, because that string appeared in the
+   agent's own prose. **Keying a gate on a string that can appear in narration
+   is not evidence.** A real evidence gate must key on something only the tool
+   can produce.
+
+Supervision therefore lives on a fleet node (the autopilot) or a laptop. That
+is a single point of failure and should be named as one rather than papered
+over with a guard that does not guard.
