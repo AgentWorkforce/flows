@@ -93,6 +93,15 @@ describe('backlog picker', () => {
 });
 
 describe('work package validation', () => {
+  it('uses a backticked code symbol as scope evidence', () => {
+    const work = packageFromEntry({
+      title: 'Refuse malformed work packages',
+      body: 'Make `validateWorkPackage` reject an unterminated backtick.',
+    });
+
+    expect(work['files_in_scope']).toEqual(['validateWorkPackage']);
+  });
+
   it('accepts an engineering task stated as an imperative outcome', async () => {
     const work = packageFromEntry({
       title: 'Refuse a path-like deterministic command word',
