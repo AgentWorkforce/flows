@@ -114,12 +114,12 @@ done > /tmp/.deliver-violations.$$ 2>/dev/null || true
 violations=$(cat /tmp/.deliver-violations.$$ 2>/dev/null | sort -u)
 rm -f /tmp/.deliver-violations.$$
 if [ -n "$violations" ]; then
-  echo "DELIVER_FAIL_FORBIDDEN_PATH: this run touched paths ruled out in $forbidden_list:" >&2
+  echo "DELIVER_FAIL_FORBIDDEN_PATH: this run touched paths ruled out in ops/FORBIDDEN_PATHS:" >&2
   for path in $violations; do echo "    $path" >&2; done
   echo "  These are decisions that review already made. A build seeded from a stale" >&2
   echo "  tree can undo them with every test still green, so delivery refuses rather" >&2
   echo "  than relying on someone reading the diff." >&2
-  echo "  If the change is genuinely intended, remove the entry from $forbidden_list" >&2
+  echo "  If the change is genuinely intended, remove the entry from ops/FORBIDDEN_PATHS" >&2
   echo "  in a commit that explains why, or set DELIVER_ALLOW_FORBIDDEN=1 for one run." >&2
   [ "${DELIVER_ALLOW_FORBIDDEN:-0}" = "1" ] || exit 75
   echo "  DELIVER_ALLOW_FORBIDDEN=1 set — proceeding anyway." >&2
