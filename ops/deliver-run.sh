@@ -93,7 +93,13 @@ git rm -r --cached --quiet --ignore-unmatch \
 # architectural decision. Only reading the diff caught it, and reading diffs by
 # hand is not a control.
 resurrected=""
-for path in $(git diff --diff-filter=A --name-only "$base_ref"...HEAD 2>/dev/null); do
+# Check the WORKING TREE, not HEAD. The first version of this guard compared
+# "$base_ref"...HEAD and never fired, because at this point the run's patch has
+# been applied to the working tree and nothing is committed yet — HEAD is still
+# the base, so the diff was always empty. It let PR #17 through with the very
+# file it existed to block. A guard that runs before the thing it guards is not
+# a guard.
+for path in $(git status --porcelain | awk '$1 == "A" || $1 == "??" { print $2 }'); do
   # Was this path deleted from the base's history rather than simply never present?
   if git log --diff-filter=D --format=%H -1 "$base_ref" -- "$path" 2>/dev/null | grep -q .; then
     resurrected="$resurrected $path"
