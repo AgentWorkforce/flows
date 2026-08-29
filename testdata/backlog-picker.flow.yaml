@@ -16,4 +16,4 @@ steps:
     type: deterministic
     dependsOn: [select-entry]
     command: >-
-      node -e 'const fs=require("node:fs");const entry=JSON.parse(fs.readFileSync(".relayflow/backlog-picker-entry.json","utf8"));const text=entry.title+" "+entry.body;const files=[...new Set([...text.matchAll(/`([^`\s]*\/[^`]*)`/g)].map(match=>match[1]))];const gate=text.match(/\bgate[ -]?(\d+)\b/i);process.stdout.write(JSON.stringify({title:entry.title,description:entry.body,files_in_scope:files,gate:gate?Number(gate[1]):null}))'
+      node -e 'const fs=require("node:fs");const entry=JSON.parse(fs.readFileSync(".relayflow/backlog-picker-entry.json","utf8"));const text=entry.title+" "+entry.body;const files=[...new Set([...text.matchAll(/`([A-Za-z_][A-Za-z0-9._-]*(?:\/[A-Za-z0-9._-]*)+)`/g)].map(match=>match[1]).filter(candidate=>!/^\/|\/\//.test(candidate)))];const gate=text.match(/\bgate[ -]?(\d+)\b/i);process.stdout.write(JSON.stringify({title:entry.title,description:entry.body,files_in_scope:files,gate:gate?Number(gate[1]):null}))'
