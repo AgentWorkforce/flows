@@ -1,0 +1,19 @@
+# Gate-3 foundation: turn the first actionable backlog entry into a work package.
+# Selection rule: choose the first top-level bullet whose title is bold.
+version: '0.1.0'
+name: backlog-picker
+description: Read ops/BACKLOG.md and deterministically emit its first work package.
+steps:
+  - id: read-backlog
+    type: deterministic
+    command: "cat ops/BACKLOG.md"
+  - id: select-entry
+    type: deterministic
+    dependsOn: [read-backlog]
+    command: >-
+      node -e 'const fs=require("node:fs");const text=fs.readFileSync("ops/BACKLOG.md","utf8");const match=text.match(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/m);if(!match)process.exit(1);process.stdout.write(match[1])'
+  - id: emit-package
+    type: deterministic
+    dependsOn: [select-entry]
+    command: >-
+      node -e 'const fs=require("node:fs");const text=fs.readFileSync("ops/BACKLOG.md","utf8");const match=text.match(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/m);if(!match)process.exit(1);process.stdout.write(JSON.stringify({title:match[1],description:match[2].replace(/\s+/g," ").trim(),files_in_scope:["sdk/src/preflight.ts","sdk/tests/preflight.test.ts"],gate:3}))'
