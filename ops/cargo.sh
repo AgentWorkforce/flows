@@ -41,7 +41,14 @@ export RUSTUP_HOME="$toolchain_home/rustup"
 #
 # Anything that hardcodes kernel/target/debug must read RELAYFLOWD_BIN instead;
 # sdk/tests/live-kernel.test.ts already does.
-export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$toolchain_home/target}"
+# Keyed per worktree. Review caught that a single shared target dir would be
+# used by every worktree under the same HOME (PR #38): cargo locks it, so the
+# builds are safe, but two different source trees sharing one target thrash
+# each other's artifacts and serialise behind the lock. The key is a hash of
+# the worktree's own path, so isolation is automatic and needs no bookkeeping.
+_worktree_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+_worktree_key=$(printf '%s' "$_worktree_root" | cksum | cut -d' ' -f1)
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$toolchain_home/target/$_worktree_key}"
 export RELAYFLOWD_BIN="${RELAYFLOWD_BIN:-$CARGO_TARGET_DIR/debug/relayflowd}"
 
 if command -v cargo >/dev/null 2>&1; then

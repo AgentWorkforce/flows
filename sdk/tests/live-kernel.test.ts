@@ -30,16 +30,30 @@ const TESTDATA = join(ROOT, 'testdata');
 const TOOLCHAIN_TARGET =
   process.env['CARGO_TARGET_DIR'] ??
   join(process.env['RELAYFLOWS_TOOLCHAIN_HOME'] ?? join(homedir(), '.relayflows-toolchain'), 'target');
-const RELAYFLOWD = resolve(
-  process.env['RELAYFLOWD_BIN'] ??
-    firstExisting([
-      join(TOOLCHAIN_TARGET, 'debug', 'relayflowd'),
-      join(ROOT, 'kernel', 'target', 'debug', 'relayflowd'),
-    ]),
-);
+const RELAYFLOWD = resolve(process.env['RELAYFLOWD_BIN'] ?? locateRelayflowd());
 
-function firstExisting(candidates: string[]): string {
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+/**
+ * ops/cargo.sh builds into a target dir outside the repo, keyed per worktree so
+ * concurrent worktrees do not share one target. Resolution has to find that
+ * key without duplicating the hash, or these cases SKIP instead of failing and
+ * the suite reports a false green — and worse, a stale binary left at an older
+ * path gets exercised in place of the one just built.
+ */
+function locateRelayflowd(): string {
+  const direct = join(TOOLCHAIN_TARGET, 'debug', 'relayflowd');
+  if (existsSync(direct)) return direct;
+
+  // One level down: $toolchain/target/<worktree-key>/debug/relayflowd. Pick the
+  // most recently built, which is the one this checkout just produced.
+  const keyed = existsSync(TOOLCHAIN_TARGET)
+    ? readdirSync(TOOLCHAIN_TARGET)
+        .map((entry) => join(TOOLCHAIN_TARGET, entry, 'debug', 'relayflowd'))
+        .filter((candidate) => existsSync(candidate))
+        .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
+    : [];
+  if (keyed[0] !== undefined) return keyed[0];
+
+  return join(ROOT, 'kernel', 'target', 'debug', 'relayflowd');
 }
 const temporaryDirectories: string[] = [];
 const daemons: ChildProcess[] = [];
