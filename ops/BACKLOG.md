@@ -3,33 +3,29 @@
 Items the Lead should weigh in assess after ops/DIRECTIVES.md and the current
 gate's needs. Not commitments; ordering is the Lead's call with evidence.
 
-- **ROOT CAUSE FOUND: the silent file loss is a relayfile flush hitting HTTP 413.**
-  The long-unexplained symptom — a run's build log quotes a diff verbatim while
-  the delivered patch contains none of it — has a concrete cause. When the
-  sandbox tree grows past roughly four thousand changed files, the relayfile
-  mount flush is rejected as too large and the run continues anyway:
-      [verify-1] relayfile flush failed after the command succeeded (exit 0);
-      a later agent step may see stale files: Failed to flush relayfile mount:
-      notify flush: daemon pid 345 flush failed: http 413 payload...
-  The flush failure is NON-FATAL, so the workflow reports success while later
-  steps read stale files and the final patch misses the real work. Delivery
-  then classifies the run assessment-only or no-changes.
-  Evidence, two runs that lost work versus one that did not:
-      fdb49a9c  4127 files changed  3 flush failures  3x http 413  work lost
-      ad98c2c3  4175 files changed  3 flush failures  3x http 413  work lost
-      76a4a8d1   489 files changed  0 flush failures  0x http 413  (failed for
-                                                       an unrelated reason)
-  The tree is inflated by build artifacts — `npm ci` and `cargo build` inside
-  the propagated tree. This is the same class of problem as the Rust toolchain
-  fix, which was resolved by moving CARGO_HOME outside the propagated tree via
-  RELAYFLOWS_TOOLCHAIN_HOME.
-  Fix direction, ours not the platform's: keep build outputs out of the mount —
-  set CARGO_TARGET_DIR and the npm cache outside it, or have the flow exclude
-  node_modules/, target/ and dist/. Platform-side, a flush that fails should not
-  let the workflow report success.
+- **ROOT CAUSE: the relayfile flush cannot handle a large propagated tree.**
+  It fails in TWO ways, both volume-driven, and both non-fatal so the workflow
+  reports success while later steps read stale files and the delivered patch
+  loses the run's real work:
+      http 413 payload too large            (fdb49a9c 4127 files, ad98c2c3 4175,
+                                             52fa0752 3247, 51422f20 4440)
+      timed out waiting for daemon pid N to ack SIGUSR1   (863a066a 5337 files)
+  Against one run that did not fail to flush: 76a4a8d1, 489 files.
+  Of 52fa0752's changed paths, 4914 matched target/debug and 1 node_modules, so
+  `kernel/target/debug` is the bulk of the volume.
+  NOT deterministic: 51422f20 hit four 413s and still delivered its work. A
+  failed flush makes loss possible, not certain — it depends on whether the
+  dropped flush happened to carry the work. Do not claim otherwise.
+  FIXED (PR #38, merged 5132079): ops/cargo.sh now sets CARGO_TARGET_DIR outside
+  the propagated tree, keyed per worktree, and exports RELAYFLOWD_BIN so
+  consumers follow the build. Measured locally: kernel/target in tree 4900 -> 0,
+  whole tree 1550 files (1226 of them node_modules).
+  NOT YET PROVEN IN CLOUD. The first run whose base contains the fix is
+  5ecf7078 (base aac5718). Check its log for `relayfile flush failed`; if the
+  count is zero the fix holds. If flushes still fail, node_modules at 1226 files
+  is the next thing to move out.
   Diagnosis note: `agent-relay cloud logs <id>` returns 500, but
-  `agent-relay cloud logs <id> --json` WORKS. The 500 is the text renderer, not
-  the log store. Use --json; that is what unblocked this.
+  `agent-relay cloud logs <id> --json` WORKS. Use --json.
 
 - **Half the drive runs complete but build nothing.** Measured across 20
   completed runs in /tmp/autodrive.log on 2026-08-29:
