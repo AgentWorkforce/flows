@@ -484,3 +484,29 @@ is a judgement about what this program values, not a mechanical fix.
 
 Everything else is healthy: PR #16 is open and green, main is clean, and the
 two PRs that did land tonight (#15, #16) came through this same loop.
+
+## The sync-time stale check cannot see build-step staleness (2026-08-29 07:10)
+
+Correcting `da6ad53`, which added a stale-tree check to `sync` so a bad run
+would fail in two minutes rather than twenty. Run 6a642b6f shows it does not
+work for the case that actually keeps happening.
+
+Each step runs in its OWN sandbox. `sync`'s sandbox was clean, so the check
+passed and the run proceeded; the BUILD step's sandbox was seeded stale and
+produced hn_poller.rs again, with no gate-3 work at all. A check that runs in
+sandbox A cannot attest to sandbox B.
+
+The check is still worth keeping — it catches a stale sync cheaply — but it is
+NOT protection against the dominant failure. **Delivery is.** The denylist
+refused this run (`DELIVER_FAIL_FORBIDDEN_PATH`), which is now the only control
+that has actually stopped a bad diff in production.
+
+Tally of runs lost to stale build sandboxes: b87c671f, ad7ffc9a, 8abf7774,
+2c8983e2, 6a642b6f. Five, against three that produced usable work (e1d7225d ->
+PR #18, 4a4a60b7 -> PR #19, and a1055874 -> PR #16 earlier).
+
+A per-step check would have to run INSIDE the build step — the first thing
+build does, before it writes anything. That is the next thing to try, and it is
+cheap: a few lines at the top of the build task. Not attempted yet because the
+build task is an agent prompt, and an agent asked to self-check its own tree
+may simply report that it did.
