@@ -96,7 +96,14 @@ async function main(): Promise<void> {
           console.log('        which is what a created-but-unworked run looks like: `relayflowd serve`');
           console.log('        alone attaches no agent worker. Gate 2 asks whether a workload RUNS');
           console.log('        as a relayflow; this shows it is woken, not that it ran.');
-          console.log('        Attach a worker and re-run to close that gap.');
+          // Ordering matters, and the obvious advice is wrong. A run that
+          // finds no worker parks; attaching one AFTERWARDS does not re-drive
+          // it, because nothing revisits parked runs. Measured on the live
+          // kernel: attach-then-submit dispatches, submit-then-attach does not
+          // until run.resume is called.
+          console.log('        To close it, the worker must be attached BEFORE these events are');
+          console.log('        submitted — attaching afterwards does not re-drive a parked run.');
+          console.log('        Already parked? Call run.resume on it once a worker is attached.');
         } else {
           console.log('');
           console.log(`ALSO PROVEN: execution happened — ${String(executed)} step(s) reached`);
