@@ -139,6 +139,29 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     ]);
   });
 
+  it('refuses missing path-like commands but keeps warning for missing bare words', () => {
+    const missingCommand = probes({ command: () => false });
+    const pathLike = preflight(flow({
+      id: 'path-like',
+      type: 'deterministic',
+      command: './ops/nonexistent.sh',
+    }), { probes: missingCommand });
+    const bareWord = preflight(flow({
+      id: 'bare-word',
+      type: 'deterministic',
+      command: 'nonexistent',
+    }), { probes: missingCommand });
+
+    expect(pathLike.ok).toBe(false);
+    expect(pathLike.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'refusal', kind: 'command_missing', stepId: 'path-like' }),
+    ]);
+    expect(bareWord.ok).toBe(true);
+    expect(bareWord.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'warning', kind: 'command_unresolved', stepId: 'bare-word' }),
+    ]);
+  });
+
   // Covenant 2 permits refusing *or* warning, but not silence. A deterministic
   // step that resolves, one that does not, and one that cannot be probed must
   // each leave a declared warning behind — and none of them may refuse.
@@ -179,6 +202,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: false, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: true, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p' }), { probes: probes() }),
+      preflight(flow({ id: 'a', type: 'deterministic', command: './missing' }), { probes: probes({ command: () => false }) }),
       preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }), triggers: [{ id: 't', executor: 'e' }] }, { probes: probes({ executor: () => false, command: () => false }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => { throw new Error('raw secret'); } }) }),
     ];
