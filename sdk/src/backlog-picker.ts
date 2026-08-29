@@ -15,6 +15,9 @@
 
 /** First bold top-level bullet: `- **Title** rest`. */
 const ENTRY = /^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/m;
+const ACTION_TITLE =
+  /^(?:add|build|change|close|create|document|fix|implement|persist|refuse|release|remove|rename|replace|sharpen|update|validate|wire)\b/i;
+const NOTES_TITLE = /^(?:notes?|release notes|upstream issues)\s*(?:\(|:|$)/i;
 
 export interface BacklogEntry {
   title: string;
@@ -109,17 +112,28 @@ export function packageFromEntry(entry: BacklogEntry): Record<string, unknown> {
     ...new Set(
       [...blob.matchAll(/`([A-Za-z_][A-Za-z0-9._-]*(?:\/[A-Za-z0-9._-]*)+)`/g)]
         .map((match) => match[1])
-        .filter((candidate): candidate is string => candidate !== undefined && !/^\/|\/\//.test(candidate)),
+        .filter(
+          (candidate): candidate is string =>
+            candidate !== undefined && !/^\/|\/\//.test(candidate),
+        ),
     ),
   ];
   const gate = blob.match(/\bgate[ -]?(\d+)\b/i);
+  const explicitChecks = (entry.body.match(/`[^`]+`/g) || [])
+    .map((candidate) => candidate.slice(1, -1))
+    .filter((candidate) => /\s/.test(candidate));
+  const definitionOfDone = NOTES_TITLE.test(entry.title)
+    ? []
+    : explicitChecks.length > 0
+      ? explicitChecks
+      : ACTION_TITLE.test(entry.title)
+        ? [entry.title.replace(/[.:]\s*$/, '')]
+        : [];
   return {
     title: entry.title,
     description: entry.body,
     files_in_scope: files,
     gate: gate ? Number(gate[1]) : null,
-    definition_of_done: (entry.body.match(/`[^`]+`/g) || [])
-      .map((candidate) => candidate.slice(1, -1))
-      .filter((candidate) => /\s/.test(candidate)),
+    definition_of_done: definitionOfDone,
   };
 }
