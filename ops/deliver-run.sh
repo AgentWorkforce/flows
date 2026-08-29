@@ -84,35 +84,33 @@ done
 git rm -r --cached --quiet --ignore-unmatch \
   .workflow-env .rustup-home .rustup .cargo-home .relayflows-toolchain 2>/dev/null || true
 
-# REFUSE to resurrect files that main deleted. A build step's sandbox can be
-# seeded from a stale orchestrator archive: on runs b87c671f and ad7ffc9a the
-# build produced kernel/relayflowd/src/engine/hn_poller.rs as a NEW file, which
-# PR #16 had deliberately removed from the kernel after review rejected an
-# in-kernel HTTP adapter. Both runs looked healthy — completed, BUILD_DONE,
-# tests green — and delivering either would have silently reverted a merged
-# architectural decision. Only reading the diff caught it, and reading diffs by
-# hand is not a control.
-resurrected=""
-# Check the WORKING TREE, not HEAD. The first version of this guard compared
-# "$base_ref"...HEAD and never fired, because at this point the run's patch has
-# been applied to the working tree and nothing is committed yet — HEAD is still
-# the base, so the diff was always empty. It let PR #17 through with the very
-# file it existed to block. A guard that runs before the thing it guards is not
-# a guard.
-for path in $(git status --porcelain | awk '$1 == "A" || $1 == "??" { print $2 }'); do
-  # Was this path deleted from the base's history rather than simply never present?
-  if git log --diff-filter=D --format=%H -1 "$base_ref" -- "$path" 2>/dev/null | grep -q .; then
-    resurrected="$resurrected $path"
-  fi
-done
-if [ -n "$resurrected" ]; then
-  echo "DELIVER_FAIL_RESURRECTED_FILES: this run re-added files that were deliberately deleted:" >&2
-  for path in $resurrected; do echo "    $path" >&2; done
-  echo "  A build seeded from a stale tree can undo a merged decision without any" >&2
-  echo "  failing test. Refusing to open a PR that reverts history." >&2
-  echo "  If the re-addition is intentional, deliver with DELIVER_ALLOW_RESURRECT=1." >&2
-  [ "${DELIVER_ALLOW_RESURRECT:-0}" = "1" ] || exit 75
-  echo "  DELIVER_ALLOW_RESURRECT=1 set — proceeding anyway." >&2
+# REFUSE paths that a human or a review has ruled out. See ops/FORBIDDEN_PATHS
+# for why this is a list rather than a git-history check: the file that
+# triggered it was never on main, so there was no deletion to detect, and three
+# runs resurrected it from stale sandbox trees while every gate stayed green.
+forbidden_list="ops/FORBIDDEN_PATHS"
+violations=""
+if [ -f "$forbidden_list" ]; then
+  changed=$(git status --porcelain | sed 's/^...//')
+  while IFS= read -r pattern; do
+    case "$pattern" in ''|'#'*) continue ;; esac
+    for path in $changed; do
+      case "$path" in
+        "$pattern"*) violations="$violations $path" ;;
+      esac
+    done
+  done < "$forbidden_list"
+fi
+if [ -n "$violations" ]; then
+  echo "DELIVER_FAIL_FORBIDDEN_PATH: this run touched paths ruled out in $forbidden_list:" >&2
+  for path in $violations; do echo "    $path" >&2; done
+  echo "  These are decisions that review already made. A build seeded from a stale" >&2
+  echo "  tree can undo them with every test still green, so delivery refuses rather" >&2
+  echo "  than relying on someone reading the diff." >&2
+  echo "  If the change is genuinely intended, remove the entry from $forbidden_list" >&2
+  echo "  in a commit that explains why, or set DELIVER_ALLOW_FORBIDDEN=1 for one run." >&2
+  [ "${DELIVER_ALLOW_FORBIDDEN:-0}" = "1" ] || exit 75
+  echo "  DELIVER_ALLOW_FORBIDDEN=1 set — proceeding anyway." >&2
 fi
 
 title="drive: cloud run ${run_id%%-*}"

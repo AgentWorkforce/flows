@@ -1,0 +1,20 @@
+# Paths that must never appear in a delivered diff.
+#
+# Each line is a path prefix, checked by ops/deliver-run.sh against every file
+# a run adds or modifies. Blank lines and # comments are ignored.
+#
+# This list exists because git history cannot answer "was this deliberately
+# rejected?". kernel/relayflowd/src/engine/hn_poller.rs was never on main — it
+# lived briefly on PR #16's branch and was removed within that same PR after
+# review — so a squash merge left no deletion to detect. Three consecutive runs
+# then resurrected it from stale sandbox trees, and a guard built on git
+# history could not see it.
+#
+# An architectural decision that only exists in a review comment is invisible
+# to tooling. Writing it down here makes it enforceable.
+
+# Review rejected an in-kernel HTTP adapter (PR #16, P1): a durable-execution
+# kernel must not own provider-specific product logic or network I/O. The
+# Hacker News adapter lives at sdk/src/hn-poller.ts, outside the kernel.
+kernel/relayflowd/src/engine/hn_poller.rs
+kernel/relayflowd/tests/hn_poller.rs
