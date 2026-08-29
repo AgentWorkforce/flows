@@ -3,6 +3,28 @@
 Items the Lead should weigh in assess after ops/DIRECTIVES.md and the current
 gate's needs. Not commitments; ordering is the Lead's call with evidence.
 
+- **Gate-2 blocker: an agent step declaring no surfaces can never be executed.**
+  Two kernel rules are individually reasonable and jointly unsatisfiable.
+  `kernel/relayflowd/src/server.rs:211-218` refuses an agent worker whose
+  workspace AND streams pins are both empty ("an agent worker must attach with
+  the pins of the surfaces it holds"). `kernel/relayflowd/src/engine.rs:391-399`
+  (`validate_agent_pins`) then requires the worker's pins to EXACTLY EQUAL the
+  step's declared surfaces. For a step with `surfaces: null` the expected set is
+  empty, so: attaching with no pins is refused, and attaching with any pins
+  fails the equality check and the step is silently never dispatched —
+  `step_is_dispatchable` returns false and the run sits in `runnable` forever
+  with no error anywhere.
+  Observed: `testdata/hn-monitor.flow.yaml`'s `analyze-story` declares no
+  surfaces. A probe worker attaching with `workspace: []` is rejected at attach;
+  attaching with `[{surface: repo}]` succeeds but no `step.dispatch` arrives.
+  The contrast case is already covered and passing: the live-kernel test whose
+  flow declares `- surface: repo` and attaches a matching pin DOES dispatch.
+  This is why gate 2 cannot be proven end to end — PR #19's demo can show a run
+  created but never one executed.
+  Recommended fix is the dispatch side, not the demo: when a step declares no
+  surfaces, any attached agent worker should qualify. Changing the flow to
+  declare a surface would hide the rule conflict rather than resolve it.
+
 - **Refuse an entry with unterminated backticks.** Salvaged from closed PR #32.
   The picker's scope and definition-of-done both come from backtick matching,
   so an entry with an odd number of backticks can yield a garbage scope that
