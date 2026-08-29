@@ -3,6 +3,34 @@
 Items the Lead should weigh in assess after ops/DIRECTIVES.md and the current
 gate's needs. Not commitments; ordering is the Lead's call with evidence.
 
+- **ROOT CAUSE FOUND: the silent file loss is a relayfile flush hitting HTTP 413.**
+  The long-unexplained symptom — a run's build log quotes a diff verbatim while
+  the delivered patch contains none of it — has a concrete cause. When the
+  sandbox tree grows past roughly four thousand changed files, the relayfile
+  mount flush is rejected as too large and the run continues anyway:
+      [verify-1] relayfile flush failed after the command succeeded (exit 0);
+      a later agent step may see stale files: Failed to flush relayfile mount:
+      notify flush: daemon pid 345 flush failed: http 413 payload...
+  The flush failure is NON-FATAL, so the workflow reports success while later
+  steps read stale files and the final patch misses the real work. Delivery
+  then classifies the run assessment-only or no-changes.
+  Evidence, two runs that lost work versus one that did not:
+      fdb49a9c  4127 files changed  3 flush failures  3x http 413  work lost
+      ad98c2c3  4175 files changed  3 flush failures  3x http 413  work lost
+      76a4a8d1   489 files changed  0 flush failures  0x http 413  (failed for
+                                                       an unrelated reason)
+  The tree is inflated by build artifacts — `npm ci` and `cargo build` inside
+  the propagated tree. This is the same class of problem as the Rust toolchain
+  fix, which was resolved by moving CARGO_HOME outside the propagated tree via
+  RELAYFLOWS_TOOLCHAIN_HOME.
+  Fix direction, ours not the platform's: keep build outputs out of the mount —
+  set CARGO_TARGET_DIR and the npm cache outside it, or have the flow exclude
+  node_modules/, target/ and dist/. Platform-side, a flush that fails should not
+  let the workflow report success.
+  Diagnosis note: `agent-relay cloud logs <id>` returns 500, but
+  `agent-relay cloud logs <id> --json` WORKS. The 500 is the text renderer, not
+  the log store. Use --json; that is what unblocked this.
+
 - **Half the drive runs complete but build nothing.** Measured across 20
   completed runs in /tmp/autodrive.log on 2026-08-29:
       9  DELIVER_PR_OPENED            (45%)
