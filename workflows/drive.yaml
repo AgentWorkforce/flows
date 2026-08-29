@@ -119,7 +119,17 @@ workflows:
           awaiting fixes from review, the work package is fixing it — never
           start new work over unfinished work. If work is blocked on a human
           decision, write ops/NEEDS_HUMAN.md stating the exact question and the
-          options — and then STILL end with ASSESS_DONE. The assess-gate step
+          options — and then STILL end with ASSESS_DONE.
+
+          COMMIT YOUR WORK PACKAGE BEFORE YOU FINISH:
+            git add -A && git commit -m "assess: work package for this tick"
+          Each step runs in its OWN sandbox and files reach the next step only
+          through the executor's propagation, which is lossy: on runs a2089144
+          and 2560e02d your predecessor wrote ops/NEXT.md, said so truthfully,
+          and the file never arrived — one of those runs finished with a
+          zero-file patch. Committing puts the package in git history rather
+          than leaving it as a loose working-tree file. If the commit fails,
+          say so in your output rather than finishing silently. The assess-gate step
           below reads that file and parks the run with a typed outcome.
           ALWAYS end with ASSESS_DONE, blocked or not: this gate cannot tell a
           different final token from a crashed agent, so on run 54ebd998 the
@@ -159,7 +169,13 @@ workflows:
           # a whole build step had been spent. Catch it here instead: if
           # ops/NEXT.md is identical to the base, the assessment did not land,
           # whoever is at fault.
-          if git diff --quiet main -- ops/NEXT.md 2>/dev/null; then
+          # Look for the package in the working tree OR in a commit made this
+          # tick. Propagation between per-step sandboxes is lossy, so a package
+          # that exists only as a loose file may not arrive; one committed by
+          # the assess step travels in git history instead.
+          if git log --oneline main..HEAD -- ops/NEXT.md 2>/dev/null | grep -q .; then
+            echo "ASSESS_PACKAGE_COMMITTED: found ops/NEXT.md change in this tick's history"
+          elif git diff --quiet main -- ops/NEXT.md 2>/dev/null; then
             echo "ASSESS_FAIL_STALE_NEXT: ops/NEXT.md is unchanged from the base commit."
             echo "  The assess step reported success but its work package did not reach this step,"
             echo "  so the builder would be handed the PREVIOUS tick's file. Failing here rather"

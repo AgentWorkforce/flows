@@ -85,11 +85,17 @@ workflows:
       \ of scope for this tick. If an open PR is\nawaiting fixes from review, the work package is fixing\
       \ it \u2014 never\nstart new work over unfinished work. If work is blocked on a human\ndecision,\
       \ write ops/NEEDS_HUMAN.md stating the exact question and the\noptions \u2014 and then STILL end\
-      \ with ASSESS_DONE. The assess-gate step\nbelow reads that file and parks the run with a typed outcome.\n\
-      ALWAYS end with ASSESS_DONE, blocked or not: this gate cannot tell a\ndifferent final token from\
-      \ a crashed agent, so on run 54ebd998 the\nLead correctly reported BLOCKED_NEEDS_HUMAN three times\
-      \ and was\nscored as failing three times. Saying you are blocked is a result,\nnot a failure \u2014\
-      \ but it must be said in the file, not the token.\n"
+      \ with ASSESS_DONE.\n\nCOMMIT YOUR WORK PACKAGE BEFORE YOU FINISH:\n  git add -A && git commit -m\
+      \ \"assess: work package for this tick\"\nEach step runs in its OWN sandbox and files reach the\
+      \ next step only\nthrough the executor's propagation, which is lossy: on runs a2089144\nand 2560e02d\
+      \ your predecessor wrote ops/NEXT.md, said so truthfully,\nand the file never arrived \u2014 one\
+      \ of those runs finished with a\nzero-file patch. Committing puts the package in git history rather\n\
+      than leaving it as a loose working-tree file. If the commit fails,\nsay so in your output rather\
+      \ than finishing silently. The assess-gate step\nbelow reads that file and parks the run with a\
+      \ typed outcome.\nALWAYS end with ASSESS_DONE, blocked or not: this gate cannot tell a\ndifferent\
+      \ final token from a crashed agent, so on run 54ebd998 the\nLead correctly reported BLOCKED_NEEDS_HUMAN\
+      \ three times and was\nscored as failing three times. Saying you are blocked is a result,\nnot a\
+      \ failure \u2014 but it must be said in the file, not the token.\n"
     verification:
       type: output_contains
       value: ASSESS_DONE
@@ -110,25 +116,29 @@ workflows:
       \ succeeded (exit 1);\n#    a later agent step may see stale files\"\n# The builder then correctly\
       \ refused to invent scope, but only after\n# a whole build step had been spent. Catch it here instead:\
       \ if\n# ops/NEXT.md is identical to the base, the assessment did not land,\n# whoever is at fault.\n\
-      if git diff --quiet main -- ops/NEXT.md 2>/dev/null; then\n  echo \"ASSESS_FAIL_STALE_NEXT: ops/NEXT.md\
-      \ is unchanged from the base commit.\"\n  echo \"  The assess step reported success but its work\
-      \ package did not reach this step,\"\n  echo \"  so the builder would be handed the PREVIOUS tick's\
-      \ file. Failing here rather\"\n  echo \"  than letting a build proceed against scope nobody wrote\
-      \ this tick.\"\n  exit 1\nfi\n# A package with no definition of done cannot be verified, and the\n\
-      # builder cannot honestly report BUILD_DONE against it.\n# A package must be verifiable, but do\
-      \ not dictate its wording. This\n# check demanded the literal phrase \"definition of done\" and\
-      \ so\n# rejected a CORRECT assessment three times on run 30475b25 \u2014 one\n# that reported gate\
-      \ 2's primitives already complete and proposed\n# moving to gate 3, and was right on both counts.\
-      \ A gate that\n# rejects true reports is as bad as one that accepts false ones.\n#\n# Accept either\
-      \ shape: a runnable command (that is what \"verifiable\"\n# actually means), or an explicit statement\
-      \ that this tick has no\n# buildable package.\nif grep -qiE \"definition of done|definition-of-done|done\
-      \ when|done-when|acceptance criteria\" ops/NEXT.md \\\n   || grep -qE \"(cargo|npm|node|sh|pytest)\
-      \ [a-z]\" ops/NEXT.md \\\n   || grep -qiE \"no buildable work|nothing to build|assessment only|gate\
-      \ .* is (green|complete)\" ops/NEXT.md; then\n  :\nelse\n  echo \"ASSESS_FAIL_NO_DOD: ops/NEXT.md\
-      \ names neither a runnable command nor a\"\n  echo \"  statement that this tick has no buildable\
-      \ package. A work package that\"\n  echo \"  cannot be verified cannot be built against.\"\n  exit\
-      \ 1\nfi\necho \"ASSESS_GATE_PASS ($(grep -m1 -oE 'WP-[0-9]+[^|]*' ops/NEXT.md || echo 'work package'))\"\
-      \n"
+      # Look for the package in the working tree OR in a commit made this\n# tick. Propagation between\
+      \ per-step sandboxes is lossy, so a package\n# that exists only as a loose file may not arrive;\
+      \ one committed by\n# the assess step travels in git history instead.\nif git log --oneline main..HEAD\
+      \ -- ops/NEXT.md 2>/dev/null | grep -q .; then\n  echo \"ASSESS_PACKAGE_COMMITTED: found ops/NEXT.md\
+      \ change in this tick's history\"\nelif git diff --quiet main -- ops/NEXT.md 2>/dev/null; then\n\
+      \  echo \"ASSESS_FAIL_STALE_NEXT: ops/NEXT.md is unchanged from the base commit.\"\n  echo \"  The\
+      \ assess step reported success but its work package did not reach this step,\"\n  echo \"  so the\
+      \ builder would be handed the PREVIOUS tick's file. Failing here rather\"\n  echo \"  than letting\
+      \ a build proceed against scope nobody wrote this tick.\"\n  exit 1\nfi\n# A package with no definition\
+      \ of done cannot be verified, and the\n# builder cannot honestly report BUILD_DONE against it.\n\
+      # A package must be verifiable, but do not dictate its wording. This\n# check demanded the literal\
+      \ phrase \"definition of done\" and so\n# rejected a CORRECT assessment three times on run 30475b25\
+      \ \u2014 one\n# that reported gate 2's primitives already complete and proposed\n# moving to gate\
+      \ 3, and was right on both counts. A gate that\n# rejects true reports is as bad as one that accepts\
+      \ false ones.\n#\n# Accept either shape: a runnable command (that is what \"verifiable\"\n# actually\
+      \ means), or an explicit statement that this tick has no\n# buildable package.\nif grep -qiE \"\
+      definition of done|definition-of-done|done when|done-when|acceptance criteria\" ops/NEXT.md \\\n\
+      \   || grep -qE \"(cargo|npm|node|sh|pytest) [a-z]\" ops/NEXT.md \\\n   || grep -qiE \"no buildable\
+      \ work|nothing to build|assessment only|gate .* is (green|complete)\" ops/NEXT.md; then\n  :\nelse\n\
+      \  echo \"ASSESS_FAIL_NO_DOD: ops/NEXT.md names neither a runnable command nor a\"\n  echo \"  statement\
+      \ that this tick has no buildable package. A work package that\"\n  echo \"  cannot be verified\
+      \ cannot be built against.\"\n  exit 1\nfi\necho \"ASSESS_GATE_PASS ($(grep -m1 -oE 'WP-[0-9]+[^|]*'\
+      \ ops/NEXT.md || echo 'work package'))\"\n"
     timeoutMs: 120000
   - name: build-1
     type: agent
