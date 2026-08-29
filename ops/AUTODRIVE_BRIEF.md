@@ -1,33 +1,52 @@
-Harden the Garden's loop with a case it does not yet handle. CODE task, SDK-side.
+Improve how the Garden decides what is WORTH working on. CODE task, SDK-side.
 
 On main now, all merged and tested:
-  - `sdk/src/backlog-picker.ts` — proposes a work package from ops/BACKLOG.md
+  - `sdk/src/backlog-picker.ts` — proposes a work package from ops/BACKLOG.md;
+    exports selectBacklogEntry / packageFromEntry / validateWorkPackage
   - `sdk/src/work-package-consumer.ts` — judges one, refusing with a typed
-    reason (missing_title / missing_scope / missing_definition_of_done)
-  - `testdata/backlog-picker.flow.yaml` — the flow, with its canonical spec
-  - a test running the flow's real emit-package output through the consumer,
-    proving the two halves interoperate in both directions
+    reason (missing_title / missing_scope / missing_definition_of_done /
+    nonexistent_files)
+  - `testdata/backlog-picker.flow.yaml` — the flow. Its `select-entry` step now
+    scans for the first ACTIONABLE entry, validating candidates and skipping
+    the ones that fail, and exits nonzero with NO_ACTIONABLE_BACKLOG_ENTRY when
+    nothing qualifies.
 
-So propose -> judge -> accept/refuse works end to end. What it does NOT do is
-survive a hostile or malformed backlog. Pick ONE of these and do it properly:
+Do NOT re-do any of the above. Malformed-backlog handling (PR #30) and the
+nonexistent-files check (PR #28) are DONE and merged. Three separate runs
+already produced duplicate implementations of the latter and all three were
+closed. A PR redoing either will be closed.
 
-  (a) The picker reads whatever ops/BACKLOG.md contains. A malformed entry — a
-      bold title with no body, an unterminated backtick, a bullet nested under
-      another — should produce a typed refusal, never a crash and never a
-      half-formed package. Add the handling and the tests.
+## The actual defect
 
-  (b) The consumer accepts any package whose fields are present. It does not
-      check that files_in_scope names paths that EXIST, so a package can be
-      accepted while scoping files that are not there. Add that check as a new
-      typed refusal reason, with tests.
+Run `select-entry` against the real ops/BACKLOG.md. It prints:
 
-Definition of done, all of it:
-  - code in sdk/src, wired into sdk/src/index.ts if it is a new export
-  - tests covering the new behaviour AND the existing behaviour still passing
-  - `cd sdk && npm test` green
+    SKIPPED_UNACTIONABLE=10 ...
+
+and then selects a dated notes blob ("Upstream issues (2026-08-27):") as the
+work package. Ten genuine engineering tasks were skipped in favour of a list of
+links.
+
+The cause: `validateWorkPackage` decides "actionable" using only two shallow
+signals — does the text contain a backticked path, and does it contain a
+multi-word backticked phrase. A notes blob full of backticked identifiers
+passes both. A real task written in prose ("Refuse a path-like deterministic
+command word when that path does not exist") fails both.
+
+The guard is correct. The SELECTION is poor. That is what to fix.
+
+## Definition of done, all of it
+
+  - a sharper notion of actionability in `sdk/src/backlog-picker.ts`, wired
+    into sdk/src/index.ts if it is a new export
+  - it must SELECT a real engineering task from the current ops/BACKLOG.md and
+    must NOT select the "Upstream issues" notes entry. Quote the literal
+    before/after `select-entry` output in your summary — the actual title it
+    picked before your change and after it.
+  - tests covering the new behaviour AND every existing test still passing
+  - `cd sdk && npm test` green, and `cd kernel && sh ../ops/cargo.sh test` green
+  - if you touch testdata/backlog-picker.flow.yaml you MUST regenerate
+    testdata/backlog-picker.spec.canonical.json — the kernel consumes the
+    canonical spec, not the yaml, and a drift test will fail you
   - EVERY new test confirmed to FAIL against current code, with the literal
     failing output quoted in your summary
   - as your LAST action, run `git status --porcelain` and paste it
-
-Do NOT touch kernel/, sdk/src/demo-hn-monitor.ts, or anything under ops/.
-ONE cycle, about ten minutes. Small and true beats large and aspirational.
