@@ -413,9 +413,10 @@ fn handle_request(
 /// Register the watcher BEFORE replaying, then replay and hand the hub the
 /// sequence cursor the replay covered. Entries appended concurrently are
 /// buffered by the hub and flushed deduped against that cursor, so nothing
-/// appended between snapshot and registration can be missed — that ordering
-/// gap no longer exists. `after_register` is a test seam pinning the race
-/// window between registration and the snapshot read.
+/// appended between snapshot and registration can be missed. The run lock
+/// also keeps an append's journal commit and hub notification atomic with
+/// respect to registration, preventing a replayed entry from later arriving
+/// as live. `after_ready` is a test seam pinning that notification ordering.
 #[cfg(unix)]
 fn watch_with_replay(
     engine: &Engine,
@@ -423,10 +424,11 @@ fn watch_with_replay(
     connection_id: u64,
     run_id: &str,
     writer: &SharedWriter,
-    after_register: impl FnOnce(),
+    after_ready: impl FnOnce(),
 ) -> ProtocolResult<Value> {
+    let lock = hub.run_lock(run_id);
+    let _guard = lock.lock().expect("run lock");
     hub.watch(connection_id, run_id.to_owned(), writer.clone());
-    after_register();
     let replay = (|| -> Result<()> {
         let entries = engine.journal_entries(run_id, 1, usize::MAX)?;
         let replayed_through_seq = entries.last().map(|entry| entry.seq).unwrap_or(0);
@@ -434,6 +436,7 @@ fn watch_with_replay(
             write_frame(writer, &json!({"event": "entry", "data": entry}))?;
         }
         hub.watch_ready(connection_id, run_id, replayed_through_seq);
+        after_ready();
         Ok(())
     })();
     if let Err(error) = replay {

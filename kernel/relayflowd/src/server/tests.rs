@@ -2,7 +2,8 @@ use std::{
     io::{BufRead, BufReader},
     os::unix::net::UnixStream,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{Arc, Condvar, Mutex, mpsc},
+    thread,
     time::Duration,
 };
 
@@ -11,7 +12,7 @@ use serde_json::json;
 use tempfile::tempdir;
 
 use super::*;
-use crate::worker::LeaseProbe;
+use crate::worker::{JournalObserver, LeaseProbe};
 
 mod agent;
 
@@ -84,6 +85,41 @@ fn step_completions(data_dir: &Path, run_id: &str) -> Vec<StepCompletedPayload> 
         .filter(|entry| entry.entry_type == EntryType::StepCompleted)
         .map(|entry| serde_json::from_value(entry.payload).unwrap())
         .collect()
+}
+
+struct PausingObserver {
+    hub: Arc<ProtocolHub>,
+    committed: Arc<(Mutex<bool>, Condvar)>,
+    resume: Arc<(Mutex<bool>, Condvar)>,
+}
+
+impl JournalObserver for PausingObserver {
+    fn appended(&self, entry: &relayflowd_core::JournalEntry) {
+        let (committed, committed_signal) = &*self.committed;
+        *committed.lock().unwrap() = true;
+        committed_signal.notify_one();
+
+        let (resume, resume_signal) = &*self.resume;
+        let mut ready = resume.lock().unwrap();
+        while !*ready {
+            ready = resume_signal.wait(ready).unwrap();
+        }
+        self.hub.appended(entry);
+    }
+}
+
+fn wait_for_signal(signal: &Arc<(Mutex<bool>, Condvar)>) {
+    let (ready, condition) = &**signal;
+    let mut ready = ready.lock().unwrap();
+    while !*ready {
+        ready = condition.wait(ready).unwrap();
+    }
+}
+
+fn send_signal(signal: &Arc<(Mutex<bool>, Condvar)>) {
+    let (ready, condition) = &**signal;
+    *ready.lock().unwrap() = true;
+    condition.notify_one();
 }
 
 #[test]
@@ -202,9 +238,9 @@ fn stopped_heartbeats_past_the_deadline_journal_lease_expired_and_release_the_st
     assert_eq!(redispatch["data"]["attempt"], 2);
 }
 
-/// Finding 4: an entry appended concurrently with `run.watch` registration is
-/// delivered exactly once — the watcher registers with a cursor before the
-/// replay, and buffered live entries are deduped against it.
+/// Finding 4: an entry committed before `run.watch` registration but whose
+/// hub notification is delayed is delivered exactly once. The run lock makes
+/// the journal commit and notification indivisible from watch registration.
 #[test]
 fn an_entry_appended_during_watch_registration_is_delivered_exactly_once() {
     let directory = tempdir().unwrap();
@@ -224,26 +260,58 @@ fn an_entry_appended_during_watch_registration_is_delivered_exactly_once() {
         .to_owned();
 
     let dispatcher: Arc<dyn crate::worker::StepDispatcher> = hub.clone();
-    let observer: Arc<dyn crate::worker::JournalObserver> = hub.clone();
+    let observer: Arc<dyn JournalObserver> = hub.clone();
     let engine = Engine::with_runtime(data_dir, dispatcher, observer);
-    let interleaver = {
-        let dispatcher: Arc<dyn crate::worker::StepDispatcher> = hub.clone();
-        let observer: Arc<dyn crate::worker::JournalObserver> = hub.clone();
-        Engine::with_runtime(data_dir, dispatcher, observer)
-    };
 
-    let (watch_writer, watch_peer) = shared_writer();
-    let run = run_id.clone();
-    let result = watch_with_replay(&engine, &hub, 3, &run_id, &watch_writer, || {
-        // The historical race window: an append interleaved with watch setup.
+    let committed = Arc::new((Mutex::new(false), Condvar::new()));
+    let resume = Arc::new((Mutex::new(false), Condvar::new()));
+    let interleaver = Engine::with_runtime(
+        data_dir,
+        hub.clone(),
+        Arc::new(PausingObserver {
+            hub: hub.clone(),
+            committed: committed.clone(),
+            resume: resume.clone(),
+        }),
+    );
+
+    let append_run = run_id.clone();
+    let append_hub = hub.clone();
+    let append = thread::spawn(move || {
+        let lock = append_hub.run_lock(&append_run);
+        let _guard = lock.lock().unwrap();
         interleaver
-            .append_stream(&run, "results", "test", json!({"interleaved": true}))
+            .append_stream(
+                &append_run,
+                "results",
+                "test",
+                json!({"interleaved": true}),
+            )
             .unwrap();
     });
+    wait_for_signal(&committed);
+
+    let (watch_writer, watch_peer) = shared_writer();
+    let watch_hub = hub.clone();
+    let watch_run = run_id.clone();
+    let (watch_ready, watch_is_ready) = mpsc::channel();
+    let watch = thread::spawn(move || {
+        watch_with_replay(&engine, &watch_hub, 3, &watch_run, &watch_writer, || {
+            watch_ready.send(()).unwrap();
+        })
+    });
+    // Without the run lock, registration reaches Live while the committed
+    // append's hub notification is still paused. With the lock, this times out
+    // because registration correctly waits for that notification to finish.
+    let _ = watch_is_ready.recv_timeout(Duration::from_millis(100));
+    send_signal(&resume);
+    append.join().unwrap();
+    let result = watch.join().unwrap();
     assert!(result.is_ok(), "run.watch failed: {result:?}");
 
     // A post-registration append must flow through live delivery, once.
-    engine
+    let live_engine = Engine::with_runtime(data_dir, hub.clone(), hub.clone());
+    live_engine
         .append_stream(&run_id, "results", "test", json!({"live": true}))
         .unwrap();
 
