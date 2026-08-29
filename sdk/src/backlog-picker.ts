@@ -18,6 +18,19 @@ const ENTRY = /^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/m;
 const ACTION_TITLE =
   /^(?:add|build|change|close|create|document|fix|implement|persist|refuse|release|remove|rename|replace|sharpen|update|validate|wire)\b/i;
 const NOTES_TITLE = /^(?:notes?|release notes|upstream issues)\s*(?:\(|:|$)/i;
+const VERIFICATION_SIGNAL =
+  /\b(?:acceptance|done when|expected|must|should|assert|test(?:ed)?|verify|coverage|refus(?:e|ed|al)?|fail(?:s|ed|ure)?|error|wrong|drift|indistinguishable|brittle|compile[sd]?|declares?|collapses?)\b/i;
+const COMMAND_PROSE_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'is',
+  'of',
+  'or',
+  'the',
+  'to',
+]);
 
 export interface BacklogEntry {
   title: string;
@@ -113,13 +126,14 @@ export function packageFromEntry(entry: BacklogEntry): Record<string, unknown> {
   const explicitChecks = (entry.body.match(/`[^`]+`/g) || [])
     .map((candidate) => candidate.slice(1, -1))
     .filter((candidate) => /\s/.test(candidate));
+  const statedOutcomes = verificationStatements(entry.body);
   const definitionOfDone = NOTES_TITLE.test(entry.title)
     ? []
     : explicitChecks.length > 0
       ? explicitChecks
       : ACTION_TITLE.test(entry.title)
         ? [entry.title.replace(/[.:]\s*$/, '')]
-        : [];
+        : statedOutcomes;
   return {
     title: entry.title,
     description: entry.body,
@@ -136,7 +150,23 @@ function scopeReferences(blob: string): string[] {
     .filter((candidate): candidate is string => candidate !== undefined)
     .filter((candidate) => {
       if (/^\/|\/\//.test(candidate)) return false;
-      return !/\s/.test(candidate) || /--|<[^>]+>|\$[A-Za-z]/.test(candidate);
+      return !/\s/.test(candidate) || isCommandReference(candidate);
     });
   return [...new Set(references)];
+}
+
+/** Multiword shell-shaped references are scope; ordinary prose is not. */
+function isCommandReference(candidate: string): boolean {
+  const tokens = candidate.trim().split(/\s+/);
+  if (tokens.length < 2 || !/^[A-Za-z_][\w./:@+-]*$/.test(tokens[0] ?? '')) return false;
+  if (!tokens.every((token) => /^[\w./:@+=$<>-]+$/.test(token))) return false;
+  return !tokens.some((token) => COMMAND_PROSE_WORDS.has(token.toLowerCase()));
+}
+
+/** Sentences that state an observable check or failure are verification evidence. */
+function verificationStatements(body: string): string[] {
+  return body
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.replace(/[.!?]+$/, '').trim())
+    .filter((sentence) => sentence.length > 0 && VERIFICATION_SIGNAL.test(sentence));
 }

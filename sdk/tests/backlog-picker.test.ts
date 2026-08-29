@@ -102,6 +102,42 @@ describe('work package validation', () => {
     expect(work['files_in_scope']).toEqual(['validateWorkPackage']);
   });
 
+  it('uses a backticked command as scope evidence without accepting prose', () => {
+    const work = packageFromEntry({
+      title: 'Fix worker reporting',
+      body: 'Exercise `worker status`; `the report is accurate` is prose.',
+    });
+
+    expect(work['files_in_scope']).toEqual(['worker status']);
+  });
+
+  it('uses an explicit prose verification outcome as definition of done', () => {
+    const work = packageFromEntry({
+      title: 'Malformed package handling',
+      body: 'Change `validateWorkPackage`. Verify malformed input is refused with a typed reason.',
+    });
+
+    expect(work['definition_of_done']).toEqual([
+      'Verify malformed input is refused with a typed reason',
+    ]);
+  });
+
+  it('keeps at least twenty real backlog entries actionable', async () => {
+    const backlogPath = join(__dirname, '..', '..', 'ops', 'BACKLOG.md');
+    const markdown = readFileSync(backlogPath, 'utf8');
+    const entries = [...markdown.matchAll(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/gm)].map(
+      (match) => ({
+        title: match[1] ?? '',
+        body: (match[2] ?? '').replace(/\s+/g, ' ').trim(),
+      }),
+    );
+    const actionable = await Promise.all(
+      entries.map(async (entry) => (await validate(packageFromEntry(entry))) as { accepted: boolean }),
+    );
+
+    expect(actionable.filter((result) => result.accepted).length).toBeGreaterThanOrEqual(20);
+  });
+
   it('accepts an engineering task stated as an imperative outcome', async () => {
     const work = packageFromEntry({
       title: 'Refuse a path-like deterministic command word',
