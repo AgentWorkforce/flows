@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+
 /** The work-package shape emitted at the SDK boundary. */
 export interface EmittedWorkPackage {
   title: string;
@@ -10,7 +12,8 @@ export interface EmittedWorkPackage {
 export type WorkPackageRefusalReason =
   | 'missing_title'
   | 'missing_scope'
-  | 'missing_definition_of_done';
+  | 'missing_definition_of_done'
+  | 'nonexistent_files';
 
 export type WorkPackageConsumption =
   | { accepted: true; work: EmittedWorkPackage }
@@ -29,6 +32,9 @@ export function consumeWorkPackage(input: unknown): WorkPackageConsumption {
   }
   if (!isNonEmptyStringArray(input['definition_of_done'])) {
     return { accepted: false, reason: 'missing_definition_of_done' };
+  }
+  if (!input['files_in_scope'].every((path) => existsSync(path))) {
+    return { accepted: false, reason: 'nonexistent_files' };
   }
   return { accepted: true, work: input as unknown as EmittedWorkPackage };
 }
