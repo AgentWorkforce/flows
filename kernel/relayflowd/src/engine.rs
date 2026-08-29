@@ -17,9 +17,11 @@ use crate::worker::{JournalObserver, StepDispatcher};
 
 mod drive;
 mod effects;
+mod hn_poller;
 mod model;
 mod remote;
 mod wake;
+pub use hn_poller::HnPoller;
 pub use model::{RunOutcome, RunSnapshot, RunStatus, StepSnapshot, StepStatus};
 use model::{outcome_from_state, snapshot_from_state};
 pub use remote::OutOfBandCompletion;

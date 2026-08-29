@@ -19,5 +19,5 @@ sha2 = "0.10"
 tempfile = "3.20"
 thiserror = "2.0"
 ulid = { version = "1.2", features = ["serde"] }
+ureq = "2.12"
 wait-timeout = "0.2"
-
