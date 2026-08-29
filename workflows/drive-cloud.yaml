@@ -51,19 +51,31 @@ workflows:
       \ the repo is not present in this execution environment.\" >&2\n  echo \"  missing:$missing\" >&2\n\
       \  echo \"  cwd: $(pwd)\" >&2\n  echo \"  A cloud run must upload the working tree: \\`agent-relay\
       \ cloud run\\`\" >&2\n  echo \"  syncs code by default; \\`--no-sync-code\\` produces exactly this\
-      \ state.\" >&2\n  exit 78\nfi\necho \"SYNC_MATERIALIZED=ok\"\n\ngit rev-parse --git-dir >/dev/null\
-      \ 2>&1 || git init -q\ngit config user.email \"lead@relayflows.local\"\ngit config user.name \"\
-      Relayflow Lead\"\n\nif git remote get-url origin >/dev/null 2>&1; then\n  # Real checkout (laptop\
-      \ / fleet node): take the true origin/main.\n  echo \"SYNC_MODE=remote\"\n  git fetch --quiet origin\n\
-      \  git checkout --quiet -B main origin/main\n  base=$(git rev-parse --short origin/main)\nelse\n\
-      \  # Sandbox snapshot: there is no remote to fetch and nothing to\n  # rebase onto. The snapshot\
-      \ IS the base. Commit it so the tick has\n  # a parent to diff against \u2014 `git diff main` in\
-      \ the review step\n  # needs a `main` that exists.\n  echo \"SYNC_MODE=snapshot\"\n  if ! git rev-parse\
-      \ --verify --quiet HEAD >/dev/null 2>&1; then\n    git add -A\n    git commit --quiet -m \"snapshot\
-      \ base for this tick\" || true\n  fi\n  git branch --quiet -f main HEAD 2>/dev/null || git checkout\
-      \ --quiet -b main\n  base=$(git rev-parse --short HEAD)\nfi\n\ngit checkout --quiet -B \"flow/drive-${base}-$(date\
-      \ +%m%d%H%M)\"\necho \"SYNC_BASE=$base\"\necho \"SYNC_BRANCH=$(git rev-parse --abbrev-ref HEAD)\"\
-      \necho SYNCED\n"
+      \ state.\" >&2\n  exit 78\nfi\necho \"SYNC_MATERIALIZED=ok\"\n\n# Fail fast on a stale tree. A per-step\
+      \ sandbox can be seeded from an\n# older orchestrator archive, and five consecutive runs burned\
+      \ ~20\n# minutes each producing diffs that reverted merged work \u2014 a stale\n# tree diffed against\
+      \ fresh main looks like a wholesale revert. The\n# guards at delivery caught them, but only after\
+      \ the cost was paid.\n#\n# ops/FORBIDDEN_PATHS lists paths that must NOT exist. Their presence\n\
+      # here means this sandbox is not the tree we uploaded, and nothing\n# built on it can be trusted.\n\
+      if [ -f ops/FORBIDDEN_PATHS ]; then\n  stale=\"\"\n  while IFS= read -r forbidden; do\n    case\
+      \ \"$forbidden\" in ''|\\#*) continue ;; esac\n    [ -e \"$forbidden\" ] && stale=\"$stale $forbidden\"\
+      \n  done < ops/FORBIDDEN_PATHS\n  if [ -n \"$stale\" ]; then\n    echo \"SYNC_FAIL_STALE_TREE: this\
+      \ sandbox contains paths that do not exist on the base:\" >&2\n    for p in $stale; do echo \" \
+      \   $p\" >&2; done\n    echo \"  The workspace was seeded from an older archive, so it is not the\
+      \ tree\" >&2\n    echo \"  that was uploaded. A diff computed from it reverts merged work.\" >&2\n\
+      \    echo \"  Failing now rather than spending a full cycle to produce an unusable diff.\" >&2\n\
+      \    exit 75\n  fi\nfi\n\ngit rev-parse --git-dir >/dev/null 2>&1 || git init -q\ngit config user.email\
+      \ \"lead@relayflows.local\"\ngit config user.name \"Relayflow Lead\"\n\nif git remote get-url origin\
+      \ >/dev/null 2>&1; then\n  # Real checkout (laptop / fleet node): take the true origin/main.\n \
+      \ echo \"SYNC_MODE=remote\"\n  git fetch --quiet origin\n  git checkout --quiet -B main origin/main\n\
+      \  base=$(git rev-parse --short origin/main)\nelse\n  # Sandbox snapshot: there is no remote to\
+      \ fetch and nothing to\n  # rebase onto. The snapshot IS the base. Commit it so the tick has\n \
+      \ # a parent to diff against \u2014 `git diff main` in the review step\n  # needs a `main` that\
+      \ exists.\n  echo \"SYNC_MODE=snapshot\"\n  if ! git rev-parse --verify --quiet HEAD >/dev/null\
+      \ 2>&1; then\n    git add -A\n    git commit --quiet -m \"snapshot base for this tick\" || true\n\
+      \  fi\n  git branch --quiet -f main HEAD 2>/dev/null || git checkout --quiet -b main\n  base=$(git\
+      \ rev-parse --short HEAD)\nfi\n\ngit checkout --quiet -B \"flow/drive-${base}-$(date +%m%d%H%M)\"\
+      \necho \"SYNC_BASE=$base\"\necho \"SYNC_BRANCH=$(git rev-parse --abbrev-ref HEAD)\"\necho SYNCED\n"
   - name: assess-1
     type: agent
     agent: lead
