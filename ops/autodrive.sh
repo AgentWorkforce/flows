@@ -70,7 +70,17 @@ while [ ! -f "$STOP_FILE" ]; do
 
   if [ "$running" -lt "$MAX_LIVE" ]; then
     say "launching (base $base)"
-    out=$(sh ops/launch-gate.sh 3 "Continue the highest-value next step. Read ops/STATE.md for gate truth and open PRs, and ops/BACKLOG.md for known defects, then pick ONE small thing and do it. Prefer: closing a defect the backlog already names with evidence; extending gate 3's Garden (sdk/src/backlog-picker.ts proposes work, sdk/src/work-package-consumer.ts judges it — the loop between them is thin); or hardening something that has failed before. Definition of done: code plus tests, 'cd sdk && npm test' green, and EVERY new test confirmed to FAIL against current code with its literal output in your summary. As your LAST action run 'git status --porcelain' and paste it. Do NOT touch kernel/relayflowd/src/server.rs or sdk/src/demo-hn-monitor.ts. ONE cycle, ten minutes — small and true beats large and aspirational." 2>&1)
+    # The brief lives in a file so it can be steered without restarting the
+    # loop. Five generic-brief cycles ("read STATE.md, pick one small thing")
+    # produced nothing deliverable, while every run that produced real code had
+    # a specific, scoped task. Vague instructions cost a full cycle each.
+    brief=$(cat ops/AUTODRIVE_BRIEF.md 2>/dev/null)
+    if [ -z "$brief" ]; then
+      say "NO BRIEF: ops/AUTODRIVE_BRIEF.md is missing or empty — not launching blind"
+      sleep "$INTERVAL"
+      continue
+    fi
+    out=$(sh ops/launch-gate.sh 3 "$brief" 2>&1)
     rid=$(echo "$out" | sed -n 's/^Run created: //p' | head -1)
     if [ -n "$rid" ]; then
       say "launched ${rid%%-*}"
