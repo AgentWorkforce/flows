@@ -8,7 +8,7 @@ it is authoritative when history is unavailable.
 **Keep it current. A stale STATE.md is worse than none:** it does not merely
 fail to help, it actively misleads an assessor that cannot check it.
 
-Last updated: 2026-08-29 09:20 UTC, by Khaliq's session, on `main`.
+Last updated: 2026-08-29 10:05 UTC, by Khaliq's session, on `main`.
 
 ## Where the program is
 
@@ -86,7 +86,18 @@ and no run inherits the previous run's selection (the entry file is cleared
 before selecting). Both properties have tests that were CONFIRMED TO FAIL
 without their fixes, which is the standard #18 still does not meet.
 
-Merged to date: #1–#8, #10, #12, #13, #14, #15, #16, #20, #21.
+**#22 is also MERGED.** Gate 3's picker now holds four properties, each with a
+test CONFIRMED TO FAIL without its fix:
+  1. the two steps agree within a run (backlog snapshotted once);
+  2. no run inherits the previous run's selection (entry cleared before
+     selecting);
+  3. the flow yaml and its canonical spec cannot silently diverge — the
+     canonical spec is what the KERNEL consumes, and a fix landing only in the
+     yaml never reaches what runs;
+  4. scope extraction keeps real paths (`regressions/`, `src/Dockerfile`) and
+     rejects prose (`contains \`/\``).
+
+Merged to date: #1–#8, #10, #12, #13, #14, #15, #16, #20, #21, #22.
 PR #9 and PR #11 were superseded by #12 and are closed, not pending.
 
 - **#13** delivered the first cloud-produced work back as a PR.
