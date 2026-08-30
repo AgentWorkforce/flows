@@ -1,39 +1,42 @@
-# NEXT — Gate 3: Refuse backlog entry with unterminated backticks
+# NEXT — Gate 3: Close the deterministic-command preflight gap
 
-**Scope:** Refuse a backlog entry whose backticks are unterminated. CODE task, SDK-side (gate 3).
+**Gate:** 3 (deterministic-command preflight gap, Codex P1)
 
-TARGET.md (ops/TARGET.md in the launch worktree, not propagated to the package) pins this run to gate 3. The picker's actionability problem is SOLVED and merged (PR #42): ACTIONABLE is 22 of 32 against the real ops/BACKLOG.md, above the target of 20. Do not touch `validateWorkPackage`'s accept/reject thresholds or re-tune scope extraction to raise that number. Five PRs (#33, #34, #39, #41, #42) worked that problem; four were closed. It is done.
+**Scope from ops/TARGET.md:**
 
-## The task
+`warnOnUnprovableEffects` in `sdk/src/preflight.ts` emits a WARNING for every deterministic step whose command word does not resolve. Its own comment gives the reason:
 
-Scope and definition-of-done are both derived from backticked spans. An entry with an ODD number of backticks makes those spans wrong: the parser pairs the opening backtick with whatever backtick appears next, so text that was never meant to be code becomes scope, and real content is swallowed.
+    These warn rather than refuse because a string command is executed as
+    `/bin/sh -c`, so an unresolved first word may still be a shell builtin,
+    function, or assignment — refusing would reject valid flows.
 
-Since #42 widened what counts as scope — symbols and commands, not only paths — a mispaired span is now MORE likely to produce a plausible-looking but wrong `files_in_scope`, which is worse than an obviously empty one.
+That reasoning is correct for a BARE word like `mkdir` or `myfunc`. It does not hold for a word containing `/`. `./scripts/build.sh` or `ops/cargo.sh` is unambiguously a path: it cannot be a builtin, a function, or an assignment. If that path does not exist, the step cannot possibly run, and preflight knows it before execution.
 
-Add a typed refusal for it. Salvaged from closed PR #32, which proposed the check but wired it to nothing; two of its three proposed reasons were rejected on assessment (`nested_bullet` would have been a regression — the selection regex already skips indented bullets; `missing_body` is covered by the existing reasons). Only the unterminated-backtick case is real.
+So: a path-like command word that does not exist must REFUSE. A bare word that does not resolve must keep WARNING, exactly as today.
+
+Filed from PR #8 and deliberately deferred then. This is that deferred work.
 
 ## Objective
 
-Add a typed refusal reason for backlog entries with an odd backtick count, wire it into the validation flow, and verify it does not regress the ACTIONABLE count.
+Make preflight REFUSE (not WARN) when a deterministic step's first command word contains `/` and does not exist, while keeping bare unresolved words as warnings.
 
 ## Files in scope
 
-- `sdk/src/backlog-picker.ts` — add `unterminated_backticks` to `WorkPackageValidationReason`, add checker function, wire it into `validateWorkPackage`
-- `sdk/src/index.ts` — export the new reason if needed (already exports `WorkPackageValidationReason`)
-- `sdk/tests/backlog-picker.test.ts` — tests for the new refusal, confirming it rejects entries with odd backtick counts
-- `testdata/backlog-picker.flow.yaml` — if modified, must regenerate canonical spec
-- `testdata/backlog-picker.spec.canonical.json` — regenerate if flow.yaml changes (kernel consumes this, drift tests will fail otherwise)
+- `sdk/src/preflight.ts` — modify `warnOnUnprovableEffects()` to refuse path-like commands (containing `/`) that don't exist
+- `sdk/src/failure-kinds.ts` — may need to add a new refusal kind like `command_path_missing`
+- `sdk/tests/preflight.test.ts` OR new test file — add tests proving both behaviors
 
-## Definition of done
+## Definition of done (all required)
 
-All of the following must hold:
+1. **A REFUSAL (not a warning) for a deterministic step whose first command word contains `/` and does not exist**
 
-1. **Typed refusal reason exists and is wired in**
-   - A new `WorkPackageValidationReason` value `'unterminated_backticks'` is added to `sdk/src/backlog-picker.ts`
-   - It is checked in `validateWorkPackage` BEFORE the function accepts the package
-   - PR #32 was closed for exporting a checker nothing called. Show the flow refusing such an entry.
+2. **Bare unresolved words still WARN** — a test proving the warning path is unchanged, so the fix cannot pay for itself by refusing more broadly
 
-2. **ACTIONABLE count preserved** — the ACTIONABLE count must still be ~21-22 of 32 before and after. A refusal that also rejects well-formed entries is a regression. Run this command and report the count before and after:
+3. **Both behaviors reachable through the real `preflight()` entry point**, not only through an internal helper
+
+4. **`cd sdk && npm test` green, and `cd kernel && sh ../ops/cargo.sh test` green**
+
+5. **The picker must not regress.** Measure it against MAIN ON THE SAME BACKLOG, not against a number quoted in an older brief — the count moves when the backlog moves, and a stale figure produces false regressions:
    ```
    node -e 'const fs=require("node:fs");
      const sdk=require("./sdk/dist/backlog-picker.js");
@@ -45,39 +48,20 @@ All of the following must hold:
      console.log("TOTAL="+e.length+" ACTIONABLE="+ok)'
    ```
 
-3. **New tests pass and fail correctly**
-   - Add tests to `sdk/tests/backlog-picker.test.ts` covering the new refusal reason:
-     - An entry with 1 backtick (odd) is refused with `unterminated_backticks`
-     - An entry with 3 backticks (odd) is refused with `unterminated_backticks`
-     - An entry with 2 backticks (even, well-formed) is accepted
-     - An entry with 0 backticks is accepted
-   - EVERY new test confirmed to FAIL against current code before implementing the fix
-   - Quote the literal failing output
+6. **EVERY new test confirmed to FAIL against current code, with the literal failing output quoted in your summary**
 
-4. **All existing tests still pass**
-   ```
-   cd sdk && npm test
-   ```
-   All backlog-picker tests pass, all other SDK tests pass (ignore live-kernel failures — known sandbox fault per STATE.md)
+7. **As your LAST action, run `git status --porcelain` and paste it**
 
-5. **Kernel tests still pass**
-   ```
-   cd kernel && sh ../ops/cargo.sh test
-   ```
-   All tests green
+## Explicitly OUT of scope
 
-6. **Canonical spec regenerated if flow changed**
-   - If `testdata/backlog-picker.flow.yaml` was modified, regenerate `testdata/backlog-picker.spec.canonical.json` — the kernel consumes the canonical spec, and two drift tests will fail if this is skipped
+- Changes to the kernel (this is SDK-side only per TARGET.md)
+- Any other preflight refusals or warnings beyond the path-like command gap
+- CLI probe behavior
+- Integration with other gates
+- Work on any other gate
 
-7. **Final state clean** — as your LAST action, run:
-   ```
-   git status --porcelain
-   ```
-   And paste it
+## Already done (DO NOT re-do)
 
-## Out of scope
-
-- Tuning the accept/reject thresholds in `validateWorkPackage` — picker actionability is SOLVED per TARGET.md and STATE.md
-- Modifying scope extraction logic to raise ACTIONABLE count — already done in PR #42, merged
-- Working on any other gate — this run is pinned to gate 3, several runs execute in parallel, work outside this target collides with a sibling
-- Any refusal reasons other than `unterminated_backticks` — PR #32's `nested_bullet` and `missing_body` were rejected as regressions or already covered
+Per ops/TARGET.md, both are merged and closed. A PR redoing either will be closed:
+- picker actionability (PR #42) — ACTIONABLE is ~21 of 32, above target
+- unterminated-backtick refusal (PR #45)

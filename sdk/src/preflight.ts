@@ -228,11 +228,9 @@ function probeTrigger(
 
 /**
  * A deterministic step is never silently accepted: every one leaves exactly one
- * warning naming which state it is in. These warn rather than refuse because a
- * string command is executed as `/bin/sh -c` (kernel `exec_det.rs`), so an
- * unresolved first word may still be a shell builtin, function, or assignment —
- * refusing would reject valid flows. Warning keeps covenant 2's "refuses or
- * warns on anything it cannot prove" true without inventing false certainty.
+ * diagnostic naming which state it is in. An unresolved bare word warns because
+ * `/bin/sh -c` may supply it as a builtin, function, or assignment. An unresolved
+ * word containing `/` is unambiguously a missing path and therefore refuses.
  */
 function warnOnUnprovableEffects(
   step: StepSpec,
@@ -259,6 +257,15 @@ function warnOnUnprovableEffects(
       kind: 'command_unprovable',
       stepId: step.id,
       message: `Step "${step.id}" command "${binary}" could not be probed, so its presence is unproven before execution.`,
+    });
+    return;
+  }
+  if (!exists && binary.includes('/')) {
+    diagnostics.push({
+      severity: 'refusal',
+      kind: 'command_path_missing',
+      stepId: step.id,
+      message: `Step "${step.id}" command path "${binary}" does not exist.`,
     });
     return;
   }

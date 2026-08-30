@@ -139,6 +139,34 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     ]);
   });
 
+  it('refuses a missing command path while a missing bare command still warns', () => {
+    const missingPath = preflight(
+      flow({ id: 'build', type: 'deterministic', command: './scripts/build.sh --release' }),
+      { probes: probes({ command: () => false }) },
+    );
+    const missingBareCommand = preflight(
+      flow({ id: 'custom', type: 'deterministic', command: 'myfunc --release' }),
+      { probes: probes({ command: () => false }) },
+    );
+
+    expect(missingPath.ok).toBe(false);
+    expect(missingPath.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'refusal',
+        kind: 'command_path_missing',
+        stepId: 'build',
+      }),
+    ]);
+    expect(missingBareCommand.ok).toBe(true);
+    expect(missingBareCommand.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        kind: 'command_unresolved',
+        stepId: 'custom',
+      }),
+    ]);
+  });
+
   // Covenant 2 permits refusing *or* warning, but not silence. A deterministic
   // step that resolves, one that does not, and one that cannot be probed must
   // each leave a declared warning behind — and none of them may refuse.
@@ -179,6 +207,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: false, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: true, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p' }), { probes: probes() }),
+      preflight(flow({ id: 'a', type: 'deterministic', command: './missing' }), { probes: probes({ command: () => false }) }),
       preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }), triggers: [{ id: 't', executor: 'e' }] }, { probes: probes({ executor: () => false, command: () => false }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => { throw new Error('raw secret'); } }) }),
     ];
