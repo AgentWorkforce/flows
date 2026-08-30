@@ -12,9 +12,17 @@ Last updated: 2026-08-29 22:45 UTC, by Khaliq's session, on `main` (`ca3942e`).
 
 ## Where the program is
 
-- **Gate 1 — a relayflow can run: GREEN.** Closed on `main` at `9e1d9eb`
-  (PR #8) and extended by PR #12 (`e48631d`), which put the authored surface
-  on the live kernel.
+- **Gate 1 — a relayflow can run: GREEN, asterisk now CLOSED (PR #48).**
+  Closed on `9e1d9eb` (PR #8), extended by PR #12 (`e48631d`). PR #18 fixed a
+  real race in watch registration but its regression test had never been
+  observed to fail — it rested on a 100ms `recv_timeout`, a scheduling race that
+  could pass without the fix and fail spuriously with it.
+  PR #48 rewrote it around the `after_ready` seam (`server.rs:427`) using
+  rendezvous channels instead of elapsed time. Verified by mutation:
+      PR #18 reverted locally -> FAILED. 18 passed; 1 failed
+      fix restored           -> ok. 19 passed; 0 failed
+      repeated              -> passed 20 / failed 0 out of 20
+  Gate 1 no longer carries a fix-on-trust.
 - **Gates 2, 3, 4, 5, 7, 8, 9: RED.** Not started.
 - **Gate 6 — integrations via relayfile: RED, and BLOCKED on gates 2-4.**
   Khaliq decided this on 2026-08-28 (option B), after the Lead escalated a real
