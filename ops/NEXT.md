@@ -1,87 +1,111 @@
 # NEXT — work package for this tick
 
-**Scope:** Build a minimal agent worker in the SDK. CODE task, SDK-side.
+**Scope:** Fix the existing agent worker in the SDK to make its tests pass. CODE task, SDK-side.
 
 This run is pinned to **gate 3** and must not work on any other gate.
 
 ## Objective
 
-Promote the throwaway worker the tests already build into a real SDK component
-that can execute agent steps by running their declared CLI as a subprocess.
+Fix the existing `AgentWorker` class in `sdk/src/worker.ts` (92 lines) so that
+the existing test at `sdk/tests/live-kernel.test.ts:206` "runs an agent CLI end
+to end through the SDK worker" passes.
 
-## Context
+## Current state (2026-08-30)
 
-Nothing in this repo can execute an agent step. Searching for `workerAttach` /
-`step.complete` finds only TESTS (`sdk/tests/live-kernel.test.ts`,
-`journal-client.test.ts`, `journal-client-loopback.ts`) and the protocol
-definitions. `sdk/src/cli/run.ts` only OBSERVES worker leases and waits for one
-that never arrives.
+**AgentWorker already exists:** `sdk/src/worker.ts` (92 lines), exported from
+`sdk/src/index.ts` line 8.
 
-The kernel's dispatch, lease and claim machinery is real and tested. The worker
-side of the protocol is simply unimplemented, and that is what blocks gate 2
-("a workload RUNS as a relayflow" — today a run can only be shown CREATED) and
-gate 3 ("every claim/lease/retry served by the kernel").
+**Tests already exist:**
+- `sdk/tests/live-kernel.test.ts:206` — "runs an agent CLI end to end through the SDK worker"
+- `sdk/tests/live-kernel.test.ts:174` — "follows a live worker dispatch through flows run"
 
-`sdk/tests/live-kernel.test.ts` around the `live-manual-agent` case (line 288)
-shows the whole shape: connect, `hello`, `workerAttach` with pins, receive
-`step.dispatch`, act, complete. The protocol is already proven there.
+Both tests are FAILING (timeout in 5000ms). The worker exists but is not
+working correctly.
+
+**Kernel tests: GREEN** — all 44 tests pass (4+3+26+5+6 across all crates).
+
+**SDK tests: 22 failed / 175 passed** — the worker tests are among the failures.
+
+The worker code at sdk/src/worker.ts implements the protocol (workerAttach,
+step.dispatch handler, stepComplete), but the tests time out, indicating the
+worker is not handling dispatches correctly.
 
 ## Files in scope
 
-- `sdk/src/worker.ts` — new file, the worker implementation
-- `sdk/src/index.ts` — export the worker
-- `sdk/tests/live-kernel.test.ts` OR a new test file — add a test that runs a
-  real flow with an agent step end to end against a live `relayflowd`, with
-  this worker attached, and asserts the step reaches `done`.
+- `sdk/src/worker.ts` — fix the existing worker implementation (92 lines)
+- `sdk/tests/live-kernel.test.ts` — tests already exist at lines 174 and 206
 
 ## Definition of done
 
-ALL of the following must hold:
+ALL of the following must hold and be verified with LITERAL COMMAND OUTPUT:
 
-1. The worker in `sdk/src/worker.ts`, exported from `sdk/src/index.ts`
+1. **The agent worker test passes.** Run this exact command and paste full output:
 
-2. A test that runs a real flow with an agent step end to end against a live
-   `relayflowd`, with this worker attached, and asserts the step reaches
-   `done`. `sdk/tests/live-kernel.test.ts` already starts a daemon — follow
-   that pattern.
+   ```
+   cd sdk && npm test -- tests/live-kernel.test.ts -t "runs an agent CLI end to end through the SDK worker"
+   ```
 
-3. **The worker must attach BEFORE the run starts.** A run that finds no worker
-   parks, and attaching afterwards does not re-drive it — `run.resume` is what
-   picks a parked run back up. That contract is pinned in the live-kernel
-   suite; do not fight it.
+   Current state: FAILS with timeout in 5000ms.
 
-4. The worker must:
-   - attach for `agent` steps with the pins it holds
-   - on `step.dispatch`, run the step's declared `cli` as a subprocess
-   - report the result back through the existing protocol (`step.complete`, and
-     the failure path when the CLI exits nonzero)
-   - nothing speculative: no retries of its own, no scheduling, no LLM calls.
-     The kernel owns retry and lease policy — do not reimplement it.
+   Must show: test PASSED.
 
-5. `cd sdk && npm test` must be green. Run it and paste the literal command and
-   output tail showing test counts.
+2. **The worker dispatch test passes.** Run this exact command and paste full output:
 
-6. `cd kernel && sh ../ops/cargo.sh test` must be green. Run it and paste the
-   literal command and output tail showing test counts.
+   ```
+   cd sdk && npm test -- tests/live-kernel.test.ts -t "follows a live worker dispatch through flows run"
+   ```
 
-7. EVERY new test confirmed to FAIL against current code, with the literal
-   failing output quoted in the summary.
+   Current state: FAILS with timeout in 5000ms.
 
-8. As your LAST action, run `git status --porcelain` and paste it.
+   Must show: test PASSED.
+
+3. **Full SDK test suite green.** Run this exact command and paste the summary:
+
+   ```
+   cd sdk && npm test
+   ```
+
+   Current state: 22 failed / 175 passed.
+
+   Must show: 0 failed tests.
+
+4. **Kernel tests remain green.** Run this exact command and paste the summary:
+
+   ```
+   cd kernel && sh ../ops/cargo.sh test
+   ```
+
+   Current state: 44 tests pass (GREEN).
+
+   Must show: all tests passed, 0 failed.
+
+5. **AS YOUR LAST ACTION,** run this command and paste full output:
+
+   ```
+   git status --porcelain
+   ```
+
+   This shows which files were modified.
 
 ## Explicitly OUT of scope
 
-- LLM steps — not in the gate 3 scope
-- Retry logic in the worker — the kernel owns retry policy
-- Scheduling or lease management — the kernel owns lease policy
-- Optimizations, abstractions, or speculative features
-- Changes to the kernel
-- Changes to existing tests (except adding new test cases)
-- Work on any gate other than gate 3
+Per TARGET.md constraints:
+
+- Do NOT touch picker actionability (#42), unterminated backticks (#45)
+- Do NOT touch deterministic-command preflight refusal (#47) — do not touch preflight
+- Do NOT touch the gate-1 race regression test (#48) — do not touch
+  kernel/relayflowd/src/server/tests.rs or server.rs
+- Do NOT touch ops/NEXT.md validation (#50) — do not touch
+  sdk/src/work-package-validator.ts
+- Do NOT modify any kernel code (kernel/**)
+- Do NOT add LLM step handling — not in gate 3 scope
+- Do NOT add retries, scheduling, or lease management in the worker — kernel owns that
+- Do NOT create new files — worker.ts already exists
+- Do NOT add speculative features or optimizations
+- Do NOT work on any other gate besides gate 3
 
 ## If blocked
 
-If gate 3 is genuinely unreachable from the current state, write
-ops/NEEDS_HUMAN.md saying exactly why and still end with ASSESS_DONE. Do not
-silently substitute different work: a run that reports progress on the wrong
-gate is worse than one that reports it is blocked.
+If gate 3 is genuinely unreachable, write ops/NEEDS_HUMAN.md with the exact
+reason and still end with ASSESS_DONE. Do not silently substitute different
+work.
