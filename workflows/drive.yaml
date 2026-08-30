@@ -285,10 +285,11 @@ workflows:
               find testdata/preflight -type f -name '*-cli' -exec chmod +x {} +
 
           Each must succeed. Do NOT swallow errors with `|| true` — a silent
-          skip here reproduces the exact "19 SDK failures" that runs 60-63,
-          65-67 stalled on. Paste the last 5 lines of the kernel build's
-          output in your summary; if the build fails, fix the actual failure
-          before proceeding to npm test.
+          skip here reproduces the "19 SDK failures" PR #63 explicitly reported
+          in its ops/NEEDS_HUMAN.md. Paste the last 5 lines of the kernel
+          build's output in your summary; if the build itself fails, report
+          the captured failure output and STOP without BUILD_DONE. Kernel
+          repair is out of scope per ops/NEXT.md — do not attempt it here.
 
           Then implement the work package: read ops/NEXT.md, AGENTS.md, and
           the relevant parts of docs/RFC-0001-everything-is-a-relayflow.md.

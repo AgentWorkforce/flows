@@ -184,10 +184,11 @@ workflows:
       \ strips. Run these three commands (subshells so cd\nsurvives if you invoke them as separate tool\
       \ calls):\n\n    chmod +x ops/cargo.sh\n    ( cd kernel && sh ../ops/cargo.sh build )\n    find\
       \ testdata/preflight -type f -name '*-cli' -exec chmod +x {} +\n\nEach must succeed. Do NOT swallow\
-      \ errors with `|| true` \u2014 a silent\nskip here reproduces the exact \"19 SDK failures\" that\
-      \ runs 60-63,\n65-67 stalled on. Paste the last 5 lines of the kernel build's\noutput in your summary;\
-      \ if the build fails, fix the actual failure\nbefore proceeding to npm test.\n\nThen implement the\
-      \ work package: read ops/NEXT.md, AGENTS.md, and\nthe relevant parts of docs/RFC-0001-everything-is-a-relayflow.md.\n\
+      \ errors with `|| true` \u2014 a silent\nskip here reproduces the \"19 SDK failures\" PR #63 explicitly\
+      \ reported\nin its ops/NEEDS_HUMAN.md. Paste the last 5 lines of the kernel\nbuild's output in your\
+      \ summary; if the build itself fails, report\nthe captured failure output and STOP without BUILD_DONE.\
+      \ Kernel\nrepair is out of scope per ops/NEXT.md \u2014 do not attempt it here.\n\nThen implement\
+      \ the work package: read ops/NEXT.md, AGENTS.md, and\nthe relevant parts of docs/RFC-0001-everything-is-a-relayflow.md.\n\
       Implement exactly that work package \u2014 nothing more. Run the\ndefinition-of-done commands yourself\
       \ and iterate until they pass.\nKeep files small and single-purpose. End with BUILD_DONE only when\n\
       the definition of done passes locally; paste the passing output.\n"
