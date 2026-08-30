@@ -2,7 +2,7 @@ use std::{
     io::{BufRead, BufReader},
     os::unix::net::UnixStream,
     path::Path,
-    sync::{Arc, Condvar, Mutex, mpsc},
+    sync::{Arc, Mutex, mpsc},
     thread,
     time::Duration,
 };
@@ -85,41 +85,6 @@ fn step_completions(data_dir: &Path, run_id: &str) -> Vec<StepCompletedPayload> 
         .filter(|entry| entry.entry_type == EntryType::StepCompleted)
         .map(|entry| serde_json::from_value(entry.payload).unwrap())
         .collect()
-}
-
-struct PausingObserver {
-    hub: Arc<ProtocolHub>,
-    committed: Arc<(Mutex<bool>, Condvar)>,
-    resume: Arc<(Mutex<bool>, Condvar)>,
-}
-
-impl JournalObserver for PausingObserver {
-    fn appended(&self, entry: &relayflowd_core::JournalEntry) {
-        let (committed, committed_signal) = &*self.committed;
-        *committed.lock().unwrap() = true;
-        committed_signal.notify_one();
-
-        let (resume, resume_signal) = &*self.resume;
-        let mut ready = resume.lock().unwrap();
-        while !*ready {
-            ready = resume_signal.wait(ready).unwrap();
-        }
-        self.hub.appended(entry);
-    }
-}
-
-fn wait_for_signal(signal: &Arc<(Mutex<bool>, Condvar)>) {
-    let (ready, condition) = &**signal;
-    let mut ready = ready.lock().unwrap();
-    while !*ready {
-        ready = condition.wait(ready).unwrap();
-    }
-}
-
-fn send_signal(signal: &Arc<(Mutex<bool>, Condvar)>) {
-    let (ready, condition) = &**signal;
-    *ready.lock().unwrap() = true;
-    condition.notify_one();
 }
 
 #[test]
@@ -263,33 +228,42 @@ fn an_entry_appended_during_watch_registration_is_delivered_exactly_once() {
     let observer: Arc<dyn JournalObserver> = hub.clone();
     let engine = Engine::with_runtime(data_dir, dispatcher, observer);
 
-    let committed = Arc::new((Mutex::new(false), Condvar::new()));
-    let resume = Arc::new((Mutex::new(false), Condvar::new()));
-    let interleaver = Engine::with_runtime(
-        data_dir,
-        hub.clone(),
-        Arc::new(PausingObserver {
-            hub: hub.clone(),
-            committed: committed.clone(),
-            resume: resume.clone(),
-        }),
-    );
+    // A live watcher whose writer is locked pauses the append after its journal
+    // commit but before the hub notification completes.
+    let (blocked_writer, _blocked_peer) = shared_writer();
+    hub.watch(4, run_id.clone(), blocked_writer.clone());
+    hub.watch_ready(4, &run_id, 0);
+    let blocked_notification = blocked_writer.lock().unwrap();
+    let entries_before_append = Engine::new(data_dir)
+        .journal_entries(&run_id, 1, usize::MAX)
+        .unwrap()
+        .len();
 
+    let append_dir = data_dir.to_path_buf();
     let append_run = run_id.clone();
     let append_hub = hub.clone();
+    let (append_writer, _append_peer) = shared_writer();
     let append = thread::spawn(move || {
-        let lock = append_hub.run_lock(&append_run);
-        let _guard = lock.lock().unwrap();
-        interleaver
-            .append_stream(
-                &append_run,
-                "results",
-                "test",
-                json!({"interleaved": true}),
-            )
-            .unwrap();
+        let line = json!({
+            "id": "append",
+            "verb": "stream.append",
+            "params": {
+                "run_id": append_run,
+                "stream": "results",
+                "message": {"interleaved": true}
+            }
+        })
+        .to_string();
+        request(&append_dir, &append_hub, 5, &append_writer, &line)
     });
-    wait_for_signal(&committed);
+    while Engine::new(data_dir)
+        .journal_entries(&run_id, 1, usize::MAX)
+        .unwrap()
+        .len()
+        == entries_before_append
+    {
+        thread::yield_now();
+    }
 
     let (watch_writer, watch_peer) = shared_writer();
     let watch_hub = hub.clone();
@@ -300,12 +274,14 @@ fn an_entry_appended_during_watch_registration_is_delivered_exactly_once() {
             watch_ready.send(()).unwrap();
         })
     });
-    // Without the run lock, registration reaches Live while the committed
-    // append's hub notification is still paused. With the lock, this times out
-    // because registration correctly waits for that notification to finish.
-    let _ = watch_is_ready.recv_timeout(Duration::from_millis(100));
-    send_signal(&resume);
-    append.join().unwrap();
+    assert!(
+        hub.run_lock(&run_id).try_lock().is_err(),
+        "the run lock must cover both journal commit and hub notification"
+    );
+    drop(blocked_notification);
+    let appended = append.join().unwrap();
+    assert!(appended.ok, "stream.append failed: {:?}", appended.error);
+    watch_is_ready.recv().unwrap();
     let result = watch.join().unwrap();
     assert!(result.is_ok(), "run.watch failed: {result:?}");
 

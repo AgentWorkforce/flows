@@ -1,82 +1,68 @@
-# Work package — gate 3: close deterministic-command preflight gap
+# NEXT — Work package for this tick
 
-**Target (from ops/TARGET.md):** Close the deterministic-command preflight gap (Codex P1). CODE task, SDK-side.
+**Gate:** 3 (CODE task, KERNEL-side, Rust)
+
+**Target scope (quoted from ops/TARGET.md, which is NOT in the delivered diff):**
+
+> Make the gate-1 race test actually prove something. PR #18 fixed a real race: the run lock now makes an append's journal commit and its hub notification atomic with respect to watch registration. The production change was reviewed and is sound.
+>
+> **Its regression test has never been observed to fail.** The assertion rests on a 100ms timeout — `kernel/relayflowd/src/server/tests.rs:306`:
+>
+>     let _ = watch_is_ready.recv_timeout(Duration::from_millis(100));
+>
+> That is a scheduling race, not a synchronisation point: it can pass without the fix and fail spuriously with it. A test that has never been seen to fail proves nothing.
+>
+> There IS a proper seam already: `after_ready` in `kernel/relayflowd/src/server.rs:427`, called at line 460, exists precisely to pin this ordering.
 
 ## Objective
 
-Strengthen preflight validation so that a deterministic step whose first command word contains `/` and does not exist is REFUSED (not warned). Bare words that don't resolve continue to WARN exactly as today.
+Rewrite the race test at `kernel/relayflowd/src/server/tests.rs:306` to use EXPLICIT synchronization via the existing `after_ready` seam instead of a 100ms timeout. The test must force the interleaving with two threads and a channel, proving the fix works by **failing deterministically against the pre-fix code** and passing with it.
 
 ## Files in scope
 
-- `sdk/src/preflight.ts` — modify `warnOnUnprovableEffects` (lines 237-278) to distinguish path-like commands from bare words
-- `sdk/src/failure-kinds.ts` — add new refusal kind if needed
-- `sdk/tests/*.test.ts` — add tests proving both behaviors
+- `kernel/relayflowd/src/server/tests.rs` — the test rewrite
+- NO production changes to `kernel/relayflowd/src/server.rs` — the fix is already merged and reviewed in PR #18
 
 ## Definition of done
 
-ALL of the following must hold:
+All of the following must be satisfied with literal command outputs pasted:
 
-1. **Path-like refusal implemented:** A deterministic step whose first command word contains `/` and does not exist triggers a REFUSAL (not a warning). The refusal must flow through the real `preflight()` entry point.
+1. **Test rewritten with explicit synchronization** — two threads and a channel, using `after_ready` to control ordering. No sleeps, no timeouts standing in for ordering.
 
-2. **Bare-word warning preserved:** Bare unresolved words (no `/`) still emit a WARNING. A test must prove this path is unchanged from current behavior.
+2. **CONFIRMED TO FAIL against the pre-fix server.rs** — this is the whole point:
+   - Locally revert the PR #18 production change in `server.rs`
+   - Run the test: `cd kernel && sh ../ops/cargo.sh test <test_name>`
+   - **Quote the literal failure output** showing the test fails
+   - Restore the fix
+   - Run the test again showing it passes with the fix in place
 
-3. **Kernel tests green:**
+3. **All kernel tests pass:**
    ```
    cd kernel && sh ../ops/cargo.sh test
    ```
-   Must show `test result: ok. 71 passed; 0 failed`.
 
-4. **SDK tests green:**
+4. **All SDK tests pass:**
    ```
    cd sdk && npm test
    ```
-   Must show all tests passing (currently 22 fail, mostly on missing executable flag for `authenticated-cli`).
 
-5. **Picker must not regress:** Measure against MAIN on the SAME backlog:
+5. **Test must not be flaky** — run it at least 20 times in a row and report the count:
    ```
-   node -e 'const fs=require("node:fs");
-     const sdk=require("./sdk/dist/backlog-picker.js");
-     const t=fs.readFileSync("ops/BACKLOG.md","utf8");
-     const e=[...t.matchAll(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/gm)]
-       .map(m=>({title:m[1],body:m[2].replace(/\s+/g," ").trim()}));
-     let ok=0; for(const x of e)
-       if(sdk.validateWorkPackage(sdk.packageFromEntry(x)).accepted) ok++;
-     console.log("TOTAL="+e.length+" ACTIONABLE="+ok)'
+   for i in $(seq 20); do cd kernel && sh ../ops/cargo.sh test <test_name> || exit 1; done
    ```
-   Record the baseline BEFORE changes, verify it does not drop AFTER.
 
-6. **New tests fail against current code:** Every new test added for this work must be demonstrated to FAIL against the current code. Paste the literal failing output.
+6. **As the LAST action:** run `git status --porcelain` and paste the output
 
-7. **Final git status pasted:** As the LAST action, run `git status --porcelain` and paste the output.
+## Out of scope
 
-## Explicitly OUT of scope
+- Any changes to production code in `server.rs` behavior — the fix is already merged
+- New production code or seams — the `after_ready` seam already exists
+- Work on any other gate
+- Fixing SDK test failures (known issue per STATE.md)
+- Any TypeScript or SDK work
 
-- Preflight for llm/agent steps (CLI resolution) — not touched
-- Trigger validation — not touched
-- Any work outside sdk/src/preflight.ts and its tests
-- Performance optimization
-- Changing existing warning kinds or messages beyond what is required for the path/bare distinction
-- Work on any gate other than gate 3
+## Note
 
-## Notes
+This is Rust, not TypeScript, and the seam already exists — the work is the test and its proof, not new production code. If you find yourself changing server.rs's behavior to make the test pass, stop: that is a different task and the fix is already merged and reviewed.
 
-The current `warnOnUnprovableEffects` function (sdk/src/preflight.ts:237) treats all unresolved commands the same. The fix requires:
-- Detecting `/` in the command word via `firstCommandWord()`
-- When `/` is present AND `probes.command(binary)` returns false, push a REFUSAL diagnostic instead of a WARNING
-- When `/` is absent AND command doesn't resolve, keep the current WARNING behavior
-
-Example failing case (should refuse, currently warns):
-```yaml
-steps:
-  - id: build
-    type: deterministic
-    command: ./ops/nonexistent.sh
-```
-
-Example that should keep warning (bare word):
-```yaml
-steps:
-  - id: build
-    type: deterministic
-    command: nonexistent
-```
+Several drive runs execute in parallel, each pinned to a different gate. Work outside this target collides with a sibling run, so staying inside it is mandatory for safe parallel execution.
