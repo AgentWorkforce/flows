@@ -1,65 +1,82 @@
-# Work package for this tick — gate 3
+# Work package — gate 3: close deterministic-command preflight gap
 
-**Target scope from TARGET.md:**
-Make the gate-1 race test actually prove something. CODE task, KERNEL-side (Rust).
-
-Gate 1 is GREEN with one asterisk: PR #18 fixed a real race (run lock makes append's journal commit and hub notification atomic with respect to watch registration), but **its regression test has never been observed to fail**. The assertion rests on a 100ms timeout at `kernel/relayflowd/src/server/tests.rs:306`:
-
-```rust
-let _ = watch_is_ready.recv_timeout(Duration::from_millis(100));
-```
-
-This is a scheduling race, not a synchronization point: it can pass without the fix and fail spuriously with it. A test that has never been seen to fail proves nothing.
-
-There IS a proper seam already: `after_ready` in `kernel/relayflowd/src/server.rs:427`, called at line 460, exists precisely to pin this ordering.
+**Target (from ops/TARGET.md):** Close the deterministic-command preflight gap (Codex P1). CODE task, SDK-side.
 
 ## Objective
 
-Rewrite the race test to use EXPLICIT synchronization (two threads and a channel) so the interleaving is forced rather than hoped for. Confirm it fails against the pre-fix server.rs, then passes with the fix. Ensure the test is not flaky.
+Strengthen preflight validation so that a deterministic step whose first command word contains `/` and does not exist is REFUSED (not warned). Bare words that don't resolve continue to WARN exactly as today.
 
 ## Files in scope
 
-- `kernel/relayflowd/src/server/tests.rs` — the test to rewrite (around line 306)
-- `kernel/relayflowd/src/server.rs` — READ ONLY to understand the `after_ready` seam (line 427, 460)
+- `sdk/src/preflight.ts` — modify `warnOnUnprovableEffects` (lines 237-278) to distinguish path-like commands from bare words
+- `sdk/src/failure-kinds.ts` — add new refusal kind if needed
+- `sdk/tests/*.test.ts` — add tests proving both behaviors
 
-## Definition of done — ALL of these
+## Definition of done
 
-1. **Test rewritten around `after_ready` with EXPLICIT synchronization** — two threads and a channel, so the interleaving is forced rather than hoped for. No sleeps, no timeouts standing in for ordering.
+ALL of the following must hold:
 
-2. **CONFIRMED TO FAIL against the pre-fix server.rs** — this is the whole point. Revert the PR #18 production change locally, run the test, and quote the literal failure output; then restore the fix and show it passing.
+1. **Path-like refusal implemented:** A deterministic step whose first command word contains `/` and does not exist triggers a REFUSAL (not a warning). The refusal must flow through the real `preflight()` entry point.
+
+2. **Bare-word warning preserved:** Bare unresolved words (no `/`) still emit a WARNING. A test must prove this path is unchanged from current behavior.
 
 3. **Kernel tests green:**
-   ```bash
+   ```
    cd kernel && sh ../ops/cargo.sh test
    ```
-   Full output required.
+   Must show `test result: ok. 71 passed; 0 failed`.
 
 4. **SDK tests green:**
-   ```bash
+   ```
    cd sdk && npm test
    ```
-   Full output required.
+   Must show all tests passing (currently 22 fail, mostly on missing executable flag for `authenticated-cli`).
 
-5. **Test must not be flaky** — run it at least 20 times in a row and report the count:
-   ```bash
-   for i in $(seq 20); do cd kernel && sh ../ops/cargo.sh test <test-name>; done
+5. **Picker must not regress:** Measure against MAIN on the SAME backlog:
    ```
-   Full output required.
+   node -e 'const fs=require("node:fs");
+     const sdk=require("./sdk/dist/backlog-picker.js");
+     const t=fs.readFileSync("ops/BACKLOG.md","utf8");
+     const e=[...t.matchAll(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/gm)]
+       .map(m=>({title:m[1],body:m[2].replace(/\s+/g," ").trim()}));
+     let ok=0; for(const x of e)
+       if(sdk.validateWorkPackage(sdk.packageFromEntry(x)).accepted) ok++;
+     console.log("TOTAL="+e.length+" ACTIONABLE="+ok)'
+   ```
+   Record the baseline BEFORE changes, verify it does not drop AFTER.
 
-6. **As the LAST action, run `git status --porcelain` and paste it.**
+6. **New tests fail against current code:** Every new test added for this work must be demonstrated to FAIL against the current code. Paste the literal failing output.
+
+7. **Final git status pasted:** As the LAST action, run `git status --porcelain` and paste the output.
 
 ## Explicitly OUT of scope
 
-- **Do NOT change server.rs behavior** — the fix is already merged and reviewed. This is Rust, not TypeScript, and the seam already exists. The work is the test and its proof, not new production code.
-- **Do NOT touch preflight** — regression closed in PR #47, see TARGET.md "Do not re-do these".
-- **Do NOT work on other gates** — several drive runs execute in parallel, each pinned to a different gate. Work outside this target collides with a sibling run.
+- Preflight for llm/agent steps (CLI resolution) — not touched
+- Trigger validation — not touched
+- Any work outside sdk/src/preflight.ts and its tests
+- Performance optimization
+- Changing existing warning kinds or messages beyond what is required for the path/bare distinction
+- Work on any gate other than gate 3
 
-## Current state
+## Notes
 
-- SDK tests failing (22 failed, 167 passed) — appears to be environmental (live kernel tests timing out), not related to this work package.
-- Kernel tests currently passing (6 passed per quick check).
-- No open PRs blocking this work per STATE.md (only #19 is open, for gate 2).
+The current `warnOnUnprovableEffects` function (sdk/src/preflight.ts:237) treats all unresolved commands the same. The fix requires:
+- Detecting `/` in the command word via `firstCommandWord()`
+- When `/` is present AND `probes.command(binary)` returns false, push a REFUSAL diagnostic instead of a WARNING
+- When `/` is absent AND command doesn't resolve, keep the current WARNING behavior
 
-## Next action
+Example failing case (should refuse, currently warns):
+```yaml
+steps:
+  - id: build
+    type: deterministic
+    command: ./ops/nonexistent.sh
+```
 
-Read the full test around line 270-341 in kernel/relayflowd/src/server/tests.rs to understand the current implementation, then rewrite it to use explicit synchronization via the `after_ready` callback.
+Example that should keep warning (bare word):
+```yaml
+steps:
+  - id: build
+    type: deterministic
+    command: nonexistent
+```
