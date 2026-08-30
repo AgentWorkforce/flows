@@ -1,53 +1,64 @@
-Make the gate-1 race test actually prove something. CODE task, KERNEL-side (Rust).
+Make ops/NEXT.md a checked artifact instead of free prose. CODE task, SDK-side.
 
 ## Do not re-do these
 
-Merged and closed; a PR redoing any of them will be closed:
-  - picker actionability (#42) and the unterminated-backtick refusal (#45)
-  - the deterministic-command preflight refusal (#47) — path-like command words
-    that do not exist now refuse; bare words still warn; shell prefixes such as
-    `TMPDIR=/tmp printf ok` and `>/tmp/out echo hi` must keep WARNING, and there
-    is a regression test pinning that. Do not touch preflight.
+Merged and closed; a PR redoing any will be closed:
+  - picker actionability (#42), unterminated backticks (#45)
+  - deterministic-command preflight refusal (#47) — path-like words that do not
+    exist refuse, bare words still warn, and shell prefixes like
+    `TMPDIR=/tmp printf ok` must keep WARNING. Do not touch preflight.
+  - the gate-1 race regression test (#48) — rewritten around the `after_ready`
+    seam, confirmed to fail against a reverted PR #18 and to pass 20/20 with it.
+    Do not touch kernel/relayflowd/src/server/tests.rs or server.rs.
+
+## The problem, from evidence
+
+Every run writes `ops/NEXT.md`. Reviewers have raised findings against it on
+FOUR separate PRs (#19, #35, #40, #48), always the same two shapes:
+
+  - it asserts a test result without carrying the command or its output
+    ("all merged and tested", "three tests pass")
+  - it cites a file that is not in the delivered tree (`ops/TARGET.md`)
+
+Those are cheap findings that cost a review round trip each time, and they
+recur because nothing checks the file. It is prose, so anything can be written
+in it, including claims that are not true.
 
 ## The task
 
-Gate 1 is GREEN with one asterisk, and this is it.
+An SDK function that validates a NEXT.md work package and refuses it with a
+typed reason, in the same style as `validateWorkPackage` in
+`sdk/src/backlog-picker.ts` — read that first and match its shape.
 
-PR #18 fixed a real race: the run lock now makes an append's journal commit and
-its hub notification atomic with respect to watch registration. The production
-change was reviewed and is sound.
+At minimum it must catch the two observed shapes:
+  - a claim of passing tests with no captured command output near it
+  - a reference to a repo path that does not exist
 
-**Its regression test has never been observed to fail.** The assertion rests on
-a 100ms timeout — `kernel/relayflowd/src/server/tests.rs:306`:
-
-    let _ = watch_is_ready.recv_timeout(Duration::from_millis(100));
-
-That is a scheduling race, not a synchronisation point: it can pass without the
-fix and fail spuriously with it. A test that has never been seen to fail proves
-nothing, and this is the only change in the repo that does not meet the standard
-everything else does.
-
-There IS a proper seam already: `after_ready` in
-`kernel/relayflowd/src/server.rs:427`, called at line 460, exists precisely to
-pin this ordering.
+`sdk/src/work-package-consumer.ts` already takes an injected `pathExists` for
+exactly this kind of check — reuse that pattern rather than calling the
+filesystem directly, and note WHY: it is what makes the check testable.
 
 ## Definition of done, all of it
 
-  - the test rewritten around `after_ready` with EXPLICIT synchronisation —
-    two threads and a channel, so the interleaving is forced rather than hoped
-    for. No sleeps, no timeouts standing in for ordering.
-  - CONFIRMED TO FAIL against the pre-fix server.rs. This is the whole point of
-    the task. Revert the PR #18 production change locally, run the test, and
-    quote the literal failure output; then restore the fix and show it passing.
-    A summary that does not contain that failing output has not done the work.
-  - `cd kernel && sh ../ops/cargo.sh test` green, and `cd sdk && npm test` green
-  - the test must not be flaky: run it at least 20 times in a row and report the
-    count. `for i in $(seq 20); do ... ; done`
+  - the validator in sdk/src, exported from sdk/src/index.ts
+  - typed refusal reasons, not booleans and not thrown strings
+  - run it against the ops/NEXT.md files from PRs #19 and #35 — both must be
+    REFUSED, and quote the reasons. If it accepts them it has not caught the
+    real defect.
+  - a well-formed NEXT.md must still be ACCEPTED. Include one in the tests.
+  - `cd sdk && npm test` green, and `cd kernel && sh ../ops/cargo.sh test` green
+  - the picker must not regress. Measure against MAIN ON THE SAME BACKLOG, not
+    a number from an older brief — the count moves when the backlog moves:
+
+        node -e 'const fs=require("node:fs");
+          const sdk=require("./sdk/dist/backlog-picker.js");
+          const t=fs.readFileSync("ops/BACKLOG.md","utf8");
+          const e=[...t.matchAll(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/gm)]
+            .map(m=>({title:m[1],body:m[2].replace(/\s+/g," ").trim()}));
+          let ok=0; for(const x of e)
+            if(sdk.validateWorkPackage(sdk.packageFromEntry(x)).accepted) ok++;
+          console.log("TOTAL="+e.length+" ACTIONABLE="+ok)'
+
+  - EVERY new test confirmed to FAIL against current code, with the literal
+    failing output quoted in your summary
   - as your LAST action, run `git status --porcelain` and paste it
-
-## Note
-
-This is Rust, not TypeScript, and the seam already exists — the work is the test
-and its proof, not new production code. If you find yourself changing
-server.rs's behaviour to make the test pass, stop: that is a different task and
-the fix is already merged and reviewed.
