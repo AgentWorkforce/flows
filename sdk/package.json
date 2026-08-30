@@ -23,7 +23,8 @@
     "demo:hn": "npm run build && node dist/demo-hn-monitor.js",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && vitest run",
+    "test:prep": "( cd ../kernel && sh ../ops/cargo.sh build ) && ( find ../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + 2>/dev/null || true )",
+    "test": "npm run test:prep && npm run build && vitest run",
     "test:watch": "vitest"
   },
   "license": "UNLICENSED",
