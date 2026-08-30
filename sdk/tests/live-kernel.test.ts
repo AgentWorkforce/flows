@@ -1,5 +1,6 @@
 import {
   accessSync,
+  chmodSync,
   constants,
   existsSync,
   lstatSync,
@@ -17,6 +18,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { compileYaml, toKernelSpec } from '../src/compile.js';
 import { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
+import { AgentWorker } from '../src/worker.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SDK = join(ROOT, 'sdk');
@@ -199,6 +201,46 @@ steps:
     expect(completed.status, completed.stderr).toBe(0);
     expect(completed.stdout).toContain('completionReason: success');
     expect(completed.stderr).not.toContain('protocol_error');
+  });
+
+  it('runs an agent step through the SDK worker', async () => {
+    const dataDir = temporaryDirectory('flows-live-agent-worker-');
+    await startDaemon(dataDir);
+    const cli = join(dataDir, 'fixture-agent');
+    writeFileSync(cli, '#!/bin/sh\nprintf "%s" "$1"\n');
+    chmodSync(cli, 0o755);
+    const flow = join(dataDir, 'agent.flow.yaml');
+    writeFileSync(flow, `
+version: '0.1.0'
+steps:
+  - id: edit
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    instruction: Complete the agent step.
+`);
+
+    const client = await connectClient(dataDir);
+    await client.hello('live-sdk-agent-worker');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-sdk-agent-worker',
+      pins: {
+        workspace: [{ surface: 'repo', revision_id: 'rev-a' }],
+        streams: [],
+      },
+    });
+    await worker.attach();
+
+    const completed = await invokeCliAsync([
+      'run', '--data-dir', dataDir, flow,
+    ]);
+
+    expect(completed.status, completed.stderr).toBe(0);
+    const runId = completed.stdout.match(/RUN ([0-9A-Z]{26})/)?.[1];
+    expect(runId).toBeDefined();
+    expect((await client.runGet(runId!)).steps['edit']).toMatchObject({
+      type: 'agent',
+      state: 'done',
+    });
   });
 
   it('can always get a parked run to a late-attaching worker', async () => {

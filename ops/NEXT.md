@@ -1,80 +1,95 @@
-# Work package — gate 3: validate ops/NEXT.md as a checked artifact
+# NEXT — work package for this tick
 
-**Scope from this run's target:** Make ops/NEXT.md a checked artifact instead of free prose. CODE task, SDK-side.
+**Scope:** Build a minimal agent worker in the SDK. CODE task, SDK-side.
 
-## The problem, from evidence
-
-Every run writes `ops/NEXT.md`. Reviewers have raised findings against it on FOUR separate PRs (#19, #35, #40, #48), always the same two shapes:
-
-  - it asserts a test result without carrying the command or its output ("all merged and tested", "three tests pass")
-  - it cites a file that is not in the delivered tree (`ops/TARGET.md`)
-
-Those are cheap findings that cost a review round trip each time, and they recur because nothing checks the file. It is prose, so anything can be written in it, including claims that are not true.
+This run is pinned to **gate 3** and must not work on any other gate.
 
 ## Objective
 
-An SDK function that validates a NEXT.md work package and refuses it with a typed reason, in the same style as `validateWorkPackage` in `sdk/src/backlog-picker.ts` — read that first and match its shape.
+Promote the throwaway worker the tests already build into a real SDK component. Nothing in this repo can execute an agent step. Searching for `workerAttach` / `step.complete` finds only TESTS (`sdk/tests/live-kernel.test.ts`, `journal-client.test.ts`, `journal-client-loopback.ts`) and the protocol definitions. `sdk/src/cli/run.ts` only OBSERVES worker leases and waits for one that never arrives.
 
-At minimum it must catch the two observed shapes:
-  - a claim of passing tests with no captured command output near it
-  - a reference to a repo path that does not exist
-
-`sdk/src/work-package-consumer.ts` already takes an injected `pathExists` for exactly this kind of check — reuse that pattern rather than calling the filesystem directly, and note WHY: it is what makes the check testable.
+The kernel's dispatch, lease and claim machinery is real and tested. The worker side of the protocol is simply unimplemented, and that is what blocks gate 2 ("a workload RUNS as a relayflow" — today a run can only be shown CREATED) and gate 3 ("every claim/lease/retry served by the kernel").
 
 ## Files in scope
 
-- `sdk/src/work-package-validator.ts` — new file, the validator function
-- `sdk/src/index.ts` — export the validator
-- `sdk/tests/work-package-validator.test.ts` — new file, comprehensive tests
-- `sdk/src/failure-kinds.ts` — add typed refusal reasons if needed
+- `sdk/src/worker.ts` — the new worker implementation
+- `sdk/src/index.ts` — export the worker
+- `sdk/tests/live-kernel.test.ts` OR a new test file — end-to-end test of a real flow with an agent step against live `relayflowd`, with this worker attached
 
 ## Definition of done
 
-ALL of the following must hold:
+All of the following MUST hold:
 
-1. **The validator exists in sdk/src, exported from sdk/src/index.ts**
+1. **The worker in sdk/src, exported from sdk/src/index.ts**
+   - attach for `agent` steps with the pins it holds
+   - on `step.dispatch`, run the step's declared `cli` as a subprocess
+   - report the result back through the existing protocol (`step.complete`, and the failure path when the CLI exits nonzero)
+   - nothing speculative: no retries of its own, no scheduling, no LLM calls. The kernel owns retry and lease policy — do not reimplement it.
 
-2. **Typed refusal reasons, not booleans and not thrown strings**
+2. **A test that runs a real flow with an agent step end to end against a live `relayflowd`, with this worker attached, and asserts the step reaches `done`**
+   - `sdk/tests/live-kernel.test.ts` already starts a daemon — follow that pattern
+   - **the worker must attach BEFORE the run starts.** A run that finds no worker parks, and attaching afterwards does not re-drive it — `run.resume` is what picks a parked run back up. That contract is pinned in the live-kernel suite; do not fight it.
 
-3. **Run it against the ops/NEXT.md files from PRs #19 and #35 — both must be REFUSED, and quote the reasons.** If it accepts them it has not caught the real defect.
+3. **The new test confirmed to FAIL against current code**
+   - MUST quote the literal failing output in this summary or in a commit message
 
-4. **A well-formed NEXT.md must still be ACCEPTED.** Include one in the tests.
-
-5. **`cd sdk && npm test` green:**
+4. **`cd sdk && npm test` green**
    ```
-   cd sdk && npm test
+   [paste literal output here after completion]
    ```
-   All tests must pass. Paste the literal command and output showing pass/fail counts.
 
-6. **`cd kernel && sh ../ops/cargo.sh test` green:**
+5. **`cd kernel && sh ../ops/cargo.sh test` green**
    ```
-   cd kernel && sh ../ops/cargo.sh test
+   [paste literal output here after completion]
    ```
-   All tests must pass. Paste the literal command and output tail.
 
-7. **The picker must not regress.** Measure against MAIN ON THE SAME BACKLOG:
+6. **`git status --porcelain` output as your LAST action**
    ```
-   node -e 'const fs=require("node:fs");
-     const sdk=require("./sdk/dist/backlog-picker.js");
-     const t=fs.readFileSync("ops/BACKLOG.md","utf8");
-     const e=[...t.matchAll(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/gm)]
-       .map(m=>({title:m[1],body:m[2].replace(/\s+/g," ").trim()}));
-     let ok=0; for(const x of e)
-       if(sdk.validateWorkPackage(sdk.packageFromEntry(x)).accepted) ok++;
-     console.log("TOTAL="+e.length+" ACTIONABLE="+ok)'
+   [paste literal output here after completion]
    ```
-   Baseline on current code: `TOTAL=31 ACTIONABLE=19`
-   After changes: must still show `ACTIONABLE=19` or higher.
-
-8. **EVERY new test confirmed to FAIL against current code, with the literal failing output quoted in your summary**
-
-9. **As your LAST action, run `git status --porcelain` and paste it**
 
 ## Explicitly OUT of scope
 
-- Work on any gate other than gate 3
-- Changing the format of ops/NEXT.md beyond validation
-- Refactoring existing validators beyond what's needed for consistency
-- Performance optimization
-- Validating BACKLOG.md entries
-- Any work in kernel/ beyond running the test suite
+- Fixing the current SDK test failures (22 failed tests related to CLI preflight) — those are NOT gate 3 blockers
+- LLM step workers — gate 3 is agent workers only
+- Retry logic — the kernel owns that
+- Workspace management beyond accepting pins
+- Stream handling beyond what the protocol requires
+- Integration mounts
+
+## If blocked
+
+If gate 3 is genuinely unreachable from the current state, write `ops/NEEDS_HUMAN.md` saying exactly why and still end with ASSESS_DONE. Do not silently substitute different work: a run that reports progress on the wrong gate is worse than one that reports it is blocked.
+
+## Evidence from bootstrap and STATE.md
+
+From `docs/bootstrap-report.md`: The protocol verbs exist (`worker.attach`, `step.heartbeat`, `step.complete` are types-only in serve; listed as needing implementation in WP-2). Gate 1 is GREEN. The kernel tests pass (19+19+1+1+26+5 = 71 passed).
+
+From `sdk/tests/live-kernel.test.ts` around the `live-manual-agent` case (lines 268-307): the whole shape is already proven there:
+- connect via JournalClient
+- `hello('live-manual-worker')`
+- `workerAttach('live-manual-agent', ['agent'], { workspace: [...], streams: [] })`
+- await `step.dispatch` event
+- (the worker closes without completing — this test is about the manual recovery state)
+
+The pattern to follow is shown in the `follows a live worker dispatch through flows run` test (lines 172-202):
+- await `step.dispatch` event
+- complete with `worker.stepComplete(lease.run_id, lease.step_id, lease.attempt, lease.idempotency_key, 'success', { output, usage })`
+
+The CRITICAL ordering requirement from lines 204-266: **attach BEFORE submitting events or starting runs**, because attaching afterwards does not re-drive a parked run. That contract is pinned; work with it, not against it.
+
+## Current kernel test status
+
+All kernel tests pass:
+
+```
+test result: ok. 19 passed; 0 failed (relayflowd lib)
+test result: ok. 19 passed; 0 failed (crash_resume)
+test result: ok. 1 passed; 0 failed (event_wake)
+test result: ok. 1 passed; 0 failed (hn_monitor_integration)
+test result: ok. 26 passed; 0 failed (relayflowd_core)
+test result: ok. 5 passed; 0 failed (spec_parity)
+test result: ok. 6 passed; 0 failed (relayflowd_journal)
+```
+
+Total: 77 passed, 0 failed. Gate 1 holds.
