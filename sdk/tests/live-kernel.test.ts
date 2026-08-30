@@ -1,5 +1,6 @@
 import {
   accessSync,
+  chmodSync,
   constants,
   existsSync,
   lstatSync,
@@ -15,6 +16,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { compileYaml, toKernelSpec } from '../src/compile.js';
+import { AgentWorker } from '../src/agent-worker.js';
 import { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 
@@ -199,6 +201,65 @@ steps:
     expect(completed.status, completed.stderr).toBe(0);
     expect(completed.stdout).toContain('completionReason: success');
     expect(completed.stderr).not.toContain('protocol_error');
+  });
+
+  it('runs an agent step end to end through the SDK agent worker', async () => {
+    const dataDir = temporaryDirectory('flows-live-agent-worker-');
+    await startDaemon(dataDir);
+    const invoked = join(dataDir, 'invoked.txt');
+    const agentCli = join(dataDir, 'agent-cli');
+    writeFileSync(agentCli, `#!/bin/sh
+if [ "$1 $2" = "auth status" ]; then exit 0; fi
+printf '%s' "$1" > ${JSON.stringify(invoked)}
+if [ "$1" = "Fail the requested edit." ]; then exit 9; fi
+printf 'agent finished'
+`);
+    chmodSync(agentCli, 0o755);
+    const flow = join(dataDir, 'agent.flow.yaml');
+    writeFileSync(flow, `
+version: '0.1.0'
+steps:
+  - id: edit
+    type: agent
+    cli: ${JSON.stringify(agentCli)}
+    instruction: Make the requested edit.
+    surfaces:
+      workspace:
+        - surface: repo
+`);
+
+    const worker = new AgentWorker({
+      socketPath: join(dataDir, 'relayflowd.sock'),
+      workerId: 'live-sdk-agent',
+      pins: { workspace: [{ surface: 'repo', revision_id: 'rev-a' }], streams: [] },
+    });
+    await worker.start();
+    const running = invokeCliAsync(['run', '--data-dir', dataDir, flow]);
+    const completed = await running;
+
+    expect(completed.status, completed.stderr).toBe(0);
+    expect(completed.stdout).toContain('completionReason: success');
+    expect(readFileSync(invoked, 'utf8')).toBe('Make the requested edit.');
+
+    writeFileSync(flow, `
+version: '0.1.0'
+steps:
+  - id: edit
+    type: agent
+    cli: ${JSON.stringify(agentCli)}
+    instruction: Fail the requested edit.
+    surfaces:
+      workspace:
+        - surface: repo
+`);
+    const failed = await invokeCliAsync(['run', '--data-dir', dataDir, flow]);
+    expect(failed.status).toBe(1);
+    expect(failed.stdout).toContain('completionReason: step_failed');
+    const failedRunId = failed.stdout.match(/RUN ([0-9A-Z]{26})/)?.[1];
+    const inspector = await connectClient(dataDir);
+    const journal = (await inspector.journalRead(failedRunId!, 1)).entries;
+    expect(completionReasons(journal, 'edit')).toEqual(['worker_error']);
+    await worker.close();
   });
 
   it('can always get a parked run to a late-attaching worker', async () => {

@@ -1,80 +1,98 @@
-# Work package — gate 3: validate ops/NEXT.md as a checked artifact
+# NEXT — work package for this tick
 
-**Scope from this run's target:** Make ops/NEXT.md a checked artifact instead of free prose. CODE task, SDK-side.
+## Scope (from ops/TARGET.md)
 
-## The problem, from evidence
+Build a minimal agent worker in the SDK. CODE task, SDK-side.
 
-Every run writes `ops/NEXT.md`. Reviewers have raised findings against it on FOUR separate PRs (#19, #35, #40, #48), always the same two shapes:
+The full scope from TARGET.md:
 
-  - it asserts a test result without carrying the command or its output ("all merged and tested", "three tests pass")
-  - it cites a file that is not in the delivered tree (`ops/TARGET.md`)
-
-Those are cheap findings that cost a review round trip each time, and they recur because nothing checks the file. It is prose, so anything can be written in it, including claims that are not true.
+> Promote the throwaway worker the tests already build into a real SDK component.
+>
+> `sdk/tests/live-kernel.test.ts` around the `live-manual-agent` case shows the
+> whole shape: connect, `hello`, `workerAttach` with pins, receive `step.dispatch`,
+> act, complete. Read it first — the protocol is already proven there.
+>
+> Scope it small and honest:
+>   - attach for `agent` steps with the pins it holds
+>   - on `step.dispatch`, run the step's declared `cli` as a subprocess
+>   - report the result back through the existing protocol (`step.complete`, and
+>     the failure path when the CLI exits nonzero)
+>   - nothing speculative: no retries of its own, no scheduling, no LLM calls.
+>     The kernel owns retry and lease policy — do not reimplement it.
 
 ## Objective
 
-An SDK function that validates a NEXT.md work package and refuses it with a typed reason, in the same style as `validateWorkPackage` in `sdk/src/backlog-picker.ts` — read that first and match its shape.
-
-At minimum it must catch the two observed shapes:
-  - a claim of passing tests with no captured command output near it
-  - a reference to a repo path that does not exist
-
-`sdk/src/work-package-consumer.ts` already takes an injected `pathExists` for exactly this kind of check — reuse that pattern rather than calling the filesystem directly, and note WHY: it is what makes the check testable.
+Implement a standalone agent worker that can execute agent steps dispatched by
+the kernel, running the step's declared CLI as a subprocess and reporting results
+through the existing protocol.
 
 ## Files in scope
 
-- `sdk/src/work-package-validator.ts` — new file, the validator function
-- `sdk/src/index.ts` — export the validator
-- `sdk/tests/work-package-validator.test.ts` — new file, comprehensive tests
-- `sdk/src/failure-kinds.ts` — add typed refusal reasons if needed
+- New file in sdk/src for the worker implementation
+- sdk/src/index.ts — export the worker API
+- sdk/tests/live-kernel.test.ts — add a test showing an agent step running
+  end to end with this worker attached
+- New file in sdk/tests for isolated worker tests (optional)
 
-## Definition of done
+## Definition of done (all required)
 
-ALL of the following must hold:
+1. **Worker in sdk/src, exported from sdk/src/index.ts**
 
-1. **The validator exists in sdk/src, exported from sdk/src/index.ts**
+2. **A test that runs a real flow with an agent step end to end against a live
+   relayflowd, with this worker attached, and asserts the step reaches `done`**
+   - Must follow the pattern in `sdk/tests/live-kernel.test.ts`
+   - Worker MUST attach BEFORE the run starts (attaching after does not
+     re-drive parked runs - this contract is pinned in the live-kernel suite)
 
-2. **Typed refusal reasons, not booleans and not thrown strings**
-
-3. **Run it against the ops/NEXT.md files from PRs #19 and #35 — both must be REFUSED, and quote the reasons.** If it accepts them it has not caught the real defect.
-
-4. **A well-formed NEXT.md must still be ACCEPTED.** Include one in the tests.
-
-5. **`cd sdk && npm test` green:**
+3. **cd sdk && npm test** must be green. Passing commands required:
    ```
    cd sdk && npm test
    ```
-   All tests must pass. Paste the literal command and output showing pass/fail counts.
 
-6. **`cd kernel && sh ../ops/cargo.sh test` green:**
+4. **cd kernel && sh ../ops/cargo.sh test** must be green. Passing commands:
    ```
    cd kernel && sh ../ops/cargo.sh test
    ```
-   All tests must pass. Paste the literal command and output tail.
 
-7. **The picker must not regress.** Measure against MAIN ON THE SAME BACKLOG:
+5. **EVERY new test confirmed to FAIL against current code, with the literal
+   failing output quoted in the summary**
+
+6. **Final verification**:
    ```
-   node -e 'const fs=require("node:fs");
-     const sdk=require("./sdk/dist/backlog-picker.js");
-     const t=fs.readFileSync("ops/BACKLOG.md","utf8");
-     const e=[...t.matchAll(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/gm)]
-       .map(m=>({title:m[1],body:m[2].replace(/\s+/g," ").trim()}));
-     let ok=0; for(const x of e)
-       if(sdk.validateWorkPackage(sdk.packageFromEntry(x)).accepted) ok++;
-     console.log("TOTAL="+e.length+" ACTIONABLE="+ok)'
+   git status --porcelain
    ```
-   Baseline on current code: `TOTAL=31 ACTIONABLE=19`
-   After changes: must still show `ACTIONABLE=19` or higher.
-
-8. **EVERY new test confirmed to FAIL against current code, with the literal failing output quoted in your summary**
-
-9. **As your LAST action, run `git status --porcelain` and paste it**
+   Paste output showing modified/added files.
 
 ## Explicitly OUT of scope
 
-- Work on any gate other than gate 3
-- Changing the format of ops/NEXT.md beyond validation
-- Refactoring existing validators beyond what's needed for consistency
-- Performance optimization
-- Validating BACKLOG.md entries
-- Any work in kernel/ beyond running the test suite
+- Retry logic (kernel owns this)
+- Scheduling (kernel owns this)
+- LLM steps (agent steps only)
+- Helper surfaces (f.slack, f.notion)
+- Integration with old engine
+- Documentation files beyond code comments
+- Fixing unrelated test failures
+
+## Current state
+
+Kernel tests must be green:
+```
+$ cd kernel && sh ../ops/cargo.sh test
+test result: ok. 77 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+```
+
+SDK tests - current baseline:
+```
+$ cd sdk && npm test
+Test Files  3 failed | 11 passed (14)
+Tests  22 failed | 174 passed (196)
+```
+The 22 failures are CLI exit code mismatches in preflight checks - a known
+sandbox environment issue (executable bit not preserved per ops/STATE.md
+section on known environment faults). Worker implementation is independent
+of these preflight issues.
+
+**Open PRs**: NONE per ops/STATE.md
+
+**Blockers**: NONE - protocol is ready, kernel dispatch machinery operational,
+worker extraction from test code is straightforward.
