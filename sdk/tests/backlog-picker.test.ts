@@ -150,7 +150,20 @@ describe('work package validation', () => {
     const actionable = verdicts.filter(
       (verdict) => (verdict as { accepted: boolean }).accepted,
     ).length;
-    expect(actionable).toBeGreaterThanOrEqual(20);
+
+    // A PROPORTION, not a count. This asserted `>= 20` and broke three times
+    // as the backlog grew: the figure was measured at one moment and every
+    // entry filed afterwards moved it, so PRs that changed nothing about the
+    // picker failed here and looked like regressions (#45, #50). A count is
+    // not a property of the picker — it is a property of the file's length on
+    // the day it was written.
+    //
+    // What the picker must actually hold is that MOST real entries qualify.
+    expect(entries.length, 'the backlog should not be nearly empty').toBeGreaterThan(10);
+    expect(
+      actionable / entries.length,
+      `only ${String(actionable)} of ${String(entries.length)} entries are actionable`,
+    ).toBeGreaterThan(0.5);
   });
 
   it('accepts an engineering task stated as an imperative outcome', async () => {
