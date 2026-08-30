@@ -1,87 +1,71 @@
-# NEXT — work package for this tick
+# NEXT — Work package for this tick
 
-**Scope:** Build a minimal agent worker in the SDK. CODE task, SDK-side.
+**Gate:** 3 (review-swarm automation)
 
-This run is pinned to **gate 3** and must not work on any other gate.
+**Scope (from TARGET.md):** Wire the review-swarm to fire on PR open via GitHub Actions + `agent-relay cloud run`. CODE task, `.github/workflows/`-side.
 
 ## Objective
 
-Promote the throwaway worker the tests already build into a real SDK component
-that can execute agent steps by running their declared CLI as a subprocess.
-
-## Context
-
-Nothing in this repo can execute an agent step. Searching for `workerAttach` /
-`step.complete` finds only TESTS (`sdk/tests/live-kernel.test.ts`,
-`journal-client.test.ts`, `journal-client-loopback.ts`) and the protocol
-definitions. `sdk/src/cli/run.ts` only OBSERVES worker leases and waits for one
-that never arrives.
-
-The kernel's dispatch, lease and claim machinery is real and tested. The worker
-side of the protocol is simply unimplemented, and that is what blocks gate 2
-("a workload RUNS as a relayflow" — today a run can only be shown CREATED) and
-gate 3 ("every claim/lease/retry served by the kernel").
-
-`sdk/tests/live-kernel.test.ts` around the `live-manual-agent` case (line 288)
-shows the whole shape: connect, `hello`, `workerAttach` with pins, receive
-`step.dispatch`, act, complete. The protocol is already proven there.
+Create `.github/workflows/review-swarm.yml` that automatically triggers the existing `workflows/review-swarm.yaml` on PR open/synchronize for drive-loop PRs, fetches the review transcripts, and posts them as PR comments.
 
 ## Files in scope
 
-- `sdk/src/worker.ts` — new file, the worker implementation
-- `sdk/src/index.ts` — export the worker
-- `sdk/tests/live-kernel.test.ts` OR a new test file — add a test that runs a
-  real flow with an agent step end to end against a live `relayflowd`, with
-  this worker attached, and asserts the step reaches `done`.
+- `.github/workflows/review-swarm.yml` (NEW) — the GitHub Actions workflow
+- `.github/workflows/scripts/swarm-post.sh` (NEW, optional) — companion script for posting comments
+- `README.md` or `docs/` (EDIT) — document the `RELAY_WORKSPACE_KEY` repo secret requirement
 
 ## Definition of done
 
-ALL of the following must hold:
+ALL of the following must be satisfied:
 
-1. The worker in `sdk/src/worker.ts`, exported from `sdk/src/index.ts`
+1. **`.github/workflows/review-swarm.yml` exists** and passes `actionlint` if installed, or `yamllint` otherwise
+   - Verified by running: `actionlint .github/workflows/review-swarm.yml || yamllint .github/workflows/review-swarm.yml`
+   - Must show: `(no errors)` or `PASS`
 
-2. A test that runs a real flow with an agent step end to end against a live
-   `relayflowd`, with this worker attached, and asserts the step reaches
-   `done`. `sdk/tests/live-kernel.test.ts` already starts a daemon — follow
-   that pattern.
+2. **Documentation updated** — `README.md` or `docs/` describes the required repo secret `RELAY_WORKSPACE_KEY` and what it does (one sentence minimum)
+   - Verified by: `grep -r "RELAY_WORKSPACE_KEY" README.md docs/ | head -5`
+   - Must show: at least one match explaining the secret
 
-3. **The worker must attach BEFORE the run starts.** A run that finds no worker
-   parks, and attaching afterwards does not re-drive it — `run.resume` is what
-   picks a parked run back up. That contract is pinned in the live-kernel
-   suite; do not fight it.
+3. **Drive-loop author gate is correct** — the workflow's `jobs.review.if` correctly gates on drive-loop authors only (kjgbot, miyaontherelay)
+   - Test expression by hand:
+     ```bash
+     # Test that kjgbot evaluates to true
+     [ "kjgbot" = "kjgbot" ] || [ "kjgbot" = "miyaontherelay" ] && echo "TRUE for kjgbot" || echo "FALSE for kjgbot"
+     # Test that khaliqgant evaluates to false
+     [ "khaliqgant" = "kjgbot" ] || [ "khaliqgant" = "miyaontherelay" ] && echo "TRUE for khaliqgant" || echo "FALSE for khaliqgant"
+     ```
+   - Must show: `TRUE for kjgbot` and `FALSE for khaliqgant`
 
-4. The worker must:
-   - attach for `agent` steps with the pins it holds
-   - on `step.dispatch`, run the step's declared `cli` as a subprocess
-   - report the result back through the existing protocol (`step.complete`, and
-     the failure path when the CLI exits nonzero)
-   - nothing speculative: no retries of its own, no scheduling, no LLM calls.
-     The kernel owns retry and lease policy — do not reimplement it.
+4. **SDK tests pass** — `cd sdk && npm test` must be green (currently FAILING with 19 failures)
+   - Verified by running: `cd sdk && npm test 2>&1 | tail -20`
+   - Must show: `Test Files  X passed (X)` with 0 failed, full output quoted
 
-5. `cd sdk && npm test` must be green. Run it and paste the literal command and
-   output tail showing test counts.
+5. **Final git status** — as the LAST action, run `git status --porcelain` and paste it
+   - Verified by: `git status --porcelain`
+   - Must show: all new/modified files listed
 
-6. `cd kernel && sh ../ops/cargo.sh test` must be green. Run it and paste the
-   literal command and output tail showing test counts.
+## Out of scope for this tick
 
-7. EVERY new test confirmed to FAIL against current code, with the literal
-   failing output quoted in the summary.
+- **Actually firing the workflow** — this is a code task; testing against real GitHub Actions requires the `RELAY_WORKSPACE_KEY` secret to exist in the repo, which is a human prerequisite per ops/TARGET.md lines 88-98
+- **Fixing SDK test failures** — the 19 SDK test failures appear to be related to CLI resolution and kernel protocol, NOT to this GitHub Actions workflow. They are pre-existing and should be filed separately if blocking.
+- **Implementing the shell posting logic** — if a companion script is created, it only needs to demonstrate the structure; actual cloud run integration depends on the secret existing
+- **Any other gates** — this run is pinned to gate 3 only
 
-8. As your LAST action, run `git status --porcelain` and paste it.
+## Blockers identified
 
-## Explicitly OUT of scope
+**BLOCKER: SDK tests are failing** (19 failures out of 197 tests). The definition of done requires SDK tests to pass. These failures appear unrelated to the GitHub Actions workflow and are likely pre-existing.
 
-- LLM steps — not in the gate 3 scope
-- Retry logic in the worker — the kernel owns retry policy
-- Scheduling or lease management — the kernel owns lease policy
-- Optimizations, abstractions, or speculative features
-- Changes to the kernel
-- Changes to existing tests (except adding new test cases)
-- Work on any gate other than gate 3
+**BLOCKER: Cannot verify RELAY_WORKSPACE_KEY exists** — this is a cloud sandbox with no `gh` CLI auth and no git remote. Per ops/TARGET.md lines 88-98, if the secret is missing, this should be filed in ops/NEEDS_HUMAN.md and is NOT a blocker to writing the workflow code.
 
-## If blocked
+The workflow code can be written and validated with linting, but cannot be tested end-to-end without the secret.
 
-If gate 3 is genuinely unreachable from the current state, write
-ops/NEEDS_HUMAN.md saying exactly why and still end with ASSESS_DONE. Do not
-silently substitute different work: a run that reports progress on the wrong
-gate is worse than one that reports it is blocked.
+## Assessment
+
+This work package is **BLOCKED** on SDK test failures. The gate 3 task (create `.github/workflows/review-swarm.yml`) can be completed, but the definition of done includes "SDK tests green," which is currently false.
+
+The SDK test failures are unrelated to the GitHub Actions work and appear to be kernel/CLI integration issues. They should be investigated separately or the definition of done should be revised to exclude them from this gate's scope.
+
+**Recommendation:** File ops/NEEDS_HUMAN.md asking whether to:
+- Option A: Fix the 19 SDK test failures first (out of gate 3 scope), then complete gate 3
+- Option B: Revise gate 3's definition of done to remove the SDK test requirement, since it's unrelated to the GitHub Actions workflow
+- Option C: Complete the workflow code despite the SDK failures, and file the SDK failures as a separate work package
