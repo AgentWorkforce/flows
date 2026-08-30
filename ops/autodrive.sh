@@ -43,6 +43,7 @@ while [ ! -f "$STOP_FILE" ]; do
   # What is live, and what finished since last pass?
   live=$(agent-relay cloud schedules >/dev/null 2>&1; echo "")
   running=0
+  delivered_this_cycle=0
   for rid in $(cat /tmp/autodrive-live.txt 2>/dev/null); do
     status=$(agent-relay cloud status "$rid" 2>/dev/null | sed -n 's/^Status:[[:space:]]*//p' | head -1)
     case "$status" in
@@ -78,6 +79,7 @@ while [ ! -f "$STOP_FILE" ]; do
             tail -3 "$dlog" 2>/dev/null | sed 's/^/    /'
           fi
           echo "$rid" >> "$STATE"
+          delivered_this_cycle=1
         fi
         ;;
       *) say "run ${rid%%-*} status unknown ('$status') — leaving it alone" ;;
@@ -85,7 +87,20 @@ while [ ! -f "$STOP_FILE" ]; do
   done
   mv -f /tmp/autodrive-live.new /tmp/autodrive-live.txt 2>/dev/null || : > /tmp/autodrive-live.txt
 
-  if [ "$running" -lt "$MAX_LIVE" ]; then
+  # Never launch in the same cycle a run was delivered.
+  #
+  # Delivery and the next launch were 15 seconds apart (01:18:50 -> 01:19:05),
+  # so the brief could not be retargeted between them by anything human-paced.
+  # That window has now produced SIX duplicate PRs — #29, #31, #32, #46, #49,
+  # #52 — every one of them a run correctly doing what a brief still named
+  # after the work was finished. Retargeting "before merge" and then "when the
+  # PR opens" both failed against a 15-second gap.
+  #
+  # Skipping one cycle after a delivery costs at most $INTERVAL seconds of idle
+  # and buys a full interval to retarget. A duplicate run costs ~20 minutes.
+  if [ "$delivered_this_cycle" -eq 1 ]; then
+    say "delivered this cycle — holding one interval so the brief can be retargeted"
+  elif [ "$running" -lt "$MAX_LIVE" ]; then
     say "launching (base $base)"
     # The brief lives in a file so it can be steered without restarting the
     # loop. Five generic-brief cycles ("read STATE.md, pick one small thing")
