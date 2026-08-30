@@ -66,44 +66,49 @@ Last updated: 2026-08-30 02:55 UTC, by Khaliq's session, on `main`. HANDOFF STAT
   poller satisfies "runs as a relayflow" under rule 2, or whether it must be
   scheduled and unattended first. That is a judgement, not a missing part.
 
-## HANDOFF — the loop is STOPPED (2026-08-30 02:55 UTC)
+## HANDOFF (2026-08-30 03:05 UTC) — a lead is LIVE on sf-mini
 
-`ops/autodrive.sh` was stopped deliberately: Khaliq's laptop is closing and the
-loop only ever ran there. **Nothing is driving the program right now.**
+**`flows-lead-1` is running on node `sf-mini`.** Attach with:
 
-One cloud run was in flight when the loop stopped and is still running in the
-cloud, unattended:
+    agent-relay node agent attach flows-lead-1 --node sf-mini --mode drive
 
-    c5c04a7c-dfcb-42cd-890b-e2fa8bad16be   (brief: build a minimal agent worker)
+It carries the full brief: the loop mechanics, the merge rules, and the rules
+that were learned the hard way (retarget the brief before its work lands;
+measure rather than assert; a guard nothing calls is not a guard; verify by
+mutation; `cloud logs --json` because the text form 500s; never cancel a run
+because cancel destroys the patch).
 
-Check it with `agent-relay cloud status <id>`, and read its log with
-`agent-relay cloud logs <id> --json` (the non-json form returns 500). If it
-produced work, deliver it with `sh ops/deliver-run.sh <id> <clean-checkout>`.
+**Workspace gotcha that cost an hour:** `sf-mini` lives in the **`default`**
+workspace, not the one pinned to this project. `agent-relay fleet nodes` run
+from this repo shows only `flows` (the laptop) plus offline `direct-*` records,
+and sf-mini looks absent. Pass the default workspace key:
 
-### To restart the loop on any machine with the repo and a cloud login
+    k=$(agent-relay workspace key default --reveal-secrets)
+    agent-relay fleet nodes --all --wk "$k"
+    agent-relay fleet spawn claude --node sf-mini --name <name> --wk "$k" --task "..."
+
+`spawn_agent_name_in_use` means a stale registration holds the name — release it
+first (`agent-relay fleet release <name> --wk "$k"`), then spawn.
+
+**`ops/autodrive.sh` is STOPPED.** It only ever ran on Khaliq's laptop, which is
+closing. Restart it wherever a lead is running:
 
     cd <repo> && nohup sh ops/autodrive.sh > /tmp/autodrive.log 2>&1 &
 
-It reads `ops/AUTODRIVE_BRIEF.md` fresh each cycle, holds one cycle after
-delivering so the brief can be retargeted, and never merges — merging is a
-human's or a lead's call.
+**One cloud run was left in flight, unattended:**
 
-### Why there is no remote lead
+    c5c04a7c-dfcb-42cd-890b-e2fa8bad16be   (brief: build a minimal agent worker)
 
-A lead agent could not be placed off the laptop:
-  - `agent-relay fleet nodes` shows only ONE live node, `flows`, and that node
-    IS the laptop (`fleet agent list` reports `localNode: flows`). Spawning
-    there does not survive the lid closing.
-  - `sf-mini` is offline, so `attach --node sf-mini` returns
-    `404 agent_not_found` for any name.
-  - `fleet spawn --sandbox`, which would provision a Cloud Daytona node, fails
-    at workspace resolution: `404 Workspace not found`, and
-    `agent-relay cloud enroll --workspace <id>` returns `500 Internal Server
-    Error`. That is server-side and not something this repo can work around.
+`agent-relay cloud status <id>`; read its log with `--json`; if it produced work
+deliver it with `sh ops/deliver-run.sh <id> <clean-checkout>`.
 
-So the handoff is DURABLE, not LIVE: everything needed to resume is in the repo
-(this file, ops/BACKLOG.md, ops/AUTODRIVE_BRIEF.md), and the next session or
-lead can pick it up cold. Nothing is lost; nothing is progressing either.
+**The cloud workspace 500 is NOT a standing blocker.** `cloud enroll --workspace`
+and `fleet spawn --sandbox` failed with 404/500 around 02:50 and both succeed
+now. An earlier note here called it server-side and blocking; that was
+over-claimed on a single failed attempt.
+
+**Khaliq decided (2026-08-30): the agent worker belongs in THIS repo.** It is the
+critical path to gates 2 and 3, and is the current brief.
 
 ## Open PRs
 
