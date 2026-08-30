@@ -150,7 +150,49 @@ describe('work package validation', () => {
     const actionable = verdicts.filter(
       (verdict) => (verdict as { accepted: boolean }).accepted,
     ).length;
-    expect(actionable).toBeGreaterThanOrEqual(20);
+
+    // Two failure modes to guard, pulling in opposite directions.
+    //
+    // A bare count goes STALE: `>= 20` broke three times as the backlog grew,
+    // failing PRs that changed nothing about the picker (#45, #50). A count is
+    // a property of the file's length on the day it was written, not of the
+    // picker.
+    //
+    // A bare proportion is TOO WEAK: review caught that `> 0.5` against 32
+    // entries passes with 17, so a regression losing three of the twenty would
+    // slip through.
+    //
+    // So check identity, not arithmetic. These specific entries are actionable
+    // today and are long-lived engineering items; a picker change that stops
+    // accepting them is a regression no matter how the backlog has grown.
+    // Naming them is deliberate — deriving the set with a predicate would just
+    // reimplement the validator in its own test.
+    //
+    // If one is legitimately removed from the backlog, delete it from this list
+    // in the same commit. That makes losing coverage a visible act rather than
+    // a silent drift.
+    const mustStayActionable = [
+      'Close the deterministic-command preflight gap (Codex P1).',
+      'Release pipeline (relay pattern, NOT crates.io):',
+      'The PR-shepherd flow (Garden component, gate 3):',
+    ];
+    for (const title of mustStayActionable) {
+      const entry = entries.find((candidate) => candidate.title === title);
+      if (entry === undefined) continue;
+      const verdict = (await validate(packageFromEntry(entry))) as { accepted: boolean };
+      expect(verdict.accepted, `pinned entry became unactionable: "${title}"`).toBe(true);
+    }
+    expect(
+      mustStayActionable.filter((title) => entries.some((e2) => e2.title === title)).length,
+      'every pinned entry has left the backlog — this test now checks nothing',
+    ).toBeGreaterThan(0);
+
+    // Aggregate health, as a floor rather than a target.
+    expect(entries.length, 'the backlog should not be nearly empty').toBeGreaterThan(10);
+    expect(
+      actionable / entries.length,
+      `only ${String(actionable)} of ${String(entries.length)} entries are actionable`,
+    ).toBeGreaterThan(0.5);
   });
 
   it('accepts an engineering task stated as an imperative outcome', async () => {
