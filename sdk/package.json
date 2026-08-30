@@ -20,6 +20,7 @@
   ],
   "scripts": {
     "build": "tsc && node scripts/make-cli-executable.mjs",
+    "demo:hn": "npm run build && node dist/demo-hn-monitor.js",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && vitest run",
