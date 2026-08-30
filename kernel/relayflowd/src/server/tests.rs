@@ -276,10 +276,10 @@ fn an_entry_appended_during_watch_registration_is_delivered_exactly_once() {
     );
 
     let append_run = run_id.clone();
-    let append_hub = hub.clone();
+    let run_lock = hub.run_lock(&run_id);
+    let append_lock = run_lock.clone();
     let append = thread::spawn(move || {
-        let lock = append_hub.run_lock(&append_run);
-        let _guard = lock.lock().unwrap();
+        let _guard = append_lock.lock().unwrap();
         interleaver
             .append_stream(
                 &append_run,
@@ -294,18 +294,34 @@ fn an_entry_appended_during_watch_registration_is_delivered_exactly_once() {
     let (watch_writer, watch_peer) = shared_writer();
     let watch_hub = hub.clone();
     let watch_run = run_id.clone();
-    let (watch_ready, watch_is_ready) = mpsc::channel();
+    let (watch_started, watch_is_started) = mpsc::sync_channel(0);
+    let (watch_ready, watch_is_ready) = mpsc::sync_channel(0);
     let watch = thread::spawn(move || {
+        watch_started.send(()).unwrap();
         watch_with_replay(&engine, &watch_hub, 3, &watch_run, &watch_writer, || {
             watch_ready.send(()).unwrap();
         })
     });
-    // Without the run lock, registration reaches Live while the committed
-    // append's hub notification is still paused. With the lock, this times out
-    // because registration correctly waits for that notification to finish.
-    let _ = watch_is_ready.recv_timeout(Duration::from_millis(100));
+    // The rendezvous puts the watch thread immediately at registration while
+    // the committed append still owns the run lock. With the fix, registering
+    // takes a reference to that lock and blocks. Without it, `after_ready`
+    // fires instead. Both are explicit synchronization states, not elapsed
+    // time or a scheduler guess.
+    watch_is_started.recv().unwrap();
+    let ready_before_append_notification = loop {
+        if watch_is_ready.try_recv().is_ok() {
+            break true;
+        }
+        if Arc::strong_count(&run_lock) > 3 {
+            break false;
+        }
+        thread::yield_now();
+    };
     send_signal(&resume);
     append.join().unwrap();
+    if !ready_before_append_notification {
+        watch_is_ready.recv().unwrap();
+    }
     let result = watch.join().unwrap();
     assert!(result.is_ok(), "run.watch failed: {result:?}");
 
