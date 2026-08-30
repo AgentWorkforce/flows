@@ -179,10 +179,18 @@ workflows:
     dependsOn:
     - assess-gate-1
     maxIterations: 3
-    task: "Read ops/NEXT.md, AGENTS.md, and the relevant parts of\ndocs/RFC-0001-everything-is-a-relayflow.md.\
-      \ Implement exactly that\nwork package \u2014 nothing more. Run the definition-of-done commands\n\
-      yourself and iterate until they pass. Keep files small and\nsingle-purpose. End with BUILD_DONE\
-      \ only when the definition of done\npasses locally; paste the passing output.\n"
+    task: "Before touching your work package, prepare this sandbox: build the\nkernel binary that sdk/tests/live-kernel.test.ts\
+      \ exec's via\nops/cargo.sh's RELAYFLOWD_BIN, and restore +x on preflight fixtures\nthat the sandbox\
+      \ strips. Run these three commands (subshells so cd\nsurvives if you invoke them as separate tool\
+      \ calls):\n\n    chmod +x ops/cargo.sh\n    ( cd kernel && sh ../ops/cargo.sh build )\n    find\
+      \ testdata/preflight -type f -name '*-cli' -exec chmod +x {} +\n\nEach must succeed. Do NOT swallow\
+      \ errors with `|| true` \u2014 a silent\nskip here reproduces the exact \"19 SDK failures\" that\
+      \ runs 60-63,\n65-67 stalled on. Paste the last 5 lines of the kernel build's\noutput in your summary;\
+      \ if the build fails, fix the actual failure\nbefore proceeding to npm test.\n\nThen implement the\
+      \ work package: read ops/NEXT.md, AGENTS.md, and\nthe relevant parts of docs/RFC-0001-everything-is-a-relayflow.md.\n\
+      Implement exactly that work package \u2014 nothing more. Run the\ndefinition-of-done commands yourself\
+      \ and iterate until they pass.\nKeep files small and single-purpose. End with BUILD_DONE only when\n\
+      the definition of done passes locally; paste the passing output.\n"
     verification:
       type: output_contains
       value: BUILD_DONE
