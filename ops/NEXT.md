@@ -1,38 +1,63 @@
-# Work package — gate 3: close deterministic-command preflight gap
+# NEXT — Gate 3: Validate ops/NEXT.md structure
 
-**Target (from ops/TARGET.md):** Close the deterministic-command preflight gap (Codex P1). CODE task, SDK-side.
+**Target:** Gate 3 only. This run is pinned to gate 3 and must not work on any other gate.
+
+**Scope from TARGET.md (quoted, not cited):** Make ops/NEXT.md a checked artifact instead of free prose. CODE task, SDK-side.
+
+Every run writes ops/NEXT.md. Reviewers have raised findings against it on FOUR separate PRs (#19, #35, #40, #48), always the same two shapes:
+- it asserts a test result without carrying the command or its output ("all merged and tested", "three tests pass")
+- it cites a file that is not in the delivered tree (ops/TARGET.md)
+
+Those are cheap findings that cost a review round trip each time, and they recur because nothing checks the file.
 
 ## Objective
 
-Strengthen preflight validation so that a deterministic step whose first command word contains `/` and does not exist is REFUSED (not warned). Bare words that don't resolve continue to WARN exactly as today.
+Create an SDK function that validates a NEXT.md work package and refuses it with typed reasons, matching the pattern in sdk/src/backlog-picker.ts validateWorkPackage and sdk/src/work-package-consumer.ts consumeWorkPackage.
+
+At minimum it must catch the two observed shapes:
+- a claim of passing tests with no captured command output near it
+- a reference to a repo path that does not exist
 
 ## Files in scope
 
-- `sdk/src/preflight.ts` — modify `warnOnUnprovableEffects` (lines 237-278) to distinguish path-like commands from bare words
-- `sdk/src/failure-kinds.ts` — add new refusal kind if needed
-- `sdk/tests/*.test.ts` — add tests proving both behaviors
+- sdk/src/next-validator.ts (new file for the validator function)
+- sdk/src/index.ts (export the validator)
+- sdk/tests/next-validator.test.ts (new test file)
+- testdata/next-examples/ (directory for test NEXT.md examples)
 
 ## Definition of done
 
-ALL of the following must hold:
+All of the following MUST pass with literal command output quoted:
 
-1. **Path-like refusal implemented:** A deterministic step whose first command word contains `/` and does not exist triggers a REFUSAL (not a warning). The refusal must flow through the real `preflight()` entry point.
+1. The validator in sdk/src/next-validator.ts exists and is exported from sdk/src/index.ts
 
-2. **Bare-word warning preserved:** Bare unresolved words (no `/`) still emit a WARNING. A test must prove this path is unchanged from current behavior.
+2. Typed refusal reasons (not booleans, not thrown strings) following the pattern:
+   - 'uncaptured_test_claim' - claims passing tests without command output
+   - 'nonexistent_path_reference' - references a path that doesn't exist
 
-3. **Kernel tests green:**
+3. Tests against bad NEXT.md examples representing PRs #19 and #35 patterns - both MUST be REFUSED:
    ```
-   cd kernel && sh ../ops/cargo.sh test
+   cd sdk && npm test 2>&1 | grep -A 5 "next-validator"
    ```
-   Must show `test result: ok. 71 passed; 0 failed`.
+   Output must show tests passing that verify refusal of:
+   - test claims without output (the #19/#35 pattern)
+   - nonexistent path references (ops/TARGET.md pattern)
 
-4. **SDK tests green:**
+4. A well-formed NEXT.md MUST be ACCEPTED - test must demonstrate this
+
+5. SDK tests green:
    ```
    cd sdk && npm test
    ```
-   Must show all tests passing (currently 22 fail, mostly on missing executable flag for `authenticated-cli`).
+   Must show: Test Files X passed, Tests Y passed (all green, 0 failed)
 
-5. **Picker must not regress:** Measure against MAIN on the SAME backlog:
+6. Kernel tests green (no regression):
+   ```
+   cd kernel && sh ../ops/cargo.sh test
+   ```
+   Must show: test result: ok. N passed; 0 failed
+
+7. Picker actionability must not regress from main. Measure against MAIN ON THE SAME BACKLOG:
    ```
    node -e 'const fs=require("node:fs");
      const sdk=require("./sdk/dist/backlog-picker.js");
@@ -43,40 +68,24 @@ ALL of the following must hold:
        if(sdk.validateWorkPackage(sdk.packageFromEntry(x)).accepted) ok++;
      console.log("TOTAL="+e.length+" ACTIONABLE="+ok)'
    ```
-   Record the baseline BEFORE changes, verify it does not drop AFTER.
+   Count must match or exceed the baseline from main
 
-6. **New tests fail against current code:** Every new test added for this work must be demonstrated to FAIL against the current code. Paste the literal failing output.
+8. EVERY new test confirmed to FAIL against current code before implementation:
+   - Run tests before implementing validator
+   - Quote the literal failing output for each test
+   - Then implement and show tests passing
 
-7. **Final git status pasted:** As the LAST action, run `git status --porcelain` and paste the output.
+9. Final git status to verify all changes are tracked:
+   ```
+   git status --porcelain
+   ```
 
-## Explicitly OUT of scope
+## Out of scope
 
-- Preflight for llm/agent steps (CLI resolution) — not touched
-- Trigger validation — not touched
-- Any work outside sdk/src/preflight.ts and its tests
-- Performance optimization
-- Changing existing warning kinds or messages beyond what is required for the path/bare distinction
-- Work on any gate other than gate 3
-
-## Notes
-
-The current `warnOnUnprovableEffects` function (sdk/src/preflight.ts:237) treats all unresolved commands the same. The fix requires:
-- Detecting `/` in the command word via `firstCommandWord()`
-- When `/` is present AND `probes.command(binary)` returns false, push a REFUSAL diagnostic instead of a WARNING
-- When `/` is absent AND command doesn't resolve, keep the current WARNING behavior
-
-Example failing case (should refuse, currently warns):
-```yaml
-steps:
-  - id: build
-    type: deterministic
-    command: ./ops/nonexistent.sh
-```
-
-Example that should keep warning (bare word):
-```yaml
-steps:
-  - id: build
-    type: deterministic
-    command: nonexistent
-```
+- Integration with any build or CI pipeline
+- Validation of other markdown files
+- Parsing NEXT.md into structured data (only validation of common error patterns)
+- Automatic fixing of invalid NEXT.md files
+- Work on any other gate (this is gate 3 only)
+- Changes to kernel/ code
+- Changes to backlog-picker.ts or work-package-consumer.ts beyond reading for pattern reference
