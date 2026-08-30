@@ -54,12 +54,29 @@ while [ ! -f "$STOP_FILE" ]; do
         if ! grep -q "^$rid$" "$STATE" 2>/dev/null; then
           say "run ${rid%%-*} finished ($status) — delivering"
           rbase=$(grep "^$rid " /tmp/autodrive-bases.txt 2>/dev/null | awk '{print $2}')
+          # Keep the whole transcript, then report from it.
+          #
+          # This used to pipe delivery straight into a grep for the three
+          # DELIVER_* markers, with `|| true` on the end. Any failure that did
+          # not print one of those markers — a crash before it got that far, a
+          # git error, a GitHub API refusal — logged NOTHING and was swallowed.
+          # Run 5a846d38 finished, delivered nothing, opened no PR, and left no
+          # line saying so. Silent loss is the one outcome this loop must never
+          # produce, because nothing downstream can notice it.
+          dlog="/tmp/autodrive-deliver-$rid.log"
           ( cd "$DELIVER_DIR" 2>/dev/null \
             && git fetch --quiet origin \
             && git reset --quiet --hard origin/main \
             && git clean -qfd \
-            && DELIVER_BASE="${rbase:-origin/main}" sh ops/deliver-run.sh "$rid" "$DELIVER_DIR" 2>&1 \
-            | grep -E "DELIVER_PR_OPENED|DELIVER_FAIL|DELIVER_SKIPPED" | head -3 ) || true
+            && DELIVER_BASE="${rbase:-origin/main}" sh ops/deliver-run.sh "$rid" "$DELIVER_DIR" 2>&1 ) \
+            > "$dlog" 2>&1
+          drc=$?
+          if grep -qE "DELIVER_PR_OPENED|DELIVER_FAIL|DELIVER_SKIPPED" "$dlog"; then
+            grep -E "DELIVER_PR_OPENED|DELIVER_FAIL|DELIVER_SKIPPED" "$dlog" | head -3
+          else
+            say "DELIVER_NO_MARKER (exit $drc) for ${rid%%-*} — full log: $dlog"
+            tail -3 "$dlog" 2>/dev/null | sed 's/^/    /'
+          fi
           echo "$rid" >> "$STATE"
         fi
         ;;
