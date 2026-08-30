@@ -3,52 +3,34 @@
 Items the Lead should weigh in assess after ops/DIRECTIVES.md and the current
 gate's needs. Not commitments; ordering is the Lead's call with evidence.
 
-- **ROOT CAUSE: the relayfile flush cannot handle a large propagated tree.**
-  DOWNSTREAM SYMPTOM, now identified: the stale tree makes verify fail for
-  reasons that look unrelated. Run ae982aaa's verify logged
-  `VERIFY_INSTALL: sdk/node_modules absent - installing` and then 22 failures,
-  and was marked VERIFY_FAIL_NONFATAL — node_modules was missing at the start of
-  verify because the flush had not carried it. Do not chase those failures
-  individually; they are the flush.
-  A false trail worth recording: one of those 22 was `Test timed out in 5000ms`,
-  and on that basis PR #44 proposed raising the global vitest timeout six-fold.
-  The log contains exactly ONE timeout, not 22. #44 was closed. Count before
-  generalising from a log line.
-  It fails in TWO ways, both volume-driven, and both non-fatal so the workflow
-  reports success while later steps read stale files and the delivered patch
-  loses the run's real work:
-      http 413 payload too large            (fdb49a9c 4127 files, ad98c2c3 4175,
-                                             52fa0752 3247, 51422f20 4440)
-      timed out waiting for daemon pid N to ack SIGUSR1   (863a066a 5337 files)
-  Against one run that did not fail to flush: 76a4a8d1, 489 files.
-  Of 52fa0752's changed paths, 4914 matched target/debug and 1 node_modules, so
-  `kernel/target/debug` is the bulk of the volume.
-  NOT deterministic: 51422f20 hit four 413s and still delivered its work. A
-  failed flush makes loss possible, not certain — it depends on whether the
-  dropped flush happened to carry the work. Do not claim otherwise.
-  FIXED (PR #38, merged 5132079): ops/cargo.sh now sets CARGO_TARGET_DIR outside
-  the propagated tree, keyed per worktree, and exports RELAYFLOWD_BIN so
-  consumers follow the build. Measured locally: kernel/target in tree 4900 -> 0,
-  whole tree 1550 files (1226 of them node_modules).
-  TESTED IN CLOUD — the fix HELPED BUT DID NOT CLEAR IT. Run 5ecf7078, the first
-  whose base contains PR #38, still flushed badly:
-      target/debug references: 4914 -> 0   (the fix definitely took effect)
-      files changed:           ~4400 -> 1932
-      relayfile flush failed:  still 3, still http 413
-  So file count is not the trigger by itself: 1932 files still 413s while
-  76a4a8d1's 489 did not. The prediction written before this run — "if the count
-  is zero the fix holds" — was wrong, and is recorded as wrong.
-  REMAINING CONTRIBUTOR, and it is a platform defect: `sdk/node_modules` is
-  1226 files and 52 MB, and it is GITIGNORED (.gitignore line 1) — yet the mount
-  flush still counts and ships it. A flush that respected .gitignore would drop
-  node_modules, dist and target without any workaround on our side. That is the
-  right fix and it is not ours to make.
-  Workaround attempted and REJECTED: symlinking sdk/node_modules outside the
-  tree breaks TypeScript's type resolution (`Property 'ok' does not exist on
-  type 'Response'` — @types/node no longer resolves through the link). Not
-  viable without more surgery than it is worth.
-  Diagnosis note: `agent-relay cloud logs <id>` returns 500, but
-  `agent-relay cloud logs <id> --json` WORKS. Use --json.
+- **ROOT CAUSE (MEASURED): the flush payload is the relayfile mount's OWN
+  bookkeeping, not our build artifacts.** Settled by the tree census added to
+  the verify step; run 5a846d38 printed:
+      1679  .relay/outbox
+       975  .relay/.mount-shadow
+        78  ops/reviews
+        60  sdk/dist
+        60  .agent-relay/step-artifacts
+        39  .relay/conflicts
+        31  kernel/relayflowd
+      TREE_CENSUS_TOTAL: 3079
+  **2753 of 3079 files are `.relay/*` and `.agent-relay/*`** — the mount's own
+  outbox, shadow copy, conflicts and step artifacts, all sitting inside the
+  propagated tree. The repo itself is 257 tracked files.
+  This is why every fix on our side failed. Removing kernel/target (PR #38) and
+  removing sdk/node_modules (a1a752a, 67be1e0) were both real reductions and
+  both irrelevant to the dominant mass. Three hypotheses were wrong before the
+  census; guessing was the mistake, and instrumenting was what ended it.
+  A likely feedback loop, NOT yet confirmed: the flush fails, so `.relay/outbox`
+  is never drained, so it grows, so the payload gets larger and the flush fails
+  harder. 1679 queued outbox entries is not a steady state.
+  PLATFORM-SIDE, ours to report not to fix: the relayfile mount must not count
+  or ship its own working directories in the flush payload. No arrangement of
+  our build outputs can work around 2753 files we do not create and cannot
+  delete safely.
+  Diagnosis note: `agent-relay cloud logs <id>` 500s in text form; `--json`
+  works. That is what made any of this visible.
+
 
 - **Half the drive runs complete but build nothing.** Measured across 20
   completed runs in /tmp/autodrive.log on 2026-08-29:
