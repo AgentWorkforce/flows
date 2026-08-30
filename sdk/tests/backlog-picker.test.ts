@@ -151,14 +151,43 @@ describe('work package validation', () => {
       (verdict) => (verdict as { accepted: boolean }).accepted,
     ).length;
 
-    // A PROPORTION, not a count. This asserted `>= 20` and broke three times
-    // as the backlog grew: the figure was measured at one moment and every
-    // entry filed afterwards moved it, so PRs that changed nothing about the
-    // picker failed here and looked like regressions (#45, #50). A count is
-    // not a property of the picker — it is a property of the file's length on
-    // the day it was written.
+    // Two failure modes to guard, pulling in opposite directions.
     //
-    // What the picker must actually hold is that MOST real entries qualify.
+    // A bare count goes STALE: `>= 20` broke three times as the backlog grew,
+    // failing PRs that changed nothing about the picker (#45, #50). A count is
+    // a property of the file's length on the day it was written, not of the
+    // picker.
+    //
+    // A bare proportion is TOO WEAK: review caught that `> 0.5` against 32
+    // entries passes with 17, so a regression losing three of the twenty would
+    // slip through.
+    //
+    // So check identity, not arithmetic. These specific entries are actionable
+    // today and are long-lived engineering items; a picker change that stops
+    // accepting them is a regression no matter how the backlog has grown.
+    // Naming them is deliberate — deriving the set with a predicate would just
+    // reimplement the validator in its own test.
+    //
+    // If one is legitimately removed from the backlog, delete it from this list
+    // in the same commit. That makes losing coverage a visible act rather than
+    // a silent drift.
+    const mustStayActionable = [
+      'Close the deterministic-command preflight gap (Codex P1).',
+      'Release pipeline (relay pattern, NOT crates.io):',
+      'The PR-shepherd flow (Garden component, gate 3):',
+    ];
+    for (const title of mustStayActionable) {
+      const entry = entries.find((candidate) => candidate.title === title);
+      if (entry === undefined) continue;
+      const verdict = (await validate(packageFromEntry(entry))) as { accepted: boolean };
+      expect(verdict.accepted, `pinned entry became unactionable: "${title}"`).toBe(true);
+    }
+    expect(
+      mustStayActionable.filter((title) => entries.some((e2) => e2.title === title)).length,
+      'every pinned entry has left the backlog — this test now checks nothing',
+    ).toBeGreaterThan(0);
+
+    // Aggregate health, as a floor rather than a target.
     expect(entries.length, 'the backlog should not be nearly empty').toBeGreaterThan(10);
     expect(
       actionable / entries.length,
