@@ -1,0 +1,68 @@
+---
+name: Review swarm
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    if: >-
+      github.event.pull_request.user.login == 'kjgbot' ||
+      github.event.pull_request.user.login == 'miyaontherelay'
+    runs-on: ubuntu-latest
+    env:
+      RELAY_WORKSPACE_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Install Agent Relay
+        run: npm install --global agent-relay
+
+      - name: Run swarm and post transcripts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          printf '%s\n' "$PR_NUMBER" > .review-target
+          git add --intent-to-add .review-target
+
+          run_json=$(agent-relay cloud run workflows/review-swarm.yaml --json)
+          run_id=$(jq -er '.runId' <<<"$run_json")
+          echo "Review swarm run: $run_id"
+
+          agent-relay cloud logs "$run_id" --follow
+          status=$(agent-relay cloud status "$run_id" --json | jq -er '.status')
+          if [ "$status" != completed ]; then
+            echo "Review swarm ended with status: $status" >&2
+            exit 1
+          fi
+
+          agent-relay cloud sync "$run_id"
+          mapfile -t transcripts < <(
+            git status --porcelain --untracked-files=all -- ops/reviews/ |
+              sed 's/^...//' |
+              grep -E -- \
+                "-pr${PR_NUMBER}-(maintainability|history|structure)\.md$" |
+              sort
+          )
+          if [ "${#transcripts[@]}" -ne 3 ]; then
+            echo \
+              "Expected 3 new review transcripts, found ${#transcripts[@]}" \
+              >&2
+            exit 1
+          fi
+
+          for transcript in "${transcripts[@]}"; do
+            gh pr comment "$PR_NUMBER" --body-file "$transcript"
+          done
