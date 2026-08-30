@@ -3,6 +3,25 @@
 Items the Lead should weigh in assess after ops/DIRECTIVES.md and the current
 gate's needs. Not commitments; ordering is the Lead's call with evidence.
 
+- **`timeoutMs` is not enforced — a step ran 2.25x past its limit and nothing
+  killed it.** Run 6d9bc35c's `verify-1` declares `timeoutMs: 1200000` (20 min)
+  in workflows/drive-cloud.yaml. It ran for at least 45 minutes with the log
+  frozen at 19628 bytes for 30 of them, status still `running`, and was never
+  terminated. With MAX_LIVE=1 that also froze the whole drive loop: no further
+  run could launch behind it.
+  This was already suspected ("unenforced timeoutMs" was filed as a platform
+  finding earlier) and this is the first clean instance with numbers.
+  Consequence for us: a hung step blocks the loop indefinitely, because the loop
+  correctly refuses to launch past its concurrency limit and the platform never
+  frees the slot. Cancelling is not a good escape — cancel destroys the patch,
+  so the run's work is lost rather than delivered.
+  Mitigation applied 2026-08-30 02:40: dropped the run from
+  /tmp/autodrive-live.txt so the loop stops waiting on it. The run is left alone
+  rather than cancelled; nothing is destroyed, and the slot is freed.
+  Worth building: autodrive should stop tracking a run whose own step timeout
+  has clearly elapsed, instead of waiting forever on a platform that will not
+  time it out.
+
 - **GATES 2 AND 3 ARE BLOCKED ON A MISSING COMPONENT: there is no agent worker.**
   Searched the repo for anything that attaches as a worker and completes steps
   (`worker.attach` / `workerAttach` / `step.complete`). Every hit is a TEST
