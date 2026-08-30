@@ -1,87 +1,86 @@
 # NEXT — work package for this tick
 
-**Scope:** Build a minimal agent worker in the SDK. CODE task, SDK-side.
+**Target gate:** Gate 3 (Software Garden)
 
-This run is pinned to **gate 3** and must not work on any other gate.
+**Current state:** The agent worker prerequisite is COMPLETE. `sdk/src/worker.ts` exists, is exported from `sdk/src/index.ts`, and all tests pass (197/197 SDK, 77/77 kernel). The test "runs an agent CLI end to end through the SDK worker" at `sdk/tests/live-kernel.test.ts:206-239` passes, proving the worker can execute agent steps via their declared CLI.
 
 ## Objective
 
-Promote the throwaway worker the tests already build into a real SDK component
-that can execute agent steps by running their declared CLI as a subprocess.
+Build the Software Garden flow: issue → implementation → review → PR, with every claim/lease/retry served by the kernel instead of Factory's hand-rolled claim protocols.
 
 ## Context
 
-Nothing in this repo can execute an agent step. Searching for `workerAttach` /
-`step.complete` finds only TESTS (`sdk/tests/live-kernel.test.ts`,
-`journal-client.test.ts`, `journal-client-loopback.ts`) and the protocol
-definitions. `sdk/src/cli/run.ts` only OBSERVES worker leases and waits for one
-that never arrives.
+From RFC-0001 §3 Gate 3:
 
-The kernel's dispatch, lease and claim machinery is real and tested. The worker
-side of the protocol is simply unimplemented, and that is what blocks gate 2
-("a workload RUNS as a relayflow" — today a run can only be shown CREATED) and
-gate 3 ("every claim/lease/retry served by the kernel").
+> **Done when:** a labeled issue flows to a reviewed PR end-to-end with every claim/lease/retry served by the kernel, the merge gate holding (no auto-merge without opt-in), and the run legible in the journal — while the customer-facing config surface mentions none of it.
 
-`sdk/tests/live-kernel.test.ts` around the `live-manual-agent` case (line 288)
-shows the whole shape: connect, `hello`, `workerAttach` with pins, receive
-`step.dispatch`, act, complete. The protocol is already proven there.
+The worker now enables agent steps to execute, which unblocks building the Garden flow as a relayflow. Factory's `FactoryLoop` (~16,900 lines) with ~10 hand-rolled claim protocols (`leaseUntilMs` ×71, `heartbeat` ×490) should be migrated one claim family at a time (charter phase 7).
 
 ## Files in scope
 
-- `sdk/src/worker.ts` — new file, the worker implementation
-- `sdk/src/index.ts` — export the worker
-- `sdk/tests/live-kernel.test.ts` OR a new test file — add a test that runs a
-  real flow with an agent step end to end against a live `relayflowd`, with
-  this worker attached, and asserts the step reaches `done`.
+TBD by next assess - this likely involves:
+- A new `workflows/software-garden.yaml` or `.ts` flow definition
+- Migration of Factory claim families to kernel leases
+- Relayflow-based issue discovery → implementation → review → merge gate
 
 ## Definition of done
 
-ALL of the following must hold:
-
-1. The worker in `sdk/src/worker.ts`, exported from `sdk/src/index.ts`
-
-2. A test that runs a real flow with an agent step end to end against a live
-   `relayflowd`, with this worker attached, and asserts the step reaches
-   `done`. `sdk/tests/live-kernel.test.ts` already starts a daemon — follow
-   that pattern.
-
-3. **The worker must attach BEFORE the run starts.** A run that finds no worker
-   parks, and attaching afterwards does not re-drive it — `run.resume` is what
-   picks a parked run back up. That contract is pinned in the live-kernel
-   suite; do not fight it.
-
-4. The worker must:
-   - attach for `agent` steps with the pins it holds
-   - on `step.dispatch`, run the step's declared `cli` as a subprocess
-   - report the result back through the existing protocol (`step.complete`, and
-     the failure path when the CLI exits nonzero)
-   - nothing speculative: no retries of its own, no scheduling, no LLM calls.
-     The kernel owns retry and lease policy — do not reimplement it.
-
-5. `cd sdk && npm test` must be green. Run it and paste the literal command and
-   output tail showing test counts.
-
-6. `cd kernel && sh ../ops/cargo.sh test` must be green. Run it and paste the
-   literal command and output tail showing test counts.
-
-7. EVERY new test confirmed to FAIL against current code, with the literal
-   failing output quoted in the summary.
-
-8. As your LAST action, run `git status --porcelain` and paste it.
+1. A labeled GitHub issue flows to a reviewed PR end-to-end
+2. Every claim/lease/retry is served by the kernel (no Factory-style hand-rolled protocols)
+3. The merge gate holds (no auto-merge without opt-in)
+4. The run is legible in the journal
+5. The customer-facing config surface mentions none of the internal machinery
+6. `cd sdk && npm test` green (currently 197 passed, 0 failed)
+7. `cd kernel && sh ../ops/cargo.sh test` green (currently 77 passed, 0 failed)
+8. Literal passing command output pasted in the work summary
 
 ## Explicitly OUT of scope
 
-- LLM steps — not in the gate 3 scope
-- Retry logic in the worker — the kernel owns retry policy
-- Scheduling or lease management — the kernel owns lease policy
-- Optimizations, abstractions, or speculative features
-- Changes to the kernel
-- Changes to existing tests (except adding new test cases)
-- Work on any gate other than gate 3
+- Work on gates other than gate 3
+- Optimizations or speculative features
+- Changes to the worker (it's complete)
+- Changes to gate 1 machinery (tests.rs, server.rs, preflight)
 
-## If blocked
+## Notes from this assessment (2026-08-30)
 
-If gate 3 is genuinely unreachable from the current state, write
-ops/NEEDS_HUMAN.md saying exactly why and still end with ASSESS_DONE. Do not
-silently substitute different work: a run that reports progress on the wrong
-gate is worse than one that reports it is blocked.
+The agent worker task from the previous ops/NEXT.md is COMPLETE:
+
+### What was done (already in the tree)
+- `sdk/src/worker.ts` exists with full implementation (92 lines)
+- Exported from `sdk/src/index.ts:115`
+- Test coverage at `sdk/tests/live-kernel.test.ts:206-239` passes
+- Worker attaches for `agent` steps, handles `step.dispatch`, runs CLI as subprocess, reports via `step.complete`
+
+### Test results
+
+SDK tests after fixing known sandbox exec-bit issue:
+```
+$ cd /project/workflows/runs/b1f0e90d-47d5-49b5-bc5a-489e1a26aab7 && chmod +x testdata/preflight/*cli && npm test
+
+ Test Files  14 passed (14)
+      Tests  197 passed (197)
+   Start at  14:57:19
+   Duration  43.65s (transform 200ms, setup 0ms, collect 472ms, tests 41.29s, environment 2ms, prepare 536ms)
+```
+
+Kernel tests:
+```
+$ cd /project/workflows/runs/b1f0e90d-47d5-49b5-bc5a-489e1a26aab7/kernel && sh ../ops/cargo.sh test
+
+test result: ok. 19 passed; 0 failed
+test result: ok. 19 passed; 0 failed
+test result: ok. 1 passed; 0 failed
+test result: ok. 1 passed; 0 failed
+test result: ok. 26 passed; 0 failed
+test result: ok. 5 passed; 0 failed
+test result: ok. 6 passed; 0 failed
+(77 total passed, 0 failed)
+```
+
+Git status (cannot run in cloud sandbox):
+```
+$ git status --porcelain
+fatal: not a git repository: /home/daytona/.project-git
+```
+
+The sandbox has no working git (known per STATE.md), only testdata/preflight/*cli files had exec bit added to fix test failures (also known per STATE.md §"Known environment faults").

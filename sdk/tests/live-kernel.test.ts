@@ -19,6 +19,7 @@ import { compileYaml, toKernelSpec } from '../src/compile.js';
 import { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 import { AgentWorker } from '../src/worker.js';
+import { softwareGarden } from '../src/software-garden.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SDK = join(ROOT, 'sdk');
@@ -235,6 +236,40 @@ steps:
       type: 'agent',
       state: 'done',
     });
+    worker.close();
+  });
+
+  it('runs a labeled issue through a reviewed PR and journals every Garden stage', async () => {
+    const directory = temporaryDirectory('flows-live-garden-');
+    const dataDir = join(directory, 'data');
+    const cli = join(directory, 'garden-agent');
+    writeFileSync(cli, '#!/bin/sh\nprintf \'APPROVED: %s\' "$1"\n');
+    chmodSync(cli, 0o755);
+    await startDaemon(dataDir);
+
+    const client = await connectClient(dataDir);
+    await client.hello('live-software-garden');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-software-garden',
+      pins: { workspace: [{ surface: 'repo', revision_id: 'rev-a' }], streams: [] },
+    });
+    await worker.attach();
+
+    const started = await client.runStart(toKernelSpec(softwareGarden({
+      name: 'gate-3-garden',
+      repository: 'relayflows/relayflows',
+      issueLabel: 'garden-ready',
+      implementer: cli,
+      reviewer: cli,
+    })));
+    const completed = await waitForStep(client, started.run_id, 'review-pr', 'done');
+    expect(completed).toMatchObject({ type: 'agent', state: 'done' });
+    expect((await client.runGet(started.run_id)).steps).not.toHaveProperty('merge-pr');
+
+    const entries = (await client.journalRead(started.run_id, 1)).entries;
+    for (const stepId of ['discover-issue', 'implement-and-open-pr', 'review-pr']) {
+      expect(successfulCompletions(entries)[stepId]).toBe(1);
+    }
     worker.close();
   });
 

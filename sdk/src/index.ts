@@ -115,6 +115,11 @@ export { JournalClient, type JournalClientOptions } from './journal-client.js';
 export { AgentWorker, type AgentWorkerOptions } from './worker.js';
 
 export {
+  softwareGarden,
+  type SoftwareGardenConfig,
+} from './software-garden.js';
+
+export {
   validateWorkPackage,
   packageFromEntry,
   type ValidatedWorkPackage,

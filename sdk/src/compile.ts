@@ -27,6 +27,7 @@ import type {
   LlmStepSpec,
   StepSpec,
   StepType,
+  TriggerSpec,
 } from './spec.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import { canonicalize, specHash } from './canonical.js';
@@ -149,7 +150,7 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
     ...(flow.name !== undefined ? { name: flow.name } : {}),
     ...(flow.description !== undefined ? { description: flow.description } : {}),
     ...(flow.cli !== undefined ? { cli: flow.cli } : {}),
-    ...(flow.triggers?.length ? { triggers: flow.triggers } : {}),
+    ...(flow.triggers?.length ? { triggers: flow.triggers.map(toKernelTrigger) } : {}),
     steps: flow.steps.map(toKernelStep),
     ...(flow.budget !== undefined
       ? {
@@ -177,10 +178,42 @@ export function kernelToAuthoring(value: unknown): unknown {
   const steps = requireKernelArray(root['steps'], 'spec.steps')
     .map((step, index) => kernelStepToAuthoring(step, `spec.steps[${index}]`));
   return {
-    ...copyDefined(root, ['version', 'name', 'description', 'cli', 'triggers']),
+    ...copyDefined(root, ['version', 'name', 'description', 'cli']),
+    ...(root['triggers'] !== undefined
+      ? { triggers: requireKernelArray(root['triggers'], 'spec.triggers').map(kernelTriggerToAuthoring) }
+      : {}),
     steps,
     ...(root['budget'] !== undefined
       ? { budget: kernelBudgetToAuthoring(root['budget'], 'spec.budget') }
+      : {}),
+  };
+}
+
+function toKernelTrigger(trigger: TriggerSpec) {
+  return {
+    id: trigger.id,
+    executor: trigger.executor,
+    ...(trigger.eventType !== undefined ? { event_type: trigger.eventType } : {}),
+    ...(trigger.pattern !== undefined ? { pattern: trigger.pattern } : {}),
+    ...(trigger.dedupeKeyTemplate !== undefined
+      ? { dedupe_key_template: trigger.dedupeKeyTemplate }
+      : {}),
+  };
+}
+
+function kernelTriggerToAuthoring(value: unknown): unknown {
+  const trigger = requireKernelObject(
+    value,
+    ['id', 'executor', 'event_type', 'pattern', 'dedupe_key_template'],
+    'spec.trigger',
+  );
+  return {
+    id: trigger['id'],
+    executor: trigger['executor'],
+    ...(trigger['event_type'] !== undefined ? { eventType: trigger['event_type'] } : {}),
+    ...(trigger['pattern'] !== undefined ? { pattern: trigger['pattern'] } : {}),
+    ...(trigger['dedupe_key_template'] !== undefined
+      ? { dedupeKeyTemplate: trigger['dedupe_key_template'] }
       : {}),
   };
 }

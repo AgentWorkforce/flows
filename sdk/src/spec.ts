@@ -150,6 +150,10 @@ export interface TriggerSpec {
   id: string;
   /** Executor registration required before this trigger may start a run. */
   executor: string;
+  /** Optional event subscription fields (gate 2). */
+  eventType?: string;
+  pattern?: Record<string, unknown>;
+  dedupeKeyTemplate?: string;
 }
 
 /**
@@ -254,6 +258,9 @@ export interface KernelBudgetSpec {
 export interface KernelTriggerSpec {
   id: string;
   executor: string;
+  event_type?: string;
+  pattern?: Record<string, unknown>;
+  dedupe_key_template?: string;
 }
 
 /** The compiled spec as the kernel parses, journals, and hashes it. */
