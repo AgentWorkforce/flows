@@ -370,6 +370,44 @@ workflows:
           if [ "$ran" -eq 0 ]; then
             echo "VERIFY_FAIL: no suite found — a verify that runs nothing cannot pass"; exit 1
           fi
+          # Enforce the NEXT.md contract instead of asking for it.
+          #
+          # The assess prompt has told runs since PR #19 to quote their scope
+          # rather than cite ops/TARGET.md, because that file lives only in the
+          # throwaway launch worktree and is not in the delivered diff. Runs
+          # kept citing it anyway — reviewers filed the same finding again on
+          # #35, #40 and #48. Four recurrences after the warning is enough
+          # evidence that prose does not hold and a check does.
+          #
+          # Same for unevidenced test claims: "all three tests pass" with no
+          # transcript. validateNextWorkPackage refuses both shapes.
+          #
+          # Runs BEFORE the node_modules cleanup below, which needs sdk/dist.
+          if [ -f ops/NEXT.md ] && [ -f sdk/dist/index.js ]; then
+            nextout=$(node -e '
+              const fs = require("node:fs");
+              const { validateNextWorkPackage } = require("./sdk/dist/index.js");
+              const verdict = validateNextWorkPackage(
+                fs.readFileSync("ops/NEXT.md", "utf8"),
+                (p) => fs.existsSync(p),
+              );
+              if (!verdict.accepted) {
+                console.log("NEXT_REFUSED " + verdict.reason);
+                process.exit(1);
+              }
+              console.log("NEXT_OK");
+            ' 2>&1) || true
+            echo "$nextout" | tail -2
+            case "$nextout" in
+              *NEXT_REFUSED*)
+                echo "VERIFY_FAIL: ops/NEXT.md was refused — quote your scope instead of citing"
+                echo "  ops/TARGET.md (it is not in the delivered diff), and paste the literal"
+                echo "  command output for anything you claim passes."
+                ok=1
+                ;;
+            esac
+          fi
+
           # Shrink the tree before the flush that matters.
           #
           # The relayfile mount flush fails on a large tree — http 413, or a
