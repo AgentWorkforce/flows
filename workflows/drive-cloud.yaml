@@ -81,39 +81,44 @@ workflows:
     agent: lead
     dependsOn:
     - sync
-    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo:\nFIRST, if ops/TARGET.md exists,\
-      \ it names the ONE gate this run must\nwork on. QUOTE its scope into ops/NEXT.md rather than citing\
-      \ the\npath: TARGET.md lives only in the throwaway launch worktree and is\nNOT part of the delivered\
-      \ diff, so a reviewer reading the PR sees a\nreference to a file that does not exist. Review flagged\
-      \ exactly that\non PR #19. Anything you rely on must appear in the package itself.\n\nAnd when you\
-      \ state that something passes, paste the literal command\nand its output. \"Three tests pass\" with\
-      \ no captured output is not a\nclaim a reviewer can check, and it was also flagged on PR #19. This\n\
-      is AGENTS.md's central standard, applied to your own reporting. It is the operator's scoping decision\
-      \ and it overrides your\nown judgement about priority \u2014 several runs execute in parallel, each\n\
-      pinned to a different gate, and a run that wanders outside its target\nwill collide with a sibling.\
-      \ Stay inside it or, if the target is\ngenuinely unreachable, say so in ops/NEEDS_HUMAN.md rather\
-      \ than\nsilently choosing different work.\nThen read ops/STATE.md \u2014 it is ground truth about\
-      \ gates and open\nPRs for an environment with no git history, and it names the known\nsandbox faults\
-      \ that are NOT reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing human directives outrank\
-      \ the backlog;\nif one is unsatisfied, it IS the work package.\nThen read docs/bootstrap-report.md\
-      \ and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`, `gh pr list --state open` and open\
-      \ PR review\nstate, kernel/ and sdk/ test status. Then write ops/NEXT.md: the\nSINGLE highest-priority\
-      \ work package toward the current gate\n(gate 1 until its done-when in RFC-0001 \xA73 holds), with:\
-      \ objective,\nfiles in scope, definition of done (must include passing commands),\nand what is explicitly\
-      \ OUT of scope for this tick. If an open PR is\nawaiting fixes from review, the work package is\
-      \ fixing it \u2014 never\nstart new work over unfinished work. If work is blocked on a human\ndecision,\
-      \ write ops/NEEDS_HUMAN.md stating the exact question and the\noptions \u2014 and then STILL end\
-      \ with ASSESS_DONE.\n\nCOMMIT YOUR WORK PACKAGE BEFORE YOU FINISH:\n  git add -A && git commit -m\
-      \ \"assess: work package for this tick\"\nEach step runs in its OWN sandbox and files reach the\
-      \ next step only\nthrough the executor's propagation, which is lossy: on runs a2089144\nand 2560e02d\
-      \ your predecessor wrote ops/NEXT.md, said so truthfully,\nand the file never arrived \u2014 one\
-      \ of those runs finished with a\nzero-file patch. Committing puts the package in git history rather\n\
-      than leaving it as a loose working-tree file. If the commit fails,\nsay so in your output rather\
-      \ than finishing silently. The assess-gate step\nbelow reads that file and parks the run with a\
-      \ typed outcome.\nALWAYS end with ASSESS_DONE, blocked or not: this gate cannot tell a\ndifferent\
-      \ final token from a crashed agent, so on run 54ebd998 the\nLead correctly reported BLOCKED_NEEDS_HUMAN\
-      \ three times and was\nscored as failing three times. Saying you are blocked is a result,\nnot a\
-      \ failure \u2014 but it must be said in the file, not the token.\n"
+    task: "You are the Relayflow Lead (charter/LEAD.md). Assess the repo.\n\nYOUR SCOPE IS THE TASK YOU\
+      \ WERE GIVEN. Two launchers exist and they\ndeliver it differently: ops/launch-gate.sh commits an\
+      \ ops/TARGET.md\nnaming one gate, while the autodrive loop passes the task directly\nand writes\
+      \ NO TARGET.md. If ops/TARGET.md is absent that is normal \u2014\nit is not missing context and\
+      \ there is nothing to go looking for.\n\nEither way: QUOTE the scope into ops/NEXT.md, never cite\
+      \ the path.\nTARGET.md lives only in the throwaway launch worktree and is NOT in\nthe delivered\
+      \ diff, so a reviewer sees a reference to a file that\ndoes not exist. Review flagged that on PR\
+      \ #19 and again on #35, #40\nand #48 \u2014 it is now enforced in verify, which REFUSES a NEXT.md\
+      \ that\ncites a path not present in the tree. Anything you rely on must\nappear in the package itself.\n\
+      \nAnd when you state that something passes, paste the literal command\nand its output. \"Three tests\
+      \ pass\" with no captured output is not a\nclaim a reviewer can check, and it was also flagged on\
+      \ PR #19. This\nis AGENTS.md's central standard, applied to your own reporting. It is the operator's\
+      \ scoping decision and it overrides your\nown judgement about priority \u2014 several runs execute\
+      \ in parallel, each\npinned to a different gate, and a run that wanders outside its target\nwill\
+      \ collide with a sibling. Stay inside it or, if the target is\ngenuinely unreachable, say so in\
+      \ ops/NEEDS_HUMAN.md rather than\nsilently choosing different work.\nThen read ops/STATE.md \u2014\
+      \ it is ground truth about gates and open\nPRs for an environment with no git history, and it names\
+      \ the known\nsandbox faults that are NOT reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing\
+      \ human directives outrank the backlog;\nif one is unsatisfied, it IS the work package.\nThen read\
+      \ docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`, `gh pr\
+      \ list --state open` and open PR review\nstate, kernel/ and sdk/ test status. Then write ops/NEXT.md:\
+      \ the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until its done-when\
+      \ in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must include passing\
+      \ commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\nawaiting fixes\
+      \ from review, the work package is fixing it \u2014 never\nstart new work over unfinished work.\
+      \ If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question and\
+      \ the\noptions \u2014 and then STILL end with ASSESS_DONE.\n\nCOMMIT YOUR WORK PACKAGE BEFORE YOU\
+      \ FINISH:\n  git add -A && git commit -m \"assess: work package for this tick\"\nEach step runs\
+      \ in its OWN sandbox and files reach the next step only\nthrough the executor's propagation, which\
+      \ is lossy: on runs a2089144\nand 2560e02d your predecessor wrote ops/NEXT.md, said so truthfully,\n\
+      and the file never arrived \u2014 one of those runs finished with a\nzero-file patch. Committing\
+      \ puts the package in git history rather\nthan leaving it as a loose working-tree file. If the commit\
+      \ fails,\nsay so in your output rather than finishing silently. The assess-gate step\nbelow reads\
+      \ that file and parks the run with a typed outcome.\nALWAYS end with ASSESS_DONE, blocked or not:\
+      \ this gate cannot tell a\ndifferent final token from a crashed agent, so on run 54ebd998 the\n\
+      Lead correctly reported BLOCKED_NEEDS_HUMAN three times and was\nscored as failing three times.\
+      \ Saying you are blocked is a result,\nnot a failure \u2014 but it must be said in the file, not\
+      \ the token.\n"
     verification:
       type: output_contains
       value: ASSESS_DONE
