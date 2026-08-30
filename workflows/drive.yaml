@@ -268,10 +268,103 @@ workflows:
           echo "ASSESS_GATE_PASS ($(grep -m1 -oE 'WP-[0-9]+[^|]*' ops/NEXT.md || echo 'work package'))"
         timeoutMs: 120000
 
+      - name: pre-build
+        type: deterministic
+        dependsOn: [assess-gate]
+        command: |
+          # Deterministic sandbox preparation before the builder runs.
+          #
+          # Evidence: PRs #60-#63 all shipped as NEEDS_HUMAN reporting
+          # "19 SDK test failures". A clean checkout run by hand shows the SDK
+          # suite is ACTUALLY GREEN (188 passed / 9 skipped / 1 file failed
+          # only because kernel/target/debug/relayflowd is not built). Two
+          # sandbox faults explain every one of those failures and neither is
+          # a bug in sdk/src:
+          #   1. The kernel binary the SDK's live-kernel cases exec is never
+          #      built before the build-1 agent step runs `npm test`, so those
+          #      cases fail with ENOENT (verify-1 already builds the kernel;
+          #      build-1 does not).
+          #   2. The sandbox strips the +x bit from tracked scripts and
+          #      testdata/preflight/*-cli fixtures on materialization
+          #      (documented in verify-1's comments), so anything that execs a
+          #      fixture as a CLI gets EACCES.
+          #
+          # A previous agent attempted to fix this by editing sdk/src/, which
+          # was the wrong direction: the tests are correct, the environment
+          # was wrong. Repairing the environment BEFORE the builder runs
+          # unblocks every future drive tick without touching a test.
+          #
+          # Same run_bounded idiom as verify-1: a kernel build in a cold
+          # sandbox with no timeout is what stalled run 6d045b23 for 29+ min.
+          set -u
+          run_bounded() {
+            _label="$1"; shift
+            if command -v timeout >/dev/null 2>&1; then
+              timeout "${PRE_BUILD_TIMEOUT:-900}" "$@"
+            elif command -v gtimeout >/dev/null 2>&1; then
+              gtimeout "${PRE_BUILD_TIMEOUT:-900}" "$@"
+            else
+              echo "PRE_BUILD_WARN: no timeout(1); $_label runs unbounded" >&2
+              "$@"
+            fi
+          }
+
+          # (1) ops/cargo.sh itself: git tracks it 100755 but the exec bit is
+          # dropped on materialization (verify-1 already invokes it via `sh`
+          # for the same reason). Restore the bit so anything downstream that
+          # runs it directly does not hit EACCES.
+          [ -f ops/cargo.sh ] && chmod +x ops/cargo.sh 2>/dev/null || true
+
+          # (2) Build the kernel. The SDK's live-kernel cases exec
+          # kernel/target/debug/relayflowd; `cargo test` does not produce
+          # that binary. Without a build here, build-1's `npm test` fails
+          # exactly the "19 SDK test failures" observed on PRs #60-#63.
+          # Failure here is FATAL: there is no point running build-1 without
+          # a kernel binary the SDK can exercise.
+          if [ -d kernel ]; then
+            out=$(cd kernel && run_bounded "kernel build" sh ../ops/cargo.sh build 2>&1); rc=$?
+            if [ $rc -ne 0 ]; then
+              echo "$out" | tail -20
+              echo "PRE_BUILD_FAIL: kernel build failed — build-1 has no binary to test against"
+              exit 1
+            fi
+            echo "PRE_BUILD_KERNEL=ok"
+          else
+            echo "PRE_BUILD_KERNEL=skipped (no kernel dir)"
+          fi
+
+          # (3) Restore +x on preflight CLI fixtures. Same materialization
+          # fault as ops/cargo.sh: git tracks them executable, the mount
+          # strips the bit, tests that exec them get EACCES. Guarded so this
+          # step is a no-op in a future tree that no longer has the dir.
+          if [ -d testdata/preflight ]; then
+            find testdata/preflight -name '*-cli' -type f -exec chmod +x {} + 2>/dev/null || true
+            echo "PRE_BUILD_PREFLIGHT_BITS=ok"
+          else
+            echo "PRE_BUILD_PREFLIGHT_BITS=skipped (no testdata/preflight)"
+          fi
+
+          # (4) esbuild binaries that land after `npm ci`. verify-1 already
+          # repairs these AFTER npm ci runs; do the same here for anything
+          # already installed (e.g. a sandbox that carried node_modules over
+          # from a prior step). Guarded so it is a no-op when node_modules is
+          # absent — build-1 or verify-1 will install it fresh.
+          if [ -d sdk/node_modules ]; then
+            chmod -R +x sdk/node_modules/.bin 2>/dev/null || true
+            find sdk/node_modules -type d -name bin -path "*esbuild*" \
+              -exec chmod -R +x {} + 2>/dev/null || true
+            echo "PRE_BUILD_NODE_BITS=ok"
+          else
+            echo "PRE_BUILD_NODE_BITS=skipped (no sdk/node_modules yet)"
+          fi
+
+          echo PRE_BUILD_READY
+        timeoutMs: 1200000
+
       - name: build
         type: agent
         agent: builder
-        dependsOn: [assess-gate]
+        dependsOn: [pre-build]
         maxIterations: 3
         task: |
           Read ops/NEXT.md, AGENTS.md, and the relevant parts of

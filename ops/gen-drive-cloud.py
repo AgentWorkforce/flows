@@ -36,7 +36,7 @@ CYCLES = 1
 # variant trades in-run review for runs that actually finish and deliver.
 # The local drive.yaml KEEPS review and verdict: that environment delivers,
 # so its gate must bite.
-BASE_STEPS = ["assess", "assess-gate", "build", "verify"]
+BASE_STEPS = ["assess", "assess-gate", "pre-build", "build", "verify"]
 
 
 def build():
