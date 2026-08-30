@@ -179,10 +179,15 @@ workflows:
     dependsOn:
     - assess-gate-1
     maxIterations: 3
-    task: "Read ops/NEXT.md, AGENTS.md, and the relevant parts of\ndocs/RFC-0001-everything-is-a-relayflow.md.\
-      \ Implement exactly that\nwork package \u2014 nothing more. Run the definition-of-done commands\n\
-      yourself and iterate until they pass. Keep files small and\nsingle-purpose. End with BUILD_DONE\
-      \ only when the definition of done\npasses locally; paste the passing output.\n"
+    task: "Before running any tests, run these commands in this order and paste the last 5 lines of each\
+      \ to your summary:\n  1. chmod +x ops/cargo.sh || true\n  2. cd kernel && sh ../ops/cargo.sh build\
+      \   # required \u2014 SDK live-kernel tests exec kernel/target/debug/relayflowd\n  3. cd .. && find\
+      \ testdata/preflight -name '*-cli' -type f -exec chmod +x {} + 2>/dev/null || true\nThen and only\
+      \ then run 'cd sdk && npm test' as part of the definition of done.\n\nRead ops/NEXT.md, AGENTS.md,\
+      \ and the relevant parts of\ndocs/RFC-0001-everything-is-a-relayflow.md. Implement exactly that\n\
+      work package \u2014 nothing more. Run the definition-of-done commands\nyourself and iterate until\
+      \ they pass. Keep files small and\nsingle-purpose. End with BUILD_DONE only when the definition\
+      \ of done\npasses locally; paste the passing output.\n"
     verification:
       type: output_contains
       value: BUILD_DONE

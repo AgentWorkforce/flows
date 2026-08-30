@@ -274,6 +274,12 @@ workflows:
         dependsOn: [assess-gate]
         maxIterations: 3
         task: |
+          Before running any tests, run these commands in this order and paste the last 5 lines of each to your summary:
+            1. chmod +x ops/cargo.sh || true
+            2. cd kernel && sh ../ops/cargo.sh build   # required — SDK live-kernel tests exec kernel/target/debug/relayflowd
+            3. cd .. && find testdata/preflight -name '*-cli' -type f -exec chmod +x {} + 2>/dev/null || true
+          Then and only then run 'cd sdk && npm test' as part of the definition of done.
+
           Read ops/NEXT.md, AGENTS.md, and the relevant parts of
           docs/RFC-0001-everything-is-a-relayflow.md. Implement exactly that
           work package — nothing more. Run the definition-of-done commands
