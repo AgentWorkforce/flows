@@ -139,6 +139,27 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     ]);
   });
 
+  it('does not mistake a shell prefix containing a slash for a path', () => {
+    // Review caught this on PR #47. The path-like refusal keys on a slash in
+    // the first word, and all three of these have one without naming a path to
+    // execute. Refusing them is the "refusing would reject valid flows" failure
+    // the warn behaviour exists to prevent — all three were refused before the
+    // prefix-skipping fix.
+    const probes = { command: () => false, cli: () => false } as unknown as PreflightProbes;
+    for (const command of [
+      'TMPDIR=/tmp printf ok',
+      '>/tmp/out echo hi',
+      'PATH=/usr/bin:$PATH mkdir x',
+    ]) {
+      const result = preflight(
+        { version: '0.1.0', name: 't', steps: [{ id: 's', type: 'deterministic', command }] } as never,
+        { probes },
+      );
+      const severities = new Set(result.diagnostics.filter((d) => d.stepId === 's').map((d) => d.severity));
+      expect([...severities], `"${command}" must warn, not refuse`).toEqual(['warning']);
+    }
+  });
+
   it('refuses missing path-like commands but keeps warning for missing bare words', () => {
     const missingCommand = probes({ command: () => false });
     const pathLike = preflight(flow({

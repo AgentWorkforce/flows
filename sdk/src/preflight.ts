@@ -283,6 +283,23 @@ function warnOnUnprovableEffects(
 }
 
 function firstCommandWord(command: string): string | undefined {
-  const match = command.trim().match(/^(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
+  // Skip the shell prefixes that can legally precede the command word.
+  //
+  // Review caught this on PR #47: the new path-like refusal keys on the first
+  // word containing a slash, and `TMPDIR=/tmp printf ok`, `>/tmp/out echo hi`
+  // and `PATH=/usr/bin:$PATH mkdir x` all have one — but none of them names a
+  // path to execute. All three are valid and were being refused outright,
+  // which is exactly the "refusing would reject valid flows" failure the warn
+  // behaviour exists to avoid.
+  //
+  // An assignment is NAME=value with a shell-legal name; a redirection starts
+  // with < or > (optionally with a leading fd number). Neither is the command.
+  let rest = command.trim();
+  for (;;) {
+    const prefix = rest.match(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]*)|[0-9]*[<>]{1,2}\s*[^\s]+)\s+/);
+    if (prefix === null) break;
+    rest = rest.slice(prefix[0].length);
+  }
+  const match = rest.match(/^(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
   return match?.[1] ?? match?.[2] ?? match?.[3];
 }
