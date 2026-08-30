@@ -227,12 +227,10 @@ function probeTrigger(
 }
 
 /**
- * A deterministic step is never silently accepted: every one leaves exactly one
- * warning naming which state it is in. These warn rather than refuse because a
- * string command is executed as `/bin/sh -c` (kernel `exec_det.rs`), so an
- * unresolved first word may still be a shell builtin, function, or assignment —
- * refusing would reject valid flows. Warning keeps covenant 2's "refuses or
- * warns on anything it cannot prove" true without inventing false certainty.
+ * A deterministic step is never silently accepted. An unresolved bare command
+ * may still be a shell builtin, function, or assignment, so it warns. A command
+ * containing `/` names a path rather than relying on shell resolution, so a
+ * failed existence probe refuses the flow.
  */
 function warnOnUnprovableEffects(
   step: StepSpec,
@@ -269,6 +267,13 @@ function warnOnUnprovableEffects(
       stepId: step.id,
       message: `Step "${step.id}" command "${binary}" resolves, but its effects cannot be proven before execution.`,
     }
+    : binary.includes('/')
+      ? {
+        severity: 'refusal',
+        kind: 'command_missing',
+        stepId: step.id,
+        message: `Step "${step.id}" command path "${binary}" does not exist.`,
+      }
     : {
       severity: 'warning',
       kind: 'command_unresolved',
@@ -278,6 +283,23 @@ function warnOnUnprovableEffects(
 }
 
 function firstCommandWord(command: string): string | undefined {
-  const match = command.trim().match(/^(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
+  // Skip the shell prefixes that can legally precede the command word.
+  //
+  // Review caught this on PR #47: the new path-like refusal keys on the first
+  // word containing a slash, and `TMPDIR=/tmp printf ok`, `>/tmp/out echo hi`
+  // and `PATH=/usr/bin:$PATH mkdir x` all have one — but none of them names a
+  // path to execute. All three are valid and were being refused outright,
+  // which is exactly the "refusing would reject valid flows" failure the warn
+  // behaviour exists to avoid.
+  //
+  // An assignment is NAME=value with a shell-legal name; a redirection starts
+  // with < or > (optionally with a leading fd number). Neither is the command.
+  let rest = command.trim();
+  for (;;) {
+    const prefix = rest.match(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]*)|[0-9]*[<>]{1,2}\s*[^\s]+)\s+/);
+    if (prefix === null) break;
+    rest = rest.slice(prefix[0].length);
+  }
+  const match = rest.match(/^(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
   return match?.[1] ?? match?.[2] ?? match?.[3];
 }

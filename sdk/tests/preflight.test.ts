@@ -139,6 +139,50 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     ]);
   });
 
+  it('does not mistake a shell prefix containing a slash for a path', () => {
+    // Review caught this on PR #47. The path-like refusal keys on a slash in
+    // the first word, and all three of these have one without naming a path to
+    // execute. Refusing them is the "refusing would reject valid flows" failure
+    // the warn behaviour exists to prevent — all three were refused before the
+    // prefix-skipping fix.
+    const probes = { command: () => false, cli: () => false } as unknown as PreflightProbes;
+    for (const command of [
+      'TMPDIR=/tmp printf ok',
+      '>/tmp/out echo hi',
+      'PATH=/usr/bin:$PATH mkdir x',
+    ]) {
+      const result = preflight(
+        { version: '0.1.0', name: 't', steps: [{ id: 's', type: 'deterministic', command }] } as never,
+        { probes },
+      );
+      const severities = new Set(result.diagnostics.filter((d) => d.stepId === 's').map((d) => d.severity));
+      expect([...severities], `"${command}" must warn, not refuse`).toEqual(['warning']);
+    }
+  });
+
+  it('refuses missing path-like commands but keeps warning for missing bare words', () => {
+    const missingCommand = probes({ command: () => false });
+    const pathLike = preflight(flow({
+      id: 'path-like',
+      type: 'deterministic',
+      command: './ops/nonexistent.sh',
+    }), { probes: missingCommand });
+    const bareWord = preflight(flow({
+      id: 'bare-word',
+      type: 'deterministic',
+      command: 'nonexistent',
+    }), { probes: missingCommand });
+
+    expect(pathLike.ok).toBe(false);
+    expect(pathLike.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'refusal', kind: 'command_missing', stepId: 'path-like' }),
+    ]);
+    expect(bareWord.ok).toBe(true);
+    expect(bareWord.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'warning', kind: 'command_unresolved', stepId: 'bare-word' }),
+    ]);
+  });
+
   // Covenant 2 permits refusing *or* warning, but not silence. A deterministic
   // step that resolves, one that does not, and one that cannot be probed must
   // each leave a declared warning behind — and none of them may refuse.
@@ -179,6 +223,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: false, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: true, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p' }), { probes: probes() }),
+      preflight(flow({ id: 'a', type: 'deterministic', command: './missing' }), { probes: probes({ command: () => false }) }),
       preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }), triggers: [{ id: 't', executor: 'e' }] }, { probes: probes({ executor: () => false, command: () => false }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => { throw new Error('raw secret'); } }) }),
     ];

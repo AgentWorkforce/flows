@@ -3,6 +3,7 @@ export const PREFLIGHT_FAILURE_KINDS = [
   'cli_missing',
   'cli_unauthenticated',
   'cli_unresolved',
+  'command_missing',
   'no_executor',
   'probe_failed',
 ] as const;
