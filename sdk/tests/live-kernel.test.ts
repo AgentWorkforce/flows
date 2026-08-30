@@ -1,5 +1,6 @@
 import {
   accessSync,
+  chmodSync,
   constants,
   existsSync,
   lstatSync,
@@ -17,6 +18,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { compileYaml, toKernelSpec } from '../src/compile.js';
 import { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
+import { AgentWorker } from '../src/worker.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SDK = join(ROOT, 'sdk');
@@ -199,6 +201,41 @@ steps:
     expect(completed.status, completed.stderr).toBe(0);
     expect(completed.stdout).toContain('completionReason: success');
     expect(completed.stderr).not.toContain('protocol_error');
+  });
+
+  it('runs an agent CLI end to end through the SDK worker', async () => {
+    const directory = temporaryDirectory('flows-live-agent-worker-');
+    const dataDir = join(directory, 'data');
+    const cli = join(directory, 'agent-cli');
+    writeFileSync(cli, '#!/bin/sh\nprintf \'handled: %s\' "$1"\n');
+    chmodSync(cli, 0o755);
+    await startDaemon(dataDir);
+
+    const client = await connectClient(dataDir);
+    await client.hello('live-sdk-agent-worker');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-sdk-agent-worker',
+      pins: {
+        workspace: [{ surface: 'repo', revision_id: 'rev-a' }],
+        streams: [],
+      },
+    });
+    await worker.attach();
+
+    const started = await client.runStart(toKernelSpec(compileYaml(`
+version: '0.1.0'
+steps:
+  - id: execute
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    instruction: Perform the declared work.
+`)));
+
+    expect(await waitForStep(client, started.run_id, 'execute', 'done')).toMatchObject({
+      type: 'agent',
+      state: 'done',
+    });
+    worker.close();
   });
 
   it('can always get a parked run to a late-attaching worker', async () => {
@@ -596,6 +633,21 @@ async function waitForActiveRun(dataDir: string, marker: string): Promise<string
     await delay(20);
   }
   throw new Error(`run did not reach the marked in-flight step within 5000ms: ${marker}`);
+}
+
+async function waitForStep(
+  client: JournalClient,
+  runId: string,
+  stepId: string,
+  state: string,
+): Promise<unknown> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const step = (await client.runGet(runId)).steps[stepId];
+    if (step?.state === state) return step;
+    await delay(20);
+  }
+  throw new Error(`step ${stepId} did not reach ${state} within 5000ms`);
 }
 
 function runArtifacts(dataDir: string): string[] {
