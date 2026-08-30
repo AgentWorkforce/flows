@@ -128,6 +128,13 @@ export {
   type WorkPackageRefusalReason,
 } from './work-package-consumer.js';
 
+export {
+  validateNextWorkPackage,
+  type NextWorkPackageRefusalReason,
+  type NextWorkPackageValidation,
+  type WorkPackagePathExists,
+} from './work-package-validator.js';
+
 // Hacker News adapter — deliberately outside kernel/ (see sdk/src/hn-poller.ts).
 export {
   pollHackerNewsOnce,
