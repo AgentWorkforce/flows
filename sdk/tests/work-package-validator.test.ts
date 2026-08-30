@@ -75,4 +75,26 @@ Tests  84 passed (84)
       ['ops/missing.md'],
     ]);
   });
+
+  it('accepts a requirement, and still refuses a bare claim', () => {
+    // Review found this on PR #50: the modal exemption keyed only on the word
+    // "pass", so "must be green" read as an unevidenced claim and every work
+    // package written to this repo's own brief format was refused — the
+    // definition-of-done section is a list of requirements by construction.
+    const requirement = [
+      '# NEXT',
+      '',
+      '**Scope:** `sdk/src/preflight.ts`',
+      '',
+      '## Definition of done',
+      '- `cd sdk && npm test` must be green',
+      '- every new test confirmed to fail first',
+    ].join('\n');
+    expect(validateNextWorkPackage(requirement, () => true).accepted).toBe(true);
+
+    const claim = ['# NEXT', '', 'Three tests pass and the flow is verified.'].join('\n');
+    const verdict = validateNextWorkPackage(claim, () => true);
+    expect(verdict.accepted).toBe(false);
+    expect(verdict.accepted === false && verdict.reason).toBe('test_claim_without_evidence');
+  });
 });

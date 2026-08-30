@@ -33,7 +33,20 @@ export function validateNextWorkPackage(
   const fencedLines = findFencedLines(lines);
   for (const [index, line] of lines.entries()) {
     if (fencedLines.has(index) || !TEST_RESULT_CLAIM.test(line)) continue;
-    if (/\b(?:must|should|will|needs? to)\b[^\n]{0,30}\bpass\b/i.test(line)) continue;
+    // A REQUIREMENT is not a CLAIM. "npm test must be green" states what has to
+    // become true; "All three tests pass" asserts it already is. Only the
+    // second needs evidence (review, PR #50).
+    //
+    // The discriminator is MODALITY, not location. A first attempt at this
+    // exempted every line under a "Definition of done" heading, which let the
+    // PR #19 artifact through — its claim "All three tests pass." sits under
+    // exactly that heading and is precisely what this must catch.
+    //
+    // The modal check was already here but keyed only on "pass", so "must be
+    // green" and "must be clean" still tripped it.
+    if (/\b(?:must|should|will|needs? to|has to)\b[^\n]{0,40}\b(?:pass|passing|green|clean|succeed)\b/i.test(line)) {
+      continue;
+    }
     if (!hasNearbyTranscript(lines, fencedLines, index)) {
       return { accepted: false, reason: 'test_claim_without_evidence' };
     }
