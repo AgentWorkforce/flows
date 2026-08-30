@@ -8,7 +8,7 @@ it is authoritative when history is unavailable.
 **Keep it current. A stale STATE.md is worse than none:** it does not merely
 fail to help, it actively misleads an assessor that cannot check it.
 
-Last updated: 2026-08-29 22:45 UTC, by Khaliq's session, on `main` (`ca3942e`).
+Last updated: 2026-08-30 02:35 UTC, by Khaliq's session, on `main` (`41e4886`).
 
 ## Where the program is
 
@@ -68,12 +68,32 @@ Last updated: 2026-08-29 22:45 UTC, by Khaliq's session, on `main` (`ca3942e`).
 
 ## Open PRs
 
-**Only #19 is open.** It is the gate-2 HN demo. All findings on it are
-addressed, it is green and mergeable, and it is waiting on Khaliq — not on work.
-It reports runs CREATED from live Hacker News and honestly declines to claim
-they EXECUTED.
+**NONE.** Every PR is merged or triaged closed as of 2026-08-30 02:30.
 
 ## Merged since 19:00 — do NOT redo any of this
+
+Later additions (2026-08-30):
+
+- **#47** deterministic-command preflight: a path-like command word that does
+  not exist REFUSES; a bare word still WARNS. Shell prefixes are not paths —
+  `TMPDIR=/tmp printf ok`, `>/tmp/out echo hi` must keep warning, pinned by a
+  test. Do not touch preflight.
+- **#48** the gate-1 race regression test, rewritten around the `after_ready`
+  seam with rendezvous channels instead of a 100ms timeout. Verified by
+  mutation: fails against a reverted PR #18, passes restored, 20/20 on repeat.
+  **Gate 1 no longer carries a fix-on-trust.**
+- **#50** `validateNextWorkPackage` refuses a NEXT.md that cites a path absent
+  from the tree, or claims a test passes with no captured output. WIRED INTO
+  VERIFY (447a414) — a refusal fails the step. The discriminator between a
+  claim and a requirement is MODALITY: "must be green" is a requirement, "all
+  three tests pass" is a claim needing a transcript.
+- **#51** the actionable-entry test asserts a proportion plus three entries
+  pinned BY NAME, not a hardcoded count. A count went stale three times as the
+  backlog grew and produced false regressions.
+- **#19** the gate-2 HN demo. Reports runs CREATED from live Hacker News and
+  honestly declines to claim they EXECUTED, and now states the ordering
+  requirement correctly: the worker must attach BEFORE events are submitted,
+  because attaching afterwards does not re-drive a parked run.
 
 - **#28** consumer refuses a package scoping files that do not exist
   (`nonexistent_files`), on by default, filesystem call injectable for testing.
