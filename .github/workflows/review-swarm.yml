@@ -1,0 +1,68 @@
+---
+name: Review swarm
+
+'on':
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: review-swarm-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      github.event.pull_request.user.login == 'kjgbot' ||
+      github.event.pull_request.user.login == 'miyaontherelay'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      RELAY_WORKSPACE_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
+    steps:
+      - name: Check out PR merge commit
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          fetch-depth: 0
+
+      - name: Install agent-relay
+        run: npm install --global agent-relay@11.8.7
+
+      - name: Set review target
+        run: echo "$PR_NUMBER" > .review-target
+
+      - name: Launch review swarm
+        id: launch
+        run: |
+          response=$(agent-relay cloud run workflows/review-swarm.yaml --json)
+          printf '%s\n' "$response"
+          run_id=$(printf '%s\n' "$response" | jq -er '.runId')
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for review swarm
+        env:
+          RUN_ID: ${{ steps.launch.outputs.run_id }}
+        run: |
+          deadline=$((SECONDS + 2700))
+          while (( SECONDS < deadline )); do
+            response=$(agent-relay cloud status "$RUN_ID" --json)
+            printf '%s\n' "$response"
+            status=$(printf '%s\n' "$response" | jq -er '.status')
+            if [[ "$status" == completed ]]; then
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "review-swarm timed out after 45 minutes" >&2
+          exit 1
+
+      - name: Sync and post reviews
+        env:
+          RUN_ID: ${{ steps.launch.outputs.run_id }}
+        run: bash .github/workflows/scripts/swarm-post.sh "$RUN_ID" "$PR_NUMBER"
