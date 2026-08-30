@@ -8,7 +8,7 @@ it is authoritative when history is unavailable.
 **Keep it current. A stale STATE.md is worse than none:** it does not merely
 fail to help, it actively misleads an assessor that cannot check it.
 
-Last updated: 2026-08-30 02:35 UTC, by Khaliq's session, on `main` (`41e4886`).
+Last updated: 2026-08-30 02:55 UTC, by Khaliq's session, on `main`. HANDOFF STATE — read the next section first.
 
 ## Where the program is
 
@@ -65,6 +65,45 @@ Last updated: 2026-08-30 02:35 UTC, by Khaliq's session, on `main` (`41e4886`).
   Gate 2 stays AMBER only pending Khaliq's read on whether a manually-invoked
   poller satisfies "runs as a relayflow" under rule 2, or whether it must be
   scheduled and unattended first. That is a judgement, not a missing part.
+
+## HANDOFF — the loop is STOPPED (2026-08-30 02:55 UTC)
+
+`ops/autodrive.sh` was stopped deliberately: Khaliq's laptop is closing and the
+loop only ever ran there. **Nothing is driving the program right now.**
+
+One cloud run was in flight when the loop stopped and is still running in the
+cloud, unattended:
+
+    c5c04a7c-dfcb-42cd-890b-e2fa8bad16be   (brief: build a minimal agent worker)
+
+Check it with `agent-relay cloud status <id>`, and read its log with
+`agent-relay cloud logs <id> --json` (the non-json form returns 500). If it
+produced work, deliver it with `sh ops/deliver-run.sh <id> <clean-checkout>`.
+
+### To restart the loop on any machine with the repo and a cloud login
+
+    cd <repo> && nohup sh ops/autodrive.sh > /tmp/autodrive.log 2>&1 &
+
+It reads `ops/AUTODRIVE_BRIEF.md` fresh each cycle, holds one cycle after
+delivering so the brief can be retargeted, and never merges — merging is a
+human's or a lead's call.
+
+### Why there is no remote lead
+
+A lead agent could not be placed off the laptop:
+  - `agent-relay fleet nodes` shows only ONE live node, `flows`, and that node
+    IS the laptop (`fleet agent list` reports `localNode: flows`). Spawning
+    there does not survive the lid closing.
+  - `sf-mini` is offline, so `attach --node sf-mini` returns
+    `404 agent_not_found` for any name.
+  - `fleet spawn --sandbox`, which would provision a Cloud Daytona node, fails
+    at workspace resolution: `404 Workspace not found`, and
+    `agent-relay cloud enroll --workspace <id>` returns `500 Internal Server
+    Error`. That is server-side and not something this repo can work around.
+
+So the handoff is DURABLE, not LIVE: everything needed to resume is in the repo
+(this file, ops/BACKLOG.md, ops/AUTODRIVE_BRIEF.md), and the next session or
+lead can pick it up cold. Nothing is lost; nothing is progressing either.
 
 ## Open PRs
 
