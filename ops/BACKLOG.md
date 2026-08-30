@@ -3,6 +3,28 @@
 Items the Lead should weigh in assess after ops/DIRECTIVES.md and the current
 gate's needs. Not commitments; ordering is the Lead's call with evidence.
 
+- **GATES 2 AND 3 ARE BLOCKED ON A MISSING COMPONENT: there is no agent worker.**
+  Searched the repo for anything that attaches as a worker and completes steps
+  (`worker.attach` / `workerAttach` / `step.complete`). Every hit is a TEST
+  (`sdk/tests/live-kernel.test.ts`, `journal-client.test.ts`,
+  `journal-client-loopback.ts`) or a protocol/client definition
+  (`sdk/src/protocol.ts`, `sdk/src/journal-client.ts`). The CLI does not attach
+  one either — `sdk/src/cli/run.ts` only OBSERVES worker leases and waits.
+  So the kernel's dispatch, lease and claim machinery is real and tested, and
+  nothing in this repo can actually serve an agent step.
+  Why it matters for the gates:
+    - Gate 2 ("a real proactive workload RUNS as a relayflow") can show a run
+      CREATED from live Hacker News, which PR #19 does honestly, and can never
+      show one EXECUTED.
+    - Gate 3's done-when is "every claim/lease/retry served by the kernel",
+      which requires agent steps, which require a worker.
+  This reframes the question that has been sitting open. It is not "does a demo
+  that attaches its own worker count as proof" — it is that the worker side of
+  the protocol is unimplemented, and building it is the next real piece of work.
+  FOR KHALIQ: is the agent worker expected to be built here, or does it come
+  from the old engine / another repo (as gate 6's integrations do)? That answer
+  decides whether gates 2 and 3 are buildable in this repo at all.
+
 - **ROOT CAUSE (MEASURED): the flush payload is the relayfile mount's OWN
   bookkeeping, not our build artifacts.** Settled by the tree census added to
   the verify step; run 5a846d38 printed:
