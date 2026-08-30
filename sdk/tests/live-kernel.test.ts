@@ -17,6 +17,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { compileYaml, toKernelSpec } from '../src/compile.js';
 import { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
+import { AgentWorker } from '../src/worker.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SDK = join(ROOT, 'sdk');
@@ -199,6 +200,46 @@ steps:
     expect(completed.status, completed.stderr).toBe(0);
     expect(completed.stdout).toContain('completionReason: success');
     expect(completed.stderr).not.toContain('protocol_error');
+  });
+
+  it('runs an agent step to done through the SDK worker', async () => {
+    const directory = temporaryDirectory('flows-live-agent-worker-');
+    const dataDir = join(directory, 'data');
+    await startDaemon(dataDir);
+    const agentCli = join(directory, 'agent-cli.sh');
+    writeFileSync(agentCli, '#!/bin/sh\nread instruction\nprintf "agent-ok:%s" "$instruction"\n', { mode: 0o755 });
+    const flow = join(directory, 'agent.flow.yaml');
+    writeFileSync(flow, `
+version: '0.1.0'
+steps:
+  - id: edit
+    type: agent
+    cli: ${JSON.stringify(agentCli)}
+    instruction: Produce the artifact.
+    surfaces:
+      workspace:
+        - surface: repo
+    verification:
+      type: output_contains
+      value: agent-ok:Produce the artifact.
+`);
+    const worker = new AgentWorker({
+      socketPath: join(dataDir, 'relayflowd.sock'),
+      workerId: 'live-sdk-agent',
+    });
+    await worker.start();
+
+    const completed = await invokeCliAsync(['run', '--data-dir', dataDir, flow]);
+
+    expect(completed.status, completed.stderr).toBe(0);
+    const runId = completed.stdout.match(/RUN ([0-9A-Z]{26})/)?.[1];
+    expect(runId).toBeDefined();
+    const inspector = await connectClient(dataDir);
+    expect((await inspector.runGet(runId!)).steps['edit']).toMatchObject({
+      type: 'agent',
+      state: 'done',
+    });
+    worker.close();
   });
 
   it('can always get a parked run to a late-attaching worker', async () => {
