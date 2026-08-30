@@ -41,9 +41,15 @@ gate's needs. Not commitments; ordering is the Lead's call with evidence.
   This reframes the question that has been sitting open. It is not "does a demo
   that attaches its own worker count as proof" — it is that the worker side of
   the protocol is unimplemented, and building it is the next real piece of work.
-  FOR KHALIQ: is the agent worker expected to be built here, or does it come
-  from the old engine / another repo (as gate 6's integrations do)? That answer
-  decides whether gates 2 and 3 are buildable in this repo at all.
+  ANSWERED by Khaliq 2026-08-30: **the worker belongs in THIS repo.** Gates 2
+  and 3 are therefore buildable here and the worker is the critical path to
+  both. Build it in the SDK, promoting the throwaway worker the tests already
+  construct (sdk/tests/live-kernel.test.ts, the live-manual-agent case) into a
+  real component: attach for agent steps with the pins it holds, on
+  step.dispatch run the step's declared cli, report back through step.complete
+  and the failure path. The kernel owns retry and lease policy — do not
+  reimplement it. Attach BEFORE the run starts; a parked run is only revived by
+  run.resume.
 
 - **ROOT CAUSE (MEASURED): the flush payload is the relayfile mount's OWN
   bookkeeping, not our build artifacts.** Settled by the tree census added to
