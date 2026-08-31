@@ -15,9 +15,24 @@ interface CliResult {
   stderr_tail: string;
 }
 
-/** Executes dispatched agent steps using their declared CLI. */
+/**
+ * Executes dispatched agent steps using their declared CLI.
+ *
+ * Shutdown contract (close): the caller may await close() to guarantee that
+ * every dispatch this worker started before close was called has either
+ * completed its stepComplete journal write or thrown out through the worker's
+ * `error` event. Dispatches that arrive AFTER close begins are ignored.
+ *
+ * Not implemented: releasing the worker registration with the kernel.
+ * `sdk/src/protocol.ts` has no `workerRelease` verb today, so on close() the
+ * kernel keeps this workerId in its registry until its lease expires. When
+ * workerRelease lands, add a client call at the top of close() (before the
+ * drain) so the kernel stops routing dispatches to us during shutdown.
+ */
 export class AgentWorker extends EventEmitter {
   private attached = false;
+  private closing = false;
+  private readonly inFlight: Set<Promise<void>> = new Set();
 
   constructor(
     private readonly client: JournalClient,
@@ -38,14 +53,37 @@ export class AgentWorker extends EventEmitter {
     }
   }
 
-  close(): void {
+  /**
+   * Async, drain-aware shutdown. Awaits every dispatch already in-flight;
+   * ignores dispatches that arrive after close() starts. Idempotent.
+   *
+   * A prior version was synchronous and did NOT drain, so a runner calling
+   * close() mid-dispatch could silently lose an in-flight step's stepComplete
+   * journal write when the socket was immediately shut. The async drain here
+   * closes that hole.
+   */
+  async close(): Promise<void> {
+    if (this.closing) return;
+    this.closing = true;
     this.client.off('step.dispatch', this.onDispatch);
+    // Drain: await every in-flight dispatch's execution. Snapshot the Set
+    // because entries settle-and-delete during Promise.allSettled.
+    const pending = Array.from(this.inFlight);
+    if (pending.length > 0) {
+      await Promise.allSettled(pending);
+    }
     this.attached = false;
   }
 
   private readonly onDispatch = (dispatch: StepDispatchEvent): void => {
+    if (this.closing) return;
     if (dispatch.step_type !== 'agent') return;
-    void this.execute(dispatch).catch((error: unknown) => this.emit('error', error));
+    const running: Promise<void> = this.execute(dispatch).catch((error: unknown) => {
+      this.emit('error', error);
+    });
+    // Track in-flight so close() can await drain; auto-remove when settled.
+    this.inFlight.add(running);
+    void running.finally(() => { this.inFlight.delete(running); });
   };
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {

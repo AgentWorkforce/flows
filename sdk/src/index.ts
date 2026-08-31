@@ -114,6 +114,20 @@ export { JOURNAL_WRITE_FAILED, PROTOCOL_VERSION } from './protocol.js';
 export { JournalClient, type JournalClientOptions } from './journal-client.js';
 export { AgentWorker, type AgentWorkerOptions } from './worker.js';
 
+// hn-monitor runner — composes poller + worker + journal into the real
+// continuous workload gate 2 wants to see. bundleSpec/bundleSpecFromPath
+// build content-addressed SpecBundles so runtime spec mutation cannot
+// skew events across polls (RFC-0001 settled decision #14 spirit).
+export {
+  HnMonitorRunner,
+  bundleSpec,
+  bundleSpecFromPath,
+  type HnMonitorRunnerOptions,
+  type RunnerAgentWorker,
+  type RunnerJournalClient,
+  type SpecBundle,
+} from './hn-monitor-runner.js';
+
 export {
   validateWorkPackage,
   packageFromEntry,
