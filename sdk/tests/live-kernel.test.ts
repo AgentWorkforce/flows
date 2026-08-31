@@ -238,6 +238,43 @@ steps:
     worker.close();
   });
 
+  it('reports a nonzero agent CLI exit through the SDK worker', async () => {
+    const directory = temporaryDirectory('flows-live-agent-worker-failure-');
+    const dataDir = join(directory, 'data');
+    const cli = join(directory, 'failing-agent-cli');
+    writeFileSync(cli, '#!/bin/sh\nprintf \'agent failed\' >&2\nexit 9\n');
+    chmodSync(cli, 0o755);
+    await startDaemon(dataDir);
+
+    const client = await connectClient(dataDir);
+    await client.hello('live-sdk-agent-worker-failure');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-sdk-agent-worker-failure',
+      pins: {
+        workspace: [{ surface: 'repo', revision_id: 'rev-a' }],
+        streams: [],
+      },
+    });
+    await worker.attach();
+
+    const started = await client.runStart(toKernelSpec(compileYaml(`
+version: '0.1.0'
+steps:
+  - id: execute
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    instruction: Perform the declared work.
+`)));
+    await waitForStep(client, started.run_id, 'execute', 'done');
+
+    expect(await client.runGet(started.run_id)).toMatchObject({ status: 'failed' });
+    expect(completionReasons(
+      (await client.journalRead(started.run_id, 1)).entries,
+      'execute',
+    )).toEqual(['worker_error']);
+    worker.close();
+  });
+
   it('can always get a parked run to a late-attaching worker', async () => {
     // The contract that cost the most time to establish, so it is pinned here.
     //
