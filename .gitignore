@@ -7,7 +7,14 @@ dist/
 .env
 .agentworkforce/
 .cargo-home/
-.review-target
+
+# .review-target/ carries the PR the swarm is reviewing. It IS uploaded to
+# the cloud sandbox (that is the point), so it must NOT be gitignored — the
+# earlier `.review-target` entry silently dropped the file from `git ls-files`
+# and every cloud swarm run hit `FETCH_FAILED: .review-target missing`.
+# scripts/review-swarm-prepare.sh writes and stages the files under it; the
+# `git add` there needs no `-f`. Commit them to your review branch and let
+# the launcher upload them like any other tracked file.
 
 # Toolchains materialize inside the workspace in a cloud sandbox and must never
 # be committed or delivered. Run f18ec684's patch carried .rustup-home/ files;
