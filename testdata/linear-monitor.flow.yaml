@@ -1,0 +1,41 @@
+version: '0.1.0'
+name: linear-monitor
+description: >-
+  Analyze newly-created Linear issues for triage priority. Second proactive
+  workload on gate 2 primitives — proves the pattern generalizes beyond
+  hn-monitor.
+triggers:
+  - id: linear-issue-created
+    executor: agent-worker
+    eventType: linear.issue_created
+    pattern:
+      type: issue
+    dedupeKeyTemplate: '{{event.type}}:{{payload.id}}'
+steps:
+  - id: triage-issue
+    type: agent
+    instruction: >-
+      Analyze the triggering Linear issue from the wake context. Determine:
+      priority (P0/P1/P2/P3), estimated size (S/M/L/XL), and one-line
+      recommended first action. Output a JSON summary.
+    recoveryMode: reset
+    verification:
+      type: json_schema
+      schema:
+        type: object
+        required:
+          - issue_id
+          - priority
+          - size
+          - first_action
+        properties:
+          issue_id:
+            type: string
+          priority:
+            type: string
+            enum: [P0, P1, P2, P3]
+          size:
+            type: string
+            enum: [S, M, L, XL]
+          first_action:
+            type: string

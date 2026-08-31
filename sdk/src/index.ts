@@ -144,3 +144,13 @@ export {
   type Fetcher,
   type PollOptions,
 } from './hn-poller.js';
+
+// Linear adapter — second proactive workload on gate 2 primitives, same
+// pattern as hn-poller (adapter outside kernel/, submits via journal).
+export {
+  pollLinearOnce,
+  LINEAR_GRAPHQL_ENDPOINT,
+  type LinearFetcher,
+  type LinearIssueRef,
+  type PollOptions as LinearPollOptions,
+} from './linear-poller.js';
