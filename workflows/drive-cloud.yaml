@@ -243,34 +243,20 @@ workflows:
       \ in the delivered diff. Runs\n# kept citing it anyway \u2014 reviewers filed the same finding again\
       \ on\n# #35, #40 and #48. Four recurrences after the warning is enough\n# evidence that prose does\
       \ not hold and a check does.\n#\n# Same for unevidenced test claims: \"all three tests pass\" with\
-      \ no\n# transcript. validateNextWorkPackage refuses both shapes.\n#\n# Runs BEFORE the node_modules\
-      \ cleanup below, which needs sdk/dist.\nif [ -f ops/NEXT.md ] && [ -f sdk/dist/index.js ]; then\n\
-      \  nextout=$(node -e '\n    const fs = require(\"node:fs\");\n    const { validateNextWorkPackage\
-      \ } = require(\"./sdk/dist/index.js\");\n    const verdict = validateNextWorkPackage(\n      fs.readFileSync(\"\
+      \ no\n# transcript. validateNextWorkPackage refuses both shapes.\n#\n# Runs after the SDK build,\
+      \ which produces sdk/dist.\nif [ -f ops/NEXT.md ] && [ -f sdk/dist/index.js ]; then\n  nextout=$(node\
+      \ -e '\n    const fs = require(\"node:fs\");\n    const { validateNextWorkPackage } = require(\"\
+      ./sdk/dist/index.js\");\n    const verdict = validateNextWorkPackage(\n      fs.readFileSync(\"\
       ops/NEXT.md\", \"utf8\"),\n      (p) => fs.existsSync(p),\n    );\n    if (!verdict.accepted) {\n\
       \      console.log(\"NEXT_REFUSED \" + verdict.reason);\n      process.exit(1);\n    }\n    console.log(\"\
       NEXT_OK\");\n  ' 2>&1) || true\n  echo \"$nextout\" | tail -2\n  case \"$nextout\" in\n    *NEXT_REFUSED*)\n\
       \      echo \"VERIFY_FAIL: ops/NEXT.md was refused \u2014 quote your scope instead of citing\"\n\
       \      echo \"  ops/TARGET.md (it is not in the delivered diff), and paste the literal\"\n     \
       \ echo \"  command output for anything you claim passes.\"\n      ok=1\n      ;;\n  esac\nfi\n\n\
-      # Shrink the tree before the flush that matters.\n#\n# The relayfile mount flush fails on a large\
-      \ tree \u2014 http 413, or a\n# timeout waiting for the daemon to ack \u2014 and the failure is\n\
-      # NON-FATAL, so the run reports success while later steps read stale\n# files and the delivered\
-      \ patch silently loses the work. Five runs\n# were lost this way. PR #38 took kernel/target out\
-      \ (4914 paths ->\n# 0), which was not enough on its own: run 5ecf7078 still flushed\n# 1932 files\
-      \ and still hit 413.\n#\n# sdk/node_modules is what remains \u2014 1226 files, 52 MB, and already\n\
-      # gitignored, so nothing downstream of here reads it: the suites have\n# finished by this line,\
-      \ and commit/handoff touch only tracked files.\n# Removing it after the gates pass costs nothing\
-      \ and takes the bulk\n# of the payload out of every flush from here on.\n#\n# Runs on pass AND fail.\
-      \ The first version only slimmed on a green\n# verify, to keep a failing run's tree intact for diagnosis.\
-      \ That\n# defeated the fix: run ae982aaa ended VERIFY_FAIL_NONFATAL, so the\n# cleanup was skipped,\
-      \ the tree stayed at 1842 files and the flush\n# failed with three 413s \u2014 and the run still\
-      \ committed and delivered\n# a PR. A run that delivers needs its flush to work whether or not\n\
-      # its gates passed, and node_modules is reinstallable, so there was\n# never anything to preserve\
-      \ for diagnosis here.\n#\n# Guarded with || true and placed AFTER the pass/fail decision is\n# computed,\
-      \ so a cleanup problem can never change the verdict.\nrm -rf sdk/node_modules 2>/dev/null || true\n\
-      echo \"VERIFY_TREE_SLIMMED: removed sdk/node_modules before flush (ok=$ok)\"\n\n# Measure the tree\
-      \ instead of guessing at it.\n#\n# The relayfile flush keeps failing (http 413) and three successive\n\
+      # Keep node_modules until relayfile has flushed the step. Removing it\n# here races the mount daemon's\
+      \ queued chmod notifications from the\n# executable-bit repair above: the daemon can try to apply\
+      \ a chmod\n# after the path has been deleted and fail the otherwise-green step.\n\n# Measure the\
+      \ tree instead of guessing at it.\n#\n# The relayfile flush keeps failing (http 413) and three successive\n\
       # hypotheses about WHY were wrong: kernel/target was removed and the\n# count barely moved; node_modules\
       \ was removed and it still failed;\n# HOME turned out to be /home/daytona, outside the tree, so\
       \ the\n# toolchain was never in it. Meanwhile the bootstrap reports ~1900\n# changed files against\

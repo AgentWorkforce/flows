@@ -390,7 +390,7 @@ workflows:
           # Same for unevidenced test claims: "all three tests pass" with no
           # transcript. validateNextWorkPackage refuses both shapes.
           #
-          # Runs BEFORE the node_modules cleanup below, which needs sdk/dist.
+          # Runs after the SDK build, which produces sdk/dist.
           if [ -f ops/NEXT.md ] && [ -f sdk/dist/index.js ]; then
             nextout=$(node -e '
               const fs = require("node:fs");
@@ -416,35 +416,10 @@ workflows:
             esac
           fi
 
-          # Shrink the tree before the flush that matters.
-          #
-          # The relayfile mount flush fails on a large tree — http 413, or a
-          # timeout waiting for the daemon to ack — and the failure is
-          # NON-FATAL, so the run reports success while later steps read stale
-          # files and the delivered patch silently loses the work. Five runs
-          # were lost this way. PR #38 took kernel/target out (4914 paths ->
-          # 0), which was not enough on its own: run 5ecf7078 still flushed
-          # 1932 files and still hit 413.
-          #
-          # sdk/node_modules is what remains — 1226 files, 52 MB, and already
-          # gitignored, so nothing downstream of here reads it: the suites have
-          # finished by this line, and commit/handoff touch only tracked files.
-          # Removing it after the gates pass costs nothing and takes the bulk
-          # of the payload out of every flush from here on.
-          #
-          # Runs on pass AND fail. The first version only slimmed on a green
-          # verify, to keep a failing run's tree intact for diagnosis. That
-          # defeated the fix: run ae982aaa ended VERIFY_FAIL_NONFATAL, so the
-          # cleanup was skipped, the tree stayed at 1842 files and the flush
-          # failed with three 413s — and the run still committed and delivered
-          # a PR. A run that delivers needs its flush to work whether or not
-          # its gates passed, and node_modules is reinstallable, so there was
-          # never anything to preserve for diagnosis here.
-          #
-          # Guarded with || true and placed AFTER the pass/fail decision is
-          # computed, so a cleanup problem can never change the verdict.
-          rm -rf sdk/node_modules 2>/dev/null || true
-          echo "VERIFY_TREE_SLIMMED: removed sdk/node_modules before flush (ok=$ok)"
+          # Keep node_modules until relayfile has flushed the step. Removing it
+          # here races the mount daemon's queued chmod notifications from the
+          # executable-bit repair above: the daemon can try to apply a chmod
+          # after the path has been deleted and fail the otherwise-green step.
 
           # Measure the tree instead of guessing at it.
           #
