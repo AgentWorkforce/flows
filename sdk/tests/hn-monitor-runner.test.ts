@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, afterEach } from 'vitest';
 import { HnMonitorRunner, type RunnerAgentWorker, type RunnerJournalClient } from '../src/hn-monitor-runner.js';
+import { JournalProtocolError } from '../src/journal-client.js';
 
 const RECORDED_TOP_STORIES = '[41000001, 41000002, 41000003]';
 const FLOW_SPEC = { name: 'hn-monitor', version: '0.1.0' };
@@ -197,13 +198,15 @@ describe('HnMonitorRunner', () => {
     expect(client.submissions).toHaveLength(2);
   });
 
-  it('TERMINATES on a journal throw — run() rejects, loop does not continue', async () => {
+  it('TERMINATES on a journal transport throw — run() rejects, loop does not continue', async () => {
     const specPath = makeSpecFile();
     const events: string[] = [];
     const worker = recordingWorker(events);
     const fetchErrors: unknown[] = [];
 
-    // A journal client whose eventSubmit throws a journal-like error.
+    // A journal client whose eventSubmit throws a journal transport error
+    // (plain Error with `journal client:` prefix — the shape JournalClient
+    // throws for connect/socket/framing failures).
     let submitCalls = 0;
     const client: RunnerJournalClient = {
       async eventSubmit() {
@@ -227,13 +230,69 @@ describe('HnMonitorRunner', () => {
     });
 
     await expect(runner.run()).rejects.toThrow(/journal client/);
-
-    // Journal error did NOT reach onFetchError — it terminated the runner.
     expect(fetchErrors).toHaveLength(0);
-    // Only one submit attempt happened; the runner did not iterate past
-    // the failure.
     expect(submitCalls).toBe(1);
-    // Cleanup ran despite the throw.
     expect(events).toContain('worker.close');
+  });
+
+  it('TERMINATES on a JournalProtocolError — kernel-side rejection is not misclassified as fetch', async () => {
+    // Regression test for the swarm finding on #85 iteration 1: an earlier
+    // heuristic classified journal errors by message-prefix and missed
+    // JournalProtocolError entirely (message format is `<code>: <message>`,
+    // not `journal client: ...`). That silently forwarded real kernel
+    // rejections to onFetchError — fail-open, in violation of covenant 2.
+    // The fix: `instanceof JournalProtocolError` in the classifier.
+    const specPath = makeSpecFile();
+    const events: string[] = [];
+    const worker = recordingWorker(events);
+    const fetchErrors: unknown[] = [];
+
+    let submitCalls = 0;
+    const client: RunnerJournalClient = {
+      async eventSubmit() {
+        submitCalls++;
+        // Exact shape JournalClient throws when the server rejects a request:
+        // `new JournalProtocolError(res.error.code, res.error.message)`.
+        throw new JournalProtocolError('subscription_missing', 'no matching trigger');
+      },
+      close() { events.push('client.close'); },
+    };
+
+    const runner = new HnMonitorRunner({
+      specPath,
+      socketPath: '/dev/null',
+      pollIntervalMs: 1,
+      worker: { workerId: 'test-w', pins: { relayfile_revision: 'r', worktree_commit: 'c' } as any },
+      fetcher: async () => RECORDED_TOP_STORIES,
+      client,
+      workerInstance: worker,
+      onFetchError: (err) => fetchErrors.push(err),
+      storyLimit: 2,
+      maxPolls: 10,
+    });
+
+    // Must reject; must NOT swallow to onFetchError.
+    await expect(runner.run()).rejects.toThrow(/subscription_missing/);
+    expect(fetchErrors).toHaveLength(0);
+    expect(submitCalls).toBe(1);
+    expect(events).toContain('worker.close');
+  });
+
+  it('REJECTS an invalid inject combo (client without workerInstance)', async () => {
+    // The runner refuses to construct AgentWorker over a duck-typed
+    // RunnerJournalClient because that would launder a type mismatch —
+    // AgentWorker needs workerAttach/stepComplete/on/off which
+    // RunnerJournalClient doesn't carry. Fail-closed on the invalid combo.
+    const specPath = makeSpecFile();
+    const client: RunnerJournalClient = {
+      async eventSubmit() { return { matched: true, deduped: false }; },
+    };
+    expect(() => new HnMonitorRunner({
+      specPath,
+      socketPath: '/dev/null',
+      worker: { workerId: 'test-w', pins: { relayfile_revision: 'r', worktree_commit: 'c' } as any },
+      client,
+      // no workerInstance
+    })).toThrow(/injecting `client` requires also injecting `workerInstance`/);
   });
 });

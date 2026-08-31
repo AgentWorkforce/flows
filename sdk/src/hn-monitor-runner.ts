@@ -48,7 +48,7 @@
 import { readFile } from 'node:fs/promises';
 import { pollHackerNewsOnce, type EventSink, type Fetcher } from './hn-poller.js';
 import { AgentWorker, type AgentWorkerOptions } from './worker.js';
-import { JournalClient } from './journal-client.js';
+import { JournalClient, JournalProtocolError } from './journal-client.js';
 
 /**
  * Duck-typed minimum surface the runner needs from a journal client. Lets
@@ -89,14 +89,17 @@ export interface HnMonitorRunnerOptions {
   /** Injection for tests / non-default fetchers. */
   fetcher?: Fetcher;
   /**
-   * Inject a pre-built journal client. When provided the runner does NOT call
-   * connect() or hello() on it — the caller owns lifecycle. When absent the
-   * runner constructs a real JournalClient(socketPath) and manages it.
+   * Inject a pre-built journal client. The runner skips its own connect()/
+   * hello() bootstrap when this is provided (assumes already connected),
+   * but STILL calls close() at shutdown — close() is idempotent-safe on
+   * both JournalClient and simple test doubles.
    */
   client?: RunnerJournalClient;
   /**
-   * Inject a pre-built agent worker. When provided the runner does NOT call
-   * attach() or close() on it — the caller owns lifecycle.
+   * Inject a pre-built agent worker. The runner calls attach() and close()
+   * on it just as it would on an internally-constructed worker. A real
+   * AgentWorker throws on double-attach, so callers must not inject an
+   * already-attached instance; tests use non-attaching doubles.
    */
   workerInstance?: RunnerAgentWorker;
   /**
@@ -120,19 +123,27 @@ export interface HnMonitorRunnerOptions {
 const DEFAULT_POLL_INTERVAL_MS = 60_000;
 
 /**
- * A journal error is anything that came out of JournalClient's request path.
- * We detect by whether the error mentions the journal client's own prefixes —
- * the client throws Errors with messages like `journal client: ...` or
- * `journal client: closed by caller` — plus explicit response-frame errors
- * carry a `.code` shape. We don't own JournalClient's error classes; message
- * heuristics keep this loose without depending on private types.
+ * Fail-closed classification: identify a JOURNAL error so it can propagate
+ * out of run() and terminate the runner. Everything else is treated as a
+ * transient FETCH failure and forwarded to onFetchError so the loop
+ * continues.
+ *
+ * We check the shapes JournalClient can actually produce:
+ *   - `JournalProtocolError` — thrown for server-side rejection frames
+ *     (message format is `<code>: <message>`, e.g. `subscription_missing: ...`)
+ *   - plain `Error` with a `journal client:` message prefix — thrown for
+ *     transport failures (connect, socket close, framing, not-connected)
+ *
+ * A prior iteration relied on a message-regex heuristic that MISSED
+ * `JournalProtocolError` entirely (its message doesn't start with
+ * `journal client:`). That silently forwarded real kernel-side rejections
+ * to onFetchError as fetch failures — the exact fail-open the swarm caught.
+ * `instanceof` catches the class directly; string prefix catches the
+ * transport-error class.
  */
 function looksLikeJournalError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  if (/^journal client:/.test(err.message)) return true;
-  if (/^Request timed out/.test(err.message)) return true;
-  // Response frames throw with `Protocol error: ...` in JournalClient.
-  if (/^Protocol error:/.test(err.message)) return true;
+  if (err instanceof JournalProtocolError) return true;
+  if (err instanceof Error && /^journal client:/.test(err.message)) return true;
   return false;
 }
 
@@ -155,6 +166,17 @@ export class HnMonitorRunner {
   private worker: RunnerAgentWorker | undefined;
 
   constructor(options: HnMonitorRunnerOptions) {
+    // If a caller injects a duck-typed client, they MUST also inject the
+    // worker — the RunnerJournalClient interface doesn't include the
+    // workerAttach/stepComplete/on/off surface a real AgentWorker needs,
+    // so constructing an AgentWorker over an injected client would launder
+    // a type mismatch. Fail-closed on the invalid combo.
+    if (options.client !== undefined && options.workerInstance === undefined) {
+      throw new Error(
+        'HnMonitorRunner: injecting `client` requires also injecting `workerInstance` — ' +
+        'the duck-typed RunnerJournalClient does not carry the surface AgentWorker uses.',
+      );
+    }
     this.specPath = options.specPath;
     this.socketPath = options.socketPath;
     this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
@@ -269,22 +291,33 @@ export class HnMonitorRunner {
     this.client = undefined;
   }
 
-  /** Sleep that wakes on abort signal (or stopping flag) as well as timeout. */
+  /**
+   * Sleep that wakes on abort signal as well as timeout.
+   *
+   * Both branches remove the abort listener explicitly. `{ once: true }` on
+   * addEventListener only auto-removes on the abort-fire path; the
+   * timer-fires-first path would otherwise accumulate listeners on the
+   * caller's shared AbortSignal and trigger MaxListenersExceededWarning
+   * after ~10 polls.
+   */
   private sleepInterruptible(ms: number): Promise<void> {
     return new Promise((resolve) => {
-      const timer = setTimeout(resolve, ms);
+      const signal = this.signal;
+      if (signal?.aborted) {
+        resolve();
+        return;
+      }
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const onAbort = (): void => {
-        clearTimeout(timer);
+        if (timer !== undefined) clearTimeout(timer);
         resolve();
       };
-      if (this.signal) {
-        if (this.signal.aborted) {
-          clearTimeout(timer);
-          resolve();
-          return;
-        }
-        this.signal.addEventListener('abort', onAbort, { once: true });
-      }
+      timer = setTimeout(() => {
+        // Timer fired first; remove the abort listener so it doesn't leak.
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      signal?.addEventListener('abort', onAbort, { once: true });
     });
   }
 }
