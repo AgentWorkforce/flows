@@ -14,11 +14,14 @@ concurrency:
 
 jobs:
   review:
-    if: >-
-      github.event.pull_request.user.login == 'kjgbot' ||
-      github.event.pull_request.user.login == 'miyaontherelay'
+    # Per RFC-0001 §2 rule 7: "Every PR is met by a review swarm." No author
+    # filter — human PRs get reviewed too. If we ever need a rollout-scoped
+    # narrower filter, express it as a documented rule, not a hardcoded
+    # username list.
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    # Job cap must exceed the poll deadline (65min) + install overhead.
+    # 75min gives 10min headroom for checkout, npm install, sync, post.
+    timeout-minutes: 75
     env:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -47,13 +50,16 @@ jobs:
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
 
       - name: Wait for review swarm
+        id: wait
         shell: bash
         env:
           RUN_ID: ${{ steps.launch.outputs.run_id }}
         # Poll deadline (3900s = 65min) must be >= workflows/review-swarm.yaml's
         # own timeoutMs (3600000 = 60min) plus buffer, or CI abandons swarms
-        # still executing in cloud. Exit on ALL terminal states so a real
-        # failure/cancel doesn't masquerade as a 65-min timeout.
+        # still executing in cloud. The job's timeout-minutes must exceed 65.
+        # Record the terminal status in an output so the next step can post
+        # transcripts EVEN when the swarm rejects — otherwise a rejecting
+        # swarm's evidence never reaches the PR.
         run: |
           set -euo pipefail
           deadline=$((SECONDS + 3900))
@@ -62,17 +68,28 @@ jobs:
             printf '%s\n' "$response"
             status=$(jq -er '.status // .run.status' <<<"$response")
             case "$status" in
-              completed) exit 0 ;;
-              failed|errored|cancelled|canceled)
-                echo "review swarm ended: $status" >&2
-                exit 1 ;;
+              completed|failed|errored|cancelled|canceled)
+                echo "swarm_status=$status" >> "$GITHUB_OUTPUT"
+                exit 0 ;;
             esac
             sleep 30
           done
-          echo "review swarm timed out after 65 minutes" >&2
-          exit 1
+          echo "swarm_status=timeout" >> "$GITHUB_OUTPUT"
 
       - name: Sync and post review comments
+        # ALWAYS run, even if wait recorded a non-completed status. A rejecting
+        # swarm's transcripts and marker are the evidence we need on the PR;
+        # skipping this step on failure is exactly the evidence-loss class
+        # ops/DRIVE-LOG.md warns about.
+        if: always() && steps.launch.outputs.run_id != ''
         env:
           RUN_ID: ${{ steps.launch.outputs.run_id }}
         run: bash .github/workflows/scripts/swarm-post.sh "$RUN_ID" "$PR_NUMBER"
+
+      - name: Fail the job when swarm rejected
+        # Post-transcript gate: the marker comment now records the verdict on
+        # the PR, so we can safely fail the CI check to block merge.
+        if: steps.wait.outputs.swarm_status != 'completed'
+        run: |
+          echo "Swarm terminated with status: ${{ steps.wait.outputs.swarm_status }}" >&2
+          exit 1
