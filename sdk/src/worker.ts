@@ -39,6 +39,7 @@ export class AgentWorker extends EventEmitter {
   }
 
   close(): void {
+    // Shutdown intentionally does not release the kernel's worker registration; protocol v0 has no release verb.
     this.client.off('step.dispatch', this.onDispatch);
     this.attached = false;
   }
