@@ -1,0 +1,72 @@
+---
+name: Review swarm
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: review-swarm-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      ${{ contains(fromJSON('["kjgbot", "miyaontherelay"]'),
+      github.event.pull_request.user.login) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELAY_WORKSPACE_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Check out pull request merge commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install agent-relay
+        run: npm install --global agent-relay
+
+      - name: Select pull request
+        run: echo "$PR_NUMBER" > .review-target
+
+      - name: Launch review swarm
+        id: launch
+        shell: bash
+        run: |
+          set -euo pipefail
+          response=$(agent-relay cloud run workflows/review-swarm.yaml \
+            --sync-code --json)
+          run_id=$(jq -er '.runId // .id' <<<"$response")
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "Launched review swarm run $run_id"
+
+      - name: Wait for review swarm
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id='${{ steps.launch.outputs.run_id }}'
+          deadline=$((SECONDS + 2700))
+          while (( SECONDS < deadline )); do
+            response=$(agent-relay cloud status "$run_id" --json)
+            status=$(jq -er '.status' <<<"$response")
+            echo "Review swarm $run_id: $status"
+            case "$status" in
+              completed) exit 0 ;;
+              failed|cancelled) exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "Review swarm $run_id did not complete within 45 minutes" >&2
+          exit 1
+
+      - name: Sync and post reviews
+        env:
+          RUN_ID: ${{ steps.launch.outputs.run_id }}
+        run: bash .github/workflows/scripts/swarm-post.sh "$RUN_ID" "$PR_NUMBER"
