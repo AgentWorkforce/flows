@@ -12,6 +12,8 @@ an entire application.
 The constitution is [`docs/RFC-0001-everything-is-a-relayflow.md`](docs/RFC-0001-everything-is-a-relayflow.md).
 Nothing in this repo may contradict it; changing it is a human decision.
 
+The required `RELAY_WORKSPACE_KEY` repository secret authenticates review-swarm GitHub Actions runs to the canonical Agent Relay Cloud workspace.
+
 ## Layout
 
 ```
