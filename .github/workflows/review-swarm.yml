@@ -1,0 +1,106 @@
+name: Review swarm
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: review-swarm-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Ordering invariant: job 75m > poll 65m > swarm 60m.
+    timeout-minutes: 75
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the reviewed PR
+        uses: actions/checkout@v4
+        with:
+          path: reviewed
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      # The PR cannot change the workflow or scripts that judge it. Only this
+      # separate main checkout supplies the gate files that execute below.
+      - name: Check out the immutable gate
+        uses: actions/checkout@v4
+        with:
+          path: gate
+          ref: main
+          fetch-depth: 1
+
+      - name: Validate cloud authentication
+        env:
+          RELAY_WORKSPACE_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
+        run: |
+          if [ -z "$RELAY_WORKSPACE_KEY" ]; then
+            echo "RELAY_WORKSPACE_KEY secret not configured; see README § Review swarm cloud authentication" >&2
+            exit 1
+          fi
+
+      - name: Install Agent Relay
+        run: npm install --global agent-relay
+
+      - name: Prepare review target on the authenticated host
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          bash gate/.github/workflows/scripts/swarm-prepare.sh \
+            reviewed gate/.github/workflows/scripts/swarm-post.sh
+
+      - name: Launch immutable review swarm
+        id: launch
+        working-directory: reviewed
+        env:
+          RELAY_WORKSPACE_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
+        run: |
+          response=$(agent-relay cloud run ../gate/workflows/review-swarm.yaml --sync-code --json)
+          printf '%s\n' "$response"
+          run_id=$(printf '%s' "$response" | python3 -c 'import json,sys; print(json.load(sys.stdin)["runId"])')
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for terminal cloud status
+        id: wait
+        env:
+          RELAY_WORKSPACE_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
+          RUN_ID: ${{ steps.launch.outputs.run_id }}
+        run: |
+          # Ordering invariant: poll 3900s (65m) < job 75m and > swarm 60m.
+          deadline=$((SECONDS + 3900))
+          status=timed_out
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            status=$(agent-relay cloud status "$RUN_ID" --json |
+              python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])') || status=status_error
+            case "$status" in
+              completed|failed|cancelled) break ;;
+            esac
+            sleep 15
+          done
+          echo "swarm_status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Sync evidence and update PR comments
+        if: always() && steps.launch.outputs.run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ steps.launch.outputs.run_id }}
+          SWARM_STATUS: ${{ steps.wait.outputs.swarm_status }}
+          RELAY_WORKSPACE_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
+        run: bash gate/.github/workflows/scripts/swarm-post.sh post reviewed
+
+      - name: Enforce successful terminal status
+        if: steps.wait.outputs.swarm_status != 'completed'
+        env:
+          SWARM_STATUS: ${{ steps.wait.outputs.swarm_status }}
+        run: |
+          echo "Review swarm did not complete successfully: ${SWARM_STATUS:-missing}" >&2
+          exit 1

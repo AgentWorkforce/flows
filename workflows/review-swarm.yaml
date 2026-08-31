@@ -1,117 +1,86 @@
 version: '1.0'
 name: flows-review-swarm
-description: >
-  Three independent reviewers, three lenses, three model families — the review
-  team RFC-0001 §2 rule 7 requires. Exists because external bots are not
-  review signal: on PR #8 CodeRabbit was rate-limited into skipping and Devin's
-  trial expired, both reporting SUCCESS. Our own review must not depend on
-  someone else's quota.
-
-  Invoke with PR_NUMBER set. Each lens persists its own transcript to
-  ops/reviews/; the aggregate step fails the run if ANY lens rejects, so a
-  single honest refusal blocks the merge.
+description: Three independent review lenses required by RFC-0001 §2 rule 7.
 
 swarm:
   pattern: dag
   channel: flows-review
+  # Ordering invariant: swarm 60m < host poll 65m < GHA job 75m.
   timeoutMs: 3600000
   maxConcurrency: 3
 
 agents:
-  # Deliberately three different model families: a shared blind spot in one
-  # harness must not become the whole team's blind spot.
   - name: maintainability
     cli: claude
     preset: reviewer
-    role: Reviews for maintainability — will a stranger understand and safely change this in six months?
+    role: Reviews whether a stranger can understand and safely change the code.
   - name: history
     cli: codex
     preset: reviewer
-    role: Reviews the change against the story of the code — does it fit what the repo has been becoming?
+    role: Reviews whether the change fits the repository's recorded decisions.
   - name: structure
     cli: opencode
     preset: reviewer
-    role: Reviews structure — boundaries, coupling, whether the shape matches the contract in RFC-0001.
+    role: Reviews boundaries, coupling, and conformance to RFC-0001.
 
 workflows:
   - name: review-pr
     steps:
-      - name: fetch
+      - name: load-target
         type: deterministic
         command: |
-          # Deterministic steps do not inherit the launching shell's env, so the
-          # target is read from a file the operator writes before the run:
-          #   echo 8 > .review-target
-          set -u
-          if [ ! -f .review-target ]; then
-            echo "FETCH_FAILED: .review-target missing — write the PR number to it first"; exit 1
-          fi
-          PR=$(tr -dc '0-9' < .review-target)
-          [ -n "$PR" ] || { echo "FETCH_FAILED: .review-target holds no PR number"; exit 1; }
-          gh pr view "$PR" --json headRefName,title,url > /tmp/pr-$PR.json
-          gh pr diff "$PR" > /tmp/pr-$PR.diff
-          echo "target PR #$PR, $(wc -l < /tmp/pr-$PR.diff) diff lines"
-          echo FETCHED
+          set -eu
+          for file in pr-number pr.diff pr.json; do
+            [ -s ".review-target/$file" ] || {
+              echo "TARGET_FAILED: .review-target/$file missing or empty" >&2
+              exit 1
+            }
+          done
+          date +%s > .review-target/sync-start
+          echo "target PR #$(cat .review-target/pr-number)"
 
       - name: lens-maintainability
         type: agent
         agent: maintainability
-        dependsOn: [fetch]
+        dependsOn: [load-target]
         task: |
-          Review the PR whose number is in .review-target (diff at
-          /tmp/pr-<n>.diff, metadata at /tmp/pr-<n>.json) through ONE lens: maintainability.
-          Ask: could a stranger read this in six months and change it safely?
-          Name unclear boundaries, implicit contracts, missing failure handling,
-          comments that assert what the code does not do, and tests that would
-          not fail if the behavior broke.
-          Read AGENTS.md and docs/RFC-0001-everything-is-a-relayflow.md first.
-          Write your complete review to
-          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-maintainability.md
-          and `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
-        verification:
-          type: output_contains
-          value: "REVIEW_"
+          Read AGENTS.md and the relevant RFC-0001 sections. Review the staged
+          .review-target/pr.diff and .review-target/pr.json only through the
+          maintainability lens. Write the complete review to
+          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target/pr-number)-maintainability.md
+          and git add it. The last non-empty line must be exactly REVIEW_PASSED
+          or REVIEW_FAILED.
+        verification: {type: output_contains, value: REVIEW_}
         maxIterations: 1
         timeoutMs: 1800000
 
       - name: lens-history
         type: agent
         agent: history
-        dependsOn: [fetch]
+        dependsOn: [load-target]
         task: |
-          Review the PR whose number is in .review-target (diff at /tmp/pr-<n>.diff) through ONE
-          lens: does this change fit the story of the code?
-          Run `git log --oneline -40` and read ops/DRIVE-LOG.md, ops/NEXT.md and
-          ops/DIRECTIVES.md if present. Ask: does it repeat a mistake the log
-          already records? Does it contradict a settled decision in RFC-0001?
-          Does it reintroduce something a previous commit deliberately removed?
-          Does the commit message tell the truth about the diff?
-          Write your complete review to
-          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-history.md and
-          `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
-        verification:
-          type: output_contains
-          value: "REVIEW_"
+          Read AGENTS.md, ops/DRIVE-LOG.md, ops/NEXT.md, ops/DIRECTIVES.md when
+          present, relevant RFC-0001 sections, and git log --oneline -40.
+          Review .review-target/pr.diff through the history lens. Write the
+          complete review to ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat
+          .review-target/pr-number)-history.md and git add it. The last
+          non-empty line must be exactly REVIEW_PASSED or REVIEW_FAILED.
+        verification: {type: output_contains, value: REVIEW_}
         maxIterations: 1
         timeoutMs: 1800000
 
       - name: lens-structure
         type: agent
         agent: structure
-        dependsOn: [fetch]
+        dependsOn: [load-target]
         task: |
-          Review the PR whose number is in .review-target (diff at /tmp/pr-<n>.diff) through ONE
-          lens: structure. Boundaries, coupling, file size and single purpose,
-          whether the shape matches RFC-0001 (closed kernel vocabulary, helpers
-          over primitives, fail-closed, completionReason discipline) and
-          AGENTS.md. Name anything that puts product logic in the kernel, adds
-          a primitive instead of a helper, or grows a file past its purpose.
-          Write your complete review to
-          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-structure.md and
-          `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
-        verification:
-          type: output_contains
-          value: "REVIEW_"
+          Read AGENTS.md and relevant RFC-0001 sections. Review
+          .review-target/pr.diff through the structure lens: boundaries,
+          coupling, single purpose, fail-closed behavior, and RFC vocabulary.
+          Write the complete review to ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat
+          .review-target/pr-number)-structure.md and git add it. The last
+          non-empty line must be exactly REVIEW_PASSED or REVIEW_FAILED.
+        verification: {type: output_contains, value: REVIEW_}
         maxIterations: 1
         timeoutMs: 1800000
 
@@ -119,11 +88,8 @@ workflows:
         type: deterministic
         dependsOn: [lens-maintainability, lens-history, lens-structure]
         command: |
-          # Lens verdicts are evidence even when the aggregate rejects. Commit
-          # exactly the review files the lenses staged before any later reset
-          # can destroy them.
-          set -u
-          PR=$(tr -dc '0-9' < .review-target 2>/dev/null)
+          set -eu
+          PR=$(cat .review-target/pr-number)
           if ! git diff --cached --quiet -- ops/reviews/; then
             git commit -m "ops(review): persist PR #${PR} swarm transcripts" -- ops/reviews/
           fi
@@ -132,23 +98,6 @@ workflows:
         type: deterministic
         dependsOn: [persist-transcripts]
         command: |
-          # Any single honest refusal blocks the merge. A missing transcript is
-          # a refusal too: an unpersisted verdict is not evidence.
-          set -u
-          PR=$(tr -dc '0-9' < .review-target 2>/dev/null)
-          fail=0
-          for lens in maintainability history structure; do
-            f=$(ls -t ops/reviews/*-pr${PR}-${lens}.md 2>/dev/null | head -1)
-            if [ -z "$f" ]; then
-              echo "SWARM_FAILED: $lens produced no transcript"; fail=1; continue
-            fi
-            if grep -q "REVIEW_FAILED" "$f"; then
-              echo "SWARM_FAILED: $lens rejected — see $f"; fail=1
-            elif grep -q "REVIEW_PASSED" "$f"; then
-              echo "ok: $lens passed ($f)"
-            else
-              echo "SWARM_FAILED: $lens transcript carries no verdict ($f)"; fail=1
-            fi
-          done
-          [ $fail -eq 0 ] && echo SWARM_PASSED || exit 1
+          # Verdict selection and fail-closed rules live only in swarm-post.sh.
+          .github/workflows/scripts/swarm-post.sh verdict .
         timeoutMs: 120000
