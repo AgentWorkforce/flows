@@ -144,3 +144,9 @@ export {
   type Fetcher,
   type PollOptions,
 } from './hn-poller.js';
+
+export {
+  HnMonitorRunner,
+  HN_MONITOR_DEFAULT_POLL_INTERVAL_MS,
+  type HnMonitorRunnerOptions,
+} from './hn-monitor-runner.js';
