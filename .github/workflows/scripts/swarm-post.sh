@@ -60,12 +60,22 @@ for lens in maintainability history structure; do
   gh pr comment "$pr_number" --body-file "$transcript"
 done
 
-# Degrade the aggregate if any lens is missing or unclear — a partial signal
-# must not read as PASSED.
+# Compute the aggregate from lens verdicts DIRECTLY, not from cloud logs. The
+# logs-derived `overall` above is a first pass but can disagree with the
+# actual transcripts (log parsing missed a lens, aggregate step raced, etc).
+# The transcripts are the load-bearing evidence — a single FAILED lens means
+# aggregate FAILED, per the review-swarm.yaml aggregate step's own rule
+# ("any single honest refusal blocks the merge").
+#
+# Compute aggregate = ALL lenses PASSED; else FAILED. This is fail-closed:
+# MISSING, UNCLEAR, FAILED all degrade to FAILED. The prior bug only
+# degraded MISSING/UNCLEAR, so a log-derived PASSED could survive even when
+# a lens transcript said FAILED.
+overall=PASSED
 for lens in maintainability history structure; do
-  case "${verdicts[$lens]:-MISSING}" in
-    MISSING|UNCLEAR) overall=FAILED ;;
-  esac
+  if [[ "${verdicts[$lens]:-MISSING}" != PASSED ]]; then
+    overall=FAILED
+  fi
 done
 
 marker_id='<!-- review-swarm-marker -->'
