@@ -39,6 +39,7 @@ export class AgentWorker extends EventEmitter {
   }
 
   close(): void {
+    // Protocol v0 has no worker-release verb; close only detaches this local worker.
     this.client.off('step.dispatch', this.onDispatch);
     this.attached = false;
   }

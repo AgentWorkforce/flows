@@ -144,3 +144,5 @@ export {
   type Fetcher,
   type PollOptions,
 } from './hn-poller.js';
+
+export { HnMonitorRunner, type HnMonitorRunnerOptions } from './hn-monitor-runner.js';
