@@ -25,6 +25,7 @@
     "typecheck": "tsc --noEmit",
     "test:prep": "( cd ../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../testdata/preflight ] || find ../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )",
     "test": "npm run test:prep && npm run build && vitest run",
+    "posttest": "find dist -type f \\( -name '*.map' -o -name '*.d.ts' \\) -delete",
     "test:watch": "vitest"
   },
   "license": "UNLICENSED",
