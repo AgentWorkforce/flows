@@ -7,8 +7,6 @@ dist/
 .env
 .agentworkforce/
 .cargo-home/
-.review-target
-
 # Toolchains materialize inside the workspace in a cloud sandbox and must never
 # be committed or delivered. Run f18ec684's patch carried .rustup-home/ files;
 # ops/deliver-run.sh scrubs them too, but ignoring them is the durable fix.

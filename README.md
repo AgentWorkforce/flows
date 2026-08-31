@@ -30,3 +30,13 @@ Nine gates, in `docs/RFC-0001` §3. Gate 1 first: a relayflow can run — the he
 ladder survives `kill -9` at every boundary.
 
 Private while we build. YC 2026-09-15 runs on this base.
+
+## Cloud review swarm
+
+The `Review swarm` GitHub Actions workflow requires the repository Actions
+secret `RELAY_WORKSPACE_KEY`. A workspace owner can print the key from an
+authenticated machine with `agent-relay workspace key default
+--reveal-secrets` (replace `default` with the workspace name), then add it under
+**Settings → Secrets and variables → Actions → New repository secret**. The
+workflow fails in preflight when the secret is absent, before starting
+`agent-relay` or its interactive authentication fallback.
