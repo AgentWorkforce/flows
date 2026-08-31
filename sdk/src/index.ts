@@ -144,3 +144,10 @@ export {
   type Fetcher,
   type PollOptions,
 } from './hn-poller.js';
+
+export {
+  HnMonitorRunner,
+  type HnMonitorRunnerOptions,
+  type RunnerAgentWorker,
+  type RunnerJournalClient,
+} from './hn-monitor-runner.js';
