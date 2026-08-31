@@ -144,3 +144,13 @@ export {
   type Fetcher,
   type PollOptions,
 } from './hn-poller.js';
+
+// Directory watcher — second proactive workload for gate 2 primitives.
+// Non-provider: no HTTP, no API tokens, no gate-6 dependency. Proves the
+// pattern generalizes without regressing RFC-0001 §6 (providers = relayfile
+// adapters, not SDK code).
+export {
+  pollDirectoryOnce,
+  type DirLister,
+  type PollOptions as DirWatcherPollOptions,
+} from './dir-watcher-poller.js';
