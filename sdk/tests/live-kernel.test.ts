@@ -238,6 +238,47 @@ steps:
     worker.close();
   });
 
+  it('reports a nonzero agent CLI exit through the SDK worker', async () => {
+    const directory = temporaryDirectory('flows-live-agent-worker-failure-');
+    const dataDir = join(directory, 'data');
+    const cli = join(directory, 'failing-agent-cli');
+    writeFileSync(cli, '#!/bin/sh\nprintf failure >&2\nexit 7\n');
+    chmodSync(cli, 0o755);
+    await startDaemon(dataDir);
+
+    const client = await connectClient(dataDir);
+    await client.hello('live-sdk-agent-worker-failure');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-sdk-agent-worker-failure',
+      pins: {
+        workspace: [{ surface: 'repo', revision_id: 'rev-a' }],
+        streams: [],
+      },
+    });
+    await worker.attach();
+
+    const started = await client.runStart(toKernelSpec(compileYaml(`
+version: '0.1.0'
+steps:
+  - id: execute
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    instruction: Perform the declared work.
+`)));
+
+    expect(await waitForStep(client, started.run_id, 'execute', 'done')).toMatchObject({
+      type: 'agent',
+      state: 'done',
+    });
+    expect(await waitForRun(client, started.run_id, 'failed')).toMatchObject({ status: 'failed' });
+    const entries = (await client.journalRead(started.run_id, 1)).entries;
+    expect(entries.find((entry) => journalType(entry) === 'run.completed')).toMatchObject({
+      payload: { completionReason: 'step_failed', failed_step_id: 'execute' },
+    });
+    expect(completionReasons(entries, 'execute')).toEqual(['worker_error']);
+    worker.close();
+  });
+
   it('can always get a parked run to a late-attaching worker', async () => {
     // The contract that cost the most time to establish, so it is pinned here.
     //
@@ -648,6 +689,16 @@ async function waitForStep(
     await delay(20);
   }
   throw new Error(`step ${stepId} did not reach ${state} within 5000ms`);
+}
+
+async function waitForRun(client: JournalClient, runId: string, status: string): Promise<unknown> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const run = await client.runGet(runId);
+    if (run.status === status) return run;
+    await delay(20);
+  }
+  throw new Error(`run ${runId} did not reach ${status} within 5000ms`);
 }
 
 function runArtifacts(dataDir: string): string[] {
