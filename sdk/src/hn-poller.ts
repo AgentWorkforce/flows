@@ -26,7 +26,11 @@ export interface EventSink {
 export type Fetcher = (url: string) => Promise<string>;
 
 const defaultFetcher: Fetcher = async (url) => {
-  const response = await fetch(url);
+  const response = await fetch(url) as {
+    ok: boolean;
+    status: number;
+    text(): Promise<string>;
+  };
   if (!response.ok) {
     throw new Error(`HN fetch failed: HTTP ${response.status}`);
   }
