@@ -6,6 +6,7 @@ import {
   lstatSync,
   mkdtempSync,
   readdirSync,
+  statSync,
   rmSync,
   writeFileSync,
   readFileSync,
@@ -207,7 +208,11 @@ steps:
     const directory = temporaryDirectory('flows-live-agent-worker-');
     const dataDir = join(directory, 'data');
     const cli = join(directory, 'agent-cli');
-    writeFileSync(cli, '#!/bin/sh\nprintf \'handled: %s\' "$1"\n');
+    const marker = join(directory, 'agent-ran');
+    writeFileSync(
+      cli,
+      `#!/bin/sh\nprintf 'handled: %s' "$1"\nprintf '%s' "$1" > ${JSON.stringify(marker)}\n`,
+    );
     chmodSync(cli, 0o755);
     await startDaemon(dataDir);
 
@@ -235,6 +240,7 @@ steps:
       type: 'agent',
       state: 'done',
     });
+    expect(readFileSync(marker, 'utf8')).toBe('Perform the declared work.');
     worker.close();
   });
 
