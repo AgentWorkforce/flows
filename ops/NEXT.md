@@ -1,87 +1,73 @@
 # NEXT — work package for this tick
 
-**Scope:** Build a minimal agent worker in the SDK. CODE task, SDK-side.
+## Scope
 
-This run is pinned to **gate 3** and must not work on any other gate.
+**TARGET: Gate 3** — Wire the review-swarm to fire on PR open via GitHub Actions + agent-relay cloud run. CODE task, .github/workflows/-side.
+
+This run is pinned to gate 3 and must not work on any other gate. The review swarm workflow (workflows/review-swarm.yaml) already exists in this repo with three model-diverse reviewers (claude/codex/opencode) that read a PR diff and produce independent transcripts plus an aggregate verdict. Today it only fires when a human writes .review-target and runs agent-relay cloud run by hand. It has run zero times against a drive PR on cloud.
 
 ## Objective
 
-Promote the throwaway worker the tests already build into a real SDK component
-that can execute agent steps by running their declared CLI as a subprocess.
-
-## Context
-
-Nothing in this repo can execute an agent step. Searching for `workerAttach` /
-`step.complete` finds only TESTS (`sdk/tests/live-kernel.test.ts`,
-`journal-client.test.ts`, `journal-client-loopback.ts`) and the protocol
-definitions. `sdk/src/cli/run.ts` only OBSERVES worker leases and waits for one
-that never arrives.
-
-The kernel's dispatch, lease and claim machinery is real and tested. The worker
-side of the protocol is simply unimplemented, and that is what blocks gate 2
-("a workload RUNS as a relayflow" — today a run can only be shown CREATED) and
-gate 3 ("every claim/lease/retry served by the kernel").
-
-`sdk/tests/live-kernel.test.ts` around the `live-manual-agent` case (line 288)
-shows the whole shape: connect, `hello`, `workerAttach` with pins, receive
-`step.dispatch`, act, complete. The protocol is already proven there.
+Add .github/workflows/review-swarm.yml that automatically fires the review swarm on PR open/synchronize for drive-loop PRs only (kjgbot, miyaontherelay). That is the only file this tick should create.
 
 ## Files in scope
 
-- `sdk/src/worker.ts` — new file, the worker implementation
-- `sdk/src/index.ts` — export the worker
-- `sdk/tests/live-kernel.test.ts` OR a new test file — add a test that runs a
-  real flow with an agent step end to end against a live `relayflowd`, with
-  this worker attached, and asserts the step reaches `done`.
+- .github/workflows/review-swarm.yml (NEW)
+- .github/workflows/scripts/swarm-post.sh (NEW, optional companion script)
+- README.md or docs/ (one-sentence note about RELAY_WORKSPACE_KEY secret)
 
 ## Definition of done
 
-ALL of the following must hold:
+All of the following must hold:
 
-1. The worker in `sdk/src/worker.ts`, exported from `sdk/src/index.ts`
+1. .github/workflows/review-swarm.yml exists and passes actionlint (if installed) or yamllint
 
-2. A test that runs a real flow with an agent step end to end against a live
-   `relayflowd`, with this worker attached, and asserts the step reaches
-   `done`. `sdk/tests/live-kernel.test.ts` already starts a daemon — follow
-   that pattern.
+2. The workflow correctly gates on drive-loop authors only:
+   - trigger: pull_request events opened, synchronize, reopened
+   - jobs.review.if expression evaluates true for kjgbot and false for khaliqgant (test by hand)
+   - concurrency group per PR so a second push cancels the first review
 
-3. **The worker must attach BEFORE the run starts.** A run that finds no worker
-   parks, and attaching afterwards does not re-drive it — `run.resume` is what
-   picks a parked run back up. That contract is pinned in the live-kernel
-   suite; do not fight it.
+3. The workflow's job steps implement:
+   - checkout the PR's head at merge commit
+   - install agent-relay (check .mise.toml and .env.example for how this repo does it)
+   - echo "$PR_NUMBER" > .review-target
+   - agent-relay cloud run workflows/review-swarm.yaml with RELAY_WORKSPACE_KEY from repo secret; capture runId
+   - poll agent-relay cloud status <runId> --json every 30s until status == completed or 45 min
+   - agent-relay cloud sync <runId> to fetch artifacts
+   - read ops/reviews/*-pr<N>-*.md produced by swarm; post each as PR comment via gh pr comment
+   - post aggregate marker by grepping for SWARM_PASSED or SWARM_FAILED
 
-4. The worker must:
-   - attach for `agent` steps with the pins it holds
-   - on `step.dispatch`, run the step's declared `cli` as a subprocess
-   - report the result back through the existing protocol (`step.complete`, and
-     the failure path when the CLI exits nonzero)
-   - nothing speculative: no retries of its own, no scheduling, no LLM calls.
-     The kernel owns retry and lease policy — do not reimplement it.
+4. README.md or docs/ describes the required repo secret RELAY_WORKSPACE_KEY (one sentence)
 
-5. `cd sdk && npm test` must be green. Run it and paste the literal command and
-   output tail showing test counts.
+5. A dry-run test proves the shell logic works:
+   - Demonstrate posting script against an EXISTING completed cloud run
+   - Quote the posted comment URL in the assessment
 
-6. `cd kernel && sh ../ops/cargo.sh test` must be green. Run it and paste the
-   literal command and output tail showing test counts.
+6. SDK tests remain green (197 passed)
 
-7. EVERY new test confirmed to FAIL against current code, with the literal
-   failing output quoted in the summary.
+7. Kernel tests remain green (77 passed)
 
-8. As your LAST action, run `git status --porcelain` and paste it.
+8. Final git status (paste literal output)
 
 ## Explicitly OUT of scope
 
-- LLM steps — not in the gate 3 scope
-- Retry logic in the worker — the kernel owns retry policy
-- Scheduling or lease management — the kernel owns lease policy
-- Optimizations, abstractions, or speculative features
-- Changes to the kernel
-- Changes to existing tests (except adding new test cases)
-- Work on any gate other than gate 3
+- Do NOT attempt to fix missing prerequisites
+- Do NOT run the workflow against a real PR (only dry-run)
+- Do NOT touch any gate other than gate 3
+- Do NOT touch merged items: #42, #45, #47, #48, #50, #53
+
+## Prerequisites this brief cannot satisfy
+
+BLOCKED — surface, don't try to fix:
+
+1. RELAY_WORKSPACE_KEY must exist as a GitHub Actions secret. Check with gh secret list. If missing, write ops/NEEDS_HUMAN.md and STILL end with ASSESS_DONE.
+
+2. No .github/ directory exists in this sandbox (snapshot sync, no git history per ops/STATE.md). Creating it may fail verification.
+
+3. agent-relay cloud run from GHA must reach the same cloud workspace. If auth fails, file NEEDS_HUMAN and stop.
 
 ## If blocked
 
-If gate 3 is genuinely unreachable from the current state, write
-ops/NEEDS_HUMAN.md saying exactly why and still end with ASSESS_DONE. Do not
-silently substitute different work: a run that reports progress on the wrong
-gate is worse than one that reports it is blocked.
+Write ops/NEEDS_HUMAN.md with the exact question and options, and STILL end with ASSESS_DONE. A working workflow stalled at auth plus NEEDS_HUMAN is a complete deliverable.
+
+Do not silently substitute different work.
