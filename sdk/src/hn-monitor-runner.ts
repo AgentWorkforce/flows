@@ -23,11 +23,11 @@
  *   - ops/STATE.md + docs/RFC-0001 gate-2 GREEN declaration — sub-PR D.
  */
 
-import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { pollHackerNewsOnce, type EventSink, type Fetcher } from './hn-poller.js';
 import { AgentWorker, type AgentWorkerOptions } from './worker.js';
 import { JournalClient, JournalProtocolError } from './journal-client.js';
+import { specHash } from './canonical.js';
 
 /**
  * Frozen, content-addressed snapshot of a flow spec. Constructed by the
@@ -140,23 +140,28 @@ function looksLikeJournalError(err: unknown): boolean {
 
 /**
  * Build a SpecBundle from an in-memory spec object. Digest is sha256 of
- * the deterministic JSON encoding.
+ * the CANONICAL encoding (sorted keys) so two logically-identical specs
+ * produce the same digest regardless of construction/insertion order.
+ *
+ * Uses `specHash` from sdk/src/canonical.ts (also used by the compiler)
+ * so bundle-digest attestation matches spec-hash attestation elsewhere
+ * in the codebase.
  */
 export function bundleSpec(spec: unknown): SpecBundle {
-  const encoded = JSON.stringify(spec);
-  const digest = createHash('sha256').update(encoded).digest('hex');
-  return { spec, digest };
+  return { spec, digest: specHash(spec) };
 }
 
 /**
- * Build a SpecBundle by reading a file ONCE. The runner uses this at
- * startup only; subsequent polls submit the same in-memory bundle.
+ * Build a SpecBundle by reading a file ONCE. Delegates to bundleSpec on
+ * the parsed value so the digest is a function of the SPEC (canonical
+ * encoding), never the raw file bytes — two spec files that differ only
+ * in whitespace produce the same digest, which is what "content-addressed
+ * reference" means.
  */
 export async function bundleSpecFromPath(path: string): Promise<SpecBundle> {
   const raw = await readFile(path, 'utf8');
   const spec: unknown = JSON.parse(raw);
-  const digest = createHash('sha256').update(raw).digest('hex');
-  return { spec, digest };
+  return bundleSpec(spec);
 }
 
 export class HnMonitorRunner {
@@ -184,10 +189,16 @@ export class HnMonitorRunner {
         'they are mutually exclusive ways to supply the flow spec bundle.',
       );
     }
-    if (options.client !== undefined && options.workerInstance === undefined) {
+    // Symmetric guard: both sides must be provided together, or neither.
+    // A workerInstance without a client would leave the injected worker
+    // pointing at the runner's fresh JournalClient — an implicit test-
+    // double contract that's easy to break silently.
+    if ((options.client === undefined) !== (options.workerInstance === undefined)) {
       throw new Error(
-        'HnMonitorRunner: injecting `client` requires also injecting `workerInstance` — ' +
-        'RunnerJournalClient does not carry the surface AgentWorker uses.',
+        'HnMonitorRunner: `client` and `workerInstance` must be injected together — ' +
+        'RunnerJournalClient does not carry the surface AgentWorker uses, so a mismatched ' +
+        'pair (one injected, one internal) launders a type mismatch or leaves the injected ' +
+        'worker wired to a client the caller never sees.',
       );
     }
     if (options.spec !== undefined) {
@@ -279,7 +290,8 @@ export class HnMonitorRunner {
   /**
    * Idempotent shutdown. Awaits the worker's async close (which drains
    * in-flight step executions per its own contract) and then closes the
-   * journal socket.
+   * journal socket. Resets internal flags so run() can be called again on
+   * the same instance after a graceful shutdown.
    */
   async close(): Promise<void> {
     if (this.worker && typeof this.worker.close === 'function') {
@@ -292,12 +304,20 @@ export class HnMonitorRunner {
     }
     this.worker = undefined;
     this.client = undefined;
+    // Reset stopping so a subsequent run() actually enters its loop.
+    // Without this a second run() would exit immediately if the first
+    // was aborted (silent no-op — the exact "test that wouldn't fail if
+    // the behavior broke" smell).
+    this.stopping = false;
   }
 
   /**
-   * Sleep that wakes on abort signal as well as timeout. Both branches
-   * remove the abort listener explicitly so it does not accumulate on the
-   * caller's shared AbortSignal across polls.
+   * Sleep that wakes on abort signal as well as timeout.
+   *
+   * Timer branch removes the abort listener explicitly (so it doesn't
+   * accumulate on the caller's shared AbortSignal across polls). Abort
+   * branch relies on `{ once: true }` for cleanup — semantic equivalent,
+   * different mechanism.
    */
   private sleepInterruptible(ms: number): Promise<void> {
     return new Promise((resolve) => {

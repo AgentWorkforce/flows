@@ -43,6 +43,7 @@ export class AgentWorker extends EventEmitter {
 
   async attach(): Promise<void> {
     if (this.attached) throw new Error('agent worker: already attached');
+    if (this.closing) throw new Error('agent worker: cannot attach a closed worker (construct a new one)');
     this.client.on('step.dispatch', this.onDispatch);
     try {
       await this.client.workerAttach(this.options.workerId, ['agent'], this.options.pins);

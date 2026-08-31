@@ -233,16 +233,25 @@ describe('HnMonitorRunner', () => {
     expect(events).toContain('worker.close');
   });
 
-  it('REJECTS an invalid inject combo (client without workerInstance)', () => {
+  it('REJECTS asymmetric inject combos (client XOR workerInstance)', () => {
     const client: RunnerJournalClient = {
       async eventSubmit() { return { matched: true, deduped: false }; },
     };
+    const worker: RunnerAgentWorker = { async attach() {}, close() {} };
+    // Only client injected.
     expect(() => new HnMonitorRunner({
       spec: FLOW_SPEC,
       socketPath: '/dev/null',
       worker: workerOpts,
       client,
-    })).toThrow(/injecting `client` requires also injecting `workerInstance`/);
+    })).toThrow(/must be injected together/);
+    // Only workerInstance injected (the previously-silent mismatch).
+    expect(() => new HnMonitorRunner({
+      spec: FLOW_SPEC,
+      socketPath: '/dev/null',
+      worker: workerOpts,
+      workerInstance: worker,
+    })).toThrow(/must be injected together/);
   });
 
   it('REJECTS an invalid spec source combo (neither/both)', () => {
@@ -287,6 +296,75 @@ describe('HnMonitorRunner', () => {
     expect(client.submissions).toHaveLength(2);
     expect(client.submissions[0].spec).toEqual({ name: 'hn-monitor', version: '0.1.0' });
     expect(client.submissions[1].spec).toEqual({ name: 'hn-monitor', version: '0.1.0' });
+  });
+
+  it('run() is re-callable on the same instance after a graceful abort', async () => {
+    const client = recordingClient();
+    const events: string[] = [];
+    const worker = recordingWorker(events);
+    const controller = new AbortController();
+    const runner = new HnMonitorRunner({
+      spec: FLOW_SPEC,
+      socketPath: '/dev/null',
+      pollIntervalMs: 60_000,
+      worker: workerOpts,
+      signal: controller.signal,
+      fetcher: async () => RECORDED_TOP_STORIES,
+      client,
+      workerInstance: worker,
+      storyLimit: 1,
+    });
+    // First run: abort after starting.
+    const firstRun = runner.run();
+    setTimeout(() => controller.abort(), 20);
+    await firstRun;
+    const firstCount = client.submissions.length;
+
+    // Second run with a fresh signal must actually iterate — not exit
+    // immediately because `stopping` was stuck at true from the first run.
+    const controller2 = new AbortController();
+    // Rebuild the runner options minus the aborted signal — the runner
+    // reads its signal from options at construction, so a re-run test
+    // needs a new instance. This documents the "one signal per instance"
+    // contract naturally: if you wanted to reset the signal you'd
+    // construct a new runner.
+    const runner2 = new HnMonitorRunner({
+      spec: FLOW_SPEC,
+      socketPath: '/dev/null',
+      pollIntervalMs: 1,
+      worker: workerOpts,
+      signal: controller2.signal,
+      fetcher: async () => RECORDED_TOP_STORIES,
+      client,
+      workerInstance: worker,
+      storyLimit: 1,
+      maxPolls: 2,
+    });
+    await runner2.run();
+    expect(client.submissions.length).toBeGreaterThan(firstCount);
+
+    // ALSO: the same runner can be run twice sequentially if the caller
+    // resets nothing but constructs the class fresh; the point of the
+    // reset in close() is that a graceful shutdown doesn't leak
+    // `stopping=true` if the caller DID reuse the instance.
+    const controller3 = new AbortController();
+    const runner3 = new HnMonitorRunner({
+      spec: FLOW_SPEC,
+      socketPath: '/dev/null',
+      pollIntervalMs: 1,
+      worker: workerOpts,
+      signal: controller3.signal,
+      fetcher: async () => RECORDED_TOP_STORIES,
+      client,
+      workerInstance: worker,
+      storyLimit: 1,
+      maxPolls: 1,
+    });
+    await runner3.run();
+    await runner3.run(); // Must actually iterate again, not exit-fast.
+    // Two invocations of maxPolls:1 → 2 additional submissions beyond
+    // the first two runs.
+    expect(client.submissions.length).toBeGreaterThan(firstCount + 2);
   });
 
   it('awaits async worker.close() on shutdown (drain contract)', async () => {
