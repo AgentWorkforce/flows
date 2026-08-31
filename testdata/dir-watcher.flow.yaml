@@ -1,0 +1,38 @@
+version: '0.1.0'
+name: dir-watcher
+description: >-
+  Fire an agent step for each new file that appears in a watched directory.
+  Second proactive workload on gate 2 primitives (hn-monitor is the first) —
+  proves the pattern generalizes to a NON-provider input. No external network,
+  no API tokens, no gate-6 dependency.
+triggers:
+  - id: file-appeared
+    executor: agent-worker
+    eventType: dir.file_appeared
+    pattern:
+      type: file
+    dedupeKeyTemplate: '{{event.type}}:{{payload.path}}'
+steps:
+  - id: describe-file
+    type: agent
+    instruction: >-
+      A new file was reported in the watched directory. Read the wake context
+      (which includes the file's path and size), then output a JSON summary
+      naming: the file path, a one-line description of what the filename
+      suggests, and whether the file appears to require follow-up action.
+    recoveryMode: reset
+    verification:
+      type: json_schema
+      schema:
+        type: object
+        required:
+          - path
+          - description
+          - needs_followup
+        properties:
+          path:
+            type: string
+          description:
+            type: string
+          needs_followup:
+            type: boolean
