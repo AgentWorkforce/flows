@@ -14,6 +14,7 @@ description: >
 swarm:
   pattern: dag
   channel: flows-review
+  # Ordering invariant: swarm 60m < GHA poll 65m < GHA job 75m.
   timeoutMs: 3600000
   maxConcurrency: 3
 
@@ -39,18 +40,14 @@ workflows:
       - name: fetch
         type: deterministic
         command: |
-          # Deterministic steps do not inherit the launching shell's env, so the
-          # target is read from a file the operator writes before the run:
-          #   echo 8 > .review-target
           set -u
-          if [ ! -f .review-target ]; then
-            echo "FETCH_FAILED: .review-target missing — write the PR number to it first"; exit 1
-          fi
-          PR=$(tr -dc '0-9' < .review-target)
-          [ -n "$PR" ] || { echo "FETCH_FAILED: .review-target holds no PR number"; exit 1; }
-          gh pr view "$PR" --json headRefName,title,url > /tmp/pr-$PR.json
-          gh pr diff "$PR" > /tmp/pr-$PR.diff
-          echo "target PR #$PR, $(wc -l < /tmp/pr-$PR.diff) diff lines"
+          PR=$(tr -dc '0-9' < .review-target/pr-number 2>/dev/null)
+          [ -n "$PR" ] || { echo "FETCH_FAILED: staged PR number missing"; exit 1; }
+          [ -s .review-target/pr.json ] || { echo "FETCH_FAILED: staged PR metadata missing"; exit 1; }
+          [ -f .review-target/pr.diff ] || { echo "FETCH_FAILED: staged PR diff missing"; exit 1; }
+          cp .review-target/pr.json /tmp/pr-$PR.json
+          cp .review-target/pr.diff /tmp/pr-$PR.diff
+          echo "target PR #$PR, $(wc -l < .review-target/pr.diff) diff lines"
           echo FETCHED
 
       - name: lens-maintainability
@@ -58,7 +55,7 @@ workflows:
         agent: maintainability
         dependsOn: [fetch]
         task: |
-          Review the PR whose number is in .review-target (diff at
+          Review the PR whose number is in .review-target/pr-number (diff at
           /tmp/pr-<n>.diff, metadata at /tmp/pr-<n>.json) through ONE lens: maintainability.
           Ask: could a stranger read this in six months and change it safely?
           Name unclear boundaries, implicit contracts, missing failure handling,
@@ -66,7 +63,7 @@ workflows:
           not fail if the behavior broke.
           Read AGENTS.md and docs/RFC-0001-everything-is-a-relayflow.md first.
           Write your complete review to
-          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-maintainability.md
+          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target/pr-number)-maintainability.md
           and `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
         verification:
           type: output_contains
@@ -79,7 +76,7 @@ workflows:
         agent: history
         dependsOn: [fetch]
         task: |
-          Review the PR whose number is in .review-target (diff at /tmp/pr-<n>.diff) through ONE
+          Review the PR whose number is in .review-target/pr-number (diff at /tmp/pr-<n>.diff) through ONE
           lens: does this change fit the story of the code?
           Run `git log --oneline -40` and read ops/DRIVE-LOG.md, ops/NEXT.md and
           ops/DIRECTIVES.md if present. Ask: does it repeat a mistake the log
@@ -87,7 +84,7 @@ workflows:
           Does it reintroduce something a previous commit deliberately removed?
           Does the commit message tell the truth about the diff?
           Write your complete review to
-          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-history.md and
+          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target/pr-number)-history.md and
           `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
         verification:
           type: output_contains
@@ -100,14 +97,14 @@ workflows:
         agent: structure
         dependsOn: [fetch]
         task: |
-          Review the PR whose number is in .review-target (diff at /tmp/pr-<n>.diff) through ONE
+          Review the PR whose number is in .review-target/pr-number (diff at /tmp/pr-<n>.diff) through ONE
           lens: structure. Boundaries, coupling, file size and single purpose,
           whether the shape matches RFC-0001 (closed kernel vocabulary, helpers
           over primitives, fail-closed, completionReason discipline) and
           AGENTS.md. Name anything that puts product logic in the kernel, adds
           a primitive instead of a helper, or grows a file past its purpose.
           Write your complete review to
-          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target)-structure.md and
+          ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target/pr-number)-structure.md and
           `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
         verification:
           type: output_contains
@@ -123,7 +120,7 @@ workflows:
           # exactly the review files the lenses staged before any later reset
           # can destroy them.
           set -u
-          PR=$(tr -dc '0-9' < .review-target 2>/dev/null)
+          PR=$(tr -dc '0-9' < .review-target/pr-number 2>/dev/null)
           if ! git diff --cached --quiet -- ops/reviews/; then
             git commit -m "ops(review): persist PR #${PR} swarm transcripts" -- ops/reviews/
           fi
@@ -132,23 +129,8 @@ workflows:
         type: deterministic
         dependsOn: [persist-transcripts]
         command: |
-          # Any single honest refusal blocks the merge. A missing transcript is
-          # a refusal too: an unpersisted verdict is not evidence.
           set -u
-          PR=$(tr -dc '0-9' < .review-target 2>/dev/null)
-          fail=0
-          for lens in maintainability history structure; do
-            f=$(ls -t ops/reviews/*-pr${PR}-${lens}.md 2>/dev/null | head -1)
-            if [ -z "$f" ]; then
-              echo "SWARM_FAILED: $lens produced no transcript"; fail=1; continue
-            fi
-            if grep -q "REVIEW_FAILED" "$f"; then
-              echo "SWARM_FAILED: $lens rejected — see $f"; fail=1
-            elif grep -q "REVIEW_PASSED" "$f"; then
-              echo "ok: $lens passed ($f)"
-            else
-              echo "SWARM_FAILED: $lens transcript carries no verdict ($f)"; fail=1
-            fi
-          done
-          [ $fail -eq 0 ] && echo SWARM_PASSED || exit 1
+          . .github/workflows/scripts/swarm-verdict.sh
+          PR=$(tr -dc '0-9' < .review-target/pr-number 2>/dev/null)
+          swarm_evaluate ops/reviews "$PR" .review-target/sync-start
         timeoutMs: 120000
