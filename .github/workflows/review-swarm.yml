@@ -1,0 +1,79 @@
+---
+name: Review swarm
+
+'on':
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: review-swarm-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      ${{ contains(fromJSON('["kjgbot", "miyaontherelay"]'),
+      github.event.pull_request.user.login) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      RELAY_WORKSPACE_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out pull request merge commit
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          fetch-depth: 0
+
+      - name: Install agent-relay
+        run: npm install --global agent-relay
+
+      - name: Set review target
+        run: echo "$PR_NUMBER" > .review-target
+
+      - name: Launch review swarm
+        id: launch
+        shell: bash
+        run: |
+          set -euo pipefail
+          response=$(agent-relay cloud run workflows/review-swarm.yaml --json)
+          run_id=$(jq -er '.runId // .run_id // .id' <<<"$response")
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for review swarm
+        shell: bash
+        env:
+          RUN_ID: ${{ steps.launch.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 2700))
+          while (( SECONDS < deadline )); do
+            response=$(agent-relay cloud status "$RUN_ID" --json)
+            status=$(jq -er '.status // .run.status' <<<"$response")
+            echo "review-swarm status: $status"
+            if [[ "$status" == "completed" ]]; then
+              exit 0
+            fi
+            if [[ "$status" == "failed" ]]; then
+              echo "review-swarm completed with a failed verdict"
+              exit 0
+            fi
+            if [[ "$status" == "cancelled" ]]; then
+              echo "review-swarm was cancelled" >&2
+              exit 1
+            fi
+            sleep 30
+          done
+          echo "review-swarm did not complete within 45 minutes" >&2
+          exit 1
+
+      - name: Sync and post reviews
+        env:
+          RUN_ID: ${{ steps.launch.outputs.run_id }}
+        run: bash .github/workflows/scripts/swarm-post.sh "$RUN_ID" "$PR_NUMBER"

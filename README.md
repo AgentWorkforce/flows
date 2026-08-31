@@ -30,3 +30,5 @@ Nine gates, in `docs/RFC-0001` §3. Gate 1 first: a relayflow can run — the he
 ladder survives `kill -9` at every boundary.
 
 Private while we build. YC 2026-09-15 runs on this base.
+
+The `RELAY_WORKSPACE_KEY` repository secret authenticates review-swarm Actions to the canonical Agent Relay Cloud workspace.
