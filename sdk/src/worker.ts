@@ -89,7 +89,7 @@ export class AgentWorker extends EventEmitter {
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
     const spec = dispatch.spec as Partial<KernelAgentStep>;
     const result = typeof spec.cli === 'string' && typeof spec.instruction === 'string'
-      ? await runCli(spec.cli, spec.instruction)
+      ? await runCli(spec.cli, spec.instruction, dispatch.wake_context)
       : { exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' };
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
 
@@ -147,9 +147,67 @@ export function parseJsonOutput(stdout: string): Record<string, unknown> | null 
   return parsed as Record<string, unknown>;
 }
 
-function runCli(cli: string, instruction: string): Promise<CliResult> {
+/**
+ * Environment variable name AgentWorker sets when dispatching an
+ * agent step whose kernel dispatch carried a `wake_context` (the
+ * payload assembled at subscription.matched, containing the
+ * triggering event). A real analyzer reads this to see which HN
+ * story / webhook / trigger woke it — an env var is a stable,
+ * language-agnostic surface that works with any CLI shape, without
+ * changing the `spawn(cli, [instruction])` argv contract every
+ * existing agent CLI already depends on.
+ *
+ * Not set when `wake_context` is absent (e.g. a directly-started
+ * run, no trigger fired) — the variable simply won't exist. That is
+ * DELIBERATE, so a CLI that reads `RELAYFLOW_WAKE_CONTEXT` can
+ * distinguish "no wake context available" from "wake context = null".
+ */
+export const WAKE_CONTEXT_ENV = 'RELAYFLOW_WAKE_CONTEXT';
+
+function runCli(cli: string, instruction: string, wakeContext: unknown): Promise<CliResult> {
   return new Promise((resolve) => {
-    const child = spawn(cli, [instruction], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    // Explicit unset. Without this, a parent process (wrapper
+    // script, systemd unit, docker env, or a prior test) that
+    // already had RELAYFLOW_WAKE_CONTEXT set would leak into
+    // this subprocess even on a run with no wake context — which
+    // would defeat the WAKE_CONTEXT_ENV doc guarantee that CLIs
+    // can key on absence to distinguish "no wake context
+    // available" from "wake context = null". Unset first, then
+    // set only if we have context. Deleting a key from
+    // ProcessEnv drops it from the child's environ; a subsequent
+    // conditional assign is the source of truth.
+    delete env[WAKE_CONTEXT_ENV];
+    if (wakeContext !== undefined) {
+      // `execve` caps argv + envp at ARG_MAX (macOS ~256 KB, Linux
+      // ~2 MB). A wake_context that packs a rich payload could
+      // exceed that and make spawn fail with an opaque E2BIG.
+      // Truncation would be worse than a loud failure — the CLI
+      // needs the intact context to analyze the event correctly —
+      // so we let spawn's error surface naturally.
+      //
+      // `JSON.stringify` can throw synchronously (on a cycle or a
+      // non-serializable value like BigInt). Values that arrived
+      // through the wire protocol are already JSON-clean by
+      // construction, but this worker also runs inside test rigs
+      // and future callers may construct `wake_context` in-process.
+      // Catching the throw here converts a would-be silent
+      // lease-expiration (Promise executor throw → no `resolve`,
+      // no stepComplete written) into a clean `worker_error`
+      // completion the kernel journals normally. Fail-closed per
+      // AGENTS.md.
+      try {
+        env[WAKE_CONTEXT_ENV] = JSON.stringify(wakeContext);
+      } catch (error) {
+        resolve({
+          exit_code: null,
+          stdout_tail: '',
+          stderr_tail: `wake_context could not be JSON-serialized for the CLI: ${String(error)}`,
+        });
+        return;
+      }
+    }
+    const child = spawn(cli, [instruction], { stdio: ['ignore', 'pipe', 'pipe'], env });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));

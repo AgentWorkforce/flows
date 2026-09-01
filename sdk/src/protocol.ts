@@ -138,6 +138,23 @@ export interface WorkerAttachParams {
 export interface WorkerAttachResult {
   worker_id: string;
 }
+/**
+ * Wake-context payload assembled kernel-side at `subscription.matched`.
+ * The two fields typed below are the ones every current consumer keys
+ * against; additional kernel-side fields flow through as extra
+ * properties without breaking this type.
+ */
+export interface WakeContext {
+  triggering_event?: {
+    type: string;
+    payload?: unknown;
+  };
+  epoch_summary?: {
+    open_steps?: string[];
+  };
+  [additionalKernelFields: string]: unknown;
+}
+
 /** Server then pushes `step.dispatch` events to the attached worker. */
 export interface StepDispatchEvent {
   run_id: string;
@@ -148,6 +165,27 @@ export interface StepDispatchEvent {
   lease_id: string;
   idempotency_key: string;
   pins: Pins;
+  /**
+   * The `wake_context` payload from the run's `subscription.matched`
+   * journal entry — carries the triggering event and any epoch summary
+   * the flow needs to know why this step is running. Present when the
+   * run was spawned by an event; `undefined` for runs started directly
+   * (no trigger fired). A real agent needs this to see the event
+   * payload (e.g. the HN story ID).
+   *
+   * Shape is assembled kernel-side in
+   * `kernel/relayflowd/src/engine/wake.rs` (grep for
+   * `wake_context` — the Rust field is written with quoted
+   * JSON keys so `"wake_context":` hits the assembly site
+   * directly). The narrow type below pins the two fields
+   * every consumer currently reads —
+   * `triggering_event.type`/`payload` and `epoch_summary` — while
+   * keeping the container `unknown`-permissive so a kernel-side
+   * addition (a new nested field) does not break the SDK type. A
+   * kernel-side RENAME of these two fields does break every
+   * consumer; that is deliberate and preferable to silent drift.
+   */
+  wake_context?: WakeContext;
   recovery?: {
     mode: 'reset' | 'inspect' | 'manual';
     restore_pins?: Pins;

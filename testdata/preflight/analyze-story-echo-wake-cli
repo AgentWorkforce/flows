@@ -1,0 +1,23 @@
+#!/usr/bin/env node
+// Stub agent-runtime CLI that READS the wake context AgentWorker
+// passes via $RELAYFLOW_WAKE_CONTEXT and echoes the triggering
+// event's payload ID back inside the analysis JSON. Used by the
+// wake-context integration test: proves the env var is populated
+// end-to-end (kernel dispatch → AgentWorker → subprocess env) and
+// a real analyzer could branch on the payload here without any
+// spec change.
+//
+// Node-native so the test never needs to skip on missing tooling
+// (jq is not a stock macOS dep) — the SDK ships Node already.
+const raw = process.env.RELAYFLOW_WAKE_CONTEXT;
+if (!raw) {
+  process.stderr.write('wake-context env var RELAYFLOW_WAKE_CONTEXT was empty or unset\n');
+  process.exit(1);
+}
+const wake = JSON.parse(raw);
+const id = wake.triggering_event.payload.id;
+process.stdout.write(JSON.stringify({
+  story_title: `echoed:${id}`,
+  relevance_score: 7,
+  reasoning: `stub saw wake context for story ${id}`,
+}));
