@@ -39,6 +39,7 @@ export class AgentWorker extends EventEmitter {
   }
 
   close(): void {
+    // Does not release server state; closing the owning JournalClient connection does that.
     this.client.off('step.dispatch', this.onDispatch);
     this.attached = false;
   }

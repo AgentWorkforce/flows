@@ -1,87 +1,73 @@
 # NEXT — work package for this tick
 
-**Scope:** Build a minimal agent worker in the SDK. CODE task, SDK-side.
+**Gate:** 3 (as specified in ops/TARGET.md)
 
-This run is pinned to **gate 3** and must not work on any other gate.
+**Scope (quoted from TARGET.md):**
 
-## Objective
+> Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side. This is a scaffolding PR — proof that the workload EXECUTES end-to-end is deliberately deferred to sub-PR B (integration test). Do not conflate the two.
 
-Promote the throwaway worker the tests already build into a real SDK component
-that can execute agent steps by running their declared CLI as a subprocess.
+**Objective:** Implement `sdk/src/hn-monitor-runner.ts` — a continuous polling runner that composes existing pieces (JournalClient, AgentWorker, hn-poller) into a gate-2 workload. This is sub-PR A: scaffolding that proves assembly, NOT end-to-end execution (that's sub-PR B).
 
-## Context
+**Context:** PR #83 attempted this and was closed on five real findings. This attempt addresses all five:
 
-Nothing in this repo can execute an agent step. Searching for `workerAttach` /
-`step.complete` finds only TESTS (`sdk/tests/live-kernel.test.ts`,
-`journal-client.test.ts`, `journal-client-loopback.ts`) and the protocol
-definitions. `sdk/src/cli/run.ts` only OBSERVES worker leases and waits for one
-that never arrives.
+1. Fail-closed on journal errors: fetch errors may be swallowed; journal write failures MUST throw
+2. `AgentWorker.close()` must release the worker (add `workerRelease` verb) or explicitly document it does not
+3. Class field declarations before constructor
+4. Signal handlers opt-in via AbortSignal (not process-global)
+5. Test coverage for pollError branch (loop survives fetch throw; loop TERMINATES on journal throw)
 
-The kernel's dispatch, lease and claim machinery is real and tested. The worker
-side of the protocol is simply unimplemented, and that is what blocks gate 2
-("a workload RUNS as a relayflow" — today a run can only be shown CREATED) and
-gate 3 ("every claim/lease/retry served by the kernel").
+**Files in scope:**
 
-`sdk/tests/live-kernel.test.ts` around the `live-manual-agent` case (line 288)
-shows the whole shape: connect, `hello`, `workerAttach` with pins, receive
-`step.dispatch`, act, complete. The protocol is already proven there.
+- `sdk/src/hn-monitor-runner.ts` (new) — the runner implementation
+- `sdk/src/worker.ts` — either add `workerRelease` call to `close()` OR add one-line comment on what close() intentionally does NOT do
+- `sdk/src/protocol.ts` — if adding `workerRelease` verb, add request/response definitions
+- `sdk/tests/hn-monitor-runner.test.ts` (new) — all five test cases pinned
+- `sdk/src/index.ts` — export `HnMonitorRunner`
 
-## Files in scope
+**Definition of done (all required):**
 
-- `sdk/src/worker.ts` — new file, the worker implementation
-- `sdk/src/index.ts` — export the worker
-- `sdk/tests/live-kernel.test.ts` OR a new test file — add a test that runs a
-  real flow with an agent step end to end against a live `relayflowd`, with
-  this worker attached, and asserts the step reaches `done`.
+1. `sdk/src/hn-monitor-runner.ts` exists and exports `HnMonitorRunner`
+2. Runner constructs JournalClient, attaches AgentWorker BEFORE first poll
+3. Poll loop: `pollHackerNewsOnce` → sleep `POLL_INTERVAL_MS` (env-configurable, default 60000) → repeat
+4. Clean exit on AbortSignal.abort (drain in-flight, close client, release worker per finding #2)
+5. `sdk/src/worker.ts` — either `close()` calls `workerRelease` OR has one-line comment on what it intentionally does NOT do
+6. `sdk/src/protocol.ts` — if `workerRelease` added, matching request/response definitions present
+7. `sdk/tests/hn-monitor-runner.test.ts` covers ALL cases:
+   - fake fetch + mock journal → runner submits event on each tick
+   - abort signal triggers clean shutdown within one tick
+   - worker attach happens before first poll
+   - **fetch throw → loop survives** (onPollError called, next tick runs)
+   - **journal throw → loop TERMINATES** (runner.run() rejects with error)
+8. EVERY new test CONFIRMED TO FAIL against current code (comment out the source; test fails; paste literal failing output)
+9. `npm test` in sdk/ — output pasted, green
+10. Exported from `sdk/src/index.ts`
 
-## Definition of done
+**Explicit non-goals for THIS tick (DO NOT DO):**
 
-ALL of the following must hold:
+- End-to-end integration test with real relayflowd (sub-PR B, separate PR)
+- CLI wrapper (`flows hn-monitor start`) (sub-PR C, separate PR)
+- ops/STATE.md gate-2 declaration (sub-PR D, separate PR)
+- `.github/workflows/*` — no GHA changes
+- `kernel/*` — kernel side already works via PR #14
+- `workflows/*.yaml`
+- `ops/AUTODRIVE_BRIEF.md`
+- Any file outside `sdk/src/` and `sdk/tests/`
 
-1. The worker in `sdk/src/worker.ts`, exported from `sdk/src/index.ts`
+**Blockers:** None identified. All primitives exist:
+- `sdk/src/hn-poller.ts` — the poller
+- `sdk/src/worker.ts` — AgentWorker
+- `sdk/src/journal-client.ts` — JournalClient
+- `testdata/hn-monitor.flow.yaml` — canonical spec
 
-2. A test that runs a real flow with an agent step end to end against a live
-   `relayflowd`, with this worker attached, and asserts the step reaches
-   `done`. `sdk/tests/live-kernel.test.ts` already starts a daemon — follow
-   that pattern.
+**Next steps:**
 
-3. **The worker must attach BEFORE the run starts.** A run that finds no worker
-   parks, and attaching afterwards does not re-drive it — `run.resume` is what
-   picks a parked run back up. That contract is pinned in the live-kernel
-   suite; do not fight it.
+1. Read existing files: `sdk/src/worker.ts`, `sdk/src/protocol.ts`, `sdk/src/hn-poller.ts`, `sdk/src/journal-client.ts`
+2. Implement `sdk/src/hn-monitor-runner.ts` addressing all five findings
+3. Add/update `workerRelease` in protocol/worker per finding #2
+4. Write comprehensive tests in `sdk/tests/hn-monitor-runner.test.ts`
+5. Verify each test FAILS against current code (mutation testing)
+6. Run `npm test` and paste output
+7. Export from `sdk/src/index.ts`
+8. Run `git status --porcelain` and paste output
 
-4. The worker must:
-   - attach for `agent` steps with the pins it holds
-   - on `step.dispatch`, run the step's declared `cli` as a subprocess
-   - report the result back through the existing protocol (`step.complete`, and
-     the failure path when the CLI exits nonzero)
-   - nothing speculative: no retries of its own, no scheduling, no LLM calls.
-     The kernel owns retry and lease policy — do not reimplement it.
-
-5. `cd sdk && npm test` must be green. Run it and paste the literal command and
-   output tail showing test counts.
-
-6. `cd kernel && sh ../ops/cargo.sh test` must be green. Run it and paste the
-   literal command and output tail showing test counts.
-
-7. EVERY new test confirmed to FAIL against current code, with the literal
-   failing output quoted in the summary.
-
-8. As your LAST action, run `git status --porcelain` and paste it.
-
-## Explicitly OUT of scope
-
-- LLM steps — not in the gate 3 scope
-- Retry logic in the worker — the kernel owns retry policy
-- Scheduling or lease management — the kernel owns lease policy
-- Optimizations, abstractions, or speculative features
-- Changes to the kernel
-- Changes to existing tests (except adding new test cases)
-- Work on any gate other than gate 3
-
-## If blocked
-
-If gate 3 is genuinely unreachable from the current state, write
-ops/NEEDS_HUMAN.md saying exactly why and still end with ASSESS_DONE. Do not
-silently substitute different work: a run that reports progress on the wrong
-gate is worse than one that reports it is blocked.
+**Success criteria:** All tests green, all five findings addressed, every test proven to fail without its implementation, ready for PR review by the swarm.
