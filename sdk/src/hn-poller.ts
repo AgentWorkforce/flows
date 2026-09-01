@@ -25,6 +25,17 @@ export interface EventSink {
 /** Injected so parsing and submission stay deterministic in tests. */
 export type Fetcher = (url: string) => Promise<string>;
 
+/** A transient failure confined to fetching the HN feed. */
+export class HnPollFetchError extends Error {
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super(`HN top stories fetch failed: ${String(cause)}`);
+    this.name = 'HnPollFetchError';
+    this.cause = cause;
+  }
+}
+
 const defaultFetcher: Fetcher = async (url) => {
   const response = await fetch(url);
   if (!response.ok) {
@@ -54,7 +65,12 @@ export async function pollHackerNewsOnce(
   const storyLimit = options.storyLimit ?? DEFAULT_STORY_LIMIT;
   const fetcher = options.fetcher ?? defaultFetcher;
 
-  const body = await fetcher(TOP_STORIES_URL);
+  let body: string;
+  try {
+    body = await fetcher(TOP_STORIES_URL);
+  } catch (cause) {
+    throw new HnPollFetchError(cause);
+  }
 
   let storyIds: unknown;
   try {

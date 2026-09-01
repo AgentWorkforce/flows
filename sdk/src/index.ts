@@ -112,7 +112,14 @@ export type {
 export { JOURNAL_WRITE_FAILED, PROTOCOL_VERSION } from './protocol.js';
 
 export { JournalClient, type JournalClientOptions } from './journal-client.js';
-export { AgentWorker, type AgentWorkerOptions } from './worker.js';
+export { AgentWorker, type AgentWorkerClient, type AgentWorkerOptions } from './worker.js';
+
+export {
+  HnMonitorRunner,
+  POLL_INTERVAL_MS,
+  type HnMonitorClient,
+  type HnMonitorRunnerOptions,
+} from './hn-monitor-runner.js';
 
 export {
   validateWorkPackage,
@@ -139,6 +146,7 @@ export {
 // Hacker News adapter — deliberately outside kernel/ (see sdk/src/hn-poller.ts).
 export {
   pollHackerNewsOnce,
+  HnPollFetchError,
   HN_TOP_STORIES_URL,
   type EventSink,
   type Fetcher,

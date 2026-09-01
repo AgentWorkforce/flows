@@ -1,12 +1,25 @@
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import type { JournalClient } from './journal-client.js';
 import type { Pins, StepDispatchEvent } from './protocol.js';
 import type { KernelAgentStep } from './spec.js';
 
 export interface AgentWorkerOptions {
   workerId: string;
   pins: Pins;
+}
+
+export interface AgentWorkerClient {
+  on(event: string, listener: (dispatch: StepDispatchEvent) => void): unknown;
+  off(event: string, listener: (dispatch: StepDispatchEvent) => void): unknown;
+  workerAttach(workerId: string, stepTypes: ['agent'], pins: Pins): Promise<unknown>;
+  stepComplete(
+    runId: string,
+    stepId: string,
+    attempt: number,
+    idempotencyKey: string,
+    completionReason: 'success' | 'worker_error',
+    extra: { output: CliResult; started_pins: Pins; end_pins: Pins },
+  ): Promise<unknown>;
 }
 
 interface CliResult {
@@ -18,9 +31,18 @@ interface CliResult {
 /** Executes dispatched agent steps using their declared CLI. */
 export class AgentWorker extends EventEmitter {
   private attached = false;
+  private readonly inFlight = new Set<Promise<void>>();
+  private readonly onDispatch = (dispatch: StepDispatchEvent): void => {
+    if (dispatch.step_type !== 'agent') return;
+    const execution = this.execute(dispatch);
+    this.inFlight.add(execution);
+    void execution
+      .catch((error: unknown) => this.emit('error', error))
+      .finally(() => this.inFlight.delete(execution));
+  };
 
   constructor(
-    private readonly client: JournalClient,
+    private readonly client: AgentWorkerClient,
     private readonly options: AgentWorkerOptions,
   ) {
     super();
@@ -38,15 +60,12 @@ export class AgentWorker extends EventEmitter {
     }
   }
 
-  close(): void {
+  async close(): Promise<void> {
     this.client.off('step.dispatch', this.onDispatch);
     this.attached = false;
+    await Promise.allSettled(this.inFlight);
+    // No worker.release exists in protocol v0; closing the client ends the registration.
   }
-
-  private readonly onDispatch = (dispatch: StepDispatchEvent): void => {
-    if (dispatch.step_type !== 'agent') return;
-    void this.execute(dispatch).catch((error: unknown) => this.emit('error', error));
-  };
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
     const spec = dispatch.spec as Partial<KernelAgentStep>;
