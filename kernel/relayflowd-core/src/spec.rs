@@ -87,8 +87,29 @@ impl RunSpec {
                     .as_ref()
                     .is_some_and(|value| crate::event::validate_pattern(value).is_err())
                 || trigger.event_type.is_some() != trigger.dedupe_key_template.is_some()
+                // A stale_after_ms that does not fit in i64 would make
+                // the subscription un-stale-able — the liveness sweep
+                // stores that budget as i64. Refuse at parse time so
+                // the operator sees the error before submitting events
+                // rather than at the first arrival. i64::MAX ms is
+                // ~292M years; a value past that is not a real budget.
             {
                 return Err(SpecError::InvalidTrigger(trigger.id.clone()));
+            }
+            // Bounds-check via `TriggerSpec::effective_stale_after_ms`
+            // — the single source of truth shared with
+            // `engine::submit_event`. Any change to the bound (default
+            // shift, u64→u128 someday) lives in one place. A default
+            // of 0 here means the spec's own value is the value under
+            // test; validate does not care what the engine's default
+            // is, only that a DECLARED value fits.
+            if trigger.stale_after_ms.is_some()
+                && let Err(ms) = trigger.effective_stale_after_ms(0)
+            {
+                return Err(SpecError::TriggerStaleAfterMsOutOfRange {
+                    id: trigger.id.clone(),
+                    ms,
+                });
             }
             if !trigger_ids.insert(trigger.id.clone()) {
                 return Err(SpecError::DuplicateTrigger(trigger.id.clone()));
@@ -359,6 +380,30 @@ pub struct TriggerSpec {
     pub pattern: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dedupe_key_template: Option<String>,
+    /// Silence budget for this subscription (RFC-0001 gate 2, "Native's
+    /// silent-death" lesson). When set, the kernel's liveness sweep flags
+    /// the subscription stale if no matching event arrives within this many
+    /// milliseconds. Absent means the flow author has not declared a
+    /// budget; the engine applies its default (see `submit_event`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_after_ms: Option<u64>,
+}
+
+impl TriggerSpec {
+    /// Resolve the effective silence budget for this trigger, returning
+    /// the value as `i64` (the type the liveness sweep stores). Applies
+    /// the engine default when the spec omits `stale_after_ms`, and
+    /// bounds-checks in one place so `spec::validate` and
+    /// `engine::submit_event` cannot drift.
+    ///
+    /// Returns `Err(u64)` — the offending value — when the requested
+    /// budget cannot fit in `i64`; callers turn that into their own
+    /// domain error (`SpecError::TriggerStaleAfterMsOutOfRange` at parse
+    /// time, an anyhow at submit time).
+    pub fn effective_stale_after_ms(&self, default_ms: u64) -> Result<i64, u64> {
+        let ms = self.stale_after_ms.unwrap_or(default_ms);
+        i64::try_from(ms).map_err(|_| ms)
+    }
 }
 
 /// Budget envelope: tokens are integers; money is a decimal string, never a
@@ -451,6 +496,8 @@ pub enum SpecError {
     EmptyCli,
     #[error("trigger {0} must declare a non-empty id and executor")]
     InvalidTrigger(String),
+    #[error("trigger {id} declared stale_after_ms={ms} which does not fit in i64 (~292M years); the liveness sweep cannot represent that budget")]
+    TriggerStaleAfterMsOutOfRange { id: String, ms: u64 },
     #[error("duplicate trigger id: {0}")]
     DuplicateTrigger(String),
     #[error("step id cannot be empty")]

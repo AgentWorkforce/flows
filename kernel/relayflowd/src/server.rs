@@ -8,6 +8,8 @@ use serde_json::{Value, json};
 use crate::{Engine, OutOfBandCompletion};
 
 #[cfg(unix)]
+pub mod liveness;
+#[cfg(unix)]
 mod reconcile;
 #[cfg(unix)]
 mod session;
@@ -50,6 +52,11 @@ pub fn serve(data_dir: &Path) -> Result<()> {
         .with_context(|| format!("bind socket {}", socket_path.display()))?;
     let hub = Arc::new(ProtocolHub::default());
     reconcile::spawn_reconciler(data_dir.to_path_buf(), hub.clone());
+    // Trigger-plane liveness sweep (RFC-0001 gate 2, Native silent-death
+    // answer). Runs on a coarser cadence than the lease reconciler above
+    // because the failure mode it catches is "minutes without an event",
+    // not "seconds without a heartbeat".
+    liveness::spawn_liveness_sweep(data_dir.to_path_buf());
     let next_connection = Arc::new(AtomicU64::new(1));
     for connection in listener.incoming() {
         let connection = connection?;

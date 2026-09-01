@@ -3,6 +3,7 @@
 mod append;
 mod registry;
 mod segment;
+mod subscriptions;
 
 use std::path::{Path, PathBuf};
 
@@ -11,6 +12,7 @@ use rusqlite::{Connection, OpenFlags, params};
 use thiserror::Error;
 
 pub use registry::{Registry, RegistryRecord};
+pub use subscriptions::StaleSubscription;
 
 const SCHEMA: &str = r#"
 CREATE TABLE meta (

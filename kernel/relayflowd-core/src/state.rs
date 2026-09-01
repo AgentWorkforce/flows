@@ -168,6 +168,11 @@ impl RunState {
                 | EntryType::EventReceived
                 | EntryType::SubscriptionRegistered
                 | EntryType::SubscriptionMatched
+                // SubscriptionStale is an observability event about the
+                // trigger PLANE, not a state transition inside this run's
+                // state machine — it never affects run/step state, so state
+                // folding ignores it here.
+                | EntryType::SubscriptionStale
                 | EntryType::StreamAppended
                 | EntryType::EffectRecorded
                 | EntryType::EffectConfirmed
