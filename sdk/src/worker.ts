@@ -39,6 +39,7 @@ export class AgentWorker extends EventEmitter {
   }
 
   close(): void {
+    // Does NOT explicitly release the worker; closing its JournalClient releases the connection registration.
     this.client.off('step.dispatch', this.onDispatch);
     this.attached = false;
   }

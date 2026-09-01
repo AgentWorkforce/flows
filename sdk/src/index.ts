@@ -144,6 +144,11 @@ export {
   type Fetcher,
   type PollOptions,
 } from './hn-poller.js';
+export {
+  HnMonitorRunner,
+  HnPollFetchError,
+  type HnMonitorRunnerOptions,
+} from './hn-monitor-runner.js';
 
 // Directory watcher — second proactive workload for gate 2 primitives.
 // Non-provider: no HTTP, no API tokens, no gate-6 dependency. Proves the
