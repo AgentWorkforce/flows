@@ -1,0 +1,53 @@
+# Pre-swarm-check — run the 3-lens review on the COMMITTED branch diff
+# BEFORE opening a PR, so the post-push review-swarm (workflows/review-swarm.yaml — see
+# workflows/review-swarm.yaml) does not have to spend ~4 minutes
+# surfacing the same class of findings and burning a merge cycle.
+#
+# Dogfoods gate 1 (deterministic flow runs on the kernel).
+#
+# Usage from a repo checkout:
+#
+#   flows run workflows/preswarm-check.yaml
+#
+# Exit 0 = all three lenses PASSED, safe to push and open the PR.
+# Non-zero = at least one lens FAILED.
+#
+# Gate: `exit_code == 0` is implicit for deterministic steps. Each
+# lens's runner (ops/preswarm-check/lens-runner.sh) exits 0 on
+# REVIEW_PASSED, 1 on REVIEW_FAILED, 1 on NO_VERDICT. NO output_contains
+# gate is layered on top — the runner's exit code IS the authority.
+# (An earlier version added `output_contains: "PRESWARM_<lens>:
+# REVIEW_PASSED"`, which was fail-open: the lens can quote arbitrary
+# strings from the diff in its review body, including the marker
+# itself, so a substring match cannot be trusted as the sole gate.)
+#
+# The failing lens's full review lands in that step's stdout, which
+# ends up in the run's per-run journal under
+# .relayflowd/runs/<ulid>.sqlite3 (or wherever --data-dir points).
+
+version: '0.1.0'
+name: preswarm-check
+description: >
+  Run the 3-lens code review (maintainability / history / structure) on
+  the committed branch diff versus main. Halts before push if any
+  lens rejects.
+
+steps:
+  - id: lens-maintainability
+    type: deterministic
+    dependsOn: []
+    # 900s runner cap in lens-runner.sh + 30s headroom so the kernel
+    # never kills the step while the runner is emitting its NO_VERDICT
+    # classifier line on CLI timeout (exit=124).
+    timeoutMs: 930000
+    command: "sh ops/preswarm-check/lens-runner.sh maintainability"
+  - id: lens-history
+    type: deterministic
+    dependsOn: []
+    timeoutMs: 930000
+    command: "sh ops/preswarm-check/lens-runner.sh history"
+  - id: lens-structure
+    type: deterministic
+    dependsOn: []
+    timeoutMs: 930000
+    command: "sh ops/preswarm-check/lens-runner.sh structure"

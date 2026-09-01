@@ -17,3 +17,5 @@ dist/
 .relayflows-toolchain/
 .workflow-env
 .relayflow/
+.relayflowd/
+.relayflowd-*/
