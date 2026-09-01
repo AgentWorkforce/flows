@@ -93,6 +93,21 @@ export class AgentWorker extends EventEmitter {
       : { exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' };
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
 
+    // Output shape: if the CLI's stdout parses as JSON, promote THAT
+    // as the step's `output` value so `json_schema` verification
+    // validates the analysis payload, not a wrapper around stdout.
+    // On the JSON path the CliResult (exit_code / stdout_tail /
+    // stderr_tail) is DISCARDED from `output` — the schema author
+    // wrote a shape for the analysis, not for the process wrapper.
+    // Non-JSON stdout falls back to the wrapper so text-emitting
+    // tools still round-trip usefully.
+    //
+    // Implicit contract: CLIs signal errors via non-zero exit, not by
+    // emitting an error JSON with exit 0. `completionReason` is
+    // derived from exit code, so a CLI that exits 0 while emitting
+    // `{"error":...}` will report success with an error payload.
+    const output = parseJsonOutput(result.stdout_tail) ?? result;
+
     await this.client.stepComplete(
       dispatch.run_id,
       dispatch.step_id,
@@ -100,12 +115,36 @@ export class AgentWorker extends EventEmitter {
       dispatch.idempotency_key,
       completionReason,
       {
-        output: result,
+        output,
         started_pins: dispatch.pins,
         end_pins: dispatch.pins,
       },
     );
   }
+}
+
+/**
+ * Return an object-shaped JSON payload parsed from `stdout`, or
+ * `null` when stdout is empty, non-JSON, or JSON-of-a-scalar/array.
+ * The object-only restriction matches how `json_schema` gates are
+ * authored — a scalar or array sneaking through would confuse both
+ * the schema and downstream readers who expect field lookups on
+ * `output`. Text-emitting tools and non-object JSON both fall
+ * through to the CliResult wrapper preserved by the caller.
+ */
+export function parseJsonOutput(stdout: string): Record<string, unknown> | null {
+  const trimmed = stdout.trim();
+  if (trimmed === '') return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+  return parsed as Record<string, unknown>;
 }
 
 function runCli(cli: string, instruction: string): Promise<CliResult> {
