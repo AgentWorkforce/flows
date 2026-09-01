@@ -343,6 +343,216 @@ steps:
     });
   });
 
+  it('runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo)', async () => {
+    // RFC-0001 gate 2 second clause: the real proactive workload
+    // (hn-monitor) actually RUNS as a relayflow — not just dispatches
+    // and fails with worker_error because no CLI is wired. This test
+    // proves the pipeline works today with a stub CLI that satisfies
+    // the analyze-story step's json_schema verification. A real
+    // analyzer would replace the stub with `claude -p` or similar;
+    // that follow-up is orthogonal to whether the plumbing works.
+    //
+    // Ordering matters: worker MUST attach BEFORE submit_event, or
+    // the run parks with nothing to drive it (see the "late-attaching
+    // worker" test above for the recorded gotcha).
+    const dataDir = temporaryDirectory('flows-live-hn-agent-');
+    await startDaemon(dataDir);
+    const client = await connectClient(dataDir);
+    await client.hello('live-hn-agent');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-hn-agent-worker',
+      pins: {
+        workspace: [{ surface: 'repo', revision_id: 'rev-a' }],
+        streams: [],
+      },
+    });
+    await worker.attach();
+
+    // Load hn-monitor's canonical spec, then patch the analyze-story
+    // step to declare a real CLI. Everything else — triggers, dedupe,
+    // wake context — comes straight from the existing gate-2 spec.
+    const spec = JSON.parse(
+      readFileSync(join(TESTDATA, 'hn-monitor.spec.canonical.json'), 'utf8'),
+    ) as { steps: { id: string; cli?: string }[] };
+    for (const step of spec.steps) {
+      if (step.id === 'analyze-story') {
+        step.cli = join(TESTDATA, 'preflight', 'analyze-story-stub-cli');
+      }
+    }
+
+    // Submit the trigger event. The kernel matches it against the
+    // hn-story-posted subscription, spawns a run, and dispatches the
+    // agent step to our attached worker. Worker runs the stub CLI,
+    // which outputs JSON that satisfies the step's json_schema gate,
+    // reports stepComplete with success.
+    const outcome = await client.eventSubmit(spec, {
+      type: 'hn.story_posted',
+      payload: { id: 42_000_042, type: 'story' },
+    });
+    expect(outcome).toMatchObject({ matched: true, deduped: false });
+    const runId = (outcome as { run: { run_id: string } }).run.run_id;
+
+    // The step must reach 'done' — not 'failed', not 'runnable' — and
+    // the run must complete with a success-shaped final entry.
+    expect(await waitForStep(client, runId, 'analyze-story', 'done')).toMatchObject({
+      type: 'agent',
+      state: 'done',
+    });
+    const finalEntries = (await client.journalRead(runId)).entries;
+    const runCompleted = finalEntries.find(
+      (entry) => (entry as { entry_type: string }).entry_type === 'run.completed',
+    ) as { payload: { completionReason: string } } | undefined;
+    expect(runCompleted?.payload.completionReason).toBe('success');
+
+    await worker.close();
+  }, 30_000);
+
+  it('hn-monitor analyze-story FAILS verification when the CLI omits required schema fields', async () => {
+    // Negative pin for the "schema gate stays live" invariant. The
+    // stub emits `{"story_title":"partial"}` (missing
+    // relevance_score, reasoning). With json_schema active over the
+    // PROMOTED payload, the schema author's declared shape has
+    // required fields the stub omitted; verification must fail.
+    //
+    // NOTE on mutation coverage: this test does NOT catch a revert
+    // of the promotion (wrapper-as-output) — under that mutation
+    // the CliResult wrapper also fails the schema (it lacks
+    // story_title/relevance_score/reasoning entirely), so the run
+    // still ends in step_failed and this assertion still passes.
+    // That mutation IS caught by the positive test above, which
+    // requires the run to complete with 'success' — the wrapper
+    // path fails that. What THIS test catches is a
+    // schema-gate-removed mutation: if the kernel stopped running
+    // json_schema verification, the stub's exit-0 with any JSON
+    // would slide through to 'success', and this test would fail
+    // because the reason would BE 'success' not 'step_failed'.
+    const dataDir = temporaryDirectory('flows-live-hn-agent-neg-');
+    await startDaemon(dataDir);
+    const client = await connectClient(dataDir);
+    await client.hello('live-hn-agent-neg');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-hn-agent-neg-worker',
+      pins: {
+        workspace: [{ surface: 'repo', revision_id: 'rev-a' }],
+        streams: [],
+      },
+    });
+    await worker.attach();
+
+    const spec = JSON.parse(
+      readFileSync(join(TESTDATA, 'hn-monitor.spec.canonical.json'), 'utf8'),
+    ) as { steps: { id: string; cli?: string }[] };
+    for (const step of spec.steps) {
+      if (step.id === 'analyze-story') {
+        step.cli = join(TESTDATA, 'preflight', 'analyze-story-missing-fields-cli');
+      }
+    }
+
+    const outcome = await client.eventSubmit(spec, {
+      type: 'hn.story_posted',
+      payload: { id: 42_000_099, type: 'story' },
+    });
+    expect(outcome).toMatchObject({ matched: true, deduped: false });
+    const runId = (outcome as { run: { run_id: string } }).run.run_id;
+
+    // The step must NOT reach success. Poll for run.completed and
+    // assert TWO things: (a) the terminal entry actually arrived
+    // (a never-completing run is a test bug, not a pass — a
+    // `.not.toBe('success')` check on undefined would trivially
+    // pass), and (b) the reason is a declared FAILURE kind, not
+    // a "hasn't completed yet" absence.
+    const deadline = Date.now() + 10_000;
+    let runCompleted: { payload: { completionReason: string } } | undefined;
+    while (Date.now() < deadline) {
+      const entries = (await client.journalRead(runId)).entries;
+      runCompleted = entries.find(
+        (entry) => (entry as { entry_type: string }).entry_type === 'run.completed',
+      ) as { payload: { completionReason: string } } | undefined;
+      if (runCompleted !== undefined) break;
+      await delay(50);
+    }
+    expect(
+      runCompleted,
+      'run.completed entry never arrived within 10s — test cannot assert schema-live under a hung run',
+    ).toBeDefined();
+    // step_failed is the outer reason (a step failed → run failed);
+    // the inner step.completed record carries verification_failed
+    // for schema-rejected outputs. Pinning the outer reason avoids
+    // depending on retry/backoff behavior for this test.
+    expect(runCompleted!.payload.completionReason).toBe('step_failed');
+
+    await worker.close();
+  }, 30_000);
+
+  it('agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text', async () => {
+    // Pins the promise in worker.ts's promotion comment: "Non-JSON
+    // stdout falls back to the wrapper so text-emitting tools still
+    // round-trip usefully." Without this test, a future refactor
+    // that deletes `?? result` or narrows parseJsonOutput's return
+    // shape could silently discard stdout/stderr/exit_code from
+    // `output` for every text-emitting agent CLI — the two hn-monitor
+    // tests above would stay green because their stubs emit pure JSON.
+    //
+    // The kernel nulls `output` on step.completed when verification
+    // fails (a design choice — the failed output is noise, not state
+    // to persist). To observe the wrapper's preservation, this test
+    // uses a spec WITHOUT `json_schema` verification: the step
+    // succeeds cleanly and the CliResult wrapper lands in the
+    // journal intact.
+    const dataDir = temporaryDirectory('flows-live-text-fallback-');
+    await startDaemon(dataDir);
+    const cli = join(TESTDATA, 'preflight', 'analyze-story-text-only-cli');
+    const client = await connectClient(dataDir);
+    await client.hello('live-text-fallback');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-text-fallback-worker',
+      pins: {
+        workspace: [{ surface: 'repo', revision_id: 'rev-a' }],
+        streams: [],
+      },
+    });
+    await worker.attach();
+
+    const started = await client.runStart(toKernelSpec(compileYaml(`
+version: '0.1.0'
+steps:
+  - id: analyze
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    instruction: Emit some text.
+`)));
+
+    // Poll for step.completed and inspect its output.
+    const deadline = Date.now() + 10_000;
+    let stepCompleted: { payload: { output: unknown } } | undefined;
+    while (Date.now() < deadline) {
+      const entries = (await client.journalRead(started.run_id)).entries;
+      stepCompleted = entries.find(
+        (entry) => (entry as { entry_type: string; step_id?: string }).entry_type === 'step.completed'
+          && (entry as { step_id?: string }).step_id === 'analyze',
+      ) as { payload: { output: unknown } } | undefined;
+      if (stepCompleted !== undefined) break;
+      await delay(50);
+    }
+    expect(stepCompleted, 'step.completed never arrived').toBeDefined();
+    const output = stepCompleted!.payload.output as {
+      exit_code: number | null;
+      stdout_tail: string;
+      stderr_tail: string;
+    };
+    // Wrapper survived: text stdout preserved verbatim, exit_code
+    // preserved, stderr channel preserved. If a future refactor
+    // dropped `?? result` from worker.ts, `output` would be `null`
+    // here (parseJsonOutput returned null on non-JSON stdout) and
+    // these assertions would all fail.
+    expect(output).not.toBeNull();
+    expect(output.exit_code).toBe(0);
+    expect(output.stdout_tail).toContain('looked at the story');
+    expect(output.stderr_tail).toBe('');
+
+    await worker.close();
+  }, 30_000);
+
   it('preflights before journaling and names an unreachable socket', async () => {
     const dataDir = temporaryDirectory('flows-live-preflight-');
     await startDaemon(dataDir);
