@@ -17,6 +17,16 @@ pub struct RegistryRecord {
 }
 
 impl Registry {
+    /// Sibling-module access to the underlying connection. `pub(crate)`
+    /// so the `subscriptions` module (which extends `impl Registry`)
+    /// can issue queries against the same handle without adopting a
+    /// separate connection or plumbing methods through a trait.
+    pub(crate) fn connection(&self) -> &Connection {
+        &self.connection
+    }
+}
+
+impl Registry {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, JournalStoreError> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
@@ -45,6 +55,11 @@ impl Registry {
                PRIMARY KEY (flow_key, subscription_id, dedupe_key)
              ) WITHOUT ROWID;",
         )?;
+        // Trigger-plane liveness lives in a sibling module; its schema is
+        // concatenated so both files' invariants land in the same
+        // connection during initialization. See `subscriptions.rs` for
+        // the LIVENESS_SCHEMA_SQL contents and its rationale.
+        connection.execute_batch(crate::subscriptions::LIVENESS_SCHEMA_SQL)?;
         Ok(Self { connection })
     }
 
@@ -168,6 +183,7 @@ impl Registry {
         )?;
         Ok(None)
     }
+
 }
 
 #[cfg(test)]
@@ -176,10 +192,15 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn registry_is_a_rebuildable_run_locator() {
+    fn open_registry() -> (tempfile::TempDir, Registry) {
         let directory = tempdir().unwrap();
         let registry = Registry::open(directory.path().join("relayflowd.sqlite3")).unwrap();
+        (directory, registry)
+    }
+
+    #[test]
+    fn registry_is_a_rebuildable_run_locator() {
+        let (directory, registry) = open_registry();
         let run_file = directory.path().join("runs/run.sqlite3");
         registry.register("run", &run_file).unwrap();
         registry.set_status("run", "completed", None).unwrap();
@@ -187,4 +208,5 @@ mod tests {
         assert_eq!(record.file, run_file);
         assert_eq!(record.status, "completed");
     }
+
 }

@@ -15,6 +15,14 @@ pub enum EntryType {
     SubscriptionRegistered,
     #[serde(rename = "subscription.matched")]
     SubscriptionMatched,
+    /// The sweep noticed a subscription's `last_event_at_ms` fell farther
+    /// behind wall-clock than its declared `stale_after_ms`. Emitted at
+    /// least once per silence — a re-arrival re-arms the latch, and a
+    /// crash between journal-append and latch can cause re-emission of
+    /// the same silence with a different `detected_at_ms`. The RFC's
+    /// "Native silent-death" answer at the journal level.
+    #[serde(rename = "subscription.stale")]
+    SubscriptionStale,
     #[serde(rename = "step.attempt.started")]
     StepAttemptStarted,
     #[serde(rename = "step.completed")]
@@ -48,6 +56,7 @@ impl EntryType {
             Self::EventReceived => "event.received",
             Self::SubscriptionRegistered => "subscription.registered",
             Self::SubscriptionMatched => "subscription.matched",
+            Self::SubscriptionStale => "subscription.stale",
             Self::StepAttemptStarted => "step.attempt.started",
             Self::StepCompleted => "step.completed",
             Self::WaitEvent => "wait.event",
@@ -69,6 +78,7 @@ impl EntryType {
             "event.received" => Self::EventReceived,
             "subscription.registered" => Self::SubscriptionRegistered,
             "subscription.matched" => Self::SubscriptionMatched,
+            "subscription.stale" => Self::SubscriptionStale,
             "step.attempt.started" => Self::StepAttemptStarted,
             "step.completed" => Self::StepCompleted,
             "wait.event" => Self::WaitEvent,
