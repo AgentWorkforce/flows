@@ -139,6 +139,7 @@ export {
 // Hacker News adapter — deliberately outside kernel/ (see sdk/src/hn-poller.ts).
 export {
   pollHackerNewsOnce,
+  HnTransientFetchError,
   HN_TOP_STORIES_URL,
   type EventSink,
   type Fetcher,

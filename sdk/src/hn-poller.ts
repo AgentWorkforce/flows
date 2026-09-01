@@ -25,10 +25,33 @@ export interface EventSink {
 /** Injected so parsing and submission stay deterministic in tests. */
 export type Fetcher = (url: string) => Promise<string>;
 
+/**
+ * Typed fetch-transport error. Callers (like sdk/src/cli/hn-monitor.ts)
+ * `instanceof` this to distinguish transient HN fetch failures from
+ * journal failures — avoids message-string matching (fragile cross-module
+ * coupling) and covers the shapes fetch() itself throws (network errors,
+ * ECONNREFUSED, TypeError('fetch failed')).
+ */
+export class HnTransientFetchError extends Error {
+  constructor(message: string, cause?: unknown) {
+    // Use the native ErrorOptions.cause path so stack formatting and
+    // downstream inspectors (util.inspect, structured loggers) see it.
+    super(message, cause !== undefined ? { cause } : undefined);
+    this.name = 'HnTransientFetchError';
+  }
+}
+
 const defaultFetcher: Fetcher = async (url) => {
-  const response = await fetch(url);
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch (cause) {
+    // Network-layer failures from fetch() itself — TypeError('fetch failed'),
+    // ECONNREFUSED, DNS lookup failures — are all transient.
+    throw new HnTransientFetchError(`HN fetch failed: ${String(cause)}`, cause);
+  }
   if (!response.ok) {
-    throw new Error(`HN fetch failed: HTTP ${response.status}`);
+    throw new HnTransientFetchError(`HN fetch failed: HTTP ${response.status}`);
   }
   return response.text();
 };
@@ -60,10 +83,10 @@ export async function pollHackerNewsOnce(
   try {
     storyIds = JSON.parse(body);
   } catch (cause) {
-    throw new Error(`HN top stories response was not JSON: ${String(cause)}`);
+    throw new HnTransientFetchError(`HN top stories response was not JSON: ${String(cause)}`);
   }
   if (!Array.isArray(storyIds)) {
-    throw new Error('HN top stories response was not an array');
+    throw new HnTransientFetchError('HN top stories response was not an array');
   }
 
   const outcomes: unknown[] = [];

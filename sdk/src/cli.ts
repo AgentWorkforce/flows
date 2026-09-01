@@ -13,6 +13,7 @@ import {
   type RunExecution,
   type RunReport,
 } from './cli/run.js';
+import { runHnMonitor } from './cli/hn-monitor.js';
 
 export type { CheckInputDiagnostic, CheckReport } from './cli/check.js';
 
@@ -24,7 +25,8 @@ export interface CliIo {
 type CliExitCode = 0 | 1 | 2 | 3;
 type ParsedArgs =
   | { command: 'check'; json: boolean; value: string }
-  | { command: 'run' | 'resume'; dataDir: string; json: boolean; value: string };
+  | { command: 'run' | 'resume'; dataDir: string; json: boolean; value: string }
+  | { command: 'hn-monitor'; sub: 'start'; dataDir: string; specPath: string; pollIntervalMs: number | undefined };
 
 const DEFAULT_DATA_DIR = '.relayflowd';
 const USAGE = [
@@ -32,6 +34,7 @@ const USAGE = [
   'flows check [--json] <flow.yaml|spec.json>',
   'flows run [--json] [--data-dir <dir>] <flow.yaml|spec.json>',
   'flows resume [--json] [--data-dir <dir>] <run-id>',
+  'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
 ].join(' ');
 
 const PROCESS_IO: CliIo = {
@@ -56,6 +59,24 @@ export async function runCli(
     return checked.report.ok ? 0 : 2;
   }
 
+  if (parsed.command === 'hn-monitor') {
+    const controller = new AbortController();
+    const onSignal = (): void => controller.abort();
+    process.once('SIGINT', onSignal);
+    process.once('SIGTERM', onSignal);
+    try {
+      return await runHnMonitor({
+        dataDir: parsed.dataDir,
+        specPath: parsed.specPath,
+        pollIntervalMs: parsed.pollIntervalMs,
+        signal: controller.signal,
+      }, io);
+    } finally {
+      process.off('SIGINT', onSignal);
+      process.off('SIGTERM', onSignal);
+    }
+  }
+
   const execution = parsed.command === 'run'
     ? await runFlow(parsed.value, parsed.dataDir, { onWait: (progress) => emitWait(progress, io) })
     : await resumeFlow(parsed.value, parsed.dataDir, { onWait: (progress) => emitWait(progress, io) });
@@ -75,6 +96,7 @@ function emitWait(
 
 function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   const command = args[0];
+  if (command === 'hn-monitor') return parseHnMonitorArgs(args.slice(1));
   if (command !== 'check' && command !== 'run' && command !== 'resume') return undefined;
 
   let json = false;
@@ -104,6 +126,40 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   return command === 'check'
     ? { command, json, value: positionals[0]! }
     : { command, dataDir, json, value: positionals[0]! };
+}
+
+function parseHnMonitorArgs(rest: readonly string[]): ParsedArgs | undefined {
+  const sub = rest[0];
+  if (sub !== 'start') return undefined;
+
+  let dataDir = DEFAULT_DATA_DIR;
+  let sawDataDir = false;
+  let pollIntervalMs: number | undefined;
+  const positionals: string[] = [];
+  for (let index = 1; index < rest.length; index += 1) {
+    const argument = rest[index]!;
+    if (argument === '--data-dir') {
+      const value = rest[index + 1];
+      if (sawDataDir || value === undefined || value.startsWith('-')) return undefined;
+      dataDir = value;
+      sawDataDir = true;
+      index += 1;
+      continue;
+    }
+    if (argument === '--poll-interval-ms') {
+      const value = rest[index + 1];
+      if (pollIntervalMs !== undefined || value === undefined || value.startsWith('-')) return undefined;
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+      pollIntervalMs = parsed;
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith('-')) return undefined;
+    positionals.push(argument);
+  }
+  if (positionals.length !== 1) return undefined;
+  return { command: 'hn-monitor', sub: 'start', dataDir, specPath: positionals[0]!, pollIntervalMs };
 }
 
 function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
