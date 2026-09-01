@@ -553,6 +553,140 @@ steps:
     await worker.close();
   }, 30_000);
 
+  it('AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite)', async () => {
+    // Gate 2 clause 2 follow-up A: a real hn-monitor analyzer needs
+    // to see the triggering event (specifically the story ID) to
+    // fetch/analyze the actual story. Before this PR: the kernel's
+    // dispatch event carried wake_context in its wire shape, but
+    // the SDK type didn't expose it and AgentWorker didn't pass it
+    // anywhere. This test pins the end-to-end wiring: kernel scans
+    // the run journal for subscription.matched → puts wake_context
+    // in the dispatch → SDK type surfaces it → AgentWorker sets
+    // $RELAYFLOW_WAKE_CONTEXT in the subprocess env → the CLI reads
+    // it and echoes the payload ID back inside the analysis JSON.
+    //
+    const dataDir = temporaryDirectory('flows-live-wake-context-');
+    await startDaemon(dataDir);
+    const client = await connectClient(dataDir);
+    await client.hello('live-wake-context');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-wake-context-worker',
+      pins: {
+        workspace: [{ surface: 'repo', revision_id: 'rev-a' }],
+        streams: [],
+      },
+    });
+    await worker.attach();
+
+    const spec = JSON.parse(
+      readFileSync(join(TESTDATA, 'hn-monitor.spec.canonical.json'), 'utf8'),
+    ) as { steps: { id: string; cli?: string }[] };
+    for (const step of spec.steps) {
+      if (step.id === 'analyze-story') {
+        step.cli = join(TESTDATA, 'preflight', 'analyze-story-echo-wake-cli');
+      }
+    }
+
+    // Distinctive story ID so the assertion can prove the CLI saw
+    // THIS specific event's payload, not a fixture default.
+    const storyId = 42_007_777;
+    const outcome = await client.eventSubmit(spec, {
+      type: 'hn.story_posted',
+      payload: { id: storyId, type: 'story' },
+    });
+    const runId = (outcome as { run: { run_id: string } }).run.run_id;
+
+    expect(await waitForStep(client, runId, 'analyze-story', 'done')).toMatchObject({
+      type: 'agent',
+      state: 'done',
+    });
+
+    // Prove the CLI actually SAW the wake context: the promoted
+    // output should include the story_id echoed inside story_title.
+    // A run that succeeded without the env var reaching the CLI
+    // would still complete (the stub exits 1, which propagates as
+    // step failed) — this positive branch requires the env var to
+    // have been populated correctly.
+    const entries = (await client.journalRead(runId)).entries;
+    const stepCompleted = entries.find(
+      (entry) => (entry as { entry_type: string; step_id?: string }).entry_type === 'step.completed'
+        && (entry as { step_id?: string }).step_id === 'analyze-story',
+    ) as { payload: { output: { story_title: string; reasoning: string } } } | undefined;
+    expect(stepCompleted).toBeDefined();
+    expect(stepCompleted!.payload.output.story_title).toBe(`echoed:${storyId}`);
+    expect(stepCompleted!.payload.output.reasoning).toContain(String(storyId));
+
+    await worker.close();
+  }, 30_000);
+
+  it('AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin)', async () => {
+    // Pins the invariant the worker.ts comment makes load-bearing:
+    // "The env-var-absent shape is deliberate so a CLI that checks
+    // `$RELAYFLOW_WAKE_CONTEXT` can distinguish 'no wake context
+    // available' from 'wake context is JSON null'." A future
+    // simplification that always sets the var (to `""` or `"null"`
+    // when the dispatch has no wake_context) would break every
+    // CLI that keys on `if [ -z "$RELAYFLOW_WAKE_CONTEXT" ]` — and
+    // without this test, no other test would fail.
+    //
+    // Uses runStart (not eventSubmit) to spawn a run WITHOUT a
+    // triggering event, so the kernel dispatches an agent step
+    // whose StepDispatch has no `wake_context` field.
+    //
+    // POLLUTES process.env FIRST so this also catches the parent-
+    // inheritance leak. Without the `delete env[WAKE_CONTEXT_ENV]`
+    // in worker.ts, `{ ...process.env }` would carry this stale
+    // value into the child even on a run with no wake_context —
+    // the probe would see `env_present: true` and the assertion
+    // below would fail. A wrapper script, systemd unit, docker
+    // env, or a prior test in the same process can set this in
+    // real deployments; the guarantee has to be enforced by the
+    // spawn, not by luck.
+    process.env.RELAYFLOW_WAKE_CONTEXT = '{"parent_leak_check": true}';
+    const dataDir = temporaryDirectory('flows-live-wake-context-absent-');
+    await startDaemon(dataDir);
+    const cli = join(TESTDATA, 'preflight', 'wake-context-probe-cli');
+    const client = await connectClient(dataDir);
+    await client.hello('live-wake-context-absent');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-wake-context-absent-worker',
+      pins: {
+        workspace: [{ surface: 'repo', revision_id: 'rev-a' }],
+        streams: [],
+      },
+    });
+    await worker.attach();
+
+    const started = await client.runStart(toKernelSpec(compileYaml(`
+version: '0.1.0'
+steps:
+  - id: probe
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    instruction: Report presence of wake-context env var.
+`)));
+
+    expect(await waitForStep(client, started.run_id, 'probe', 'done')).toMatchObject({
+      type: 'agent',
+      state: 'done',
+    });
+
+    // The probe emits `{"env_present": <bool>}`. When wake_context
+    // is truly absent (undefined, not `null`), the env var must
+    // NOT be set — the probe must see `env_present: false`.
+    const entries = (await client.journalRead(started.run_id)).entries;
+    const completed = entries.find(
+      (entry) => (entry as { entry_type: string; step_id?: string }).entry_type === 'step.completed'
+        && (entry as { step_id?: string }).step_id === 'probe',
+    ) as { payload: { output: { env_present: boolean } } } | undefined;
+    expect(completed).toBeDefined();
+    expect(completed!.payload.output.env_present).toBe(false);
+
+    delete process.env.RELAYFLOW_WAKE_CONTEXT;
+
+    await worker.close();
+  }, 30_000);
+
   it('preflights before journaling and names an unreachable socket', async () => {
     const dataDir = temporaryDirectory('flows-live-preflight-');
     await startDaemon(dataDir);

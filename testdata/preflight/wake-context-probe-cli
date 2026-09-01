@@ -1,0 +1,8 @@
+#!/usr/bin/env node
+// Probes the presence of $RELAYFLOW_WAKE_CONTEXT and emits a
+// deterministic JSON payload naming that fact. Used by the
+// wake-context-absent test to pin the undefined-vs-null
+// invariant AgentWorker documents: a run started without a
+// triggering event must dispatch with no env var set.
+const present = process.env.RELAYFLOW_WAKE_CONTEXT !== undefined;
+process.stdout.write(JSON.stringify({ env_present: present }));
