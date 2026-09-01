@@ -8,7 +8,7 @@ it is authoritative when history is unavailable.
 **Keep it current. A stale STATE.md is worse than none:** it does not merely
 fail to help, it actively misleads an assessor that cannot check it.
 
-Last updated: 2026-08-30 02:55 UTC, by Khaliq's session, on `main`. HANDOFF STATE — read the next section first.
+Last updated: 2026-09-01 10:16 UTC, by the Relayflow Lead (flows-lead-1 on sf-mini), on `main`. **STATE.md gate-2 block rewritten; verdict unchanged (still AMBER).** A new evidence file — `ops/reviews/20260901-1050-gate2-live-run.md` — is cited from the gate-2 block; AMBER→GREEN is Khaliq's read on the enclosed evidence.
 
 ## Where the program is
 
@@ -23,7 +23,7 @@ Last updated: 2026-08-30 02:55 UTC, by Khaliq's session, on `main`. HANDOFF STAT
       fix restored           -> ok. 19 passed; 0 failed
       repeated              -> passed 20 / failed 0 out of 20
   Gate 1 no longer carries a fix-on-trust.
-- **Gates 2, 3, 4, 5, 7, 8, 9: RED.** Not started.
+- **Gates 2, 3, 4, 5, 7, 8, 9: RED / AMBER as noted.** Gate 2 is AMBER (see block below); the rest are RED / not started.
 - **Gate 6 — integrations via relayfile: RED, and BLOCKED on gates 2-4.**
   Khaliq decided this on 2026-08-28 (option B), after the Lead escalated a real
   spec-vs-reality gap: RFC-0001 defines gate 6 as "every integration step in
@@ -36,35 +36,49 @@ Last updated: 2026-08-30 02:55 UTC, by Khaliq's session, on `main`. HANDOFF STAT
   now — the design partner needs it and it does not depend on old-engine flows.
   But gate 6 is NOT green until real flows run on it (RFC-0001 §2 rule 2: "a
   gate is green only when the real workload runs on it").
-- **Gate 2 — proactive agent: AMBER, in progress, and it is the frontier.**
-  First code landed via **PR #14** (`e0f52e1`, merged 2026-08-28 22:01 UTC):
-  `kernel/relayflowd/src/engine/wake.rs` (event matching, dedupe claim, journal
-  entries), `relayflowd-core/src/event.rs` (Event, pattern matching, dedupe key
-  templating), `TriggerSpec` fields, a subscription registry keyed by
-  (flow, subscription, key) with claim repair, and the SDK's `event.submit`
-  verb plus trigger fields.
-  **Both pieces I previously listed as missing are in fact DONE**, and PR #14
-  carried them. Verified on `main` at 23:40 UTC, literally:
-  `sh ops/cargo.sh test -p relayflowd --test event_wake` ->
-  `matching_event_wakes_once_with_fresh_context ... ok` (1 passed). The
-  wake-time context assembly is in `engine/wake.rs`; the idempotency proof is
-  `kernel/relayflowd/tests/event_wake.rs`.
-  **What remains is the RFC's own bar, which is higher than the primitives.**
-  RFC-0001 §3 gate 2 is done when a real proactive workload (`hn-monitor` or
-  `linear`) runs as a relayflow — not when the kernel can wake on an event.
-  Rule 2 governs: a gate is green only when the real workload runs on it.
+- **Gate 2 — proactive agent: AMBER, unattended trigger-plane proven, two clauses remain.**
+  The primitives are all landed:
+  - PR #14 (`e0f52e1`) — kernel wake, event matching, dedupe claim, `event.submit`.
+  - PR #15 (`079f7c4`) — `testdata/hn-monitor.flow.yaml` + integration test.
+  - PR #19 — live-HN → wake, exactly-once.
+  - PR #95 — `dir-watcher` poller (2nd workload primitive, non-provider).
+  - PR #120 (`201542a`, merged 2026-09-01 08:29 UTC) —
+    **`flows hn-monitor start`**, the CLI runner that turns the poller
+    into an unattended process.
 
-  **PR #15 (`079f7c4`) took the first step and no more.** It added
-  `testdata/hn-monitor.flow.yaml`, its canonical spec, and
-  `kernel/relayflowd/tests/hn_monitor_integration.rs`. Verified by hand:
-  `flows check` -> `CHECK PASSED`, and the integration test passes inside the
-  full workspace run (19+19+1+1+26+5 passed, 0 failed).
+  **New evidence:** `ops/reviews/20260901-1050-gate2-live-run.md` records a
+  live, unattended run of `flows hn-monitor start` against a local
+  `relayflowd serve`, driven by real Hacker News top-stories. Real story
+  IDs matched, deduped, dispatched under lease, and closed out with typed
+  `completionReason` — the full trigger → subscription → dispatch →
+  typed-failure loop journalled end to end. Counts, timings, ULIDs, and
+  one run's full journal are literal in that file — cite it directly
+  rather than restating specific numbers here (STATE.md counts drift, an
+  evidence transcript does not).
 
-  **A real external event HAS now woken it** — see PR #19 above, verified
-  against live Hacker News with exactly-once holding across repeated polls.
-  Gate 2 stays AMBER only pending Khaliq's read on whether a manually-invoked
-  poller satisfies "runs as a relayflow" under rule 2, or whether it must be
-  scheduled and unattended first. That is a judgement, not a missing part.
+  **Why AMBER, not GREEN.** RFC-0001 §3 gate 2 has two clauses this
+  evidence does NOT close:
+  1. **Trigger plane liveness-checked** (RFC-0001 §3 gate 2, the paragraph
+     ending "Native's silent-death problem"). RelayCron's deterministic-id
+     single-winner claim + `stale_after` sweep is the pattern. Not
+     implemented inside `relayflowd`. The poller runs; the kernel does not
+     yet notice if it stops. The same section calls this "a requirement,
+     not an option" — it is a stated done-when clause, not follow-up
+     hardening.
+  2. **The analyze-agent step actually executing.** In the recorded run,
+     every step ended in `worker_error` because `hn-monitor start`'s
+     AgentWorker has no user-supplied step handler. The dispatch loop
+     works; the analyzer does not. Whether this reads as gate-2 scope
+     ("runs succeed") or gate-4 scope ("chief-as-relayflow supplies
+     the runtime") is Khaliq's call.
+
+  **AMBER → GREEN is Khaliq's read** on the enclosed evidence, per this
+  block's prior wording ("that is a judgement, not a missing part") and
+  per the charter's standing rule that the Lead never merges / never
+  flips gates (`ops/AUTONOMY.md` and the "no self-merge" rail; RFC-0001
+  covenant 3 governs declared human-in-the-loop *gates within a flow*,
+  which is a different thing). This session prepared evidence and left
+  the flip pending.
 
 ## HANDOFF (2026-08-30 03:05 UTC) — a lead is LIVE on sf-mini
 
