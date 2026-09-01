@@ -235,7 +235,7 @@ steps:
       type: 'agent',
       state: 'done',
     });
-    worker.close();
+    await worker.close();
   });
 
   it('can always get a parked run to a late-attaching worker', async () => {
@@ -285,7 +285,7 @@ steps:
     if (passive !== null) {
       // A kernel that re-drives on attach has satisfied the real requirement
       // already — the step reached a worker. Nothing further to prove.
-      worker.close();
+      await worker.close();
       starter.close();
       return;
     }
@@ -298,7 +298,7 @@ steps:
     ]);
     expect(resumed, 'run.resume must dispatch the parked step to the attached worker').not.toBeNull();
 
-    worker.close();
+    await worker.close();
     starter.close();
   }, 45_000);
 
@@ -329,7 +329,7 @@ steps:
 
     const running = invokeCliAsync(['run', '--data-dir', dataDir, flow]);
     const lease = await dispatched;
-    worker.close();
+    await worker.close();
     const parked = await running;
 
     expect(parked.status, parked.stderr).toBe(3);
