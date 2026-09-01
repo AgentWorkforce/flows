@@ -113,6 +113,11 @@ export { JOURNAL_WRITE_FAILED, PROTOCOL_VERSION } from './protocol.js';
 
 export { JournalClient, type JournalClientOptions } from './journal-client.js';
 export { AgentWorker, type AgentWorkerOptions } from './worker.js';
+export {
+  HnMonitorRunner,
+  type HnMonitorRunnerDependencies,
+  type HnMonitorRunnerOptions,
+} from './hn-monitor-runner.js';
 
 export {
   validateWorkPackage,
@@ -140,6 +145,7 @@ export {
 export {
   pollHackerNewsOnce,
   HN_TOP_STORIES_URL,
+  HnFetchError,
   type EventSink,
   type Fetcher,
   type PollOptions,

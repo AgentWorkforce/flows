@@ -25,6 +25,14 @@ export interface EventSink {
 /** Injected so parsing and submission stay deterministic in tests. */
 export type Fetcher = (url: string) => Promise<string>;
 
+/** A fetch-layer failure that a continuous poll loop may retry next tick. */
+export class HnFetchError extends Error {
+  constructor(cause: unknown) {
+    super(`HN fetch failed: ${String(cause)}`, { cause });
+    this.name = 'HnFetchError';
+  }
+}
+
 const defaultFetcher: Fetcher = async (url) => {
   const response = await fetch(url);
   if (!response.ok) {
@@ -54,7 +62,12 @@ export async function pollHackerNewsOnce(
   const storyLimit = options.storyLimit ?? DEFAULT_STORY_LIMIT;
   const fetcher = options.fetcher ?? defaultFetcher;
 
-  const body = await fetcher(TOP_STORIES_URL);
+  let body: string;
+  try {
+    body = await fetcher(TOP_STORIES_URL);
+  } catch (cause) {
+    throw new HnFetchError(cause);
+  }
 
   let storyIds: unknown;
   try {

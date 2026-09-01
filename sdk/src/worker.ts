@@ -18,6 +18,7 @@ interface CliResult {
 /** Executes dispatched agent steps using their declared CLI. */
 export class AgentWorker extends EventEmitter {
   private attached = false;
+  private readonly inFlight = new Set<Promise<void>>();
 
   constructor(
     private readonly client: JournalClient,
@@ -38,14 +39,20 @@ export class AgentWorker extends EventEmitter {
     }
   }
 
-  close(): void {
+  async close(): Promise<void> {
     this.client.off('step.dispatch', this.onDispatch);
     this.attached = false;
+    await Promise.allSettled(this.inFlight);
+    // This does not release the server registration; closing its client connection does.
   }
 
   private readonly onDispatch = (dispatch: StepDispatchEvent): void => {
     if (dispatch.step_type !== 'agent') return;
-    void this.execute(dispatch).catch((error: unknown) => this.emit('error', error));
+    const execution = this.execute(dispatch);
+    this.inFlight.add(execution);
+    void execution
+      .catch((error: unknown) => this.emit('error', error))
+      .finally(() => this.inFlight.delete(execution));
   };
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
