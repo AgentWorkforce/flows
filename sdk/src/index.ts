@@ -64,13 +64,8 @@ export {
   type PreflightWarning,
 } from './preflight.js';
 export {
-  classifyGate,
   inspectStepGate,
-  type AuthorGate,
-  type AuthorGatePredicate,
-  type CodeGateClassification,
   type DataGateClassification,
-  type GateClassification,
   type JournalGateCheck,
   type StepGateInspection,
 } from './gate-contract.js';
