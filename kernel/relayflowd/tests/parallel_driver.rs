@@ -57,6 +57,7 @@ impl JournalObserver for StartCrashObserver {
 struct RecordingDispatcher {
     crash_step: Option<&'static str>,
     mismatch_step: Option<&'static str>,
+    no_worker_step: Option<&'static str>,
     crash_fired: AtomicBool,
     agent_available: bool,
     calls: Mutex<Vec<StepDispatch>>,
@@ -82,6 +83,21 @@ impl RecordingDispatcher {
         }
     }
 
+    fn detaching_at(step_id: &'static str) -> Self {
+        Self {
+            no_worker_step: Some(step_id),
+            ..Self::default()
+        }
+    }
+
+    fn transient_mixed_failure() -> Self {
+        Self {
+            no_worker_step: Some("lane-b"),
+            mismatch_step: Some("lane-a"),
+            ..Self::default()
+        }
+    }
+
     fn calls(&self) -> Vec<StepDispatch> {
         self.calls.lock().unwrap().clone()
     }
@@ -98,7 +114,10 @@ impl StepDispatcher for RecordingDispatcher {
 
     fn dispatch(&self, dispatch: StepDispatch) -> anyhow::Result<DispatchOutcome> {
         self.calls.lock().unwrap().push(dispatch.clone());
-        if self.mismatch_step == Some(dispatch.step_id.as_str()) {
+        if dispatch.attempt == 1 && self.no_worker_step == Some(dispatch.step_id.as_str()) {
+            return Ok(DispatchOutcome::NoWorker);
+        }
+        if dispatch.attempt == 1 && self.mismatch_step == Some(dispatch.step_id.as_str()) {
             return Ok(DispatchOutcome::PinMismatch {
                 detail: "injected replacement pin mismatch".to_owned(),
             });
@@ -301,6 +320,53 @@ fn backpressured_or_mismatched_lane_does_not_drop_a_later_dispatch() {
             .collect::<Vec<_>>(),
         ["lane-b", "lane-a"],
         "a mismatched first lane must not discard the later dispatch"
+    );
+
+    let directory = tempdir().unwrap();
+    let dispatcher = Arc::new(RecordingDispatcher::detaching_at("lane-b"));
+    let observer = Arc::new(StartCrashObserver::default());
+    let engine = Engine::with_runtime(directory.path(), dispatcher.clone(), observer.clone());
+    engine.start(parallel_llm_spec(), "test", None).unwrap();
+    assert_eq!(
+        dispatcher
+            .calls()
+            .iter()
+            .map(|dispatch| dispatch.step_id.as_str())
+            .collect::<Vec<_>>(),
+        ["lane-b", "lane-a"],
+        "a detach race on the first lane must not discard the later dispatch"
+    );
+    let entries = engine
+        .journal_entries(&observer.run_id(), 1, usize::MAX)
+        .unwrap();
+    assert!(entries.iter().any(|entry| {
+        entry.entry_type == EntryType::StepCompleted
+            && entry.step_id.as_deref() == Some("lane-b")
+            && serde_json::from_value::<StepCompletedPayload>(entry.payload.clone())
+                .unwrap()
+                .completion_reason
+                == CompletionReason::Crashed
+    }));
+
+    let directory = tempdir().unwrap();
+    let dispatcher = Arc::new(RecordingDispatcher::transient_mixed_failure());
+    let observer = Arc::new(StartCrashObserver::default());
+    let engine = Engine::with_runtime(directory.path(), dispatcher.clone(), observer);
+    assert_eq!(
+        engine
+            .start(parallel_llm_spec(), "test", None)
+            .unwrap()
+            .status,
+        RunStatus::Parked
+    );
+    assert_eq!(
+        dispatcher
+            .calls()
+            .iter()
+            .map(|dispatch| (dispatch.step_id.as_str(), dispatch.attempt))
+            .collect::<Vec<_>>(),
+        [("lane-b", 1), ("lane-a", 1), ("lane-b", 2), ("lane-a", 2)],
+        "a compatible replacement must receive due retries without an external resume"
     );
 }
 

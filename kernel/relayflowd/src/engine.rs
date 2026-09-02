@@ -174,13 +174,17 @@ impl<C: Clock> Engine<C> {
         let spec = journal.run_spec().context("read run spec")?;
         let state = self.load_state(&journal, spec)?;
         let mut snapshot = snapshot_from_state(&state);
-        let registry_record = self.registry()?.lookup(run_id)?;
-        if let Some(record) = registry_record.filter(|record| record.status == "waiting_worker") {
-            for step in snapshot.steps.values_mut().filter(|step| {
-                step.step_type != relayflowd_core::StepType::Deterministic
-                    && step.state == model::StepStatus::Running
-            }) {
-                step.lease_deadline_ms = record.next_wake_at_ms;
+        if let Some(dispatcher) = &self.dispatcher {
+            for step in &state.spec.steps {
+                let relayflowd_core::StepState::Running { attempt, .. } =
+                    state.steps[&step.id].state
+                else {
+                    continue;
+                };
+                if let Some(deadline) = dispatcher.active_lease_deadline(run_id, &step.id, attempt)
+                {
+                    snapshot.steps.get_mut(&step.id).unwrap().lease_deadline_ms = Some(deadline);
+                }
             }
         }
         Ok(snapshot)

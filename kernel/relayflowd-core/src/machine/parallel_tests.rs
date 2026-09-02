@@ -1,7 +1,10 @@
 use serde_json::json;
 
 use super::*;
-use crate::{entry::StepCompletedPayload, state::RunState};
+use crate::{
+    entry::{StepCompletedPayload, WorkspacePin},
+    state::{RunState, StateError},
+};
 
 fn parallel_spec() -> crate::RunSpec {
     crate::RunSpec::parse(&json!({
@@ -37,6 +40,65 @@ fn appended_entries(actions: &[Action]) -> Vec<JournalEntry> {
             _ => None,
         })
         .collect()
+}
+
+fn parallel_agent_spec(overlapping: bool) -> crate::RunSpec {
+    let lane_a_surface = if overlapping { "repo-b" } else { "repo-a" };
+    crate::RunSpec::parse(&json!({
+        "steps": [
+            {
+                "id": "lane-b",
+                "type": "agent",
+                "instruction": "b",
+                "surfaces": {"workspace": [{"surface": "repo-b"}]}
+            },
+            {
+                "id": "lane-a",
+                "type": "agent",
+                "instruction": "a",
+                "surfaces": {"workspace": [{"surface": lane_a_surface}]}
+            },
+            {
+                "id": "join",
+                "type": "agent",
+                "instruction": "join",
+                "depends_on": ["lane-b", "lane-a"],
+                "surfaces": {"workspace": [
+                    {"surface": "repo-b"},
+                    {"surface": lane_a_surface}
+                ]}
+            }
+        ]
+    }))
+    .unwrap()
+}
+
+fn agent_success(
+    spec: &crate::RunSpec,
+    step_id: &str,
+    revision: &str,
+    now_ms: i64,
+) -> JournalEntry {
+    let step = spec.step(step_id).unwrap();
+    let mut result = AttemptResult::successful(json!({"done": step_id}), "worker");
+    let surface = match &step.kind {
+        StepKind::Agent { surfaces, .. } => surfaces.workspace[0].surface.clone(),
+        _ => unreachable!(),
+    };
+    result.end_pins = Some(Pins {
+        workspace: vec![WorkspacePin {
+            surface,
+            revision_id: revision.to_owned(),
+        }],
+        streams: Vec::new(),
+    });
+    completion_actions("run", step, 1, 0, result, now_ms)
+        .into_iter()
+        .find_map(|action| match action {
+            Action::Append(entry) if entry.entry_type == EntryType::StepCompleted => Some(entry),
+            _ => None,
+        })
+        .unwrap()
 }
 
 #[test]
@@ -164,4 +226,173 @@ fn crash_resume_preserves_each_parallel_lease_exactly_once() {
         assert_eq!(started.step_id.as_deref(), Some(expected_step));
         assert_eq!(started.attempt, Some(2));
     }
+}
+
+#[test]
+fn overlapping_agent_surfaces_are_serialized_in_authored_order() {
+    let spec = parallel_agent_spec(true);
+    let fresh = RunState::fold("run", spec.clone(), &[]).unwrap();
+    let first = next_actions(&fresh, 10);
+    assert_eq!(first.len(), 2, "only the authored conflict winner starts");
+    let Action::Append(started) = &first[0] else {
+        panic!("the winning agent must journal its start")
+    };
+    assert_eq!(started.step_id.as_deref(), Some("lane-b"));
+
+    let mut entries = appended_entries(&first);
+    let running = RunState::fold("run", spec.clone(), &entries).unwrap();
+    assert!(
+        next_actions(&running, 11).is_empty(),
+        "a conflicting lane must remain runnable while the surface is leased"
+    );
+    let mut recovering_entries = entries.clone();
+    recovering_entries.extend(appended_entries(&recovery_actions(&running, 12)));
+    let recovering = RunState::fold("run", spec.clone(), &recovering_entries).unwrap();
+    assert!(
+        next_actions(&recovering, 12)
+            .iter()
+            .all(|action| matches!(action, Action::ArmTimer { .. })),
+        "the conflicting sibling must not pass an unfinished lane in retry backoff"
+    );
+
+    entries.push(agent_success(&spec, "lane-b", "rB", 12));
+    let released = RunState::fold("run", spec, &entries).unwrap();
+    let second = next_actions(&released, 12);
+    let Action::Append(started) = &second[0] else {
+        panic!("the released conflicting lane must now start")
+    };
+    assert_eq!(started.step_id.as_deref(), Some("lane-a"));
+    let payload: AttemptStartedPayload = serde_json::from_value(started.payload.clone()).unwrap();
+    assert_eq!(payload.pins.workspace[0].revision_id, "rB");
+}
+
+#[test]
+fn every_declared_mutable_surface_participates_in_conflict_selection() {
+    for surfaces in [
+        json!({"workspace": [{"surface": "repo"}]}),
+        json!({"streams": [{"stream": "notes"}]}),
+        json!({"external": ["/provider/item"]}),
+    ] {
+        let spec = crate::RunSpec::parse(&json!({
+            "steps": [
+                {"id": "first", "type": "agent", "instruction": "a", "surfaces": surfaces},
+                {"id": "second", "type": "agent", "instruction": "b", "surfaces": surfaces}
+            ]
+        }))
+        .unwrap();
+        let state = RunState::fold("run", spec, &[]).unwrap();
+        let actions = next_actions(&state, 10);
+        assert_eq!(actions.len(), 2);
+        let Action::Append(started) = &actions[0] else {
+            panic!("the authored conflict winner must start")
+        };
+        assert_eq!(started.step_id.as_deref(), Some("first"));
+    }
+}
+
+#[test]
+fn disjoint_agent_lanes_merge_pins_in_either_completion_order() {
+    for order in [["lane-b", "lane-a"], ["lane-a", "lane-b"]] {
+        let spec = parallel_agent_spec(false);
+        let fresh = RunState::fold("run", spec.clone(), &[]).unwrap();
+        let starts = next_actions(&fresh, 10);
+        assert_eq!(starts.len(), 4, "disjoint agent lanes may fan out");
+        let mut entries = appended_entries(&starts);
+        for step_id in order {
+            let revision = if step_id == "lane-b" { "rB" } else { "rA" };
+            entries.push(agent_success(&spec, step_id, revision, 20));
+        }
+        let joined = RunState::fold("run", spec, &entries).unwrap();
+        let actions = next_actions(&joined, 20);
+        let Action::Append(started) = &actions[0] else {
+            panic!("the join must start after both disjoint lanes")
+        };
+        let payload: AttemptStartedPayload =
+            serde_json::from_value(started.payload.clone()).unwrap();
+        assert!(
+            payload
+                .pins
+                .workspace
+                .iter()
+                .any(|pin| { pin.surface == "repo-b" && pin.revision_id == "rB" })
+        );
+        assert!(
+            payload
+                .pins
+                .workspace
+                .iter()
+                .any(|pin| { pin.surface == "repo-a" && pin.revision_id == "rA" })
+        );
+    }
+}
+
+#[test]
+fn failed_run_drains_open_siblings_before_terminal_entry() {
+    let spec = parallel_spec();
+    let fresh = RunState::fold("run", spec.clone(), &[]).unwrap();
+    let mut entries = appended_entries(&next_actions(&fresh, 10));
+    let mut failed = AttemptResult::successful(Value::Null, "worker");
+    failed.failure_reason = Some(CompletionReason::WorkerError);
+    entries.extend(appended_entries(&completion_actions(
+        "run",
+        &spec.steps[0],
+        1,
+        0,
+        failed,
+        20,
+    )));
+    let draining = RunState::fold("run", spec.clone(), &entries).unwrap();
+    assert!(
+        next_actions(&draining, 20).is_empty(),
+        "run.completed must wait for the open sibling lease"
+    );
+
+    entries.push(
+        completion_actions(
+            "run",
+            &spec.steps[2],
+            1,
+            0,
+            AttemptResult::successful(json!({"answer": "a"}), "worker"),
+            21,
+        )
+        .into_iter()
+        .find_map(|action| match action {
+            Action::Append(entry) if entry.entry_type == EntryType::StepCompleted => Some(entry),
+            _ => None,
+        })
+        .unwrap(),
+    );
+    let drained = RunState::fold("run", spec.clone(), &entries).unwrap();
+    let terminal = next_actions(&drained, 21);
+    assert!(matches!(
+        &terminal[..],
+        [Action::Append(entry), Action::CompleteRun { .. }]
+            if entry.entry_type == EntryType::RunCompleted
+    ));
+
+    entries.extend(appended_entries(&terminal));
+    entries.push(JournalEntry::new(
+        EntryType::StepCompleted,
+        "run",
+        Some("lane-a".to_owned()),
+        Some(1),
+        22,
+        StepCompletedPayload {
+            completion_reason: CompletionReason::Success,
+            disposition: Disposition::StepDone,
+            output: Value::Null,
+            verification: None,
+            end_pins: None,
+            effects: Vec::new(),
+            trajectory_tail: None,
+            budget: Budget::default(),
+            completed_by: "late-worker".to_owned(),
+            next_attempt_at_ms: None,
+        },
+    ));
+    assert!(matches!(
+        RunState::fold("run", spec, &entries),
+        Err(StateError::EntryAfterRunCompleted { .. })
+    ));
 }

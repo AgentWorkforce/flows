@@ -51,6 +51,13 @@ pub trait StepDispatcher: Send + Sync {
     }
 
     fn dispatch(&self, dispatch: StepDispatch) -> Result<DispatchOutcome>;
+
+    /// Heartbeat-renewed operational deadline for one live assignment. The
+    /// journal retains the original grant; a live server projection must use
+    /// the assignment it currently owns instead of rewriting that history.
+    fn active_lease_deadline(&self, _run_id: &str, _step_id: &str, _attempt: u32) -> Option<i64> {
+        None
+    }
 }
 
 /// Journal watches are projections. Notification happens only after append.
