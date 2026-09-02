@@ -1,3 +1,5 @@
+import { isProxy } from 'node:util/types';
+
 export type JsonValue =
   | null
   | boolean
@@ -20,6 +22,10 @@ function snapshot(value: unknown, at: string, ancestors: WeakSet<object>): JsonV
   if (typeof value !== 'object') {
     throw nonJson(at, `${typeof value} values are not allowed`);
   }
+  // Every ordinary reflective operation on a Proxy can execute author code.
+  // Node and Bun expose this trap-free brand check, so reject before touching
+  // its prototype, keys, descriptors, or identity collection.
+  if (isProxy(value)) throw nonJson(at, 'Proxy objects are not allowed');
   if (ancestors.has(value)) throw nonJson(at, 'cycles are not allowed');
   ancestors.add(value);
   try {
@@ -67,7 +73,11 @@ function snapshotObject(
     const childAt = propertyPath(at, key);
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (descriptor === undefined) throw nonJson(childAt, 'missing property descriptor');
-    out[key] = snapshotDescriptor(descriptor, childAt, ancestors);
+    const child = descriptorValue(descriptor, childAt);
+    // JSON.stringify and the pre-existing compiler omit undefined object
+    // optionals. Arrays remain strict because undefined there becomes null.
+    if (child === undefined) continue;
+    out[key] = snapshot(child, childAt, ancestors);
   }
   return Object.freeze(out);
 }
@@ -77,9 +87,13 @@ function snapshotDescriptor(
   at: string,
   ancestors: WeakSet<object>,
 ): JsonValue {
+  return snapshot(descriptorValue(descriptor, at), at, ancestors);
+}
+
+function descriptorValue(descriptor: PropertyDescriptor, at: string): unknown {
   if (!descriptor.enumerable) throw nonJson(at, 'non-enumerable properties are not allowed');
   if (!('value' in descriptor)) throw nonJson(at, 'accessors are not allowed');
-  return snapshot(descriptor.value, at, ancestors);
+  return descriptor.value;
 }
 
 function isArrayIndex(key: string, length: number): boolean {

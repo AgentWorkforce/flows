@@ -365,7 +365,7 @@ Minimal verb set for gate 1:
 | verb | params → result | purpose |
 |---|---|---|
 | `hello` | `{protocol: 0, client}` → `{protocol: 0, server}` | handshake; version mismatch is a hard error |
-| `run.start` | `{spec}` → `{run_id}` | validate spec (zero-agent flows are legal), create run file, append `run.spawned`, begin scheduling |
+| `run.start` | `{spec}` → `{run_id}` | validate spec (zero-agent flows are legal; invalid declarations return `invalid_spec` before storage), create run file, append `run.spawned`, begin scheduling |
 | `run.resume` | `{run_id}` → `{run_id, state}` | §3 memoized resume |
 | `run.get` | `{run_id}` → `{status, steps, budget}` | snapshot for legibility |
 | `run.watch` | `{run_id}` → stream of `{event: "entry", data: Entry}` | every appended entry, pushed |
