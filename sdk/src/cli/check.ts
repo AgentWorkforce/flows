@@ -57,12 +57,12 @@ class CheckFailure extends Error {
   }
 }
 
-/** Compile and preflight one working-tree spec without starting a run. */
+/** Validate and preflight one working-tree spec without starting a run. */
 export function checkFlow(path: string): CheckExecution {
   const absolutePath = resolve(path);
   try {
-    const flow = readFlow(absolutePath);
-    return checkAuthoredFlow(flow, path);
+    const authoring = readFlow(absolutePath);
+    return checkAuthoredFlow(authoring, path);
   } catch (error) {
     const failure = error instanceof CheckFailure
       ? error
@@ -72,12 +72,12 @@ export function checkFlow(path: string): CheckExecution {
 }
 
 /** Preflight a validated authored flow through the same path as YAML/JSON. */
-export function checkAuthoredFlow(flow: FlowSpec, path: string): CheckExecution {
+export function checkAuthoredFlow(authoring: FlowSpec, path: string): CheckExecution {
   const absolutePath = resolve(path);
   try {
     const config = readProjectConfig(dirname(absolutePath));
     const probes = systemProbes(dirname(absolutePath), config);
-    const result = preflight(flow, {
+    const result = preflight(authoring, {
       projectCli: config.cli,
       projectConfigPath: config.path,
       projectSearchStart: dirname(absolutePath),
@@ -85,6 +85,14 @@ export function checkAuthoredFlow(flow: FlowSpec, path: string): CheckExecution 
       ...(config.path !== undefined ? { modelRegistryPath: config.path } : {}),
       probes,
     });
+    const flow = result.ok
+      ? bindResolvedCliPaths(
+          compileSpec(authoring),
+          result.resolutions,
+          dirname(absolutePath),
+          config.directory,
+        )
+      : undefined;
     return {
       report: {
         ok: result.ok,
@@ -93,7 +101,7 @@ export function checkAuthoredFlow(flow: FlowSpec, path: string): CheckExecution 
         resolutions: result.resolutions,
         diagnostics: result.diagnostics,
       },
-      ...(result.ok ? { flow } : {}),
+      ...(flow !== undefined ? { flow } : {}),
     };
   } catch (error) {
     const failure = error instanceof CheckFailure
@@ -133,7 +141,9 @@ function readFlow(path: string): FlowSpec {
   try {
     const marker = kernelDialectMarker(parsed);
     const authoring = marker === undefined ? parsed : kernelToAuthoring(parsed);
-    return compileSpec(authoring);
+    // Public preflight owns the first validation pass. Returning raw authoring
+    // here preserves named-agent provenance until every declaration is checked.
+    return authoring as FlowSpec;
   } catch (error) {
     if (error instanceof CheckFailure) throw error;
     if (error instanceof CompileError) {
@@ -210,6 +220,30 @@ function systemProbes(flowDirectory: string, config: ProjectConfig): PreflightPr
     executor: (trigger) => config.executors.includes(trigger.executor),
     command: (binary) => executableExists(binary, flowDirectory),
   };
+}
+
+function bindResolvedCliPaths(
+  flow: FlowSpec,
+  resolutions: readonly CliResolution[],
+  flowDirectory: string,
+  configDirectory: string,
+): FlowSpec {
+  const byStep = new Map(resolutions.map((resolution) => [resolution.stepId, resolution]));
+  return {
+    ...flow,
+    steps: flow.steps.map((step) => {
+      if (step.type === 'deterministic') return step;
+      const resolution = byStep.get(step.id);
+      if (resolution === undefined) return step;
+      const directory = resolution.source === 'project' ? configDirectory : flowDirectory;
+      return { ...step, cli: canonicalCli(resolution.cli, directory) };
+    }),
+  };
+}
+
+function canonicalCli(cli: string, directory: string): string {
+  if (isAbsolute(cli) || (!cli.includes('/') && !cli.includes('\\'))) return cli;
+  return resolve(directory, cli);
 }
 
 function probeCli(

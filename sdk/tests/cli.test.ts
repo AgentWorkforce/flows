@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CheckReport, type CliIo } from '../src/cli.js';
+import { checkFlow } from '../src/cli/check.js';
 import { runFlow } from '../src/cli/run.js';
+import { runAgentCli } from '../src/worker-cli.js';
 import {
   CHECK_INPUT_FAILURE_KINDS,
   isCheckFailureKind,
@@ -143,6 +145,39 @@ async function startCliLoopback(dataDir: string, handlers: LoopbackHandlers): Pr
 }
 
 describe('flows check CLI', () => {
+  it('binds a checked relative wrapper to the flow directory for worker execution', async () => {
+    const directory = temporaryProject('flows-relative-worker-');
+    const wrapper = join(directory, 'wrapper');
+    writeFileSync(wrapper, `#!/bin/sh
+if [ "\${1-}" = "--relayflows-adapter-v1" ]; then
+  printf '%s\\n' relayflows-agent-cli-v1
+  exit 0
+fi
+if [ "\${1-} \${2-}" = "auth status" ]; then exit 0; fi
+printf '%s' '{"executed":true}'
+`);
+    chmodSync(wrapper, 0o755);
+    const path = join(directory, 'relative.flow.yaml');
+    writeFileSync(path, `
+version: '0.1.0'
+steps:
+  - id: work
+    type: agent
+    cli: ./wrapper
+    instruction: Work from another directory.
+`);
+
+    const checked = checkFlow(path);
+    expect(checked.report.ok).toBe(true);
+    expect(checked.flow?.steps[0]).toHaveProperty('cli', wrapper);
+    const result = await runAgentCli(
+      (checked.flow?.steps[0] as { cli?: string } | undefined)?.cli ?? '',
+      'Work from another directory.',
+      undefined,
+    );
+    expect(result).toMatchObject({ exit_code: 0, stdout_tail: '{"executed":true}' });
+  });
+
   it.each(['unused', 'shadowed'] as const)(
     'refuses an unknown %s named-agent declaration before compilation erases it',
     async (variant) => {
@@ -548,6 +583,7 @@ steps:
     expect(result.stdout.join('\n')).toContain(
       `RESOLVED step "answer" cli "./authenticated-cli" from project (${join(directory, 'flows.json')})`,
     );
+    expect(checkFlow(flow).flow?.steps[0]).toHaveProperty('cli', cli);
   });
 
   it('uses the nearest flows.json as a whole project boundary and names it on refusal', async () => {
