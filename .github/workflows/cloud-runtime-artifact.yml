@@ -42,6 +42,20 @@ jobs:
         working-directory: kernel
         run: cargo build --locked --release -p relayflowd
 
+      - name: Install SDK dependencies
+        run: npm ci --prefix sdk
+
+      - name: Test SDK and type-level authoring contracts
+        working-directory: sdk
+        run: |
+          npm run build
+          npm run typecheck:tests
+          ./node_modules/.bin/vitest run \
+            tests/typed-output.test.ts \
+            tests/validate.test.ts \
+            tests/spec-parity.test.ts \
+            tests/deterministic-llm.test.ts
+
       - name: Build standalone flows CLI
         run: |
           cd surface

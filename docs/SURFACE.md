@@ -91,6 +91,31 @@ No process runs between events: the handler wakes, executes to its next await, p
    **Project-config discovery:** starting in the flow file's directory, `flows check` walks parent directories through the filesystem root and selects the first readable `flows.json`. That nearest file is the whole project config; it is not merged with outer files. Its schema is `{ "cli"?: <non-empty string>, "executors"?: <non-empty string>[] }`; unknown keys fail closed as `config_invalid`. A nearer config therefore defines a self-contained nested project boundary and prevents accidental inheritance of outer credentials or executors. The selected path is printed with project-level resolutions and named in an unresolved-CLI refusal; if it declares no `cli`, outer configs remain shadowed. At gate 1, a trigger executor is considered registered only when its name is present in this author-written `executors` array; `flows check` does not yet contact a registry, broker, or RelayCron, and absence is `no_executor`.
 7. **Two dialects, one journal.** Declarative YAML — data, fully preflightable, sage's compile target, gate 9's self-authoring output. Imperative TS — journal-memoized function, maximum ergonomics. YAML is canonical; TS is the power tool. TS preflights its declared surface (agents, helpers, tools, identity), not arbitrary control flow — declared honestly per covenant 2.
 
+### Structured output declarations
+
+Declarative `llm` and `agent` steps may declare an `output` JSON Schema. This
+is authoring sugar for the existing kernel `json_schema` verification gate; the
+compiler removes `output` before the journal boundary and emits the schema as
+`verification.json_schema`. Authors must choose either `output` or an explicit
+`verification` block. Declaring both is ambiguous and fails closed.
+
+```yaml
+- id: extract
+  type: llm
+  prompt: Return the actionable request as JSON.
+  output:
+    type: object
+    required: [actionable, request]
+    properties:
+      actionable: { type: boolean }
+      request: { type: string }
+```
+
+The declaration does not add a kernel primitive and does not yet infer a
+TypeScript result type from arbitrary JSON Schema. Typed parsed values belong
+to the imperative `f.llm` / `f.agent` surface once that surface has a real
+consumer; the spec SDK does not publish an unchecked phantom type in advance.
+
 The authoring surface deliberately narrows `steps: []`: `flows check` refuses
 it as `invalid_spec`, while the kernel accepts it. This is a chosen
 authoring-time narrowing, not a kernel guarantee.
