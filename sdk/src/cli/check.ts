@@ -3,6 +3,14 @@ import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:pat
 import { spawnSync } from 'node:child_process';
 import { parse as parseYaml } from 'yaml';
 import { CompileError, compileSpec, kernelToAuthoring } from '../compile.js';
+import {
+  adapterIdentification,
+  authenticationProbe,
+  cliAdapterKind,
+  displayInvocation,
+  modelReadinessProbe,
+  type CliInvocation,
+} from '../cli-adapter.js';
 import { MODEL_ENV } from '../worker.js';
 import { modelNameError } from '../model-name.js';
 import type { FlowSpec } from '../spec.js';
@@ -198,41 +206,71 @@ function probeCli(
 ): CliProbeResult {
   const executable = resolveExecutable(cli, directory);
   if (executable === undefined) return { exists: false, authenticated: false };
+  const kind = cliAdapterKind(executable);
+  const identification = adapterIdentification(kind);
+  const identified = runProbe(executable, directory, identification.invocation);
+  if (
+    identified.status !== 0
+    || (identification.expectedStdout !== undefined
+      && identified.stdout.trim() !== identification.expectedStdout)
+  ) {
+    return { exists: true, supported: false, authenticated: false };
+  }
+  const auth = authenticationProbe(kind);
+  const authCommand = displayInvocation(cli, auth);
   if (model === undefined) {
-    return { exists: true, authenticated: runAuthProbe(executable, directory) === 0 };
+    return {
+      exists: true,
+      supported: true,
+      authenticated: runProbe(executable, directory, auth).status === 0,
+      authCommand,
+    };
   }
 
-  // A successful scoped probe proves both auth and exact-model access in one
-  // round trip. On failure, repeat without a model solely to distinguish an
-  // authentication failure from a typed model_unavailable refusal.
-  const scopedStatus = runAuthProbe(executable, directory, model);
-  if (scopedStatus === 0) {
-    return { exists: true, authenticated: true, modelAvailable: true };
+  const scoped = modelReadinessProbe(kind, model);
+  const modelCommand = displayInvocation(cli, scoped);
+  // A successful real provider round trip (or identified wrapper probe)
+  // proves both auth and exact-model access. On failure, run the adapter's
+  // actual auth command solely to classify auth vs model access truthfully.
+  if (runProbe(executable, directory, scoped).status === 0) {
+    return {
+      exists: true,
+      supported: true,
+      authenticated: true,
+      modelAvailable: true,
+      authCommand,
+      modelCommand,
+    };
   }
-  const authStatus = runAuthProbe(executable, directory);
+  const authStatus = runProbe(executable, directory, auth).status;
   return {
     exists: true,
+    supported: true,
     authenticated: authStatus === 0,
     modelAvailable: false,
+    authCommand,
+    modelCommand,
   };
 }
 
-function runAuthProbe(executable: string, directory: string, model?: string): number | null {
-  // Hand the declared model to the probe exactly as the worker hands it to the
-  // real invocation, and explicitly unset it otherwise. The CLI contract says
-  // exit 0 only when that exact model is usable by the current credential.
+function runProbe(
+  executable: string,
+  directory: string,
+  invocation: CliInvocation,
+): { status: number | null; stdout: string } {
   const env = { ...process.env };
   delete env[MODEL_ENV];
-  if (model !== undefined) env[MODEL_ENV] = model;
-  const result = spawnSync(executable, ['auth', 'status'], {
+  if (invocation.modelEnv !== undefined) env[MODEL_ENV] = invocation.modelEnv;
+  const result = spawnSync(executable, invocation.args, {
     cwd: directory,
-    stdio: 'ignore',
-    timeout: 10_000,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: invocation.timeoutMs,
     env,
   });
-  const failure = classifySpawnFailure(result.error, result.signal, 10_000);
+  const failure = classifySpawnFailure(result.error, result.signal, invocation.timeoutMs);
   if (failure !== undefined) throw failure;
-  return result.status;
+  return { status: result.status, stdout: result.stdout };
 }
 
 function resolveExecutable(command: string, directory: string): string | undefined {
@@ -254,7 +292,7 @@ function resolveExecutable(command: string, directory: string): string | undefin
 function classifySpawnFailure(
   error: Error | undefined,
   signal: NodeJS.Signals | null,
-  timeoutMs: 5_000 | 10_000,
+  timeoutMs: number,
 ): CliProbeError | undefined {
   if (error !== undefined) {
     const detail = (error as NodeJS.ErrnoException).code === 'ETIMEDOUT'

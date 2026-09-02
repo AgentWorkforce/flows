@@ -81,21 +81,55 @@ No process runs between events: the handler wakes, executes to its next await, p
    In the canonical declarative YAML/JSON dialect, `agents:` is a top-level
    map and an agent step selects one with `agent: reviewer`. Each named
    declaration requires both `cli` and `model`. Compilation lowers them into
-   the existing per-step `cli` and `model` fields and removes both the selector
-   and map before the kernel boundary. Explicit step values win independently:
+   the existing per-step `cli` and `model` fields. The validated selector and
+   map remain authoring metadata through `flows check`, so unused and
+   step-shadowed declarations are linted too; both are removed at the kernel
+   boundary. Explicit step values win independently:
    step `cli`/`model` → named declaration → the existing flow/project CLI
    default. Model has no flow/project default. An inline step that selects no
-   named declaration keeps the existing optional-model behavior; the worker
-   explicitly removes ambient `RELAYFLOW_MODEL` when it is absent.
+   named declaration keeps the existing optional-model behavior. The worker
+   explicitly removes ambient `RELAYFLOW_MODEL`; raw provider adapters use a
+   model flag, while an identified wrapper receives the variable only when the
+   step declares a model.
 
    **Anonymous resolution law:** `f.agent\`task\`` with no name is the *default agent*, resolved (never guessed) in order: step options → flow header → project config (`flows.json`) → platform default. *The platform-default rung is declared but not yet implemented: no platform default is provisioned as of gate 1, so a flow that reaches this rung refuses with `cli_unresolved` rather than guessing. `flows check` never invents an implicit default.* `flows check` prints each resolved step CLI and its declaration source, validates it before submission, and refuses a missing or unauthenticated resolution before the checked flow is submitted, never at minute 27. Gate 1 does not make this guarantee for callers that bypass `flows check`: the journal client's direct `run.start` path does not invoke surface preflight.
 
-   **Preflightable-CLI contract:** to be checkable, a declared `cli` must answer `<cli> auth status` — exit `0` for authenticated, non-zero for not. When a step declares a model, the same probe runs with that exact value in `RELAYFLOW_MODEL`; exit `0` means the current credential can use that exact model. If the scoped probe fails, an unscoped probe distinguishes `model_unavailable` from `cli_unauthenticated`. `flows check` resolves the binary (a path is taken relative to the file that declares it — the flow for a step/flow-level `cli`, the project config for a `flows.json` default — while a bare name resolves via `PATH`) and runs that probe once per resolved `(cli, source, model)`: a path that does not resolve as an executable is `cli_missing`. A probe process that cannot be started, is terminated by a signal, or exceeds the 10-second auth-probe timeout is `probe_failed`; the diagnostic carries that classified cause without exposing raw process errors. The probe inherits the caller environment except that `RELAYFLOW_MODEL` is always removed and then set only from the compiled step. Preflight never invokes an undeclared model or guesses from host state.
+   **Typed CLI-adapter contract:** `flows check` and `AgentWorker` share one
+   closed adapter table. A resolved executable whose basename is `claude` uses
+   `claude auth status`, probes the exact model with a real noninteractive
+   `claude -p --model <model>` round trip, and executes with that same model
+   flag. A basename of `codex` uses `codex login status`, probes with
+   `codex exec --model <model>` in an ephemeral read-only session, and executes
+   noninteractively with `codex exec --model <model>`. Model-scoped probes may
+   contact the provider and have a 60-second timeout; this cost is the
+   honest price of proving current credential/model access rather than
+   accepting an unrelated auth command as model proof.
+
+   Every other executable is a custom Relayflows wrapper and must first answer
+   `<cli> --relayflows-adapter-v1` with exactly
+   `relayflows-agent-cli-v1`. Only an identified wrapper uses the established
+   `<cli> auth status` plus exact `RELAYFLOW_MODEL` scoped-probe/execution
+   protocol. A missing or wrong identification is `cli_unsupported`, never
+   mislabeled as `cli_unauthenticated`. If a model-scoped probe fails, the
+   adapter's real unscoped authentication command distinguishes
+   `model_unavailable` from `cli_unauthenticated`.
+
+   `flows check` resolves the binary (a path is relative to the declaring flow
+   or project config; a bare name resolves via `PATH`) and caches each resolved
+   `(cli, source, model)` probe. A missing executable is `cli_missing`. A probe
+   that cannot start, is signaled, or exceeds its adapter timeout is
+   `probe_failed`, with a classified diagnostic rather than a raw process
+   error. Every subprocess starts with ambient `RELAYFLOW_MODEL` removed;
+   provider adapters pass only the declared flag, and wrapper adapters set the
+   private variable only from the compiled step. Preflight never invokes an
+   undeclared model or guesses from host state.
 
    **Deterministic model registry:** model existence is not inferred from a
    regex or provider prefix. The nearest `flows.json` owns an exact,
    case-sensitive `models` allowlist. `flows check` first refuses a declared
-   model absent from that list as `model_unknown`, without starting the CLI;
+   model absent from that list as `model_unknown`, without starting the CLI.
+   This includes every named declaration, even when unused or shadowed by a
+   step override;
    only an allowlisted value reaches the live model-scoped probe above. The
    registry is author-owned project configuration, reviewed and versioned with
    the project. Updating it is an explicit file change made only after the

@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import type { JournalClient } from './journal-client.js';
 import type { Pins, StepDispatchEvent } from './protocol.js';
 import type { KernelAgentStep } from './spec.js';
+import { agentExecution, cliAdapterKind } from './cli-adapter.js';
 
 export interface AgentWorkerOptions {
   workerId: string;
@@ -167,10 +168,11 @@ export const WAKE_CONTEXT_ENV = 'RELAYFLOW_WAKE_CONTEXT';
 /**
  * Environment variable AgentWorker sets when the dispatched agent step
  * DECLARED a `model`. Same contract as {@link WAKE_CONTEXT_ENV}: when the
- * step declares no model the variable is not merely empty, it is ABSENT,
+ * wrapper step declares no model the variable is not merely empty, it is ABSENT,
  * so a CLI can tell "the flow author chose nothing" from "the flow author
- * chose something". A CLI that finds it unset is free to apply its own
- * default; one that finds it set must not override it.
+ * chose something". Raw Claude/Codex adapters use their real model flags
+ * instead; only an explicitly identified Relayflows wrapper receives this
+ * private environment contract.
  *
  * This exists because a CLI inheriting whatever model the host happens to
  * pin produces two failures: runs whose model cannot be recovered from the
@@ -187,6 +189,7 @@ function runCli(
 ): Promise<CliResult> {
   return new Promise((resolve) => {
     const env: NodeJS.ProcessEnv = { ...process.env };
+    const invocation = agentExecution(cliAdapterKind(cli), instruction, model);
     // Explicit unset. Without this, a parent process (wrapper
     // script, systemd unit, docker env, or a prior test) that
     // already had RELAYFLOW_WAKE_CONTEXT set would leak into
@@ -203,7 +206,7 @@ function runCli(
     // no model look like one that did, silently pinning the run to whatever
     // the launching shell happened to export.
     delete env[MODEL_ENV];
-    if (model !== undefined) env[MODEL_ENV] = model;
+    if (invocation.modelEnv !== undefined) env[MODEL_ENV] = invocation.modelEnv;
     if (wakeContext !== undefined) {
       // `execve` caps argv + envp at ARG_MAX (macOS ~256 KB, Linux
       // ~2 MB). A wake_context that packs a rich payload could
@@ -233,7 +236,7 @@ function runCli(
         return;
       }
     }
-    const child = spawn(cli, [instruction], { stdio: ['ignore', 'pipe', 'pipe'], env });
+    const child = spawn(cli, invocation.args, { stdio: ['ignore', 'pipe', 'pipe'], env });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));

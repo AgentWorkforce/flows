@@ -17,14 +17,20 @@ steps:
     instruction: Review the change.
 `);
 
-    expect(flow).not.toHaveProperty('agents');
+    expect(flow.agents).toEqual({
+      reviewer: { cli: 'claude', model: 'claude-sonnet-4-6' },
+    });
+    expect(flow.steps[0]).toHaveProperty('agent', 'reviewer');
     expect(flow.steps[0] as AgentStepSpec).toMatchObject({
       id: 'review',
       type: 'agent',
       cli: 'claude',
       model: 'claude-sonnet-4-6',
     });
-    expect(toKernelSpec(flow).steps[0]).toMatchObject({
+    const kernel = toKernelSpec(flow);
+    expect(kernel).not.toHaveProperty('agents');
+    expect(kernel.steps[0]).not.toHaveProperty('agent');
+    expect(kernel.steps[0]).toMatchObject({
       type: 'agent',
       cli: 'claude',
       model: 'claude-sonnet-4-6',

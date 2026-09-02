@@ -10,6 +10,7 @@ import {
   type PreflightProbes,
 } from '../src/preflight.js';
 import type { FlowSpec } from '../src/spec.js';
+import { compileSpec, toKernelSpec } from '../src/compile.js';
 
 function flow(step: FlowSpec['steps'][number]): FlowSpec {
   return { version: '0.1.0', name: 'test', steps: [step] };
@@ -222,6 +223,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     const scenarios = [
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: false, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: true, authenticated: false }) }) }),
+      preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: true, supported: false, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p' }), { probes: probes() }),
       preflight(flow({ id: 'a', type: 'deterministic', command: './missing' }), { probes: probes({ command: () => false }) }),
       preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x', model: 'typo-model' }), { models: ['known-model'], probes: probes() }),
@@ -252,4 +254,40 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       model: 'typo-model',
     });
   });
+
+  it.each(['unused', 'shadowed'] as const)(
+    'checks an unknown %s named declaration before authoring metadata is erased',
+    (variant) => {
+      let probeCalls = 0;
+      const compiled = compileSpec({
+        version: '0.1.0',
+        agents: { reviewer: { cli: 'claude', model: 'typo-model' } },
+        steps: variant === 'unused'
+          ? [{ id: 'ready', type: 'deterministic', command: 'printf ready' }]
+          : [{
+              id: 'review',
+              type: 'agent',
+              agent: 'reviewer',
+              model: 'known-model',
+              instruction: 'Review.',
+            }],
+      });
+
+      const result = preflight(compiled, {
+        models: ['known-model'],
+        probes: probes({ cli: () => {
+          probeCalls += 1;
+          return { exists: true, authenticated: true, modelAvailable: true };
+        } }),
+      });
+
+      expect(compiled.agents?.reviewer?.model).toBe('typo-model');
+      expect(result.ok).toBe(false);
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({ kind: 'model_unknown', agent: 'reviewer', model: 'typo-model' }),
+      ]);
+      expect(probeCalls).toBe(0);
+      expect(toKernelSpec(compiled)).not.toHaveProperty('agents');
+    },
+  );
 });

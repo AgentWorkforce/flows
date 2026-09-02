@@ -149,11 +149,10 @@ export interface AgentStepSpec extends BaseStepSpec {
   /** Inert preflight declaration; overrides the flow/project CLI default. */
   cli?: string;
   /**
-   * Model the declared CLI should use, surfaced to it as `RELAYFLOW_MODEL`.
-   * Declared here so the choice is journaled with the step instead of being
-   * ambient host state — a CLI that inherits whatever the machine happens to
-   * pin produces runs whose model cannot be recovered from the journal, and
-   * fails outright on a host pinning something it cannot resolve.
+   * Model the declared CLI must use. Raw Claude/Codex adapters receive their
+   * real model flag; an identified Relayflows wrapper receives
+   * `RELAYFLOW_MODEL`. Declared here so the choice is journaled with the step
+   * instead of being ambient host state.
    */
   model?: string;
   surfaces?: AgentSurfaces;
