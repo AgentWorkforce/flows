@@ -1,12 +1,39 @@
 import { describe, expect, it } from 'vitest';
-import { validateSpec } from '../src/validate.js';
 import { compileSpec, compileYaml, CompileError } from '../src/compile.js';
+import { validateSpec } from '../src/index.js';
 import type { FlowSpec } from '../src/spec.js';
 
 // Fail-closed (AGENTS.md rule 4): a malformed spec is rejected with a concrete
 // error, never silently coerced. Every case below must produce a non-ok result.
 
 describe('validate: rejects malformed specs', () => {
+  it('returns a failure for proxy input without executing traps or throwing', () => {
+    let proxyTraps = 0;
+    const candidate = new Proxy({
+      version: '0.1.0',
+      steps: [{ id: 'a', type: 'deterministic', command: 'true' }],
+    }, {
+      get(target, key, receiver) {
+        proxyTraps += 1;
+        return Reflect.get(target, key, receiver);
+      },
+      ownKeys(target) {
+        proxyTraps += 1;
+        return Reflect.ownKeys(target);
+      },
+      getOwnPropertyDescriptor(target, key) {
+        proxyTraps += 1;
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+    });
+
+    let result: ReturnType<typeof validateSpec> | undefined;
+    expect(() => { result = validateSpec(candidate); }).not.toThrow();
+    expect(result?.ok).toBe(false);
+    expect(result?.errors.join(' ')).toMatch(/proxy/i);
+    expect(proxyTraps).toBe(0);
+  });
+
   it('rejects a non-object spec', () => {
     expect(validateSpec(null).ok).toBe(false);
     expect(validateSpec('hello').ok).toBe(false);

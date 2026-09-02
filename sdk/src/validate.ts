@@ -18,6 +18,7 @@ import type {
 } from './spec.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import { jsonSchemaError, snapshotJsonSchema } from './json-schema.js';
+import { snapshotJsonValue } from './json-value.js';
 import { modelNameError } from './model-name.js';
 import { validateOutputDeclaration } from './output-schema.js';
 import { stepDependencyErrors } from './step-dependencies.js';
@@ -413,7 +414,14 @@ class Validator {
 
 /** Validate a parsed spec object. Returns `{ok, errors}`; never throws. */
 export function validateSpec(spec: unknown): ValidationResult {
-  return new Validator().run(spec);
+  try {
+    return new Validator().run(snapshotJsonValue(spec, 'spec'));
+  } catch (error) {
+    return {
+      ok: false,
+      errors: [error instanceof Error ? error.message : 'spec: expected JSON-compatible data'],
+    };
+  }
 }
 
 // --- predicates -------------------------------------------------------------

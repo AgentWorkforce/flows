@@ -6,9 +6,9 @@ import {
   compileAndHash,
   compileYaml,
   compileYamlToCanonicalJson,
-  kernelToAuthoring,
   toKernelSpec,
 } from '../src/compile.js';
+import { kernelToAuthoring } from '../src/index.js';
 
 // The SDK half of the cross-boundary spec-parity gate. The shared fixture in
 // testdata/ pins one spec dialect at the SDK<->kernel seam: this test proves
@@ -58,6 +58,29 @@ describe('spec parity: one dialect at the SDK<->kernel boundary', () => {
     const kernel = toKernelSpec(flow);
     kernel.steps[0]!.retry.initial_backoff_ms = 5;
     expect(() => kernelToAuthoring(kernel)).toThrow('retry.initial_backoff_ms');
+  });
+
+  it('refuses nested proxy data before executing any trap', () => {
+    const flow = compileYaml(fixture('hello-deterministic.flow.yaml'));
+    const kernel = toKernelSpec(flow);
+    let proxyTraps = 0;
+    kernel.steps = new Proxy(kernel.steps, {
+      getPrototypeOf(target) {
+        proxyTraps += 1;
+        return Reflect.getPrototypeOf(target);
+      },
+      ownKeys(target) {
+        proxyTraps += 1;
+        return Reflect.ownKeys(target);
+      },
+      getOwnPropertyDescriptor(target, key) {
+        proxyTraps += 1;
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+    });
+
+    expect(() => kernelToAuthoring(kernel)).toThrow(/proxy/i);
+    expect(proxyTraps).toBe(0);
   });
 
   it('round-trips flow, trigger, and step CLI declarations', () => {
