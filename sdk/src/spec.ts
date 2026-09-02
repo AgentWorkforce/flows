@@ -104,7 +104,6 @@ export interface BaseStepSpec {
   verification?: VerificationSpec;
   /** Semantic retry bound (kernel DESIGN.md §1.2 `max_iterations`). Default 1. */
   maxIterations?: number;
-  timeoutMs?: number;
 }
 
 /**
@@ -115,6 +114,8 @@ export interface BaseStepSpec {
 export interface DeterministicStepSpec extends BaseStepSpec {
   type: 'deterministic';
   command: string;
+  /** Wall-clock command timeout; worker-backed verbs own their dispatch timeout. */
+  timeoutMs?: number;
 }
 
 /**

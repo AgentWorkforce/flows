@@ -19,6 +19,7 @@ import type { FlowSpec, StepType } from '../src/spec.js';
 import {
   AGENT_DECLARATION_FIELDS,
   FLOW_FIELDS,
+  STEP_COMMON_FIELDS,
   STEP_FIELDS_BY_TYPE,
 } from '../src/step-fields.js';
 import { validateSpec } from '../src/validate.js';
@@ -64,6 +65,7 @@ const VALID_STEP_BY_TYPE: Record<StepType, Record<string, unknown>> = {
 const VERB_FIELD_VALUES: Record<string, unknown> = {
   agent: 'reviewer',
   command: 'printf foreign',
+  timeoutMs: 1_000,
   prompt: 'foreign prompt',
   model: 'foreign-model',
   cli: 'foreign-cli',
@@ -163,14 +165,24 @@ describe('closed per-verb step fields', () => {
       'version', 'name', 'description', 'cli', 'agents', 'triggers', 'steps', 'budget',
     ]);
     expect(AGENT_DECLARATION_FIELDS).toEqual(['cli', 'model']);
+    // `timeoutMs` is deliberately absent: it is a deterministic-only authoring
+    // field, not a common one. Pinned so the move cannot be silently undone.
+    expect(STEP_COMMON_FIELDS).toEqual([
+      'id',
+      'type',
+      'dependsOn',
+      'verification',
+      'maxIterations',
+    ]);
     expect(STEP_FIELDS_BY_TYPE).toEqual({
-      deterministic: ['command'],
+      deterministic: ['command', 'timeoutMs'],
       llm: ['prompt', 'model', 'cli', 'output'],
       agent: ['instruction', 'agent', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions', 'output'],
     });
     expect(CROSS_VERB_STEP_FIELDS.map(({ label }) => label).sort()).toEqual([
       'agent foreign command',
       'agent foreign prompt',
+      'agent foreign timeoutMs',
       'deterministic foreign agent',
       'deterministic foreign cli',
       'deterministic foreign instruction',
@@ -186,6 +198,7 @@ describe('closed per-verb step fields', () => {
       'llm foreign permissions',
       'llm foreign recoveryMode',
       'llm foreign surfaces',
+      'llm foreign timeoutMs',
     ]);
   });
 
