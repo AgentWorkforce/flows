@@ -1,8 +1,11 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   flow,
+  type CompletionReason,
   type Ctx,
   type FlowHandle,
+  type FlowHeader,
+  type RunCompletionReason,
 } from "@relayflows/surface";
 import { getFlowDefinition } from "@relayflows/surface/runtime";
 
@@ -37,6 +40,85 @@ describe("flow", () => {
     expect(Object.isFrozen(getFlowDefinition(definition).header.tools?.mcp)).toBe(true);
   });
 
+  it("validates raw header keys and nested values before cloning", () => {
+    const invalidHeaders: { value: unknown; message: string }[] = [
+      {
+        value: { identitty: "release-bot" },
+        message: 'header: unknown field "identitty"',
+      },
+      {
+        value: { identity: 42 },
+        message: "header.identity: expected a string",
+      },
+      {
+        value: { memory: { typo: true } },
+        message: 'header.memory: unknown field "typo"',
+      },
+      {
+        value: { memory: { script: "yes" } },
+        message: "header.memory.script: expected a boolean",
+      },
+      {
+        value: { tools: { typo: [] } },
+        message: 'header.tools: unknown field "typo"',
+      },
+      {
+        value: { tools: { mcp: ["github", 42] } },
+        message: "header.tools.mcp: expected an array of strings",
+      },
+      {
+        value: [],
+        message: "header: expected an object",
+      },
+      {
+        value: null,
+        message: "header: expected an object",
+      },
+      {
+        value: { memory: null },
+        message: "header.memory: expected an object",
+      },
+      {
+        value: { tools: null },
+        message: "header.tools: expected an object",
+      },
+      {
+        value: { tools: { mcp: "github" } },
+        message: "header.tools.mcp: expected an array of strings",
+      },
+      {
+        value: Object.create({ identity: "inherited" }),
+        message: "header: expected a plain object",
+      },
+      {
+        value: Object.defineProperty({}, "identity", { get: () => "hidden" }),
+        message: "header.identity: expected a data property",
+      },
+    ];
+
+    for (const invalid of invalidHeaders) {
+      expect(() => flow(
+        "invalid-header",
+        invalid.value as FlowHeader,
+        async () => undefined,
+      )).toThrow(invalid.message);
+    }
+  });
+
+  it("uses run reasons for done while keeping step reasons distinct", () => {
+    expectTypeOf<Parameters<Ctx["done"]>[0]>()
+      .toEqualTypeOf<RunCompletionReason>();
+    expectTypeOf<CompletionReason>()
+      .not.toEqualTypeOf<RunCompletionReason>();
+
+    const typeGate = (f: Ctx): void => {
+      f.done("step_failed");
+      // @ts-expect-error worker_error is a step reason, not a run reason.
+      f.done("worker_error");
+    };
+    void typeGate;
+  });
+
   it("retains the body for an authorized runtime without executing it", async () => {
     let bodyRan = false;
     const definition = flow("deferred", async () => {
@@ -55,7 +137,7 @@ describe("flow", () => {
     expect(bodyRan).toBe(true);
   });
 
-  it("refuses counterfeit handles at the runtime boundary", () => {
+  it("refuses malformed and forged handles at the runtime boundary", () => {
     expect(() => getFlowDefinition({ name: "counterfeit" })).toThrow(
       "expected an @relayflows/surface flow handle",
     );
@@ -99,5 +181,20 @@ describe("flow", () => {
         "expected an @relayflows/surface flow handle",
       );
     }
+
+    const completeForgery = { name: "counterfeit" };
+    Object.defineProperty(completeForgery, definitionSymbol, {
+      value: Object.freeze({
+        name: "counterfeit",
+        header: Object.freeze({}),
+        body: async () => undefined,
+      }),
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+    expect(() => getFlowDefinition(Object.freeze(completeForgery))).toThrow(
+      "expected an @relayflows/surface flow handle",
+    );
   });
 });

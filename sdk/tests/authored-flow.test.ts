@@ -1,6 +1,6 @@
 import { rmSync } from 'node:fs';
 import type { Server } from 'node:net';
-import { flow } from '@relayflows/surface';
+import { flow, type FlowHeader } from '@relayflows/surface';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { JournalClient } from '../src/journal-client.js';
@@ -146,5 +146,84 @@ describe('authored flow journal executor', () => {
       await f.run('true').gate(Boolean);
       f.done('success');
     }), disconnectedJournal)).rejects.toMatchObject({ code: 'unsupported_gate' });
+  });
+
+  it('rejects invalid raw headers before the executor can contact the journal', async () => {
+    const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+
+    await expect((async () => executeAuthoredFlow(flow(
+      'misspelled-header',
+      { identitty: 'principal' } as FlowHeader,
+      async (f) => f.done('success'),
+    ), disconnectedJournal))()).rejects.toThrow(
+      'flow "misspelled-header" header: unknown field "identitty"',
+    );
+
+    await expect((async () => executeAuthoredFlow(flow(
+      'invalid-nested-header',
+      { tools: { mcp: ['github'], typo: true } } as unknown as FlowHeader,
+      async (f) => f.done('success'),
+    ), disconnectedJournal))()).rejects.toThrow(
+      'flow "invalid-nested-header" header.tools: unknown field "typo"',
+    );
+  });
+
+  it('refuses every unawaited thenable-producing verb before terminal success', async () => {
+    const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+    const cases = [
+      flow('unawaited-run', async (f) => {
+        f.run('false');
+        f.done('success');
+      }),
+      flow('unawaited-llm', async (f) => {
+        f.llm`must not vanish`;
+        f.done('success');
+      }),
+      flow('unawaited-agent', async (f) => {
+        f.agent('worker', { task: 'must not vanish' });
+        f.done('success');
+      }),
+    ];
+
+    for (const handle of cases) {
+      await expect(executeAuthoredFlow(handle, disconnectedJournal)).rejects.toMatchObject({
+        code: 'unawaited_step',
+      });
+    }
+  });
+
+  it('refuses unsupported promise verbs synchronously even when their results are ignored', async () => {
+    const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+    const cases = [
+      flow('unawaited-human', async (f) => {
+        f.human('approve?', { to: 'owner' });
+        f.done('success');
+      }),
+      flow('unawaited-dispatch', async (f) => {
+        f.dispatch('child', {});
+        f.done('success');
+      }),
+      flow('unawaited-cloud', async (f) => {
+        f.cloud.workers.list({ workspaceId: 'workspace', as: 'principal' });
+        f.done('success');
+      }),
+    ];
+
+    for (const handle of cases) {
+      await expect(executeAuthoredFlow(handle, disconnectedJournal)).rejects.toMatchObject({
+        code: 'unsupported_verb',
+      });
+    }
+  });
+
+  it('treats done as terminal and rejects later operations before journal contact', async () => {
+    const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+    await expect(executeAuthoredFlow(flow('after-done', async (f) => {
+      f.done('success');
+      await f.run('must-not-run');
+    }), disconnectedJournal)).rejects.toMatchObject({
+      code: 'operation_after_completion',
+      completionReason: 'success',
+    });
   });
 });

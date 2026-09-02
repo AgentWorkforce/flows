@@ -2,23 +2,19 @@
 
 The TypeScript authoring contract described by `docs/SURFACE.md`.
 
-The package defines flows and the context that a journal-backed runtime
-injects. A flow handle retains an immutable header and body behind the
-`@relayflows/surface/runtime` bridge used by `@relayflows/sdk`; the public
-handle remains the frozen `{ name }` authoring value. This package never
-constructs a context, executes a body on its own, or contacts the kernel.
-Those responsibilities stay behind `@relayflows/sdk` and the journal protocol.
-The SDK's initial executor supports the deliberately small executable slice:
-an empty header, awaited plain `f.run(...)` calls, and one
-`f.done("success")`. It compiles each command and a terminal success marker to
-deterministic specs, submits them through the existing journal client, and
-reads results from `step.completed`. Other headers, verbs, postfix gates, and
-completion lowering refuse rather than running outside the journal.
+The package defines flows and the context that a future journal-backed runtime
+will inject. A flow handle retains an immutable header and body behind the
+`@relayflows/surface/runtime` bridge used by in-repository SDK inspection; the
+public handle remains the frozen `{ name }` authoring value. This package never
+constructs a context, executes a body, or contacts the kernel. The SDK has an
+internal test seam proving an awaited plain `f.run(...)` can cross the existing
+journal protocol, but it is intentionally not exported as a runner: authored
+body progress does not yet have a durable root journal or crash-safe resume.
 
-This is currently an in-repository foundation, not a registry-published or
-direct-run surface. Direct `.flow.ts` execution and input remain tracked in
-issue #132. Resident trigger handlers (`flow.on(...)`) are gate-2 work and are
-not yet part of this package.
+This is an unpublished contract foundation, not a shipped executable surface.
+Direct `.flow.ts` execution, durable authored-root resume, and input remain
+tracked in issue #132. Resident trigger handlers (`flow.on(...)`) are gate-2
+work and are not yet part of this package.
 
 The repository pins Bun through `surface/bun.lock`. From a fresh checkout:
 
