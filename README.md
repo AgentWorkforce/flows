@@ -17,6 +17,7 @@ Nothing in this repo may contradict it; changing it is a human decision.
 ```
 kernel/     relayflowd — Rust. Journal, scheduler, leases, timers, streams. One binary.
 sdk/        TypeScript-first authoring SDK. Compiles specs; speaks the journal protocol.
+surface/    @relayflows/surface — the TypeScript flow-authoring contract.
 workflows/  The gates. Each gate is a relayflow; the build is orchestrated by relayflows.
 docs/       RFC-0001 and design docs.
 charter/    The Relayflow Lead.
