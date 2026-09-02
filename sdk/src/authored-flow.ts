@@ -8,8 +8,9 @@ import {
  * Recover the immutable program retained by an authored flow handle.
  *
  * Importing the module evaluates author code only far enough to define the
- * flow. `executeAuthoredFlow` owns the initial journal-backed context; callers
- * that only need inspection can recover the definition without executing it.
+ * flow. The SDK does not yet expose a public executor because authored-body
+ * progress has no durable root journal. Internal lowering tests recover the
+ * definition here without making that seam a supported runner.
  */
 export function getAuthoredFlowDefinition(
   handle: FlowHandle,
