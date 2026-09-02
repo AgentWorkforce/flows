@@ -58,7 +58,10 @@ No process runs between events: the handler wakes, executes to its next await, p
 ## 2. The semantic laws
 
 1. **Three step verbs** — `run` / `llm` / `agent` — one per rung of the ladder. Four resident verbs — `on` / `human` / `dispatch` / `done`. The kernel vocabulary stops there.
-2. **Gates are postfix on the step they guard.** Never a separate machinery block.
+2. **Gates are postfix on the step they guard.** Never a separate machinery
+   block. A named data gate lowers to the guarded step's existing kernel
+   `verification`; an author callback remains TypeScript runtime code. The
+   distinction is explicit in the gate contract below.
 3. **Helpers, not primitives.** Authors never see mount paths, tokens, or protocol frames. Named helpers wrap every substrate:
    - `f.slack` / `f.github` / `f.linear` / … — **generated from the relayfile adapters** (50 providers → 50 namespaces for free), each verb compiling to a mount write. The receipt a helper returns *is* the journaled effect record (RFC Appendix A), so exactly-once dedup rides along invisibly.
    - `f.memory` — relayhistory: `f.memory.recall(query)`, `f.memory.why(task)`, `f.memory.learn(finding)`.
@@ -264,8 +267,41 @@ typed `run_not_found` refusal. A dropped connection, request failure, or
 journal may already have changed and the CLI cannot honestly claim the resume
 was refused before a write.
 
-## 6. Open surface questions (for gate-1 SDK work)
+## 6. The gate contract, and remaining open surface questions
 
-- `gate:` in YAML: tiny expression language (`length < 200`) vs named checks only. Leaning: a deliberately small expression grammar + named checks for everything else.
+The data/code split is settled: Relayflows does not have a serializable
+expression language. YAML keeps the existing `verification:` spelling and may
+name only checks that lower to the closed kernel fields available today:
+`exit_code`, `output_contains`, and `json_schema`. `flows check` validates that
+data—including compiling JSON Schema declarations with the kernel's supported
+drafts—and prints the exact kernel checks for each step. "Preflightable" means
+the declaration and its parameters are inspectable before execution; it does
+not mean preflight can predict an output that does not exist yet.
+
+`exit_code` applies only to deterministic steps; placing it on an `llm` or
+`agent` step is invalid rather than an empty verification. JSON Schema
+declarations accept both object and boolean schemas, matching the kernel. The
+compiler snapshots and freezes authoring data before validation so accessors,
+callbacks, `toJSON`, and other runtime behavior cannot change what the journal
+serializes. The public preflight boundary performs that same compilation first
+and refuses invalid raw input before running probes.
+
+The kernel evaluates those checks. `run.spawned` carries the compiled
+verification data and `step.completed.verification` carries its verdict, so
+resume and time travel replay the journaled result rather than re-running an
+author predicate. The v1 `verification:` shape remains supported and compiles
+to the same kernel fields; no kernel verb or verification field is added by
+this decision.
+
+TypeScript may additionally accept a callback such as
+`.gate(value => value.length < 200, "keep the summary short")`. That callback
+is author code: `flows check` cannot prove it, YAML cannot serialize it, and
+the journal cannot replay the closure. A TypeScript runtime must execute it as
+runtime control flow and journal the resulting step outcome before dependents
+continue. It must never stringify the function into a spec or silently label
+it preflightable. Authors who need portable, inspectable gates use a named data
+check; plugins may contribute named checks only by compiling them to existing
+kernel primitives.
+
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.

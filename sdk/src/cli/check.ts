@@ -14,6 +14,7 @@ import {
 import { MODEL_ENV } from '../worker-cli.js';
 import { modelNameError } from '../model-name.js';
 import type { FlowSpec } from '../spec.js';
+import type { StepGateInspection } from '../gate-contract.js';
 import type { CheckFailureKind } from '../failure-kinds.js';
 import {
   preflight,
@@ -36,6 +37,7 @@ export interface CheckReport {
   ok: boolean;
   path?: string;
   projectConfigPath?: string;
+  gates: StepGateInspection[];
   resolutions: CliResolution[];
   diagnostics: Array<PreflightDiagnostic | CheckInputDiagnostic>;
 }
@@ -98,6 +100,7 @@ export function checkAuthoredFlow(authoring: FlowSpec, path: string): CheckExecu
         ok: result.ok,
         path,
         ...(config.path !== undefined ? { projectConfigPath: config.path } : {}),
+        gates: result.gates,
         resolutions: result.resolutions,
         diagnostics: result.diagnostics,
       },
@@ -118,6 +121,7 @@ export function inputFailureReport(
   return {
     ok: false,
     ...(path !== undefined ? { path } : {}),
+    gates: [],
     resolutions: [],
     diagnostics: [{ severity: 'refusal', kind: failure.kind, message: failure.message }],
   };

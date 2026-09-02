@@ -192,6 +192,9 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
     io.stdout(JSON.stringify(report));
     return;
   }
+  for (const gate of report.gates) {
+    io.stdout(`GATE step "${gate.stepId}" ${gate.checks.join('+')} from data (kernel, journal-replayable)`);
+  }
   for (const resolution of report.resolutions) {
     const config = resolution.source === 'project' && report.projectConfigPath !== undefined
       ? ` (${report.projectConfigPath})`

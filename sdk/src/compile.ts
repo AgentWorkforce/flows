@@ -33,6 +33,7 @@ import { SPEC_SCHEMA_VERSION } from './spec.js';
 import { canonicalize, specHash } from './canonical.js';
 import { validateOutputDeclaration } from './output-schema.js';
 import { validateSpec, type ValidationResult } from './validate.js';
+import { snapshotJsonValue } from './json-value.js';
 
 export class CompileError extends Error {
   readonly errors: string[];
@@ -65,13 +66,18 @@ export function compileYamlToCanonicalJson(yaml: string): string {
  * normalized `FlowSpec`. Throws `CompileError` on validation failure.
  */
 export function compileSpec(spec: unknown): FlowSpec {
-  const validation: ValidationResult = validateSpec(spec);
+  let snapshot: unknown;
+  try {
+    snapshot = snapshotJsonValue(spec, 'spec');
+  } catch (error) {
+    throw new CompileError([
+      error instanceof Error ? error.message : 'spec: expected JSON-compatible data',
+    ]);
+  }
+  const validation: ValidationResult = validateSpec(snapshot);
   if (!validation.ok) throw new CompileError(validation.errors);
 
-  const input = spec as FlowSpec;
-  // Preserve named declarations and selectors through authoring normalization.
-  // They are resolved exactly once at the kernel boundary, after public
-  // preflight has validated every declaration with truthful provenance.
+  const input = snapshot as FlowSpec;
   const steps = input.steps.map(compileStep);
   const flow: FlowSpec = {
     version: input.version,
@@ -95,7 +101,6 @@ function compileStep(step: StepSpec): StepSpec {
     id: step.id,
     type: step.type,
     ...(step.dependsOn !== undefined ? { dependsOn: step.dependsOn } : {}),
-    ...(verification !== undefined ? { verification } : {}),
     maxIterations,
   };
 
@@ -118,6 +123,7 @@ function compileStep(step: StepSpec): StepSpec {
         ...base,
         type: 'llm',
         prompt: s.prompt,
+        ...(s.verification !== undefined ? { verification: s.verification } : {}),
         ...(s.model !== undefined ? { model: s.model } : {}),
         ...(s.cli !== undefined ? { cli: s.cli } : {}),
       };
@@ -129,7 +135,7 @@ function compileStep(step: StepSpec): StepSpec {
         ...base,
         type: 'agent',
         instruction: s.instruction,
-        ...(s.agent !== undefined ? { agent: s.agent } : {}),
+        ...(s.verification !== undefined ? { verification: s.verification } : {}),
         ...(s.cli !== undefined ? { cli: s.cli } : {}),
         ...(s.model !== undefined ? { model: s.model } : {}),
         recoveryMode,
@@ -193,21 +199,23 @@ const KERNEL_RETRY_DEFAULTS = {
  * sugar that the dialect cannot carry is a `CompileError`, never a silent drop.
  */
 export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
-  const validation = validateSpec(flow);
-  if (!validation.ok) throw new CompileError(validation.errors);
+  // This public boundary is callable without compileSpec. Compile again so
+  // runtime casts are validated and all returned schema data is snapshotted.
+  const compiled = compileSpec(flow);
+
   return {
-    version: flow.version,
-    ...(flow.name !== undefined ? { name: flow.name } : {}),
-    ...(flow.description !== undefined ? { description: flow.description } : {}),
-    ...(flow.cli !== undefined ? { cli: flow.cli } : {}),
-    ...(flow.triggers?.length ? { triggers: flow.triggers } : {}),
-    steps: flow.steps.map((step) => toKernelStep(resolveNamedAgent(step, flow.agents))),
-    ...(flow.budget !== undefined
+    version: compiled.version,
+    ...(compiled.name !== undefined ? { name: compiled.name } : {}),
+    ...(compiled.description !== undefined ? { description: compiled.description } : {}),
+    ...(compiled.cli !== undefined ? { cli: compiled.cli } : {}),
+    ...(compiled.triggers?.length ? { triggers: compiled.triggers } : {}),
+    steps: compiled.steps.map(toKernelStep),
+    ...(compiled.budget !== undefined
       ? {
           budget: {
-            ...(flow.budget.maxTokensIn !== undefined ? { max_tokens_in: flow.budget.maxTokensIn } : {}),
-            ...(flow.budget.maxTokensOut !== undefined ? { max_tokens_out: flow.budget.maxTokensOut } : {}),
-            ...(flow.budget.maxDollars !== undefined ? { max_dollars: flow.budget.maxDollars } : {}),
+            ...(compiled.budget.maxTokensIn !== undefined ? { max_tokens_in: compiled.budget.maxTokensIn } : {}),
+            ...(compiled.budget.maxTokensOut !== undefined ? { max_tokens_out: compiled.budget.maxTokensOut } : {}),
+            ...(compiled.budget.maxDollars !== undefined ? { max_dollars: compiled.budget.maxDollars } : {}),
           },
         }
       : {}),
@@ -436,11 +444,14 @@ function toKernelVerification(step: StepSpec): KernelVerificationSpec {
     return { json_schema: output };
   }
   const gate = step.verification;
-  // No gate / explicit exit_code both compile to {}: exit_code == 0 is the
-  // kernel's implicit gate for deterministic steps (kernel DESIGN.md §4).
+  // Validation permits explicit exit_code only on deterministic steps, where
+  // {} selects the kernel's implicit exit_code == 0 gate (DESIGN.md §4).
   if (gate === undefined || gate.type === 'exit_code') return {};
   if (gate.type === 'output_contains') return { output_contains: gate.value };
-  return { json_schema: gate.schema };
+  if (gate.type === 'json_schema') return { json_schema: gate.schema };
+  throw new CompileError([
+    `step "${step.id}".verification.type: expected exit_code | output_contains | json_schema`,
+  ]);
 }
 
 /**

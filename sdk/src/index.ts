@@ -27,6 +27,7 @@ export type {
   LlmStepSpec,
   NamedAgentSpec,
   OutputContainsGate,
+  OutputVerificationSpec,
   PermissionsSpec,
   RecoveryMode,
   StreamSurface,
@@ -68,6 +69,11 @@ export {
   type PreflightResult,
   type PreflightWarning,
 } from './preflight.js';
+export {
+  type DataGateClassification,
+  type JournalGateCheck,
+  type StepGateInspection,
+} from './gate-contract.js';
 export {
   CHECK_FAILURE_KINDS,
   CHECK_INPUT_FAILURE_KINDS,

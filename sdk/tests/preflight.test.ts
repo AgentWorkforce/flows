@@ -5,10 +5,10 @@ import {
 } from '../src/failure-kinds.js';
 import {
   CliProbeError,
-  preflight,
   type CliProbeResult,
   type PreflightProbes,
 } from '../src/preflight.js';
+import { preflight } from '../src/index.js';
 import type { FlowSpec } from '../src/spec.js';
 import { compileSpec, toKernelSpec } from '../src/compile.js';
 
@@ -26,60 +26,30 @@ function probes(overrides: Partial<PreflightProbes> = {}): PreflightProbes {
 }
 
 describe('preflight: CLI resolution and refusal predicates', () => {
-  it('validates and resolves a raw named-agent authoring spec at the public boundary', () => {
-    const calls: Array<[string, string, string | undefined]> = [];
-    const authored: FlowSpec = {
-      version: '0.1.0',
-      agents: { reviewer: { cli: 'wrapper', model: 'allowed-model' } },
-      steps: [{ id: 'review', type: 'agent', agent: 'reviewer', instruction: 'Review.' }],
-    };
-
-    const result = preflight(authored, {
-      models: ['allowed-model'],
-      probes: probes({
-        cli: (cli, source, model) => {
-          calls.push([cli, source, model]);
-          return { exists: true, supported: true, authenticated: true, modelAvailable: true };
-        },
-      }),
+  it('validates raw public input before any probe or gate inspection', () => {
+    let probeCount = 0;
+    const injected = probes({
+      command: () => { probeCount += 1; return true; },
+      cli: () => { probeCount += 1; return { exists: true, authenticated: true }; },
     });
-
-    expect(result.ok).toBe(true);
-    expect(result.resolutions).toEqual([{
-      stepId: 'review',
-      cli: 'wrapper',
-      source: 'named',
-      model: 'allowed-model',
-    }]);
-    expect(calls).toEqual([['wrapper', 'named', 'allowed-model']]);
-  });
-
-  it('refuses malformed raw input before any public preflight probe', () => {
-    const calls: string[] = [];
-    const result = preflight({
+    const candidate = (verification: unknown): FlowSpec => ({
       version: '0.1.0',
       steps: [{
-        id: 'agent',
-        type: 'agent',
-        instruction: 'Work.',
-        cli: 'wrapper',
-        command: 'must-not-cross-verbs',
-      }],
-    } as never, {
-      probes: {
-        cli: () => { calls.push('cli'); return { exists: true, authenticated: true }; },
-        command: () => { calls.push('command'); return true; },
-        executor: () => { calls.push('executor'); return true; },
-      },
+        id: 'raw',
+        type: 'deterministic',
+        command: 'printf ok',
+        verification,
+      } as FlowSpec['steps'][number]],
     });
 
-    expect(result).toMatchObject({
-      ok: false,
-      resolutions: [],
-      diagnostics: [{ severity: 'refusal', kind: 'invalid_spec' }],
-    });
-    expect(result.diagnostics[0]?.message).toContain('unknown key "command"');
-    expect(calls).toEqual([]);
+    for (const verification of [
+      (value: unknown) => value,
+      { type: 'expression', expression: 'length < 200' },
+      { type: 'json_schema', schema: { type: 'definitely-not-a-json-schema-type' } },
+    ]) {
+      expect(() => preflight(candidate(verification), { probes: injected })).toThrow();
+    }
+    expect(probeCount).toBe(0);
   });
 
   it('resolves step, then flow, then project without guessing a platform default', () => {

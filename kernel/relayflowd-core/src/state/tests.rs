@@ -14,7 +14,7 @@ fn spec() -> RunSpec {
 }
 
 #[test]
-fn completed_output_is_memoized_and_unlocks_dependents() {
+fn journal_replays_data_gate_verdict_without_rerunning_completed_code() {
     let completion = JournalEntry::new(
         EntryType::StepCompleted,
         "run",
@@ -44,6 +44,13 @@ fn completed_output_is_memoized_and_unlocks_dependents() {
         "once"
     );
     assert_eq!(state.steps["two"].state, StepState::Runnable);
+    let actions = crate::next_actions(&state, 6);
+    assert!(actions.iter().all(|action| match action {
+        crate::Action::Append(entry) => entry.step_id.as_deref() != Some("one"),
+        crate::Action::ExecDeterministic { step, .. } => step.id != "one",
+        crate::Action::Dispatch { step, .. } => step.id != "one",
+        _ => true,
+    }));
 }
 
 #[test]

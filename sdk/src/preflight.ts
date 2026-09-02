@@ -1,4 +1,6 @@
 import type { FlowSpec, StepSpec, TriggerSpec } from './spec.js';
+import { inspectStepGate, type StepGateInspection } from './gate-contract.js';
+import { compileSpec } from './compile.js';
 import type {
   PreflightFailureKind,
   PreflightWarningKind,
@@ -94,36 +96,22 @@ export type PreflightDiagnostic = PreflightRefusal | PreflightWarning;
 
 export interface PreflightResult {
   ok: boolean;
+  gates: StepGateInspection[];
   resolutions: CliResolution[];
   diagnostics: PreflightDiagnostic[];
 }
 
 export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightResult {
-  const validation = validateSpec(flow);
-  if (!validation.ok) {
-    return {
-      ok: false,
-      resolutions: [],
-      diagnostics: [{
-        severity: 'refusal',
-        kind: 'invalid_spec',
-        message: `Relayflow spec is invalid: ${validation.errors.join('; ')}`,
-        errors: validation.errors,
-      }],
-    };
-  }
+  const compiled = compileSpec(flow);
   const diagnostics: PreflightDiagnostic[] = [];
   const resolutions: CliResolution[] = [];
   const cliProbeResults = new Map<string, CliProbeOutcome>();
 
-  diagnostics.push(...unknownModelDiagnostics(flow, options));
-  if (diagnostics.length > 0) return { ok: false, resolutions, diagnostics };
-
-  for (const step of flow.steps) {
+  for (const step of compiled.steps) {
     warnOnUnprovableEffects(step, options.probes, diagnostics);
     if (step.type === 'deterministic') continue;
 
-    const resolution = resolveCli(step, flow, options.projectCli);
+    const resolution = resolveCli(step, compiled, options.projectCli);
     if (resolution === undefined) {
       diagnostics.push({
         severity: 'refusal',
@@ -137,12 +125,13 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
     probeResolvedCli(resolution, options.probes, cliProbeResults, diagnostics);
   }
 
-  for (const trigger of flow.triggers ?? []) {
+  for (const trigger of compiled.triggers ?? []) {
     probeTrigger(trigger, options.probes, diagnostics);
   }
 
   return {
     ok: !diagnostics.some((diagnostic) => diagnostic.severity === 'refusal'),
+    gates: compiled.steps.map(inspectStepGate),
     resolutions,
     diagnostics,
   };

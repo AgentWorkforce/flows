@@ -17,16 +17,7 @@ import type {
   VerificationSpec,
 } from './spec.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
-import { modelNameError } from './model-name.js';
-import { validateOutputDeclaration } from './output-schema.js';
-import { stepDependencyErrors } from './step-dependencies.js';
-import {
-  AGENT_DECLARATION_FIELDS,
-  FLOW_FIELDS,
-  STEP_COMMON_FIELDS,
-  STEP_FIELDS_BY_TYPE,
-} from './step-fields.js';
-import { unknownKeyErrors } from './unknown-keys.js';
+import { jsonSchemaError, snapshotJsonSchema } from './json-schema.js';
 
 export interface ValidationResult {
   ok: boolean;
@@ -250,7 +241,7 @@ class Validator {
     }
 
     if (st['verification'] !== undefined) {
-      this.validateVerification(st['verification'], `${at}.verification`);
+      this.validateVerification(st['verification'], `${at}.verification`, type);
     }
 
     if (st['maxIterations'] !== undefined && !isPosInt(st['maxIterations'])) {
@@ -268,7 +259,7 @@ class Validator {
     }
   }
 
-  private validateVerification(v: unknown, at: string): void {
+  private validateVerification(v: unknown, at: string, stepType: StepType): void {
     if (!isObject(v)) {
       this.fail(`${at}: expected an object`);
       return;
@@ -279,6 +270,9 @@ class Validator {
       this.checkKeys(v, gateKeys, at);
     }
     if (gate.type === 'exit_code') {
+      if (stepType !== 'deterministic') {
+        this.fail(`${at}: exit_code is supported only on deterministic steps`);
+      }
       // v0 judges exit_code == 0 exactly (kernel DESIGN.md §4). Fail closed
       // rather than compile a spec whose gate the kernel cannot enforce.
       if (gate.expect !== undefined && gate.expect !== 0) {
@@ -289,8 +283,14 @@ class Validator {
         this.fail(`${at}.value: expected a non-empty string`);
       }
     } else if (gate.type === 'json_schema') {
-      if (!isObject(gate.schema)) {
-        this.fail(`${at}.schema: expected a JSON Schema object`);
+      try {
+        const schema = snapshotJsonSchema(gate.schema, `${at}.schema`);
+        const error = jsonSchemaError(schema);
+        if (error !== undefined) {
+          this.fail(`${at}.schema: invalid JSON Schema: ${error}`);
+        }
+      } catch (error) {
+        this.fail(error instanceof Error ? error.message : `${at}.schema: expected JSON-compatible data`);
       }
     } else {
       this.fail(`${at}.type: expected exit_code | output_contains | json_schema`);
