@@ -582,6 +582,7 @@ steps:
     expect(result.stdout.join('\n')).toContain(
       `RESOLVED step "answer" cli "./authenticated-cli" from project (${join(directory, 'flows.json')})`,
     );
+    expect(checkFlow(flow).flow?.steps[0]).toHaveProperty('cli', cli);
   });
 
   it('uses the nearest flows.json as a whole project boundary and names it on refusal', async () => {

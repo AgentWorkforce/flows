@@ -128,7 +128,7 @@ function probes(onProbe: () => void): PreflightProbes {
   return {
     cli: () => {
       onProbe();
-      return { exists: true, authenticated: true };
+      return { exists: true, authenticated: true, modelAvailable: true };
     },
     executor: () => {
       onProbe();
@@ -353,7 +353,10 @@ describe('closed per-verb step fields', () => {
       'agent',
     ]);
 
-    const result = preflight(valid, { probes: probes(() => {}) });
+    const result = preflight(valid, {
+      models: ['named-model', 'project-model'],
+      probes: probes(() => {}),
+    });
     expect(result.ok).toBe(true);
     expect(result.resolutions).toEqual([
       { stepId: 'answer', cli: 'llm-cli', source: 'step', model: 'project-model' },

@@ -765,7 +765,23 @@ steps:
     // dispatch → AgentWorker → subprocess env.
     const dataDir = temporaryDirectory('flows-live-model-set-');
     await startDaemon(dataDir);
-    const cli = join(TESTDATA, 'preflight', 'echo-model-cli');
+    const cli = join(dataDir, 'echo-model-cli');
+    writeFileSync(cli, readFileSync(join(TESTDATA, 'preflight', 'echo-model-cli')));
+    chmodSync(cli, 0o755);
+    writeFileSync(join(dataDir, 'flows.json'), JSON.stringify({ models: ['declared-model-xyz'] }));
+    const flowPath = join(dataDir, 'relative-wrapper.flow.yaml');
+    writeFileSync(flowPath, `
+version: '0.1.0'
+agents:
+  model-probe:
+    cli: ./echo-model-cli
+    model: declared-model-xyz
+steps:
+  - id: probe
+    type: agent
+    agent: model-probe
+    instruction: Report the model env var.
+`);
     const client = await connectClient(dataDir);
     await client.hello('live-model-set');
     const worker = new AgentWorker(client, {
@@ -774,27 +790,20 @@ steps:
     });
     await worker.attach();
 
-    const compiled = compileYaml(`
-version: '0.1.0'
-agents:
-  model-probe:
-    cli: ${JSON.stringify(cli)}
-    model: declared-model-xyz
-steps:
-  - id: probe
-    type: agent
-    agent: model-probe
-    instruction: Report the model env var.
-`);
+    const checked = checkFlow(flowPath);
+    expect(checked.report.ok).toBe(true);
+    const compiled = checked.flow!;
     expect(compiled).toHaveProperty('agents.model-probe.model', 'declared-model-xyz');
     expect(compiled.steps[0]).toMatchObject({
       type: 'agent',
+      agent: 'model-probe',
       cli,
-      model: 'declared-model-xyz',
     });
+    expect(compiled.steps[0]).not.toHaveProperty('model');
     const kernel = toKernelSpec(compiled);
     expect(kernel).not.toHaveProperty('agents');
     expect(kernel.steps[0]).not.toHaveProperty('agent');
+    expect(kernel.steps[0]).toMatchObject({ cli, model: 'declared-model-xyz' });
     const started = await client.runStart(kernel);
 
     expect(await waitForStep(client, started.run_id, 'probe', 'done')).toMatchObject({

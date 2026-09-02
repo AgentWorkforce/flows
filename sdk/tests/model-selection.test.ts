@@ -24,9 +24,9 @@ steps:
     expect(flow.steps[0] as AgentStepSpec).toMatchObject({
       id: 'review',
       type: 'agent',
-      cli: 'claude',
-      model: 'claude-sonnet-4-6',
     });
+    expect(flow.steps[0]).not.toHaveProperty('cli');
+    expect(flow.steps[0]).not.toHaveProperty('model');
     const kernel = toKernelSpec(flow);
     expect(kernel).not.toHaveProperty('agents');
     expect(kernel.steps[0]).not.toHaveProperty('agent');
@@ -65,7 +65,18 @@ steps:
     instruction: Preserve existing anonymous resolution.
 `);
 
+    // Normalization preserves what the author wrote so validation/preflight
+    // can distinguish declarations from overrides. Precedence is materialized
+    // only at the journal boundary.
     expect(flow.steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'named', agent: 'reviewer' }),
+      expect.objectContaining({ id: 'cli-override', cli: 'step-cli' }),
+      expect.objectContaining({ id: 'model-override', model: 'step-model' }),
+    ]));
+    expect(flow.steps.find((step) => step.id === 'named')).not.toHaveProperty('cli');
+    expect(flow.steps.find((step) => step.id === 'named')).not.toHaveProperty('model');
+    const kernel = toKernelSpec(flow);
+    expect(kernel.steps).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'named', cli: 'named-cli', model: 'named-model' }),
       expect.objectContaining({ id: 'cli-override', cli: 'step-cli', model: 'named-model' }),
       expect.objectContaining({ id: 'model-override', cli: 'named-cli', model: 'step-model' }),
@@ -73,6 +84,7 @@ steps:
     expect(flow.steps.find((step) => step.id === 'anonymous')).not.toHaveProperty('cli');
     expect(flow.steps.find((step) => step.id === 'anonymous')).not.toHaveProperty('model');
     expect(flow.cli).toBe('flow-cli');
+    expect(kernel).toHaveProperty('cli', 'flow-cli');
   });
 
   it('lowers a raw typed FlowSpec passed directly to the kernel mapper', () => {
