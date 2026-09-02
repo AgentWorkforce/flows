@@ -19,7 +19,10 @@ red proves nothing about the bug it claims to cover.
 Nothing in this directory is wired into a drive loop, a schedule, or CI. No flow
 declares an `on()` trigger, none is deployed, and nothing outside `regressions/`
 references it except one backlog line in `ops/BACKLOG.md`. They are written
-against the real `@relayflows/surface` package. They remain dormant because the
+against the `@relayflows/surface` package source contract through a local
+TypeScript path alias. That fast check is not package-boundary evidence; the
+repository's surface package gate separately installs and consumes a packed
+tarball. The flows remain dormant because the
 cloud helpers, placement, principals, and declared failure forms listed below
 belong to later gates; importing the package does not make those substrates
 available at runtime.
@@ -35,7 +38,7 @@ flows run   regressions/<slug>.green.flow.ts   # expected: FAIL while the bug is
 Opt-in typecheck (deliberately *not* part of `cd sdk && npm test`):
 
 ```sh
-cd surface && npm run typecheck:regressions
+cd surface && bun run typecheck:regressions
 ```
 
 `MANIFEST.json` carries the same table in machine-readable form — slug, required

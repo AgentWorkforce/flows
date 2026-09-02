@@ -44,7 +44,11 @@ jobs:
 
       - name: Build standalone flows CLI
         run: |
-          npm ci --prefix sdk
+          cd surface
+          bun install --frozen-lockfile --ignore-scripts
+          bun run build
+          cd ..
+          npm ci --prefix sdk --ignore-scripts
           mkdir -p dist/cloud-artifact-input
           bun build sdk/src/cli-executable.ts \
             --compile \
