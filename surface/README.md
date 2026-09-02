@@ -8,6 +8,12 @@ injects. A flow handle retains an immutable header and body behind the
 handle remains the frozen `{ name }` authoring value. This package never
 constructs a context, executes a body on its own, or contacts the kernel.
 Those responsibilities stay behind `@relayflows/sdk` and the journal protocol.
+The SDK's initial executor supports the deliberately small executable slice:
+an empty header, awaited plain `f.run(...)` calls, and one
+`f.done("success")`. It compiles each command and a terminal success marker to
+deterministic specs, submits them through the existing journal client, and
+reads results from `step.completed`. Other headers, verbs, postfix gates, and
+completion lowering refuse rather than running outside the journal.
 
 This is currently an in-repository foundation, not a registry-published or
 direct-run surface. Direct `.flow.ts` execution and input remain tracked in
@@ -27,8 +33,7 @@ bun run test
 import { flow } from "@relayflows/surface";
 
 export default flow("release-note", async (f) => {
-  const diff = await f.run("git diff main");
-  await f.llm`Write a one-line release note for ${diff}`;
+  await f.run("git diff main");
   f.done("success");
 });
 ```

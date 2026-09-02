@@ -144,6 +144,6 @@ export default flow(
         "with its own code — the three conditions remain distinguishable",
       );
 
-    return f.done("bug_fixed");
+    return f.done("success");
   },
 );

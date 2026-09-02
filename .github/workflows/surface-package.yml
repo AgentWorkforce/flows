@@ -8,12 +8,7 @@ on:
       - "scripts/surface-package-gate.sh"
       - "surface/**"
       - "regressions/**"
-      - "sdk/package.json"
-      - "sdk/package-lock.json"
-      - "sdk/src/authored-flow.ts"
-      - "sdk/src/index.ts"
-      - "sdk/tests/authored-flow.test.ts"
-      - "sdk/tests/fixtures/runtime-bridge.flow.ts"
+      - "sdk/**"
   push:
     branches:
       - main
@@ -22,12 +17,7 @@ on:
       - "scripts/surface-package-gate.sh"
       - "surface/**"
       - "regressions/**"
-      - "sdk/package.json"
-      - "sdk/package-lock.json"
-      - "sdk/src/authored-flow.ts"
-      - "sdk/src/index.ts"
-      - "sdk/tests/authored-flow.test.ts"
-      - "sdk/tests/fixtures/runtime-bridge.flow.ts"
+      - "sdk/**"
 
 permissions:
   contents: read

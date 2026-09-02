@@ -1,4 +1,8 @@
 import type { Step } from "./step.js";
+import type {
+  CompletionReason,
+  RunCompletionReason,
+} from "./completion.js";
 
 export interface WorkerSummary {
   workerId: string;
@@ -25,13 +29,13 @@ export interface ScheduleState {
 export interface JournalStep {
   id: string;
   type: "deterministic" | "llm" | "agent";
-  completionReason: string | null;
+  completionReason: CompletionReason | null;
 }
 
 export interface RunJournal {
   runId: string;
   steps: JournalStep[];
-  completionReason: string | null;
+  completionReason: RunCompletionReason | null;
 }
 
 /** AgentWorkforce Cloud helper contract generated from its relayfile adapter. */

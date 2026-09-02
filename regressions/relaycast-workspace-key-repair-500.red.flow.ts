@@ -160,6 +160,6 @@ export default flow(
         "so every declared failure is typed — and the 500 is the one path that is not",
       );
 
-    return f.done("bug_reproduced");
+    return f.done("success");
   },
 );

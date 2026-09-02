@@ -85,10 +85,35 @@ export function getFlowDefinition(handle: FlowHandle): AuthoredFlowDefinition {
     throw new TypeError("expected an @relayflows/surface flow handle");
   }
   const definition = (handle as Partial<StoredFlowHandle>)[DEFINITION];
-  if (definition === undefined) {
+  const descriptor = Object.getOwnPropertyDescriptor(handle, DEFINITION);
+  if (
+    !isStoredDefinition(definition, handle.name)
+    || descriptor === undefined
+    || descriptor.enumerable
+    || descriptor.configurable
+    || descriptor.writable
+  ) {
     throw new TypeError("expected an @relayflows/surface flow handle");
   }
   return definition;
+}
+
+function isStoredDefinition(
+  value: unknown,
+  handleName: unknown,
+): value is AuthoredFlowDefinition {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Partial<AuthoredFlowDefinition>;
+  return typeof handleName === "string"
+    && candidate.name === handleName
+    && typeof candidate.body === "function"
+    && typeof candidate.header === "object"
+    && candidate.header !== null
+    && !Array.isArray(candidate.header)
+    && Object.isFrozen(candidate.header)
+    && Object.isFrozen(value);
 }
 
 function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {

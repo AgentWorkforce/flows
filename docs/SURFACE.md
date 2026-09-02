@@ -38,7 +38,7 @@ export default flow("chief", {
 .on(slack.mention("#exec"), async (f, event) => {          // gate 2 — trigger = entry condition
   const intent = await f.llm`Extract the work request, if any: ${event.text}`
     .gate(isActionable);
-  if (!intent) return f.done("no_work");
+  if (!intent) return f.done("success"); // no work is an outcome; execution succeeded
 
   const plan = await f.agent("planner", {
     task: `Research and plan: ${intent}`,
@@ -46,7 +46,7 @@ export default flow("chief", {
   });
 
   const ok = await f.human(`Ship this?\n${plan.summary}`, { to: "khaliq" });
-  if (!ok) return f.done("declined");
+  if (!ok) return f.done("canceled");
 
   const pr = await f.dispatch("garden/implement", plan);   // gate 3 — child flow
   await f.slack.reply(event, `Shipped: ${pr.url}`);

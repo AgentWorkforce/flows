@@ -54,6 +54,13 @@ export {
   type AuthoredFlowDefinition,
   type FlowHandle,
 } from './authored-flow.js';
+export {
+  executeAuthoredFlow,
+  AuthoredFlowExecutionError,
+  type AuthoredFlowExecutionErrorCode,
+  type AuthoredFlowExecutionResult,
+  type AuthoredFlowJournalStep,
+} from './authored-flow-executor.js';
 
 export {
   preflight,

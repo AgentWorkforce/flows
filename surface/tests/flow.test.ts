@@ -59,5 +59,45 @@ describe("flow", () => {
     expect(() => getFlowDefinition({ name: "counterfeit" })).toThrow(
       "expected an @relayflows/surface flow handle",
     );
+
+    const definitionSymbol = Symbol.for(
+      "@relayflows/surface.authored-definition.v1",
+    );
+    const forgedValues = [
+      "not-a-definition",
+      Object.freeze({
+        name: "counterfeit",
+        header: Object.freeze({}),
+        body: "not-callable",
+      }),
+      Object.freeze({
+        name: "different-name",
+        header: Object.freeze({}),
+        body: async () => undefined,
+      }),
+      Object.freeze({
+        name: "counterfeit",
+        header: {},
+        body: async () => undefined,
+      }),
+      {
+        name: "counterfeit",
+        header: Object.freeze({}),
+        body: async () => undefined,
+      },
+    ];
+
+    for (const forgedDefinition of forgedValues) {
+      const forged = { name: "counterfeit" };
+      Object.defineProperty(forged, definitionSymbol, {
+        value: forgedDefinition,
+        enumerable: false,
+        configurable: false,
+        writable: false,
+      });
+      expect(() => getFlowDefinition(Object.freeze(forged))).toThrow(
+        "expected an @relayflows/surface flow handle",
+      );
+    }
   });
 });

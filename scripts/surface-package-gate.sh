@@ -13,6 +13,9 @@ bun run test
 bun run typecheck:regressions
 bun pm pack --destination "$pack_dir"
 
+npm ci --prefix "$repo_root/sdk" --ignore-scripts
+npm run typecheck --prefix "$repo_root/sdk"
+
 tarball="$(find "$pack_dir" -maxdepth 1 -type f -name '*.tgz' -print -quit)"
 if [[ -z "$tarball" ]]; then
   echo "surface package gate: bun pm pack produced no tarball" >&2
@@ -57,9 +60,11 @@ import {
   type AgentOptions,
   type AgentResult,
   type CloudHelper,
+  type CompletionReason,
   type Ctx,
   type FlowHandle,
   type FlowHeader,
+  type RunCompletionReason,
   type Step,
 } from '@relayflows/surface';
 import {
@@ -78,9 +83,13 @@ const body = async (f: Ctx): Promise<void> => {
 const header: FlowHeader = { identity: 'packed-type-consumer' };
 const handle: FlowHandle = flow('packed-type-consumer', header, body);
 const definition: AuthoredFlowDefinition = getFlowDefinition(handle);
+const stepReason: CompletionReason = 'verification_failed';
+const runReason: RunCompletionReason = 'step_failed';
 const helper: CloudHelper | undefined = undefined;
 void definition;
 void helper;
+void stepReason;
+void runReason;
 TS
 
 cat > tsconfig.consumer.json <<'JSON'
@@ -101,9 +110,5 @@ JSON
 "$repo_root/surface/node_modules/.bin/tsc" -p tsconfig.consumer.json
 echo "PACKED_TYPESCRIPT_OK"
 
-mkdir -p "$repo_root/sdk/node_modules/@relayflows"
-if [[ ! -e "$repo_root/sdk/node_modules/@relayflows/surface" ]]; then
-  ln -s ../../../surface "$repo_root/sdk/node_modules/@relayflows/surface"
-fi
-cd "$repo_root"
-surface/node_modules/.bin/vitest run sdk/tests/authored-flow.test.ts --root "$repo_root"
+cd "$repo_root/sdk"
+./node_modules/.bin/vitest run tests/authored-flow.test.ts

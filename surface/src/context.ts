@@ -1,4 +1,5 @@
 import type { CloudHelper } from "./cloud.js";
+import type { CompletionReason } from "./completion.js";
 import type { Step } from "./step.js";
 
 export interface AgentResult {
@@ -23,6 +24,6 @@ export interface Ctx {
   agent(name: string, options: AgentOptions): Step<AgentResult>;
   human(question: string, options: { to: string }): Promise<boolean>;
   dispatch<T>(flow: string, input: unknown): Promise<T>;
-  done(reason: string): void;
+  done(reason: CompletionReason): void;
   cloud: CloudHelper;
 }
