@@ -15,24 +15,31 @@ import {
   preflight,
   type PreflightProbes,
 } from '../src/preflight.js';
-import type { FlowSpec } from '../src/spec.js';
+import type { FlowSpec, StepType } from '../src/spec.js';
+import {
+  AGENT_DECLARATION_FIELDS,
+  FLOW_FIELDS,
+  STEP_FIELDS_BY_TYPE,
+} from '../src/step-fields.js';
 import { validateSpec } from '../src/validate.js';
 
 type RawSpec = Record<string, unknown> & {
-  steps: Array<Record<string, unknown>>;
+  steps: unknown[];
 };
 
-const INVALID_STEP_FIELDS = [
+interface InvalidFieldCase {
+  label: string;
+  step: Record<string, unknown>;
+  unknown: string;
+  suggestion?: string;
+}
+
+const TYPO_STEP_FIELDS = [
   {
     label: 'deterministic typo',
     step: { id: 'work', type: 'deterministic', command: 'printf ok', commnad: 'printf wrong' },
     unknown: 'commnad',
     suggestion: 'command',
-  },
-  {
-    label: 'deterministic cross-verb field',
-    step: { id: 'work', type: 'deterministic', command: 'printf ok', prompt: 'not deterministic' },
-    unknown: 'prompt',
   },
   {
     label: 'llm typo',
@@ -41,20 +48,57 @@ const INVALID_STEP_FIELDS = [
     suggestion: 'prompt',
   },
   {
-    label: 'llm cross-verb field',
-    step: { id: 'work', type: 'llm', prompt: 'answer', cli: 'test-cli', instruction: 'not llm' },
-    unknown: 'instruction',
-  },
-  {
     label: 'agent typo',
     step: { id: 'work', type: 'agent', instruction: 'act', cli: 'test-cli', instructon: 'misspelled' },
     unknown: 'instructon',
     suggestion: 'instruction',
   },
+] as const satisfies readonly InvalidFieldCase[];
+
+const VALID_STEP_BY_TYPE: Record<StepType, Record<string, unknown>> = {
+  deterministic: { id: 'work', type: 'deterministic', command: 'printf ok' },
+  llm: { id: 'work', type: 'llm', prompt: 'answer', cli: 'test-cli' },
+  agent: { id: 'work', type: 'agent', instruction: 'act', cli: 'test-cli' },
+};
+
+const VERB_FIELD_VALUES: Record<string, unknown> = {
+  agent: 'reviewer',
+  command: 'printf foreign',
+  prompt: 'foreign prompt',
+  model: 'foreign-model',
+  cli: 'foreign-cli',
+  instruction: 'foreign instruction',
+  surfaces: { workspace: [{ surface: 'foreign-worktree' }] },
+  recoveryMode: 'reset',
+  permissions: { accessPreset: 'readonly' },
+};
+
+const ALL_VERB_FIELDS = [...new Set(Object.values(STEP_FIELDS_BY_TYPE).flat())];
+const CROSS_VERB_STEP_FIELDS: InvalidFieldCase[] = (
+  Object.entries(STEP_FIELDS_BY_TYPE) as Array<[StepType, readonly string[]]>
+).flatMap(([type, allowed]) => ALL_VERB_FIELDS
+  .filter((field) => !allowed.includes(field))
+  .map((field) => ({
+    label: `${type} foreign ${field}`,
+    step: { ...VALID_STEP_BY_TYPE[type], [field]: VERB_FIELD_VALUES[field] },
+    unknown: field,
+  })));
+
+const INVALID_STEP_FIELDS: readonly InvalidFieldCase[] = [
+  ...TYPO_STEP_FIELDS,
+  ...CROSS_VERB_STEP_FIELDS,
+];
+
+const MALFORMED_STEP_SHAPES = [
   {
-    label: 'agent cross-verb field',
-    step: { id: 'work', type: 'agent', instruction: 'act', cli: 'test-cli', command: 'not agent' },
-    unknown: 'command',
+    label: 'null step',
+    step: null,
+    expected: 'spec.steps[0]: expected an object',
+  },
+  {
+    label: 'non-array dependsOn',
+    step: { id: 'work', type: 'deterministic', command: 'printf ok', dependsOn: 'earlier' },
+    expected: 'spec.steps[0].dependsOn: expected an array of step ids',
   },
 ] as const;
 
@@ -70,7 +114,11 @@ function specWith(step: Record<string, unknown>): RawSpec {
   return { version: '0.1.0', name: 'field-lint', steps: [step] };
 }
 
-function expectedUnknownField(case_: (typeof INVALID_STEP_FIELDS)[number]): string {
+function malformedSpecWith(step: unknown): RawSpec {
+  return { version: '0.1.0', name: 'malformed-shape', steps: [step] } as RawSpec;
+}
+
+function expectedUnknownField(case_: InvalidFieldCase): string {
   return case_.suggestion === undefined
     ? `spec.steps[0]: unknown key "${case_.unknown}"`
     : `spec.steps[0]: unknown key "${case_.unknown}" — did you mean "${case_.suggestion}"?`;
@@ -94,6 +142,93 @@ function probes(onProbe: () => void): PreflightProbes {
 }
 
 describe('closed per-verb step fields', () => {
+  it('pins the per-verb descriptor and generates every foreign-field pair from it', () => {
+    expect(FLOW_FIELDS).toEqual([
+      'version', 'name', 'description', 'cli', 'agents', 'triggers', 'steps', 'budget',
+    ]);
+    expect(AGENT_DECLARATION_FIELDS).toEqual(['cli', 'model']);
+    expect(STEP_FIELDS_BY_TYPE).toEqual({
+      deterministic: ['command'],
+      llm: ['prompt', 'model', 'cli'],
+      agent: ['instruction', 'agent', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions'],
+    });
+    expect(CROSS_VERB_STEP_FIELDS.map(({ label }) => label).sort()).toEqual([
+      'agent foreign command',
+      'agent foreign prompt',
+      'deterministic foreign agent',
+      'deterministic foreign cli',
+      'deterministic foreign instruction',
+      'deterministic foreign model',
+      'deterministic foreign permissions',
+      'deterministic foreign prompt',
+      'deterministic foreign recoveryMode',
+      'deterministic foreign surfaces',
+      'llm foreign agent',
+      'llm foreign command',
+      'llm foreign instruction',
+      'llm foreign permissions',
+      'llm foreign recoveryMode',
+      'llm foreign surfaces',
+    ]);
+  });
+
+  it.each(MALFORMED_STEP_SHAPES)('$label is a typed validation/compiler/preflight failure', (case_) => {
+    const raw = malformedSpecWith(case_.step);
+    let validation: ReturnType<typeof validateSpec> | undefined;
+
+    expect(() => { validation = validateSpec(raw); }).not.toThrow();
+    expect(validation).toEqual({
+      ok: false,
+      errors: expect.arrayContaining([case_.expected]),
+    });
+
+    for (const compile of [
+      () => compileSpec(raw),
+      () => compileYaml(stringifyYaml(raw)),
+      () => toKernelSpec(raw as never),
+    ]) {
+      expect(compile).toThrow(CompileError);
+      expect(compile).toThrow(case_.expected);
+    }
+
+    let probeCount = 0;
+    const result = preflight(raw as never, {
+      probes: probes(() => { probeCount += 1; }),
+    });
+    expect(result).toEqual({
+      ok: false,
+      resolutions: [],
+      diagnostics: [{
+        severity: 'refusal',
+        kind: 'invalid_spec',
+        message: expect.stringContaining(case_.expected),
+        errors: expect.arrayContaining([case_.expected]),
+      }],
+    });
+    expect(probeCount).toBe(0);
+  });
+
+  it.each(MALFORMED_STEP_SHAPES)('$label is refused by flows check without a raw exception', async (case_) => {
+    const directory = mkdtempSync(join(tmpdir(), 'flows-malformed-shape-'));
+    temporaryDirectories.push(directory);
+    writeFileSync(join(directory, 'flows.json'), JSON.stringify({ executors: [] }));
+    const path = join(directory, 'malformed.flow.yaml');
+    writeFileSync(path, stringifyYaml(malformedSpecWith(case_.step)));
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    const exitCode = await runCli(['check', path], {
+      stdout: (line) => stdout.push(line),
+      stderr: (line) => stderr.push(line),
+    });
+
+    expect(exitCode).toBe(2);
+    expect(stdout).toEqual([]);
+    expect(stderr.join('\n')).toContain('REFUSED [invalid_spec]');
+    expect(stderr.join('\n')).toContain(case_.expected);
+    expect(stderr.join('\n')).not.toContain('TypeError');
+  });
+
   it.each(INVALID_STEP_FIELDS)('$label is rejected by every public compiler/validator path', (case_) => {
     const raw = specWith({ ...case_.step });
     const expected = expectedUnknownField(case_);
@@ -162,6 +297,7 @@ describe('closed per-verb step fields', () => {
       version: '0.1.0',
       name: 'valid-v1',
       cli: 'flow-cli',
+      agents: { reviewer: { cli: 'named-cli', model: 'named-model' } },
       steps: [
         {
           id: 'prepare',
@@ -185,6 +321,7 @@ describe('closed per-verb step fields', () => {
         {
           id: 'act',
           type: 'agent',
+          agent: 'reviewer',
           instruction: 'act',
           model: 'project-model',
           cli: 'agent-cli',
