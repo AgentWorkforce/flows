@@ -22,10 +22,10 @@
     "build": "tsc && node scripts/make-cli-executable.mjs",
     "demo:hn": "npm run build && node dist/demo-hn-monitor.js",
     "prepare": "npm run build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.type-tests.json",
     "typecheck:tests": "tsc -p tsconfig.tests.json",
     "test:prep": "( cd ../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../testdata/preflight ] || find ../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )",
-    "test": "npm run test:prep && npm run build && npm run typecheck:tests && vitest run",
+    "test": "npm run test:prep && npm run typecheck && npm run build && npm run typecheck:tests && vitest run",
     "test:watch": "vitest"
   },
   "license": "UNLICENSED",
