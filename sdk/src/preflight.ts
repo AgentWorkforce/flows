@@ -10,6 +10,8 @@ export interface CliResolution {
   stepId: string;
   cli: string;
   source: CliResolutionSource;
+  /** Model the step declared, probed together with the CLI. */
+  model?: string;
 }
 
 export interface CliProbeResult {
@@ -39,8 +41,13 @@ type CliProbeOutcome =
  * emits `probe_failed` (or `command_unprovable` for a deterministic command).
  */
 export interface PreflightProbes {
-  /** Resolve relative paths against the file implied by `source`, then probe `auth status`. */
-  cli(cli: string, source: CliResolutionSource): CliProbeResult;
+  /**
+   * Resolve relative paths against the file implied by `source`, then probe
+   * `auth status`. When the step declared a `model`, the probe runs with that
+   * model in scope, so readiness answers "can this CLI use THIS model" rather
+   * than the weaker "is this CLI authenticated at all".
+   */
+  cli(cli: string, source: CliResolutionSource, model?: string): CliProbeResult;
   executor(trigger: TriggerSpec): boolean;
   command(binary: string): boolean;
 }
@@ -126,9 +133,13 @@ function resolveCli(
   flow: FlowSpec,
   projectCli: string | undefined,
 ): CliResolution | undefined {
-  if (step.cli !== undefined) return { stepId: step.id, cli: step.cli, source: 'step' };
-  if (flow.cli !== undefined) return { stepId: step.id, cli: flow.cli, source: 'flow' };
-  if (projectCli !== undefined) return { stepId: step.id, cli: projectCli, source: 'project' };
+  // Model is a step-level declaration only — there is deliberately no flow or
+  // project default. A CLI inheriting a model from two levels up is the
+  // ambient-state problem this field exists to remove.
+  const model = step.model !== undefined ? { model: step.model } : {};
+  if (step.cli !== undefined) return { stepId: step.id, cli: step.cli, source: 'step', ...model };
+  if (flow.cli !== undefined) return { stepId: step.id, cli: flow.cli, source: 'flow', ...model };
+  if (projectCli !== undefined) return { stepId: step.id, cli: projectCli, source: 'project', ...model };
   return undefined;
 }
 
@@ -141,11 +152,14 @@ function probeResolvedCli(
   // Source is load-bearing: the same relative CLI string resolves from the
   // flow directory for step/flow declarations and the config directory for
   // project declarations.
-  const cacheKey = JSON.stringify([resolution.cli, resolution.source]);
+  // Model is part of the key: the same CLI probed with two different models
+  // is two different questions, and caching on the CLI alone would let a
+  // model that the CLI cannot resolve inherit an earlier model's pass.
+  const cacheKey = JSON.stringify([resolution.cli, resolution.source, resolution.model ?? null]);
   let outcome = cache.get(cacheKey);
   if (outcome === undefined) {
     try {
-      outcome = { result: probes.cli(resolution.cli, resolution.source) };
+      outcome = { result: probes.cli(resolution.cli, resolution.source, resolution.model) };
     } catch (error) {
       const detail = error instanceof CliProbeError ? error.detail : undefined;
       outcome = { failure: detail ?? null };

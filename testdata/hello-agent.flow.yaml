@@ -16,6 +16,10 @@ steps:
     type: agent
     dependsOn: [greet]
     instruction: "Produce the hello artifact through the deterministic test stub."
+    # Pins `model` through the whole boundary: SDK authoring -> compiler ->
+    # canonical JSON -> kernel parse -> kernel re-serialize -> same sha256.
+    # A model that survives that round trip is one the journal can record.
+    model: test-model-v1
     recoveryMode: reset
     maxIterations: 2
     surfaces:

@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:pat
 import { spawnSync } from 'node:child_process';
 import { parse as parseYaml } from 'yaml';
 import { CompileError, compileSpec, kernelToAuthoring } from '../compile.js';
+import { MODEL_ENV } from '../worker.js';
 import type { FlowSpec } from '../spec.js';
 import type { CheckFailureKind } from '../failure-kinds.js';
 import {
@@ -164,19 +165,31 @@ function findConfig(start: string): string | undefined {
 
 function systemProbes(flowDirectory: string, config: ProjectConfig): PreflightProbes {
   return {
-    cli: (cli, source) => probeCli(cli, source === 'project' ? config.directory : flowDirectory),
+    cli: (cli, source, model) => probeCli(cli, source === 'project' ? config.directory : flowDirectory, model),
     executor: (trigger) => config.executors.includes(trigger.executor),
     command: (binary) => executableExists(binary, flowDirectory),
   };
 }
 
-function probeCli(cli: string, directory: string): { exists: boolean; authenticated: boolean } {
+function probeCli(
+  cli: string,
+  directory: string,
+  model?: string,
+): { exists: boolean; authenticated: boolean } {
   const executable = resolveExecutable(cli, directory);
   if (executable === undefined) return { exists: false, authenticated: false };
+  // Hand the declared model to the probe the same way the worker hands it to
+  // the real invocation, and unset it otherwise — a leaked RELAYFLOW_MODEL
+  // from the checking shell would make preflight validate a model the run
+  // will never use.
+  const env = { ...process.env };
+  delete env[MODEL_ENV];
+  if (model !== undefined) env[MODEL_ENV] = model;
   const result = spawnSync(executable, ['auth', 'status'], {
     cwd: directory,
     stdio: 'ignore',
     timeout: 10_000,
+    env,
   });
   const failure = classifySpawnFailure(result.error, result.signal, 10_000);
   if (failure !== undefined) throw failure;

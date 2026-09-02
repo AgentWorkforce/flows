@@ -13,6 +13,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { pollHackerNewsOnce, HnTransientFetchError, type Fetcher } from '../hn-poller.js';
 import { AgentWorker } from '../worker.js';
 import { JournalClient } from '../journal-client.js';
@@ -86,6 +87,42 @@ interface HnMonitorProduction {
 /** Args parsed by cli.ts and handed to runHnMonitor. */
 export type HnMonitorArgs = HnMonitorArgsBase & (HnMonitorProduction | HnMonitorInjections);
 
+/**
+ * Return a COPY of the spec in which each step's relative `cli` is an
+ * absolute path anchored at the spec file's directory. The input is not
+ * modified — a caller that still needs the declared relative path (for
+ * logging, re-serialization, or handing the spec to another tool) keeps it.
+ *
+ * `flows check` resolves a declared CLI against the spec's directory
+ * (sdk/src/cli/check.ts `probeCli`), but AgentWorker ultimately calls
+ * `spawn(cli, ...)`, which resolves a relative path against the WORKER
+ * PROCESS's cwd. Those two are the same only when the runner happens to
+ * be started from the spec's directory. Without this, a spec that
+ * `flows check` passes still dies with ENOENT once launched from
+ * anywhere else — preflight-green but unrunnable, the worst shape for a
+ * gate that is supposed to prove the workload runs.
+ *
+ * Bare command names (no separator) are left alone: those are PATH
+ * lookups, and both probeCli and spawn already agree on them.
+ */
+export function resolveSpecCliPaths<T>(spec: T, specPath: string): T {
+  if (typeof spec !== 'object' || spec === null) return spec;
+  const steps = (spec as { steps?: unknown }).steps;
+  if (!Array.isArray(steps)) return spec;
+  const base = dirname(resolve(specPath));
+  const resolved = steps.map((step) => {
+    if (typeof step !== 'object' || step === null) return step;
+    const cli = (step as { cli?: unknown }).cli;
+    if (typeof cli !== 'string' || isAbsolute(cli)) return step;
+    // Both separators: on Windows a relative `preflight\analyzer` contains no
+    // '/', so a '/'-only test would misread it as a bare PATH command and
+    // leave it unresolved.
+    if (!cli.includes('/') && !cli.includes('\\')) return step;
+    return { ...step, cli: resolve(base, cli) };
+  });
+  return { ...spec, steps: resolved };
+}
+
 /** Interruptible sleep — wakes on abort as well as timeout. */
 function sleepInterruptible(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -148,7 +185,7 @@ export async function runHnMonitor(args: HnMonitorArgs, io: CliIo): Promise<0 | 
 
   let spec: unknown;
   try {
-    spec = JSON.parse(await readFile(args.specPath, 'utf8'));
+    spec = resolveSpecCliPaths(JSON.parse(await readFile(args.specPath, 'utf8')), args.specPath);
   } catch (err) {
     io.stderr(`hn-monitor: cannot read spec at ${args.specPath}: ${String(err)}`);
     return 1;

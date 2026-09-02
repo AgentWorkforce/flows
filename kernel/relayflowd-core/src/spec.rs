@@ -182,6 +182,7 @@ const STEP_LLM_FIELDS: &[&str] = &["prompt", "model", "cli"];
 const STEP_AGENT_FIELDS: &[&str] = &[
     "instruction",
     "cli",
+    "model",
     "recovery_mode",
     "surfaces",
     "permissions",
@@ -282,6 +283,12 @@ pub enum StepKind {
         instruction: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cli: Option<String>,
+        /// Model the declared CLI should use. The kernel never calls a model
+        /// and never interprets this — it is carried and journaled so the
+        /// choice is part of the run's record rather than ambient host state,
+        /// then handed to the worker, which surfaces it to the CLI.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
         #[serde(default)]
         recovery_mode: RecoveryMode,
         /// Declared mutable surfaces (RFC Appendix A rule 1) — names only.

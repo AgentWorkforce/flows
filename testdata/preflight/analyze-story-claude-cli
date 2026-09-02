@@ -1,0 +1,161 @@
+#!/usr/bin/env node
+// Real agent-runtime CLI for hn-monitor's `analyze-story` step: asks
+// Claude to judge a Hacker News story and emits the model's own JSON.
+//
+// Unlike the sibling `analyze-story-stub-cli`, the answer here is not
+// written by hand — this is what makes a gate-2 run acceptance
+// evidence rather than a plumbing demo.
+//
+// Requires Node >= 22: this file uses ESM syntax and top-level await
+// without a .mjs extension, so it relies on Node's automatic module
+// detection. The extension is fixed by the preflight convention — the
+// prep step chmods `testdata/preflight/*-cli` — so the Node floor is
+// the tradeoff for matching it.
+//
+// Two invocation shapes:
+//   `auth status`   → repo-wide preflight probe (sdk/src/preflight.ts).
+//                     Exit 0 only when a real round-trip succeeds.
+//   `<instruction>` → analyze; one JSON object on stdout, exit 0.
+
+import { spawnSync } from 'node:child_process';
+
+// Say so plainly. Without this, Node 20 fails on the ESM/top-level-await
+// above with a parse error that names a syntax position, not the cause.
+const major = Number(process.versions.node.split('.')[0]);
+if (Number.isFinite(major) && major < 22) {
+  process.stderr.write(`analyze-story-claude-cli: requires Node >= 22 (found ${process.versions.node})\n`);
+  process.exit(1);
+}
+
+// The box default model is resolved from ~/.claude/settings.json, which
+// on sf-mini pins an alias the CLI cannot resolve ("There's an issue
+// with the selected model (fable)"). Passing --model explicitly is what
+// keeps this CLI independent of whatever the host has pinned.
+//
+// Precedence: the step's DECLARED model wins, because that is the choice
+// recorded in the journal. AgentWorker passes it as RELAYFLOW_MODEL and
+// leaves the variable UNSET when the step declared nothing, so absence is
+// distinguishable here rather than arriving as an empty string. The
+// operator override and the built-in default apply only to that absence.
+const MODEL = process.env.RELAYFLOW_MODEL
+  ?? process.env.RELAYFLOWS_ANALYZER_MODEL
+  ?? 'claude-haiku-4-5-20251001';
+
+function claude(prompt, timeoutMs) {
+  return spawnSync('claude', ['-p', '--model', MODEL, prompt], {
+    encoding: 'utf8',
+    timeout: timeoutMs,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function fail(message) {
+  process.stderr.write(`analyze-story-claude-cli: ${message}\n`);
+  process.exit(1);
+}
+
+if (process.argv[2] === 'auth' && process.argv[3] === 'status') {
+  // A live round-trip is the only honest readiness signal: presence of
+  // the binary proves nothing about the pinned model resolving or the
+  // session being authenticated, and a false "ready" here would let a
+  // broken box silently produce a skip that reads like acceptance.
+  const probe = claude('Reply with exactly OK and nothing else.', 60_000);
+  if (probe.error) fail(`cannot run "claude": ${probe.error.message}`);
+  if (probe.status !== 0) fail(`"claude -p --model ${MODEL}" exited ${probe.status}: ${(probe.stderr || '').trim()}`);
+  if (!/OK/i.test(probe.stdout || '')) fail(`unexpected probe reply: ${(probe.stdout || '').trim().slice(0, 200)}`);
+  // Name the model on stdout: callers surface this as the readiness
+  // detail, and "ready" with an empty detail records nothing about
+  // which model actually answered.
+  process.stdout.write(`claude -p --model ${MODEL} round-trip OK\n`);
+  process.exit(0);
+}
+
+const instruction = process.argv[2];
+if (!instruction) fail('no instruction argument supplied');
+
+// AgentWorker sets RELAYFLOW_WAKE_CONTEXT only when the run carries
+// wake context (sdk/src/worker.ts). Absence is meaningful, so it is an
+// error here rather than a silently-empty analysis.
+const raw = process.env.RELAYFLOW_WAKE_CONTEXT;
+if (!raw) fail('RELAYFLOW_WAKE_CONTEXT is unset — no triggering story to analyze');
+
+let story;
+try {
+  story = JSON.parse(raw)?.triggering_event?.payload;
+} catch (error) {
+  fail(`RELAYFLOW_WAKE_CONTEXT is not valid JSON: ${String(error)}`);
+}
+if (!story || story.id === undefined) fail('wake context has no triggering_event.payload.id');
+
+// Trigger frames that carry the story inline need no network. Fetching
+// is the fallback for id-only frames, and a fetch failure degrades to
+// analyzing what we do have rather than failing the step.
+if (!story.title) {
+  try {
+    const response = await fetch(
+      `https://hacker-news.firebaseio.com/v0/item/${story.id}.json`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    if (response.ok) {
+      const item = await response.json();
+      if (item && typeof item === 'object') story = { ...item, ...story, title: story.title ?? item.title };
+    } else {
+      process.stderr.write(`analyze-story-claude-cli: firebase returned ${response.status} for item ${story.id}; analyzing without it\n`);
+    }
+  } catch (error) {
+    // Unreachable firebase is not a step failure, but a degraded
+    // analysis must say so on stderr — a silent fallback would make a
+    // title-less analysis look like a normal one.
+    process.stderr.write(`analyze-story-claude-cli: firebase fetch failed for item ${story.id} (${String(error)}); analyzing without it\n`);
+  }
+}
+
+const known = JSON.stringify(
+  { id: story.id, title: story.title ?? null, by: story.by ?? null, url: story.url ?? null },
+  null,
+  2,
+);
+
+const result = claude(
+  `${instruction}
+
+Hacker News story:
+${known}
+
+Respond with ONE JSON object and nothing else — no prose, no markdown fence.
+Required keys:
+  "story_title"     string  — the story's title. Use exactly ${JSON.stringify(story.title ?? 'Unknown story')}.
+  "relevance_score" integer — 1 to 10, how relevant this is to AI agents/automation.
+  "reasoning"       string  — at least one full sentence justifying the score.`,
+  180_000,
+);
+
+if (result.error) fail(`cannot run "claude": ${result.error.message}`);
+if (result.status !== 0) fail(`"claude" exited ${result.status}: ${(result.stderr || '').trim()}`);
+
+// Models sometimes wrap JSON in a markdown fence despite instructions;
+// unwrap that one known shape, but do not attempt broader salvage — a
+// reply we cannot read must fail the step, not get guessed at.
+let text = (result.stdout || '').trim();
+const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+if (fenced) text = fenced[1].trim();
+
+let analysis;
+try {
+  analysis = JSON.parse(text);
+} catch {
+  fail(`model reply was not JSON: ${text.slice(0, 400)}`);
+}
+if (typeof analysis !== 'object' || analysis === null || Array.isArray(analysis)) {
+  fail(`model reply was not a JSON object: ${text.slice(0, 400)}`);
+}
+
+// Emit only the schema's declared fields. The kernel's json_schema gate
+// judges the promoted output, and passing extra model chatter through
+// would put unvalidated keys into the journal.
+const { story_title: title, relevance_score: score, reasoning } = analysis;
+if (typeof title !== 'string' || !Number.isInteger(score) || typeof reasoning !== 'string') {
+  fail(`model reply missing required fields: ${text.slice(0, 400)}`);
+}
+
+process.stdout.write(JSON.stringify({ story_title: title, relevance_score: score, reasoning }));

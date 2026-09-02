@@ -138,6 +138,14 @@ export interface AgentStepSpec extends BaseStepSpec {
   instruction: string;
   /** Inert preflight declaration; overrides the flow/project CLI default. */
   cli?: string;
+  /**
+   * Model the declared CLI should use, surfaced to it as `RELAYFLOW_MODEL`.
+   * Declared here so the choice is journaled with the step instead of being
+   * ambient host state — a CLI that inherits whatever the machine happens to
+   * pin produces runs whose model cannot be recovered from the journal, and
+   * fails outright on a host pinning something it cannot resolve.
+   */
+  model?: string;
   surfaces?: AgentSurfaces;
   recoveryMode?: RecoveryMode;
   permissions?: PermissionsSpec;
@@ -238,6 +246,7 @@ export interface KernelAgentStep extends KernelStepCommon {
   type: 'agent';
   instruction: string;
   cli?: string;
+  model?: string;
   recovery_mode: RecoveryMode;
   surfaces?: KernelAgentSurfaces;
   permissions?: KernelPermissionsSpec;
