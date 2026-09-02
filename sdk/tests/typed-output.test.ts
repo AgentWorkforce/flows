@@ -11,19 +11,14 @@ import {
 } from '../src/compile.js';
 import type {
   AgentStepSpec,
+  DeterministicStepSpec,
   JsonOutputSchema,
   LlmStepSpec,
-  OutputFromSchema,
 } from '../src/spec.js';
-
-interface Extraction {
-  actionable: boolean;
-  request: string;
-}
 
 const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata');
 
-const extractionSchema: JsonOutputSchema<Extraction> = {
+const extractionSchema: JsonOutputSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['actionable', 'request'],
@@ -34,24 +29,18 @@ const extractionSchema: JsonOutputSchema<Extraction> = {
 };
 
 describe('typed llm and agent outputs', () => {
-  it('carries a schema output type for TypeScript gates', () => {
-    expectTypeOf<OutputFromSchema<typeof extractionSchema>>().toEqualTypeOf<Extraction>();
+  it('typechecks output declarations on llm and agent steps only', () => {
+    expectTypeOf<LlmStepSpec['output']>().toEqualTypeOf<JsonOutputSchema | undefined>();
+    expectTypeOf<AgentStepSpec['output']>().toEqualTypeOf<JsonOutputSchema | undefined>();
 
-    const llm: LlmStepSpec<Extraction> = {
-      id: 'extract',
-      type: 'llm',
-      prompt: 'Extract the request.',
+    const deterministic: DeterministicStepSpec = {
+      id: 'build',
+      type: 'deterministic',
+      command: 'true',
+      // @ts-expect-error structured output sugar is llm/agent-only.
       output: extractionSchema,
     };
-    const agent: AgentStepSpec<Extraction> = {
-      id: 'research',
-      type: 'agent',
-      instruction: 'Research the request.',
-      output: extractionSchema,
-    };
-
-    expectTypeOf(llm.output).toEqualTypeOf<JsonOutputSchema<Extraction> | undefined>();
-    expectTypeOf(agent.output).toEqualTypeOf<JsonOutputSchema<Extraction> | undefined>();
+    void deterministic;
   });
 
   it.each(['llm', 'agent'] as const)(
@@ -167,4 +156,54 @@ steps:
       expect(result?.errors).toContain('spec.steps[0].output: expected a JSON Schema object');
     },
   );
+
+  it.each(['llm', 'agent'] as const)(
+    'compiles a raw %s spec directly through the public kernel boundary',
+    (type) => {
+      const step: LlmStepSpec | AgentStepSpec = type === 'llm'
+        ? {
+            id: 'direct',
+            type: 'llm',
+            prompt: 'Return JSON.',
+            output: extractionSchema,
+          }
+        : {
+            id: 'direct',
+            type: 'agent',
+            instruction: 'Return JSON.',
+            output: extractionSchema,
+          };
+      const kernel = toKernelSpec({
+        version: '0.1.0',
+        steps: [step],
+      });
+
+      expect(kernel.steps[0]?.verification).toEqual({ json_schema: extractionSchema });
+    },
+  );
+
+  it('fails closed on a conflicting raw spec at the public kernel boundary', () => {
+    expect(() => toKernelSpec({
+      version: '0.1.0',
+      steps: [{
+        id: 'direct-conflict',
+        type: 'agent',
+        instruction: 'Return JSON.',
+        output: extractionSchema,
+        verification: { type: 'output_contains', value: 'done' },
+      }],
+    })).toThrowError(/output already declares json_schema verification/);
+  });
+
+  it('fails closed on a malformed raw spec at the public kernel boundary', () => {
+    expect(() => toKernelSpec({
+      version: '0.1.0',
+      steps: [{
+        id: 'direct-malformed',
+        type: 'llm',
+        prompt: 'Return JSON.',
+        output: null,
+      } as unknown as Parameters<typeof toKernelSpec>[0]['steps'][number]],
+    })).toThrowError(/expected a JSON Schema object/);
+  });
 });

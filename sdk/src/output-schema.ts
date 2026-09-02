@@ -1,18 +1,5 @@
-/** Type-only marker carried by authoring schemas and erased at runtime. */
-declare const outputSchemaType: unique symbol;
-
-/**
- * JSON Schema with a TypeScript-only output type. The symbol property is
- * optional and never exists in emitted specs, so ordinary JSON Schema objects
- * remain the authoring value while TypeScript gates can recover `TOutput`.
- */
-export interface JsonOutputSchema<TOutput = unknown> extends Record<string, unknown> {
-  readonly [outputSchemaType]?: TOutput;
-}
-
-/** Recover the parsed value type carried by a {@link JsonOutputSchema}. */
-export type OutputFromSchema<TSchema extends JsonOutputSchema> =
-  TSchema extends JsonOutputSchema<infer TOutput> ? TOutput : never;
+/** JSON Schema accepted by the `output` authoring declaration. */
+export type JsonOutputSchema = Record<string, unknown>;
 
 /** Validate authoring sugar before it can be compiled or submitted. */
 export function validateOutputDeclaration(

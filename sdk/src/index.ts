@@ -26,7 +26,6 @@ export type {
   KernelVerificationSpec,
   LlmStepSpec,
   OutputContainsGate,
-  OutputFromSchema,
   PermissionsSpec,
   RecoveryMode,
   StreamSurface,

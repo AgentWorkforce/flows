@@ -30,6 +30,7 @@ import type {
 } from './spec.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import { canonicalize, specHash } from './canonical.js';
+import { validateOutputDeclaration } from './output-schema.js';
 import { validateSpec, type ValidationResult } from './validate.js';
 
 export class CompileError extends Error {
@@ -133,6 +134,8 @@ function compileStep(step: StepSpec): StepSpec {
 
 function typedOutputVerification(step: StepSpec): StepSpec['verification'] {
   if (step.type !== 'deterministic' && step.output !== undefined) {
+    const errors = validateOutputDeclaration(step, `step "${step.id}"`);
+    if (errors.length > 0) throw new CompileError(errors);
     return { type: 'json_schema', schema: step.output };
   }
   return step.verification;
@@ -399,14 +402,8 @@ function requireNoTimeout(step: StepSpec): void {
 function toKernelVerification(step: StepSpec): KernelVerificationSpec {
   const output = step.type === 'deterministic' ? undefined : step.output;
   if (output !== undefined) {
-    if (step.verification !== undefined) {
-      throw new CompileError([
-        `step "${step.id}": output already declares json_schema verification; remove verification`,
-      ]);
-    }
-    if (!isObject(output)) {
-      throw new CompileError([`step "${step.id}".output: expected a JSON Schema object`]);
-    }
+    const errors = validateOutputDeclaration(step, `step "${step.id}"`);
+    if (errors.length > 0) throw new CompileError(errors);
     return { json_schema: output };
   }
   const gate = step.verification;
