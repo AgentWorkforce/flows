@@ -95,6 +95,43 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(seen).toEqual(['step-cli', 'flow-cli', 'project-cli']);
   });
 
+  it.each(['unresolved first', 'unresolved last'] as const)(
+    'collects every static CLI refusal before every probe: %s',
+    (order) => {
+      const calls: string[] = [];
+      const unresolved: FlowSpec['steps'][number] = {
+        id: 'unresolved',
+        type: 'agent',
+        instruction: 'No CLI is declared.',
+      };
+      const resolvable: FlowSpec['steps'][number] = {
+        id: 'resolvable',
+        type: 'agent',
+        cli: 'must-not-probe',
+        instruction: 'Would otherwise probe.',
+      };
+      const result = preflight({
+        version: '0.1.0',
+        steps: order === 'unresolved first'
+          ? [unresolved, resolvable, { id: 'command', type: 'deterministic', command: 'printf ready' }]
+          : [{ id: 'command', type: 'deterministic', command: 'printf ready' }, resolvable, unresolved],
+        triggers: [{ id: 'trigger', executor: 'must-not-probe' }],
+      }, {
+        probes: {
+          cli: () => { calls.push('cli'); return { exists: true, authenticated: true }; },
+          command: () => { calls.push('command'); return true; },
+          executor: () => { calls.push('executor'); return true; },
+        },
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({ kind: 'cli_unresolved', stepId: 'unresolved' }),
+      ]);
+      expect(calls).toEqual([]);
+    },
+  );
+
   it('keeps missing and unauthenticated CLIs distinct and names the step and CLI', () => {
     const missing = preflight(flow({ id: 'missing-step', type: 'llm', prompt: 'p', cli: 'absent' }), {
       probes: probes({ cli: () => ({ exists: false, authenticated: false }) }),
