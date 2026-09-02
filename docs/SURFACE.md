@@ -296,9 +296,11 @@ not mean preflight can predict an output that does not exist yet.
 `agent` step is invalid rather than an empty verification. JSON Schema
 declarations accept both object and boolean schemas, matching the kernel. The
 compiler snapshots and freezes authoring data before validation so accessors,
-callbacks, `toJSON`, and other runtime behavior cannot change what the journal
-serializes. The public preflight boundary performs that same compilation first
-and refuses invalid raw input before running probes.
+callbacks, proxies, `toJSON`, and other runtime behavior cannot change what the
+journal serializes. Explicitly `undefined` object optionals are omitted, as in
+JSON serialization and the v1 compiler; unsafe array values remain invalid.
+The public preflight boundary performs that same compilation first and refuses
+invalid raw input before running probes.
 
 The kernel evaluates those checks. `run.spawned` carries the compiled
 verification data and `step.completed.verification` carries its verdict, so

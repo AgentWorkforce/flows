@@ -147,7 +147,7 @@ fn handle_request(
             to_value(
                 engine
                     .start(spec, "protocol-v0", None)
-                    .map_err(internal_error)?,
+                    .map_err(run_start_error)?,
             )
         }
         "run.resume" => {

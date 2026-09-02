@@ -6,7 +6,9 @@ import { checkFlow } from '../src/cli/check.js';
 import { runCli } from '../src/cli.js';
 import { compileSpec, toKernelSpec } from '../src/compile.js';
 import { inspectStepGate } from '../src/gate-contract.js';
+import { preflight } from '../src/index.js';
 import type { FlowSpec } from '../src/spec.js';
+import { validateSpec } from '../src/validate.js';
 
 const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata');
 
@@ -193,6 +195,81 @@ describe('data/code gate contract', () => {
     }
     expect(accessorReads).toBe(0);
     expect(toJsonCalls).toBe(0);
+  });
+
+  it('rejects proxy schemas without executing traps at any public data boundary', () => {
+    for (const boundary of [
+      (flow: FlowSpec) => compileSpec(flow),
+      (flow: FlowSpec) => toKernelSpec(flow),
+      (flow: FlowSpec) => preflight(flow, {
+        probes: {
+          command: () => true,
+          cli: () => ({ exists: true, authenticated: true }),
+          executor: () => true,
+        },
+      }),
+    ]) {
+      let proxyTraps = 0;
+      const sourceSchema = { type: 'string' };
+      const proxySchema = new Proxy(sourceSchema, {
+        getPrototypeOf(target) {
+          proxyTraps += 1;
+          return Reflect.getPrototypeOf(target);
+        },
+        ownKeys(target) {
+          proxyTraps += 1;
+          return Reflect.ownKeys(target);
+        },
+        getOwnPropertyDescriptor(target, key) {
+          proxyTraps += 1;
+          const descriptor = Reflect.getOwnPropertyDescriptor(target, key);
+          return key === 'type' && descriptor !== undefined
+            ? { ...descriptor, value: 'number' }
+            : descriptor;
+        },
+      });
+      const candidate = {
+        version: '0.1.0',
+        steps: [{
+          id: 'schema',
+          type: 'deterministic',
+          command: 'printf ok',
+          verification: { type: 'json_schema', schema: proxySchema },
+        }],
+      } as FlowSpec;
+
+      expect(() => boundary(candidate)).toThrow(/proxy/i);
+      expect(proxyTraps).toBe(0);
+      expect(sourceSchema.type).toBe('string');
+    }
+  });
+
+  it('omits explicit undefined object properties accepted by the public types and validator', () => {
+    const candidate: FlowSpec = {
+      version: '0.1.0',
+      description: undefined,
+      steps: [{
+        id: 'defined',
+        type: 'deterministic',
+        command: 'true',
+        verification: undefined,
+      }],
+    };
+
+    expect(validateSpec(candidate)).toEqual({ ok: true, errors: [] });
+    const compiled = compileSpec(candidate);
+    expect(compiled).not.toHaveProperty('description');
+    expect(compiled.steps[0]).toMatchObject({
+      id: 'defined',
+      verification: { type: 'exit_code' },
+    });
+    expect(preflight(candidate, {
+      probes: {
+        command: () => true,
+        cli: () => ({ exists: true, authenticated: true }),
+        executor: () => true,
+      },
+    }).ok).toBe(true);
   });
 
   it('accepts both boolean JSON Schemas exactly as the kernel does', () => {
