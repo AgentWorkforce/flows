@@ -122,7 +122,7 @@ fn crash_resume_preserves_each_parallel_lease_exactly_once() {
 
     // Crash after both journal appends: recovery explains both in-flight
     // attempts in the same deterministic order, once each.
-    let running = RunState::fold("run", spec, &starts).unwrap();
+    let running = RunState::fold("run", spec.clone(), &starts).unwrap();
     let recovered = recovery_actions(&running, 12);
     let completions = recovered
         .iter()
@@ -137,5 +137,31 @@ fn crash_resume_preserves_each_parallel_lease_exactly_once() {
     for entry in completions {
         let payload: StepCompletedPayload = serde_json::from_value(entry.payload.clone()).unwrap();
         assert_eq!(payload.completion_reason, CompletionReason::Crashed);
+    }
+
+    let mut entries = starts;
+    entries.extend(appended_entries(&recovered));
+    let backoff = RunState::fold("run", spec.clone(), &entries).unwrap();
+    let due_waits = next_actions(&backoff, 12);
+    assert_eq!(
+        due_waits.len(),
+        2,
+        "both recovered lanes must wake together"
+    );
+    assert!(due_waits.iter().all(|action| matches!(
+        action,
+        Action::Append(entry) if entry.entry_type == EntryType::WaitCompleted
+    )));
+
+    entries.extend(appended_entries(&due_waits));
+    let runnable = RunState::fold("run", spec, &entries).unwrap();
+    let restarted = next_actions(&runnable, 12);
+    assert_eq!(restarted.len(), 4, "both recovered lanes must restart");
+    for (pair, expected_step) in restarted.chunks_exact(2).zip(["lane-b", "lane-a"]) {
+        let Action::Append(started) = &pair[0] else {
+            panic!("each recovered lease must be journaled before dispatch")
+        };
+        assert_eq!(started.step_id.as_deref(), Some(expected_step));
+        assert_eq!(started.attempt, Some(2));
     }
 }

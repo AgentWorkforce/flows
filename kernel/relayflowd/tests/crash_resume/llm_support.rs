@@ -4,6 +4,7 @@ use std::{
     os::unix::{net::UnixStream, process::CommandExt},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
+    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
@@ -88,6 +89,38 @@ impl LlmFixture {
             spec_path,
             spec,
         }
+    }
+
+    pub fn parallel(name: &str) -> Self {
+        let mut fixture = Self::new(name, false);
+        fixture.spec = json!({
+            "name": format!("llm-{name}"),
+            "steps": [
+                {
+                    "id": "lane-b",
+                    "type": "llm",
+                    "prompt": "research b",
+                    "model": "deterministic-stub",
+                    "max_iterations": 2,
+                    "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0}
+                },
+                {
+                    "id": "lane-a",
+                    "type": "llm",
+                    "prompt": "research a",
+                    "model": "deterministic-stub",
+                    "max_iterations": 2,
+                    "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0}
+                }
+            ],
+            "budget": {"max_tokens_in": 100, "max_tokens_out": 100, "max_dollars": "1"}
+        });
+        fs::write(
+            &fixture.spec_path,
+            serde_json::to_vec(&fixture.spec).unwrap(),
+        )
+        .unwrap();
+        fixture
     }
 
     fn socket(&self) -> PathBuf {
@@ -193,6 +226,10 @@ impl ProtocolClient {
                 self.events.push(frame);
             }
         }
+    }
+
+    pub fn set_read_timeout(&self, timeout: Option<Duration>) {
+        self.stream.set_read_timeout(timeout).unwrap();
     }
 
     fn read_frame(&mut self) -> Result<Value> {
