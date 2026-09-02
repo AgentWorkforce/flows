@@ -56,6 +56,6 @@ export default flow(
       );
 
     await f.run(`kill ${pid} 2>/dev/null || true`);
-    return f.done("bug_fixed");
+    return f.done("success");
   },
 );

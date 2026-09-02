@@ -8,8 +8,8 @@ import {
  * Recover the immutable program retained by an authored flow handle.
  *
  * Importing the module evaluates author code only far enough to define the
- * flow. A runner must inject a journal-backed context before invoking `body`;
- * this bridge never constructs a context or performs an effect itself.
+ * flow. `executeAuthoredFlow` owns the initial journal-backed context; callers
+ * that only need inspection can recover the definition without executing it.
  */
 export function getAuthoredFlowDefinition(
   handle: FlowHandle,

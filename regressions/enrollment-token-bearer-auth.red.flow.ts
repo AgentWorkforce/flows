@@ -68,6 +68,6 @@ export default flow(
         "the same principal succeeds with a session cookie — only the bearer is refused",
       );
 
-    return f.done("bug_reproduced");
+    return f.done("success");
   },
 );
