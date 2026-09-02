@@ -17,8 +17,16 @@ import type {
   VerificationSpec,
 } from './spec.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
+import { modelNameError } from './model-name.js';
+import { validateOutputDeclaration } from './output-schema.js';
 import { stepDependencyErrors } from './step-dependencies.js';
-import { STEP_COMMON_FIELDS, STEP_FIELDS_BY_TYPE } from './step-fields.js';
+import {
+  AGENT_DECLARATION_FIELDS,
+  FLOW_FIELDS,
+  STEP_COMMON_FIELDS,
+  STEP_FIELDS_BY_TYPE,
+} from './step-fields.js';
+import { unknownKeyErrors } from './unknown-keys.js';
 
 export interface ValidationResult {
   ok: boolean;
