@@ -10,8 +10,8 @@ import type { FlowSpec } from '../src/spec.js';
 
 const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata');
 
-function schemaFixture(name: 'valid' | 'invalid'): Record<string, unknown> {
-  return JSON.parse(readFileSync(join(TESTDATA, `json-schema-${name}.json`), 'utf8')) as Record<string, unknown>;
+function schemaFixture(name: 'valid' | 'invalid'): unknown {
+  return JSON.parse(readFileSync(join(TESTDATA, `json-schema-${name}.json`), 'utf8'));
 }
 
 describe('data/code gate contract', () => {
@@ -111,14 +111,108 @@ describe('data/code gate contract', () => {
       }],
     };
 
-    expect(() => compileSpec(candidate)).toThrow(/verification: expected an object/);
+    expect(() => compileSpec(candidate)).toThrow(/verification: expected JSON-compatible data/);
     expect(() => toKernelSpec(candidate as unknown as FlowSpec)).toThrow(
-      /verification: expected an object/,
+      /verification: expected JSON-compatible data/,
     );
   });
 
+  it('rejects explicit exit_code gates the kernel cannot apply to llm or agent steps', () => {
+    for (const step of [
+      { id: 'llm', type: 'llm', prompt: 'answer', verification: { type: 'exit_code' } },
+      { id: 'agent', type: 'agent', instruction: 'answer', verification: { type: 'exit_code' } },
+    ]) {
+      const candidate = { version: '0.1.0', steps: [step] };
+      expect(() => compileSpec(candidate)).toThrow(/exit_code.*deterministic/);
+      expect(() => toKernelSpec(candidate as unknown as FlowSpec)).toThrow(
+        /exit_code.*deterministic/,
+      );
+    }
+  });
+
+  it('snapshots and freezes schema data before returning a compiled or kernel spec', () => {
+    const schema = { type: 'string' };
+    const candidate = {
+      version: '0.1.0',
+      steps: [{
+        id: 'schema',
+        type: 'llm',
+        prompt: 'answer',
+        verification: { type: 'json_schema', schema },
+      }],
+    };
+
+    const compiled = compileSpec(candidate);
+    schema.type = 'number';
+    const compiledGate = compiled.steps[0]?.verification;
+    expect(compiledGate?.type).toBe('json_schema');
+    if (compiledGate?.type !== 'json_schema') throw new Error('expected schema gate');
+    expect(compiledGate.schema).toEqual({ type: 'string' });
+    expect(Object.isFrozen(compiledGate.schema)).toBe(true);
+
+    const loweredGate = toKernelSpec(compiled).steps[0]?.verification.json_schema;
+    expect(loweredGate).toEqual({ type: 'string' });
+    expect(Object.isFrozen(loweredGate)).toBe(true);
+  });
+
+  it('rejects behavioral and non-JSON values inside schema declarations', () => {
+    let accessorReads = 0;
+    let toJsonCalls = 0;
+    const accessor = {};
+    Object.defineProperty(accessor, 'value', {
+      enumerable: true,
+      get: () => {
+        accessorReads += 1;
+        return 'secret';
+      },
+    });
+    const cyclic: Record<string, unknown> = {};
+    cyclic['self'] = cyclic;
+
+    const schemas = [
+      { type: 'string', toJSON: () => { toJsonCalls += 1; return true; } },
+      { type: 'object', x_runtime: { callback: () => true } },
+      { type: 'object', x_runtime: 1n },
+      { type: 'object', x_runtime: accessor },
+      { type: 'object', x_runtime: cyclic },
+    ];
+    for (const schema of schemas) {
+      const candidate = {
+        version: '0.1.0',
+        steps: [{
+          id: 'schema',
+          type: 'llm',
+          prompt: 'answer',
+          verification: { type: 'json_schema', schema },
+        }],
+      };
+      expect(() => compileSpec(candidate)).toThrow(/JSON-compatible data/);
+      expect(() => toKernelSpec(candidate as unknown as FlowSpec)).toThrow(
+        /JSON-compatible data/,
+      );
+    }
+    expect(accessorReads).toBe(0);
+    expect(toJsonCalls).toBe(0);
+  });
+
+  it('accepts both boolean JSON Schemas exactly as the kernel does', () => {
+    for (const schema of [true, false]) {
+      const candidate = {
+        version: '0.1.0',
+        steps: [{
+          id: 'schema',
+          type: 'llm',
+          prompt: 'answer',
+          verification: { type: 'json_schema', schema },
+        }],
+      };
+      const compiled = compileSpec(candidate);
+      expect(toKernelSpec(compiled).steps[0]?.verification.json_schema).toBe(schema);
+    }
+  });
+
   it('preflights the same valid and invalid JSON Schemas as the kernel', () => {
-    const candidate = (schema: Record<string, unknown>) => ({
+    const candidate = (schema: unknown) => ({
       version: '0.1.0',
       steps: [{
         id: 'schema',

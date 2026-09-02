@@ -10,6 +10,7 @@ pub mod event;
 pub mod journal;
 pub mod machine;
 pub mod retry;
+mod schema;
 pub mod spec;
 pub mod state;
 pub mod verify;
