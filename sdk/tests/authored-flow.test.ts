@@ -226,4 +226,164 @@ describe('authored flow journal executor', () => {
       completionReason: 'success',
     });
   });
+
+  it('rechecks terminal state when a precreated lazy step first starts', async () => {
+    const client = new JournalClient(path, { requestTimeoutMs: 2000 });
+    await client.connect();
+    await client.hello('authored-flow-precreated-after-done-test');
+    const startedBefore = startedSpecs.length;
+    const cases = [
+      flow('precreated-run-after-done', async (f) => {
+        const pending = f.run('printf must-not-run');
+        f.done('success');
+        await pending;
+      }),
+      flow('precreated-llm-after-done', async (f) => {
+        const pending = f.llm`must not run`;
+        f.done('success');
+        await pending;
+      }),
+      flow('precreated-agent-after-done', async (f) => {
+        const pending = f.agent('worker', { task: 'must not run' });
+        f.done('success');
+        await pending;
+      }),
+    ];
+
+    try {
+      for (const handle of cases) {
+        await expect(executeAuthoredFlow(handle, client)).rejects.toMatchObject({
+          code: 'operation_after_completion',
+          completionReason: 'success',
+        });
+      }
+      expect(startedSpecs).toHaveLength(startedBefore);
+    } finally {
+      client.close();
+    }
+  });
+
+  it('refuses manually chained work even when it settles before the body returns', async () => {
+    const client = new JournalClient(path, { requestTimeoutMs: 2000 });
+    await client.connect();
+    await client.hello('authored-flow-manual-chain-test');
+
+    const cases = [
+      {
+        handle: flow('manual-run-chain', async (f) => {
+          f.run('printf manually-started').then(() => undefined);
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          f.done('success');
+        }),
+        code: 'unawaited_step',
+      },
+      {
+        handle: flow('manual-llm-chain', async (f) => {
+          f.llm`unsupported`.then(undefined, () => undefined);
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          f.done('success');
+        }),
+        code: 'unsupported_verb',
+      },
+      {
+        handle: flow('manual-agent-chain', async (f) => {
+          f.agent('worker', { task: 'unsupported' }).then(undefined, () => undefined);
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          f.done('success');
+        }),
+        code: 'unsupported_verb',
+      },
+    ];
+
+    try {
+      for (const testCase of cases) {
+        await expect(executeAuthoredFlow(testCase.handle, client)).rejects.toMatchObject({
+          code: testCase.code,
+        });
+      }
+    } finally {
+      client.close();
+    }
+  });
+
+  it('refuses forgotten work even when the body remains open long enough to settle it', async () => {
+    const client = new JournalClient(path, { requestTimeoutMs: 2000 });
+    await client.connect();
+    await client.hello('authored-flow-forgotten-settled-test');
+    const startedBefore = startedSpecs.length;
+
+    try {
+      await expect(executeAuthoredFlow(flow('forgotten-settled', async (f) => {
+        f.run('printf forgotten-settled');
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        f.done('success');
+      }), client)).rejects.toMatchObject({ code: 'unawaited_step' });
+      expect(startedSpecs).toHaveLength(startedBefore);
+    } finally {
+      client.close();
+    }
+  });
+
+  it('retains root operation failures even when a derived rejection handler consumes them', async () => {
+    const client = new JournalClient(path, { requestTimeoutMs: 2000 });
+    await client.connect();
+    await client.hello('authored-flow-consumed-rejection-test');
+
+    const cases = [
+      {
+        handle: flow('consumed-run-rejection', async (f) => {
+          f.run('false').then(undefined, () => 'consumed');
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          f.done('success');
+        }),
+        code: 'step_failed',
+      },
+      {
+        handle: flow('consumed-llm-rejection', async (f) => {
+          f.llm`unsupported`.then(undefined, () => 'consumed');
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          f.done('success');
+        }),
+        code: 'unsupported_verb',
+      },
+      {
+        handle: flow('consumed-agent-rejection', async (f) => {
+          f.agent('worker', { task: 'unsupported' }).then(undefined, () => 'consumed');
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          f.done('success');
+        }),
+        code: 'unsupported_verb',
+      },
+    ];
+
+    try {
+      for (const testCase of cases) {
+        await expect(executeAuthoredFlow(testCase.handle, client)).rejects.toMatchObject({
+          code: testCase.code,
+        });
+      }
+    } finally {
+      client.close();
+    }
+  });
+
+  it('captures a rejected derived callback instead of leaking unhandled success', async () => {
+    const client = new JournalClient(path, { requestTimeoutMs: 2000 });
+    await client.connect();
+    await client.hello('authored-flow-derived-rejection-test');
+
+    try {
+      await expect(executeAuthoredFlow(flow('derived-rejection', async (f) => {
+        f.run('printf callback-source')
+          .then(() => 'first derived value')
+          .then(() => {
+            throw new Error('derived callback exploded');
+          });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        f.done('success');
+      }), client)).rejects.toMatchObject({ code: 'operation_callback_failed' });
+    } finally {
+      client.close();
+    }
+  });
 });

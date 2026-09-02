@@ -196,5 +196,26 @@ describe("flow", () => {
     expect(() => getFlowDefinition(Object.freeze(completeForgery))).toThrow(
       "expected an @relayflows/surface flow handle",
     );
+
+    const genuine = flow("genuine", async () => undefined);
+    const reflectedSymbols = Object.getOwnPropertySymbols(genuine);
+    expect(reflectedSymbols).toEqual([]);
+
+    const reflectedForgery = { name: "reflected-forgery" };
+    for (const symbol of reflectedSymbols) {
+      Object.defineProperty(reflectedForgery, symbol, {
+        value: Object.freeze({
+          name: "reflected-forgery",
+          header: Object.freeze({}),
+          body: async () => undefined,
+        }),
+        enumerable: false,
+        configurable: false,
+        writable: false,
+      });
+    }
+    expect(() => getFlowDefinition(Object.freeze(reflectedForgery))).toThrow(
+      "expected an @relayflows/surface flow handle",
+    );
   });
 });
