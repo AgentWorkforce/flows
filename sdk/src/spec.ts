@@ -157,8 +157,8 @@ export type StepSpec = DeterministicStepSpec | LlmStepSpec | AgentStepSpec;
 /**
  * Reusable authoring declaration for an agent CLI/model pair. Both fields are
  * required so selecting a named agent can never inherit a host model. The
- * compiler lowers these values into the selected `AgentStepSpec`; the kernel
- * never receives this map or a new step field.
+ * compiler lowers these values into the selected kernel agent step at the
+ * journal boundary; the kernel never receives this map or a new step field.
  */
 export interface NamedAgentSpec {
   cli: string;

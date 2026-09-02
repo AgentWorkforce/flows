@@ -68,7 +68,10 @@ export function compileSpec(spec: unknown): FlowSpec {
   if (!validation.ok) throw new CompileError(validation.errors);
 
   const input = spec as FlowSpec;
-  const steps = input.steps.map((step) => compileStep(resolveNamedAgent(step, input.agents)));
+  // Preserve named declarations and selectors through authoring normalization.
+  // They are resolved exactly once at the kernel boundary, after public
+  // preflight has validated every declaration with truthful provenance.
+  const steps = input.steps.map(compileStep);
   const flow: FlowSpec = {
     version: input.version,
     ...(input.name !== undefined ? { name: input.name } : {}),
@@ -134,8 +137,8 @@ function compileStep(step: StepSpec): StepSpec {
 }
 
 /**
- * Resolve declarative named-agent sugar before normalization or kernel
- * lowering. Explicit step fields win independently, so an author may override
+ * Resolve declarative named-agent sugar at kernel lowering. Explicit step
+ * fields win independently, so an author may override
  * only the CLI or only the model. The selector and declaration map never
  * cross the journal boundary.
  */

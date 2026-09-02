@@ -123,6 +123,9 @@ No process runs between events: the handler wakes, executes to its next await, p
    `flows check` resolves the binary (a path is relative to the declaring flow
    or project config; a bare name resolves via `PATH`) and caches each resolved
    `(cli, source, model)` probe. A missing executable is `cli_missing`. A probe
+   that succeeds for a relative path binds its canonical absolute executable
+   into the checked step before journal submission, so a worker running from a
+   different directory identifies and executes the same binary. A probe
    that cannot start, is signaled, or exceeds its adapter timeout is
    `probe_failed`, with a classified diagnostic rather than a raw process
    error. Every subprocess starts with ambient `RELAYFLOW_MODEL` removed;

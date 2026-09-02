@@ -5,13 +5,13 @@ import type {
 } from './failure-kinds.js';
 import { validateSpec } from './validate.js';
 
-export type CliResolutionSource = 'step' | 'flow' | 'project';
+export type CliResolutionSource = 'step' | 'named' | 'flow' | 'project';
 
 export interface CliResolution {
   stepId: string;
   cli: string;
   source: CliResolutionSource;
-  /** Model the step declared, probed together with the CLI. */
+  /** Model the step or selected named agent declared, probed with the CLI. */
   model?: string;
 }
 
@@ -172,12 +172,6 @@ function unknownModelDiagnostics(
 
   for (const step of flow.steps) {
     if (step.type === 'deterministic' || step.model === undefined) continue;
-    const selected = step.type === 'agent' && step.agent !== undefined
-      ? flow.agents?.[step.agent]
-      : undefined;
-    // compileSpec copies a selected declaration onto the step. The declaration
-    // was already checked above; only a different value is an inline override.
-    if (selected?.model === step.model) continue;
     if (isKnownModel(step.model, options.models)) continue;
     const resolution = resolveCli(step, flow, options.projectCli);
     diagnostics.push({
@@ -236,11 +230,15 @@ function resolveCli(
   flow: FlowSpec,
   projectCli: string | undefined,
 ): CliResolution | undefined {
-  // Model is a step-level declaration only — there is deliberately no flow or
-  // project default. A CLI inheriting a model from two levels up is the
-  // ambient-state problem this field exists to remove.
-  const model = step.model !== undefined ? { model: step.model } : {};
+  const named = step.type === 'agent' && step.agent !== undefined
+    ? flow.agents?.[step.agent]
+    : undefined;
+  // Model comes only from the step or its explicitly selected declaration.
+  // There is deliberately no flow/project or host default.
+  const effectiveModel = step.model ?? named?.model;
+  const model = effectiveModel !== undefined ? { model: effectiveModel } : {};
   if (step.cli !== undefined) return { stepId: step.id, cli: step.cli, source: 'step', ...model };
+  if (named !== undefined) return { stepId: step.id, cli: named.cli, source: 'named', ...model };
   if (flow.cli !== undefined) return { stepId: step.id, cli: flow.cli, source: 'flow', ...model };
   if (projectCli !== undefined) return { stepId: step.id, cli: projectCli, source: 'project', ...model };
   return undefined;
@@ -253,7 +251,7 @@ function probeResolvedCli(
   diagnostics: PreflightDiagnostic[],
 ): void {
   // Source is load-bearing: the same relative CLI string resolves from the
-  // flow directory for step/flow declarations and the config directory for
+  // flow directory for step/named/flow declarations and the config directory for
   // project declarations.
   // Model is part of the key: the same CLI probed with two different models
   // is two different questions, and caching on the CLI alone would let a
