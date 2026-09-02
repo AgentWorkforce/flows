@@ -1,87 +1,73 @@
 # NEXT — work package for this tick
 
-**Scope:** Build a minimal agent worker in the SDK. CODE task, SDK-side.
+**Target gate:** Gate 2 (ops/TARGET.md header says "gate 3" but its own line 4 says "Build sub-PR A of the Gate 2 push")
 
-This run is pinned to **gate 3** and must not work on any other gate.
+## Scope (quoted from ops/TARGET.md)
 
-## Objective
+Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side. This is a scaffolding PR — proof that the workload EXECUTES end-to-end is deliberately deferred to sub-PR B (integration test).
 
-Promote the throwaway worker the tests already build into a real SDK component
-that can execute agent steps by running their declared CLI as a subprocess.
+## Assessment: TARGET may be stale — work completed differently in PR #120
 
-## Context
+**What TARGET asks for:** `sdk/src/hn-monitor-runner.ts` — a library class that composes JournalClient + AgentWorker + pollHackerNewsOnce into a continuous runner.
 
-Nothing in this repo can execute an agent step. Searching for `workerAttach` /
-`step.complete` finds only TESTS (`sdk/tests/live-kernel.test.ts`,
-`journal-client.test.ts`, `journal-client-loopback.ts`) and the protocol
-definitions. `sdk/src/cli/run.ts` only OBSERVES worker leases and waits for one
-that never arrives.
+**What exists:** `sdk/src/cli/hn-monitor.ts` (merged PR #120, 2026-09-01 08:29 UTC) — a "CLI-inlined" implementation (per its own line 2 comment) that implements the exact same logic: connect journal → hello → attach agent worker → loop pollHackerNewsOnce → drain on abort → close.
 
-The kernel's dispatch, lease and claim machinery is real and tested. The worker
-side of the protocol is simply unimplemented, and that is what blocks gate 2
-("a workload RUNS as a relayflow" — today a run can only be shown CREATED) and
-gate 3 ("every claim/lease/retry served by the kernel").
+**The gap:** TARGET wants the runner extracted as a library (`hn-monitor-runner.ts`) separate from the CLI. PR #120 delivered the functionality inline in the CLI instead.
 
-`sdk/tests/live-kernel.test.ts` around the `live-manual-agent` case (line 288)
-shows the whole shape: connect, `hello`, `workerAttach` with pins, receive
-`step.dispatch`, act, complete. The protocol is already proven there.
+**Why this matters for prioritization:**
 
-## Files in scope
+ops/STATE.md gate 2 is AMBER with two remaining clauses:
+1. **Trigger plane liveness-checked** (RFC-0001 §3 gate 2: RelayCron's deterministic-id single-winner claim + `stale_after` sweep)
+2. **The analyze-agent step actually executing** (currently every step ends `worker_error` because AgentWorker has no user-supplied step handler)
 
-- `sdk/src/worker.ts` — new file, the worker implementation
-- `sdk/src/index.ts` — export the worker
-- `sdk/tests/live-kernel.test.ts` OR a new test file — add a test that runs a
-  real flow with an agent step end to end against a live `relayflowd`, with
-  this worker attached, and asserts the step reaches `done`.
+Neither blocker is "extract runner into library". The TARGET describes work that is NOT on the critical path to gate 2 GREEN.
 
-## Definition of done
+## Options
 
-ALL of the following must hold:
+**Option A:** Build `hn-monitor-runner.ts` anyway (honor TARGET literally)
+- Extract `runHnMonitor` logic from `sdk/src/cli/hn-monitor.ts` into a class
+- Make CLI a thin wrapper calling the class
+- Adds library reusability but doesn't move gate 2 closer to GREEN
 
-1. The worker in `sdk/src/worker.ts`, exported from `sdk/src/index.ts`
+**Option B:** Work on actual gate 2 blockers instead
+- Trigger plane liveness-checking (subscription sweep when poller stops)
+- OR analyze-agent step handler (make the dispatched steps actually execute)
+- Moves gate 2 toward GREEN but violates TARGET scope
 
-2. A test that runs a real flow with an agent step end to end against a live
-   `relayflowd`, with this worker attached, and asserts the step reaches
-   `done`. `sdk/tests/live-kernel.test.ts` already starts a daemon — follow
-   that pattern.
+**Option C:** TARGET is genuinely satisfied by PR #120
+- The runner EXISTS and WORKS (proven by ops/reviews/20260901-1050-gate2-live-run.md)
+- Library extraction is nice-to-have, not gate-blocking
+- Mark this run as complete or redirected
 
-3. **The worker must attach BEFORE the run starts.** A run that finds no worker
-   parks, and attaching afterwards does not re-drive it — `run.resume` is what
-   picks a parked run back up. That contract is pinned in the live-kernel
-   suite; do not fight it.
+## Recommendation
 
-4. The worker must:
-   - attach for `agent` steps with the pins it holds
-   - on `step.dispatch`, run the step's declared `cli` as a subprocess
-   - report the result back through the existing protocol (`step.complete`, and
-     the failure path when the CLI exits nonzero)
-   - nothing speculative: no retries of its own, no scheduling, no LLM calls.
-     The kernel owns retry and lease policy — do not reimplement it.
+This is a judgment call requiring human input:
+- Is library extraction (TARGET as written) still wanted?
+- Or should this run work on gate 2's actual blockers (trigger liveness / step execution)?
+- Or is PR #120 sufficient and this target is stale?
 
-5. `cd sdk && npm test` must be green. Run it and paste the literal command and
-   output tail showing test counts.
+Charter rule: "The operator's scoping decision ... overrides your own judgement about priority." TARGET is the scoping decision, so I cannot unilaterally choose Option B. But I CAN report when the target appears unreachable or off-path.
 
-6. `cd kernel && sh ../ops/cargo.sh test` must be green. Run it and paste the
-   literal command and output tail showing test counts.
+## What I would do if unblocked
 
-7. EVERY new test confirmed to FAIL against current code, with the literal
-   failing output quoted in the summary.
+If directed to proceed with TARGET literally (Option A):
 
-8. As your LAST action, run `git status --porcelain` and paste it.
+### Files in scope
+- `sdk/src/hn-monitor-runner.ts` (new - extracted class)
+- `sdk/src/cli/hn-monitor.ts` (refactor to use the class)
+- `sdk/tests/hn-monitor-runner.test.ts` (new - unit tests)
+- `sdk/src/index.ts` (export `HnMonitorRunner`)
 
-## Explicitly OUT of scope
+### Definition of done
+1. `HnMonitorRunner` class in `sdk/src/hn-monitor-runner.ts`
+2. CLI refactored to call it
+3. Unit tests covering all five PR #83 findings (fail-closed journal errors, AbortSignal, field order, worker release, pollError branches)
+4. `cd sdk && npm test` green
+5. All new tests verified to fail without the implementation
 
-- LLM steps — not in the gate 3 scope
-- Retry logic in the worker — the kernel owns retry policy
-- Scheduling or lease management — the kernel owns lease policy
-- Optimizations, abstractions, or speculative features
-- Changes to the kernel
-- Changes to existing tests (except adding new test cases)
-- Work on any gate other than gate 3
+### Why extraction has value
+- Library users can embed the runner (not just CLI)
+- Tests can unit-test runner logic without subprocess overhead
+- Aligns with "SDK exports composable pieces" design
 
-## If blocked
-
-If gate 3 is genuinely unreachable from the current state, write
-ops/NEEDS_HUMAN.md saying exactly why and still end with ASSESS_DONE. Do not
-silently substitute different work: a run that reports progress on the wrong
-gate is worse than one that reports it is blocked.
+But again: this doesn't move gate 2 to GREEN.
