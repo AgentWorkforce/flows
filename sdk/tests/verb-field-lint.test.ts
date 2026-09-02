@@ -16,11 +16,7 @@ import {
   type PreflightProbes,
 } from '../src/preflight.js';
 import type { FlowSpec, StepType } from '../src/spec.js';
-import {
-  AGENT_DECLARATION_FIELDS,
-  FLOW_FIELDS,
-  STEP_FIELDS_BY_TYPE,
-} from '../src/step-fields.js';
+import { STEP_COMMON_FIELDS, STEP_FIELDS_BY_TYPE } from '../src/step-fields.js';
 import { validateSpec } from '../src/validate.js';
 
 type RawSpec = Record<string, unknown> & {
@@ -62,8 +58,8 @@ const VALID_STEP_BY_TYPE: Record<StepType, Record<string, unknown>> = {
 };
 
 const VERB_FIELD_VALUES: Record<string, unknown> = {
-  agent: 'reviewer',
   command: 'printf foreign',
+  timeoutMs: 1_000,
   prompt: 'foreign prompt',
   model: 'foreign-model',
   cli: 'foreign-cli',
@@ -128,7 +124,7 @@ function probes(onProbe: () => void): PreflightProbes {
   return {
     cli: () => {
       onProbe();
-      return { exists: true, authenticated: true, modelAvailable: true };
+      return { exists: true, authenticated: true };
     },
     executor: () => {
       onProbe();
@@ -143,19 +139,22 @@ function probes(onProbe: () => void): PreflightProbes {
 
 describe('closed per-verb step fields', () => {
   it('pins the per-verb descriptor and generates every foreign-field pair from it', () => {
-    expect(FLOW_FIELDS).toEqual([
-      'version', 'name', 'description', 'cli', 'agents', 'triggers', 'steps', 'budget',
+    expect(STEP_COMMON_FIELDS).toEqual([
+      'id',
+      'type',
+      'dependsOn',
+      'verification',
+      'maxIterations',
     ]);
-    expect(AGENT_DECLARATION_FIELDS).toEqual(['cli', 'model']);
     expect(STEP_FIELDS_BY_TYPE).toEqual({
-      deterministic: ['command'],
+      deterministic: ['command', 'timeoutMs'],
       llm: ['prompt', 'model', 'cli'],
-      agent: ['instruction', 'agent', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions'],
+      agent: ['instruction', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions'],
     });
     expect(CROSS_VERB_STEP_FIELDS.map(({ label }) => label).sort()).toEqual([
       'agent foreign command',
       'agent foreign prompt',
-      'deterministic foreign agent',
+      'agent foreign timeoutMs',
       'deterministic foreign cli',
       'deterministic foreign instruction',
       'deterministic foreign model',
@@ -163,12 +162,12 @@ describe('closed per-verb step fields', () => {
       'deterministic foreign prompt',
       'deterministic foreign recoveryMode',
       'deterministic foreign surfaces',
-      'llm foreign agent',
       'llm foreign command',
       'llm foreign instruction',
       'llm foreign permissions',
       'llm foreign recoveryMode',
       'llm foreign surfaces',
+      'llm foreign timeoutMs',
     ]);
   });
 
@@ -297,7 +296,6 @@ describe('closed per-verb step fields', () => {
       version: '0.1.0',
       name: 'valid-v1',
       cli: 'flow-cli',
-      agents: { reviewer: { cli: 'named-cli', model: 'named-model' } },
       steps: [
         {
           id: 'prepare',
@@ -321,7 +319,6 @@ describe('closed per-verb step fields', () => {
         {
           id: 'act',
           type: 'agent',
-          agent: 'reviewer',
           instruction: 'act',
           model: 'project-model',
           cli: 'agent-cli',
@@ -353,10 +350,7 @@ describe('closed per-verb step fields', () => {
       'agent',
     ]);
 
-    const result = preflight(valid, {
-      models: ['named-model', 'project-model'],
-      probes: probes(() => {}),
-    });
+    const result = preflight(valid, { probes: probes(() => {}) });
     expect(result.ok).toBe(true);
     expect(result.resolutions).toEqual([
       { stepId: 'answer', cli: 'llm-cli', source: 'step', model: 'project-model' },

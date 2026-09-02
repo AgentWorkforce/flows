@@ -17,16 +17,8 @@ import type {
   VerificationSpec,
 } from './spec.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
-import { validateOutputDeclaration } from './output-schema.js';
-import { modelNameError } from './model-name.js';
-import { unknownKeyErrors } from './unknown-keys.js';
 import { stepDependencyErrors } from './step-dependencies.js';
-import {
-  AGENT_DECLARATION_FIELDS,
-  FLOW_FIELDS,
-  STEP_COMMON_FIELDS,
-  STEP_FIELDS_BY_TYPE,
-} from './step-fields.js';
+import { STEP_COMMON_FIELDS, STEP_FIELDS_BY_TYPE } from './step-fields.js';
 
 export interface ValidationResult {
   ok: boolean;
@@ -257,16 +249,6 @@ class Validator {
       this.fail(`${at}.maxIterations: expected a positive integer`);
     }
 
-    if (st['timeoutMs'] !== undefined && !isPosInt(st['timeoutMs'])) {
-      this.fail(`${at}.timeoutMs: expected a positive integer`);
-    }
-    if (st['timeoutMs'] !== undefined && type !== 'deterministic') {
-      // The v0.1.0 spec dialect carries timeout_ms on deterministic steps
-      // only; llm/agent timeouts land with worker dispatch. Fail closed
-      // rather than silently drop the field.
-      this.fail(`${at}.timeoutMs: only deterministic steps carry a timeout in spec v0.1.0`);
-    }
-
     if (type === 'deterministic') {
       this.validateDeterministic(st as unknown as DeterministicStepSpec, at);
     } else if (type === 'llm') {
@@ -310,6 +292,9 @@ class Validator {
   private validateDeterministic(st: DeterministicStepSpec, at: string): void {
     if (!isNonEmptyString(st.command)) {
       this.fail(`${at}.command: expected a non-empty string`);
+    }
+    if (st.timeoutMs !== undefined && !isPosInt(st.timeoutMs)) {
+      this.fail(`${at}.timeoutMs: expected a positive integer`);
     }
   }
 
