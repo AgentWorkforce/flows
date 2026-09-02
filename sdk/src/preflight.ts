@@ -107,6 +107,16 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
   const resolutions: CliResolution[] = [];
   const cliProbeResults = new Map<string, CliProbeOutcome>();
 
+  diagnostics.push(...unknownModelDiagnostics(compiled, options));
+  if (diagnostics.length > 0) {
+    return {
+      ok: false,
+      gates: compiled.steps.map(inspectStepGate),
+      resolutions,
+      diagnostics,
+    };
+  }
+
   for (const step of compiled.steps) {
     warnOnUnprovableEffects(step, options.probes, diagnostics);
     if (step.type === 'deterministic') continue;

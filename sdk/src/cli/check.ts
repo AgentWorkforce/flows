@@ -68,7 +68,9 @@ export function checkFlow(path: string): CheckExecution {
   } catch (error) {
     const failure = error instanceof CheckFailure
       ? error
-      : new CheckFailure('invalid_spec', `Flow "${path}" could not be checked as a Relayflow spec.`);
+      : error instanceof CompileError
+        ? new CheckFailure('invalid_spec', error.errors.join('; '))
+        : new CheckFailure('invalid_spec', `Flow "${path}" could not be checked as a Relayflow spec.`);
     return { report: inputFailureReport(failure, path) };
   }
 }
@@ -109,7 +111,9 @@ export function checkAuthoredFlow(authoring: FlowSpec, path: string): CheckExecu
   } catch (error) {
     const failure = error instanceof CheckFailure
       ? error
-      : new CheckFailure('invalid_spec', `Flow "${path}" could not be checked as a Relayflow spec.`);
+      : error instanceof CompileError
+        ? new CheckFailure('invalid_spec', error.errors.join('; '))
+        : new CheckFailure('invalid_spec', `Flow "${path}" could not be checked as a Relayflow spec.`);
     return { report: inputFailureReport(failure, path) };
   }
 }

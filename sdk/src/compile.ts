@@ -26,6 +26,7 @@ import type {
   KernelVerificationSpec,
   LlmStepSpec,
   NamedAgentSpec,
+  OutputVerificationSpec,
   StepSpec,
   StepType,
 } from './spec.js';
@@ -96,7 +97,6 @@ export function compileSpec(spec: unknown): FlowSpec {
 
 function compileStep(step: StepSpec): StepSpec {
   const maxIterations = step.maxIterations ?? 1;
-  const verification = typedOutputVerification(step);
   const base = {
     id: step.id,
     type: step.type,
@@ -119,23 +119,26 @@ function compileStep(step: StepSpec): StepSpec {
     }
     case 'llm': {
       const s = step as LlmStepSpec;
+      const verification = typedOutputVerification(s);
       return {
         ...base,
         type: 'llm',
         prompt: s.prompt,
-        ...(s.verification !== undefined ? { verification: s.verification } : {}),
+        ...(verification !== undefined ? { verification } : {}),
         ...(s.model !== undefined ? { model: s.model } : {}),
         ...(s.cli !== undefined ? { cli: s.cli } : {}),
       };
     }
     case 'agent': {
       const s = step as AgentStepSpec;
+      const verification = typedOutputVerification(s);
       const recoveryMode = s.recoveryMode ?? 'reset';
       return {
         ...base,
         type: 'agent',
         instruction: s.instruction,
-        ...(s.verification !== undefined ? { verification: s.verification } : {}),
+        ...(verification !== undefined ? { verification } : {}),
+        ...(s.agent !== undefined ? { agent: s.agent } : {}),
         ...(s.cli !== undefined ? { cli: s.cli } : {}),
         ...(s.model !== undefined ? { model: s.model } : {}),
         recoveryMode,
@@ -149,8 +152,10 @@ function compileStep(step: StepSpec): StepSpec {
   }
 }
 
-function typedOutputVerification(step: StepSpec): StepSpec['verification'] {
-  if (step.type !== 'deterministic' && step.output !== undefined) {
+function typedOutputVerification(
+  step: LlmStepSpec | AgentStepSpec,
+): OutputVerificationSpec | undefined {
+  if (step.output !== undefined) {
     const errors = validateOutputDeclaration(step, `step "${step.id}"`);
     if (errors.length > 0) throw new CompileError(errors);
     return { type: 'json_schema', schema: step.output };
@@ -209,7 +214,7 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
     ...(compiled.description !== undefined ? { description: compiled.description } : {}),
     ...(compiled.cli !== undefined ? { cli: compiled.cli } : {}),
     ...(compiled.triggers?.length ? { triggers: compiled.triggers } : {}),
-    steps: compiled.steps.map(toKernelStep),
+    steps: compiled.steps.map((step) => toKernelStep(resolveNamedAgent(step, compiled.agents))),
     ...(compiled.budget !== undefined
       ? {
           budget: {

@@ -115,6 +115,8 @@ export interface DeterministicStepSpec extends BaseStepSpec {
   command: string;
   /** Omit to get the implicit `exit_code` gate. */
   verification?: VerificationSpec;
+  /** Wall-clock command timeout; worker-backed verbs own their dispatch timeout. */
+  timeoutMs?: number;
 }
 
 /**
@@ -146,6 +148,8 @@ export interface AgentStepSpec extends BaseStepSpec {
   type: 'agent';
   instruction: string;
   verification?: OutputVerificationSpec;
+  /** Named authoring declaration selected from `FlowSpec.agents`. Compiled away. */
+  agent?: string;
   /** Inert preflight declaration; overrides the flow/project CLI default. */
   cli?: string;
   /**
