@@ -10,7 +10,9 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  rename,
   rm,
+  stat,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -24,10 +26,11 @@ const REQUIRED_EXECUTABLES = ['bin/flows', 'bin/relayflowd'];
 export async function buildCloudArtifact(options) {
   assertSourceCommit(options.sourceCommit);
   const relayflowd = resolve(options.relayflowd);
-  const flowsRuntime = resolve(options.flowsRuntime);
+  const flowsExecutable = resolve(options.flowsExecutable);
   await assertRegularFile(relayflowd);
-  await assertRegularFile(flowsRuntime);
+  await assertRegularFile(flowsExecutable);
   await assertLinuxX64Elf(relayflowd);
+  await assertLinuxX64Elf(flowsExecutable, 'flows');
 
   const outputDir = resolve(options.outputDir);
   await mkdir(outputDir, { recursive: true });
@@ -35,25 +38,25 @@ export async function buildCloudArtifact(options) {
   const stage = join(stageParent, 'runtime');
   try {
     await mkdir(join(stage, 'bin'), { recursive: true });
-    await mkdir(join(stage, 'lib'), { recursive: true });
     await copyFile(relayflowd, join(stage, 'bin', 'relayflowd'));
-    await copyFile(flowsRuntime, join(stage, 'lib', 'flows-cli.mjs'));
-    await writeFile(
-      join(stage, 'bin', 'flows'),
-      '#!/bin/sh\nexec node "$(dirname "$0")/../lib/flows-cli.mjs" "$@"\n',
-      { mode: 0o755 },
-    );
+    await copyFile(flowsExecutable, join(stage, 'bin', 'flows'));
     await chmod(join(stage, 'bin', 'relayflowd'), 0o755);
-    await chmod(join(stage, 'lib', 'flows-cli.mjs'), 0o644);
+    await chmod(join(stage, 'bin', 'flows'), 0o755);
 
     const manifest = await createManifest(stage, options.sourceCommit);
     await writeFile(join(stage, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
     await verifyArtifactDirectory(stage);
 
-    const fileName = `relayflow-v2-${options.sourceCommit}-linux-x64.tar.gz`;
+    const temporaryArchivePath = join(
+      outputDir,
+      `.relayflow-v2-${options.sourceCommit}-${process.pid}.tar.gz.tmp`,
+    );
+    run('tar', ['-czf', temporaryArchivePath, '-C', stage, '.']);
+    const archiveSha256 = await sha256File(temporaryArchivePath);
+    const fileName =
+      `relayflow-v2-${options.sourceCommit}-${archiveSha256.slice(0, 16)}-linux-x64.tar.gz`;
     const archivePath = join(outputDir, fileName);
-    run('tar', ['-czf', archivePath, '-C', stage, '.']);
-    const archiveSha256 = await sha256File(archivePath);
+    await rename(temporaryArchivePath, archivePath);
     const checksumPath = `${archivePath}.sha256`;
     await writeFile(checksumPath, `${archiveSha256}  ${fileName}\n`);
     return { archivePath, checksumPath, archiveSha256, manifest };
@@ -63,6 +66,9 @@ export async function buildCloudArtifact(options) {
 }
 
 export async function verifyCloudArtifact(archivePath, expectedSha256) {
+  // expectedSha256 is a trust input supplied independently by the artifact
+  // publisher. This detects corruption or substitution relative to that trusted
+  // digest; it does not authenticate an archive and its sibling checksum file.
   const archive = resolve(archivePath);
   await assertRegularFile(archive);
   if (!SHA256.test(expectedSha256)) {
@@ -100,6 +106,10 @@ export async function verifyArtifactDirectory(root) {
     if (actualSha256 !== file.sha256) {
       throw new Error(`file sha256 mismatch for ${file.path}`);
     }
+    const actualExecutable = ((await stat(path)).mode & 0o111) !== 0;
+    if (actualExecutable !== file.executable) {
+      throw new Error(`executable mode mismatch for ${file.path}`);
+    }
   }
   for (const required of REQUIRED_EXECUTABLES) {
     const entry = manifest.files.find((file) => file.path === required);
@@ -121,7 +131,7 @@ async function createManifest(root, sourceCommit) {
       paths.map(async (path) => ({
         path,
         sha256: await sha256File(join(root, path)),
-        executable: REQUIRED_EXECUTABLES.includes(path),
+        executable: ((await stat(join(root, path))).mode & 0o111) !== 0,
       })),
     ),
   };
@@ -171,12 +181,12 @@ async function listFiles(root, prefix = '') {
 
 async function assertRegularFile(path) {
   const stat = await lstat(path);
-  if (!stat.isFile() || stat.isSymbolicLink()) {
+  if (!stat.isFile()) {
     throw new Error(`expected regular file: ${path}`);
   }
 }
 
-async function assertLinuxX64Elf(path) {
+async function assertLinuxX64Elf(path, executableName = 'relayflowd') {
   const header = (await readFile(path)).subarray(0, 20);
   const isElf64X64 =
     header.length === 20 &&
@@ -188,7 +198,7 @@ async function assertLinuxX64Elf(path) {
     header[5] === 1 &&
     header.readUInt16LE(18) === 62;
   if (!isElf64X64) {
-    throw new Error('relayflowd must be a little-endian Linux x86-64 ELF binary');
+    throw new Error(`${executableName} must be a little-endian Linux x86-64 ELF binary`);
   }
 }
 
@@ -211,12 +221,25 @@ function run(command, args) {
 
 function parseArgs(args) {
   const command = args[0];
+  const required =
+    command === 'build'
+      ? ['relayflowd', 'flows-executable', 'output-dir', 'source-commit']
+      : command === 'verify'
+        ? ['archive', 'sha256']
+        : null;
+  if (!required) throw new Error('usage: cloud-artifact.mjs build|verify [options]');
   const values = {};
   for (let index = 1; index < args.length; index += 2) {
     const name = args[index];
     const value = args[index + 1];
     if (!name?.startsWith('--') || value === undefined) throw new Error('invalid arguments');
-    values[name.slice(2)] = value;
+    const option = name.slice(2);
+    if (!required.includes(option)) throw new Error(`unknown option --${option} for ${command}`);
+    if (values[option] !== undefined) throw new Error(`duplicate option --${option}`);
+    values[option] = value;
+  }
+  for (const option of required) {
+    if (values[option] === undefined) throw new Error(`missing required option --${option}`);
   }
   return { command, values };
 }
@@ -226,7 +249,7 @@ async function main(args) {
   if (command === 'build') {
     const result = await buildCloudArtifact({
       relayflowd: values.relayflowd,
-      flowsRuntime: values['flows-runtime'],
+      flowsExecutable: values['flows-executable'],
       outputDir: values['output-dir'],
       sourceCommit: values['source-commit'],
     });

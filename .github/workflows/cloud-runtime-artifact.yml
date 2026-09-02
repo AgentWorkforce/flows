@@ -9,6 +9,7 @@ on:
       - "sdk/**"
       - "scripts/cloud-artifact.mjs"
       - "scripts/cloud-artifact.test.mjs"
+      - "testdata/**"
 
 permissions:
   contents: read
@@ -19,6 +20,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          # PR workflows otherwise build GitHub's ephemeral merge ref and stamp
+          # a provenance SHA that can disappear after the PR closes.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -37,22 +42,24 @@ jobs:
         working-directory: kernel
         run: cargo build --locked --release -p relayflowd
 
-      - name: Bundle flows CLI
+      - name: Build standalone flows CLI
         run: |
           npm ci --prefix sdk
           mkdir -p dist/cloud-artifact-input
           bun build sdk/src/cli.ts \
-            --target=node \
-            --outfile=dist/cloud-artifact-input/flows-cli.mjs
+            --compile \
+            --target=bun-linux-x64 \
+            --outfile=dist/cloud-artifact-input/flows
 
-      - name: Assemble and verify artifact
+      - name: Assemble artifact and smoke verifier path
+        env:
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          source_commit="$(git rev-parse HEAD)"
           node scripts/cloud-artifact.mjs build \
             --relayflowd kernel/target/release/relayflowd \
-            --flows-runtime dist/cloud-artifact-input/flows-cli.mjs \
+            --flows-executable dist/cloud-artifact-input/flows \
             --output-dir dist/cloud-artifact \
-            --source-commit "$source_commit"
+            --source-commit "$SOURCE_COMMIT"
           archive="$(find dist/cloud-artifact -name '*.tar.gz' -type f -print -quit)"
           checksum="$(awk '{print $1}' "$archive.sha256")"
           node scripts/cloud-artifact.mjs verify \
@@ -69,7 +76,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: relayflow-v2-linux-x64-${{ github.sha }}
+          name: relayflow-v2-linux-x64-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             dist/cloud-artifact/*.tar.gz
             dist/cloud-artifact/*.sha256
