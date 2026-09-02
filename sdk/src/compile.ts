@@ -195,8 +195,12 @@ const KERNEL_RETRY_DEFAULTS = {
  * sugar that the dialect cannot carry is a `CompileError`, never a silent drop.
  */
 export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
-  const validation = validateSpec(flow);
+  // This public boundary is callable without compileSpec. Revalidate here so
+  // runtime values cast to FlowSpec cannot bypass the closed authoring schema
+  // and be silently lowered into weaker kernel verification.
+  const validation: ValidationResult = validateSpec(flow);
   if (!validation.ok) throw new CompileError(validation.errors);
+
   return {
     version: flow.version,
     ...(flow.name !== undefined ? { name: flow.name } : {}),
@@ -499,7 +503,10 @@ function toKernelVerification(step: StepSpec): KernelVerificationSpec {
   // kernel's implicit gate for deterministic steps (kernel DESIGN.md §4).
   if (gate === undefined || gate.type === 'exit_code') return {};
   if (gate.type === 'output_contains') return { output_contains: gate.value };
-  return { json_schema: gate.schema };
+  if (gate.type === 'json_schema') return { json_schema: gate.schema };
+  throw new CompileError([
+    `step "${step.id}".verification.type: expected exit_code | output_contains | json_schema`,
+  ]);
 }
 
 /**
