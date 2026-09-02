@@ -1,11 +1,8 @@
-import { createRequire } from 'node:module';
 import Ajv from 'ajv';
 import AjvDraft4 from 'ajv-draft-04';
 import Ajv2019 from 'ajv/dist/2019.js';
 import Ajv2020 from 'ajv/dist/2020.js';
-
-const require = createRequire(import.meta.url);
-const draft6MetaSchema = require('ajv/dist/refs/json-schema-draft-06.json') as Record<string, unknown>;
+import draft6MetaSchema from 'ajv/dist/refs/json-schema-draft-06.json' with { type: 'json' };
 
 const DRAFT_4 = 'http://json-schema.org/draft-04/schema';
 const DRAFT_6 = 'http://json-schema.org/draft-06/schema';
