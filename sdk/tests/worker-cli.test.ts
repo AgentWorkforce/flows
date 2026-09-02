@@ -128,10 +128,12 @@ process.stdout.write('{"replacement":true}');
     const trusted = makeWrapper(directory, 'trusted-wrapper', `
 const fs = require('node:fs');
 if (process.argv[2] !== '--relayflows-adapter-v1') process.exit(90);
+process.stdout.cork();
 process.stdout.write('relayflows-agent-cli-v1\\n');
 const next = ${JSON.stringify(declared)} + '.next';
 fs.symlinkSync(${JSON.stringify(replacement)}, next);
 fs.renameSync(next, ${JSON.stringify(declared)});
+process.stdout.uncork();
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => { input += chunk; });
@@ -184,7 +186,8 @@ process.stdout.write('relayflows-agent-cli-v1\\n');
 process.stdin.resume();
 process.stdin.on('end', () => {
   process.stdout.write('relayflows-agent-cli-v1-execute\\n');
-  process.stdout.write('x'.repeat(256));
+  process.stdout.write('x'.repeat(80));
+  process.stderr.write('y'.repeat(80));
 });
 `);
 
