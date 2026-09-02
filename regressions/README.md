@@ -14,15 +14,15 @@ A bug is closed when its red case starts failing and its green case starts
 passing, in the same run. Either one alone can lie: a green test that never ran
 red proves nothing about the bug it claims to cover.
 
-## These flows do not run yet, and must not
+## These flows typecheck, but do not run yet
 
 Nothing in this directory is wired into a drive loop, a schedule, or CI. No flow
 declares an `on()` trigger, none is deployed, and nothing outside `regressions/`
 references it except one backlog line in `ops/BACKLOG.md`. They are written
-against `@relayflows/surface` — the v2 authoring surface, which does not exist
-yet. `regressions/surface.d.ts` is a declaration-only slice of it: the exact
-shapes these pairs need, so the file doubles as a requirements list for
-gate-1 SDK work. Delete it when the real surface ships.
+against the real `@relayflows/surface` package. They remain dormant because the
+cloud helpers, placement, principals, and declared failure forms listed below
+belong to later gates; importing the package does not make those substrates
+available at runtime.
 
 ## Running them, once the kernel can
 
@@ -35,7 +35,7 @@ flows run   regressions/<slug>.green.flow.ts   # expected: FAIL while the bug is
 Opt-in typecheck (deliberately *not* part of `cd sdk && npm test`):
 
 ```sh
-cd sdk && npx tsc -p ../regressions/tsconfig.json
+cd surface && npm run typecheck:regressions
 ```
 
 `MANIFEST.json` carries the same table in machine-readable form — slug, required
