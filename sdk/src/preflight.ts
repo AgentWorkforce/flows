@@ -100,29 +100,13 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
   const resolutions: CliResolution[] = [];
   const cliProbeResults = new Map<string, CliProbeOutcome>();
 
-  // Named declarations remain in the normalized authoring object until this
-  // boundary so even unused or step-shadowed models are checked. Return before
-  // any environment probe; toKernelSpec erases the map and selector only after
-  // this authoring preflight has had the chance to fail closed.
-  for (const [agent, declaration] of Object.entries(flow.agents ?? {})) {
-    if (isKnownModel(declaration.model, options.models)) continue;
-    diagnostics.push({
-      severity: 'refusal',
-      kind: 'model_unknown',
-      agent,
-      cli: declaration.cli,
-      model: declaration.model,
-      message: unknownNamedAgentModelMessage(agent, declaration.cli, declaration.model, options.modelRegistryPath),
-    });
-  }
+  diagnostics.push(...unknownModelDiagnostics(flow, options));
   if (diagnostics.length > 0) return { ok: false, resolutions, diagnostics };
 
   for (const step of flow.steps) {
     warnOnUnprovableEffects(step, options.probes, diagnostics);
     if (step.type === 'deterministic') continue;
 
-    const declaredModel = step.model;
-    const modelUnknown = declaredModel !== undefined && !isKnownModel(declaredModel, options.models);
     const resolution = resolveCli(step, flow, options.projectCli);
     if (resolution === undefined) {
       diagnostics.push({
@@ -131,34 +115,9 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
         stepId: step.id,
         message: unresolvedCliMessage(step.id, options),
       });
-      if (modelUnknown && declaredModel !== undefined) {
-        diagnostics.push({
-          severity: 'refusal',
-          kind: 'model_unknown',
-          stepId: step.id,
-          model: declaredModel,
-          message: unknownModelMessage(step.id, declaredModel, undefined, options.modelRegistryPath),
-        });
-      }
       continue;
     }
     resolutions.push(resolution);
-    if (modelUnknown && resolution.model !== undefined) {
-      diagnostics.push({
-        severity: 'refusal',
-        kind: 'model_unknown',
-        stepId: resolution.stepId,
-        cli: resolution.cli,
-        model: resolution.model,
-        message: unknownModelMessage(
-          resolution.stepId,
-          resolution.model,
-          resolution.cli,
-          options.modelRegistryPath,
-        ),
-      });
-      continue;
-    }
     probeResolvedCli(resolution, options.probes, cliProbeResults, diagnostics);
   }
 
@@ -171,6 +130,51 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
     resolutions,
     diagnostics,
   };
+}
+
+/** Pure authoring validation: no executable, command, trigger, or daemon probe. */
+function unknownModelDiagnostics(
+  flow: FlowSpec,
+  options: PreflightOptions,
+): PreflightRefusal[] {
+  const diagnostics: PreflightRefusal[] = [];
+
+  // Named declarations remain in the normalized authoring object until this
+  // boundary so even unused or step-shadowed models are checked. toKernelSpec
+  // erases the map and selector only after this pass has had a chance to fail.
+  for (const [agent, declaration] of Object.entries(flow.agents ?? {})) {
+    if (isKnownModel(declaration.model, options.models)) continue;
+    diagnostics.push({
+      severity: 'refusal',
+      kind: 'model_unknown',
+      agent,
+      cli: declaration.cli,
+      model: declaration.model,
+      message: unknownNamedAgentModelMessage(agent, declaration.cli, declaration.model, options.modelRegistryPath),
+    });
+  }
+
+  for (const step of flow.steps) {
+    if (step.type === 'deterministic' || step.model === undefined) continue;
+    const selected = step.type === 'agent' && step.agent !== undefined
+      ? flow.agents?.[step.agent]
+      : undefined;
+    // compileSpec copies a selected declaration onto the step. The declaration
+    // was already checked above; only a different value is an inline override.
+    if (selected?.model === step.model) continue;
+    if (isKnownModel(step.model, options.models)) continue;
+    const resolution = resolveCli(step, flow, options.projectCli);
+    diagnostics.push({
+      severity: 'refusal',
+      kind: 'model_unknown',
+      stepId: step.id,
+      ...(resolution === undefined ? {} : { cli: resolution.cli }),
+      model: step.model,
+      message: unknownModelMessage(step.id, step.model, resolution?.cli, options.modelRegistryPath),
+    });
+  }
+
+  return diagnostics;
 }
 
 function unknownNamedAgentModelMessage(
