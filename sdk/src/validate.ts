@@ -17,6 +17,7 @@ import type {
   VerificationSpec,
 } from './spec.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
+import { jsonSchemaError } from './json-schema.js';
 
 export interface ValidationResult {
   ok: boolean;
@@ -276,6 +277,11 @@ class Validator {
     } else if (gate.type === 'json_schema') {
       if (!isObject(gate.schema)) {
         this.fail(`${at}.schema: expected a JSON Schema object`);
+      } else {
+        const error = jsonSchemaError(gate.schema);
+        if (error !== undefined) {
+          this.fail(`${at}.schema: invalid JSON Schema: ${error}`);
+        }
       }
     } else {
       this.fail(`${at}.type: expected exit_code | output_contains | json_schema`);

@@ -161,7 +161,8 @@ The data/code split is settled: Relayflows does not have a serializable
 expression language. YAML keeps the existing `verification:` spelling and may
 name only checks that lower to the closed kernel fields available today:
 `exit_code`, `output_contains`, and `json_schema`. `flows check` validates that
-data and prints the exact kernel checks for each step. "Preflightable" means
+data—including compiling JSON Schema declarations with the kernel's supported
+drafts—and prints the exact kernel checks for each step. "Preflightable" means
 the declaration and its parameters are inspectable before execution; it does
 not mean preflight can predict an output that does not exist yet.
 
