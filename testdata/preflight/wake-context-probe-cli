@@ -4,9 +4,8 @@
 // wake-context-absent test to pin the undefined-vs-null
 // invariant AgentWorker documents: a run started without a
 // triggering event must dispatch with no env var set.
-if (process.argv[2] === '--relayflows-adapter-v1') {
-  process.stdout.write('relayflows-agent-cli-v1\n');
-  process.exit(0);
-}
+import { receiveWrapperRequest } from './wrapper-session.mjs';
+
+await receiveWrapperRequest();
 const present = process.env.RELAYFLOW_WAKE_CONTEXT !== undefined;
 process.stdout.write(JSON.stringify({ env_present: present }));

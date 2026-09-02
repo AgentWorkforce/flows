@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -42,6 +43,8 @@ process.stdout.write('{"replacement":true}');
     writeFileSync(trusted, `#!/usr/bin/env node
 const fs = require('node:fs');
 if (process.argv[2] !== '--relayflows-adapter-v1') process.exit(90);
+const ambientModel = process.env.RELAYFLOW_MODEL ?? null;
+const ambientWake = process.env.RELAYFLOW_WAKE_CONTEXT ?? null;
 process.stdout.write('relayflows-agent-cli-v1\\n');
 const next = ${JSON.stringify(declared)} + '.next';
 fs.symlinkSync(${JSON.stringify(replacement)}, next);
@@ -58,18 +61,29 @@ process.stdin.on('end', () => {
     instruction: request.instruction,
     model: request.model,
     wakeContext: request.wakeContext,
+    ambientModel,
+    ambientWake,
+    argv: process.argv.slice(2),
   }));
 });
 `);
     chmodSync(trusted, 0o755);
     symlinkSync(trusted, declared);
 
+    const priorModel = process.env.RELAYFLOW_MODEL;
+    const priorWake = process.env.RELAYFLOW_WAKE_CONTEXT;
+    process.env.RELAYFLOW_MODEL = 'ambient-model-must-not-cross';
+    process.env.RELAYFLOW_WAKE_CONTEXT = 'ambient-wake-must-not-cross';
     const result = await runAgentCli(
       declared,
       'MUST_STAY_WITH_IDENTIFIED_PROCESS',
       { private: 'wake' },
       'private-model',
     );
+    if (priorModel === undefined) delete process.env.RELAYFLOW_MODEL;
+    else process.env.RELAYFLOW_MODEL = priorModel;
+    if (priorWake === undefined) delete process.env.RELAYFLOW_WAKE_CONTEXT;
+    else process.env.RELAYFLOW_WAKE_CONTEXT = priorWake;
 
     expect(result).toMatchObject({ exit_code: 0 });
     expect(JSON.parse(result.stdout_tail)).toEqual({
@@ -77,7 +91,11 @@ process.stdin.on('end', () => {
       instruction: 'MUST_STAY_WITH_IDENTIFIED_PROCESS',
       model: 'private-model',
       wakeContext: { private: 'wake' },
+      ambientModel: null,
+      ambientWake: null,
+      argv: ['--relayflows-adapter-v1'],
     });
+    expect(realpathSync(declared)).toBe(realpathSync(replacement));
     expect(existsSync(evidence) ? readFileSync(evidence, 'utf8') : undefined).toBeUndefined();
   });
 });

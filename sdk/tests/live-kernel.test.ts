@@ -254,7 +254,19 @@ steps:
     const directory = temporaryDirectory('flows-live-agent-worker-');
     const dataDir = join(directory, 'data');
     const cli = join(directory, 'agent-cli');
-    writeFileSync(cli, '#!/bin/sh\nprintf \'handled: %s\' "$1"\n');
+    writeFileSync(cli, `#!/usr/bin/env node
+if (process.argv[2] !== '--relayflows-adapter-v1') process.exit(9);
+process.stdout.write('relayflows-agent-cli-v1\\n');
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => { input += chunk; });
+process.stdin.on('end', () => {
+  if (input.trim() === '') process.exit(0);
+  const request = JSON.parse(input);
+  process.stdout.write('relayflows-agent-cli-v1-execute\\n');
+  process.stdout.write('handled: ' + request.instruction);
+});
+`);
     chmodSync(cli, 0o755);
     await startDaemon(dataDir);
 
@@ -767,6 +779,10 @@ steps:
     await startDaemon(dataDir);
     const cli = join(dataDir, 'echo-model-cli');
     writeFileSync(cli, readFileSync(join(TESTDATA, 'preflight', 'echo-model-cli')));
+    writeFileSync(
+      join(dataDir, 'wrapper-session.mjs'),
+      readFileSync(join(TESTDATA, 'preflight', 'wrapper-session.mjs')),
+    );
     chmodSync(cli, 0o755);
     writeFileSync(join(dataDir, 'flows.json'), JSON.stringify({ models: ['declared-model-xyz'] }));
     const flowPath = join(dataDir, 'relative-wrapper.flow.yaml');

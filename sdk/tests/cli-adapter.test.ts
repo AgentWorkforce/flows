@@ -45,7 +45,7 @@ describe('typed CLI adapters', () => {
     });
   });
 
-  it('requires custom executables to identify before using the wrapper env protocol', () => {
+  it('requires custom executables to use the same-process wrapper session', () => {
     const kind = cliAdapterKind('/project/bin/team-reviewer');
 
     expect(kind).toBe('relayflows-wrapper-v1');
@@ -55,10 +55,8 @@ describe('typed CLI adapters', () => {
       args: ['auth', 'status'],
       modelEnv: 'team-model',
     });
-    expect(agentExecution(kind, 'Review.', 'team-model')).toEqual({
-      args: ['Review.'],
-      timeoutMs: 0,
-      modelEnv: 'team-model',
-    });
+    expect(() => agentExecution(kind, 'Review.', 'team-model')).toThrow(
+      'custom wrapper execution requires the runAgentCli same-process session',
+    );
   });
 });

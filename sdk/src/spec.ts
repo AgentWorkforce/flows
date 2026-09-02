@@ -150,8 +150,8 @@ export interface AgentStepSpec extends BaseStepSpec {
   cli?: string;
   /**
    * Model the declared CLI must use. Raw Claude/Codex adapters receive their
-   * real model flag; an identified Relayflows wrapper receives
-   * `RELAYFLOW_MODEL`. Declared here so the choice is journaled with the step
+   * real model flag; an identified Relayflows wrapper receives it in its
+   * same-process execution request. Declared here so the choice is journaled with the step
    * instead of being ambient host state.
    */
   model?: string;
