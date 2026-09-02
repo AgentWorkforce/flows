@@ -247,6 +247,16 @@ impl ProtocolHub {
             .remove(key);
     }
 
+    /// Release every in-memory lease after the journal has durably made the
+    /// run terminal. Calling this repeatedly is intentionally harmless.
+    pub fn finish_run(&self, run_id: &str) {
+        self.sessions
+            .lock()
+            .expect("protocol sessions lock")
+            .assignments
+            .retain(|(assigned_run, _, _), _| assigned_run != run_id);
+    }
+
     /// Assignments whose (heartbeat-renewed) lease deadline has passed. The
     /// worker may still hold an open socket — a hung worker is exactly the
     /// case the expiry reconciler exists for. Assignments are NOT removed

@@ -11,6 +11,57 @@ use serde_json::json;
 use super::Response;
 use crate::Engine;
 
+#[cfg(unix)]
+fn lifecycle_request_via_socket(
+    data_dir: &Path,
+    request_id: &str,
+    verb: &str,
+    run_id: &str,
+) -> Result<Option<crate::RunOutcome>> {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        os::unix::net::UnixStream,
+    };
+    let socket = data_dir.join("relayflowd.sock");
+    if !socket.exists() {
+        return Ok(None);
+    }
+    let mut connection = match UnixStream::connect(&socket) {
+        Ok(connection) => connection,
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+            ) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error.into()),
+    };
+    serde_json::to_writer(
+        &mut connection,
+        &json!({"id": request_id, "verb": verb, "params": {"run_id": run_id}}),
+    )?;
+    connection.write_all(b"\n")?;
+    connection.flush()?;
+    for line in BufReader::new(connection).lines() {
+        let response: Response = serde_json::from_str(&line?)?;
+        if response.id != request_id {
+            continue;
+        }
+        if !response.ok {
+            let error = response.error.context("protocol error omitted detail")?;
+            anyhow::bail!("{}: {}", error.code, error.message);
+        }
+        return Ok(Some(serde_json::from_value(
+            response
+                .result
+                .context("protocol response omitted result")?,
+        )?));
+    }
+    anyhow::bail!("relayflowd serve closed before {verb} replied")
+}
+
 /// How long after a lease deadline the CLI still waits before calling the
 /// attempt dead. The reconciler sweeps expired leases and journals their
 /// completion; this covers the gap between the deadline passing and that sweep
@@ -104,6 +155,11 @@ pub fn resume_via_socket(data_dir: &Path, run_id: &str) -> Result<Option<crate::
     anyhow::bail!("relayflowd serve closed before run.resume replied")
 }
 
+#[cfg(unix)]
+pub fn cancel_via_socket(data_dir: &Path, run_id: &str) -> Result<Option<crate::RunOutcome>> {
+    lifecycle_request_via_socket(data_dir, "cli-cancel", "run.cancel", run_id)
+}
+
 /// Wait out an attempt a worker is running out of band. The loop follows the
 /// lease: while the worker keeps renewing it the attempt is alive however long
 /// it takes, and the wait ends when the run reaches a terminal state, leaves
@@ -135,6 +191,11 @@ fn wait_for_out_of_band_completion(
 
 #[cfg(not(unix))]
 pub fn resume_via_socket(_data_dir: &Path, _run_id: &str) -> Result<Option<crate::RunOutcome>> {
+    Ok(None)
+}
+
+#[cfg(not(unix))]
+pub fn cancel_via_socket(_data_dir: &Path, _run_id: &str) -> Result<Option<crate::RunOutcome>> {
     Ok(None)
 }
 

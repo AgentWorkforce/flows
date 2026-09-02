@@ -9,6 +9,8 @@ use crate::spec::{RecoveryMode, StepType};
 pub enum EntryType {
     #[serde(rename = "run.spawned")]
     RunSpawned,
+    #[serde(rename = "run.cancel.requested")]
+    RunCancelRequested,
     #[serde(rename = "event.received")]
     EventReceived,
     #[serde(rename = "subscription.registered")]
@@ -53,6 +55,7 @@ impl EntryType {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::RunSpawned => "run.spawned",
+            Self::RunCancelRequested => "run.cancel.requested",
             Self::EventReceived => "event.received",
             Self::SubscriptionRegistered => "subscription.registered",
             Self::SubscriptionMatched => "subscription.matched",
@@ -75,6 +78,7 @@ impl EntryType {
     pub fn parse(value: &str) -> Option<Self> {
         Some(match value {
             "run.spawned" => Self::RunSpawned,
+            "run.cancel.requested" => Self::RunCancelRequested,
             "event.received" => Self::EventReceived,
             "subscription.registered" => Self::SubscriptionRegistered,
             "subscription.matched" => Self::SubscriptionMatched,
@@ -138,6 +142,11 @@ pub struct RunSpawnedPayload {
     pub parent_run_id: Option<String>,
     pub journal_version: u32,
     pub created_by: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RunCancelRequestedPayload {
+    pub requested_by: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

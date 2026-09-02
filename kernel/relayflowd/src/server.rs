@@ -8,6 +8,8 @@ use serde_json::{Value, json};
 use crate::{Engine, OutOfBandCompletion};
 
 #[cfg(unix)]
+mod cancel;
+#[cfg(unix)]
 pub mod liveness;
 #[cfg(unix)]
 mod reconcile;
@@ -20,7 +22,7 @@ use session::{ProtocolHub, SharedWriter, write_frame};
 /// human and for the next attempt's prompt, not a transcript store.
 const TRAJECTORY_TAIL_MAX_BYTES: usize = 16 * 1024;
 mod client;
-pub use client::resume_via_socket;
+pub use client::{cancel_via_socket, resume_via_socket};
 
 mod wire;
 use wire::*;
@@ -191,11 +193,17 @@ fn handle_request(
             let _guard = lock.lock().expect("run lock");
             // Live resume: attempts with a valid, heartbeating lease on this
             // hub stay running; only genuinely dead attempts are recovered.
-            to_value(
-                engine
-                    .resume_live(&params.run_id, hub.as_ref())
-                    .map_err(internal_error)?,
-            )
+            let outcome = engine
+                .resume_live(&params.run_id, hub.as_ref())
+                .map_err(internal_error)?;
+            if outcome.completion_reason.is_some() {
+                hub.finish_run(&params.run_id);
+            }
+            to_value(outcome)
+        }
+        "run.cancel" => {
+            let params: RunIdParams = decode_params(request.params)?;
+            cancel::handle(data_dir, hub, &engine, &params.run_id)
         }
         "run.get" => {
             let params: RunIdParams = decode_params(request.params)?;

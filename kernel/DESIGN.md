@@ -38,6 +38,12 @@ First entry of segment 1. Payload:
 (int, stamped per segment thereafter via `epoch.summary`), `created_by`
 (client identity string).
 
+### 1.1a `run.cancel.requested`
+Durable operator intent, appended before cancellation closes any work. Payload:
+`requested_by` (client identity string). Resume treats this entry as a one-way
+state transition: no new work may start, active attempts and waits close with
+`completionReason: canceled`, and exactly one terminal canceled fact follows.
+
 ### 1.2 `step.attempt.started`
 One per attempt. Payload:
 
@@ -330,7 +336,7 @@ kernel/
 │       └── registry.rs       # relayflowd.sqlite3 run index (rebuildable)
 └── relayflowd/               # the binary
     └── src/
-        ├── main.rs           # CLI: run <spec.json> | resume <run_id> | serve
+        ├── main.rs           # CLI: run | resume | cancel | serve
         ├── engine.rs         # drives machine.rs Actions against journal + executors
         ├── exec_det.rs       # deterministic steps: spawn, capture, timeout
         ├── server.rs         # unix socket, protocol v0 (§5), worker dispatch
@@ -367,6 +373,7 @@ Minimal verb set for gate 1:
 | `hello` | `{protocol: 0, client}` → `{protocol: 0, server}` | handshake; version mismatch is a hard error |
 | `run.start` | `{spec}` → `{run_id}` | validate spec (zero-agent flows are legal), create run file, append `run.spawned`, begin scheduling |
 | `run.resume` | `{run_id}` → `{run_id, state}` | §3 memoized resume |
+| `run.cancel` | `{run_id}` → `{run_id, status, completion_reason}` | append durable intent, close active leases, and append the terminal canceled fact; repeated calls return the existing outcome |
 | `run.get` | `{run_id}` → `{status, steps, budget}` | snapshot for legibility |
 | `run.watch` | `{run_id}` → stream of `{event: "entry", data: Entry}` | every appended entry, pushed |
 | `worker.attach` | `{worker_id, step_types: ["llm","agent"], pins}` → `{}` | connection becomes a worker; agent workers **must** supply opaque initial workspace revisions/stream offsets (refused otherwise) and receive `step.dispatch` events with pins plus recovery context. A step whose declared surfaces no attached worker holds parks — it is not dispatched |

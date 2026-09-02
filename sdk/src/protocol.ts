@@ -44,6 +44,7 @@ export type Verb =
   | 'hello'
   | 'run.start'
   | 'run.resume'
+  | 'run.cancel'
   | 'run.get'
   | 'run.watch'
   | 'worker.attach'
@@ -92,6 +93,11 @@ export interface RunResumeParams {
   run_id: string;
 }
 export type RunResumeResult = RunOutcome;
+
+export interface RunCancelParams {
+  run_id: string;
+}
+export type RunCancelResult = RunOutcome;
 
 export interface RunGetParams {
   run_id: string;
@@ -340,6 +346,7 @@ export interface VerbContract {
   hello: { params: HelloParams; result: HelloResult };
   'run.start': { params: RunStartParams; result: RunStartResult };
   'run.resume': { params: RunResumeParams; result: RunResumeResult };
+  'run.cancel': { params: RunCancelParams; result: RunCancelResult };
   'run.get': { params: RunGetParams; result: RunGetResult };
   'run.watch': { params: RunWatchParams; result: RunWatchResult };
   'worker.attach': { params: WorkerAttachParams; result: WorkerAttachResult };

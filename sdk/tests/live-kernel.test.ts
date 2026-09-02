@@ -204,6 +204,50 @@ steps:
     expect(completed.stderr).not.toContain('protocol_error');
   });
 
+  it('cancels over the real socket and rejects the lease holder after closure', async () => {
+    const dataDir = temporaryDirectory('flows-live-cancel-');
+    await startDaemon(dataDir);
+    const worker = await connectClient(dataDir);
+    await worker.hello('live-cancel-worker');
+    const dispatched = eventOnce<StepDispatchEvent>(worker, 'step.dispatch');
+    await worker.workerAttach('live-cancel-worker', ['llm']);
+    const control = await connectClient(dataDir);
+    await control.hello('live-cancel-control');
+    const started = await control.runStart(toKernelSpec(compileYaml(`
+version: '0.1.0'
+steps:
+  - id: model
+    type: llm
+    prompt: answer
+`)));
+    const lease = await dispatched;
+
+    const canceled = await control.runCancel(started.run_id);
+    expect(canceled).toMatchObject({
+      run_id: started.run_id,
+      status: 'failed',
+      completion_reason: 'canceled',
+    });
+    await expect(control.runCancel(started.run_id)).resolves.toEqual(canceled);
+    await expect(worker.stepComplete(
+      lease.run_id,
+      lease.step_id,
+      lease.attempt,
+      lease.idempotency_key,
+      'success',
+      { output: { answer: 4 } },
+    )).rejects.toMatchObject({ code: 'lease_conflict' });
+
+    const entries = (await control.journalRead(started.run_id, 1)).entries as {
+      entry_type: string;
+      payload: { completionReason?: string };
+    }[];
+    expect(entries.filter((entry) => entry.entry_type === 'run.cancel.requested')).toHaveLength(1);
+    expect(entries.filter((entry) => entry.entry_type === 'run.completed')).toEqual([
+      expect.objectContaining({ payload: expect.objectContaining({ completionReason: 'canceled' }) }),
+    ]);
+  });
+
   it('runs an agent CLI end to end through the SDK worker', async () => {
     const directory = temporaryDirectory('flows-live-agent-worker-');
     const dataDir = join(directory, 'data');

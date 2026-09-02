@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::*;
-use crate::{entry::AttemptStartedPayload, state::RunState};
+use crate::{Clock, SimClock, entry::AttemptStartedPayload, state::RunState};
 
 fn retrying_spec() -> crate::RunSpec {
     serde_json::from_value(json!({
@@ -134,6 +134,91 @@ fn successful_memo_is_never_scheduled_again() {
 }
 
 #[test]
+fn cancel_request_closes_the_active_lease_before_the_terminal_fact() {
+    let clock = SimClock::new(10);
+    let spec = crate::RunSpec::parse(&json!({
+        "steps": [{"id": "model", "type": "llm", "prompt": "answer"}]
+    }))
+    .unwrap();
+    let fresh = RunState::fold("run", spec.clone(), &[]).unwrap();
+    let Action::Append(started) = next_actions(&fresh, clock.now_ms()).remove(0) else {
+        panic!("the attempt lease must be durable");
+    };
+    let running = RunState::fold("run", spec.clone(), std::slice::from_ref(&started)).unwrap();
+    clock.advance(10);
+    let Action::Append(requested) =
+        request_cancel_action(&running, "operator", clock.now_ms()).unwrap()
+    else {
+        panic!("cancel must first persist its request");
+    };
+    assert_eq!(requested.entry_type, EntryType::RunCancelRequested);
+
+    let canceling = RunState::fold("run", spec, &[started, requested]).unwrap();
+    clock.advance(10);
+    let actions = next_actions(&canceling, clock.now_ms());
+    let Action::Append(closed) = &actions[0] else {
+        panic!("the active attempt must be closed first");
+    };
+    let closed: StepCompletedPayload = serde_json::from_value(closed.payload.clone()).unwrap();
+    assert_eq!(closed.completion_reason, CompletionReason::Canceled);
+    assert_eq!(closed.disposition, Disposition::StepDone);
+    let Action::Append(terminal) = &actions[1] else {
+        panic!("the run fact must follow the lease closure");
+    };
+    assert_eq!(terminal.entry_type, EntryType::RunCompleted);
+    let terminal: RunCompletedPayload = serde_json::from_value(terminal.payload.clone()).unwrap();
+    assert_eq!(terminal.completion_reason, RunCompletionReason::Canceled);
+}
+
+#[test]
+fn repeated_cancel_request_is_idempotent() {
+    let spec = retrying_spec();
+    let state = RunState::fold("run", spec.clone(), &[]).unwrap();
+    let Action::Append(requested) = request_cancel_action(&state, "operator", 10).unwrap() else {
+        panic!();
+    };
+    let canceling = RunState::fold("run", spec.clone(), std::slice::from_ref(&requested)).unwrap();
+    assert!(request_cancel_action(&canceling, "operator", 11).is_none());
+    let terminal_entries = next_actions(&canceling, 12)
+        .into_iter()
+        .filter_map(|action| match action {
+            Action::Append(entry) => Some(entry),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let terminal = RunState::fold("run", spec, &[requested, terminal_entries[0].clone()]).unwrap();
+    assert!(request_cancel_action(&terminal, "operator", 13).is_none());
+}
+
+#[test]
+fn durable_cancel_request_outranks_crash_recovery() {
+    let clock = SimClock::new(10);
+    let spec = crate::RunSpec::parse(&json!({
+        "steps": [{"id": "model", "type": "llm", "prompt": "answer"}]
+    }))
+    .unwrap();
+    let fresh = RunState::fold("run", spec.clone(), &[]).unwrap();
+    let Action::Append(started) = next_actions(&fresh, clock.now_ms()).remove(0) else {
+        panic!("the attempt lease must be durable");
+    };
+    let running = RunState::fold("run", spec.clone(), std::slice::from_ref(&started)).unwrap();
+    clock.advance(10);
+    let Action::Append(requested) =
+        request_cancel_action(&running, "operator", clock.now_ms()).unwrap()
+    else {
+        panic!("the cancel request must be durable");
+    };
+    let canceling = RunState::fold("run", spec, &[started, requested]).unwrap();
+
+    assert!(recovery_actions(&canceling, clock.now_ms()).is_empty());
+    let Action::Append(closed) = &next_actions(&canceling, clock.now_ms())[0] else {
+        panic!("cancellation must close the active lease");
+    };
+    let closed: StepCompletedPayload = serde_json::from_value(closed.payload.clone()).unwrap();
+    assert_eq!(closed.completion_reason, CompletionReason::Canceled);
+}
+
+#[test]
 fn crashed_attempt_does_not_consume_an_iteration() {
     // max_iterations 2: crash attempt 1, verification-fail the replacement
     // (attempt 2) — one semantic iteration must remain, so the step retries
@@ -146,7 +231,7 @@ fn crashed_attempt_does_not_consume_an_iteration() {
 
     // kill -9 between steps: attempt 1 is Running with no result. Recovery
     // must record the dead attempt as a retry, not a consumed iteration.
-    let state = RunState::fold("run", spec.clone(), &[started.clone()]).unwrap();
+    let state = RunState::fold("run", spec.clone(), std::slice::from_ref(&started)).unwrap();
     assert_eq!(state.steps["hello"].semantic_executions, 0);
     let recovery = recovery_actions(&state, 1_000);
     let Action::Append(crashed) = &recovery[0] else {
@@ -276,7 +361,7 @@ fn reset_recovery_dispatches_the_original_pinned_revision() {
     let spec = agent_spec("reset");
     let pinned = workspace_pins("rev-clean");
     let started = started_agent(&spec, pinned.clone());
-    let running = RunState::fold("run", spec.clone(), &[started.clone()]).unwrap();
+    let running = RunState::fold("run", spec.clone(), std::slice::from_ref(&started)).unwrap();
     let recovered = recovery_actions(&running, 20);
     let entries = vec![
         started,
@@ -311,7 +396,7 @@ fn inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail() {
     let clean = workspace_pins("rev-clean");
     let dirty = workspace_pins("rev-dirty");
     let started = started_agent(&spec, clean);
-    let running = RunState::fold("run", spec.clone(), &[started.clone()]).unwrap();
+    let running = RunState::fold("run", spec.clone(), std::slice::from_ref(&started)).unwrap();
     let result = AttemptResult {
         output: Value::Null,
         budget: Budget::default(),
@@ -359,7 +444,7 @@ fn inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail() {
 fn manual_recovery_parks_needs_human_and_never_redispatches() {
     let spec = agent_spec("manual");
     let started = started_agent(&spec, workspace_pins("rev-clean"));
-    let running = RunState::fold("run", spec.clone(), &[started.clone()]).unwrap();
+    let running = RunState::fold("run", spec.clone(), std::slice::from_ref(&started)).unwrap();
     let recovered = recovery_actions(&running, 20);
     let Action::Append(wait) = &recovered[1] else {
         panic!(

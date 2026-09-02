@@ -89,6 +89,8 @@ export type {
   RunGetResult,
   RunOutcome,
   RunCompletionReason,
+  RunCancelParams,
+  RunCancelResult,
   RunResumeParams,
   RunResumeResult,
   RunStatus,

@@ -6,8 +6,8 @@ use thiserror::Error;
 use crate::{
     entry::{
         Budget, CompletionReason, Disposition, EntryType, EpochSummaryPayload, JournalEntry, Pins,
-        RunCompletedPayload, RunCompletionReason, SleepUntilPayload, StepCompletedPayload,
-        WaitCompletedPayload, WaitCompletionReason,
+        RunCancelRequestedPayload, RunCompletedPayload, RunCompletionReason, SleepUntilPayload,
+        StepCompletedPayload, WaitCompletedPayload, WaitCompletionReason,
     },
     spec::{RunSpec, StepKind, StepType},
 };
@@ -67,6 +67,9 @@ pub struct RunState {
     pub memo: BTreeMap<String, Value>,
     pub budget: Budget,
     pub completion: Option<RunCompletionReason>,
+    /// Durable cancellation intent. Once present, scheduling can only close
+    /// live work and append the terminal canceled fact.
+    pub cancel_requested: Option<RunCancelRequestedPayload>,
     /// Appendix A rule 6 chain head: the last successful agent completion.
     pub current_pins: Option<Pins>,
 }
@@ -103,6 +106,7 @@ impl RunState {
             memo: BTreeMap::new(),
             budget: Budget::default(),
             completion: None,
+            cancel_requested: None,
             current_pins: None,
         };
 
@@ -163,6 +167,9 @@ impl RunState {
                 EntryType::RunCompleted => {
                     let payload: RunCompletedPayload = decode(entry)?;
                     state.completion = Some(payload.completion_reason);
+                }
+                EntryType::RunCancelRequested => {
+                    state.cancel_requested = Some(decode(entry)?);
                 }
                 EntryType::RunSpawned
                 | EntryType::EventReceived

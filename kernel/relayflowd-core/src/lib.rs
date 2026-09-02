@@ -21,6 +21,7 @@ pub use journal::{Journal, JournalError, MemoryJournal};
 pub use machine::{
     Action, AttemptResult, RecoveryInstruction, abandonment_actions, carried_pins_for,
     completion_actions, next_actions, recovery_actions, recovery_actions_filtered,
+    request_cancel_action,
 };
 pub use spec::*;
 pub use state::{RunState, StateError, StepRuntime, StepState};

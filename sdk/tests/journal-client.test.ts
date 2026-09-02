@@ -61,6 +61,14 @@ describe('JournalClient: protocol v0 over unix socket', () => {
       'run.resume': (ctx, params) => {
         sendResult(ctx, { run_id: params.run_id, status: 'completed', completed_steps: 2 });
       },
+      'run.cancel': (ctx, params) => {
+        sendResult(ctx, {
+          run_id: params.run_id,
+          status: 'failed',
+          completion_reason: 'canceled',
+          completed_steps: 1,
+        });
+      },
       'run.get': (ctx) => {
         sendResult(ctx, { status: 'running', steps: [], budget: { tokens_in: 0, tokens_out: 0, dollars: '0' } });
       },
@@ -220,6 +228,17 @@ steps:
     const read = await client.streamRead('run-01', 'results', 7, 10);
     expect(read.next_offset).toBe(8);
     expect(read.messages).toEqual([{ offset: 7 }]);
+  });
+
+  it('cancels a run through the typed lifecycle surface', async () => {
+    client = new JournalClient(path, { requestTimeoutMs: 2000 });
+    await client.connect();
+    await expect(client.runCancel('run-01')).resolves.toEqual({
+      run_id: 'run-01',
+      status: 'failed',
+      completion_reason: 'canceled',
+      completed_steps: 1,
+    });
   });
 
   it('fails closed when the server returns an error', async () => {
