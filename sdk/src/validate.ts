@@ -47,7 +47,7 @@ const STEP_COMMON_KEYS = ['id', 'type', 'dependsOn', 'verification', 'maxIterati
 const STEP_TYPE_KEYS: Record<StepType, readonly string[]> = {
   deterministic: ['command'],
   llm: ['prompt', 'model', 'cli'],
-  agent: ['instruction', 'cli', 'surfaces', 'recoveryMode', 'permissions'],
+  agent: ['instruction', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions'],
 };
 const VERIFICATION_KEYS: Record<string, readonly string[]> = {
   exit_code: ['type', 'expect'],
@@ -306,6 +306,7 @@ class Validator {
       this.fail(`${at}.recoveryMode: expected reset | inspect | manual`);
     }
     this.validateCli(st.cli, at);
+    this.validateModel(st.model, at);
     if (st.surfaces !== undefined) this.validateSurfaces(st.surfaces, `${at}.surfaces`);
     if (st.permissions !== undefined) this.validatePermissions(st.permissions, `${at}.permissions`);
   }
@@ -313,6 +314,16 @@ class Validator {
   private validateCli(cli: unknown, at: string): void {
     if (cli !== undefined && !isNonEmptyString(cli)) {
       this.fail(`${at}.cli: expected a non-empty string`);
+    }
+  }
+
+  private validateModel(model: unknown, at: string): void {
+    // Rejecting the empty string matters: it would reach the CLI as
+    // RELAYFLOW_MODEL='', which reads as "declared, and declared as
+    // nothing" — the CLI cannot tell it from a real value and would
+    // pass an empty --model. Absent and empty must not look alike.
+    if (model !== undefined && !isNonEmptyString(model)) {
+      this.fail(`${at}.model: expected a non-empty string`);
     }
   }
 

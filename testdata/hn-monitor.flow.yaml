@@ -11,6 +11,14 @@ triggers:
 steps:
   - id: analyze-story
     type: agent
+    # Declared relative to this spec file, which is how `flows check`
+    # resolves it. The launched runner resolves it the same way before
+    # submitting, so preflight and the live worker agree on one path.
+    cli: preflight/analyze-story-claude-cli
+    # Declared, not inherited: the analyzer receives this as RELAYFLOW_MODEL,
+    # so the run's model is journaled with the step instead of depending on
+    # whatever the host happens to pin.
+    model: claude-haiku-4-5-20251001
     instruction: >-
       Analyze the triggering HN story from the wake context and determine if it
       is relevant to AI agents/automation. Output a JSON summary with: story

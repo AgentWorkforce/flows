@@ -19,6 +19,7 @@ import { compileYaml, toKernelSpec } from '../src/compile.js';
 import { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 import { AgentWorker } from '../src/worker.js';
+import { resolveSpecCliPaths } from '../src/cli/hn-monitor.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SDK = join(ROOT, 'sdk');
@@ -687,6 +688,242 @@ steps:
     await worker.close();
   }, 30_000);
 
+  it('AgentWorker passes a declared model to the CLI as RELAYFLOW_MODEL', async () => {
+    // The whole point of declaring `model` on the step is that the CLI
+    // stops inheriting whatever the host pinned. This proves the declared
+    // value survives the full boundary: SDK compile → kernel parse →
+    // dispatch → AgentWorker → subprocess env.
+    const dataDir = temporaryDirectory('flows-live-model-set-');
+    await startDaemon(dataDir);
+    const cli = join(TESTDATA, 'preflight', 'echo-model-cli');
+    const client = await connectClient(dataDir);
+    await client.hello('live-model-set');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-model-set-worker',
+      pins: { workspace: [{ surface: 'repo', revision_id: 'rev-a' }], streams: [] },
+    });
+    await worker.attach();
+
+    const started = await client.runStart(toKernelSpec(compileYaml(`
+version: '0.1.0'
+steps:
+  - id: probe
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    model: declared-model-xyz
+    instruction: Report the model env var.
+`)));
+
+    expect(await waitForStep(client, started.run_id, 'probe', 'done')).toMatchObject({
+      type: 'agent',
+      state: 'done',
+    });
+    const entries = (await client.journalRead(started.run_id)).entries;
+    const completed = entries.find(
+      (entry) => (entry as { entry_type: string; step_id?: string }).entry_type === 'step.completed'
+        && (entry as { step_id?: string }).step_id === 'probe',
+    ) as { payload: { output: { story_title: string } } } | undefined;
+    expect(completed).toBeDefined();
+    expect(completed!.payload.output.story_title).toBe('model:declared-model-xyz');
+
+    await worker.close();
+  }, 30_000);
+
+  it('AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model', async () => {
+    // Absence must stay absence, so a CLI can apply its own default and a
+    // reader can tell "the author chose nothing" from "the author chose".
+    //
+    // POLLUTES process.env FIRST, which is the real point: without the
+    // explicit `delete env[MODEL_ENV]` in worker.ts, `{ ...process.env }`
+    // would carry this stale value into the child and a step that declared
+    // NO model would silently run pinned to whatever the launching shell
+    // exported. That is exactly the ambient-state failure this field was
+    // added to remove, so it has to be enforced by the spawn, not by luck.
+    // Without this test nothing else would catch it.
+    process.env.RELAYFLOW_MODEL = 'leaked-parent-model';
+    const dataDir = temporaryDirectory('flows-live-model-unset-');
+    await startDaemon(dataDir);
+    const cli = join(TESTDATA, 'preflight', 'echo-model-cli');
+    const client = await connectClient(dataDir);
+    await client.hello('live-model-unset');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-model-unset-worker',
+      pins: { workspace: [{ surface: 'repo', revision_id: 'rev-a' }], streams: [] },
+    });
+    await worker.attach();
+
+    const started = await client.runStart(toKernelSpec(compileYaml(`
+version: '0.1.0'
+steps:
+  - id: probe
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    instruction: Report the model env var.
+`)));
+
+    expect(await waitForStep(client, started.run_id, 'probe', 'done')).toMatchObject({
+      type: 'agent',
+      state: 'done',
+    });
+    const entries = (await client.journalRead(started.run_id)).entries;
+    const completed = entries.find(
+      (entry) => (entry as { entry_type: string; step_id?: string }).entry_type === 'step.completed'
+        && (entry as { step_id?: string }).step_id === 'probe',
+    ) as { payload: { output: { story_title: string } } } | undefined;
+    expect(completed).toBeDefined();
+    // UNSET, not EMPTY and not the leaked parent value.
+    expect(completed!.payload.output.story_title).toBe('model:UNSET');
+
+    delete process.env.RELAYFLOW_MODEL;
+
+    await worker.close();
+  }, 30_000);
+
+  it('hn-monitor analyze-story reaches done through the real Claude analyzer CLI', async (context) => {
+    // RFC-0001 gate 2 acceptance: the canonical hn-monitor spec's
+    // analyze-story step completes against a REAL analyzer — one
+    // that calls an LLM — not a stub whose answer was written by
+    // hand. Every test above pins plumbing with deterministic
+    // fixtures; this one pins that the plumbing carries a real
+    // analysis: kernel matches the event, dispatches to AgentWorker,
+    // the analyzer reads $RELAYFLOW_WAKE_CONTEXT, invokes `claude`,
+    // and the model's own JSON passes the canonical json_schema gate
+    // (verdict recorded by the kernel, asserted below).
+    const cli = join(TESTDATA, 'preflight', 'analyze-story-claude-cli');
+    const readiness = probeAnalyzer(cli);
+    if (!readiness.ready) {
+      // An unavailable analyzer is diagnostics, never acceptance, so
+      // this FAILS by default. Skipping is
+      // the opt-in, not the default: a reader who runs the suite
+      // without special knowledge must not get a green that proves
+      // nothing about gate 2. RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 is for
+      // environments that knowingly cannot reach a model and are not
+      // counting this run as gate evidence.
+      const notice = `LIVE_ANALYZER_UNAVAILABLE: ${readiness.detail}`;
+      if (process.env['RELAYFLOWS_ALLOW_ANALYZER_SKIP'] !== '1') {
+        throw new Error(
+          `${notice} — failing because gate-2 acceptance requires the real analyzer to execute. `
+          + 'Set RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 only if this run is not gate evidence.',
+        );
+      }
+      console.warn(`${notice} — SKIPPING. This skip is diagnostics, not gate-2 acceptance evidence.`);
+      context.skip();
+      return;
+    }
+    console.log(`LIVE_ANALYZER ready: ${readiness.detail}`);
+
+    const dataDir = temporaryDirectory('flows-live-real-analyzer-');
+    await startDaemon(dataDir);
+    const client = await connectClient(dataDir);
+    await client.hello('live-real-analyzer');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-real-analyzer-worker',
+      pins: {
+        workspace: [{ surface: 'repo', revision_id: 'rev-a' }],
+        streams: [],
+      },
+    });
+    // Attach BEFORE eventSubmit or the run parks with nothing to
+    // drive it (recorded in the late-attaching-worker test above).
+    await worker.attach();
+
+    // The canonical spec AS SHIPPED — its own declared `cli`, not one
+    // patched in by the test. An earlier version of this test injected
+    // the analyzer path here, which proved the analyzer worked while
+    // leaving `flows hn-monitor start` shipping a spec with no CLI at
+    // all: green test, dead workload. The only transformation applied
+    // is the one the real runner applies, via the same exported
+    // function, so what runs here is what runs when launched.
+    const specPath = join(TESTDATA, 'hn-monitor.spec.canonical.json');
+    const spec = resolveSpecCliPaths(
+      JSON.parse(readFileSync(specPath, 'utf8')) as {
+        steps: { id: string; cli?: string; verification?: { json_schema?: unknown } }[];
+      },
+      specPath,
+    );
+    const declared = spec.steps.find((step) => step.id === 'analyze-story');
+    expect(declared?.cli).toBe(cli);
+
+    // The event frame carries the story metadata a real HN webhook
+    // delivers, so acceptance does not depend on firebase being
+    // reachable. The analyzer's fetch path is its fallback for
+    // title-less frames and is deliberately NOT exercised here: it
+    // needs live network, and a flaky network would then be able to
+    // fail the gate-2 acceptance signal. It is covered by the
+    // analyzer's own contract, not by this harness.
+    //
+    // The title carries a nonce. Nothing else on the machine or in the
+    // model's training data contains it, so the analyzer can only echo
+    // it back by having received THIS event's wake context — which is
+    // what makes the story_title assertion below a real check on
+    // context delivery rather than a check that some story arrived.
+    const nonce = 'wake-nonce-7f3a91c4';
+    const story = {
+      id: 41_380_628,
+      type: 'story',
+      by: 'pg',
+      title: `Show HN: an agent that opens and reviews its own pull requests [${nonce}]`,
+      url: 'https://example.com/self-reviewing-agent',
+    };
+    const outcome = await client.eventSubmit(spec, { type: 'hn.story_posted', payload: story });
+    expect(outcome).toMatchObject({ matched: true, deduped: false });
+    const runId = (outcome as { run: { run_id: string } }).run.run_id;
+
+    // A model round-trip is seconds, not milliseconds — the default 5s
+    // step deadline is a fixture budget, not an LLM one. The budgets
+    // nest deliberately: this 150s wait is shorter than the 180s test
+    // timeout below, so a slow model surfaces as this assertion timing
+    // out (which names the step and state) rather than as vitest
+    // killing the case with no indication of what was pending.
+    expect(await waitForStep(client, runId, 'analyze-story', 'done', 150_000)).toMatchObject({
+      type: 'agent',
+      state: 'done',
+    });
+
+    const entries = (await client.journalRead(runId)).entries;
+    const stepCompleted = entries.find(
+      (entry) => (entry as { entry_type: string; step_id?: string }).entry_type === 'step.completed'
+        && (entry as { step_id?: string }).step_id === 'analyze-story',
+    ) as {
+      payload: {
+        verification: { gate: string; verdict: string };
+        output: { story_title: unknown; relevance_score: unknown; reasoning: unknown };
+      };
+    } | undefined;
+    expect(stepCompleted).toBeDefined();
+
+    // "Passes the canonical schema" is the kernel's own verdict over
+    // the promoted output, not the test re-deriving it: the spec is
+    // the unmodified canonical one, so this record is the gate.
+    expect(stepCompleted!.payload.verification).toMatchObject({
+      gate: 'json_schema',
+      verdict: 'pass',
+    });
+
+    const analysis = stepCompleted!.payload.output;
+    console.log(`LIVE_ANALYZER analysis: ${JSON.stringify(analysis)}`);
+    // The analysis is about THIS story and is a real answer, not a
+    // placeholder. The title must come back with the nonce intact,
+    // which only an analyzer that received this event's wake context
+    // can produce. The reasoning bar is set where a terse placeholder
+    // fails but any genuine model sentence clears it comfortably —
+    // observed replies run 200+ characters.
+    expect(analysis.story_title).toBe(story.title);
+    expect(analysis.story_title as string).toContain(nonce);
+    expect(Number.isInteger(analysis.relevance_score)).toBe(true);
+    expect(analysis.relevance_score as number).toBeGreaterThanOrEqual(1);
+    expect(analysis.relevance_score as number).toBeLessThanOrEqual(10);
+    expect(typeof analysis.reasoning).toBe('string');
+    expect((analysis.reasoning as string).length).toBeGreaterThan(100);
+
+    const runCompleted = entries.find(
+      (entry) => (entry as { entry_type: string }).entry_type === 'run.completed',
+    ) as { payload: { completionReason: string } } | undefined;
+    expect(runCompleted?.payload.completionReason).toBe('success');
+
+    await worker.close();
+  }, 180_000);
+
   it('preflights before journaling and names an unreachable socket', async () => {
     const dataDir = temporaryDirectory('flows-live-preflight-');
     await startDaemon(dataDir);
@@ -984,14 +1221,37 @@ async function waitForStep(
   runId: string,
   stepId: string,
   state: string,
+  timeoutMs = 5_000,
 ): Promise<unknown> {
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const step = (await client.runGet(runId)).steps[stepId];
     if (step?.state === state) return step;
     await delay(20);
   }
-  throw new Error(`step ${stepId} did not reach ${state} within 5000ms`);
+  throw new Error(`step ${stepId} did not reach ${state} within ${timeoutMs}ms`);
+}
+
+/**
+ * Runs the preflight auth contract (`<cli> auth status` exits 0 when
+ * usable) against an agent CLI. Reusing the contract rather than
+ * checking for `claude` on PATH means the readiness signal is the same
+ * fact `flows check` refuses on, so a CLI that preflight would reject
+ * cannot silently produce acceptance evidence here.
+ */
+function probeAnalyzer(cli: string): { ready: boolean; detail: string } {
+  if (!existsSync(cli)) return { ready: false, detail: `analyzer CLI does not exist: ${cli}` };
+  const probe = spawnSync(cli, ['auth', 'status'], { encoding: 'utf8', timeout: 30_000 });
+  if (probe.error !== undefined) {
+    return { ready: false, detail: `"${cli} auth status" could not run: ${probe.error.message}` };
+  }
+  if (probe.status !== 0) {
+    return {
+      ready: false,
+      detail: `"${cli} auth status" exited ${probe.status}: ${probe.stderr.trim()}`,
+    };
+  }
+  return { ready: true, detail: probe.stdout.trim() };
 }
 
 function runArtifacts(dataDir: string): string[] {

@@ -118,6 +118,7 @@ function compileStep(step: StepSpec): StepSpec {
         type: 'agent',
         instruction: s.instruction,
         ...(s.cli !== undefined ? { cli: s.cli } : {}),
+        ...(s.model !== undefined ? { model: s.model } : {}),
         recoveryMode,
         ...(s.surfaces !== undefined ? { surfaces: s.surfaces } : {}),
         ...(s.permissions !== undefined ? { permissions: s.permissions } : {}),
@@ -199,7 +200,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
     : type === 'llm'
       ? ['prompt', 'model', 'cli'] as const
       : type === 'agent'
-        ? ['instruction', 'cli', 'recovery_mode', 'surfaces', 'permissions'] as const
+        ? ['instruction', 'cli', 'model', 'recovery_mode', 'surfaces', 'permissions'] as const
         : [];
   assertKernelKeys(step, [...commonKeys, ...typeKeys], at);
   if (step['retry'] !== undefined) validateKernelRetry(step['retry'], `${at}.retry`);
@@ -228,7 +229,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
       ...common,
       instruction: step['instruction'],
       ...(step['recovery_mode'] !== undefined ? { recoveryMode: step['recovery_mode'] } : {}),
-      ...copyDefined(step, ['cli', 'surfaces']),
+      ...copyDefined(step, ['cli', 'model', 'surfaces']),
       ...(step['permissions'] !== undefined
         ? { permissions: kernelPermissionsToAuthoring(step['permissions'], `${at}.permissions`) }
         : {}),
@@ -358,6 +359,7 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
         type: 'agent',
         instruction: step.instruction,
         ...(step.cli !== undefined ? { cli: step.cli } : {}),
+        ...(step.model !== undefined ? { model: step.model } : {}),
         recovery_mode: step.recoveryMode ?? 'reset',
       };
       const surfaces = {

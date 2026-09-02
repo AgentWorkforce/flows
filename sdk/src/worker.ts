@@ -89,7 +89,7 @@ export class AgentWorker extends EventEmitter {
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
     const spec = dispatch.spec as Partial<KernelAgentStep>;
     const result = typeof spec.cli === 'string' && typeof spec.instruction === 'string'
-      ? await runCli(spec.cli, spec.instruction, dispatch.wake_context)
+      ? await runCli(spec.cli, spec.instruction, dispatch.wake_context, spec.model)
       : { exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' };
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
 
@@ -164,7 +164,27 @@ export function parseJsonOutput(stdout: string): Record<string, unknown> | null 
  */
 export const WAKE_CONTEXT_ENV = 'RELAYFLOW_WAKE_CONTEXT';
 
-function runCli(cli: string, instruction: string, wakeContext: unknown): Promise<CliResult> {
+/**
+ * Environment variable AgentWorker sets when the dispatched agent step
+ * DECLARED a `model`. Same contract as {@link WAKE_CONTEXT_ENV}: when the
+ * step declares no model the variable is not merely empty, it is ABSENT,
+ * so a CLI can tell "the flow author chose nothing" from "the flow author
+ * chose something". A CLI that finds it unset is free to apply its own
+ * default; one that finds it set must not override it.
+ *
+ * This exists because a CLI inheriting whatever model the host happens to
+ * pin produces two failures: runs whose model cannot be recovered from the
+ * journal, and hard failure on a host pinning an alias the CLI cannot
+ * resolve. Declaring it on the step makes the choice portable and recorded.
+ */
+export const MODEL_ENV = 'RELAYFLOW_MODEL';
+
+function runCli(
+  cli: string,
+  instruction: string,
+  wakeContext: unknown,
+  model?: string,
+): Promise<CliResult> {
   return new Promise((resolve) => {
     const env: NodeJS.ProcessEnv = { ...process.env };
     // Explicit unset. Without this, a parent process (wrapper
@@ -178,6 +198,12 @@ function runCli(cli: string, instruction: string, wakeContext: unknown): Promise
     // ProcessEnv drops it from the child's environ; a subsequent
     // conditional assign is the source of truth.
     delete env[WAKE_CONTEXT_ENV];
+    // Same explicit-unset reasoning as WAKE_CONTEXT_ENV below: an inherited
+    // RELAYFLOW_MODEL from a parent process would make a step that declared
+    // no model look like one that did, silently pinning the run to whatever
+    // the launching shell happened to export.
+    delete env[MODEL_ENV];
+    if (model !== undefined) env[MODEL_ENV] = model;
     if (wakeContext !== undefined) {
       // `execve` caps argv + envp at ARG_MAX (macOS ~256 KB, Linux
       // ~2 MB). A wake_context that packs a rich payload could
