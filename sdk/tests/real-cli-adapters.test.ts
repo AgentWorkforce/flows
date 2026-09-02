@@ -1,8 +1,10 @@
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { checkFlow } from '../src/cli/check.js';
+import { agentExecution } from '../src/cli-adapter.js';
 
 const RUN_REAL = process.env['RELAYFLOWS_REAL_CLI_ADAPTERS'] === '1';
 const directories: string[] = [];
@@ -46,4 +48,21 @@ describe.runIf(RUN_REAL)('installed raw CLI adapters', () => {
     expect(refused.diagnostics).toContainEqual(expect.objectContaining({ kind: 'model_unavailable' }));
     expect(refused.diagnostics).not.toContainEqual(expect.objectContaining({ kind: 'cli_unauthenticated' }));
   }, 70_000);
+
+  it('executes the declared Codex model from a real non-Git directory', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'flows-real-codex-worker-'));
+    directories.push(directory);
+    const model = process.env['RELAYFLOWS_REAL_CODEX_MODEL'] ?? 'gpt-5.6-sol';
+    const invocation = agentExecution('codex', 'Reply with exactly RELAYFLOWS_NON_GIT_READY.', model);
+    const result = spawnSync('codex', invocation.args, {
+      cwd: directory,
+      encoding: 'utf8',
+      timeout: 120_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('RELAYFLOWS_NON_GIT_READY');
+  }, 130_000);
 });

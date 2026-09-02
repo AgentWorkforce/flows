@@ -32,13 +32,15 @@ describe('typed CLI adapters', () => {
     expect(kind).toBe('codex');
     expect(adapterIdentification(kind).invocation.args).toEqual(['login', 'status', '--help']);
     expect(authenticationProbe(kind).args).toEqual(['login', 'status']);
-    const readiness = modelReadinessProbe(kind, 'gpt-model');
-    expect(readiness).toMatchObject({
-      args: expect.arrayContaining(['exec', '--ephemeral', '--model', 'gpt-model']),
+    expect(modelReadinessProbe(kind, 'gpt-model')).toEqual({
+      args: [
+        'exec', '--ephemeral', '--sandbox', 'read-only', '--skip-git-repo-check',
+        '--model', 'gpt-model', 'Reply with exactly RELAYFLOWS_MODEL_READY and nothing else.',
+      ],
+      timeoutMs: 60_000,
     });
-    expect(readiness).not.toHaveProperty('modelEnv');
     expect(agentExecution(kind, 'Review.', 'gpt-model')).toEqual({
-      args: ['exec', '--ephemeral', '--model', 'gpt-model', 'Review.'],
+      args: ['exec', '--ephemeral', '--skip-git-repo-check', '--model', 'gpt-model', 'Review.'],
       timeoutMs: 0,
     });
   });

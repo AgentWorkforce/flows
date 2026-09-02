@@ -99,8 +99,10 @@ No process runs between events: the handler wakes, executes to its next await, p
    `claude auth status`, probes the exact model with a real noninteractive
    `claude -p --model <model>` round trip, and executes with that same model
    flag. A basename of `codex` uses `codex login status`, probes with
-   `codex exec --model <model>` in an ephemeral read-only session, and executes
-   noninteractively with `codex exec --model <model>`. Model-scoped probes may
+   `codex exec --skip-git-repo-check --model <model>` in an ephemeral read-only
+   session, and executes noninteractively with the same Git/cwd flag. A Git
+   checkout is not a Relayflow execution prerequisite, so readiness and worker
+   execution both support non-Git working directories. Model-scoped probes may
    contact the provider and have a 60-second timeout; this cost is the
    honest price of proving current credential/model access rather than
    accepting an unrelated auth command as model proof.
@@ -112,7 +114,11 @@ No process runs between events: the handler wakes, executes to its next await, p
    protocol. A missing or wrong identification is `cli_unsupported`, never
    mislabeled as `cli_unauthenticated`. If a model-scoped probe fails, the
    adapter's real unscoped authentication command distinguishes
-   `model_unavailable` from `cli_unauthenticated`.
+   `model_unavailable` from `cli_unauthenticated`. The worker repeats the exact
+   wrapper identification immediately before execution, with the private model
+   and wake-context variables absent. A direct journal submission or an
+   executable replaced after preflight therefore completes `worker_error`
+   without receiving `RELAYFLOW_MODEL` unless the current binary identifies.
 
    `flows check` resolves the binary (a path is relative to the declaring flow
    or project config; a bare name resolves via `PATH`) and caches each resolved
@@ -128,8 +134,10 @@ No process runs between events: the handler wakes, executes to its next await, p
    regex or provider prefix. The nearest `flows.json` owns an exact,
    case-sensitive `models` allowlist. `flows check` first refuses a declared
    model absent from that list as `model_unknown`, without starting the CLI.
-   This includes every named declaration, even when unused or shadowed by a
-   step override;
+   One pure first pass collects every unknown named and inline declaration
+   before any CLI, command, executor, or daemon probe, independent of step
+   order. This includes every named declaration, even when unused or shadowed
+   by a step override;
    only an allowlisted value reaches the live model-scoped probe above. The
    registry is author-owned project configuration, reviewed and versioned with
    the project. Updating it is an explicit file change made only after the

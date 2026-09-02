@@ -246,13 +246,76 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     );
 
     expect(result.diagnostics.map((diagnostic) => diagnostic.kind)).toEqual([
-      'cli_unresolved',
       'model_unknown',
     ]);
-    expect(result.diagnostics[1]).toMatchObject({
+    expect(result.diagnostics[0]).toMatchObject({
       stepId: 'a',
       model: 'typo-model',
     });
+  });
+
+  it.each([
+    ['valid first', ['valid', 'typo']],
+    ['typo first', ['typo', 'valid']],
+  ] as const)('validates every inline model before every probe: %s', (_label, order) => {
+    const calls: string[] = [];
+    const steps: Record<(typeof order)[number], FlowSpec['steps'][number]> = {
+      valid: { id: 'valid', type: 'agent', cli: 'claude', model: 'known-model', instruction: 'Valid.' },
+      typo: { id: 'typo', type: 'agent', cli: 'claude', model: 'known-modle', instruction: 'Typo.' },
+    };
+
+    const result = preflight({
+      version: '0.1.0',
+      steps: [
+        { id: 'deterministic', type: 'deterministic', command: './must-not-probe' },
+        ...order.map((id) => steps[id]),
+      ],
+      triggers: [{ id: 'trigger', executor: 'must-not-probe' }],
+    }, {
+      models: ['known-model'],
+      probes: {
+        cli: () => { calls.push('cli'); throw new Error('PROBE_CALLED'); },
+        command: () => { calls.push('command'); throw new Error('PROBE_CALLED'); },
+        executor: () => { calls.push('executor'); throw new Error('PROBE_CALLED'); },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ kind: 'model_unknown', stepId: 'typo', model: 'known-modle' }),
+    ]);
+    expect(calls).toEqual([]);
+  });
+
+  it('returns every named and inline unknown-model diagnostic in the pure first pass', () => {
+    let probeCalls = 0;
+    const result = preflight(compileSpec({
+      version: '0.1.0',
+      agents: {
+        unused: { cli: 'claude', model: 'unknown-named' },
+      },
+      steps: [{
+        id: 'inline',
+        type: 'agent',
+        cli: 'codex',
+        model: 'unknown-inline',
+        instruction: 'Review.',
+      }],
+    }), {
+      models: ['known-model'],
+      probes: probes({
+        cli: () => {
+          probeCalls += 1;
+          return { exists: true, authenticated: true, modelAvailable: true };
+        },
+      }),
+    });
+
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ kind: 'model_unknown', agent: 'unused', model: 'unknown-named' }),
+      expect.objectContaining({ kind: 'model_unknown', stepId: 'inline', model: 'unknown-inline' }),
+    ]);
+    expect(probeCalls).toBe(0);
   });
 
   it.each(['unused', 'shadowed'] as const)(

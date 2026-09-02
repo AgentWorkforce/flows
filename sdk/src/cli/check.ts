@@ -11,7 +11,7 @@ import {
   modelReadinessProbe,
   type CliInvocation,
 } from '../cli-adapter.js';
-import { MODEL_ENV } from '../worker.js';
+import { MODEL_ENV } from '../worker-cli.js';
 import { modelNameError } from '../model-name.js';
 import type { FlowSpec } from '../spec.js';
 import type { CheckFailureKind } from '../failure-kinds.js';

@@ -92,7 +92,7 @@ export function agentExecution(
   if (kind === 'codex') {
     return {
       args: [
-        'exec', '--ephemeral',
+        'exec', '--ephemeral', '--skip-git-repo-check',
         ...(model === undefined ? [] : ['--model', model]),
         instruction,
       ],
