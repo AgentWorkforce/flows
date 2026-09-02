@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
     }
   },
   "files": [
@@ -17,10 +21,10 @@
   ],
   "scripts": {
     "build": "tsc",
-    "prepare": "npm run build",
+    "prepare": "bun run build",
     "typecheck": "tsc --noEmit",
     "typecheck:regressions": "tsc -p ../regressions/tsconfig.json",
-    "test": "npm run build && tsc -p tsconfig.test.json && vitest run"
+    "test": "bun run build && tsc -p tsconfig.test.json && vitest run"
   },
   "license": "UNLICENSED",
   "devDependencies": {

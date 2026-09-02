@@ -1,4 +1,4 @@
-import type { Step } from "./context.js";
+import type { Step } from "./step.js";
 
 export interface WorkerSummary {
   workerId: string;

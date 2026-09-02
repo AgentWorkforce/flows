@@ -1,0 +1,53 @@
+name: Relayflow v2 surface package
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/surface-package.yml"
+      - "scripts/surface-package-gate.sh"
+      - "surface/**"
+      - "regressions/**"
+      - "sdk/package.json"
+      - "sdk/package-lock.json"
+      - "sdk/src/authored-flow.ts"
+      - "sdk/src/index.ts"
+      - "sdk/tests/authored-flow.test.ts"
+      - "sdk/tests/fixtures/runtime-bridge.flow.ts"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/surface-package.yml"
+      - "scripts/surface-package-gate.sh"
+      - "surface/**"
+      - "regressions/**"
+      - "sdk/package.json"
+      - "sdk/package-lock.json"
+      - "sdk/src/authored-flow.ts"
+      - "sdk/src/index.ts"
+      - "sdk/tests/authored-flow.test.ts"
+      - "sdk/tests/fixtures/runtime-bridge.flow.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  packed-consumer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
+      - name: Test source, regressions, and packed consumers
+        run: bash scripts/surface-package-gate.sh
