@@ -133,6 +133,8 @@ export interface RunWatchResult {
 export interface WorkerAttachParams {
   worker_id: string;
   step_types: StepType[];
+  /** Maximum concurrent assignments. Omitted means the conservative default 1. */
+  capacity?: number;
   /**
    * The surfaces this worker holds, as opaque revisions/offsets. Required when
    * `step_types` includes `agent` — an agent attempt's start pins come from

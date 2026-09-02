@@ -160,6 +160,61 @@ fn the_full_ladder_parses_in_the_one_dialect() {
 }
 
 #[test]
+fn external_surface_paths_must_have_one_canonical_spelling() {
+    for path in [
+        "/provider/./item",
+        "/provider/../item",
+        "/provider//item",
+        "/provider/item/",
+        " pr://github/example",
+    ] {
+        let spec = RunSpec::parse(&json!({
+            "steps": [{
+                "id": "agent",
+                "type": "agent",
+                "instruction": "write",
+                "surfaces": {"external": [path]}
+            }]
+        }))
+        .unwrap();
+        assert!(
+            matches!(
+                spec.validate(),
+                Err(SpecError::InvalidExternalSurface { path: invalid, .. }) if invalid == path
+            ),
+            "accepted non-canonical surface {path:?}"
+        );
+    }
+    for path in ["/provider/item", "pr://github/example", "provider/item"] {
+        let spec = RunSpec::parse(&json!({
+            "steps": [{
+                "id": "agent",
+                "type": "agent",
+                "instruction": "write",
+                "surfaces": {"external": [path]}
+            }]
+        }))
+        .unwrap();
+        assert!(
+            spec.validate().is_ok(),
+            "rejected canonical surface {path:?}"
+        );
+    }
+    assert!(external_surface_contains(
+        "/provider/item",
+        "/provider/item/child"
+    ));
+    assert!(!external_surface_contains(
+        "/provider/item",
+        "/provider/other"
+    ));
+    assert!(!external_surface_contains(
+        "/provider/item",
+        "/provider/./item"
+    ));
+}
+
+#[test]
 fn preflight_data_is_fail_closed() {
     let malformed = RunSpec::parse(&json!({
         "triggers": [{"id": "hourly", "executor": "worker-a", "worker": "guessed"}],

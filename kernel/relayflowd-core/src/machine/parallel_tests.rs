@@ -291,6 +291,24 @@ fn every_declared_mutable_surface_participates_in_conflict_selection() {
 }
 
 #[test]
+fn external_ancestor_and_descendant_paths_conflict_but_siblings_do_not() {
+    let selected = |left: &str, right: &str| {
+        let spec = crate::RunSpec::parse(&json!({
+            "steps": [
+                {"id": "first", "type": "agent", "instruction": "a", "surfaces": {"external": [left]}},
+                {"id": "second", "type": "agent", "instruction": "b", "surfaces": {"external": [right]}}
+            ]
+        }))
+        .unwrap();
+        let state = RunState::fold("run", spec, &[]).unwrap();
+        next_actions(&state, 10)
+    };
+    assert_eq!(selected("/provider/item", "/provider/item/child").len(), 2);
+    assert_eq!(selected("pr://github", "pr://github/example").len(), 2);
+    assert_eq!(selected("/provider/a", "/provider/b").len(), 4);
+}
+
+#[test]
 fn disjoint_agent_lanes_merge_pins_in_either_completion_order() {
     for order in [["lane-b", "lane-a"], ["lane-a", "lane-b"]] {
         let spec = parallel_agent_spec(false);

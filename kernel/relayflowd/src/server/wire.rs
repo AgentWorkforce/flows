@@ -52,8 +52,14 @@ pub(super) struct RunIdParams {
 pub(super) struct WorkerAttachParams {
     pub worker_id: String,
     pub step_types: Vec<StepType>,
+    #[serde(default = "default_worker_capacity")]
+    pub capacity: usize,
     #[serde(default)]
     pub pins: Pins,
+}
+
+fn default_worker_capacity() -> usize {
+    1
 }
 
 #[derive(Deserialize)]

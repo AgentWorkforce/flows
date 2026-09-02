@@ -30,6 +30,14 @@ impl SqliteJournal {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let terminal: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM entries WHERE entry_type = ?1)",
+            [EntryType::RunCompleted.as_str()],
+            |row| row.get(0),
+        )?;
+        if terminal {
+            return Err(JournalStoreError::RunTerminal(self.run_id.clone()));
+        }
         let persisted = insert_entry(&transaction, &self.run_id, current_segment, entry)?;
         transaction.commit()?;
         Ok(persisted)

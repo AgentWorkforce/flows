@@ -23,6 +23,7 @@ fn attached_agent(fixture: &LlmFixture, id: &str) -> ProtocolClient {
             json!({
                 "worker_id": id,
                 "step_types": ["agent"],
+                "capacity": 8,
                 "pins": {"workspace": [
                     {"surface": "repo-b", "revision_id": "r0"},
                     {"surface": "repo-a", "revision_id": "r0"}

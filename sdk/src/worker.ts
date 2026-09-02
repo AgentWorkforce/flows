@@ -9,6 +9,7 @@ export { MODEL_ENV, WAKE_CONTEXT_ENV } from './worker-cli.js';
 export interface AgentWorkerOptions {
   workerId: string;
   pins: Pins;
+  capacity?: number;
 }
 
 /**
@@ -44,7 +45,12 @@ export class AgentWorker extends EventEmitter {
     if (this.closing) throw new Error('agent worker: cannot attach a closed worker (construct a new one)');
     this.client.on('step.dispatch', this.onDispatch);
     try {
-      await this.client.workerAttach(this.options.workerId, ['agent'], this.options.pins);
+      await this.client.workerAttach(
+        this.options.workerId,
+        ['agent'],
+        this.options.pins,
+        this.options.capacity,
+      );
       this.attached = true;
     } catch (error) {
       this.client.off('step.dispatch', this.onDispatch);

@@ -91,12 +91,12 @@ impl RunSpec {
                     .as_ref()
                     .is_some_and(|value| crate::event::validate_pattern(value).is_err())
                 || trigger.event_type.is_some() != trigger.dedupe_key_template.is_some()
-                // A stale_after_ms that does not fit in i64 would make
-                // the subscription un-stale-able — the liveness sweep
-                // stores that budget as i64. Refuse at parse time so
-                // the operator sees the error before submitting events
-                // rather than at the first arrival. i64::MAX ms is
-                // ~292M years; a value past that is not a real budget.
+            // A stale_after_ms that does not fit in i64 would make
+            // the subscription un-stale-able — the liveness sweep
+            // stores that budget as i64. Refuse at parse time so
+            // the operator sees the error before submitting events
+            // rather than at the first arrival. i64::MAX ms is
+            // ~292M years; a value past that is not a real budget.
             {
                 return Err(SpecError::InvalidTrigger(trigger.id.clone()));
             }
@@ -138,6 +138,16 @@ impl RunSpec {
             if cli.as_ref().is_some_and(|value| value.trim().is_empty()) {
                 return Err(SpecError::EmptyStepCli(step.id.clone()));
             }
+            if let StepKind::Agent { surfaces, .. } = &step.kind {
+                for path in &surfaces.external {
+                    if external_surface_identity(path).is_none() {
+                        return Err(SpecError::InvalidExternalSurface {
+                            step: step.id.clone(),
+                            path: path.clone(),
+                        });
+                    }
+                }
+            }
             step.retry.validate(&step.id)?;
         }
 
@@ -167,6 +177,54 @@ impl RunSpec {
     pub fn step(&self, id: &str) -> Option<&StepSpec> {
         self.steps.iter().find(|step| step.id == id)
     }
+}
+
+/// Filesystem-free canonical identity for a declared writeback target.
+///
+/// The kernel cannot resolve host symlinks, so specs must already name a
+/// lexical canonical path: no whitespace aliases, empty components, `.`, or
+/// `..`. URI-like mount identities retain their scheme as a namespace.
+pub(crate) fn external_surface_identity(path: &str) -> Option<(String, Vec<String>)> {
+    if path.is_empty() || path.trim() != path {
+        return None;
+    }
+    let (namespace, tail) = if let Some(tail) = path.strip_prefix('/') {
+        ("/".to_owned(), tail)
+    } else if let Some(index) = path.find("://") {
+        let scheme = &path[..index];
+        if scheme.is_empty() || scheme.contains('/') {
+            return None;
+        }
+        (path[..index + 3].to_owned(), &path[index + 3..])
+    } else {
+        (String::new(), path)
+    };
+    if tail.is_empty() {
+        return Some((namespace, Vec::new()));
+    }
+    let components = tail.split('/').map(str::to_owned).collect::<Vec<_>>();
+    (!components
+        .iter()
+        .any(|component| component.is_empty() || component == "." || component == ".."))
+    .then_some((namespace, components))
+}
+
+pub fn is_canonical_external_surface(path: &str) -> bool {
+    external_surface_identity(path).is_some()
+}
+
+pub fn external_surface_contains(declared: &str, target: &str) -> bool {
+    let (
+        Some((declared_namespace, declared_components)),
+        Some((target_namespace, target_components)),
+    ) = (
+        external_surface_identity(declared),
+        external_surface_identity(target),
+    )
+    else {
+        return false;
+    };
+    declared_namespace == target_namespace && target_components.starts_with(&declared_components)
 }
 
 const STEP_COMMON_FIELDS: &[&str] = &[
@@ -483,7 +541,9 @@ pub enum SpecError {
     EmptyCli,
     #[error("trigger {0} must declare a non-empty id and executor")]
     InvalidTrigger(String),
-    #[error("trigger {id} declared stale_after_ms={ms} which does not fit in i64 (~292M years); the liveness sweep cannot represent that budget")]
+    #[error(
+        "trigger {id} declared stale_after_ms={ms} which does not fit in i64 (~292M years); the liveness sweep cannot represent that budget"
+    )]
     TriggerStaleAfterMsOutOfRange { id: String, ms: u64 },
     #[error("duplicate trigger id: {0}")]
     DuplicateTrigger(String),
@@ -491,6 +551,8 @@ pub enum SpecError {
     EmptyStepId,
     #[error("step {0} cli cannot be empty")]
     EmptyStepCli(String),
+    #[error("agent step {step} declares non-canonical external surface {path:?}")]
+    InvalidExternalSurface { step: String, path: String },
     #[error("duplicate step id: {0}")]
     DuplicateStep(String),
     #[error("step {0} must allow at least one iteration")]

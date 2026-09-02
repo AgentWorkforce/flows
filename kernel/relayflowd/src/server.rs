@@ -2,7 +2,6 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use relayflowd_core::{CompletionReason, PROTOCOL_VERSION, RunSpec, StepType};
-use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
 use crate::{Engine, OutOfBandCompletion};
@@ -26,11 +25,11 @@ pub use client::{cancel_via_socket, resume_via_socket};
 
 mod wire;
 use wire::*;
+mod protocol;
+use protocol::*;
 
 #[cfg(all(test, unix))]
 mod tests;
-
-type ProtocolResult<T> = std::result::Result<T, (&'static str, String)>;
 
 #[cfg(unix)]
 pub fn serve(data_dir: &Path) -> Result<()> {
@@ -117,29 +116,6 @@ pub fn serve(_data_dir: &Path) -> Result<()> {
 }
 
 #[cfg(unix)]
-fn handle_line(
-    data_dir: &Path,
-    hub: &std::sync::Arc<ProtocolHub>,
-    connection_id: u64,
-    writer: &SharedWriter,
-    line: &str,
-) -> Response {
-    let request: Request = match serde_json::from_str(line) {
-        Ok(request) => request,
-        Err(error) => return error_response(Value::Null, "bad_request", error.to_string()),
-    };
-    let id = request.id.clone();
-    match handle_request(data_dir, hub, connection_id, writer, request) {
-        Ok(result) => Response {
-            id,
-            ok: true,
-            result: Some(result),
-            error: None,
-        },
-        Err((code, message)) => error_response(id, code, message),
-    }
-}
-
 #[cfg(unix)]
 fn handle_request(
     data_dir: &Path,
@@ -165,6 +141,8 @@ fn handle_request(
         "run.start" => {
             let params: RunStartParams = decode_params(request.params)?;
             let spec = RunSpec::parse(&params.spec)
+                .map_err(|error| ("invalid_spec", error.to_string()))?;
+            spec.validate()
                 .map_err(|error| ("invalid_spec", error.to_string()))?;
             to_value(
                 engine
@@ -218,6 +196,9 @@ fn handle_request(
             if params.step_types.is_empty() {
                 return Err(("bad_request", "worker must accept a step type".to_owned()));
             }
+            if params.capacity == 0 {
+                return Err(("bad_request", "worker capacity must be positive".to_owned()));
+            }
             // Appendix A rule 2: an agent attempt is journaled with the opaque
             // revisions the worker reports. A worker that accepts agent steps
             // and reports no surface at all can never supply them, and that is
@@ -236,6 +217,7 @@ fn handle_request(
                 connection_id,
                 params.worker_id.clone(),
                 params.step_types,
+                params.capacity,
                 params.pins,
                 writer.clone(),
             );
@@ -243,6 +225,9 @@ fn handle_request(
         }
         "step.heartbeat" => {
             let params: StepHeartbeatParams = decode_params(request.params)?;
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            ensure_mutable(&engine, &params.run_id)?;
             let (deadline, run_deadline) = hub
                 .heartbeat(
                     connection_id,
@@ -281,6 +266,7 @@ fn handle_request(
             );
             let lock = hub.run_lock(&params.run_id);
             let _guard = lock.lock().expect("run lock");
+            ensure_mutable(&engine, &params.run_id)?;
             let worker_id = hub
                 .completion_worker(connection_id, &key)
                 .map_err(protocol_conflict)?;
@@ -326,6 +312,7 @@ fn handle_request(
             );
             let lock = hub.run_lock(&params.run_id);
             let _guard = lock.lock().expect("run lock");
+            ensure_mutable(&engine, &params.run_id)?;
             let worker_id = hub
                 .completion_worker(connection_id, &key)
                 .map_err(protocol_conflict)?;
@@ -352,6 +339,7 @@ fn handle_request(
             );
             let lock = hub.run_lock(&params.run_id);
             let _guard = lock.lock().expect("run lock");
+            ensure_mutable(&engine, &params.run_id)?;
             let worker_id = hub
                 .completion_worker(connection_id, &key)
                 .map_err(protocol_conflict)?;
@@ -371,6 +359,7 @@ fn handle_request(
             let params: EventEmitParams = decode_params(request.params)?;
             let lock = hub.run_lock(&params.run_id);
             let _guard = lock.lock().expect("run lock");
+            ensure_mutable(&engine, &params.run_id)?;
             let matched = engine
                 .emit_event(&params.run_id, &params.event_key, params.payload)
                 .map_err(internal_error)?;
@@ -390,6 +379,7 @@ fn handle_request(
             let params: StreamAppendParams = decode_params(request.params)?;
             let lock = hub.run_lock(&params.run_id);
             let _guard = lock.lock().expect("run lock");
+            ensure_mutable(&engine, &params.run_id)?;
             let offset = engine
                 .append_stream(
                     &params.run_id,
@@ -486,49 +476,4 @@ fn watch_with_replay(
         return Err(internal_error(error));
     }
     Ok(json!({"watching": run_id}))
-}
-
-fn decode_params<T: DeserializeOwned>(params: Value) -> ProtocolResult<T> {
-    serde_json::from_value(params).map_err(|error| ("bad_request", error.to_string()))
-}
-
-fn to_value(value: impl Serialize) -> ProtocolResult<Value> {
-    serde_json::to_value(value).map_err(|error| internal_error(error.into()))
-}
-
-fn protocol_conflict(error: anyhow::Error) -> (&'static str, String) {
-    ("lease_conflict", error.to_string())
-}
-
-fn internal_error(error: anyhow::Error) -> (&'static str, String) {
-    let journal_failure = error.chain().any(|cause| {
-        cause.is::<relayflowd_core::JournalError>()
-            || cause.is::<relayflowd_journal::JournalStoreError>()
-    });
-    let code = if journal_failure {
-        "journal_write_failed"
-    } else {
-        "internal"
-    };
-    (code, format!("{error:#}"))
-}
-
-fn error_response(id: Value, code: &str, message: String) -> Response {
-    Response {
-        id,
-        ok: false,
-        result: None,
-        error: Some(ProtocolError {
-            code: code.to_owned(),
-            message,
-        }),
-    }
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .min(i64::MAX as u128) as i64
 }
