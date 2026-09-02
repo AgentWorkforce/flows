@@ -59,7 +59,7 @@ export interface AuthoredFlowJournalStep {
 
 export interface AuthoredFlowExecutionResult {
   readonly name: string;
-  readonly completionReason: ProtocolCompletionReason;
+  readonly completionReason: ProtocolRunCompletionReason;
   readonly journalSteps: readonly AuthoredFlowJournalStep[];
 }
 
@@ -72,11 +72,12 @@ export interface AuthoredFlowExecutionResult {
  * `JournalClient`; values are read back from `step.completed` journal entries.
  * Unsupported headers, verbs, gates, or completion lowering fail closed.
  */
-export async function executeAuthoredFlow(
+export async function executeAuthoredFlow<Input = undefined>(
   handle: FlowHandle,
   journal: JournalClient,
+  input?: Input,
 ): Promise<AuthoredFlowExecutionResult> {
-  const definition = getAuthoredFlowDefinition(handle);
+  const definition = getAuthoredFlowDefinition<Input>(handle);
   const headerFields = Object.keys(definition.header);
   if (headerFields.length > 0) {
     throw new AuthoredFlowExecutionError(
@@ -87,7 +88,7 @@ export async function executeAuthoredFlow(
 
   const journalSteps: AuthoredFlowJournalStep[] = [];
   let nextStep = 1;
-  let requestedCompletion: SurfaceCompletionReason | undefined;
+  let requestedCompletion: SurfaceRunCompletionReason | undefined;
 
   const lowerDeterministic = async (
     id: string,
@@ -144,7 +145,7 @@ export async function executeAuthoredFlow(
     cloud: unsupportedCloud(),
   };
 
-  await definition.body(context);
+  await definition.body(context, input as Input);
   if (requestedCompletion === undefined) {
     throw new AuthoredFlowExecutionError(
       'missing_completion',

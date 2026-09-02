@@ -45,6 +45,9 @@ flows run release-note.flow.ts --input '{"base":"main"}'
 flows run release-note.flow.ts --input ./release-note.input.json
 ```
 
+Direct input is limited to 1,048,576 UTF-8 bytes. Missing, invalid, or
+oversized input is refused before the daemon is contacted.
+
 Direct runs use the same journal-backed executor as other authored flows, so
 branches over step output observe the value recorded by `step.completed`.
 Unsupported headers, verbs, and code predicate gates fail closed.

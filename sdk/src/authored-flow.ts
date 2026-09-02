@@ -11,10 +11,10 @@ import {
  * flow. `executeAuthoredFlow` owns the initial journal-backed context; callers
  * that only need inspection can recover the definition without executing it.
  */
-export function getAuthoredFlowDefinition(
+export function getAuthoredFlowDefinition<Input = unknown>(
   handle: FlowHandle,
-): AuthoredFlowDefinition {
-  return getFlowDefinition(handle);
+): AuthoredFlowDefinition<Input> {
+  return getFlowDefinition<Input>(handle);
 }
 
 export type { AuthoredFlowDefinition, FlowHandle };

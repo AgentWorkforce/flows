@@ -13,6 +13,7 @@ export const CHECK_INPUT_FAILURE_KINDS = [
   'config_invalid',
   'input_invalid',
   'input_missing',
+  'input_too_large',
   'input_unreadable',
   'invalid_invocation',
   'invalid_spec',

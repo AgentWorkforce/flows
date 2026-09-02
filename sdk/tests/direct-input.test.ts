@@ -18,6 +18,8 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const BUILT_CLI = join(ROOT, 'sdk', 'dist', 'cli.js');
 const FLOW = join(ROOT, 'sdk', 'tests', 'fixtures', 'direct-input.flow.ts');
+const CONTROL_FLOW = join(ROOT, 'sdk', 'tests', 'fixtures', 'direct-output-control.flow.ts');
+const SIDE_EFFECT_FLOW = join(ROOT, 'sdk', 'tests', 'fixtures', 'pre-journal-side-effect.flow.ts');
 const TOOLCHAIN_TARGET = process.env['CARGO_TARGET_DIR']
   ?? join(process.env['RELAYFLOWS_TOOLCHAIN_HOME'] ?? join(homedir(), '.relayflows-toolchain'), 'target');
 const RELAYFLOWD = resolve(process.env['RELAYFLOWD_BIN'] ?? locateRelayflowd());
@@ -58,6 +60,17 @@ describe('direct .flow.ts input through the built CLI and live runtime', () => {
     expect(file.status, file.stderr).toBe(0);
     expect(file.stdout).toContain('completionReason: success');
     expect(readFileSync(fileOutput, 'utf8')).toBe('file value');
+
+    const controlOutput = join(directory, 'control.txt');
+    const control = invokeCli([
+      'run', CONTROL_FLOW, '--input', JSON.stringify({ output: controlOutput }),
+      '--data-dir', dataDir,
+    ]);
+    expect(control.status, control.stderr).toBe(0);
+    expect(control.stdout).toContain('completionReason: success');
+    expect(readFileSync(controlOutput, 'utf8')).toBe(
+      'truthy,negation,loose,strict,ternary,and,or',
+    );
   });
 
   it('refuses missing and malformed input before contacting relayflowd', () => {
@@ -89,6 +102,32 @@ describe('direct .flow.ts input through the built CLI and live runtime', () => {
     expect(missingInputValue.status, missingInputValue.stderr).toBe(2);
     expect(missingInputValue.stderr).toContain('REFUSED [invalid_invocation]');
   });
+
+  it('does not import or execute authored code before daemon availability', () => {
+    const directory = temporaryDirectory();
+    const marker = join(directory, 'marker.txt');
+    const result = invokeCli([
+      'run', SIDE_EFFECT_FLOW, '--input', JSON.stringify({ marker }),
+      '--data-dir', join(directory, 'absent-daemon'),
+    ], { RELAYFLOWS_TEST_IMPORT_MARKER: marker });
+
+    expect(result.status, result.stderr).toBe(2);
+    expect(result.stderr).toContain('REFUSED [daemon_unreachable]');
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it('refuses oversized file input before contacting relayflowd', () => {
+    const directory = temporaryDirectory();
+    const inputPath = join(directory, 'oversized.json');
+    writeFileSync(inputPath, JSON.stringify({ value: 'x'.repeat(1_048_576) }));
+    const result = invokeCli([
+      'run', FLOW, '--input', inputPath, '--data-dir', join(directory, 'absent-daemon'),
+    ]);
+
+    expect(result.status, result.stderr).toBe(2);
+    expect(result.stderr).toContain('REFUSED [input_too_large]');
+    expect(result.stderr).not.toContain('daemon_unreachable');
+  });
 });
 
 function temporaryDirectory(): string {
@@ -97,10 +136,11 @@ function temporaryDirectory(): string {
   return directory;
 }
 
-function invokeCli(args: string[]) {
+function invokeCli(args: string[], env: NodeJS.ProcessEnv = {}) {
   return spawnSync(process.execPath, [BUILT_CLI, ...args], {
     cwd: ROOT,
     encoding: 'utf8',
+    env: { ...process.env, ...env },
   });
 }
 

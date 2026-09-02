@@ -37,6 +37,14 @@ describe("flow", () => {
     expect(Object.isFrozen(getFlowDefinition(definition).header.tools?.mcp)).toBe(true);
   });
 
+  it("refuses unknown header fields instead of erasing them", () => {
+    expect(() => flow(
+      "typo-header",
+      { identitty: "misspelled" } as never,
+      async () => undefined,
+    )).toThrow('flow header has unknown fields: identitty');
+  });
+
   it("retains the body for an authorized runtime without executing it", async () => {
     let bodyRan = false;
     const definition = flow("deferred", async () => {

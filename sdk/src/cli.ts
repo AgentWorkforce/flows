@@ -9,11 +9,11 @@ import {
 } from './cli/check.js';
 import {
   resumeFlow,
-  runDirectFlow,
   runFlow,
   type RunExecution,
   type RunReport,
 } from './cli/run.js';
+import { runDirectFlow } from './cli/direct-run.js';
 import { isAuthoredFlowPath } from './direct-input.js';
 import { runHnMonitor } from './cli/hn-monitor.js';
 
