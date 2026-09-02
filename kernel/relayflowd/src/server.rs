@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use relayflowd_core::{CompletionReason, PROTOCOL_VERSION, RunSpec, StepType};
+use relayflowd_core::{CompletionReason, PROTOCOL_VERSION, RunSpec, SpecError, StepType};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
@@ -169,7 +169,7 @@ fn handle_request(
             to_value(
                 engine
                     .start(spec, "protocol-v0", None)
-                    .map_err(internal_error)?,
+                    .map_err(run_start_error)?,
             )
         }
         "run.resume" => {
@@ -493,6 +493,14 @@ fn to_value(value: impl Serialize) -> ProtocolResult<Value> {
 
 fn protocol_conflict(error: anyhow::Error) -> (&'static str, String) {
     ("lease_conflict", error.to_string())
+}
+
+fn run_start_error(error: anyhow::Error) -> (&'static str, String) {
+    if error.downcast_ref::<SpecError>().is_some() {
+        ("invalid_spec", format!("{error:#}"))
+    } else {
+        internal_error(error)
+    }
 }
 
 fn internal_error(error: anyhow::Error) -> (&'static str, String) {
