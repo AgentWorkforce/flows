@@ -2,18 +2,13 @@
 
 The TypeScript authoring contract described by `docs/SURFACE.md`.
 
-The package defines flows and the context that a journal-backed runtime
-injects. A flow handle retains an immutable header and body behind the
-`@relayflows/surface/runtime` bridge used by `@relayflows/sdk`; the public
-handle remains the frozen `{ name }` authoring value. This package never
-constructs a context, executes a body on its own, or contacts the kernel.
-Those responsibilities stay behind `@relayflows/sdk` and the journal protocol.
-The SDK's initial executor supports the deliberately small executable slice:
-an empty header, awaited plain `f.run(...)` calls, and one
-`f.done("success")`. It compiles each command and a terminal success marker to
-deterministic specs, submits them through the existing journal client, and
-reads results from `step.completed`. Other headers, verbs, postfix gates, and
-completion lowering refuse rather than running outside the journal.
+The package defines flows and the context that a future journal-backed runtime
+will inject. A flow handle retains an immutable header and body behind the
+`@relayflows/surface/runtime` bridge used by in-repository SDK inspection; the
+public handle remains the frozen `{ name }` authoring value. This package never
+constructs a context, executes a body, or contacts the kernel. The repository
+CLI delegates direct runs to the SDK's internal journal-backed executor; that
+executor is intentionally not exported from the SDK package root.
 
 This is currently an in-repository foundation, not a registry-published
 package. The repository's `flows run` command can execute a directly authored

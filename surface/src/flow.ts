@@ -34,7 +34,7 @@ export interface FlowHandle {
   readonly name: string;
 }
 
-const DEFINITION = Symbol.for("@relayflows/surface.authored-definition.v1");
+const DEFINITION = Symbol("@relayflows/surface.authored-definition.v1");
 
 type StoredFlowHandle<Input = unknown> = FlowHandle & {
   readonly [DEFINITION]: AuthoredFlowDefinition<Input>;
@@ -60,6 +60,7 @@ export function flow<Input = unknown>(
   if (typeof flowBody !== "function") {
     throw new TypeError(`flow "${name}" requires a body`);
   }
+  assertFlowHeader(header, name);
 
   const definition: AuthoredFlowDefinition<Input> = Object.freeze({
     name,
@@ -147,4 +148,103 @@ function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
     ...(tools === undefined ? {} : { tools }),
     ...(header.workspace === undefined ? {} : { workspace: header.workspace }),
   });
+}
+
+function assertFlowHeader(value: unknown, flowName: string): asserts value is FlowHeader {
+  const at = `unsupported_header: flow "${flowName}" header`;
+  assertHeaderObject(value, at);
+  assertKnownKeys(
+    value,
+    ["identity", "memory", "budget", "tools", "workspace"],
+    at,
+  );
+  assertOptionalString(value, "identity", at);
+  assertOptionalString(value, "budget", at);
+  assertOptionalString(value, "workspace", at);
+
+  if (value.memory !== undefined) {
+    assertHeaderObject(value.memory, `${at}.memory`);
+    assertKnownKeys(
+      value.memory,
+      ["script", "agent"],
+      `${at}.memory`,
+    );
+    assertOptionalBoolean(value.memory, "script", `${at}.memory`);
+    assertOptionalBoolean(value.memory, "agent", `${at}.memory`);
+  }
+
+  if (value.tools !== undefined) {
+    assertHeaderObject(value.tools, `${at}.tools`);
+    assertKnownKeys(
+      value.tools,
+      ["relayfile", "mcp"],
+      `${at}.tools`,
+    );
+    assertOptionalStringArray(value.tools, "relayfile", `${at}.tools`);
+    assertOptionalStringArray(value.tools, "mcp", `${at}.tools`);
+  }
+}
+
+function assertHeaderObject(
+  value: unknown,
+  at: string,
+): asserts value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError(`${at}: expected an object`);
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError(`${at}: expected a plain object`);
+  }
+}
+
+function assertKnownKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  at: string,
+): void {
+  const allowedKeys = new Set<PropertyKey>(allowed);
+  for (const key of Reflect.ownKeys(value)) {
+    if (!allowedKeys.has(key)) {
+      throw new TypeError(`${at}: unknown field ${JSON.stringify(String(key))}`);
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !('value' in descriptor)) {
+      throw new TypeError(`${at}.${String(key)}: expected a data property`);
+    }
+  }
+}
+
+function assertOptionalString(
+  value: Record<string, unknown>,
+  key: string,
+  at: string,
+): void {
+  if (value[key] !== undefined && typeof value[key] !== "string") {
+    throw new TypeError(`${at}.${key}: expected a string`);
+  }
+}
+
+function assertOptionalBoolean(
+  value: Record<string, unknown>,
+  key: string,
+  at: string,
+): void {
+  if (value[key] !== undefined && typeof value[key] !== "boolean") {
+    throw new TypeError(`${at}.${key}: expected a boolean`);
+  }
+}
+
+function assertOptionalStringArray(
+  value: Record<string, unknown>,
+  key: string,
+  at: string,
+): void {
+  const candidate = value[key];
+  if (
+    candidate !== undefined
+    && (!Array.isArray(candidate) || candidate.some((item) => typeof item !== "string"))
+  ) {
+    throw new TypeError(`${at}.${key}: expected an array of strings`);
+  }
 }

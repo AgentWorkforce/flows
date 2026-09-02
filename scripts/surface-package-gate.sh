@@ -52,6 +52,50 @@ if (completionReason !== 'success') {
   throw new Error('packed runtime consumer could not invoke the authored body');
 }
 console.log(`PACKED_RUNTIME_OK name=${definition.name} completionReason=${completionReason}`);
+
+const invalidHeaders = [
+  { identitty: 'typo' },
+  [],
+  null,
+  { memory: null },
+  { memory: { typo: true } },
+  { tools: null },
+  { tools: { typo: [] } },
+  { tools: { mcp: 'github' } },
+  { tools: { mcp: ['github', 42] } },
+];
+for (const [index, header] of invalidHeaders.entries()) {
+  try {
+    flow(`packed-invalid-${index}`, header, async () => undefined);
+    throw new Error(`packed runtime accepted invalid header ${index}`);
+  } catch (error) {
+    if (!(error instanceof TypeError) || !error.message.includes('unsupported_header')) {
+      throw error;
+    }
+  }
+}
+
+const forged = { name: 'packed-forgery' };
+Object.defineProperty(forged, Symbol.for('@relayflows/surface.authored-definition.v1'), {
+  value: Object.freeze({
+    name: 'packed-forgery',
+    header: Object.freeze({}),
+    body: async () => undefined,
+  }),
+  enumerable: false,
+  configurable: false,
+  writable: false,
+});
+try {
+  getFlowDefinition(Object.freeze(forged));
+  throw new Error('packed runtime accepted a forged handle');
+} catch (error) {
+  if (!(error instanceof TypeError)
+    || error.message !== 'expected an @relayflows/surface flow handle') {
+    throw error;
+  }
+}
+console.log(`PACKED_RUNTIME_REFUSAL_OK invalidHeaders=${invalidHeaders.length} forgedHandle=refused`);
 NODE
 
 cat > consume.mts <<'TS'
@@ -85,11 +129,18 @@ const handle: FlowHandle = flow('packed-type-consumer', header, body);
 const definition: AuthoredFlowDefinition = getFlowDefinition(handle);
 const stepReason: CompletionReason = 'verification_failed';
 const runReason: RunCompletionReason = 'step_failed';
+const finishRun = (f: Ctx, reason: RunCompletionReason): void => f.done(reason);
+const refuseStepReason = (f: Ctx, reason: CompletionReason): void => {
+  // @ts-expect-error step-attempt reasons cannot complete a whole flow.
+  f.done(reason);
+};
 const helper: CloudHelper | undefined = undefined;
 void definition;
 void helper;
 void stepReason;
 void runReason;
+void finishRun;
+void refuseStepReason;
 TS
 
 cat > tsconfig.consumer.json <<'JSON'
