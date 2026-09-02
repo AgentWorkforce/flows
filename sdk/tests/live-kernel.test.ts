@@ -370,8 +370,8 @@ steps:
     await worker.attach();
 
     // Load hn-monitor's canonical spec, then patch the analyze-story
-    // step to declare a real CLI. Everything else — triggers, dedupe,
-    // wake context — comes straight from the existing gate-2 spec.
+    // step to declare a real CLI. The canonical fixture is separately pinned
+    // to the authoring YAML, whose `output:` compiles to this json_schema.
     const spec = JSON.parse(
       readFileSync(join(TESTDATA, 'hn-monitor.spec.canonical.json'), 'utf8'),
     ) as { steps: { id: string; cli?: string }[] };
@@ -400,6 +400,18 @@ steps:
       state: 'done',
     });
     const finalEntries = (await client.journalRead(runId)).entries;
+    const stepCompleted = finalEntries.find(
+      (entry) => (entry as { entry_type: string; step_id?: string }).entry_type === 'step.completed'
+        && (entry as { step_id?: string }).step_id === 'analyze-story',
+    ) as { payload: { output: unknown; verification: unknown } } | undefined;
+    expect(stepCompleted?.payload).toMatchObject({
+      output: {
+        story_title: 'stub',
+        relevance_score: 5,
+        reasoning: 'stub agent runtime — deterministic output for gate-2 clause-2 demo',
+      },
+      verification: { gate: 'json_schema', verdict: 'pass' },
+    });
     const runCompleted = finalEntries.find(
       (entry) => (entry as { entry_type: string }).entry_type === 'run.completed',
     ) as { payload: { completionReason: string } } | undefined;
@@ -464,8 +476,15 @@ steps:
     // a "hasn't completed yet" absence.
     const deadline = Date.now() + 10_000;
     let runCompleted: { payload: { completionReason: string } } | undefined;
+    let stepCompleted: {
+      payload: { completionReason: string; output: unknown; verification: unknown };
+    } | undefined;
     while (Date.now() < deadline) {
       const entries = (await client.journalRead(runId)).entries;
+      stepCompleted = entries.find(
+        (entry) => (entry as { entry_type: string; step_id?: string }).entry_type === 'step.completed'
+          && (entry as { step_id?: string }).step_id === 'analyze-story',
+      ) as typeof stepCompleted;
       runCompleted = entries.find(
         (entry) => (entry as { entry_type: string }).entry_type === 'run.completed',
       ) as { payload: { completionReason: string } } | undefined;
@@ -476,10 +495,15 @@ steps:
       runCompleted,
       'run.completed entry never arrived within 10s — test cannot assert schema-live under a hung run',
     ).toBeDefined();
-    // step_failed is the outer reason (a step failed → run failed);
-    // the inner step.completed record carries verification_failed
-    // for schema-rejected outputs. Pinning the outer reason avoids
-    // depending on retry/backoff behavior for this test.
+    // step_failed is the outer reason (a step failed → run failed). With one
+    // allowed semantic execution, the step records retries_exhausted while
+    // its verification record names the json_schema rejection. The rejected
+    // parsed value is nulled before the completion is persisted.
+    expect(stepCompleted?.payload).toMatchObject({
+      completionReason: 'retries_exhausted',
+      output: null,
+      verification: { gate: 'json_schema', verdict: 'fail' },
+    });
     expect(runCompleted!.payload.completionReason).toBe('step_failed');
 
     await worker.close();

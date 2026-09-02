@@ -9,6 +9,9 @@
 // Zero-agent flows are legal: a spec with only `deterministic` (and/or `llm`)
 // steps is valid. Nothing here requires an `agent` step.
 
+import type { JsonOutputSchema } from './output-schema.js';
+export type { JsonOutputSchema, OutputFromSchema } from './output-schema.js';
+
 /** The three rungs of the ladder (RFC §1; AGENTS.md rule 7). */
 export type StepType = 'deterministic' | 'llm' | 'agent';
 
@@ -119,12 +122,17 @@ export interface DeterministicStepSpec extends BaseStepSpec {
  * never calls a model: it dispatches to an attached SDK worker (§5) which
  * returns `{output, usage}`; the kernel then runs the verification gate.
  */
-export interface LlmStepSpec extends BaseStepSpec {
+export interface LlmStepSpec<TOutput = unknown> extends BaseStepSpec {
   type: 'llm';
   prompt: string;
   model?: string;
   /** Inert preflight declaration; overrides the flow/project CLI default. */
   cli?: string;
+  /**
+   * Typed-output authoring sugar. Compiles to the existing `json_schema`
+   * verification primitive and is removed before the kernel boundary.
+   */
+  output?: JsonOutputSchema<TOutput>;
 }
 
 /**
@@ -133,7 +141,7 @@ export interface LlmStepSpec extends BaseStepSpec {
  * every writeback is a journaled `effect.recorded` deduped by
  * `(step_id, idempotency_key, surface_path)`.
  */
-export interface AgentStepSpec extends BaseStepSpec {
+export interface AgentStepSpec<TOutput = unknown> extends BaseStepSpec {
   type: 'agent';
   instruction: string;
   /** Inert preflight declaration; overrides the flow/project CLI default. */
@@ -149,6 +157,11 @@ export interface AgentStepSpec extends BaseStepSpec {
   surfaces?: AgentSurfaces;
   recoveryMode?: RecoveryMode;
   permissions?: PermissionsSpec;
+  /**
+   * Typed-output authoring sugar. A successful CLI JSON object is the parsed
+   * value; the kernel persists it only after `json_schema` verification.
+   */
+  output?: JsonOutputSchema<TOutput>;
 }
 
 export type StepSpec = DeterministicStepSpec | LlmStepSpec | AgentStepSpec;

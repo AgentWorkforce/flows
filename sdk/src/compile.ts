@@ -84,11 +84,12 @@ export function compileSpec(spec: unknown): FlowSpec {
 
 function compileStep(step: StepSpec): StepSpec {
   const maxIterations = step.maxIterations ?? 1;
+  const verification = typedOutputVerification(step);
   const base = {
     id: step.id,
     type: step.type,
     ...(step.dependsOn !== undefined ? { dependsOn: step.dependsOn } : {}),
-    ...(step.verification !== undefined ? { verification: step.verification } : {}),
+    ...(verification !== undefined ? { verification } : {}),
     maxIterations,
     ...(step.timeoutMs !== undefined ? { timeoutMs: step.timeoutMs } : {}),
   };
@@ -128,6 +129,13 @@ function compileStep(step: StepSpec): StepSpec {
       // validateSpec already gated this; unreachable.
       throw new CompileError([`step "${step.id}": unknown type "${String((step as { type: unknown }).type)}"`]);
   }
+}
+
+function typedOutputVerification(step: StepSpec): StepSpec['verification'] {
+  if (step.type !== 'deterministic' && step.output !== undefined) {
+    return { type: 'json_schema', schema: step.output };
+  }
+  return step.verification;
 }
 
 // Kernel defaults, materialized at compile time so the emitted spec is
@@ -389,6 +397,18 @@ function requireNoTimeout(step: StepSpec): void {
 }
 
 function toKernelVerification(step: StepSpec): KernelVerificationSpec {
+  const output = step.type === 'deterministic' ? undefined : step.output;
+  if (output !== undefined) {
+    if (step.verification !== undefined) {
+      throw new CompileError([
+        `step "${step.id}": output already declares json_schema verification; remove verification`,
+      ]);
+    }
+    if (!isObject(output)) {
+      throw new CompileError([`step "${step.id}".output: expected a JSON Schema object`]);
+    }
+    return { json_schema: output };
+  }
   const gate = step.verification;
   // No gate / explicit exit_code both compile to {}: exit_code == 0 is the
   // kernel's implicit gate for deterministic steps (kernel DESIGN.md §4).

@@ -17,6 +17,7 @@ import type {
   VerificationSpec,
 } from './spec.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
+import { validateOutputDeclaration } from './output-schema.js';
 
 export interface ValidationResult {
   ok: boolean;
@@ -46,8 +47,8 @@ const BUDGET_KEYS = ['maxTokensIn', 'maxTokensOut', 'maxDollars'] as const;
 const STEP_COMMON_KEYS = ['id', 'type', 'dependsOn', 'verification', 'maxIterations', 'timeoutMs'] as const;
 const STEP_TYPE_KEYS: Record<StepType, readonly string[]> = {
   deterministic: ['command'],
-  llm: ['prompt', 'model', 'cli'],
-  agent: ['instruction', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions'],
+  llm: ['prompt', 'model', 'cli', 'output'],
+  agent: ['instruction', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions', 'output'],
 };
 const VERIFICATION_KEYS: Record<string, readonly string[]> = {
   exit_code: ['type', 'expect'],
@@ -248,8 +249,10 @@ class Validator {
       this.validateDeterministic(st as unknown as DeterministicStepSpec, at);
     } else if (type === 'llm') {
       this.validateLlm(st as unknown as LlmStepSpec, at);
+      for (const error of validateOutputDeclaration(st, at)) this.fail(error);
     } else {
       this.validateAgent(st as unknown as AgentStepSpec, at);
+      for (const error of validateOutputDeclaration(st, at)) this.fail(error);
     }
   }
 

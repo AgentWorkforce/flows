@@ -24,20 +24,19 @@ steps:
       is relevant to AI agents/automation. Output a JSON summary with: story
       title, relevance score (1-10), and reasoning.
     recoveryMode: reset
-    verification:
-      type: json_schema
-      schema:
-        type: object
-        required:
-          - story_title
-          - relevance_score
-          - reasoning
-        properties:
-          story_title:
-            type: string
-          relevance_score:
-            type: integer
-            minimum: 1
-            maximum: 10
-          reasoning:
-            type: string
+    # Surface sugar: compiles to the kernel's existing json_schema gate.
+    output:
+      type: object
+      required:
+        - story_title
+        - relevance_score
+        - reasoning
+      properties:
+        story_title:
+          type: string
+        relevance_score:
+          type: integer
+          minimum: 1
+          maximum: 10
+        reasoning:
+          type: string
