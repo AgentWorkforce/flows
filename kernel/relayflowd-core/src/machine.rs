@@ -95,6 +95,15 @@ pub fn next_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
         return cancel_run_actions(state, now_ms);
     }
     if let Some(failed_step_id) = state.failed_step() {
+        if state
+            .steps
+            .values()
+            .any(|runtime| matches!(runtime.state, StepState::Running { .. }))
+        {
+            // Drain already-started siblings before making run.completed
+            // terminal. No fresh work is elected once failure is inevitable.
+            return Vec::new();
+        }
         return complete_run_actions(
             state,
             RunCompletionReason::StepFailed,
@@ -147,14 +156,8 @@ pub fn next_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
     // authored spec order while emitting every journal-first start pair from
     // that one state snapshot; dependencies unlocked by these executions are
     // considered only after their completions are folded on the next pass.
-    let starts = state
-        .spec
-        .steps
-        .iter()
-        .filter_map(|spec| {
-            let runtime = &state.steps[&spec.id];
-            (runtime.state == StepState::Runnable).then_some((spec, runtime))
-        })
+    let starts = parallel::runnable_batch(state)
+        .into_iter()
         .flat_map(|(spec, runtime)| start_actions(state, spec, runtime.attempts + 1, now_ms))
         .collect::<Vec<_>>();
     if !starts.is_empty() {
@@ -456,6 +459,8 @@ fn deterministic_ulid(
 
 mod recovery;
 pub use recovery::{abandonment_actions, recovery_actions, recovery_actions_filtered};
+
+mod parallel;
 
 #[cfg(test)]
 mod parallel_tests;

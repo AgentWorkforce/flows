@@ -459,6 +459,15 @@ impl StepDispatcher for ProtocolHub {
         );
         Ok(DispatchOutcome::Dispatched)
     }
+
+    fn active_lease_deadline(&self, run_id: &str, step_id: &str, attempt: u32) -> Option<i64> {
+        self.sessions
+            .lock()
+            .expect("protocol sessions lock")
+            .assignments
+            .get(&(run_id.to_owned(), step_id.to_owned(), attempt))
+            .map(|assignment| assignment.lease_deadline_ms)
+    }
 }
 
 impl LeaseProbe for ProtocolHub {

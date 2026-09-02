@@ -123,6 +123,59 @@ impl LlmFixture {
         fixture
     }
 
+    pub fn parallel_terminal(name: &str) -> Self {
+        let mut fixture = Self::parallel(name);
+        for step in fixture.spec["steps"].as_array_mut().unwrap() {
+            step["max_iterations"] = json!(1);
+        }
+        fs::write(
+            &fixture.spec_path,
+            serde_json::to_vec(&fixture.spec).unwrap(),
+        )
+        .unwrap();
+        fixture
+    }
+
+    pub fn parallel_agents(name: &str, overlapping: bool) -> Self {
+        let mut fixture = Self::new(name, false);
+        let lane_a_surface = if overlapping { "repo-b" } else { "repo-a" };
+        let join_workspace = if overlapping {
+            json!([{"surface": "repo-b"}])
+        } else {
+            json!([{"surface": "repo-b"}, {"surface": "repo-a"}])
+        };
+        fixture.spec = json!({
+            "name": format!("agent-parallel-{name}"),
+            "steps": [
+                {
+                    "id": "lane-b",
+                    "type": "agent",
+                    "instruction": "b",
+                    "surfaces": {"workspace": [{"surface": "repo-b"}]}
+                },
+                {
+                    "id": "lane-a",
+                    "type": "agent",
+                    "instruction": "a",
+                    "surfaces": {"workspace": [{"surface": lane_a_surface}]}
+                },
+                {
+                    "id": "join",
+                    "type": "agent",
+                    "instruction": "join",
+                    "depends_on": ["lane-b", "lane-a"],
+                    "surfaces": {"workspace": join_workspace}
+                }
+            ]
+        });
+        fs::write(
+            &fixture.spec_path,
+            serde_json::to_vec(&fixture.spec).unwrap(),
+        )
+        .unwrap();
+        fixture
+    }
+
     fn socket(&self) -> PathBuf {
         self.data_dir.join("relayflowd.sock")
     }

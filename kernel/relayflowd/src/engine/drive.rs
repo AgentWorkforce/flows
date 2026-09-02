@@ -22,6 +22,7 @@ impl<C: Clock> Engine<C> {
     ) -> Result<RunOutcome> {
         let initial_completed = self.load_state(&journal, spec.clone())?.completed_steps();
         let mut pause_consumed = false;
+        let mut failed_batch_redriven = false;
         loop {
             let state = self.load_state(&journal, spec.clone())?;
             if let Some(reason) = state.completion {
@@ -46,6 +47,7 @@ impl<C: Clock> Engine<C> {
             }
             let mut dispatched = false;
             let mut backpressured = false;
+            let mut handoff_failed = false;
             let mut skipped_dispatches = BTreeSet::new();
             for action in actions {
                 match action {
@@ -179,6 +181,7 @@ impl<C: Clock> Engine<C> {
                                     self.persist_only(&mut journal, action)?;
                                 }
                                 backpressured = true;
+                                handoff_failed = true;
                             }
                             DispatchOutcome::PinMismatch { detail } => {
                                 // Appendix A rule 2: a worker standing at
@@ -192,6 +195,7 @@ impl<C: Clock> Engine<C> {
                                     attempt,
                                     detail,
                                 )?;
+                                handoff_failed = true;
                             }
                         }
                     }
@@ -213,6 +217,15 @@ impl<C: Clock> Engine<C> {
                         return Ok(outcome_from_state(&final_state, reason));
                     }
                 }
+            }
+            if !dispatched && handoff_failed && !failed_batch_redriven {
+                // A whole batch can lose admission between preflight and
+                // handoff. Re-fold once so due retries can reach a compatible
+                // replacement already attached. Bound this to one failed
+                // batch: a dispatcher that keeps racing closed must park
+                // instead of spinning forever.
+                failed_batch_redriven = true;
+                continue;
             }
             if dispatched || backpressured {
                 let parked = self.load_state(&journal, spec.clone())?;
@@ -310,10 +323,17 @@ impl<C: Clock> Engine<C> {
             .iter()
             .filter_map(|step| match state.steps[&step.id].state {
                 relayflowd_core::StepState::Running {
-                    lease_deadline_ms, ..
-                } if step.step_type() != relayflowd_core::StepType::Deterministic => {
-                    Some(lease_deadline_ms)
-                }
+                    attempt,
+                    lease_deadline_ms,
+                    ..
+                } if step.step_type() != relayflowd_core::StepType::Deterministic => Some(
+                    self.dispatcher
+                        .as_ref()
+                        .and_then(|dispatcher| {
+                            dispatcher.active_lease_deadline(&state.run_id, &step.id, attempt)
+                        })
+                        .unwrap_or(lease_deadline_ms),
+                ),
                 _ => None,
             })
             .min();
