@@ -17,6 +17,8 @@ export interface CliResolution {
 export interface CliProbeResult {
   exists: boolean;
   authenticated: boolean;
+  /** Exact declared model passed the CLI's model-scoped readiness probe. */
+  modelAvailable?: boolean;
 }
 
 export type CliProbeFailureDetail =
@@ -56,6 +58,9 @@ export interface PreflightOptions {
   projectCli?: string;
   projectConfigPath?: string;
   projectSearchStart?: string;
+  /** Exact, project-owned model allowlist from the nearest flows.json. */
+  models?: readonly string[];
+  modelRegistryPath?: string;
   probes: PreflightProbes;
 }
 
@@ -65,6 +70,7 @@ export interface PreflightRefusal {
   message: string;
   stepId?: string;
   cli?: string;
+  model?: string;
   triggerId?: string;
   executor?: string;
   detail?: CliProbeFailureDetail;
@@ -94,6 +100,8 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
     warnOnUnprovableEffects(step, options.probes, diagnostics);
     if (step.type === 'deterministic') continue;
 
+    const declaredModel = step.model;
+    const modelUnknown = declaredModel !== undefined && !isKnownModel(declaredModel, options.models);
     const resolution = resolveCli(step, flow, options.projectCli);
     if (resolution === undefined) {
       diagnostics.push({
@@ -102,9 +110,34 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
         stepId: step.id,
         message: unresolvedCliMessage(step.id, options),
       });
+      if (modelUnknown && declaredModel !== undefined) {
+        diagnostics.push({
+          severity: 'refusal',
+          kind: 'model_unknown',
+          stepId: step.id,
+          model: declaredModel,
+          message: unknownModelMessage(step.id, declaredModel, undefined, options.modelRegistryPath),
+        });
+      }
       continue;
     }
     resolutions.push(resolution);
+    if (modelUnknown && resolution.model !== undefined) {
+      diagnostics.push({
+        severity: 'refusal',
+        kind: 'model_unknown',
+        stepId: resolution.stepId,
+        cli: resolution.cli,
+        model: resolution.model,
+        message: unknownModelMessage(
+          resolution.stepId,
+          resolution.model,
+          resolution.cli,
+          options.modelRegistryPath,
+        ),
+      });
+      continue;
+    }
     probeResolvedCli(resolution, options.probes, cliProbeResults, diagnostics);
   }
 
@@ -117,6 +150,23 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
     resolutions,
     diagnostics,
   };
+}
+
+function isKnownModel(model: string, models: readonly string[] | undefined): boolean {
+  return models?.includes(model) === true;
+}
+
+function unknownModelMessage(
+  stepId: string,
+  model: string,
+  cli: string | undefined,
+  registryPath: string | undefined,
+): string {
+  const source = registryPath === undefined
+    ? 'the nearest project config (no model registry was found)'
+    : `project model registry "${registryPath}"`;
+  const cliContext = cli === undefined ? '' : ` for CLI "${cli}"`;
+  return `Step "${stepId}" declares model "${model}"${cliContext}, but it is not listed in ${source}; add the exact model only after verifying that project is allowed to use it.`;
 }
 
 function unresolvedCliMessage(stepId: string, options: PreflightOptions): string {
@@ -194,6 +244,15 @@ function probeResolvedCli(
       stepId: resolution.stepId,
       cli: resolution.cli,
       message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but "${resolution.cli} auth status" exited non-zero; authenticate it or implement that probe to return exit 0 when authenticated.`,
+    });
+  } else if (resolution.model !== undefined && result.modelAvailable !== true) {
+    diagnostics.push({
+      severity: 'refusal',
+      kind: 'model_unavailable',
+      stepId: resolution.stepId,
+      cli: resolution.cli,
+      model: resolution.model,
+      message: `Step "${resolution.stepId}" declares model "${resolution.model}" for CLI "${resolution.cli}", but its model-scoped "${resolution.cli} auth status" probe exited non-zero; verify the model name and this credential's access.`,
     });
   }
 }
