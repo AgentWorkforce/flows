@@ -17,6 +17,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+mod dependencies;
+
+use dependencies::validate_dependency_cycles;
+
 /// The spec schema version this kernel reads and writes (semver, RFC §7).
 pub const SPEC_VERSION: &str = "0.1.0";
 
@@ -156,11 +160,7 @@ impl RunSpec {
             .iter()
             .map(|step| (step.id.as_str(), step.depends_on.as_slice()))
             .collect::<BTreeMap<_, _>>();
-        let mut visiting = BTreeSet::new();
-        let mut visited = BTreeSet::new();
-        for id in &ids {
-            visit(id, &dependencies, &mut visiting, &mut visited)?;
-        }
+        validate_dependency_cycles(&ids, &dependencies)?;
         Ok(())
     }
 
@@ -212,26 +212,6 @@ fn reject_unknown_step_fields(value: &Value) -> Result<(), SpecError> {
             }
         }
     }
-    Ok(())
-}
-
-fn visit<'a>(
-    id: &'a str,
-    dependencies: &BTreeMap<&'a str, &'a [String]>,
-    visiting: &mut BTreeSet<&'a str>,
-    visited: &mut BTreeSet<&'a str>,
-) -> Result<(), SpecError> {
-    if visited.contains(id) {
-        return Ok(());
-    }
-    if !visiting.insert(id) {
-        return Err(SpecError::DependencyCycle(id.to_owned()));
-    }
-    for dependency in dependencies.get(id).copied().unwrap_or_default() {
-        visit(dependency, dependencies, visiting, visited)?;
-    }
-    visiting.remove(id);
-    visited.insert(id);
     Ok(())
 }
 
