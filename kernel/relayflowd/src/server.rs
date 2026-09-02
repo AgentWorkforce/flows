@@ -243,7 +243,7 @@ fn handle_request(
         }
         "step.heartbeat" => {
             let params: StepHeartbeatParams = decode_params(request.params)?;
-            let deadline = hub
+            let (deadline, run_deadline) = hub
                 .heartbeat(
                     connection_id,
                     &(params.run_id.clone(), params.step_id, params.attempt),
@@ -256,7 +256,7 @@ fn handle_request(
             // write fails the heartbeat — the worker must not believe its
             // lease was extended when nothing durable says so.
             engine
-                .renew_lease(&params.run_id, deadline)
+                .renew_lease(&params.run_id, run_deadline)
                 .map_err(internal_error)?;
             Ok(json!({"lease_deadline_ms": deadline}))
         }
@@ -310,6 +310,11 @@ fn handle_request(
                 )
                 .map_err(internal_error)?;
             hub.finish(&key);
+            if let Some(deadline) = hub.earliest_lease_deadline(&params.run_id) {
+                engine
+                    .renew_lease(&params.run_id, deadline)
+                    .map_err(internal_error)?;
+            }
             to_value(outcome)
         }
         "effect.record" => {
