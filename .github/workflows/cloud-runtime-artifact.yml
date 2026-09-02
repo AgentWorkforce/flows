@@ -1,0 +1,92 @@
+name: Relayflow v2 Cloud runtime artifact
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/cloud-runtime-artifact.yml"
+      - "kernel/**"
+      - "sdk/**"
+      - "scripts/cloud-artifact.mjs"
+      - "scripts/cloud-artifact.test.mjs"
+      - "testdata/**"
+
+permissions:
+  contents: read
+
+jobs:
+  linux-x64-artifact:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # PR workflows otherwise build GitHub's ephemeral merge ref and stamp
+          # a provenance SHA that can disappear after the PR closes.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Test artifact contract
+        run: node --test scripts/cloud-artifact.test.mjs
+
+      - name: Build relayflowd
+        working-directory: kernel
+        run: cargo build --locked --release -p relayflowd
+
+      - name: Build standalone flows CLI
+        run: |
+          npm ci --prefix sdk
+          mkdir -p dist/cloud-artifact-input
+          bun build sdk/src/cli-executable.ts \
+            --compile \
+            --target=bun-linux-x64 \
+            --outfile=dist/cloud-artifact-input/flows
+
+      - name: Assemble artifact and smoke verifier path
+        env:
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          node scripts/cloud-artifact.mjs build \
+            --relayflowd kernel/target/release/relayflowd \
+            --flows-executable dist/cloud-artifact-input/flows \
+            --output-dir dist/cloud-artifact \
+            --source-commit "$SOURCE_COMMIT"
+          archive="$(find dist/cloud-artifact -name '*.tar.gz' -type f -print -quit)"
+          checksum="$(awk '{print $1}' "$archive.sha256")"
+          node scripts/cloud-artifact.mjs verify \
+            --archive "$archive" \
+            --sha256 "$checksum"
+
+      - name: Smoke exact Linux artifact
+        run: |
+          archive="$(find dist/cloud-artifact -name '*.tar.gz' -type f -print -quit)"
+          mkdir -p dist/cloud-artifact-smoke
+          tar -xzf "$archive" -C dist/cloud-artifact-smoke
+          dist/cloud-artifact-smoke/bin/relayflowd --help
+          flows_output="$(dist/cloud-artifact-smoke/bin/flows check --json testdata/hello-deterministic.flow.yaml)"
+          printf '%s\n' "$flows_output"
+          node -e '
+            const report = JSON.parse(process.argv[1]);
+            if (report.ok !== true) throw new Error("flows smoke report was not ok");
+            if (report.path !== "testdata/hello-deterministic.flow.yaml") {
+              throw new Error(`flows smoke reported unexpected path: ${report.path}`);
+            }
+          ' "$flows_output"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: relayflow-v2-linux-x64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            dist/cloud-artifact/*.tar.gz
+            dist/cloud-artifact/*.sha256
+          if-no-files-found: error
+          retention-days: 14
