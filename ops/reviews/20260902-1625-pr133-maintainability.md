@@ -6,7 +6,7 @@
 - **Head reviewed:** `5ab0fee366362de33ea1bd7d88a96daef1cad18a`
 - **Base:** `a0d42ffbdc7fb60b42c0b5bea4f58408249b08a2`
 - **Worktree:** `/Users/khaliqgant/AgentWorkforce/flows-132-typed-output-wt`
-- **Prior reviews at `81c49df`:** REVIEW_FAILED (maintainability), REVIEW_PASSED (history, structure)
+- **Prior reviews at `81c49df`:** FAILED (maintainability), PASSED (history, structure)
 
 ---
 
