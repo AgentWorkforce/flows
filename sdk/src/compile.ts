@@ -185,6 +185,8 @@ const KERNEL_RETRY_DEFAULTS = {
  * sugar that the dialect cannot carry is a `CompileError`, never a silent drop.
  */
 export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
+  const validation = validateSpec(flow);
+  if (!validation.ok) throw new CompileError(validation.errors);
   return {
     version: flow.version,
     ...(flow.name !== undefined ? { name: flow.name } : {}),

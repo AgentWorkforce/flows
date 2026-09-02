@@ -3,6 +3,7 @@ import type {
   PreflightFailureKind,
   PreflightWarningKind,
 } from './failure-kinds.js';
+import { validateSpec } from './validate.js';
 
 export type CliResolutionSource = 'step' | 'flow' | 'project';
 
@@ -78,6 +79,8 @@ export interface PreflightRefusal {
   triggerId?: string;
   executor?: string;
   detail?: CliProbeFailureDetail;
+  /** Author-facing validation errors when kind is `invalid_spec`. */
+  errors?: string[];
 }
 
 export interface PreflightWarning {
@@ -96,6 +99,19 @@ export interface PreflightResult {
 }
 
 export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightResult {
+  const validation = validateSpec(flow);
+  if (!validation.ok) {
+    return {
+      ok: false,
+      resolutions: [],
+      diagnostics: [{
+        severity: 'refusal',
+        kind: 'invalid_spec',
+        message: `Relayflow spec is invalid: ${validation.errors.join('; ')}`,
+        errors: validation.errors,
+      }],
+    };
+  }
   const diagnostics: PreflightDiagnostic[] = [];
   const resolutions: CliResolution[] = [];
   const cliProbeResults = new Map<string, CliProbeOutcome>();

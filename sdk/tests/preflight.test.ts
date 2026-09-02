@@ -277,6 +277,10 @@ describe('preflight: CLI resolution and refusal predicates', () => {
   // not read as coming from this test alone.
   it('reaches every declared refusal kind, with the converse held by the type', () => {
     const scenarios = [
+      preflight({
+        version: '0.1.0',
+        steps: [{ id: 'a', type: 'deterministic', command: 'x', prompt: 'cross-verb' }],
+      }, { probes: probes() }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: false, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: true, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: true, supported: false, authenticated: false }) }) }),

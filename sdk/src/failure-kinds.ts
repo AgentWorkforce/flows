@@ -1,5 +1,7 @@
-/** Closed refusal taxonomy for `flows check` (RFC covenant 2). */
-export const PREFLIGHT_FAILURE_KINDS = [
+const SHARED_SPEC_FAILURE_KINDS = ['invalid_spec'] as const;
+
+/** Environment refusal kinds produced after spec validation succeeds. */
+const PREFLIGHT_ENVIRONMENT_FAILURE_KINDS = [
   'cli_missing',
   'cli_unauthenticated',
   'cli_unresolved',
@@ -11,17 +13,23 @@ export const PREFLIGHT_FAILURE_KINDS = [
   'probe_failed',
 ] as const;
 
+/** Closed refusal taxonomy for public preflight (RFC covenant 2). */
+export const PREFLIGHT_FAILURE_KINDS = [
+  ...SHARED_SPEC_FAILURE_KINDS,
+  ...PREFLIGHT_ENVIRONMENT_FAILURE_KINDS,
+] as const;
+
 /** Input/command refusals emitted before the pure preflight predicates run. */
 export const CHECK_INPUT_FAILURE_KINDS = [
   'config_invalid',
   'input_unreadable',
   'invalid_invocation',
-  'invalid_spec',
+  ...SHARED_SPEC_FAILURE_KINDS,
 ] as const;
 
 export const CHECK_FAILURE_KINDS = [
   ...CHECK_INPUT_FAILURE_KINDS,
-  ...PREFLIGHT_FAILURE_KINDS,
+  ...PREFLIGHT_ENVIRONMENT_FAILURE_KINDS,
 ] as const;
 
 /**

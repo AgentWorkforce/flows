@@ -59,7 +59,9 @@ export {
   type PreflightDiagnostic,
   type PreflightOptions,
   type PreflightProbes,
+  type PreflightRefusal,
   type PreflightResult,
+  type PreflightWarning,
 } from './preflight.js';
 export {
   CHECK_FAILURE_KINDS,
