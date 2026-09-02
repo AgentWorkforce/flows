@@ -1,5 +1,7 @@
 import { join, resolve } from 'node:path';
+import { compileAuthoredFlow, AuthoredFlowCompileError } from '../authored-flow-compiler.js';
 import { toKernelSpec } from '../compile.js';
+import { DirectInputError, parseDirectInput } from '../direct-input.js';
 import type { RunFailureKind } from '../failure-kinds.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
 import type { PreflightDiagnostic } from '../preflight.js';
@@ -10,7 +12,9 @@ import type {
 } from '../protocol.js';
 import type { StepType } from '../spec.js';
 import {
+  checkAuthoredFlow,
   checkFlow,
+  inputFailureReport,
   type CheckInputDiagnostic,
   type CheckReport,
 } from './check.js';
@@ -71,13 +75,51 @@ export async function runFlow(
     return { exitCode: 2, report: fromCheckReport('run', checked.report) };
   }
 
+  return executeCheckedFlow(checked, dataDir, options);
+}
+
+export async function runDirectFlow(
+  path: string,
+  inputArgument: string | undefined,
+  dataDir: string,
+  options: RunLifecycleOptions = {},
+): Promise<RunExecution> {
+  try {
+    const input = parseDirectInput(inputArgument);
+    const flow = await compileAuthoredFlow(path, input);
+    const checked = checkAuthoredFlow(flow, path);
+    if (!checked.report.ok || checked.flow === undefined) {
+      return { exitCode: 2, report: fromCheckReport('run', checked.report) };
+    }
+    return executeCheckedFlow(checked, dataDir, options);
+  } catch (error) {
+    const failure = error instanceof DirectInputError
+      ? error
+      : {
+          kind: 'invalid_spec' as const,
+          message: error instanceof AuthoredFlowCompileError
+            ? error.message
+            : `Flow "${path}" could not be compiled for direct execution.`,
+        };
+    return {
+      exitCode: 2,
+      report: fromCheckReport('run', inputFailureReport(failure, path)),
+    };
+  }
+}
+
+async function executeCheckedFlow(
+  checked: ReturnType<typeof checkFlow>,
+  dataDir: string,
+  options: RunLifecycleOptions,
+): Promise<RunExecution> {
   const socketPath = socketFor(dataDir);
   const client = new JournalClient(socketPath);
   const connected = await connect(client, 'run', dataDir, checked.report);
   if (connected !== undefined) return connected;
 
   try {
-    const spec = toKernelSpec(checked.flow);
+    const spec = toKernelSpec(checked.flow!);
     const outcome = await client.runStart(spec);
     return await classifyOutcome(client, 'run', outcome, checked.report, socketPath, options);
   } catch (error) {

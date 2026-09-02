@@ -51,8 +51,16 @@ describe("flow", () => {
 
     const authored = getFlowDefinition(definition);
     expect(Object.isFrozen(authored)).toBe(true);
-    await authored.body({} as Ctx);
+    await authored.body({} as Ctx, undefined);
     expect(bodyRan).toBe(true);
+  });
+
+  it("passes direct-run input to the authored body", async () => {
+    const definition = flow<{ message: string }>("direct", {}, async (_f, input) => {
+      expect(input.message).toBe("from-cli");
+    });
+
+    await getFlowDefinition(definition).body({} as Ctx, { message: "from-cli" });
   });
 
   it("refuses counterfeit handles at the runtime boundary", () => {

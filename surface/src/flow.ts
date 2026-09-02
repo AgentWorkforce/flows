@@ -9,7 +9,7 @@ export interface FlowHeader {
   workspace?: string;
 }
 
-export type FlowBody = (f: Ctx) => Promise<void>;
+export type FlowBody<Input = unknown> = (f: Ctx, input: Input) => Promise<void>;
 
 export interface ReadonlyFlowHeader {
   readonly identity?: string;
@@ -23,10 +23,10 @@ export interface ReadonlyFlowHeader {
 }
 
 /** Immutable definition retained for the SDK's journal-backed runtime. */
-export interface AuthoredFlowDefinition {
+export interface AuthoredFlowDefinition<Input = unknown> {
   readonly name: string;
   readonly header: ReadonlyFlowHeader;
-  readonly body: FlowBody;
+  readonly body: FlowBody<Input>;
 }
 
 /** Opaque authored-flow handle. Execution stays behind the journal runtime. */
@@ -36,20 +36,20 @@ export interface FlowHandle {
 
 const DEFINITION = Symbol.for("@relayflows/surface.authored-definition.v1");
 
-type StoredFlowHandle = FlowHandle & {
-  readonly [DEFINITION]: AuthoredFlowDefinition;
+type StoredFlowHandle<Input = unknown> = FlowHandle & {
+  readonly [DEFINITION]: AuthoredFlowDefinition<Input>;
 };
 
-export function flow(name: string, body: FlowBody): FlowHandle;
-export function flow(
+export function flow<Input = unknown>(name: string, body: FlowBody<Input>): FlowHandle;
+export function flow<Input = unknown>(
   name: string,
   header: FlowHeader,
-  body: FlowBody,
+  body: FlowBody<Input>,
 ): FlowHandle;
-export function flow(
+export function flow<Input = unknown>(
   name: string,
-  headerOrBody: FlowHeader | FlowBody,
-  body?: FlowBody,
+  headerOrBody: FlowHeader | FlowBody<Input>,
+  body?: FlowBody<Input>,
 ): FlowHandle {
   const flowBody = typeof headerOrBody === "function" ? headerOrBody : body;
   const header = typeof headerOrBody === "function" ? {} : headerOrBody;
@@ -61,12 +61,12 @@ export function flow(
     throw new TypeError(`flow "${name}" requires a body`);
   }
 
-  const definition: AuthoredFlowDefinition = Object.freeze({
+  const definition: AuthoredFlowDefinition<Input> = Object.freeze({
     name,
     header: freezeHeader(header),
     body: flowBody,
   });
-  const handle = { name } as StoredFlowHandle;
+  const handle = { name } as StoredFlowHandle<Input>;
   Object.defineProperty(handle, DEFINITION, {
     value: definition,
     enumerable: false,
@@ -80,7 +80,7 @@ export function flow(
  * Runtime bridge used by the SDK after it imports an authored `.flow.ts`.
  * The root package deliberately does not re-export this accessor.
  */
-export function getFlowDefinition(handle: FlowHandle): AuthoredFlowDefinition {
+export function getFlowDefinition<Input = unknown>(handle: FlowHandle): AuthoredFlowDefinition<Input> {
   if ((typeof handle !== "object" && typeof handle !== "function") || handle === null) {
     throw new TypeError("expected an @relayflows/surface flow handle");
   }

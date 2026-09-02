@@ -51,6 +51,19 @@ export function checkFlow(path: string): CheckExecution {
   const absolutePath = resolve(path);
   try {
     const flow = readFlow(absolutePath);
+    return checkAuthoredFlow(flow, path);
+  } catch (error) {
+    const failure = error instanceof CheckFailure
+      ? error
+      : new CheckFailure('invalid_spec', `Flow "${path}" could not be checked as a Relayflow spec.`);
+    return { report: inputFailureReport(failure, path) };
+  }
+}
+
+/** Preflight a validated authored flow through the same path as YAML/JSON. */
+export function checkAuthoredFlow(flow: FlowSpec, path: string): CheckExecution {
+  const absolutePath = resolve(path);
+  try {
     const config = readProjectConfig(dirname(absolutePath));
     const probes = systemProbes(dirname(absolutePath), config);
     const result = preflight(flow, {

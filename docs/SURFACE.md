@@ -115,6 +115,7 @@ Gate 1 ships three CLI verbs over the journal protocol:
 ```text
 flows check [--json] <flow.yaml|spec.json>
 flows run [--json] [--data-dir <dir>] <flow.yaml|spec.json>
+flows run [--json] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>
 flows resume [--json] [--data-dir <dir>] <run-id>
 ```
 
@@ -124,6 +125,15 @@ to `<data-dir>/relayflowd.sock`; `resume` asks that daemon to continue an
 existing run from its journal. The data directory defaults to `.relayflowd`.
 Neither verb starts the daemon implicitly. `--json` writes one report-shaped
 object to stdout while diagnostics remain on stderr.
+
+A direct `.flow.ts` run requires `--input`. When its argument names an existing
+regular file, the CLI parses that file as JSON; otherwise it parses the argument
+itself as inline JSON. Missing or invalid input is refused before the CLI
+contacts `relayflowd`. The authored body receives the parsed value as its second
+argument, and the SDK compiles its `f.run` / `f.llm` / `f.agent` awaits into the
+same kernel spec and journal path used by YAML. Direct-run constructs that the
+current kernel contract cannot represent fail closed during compilation rather
+than being discarded.
 
 The exit codes are part of the surface contract:
 

@@ -15,10 +15,10 @@ deterministic specs, submits them through the existing journal client, and
 reads results from `step.completed`. Other headers, verbs, postfix gates, and
 completion lowering refuse rather than running outside the journal.
 
-This is currently an in-repository foundation, not a registry-published or
-direct-run surface. Direct `.flow.ts` execution and input remain tracked in
-issue #132. Resident trigger handlers (`flow.on(...)`) are gate-2 work and are
-not yet part of this package.
+This is currently an in-repository foundation, not a registry-published
+package. The repository's `flows run` command can execute a directly authored
+`.flow.ts` with required JSON input. Resident trigger handlers (`flow.on(...)`)
+are gate-2 work and are not yet part of this package.
 
 The repository pins Bun through `surface/bun.lock`. From a fresh checkout:
 
@@ -32,8 +32,19 @@ bun run test
 ```ts
 import { flow } from "@relayflows/surface";
 
-export default flow("release-note", async (f) => {
-  await f.run("git diff main");
+export default flow<{ base: string }>("release-note", {}, async (f, input) => {
+  await f.run(`git diff ${input.base}`);
   f.done("success");
 });
 ```
+
+Run it with inline JSON or the path to a JSON file:
+
+```sh
+flows run release-note.flow.ts --input '{"base":"main"}'
+flows run release-note.flow.ts --input ./release-note.input.json
+```
+
+Direct runs use the same journal-backed executor as other authored flows, so
+branches over step output observe the value recorded by `step.completed`.
+Unsupported headers, verbs, and code predicate gates fail closed.
