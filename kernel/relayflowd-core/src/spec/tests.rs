@@ -1,4 +1,4 @@
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::*;
 
@@ -25,6 +25,45 @@ fn cycles_are_rejected() {
         spec.validate(),
         Err(SpecError::DependencyCycle(_))
     ));
+}
+
+const DEEP_DEPENDENCY_GRAPH_LENGTH: usize = 10_000;
+
+fn sdk_boundary_dependency_graph(cyclic: bool) -> RunSpec {
+    let steps = (0..DEEP_DEPENDENCY_GRAPH_LENGTH)
+        .map(|index| {
+            let mut step = json!({
+                "id": format!("s{index}"),
+                "type": "deterministic",
+                "command": "true",
+            });
+            if index + 1 < DEEP_DEPENDENCY_GRAPH_LENGTH {
+                step["depends_on"] = json!([format!("s{}", index + 1)]);
+            } else if cyclic {
+                step["depends_on"] = json!(["s0"]);
+            }
+            step
+        })
+        .collect::<Vec<Value>>();
+
+    RunSpec::parse(&json!({
+        "version": "0.1.0",
+        "steps": steps,
+    }))
+    .expect("the SDK-to-kernel boundary shape must parse")
+}
+
+#[test]
+fn sdk_boundary_accepts_a_valid_10_000_step_reverse_chain() {
+    assert_eq!(sdk_boundary_dependency_graph(false).validate(), Ok(()));
+}
+
+#[test]
+fn sdk_boundary_rejects_a_10_000_step_cycle_with_a_typed_error() {
+    assert_eq!(
+        sdk_boundary_dependency_graph(true).validate(),
+        Err(SpecError::DependencyCycle("s0".to_owned()))
+    );
 }
 
 #[test]
