@@ -88,6 +88,15 @@ pub fn next_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
         return Vec::new();
     }
     if let Some(failed_step_id) = state.failed_step() {
+        if state
+            .steps
+            .values()
+            .any(|runtime| matches!(runtime.state, StepState::Running { .. }))
+        {
+            // Drain already-started siblings before making run.completed
+            // terminal. No fresh work is elected once failure is inevitable.
+            return Vec::new();
+        }
         return complete_run_actions(
             state,
             RunCompletionReason::StepFailed,
@@ -99,15 +108,25 @@ pub fn next_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
         return complete_run_actions(state, RunCompletionReason::Success, None, now_ms);
     }
 
-    let mut timers = Vec::new();
-    for spec in &state.spec.steps {
-        let runtime = &state.steps[&spec.id];
-        match runtime.state {
-            StepState::Backoff {
+    // Wake every retry whose deterministic timer is due before starting work.
+    // Recovery can put several crashed parallel lanes into the same zero-delay
+    // backoff; waking just one would let an already-runnable peer start and park
+    // the run while the other due lane remained asleep.
+    let due_waits = state
+        .spec
+        .steps
+        .iter()
+        .filter_map(|spec| {
+            let runtime = &state.steps[&spec.id];
+            let StepState::Backoff {
                 attempt,
                 wake_at_ms,
-            } if wake_at_ms <= now_ms => {
-                return vec![Action::Append(JournalEntry::new(
+            } = runtime.state
+            else {
+                return None;
+            };
+            (wake_at_ms <= now_ms).then(|| {
+                Action::Append(JournalEntry::new(
                     EntryType::WaitCompleted,
                     state.run_id.clone(),
                     Some(spec.id.clone()),
@@ -118,13 +137,31 @@ pub fn next_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
                         completion_reason: WaitCompletionReason::TimerFired,
                         result: Value::Null,
                     },
-                ))];
-            }
-            StepState::Backoff { wake_at_ms, .. } => {
-                timers.push(Action::ArmTimer { at_ms: wake_at_ms });
-            }
-            StepState::Runnable => return start_actions(state, spec, runtime.attempts + 1, now_ms),
-            _ => {}
+                ))
+            })
+        })
+        .collect::<Vec<_>>();
+    if !due_waits.is_empty() {
+        return due_waits;
+    }
+
+    // A fold marks every dependency-free step Runnable at once. Preserve the
+    // authored spec order while emitting every journal-first start pair from
+    // that one state snapshot; dependencies unlocked by these executions are
+    // considered only after their completions are folded on the next pass.
+    let starts = parallel::runnable_batch(state)
+        .into_iter()
+        .flat_map(|(spec, runtime)| start_actions(state, spec, runtime.attempts + 1, now_ms))
+        .collect::<Vec<_>>();
+    if !starts.is_empty() {
+        return starts;
+    }
+
+    let mut timers = Vec::new();
+    for spec in &state.spec.steps {
+        let runtime = &state.steps[&spec.id];
+        if let StepState::Backoff { wake_at_ms, .. } = runtime.state {
+            timers.push(Action::ArmTimer { at_ms: wake_at_ms });
         }
     }
     timers.sort_by_key(|action| match action {
@@ -416,5 +453,9 @@ fn deterministic_ulid(
 mod recovery;
 pub use recovery::{abandonment_actions, recovery_actions, recovery_actions_filtered};
 
+mod parallel;
+
+#[cfg(test)]
+mod parallel_tests;
 #[cfg(test)]
 mod tests;

@@ -110,6 +110,9 @@ impl RunState {
             if entry.run_id != state.run_id {
                 return Err(StateError::WrongRun(entry.run_id.clone()));
             }
+            if state.completion.is_some() {
+                return Err(StateError::EntryAfterRunCompleted { seq: entry.seq });
+            }
             match entry.entry_type {
                 EntryType::EpochSummary => state.apply_epoch(entry)?,
                 EntryType::StepAttemptStarted => {
@@ -405,6 +408,8 @@ pub enum StateError {
     MissingAttempt(i64),
     #[error("journal references unknown step {0}")]
     UnknownStep(String),
+    #[error("journal entry {seq} appears after terminal run.completed")]
+    EntryAfterRunCompleted { seq: i64 },
     #[error("agent step {0} completed successfully without end pins")]
     MissingEndPins(String),
     #[error(

@@ -4,6 +4,7 @@ use std::{
     os::unix::{net::UnixStream, process::CommandExt},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
+    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
@@ -88,6 +89,91 @@ impl LlmFixture {
             spec_path,
             spec,
         }
+    }
+
+    pub fn parallel(name: &str) -> Self {
+        let mut fixture = Self::new(name, false);
+        fixture.spec = json!({
+            "name": format!("llm-{name}"),
+            "steps": [
+                {
+                    "id": "lane-b",
+                    "type": "llm",
+                    "prompt": "research b",
+                    "model": "deterministic-stub",
+                    "max_iterations": 2,
+                    "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0}
+                },
+                {
+                    "id": "lane-a",
+                    "type": "llm",
+                    "prompt": "research a",
+                    "model": "deterministic-stub",
+                    "max_iterations": 2,
+                    "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0}
+                }
+            ],
+            "budget": {"max_tokens_in": 100, "max_tokens_out": 100, "max_dollars": "1"}
+        });
+        fs::write(
+            &fixture.spec_path,
+            serde_json::to_vec(&fixture.spec).unwrap(),
+        )
+        .unwrap();
+        fixture
+    }
+
+    pub fn parallel_terminal(name: &str) -> Self {
+        let mut fixture = Self::parallel(name);
+        for step in fixture.spec["steps"].as_array_mut().unwrap() {
+            step["max_iterations"] = json!(1);
+        }
+        fs::write(
+            &fixture.spec_path,
+            serde_json::to_vec(&fixture.spec).unwrap(),
+        )
+        .unwrap();
+        fixture
+    }
+
+    pub fn parallel_agents(name: &str, overlapping: bool) -> Self {
+        let mut fixture = Self::new(name, false);
+        let lane_a_surface = if overlapping { "repo-b" } else { "repo-a" };
+        let join_workspace = if overlapping {
+            json!([{"surface": "repo-b"}])
+        } else {
+            json!([{"surface": "repo-b"}, {"surface": "repo-a"}])
+        };
+        fixture.spec = json!({
+            "name": format!("agent-parallel-{name}"),
+            "steps": [
+                {
+                    "id": "lane-b",
+                    "type": "agent",
+                    "instruction": "b",
+                    "surfaces": {"workspace": [{"surface": "repo-b"}]}
+                },
+                {
+                    "id": "lane-a",
+                    "type": "agent",
+                    "instruction": "a",
+                    "surfaces": {"workspace": [{"surface": lane_a_surface}]}
+                },
+                {
+                    "id": "join",
+                    "type": "agent",
+                    "instruction": "join",
+                    "depends_on": ["lane-b", "lane-a"],
+                    "surfaces": {"workspace": join_workspace}
+                }
+            ]
+        });
+        fs::write(
+            &fixture.spec_path,
+            serde_json::to_vec(&fixture.spec).unwrap(),
+        )
+        .unwrap();
+        fixture
     }
 
     fn socket(&self) -> PathBuf {
@@ -193,6 +279,10 @@ impl ProtocolClient {
                 self.events.push(frame);
             }
         }
+    }
+
+    pub fn set_read_timeout(&self, timeout: Option<Duration>) {
+        self.stream.set_read_timeout(timeout).unwrap();
     }
 
     fn read_frame(&mut self) -> Result<Value> {

@@ -214,17 +214,27 @@ impl ProtocolHub {
         key: &AssignmentKey,
         lease_id: &str,
         now_ms: i64,
-    ) -> Result<i64> {
+    ) -> Result<(i64, i64)> {
         let mut sessions = self.sessions.lock().expect("protocol sessions lock");
-        let assignment = sessions
+        let assignment_deadline = {
+            let assignment = sessions
+                .assignments
+                .get_mut(key)
+                .context("attempt has no active worker lease")?;
+            if assignment.connection_id != connection_id || assignment.lease_id != lease_id {
+                bail!("heartbeat does not match the active worker lease")
+            }
+            assignment.lease_deadline_ms = now_ms.saturating_add(LEASE_RENEWAL_MS);
+            assignment.lease_deadline_ms
+        };
+        let run_deadline = sessions
             .assignments
-            .get_mut(key)
-            .context("attempt has no active worker lease")?;
-        if assignment.connection_id != connection_id || assignment.lease_id != lease_id {
-            bail!("heartbeat does not match the active worker lease")
-        }
-        assignment.lease_deadline_ms = now_ms.saturating_add(LEASE_RENEWAL_MS);
-        Ok(assignment.lease_deadline_ms)
+            .iter()
+            .filter(|((run_id, _, _), _)| run_id == &key.0)
+            .map(|(_, assignment)| assignment.lease_deadline_ms)
+            .min()
+            .expect("the renewed assignment is still present");
+        Ok((assignment_deadline, run_deadline))
     }
 
     pub fn completion_worker(&self, connection_id: u64, key: &AssignmentKey) -> Result<String> {
@@ -245,6 +255,20 @@ impl ProtocolHub {
             .expect("protocol sessions lock")
             .assignments
             .remove(key);
+    }
+
+    /// The run registry has one operational wake deadline even when the
+    /// journal has several live leases. It must track the earliest assignment
+    /// so a heartbeat on one lane cannot hide an earlier sibling expiry.
+    pub fn earliest_lease_deadline(&self, run_id: &str) -> Option<i64> {
+        self.sessions
+            .lock()
+            .expect("protocol sessions lock")
+            .assignments
+            .iter()
+            .filter(|((assigned_run, _, _), _)| assigned_run == run_id)
+            .map(|(_, assignment)| assignment.lease_deadline_ms)
+            .min()
     }
 
     /// Assignments whose (heartbeat-renewed) lease deadline has passed. The
@@ -422,6 +446,15 @@ impl StepDispatcher for ProtocolHub {
             },
         );
         Ok(DispatchOutcome::Dispatched)
+    }
+
+    fn active_lease_deadline(&self, run_id: &str, step_id: &str, attempt: u32) -> Option<i64> {
+        self.sessions
+            .lock()
+            .expect("protocol sessions lock")
+            .assignments
+            .get(&(run_id.to_owned(), step_id.to_owned(), attempt))
+            .map(|assignment| assignment.lease_deadline_ms)
     }
 }
 

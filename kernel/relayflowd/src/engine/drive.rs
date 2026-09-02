@@ -1,9 +1,9 @@
-use std::{thread, time::Duration};
+use std::{collections::BTreeSet, thread, time::Duration};
 
 use anyhow::{Result, bail};
 use relayflowd_core::{
     Action, AttemptResult, Clock, CompletionReason, RunCompletionReason, RunSpec, RunState,
-    completion_actions, next_actions,
+    abandonment_actions, completion_actions, next_actions,
 };
 use relayflowd_journal::SqliteJournal;
 
@@ -22,6 +22,7 @@ impl<C: Clock> Engine<C> {
     ) -> Result<RunOutcome> {
         let initial_completed = self.load_state(&journal, spec.clone())?.completed_steps();
         let mut pause_consumed = false;
+        let mut failed_batch_redriven = false;
         loop {
             let state = self.load_state(&journal, spec.clone())?;
             if let Some(reason) = state.completion {
@@ -34,21 +35,9 @@ impl<C: Clock> Engine<C> {
                     .set_status(&state.run_id, "interrupted", None)?;
                 return Ok(parked_outcome(&state, RunStatus::Interrupted));
             }
-            if !pause_consumed && should_pause(&state, &options) {
+            if !pause_consumed && options.pause_before_completion && state.all_steps_succeeded() {
                 pause_consumed = true;
                 thread::sleep(Duration::from_secs(300));
-            }
-            // No worker can take the next out-of-band step: park. `parked` means
-            // "nothing is coming until something changes"; `waiting_worker` means
-            // "a worker holds this lease" and makes `resume` block for it. An
-            // agent worker that cannot pin every surface the step declares is not
-            // a compatible worker either — parking keeps the failure a declared
-            // state instead of an untyped error raised after `run.start`.
-            if let Some(step) = runnable_out_of_band_step(&state)
-                && !self.step_is_dispatchable(&state, step)
-            {
-                self.registry()?.set_status(&state.run_id, "parked", None)?;
-                return Ok(parked_outcome(&state, RunStatus::Parked));
             }
 
             let actions = next_actions(&state, self.clock.now_ms());
@@ -56,9 +45,43 @@ impl<C: Clock> Engine<C> {
                 self.park_idle_run(&state)?;
                 return Ok(parked_outcome(&state, RunStatus::Parked));
             }
+            let mut dispatched = false;
+            let mut backpressured = false;
+            let mut handoff_failed = false;
+            let mut skipped_dispatches = BTreeSet::new();
             for action in actions {
                 match action {
                     Action::Append(mut entry) => {
+                        if entry.entry_type == relayflowd_core::EntryType::StepAttemptStarted {
+                            let step_id = entry
+                                .step_id
+                                .as_deref()
+                                .expect("a step start always names its step");
+                            let step = state
+                                .spec
+                                .step(step_id)
+                                .expect("the scheduler only starts declared steps");
+                            if !pause_consumed
+                                && options.pause_before_step.as_deref() == Some(step_id)
+                            {
+                                pause_consumed = true;
+                                thread::sleep(Duration::from_secs(300));
+                            }
+                            if step.step_type() != relayflowd_core::StepType::Deterministic
+                                && !self.step_is_dispatchable(&state, step)
+                            {
+                                // Admission is per pair. A lane with no
+                                // compatible worker remains Runnable, while
+                                // later independent lanes still get their
+                                // journal-first handoff.
+                                skipped_dispatches.insert((
+                                    step_id.to_owned(),
+                                    entry.attempt.expect("a step start has an attempt"),
+                                ));
+                                backpressured = true;
+                                continue;
+                            }
+                        }
                         self.prepare_start_entry(&state, &mut entry)?;
                         self.assign_executor(&mut entry)?;
                         self.append(&mut journal, &entry)?;
@@ -76,6 +99,17 @@ impl<C: Clock> Engine<C> {
                         ) {
                             self.interpret_non_execution(&mut journal, action)?;
                         }
+                        let completed = self.load_state(&journal, spec.clone())?;
+                        if options.stop_after.is_some_and(|limit| {
+                            completed
+                                .completed_steps()
+                                .saturating_sub(initial_completed)
+                                >= limit
+                        }) {
+                            self.registry()?
+                                .set_status(&completed.run_id, "interrupted", None)?;
+                            return Ok(parked_outcome(&completed, RunStatus::Interrupted));
+                        }
                     }
                     Action::Dispatch {
                         step,
@@ -87,6 +121,9 @@ impl<C: Clock> Engine<C> {
                         pins: _,
                         recovery,
                     } => {
+                        if skipped_dispatches.remove(&(step.id.clone(), attempt)) {
+                            continue;
+                        }
                         let started_state = self.load_state(&journal, spec.clone())?;
                         let pins = started_state.steps[&step.id]
                             .last_start_pins
@@ -114,31 +151,53 @@ impl<C: Clock> Engine<C> {
                             })
                             .transpose()?
                             .unwrap_or(DispatchOutcome::NoWorker);
-                        // Appendix A rule 2: a worker standing at revisions
-                        // other than the attempt's pins cannot start from the
-                        // journaled state. The attempt fails closed with a
-                        // declared reason instead of running against pins
-                        // nothing holds, and the step re-elects on the retry.
-                        if let DispatchOutcome::PinMismatch { detail } = outcome {
-                            self.fail_dispatch_closed(
-                                &mut journal,
-                                &started_state,
-                                &step,
-                                attempt,
-                                detail,
-                            )?;
-                            break;
+                        match outcome {
+                            DispatchOutcome::Dispatched => {
+                                // Record operational backpressure after each
+                                // handoff. If the driver crashes before the
+                                // rest of the batch, the durable start entry
+                                // and this wake deadline still describe the
+                                // lease already handed out.
+                                self.registry()?.set_status(
+                                    &state.run_id,
+                                    "waiting_worker",
+                                    Some(lease_deadline_ms),
+                                )?;
+                                dispatched = true;
+                            }
+                            DispatchOutcome::NoWorker => {
+                                // Preflight admitted the whole batch, so this
+                                // is a detach race. Explain the unhanded lease
+                                // as crashed, leave it retryable, and continue:
+                                // one lost worker must not discard later batch
+                                // actions that another worker can honor.
+                                for action in abandonment_actions(
+                                    &started_state,
+                                    &step.id,
+                                    attempt,
+                                    CompletionReason::Crashed,
+                                    self.clock.now_ms(),
+                                ) {
+                                    self.persist_only(&mut journal, action)?;
+                                }
+                                backpressured = true;
+                                handoff_failed = true;
+                            }
+                            DispatchOutcome::PinMismatch { detail } => {
+                                // Appendix A rule 2: a worker standing at
+                                // revisions other than the journaled pins
+                                // fails closed. Continue the batch so an
+                                // independent compatible lane is not dropped.
+                                self.fail_dispatch_closed(
+                                    &mut journal,
+                                    &started_state,
+                                    &step,
+                                    attempt,
+                                    detail,
+                                )?;
+                                handoff_failed = true;
+                            }
                         }
-                        self.registry()?.set_status(
-                            &state.run_id,
-                            if outcome == DispatchOutcome::Dispatched {
-                                "waiting_worker"
-                            } else {
-                                "parked"
-                            },
-                            Some(lease_deadline_ms),
-                        )?;
-                        return Ok(parked_outcome(&state, RunStatus::Parked));
                     }
                     Action::ArmTimer { at_ms } => {
                         self.wait_for_timer(&journal, at_ms)?;
@@ -158,6 +217,20 @@ impl<C: Clock> Engine<C> {
                         return Ok(outcome_from_state(&final_state, reason));
                     }
                 }
+            }
+            if !dispatched && handoff_failed && !failed_batch_redriven {
+                // A whole batch can lose admission between preflight and
+                // handoff. Re-fold once so due retries can reach a compatible
+                // replacement already attached. Bound this to one failed
+                // batch: a dispatcher that keeps racing closed must park
+                // instead of spinning forever.
+                failed_batch_redriven = true;
+                continue;
+            }
+            if dispatched || backpressured {
+                let parked = self.load_state(&journal, spec.clone())?;
+                self.park_idle_run(&parked)?;
+                return Ok(parked_outcome(&parked, RunStatus::Parked));
             }
         }
     }
@@ -244,19 +317,26 @@ impl<C: Clock> Engine<C> {
     }
 
     fn park_idle_run(&self, state: &RunState) -> Result<()> {
-        let active_lease =
-            state
-                .spec
-                .steps
-                .iter()
-                .find_map(|step| match state.steps[&step.id].state {
-                    relayflowd_core::StepState::Running {
-                        lease_deadline_ms, ..
-                    } if step.step_type() != relayflowd_core::StepType::Deterministic => {
-                        Some(lease_deadline_ms)
-                    }
-                    _ => None,
-                });
+        let active_lease = state
+            .spec
+            .steps
+            .iter()
+            .filter_map(|step| match state.steps[&step.id].state {
+                relayflowd_core::StepState::Running {
+                    attempt,
+                    lease_deadline_ms,
+                    ..
+                } if step.step_type() != relayflowd_core::StepType::Deterministic => Some(
+                    self.dispatcher
+                        .as_ref()
+                        .and_then(|dispatcher| {
+                            dispatcher.active_lease_deadline(&state.run_id, &step.id, attempt)
+                        })
+                        .unwrap_or(lease_deadline_ms),
+                ),
+                _ => None,
+            })
+            .min();
         match active_lease {
             Some(deadline_ms) => {
                 self.registry()?
@@ -275,32 +355,4 @@ fn parked_outcome(state: &RunState, status: RunStatus) -> RunOutcome {
         completion_reason: None,
         completed_steps: state.completed_steps(),
     }
-}
-
-/// The step `next_actions` will start next, when it needs an out-of-band
-/// worker. `next_actions` starts at most one step per pass, so there is at most
-/// one such step to preflight.
-fn runnable_out_of_band_step(state: &RunState) -> Option<&relayflowd_core::StepSpec> {
-    state.spec.steps.iter().find(|step| {
-        matches!(
-            state.steps[&step.id].state,
-            relayflowd_core::StepState::Runnable
-        ) && step.step_type() != relayflowd_core::StepType::Deterministic
-    })
-}
-
-fn should_pause(state: &RunState, options: &DriveOptions) -> bool {
-    if options.pause_before_completion && state.all_steps_succeeded() {
-        return true;
-    }
-    let Some(step_id) = options.pause_before_step.as_deref() else {
-        return false;
-    };
-    state.spec.steps.iter().find_map(|step| {
-        matches!(
-            state.steps[&step.id].state,
-            relayflowd_core::StepState::Runnable
-        )
-        .then_some(step.id.as_str())
-    }) == Some(step_id)
 }
