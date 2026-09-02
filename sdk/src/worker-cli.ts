@@ -1,9 +1,14 @@
 import { spawn } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   agentExecution,
   cliAdapterKind,
+  HEADLESS_PROMPT_FILE,
   type CliInvocation,
 } from './cli-adapter.js';
+import { parseHeadlessOutput, type HeadlessResult } from './headless-adapter.js';
 import {
   runWrapperSession,
   type WrapperSessionLimits,
@@ -24,6 +29,8 @@ export interface WorkerCliResult {
   exit_code: number | null;
   stdout_tail: string;
   stderr_tail: string;
+  /** Present only for supported raw provider CLIs with a validated final event. */
+  headless?: HeadlessResult;
 }
 
 export async function runAgentCli(
@@ -64,7 +71,17 @@ export async function runAgentCli(
   }
 
   if (invocation.modelEnv !== undefined) env[MODEL_ENV] = invocation.modelEnv;
-  return spawnInvocation(cli, invocation, env);
+  const raw = await spawnWithPromptFile(cli, invocation, env);
+  if (raw.exit_code !== 0) return raw;
+  try {
+    return { ...raw, headless: parseHeadlessOutput(kind, raw.stdout_tail) };
+  } catch (error) {
+    return {
+      exit_code: null,
+      stdout_tail: raw.stdout_tail,
+      stderr_tail: `${raw.stderr_tail}${raw.stderr_tail === '' ? '' : '\n'}headless adapter: ${String(error)}`,
+    };
+  }
 }
 
 function spawnInvocation(
@@ -73,7 +90,7 @@ function spawnInvocation(
   env: NodeJS.ProcessEnv,
 ): Promise<WorkerCliResult> {
   return new Promise((resolve) => {
-    const child = spawn(cli, invocation.args, { stdio: ['ignore', 'pipe', 'pipe'], env });
+    const child = spawn(cli, invocation.args, { stdio: ['pipe', 'pipe', 'pipe'], env });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let settled = false;
@@ -96,6 +113,7 @@ function spawnInvocation(
       stdout_tail: Buffer.concat(stdout).toString('utf8'),
       stderr_tail: Buffer.concat(stderr).toString('utf8'),
     }));
+    child.stdin.end(invocation.stdin);
     if (invocation.timeoutMs > 0) {
       timer = setTimeout(() => {
         child.kill('SIGTERM');
@@ -107,4 +125,26 @@ function spawnInvocation(
       }, invocation.timeoutMs);
     }
   });
+}
+
+/** Writes Grok's private prompt file only for the lifetime of its child. */
+async function spawnWithPromptFile(
+  cli: string,
+  invocation: CliInvocation,
+  env: NodeJS.ProcessEnv,
+): Promise<WorkerCliResult> {
+  if (invocation.promptFile === undefined) return spawnInvocation(cli, invocation, env);
+  const directory = await mkdtemp(join(tmpdir(), 'relayflows-agent-prompt-'));
+  const path = join(directory, 'prompt');
+  try {
+    await writeFile(path, invocation.promptFile, { mode: 0o600 });
+    return await spawnInvocation(cli, {
+      ...invocation,
+      args: invocation.args.map((arg, index) => (
+        invocation.args[index - 1] === '--prompt-file' && arg === HEADLESS_PROMPT_FILE ? path : arg
+      )),
+    }, env);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }

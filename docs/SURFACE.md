@@ -97,12 +97,16 @@ No process runs between events: the handler wakes, executes to its next await, p
    **Typed CLI-adapter contract:** `flows check` and `AgentWorker` share one
    closed adapter table. A resolved executable whose basename is `claude` uses
    `claude auth status`, probes the exact model with a real noninteractive
-   `claude -p --model <model>` round trip, and executes with that same model
-   flag. A basename of `codex` uses `codex login status`, probes with
-   `codex exec --skip-git-repo-check --model <model>` in an ephemeral read-only
-   session, and executes noninteractively with the same Git/cwd flag. A Git
-   checkout is not a Relayflow execution prerequisite, so readiness and worker
-   execution both support non-Git working directories. Model-scoped probes may
+   `claude -p --output-format stream-json --verbose --model <model>` round
+   trip, and executes with that same structured mode and model flag. A basename
+   of `codex` uses `codex login status`, probes with
+   `codex exec --json --skip-git-repo-check --model <model> -` in an ephemeral
+   read-only session, and executes noninteractively with the same Git/cwd flag.
+   A basename of `grok` uses `grok auth status` and its JSON prompt-file mode.
+   Instructions travel by stdin (Claude/Codex) or a private prompt file (Grok),
+   never argv. A Git checkout is not a Relayflow execution prerequisite, so
+   readiness and worker execution both support non-Git working directories.
+   Model-scoped probes may
    contact the provider and have a 60-second timeout; this cost is the
    honest price of proving current credential/model access rather than
    accepting an unrelated auth command as model proof.
@@ -134,7 +138,10 @@ No process runs between events: the handler wakes, executes to its next await, p
    that cannot start, is signaled, or exceeds its adapter timeout is
    `probe_failed`, with a classified diagnostic rather than a raw process
    error. Every subprocess starts with ambient `RELAYFLOW_MODEL` removed.
-   Provider adapters pass only the declared flag; wrapper readiness receives
+   Provider adapters pass only the declared flag and journal their structured
+   trajectory tail, usage line, session id, and available subagent evidence;
+   a zero-exit provider response with no readable final message is
+   `worker_error`. Wrapper readiness receives
    only an allowlisted declared model, while worker instruction/model/wake
    values travel only in the post-identification session request. Preflight
    never invokes an undeclared model or guesses from host state.

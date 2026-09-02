@@ -1,4 +1,5 @@
-import { accessSync, constants, readFileSync } from 'node:fs';
+import { accessSync, constants, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse as parseYaml } from 'yaml';
@@ -8,6 +9,7 @@ import {
   authenticationProbe,
   cliAdapterKind,
   displayInvocation,
+  HEADLESS_PROMPT_FILE,
   modelReadinessProbe,
   type CliInvocation,
 } from '../cli-adapter.js';
@@ -295,16 +297,32 @@ function runProbe(
   const env = { ...process.env };
   delete env[MODEL_ENV];
   if (invocation.modelEnv !== undefined) env[MODEL_ENV] = invocation.modelEnv;
-  const result = spawnSync(executable, invocation.args, {
-    cwd: directory,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-    timeout: invocation.timeoutMs,
-    env,
-  });
-  const failure = classifySpawnFailure(result.error, result.signal, invocation.timeoutMs);
-  if (failure !== undefined) throw failure;
-  return { status: result.status, stdout: result.stdout };
+  let promptDirectory: string | undefined;
+  try {
+    const args = invocation.promptFile === undefined
+      ? invocation.args
+      : (() => {
+          promptDirectory = mkdtempSync(join(tmpdir(), 'relayflows-probe-prompt-'));
+          const promptPath = join(promptDirectory, 'prompt');
+          writeFileSync(promptPath, invocation.promptFile, { mode: 0o600 });
+          return invocation.args.map((arg, index) => (
+            invocation.args[index - 1] === '--prompt-file' && arg === HEADLESS_PROMPT_FILE ? promptPath : arg
+          ));
+        })();
+    const result = spawnSync(executable, args, {
+      cwd: directory,
+      encoding: 'utf8',
+      input: invocation.stdin,
+      stdio: ['pipe', 'pipe', 'ignore'],
+      timeout: invocation.timeoutMs,
+      env,
+    });
+    const failure = classifySpawnFailure(result.error, result.signal, invocation.timeoutMs);
+    if (failure !== undefined) throw failure;
+    return { status: result.status, stdout: result.stdout };
+  } finally {
+    if (promptDirectory !== undefined) rmSync(promptDirectory, { recursive: true, force: true });
+  }
 }
 
 function resolveExecutable(command: string, directory: string): string | undefined {

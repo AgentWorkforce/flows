@@ -89,20 +89,13 @@ export class AgentWorker extends EventEmitter {
       : { exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' };
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
 
-    // Output shape: if the CLI's stdout parses as JSON, promote THAT
-    // as the step's `output` value so `json_schema` verification
-    // validates the analysis payload, not a wrapper around stdout.
-    // On the JSON path the CliResult (exit_code / stdout_tail /
-    // stderr_tail) is DISCARDED from `output` — the schema author
-    // wrote a shape for the analysis, not for the process wrapper.
-    // Non-JSON stdout falls back to the wrapper so text-emitting
-    // tools still round-trip usefully.
-    //
-    // Implicit contract: CLIs signal errors via non-zero exit, not by
-    // emitting an error JSON with exit 0. `completionReason` is
-    // derived from exit code, so a CLI that exits 0 while emitting
-    // `{"error":...}` will report success with an error payload.
-    const output = parseJsonOutput(result.stdout_tail) ?? result;
+    // Structured providers expose a final message separately from their
+    // trajectory. Promote JSON in that message so json_schema gates judge the
+    // agent's answer, never the CLI's event envelope. A provider parser
+    // rejects a zero-exit stream without a final message before this point.
+    // Custom wrappers retain their established raw-stdout behavior.
+    const agentText = result.headless?.finalText ?? result.stdout_tail;
+    const output = parseJsonOutput(agentText) ?? (result.headless === undefined ? result : agentText);
 
     await this.client.stepComplete(
       dispatch.run_id,
@@ -112,6 +105,14 @@ export class AgentWorker extends EventEmitter {
       completionReason,
       {
         output,
+        ...(result.headless?.usage === undefined ? {} : { usage: result.headless.usage }),
+        ...(result.headless === undefined ? {} : {
+          trajectory_tail: {
+            events: result.headless.trajectory,
+            ...(result.headless.sessionId === undefined ? {} : { sessionId: result.headless.sessionId }),
+            ...(result.headless.subagents === undefined ? {} : { subagents: result.headless.subagents }),
+          },
+        }),
         started_pins: dispatch.pins,
         end_pins: dispatch.pins,
       },

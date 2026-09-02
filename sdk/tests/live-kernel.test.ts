@@ -845,19 +845,22 @@ process.stdout.write('{"must_not":"execute"}');
   }, 30_000);
 
   it.each([
-    ['claude', '-p --model declared-model-xyz'],
-    ['codex', 'exec --ephemeral --skip-git-repo-check --model declared-model-xyz'],
+    ['claude', '-p --output-format stream-json --verbose --model declared-model-xyz'],
+    ['codex', 'exec --json --ephemeral --skip-git-repo-check --model declared-model-xyz -'],
   ] as const)('AgentWorker executes the raw %s adapter with its real model flag', async (name, prefix) => {
     const dataDir = temporaryDirectory(`flows-live-${name}-adapter-`);
     await startDaemon(dataDir);
     const cli = join(dataDir, name);
     writeFileSync(cli, `#!/bin/sh
 case "$*" in
-  ${JSON.stringify(`${prefix} `)}*) ;;
+  ${JSON.stringify(prefix)}*) ;;
   *) printf '%s\\n' "unexpected argv: $*" >&2; exit 9 ;;
 esac
 test "\${RELAYFLOW_MODEL+x}" != x || exit 8
-printf '%s' '{"adapter":"${name}","model_flag":"declared-model-xyz"}'
+case ${JSON.stringify(name)} in
+  claude) printf '%s\\n' '{"type":"result","result":"{\\"adapter\\":\\"claude\\",\\"model_flag\\":\\"declared-model-xyz\\"}","session_id":"claude-session","subagent_stats":{"spawned":2},"usage":{"input_tokens":1,"output_tokens":1},"total_cost_usd":"0.001"}' ;;
+  codex) printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"adapter\\":\\"codex\\",\\"model_flag\\":\\"declared-model-xyz\\"}"}}' ;;
+esac
 `);
     chmodSync(cli, 0o755);
     const client = await connectClient(dataDir);
@@ -882,8 +885,16 @@ steps:
     const completed = (await client.journalRead(started.run_id)).entries.find(
       (entry) => (entry as { entry_type: string; step_id?: string }).entry_type === 'step.completed'
         && (entry as { step_id?: string }).step_id === 'probe',
-    ) as { payload: { output: { adapter: string; model_flag: string } } } | undefined;
+    ) as { payload: { output: { adapter: string; model_flag: string }; budget?: unknown; trajectory_tail?: unknown } } | undefined;
     expect(completed?.payload.output).toEqual({ adapter: name, model_flag: 'declared-model-xyz' });
+    if (name === 'claude') {
+      expect(completed?.payload.budget).toEqual({ tokens_in: 1, tokens_out: 1, dollars: '0.001' });
+      expect(completed?.payload.trajectory_tail).toMatchObject({
+        sessionId: 'claude-session',
+        subagents: { spawned: 2 },
+        events: [expect.objectContaining({ type: 'result' })],
+      });
+    }
 
     await worker.close();
   }, 30_000);

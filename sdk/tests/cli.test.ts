@@ -217,7 +217,7 @@ ${steps}
     const log = join(directory, 'claude.log');
     const cli = executableFixture(directory, 'claude', `printf '%s|MODEL_ENV=%s\\n' "$*" "\${RELAYFLOW_MODEL-UNSET}" >> ${JSON.stringify(log)}
 if [ "$1 $2" = "auth status" ]; then exit 0; fi
-if [ "$1 $2 $3" = "-p --model available-model" ]; then exit 0; fi
+if [ "$1 $2 $3 $4 $5 $6" = "-p --output-format stream-json --verbose --model available-model" ]; then exit 0; fi
 exit 7`);
     writeFileSync(join(directory, 'flows.json'), JSON.stringify({ models: ['available-model'] }));
     const path = join(directory, 'claude.flow.yaml');
@@ -233,7 +233,7 @@ steps:
 
     const result = await run(path);
     expect(result.code).toBe(0);
-    expect(readFileSync(log, 'utf8')).toContain('-p --model available-model');
+    expect(readFileSync(log, 'utf8')).toContain('-p --output-format stream-json --verbose --model available-model');
     expect(readFileSync(log, 'utf8')).toContain('MODEL_ENV=UNSET');
     expect(readFileSync(log, 'utf8')).toContain('auth status --help|MODEL_ENV=UNSET');
   });
@@ -261,7 +261,7 @@ steps:
     expect(result.code).toBe(2);
     expect(result.stderr.join('\n')).toContain('REFUSED [model_unavailable]');
     expect(result.stderr.join('\n')).not.toContain('cli_unauthenticated');
-    expect(readFileSync(log, 'utf8')).toContain('exec --ephemeral');
+    expect(readFileSync(log, 'utf8')).toContain('exec --json --ephemeral');
     expect(readFileSync(log, 'utf8')).toContain('--model denied-model');
     expect(readFileSync(log, 'utf8')).toContain('login status|MODEL_ENV=UNSET');
     expect(readFileSync(log, 'utf8')).toContain('login status --help|MODEL_ENV=UNSET');
