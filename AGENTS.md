@@ -50,6 +50,30 @@ caused a review to flag a local demo as a P1 defect when the demo was fine.
 A stale MUST is worse than a missing one: it spends reviewer attention, and it
 teaches people the rules are approximate.
 
+### The observer link
+
+A run is watchable at `https://agentrelay.com/observer?key=<token>`. The `key`
+is always a scoped `ot_live_` observer token — **never** a `rk_live_` workspace
+key. A workspace key can send messages, spawn and remove agents, and change
+settings; the engine rejects it on the realtime endpoint outright, so a link
+built from one cannot even stream. Mint a token instead:
+
+```bash
+agent-relay observer                      # read-only link, 24h, DMs excluded
+agent-relay observer --channels wf-...    # scope it to one run's channel
+agent-relay observer list                 # what is outstanding
+agent-relay observer revoke <id>          # cut one off immediately
+```
+
+`scripts/run-workflow.sh` does this for you and prints the link before the run
+starts. It also exports `RELAY_API_KEY` — the runner reads that and nothing
+else, so without it the workspace pin is checked and then ignored, and the run
+lands in a throwaway workspace whose key nobody ever sees. That failure is
+silent: the run works, it is just unwatchable.
+
+Note that `agent-relay workspace key` prints a **masked** key; the real material
+needs `--reveal-secrets`.
+
 ## Evidence is captured, not narrated
 
 Six consecutive review rounds on one PR rejected on *claims about evidence*
