@@ -28,6 +28,7 @@ import {
   STEP_FIELDS_BY_TYPE,
 } from './step-fields.js';
 import { jsonSchemaError, snapshotJsonSchema } from './json-schema.js';
+import { snapshotJsonValue } from './json-value.js';
 
 export interface ValidationResult {
   ok: boolean;
@@ -458,7 +459,14 @@ class Validator {
 
 /** Validate a parsed spec object. Returns `{ok, errors}`; never throws. */
 export function validateSpec(spec: unknown): ValidationResult {
-  return new Validator().run(spec);
+  try {
+    return new Validator().run(snapshotJsonValue(spec, 'spec'));
+  } catch (error) {
+    return {
+      ok: false,
+      errors: [error instanceof Error ? error.message : 'spec: expected JSON-compatible data'],
+    };
+  }
 }
 
 // --- predicates -------------------------------------------------------------
