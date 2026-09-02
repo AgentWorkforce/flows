@@ -6,7 +6,9 @@ use std::{
 };
 
 use anyhow::Result;
-use relayflowd_core::{CompletionReason, JournalEntry, Pins, StepType};
+use relayflowd_core::{
+    CompletionReason, EntryType, JournalEntry, Pins, StepCompletedPayload, StepType,
+};
 use serde_json::json;
 
 use crate::worker::JournalObserver;
@@ -129,13 +131,10 @@ impl ProtocolHub {
         });
     }
 
-    /// A worker's advertised state is only true until it changes it. A step it
-    /// completes moves the surfaces that completion pins, so the hub's view
-    /// must move with it — otherwise the next attempt's pins, chained from
-    /// those very end pins, would read as a mismatch against a stale snapshot.
-    /// Merged per surface: a completion speaks only for what it declared.
-    pub fn advance_worker_pins(&self, connection_id: u64, end_pins: &Pins) {
-        let mut sessions = self.sessions.lock().expect("protocol sessions lock");
+    /// Move the live projection only from an accepted, durable completion
+    /// fact. Merged per surface because a completion speaks only for what it
+    /// declared.
+    fn advance_worker_pins(sessions: &mut Sessions, connection_id: u64, end_pins: &Pins) {
         let Some(worker) = sessions
             .workers
             .iter_mut()
@@ -269,12 +268,20 @@ impl JournalObserver for ProtocolHub {
         // Capacity returns only after the completion is a durable journal
         // fact. This callback runs after append and before the driver elects
         // later runnable work, so a freed slot can be reused immediately.
-        if entry.entry_type == relayflowd_core::EntryType::StepCompleted
+        if entry.entry_type == EntryType::StepCompleted
             && let (Some(step_id), Some(attempt)) = (&entry.step_id, entry.attempt)
         {
-            sessions
+            let key = (entry.run_id.clone(), step_id.clone(), attempt);
+            let connection_id = sessions
                 .assignments
-                .remove(&(entry.run_id.clone(), step_id.clone(), attempt));
+                .get(&key)
+                .map(|assignment| assignment.connection_id);
+            let payload: StepCompletedPayload = serde_json::from_value(entry.payload.clone())
+                .expect("kernel appended a valid step.completed payload");
+            if let (Some(connection_id), Some(end_pins)) = (connection_id, payload.end_pins) {
+                Self::advance_worker_pins(&mut sessions, connection_id, &end_pins);
+            }
+            sessions.assignments.remove(&key);
         }
         let Some(watchers) = sessions.watchers.get_mut(&entry.run_id) else {
             return;

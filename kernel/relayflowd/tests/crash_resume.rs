@@ -13,6 +13,8 @@ mod llm;
 mod llm_support;
 #[path = "crash_resume/parallel_lifecycle.rs"]
 mod parallel_lifecycle;
+#[path = "crash_resume/pin_projection.rs"]
+mod pin_projection;
 #[path = "crash_resume/protocol_admission.rs"]
 mod protocol_admission;
 #[path = "crash_resume/support.rs"]
