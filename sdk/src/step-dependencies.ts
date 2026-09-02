@@ -1,4 +1,6 @@
 /** Return author-facing dependency errors without assuming parsed step shapes. */
+const MAX_REPORTED_CYCLE_PATH_IDS = 16;
+
 export function stepDependencyErrors(
   steps: readonly unknown[],
   knownIds: ReadonlySet<string>,
@@ -58,8 +60,12 @@ export function stepDependencyErrors(
       const dependencyColor = color.get(dependency);
       if (dependencyColor === GRAY) {
         errors.push(
-          `spec.steps: dependency cycle detected at "${dependency}" (path: ${path.join(' -> ')} -> ${dependency})`,
+          `spec.steps: dependency cycle detected at "${dependency}" (path: ${formatCyclePath(path, dependency)})`,
         );
+        // One deterministic back edge proves the graph is invalid. Continuing
+        // would report every remaining gray edge and amplify diagnostics
+        // cubically for dense graphs, unlike the kernel's first-cycle refusal.
+        return errors;
       } else if (dependencyColor === WHITE) {
         color.set(dependency, GRAY);
         path.push(dependency);
@@ -68,6 +74,21 @@ export function stepDependencyErrors(
     }
   }
   return errors;
+}
+
+function formatCyclePath(path: readonly string[], dependency: string): string {
+  const cycleStart = path.lastIndexOf(dependency);
+  const cycle = [...path.slice(cycleStart), dependency];
+  if (cycle.length <= MAX_REPORTED_CYCLE_PATH_IDS) return cycle.join(' -> ');
+
+  const headSize = MAX_REPORTED_CYCLE_PATH_IDS / 2;
+  const tailSize = MAX_REPORTED_CYCLE_PATH_IDS - headSize;
+  const omitted = cycle.length - MAX_REPORTED_CYCLE_PATH_IDS;
+  return [
+    ...cycle.slice(0, headSize),
+    `... (${omitted} steps omitted) ...`,
+    ...cycle.slice(-tailSize),
+  ].join(' -> ');
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
