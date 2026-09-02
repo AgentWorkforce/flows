@@ -1,17 +1,6 @@
-#!/bin/sh
-# Stub agent-runtime CLI that emits JSON MISSING required schema
-# fields (only story_title, no relevance_score/reasoning). Used by
-# the negative gate-2-clause-2 test: pins that the json_schema gate
-# is LIVE over the promoted payload — a mutation that removed the
-# schema check would let this stub's exit-0 slide through to
-# `success`, and the negative test would fail. (A separate mutation
-# that reverted the wrapper promotion would ALSO make the run fail,
-# but for a different reason — the wrapper's shape lacks every
-# required schema field. The positive test above catches the
-# wrapper-not-promoted mutation.)
-set -eu
-if [ "${1-}" = "--relayflows-adapter-v1" ]; then
-  printf '%s\n' 'relayflows-agent-cli-v1'
-  exit 0
-fi
-printf '%s' '{"story_title":"partial"}'
+#!/usr/bin/env node
+// Negative schema-gate wrapper fixture: intentionally omits required fields.
+import { receiveWrapperRequest } from './wrapper-session.mjs';
+
+await receiveWrapperRequest();
+process.stdout.write(JSON.stringify({ story_title: 'partial' }));

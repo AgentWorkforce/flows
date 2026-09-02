@@ -114,15 +114,15 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
   }
   const diagnostics: PreflightDiagnostic[] = [];
   const resolutions: CliResolution[] = [];
+  const resolutionByStep = new Map<string, CliResolution>();
   const cliProbeResults = new Map<string, CliProbeOutcome>();
 
   diagnostics.push(...unknownModelDiagnostics(flow, options));
-  if (diagnostics.length > 0) return { ok: false, resolutions, diagnostics };
-
+  // Resolve the complete flow before touching any environment fact. A later
+  // statically unresolved CLI makes the whole submission impossible, so no
+  // earlier command, provider/model, or trigger probe may run first.
   for (const step of flow.steps) {
-    warnOnUnprovableEffects(step, options.probes, diagnostics);
     if (step.type === 'deterministic') continue;
-
     const resolution = resolveCli(step, flow, options.projectCli);
     if (resolution === undefined) {
       diagnostics.push({
@@ -131,9 +131,17 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
         stepId: step.id,
         message: unresolvedCliMessage(step.id, options),
       });
-      continue;
+    } else {
+      resolutions.push(resolution);
+      resolutionByStep.set(step.id, resolution);
     }
-    resolutions.push(resolution);
+  }
+  if (diagnostics.length > 0) return { ok: false, resolutions, diagnostics };
+
+  for (const step of flow.steps) {
+    warnOnUnprovableEffects(step, options.probes, diagnostics);
+    if (step.type === 'deterministic') continue;
+    const resolution = resolutionByStep.get(step.id)!;
     probeResolvedCli(resolution, options.probes, cliProbeResults, diagnostics);
   }
 

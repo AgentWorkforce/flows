@@ -1,12 +1,6 @@
-#!/bin/sh
-# Text-emitting stub agent-runtime CLI (no JSON in stdout). Used by
-# the text-fallback test: proves AgentWorker keeps the CliResult
-# wrapper as `output` when stdout is not JSON, so text-emitting
-# tools (progress bars, chatty CLIs) still round-trip usefully
-# without the JSON promotion path silently discarding stdout/stderr.
-set -eu
-if [ "${1-}" = "--relayflows-adapter-v1" ]; then
-  printf '%s\n' 'relayflows-agent-cli-v1'
-  exit 0
-fi
-printf '%s' 'looked at the story, seemed fine to me'
+#!/usr/bin/env node
+// Text-only wrapper fixture for the CliResult fallback.
+import { receiveWrapperRequest } from './wrapper-session.mjs';
+
+await receiveWrapperRequest();
+process.stdout.write('looked at the story, seemed fine to me');

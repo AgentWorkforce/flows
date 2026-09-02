@@ -147,13 +147,19 @@ describe('flows check CLI', () => {
   it('binds a checked relative wrapper to the flow directory for worker execution', async () => {
     const directory = temporaryProject('flows-relative-worker-');
     const wrapper = join(directory, 'wrapper');
-    writeFileSync(wrapper, `#!/bin/sh
-if [ "\${1-}" = "--relayflows-adapter-v1" ]; then
-  printf '%s\\n' relayflows-agent-cli-v1
-  exit 0
-fi
-if [ "\${1-} \${2-}" = "auth status" ]; then exit 0; fi
-printf '%s' '{"executed":true}'
+    writeFileSync(wrapper, `#!/usr/bin/env node
+if (process.argv[2] === 'auth' && process.argv[3] === 'status') process.exit(0);
+if (process.argv[2] !== '--relayflows-adapter-v1') process.exit(9);
+process.stdout.write('relayflows-agent-cli-v1\\n');
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => { input += chunk; });
+process.stdin.on('end', () => {
+  if (input.trim() === '') process.exit(0);
+  JSON.parse(input);
+  process.stdout.write('relayflows-agent-cli-v1-execute\\n');
+  process.stdout.write('{"executed":true}');
+});
 `);
     chmodSync(wrapper, 0o755);
     const path = join(directory, 'relative.flow.yaml');

@@ -336,7 +336,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(JSON.stringify(scenarios)).not.toContain('raw secret');
   });
 
-  it('reports an unknown model even when the same step has no resolvable CLI', () => {
+  it('reports every model and CLI static refusal on the same step', () => {
     const result = preflight(
       flow({ id: 'a', type: 'agent', instruction: 'i', model: 'typo-model' }),
       { models: ['known-model'], probes: probes() },
@@ -344,6 +344,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
 
     expect(result.diagnostics.map((diagnostic) => diagnostic.kind)).toEqual([
       'model_unknown',
+      'cli_unresolved',
     ]);
     expect(result.diagnostics[0]).toMatchObject({
       stepId: 'a',

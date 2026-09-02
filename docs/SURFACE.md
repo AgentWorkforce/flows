@@ -89,8 +89,8 @@ No process runs between events: the handler wakes, executes to its next await, p
    default. Model has no flow/project default. An inline step that selects no
    named declaration keeps the existing optional-model behavior. The worker
    explicitly removes ambient `RELAYFLOW_MODEL`; raw provider adapters use a
-   model flag, while an identified wrapper receives the variable only when the
-   step declares a model.
+   model flag, while at worker execution a custom wrapper receives the model
+   only inside its identified same-process session when the step declares one.
 
    **Anonymous resolution law:** `f.agent\`task\`` with no name is the *default agent*, resolved (never guessed) in order: step options → flow header → project config (`flows.json`) → platform default. *The platform-default rung is declared but not yet implemented: no platform default is provisioned as of gate 1, so a flow that reaches this rung refuses with `cli_unresolved` rather than guessing. `flows check` never invents an implicit default.* `flows check` prints each resolved step CLI and its declaration source, validates it before submission, and refuses a missing or unauthenticated resolution before the checked flow is submitted, never at minute 27. Gate 1 does not make this guarantee for callers that bypass `flows check`: the journal client's direct `run.start` path does not invoke surface preflight.
 
@@ -110,15 +110,20 @@ No process runs between events: the handler wakes, executes to its next await, p
    Every other executable is a custom Relayflows wrapper and must first answer
    `<cli> --relayflows-adapter-v1` with exactly
    `relayflows-agent-cli-v1`. Only an identified wrapper uses the established
-   `<cli> auth status` plus exact `RELAYFLOW_MODEL` scoped-probe/execution
-   protocol. A missing or wrong identification is `cli_unsupported`, never
+   `<cli> auth status` plus an exact-model scoped readiness probe. A missing or
+   wrong identification is `cli_unsupported`, never
    mislabeled as `cli_unauthenticated`. If a model-scoped probe fails, the
    adapter's real unscoped authentication command distinguishes
-   `model_unavailable` from `cli_unauthenticated`. The worker repeats the exact
-   wrapper identification immediately before execution, with the private model
-   and wake-context variables absent. A direct journal submission or an
-   executable replaced after preflight therefore completes `worker_error`
-   without receiving `RELAYFLOW_MODEL` unless the current binary identifies.
+   `model_unavailable` from `cli_unauthenticated`. At execution the worker
+   starts one wrapper process with only `--relayflows-adapter-v1` and a scrubbed
+   environment, waits for the exact identity token, then sends one JSON line
+   containing instruction plus any declared model/wake context over that
+   child's stdin. The same child must acknowledge with
+   `relayflows-agent-cli-v1-execute` before its remaining stdout is treated as
+   agent output. There is no second pathname resolution: replacing or
+   retargeting the declared executable after identification cannot receive the
+   private request. A direct journal submission, nonconforming wrapper, or
+   process that exits after identifying completes `worker_error`.
 
    `flows check` resolves the binary (a path is relative to the declaring flow
    or project config; a bare name resolves via `PATH`) and caches each resolved
@@ -128,16 +133,18 @@ No process runs between events: the handler wakes, executes to its next await, p
    different directory identifies and executes the same binary. A probe
    that cannot start, is signaled, or exceeds its adapter timeout is
    `probe_failed`, with a classified diagnostic rather than a raw process
-   error. Every subprocess starts with ambient `RELAYFLOW_MODEL` removed;
-   provider adapters pass only the declared flag, and wrapper adapters set the
-   private variable only from the compiled step. Preflight never invokes an
-   undeclared model or guesses from host state.
+   error. Every subprocess starts with ambient `RELAYFLOW_MODEL` removed.
+   Provider adapters pass only the declared flag; wrapper readiness receives
+   only an allowlisted declared model, while worker instruction/model/wake
+   values travel only in the post-identification session request. Preflight
+   never invokes an undeclared model or guesses from host state.
 
    **Deterministic model registry:** model existence is not inferred from a
    regex or provider prefix. The nearest `flows.json` owns an exact,
    case-sensitive `models` allowlist. `flows check` first refuses a declared
    model absent from that list as `model_unknown`, without starting the CLI.
-   One pure first pass collects every unknown named and inline declaration
+   One pure first pass collects every unknown named/inline model and every
+   unresolved step CLI
    before any CLI, command, executor, or daemon probe, independent of step
    order. This includes every named declaration, even when unused or shadowed
    by a step override;

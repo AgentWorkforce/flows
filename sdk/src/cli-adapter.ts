@@ -5,7 +5,7 @@ export type CliAdapterKind = 'claude' | 'codex' | 'relayflows-wrapper-v1';
 export interface CliInvocation {
   args: string[];
   timeoutMs: number;
-  /** Set only for the explicit wrapper protocol; raw providers receive a model flag. */
+  /** Set only for wrapper readiness probes; raw providers receive a model flag. */
   modelEnv?: string;
 }
 
@@ -16,6 +16,7 @@ export interface CliAdapterIdentification {
 
 export const WRAPPER_IDENTIFY_ARG = '--relayflows-adapter-v1';
 export const WRAPPER_IDENTIFY_TOKEN = 'relayflows-agent-cli-v1';
+export const WRAPPER_EXECUTE_TOKEN = 'relayflows-agent-cli-v1-execute';
 
 const MODEL_PROBE_PROMPT = 'Reply with exactly RELAYFLOWS_MODEL_READY and nothing else.';
 
@@ -99,11 +100,7 @@ export function agentExecution(
       timeoutMs: 0,
     };
   }
-  return {
-    args: [instruction],
-    timeoutMs: 0,
-    ...(model === undefined ? {} : { modelEnv: model }),
-  };
+  throw new Error('custom wrapper execution requires the runAgentCli same-process session');
 }
 
 export function displayInvocation(cli: string, invocation: CliInvocation): string {
