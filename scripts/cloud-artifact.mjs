@@ -116,6 +116,7 @@ export async function verifyArtifactDirectory(root) {
     if (!entry?.executable) throw new Error(`manifest is missing executable ${required}`);
   }
   await assertLinuxX64Elf(join(root, 'bin', 'relayflowd'));
+  await assertLinuxX64Elf(join(root, 'bin', 'flows'), 'flows');
   return manifest;
 }
 

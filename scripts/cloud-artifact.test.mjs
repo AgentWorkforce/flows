@@ -130,6 +130,20 @@ test('verification rejects a relayflowd whose declared bytes are not Linux x64 E
   });
 });
 
+test('verification rejects a flows executable whose declared bytes are not Linux x64 ELF', async () => {
+  await withUnpackedArtifact('6', async (unpacked) => {
+    const flows = join(unpacked, 'bin', 'flows');
+    await writeFile(flows, 'not an ELF binary\n');
+    const manifest = await readManifest(unpacked);
+    manifest.files.find((file) => file.path === 'bin/flows').sha256 = await sha256File(flows);
+    await writeManifest(unpacked, manifest);
+    await assert.rejects(
+      verifyArtifactDirectory(unpacked),
+      /flows must be a little-endian Linux x86-64 ELF binary/u,
+    );
+  });
+});
+
 test('verification rejects a required binary whose execute mode was stripped', async () => {
   await withUnpackedArtifact('1', async (unpacked) => {
     await chmod(join(unpacked, 'bin', 'relayflowd'), 0o644);
