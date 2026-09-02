@@ -31,25 +31,41 @@ export function stepDependencyErrors(
   const WHITE = 0, GRAY = 1, BLACK = 2;
   const color = new Map<string, number>();
   for (const id of adjacency.keys()) color.set(id, WHITE);
-  const stack: string[] = [];
-  const visit = (id: string): void => {
-    color.set(id, GRAY);
-    stack.push(id);
-    for (const dependency of adjacency.get(id) ?? []) {
+  const path: string[] = [];
+  for (const start of adjacency.keys()) {
+    if (color.get(start) !== WHITE) continue;
+
+    color.set(start, GRAY);
+    path.push(start);
+    const frames: Array<{ id: string; nextDependency: number }> = [
+      { id: start, nextDependency: 0 },
+    ];
+
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1];
+      if (frame === undefined) break;
+      const dependencies = adjacency.get(frame.id) ?? [];
+      const dependency = dependencies[frame.nextDependency];
+
+      if (dependency === undefined) {
+        frames.pop();
+        path.pop();
+        color.set(frame.id, BLACK);
+        continue;
+      }
+
+      frame.nextDependency += 1;
       const dependencyColor = color.get(dependency);
       if (dependencyColor === GRAY) {
         errors.push(
-          `spec.steps: dependency cycle detected at "${dependency}" (path: ${[...stack].join(' -> ')} -> ${dependency})`,
+          `spec.steps: dependency cycle detected at "${dependency}" (path: ${path.join(' -> ')} -> ${dependency})`,
         );
       } else if (dependencyColor === WHITE) {
-        visit(dependency);
+        color.set(dependency, GRAY);
+        path.push(dependency);
+        frames.push({ id: dependency, nextDependency: 0 });
       }
     }
-    stack.pop();
-    color.set(id, BLACK);
-  };
-  for (const id of adjacency.keys()) {
-    if (color.get(id) === WHITE) visit(id);
   }
   return errors;
 }

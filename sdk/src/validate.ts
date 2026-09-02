@@ -229,16 +229,6 @@ class Validator {
       this.fail(`${at}.maxIterations: expected a positive integer`);
     }
 
-    if (st['timeoutMs'] !== undefined && !isPosInt(st['timeoutMs'])) {
-      this.fail(`${at}.timeoutMs: expected a positive integer`);
-    }
-    if (st['timeoutMs'] !== undefined && type !== 'deterministic') {
-      // The v0.1.0 spec dialect carries timeout_ms on deterministic steps
-      // only; llm/agent timeouts land with worker dispatch. Fail closed
-      // rather than silently drop the field.
-      this.fail(`${at}.timeoutMs: only deterministic steps carry a timeout in spec v0.1.0`);
-    }
-
     if (type === 'deterministic') {
       this.validateDeterministic(st as unknown as DeterministicStepSpec, at);
     } else if (type === 'llm') {
@@ -280,6 +270,9 @@ class Validator {
   private validateDeterministic(st: DeterministicStepSpec, at: string): void {
     if (!isNonEmptyString(st.command)) {
       this.fail(`${at}.command: expected a non-empty string`);
+    }
+    if (st.timeoutMs !== undefined && !isPosInt(st.timeoutMs)) {
+      this.fail(`${at}.timeoutMs: expected a positive integer`);
     }
   }
 

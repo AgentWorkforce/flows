@@ -16,7 +16,7 @@ import {
   type PreflightProbes,
 } from '../src/preflight.js';
 import type { FlowSpec, StepType } from '../src/spec.js';
-import { STEP_FIELDS_BY_TYPE } from '../src/step-fields.js';
+import { STEP_COMMON_FIELDS, STEP_FIELDS_BY_TYPE } from '../src/step-fields.js';
 import { validateSpec } from '../src/validate.js';
 
 type RawSpec = Record<string, unknown> & {
@@ -59,6 +59,7 @@ const VALID_STEP_BY_TYPE: Record<StepType, Record<string, unknown>> = {
 
 const VERB_FIELD_VALUES: Record<string, unknown> = {
   command: 'printf foreign',
+  timeoutMs: 1_000,
   prompt: 'foreign prompt',
   model: 'foreign-model',
   cli: 'foreign-cli',
@@ -138,14 +139,22 @@ function probes(onProbe: () => void): PreflightProbes {
 
 describe('closed per-verb step fields', () => {
   it('pins the per-verb descriptor and generates every foreign-field pair from it', () => {
+    expect(STEP_COMMON_FIELDS).toEqual([
+      'id',
+      'type',
+      'dependsOn',
+      'verification',
+      'maxIterations',
+    ]);
     expect(STEP_FIELDS_BY_TYPE).toEqual({
-      deterministic: ['command'],
+      deterministic: ['command', 'timeoutMs'],
       llm: ['prompt', 'model', 'cli'],
       agent: ['instruction', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions'],
     });
     expect(CROSS_VERB_STEP_FIELDS.map(({ label }) => label).sort()).toEqual([
       'agent foreign command',
       'agent foreign prompt',
+      'agent foreign timeoutMs',
       'deterministic foreign cli',
       'deterministic foreign instruction',
       'deterministic foreign model',
@@ -158,6 +167,7 @@ describe('closed per-verb step fields', () => {
       'llm foreign permissions',
       'llm foreign recoveryMode',
       'llm foreign surfaces',
+      'llm foreign timeoutMs',
     ]);
   });
 

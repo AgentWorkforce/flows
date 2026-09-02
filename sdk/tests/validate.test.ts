@@ -89,7 +89,7 @@ describe('validate: rejects malformed specs', () => {
   it('rejects a timeout on a non-deterministic step (no dialect surface in v0.1.0)', () => {
     const r = validateSpec({ version: '0.1.0', name: 'x', steps: [{ id: 'a', type: 'llm', prompt: 'p', timeoutMs: 1000 }] });
     expect(r.ok).toBe(false);
-    expect(r.errors.join(' ')).toContain('deterministic steps carry a timeout');
+    expect(r.errors.join(' ')).toContain('unknown key "timeoutMs"');
   });
 
   it('rejects an output_contains gate with no value', () => {
