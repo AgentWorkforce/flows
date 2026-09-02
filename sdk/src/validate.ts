@@ -11,12 +11,13 @@ import type {
   LlmStepSpec,
   PermissionsSpec,
   RecoveryMode,
-  StepSpec,
   StepType,
   TriggerSpec,
   VerificationSpec,
 } from './spec.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
+import { stepDependencyErrors } from './step-dependencies.js';
+import { STEP_COMMON_FIELDS, STEP_FIELDS_BY_TYPE } from './step-fields.js';
 
 export interface ValidationResult {
   ok: boolean;
@@ -43,12 +44,6 @@ const DECIMAL_RE = /^\d+(\.\d+)?$/;
 // silently discarded field — silently dropping `dependsOn` loses ordering.
 const ROOT_KEYS = ['version', 'name', 'description', 'cli', 'triggers', 'steps', 'budget'] as const;
 const BUDGET_KEYS = ['maxTokensIn', 'maxTokensOut', 'maxDollars'] as const;
-const STEP_COMMON_KEYS = ['id', 'type', 'dependsOn', 'verification', 'maxIterations', 'timeoutMs'] as const;
-const STEP_TYPE_KEYS: Record<StepType, readonly string[]> = {
-  deterministic: ['command'],
-  llm: ['prompt', 'model', 'cli'],
-  agent: ['instruction', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions'],
-};
 const VERIFICATION_KEYS: Record<string, readonly string[]> = {
   exit_code: ['type', 'expect'],
   output_contains: ['type', 'value'],
@@ -140,7 +135,7 @@ class Validator {
     }
 
     // Dependents must reference real step ids and form a DAG (no cycles).
-    this.validateDeps(steps as StepSpec[]);
+    for (const error of stepDependencyErrors(steps, this.ids)) this.fail(error);
     return this.result();
   }
 
@@ -218,7 +213,7 @@ class Validator {
       return;
     }
     const type = st['type'] as StepType;
-    this.checkKeys(st, [...STEP_COMMON_KEYS, ...STEP_TYPE_KEYS[type]], at);
+    this.checkKeys(st, [...STEP_COMMON_FIELDS, ...STEP_FIELDS_BY_TYPE[type]], at);
 
     if (st['dependsOn'] !== undefined) {
       if (!Array.isArray(st['dependsOn']) || !(st['dependsOn'] as unknown[]).every(isNonEmptyString)) {
@@ -376,42 +371,6 @@ class Validator {
     }
   }
 
-  private validateDeps(steps: StepSpec[]): void {
-    const known = this.ids;
-    const adj = new Map<string, string[]>();
-    for (const step of steps) {
-      const deps = step.dependsOn ?? [];
-      for (const d of deps) {
-        if (!known.has(d)) {
-          this.fail(`spec.steps: step "${step.id}" dependsOn unknown step "${d}"`);
-        }
-      }
-      adj.set(step.id, deps);
-    }
-    // Cycle detection (DFS, WHITE/GRAY/BLACK).
-    const WHITE = 0, GRAY = 1, BLACK = 2;
-    const color = new Map<string, number>();
-    for (const id of adj.keys()) color.set(id, WHITE);
-    const stack: string[] = [];
-    const dfs = (id: string): void => {
-      color.set(id, GRAY);
-      stack.push(id);
-      const deps = adj.get(id) ?? [];
-      for (const d of deps) {
-        const c = color.get(d);
-        if (c === GRAY) {
-          this.fail(`spec.steps: dependency cycle detected at "${d}" (path: ${[...stack].join(' -> ')} -> ${d})`);
-        } else if (c === WHITE) {
-          dfs(d);
-        }
-      }
-      stack.pop();
-      color.set(id, BLACK);
-    };
-    for (const id of adj.keys()) {
-      if (color.get(id) === WHITE) dfs(id);
-    }
-  }
 }
 
 /** Validate a parsed spec object. Returns `{ok, errors}`; never throws. */
