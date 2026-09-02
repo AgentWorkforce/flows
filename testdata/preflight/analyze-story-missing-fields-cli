@@ -10,4 +10,8 @@
 # required schema field. The positive test above catches the
 # wrapper-not-promoted mutation.)
 set -eu
+if [ "${1-}" = "--relayflows-adapter-v1" ]; then
+  printf '%s\n' 'relayflows-agent-cli-v1'
+  exit 0
+fi
 printf '%s' '{"story_title":"partial"}'

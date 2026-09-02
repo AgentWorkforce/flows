@@ -7,4 +7,8 @@
 # would read `$1` (the instruction) and — once wake_context injection
 # lands — the triggering-event JSON, then invoke a real LLM.
 set -eu
+if [ "${1-}" = "--relayflows-adapter-v1" ]; then
+  printf '%s\n' 'relayflows-agent-cli-v1'
+  exit 0
+fi
 printf '%s' '{"story_title":"stub","relevance_score":5,"reasoning":"stub agent runtime — deterministic output for gate-2 clause-2 demo"}'

@@ -688,7 +688,7 @@ steps:
     await worker.close();
   }, 30_000);
 
-  it('AgentWorker passes a declared model to the CLI as RELAYFLOW_MODEL', async () => {
+  it('AgentWorker passes a declared model to an identified wrapper as RELAYFLOW_MODEL', async () => {
     // The whole point of declaring `model` on the step is that the CLI
     // stops inheriting whatever the host pinned. This proves the declared
     // value survives the full boundary: SDK compile → kernel parse →
@@ -716,13 +716,16 @@ steps:
     agent: model-probe
     instruction: Report the model env var.
 `);
-    expect(compiled).not.toHaveProperty('agents');
+    expect(compiled).toHaveProperty('agents.model-probe.model', 'declared-model-xyz');
     expect(compiled.steps[0]).toMatchObject({
       type: 'agent',
       cli,
       model: 'declared-model-xyz',
     });
-    const started = await client.runStart(toKernelSpec(compiled));
+    const kernel = toKernelSpec(compiled);
+    expect(kernel).not.toHaveProperty('agents');
+    expect(kernel.steps[0]).not.toHaveProperty('agent');
+    const started = await client.runStart(kernel);
 
     expect(await waitForStep(client, started.run_id, 'probe', 'done')).toMatchObject({
       type: 'agent',
@@ -739,6 +742,50 @@ steps:
     ) as { payload: { output: { story_title: string } } } | undefined;
     expect(completed).toBeDefined();
     expect(completed!.payload.output.story_title).toBe('model:declared-model-xyz');
+
+    await worker.close();
+  }, 30_000);
+
+  it.each([
+    ['claude', '-p --model declared-model-xyz'],
+    ['codex', 'exec --ephemeral --model declared-model-xyz'],
+  ] as const)('AgentWorker executes the raw %s adapter with its real model flag', async (name, prefix) => {
+    const dataDir = temporaryDirectory(`flows-live-${name}-adapter-`);
+    await startDaemon(dataDir);
+    const cli = join(dataDir, name);
+    writeFileSync(cli, `#!/bin/sh
+case "$*" in
+  ${JSON.stringify(`${prefix} `)}*) ;;
+  *) printf '%s\\n' "unexpected argv: $*" >&2; exit 9 ;;
+esac
+test "\${RELAYFLOW_MODEL+x}" != x || exit 8
+printf '%s' '{"adapter":"${name}","model_flag":"declared-model-xyz"}'
+`);
+    chmodSync(cli, 0o755);
+    const client = await connectClient(dataDir);
+    await client.hello(`live-${name}-adapter`);
+    const worker = new AgentWorker(client, {
+      workerId: `live-${name}-adapter-worker`,
+      pins: { workspace: [{ surface: 'repo', revision_id: 'rev-a' }], streams: [] },
+    });
+    await worker.attach();
+
+    const started = await client.runStart(toKernelSpec(compileYaml(`
+version: '0.1.0'
+steps:
+  - id: probe
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    model: declared-model-xyz
+    instruction: Report the adapter.
+`)));
+
+    expect(await waitForStep(client, started.run_id, 'probe', 'done')).toMatchObject({ state: 'done' });
+    const completed = (await client.journalRead(started.run_id)).entries.find(
+      (entry) => (entry as { entry_type: string; step_id?: string }).entry_type === 'step.completed'
+        && (entry as { step_id?: string }).step_id === 'probe',
+    ) as { payload: { output: { adapter: string; model_flag: string } } } | undefined;
+    expect(completed?.payload.output).toEqual({ adapter: name, model_flag: 'declared-model-xyz' });
 
     await worker.close();
   }, 30_000);
@@ -1255,6 +1302,10 @@ async function waitForStep(
  */
 function probeAnalyzer(cli: string): { ready: boolean; detail: string } {
   if (!existsSync(cli)) return { ready: false, detail: `analyzer CLI does not exist: ${cli}` };
+  const identified = spawnSync(cli, ['--relayflows-adapter-v1'], { encoding: 'utf8', timeout: 10_000 });
+  if (identified.error !== undefined || identified.status !== 0 || identified.stdout.trim() !== 'relayflows-agent-cli-v1') {
+    return { ready: false, detail: `"${cli}" does not identify as relayflows-agent-cli-v1` };
+  }
   const probe = spawnSync(cli, ['auth', 'status'], { encoding: 'utf8', timeout: 30_000 });
   if (probe.error !== undefined) {
     return { ready: false, detail: `"${cli} auth status" could not run: ${probe.error.message}` };

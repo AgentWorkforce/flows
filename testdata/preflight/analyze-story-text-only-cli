@@ -5,4 +5,8 @@
 # tools (progress bars, chatty CLIs) still round-trip usefully
 # without the JSON promotion path silently discarding stdout/stderr.
 set -eu
+if [ "${1-}" = "--relayflows-adapter-v1" ]; then
+  printf '%s\n' 'relayflows-agent-cli-v1'
+  exit 0
+fi
 printf '%s' 'looked at the story, seemed fine to me'

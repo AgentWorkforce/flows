@@ -12,12 +12,17 @@
 // prep step chmods `testdata/preflight/*-cli` — so the Node floor is
 // the tradeoff for matching it.
 //
-// Two invocation shapes:
-//   `auth status`   → repo-wide preflight probe (sdk/src/preflight.ts).
-//                     Exit 0 only when a real round-trip succeeds.
-//   `<instruction>` → analyze; one JSON object on stdout, exit 0.
+// Three invocation shapes:
+//   `--relayflows-adapter-v1` → identify the explicit wrapper contract.
+//   `auth status`             → model-scoped preflight round trip.
+//   `<instruction>`           → analyze; one JSON object on stdout, exit 0.
 
 import { spawnSync } from 'node:child_process';
+
+if (process.argv[2] === '--relayflows-adapter-v1') {
+  process.stdout.write('relayflows-agent-cli-v1\n');
+  process.exit(0);
+}
 
 // Say so plainly. Without this, Node 20 fails on the ESM/top-level-await
 // above with a parse error that names a syntax position, not the cause.

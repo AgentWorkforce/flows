@@ -1,4 +1,8 @@
 #!/bin/sh
 # Deterministic preflight fixture: the auth probe is terminated by a signal.
+if [ "${1-}" = "--relayflows-adapter-v1" ]; then
+  printf '%s\n' 'relayflows-agent-cli-v1'
+  exit 0
+fi
 test "$1" = "auth" && test "$2" = "status" || exit 0
 kill -SEGV "$$"

@@ -74,6 +74,7 @@ export function compileSpec(spec: unknown): FlowSpec {
     ...(input.name !== undefined ? { name: input.name } : {}),
     ...(input.description !== undefined ? { description: input.description } : {}),
     ...(input.cli !== undefined ? { cli: input.cli } : {}),
+    ...(input.agents !== undefined ? { agents: input.agents } : {}),
     // The kernel omits an empty trigger list when serializing RunSpec. Normalize
     // it here so the authoring shape and boundary shape retain one hashable form.
     ...(input.triggers?.length ? { triggers: input.triggers } : {}),
@@ -118,6 +119,7 @@ function compileStep(step: StepSpec): StepSpec {
         ...base,
         type: 'agent',
         instruction: s.instruction,
+        ...(s.agent !== undefined ? { agent: s.agent } : {}),
         ...(s.cli !== undefined ? { cli: s.cli } : {}),
         ...(s.model !== undefined ? { model: s.model } : {}),
         recoveryMode,
