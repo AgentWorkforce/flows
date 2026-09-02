@@ -74,6 +74,6 @@ export default flow(
       );
 
     await f.cloud.schedules.remove({ scheduleId: schedule.id, as: "cli-bearer" });
-    return f.done("bug_reproduced");
+    return f.done("success");
   },
 );
