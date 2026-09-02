@@ -270,13 +270,6 @@ fn handle_request(
             let worker_id = hub
                 .completion_worker(connection_id, &key)
                 .map_err(protocol_conflict)?;
-            // The worker moved the surfaces its completion pins; the hub's view
-            // of what it holds moves with it *before* the completion drives the
-            // run, so the next attempt's chained pins are checked against the
-            // worker's real state rather than its attach snapshot.
-            if let Some(end_pins) = &params.end_pins {
-                hub.advance_worker_pins(connection_id, end_pins);
-            }
             let outcome = engine
                 .complete_out_of_band(
                     &params.run_id,

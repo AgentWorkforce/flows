@@ -66,7 +66,9 @@ impl Engine<WallClock> {
         // nulled for every non-success, so the detail rides the completion's
         // verification record — the same channel a failed gate uses.
         let mut failure_detail = None;
+        let mut rejected_completion = false;
         let mut reject = |error: anyhow::Error| {
+            rejected_completion = true;
             failure_reason = Some(CompletionReason::WorkerError);
             failure_detail = Some(format!("{error:#}"));
         };
@@ -92,11 +94,19 @@ impl Engine<WallClock> {
             ));
             Vec::new()
         };
+        // Rejected evidence cannot become authoritative state. In particular,
+        // inspect retries must inherit the last accepted pins, not an end pin
+        // carried by a completion whose claimed starting point was invalid.
+        let end_pins = if matches!(step.kind, StepKind::Agent { .. }) && rejected_completion {
+            None
+        } else {
+            completion.end_pins
+        };
         let result = AttemptResult {
             output: completion.output,
             budget: completion.budget,
             completed_by: completion.completed_by,
-            end_pins: completion.end_pins,
+            end_pins,
             effects,
             trajectory_tail: completion.trajectory_tail,
             failure_reason,
