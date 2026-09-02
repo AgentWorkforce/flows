@@ -135,10 +135,10 @@ impl RunSpec {
                 return Err(SpecError::EmptyStepCli(step.id.clone()));
             }
             if let Some(schema) = &step.verification.json_schema {
-                jsonschema::validator_for(schema).map_err(|error| {
+                crate::schema::validate_declaration(schema).map_err(|detail| {
                     SpecError::InvalidJsonSchema {
                         step: step.id.clone(),
-                        detail: error.to_string(),
+                        detail,
                     }
                 })?;
             }

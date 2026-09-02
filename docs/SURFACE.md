@@ -166,6 +166,14 @@ drafts—and prints the exact kernel checks for each step. "Preflightable" means
 the declaration and its parameters are inspectable before execution; it does
 not mean preflight can predict an output that does not exist yet.
 
+`exit_code` applies only to deterministic steps; placing it on an `llm` or
+`agent` step is invalid rather than an empty verification. JSON Schema
+declarations accept both object and boolean schemas, matching the kernel. The
+compiler snapshots and freezes authoring data before validation so accessors,
+callbacks, `toJSON`, and other runtime behavior cannot change what the journal
+serializes. The public preflight boundary performs that same compilation first
+and refuses invalid raw input before running probes.
+
 The kernel evaluates those checks. `run.spawned` carries the compiled
 verification data and `step.completed.verification` carries its verdict, so
 resume and time travel replay the journaled result rather than re-running an

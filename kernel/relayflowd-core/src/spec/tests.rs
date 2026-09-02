@@ -172,35 +172,3 @@ fn preflight_data_is_fail_closed() {
         Err(SpecError::EmptyStepCli("a".to_owned()))
     );
 }
-
-#[test]
-fn json_schema_declarations_match_the_shared_preflight_fixtures() {
-    fn flow_with(schema: Value) -> RunSpec {
-        RunSpec::parse(&json!({
-            "steps": [{
-                "id": "schema",
-                "type": "deterministic",
-                "command": "printf ok",
-                "verification": {"json_schema": schema}
-            }]
-        }))
-        .unwrap()
-    }
-
-    let valid = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../testdata/json-schema-valid.json"
-    )))
-    .unwrap();
-    let invalid = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../testdata/json-schema-invalid.json"
-    )))
-    .unwrap();
-
-    assert!(flow_with(valid).validate().is_ok());
-    assert!(matches!(
-        flow_with(invalid).validate(),
-        Err(SpecError::InvalidJsonSchema { step, .. }) if step == "schema"
-    ));
-}

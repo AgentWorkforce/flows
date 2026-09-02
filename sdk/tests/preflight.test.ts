@@ -5,10 +5,10 @@ import {
 } from '../src/failure-kinds.js';
 import {
   CliProbeError,
-  preflight,
   type CliProbeResult,
   type PreflightProbes,
 } from '../src/preflight.js';
+import { preflight } from '../src/index.js';
 import type { FlowSpec } from '../src/spec.js';
 
 function flow(step: FlowSpec['steps'][number]): FlowSpec {
@@ -25,6 +25,32 @@ function probes(overrides: Partial<PreflightProbes> = {}): PreflightProbes {
 }
 
 describe('preflight: CLI resolution and refusal predicates', () => {
+  it('validates raw public input before any probe or gate inspection', () => {
+    let probeCount = 0;
+    const injected = probes({
+      command: () => { probeCount += 1; return true; },
+      cli: () => { probeCount += 1; return { exists: true, authenticated: true }; },
+    });
+    const candidate = (verification: unknown): FlowSpec => ({
+      version: '0.1.0',
+      steps: [{
+        id: 'raw',
+        type: 'deterministic',
+        command: 'printf ok',
+        verification,
+      } as FlowSpec['steps'][number]],
+    });
+
+    for (const verification of [
+      (value: unknown) => value,
+      { type: 'expression', expression: 'length < 200' },
+      { type: 'json_schema', schema: { type: 'definitely-not-a-json-schema-type' } },
+    ]) {
+      expect(() => preflight(candidate(verification), { probes: injected })).toThrow();
+    }
+    expect(probeCount).toBe(0);
+  });
+
   it('resolves step, then flow, then project without guessing a platform default', () => {
     const seen: string[] = [];
     const check = (spec: FlowSpec, projectCli?: string) => preflight(spec, {

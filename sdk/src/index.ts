@@ -25,6 +25,7 @@ export type {
   KernelVerificationSpec,
   LlmStepSpec,
   OutputContainsGate,
+  OutputVerificationSpec,
   PermissionsSpec,
   RecoveryMode,
   StreamSurface,
@@ -59,7 +60,6 @@ export {
   type PreflightResult,
 } from './preflight.js';
 export {
-  inspectStepGate,
   type DataGateClassification,
   type JournalGateCheck,
   type StepGateInspection,
