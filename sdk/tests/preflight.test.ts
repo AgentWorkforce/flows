@@ -10,6 +10,7 @@ import {
   type PreflightProbes,
 } from '../src/preflight.js';
 import type { FlowSpec } from '../src/spec.js';
+import { compileSpec, toKernelSpec } from '../src/compile.js';
 
 function flow(step: FlowSpec['steps'][number]): FlowSpec {
   return { version: '0.1.0', name: 'test', steps: [step] };
@@ -17,7 +18,7 @@ function flow(step: FlowSpec['steps'][number]): FlowSpec {
 
 function probes(overrides: Partial<PreflightProbes> = {}): PreflightProbes {
   return {
-    cli: (): CliProbeResult => ({ exists: true, authenticated: true }),
+    cli: (): CliProbeResult => ({ exists: true, authenticated: true, modelAvailable: true }),
     executor: () => true,
     command: () => true,
     ...overrides,
@@ -222,8 +223,11 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     const scenarios = [
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: false, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: true, authenticated: false }) }) }),
+      preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: true, supported: false, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p' }), { probes: probes() }),
       preflight(flow({ id: 'a', type: 'deterministic', command: './missing' }), { probes: probes({ command: () => false }) }),
+      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x', model: 'typo-model' }), { models: ['known-model'], probes: probes() }),
+      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x', model: 'known-model' }), { models: ['known-model'], probes: probes({ cli: () => ({ exists: true, authenticated: true, modelAvailable: false }) }) }),
       preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }), triggers: [{ id: 't', executor: 'e' }] }, { probes: probes({ executor: () => false, command: () => false }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => { throw new Error('raw secret'); } }) }),
     ];
@@ -234,4 +238,119 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(new Set(refusalKinds)).toEqual(new Set(PREFLIGHT_FAILURE_KINDS));
     expect(JSON.stringify(scenarios)).not.toContain('raw secret');
   });
+
+  it('reports an unknown model even when the same step has no resolvable CLI', () => {
+    const result = preflight(
+      flow({ id: 'a', type: 'agent', instruction: 'i', model: 'typo-model' }),
+      { models: ['known-model'], probes: probes() },
+    );
+
+    expect(result.diagnostics.map((diagnostic) => diagnostic.kind)).toEqual([
+      'model_unknown',
+    ]);
+    expect(result.diagnostics[0]).toMatchObject({
+      stepId: 'a',
+      model: 'typo-model',
+    });
+  });
+
+  it.each([
+    ['valid first', ['valid', 'typo']],
+    ['typo first', ['typo', 'valid']],
+  ] as const)('validates every inline model before every probe: %s', (_label, order) => {
+    const calls: string[] = [];
+    const steps: Record<(typeof order)[number], FlowSpec['steps'][number]> = {
+      valid: { id: 'valid', type: 'agent', cli: 'claude', model: 'known-model', instruction: 'Valid.' },
+      typo: { id: 'typo', type: 'agent', cli: 'claude', model: 'known-modle', instruction: 'Typo.' },
+    };
+
+    const result = preflight({
+      version: '0.1.0',
+      steps: [
+        { id: 'deterministic', type: 'deterministic', command: './must-not-probe' },
+        ...order.map((id) => steps[id]),
+      ],
+      triggers: [{ id: 'trigger', executor: 'must-not-probe' }],
+    }, {
+      models: ['known-model'],
+      probes: {
+        cli: () => { calls.push('cli'); throw new Error('PROBE_CALLED'); },
+        command: () => { calls.push('command'); throw new Error('PROBE_CALLED'); },
+        executor: () => { calls.push('executor'); throw new Error('PROBE_CALLED'); },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ kind: 'model_unknown', stepId: 'typo', model: 'known-modle' }),
+    ]);
+    expect(calls).toEqual([]);
+  });
+
+  it('returns every named and inline unknown-model diagnostic in the pure first pass', () => {
+    let probeCalls = 0;
+    const result = preflight(compileSpec({
+      version: '0.1.0',
+      agents: {
+        unused: { cli: 'claude', model: 'unknown-named' },
+      },
+      steps: [{
+        id: 'inline',
+        type: 'agent',
+        cli: 'codex',
+        model: 'unknown-inline',
+        instruction: 'Review.',
+      }],
+    }), {
+      models: ['known-model'],
+      probes: probes({
+        cli: () => {
+          probeCalls += 1;
+          return { exists: true, authenticated: true, modelAvailable: true };
+        },
+      }),
+    });
+
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ kind: 'model_unknown', agent: 'unused', model: 'unknown-named' }),
+      expect.objectContaining({ kind: 'model_unknown', stepId: 'inline', model: 'unknown-inline' }),
+    ]);
+    expect(probeCalls).toBe(0);
+  });
+
+  it.each(['unused', 'shadowed'] as const)(
+    'checks an unknown %s named declaration before authoring metadata is erased',
+    (variant) => {
+      let probeCalls = 0;
+      const compiled = compileSpec({
+        version: '0.1.0',
+        agents: { reviewer: { cli: 'claude', model: 'typo-model' } },
+        steps: variant === 'unused'
+          ? [{ id: 'ready', type: 'deterministic', command: 'printf ready' }]
+          : [{
+              id: 'review',
+              type: 'agent',
+              agent: 'reviewer',
+              model: 'known-model',
+              instruction: 'Review.',
+            }],
+      });
+
+      const result = preflight(compiled, {
+        models: ['known-model'],
+        probes: probes({ cli: () => {
+          probeCalls += 1;
+          return { exists: true, authenticated: true, modelAvailable: true };
+        } }),
+      });
+
+      expect(compiled.agents?.reviewer?.model).toBe('typo-model');
+      expect(result.ok).toBe(false);
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({ kind: 'model_unknown', agent: 'reviewer', model: 'typo-model' }),
+      ]);
+      expect(probeCalls).toBe(0);
+      expect(toKernelSpec(compiled)).not.toHaveProperty('agents');
+    },
+  );
 });

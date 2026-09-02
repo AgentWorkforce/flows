@@ -17,12 +17,17 @@ export interface CliResolution {
 export interface CliProbeResult {
   exists: boolean;
   authenticated: boolean;
+  /** False when a custom executable did not identify as a wrapper adapter. */
+  supported?: boolean;
+  /** Exact declared model passed the CLI's model-scoped readiness probe. */
+  modelAvailable?: boolean;
+  authCommand?: string;
+  modelCommand?: string;
 }
 
 export type CliProbeFailureDetail =
   | 'spawn_failed'
-  | 'timeout:5000ms'
-  | 'timeout:10000ms'
+  | `timeout:${number}ms`
   | `signal:${string}`;
 
 export class CliProbeError extends Error {
@@ -56,6 +61,9 @@ export interface PreflightOptions {
   projectCli?: string;
   projectConfigPath?: string;
   projectSearchStart?: string;
+  /** Exact, project-owned model allowlist from the nearest flows.json. */
+  models?: readonly string[];
+  modelRegistryPath?: string;
   probes: PreflightProbes;
 }
 
@@ -65,6 +73,8 @@ export interface PreflightRefusal {
   message: string;
   stepId?: string;
   cli?: string;
+  agent?: string;
+  model?: string;
   triggerId?: string;
   executor?: string;
   detail?: CliProbeFailureDetail;
@@ -89,6 +99,9 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
   const diagnostics: PreflightDiagnostic[] = [];
   const resolutions: CliResolution[] = [];
   const cliProbeResults = new Map<string, CliProbeOutcome>();
+
+  diagnostics.push(...unknownModelDiagnostics(flow, options));
+  if (diagnostics.length > 0) return { ok: false, resolutions, diagnostics };
 
   for (const step of flow.steps) {
     warnOnUnprovableEffects(step, options.probes, diagnostics);
@@ -117,6 +130,80 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
     resolutions,
     diagnostics,
   };
+}
+
+/** Pure authoring validation: no executable, command, trigger, or daemon probe. */
+function unknownModelDiagnostics(
+  flow: FlowSpec,
+  options: PreflightOptions,
+): PreflightRefusal[] {
+  const diagnostics: PreflightRefusal[] = [];
+
+  // Named declarations remain in the normalized authoring object until this
+  // boundary so even unused or step-shadowed models are checked. toKernelSpec
+  // erases the map and selector only after this pass has had a chance to fail.
+  for (const [agent, declaration] of Object.entries(flow.agents ?? {})) {
+    if (isKnownModel(declaration.model, options.models)) continue;
+    diagnostics.push({
+      severity: 'refusal',
+      kind: 'model_unknown',
+      agent,
+      cli: declaration.cli,
+      model: declaration.model,
+      message: unknownNamedAgentModelMessage(agent, declaration.cli, declaration.model, options.modelRegistryPath),
+    });
+  }
+
+  for (const step of flow.steps) {
+    if (step.type === 'deterministic' || step.model === undefined) continue;
+    const selected = step.type === 'agent' && step.agent !== undefined
+      ? flow.agents?.[step.agent]
+      : undefined;
+    // compileSpec copies a selected declaration onto the step. The declaration
+    // was already checked above; only a different value is an inline override.
+    if (selected?.model === step.model) continue;
+    if (isKnownModel(step.model, options.models)) continue;
+    const resolution = resolveCli(step, flow, options.projectCli);
+    diagnostics.push({
+      severity: 'refusal',
+      kind: 'model_unknown',
+      stepId: step.id,
+      ...(resolution === undefined ? {} : { cli: resolution.cli }),
+      model: step.model,
+      message: unknownModelMessage(step.id, step.model, resolution?.cli, options.modelRegistryPath),
+    });
+  }
+
+  return diagnostics;
+}
+
+function unknownNamedAgentModelMessage(
+  agent: string,
+  cli: string,
+  model: string,
+  registryPath: string | undefined,
+): string {
+  const source = registryPath === undefined
+    ? 'the nearest project config (no model registry was found)'
+    : `project model registry "${registryPath}"`;
+  return `Named agent "${agent}" declares model "${model}" for CLI "${cli}", but it is not listed in ${source}; add the exact model only after verifying that project is allowed to use it.`;
+}
+
+function isKnownModel(model: string, models: readonly string[] | undefined): boolean {
+  return models?.includes(model) === true;
+}
+
+function unknownModelMessage(
+  stepId: string,
+  model: string,
+  cli: string | undefined,
+  registryPath: string | undefined,
+): string {
+  const source = registryPath === undefined
+    ? 'the nearest project config (no model registry was found)'
+    : `project model registry "${registryPath}"`;
+  const cliContext = cli === undefined ? '' : ` for CLI "${cli}"`;
+  return `Step "${stepId}" declares model "${model}"${cliContext}, but it is not listed in ${source}; add the exact model only after verifying that project is allowed to use it.`;
 }
 
 function unresolvedCliMessage(stepId: string, options: PreflightOptions): string {
@@ -187,13 +274,31 @@ function probeResolvedCli(
       cli: resolution.cli,
       message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but it does not resolve as an executable.`,
     });
+  } else if (result.supported === false) {
+    diagnostics.push({
+      severity: 'refusal',
+      kind: 'cli_unsupported',
+      stepId: resolution.stepId,
+      cli: resolution.cli,
+      message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but it is neither a supported raw Claude/Codex executable nor a conforming Relayflows wrapper; custom wrappers must identify with the relayflows-agent-cli-v1 contract.`,
+    });
   } else if (!result.authenticated) {
+    const command = result.authCommand ?? `${resolution.cli} auth status`;
     diagnostics.push({
       severity: 'refusal',
       kind: 'cli_unauthenticated',
       stepId: resolution.stepId,
       cli: resolution.cli,
-      message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but "${resolution.cli} auth status" exited non-zero; authenticate it or implement that probe to return exit 0 when authenticated.`,
+      message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but "${command}" exited non-zero; authenticate it or repair that adapter's authentication probe.`,
+    });
+  } else if (resolution.model !== undefined && result.modelAvailable !== true) {
+    diagnostics.push({
+      severity: 'refusal',
+      kind: 'model_unavailable',
+      stepId: resolution.stepId,
+      cli: resolution.cli,
+      model: resolution.model,
+      message: `Step "${resolution.stepId}" declares model "${resolution.model}" for CLI "${resolution.cli}", but its model-scoped "${result.modelCommand ?? `${resolution.cli} auth status`}" probe exited non-zero; verify the model name and this credential's access.`,
     });
   }
 }

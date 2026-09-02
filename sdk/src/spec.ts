@@ -144,14 +144,15 @@ export interface LlmStepSpec extends BaseStepSpec {
 export interface AgentStepSpec extends BaseStepSpec {
   type: 'agent';
   instruction: string;
+  /** Named authoring declaration selected from `FlowSpec.agents`. Compiled away. */
+  agent?: string;
   /** Inert preflight declaration; overrides the flow/project CLI default. */
   cli?: string;
   /**
-   * Model the declared CLI should use, surfaced to it as `RELAYFLOW_MODEL`.
-   * Declared here so the choice is journaled with the step instead of being
-   * ambient host state — a CLI that inherits whatever the machine happens to
-   * pin produces runs whose model cannot be recovered from the journal, and
-   * fails outright on a host pinning something it cannot resolve.
+   * Model the declared CLI must use. Raw Claude/Codex adapters receive their
+   * real model flag; an identified Relayflows wrapper receives
+   * `RELAYFLOW_MODEL`. Declared here so the choice is journaled with the step
+   * instead of being ambient host state.
    */
   model?: string;
   surfaces?: AgentSurfaces;
@@ -165,6 +166,17 @@ export interface AgentStepSpec extends BaseStepSpec {
 }
 
 export type StepSpec = DeterministicStepSpec | LlmStepSpec | AgentStepSpec;
+
+/**
+ * Reusable authoring declaration for an agent CLI/model pair. Both fields are
+ * required so selecting a named agent can never inherit a host model. The
+ * compiler lowers these values into the selected `AgentStepSpec`; the kernel
+ * never receives this map or a new step field.
+ */
+export interface NamedAgentSpec {
+  cli: string;
+  model: string;
+}
 
 /** Inert gate-1 trigger declaration. Matching and dispatch belong to gate 2. */
 export interface TriggerSpec {
@@ -186,6 +198,8 @@ export interface FlowSpec {
   description?: string;
   /** Inert preflight default for llm/agent steps that do not declare a CLI. */
   cli?: string;
+  /** Named authoring declarations. Compiled into agent steps, never journaled as a new primitive. */
+  agents?: Record<string, NamedAgentSpec>;
   /** Declarations checked by preflight; gate 1 never dispatches them. */
   triggers?: TriggerSpec[];
   steps: StepSpec[];

@@ -1,18 +1,14 @@
-import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import type { JournalClient } from './journal-client.js';
 import type { Pins, StepDispatchEvent } from './protocol.js';
 import type { KernelAgentStep } from './spec.js';
+import { runAgentCli } from './worker-cli.js';
+
+export { MODEL_ENV, WAKE_CONTEXT_ENV } from './worker-cli.js';
 
 export interface AgentWorkerOptions {
   workerId: string;
   pins: Pins;
-}
-
-interface CliResult {
-  exit_code: number | null;
-  stdout_tail: string;
-  stderr_tail: string;
 }
 
 /**
@@ -89,7 +85,7 @@ export class AgentWorker extends EventEmitter {
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
     const spec = dispatch.spec as Partial<KernelAgentStep>;
     const result = typeof spec.cli === 'string' && typeof spec.instruction === 'string'
-      ? await runCli(spec.cli, spec.instruction, dispatch.wake_context, spec.model)
+      ? await runAgentCli(spec.cli, spec.instruction, dispatch.wake_context, spec.model)
       : { exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' };
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
 
@@ -145,108 +141,4 @@ export function parseJsonOutput(stdout: string): Record<string, unknown> | null 
     return null;
   }
   return parsed as Record<string, unknown>;
-}
-
-/**
- * Environment variable name AgentWorker sets when dispatching an
- * agent step whose kernel dispatch carried a `wake_context` (the
- * payload assembled at subscription.matched, containing the
- * triggering event). A real analyzer reads this to see which HN
- * story / webhook / trigger woke it — an env var is a stable,
- * language-agnostic surface that works with any CLI shape, without
- * changing the `spawn(cli, [instruction])` argv contract every
- * existing agent CLI already depends on.
- *
- * Not set when `wake_context` is absent (e.g. a directly-started
- * run, no trigger fired) — the variable simply won't exist. That is
- * DELIBERATE, so a CLI that reads `RELAYFLOW_WAKE_CONTEXT` can
- * distinguish "no wake context available" from "wake context = null".
- */
-export const WAKE_CONTEXT_ENV = 'RELAYFLOW_WAKE_CONTEXT';
-
-/**
- * Environment variable AgentWorker sets when the dispatched agent step
- * DECLARED a `model`. Same contract as {@link WAKE_CONTEXT_ENV}: when the
- * step declares no model the variable is not merely empty, it is ABSENT,
- * so a CLI can tell "the flow author chose nothing" from "the flow author
- * chose something". A CLI that finds it unset is free to apply its own
- * default; one that finds it set must not override it.
- *
- * This exists because a CLI inheriting whatever model the host happens to
- * pin produces two failures: runs whose model cannot be recovered from the
- * journal, and hard failure on a host pinning an alias the CLI cannot
- * resolve. Declaring it on the step makes the choice portable and recorded.
- */
-export const MODEL_ENV = 'RELAYFLOW_MODEL';
-
-function runCli(
-  cli: string,
-  instruction: string,
-  wakeContext: unknown,
-  model?: string,
-): Promise<CliResult> {
-  return new Promise((resolve) => {
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    // Explicit unset. Without this, a parent process (wrapper
-    // script, systemd unit, docker env, or a prior test) that
-    // already had RELAYFLOW_WAKE_CONTEXT set would leak into
-    // this subprocess even on a run with no wake context — which
-    // would defeat the WAKE_CONTEXT_ENV doc guarantee that CLIs
-    // can key on absence to distinguish "no wake context
-    // available" from "wake context = null". Unset first, then
-    // set only if we have context. Deleting a key from
-    // ProcessEnv drops it from the child's environ; a subsequent
-    // conditional assign is the source of truth.
-    delete env[WAKE_CONTEXT_ENV];
-    // Same explicit-unset reasoning as WAKE_CONTEXT_ENV below: an inherited
-    // RELAYFLOW_MODEL from a parent process would make a step that declared
-    // no model look like one that did, silently pinning the run to whatever
-    // the launching shell happened to export.
-    delete env[MODEL_ENV];
-    if (model !== undefined) env[MODEL_ENV] = model;
-    if (wakeContext !== undefined) {
-      // `execve` caps argv + envp at ARG_MAX (macOS ~256 KB, Linux
-      // ~2 MB). A wake_context that packs a rich payload could
-      // exceed that and make spawn fail with an opaque E2BIG.
-      // Truncation would be worse than a loud failure — the CLI
-      // needs the intact context to analyze the event correctly —
-      // so we let spawn's error surface naturally.
-      //
-      // `JSON.stringify` can throw synchronously (on a cycle or a
-      // non-serializable value like BigInt). Values that arrived
-      // through the wire protocol are already JSON-clean by
-      // construction, but this worker also runs inside test rigs
-      // and future callers may construct `wake_context` in-process.
-      // Catching the throw here converts a would-be silent
-      // lease-expiration (Promise executor throw → no `resolve`,
-      // no stepComplete written) into a clean `worker_error`
-      // completion the kernel journals normally. Fail-closed per
-      // AGENTS.md.
-      try {
-        env[WAKE_CONTEXT_ENV] = JSON.stringify(wakeContext);
-      } catch (error) {
-        resolve({
-          exit_code: null,
-          stdout_tail: '',
-          stderr_tail: `wake_context could not be JSON-serialized for the CLI: ${String(error)}`,
-        });
-        return;
-      }
-    }
-    const child = spawn(cli, [instruction], { stdio: ['ignore', 'pipe', 'pipe'], env });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
-    child.once('error', (error) => resolve({
-      exit_code: null,
-      stdout_tail: Buffer.concat(stdout).toString('utf8'),
-      stderr_tail: error.message,
-    }));
-    child.once('close', (code) => resolve({
-      exit_code: code,
-      stdout_tail: Buffer.concat(stdout).toString('utf8'),
-      stderr_tail: Buffer.concat(stderr).toString('utf8'),
-    }));
-  });
 }

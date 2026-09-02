@@ -196,7 +196,8 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
     const config = resolution.source === 'project' && report.projectConfigPath !== undefined
       ? ` (${report.projectConfigPath})`
       : '';
-    io.stdout(`RESOLVED step "${resolution.stepId}" cli "${resolution.cli}" from ${resolution.source}${config}`);
+    const model = resolution.model === undefined ? '' : ` model "${resolution.model}"`;
+    io.stdout(`RESOLVED step "${resolution.stepId}" cli "${resolution.cli}"${model} from ${resolution.source}${config}`);
   }
   if (report.ok) io.stdout(`CHECK PASSED ${report.path ?? ''}`.trimEnd());
 }

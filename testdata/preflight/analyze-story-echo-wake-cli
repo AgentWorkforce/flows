@@ -9,6 +9,10 @@
 //
 // Node-native so the test never needs to skip on missing tooling
 // (jq is not a stock macOS dep) — the SDK ships Node already.
+if (process.argv[2] === '--relayflows-adapter-v1') {
+  process.stdout.write('relayflows-agent-cli-v1\n');
+  process.exit(0);
+}
 const raw = process.env.RELAYFLOW_WAKE_CONTEXT;
 if (!raw) {
   process.stderr.write('wake-context env var RELAYFLOW_WAKE_CONTEXT was empty or unset\n');

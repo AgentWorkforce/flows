@@ -1,5 +1,9 @@
 #!/bin/sh
 # Deterministic preflight fixture: record each auth probe in the caller's log.
+if [ "${1-}" = "--relayflows-adapter-v1" ]; then
+  printf '%s\n' 'relayflows-agent-cli-v1'
+  exit 0
+fi
 test "$1" = "auth" && test "$2" = "status" || exit 1
 test -n "$PREFLIGHT_PROBE_LOG" || exit 1
 printf 'auth status\n' >> "$PREFLIGHT_PROBE_LOG"

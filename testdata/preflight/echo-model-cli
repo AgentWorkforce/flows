@@ -9,6 +9,10 @@
 // string as its own answer — if `RELAYFLOW_MODEL=''` ever reaches a CLI,
 // that is a bug the test must be able to see rather than silently read as
 // "unset".
+if (process.argv[2] === '--relayflows-adapter-v1') {
+  process.stdout.write('relayflows-agent-cli-v1\n');
+  process.exit(0);
+}
 const raw = process.env.RELAYFLOW_MODEL;
 const declared = raw === undefined ? 'UNSET' : raw === '' ? 'EMPTY' : raw;
 process.stdout.write(JSON.stringify({
