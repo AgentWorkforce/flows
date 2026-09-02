@@ -23,10 +23,11 @@ Note that executing an authored body replaces the global `Promise.all` for the
 duration of the run. The reason, the scope, and the one documented limit of the
 lifecycle contract are in `docs/SURFACE.md`, "The authored operation lifecycle".
 
-This is an unpublished contract foundation, not a shipped executable surface.
-Direct `.flow.ts` execution, durable authored-root resume, and input remain
-tracked in issue #132. Resident trigger handlers (`flow.on(...)`) are gate-2
-work and are not yet part of this package.
+This is an in-repository foundation, not a registry-published package. The
+repository's `flows run` command can execute a directly authored `.flow.ts`
+with required JSON input. Durable authored-root resume remains tracked in issue
+#132. Resident trigger handlers (`flow.on(...)`) are gate-2 work and are not yet
+part of this package.
 
 The repository pins Bun through `surface/bun.lock`. From a fresh checkout:
 
@@ -40,8 +41,19 @@ bun run test
 ```ts
 import { flow } from "@relayflows/surface";
 
-export default flow("release-note", async (f) => {
-  await f.run("git diff main");
+export default flow<{ base: string }>("release-note", {}, async (f, input) => {
+  await f.run(`git diff ${input.base}`);
   f.done("success");
 });
 ```
+
+Run it with inline JSON or the path to a JSON file:
+
+```sh
+flows run release-note.flow.ts --input '{"base":"main"}'
+flows run release-note.flow.ts --input ./release-note.input.json
+```
+
+Direct runs use the same journal-backed executor as other authored flows, so
+branches over step output observe the value recorded by `step.completed`.
+Unsupported headers, verbs, and code predicate gates fail closed.

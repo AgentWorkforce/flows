@@ -23,6 +23,7 @@ import {
 } from './journal-client-loopback.js';
 
 const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata');
+const DIRECT_INPUT_FLOW = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'direct-input.flow.ts');
 const PREFLIGHT = join(TESTDATA, 'preflight');
 const LADDER = ['hello-deterministic', 'hello-llm', 'hello-agent'] as const;
 const TEST_MODELS = [
@@ -632,8 +633,17 @@ steps:
 
     const invalidInvocation = capture();
     expect(await runCli(['run'], invalidInvocation.io)).toBe(2);
+    const missingDirectInput = capture();
+    expect(await runCli(['run', DIRECT_INPUT_FLOW], missingDirectInput.io)).toBe(2);
+    const invalidDirectInput = capture();
+    expect(await runCli(
+      ['run', DIRECT_INPUT_FLOW, '--input', '{"broken":'],
+      invalidDirectInput.io,
+    )).toBe(2);
     const outputs = [
       invalidInvocation.stderr.join('\n'),
+      missingDirectInput.stderr.join('\n'),
+      invalidDirectInput.stderr.join('\n'),
       (await run(join(directory, 'absent.flow.yaml'))).stderr.join('\n'),
       (await run(malformed)).stderr.join('\n'),
     ];

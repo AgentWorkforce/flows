@@ -9,10 +9,12 @@ import {
 } from './cli/check.js';
 import {
   resumeFlow,
+  runDirectFlow,
   runFlow,
   type RunExecution,
   type RunReport,
 } from './cli/run.js';
+import { isAuthoredFlowPath } from './direct-input.js';
 import { runHnMonitor } from './cli/hn-monitor.js';
 import { runTickRunner } from './cli/tick-runner.js';
 
@@ -26,7 +28,8 @@ export interface CliIo {
 type CliExitCode = 0 | 1 | 2 | 3;
 type ParsedArgs =
   | { command: 'check'; json: boolean; value: string }
-  | { command: 'run' | 'resume'; dataDir: string; json: boolean; value: string }
+  | { command: 'run'; dataDir: string; input: string | undefined; json: boolean; value: string }
+  | { command: 'resume'; dataDir: string; json: boolean; value: string }
   | { command: 'hn-monitor'; sub: 'start'; dataDir: string; specPath: string; pollIntervalMs: number | undefined }
   | { command: 'tick'; sub: 'start'; dataDir: string; specPath: string; scheduleId: string;
       intervalMs: number; epochMs: number | undefined; maxCatchUp: number | undefined;
@@ -37,6 +40,7 @@ const USAGE = [
   'Usage:',
   'flows check [--json] <flow.yaml|spec.json>',
   'flows run [--json] [--data-dir <dir>] <flow.yaml|spec.json>',
+  'flows run [--json] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--json] [--data-dir <dir>] <run-id>',
   'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
@@ -107,7 +111,14 @@ export async function runCli(
   }
 
   const execution = parsed.command === 'run'
-    ? await runFlow(parsed.value, parsed.dataDir, { onWait: (progress) => emitWait(progress, io) })
+    ? isAuthoredFlowPath(parsed.value)
+      ? await runDirectFlow(
+          parsed.value,
+          parsed.input,
+          parsed.dataDir,
+          { onWait: (progress) => emitWait(progress, io) },
+        )
+      : await runFlow(parsed.value, parsed.dataDir, { onWait: (progress) => emitWait(progress, io) })
     : await resumeFlow(parsed.value, parsed.dataDir, { onWait: (progress) => emitWait(progress, io) });
   emitRunReport(execution, parsed.json, io);
   return execution.exitCode;
@@ -132,6 +143,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let json = false;
   let dataDir = DEFAULT_DATA_DIR;
   let sawDataDir = false;
+  let input: string | undefined;
+  let sawInput = false;
   const positionals: string[] = [];
   for (let index = 1; index < args.length; index += 1) {
     const argument = args[index]!;
@@ -148,14 +161,25 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       index += 1;
       continue;
     }
+    if (argument === '--input') {
+      const value = args[index + 1];
+      if (command !== 'run' || sawInput || value === undefined || value.startsWith('--')) return undefined;
+      input = value;
+      sawInput = true;
+      index += 1;
+      continue;
+    }
     if (argument.startsWith('-')) return undefined;
     positionals.push(argument);
   }
   if (positionals.length !== 1) return undefined;
 
+  if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!)) return undefined;
   return command === 'check'
     ? { command, json, value: positionals[0]! }
-    : { command, dataDir, json, value: positionals[0]! };
+    : command === 'run'
+      ? { command, dataDir, input, json, value: positionals[0]! }
+      : { command, dataDir, json, value: positionals[0]! };
 }
 
 function parseHnMonitorArgs(rest: readonly string[]): ParsedArgs | undefined {
