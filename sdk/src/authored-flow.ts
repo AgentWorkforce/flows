@@ -12,10 +12,10 @@ import {
  * progress has no durable root journal. Internal lowering tests recover the
  * definition here without making that seam a supported runner.
  */
-export function getAuthoredFlowDefinition(
+export function getAuthoredFlowDefinition<Input = unknown>(
   handle: FlowHandle,
-): AuthoredFlowDefinition {
-  return getFlowDefinition(handle);
+): AuthoredFlowDefinition<Input> {
+  return getFlowDefinition<Input>(handle);
 }
 
 export type { AuthoredFlowDefinition, FlowHandle };

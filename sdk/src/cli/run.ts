@@ -1,7 +1,5 @@
 import { join, resolve } from 'node:path';
-import { compileAuthoredFlow, AuthoredFlowCompileError } from '../authored-flow-compiler.js';
 import { toKernelSpec } from '../compile.js';
-import { DirectInputError, parseDirectInput } from '../direct-input.js';
 import type { RunFailureKind } from '../failure-kinds.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
 import type { PreflightDiagnostic } from '../preflight.js';
@@ -12,9 +10,7 @@ import type {
 } from '../protocol.js';
 import type { StepType } from '../spec.js';
 import {
-  checkAuthoredFlow,
   checkFlow,
-  inputFailureReport,
   type CheckInputDiagnostic,
   type CheckReport,
 } from './check.js';
@@ -78,36 +74,6 @@ export async function runFlow(
   return executeCheckedFlow(checked, dataDir, options);
 }
 
-export async function runDirectFlow(
-  path: string,
-  inputArgument: string | undefined,
-  dataDir: string,
-  options: RunLifecycleOptions = {},
-): Promise<RunExecution> {
-  try {
-    const input = parseDirectInput(inputArgument);
-    const flow = await compileAuthoredFlow(path, input);
-    const checked = checkAuthoredFlow(flow, path);
-    if (!checked.report.ok || checked.flow === undefined) {
-      return { exitCode: 2, report: fromCheckReport('run', checked.report) };
-    }
-    return executeCheckedFlow(checked, dataDir, options);
-  } catch (error) {
-    const failure = error instanceof DirectInputError
-      ? error
-      : {
-          kind: 'invalid_spec' as const,
-          message: error instanceof AuthoredFlowCompileError
-            ? error.message
-            : `Flow "${path}" could not be compiled for direct execution.`,
-        };
-    return {
-      exitCode: 2,
-      report: fromCheckReport('run', inputFailureReport(failure, path)),
-    };
-  }
-}
-
 async function executeCheckedFlow(
   checked: ReturnType<typeof checkFlow>,
   dataDir: string,
@@ -165,7 +131,7 @@ export async function resumeFlow(
   }
 }
 
-async function connect(
+export async function connect(
   client: JournalClient,
   command: RunCommand,
   dataDir: string,
@@ -360,7 +326,7 @@ async function waitForRunningStep(
   }
 }
 
-function protocolFailure(
+export function protocolFailure(
   command: RunCommand,
   base: CheckReport | RunReport,
   socketPath: string,
@@ -382,7 +348,7 @@ function protocolFailure(
   };
 }
 
-function fromCheckReport(command: RunCommand, report: CheckReport): RunReport {
+export function fromCheckReport(command: RunCommand, report: CheckReport): RunReport {
   return {
     ok: false,
     command,
@@ -393,7 +359,7 @@ function fromCheckReport(command: RunCommand, report: CheckReport): RunReport {
   };
 }
 
-function emptyReport(command: RunCommand): RunReport {
+export function emptyReport(command: RunCommand): RunReport {
   return { ok: false, command, resolutions: [], diagnostics: [] };
 }
 
@@ -401,7 +367,7 @@ function fromBase(command: RunCommand, base: CheckReport | RunReport): RunReport
   return 'command' in base ? base : fromCheckReport(command, base);
 }
 
-function socketFor(dataDir: string): string {
+export function socketFor(dataDir: string): string {
   return join(resolve(dataDir), 'relayflowd.sock');
 }
 

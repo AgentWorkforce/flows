@@ -106,6 +106,16 @@ function isStoredDefinition(
 }
 
 function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
+  const unknownFields = Object.keys(header).filter((field) => ![
+    "identity",
+    "memory",
+    "budget",
+    "tools",
+    "workspace",
+  ].includes(field));
+  if (unknownFields.length > 0) {
+    throw new TypeError(`flow header has unknown fields: ${unknownFields.join(", ")}`);
+  }
   const memory = header.memory === undefined
     ? undefined
     : Object.freeze({ ...header.memory });

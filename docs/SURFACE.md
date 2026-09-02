@@ -312,12 +312,14 @@ object to stdout while diagnostics remain on stderr.
 
 A direct `.flow.ts` run requires `--input`. When its argument names an existing
 regular file, the CLI parses that file as JSON; otherwise it parses the argument
-itself as inline JSON. Missing or invalid input is refused before the CLI
-contacts `relayflowd`. The authored body receives the parsed value as its second
-argument, and the SDK compiles its `f.run` / `f.llm` / `f.agent` awaits into the
-same kernel spec and journal path used by YAML. Direct-run constructs that the
-current kernel contract cannot represent fail closed during compilation rather
-than being discarded.
+itself as inline JSON. Direct input is limited to 1,048,576 UTF-8 bytes; file
+size is checked before the file is read. Missing, invalid, or oversized input is
+refused before the CLI contacts `relayflowd`. After the journal connection is
+established, the authored body receives the parsed value as its second argument.
+Each awaited `f.run` executes through the journal-backed authored runtime, and
+JavaScript control flow observes the output read from `step.completed`.
+Unsupported headers, verbs, gates, and completion reasons fail closed rather
+than running through a second speculative compiler.
 
 The exit codes are part of the surface contract:
 

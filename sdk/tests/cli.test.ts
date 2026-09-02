@@ -640,10 +640,18 @@ steps:
       ['run', DIRECT_INPUT_FLOW, '--input', '{"broken":'],
       invalidDirectInput.io,
     )).toBe(2);
+    const oversizedInputPath = join(directory, 'oversized-input.json');
+    writeFileSync(oversizedInputPath, JSON.stringify({ value: 'x'.repeat(1_048_576) }));
+    const oversizedDirectInput = capture();
+    expect(await runCli(
+      ['run', DIRECT_INPUT_FLOW, '--input', oversizedInputPath],
+      oversizedDirectInput.io,
+    )).toBe(2);
     const outputs = [
       invalidInvocation.stderr.join('\n'),
       missingDirectInput.stderr.join('\n'),
       invalidDirectInput.stderr.join('\n'),
+      oversizedDirectInput.stderr.join('\n'),
       (await run(join(directory, 'absent.flow.yaml'))).stderr.join('\n'),
       (await run(malformed)).stderr.join('\n'),
     ];
