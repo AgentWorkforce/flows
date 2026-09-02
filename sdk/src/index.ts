@@ -52,6 +52,12 @@ export {
 export { validateSpec, type ValidationResult } from './validate.js';
 
 export {
+  getAuthoredFlowDefinition,
+  type AuthoredFlowDefinition,
+  type FlowHandle,
+} from './authored-flow.js';
+
+export {
   preflight,
   type CliResolution,
   type CliResolutionSource,

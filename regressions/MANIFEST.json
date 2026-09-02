@@ -8,9 +8,9 @@
   "adoptBy": "software-garden",
   "adoptWhen": "flows run in cloud and the gates listed per pair have closed; the Garden should then run each red case (expect pass) and each green case (expect fail) as the standing proof the bug is still open, and flip the pair to green-only once the fix lands.",
   "typecheck": {
-    "command": "cd surface && npm run typecheck:regressions",
+    "command": "cd surface && bun run typecheck:regressions",
     "optIn": true,
-    "note": "Not part of `npm test`. Imports resolve to the real @relayflows/surface package source; the dormant flows remain non-executable until their required gates close."
+    "note": "Not part of `bun run test`. Imports resolve to @relayflows/surface source through a local path alias. This is a fast source-contract check, not package-boundary evidence; the repository surface package gate separately consumes the packed tarball. The dormant flows remain non-executable until their required gates close."
   },
   "surfaceGaps": [
     {
