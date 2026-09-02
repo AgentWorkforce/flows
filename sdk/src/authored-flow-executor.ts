@@ -11,6 +11,15 @@ import {
 import type { FlowHandle } from '@relayflows/surface/runtime';
 import { compileSpec, toKernelSpec } from './compile.js';
 import { getAuthoredFlowDefinition } from './authored-flow.js';
+import {
+  AuthoredFlowExecutionError,
+  type AuthoredFlowExecutionErrorCode,
+} from './authored-flow-error.js';
+import {
+  AuthoredFlowOperation,
+  stopAuthoredOperations,
+  verifyAuthoredOperations,
+} from './authored-flow-operation.js';
 import { JournalClient } from './journal-client.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
@@ -37,29 +46,7 @@ type EveryRunCompletionReasonIsAcceptedByDone = Assert<
   SurfaceRunCompletionReason extends DoneCompletionReason ? true : false
 >;
 
-export type AuthoredFlowExecutionErrorCode =
-  | 'duplicate_completion'
-  | 'journal_protocol_violation'
-  | 'missing_completion'
-  | 'operation_after_completion'
-  | 'step_failed'
-  | 'unsupported_completion'
-  | 'unsupported_gate'
-  | 'unsupported_header'
-  | 'unawaited_step'
-  | 'unsupported_verb';
-
-export class AuthoredFlowExecutionError extends Error {
-  constructor(
-    readonly code: AuthoredFlowExecutionErrorCode,
-    message: string,
-    readonly completionReason?: ProtocolCompletionReason | ProtocolRunCompletionReason,
-    readonly runId?: string,
-  ) {
-    super(`${code}: ${message}`);
-    this.name = 'AuthoredFlowExecutionError';
-  }
-}
+export { AuthoredFlowExecutionError, type AuthoredFlowExecutionErrorCode };
 
 export interface AuthoredFlowJournalStep {
   readonly id: string;
@@ -106,7 +93,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   }
 
   const journalSteps: AuthoredFlowJournalStep[] = [];
-  const authoredSteps: TrackedThenable[] = [];
+  const authoredSteps: AuthoredFlowOperation<unknown>[] = [];
   let nextStep = 1;
   let requestedCompletion: SurfaceRunCompletionReason | undefined;
 
@@ -127,20 +114,30 @@ export async function executeAuthoredFlow<Input = undefined>(
     run(command) {
       assertOperationAllowed('run', definition.name, requestedCompletion);
       const id = `run-${nextStep++}`;
-      return trackStep(
-        authoredSteps,
-        new DeferredJournalStep(id, 'run', () => lowerDeterministic(id, command)),
-      );
+      return trackStep(authoredSteps, new AuthoredFlowOperation(
+        id,
+        'run',
+        () => assertOperationAllowed('run', definition.name, requestedCompletion),
+        () => lowerDeterministic(id, command),
+      ));
     },
     llm() {
       assertOperationAllowed('llm', definition.name, requestedCompletion);
       const id = `llm-${nextStep++}`;
-      return trackStep(authoredSteps, unsupportedStep(id, 'llm'));
+      return trackStep(authoredSteps, unsupportedStep(
+        id,
+        'llm',
+        () => assertOperationAllowed('llm', definition.name, requestedCompletion),
+      ));
     },
     agent() {
       assertOperationAllowed('agent', definition.name, requestedCompletion);
       const id = `agent-${nextStep++}`;
-      return trackStep(authoredSteps, unsupportedStep<AgentResult>(id, 'agent'));
+      return trackStep(authoredSteps, unsupportedStep<AgentResult>(
+        id,
+        'agent',
+        () => assertOperationAllowed('agent', definition.name, requestedCompletion),
+      ));
     },
     human() {
       assertOperationAllowed('human', definition.name, requestedCompletion);
@@ -177,8 +174,19 @@ export async function executeAuthoredFlow<Input = undefined>(
     ),
   };
 
-  await definition.body(context, input as Input);
-  await refuseUnawaitedSteps(definition.name, authoredSteps);
+  let bodyFailed = false;
+  let bodyFailure: unknown;
+  try {
+    await definition.body(context, input as Input);
+  } catch (error) {
+    bodyFailed = true;
+    bodyFailure = error;
+  }
+  if (bodyFailed) {
+    await stopAuthoredOperations(authoredSteps, bodyFailure);
+    throw bodyFailure;
+  }
+  await verifyAuthoredOperations(definition.name, authoredSteps);
   if (requestedCompletion === undefined) {
     throw new AuthoredFlowExecutionError(
       'missing_completion',
@@ -194,94 +202,22 @@ export async function executeAuthoredFlow<Input = undefined>(
   });
 }
 
-interface TrackedThenable {
-  readonly id: string;
-  readonly verb: string;
-  readonly consumed: boolean;
-  readonly settled: boolean;
-  waitForSettlement(): Promise<void>;
-}
-
-class DeferredJournalStep<T> implements Step<T>, TrackedThenable {
-  private execution: Promise<T> | undefined;
-  consumed = false;
-  settled = false;
-
-  constructor(
-    readonly id: string,
-    readonly verb: string,
-    private readonly start: () => Promise<T>,
-  ) {}
-
-  gate(_predicate: (value: T) => boolean, _because?: string): Step<T> {
-    throw new AuthoredFlowExecutionError(
-      'unsupported_gate',
-      'postfix gates are not lowered by the initial authored executor',
-    );
-  }
-
-  then<TResult1 = T, TResult2 = never>(
-    onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
-    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-  ): PromiseLike<TResult1 | TResult2> {
-    this.consumed = true;
-    this.execution ??= this.start().then(
-      (value) => {
-        this.settled = true;
-        return value;
-      },
-      (error: unknown) => {
-        this.settled = true;
-        throw error;
-      },
-    );
-    return this.execution.then(onfulfilled, onrejected);
-  }
-
-  async waitForSettlement(): Promise<void> {
-    if (this.execution === undefined) return;
-    await this.execution.then(() => undefined, () => undefined);
-  }
-}
-
 function trackStep<T>(
-  tracked: TrackedThenable[],
-  step: DeferredJournalStep<T>,
-): DeferredJournalStep<T> {
-  tracked.push(step);
-  return step;
+  tracked: AuthoredFlowOperation<unknown>[],
+  operation: AuthoredFlowOperation<T>,
+): Step<T> {
+  tracked.push(operation as AuthoredFlowOperation<unknown>);
+  return operation.step;
 }
 
-function unsupportedStep<T>(id: string, verb: string): DeferredJournalStep<T> {
-  return new DeferredJournalStep(id, verb, async () => {
+function unsupportedStep<T>(
+  id: string,
+  verb: string,
+  assertCanStart: () => void,
+): AuthoredFlowOperation<T> {
+  return new AuthoredFlowOperation<T>(id, verb, assertCanStart, async () => {
     throw unsupportedVerb(verb);
   });
-}
-
-async function refuseUnawaitedSteps(
-  flowName: string,
-  steps: TrackedThenable[],
-): Promise<void> {
-  const unconsumed = steps.filter((step) => !step.consumed);
-  if (unconsumed.length > 0) {
-    throw new AuthoredFlowExecutionError(
-      'unawaited_step',
-      `flow "${flowName}" returned with unawaited steps: ${formatSteps(unconsumed)}`,
-    );
-  }
-
-  const unsettled = steps.filter((step) => !step.settled);
-  if (unsettled.length > 0) {
-    await Promise.all(unsettled.map((step) => step.waitForSettlement()));
-    throw new AuthoredFlowExecutionError(
-      'unawaited_step',
-      `flow "${flowName}" returned before steps settled: ${formatSteps(unsettled)}`,
-    );
-  }
-}
-
-function formatSteps(steps: TrackedThenable[]): string {
-  return steps.map((step) => `${step.id} (f.${step.verb})`).join(', ');
 }
 
 function unsupportedVerb(verb: string): AuthoredFlowExecutionError {

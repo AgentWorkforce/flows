@@ -1,0 +1,29 @@
+import type {
+  CompletionReason as ProtocolCompletionReason,
+  RunCompletionReason as ProtocolRunCompletionReason,
+} from './protocol.js';
+
+export type AuthoredFlowExecutionErrorCode =
+  | 'duplicate_completion'
+  | 'journal_protocol_violation'
+  | 'missing_completion'
+  | 'operation_after_completion'
+  | 'operation_callback_failed'
+  | 'step_failed'
+  | 'unsupported_completion'
+  | 'unsupported_gate'
+  | 'unsupported_header'
+  | 'unawaited_step'
+  | 'unsupported_verb';
+
+export class AuthoredFlowExecutionError extends Error {
+  constructor(
+    readonly code: AuthoredFlowExecutionErrorCode,
+    message: string,
+    readonly completionReason?: ProtocolCompletionReason | ProtocolRunCompletionReason,
+    readonly runId?: string,
+  ) {
+    super(`${code}: ${message}`);
+    this.name = 'AuthoredFlowExecutionError';
+  }
+}

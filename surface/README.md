@@ -8,7 +8,8 @@ will inject. A flow handle retains an immutable header and body behind the
 public handle remains the frozen `{ name }` authoring value. This package never
 constructs a context, executes a body, or contacts the kernel. The repository
 CLI delegates direct runs to the SDK's internal journal-backed executor; that
-executor is intentionally not exported from the SDK package root.
+executor is intentionally not exported from the SDK package root and does not
+yet provide a durable authored-root resume boundary.
 
 This is currently an in-repository foundation, not a registry-published
 package. The repository's `flows run` command can execute a directly authored

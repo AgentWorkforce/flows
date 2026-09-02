@@ -34,11 +34,7 @@ export interface FlowHandle {
   readonly name: string;
 }
 
-const DEFINITION = Symbol("@relayflows/surface.authored-definition.v1");
-
-type StoredFlowHandle<Input = unknown> = FlowHandle & {
-  readonly [DEFINITION]: AuthoredFlowDefinition<Input>;
-};
+const definitions = new WeakMap<object, AuthoredFlowDefinition<unknown>>();
 
 export function flow<Input = unknown>(name: string, body: FlowBody<Input>): FlowHandle;
 export function flow<Input = unknown>(
@@ -67,14 +63,9 @@ export function flow<Input = unknown>(
     header: freezeHeader(header),
     body: flowBody,
   });
-  const handle = { name } as StoredFlowHandle<Input>;
-  Object.defineProperty(handle, DEFINITION, {
-    value: definition,
-    enumerable: false,
-    configurable: false,
-    writable: false,
-  });
-  return Object.freeze(handle);
+  const handle: FlowHandle = Object.freeze({ name });
+  definitions.set(handle, definition as AuthoredFlowDefinition<unknown>);
+  return handle;
 }
 
 /**
@@ -85,14 +76,11 @@ export function getFlowDefinition<Input = unknown>(handle: FlowHandle): Authored
   if ((typeof handle !== "object" && typeof handle !== "function") || handle === null) {
     throw new TypeError("expected an @relayflows/surface flow handle");
   }
-  const definition = (handle as Partial<StoredFlowHandle>)[DEFINITION];
-  const descriptor = Object.getOwnPropertyDescriptor(handle, DEFINITION);
+  const definition = definitions.get(handle) as AuthoredFlowDefinition<Input> | undefined;
   if (
-    !isStoredDefinition(definition, handle.name)
-    || descriptor === undefined
-    || descriptor.enumerable
-    || descriptor.configurable
-    || descriptor.writable
+    definition === undefined
+    || !isStoredDefinition(definition, definition.name)
+    || handle.name !== definition.name
   ) {
     throw new TypeError("expected an @relayflows/surface flow handle");
   }
