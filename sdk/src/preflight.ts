@@ -1,4 +1,5 @@
 import type { FlowSpec, StepSpec, TriggerSpec } from './spec.js';
+import { inspectStepGate, type StepGateInspection } from './gate-contract.js';
 import type {
   PreflightFailureKind,
   PreflightWarningKind,
@@ -81,6 +82,7 @@ export type PreflightDiagnostic = PreflightRefusal | PreflightWarning;
 
 export interface PreflightResult {
   ok: boolean;
+  gates: StepGateInspection[];
   resolutions: CliResolution[];
   diagnostics: PreflightDiagnostic[];
 }
@@ -114,6 +116,7 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
 
   return {
     ok: !diagnostics.some((diagnostic) => diagnostic.severity === 'refusal'),
+    gates: flow.steps.map(inspectStepGate),
     resolutions,
     diagnostics,
   };
