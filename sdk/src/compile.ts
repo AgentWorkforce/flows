@@ -184,8 +184,16 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
  * Kernel-only values with no authoring representation are refused.
  */
 export function kernelToAuthoring(value: unknown): unknown {
+  let snapshot: unknown;
+  try {
+    snapshot = snapshotJsonValue(value, 'spec');
+  } catch (error) {
+    throw new CompileError([
+      error instanceof Error ? error.message : 'spec: expected JSON-compatible data',
+    ]);
+  }
   const root = requireKernelObject(
-    value,
+    snapshot,
     ['version', 'name', 'description', 'cli', 'triggers', 'steps', 'budget'],
     'spec',
   );

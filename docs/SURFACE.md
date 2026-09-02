@@ -175,6 +175,9 @@ journal serializes. Explicitly `undefined` object optionals are omitted, as in
 JSON serialization and the v1 compiler; unsafe array values remain invalid.
 The public preflight boundary performs that same compilation first and refuses
 invalid raw input before running probes.
+Exported unknown-input helpers follow the same rule: `validateSpec` reports a
+failed validation without executing proxy traps or throwing, and
+`kernelToAuthoring` rejects non-inert kernel values before inspecting them.
 
 The kernel evaluates those checks. `run.spawned` carries the compiled
 verification data and `step.completed.verification` carries its verdict, so
