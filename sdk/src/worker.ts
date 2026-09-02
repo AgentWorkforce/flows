@@ -7,6 +7,7 @@ import type { KernelAgentStep } from './spec.js';
 export interface AgentWorkerOptions {
   workerId: string;
   pins: Pins;
+  capacity?: number;
 }
 
 interface CliResult {
@@ -48,7 +49,12 @@ export class AgentWorker extends EventEmitter {
     if (this.closing) throw new Error('agent worker: cannot attach a closed worker (construct a new one)');
     this.client.on('step.dispatch', this.onDispatch);
     try {
-      await this.client.workerAttach(this.options.workerId, ['agent'], this.options.pins);
+      await this.client.workerAttach(
+        this.options.workerId,
+        ['agent'],
+        this.options.pins,
+        this.options.capacity,
+      );
       this.attached = true;
     } catch (error) {
       this.client.off('step.dispatch', this.onDispatch);

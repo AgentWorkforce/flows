@@ -123,6 +123,20 @@ impl LlmFixture {
         fixture
     }
 
+    pub fn completed(name: &str) -> Self {
+        let mut fixture = Self::new(name, false);
+        fixture.spec = json!({
+            "name": format!("completed-{name}"),
+            "steps": [{"id": "done", "type": "deterministic", "command": "true"}]
+        });
+        fs::write(
+            &fixture.spec_path,
+            serde_json::to_vec(&fixture.spec).unwrap(),
+        )
+        .unwrap();
+        fixture
+    }
+
     pub fn parallel_terminal(name: &str) -> Self {
         let mut fixture = Self::parallel(name);
         for step in fixture.spec["steps"].as_array_mut().unwrap() {
@@ -236,6 +250,26 @@ impl ProtocolClient {
     }
 
     pub fn request(&mut self, verb: &str, params: Value) -> Result<Value> {
+        let frame = self.request_frame(verb, params)?;
+        if frame["ok"] == true {
+            return Ok(frame.get("result").cloned().unwrap_or(Value::Null));
+        }
+        bail!(
+            "{}: {}",
+            frame["error"]["code"].as_str().unwrap_or("protocol_error"),
+            frame["error"]["message"]
+                .as_str()
+                .unwrap_or("missing detail")
+        )
+    }
+
+    pub fn request_error_code(&mut self, verb: &str, params: Value) -> String {
+        let frame = self.request_frame(verb, params).unwrap();
+        assert_eq!(frame["ok"], false, "{verb} unexpectedly succeeded");
+        frame["error"]["code"].as_str().unwrap().to_owned()
+    }
+
+    fn request_frame(&mut self, verb: &str, params: Value) -> Result<Value> {
         let id = format!("test-{}", self.next_id);
         self.next_id += 1;
         serde_json::to_writer(
@@ -253,16 +287,7 @@ impl ProtocolClient {
             if frame["id"] != id {
                 continue;
             }
-            if frame["ok"] == true {
-                return Ok(frame.get("result").cloned().unwrap_or(Value::Null));
-            }
-            bail!(
-                "{}: {}",
-                frame["error"]["code"].as_str().unwrap_or("protocol_error"),
-                frame["error"]["message"]
-                    .as_str()
-                    .unwrap_or("missing detail")
-            );
+            return Ok(frame);
         }
     }
 
@@ -299,7 +324,7 @@ pub fn attached_worker(fixture: &LlmFixture, id: &str) -> ProtocolClient {
     worker
         .request(
             "worker.attach",
-            json!({"worker_id": id, "step_types": ["llm"]}),
+            json!({"worker_id": id, "step_types": ["llm"], "capacity": 8}),
         )
         .unwrap();
     worker

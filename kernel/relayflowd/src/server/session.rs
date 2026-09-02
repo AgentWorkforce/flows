@@ -5,25 +5,26 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{Context, Result, bail};
-use relayflowd_core::{CompletionReason, JournalEntry, Pins, StepKind, StepSpec, StepType};
+use anyhow::Result;
+use relayflowd_core::{CompletionReason, JournalEntry, Pins, StepType};
 use serde_json::json;
 
-use crate::worker::{DispatchOutcome, JournalObserver, LeaseProbe, StepDispatch, StepDispatcher};
+use crate::worker::JournalObserver;
 
 const LEASE_RENEWAL_MS: i64 = 30_000;
 
 type Writer = Arc<Mutex<UnixStream>>;
 type AssignmentKey = (String, String, u32);
 
+mod assignments;
 mod matching;
-use matching::{pin_value_mismatch, select_worker, worker_holds};
 
 #[derive(Clone)]
 struct Worker {
     connection_id: u64,
     worker_id: String,
     step_types: Vec<StepType>,
+    capacity: usize,
     pins: Pins,
     writer: Writer,
 }
@@ -55,6 +56,11 @@ struct Assignment {
     lease_deadline_ms: i64,
 }
 
+#[derive(Clone)]
+struct Reservation {
+    connection_id: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct AbandonedLease {
     pub run_id: String,
@@ -76,6 +82,7 @@ struct Sessions {
     workers: Vec<Worker>,
     watchers: BTreeMap<String, Vec<Watcher>>,
     assignments: BTreeMap<AssignmentKey, Assignment>,
+    reservations: BTreeMap<AssignmentKey, Reservation>,
 }
 
 #[derive(Default)]
@@ -104,6 +111,7 @@ impl ProtocolHub {
         connection_id: u64,
         worker_id: String,
         step_types: Vec<StepType>,
+        capacity: usize,
         pins: Pins,
         writer: Writer,
     ) {
@@ -115,6 +123,7 @@ impl ProtocolHub {
             connection_id,
             worker_id,
             step_types,
+            capacity,
             pins,
             writer,
         });
@@ -208,89 +217,6 @@ impl ProtocolHub {
         }
     }
 
-    pub fn heartbeat(
-        &self,
-        connection_id: u64,
-        key: &AssignmentKey,
-        lease_id: &str,
-        now_ms: i64,
-    ) -> Result<(i64, i64)> {
-        let mut sessions = self.sessions.lock().expect("protocol sessions lock");
-        let assignment_deadline = {
-            let assignment = sessions
-                .assignments
-                .get_mut(key)
-                .context("attempt has no active worker lease")?;
-            if assignment.connection_id != connection_id || assignment.lease_id != lease_id {
-                bail!("heartbeat does not match the active worker lease")
-            }
-            assignment.lease_deadline_ms = now_ms.saturating_add(LEASE_RENEWAL_MS);
-            assignment.lease_deadline_ms
-        };
-        let run_deadline = sessions
-            .assignments
-            .iter()
-            .filter(|((run_id, _, _), _)| run_id == &key.0)
-            .map(|(_, assignment)| assignment.lease_deadline_ms)
-            .min()
-            .expect("the renewed assignment is still present");
-        Ok((assignment_deadline, run_deadline))
-    }
-
-    pub fn completion_worker(&self, connection_id: u64, key: &AssignmentKey) -> Result<String> {
-        let sessions = self.sessions.lock().expect("protocol sessions lock");
-        let assignment = sessions
-            .assignments
-            .get(key)
-            .context("attempt has no active worker lease")?;
-        if assignment.connection_id != connection_id {
-            bail!("completion came from a worker that does not hold the lease")
-        }
-        Ok(assignment.worker_id.clone())
-    }
-
-    pub fn finish(&self, key: &AssignmentKey) {
-        self.sessions
-            .lock()
-            .expect("protocol sessions lock")
-            .assignments
-            .remove(key);
-    }
-
-    /// The run registry has one operational wake deadline even when the
-    /// journal has several live leases. It must track the earliest assignment
-    /// so a heartbeat on one lane cannot hide an earlier sibling expiry.
-    pub fn earliest_lease_deadline(&self, run_id: &str) -> Option<i64> {
-        self.sessions
-            .lock()
-            .expect("protocol sessions lock")
-            .assignments
-            .iter()
-            .filter(|((assigned_run, _, _), _)| assigned_run == run_id)
-            .map(|(_, assignment)| assignment.lease_deadline_ms)
-            .min()
-    }
-
-    /// Assignments whose (heartbeat-renewed) lease deadline has passed. The
-    /// worker may still hold an open socket — a hung worker is exactly the
-    /// case the expiry reconciler exists for. Assignments are NOT removed
-    /// here; they are released via `finish` only once the abandonment is
-    /// durably journaled, so a failed journal write is retried next sweep.
-    pub fn expired_assignments(&self, now_ms: i64) -> Vec<AbandonedLease> {
-        self.sessions
-            .lock()
-            .expect("protocol sessions lock")
-            .assignments
-            .iter()
-            .filter(|(_, assignment)| now_ms >= assignment.lease_deadline_ms)
-            .map(|((run_id, step_id, attempt), _)| AbandonedLease {
-                run_id: run_id.clone(),
-                step_id: step_id.clone(),
-                attempt: *attempt,
-            })
-            .collect()
-    }
-
     /// Retain an abandonment whose journal append failed, for reconciler retry.
     pub fn queue_abandonment(&self, lease: AbandonedLease, reason: CompletionReason) {
         self.pending_abandonments
@@ -324,9 +250,9 @@ impl ProtocolHub {
                 (assignment.connection_id == connection_id).then_some(key.clone())
             })
             .collect::<Vec<_>>();
-        for key in &keys {
-            sessions.assignments.remove(key);
-        }
+        sessions
+            .reservations
+            .retain(|_, reservation| reservation.connection_id != connection_id);
         keys.into_iter()
             .map(|(run_id, step_id, attempt)| AbandonedLease {
                 run_id,
@@ -337,142 +263,19 @@ impl ProtocolHub {
     }
 }
 
-impl StepDispatcher for ProtocolHub {
-    fn executor(&self, step_type: StepType) -> Option<String> {
-        self.sessions
-            .lock()
-            .expect("protocol sessions lock")
-            .workers
-            .iter()
-            .find(|worker| worker.step_types.contains(&step_type))
-            .map(|worker| worker.worker_id.clone())
-    }
-
-    fn available(&self, step_type: StepType) -> bool {
-        self.executor(step_type).is_some()
-    }
-
-    fn starting_pins(&self, step: &StepSpec) -> Result<Pins> {
-        let sessions = self.sessions.lock().expect("protocol sessions lock");
-        // Same selection rule as `dispatch` — the first worker handling the
-        // class — so the pins journaled at start belong to the worker that
-        // receives the attempt. `dispatch` re-checks the worker id it resolved
-        // against the pin source and declines rather than dispatching to a
-        // worker whose starting state was never journaled.
-        let worker =
-            select_worker(&sessions, StepType::Agent).context("no agent worker is attached")?;
-        let StepKind::Agent { surfaces, .. } = &step.kind else {
-            return Ok(Pins::default());
-        };
-        let workspace = surfaces
-            .workspace
-            .iter()
-            .map(|surface| {
-                worker
-                    .pins
-                    .workspace
-                    .iter()
-                    .find(|pin| pin.surface == surface.surface)
-                    .cloned()
-                    .with_context(|| {
-                        format!(
-                            "worker {} omitted revision for surface {}",
-                            worker.worker_id, surface.surface
-                        )
-                    })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let streams = surfaces
-            .streams
-            .iter()
-            .map(|surface| {
-                worker
-                    .pins
-                    .streams
-                    .iter()
-                    .find(|pin| pin.stream == surface.stream)
-                    .cloned()
-                    .with_context(|| {
-                        format!(
-                            "worker {} omitted read offset for stream {}",
-                            worker.worker_id, surface.stream
-                        )
-                    })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        Ok(Pins { workspace, streams })
-    }
-
-    fn dispatch(&self, dispatch: StepDispatch) -> Result<DispatchOutcome> {
-        let mut sessions = self.sessions.lock().expect("protocol sessions lock");
-        let Some(worker) = select_worker(&sessions, dispatch.step_type).cloned() else {
-            return Ok(DispatchOutcome::NoWorker);
-        };
-        // Appendix A rule 2: the pins journaled at start are the state this
-        // attempt must begin from, and they were sourced from whichever worker
-        // `select_worker` returned then. If a detach or a second attachment has
-        // changed that answer, the worker now selected may never have reported
-        // those surfaces — dispatching would hand it a starting state it cannot
-        // honor. Decline instead; the run parks and re-dispatches from pins the
-        // holding worker actually reported.
-        if !worker_holds(&worker, &dispatch.pins) {
-            return Ok(DispatchOutcome::NoWorker);
-        }
-        // Holding the surface *names* is not holding the state. Unless this
-        // dispatch is itself the instruction to move (a `reset` retry carries
-        // `restore_pins`), the worker must already be at the exact revisions
-        // and offsets the attempt was elected against; a replacement standing
-        // at different ones would start from unjournaled state.
-        if let Some(detail) = pin_value_mismatch(&worker, &dispatch) {
-            return Ok(DispatchOutcome::PinMismatch { detail });
-        }
-        write_frame(
-            &worker.writer,
-            &json!({"event": "step.dispatch", "data": dispatch}),
-        )
-        .with_context(|| format!("dispatch step to worker {}", worker.worker_id))?;
-        let key = (
-            dispatch.run_id.clone(),
-            dispatch.step_id.clone(),
-            dispatch.attempt,
-        );
-        sessions.assignments.insert(
-            key,
-            Assignment {
-                connection_id: worker.connection_id,
-                worker_id: worker.worker_id,
-                lease_id: dispatch.lease_id,
-                lease_deadline_ms: dispatch.lease_deadline_ms,
-            },
-        );
-        Ok(DispatchOutcome::Dispatched)
-    }
-
-    fn active_lease_deadline(&self, run_id: &str, step_id: &str, attempt: u32) -> Option<i64> {
-        self.sessions
-            .lock()
-            .expect("protocol sessions lock")
-            .assignments
-            .get(&(run_id.to_owned(), step_id.to_owned(), attempt))
-            .map(|assignment| assignment.lease_deadline_ms)
-    }
-}
-
-impl LeaseProbe for ProtocolHub {
-    fn lease_active(&self, run_id: &str, step_id: &str, attempt: u32, now_ms: i64) -> bool {
-        let key = (run_id.to_owned(), step_id.to_owned(), attempt);
-        self.sessions
-            .lock()
-            .expect("protocol sessions lock")
-            .assignments
-            .get(&key)
-            .is_some_and(|assignment| now_ms < assignment.lease_deadline_ms)
-    }
-}
-
 impl JournalObserver for ProtocolHub {
     fn appended(&self, entry: &JournalEntry) {
         let mut sessions = self.sessions.lock().expect("protocol sessions lock");
+        // Capacity returns only after the completion is a durable journal
+        // fact. This callback runs after append and before the driver elects
+        // later runnable work, so a freed slot can be reused immediately.
+        if entry.entry_type == relayflowd_core::EntryType::StepCompleted
+            && let (Some(step_id), Some(attempt)) = (&entry.step_id, entry.attempt)
+        {
+            sessions
+                .assignments
+                .remove(&(entry.run_id.clone(), step_id.clone(), attempt));
+        }
         let Some(watchers) = sessions.watchers.get_mut(&entry.run_id) else {
             return;
         };

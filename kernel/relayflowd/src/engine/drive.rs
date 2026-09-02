@@ -67,24 +67,50 @@ impl<C: Clock> Engine<C> {
                                 pause_consumed = true;
                                 thread::sleep(Duration::from_secs(300));
                             }
-                            if step.step_type() != relayflowd_core::StepType::Deterministic
-                                && !self.step_is_dispatchable(&state, step)
-                            {
+                            let attempt = entry.attempt.expect("a step start has an attempt");
+                            let admitted =
+                                if step.step_type() == relayflowd_core::StepType::Deterministic {
+                                    true
+                                } else if let Some(dispatcher) = &self.dispatcher {
+                                    dispatcher.reserve_dispatch(
+                                        &state.run_id,
+                                        step,
+                                        attempt,
+                                        &Self::dispatch_required_pins(&state, step),
+                                    )?
+                                } else {
+                                    false
+                                };
+                            if !admitted {
                                 // Admission is per pair. A lane with no
                                 // compatible worker remains Runnable, while
                                 // later independent lanes still get their
                                 // journal-first handoff.
-                                skipped_dispatches.insert((
-                                    step_id.to_owned(),
-                                    entry.attempt.expect("a step start has an attempt"),
-                                ));
+                                skipped_dispatches.insert((step_id.to_owned(), attempt));
                                 backpressured = true;
                                 continue;
                             }
                         }
-                        self.prepare_start_entry(&state, &mut entry)?;
-                        self.assign_executor(&mut entry)?;
-                        self.append(&mut journal, &entry)?;
+                        let prepared = (|| -> Result<()> {
+                            self.prepare_start_entry(&state, &mut entry)?;
+                            self.assign_executor(&state, &mut entry)?;
+                            self.append(&mut journal, &entry)?;
+                            Ok(())
+                        })();
+                        if let Err(error) = prepared {
+                            if let (Some(dispatcher), Some(step_id), Some(attempt)) = (
+                                self.dispatcher.as_ref(),
+                                entry.step_id.as_deref(),
+                                entry.attempt,
+                            ) {
+                                dispatcher.release_dispatch_reservation(
+                                    &state.run_id,
+                                    step_id,
+                                    attempt,
+                                );
+                            }
+                            return Err(error);
+                        }
                     }
                     Action::ExecDeterministic { step, attempt } => {
                         let result = exec_det::execute(&step);
@@ -149,8 +175,21 @@ impl<C: Clock> Engine<C> {
                                     lease_deadline_ms,
                                 })
                             })
-                            .transpose()?
-                            .unwrap_or(DispatchOutcome::NoWorker);
+                            .transpose();
+                        let outcome = match outcome {
+                            Ok(Some(outcome)) => outcome,
+                            Ok(None) => DispatchOutcome::NoWorker,
+                            Err(error) => {
+                                if let Some(dispatcher) = &self.dispatcher {
+                                    dispatcher.release_dispatch_reservation(
+                                        &state.run_id,
+                                        &step.id,
+                                        attempt,
+                                    );
+                                }
+                                return Err(error);
+                            }
+                        };
                         match outcome {
                             DispatchOutcome::Dispatched => {
                                 // Record operational backpressure after each
@@ -166,6 +205,13 @@ impl<C: Clock> Engine<C> {
                                 dispatched = true;
                             }
                             DispatchOutcome::NoWorker => {
+                                if let Some(dispatcher) = &self.dispatcher {
+                                    dispatcher.release_dispatch_reservation(
+                                        &state.run_id,
+                                        &step.id,
+                                        attempt,
+                                    );
+                                }
                                 // Preflight admitted the whole batch, so this
                                 // is a detach race. Explain the unhanded lease
                                 // as crashed, leave it retryable, and continue:
@@ -184,6 +230,13 @@ impl<C: Clock> Engine<C> {
                                 handoff_failed = true;
                             }
                             DispatchOutcome::PinMismatch { detail } => {
+                                if let Some(dispatcher) = &self.dispatcher {
+                                    dispatcher.release_dispatch_reservation(
+                                        &state.run_id,
+                                        &step.id,
+                                        attempt,
+                                    );
+                                }
                                 // Appendix A rule 2: a worker standing at
                                 // revisions other than the journaled pins
                                 // fails closed. Continue the batch so an
@@ -302,18 +355,6 @@ impl<C: Clock> Engine<C> {
         self.registry()?
             .set_status(journal.run_id(), "running", None)?;
         Ok(())
-    }
-
-    fn step_is_dispatchable(&self, state: &RunState, step: &relayflowd_core::StepSpec) -> bool {
-        let step_type = step.step_type();
-        let available = self
-            .dispatcher
-            .as_ref()
-            .is_some_and(|dispatcher| dispatcher.available(step_type));
-        if !available || step_type != relayflowd_core::StepType::Agent {
-            return available;
-        }
-        self.agent_pins_available(state, step)
     }
 
     fn park_idle_run(&self, state: &RunState) -> Result<()> {

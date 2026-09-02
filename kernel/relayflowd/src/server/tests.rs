@@ -249,7 +249,7 @@ fn an_entry_appended_during_watch_registration_is_delivered_exactly_once() {
     let (control_writer, _control_peer) = shared_writer();
     let spec = json!({
         "name": "watch-gap",
-        "steps": [{"id": "only", "type": "deterministic", "command": "true"}]
+        "steps": [{"id": "only", "type": "llm", "prompt": "wait for a worker"}]
     });
     let line = json!({"id": "start", "verb": "run.start", "params": {"spec": spec}}).to_string();
     let started = request(data_dir, &hub, 2, &control_writer, &line);
@@ -281,12 +281,7 @@ fn an_entry_appended_during_watch_registration_is_delivered_exactly_once() {
     let append = thread::spawn(move || {
         let _guard = append_lock.lock().unwrap();
         interleaver
-            .append_stream(
-                &append_run,
-                "results",
-                "test",
-                json!({"interleaved": true}),
-            )
+            .append_stream(&append_run, "results", "test", json!({"interleaved": true}))
             .unwrap();
     });
     wait_for_signal(&committed);

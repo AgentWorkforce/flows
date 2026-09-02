@@ -6,12 +6,41 @@
 //! attempt in backoff or waiting retains its reservation just like a live
 //! lease, preventing a crash/retry from turning into a last-write-wins fork.
 
-use std::collections::BTreeSet;
-
 use crate::{
-    spec::{StepKind, StepSpec},
+    spec::{StepKind, StepSpec, external_surface_identity},
     state::{RunState, StepRuntime, StepState},
 };
+
+#[derive(Clone, PartialEq, Eq)]
+enum SurfaceIdentity {
+    Opaque(String),
+    External {
+        namespace: String,
+        components: Vec<String>,
+    },
+}
+
+impl SurfaceIdentity {
+    fn conflicts(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Opaque(left), Self::Opaque(right)) => left == right,
+            (
+                Self::External {
+                    namespace: left_namespace,
+                    components: left,
+                },
+                Self::External {
+                    namespace: right_namespace,
+                    components: right,
+                },
+            ) => {
+                left_namespace == right_namespace
+                    && (left.starts_with(right) || right.starts_with(left))
+            }
+            _ => false,
+        }
+    }
+}
 
 pub(super) fn runnable_batch(state: &RunState) -> Vec<(&StepSpec, &StepRuntime)> {
     let mut occupied = state
@@ -28,7 +57,7 @@ pub(super) fn runnable_batch(state: &RunState) -> Vec<(&StepSpec, &StepRuntime)>
             )
         })
         .flat_map(surface_keys)
-        .collect::<BTreeSet<_>>();
+        .collect::<Vec<_>>();
     let mut selected = Vec::new();
     for step in &state.spec.steps {
         let runtime = &state.steps[&step.id];
@@ -36,7 +65,10 @@ pub(super) fn runnable_batch(state: &RunState) -> Vec<(&StepSpec, &StepRuntime)>
             continue;
         }
         let surfaces = surface_keys(step).collect::<Vec<_>>();
-        if surfaces.iter().any(|surface| occupied.contains(surface)) {
+        if surfaces
+            .iter()
+            .any(|surface| occupied.iter().any(|held| surface.conflicts(held)))
+        {
             continue;
         }
         occupied.extend(surfaces);
@@ -45,26 +77,28 @@ pub(super) fn runnable_batch(state: &RunState) -> Vec<(&StepSpec, &StepRuntime)>
     selected
 }
 
-fn surface_keys(step: &StepSpec) -> impl Iterator<Item = String> + '_ {
+fn surface_keys(step: &StepSpec) -> impl Iterator<Item = SurfaceIdentity> + '_ {
     let StepKind::Agent { surfaces, .. } = &step.kind else {
         return Vec::new().into_iter();
     };
     surfaces
         .workspace
         .iter()
-        .map(|surface| format!("workspace:{}", surface.surface))
+        .map(|surface| SurfaceIdentity::Opaque(format!("workspace:{}", surface.surface)))
         .chain(
             surfaces
                 .streams
                 .iter()
-                .map(|surface| format!("stream:{}", surface.stream)),
+                .map(|surface| SurfaceIdentity::Opaque(format!("stream:{}", surface.stream))),
         )
-        .chain(
-            surfaces
-                .external
-                .iter()
-                .map(|surface| format!("external:{surface}")),
-        )
+        .chain(surfaces.external.iter().map(|surface| {
+            let (namespace, components) = external_surface_identity(surface)
+                .expect("validated specs have canonical external surfaces");
+            SurfaceIdentity::External {
+                namespace,
+                components,
+            }
+        }))
         .collect::<Vec<_>>()
         .into_iter()
 }

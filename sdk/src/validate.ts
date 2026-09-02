@@ -37,6 +37,21 @@ const RECOVERY_MODES: ReadonlySet<RecoveryMode> = new Set([
 
 const DECIMAL_RE = /^\d+(\.\d+)?$/;
 
+function isCanonicalExternalSurface(value: unknown): value is string {
+  if (!isNonEmptyString(value) || value.trim() !== value) return false;
+  let tail = value;
+  if (tail.startsWith('/')) tail = tail.slice(1);
+  else {
+    const scheme = tail.indexOf('://');
+    if (scheme >= 0) {
+      if (scheme === 0 || tail.slice(0, scheme).includes('/')) return false;
+      tail = tail.slice(scheme + 3);
+    }
+  }
+  if (tail === '') return true;
+  return tail.split('/').every((part) => part !== '' && part !== '.' && part !== '..');
+}
+
 // Allowed keys per authoring object level. Validation is fail-closed on
 // unknown keys (AGENTS.md rule 4; RFC covenant 2): a typo'd key like
 // `depends_on` must be an error naming the nearest valid key, never a
@@ -353,8 +368,8 @@ class Validator {
       }
     }
     if (s['external'] !== undefined) {
-      if (!Array.isArray(s['external']) || !(s['external'] as unknown[]).every(isNonEmptyString)) {
-        this.fail(`${at}.external: expected an array of path strings`);
+      if (!Array.isArray(s['external']) || !(s['external'] as unknown[]).every(isCanonicalExternalSurface)) {
+        this.fail(`${at}.external: expected canonical path strings without empty, . or .. components`);
       }
     }
   }
