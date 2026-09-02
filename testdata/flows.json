@@ -1,4 +1,10 @@
 {
   "cli": "./preflight/authenticated-cli",
-  "executors": ["agent-worker"]
+  "executors": ["agent-worker"],
+  "models": [
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-5",
+    "deterministic-test-stub",
+    "test-model-v1"
+  ]
 }

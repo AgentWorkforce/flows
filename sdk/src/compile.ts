@@ -25,6 +25,7 @@ import type {
   KernelStepSpec,
   KernelVerificationSpec,
   LlmStepSpec,
+  NamedAgentSpec,
   StepSpec,
   StepType,
 } from './spec.js';
@@ -67,7 +68,7 @@ export function compileSpec(spec: unknown): FlowSpec {
   if (!validation.ok) throw new CompileError(validation.errors);
 
   const input = spec as FlowSpec;
-  const steps = input.steps.map(compileStep);
+  const steps = input.steps.map((step) => compileStep(resolveNamedAgent(step, input.agents)));
   const flow: FlowSpec = {
     version: input.version,
     ...(input.name !== undefined ? { name: input.name } : {}),
@@ -130,6 +131,32 @@ function compileStep(step: StepSpec): StepSpec {
   }
 }
 
+/**
+ * Resolve declarative named-agent sugar before normalization or kernel
+ * lowering. Explicit step fields win independently, so an author may override
+ * only the CLI or only the model. The selector and declaration map never
+ * cross the journal boundary.
+ */
+function resolveNamedAgent(
+  step: StepSpec,
+  agents: Record<string, NamedAgentSpec> | undefined,
+): StepSpec {
+  if (step.type !== 'agent' || step.agent === undefined) return step;
+  const declaration = agents !== undefined && Object.hasOwn(agents, step.agent)
+    ? agents[step.agent]
+    : undefined;
+  if (declaration === undefined) {
+    throw new CompileError([
+      `step "${step.id}": unknown named agent "${step.agent}"`,
+    ]);
+  }
+  return {
+    ...step,
+    ...(step.cli === undefined ? { cli: declaration.cli } : {}),
+    ...(step.model === undefined ? { model: declaration.model } : {}),
+  };
+}
+
 // Kernel defaults, materialized at compile time so the emitted spec is
 // byte-identical to the kernel's own serialization of it (spec.rs defaults).
 const KERNEL_RETRY_DEFAULTS = {
@@ -151,7 +178,7 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
     ...(flow.description !== undefined ? { description: flow.description } : {}),
     ...(flow.cli !== undefined ? { cli: flow.cli } : {}),
     ...(flow.triggers?.length ? { triggers: flow.triggers } : {}),
-    steps: flow.steps.map(toKernelStep),
+    steps: flow.steps.map((step) => toKernelStep(resolveNamedAgent(step, flow.agents))),
     ...(flow.budget !== undefined
       ? {
           budget: {

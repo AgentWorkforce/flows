@@ -17,7 +17,7 @@ function flow(step: FlowSpec['steps'][number]): FlowSpec {
 
 function probes(overrides: Partial<PreflightProbes> = {}): PreflightProbes {
   return {
-    cli: (): CliProbeResult => ({ exists: true, authenticated: true }),
+    cli: (): CliProbeResult => ({ exists: true, authenticated: true, modelAvailable: true }),
     executor: () => true,
     command: () => true,
     ...overrides,
@@ -224,6 +224,8 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: true, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p' }), { probes: probes() }),
       preflight(flow({ id: 'a', type: 'deterministic', command: './missing' }), { probes: probes({ command: () => false }) }),
+      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x', model: 'typo-model' }), { models: ['known-model'], probes: probes() }),
+      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x', model: 'known-model' }), { models: ['known-model'], probes: probes({ cli: () => ({ exists: true, authenticated: true, modelAvailable: false }) }) }),
       preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }), triggers: [{ id: 't', executor: 'e' }] }, { probes: probes({ executor: () => false, command: () => false }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => { throw new Error('raw secret'); } }) }),
     ];
@@ -233,5 +235,21 @@ describe('preflight: CLI resolution and refusal predicates', () => {
 
     expect(new Set(refusalKinds)).toEqual(new Set(PREFLIGHT_FAILURE_KINDS));
     expect(JSON.stringify(scenarios)).not.toContain('raw secret');
+  });
+
+  it('reports an unknown model even when the same step has no resolvable CLI', () => {
+    const result = preflight(
+      flow({ id: 'a', type: 'agent', instruction: 'i', model: 'typo-model' }),
+      { models: ['known-model'], probes: probes() },
+    );
+
+    expect(result.diagnostics.map((diagnostic) => diagnostic.kind)).toEqual([
+      'cli_unresolved',
+      'model_unknown',
+    ]);
+    expect(result.diagnostics[1]).toMatchObject({
+      stepId: 'a',
+      model: 'typo-model',
+    });
   });
 });

@@ -704,21 +704,35 @@ steps:
     });
     await worker.attach();
 
-    const started = await client.runStart(toKernelSpec(compileYaml(`
+    const compiled = compileYaml(`
 version: '0.1.0'
+agents:
+  model-probe:
+    cli: ${JSON.stringify(cli)}
+    model: declared-model-xyz
 steps:
   - id: probe
     type: agent
-    cli: ${JSON.stringify(cli)}
-    model: declared-model-xyz
+    agent: model-probe
     instruction: Report the model env var.
-`)));
+`);
+    expect(compiled).not.toHaveProperty('agents');
+    expect(compiled.steps[0]).toMatchObject({
+      type: 'agent',
+      cli,
+      model: 'declared-model-xyz',
+    });
+    const started = await client.runStart(toKernelSpec(compiled));
 
     expect(await waitForStep(client, started.run_id, 'probe', 'done')).toMatchObject({
       type: 'agent',
       state: 'done',
     });
     const entries = (await client.journalRead(started.run_id)).entries;
+    const spawned = entries.find(
+      (entry) => (entry as { entry_type: string }).entry_type === 'run.spawned',
+    ) as { payload: { spec: { steps: Array<{ model?: string }> } } } | undefined;
+    expect(spawned?.payload.spec.steps[0]?.model).toBe('declared-model-xyz');
     const completed = entries.find(
       (entry) => (entry as { entry_type: string; step_id?: string }).entry_type === 'step.completed'
         && (entry as { step_id?: string }).step_id === 'probe',
