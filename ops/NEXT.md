@@ -1,87 +1,130 @@
 # NEXT — work package for this tick
 
-**Scope:** Build a minimal agent worker in the SDK. CODE task, SDK-side.
+**Scope:** Build `.github/workflows/review-swarm.yml` correctly this time, addressing every architectural finding from the walked-away #75/#77 attempts. Parallel to Track A (hn-monitor); different territory (`.github/` + `workflows/` — no overlap with `sdk/` work).
 
 This run is pinned to **gate 3** and must not work on any other gate.
 
 ## Objective
 
-Promote the throwaway worker the tests already build into a real SDK component
-that can execute agent steps by running their declared CLI as a subprocess.
+Implement the cloud-driven review swarm infrastructure that enforces RFC-0001 §2 rule 7 ("every PR met by a review swarm — our own, not a vendor's") without depending on a local laptop session. The local `~/AgentWorkforce/review-swarm-loop.sh` works but dies when the session ends. The cloud version must exist for gate 3+ work to be trustworthy.
 
 ## Context
 
-Nothing in this repo can execute an agent step. Searching for `workerAttach` /
-`step.complete` finds only TESTS (`sdk/tests/live-kernel.test.ts`,
-`journal-client.test.ts`, `journal-client-loopback.ts`) and the protocol
-definitions. `sdk/src/cli/run.ts` only OBSERVES worker leases and waits for one
-that never arrives.
+The local `~/AgentWorkforce/review-swarm-loop.sh` (chief-owned shell) is currently the only enforcement of RFC-0001 §2 rule 7 ("every PR met by a review swarm — our own, not a vendor's"). It works, but it lives on my laptop. When my session ends, so does swarm enforcement.
 
-The kernel's dispatch, lease and claim machinery is real and tested. The worker
-side of the protocol is simply unimplemented, and that is what blocks gate 2
-("a workload RUNS as a relayflow" — today a run can only be shown CREATED) and
-gate 3 ("every claim/lease/retry served by the kernel").
-
-`sdk/tests/live-kernel.test.ts` around the `live-manual-agent` case (line 288)
-shows the whole shape: connect, `hello`, `workerAttach` with pins, receive
-`step.dispatch`, act, complete. The protocol is already proven there.
+The cloud version — `workflows/review-swarm.yaml` fired from `.github/workflows/review-swarm.yml` — must exist for gate 3+ work to be trustworthy. Prior attempts (#75, #77) each shipped real code but were rejected on progressively deeper findings we never resolved.
 
 ## Files in scope
 
-- `sdk/src/worker.ts` — new file, the worker implementation
-- `sdk/src/index.ts` — export the worker
-- `sdk/tests/live-kernel.test.ts` OR a new test file — add a test that runs a
-  real flow with an agent step end to end against a live `relayflowd`, with
-  this worker attached, and asserts the step reaches `done`.
+- `.github/workflows/review-swarm.yml` — NEW: the GHA trigger
+- `.github/workflows/scripts/swarm-post.sh` — NEW: the sync + verdict + post script
+- `.github/workflows/scripts/swarm-prepare.sh` — NEW: the launcher-side fetcher
+- `.github/workflows/scripts/swarm-verdict.sh` — NEW: unified verdict-extraction logic
+- `workflows/review-swarm.yaml` — MODIFY: aggregate step refactored to share verdict logic
+- `.gitignore` — MODIFY: drop the `.review-target` mask
+- `README.md` — MODIFY: document `RELAY_WORKSPACE_KEY` secret + how to obtain
 
 ## Definition of done
 
 ALL of the following must hold:
 
-1. The worker in `sdk/src/worker.ts`, exported from `sdk/src/index.ts`
+1. **All files parse successfully:**
+   ```
+   python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))"
+   python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))"
+   bash -n .github/workflows/scripts/swarm-post.sh
+   bash -n .github/workflows/scripts/swarm-prepare.sh
+   bash -n .github/workflows/scripts/swarm-verdict.sh
+   ```
 
-2. A test that runs a real flow with an agent step end to end against a live
-   `relayflowd`, with this worker attached, and asserts the step reaches
-   `done`. `sdk/tests/live-kernel.test.ts` already starts a daemon — follow
-   that pattern.
+2. **Aggregate verdict logic exists in ONE file, both callers use it** — Verify either: `workflows/review-swarm.yaml` aggregate step sources `scripts/swarm-verdict.sh`, OR the aggregate step is trivial and `swarm-post.sh` does all extraction. Rules that must apply uniformly:
+   - Transcript selection sorts by FILENAME (`YYYYMMDD-HHMM` prefix), not mtime
+   - Verdict is the LAST non-empty line's token, not a whole-file grep
+   - `overall = ALL lenses PASSED, else FAILED` — fail-closed on MISSING/UNCLEAR/FAILED
 
-3. **The worker must attach BEFORE the run starts.** A run that finds no worker
-   parks, and attaching afterwards does not re-drive it — `run.resume` is what
-   picks a parked run back up. That contract is pinned in the live-kernel
-   suite; do not fight it.
+3. **Author whitelist absent:**
+   ```
+   ! grep -q "github.event.pull_request.user.login" .github/workflows/review-swarm.yml
+   ```
 
-4. The worker must:
-   - attach for `agent` steps with the pins it holds
-   - on `step.dispatch`, run the step's declared `cli` as a subprocess
-   - report the result back through the existing protocol (`step.complete`, and
-     the failure path when the CLI exits nonzero)
-   - nothing speculative: no retries of its own, no scheduling, no LLM calls.
-     The kernel owns retry and lease policy — do not reimplement it.
+4. **Immutable gate: two checkout steps with different paths:**
+   ```
+   grep -c "actions/checkout@v4" .github/workflows/review-swarm.yml
+   ```
+   Output must show count >= 2, with different `path:` values visible in the file
 
-5. `cd sdk && npm test` must be green. Run it and paste the literal command and
-   output tail showing test counts.
+5. **SDK tests remain green:**
+   ```
+   cd sdk && npm test
+   ```
+   Paste literal output tail showing test counts (baseline: 237 passed)
 
-6. `cd kernel && sh ../ops/cargo.sh test` must be green. Run it and paste the
-   literal command and output tail showing test counts.
+6. **Final state clean:**
+   ```
+   git status --porcelain
+   ```
 
-7. EVERY new test confirmed to FAIL against current code, with the literal
-   failing output quoted in the summary.
+## Nine non-negotiable requirements
 
-8. As your LAST action, run `git status --porcelain` and paste it.
+Each of these was a legitimate swarm rejection on prior attempts. Address them or don't ship.
+
+### 1. Immutable gate
+`.github/workflows/review-swarm.yml` must checkout `main`'s copy of `workflows/review-swarm.yaml` + `.github/workflows/scripts/swarm-post.sh` SEPARATELY from the PR head. Use two `actions/checkout@v4` steps with different `path:` values. Launch the swarm using main's gate files, not the PR's. (RFC-0001 settled decision #6)
+
+### 2. Unified verdict-extraction logic
+`workflows/review-swarm.yaml`'s aggregate step AND `.github/workflows/scripts/swarm-post.sh` currently duplicate verdict logic and can disagree. Refactor: aggregate logic lives in ONE place — either a shared bash helper file both source (`scripts/swarm-verdict.sh`) OR the yaml aggregate step becomes trivial and swarm-post.sh does all extraction. Rules that must apply uniformly:
+  - Transcript selection sorts by FILENAME (`YYYYMMDD-HHMM` prefix), not mtime
+  - Verdict is the LAST non-empty line's token, not a whole-file grep
+  - `overall = ALL lenses PASSED, else FAILED` — fail-closed on MISSING/UNCLEAR/FAILED
+
+### 3. Auth secret validation fail-fast
+Add a preflight step that validates `RELAY_WORKSPACE_KEY` is set and non-empty BEFORE launching the cloud run. If missing, fail the job with a clear message ("secret not configured; see README §<X>"). Do NOT proceed to a 10-min interactive fallback (per RFC covenant 2 real event: `Device login expired before it was approved` was seen on run 33364011379).
+
+### 4. Sticky marker + sticky transcripts (edit-in-place across pushes)
+The marker comment uses a hidden HTML anchor and edits in place. So MUST the three lens transcript comments. A PR with 5 pushes should end with 1 marker + 3 transcripts (edited to latest), NOT 5 markers + 15 transcripts. Use `<!-- swarm-lens: <lens> -->` anchors, find-by-anchor before posting.
+
+### 5. Every PR gets reviewed (RFC-0001 §2 rule 7)
+NO author whitelist. If a rollout-scoped filter is needed later, document it as a temporary exception AND file the RFC amendment. Default: all PRs.
+
+### 6. Cloud sandbox has no `gh` auth — fetch on launching host
+GHA runner has `gh` auth. Cloud sandbox does not. The workflow must fetch PR diff + metadata on the GHA runner via `gh pr diff/view`, stage them into `.review-target/{pr-number,pr.diff,pr.json}`, `git add -f` (the `.gitignore` mask on `.review-target` must be dropped too — it silently drops the file from `git ls-files` per PR #77's audit). Then `agent-relay cloud run` uploads the working tree.
+
+### 7. Job timeout > poll deadline > swarm timeoutMs (documented invariant)
+- `workflows/review-swarm.yaml` `timeoutMs: 3600000` (60 min)
+- Wait step poll deadline: 3900s (65 min)
+- Job `timeout-minutes: 75` (65 + 10 min for install/checkout/post)
+Add a comment where each value lives naming the ordering invariant.
+
+### 8. Wait step must record terminal status as output; post step runs on always()
+A rejecting swarm's transcripts + marker MUST reach the PR. Structure:
+```
+wait step: records $swarm_status output, always exits 0
+post step: if: always() && steps.launch.outputs.run_id != ''
+fail step: if: steps.wait.outputs.swarm_status != 'completed'  # exit 1 gates merge
+```
+
+### 9. Transcript-to-run-id binding
+Sub-guard: aggregate rejects a transcript that doesn't belong to this run (no way to prove without instrumenting review-swarm.yaml to write run-id into transcripts). For now: require ALL THREE transcripts newly-produced in THIS sync; if any transcript's file mtime is older than the sync started, reject as stale.
+
+## Do not re-do these
+
+Merged and closed; a PR redoing any will be closed:
+  - picker actionability (#42), unterminated backticks (#45)
+  - gate-1 race regression test (#48) — do not touch `kernel/relayflowd/src/server/tests.rs`
+  - ops/NEXT.md validation (#50) — do not touch `sdk/src/work-package-validator.ts`
+  - SDK agent worker (#53) — `sdk/src/worker.ts` shipped; leave it alone
+  - SDK pretest hook (#69) — `sdk/package.json` builds kernel before test
 
 ## Explicitly OUT of scope
 
-- LLM steps — not in the gate 3 scope
-- Retry logic in the worker — the kernel owns retry policy
-- Scheduling or lease management — the kernel owns lease policy
-- Optimizations, abstractions, or speculative features
-- Changes to the kernel
-- Changes to existing tests (except adding new test cases)
-- Work on any gate other than gate 3
+  - `sdk/` (Track A owns that — no changes expected except possibly README.md)
+  - `kernel/` (gate 1 done, no changes)
+  - `ops/*` (chief owns briefs and state — except committing this NEXT.md)
+  - Any GHA workflow other than review-swarm.yml
+  - Actually TESTING the workflow in CI (requires `RELAY_WORKSPACE_KEY` secret set which is a human step; the DoD is the workflow being correct, not proven live)
+
+Several drive runs execute in parallel, each pinned to a different gate. Work outside this target collides with a sibling run, so staying inside it is not a preference — it is what makes parallel execution safe.
 
 ## If blocked
 
-If gate 3 is genuinely unreachable from the current state, write
-ops/NEEDS_HUMAN.md saying exactly why and still end with ASSESS_DONE. Do not
-silently substitute different work: a run that reports progress on the wrong
-gate is worse than one that reports it is blocked.
+If gate 3 is genuinely unreachable from the current state, write ops/NEEDS_HUMAN.md saying exactly why and still end with ASSESS_DONE. Do not silently substitute different work: a run that reports progress on the wrong gate is worse than one that reports it is blocked.
