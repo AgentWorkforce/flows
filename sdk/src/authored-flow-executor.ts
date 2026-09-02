@@ -1,5 +1,6 @@
 import {
   COMPLETION_REASONS,
+  RUN_COMPLETION_REASONS,
   type AgentResult,
   type CloudHelper,
   type CompletionReason as SurfaceCompletionReason,
@@ -28,22 +29,31 @@ type CompletionVocabularyMatchesProtocol = Assert<
 type RunCompletionVocabularyMatchesProtocol = Assert<
   Equal<SurfaceRunCompletionReason, ProtocolRunCompletionReason>
 >;
+type DoneCompletionReason = Parameters<Ctx['done']>[0];
+type DoneAcceptsOnlyRunCompletionReasons = Assert<
+  DoneCompletionReason extends SurfaceRunCompletionReason ? true : false
+>;
+type EveryRunCompletionReasonIsAcceptedByDone = Assert<
+  SurfaceRunCompletionReason extends DoneCompletionReason ? true : false
+>;
 
 export type AuthoredFlowExecutionErrorCode =
   | 'duplicate_completion'
   | 'journal_protocol_violation'
   | 'missing_completion'
+  | 'operation_after_completion'
   | 'step_failed'
   | 'unsupported_completion'
   | 'unsupported_gate'
   | 'unsupported_header'
+  | 'unawaited_step'
   | 'unsupported_verb';
 
 export class AuthoredFlowExecutionError extends Error {
   constructor(
     readonly code: AuthoredFlowExecutionErrorCode,
     message: string,
-    readonly completionReason?: ProtocolCompletionReason,
+    readonly completionReason?: ProtocolCompletionReason | ProtocolRunCompletionReason,
     readonly runId?: string,
   ) {
     super(`${code}: ${message}`);
@@ -59,15 +69,24 @@ export interface AuthoredFlowJournalStep {
 
 export interface AuthoredFlowExecutionResult {
   readonly name: string;
-  readonly completionReason: ProtocolCompletionReason;
+  readonly completionReason: ProtocolRunCompletionReason;
   readonly journalSteps: readonly AuthoredFlowJournalStep[];
 }
 
+type ExecutionResultUsesRunCompletionReason = Assert<
+  Equal<AuthoredFlowExecutionResult['completionReason'], ProtocolRunCompletionReason>
+>;
+type JournalStepUsesStepCompletionReason = Assert<
+  Equal<AuthoredFlowJournalStep['completionReason'], ProtocolCompletionReason>
+>;
+
 /**
- * Execute the currently supported authored-flow slice through protocol v0.
+ * Exercise the internal authored-flow lowering seam through protocol v0.
  *
- * The slice is deliberately narrow: an empty-header flow may await plain
- * `f.run(...)` steps and must finish with `f.done("success")`. Every run and
+ * This is deliberately not exported by the SDK package: without a durable
+ * authored root, it is not a resumable public runner. The seam is narrow: an
+ * empty-header flow may await plain `f.run(...)` steps and must finish with
+ * `f.done("success")`. Every run and
  * the terminal marker is a compiled deterministic spec submitted through
  * `JournalClient`; values are read back from `step.completed` journal entries.
  * Unsupported headers, verbs, gates, or completion lowering fail closed.
@@ -86,8 +105,9 @@ export async function executeAuthoredFlow(
   }
 
   const journalSteps: AuthoredFlowJournalStep[] = [];
+  const authoredSteps: TrackedThenable[] = [];
   let nextStep = 1;
-  let requestedCompletion: SurfaceCompletionReason | undefined;
+  let requestedCompletion: SurfaceRunCompletionReason | undefined;
 
   const lowerDeterministic = async (
     id: string,
@@ -104,23 +124,33 @@ export async function executeAuthoredFlow(
 
   const context: Ctx = {
     run(command) {
+      assertOperationAllowed('run', definition.name, requestedCompletion);
       const id = `run-${nextStep++}`;
-      return new DeferredJournalStep(() => lowerDeterministic(id, command));
+      return trackStep(
+        authoredSteps,
+        new DeferredJournalStep(id, 'run', () => lowerDeterministic(id, command)),
+      );
     },
     llm() {
-      return unsupportedStep('llm');
+      assertOperationAllowed('llm', definition.name, requestedCompletion);
+      const id = `llm-${nextStep++}`;
+      return trackStep(authoredSteps, unsupportedStep(id, 'llm'));
     },
     agent() {
-      return unsupportedStep<AgentResult>('agent');
+      assertOperationAllowed('agent', definition.name, requestedCompletion);
+      const id = `agent-${nextStep++}`;
+      return trackStep(authoredSteps, unsupportedStep<AgentResult>(id, 'agent'));
     },
-    async human() {
+    human() {
+      assertOperationAllowed('human', definition.name, requestedCompletion);
       throw unsupportedVerb('human');
     },
-    async dispatch<T>() {
+    dispatch<T>() {
+      assertOperationAllowed('dispatch', definition.name, requestedCompletion);
       throw unsupportedVerb('dispatch');
     },
     done(reason) {
-      if (!isSurfaceCompletionReason(reason)) {
+      if (!isSurfaceRunCompletionReason(reason)) {
         throw new AuthoredFlowExecutionError(
           'unsupported_completion',
           `unknown completion reason: ${String(reason)}`,
@@ -141,10 +171,13 @@ export async function executeAuthoredFlow(
       }
       requestedCompletion = reason;
     },
-    cloud: unsupportedCloud(),
+    cloud: unsupportedCloud(
+      () => assertOperationAllowed('cloud', definition.name, requestedCompletion),
+    ),
   };
 
   await definition.body(context);
+  await refuseUnawaitedSteps(definition.name, authoredSteps);
   if (requestedCompletion === undefined) {
     throw new AuthoredFlowExecutionError(
       'missing_completion',
@@ -160,10 +193,24 @@ export async function executeAuthoredFlow(
   });
 }
 
-class DeferredJournalStep<T> implements Step<T> {
-  private execution: Promise<T> | undefined;
+interface TrackedThenable {
+  readonly id: string;
+  readonly verb: string;
+  readonly consumed: boolean;
+  readonly settled: boolean;
+  waitForSettlement(): Promise<void>;
+}
 
-  constructor(private readonly start: () => Promise<T>) {}
+class DeferredJournalStep<T> implements Step<T>, TrackedThenable {
+  private execution: Promise<T> | undefined;
+  consumed = false;
+  settled = false;
+
+  constructor(
+    readonly id: string,
+    readonly verb: string,
+    private readonly start: () => Promise<T>,
+  ) {}
 
   gate(_predicate: (value: T) => boolean, _because?: string): Step<T> {
     throw new AuthoredFlowExecutionError(
@@ -176,15 +223,64 @@ class DeferredJournalStep<T> implements Step<T> {
     onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
   ): PromiseLike<TResult1 | TResult2> {
-    this.execution ??= this.start();
+    this.consumed = true;
+    this.execution ??= this.start().then(
+      (value) => {
+        this.settled = true;
+        return value;
+      },
+      (error: unknown) => {
+        this.settled = true;
+        throw error;
+      },
+    );
     return this.execution.then(onfulfilled, onrejected);
+  }
+
+  async waitForSettlement(): Promise<void> {
+    if (this.execution === undefined) return;
+    await this.execution.then(() => undefined, () => undefined);
   }
 }
 
-function unsupportedStep<T>(verb: string): Step<T> {
-  return new DeferredJournalStep(async () => {
+function trackStep<T>(
+  tracked: TrackedThenable[],
+  step: DeferredJournalStep<T>,
+): DeferredJournalStep<T> {
+  tracked.push(step);
+  return step;
+}
+
+function unsupportedStep<T>(id: string, verb: string): DeferredJournalStep<T> {
+  return new DeferredJournalStep(id, verb, async () => {
     throw unsupportedVerb(verb);
   });
+}
+
+async function refuseUnawaitedSteps(
+  flowName: string,
+  steps: TrackedThenable[],
+): Promise<void> {
+  const unconsumed = steps.filter((step) => !step.consumed);
+  if (unconsumed.length > 0) {
+    throw new AuthoredFlowExecutionError(
+      'unawaited_step',
+      `flow "${flowName}" returned with unawaited steps: ${formatSteps(unconsumed)}`,
+    );
+  }
+
+  const unsettled = steps.filter((step) => !step.settled);
+  if (unsettled.length > 0) {
+    await Promise.all(unsettled.map((step) => step.waitForSettlement()));
+    throw new AuthoredFlowExecutionError(
+      'unawaited_step',
+      `flow "${flowName}" returned before steps settled: ${formatSteps(unsettled)}`,
+    );
+  }
+}
+
+function formatSteps(steps: TrackedThenable[]): string {
+  return steps.map((step) => `${step.id} (f.${step.verb})`).join(', ');
 }
 
 function unsupportedVerb(verb: string): AuthoredFlowExecutionError {
@@ -194,9 +290,24 @@ function unsupportedVerb(verb: string): AuthoredFlowExecutionError {
   );
 }
 
-function unsupportedCloud(): CloudHelper {
+function assertOperationAllowed(
+  verb: string,
+  flowName: string,
+  completion: SurfaceRunCompletionReason | undefined,
+): void {
+  if (completion !== undefined) {
+    throw new AuthoredFlowExecutionError(
+      'operation_after_completion',
+      `flow "${flowName}" called f.${verb} after done()`,
+      completion,
+    );
+  }
+}
+
+function unsupportedCloud(assertOpen: () => void): CloudHelper {
   return new Proxy({}, {
     get() {
+      assertOpen();
       throw unsupportedVerb('cloud');
     },
   }) as CloudHelper;
@@ -260,6 +371,11 @@ function isStepCompleted(value: unknown, stepId: string): value is StepCompleted
 function isSurfaceCompletionReason(value: unknown): value is ProtocolCompletionReason {
   return typeof value === 'string'
     && (COMPLETION_REASONS as readonly string[]).includes(value);
+}
+
+function isSurfaceRunCompletionReason(value: unknown): value is ProtocolRunCompletionReason {
+  return typeof value === 'string'
+    && (RUN_COMPLETION_REASONS as readonly string[]).includes(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
