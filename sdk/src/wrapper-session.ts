@@ -29,6 +29,13 @@ const DEFAULT_LIMITS: WrapperSessionLimits = {
 };
 const HANDSHAKE_OUTPUT_LIMIT = 8_192;
 const FORCE_KILL_DELAY_MS = 1_000;
+/**
+ * Grace after `SIGKILL` before the reader settles on its own. Node emits
+ * `'close'` only once every inherited stdio pipe is closed, which any
+ * descendant of the wrapper can withhold forever. Resolution therefore may
+ * not depend on `'close'`: past this point the reader settles regardless.
+ */
+const SETTLE_AFTER_KILL_MS = 250;
 
 /**
  * Identify and execute a custom wrapper in one pinned process. No private
@@ -90,10 +97,12 @@ function executePinnedWrapper(
     let settled = false;
     let lifecycleTimer: NodeJS.Timeout | undefined;
     let killTimer: NodeJS.Timeout | undefined;
+    let settleTimer: NodeJS.Timeout | undefined;
 
     const clearTimers = (): void => {
       if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
       if (killTimer !== undefined) clearTimeout(killTimer);
+      if (settleTimer !== undefined) clearTimeout(settleTimer);
     };
     const finish = (result: WrapperSessionResult): void => {
       if (settled) return;
@@ -108,6 +117,18 @@ function executePinnedWrapper(
       child.kill('SIGTERM');
       killTimer = setTimeout(() => child.kill('SIGKILL'), FORCE_KILL_DELAY_MS);
       killTimer.unref();
+      // The reader owns the bound. `'close'` is emitted only after every
+      // inherited stdio pipe closes, so a wrapper that leaves a descendant
+      // holding one withholds it forever and strands the step with no
+      // `completionReason` at all. Settle on our own deadline instead — the
+      // same shape `spawnInvocation` uses in worker-cli.ts, where the timer
+      // resolves rather than delegating to a child-controlled event. The
+      // result is byte-identical to the one the `'close'` path would build
+      // for this `protocolError`, so this changes only WHEN we settle.
+      settleTimer = setTimeout(
+        () => finish(failure(message)),
+        FORCE_KILL_DELAY_MS + SETTLE_AFTER_KILL_MS,
+      );
     };
     const startExecutionTimer = (): void => {
       if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
@@ -181,22 +202,35 @@ function executePinnedWrapper(
         return;
       }
       handshakePending += chunk;
-      if (Buffer.byteLength(handshakePending) > HANDSHAKE_OUTPUT_LIMIT) {
-        terminate(`CLI ${JSON.stringify(cli)} exceeded the wrapper handshake limit.`);
-        return;
-      }
+      // Drain every complete line FIRST. The handshake bound belongs to the
+      // handshake, and a line that is already terminated is no longer part
+      // of it: the execute token sitting at the front of this buffer ends
+      // the handshake, and the bytes behind it are execution output bound by
+      // `maxOutputBytes`. Measuring the whole buffer before draining capped a
+      // conforming wrapper's first result flush at HANDSHAKE_OUTPUT_LIMIT
+      // whenever the OS coalesced its writes, and named the wrong bound.
       while (!handshakeComplete()) {
         const newline = handshakePending.indexOf('\n');
-        if (newline < 0) return;
+        if (newline < 0) break;
         const line = handshakePending.slice(0, newline);
         handshakePending = handshakePending.slice(newline + 1);
         acceptHandshakeLine(line);
         if (protocolError !== undefined) return;
       }
-      if (handshakePending.length > 0) {
-        const remainder = handshakePending;
-        handshakePending = '';
-        acceptExecutionData(remainder);
+      if (handshakeComplete()) {
+        if (handshakePending.length > 0) {
+          const remainder = handshakePending;
+          handshakePending = '';
+          acceptExecutionData(remainder);
+        }
+        return;
+      }
+      // Still handshaking: bound the un-terminated residue, which is the only
+      // buffer the handshake still owns.
+      if (Buffer.byteLength(handshakePending) > HANDSHAKE_OUTPUT_LIMIT) {
+        terminate(
+          `CLI ${JSON.stringify(cli)} exceeded the wrapper handshake limit of ${HANDSHAKE_OUTPUT_LIMIT} bytes before completing the ${WRAPPER_IDENTIFY_TOKEN} handshake.`,
+        );
       }
     });
     child.stderr.on('data', (chunk: Buffer) => {

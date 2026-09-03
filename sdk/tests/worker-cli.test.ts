@@ -7,9 +7,13 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { JournalClient } from '../src/journal-client.js';
+import type { Pins } from '../src/protocol.js';
+import { AgentWorker } from '../src/worker.js';
 import { runAgentCli } from '../src/worker-cli.js';
 
 const directories: string[] = [];
@@ -217,4 +221,243 @@ process.stdin.on('end', () => {
     expect(result.stdout_tail).toBe('');
     expect(result.stderr_tail).toMatch(/duplicate execute protocol frame/i);
   });
+});
+
+/**
+ * P1-1 and P1-2 from ops/reviews/20260903-pr136-signoff2-adversarial.md.
+ *
+ * Both findings share one shape: the reader hands control of a bound to the
+ * thing it is bounding. These tests pin the reader as the owner of both
+ * bounds, so a wrapper cannot defeat them by withholding an event or by
+ * flushing its result in one write.
+ */
+describe('custom wrapper execution bounds are reader-owned', () => {
+  /**
+   * A wrapper that leaks a stdio pipe to a background helper. The wrapper
+   * itself exits, but `child.once('close')` never fires because a descendant
+   * still holds the inherited pipe. This is the case the existing
+   * "bounds wrapper execution after acknowledgement" test does NOT cover:
+   * there the wrapper is still alive when the deadline fires, so SIGTERM
+   * closes its own pipes and 'close' arrives. That test proves the timer
+   * FIRES. This one proves the bound HOLDS.
+   */
+  function leakyWrapperSource(inherit: 'inherit' | ['ignore', 'inherit', 'ignore'], holdMs: number): string {
+    return `
+const { spawn } = require('node:child_process');
+process.stdout.write('relayflows-agent-cli-v1\\n');
+process.stdin.resume();
+process.stdin.on('end', () => {
+  process.stdout.write('relayflows-agent-cli-v1-execute\\n');
+  process.stdout.write('{"ok":true}\\n');
+  const helper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, ${holdMs})'], {
+    stdio: ${JSON.stringify(inherit)},
+    detached: true,
+  });
+  helper.unref();
+  process.exit(0);
+});
+`;
+  }
+
+  it('resolves when a conforming wrapper leaks a stdio pipe to a background helper', async () => {
+    const directory = makeDirectory();
+    const wrapper = makeWrapper(directory, 'leaky-wrapper', leakyWrapperSource('inherit', 6_000));
+
+    const started = Date.now();
+    const result = await runAgentCli(wrapper, 'instruction', undefined, undefined, {
+      handshakeTimeoutMs: 2_000,
+      executionTimeoutMs: 300,
+      maxOutputBytes: 100_000,
+    });
+    const elapsed = Date.now() - started;
+
+    expect(result.exit_code).toBeNull();
+    expect(result.stderr_tail).toMatch(/timed out after 300ms/i);
+    expect(elapsed).toBeLessThan(5_000);
+  }, 20_000);
+
+  it('resolves when the leaked helper inherits stderr only', async () => {
+    const directory = makeDirectory();
+    const wrapper = makeWrapper(
+      directory,
+      'leaky-stderr-wrapper',
+      leakyWrapperSource(['ignore', 'inherit', 'ignore'], 6_000),
+    );
+
+    const started = Date.now();
+    const result = await runAgentCli(wrapper, 'instruction', undefined, undefined, {
+      handshakeTimeoutMs: 2_000,
+      executionTimeoutMs: 300,
+      maxOutputBytes: 100_000,
+    });
+    const elapsed = Date.now() - started;
+
+    expect(result.exit_code).toBeNull();
+    expect(result.stderr_tail).toMatch(/timed out after 300ms/i);
+    expect(elapsed).toBeLessThan(5_000);
+  }, 20_000);
+
+  it('resolves when a wrapper leaks a stdio pipe and exits before identifying', async () => {
+    const directory = makeDirectory();
+    const wrapper = makeWrapper(directory, 'leaky-silent-wrapper', `
+const { spawn } = require('node:child_process');
+const helper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 6000)'], {
+  stdio: 'inherit',
+  detached: true,
+});
+helper.unref();
+process.exit(0);
+`);
+
+    const started = Date.now();
+    const result = await runAgentCli(wrapper, 'instruction', undefined, undefined, {
+      handshakeTimeoutMs: 2_000,
+      executionTimeoutMs: 5_000,
+      maxOutputBytes: 100_000,
+    });
+    const elapsed = Date.now() - started;
+
+    expect(result.exit_code).toBeNull();
+    expect(result.stderr_tail).toMatch(/did not identify as relayflows-agent-cli-v1 within 2000ms/i);
+    expect(elapsed).toBeLessThan(5_000);
+  }, 20_000);
+
+  /**
+   * The product boundary, at DEFAULT limits — the only bounds an author can
+   * actually reach, since `worker.ts` passes no `wrapperLimits`. A wrapper
+   * that leaks a stdio pipe and never identifies must still complete the
+   * step with a `completionReason` at the 10s default handshake bound, and
+   * `close()` must drain. Before the fix the leaked helper (30s) owns the
+   * clock, so this resolves at ~30s instead of ~11s.
+   */
+  it('journals a completionReason at the default bound when a wrapper leaks a stdio pipe', async () => {
+    const directory = makeDirectory();
+    const wrapper = makeWrapper(directory, 'leaky-step-wrapper', `
+const { spawn } = require('node:child_process');
+const helper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], {
+  stdio: 'inherit',
+  detached: true,
+});
+helper.unref();
+process.exit(0);
+`);
+
+    const completions: unknown[][] = [];
+    const client = new EventEmitter() as EventEmitter & Record<string, unknown>;
+    client.workerAttach = async (): Promise<unknown> => ({ ok: true });
+    client.stepComplete = async (...args: unknown[]): Promise<unknown> => {
+      completions.push(args);
+      return { ok: true };
+    };
+
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'w-leak',
+      pins: {} as Pins,
+    });
+    const workerErrors: unknown[] = [];
+    worker.on('error', (error: unknown) => { workerErrors.push(error); });
+    await worker.attach();
+
+    client.emit('step.dispatch', {
+      run_id: 'run-leak',
+      step_id: 'step-leak',
+      attempt: 1,
+      step_type: 'agent',
+      spec: { cli: wrapper, instruction: 'instruction' },
+      lease_id: 'lease-leak',
+      idempotency_key: 'idem-leak',
+      pins: {} as Pins,
+    });
+
+    const started = Date.now();
+    await worker.close();
+    const elapsed = Date.now() - started;
+
+    expect(workerErrors).toEqual([]);
+    expect(completions).toHaveLength(1);
+    // Argument 5 is `completionReason` in JournalClient.stepComplete.
+    expect(completions[0]?.[4]).toBe('worker_error');
+    expect(elapsed).toBeLessThan(20_000);
+  }, 90_000);
+
+  it('accepts an execute token and an over-8KiB payload flushed in one write', async () => {
+    const directory = makeDirectory();
+    const payload = JSON.stringify({ summary: 'r'.repeat(20_000) });
+    const wrapper = makeWrapper(directory, 'coalesced-payload-wrapper', `
+process.stdout.write('relayflows-agent-cli-v1\\n');
+process.stdin.resume();
+process.stdin.on('end', () => {
+  process.stdout.write('relayflows-agent-cli-v1-execute\\n' + ${JSON.stringify(payload)});
+});
+`);
+
+    const result = await runAgentCli(wrapper, 'instruction', undefined, undefined, {
+      handshakeTimeoutMs: 3_000,
+      executionTimeoutMs: 5_000,
+      maxOutputBytes: 1_048_576,
+    });
+
+    expect(result.stderr_tail).toBe('');
+    expect(result.exit_code).toBe(0);
+    expect(result.stdout_tail).toBe(payload);
+  }, 20_000);
+
+  it('accepts the same over-8KiB payload whether or not it coalesces with the execute token', async () => {
+    const directory = makeDirectory();
+    const payload = JSON.stringify({ summary: 'r'.repeat(20_000) });
+    const makeVariant = (name: string, body: string): string => makeWrapper(directory, name, `
+process.stdout.write('relayflows-agent-cli-v1\\n');
+process.stdin.resume();
+process.stdin.on('end', () => {
+${body}
+});
+`);
+    const coalesced = makeVariant('variant-coalesced-wrapper', `
+  process.stdout.write('relayflows-agent-cli-v1-execute\\n' + ${JSON.stringify(payload)});
+`);
+    const sameTick = makeVariant('variant-same-tick-wrapper', `
+  process.stdout.write('relayflows-agent-cli-v1-execute\\n');
+  process.stdout.write(${JSON.stringify(payload)});
+`);
+    const delayed = makeVariant('variant-delayed-wrapper', `
+  process.stdout.write('relayflows-agent-cli-v1-execute\\n');
+  setTimeout(() => process.stdout.write(${JSON.stringify(payload)}), 50);
+`);
+
+    const limits = {
+      handshakeTimeoutMs: 3_000,
+      executionTimeoutMs: 5_000,
+      maxOutputBytes: 1_048_576,
+    };
+    const results = await Promise.all([
+      runAgentCli(coalesced, 'instruction', undefined, undefined, limits),
+      runAgentCli(sameTick, 'instruction', undefined, undefined, limits),
+      runAgentCli(delayed, 'instruction', undefined, undefined, limits),
+    ]);
+
+    for (const result of results) {
+      expect(result.stderr_tail).toBe('');
+      expect(result.exit_code).toBe(0);
+      expect(result.stdout_tail).toBe(payload);
+    }
+    expect(results[0]?.stdout_tail).toBe(results[2]?.stdout_tail);
+    expect(results[1]?.stdout_tail).toBe(results[2]?.stdout_tail);
+  }, 30_000);
+
+  it('still bounds an un-terminated handshake buffer and names the bound', async () => {
+    const directory = makeDirectory();
+    const wrapper = makeWrapper(directory, 'handshake-flood-wrapper', `
+process.stdout.write('z'.repeat(64 * 1024));
+setTimeout(() => {}, 5000);
+`);
+
+    const result = await runAgentCli(wrapper, 'instruction', undefined, undefined, {
+      handshakeTimeoutMs: 3_000,
+      executionTimeoutMs: 5_000,
+      maxOutputBytes: 1_048_576,
+    });
+
+    expect(result.exit_code).toBeNull();
+    expect(result.stderr_tail).toMatch(/handshake limit of 8192 bytes/i);
+  }, 20_000);
 });

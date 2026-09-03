@@ -125,6 +125,25 @@ No process runs between events: the handler wakes, executes to its next await, p
    private request. A direct journal submission, nonconforming wrapper, or
    process that exits after identifying completes `worker_error`.
 
+   **Declared wrapper bounds.** A wrapper author writes against four bounds,
+   all enforced by the reader so that no wrapper can defeat one by withholding
+   an event. Each is a refusal with `exit_code: null` and a diagnostic naming
+   the bound it exceeded, which the worker completes as `worker_error`.
+
+   | Bound | Default | Applies to | On exceeding |
+   |---|---|---|---|
+   | Handshake deadline | 10 s | From spawn until the wrapper has emitted both `relayflows-agent-cli-v1` and `relayflows-agent-cli-v1-execute` | Session refused: "did not identify as `relayflows-agent-cli-v1` within *N*ms" |
+   | Handshake byte limit | 8192 bytes | Only the **un-terminated** residue of the handshake buffer — bytes not yet ended by a newline while the handshake is still open. Complete lines are drained first, so the execute token always ends the handshake before this is measured, and a result payload behind it is execution output governed by `maxOutputBytes`, not by this bound | Session refused: "exceeded the wrapper handshake limit of 8192 bytes before completing the `relayflows-agent-cli-v1` handshake" |
+   | Execution deadline | 300 s | From the execute token until the wrapper's output is complete | `SIGTERM`, then `SIGKILL` 1 s later; the reader settles on its own deadline whether or not the process closes its pipes. Refused: "execution timed out after *N*ms" |
+   | `maxOutputBytes` | 1 MiB | Total captured stdout **plus** stderr after the execute token. Inclusive: exactly at the limit is accepted, one byte over is refused. Enforced on arrival, so an unbounded or newline-free flood is cut off by the reader rather than buffered | Session refused: "exceeded the captured output limit of *N* bytes" |
+
+   Because the deadlines are reader-owned, a wrapper that exits while leaving a
+   descendant holding an inherited stdio pipe — which withholds Node's `'close'`
+   event forever — is still bounded and still journals a `completionReason`. It
+   is bounded at the *execution deadline* rather than at the wrapper's own exit,
+   so a wrapper that leaks a pipe pays the full 300 s. Wrappers should not leave
+   descendants holding stdout or stderr.
+
    `flows check` resolves the binary (a path is relative to the declaring flow
    or project config; a bare name resolves via `PATH`) and caches each resolved
    `(cli, source, model)` probe. A missing executable is `cli_missing`. A probe
