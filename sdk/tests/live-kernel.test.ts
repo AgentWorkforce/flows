@@ -1206,11 +1206,20 @@ steps:
     expect((await replayed)['entry_type']).toBe('run.spawned');
     const journal = await client.journalRead(deterministic.run_id, 1);
     expect(journal.entries.some((entry) => journalType(entry) === 'run.completed')).toBe(true);
-    expect((await client.eventEmit(deterministic.run_id, 'unmatched', { ok: true })).matched).toBe(0);
-    expect((await client.streamAppend(deterministic.run_id, 'results', { answer: 4 })).offset).toBe(0);
+    // `event.emit` and `stream.append` are mutations, and this run is terminal.
+    // Parallel dispatch (#137) admits every mutating verb through
+    // `ensure_mutable`, so both are refused here. They used to be accepted, and
+    // `stream.append` journalled `stream.appended` AFTER `run.completed` —
+    // producing a journal the daemon could no longer fold on resume. The
+    // success paths below exercise the same two verbs against a live run, which
+    // is the only state in which appending to a run's journal is meaningful.
+    await expect(client.eventEmit(deterministic.run_id, 'unmatched', { ok: true }))
+      .rejects.toMatchObject({ code: 'run_terminal' });
+    await expect(client.streamAppend(deterministic.run_id, 'results', { answer: 4 }))
+      .rejects.toMatchObject({ code: 'run_terminal' });
     expect(await client.streamRead(deterministic.run_id, 'results', 0, 10)).toEqual({
-      messages: [{ answer: 4 }],
-      next_offset: 1,
+      messages: [],
+      next_offset: 0,
     });
 
     const llmDispatch = eventOnce<StepDispatchEvent>(client, 'step.dispatch');
@@ -1236,6 +1245,13 @@ steps:
       type: 'llm',
       state: 'running',
       lease_deadline_ms: heartbeat.lease_deadline_ms,
+    });
+    // Wire coverage for the two mutating verbs, on a live run this time.
+    expect((await client.eventEmit(llmLease.run_id, 'unmatched', { ok: true })).matched).toBe(0);
+    expect((await client.streamAppend(llmLease.run_id, 'results', { answer: 4 })).offset).toBe(0);
+    expect(await client.streamRead(llmLease.run_id, 'results', 0, 10)).toEqual({
+      messages: [{ answer: 4 }],
+      next_offset: 1,
     });
     const llmDone = await client.stepComplete(
       llmLease.run_id,
