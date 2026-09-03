@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+// Stub agent-runtime CLI that reports the model AgentWorker delivered through
+// the identified same-process wrapper session.
+//
+// The distinction under test is three-way, not two-way: a step that
+// DECLARED a model, a step that declared none, and the failure mode where
+// an inherited variable makes the second look like the first. So this
+// reports absence explicitly rather than defaulting, and treats the empty
+// string as its own answer — if `RELAYFLOW_MODEL=''` ever reaches a CLI,
+// that is a bug the test must be able to see rather than silently read as
+// "unset".
+import { receiveWrapperRequest } from './wrapper-session.mjs';
+
+await receiveWrapperRequest();
+const raw = process.env.RELAYFLOW_MODEL;
+const declared = raw === undefined ? 'UNSET' : raw === '' ? 'EMPTY' : raw;
+process.stdout.write(JSON.stringify({
+  story_title: `model:${declared}`,
+  relevance_score: 5,
+  reasoning: `RELAYFLOW_MODEL observed by the CLI as ${declared}`,
+}));

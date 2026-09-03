@@ -4994,3 +4994,105 @@ are outside this lane's scope.
 - Disk at 95%, 11 GiB free.
 
 Nothing merged. Nothing has met the checklist.
+
+## 2026-09-03T12:05Z — relayflow-lead-0903 tick 3: first merge, three P0s fixed
+
+### flows #136 MERGED — `990093b`, 11:25Z
+
+The lane's first merge. It carried a standing "merge blocked pending repair
+verification" comment on ambient-secret leakage; I cleared it on the record
+rather than lifting it silently. `wrapper-runtime.ts:29-36` builds the wrapper
+env from `{}` plus an explicit allowlist, not `{...process.env}` with deletions;
+two independent signoffs planted secrets in the parent and found the child env
+was exactly the allowlist with zero leaked. Two further P1s were found and fixed
+in the same window, proven differentially against a materialized pre-fix tree.
+
+Khaliq granted merge authority directly — "as long as they are green and have no
+pr feedback". An earlier garbled message read like a merge instruction; I asked
+rather than guessed, and the answer was to keep the full checklist.
+
+### All three flows P0s are fixed, and all three fixes are structural
+
+- **#134** replaced a timing question with a causal one: *was any promise
+  attributed to an authored operation still pending when the body returned?*
+  Awaited work is settled at that instant in every timing; unawaited work is
+  pending in every timing. No number, no window, cannot hang. Refusing on
+  pending also closes the settled set, so the existing settled-outcome
+  inspection becomes a total answer rather than a sample. Red→green at ten ticks
+  and at `setTimeout(0)`. P1-B: 30 000 awaits 98 379 ms → 35 ms, and 40 002
+  retained process promises → 0.
+- **#137** is mine, reverting the accept-and-normalize call I made wrongly this
+  morning back to one spelling per surface.
+- **#139** refuses a `$ref` cycle passing only through *in-place* applicators,
+  leaving child-applicator cycles legal because they consume instance. **The
+  crash family was eight times wider than the signoff found** — `allOf`,
+  `anyOf`, `oneOf`, `not`, plain-name anchors and `$id`-scoped pointers all
+  SIGABRT today, plus three latent cases that survived only because the probe
+  output never reached the cyclic position. A fix keyed to the one reported
+  schema would have shipped with eight crashes standing and a passing test.
+
+### Two findings nobody asked for
+
+- #139 found a live SDK/kernel disagreement on freshly merged main: #133's
+  `output:` sugar lowers to a `json_schema` gate but never ran through
+  `jsonSchemaError`, so `flows check` reported an unbounded schema as a real
+  gate while the kernel refused it.
+- #134 found main's new `tsconfig.tests.json` gate did not cover #134's tests
+  and nothing else typechecked them; widening it exposed four errors, three
+  pre-existing.
+
+### A relayflow cannot be scheduled, and nothing is running on a schedule
+
+`grep -rniE "cron|schedule|interval|timer" sdk/src/spec.ts sdk/src/compile.ts`
+returns nothing. `TriggerSpec` carries only `id` and `executor` and is
+documented "Inert gate-1 trigger declaration". Triggers are event-driven only,
+fed by `hn-poller.ts` and `dir-watcher-poller.ts`.
+
+`agent-relay cloud schedules` → **"No workflow schedules found."** Nothing is on
+a schedule at all. `workflows/watchdog.yaml` exists but is scheduled nowhere.
+
+The RFC names this exact failure class — *"a flow that is never triggered is
+silently zero — Native's silent-death problem"* — and records from the first
+dogfood run that *"a cron trigger reported `succeeded` into a void with no
+worker enrolled."* Its position is that a schedule is an **event source**, not a
+new trigger kind inside the kernel. Building that primitive on
+`feat/scheduled-trigger-0903`: a tick source whose dedupe key is derived from
+the scheduled instant rather than wall-clock-at-emit, so a poller restart can
+neither double-fire nor skip a slot; liveness per the RelayCron
+deterministic-id + `stale_after` model; one worked example. Design review before
+it becomes a branch.
+
+### The rebase hazard, now three times over
+
+`origin/main` moved four times today. Every v2 PR had to rebase, and the
+dangerous conflict was repeatedly the one git did not mark:
+
+- #136: main's #133 added `output` to the per-verb key lists in `validate.ts`,
+  while the branch had *moved* that allowlist into `step-fields.ts` — a
+  branch-only file, so git merged it clean without `output`.
+- #138: an auto-merge left `foreignFieldValue` defined twice, unmarked. Its own
+  first mutation harness was a no-op (trailing comma that does not exist on a
+  last array element), so `tsc` passed on unchanged input — it nearly filed a
+  false negative against its own guard, and caught that too.
+- #139: `compile.ts::compileStep` — taking the branch side would have silently
+  replaced the `output`-lowered gate with the raw authored one.
+
+The generalisation worth keeping: the hazard is not "the conflict git did not
+mark", it is **any file whose concern upstream changed, whether or not it
+conflicted**. Enumerate both change sets and audit the intersection of concerns,
+not of filenames.
+
+### Infrastructure
+
+- **Disk filled completely**; a tool call failed outright with ENOSPC. Archived
+  115 review reports to `ops/reviews-archive-0903/` before deleting finished
+  worktrees, pruned stale toolchain target trees. 30 GiB free now.
+- **Spawned sessions inherit the lead's `RELAY_AGENT_NAME`**, so an agent's DM
+  to the lead lands in its own inbox. One agent noticed and honoured its
+  approval gate in substance regardless. Approval gates now state what to do
+  when the channel is broken.
+- **`live-kernel` is not self-hosting**: `locateRelayflowd` picks the newest
+  daemon by mtime across every toolchain target tree, so an unrelated worktree
+  building mid-run flips the result. Pin `RELAYFLOWD_BIN`.
+- A kernel gate once exited **101 with zero failures** — a missing test binary.
+  Recorded as unexplained rather than softened to "flake".

@@ -1,10 +1,10 @@
-#!/bin/sh
-# Stub agent-runtime CLI for the hn-monitor gate-2-clause-2 demo.
-# Emits a deterministic JSON payload that satisfies the
-# `analyze-story` step's `json_schema` verification gate.
-# Not a real analyzer — its purpose is to prove the dispatch →
-# agent-CLI → stepComplete pipeline works end-to-end. A real analyzer
-# would read `$1` (the instruction) and — once wake_context injection
-# lands — the triggering-event JSON, then invoke a real LLM.
-set -eu
-printf '%s' '{"story_title":"stub","relevance_score":5,"reasoning":"stub agent runtime — deterministic output for gate-2 clause-2 demo"}'
+#!/usr/bin/env node
+// Deterministic gate-2 wrapper fixture.
+import { receiveWrapperRequest } from './wrapper-session.mjs';
+
+await receiveWrapperRequest();
+process.stdout.write(JSON.stringify({
+  story_title: 'stub',
+  relevance_score: 5,
+  reasoning: 'stub agent runtime — deterministic output for gate-2 clause-2 demo',
+}));
