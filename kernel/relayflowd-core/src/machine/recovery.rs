@@ -27,6 +27,12 @@ pub fn recovery_actions_filtered(
     now_ms: i64,
     lease_is_active: &dyn Fn(&str, u32) -> bool,
 ) -> Vec<Action> {
+    // Durable cancellation intent wins over crash classification. The cancel
+    // path closes the same lease as canceled; recovery must not get there
+    // first and rewrite the reason merely because the process restarted.
+    if state.cancel_requested.is_some() {
+        return Vec::new();
+    }
     let mut actions = Vec::new();
     for spec in &state.spec.steps {
         let runtime = &state.steps[&spec.id];

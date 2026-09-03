@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use relayflowd_core::{
     Clock, EntryType, Journal, JournalEntry, RunSpawnedPayload, RunSpec, RunState, StepKind,
-    recovery_actions_filtered,
+    recovery_actions_filtered, request_cancel_action,
 };
 use relayflowd_journal::{Registry, SqliteJournal};
 use sha2::{Digest, Sha256};
@@ -33,6 +33,14 @@ pub struct DriveOptions {
     pub pause_before_step: Option<String>,
     /// Test/debug hook: pause after every step is durable, before run completion.
     pub pause_before_completion: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+#[doc(hidden)]
+pub struct CancelOptions {
+    /// Crash-injection seam: pause after intent is durable but before facts
+    /// close the run. Production callers leave this false.
+    pub pause_after_request: bool,
 }
 
 pub struct Engine<C = WallClock> {
@@ -184,6 +192,33 @@ impl<C: Clock> Engine<C> {
             }
         }
         Ok(snapshot)
+    }
+
+    pub fn cancel(&self, run_id: &str, requested_by: &str) -> Result<RunOutcome> {
+        self.cancel_with_options(run_id, requested_by, CancelOptions::default())
+    }
+
+    #[doc(hidden)]
+    pub fn cancel_with_options(
+        &self,
+        run_id: &str,
+        requested_by: &str,
+        options: CancelOptions,
+    ) -> Result<RunOutcome> {
+        let mut journal = self.open_run(run_id)?;
+        let spec = journal.run_spec().context("read run spec")?;
+        let state = self.load_state(&journal, spec.clone())?;
+        if let Some(reason) = state.completion {
+            return Ok(outcome_from_state(&state, reason));
+        }
+        let requested = request_cancel_action(&state, requested_by, self.clock.now_ms());
+        if let Some(action) = requested {
+            self.persist_only(&mut journal, action)?;
+            if options.pause_after_request {
+                std::thread::sleep(std::time::Duration::from_secs(300));
+            }
+        }
+        self.drive(journal, spec, DriveOptions::default())
     }
 
     pub fn journal_entries(

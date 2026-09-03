@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
-use relayflowd::{DriveOptions, Engine, RunStatus, engine::read_spec, server};
+use relayflowd::{CancelOptions, DriveOptions, Engine, RunStatus, engine::read_spec, server};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -42,6 +42,13 @@ enum Command {
         run_id: String,
         #[arg(long, hide = true)]
         stop_after: Option<usize>,
+    },
+    /// Durably cancel a run and close any active lease.
+    Cancel {
+        run_id: String,
+        /// Test/debug boundary: pause after intent is durable, before facts.
+        #[arg(long, hide = true)]
+        pause_after_request: bool,
     },
     /// Serve journal protocol v0 over a Unix socket.
     Serve,
@@ -96,6 +103,27 @@ fn main() -> Result<()> {
             if outcome.status == RunStatus::Failed {
                 bail!("run {} failed", outcome.run_id);
             }
+        }
+        Command::Cancel {
+            run_id,
+            pause_after_request,
+        } => {
+            let outcome = if !pause_after_request {
+                if let Some(outcome) = server::cancel_via_socket(&cli.data_dir, &run_id)? {
+                    outcome
+                } else {
+                    engine.cancel(&run_id, "cli")?
+                }
+            } else {
+                engine.cancel_with_options(
+                    &run_id,
+                    "cli",
+                    CancelOptions {
+                        pause_after_request: true,
+                    },
+                )?
+            };
+            println!("{}", serde_json::to_string(&outcome)?);
         }
         Command::Serve => server::serve(&cli.data_dir)?,
     }

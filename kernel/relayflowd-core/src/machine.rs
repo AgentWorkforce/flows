@@ -17,6 +17,10 @@ use crate::{
 
 const LEASE_DURATION_MS: i64 = 30_000;
 
+mod cancel;
+use cancel::cancel_run_actions;
+pub use cancel::request_cancel_action;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     Append(JournalEntry),
@@ -86,6 +90,9 @@ pub struct RecoveryInstruction {
 pub fn next_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
     if state.completion.is_some() {
         return Vec::new();
+    }
+    if state.cancel_requested.is_some() {
+        return cancel_run_actions(state, now_ms);
     }
     if let Some(failed_step_id) = state.failed_step() {
         return complete_run_actions(

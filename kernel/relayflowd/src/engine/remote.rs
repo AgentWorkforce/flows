@@ -41,6 +41,9 @@ impl Engine<WallClock> {
         let mut journal = self.open_run(run_id)?;
         let spec = journal.run_spec().context("read run spec")?;
         let state = self.load_state(&journal, spec.clone())?;
+        if state.cancel_requested.is_some() || state.completion.is_some() {
+            bail!("run {run_id} no longer accepts step completions")
+        }
         let step = spec
             .step(step_id)
             .cloned()

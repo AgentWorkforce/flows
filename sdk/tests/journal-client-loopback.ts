@@ -27,6 +27,7 @@ export interface LoopbackHandlers {
   hello?: (ctx: FrameCtx) => void;
   'run.start'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'run.resume'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'run.cancel'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'run.get'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'run.watch'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'worker.attach'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;

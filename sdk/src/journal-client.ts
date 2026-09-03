@@ -184,6 +184,11 @@ export class JournalClient extends EventEmitter {
     return this.request('run.resume', { run_id: runId }, null);
   }
 
+  /** Durably request cancellation and return the terminal run fact. */
+  runCancel(runId: string): Promise<VerbContract['run.cancel']['result']> {
+    return this.request('run.cancel', { run_id: runId }, null);
+  }
+
   /** Snapshot for legibility. */
   runGet(runId: string): Promise<VerbContract['run.get']['result']> {
     return this.request('run.get', { run_id: runId });

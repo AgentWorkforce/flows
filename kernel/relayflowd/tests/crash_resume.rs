@@ -18,7 +18,10 @@ use std::{
     fs, io::Write, os::unix::net::UnixStream, os::unix::process::CommandExt, process::Command,
 };
 
-use relayflowd_core::{CompletionReason, EntryType, StepCompletedPayload};
+use relayflowd::{RunOutcome, RunStatus};
+use relayflowd_core::{
+    CompletionReason, EntryType, RunCompletedPayload, RunCompletionReason, StepCompletedPayload,
+};
 use serde_json::{Value, json};
 
 use support::{
@@ -146,4 +149,99 @@ fn sigkill_under_serve_resumes_the_socket_started_run() {
         payload.completion_reason,
         CompletionReason::Crashed | CompletionReason::LeaseExpired
     ));
+}
+
+#[test]
+fn sigkill_after_cancel_request_resumes_to_one_canceled_fact() {
+    let fixture = Fixture::hello("cancel-request");
+    let interrupted = Command::new(env!("CARGO_BIN_EXE_relayflowd"))
+        .args(["--data-dir", fixture.data_dir.to_str().unwrap(), "run"])
+        .arg(&fixture.spec_path)
+        .args(["--stop-after", "1"])
+        .output()
+        .unwrap();
+    assert!(
+        interrupted.status.success(),
+        "initial run failed: {interrupted:?}"
+    );
+    let run_id = support::only_run_id(&fixture.data_dir);
+
+    let mut cancel = Command::new(env!("CARGO_BIN_EXE_relayflowd"))
+        .args([
+            "--data-dir",
+            fixture.data_dir.to_str().unwrap(),
+            "cancel",
+            &run_id,
+            "--pause-after-request",
+        ])
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    wait_until("durable cancel request", || {
+        journal_entries(&fixture.data_dir).is_some_and(|entries| {
+            entries
+                .iter()
+                .any(|entry| entry.entry_type == EntryType::RunCancelRequested)
+        })
+    });
+    kill_process_group(&mut cancel);
+    let before_resume = journal_entries(&fixture.data_dir).unwrap();
+    assert_eq!(
+        before_resume
+            .iter()
+            .filter(|entry| entry.entry_type == EntryType::RunCancelRequested)
+            .count(),
+        1
+    );
+    assert!(
+        !before_resume
+            .iter()
+            .any(|entry| entry.entry_type == EntryType::RunCompleted)
+    );
+
+    let resumed = Command::new(env!("CARGO_BIN_EXE_relayflowd"))
+        .args([
+            "--data-dir",
+            fixture.data_dir.to_str().unwrap(),
+            "resume",
+            &run_id,
+        ])
+        .output()
+        .unwrap();
+    let outcome: RunOutcome = serde_json::from_slice(&resumed.stdout).unwrap();
+    assert_eq!(outcome.status, RunStatus::Failed);
+    assert_eq!(
+        outcome.completion_reason,
+        Some(RunCompletionReason::Canceled)
+    );
+
+    let repeated = Command::new(env!("CARGO_BIN_EXE_relayflowd"))
+        .args([
+            "--data-dir",
+            fixture.data_dir.to_str().unwrap(),
+            "cancel",
+            &run_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        repeated.status.success(),
+        "repeated cancel failed: {repeated:?}"
+    );
+    let entries = journal_entries(&fixture.data_dir).unwrap();
+    assert_eq!(
+        entries
+            .iter()
+            .filter(|entry| entry.entry_type == EntryType::RunCancelRequested)
+            .count(),
+        1
+    );
+    let terminal = entries
+        .iter()
+        .filter(|entry| entry.entry_type == EntryType::RunCompleted)
+        .map(|entry| serde_json::from_value::<RunCompletedPayload>(entry.payload.clone()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(terminal.len(), 1);
+    assert_eq!(terminal[0].completion_reason, RunCompletionReason::Canceled);
+    assert_eq!(fs::read_to_string(&fixture.marker).unwrap(), "first\n");
 }
