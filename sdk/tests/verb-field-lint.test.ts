@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { stringify as stringifyYaml } from 'yaml';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -34,6 +35,10 @@ interface InvalidFieldCase {
   unknown: string;
   suggestion?: string;
 }
+
+const AUTHENTICATED_CLI = join(
+  dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata', 'preflight', 'authenticated-cli',
+);
 
 const TYPO_STEP_FIELDS = [
   {
@@ -92,6 +97,7 @@ function foreignFieldValue(field: string): unknown {
 }
 
 const ALL_VERB_FIELDS = [...new Set(Object.values(STEP_FIELDS_BY_TYPE).flat())];
+
 const CROSS_VERB_STEP_FIELDS: InvalidFieldCase[] = (
   Object.entries(STEP_FIELDS_BY_TYPE) as Array<[StepType, readonly string[]]>
 ).flatMap(([type, allowed]) => ALL_VERB_FIELDS
@@ -392,5 +398,63 @@ describe('closed per-verb step fields', () => {
       { stepId: 'answer', cli: 'llm-cli', source: 'step', model: 'project-model' },
       { stepId: 'act', cli: 'agent-cli', source: 'step', model: 'project-model' },
     ]);
+  });
+
+  // The per-verb descriptor is the *only* allowlist the validator consults, and
+  // it is a plain string table that no type checks against LlmStepSpec /
+  // AgentStepSpec. A verb field added to the spec interfaces elsewhere — main's
+  // `output` sugar (#133) is the live example — is therefore refused as an
+  // unknown key until it is listed here, and nothing but this test says so.
+  // The three paths are asserted separately because they diverge: validateSpec
+  // reads the in-memory object, compileYaml goes through a YAML round-trip, and
+  // `flows check` adds preflight and the process exit code.
+  describe('carries the llm/agent `output` sugar through every path', () => {
+    const outputSchema = {
+      type: 'object',
+      required: ['answer'],
+      properties: { answer: { type: 'string' } },
+    };
+    const acceptedStep = (type: 'llm' | 'agent'): Record<string, unknown> => ({
+      ...VALID_STEP_BY_TYPE[type],
+      cli: AUTHENTICATED_CLI,
+      output: outputSchema,
+    });
+
+    it.each(['llm', 'agent'] as const)('validateSpec accepts output on %s', (type) => {
+      expect(validateSpec(specWith(acceptedStep(type)))).toEqual({ ok: true, errors: [] });
+    });
+
+    it.each(['llm', 'agent'] as const)(
+      'compileYaml accepts output on %s and lowers it to the json_schema gate',
+      (type) => {
+        const yaml = stringifyYaml(specWith(acceptedStep(type)));
+        // Guard the YAML half explicitly: an undefined value would vanish here
+        // and the assertion below would pass against a spec with no `output`.
+        expect(yaml).toContain('output:');
+        const compiled = compileYaml(yaml);
+        expect(compiled.steps[0]).not.toHaveProperty('output');
+        expect(compiled.steps[0]?.verification).toEqual({
+          type: 'json_schema',
+          schema: outputSchema,
+        });
+      },
+    );
+
+    it.each(['llm', 'agent'] as const)('flows check accepts output on %s', async (type) => {
+      const directory = mkdtempSync(join(tmpdir(), 'flows-output-accepted-'));
+      temporaryDirectories.push(directory);
+      writeFileSync(join(directory, 'flows.json'), JSON.stringify({ executors: [] }));
+      const path = join(directory, 'typed.flow.yaml');
+      writeFileSync(path, stringifyYaml(specWith(acceptedStep(type))));
+      const stderr: string[] = [];
+
+      const exitCode = await runCli(['check', path], {
+        stdout: () => {},
+        stderr: (line) => stderr.push(line),
+      });
+
+      expect(stderr.join('\n')).not.toContain('unknown key "output"');
+      expect(exitCode).toBe(0);
+    });
   });
 });
