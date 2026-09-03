@@ -9,6 +9,9 @@
 // Zero-agent flows are legal: a spec with only `deterministic` (and/or `llm`)
 // steps is valid. Nothing here requires an `agent` step.
 
+import type { JsonOutputSchema } from './output-schema.js';
+export type { JsonOutputSchema } from './output-schema.js';
+
 /** The three rungs of the ladder (RFC §1; AGENTS.md rule 7). */
 export type StepType = 'deterministic' | 'llm' | 'agent';
 
@@ -125,6 +128,11 @@ export interface LlmStepSpec extends BaseStepSpec {
   model?: string;
   /** Inert preflight declaration; overrides the flow/project CLI default. */
   cli?: string;
+  /**
+   * Structured-output authoring sugar. Compiles to the existing `json_schema`
+   * verification primitive and is removed before the kernel boundary.
+   */
+  output?: JsonOutputSchema;
 }
 
 /**
@@ -149,6 +157,11 @@ export interface AgentStepSpec extends BaseStepSpec {
   surfaces?: AgentSurfaces;
   recoveryMode?: RecoveryMode;
   permissions?: PermissionsSpec;
+  /**
+   * Structured-output authoring sugar. A successful CLI JSON object is the parsed
+   * value; the kernel persists it only after `json_schema` verification.
+   */
+  output?: JsonOutputSchema;
 }
 
 export type StepSpec = DeterministicStepSpec | LlmStepSpec | AgentStepSpec;

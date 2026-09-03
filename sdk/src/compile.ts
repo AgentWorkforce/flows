@@ -30,6 +30,7 @@ import type {
 } from './spec.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import { canonicalize, specHash } from './canonical.js';
+import { validateOutputDeclaration } from './output-schema.js';
 import { validateSpec, type ValidationResult } from './validate.js';
 
 export class CompileError extends Error {
@@ -84,11 +85,12 @@ export function compileSpec(spec: unknown): FlowSpec {
 
 function compileStep(step: StepSpec): StepSpec {
   const maxIterations = step.maxIterations ?? 1;
+  const verification = typedOutputVerification(step);
   const base = {
     id: step.id,
     type: step.type,
     ...(step.dependsOn !== undefined ? { dependsOn: step.dependsOn } : {}),
-    ...(step.verification !== undefined ? { verification: step.verification } : {}),
+    ...(verification !== undefined ? { verification } : {}),
     maxIterations,
     ...(step.timeoutMs !== undefined ? { timeoutMs: step.timeoutMs } : {}),
   };
@@ -128,6 +130,15 @@ function compileStep(step: StepSpec): StepSpec {
       // validateSpec already gated this; unreachable.
       throw new CompileError([`step "${step.id}": unknown type "${String((step as { type: unknown }).type)}"`]);
   }
+}
+
+function typedOutputVerification(step: StepSpec): StepSpec['verification'] {
+  if (step.type !== 'deterministic' && step.output !== undefined) {
+    const errors = validateOutputDeclaration(step, `step "${step.id}"`);
+    if (errors.length > 0) throw new CompileError(errors);
+    return { type: 'json_schema', schema: step.output };
+  }
+  return step.verification;
 }
 
 // Kernel defaults, materialized at compile time so the emitted spec is
@@ -389,6 +400,12 @@ function requireNoTimeout(step: StepSpec): void {
 }
 
 function toKernelVerification(step: StepSpec): KernelVerificationSpec {
+  const output = step.type === 'deterministic' ? undefined : step.output;
+  if (output !== undefined) {
+    const errors = validateOutputDeclaration(step, `step "${step.id}"`);
+    if (errors.length > 0) throw new CompileError(errors);
+    return { json_schema: output };
+  }
   const gate = step.verification;
   // No gate / explicit exit_code both compile to {}: exit_code == 0 is the
   // kernel's implicit gate for deterministic steps (kernel DESIGN.md §4).

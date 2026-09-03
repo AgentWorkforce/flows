@@ -11,6 +11,7 @@ export type {
   ExitCodeGate,
   FlowSpec,
   JsonSchemaGate,
+  JsonOutputSchema,
   KernelAgentStep,
   KernelAgentSurfaces,
   KernelBudgetSpec,
