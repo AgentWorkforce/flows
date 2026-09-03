@@ -1,14 +1,19 @@
+import { executionAsyncId } from 'node:async_hooks';
 import type { Step } from '@relayflows/surface';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
+import {
+  AuthoredFlowLifecycle,
+  type AuthoredOperationInvocation,
+} from './authored-flow-lifecycle.js';
 
 type OperationState = 'created' | 'running' | 'fulfilled' | 'rejected';
+const nativePromiseThen = Promise.prototype.then;
 
 /** A root authored operation whose outcome cannot be hidden by promise handlers. */
 export class AuthoredFlowOperation<T> {
   readonly step: Step<T>;
   private state: OperationState = 'created';
-  private awaited = false;
-  private manuallyChained = false;
+  private thenInvoked = false;
   private rootFailureRecorded = false;
   private rootFailure: unknown;
   private callbackFailureRecorded = false;
@@ -22,6 +27,7 @@ export class AuthoredFlowOperation<T> {
     readonly verb: string,
     private readonly assertCanStart: () => void,
     private readonly start: () => Promise<T>,
+    private readonly scope: AuthoredFlowLifecycle,
   ) {
     let resolve!: (value: T | PromiseLike<T>) => void;
     let reject!: (reason?: unknown) => void;
@@ -45,19 +51,21 @@ export class AuthoredFlowOperation<T> {
         onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
         onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
       ): Promise<TResult1 | TResult2> {
-        if (isAwaitContinuation(onfulfilled, onrejected)) {
-          operation.awaited = true;
-        } else {
-          operation.manuallyChained = true;
-        }
+        operation.thenInvoked = true;
+        const invocation = operation.scope.registerInvocation(operation, executionAsyncId());
         void operation.begin();
-        const derived = nativeThen(operation.promise, onfulfilled, onrejected);
+        const derived = nativeThen(
+          operation.promise,
+          wrapResolver(operation, invocation, onfulfilled),
+          wrapResolver(operation, invocation, onrejected),
+        );
         return trackDerivedPromise(
           derived,
           (error) => operation.recordCallbackFailure(error),
         );
       },
     });
+    this.scope.registerStep(this.step, this);
   }
 
   get lifecycle(): OperationState {
@@ -65,11 +73,11 @@ export class AuthoredFlowOperation<T> {
   }
 
   get wasManuallyChained(): boolean {
-    return this.manuallyChained;
+    return this.thenInvoked && !this.scope.hasBoundConsumer(this);
   }
 
   get wasAwaited(): boolean {
-    return this.awaited;
+    return this.scope.hasBoundConsumer(this);
   }
 
   get failure(): { readonly recorded: boolean; readonly value: unknown } {
@@ -89,6 +97,13 @@ export class AuthoredFlowOperation<T> {
 
   async waitForSettlement(): Promise<void> {
     await nativeThen(this.promise, () => undefined, () => undefined);
+  }
+
+  invokeResolver<TResult>(
+    invocation: AuthoredOperationInvocation,
+    callback: () => TResult,
+  ): TResult {
+    return this.scope.invokeResolver(invocation, callback);
   }
 
   private async begin(): Promise<void> {
@@ -122,33 +137,36 @@ export class AuthoredFlowOperation<T> {
 export async function verifyAuthoredOperations(
   flowName: string,
   operations: readonly AuthoredFlowOperation<unknown>[],
+  lifecycle: AuthoredFlowLifecycle,
 ): Promise<void> {
-  const unawaited = operations.filter((operation) =>
-    !operation.wasAwaited
-    || operation.wasManuallyChained
-    || operation.lifecycle === 'created'
-    || operation.lifecycle === 'running');
-  const canceled = new Set(
-    unawaited.filter((operation) => operation.lifecycle === 'created'),
-  );
+  const canceled = new Set(operations.filter((operation) => operation.lifecycle === 'created'));
 
   if (canceled.size > 0) {
-    const error = unawaitedError(flowName, unawaited);
+    const error = unawaitedError(flowName, [...canceled]);
     for (const operation of operations) operation.cancel(error);
   }
 
   await Promise.all(operations.map((operation) => operation.waitForSettlement()));
+  await lifecycle.observeCallbackFailures(operations);
+  const unawaited = operations.filter((operation) =>
+    !lifecycle.isHandled(operation)
+    || operation.lifecycle === 'created'
+    || operation.lifecycle === 'running');
 
   const failed = operations.find((operation) =>
     operation.failure.recorded && !canceled.has(operation));
   if (failed !== undefined) {
     throw failed.failure.value;
   }
-  const callbackFailed = operations.find((operation) => operation.derivedFailure.recorded);
+  const callbackFailed = operations.find((operation) =>
+    operation.derivedFailure.recorded || lifecycle.callbackFailure(operation).recorded);
   if (callbackFailed !== undefined) {
+    const failure = callbackFailed.derivedFailure.recorded
+      ? callbackFailed.derivedFailure.value
+      : lifecycle.callbackFailure(callbackFailed).value;
     throw new AuthoredFlowExecutionError(
       'operation_callback_failed',
-      `flow "${flowName}" derived handler for ${formatOperation(callbackFailed)} rejected: ${describeError(callbackFailed.derivedFailure.value)}`,
+      `flow "${flowName}" derived handler for ${formatOperation(callbackFailed)} rejected: ${describeError(failure)}`,
     );
   }
   if (unawaited.length > 0) {
@@ -186,28 +204,21 @@ function observeRejection<T>(promise: Promise<T>, record: (error: unknown) => vo
   void nativeThen(promise, undefined, (error) => record(error));
 }
 
-function isAwaitContinuation<T, TResult1, TResult2>(
-  onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
-  onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-): boolean {
-  // Await assimilation supplies paired built-in resolving functions. A direct
-  // PromiseLike.then call supplies authored callbacks and is refused later.
-  return typeof onfulfilled === 'function'
-    && typeof onrejected === 'function'
-    && isNativeFunction(onfulfilled)
-    && isNativeFunction(onrejected);
-}
-
-function isNativeFunction(value: (...args: never[]) => unknown): boolean {
-  return Function.prototype.toString.call(value) === 'function () { [native code] }';
-}
-
 function nativeThen<T, TResult1 = T, TResult2 = never>(
   promise: Promise<T>,
   onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
   onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
 ): Promise<TResult1 | TResult2> {
-  return Promise.prototype.then.call(promise, onfulfilled, onrejected) as Promise<TResult1 | TResult2>;
+  return nativePromiseThen.call(promise, onfulfilled, onrejected) as Promise<TResult1 | TResult2>;
+}
+
+function wrapResolver<T, TValue, TResult>(
+  operation: AuthoredFlowOperation<T>,
+  invocation: AuthoredOperationInvocation,
+  callback?: ((value: TValue) => TResult | PromiseLike<TResult>) | null,
+): ((value: TValue) => TResult | PromiseLike<TResult>) | undefined {
+  if (callback === undefined || callback === null) return undefined;
+  return (value) => operation.invokeResolver(invocation, () => callback(value));
 }
 
 function trackDerivedPromise<T>(
