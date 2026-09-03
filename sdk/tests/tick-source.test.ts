@@ -10,6 +10,7 @@ import {
   scheduledForMs,
   slotFor,
   tickDedupeKey,
+  TickEmitError,
   type TickCursor,
   type TickPayload,
   type TickSchedule,
@@ -305,5 +306,104 @@ describe('tick source and the worked example agree', () => {
 
   it('the spec narrows to one schedule id, so sibling schedules cannot wake it', () => {
     expect(trigger.pattern).toEqual({ schedule_id: 'heartbeat-1m' });
+  });
+});
+
+describe('P2-1: a skip is never lost, even when the same poll fails', () => {
+  // The module promises "the skip cannot be silent". It broke that promise in
+  // exactly one path: the cursor was advanced past the skipped slots BEFORE
+  // the emit loop, so a submit failure threw away the only report of them and
+  // left the cursor past the evidence. Silently zero — the failure class this
+  // whole PR exists to address.
+
+  it('carries the skipped slots on the error when a later submit fails', async () => {
+    const s = schedule({ maxCatchUp: 3 });
+    const failing = {
+      async eventSubmit(_spec: unknown, event: { payload?: unknown }) {
+        if ((event.payload as TickPayload).slot === 109) throw new Error('journal client: closed');
+        return { matched: true, deduped: false };
+      },
+    };
+    const cursor: TickCursor = { lastEmittedSlot: 100 };
+
+    // due = 101..110; skipped = 101..107; toEmit = 108,109,110. 108 lands, 109 dies.
+    const error = await emitDueTicks({}, failing, { schedule: s, cursor, nowMs: 110 * MINUTE })
+      .then(() => undefined, (e: unknown) => e);
+
+    expect(error, 'the failing submit did not throw').toBeInstanceOf(TickEmitError);
+    const thrown = error as TickEmitError;
+    expect(thrown.skippedSlots, 'seven skipped slots vanished with no report anywhere')
+      .toEqual([101, 102, 103, 104, 105, 106, 107]);
+    expect(thrown.emittedSlots).toEqual([108]);
+    expect(thrown.cause).toBeInstanceOf(Error);
+  });
+
+  it('leaves the skipped slots re-derivable when the FIRST submit fails', async () => {
+    // Nothing reached the kernel, so the cursor must not have moved at all —
+    // the next poll has to be able to re-derive the whole due range.
+    const s = schedule({ maxCatchUp: 3 });
+    const failing = { async eventSubmit() { throw new Error('journal client: closed'); } };
+    const cursor: TickCursor = { lastEmittedSlot: 100 };
+
+    await expect(emitDueTicks({}, failing, { schedule: s, cursor, nowMs: 110 * MINUTE }))
+      .rejects.toThrow(/journal client/);
+    expect(cursor.lastEmittedSlot, 'cursor advanced past slots that never reached the kernel')
+      .toBe(100);
+
+    // Recovery poll re-derives the same accounting.
+    const recovering = dedupingSink(s);
+    const retry = await emitDueTicks({}, recovering, { schedule: s, cursor, nowMs: 110 * MINUTE });
+    expect(retry.skippedSlots).toEqual([101, 102, 103, 104, 105, 106, 107]);
+    expect(retry.emittedSlots).toEqual([108, 109, 110]);
+  });
+
+  it('still reports a skip exactly once on the success path', async () => {
+    // Guard against over-correcting: the fix must not re-report skips forever.
+    const s = schedule({ maxCatchUp: 2 });
+    const sink = dedupingSink(s);
+    const cursor: TickCursor = { lastEmittedSlot: 100 };
+
+    expect((await emitDueTicks({}, sink, { schedule: s, cursor, nowMs: 106 * MINUTE })).skippedSlots)
+      .toEqual([101, 102, 103, 104]);
+    expect((await emitDueTicks({}, sink, { schedule: s, cursor, nowMs: 107 * MINUTE })).skippedSlots)
+      .toEqual([]);
+  });
+});
+
+describe('P2-2: an uncomputable grid refuses instead of going quiet', () => {
+  // A NaN epochMs or nowMs made slotFor() return NaN, so firstDue > currentSlot
+  // was false-y in the wrong direction and the poll returned an empty result:
+  // no submit, no skip, no throw. A schedule permanently and silently zero,
+  // which is precisely Native's silent-death problem.
+  it.each([
+    ['epochMs', Number.NaN],
+    ['epochMs', Number.POSITIVE_INFINITY],
+    ['epochMs', -1],
+    ['epochMs', 1.5],
+    ['nowMs', Number.NaN],
+    ['nowMs', Number.POSITIVE_INFINITY],
+    ['nowMs', -1],
+    ['nowMs', 1.5],
+  ])('refuses %s = %p', async (field, value) => {
+    const s = schedule(field === 'epochMs' ? { epochMs: value } : {});
+    const nowMs = field === 'nowMs' ? value : 100 * MINUTE;
+    await expect(
+      emitDueTicks({}, dedupingSink(schedule()), { schedule: s, cursor: {}, nowMs }),
+    ).rejects.toThrow(new RegExp(`${field} must be a non-negative integer`));
+  });
+
+  it('still accepts the zero epoch and a zero now', async () => {
+    const s = schedule({ epochMs: 0 });
+    const sink = dedupingSink(s);
+    const result = await emitDueTicks({}, sink, { schedule: s, cursor: {}, nowMs: 0 });
+    expect(result.emittedSlots).toEqual([0]);
+  });
+
+  it('refuses a NaN maxCatchUp too', async () => {
+    await expect(
+      emitDueTicks({}, dedupingSink(schedule()), {
+        schedule: schedule({ maxCatchUp: Number.NaN }), cursor: {}, nowMs: 100 * MINUTE,
+      }),
+    ).rejects.toThrow(/maxCatchUp must be a positive integer/);
   });
 });

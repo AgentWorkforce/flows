@@ -313,7 +313,7 @@ across every worktree's target tree.
 |---|---|---|
 | `tsc --noEmit` | exit 0 | exit 0 |
 | `tsc -p tsconfig.tests.json` | exit 0 | exit 0 |
-| `vitest run` | 370 passed, 3 skipped, **0 failed** | 408 passed, 3 skipped, **0 failed** |
+| `vitest run` | 370 passed, 3 skipped, **0 failed** | 423 passed, 3 skipped, **0 failed** |
 | `cargo test --workspace` | 100 passed, 0 failed | 100 passed, 0 failed |
 
 > The first baseline attempt reported 12 failures. Those were an artifact of not
@@ -326,12 +326,12 @@ across every worktree's target tree.
 ```
 +6  sdk/tests/live-kernel.test.ts  (21 -> 27)
 +6  sdk/tests/spec-parity.test.ts  (15 -> 21)
-+6  sdk/tests/validate.test.ts     (36 -> 42)
-+20 sdk/tests/tick-source.test.ts  (0 -> 20)
-    total 373 -> 411   (370 passed + 3 skipped -> 408 passed + 3 skipped)
++8  sdk/tests/validate.test.ts     (36 -> 44)
++33 sdk/tests/tick-source.test.ts  (0 -> 33)
+    total 373 -> 426   (370 passed + 3 skipped -> 423 passed + 3 skipped)
 ```
 
-Full-name set-diff: **38 test names added, 0 removed, 0 renamed.**
+Full-name set-diff: **53 test names added, 0 removed, 0 renamed.**
 `git diff --stat sdk/tests/live-kernel.test.ts` is `200 ++++` with **zero
 deletions** — the new block is a pure insertion, no existing case touched.
 
@@ -435,6 +435,107 @@ const replay = await emitDueTicks(spec, client, { schedule, cursor: {}, nowMs: n
 
 ---
 
+## 8a. Post-signoff fixes (P2-1, P2-2, P3)
+
+Signoff returned REVIEW_PASSED at `969ed44` with no P0 and no P1. These three
+were fixed anyway, at the lead's gate, because all three reproduce **the exact
+failure class this PR exists to address** — RFC-0001's "a flow that is never
+triggered is silently zero". A scheduled-trigger primitive with paths that
+produce a silently-zero schedule undercuts the thing it is for.
+
+Red captured first for all three, then fixed, then mutation-verified.
+
+### P2-1 — a skip could vanish when the same poll failed
+
+The cursor was advanced past `skippedSlots` **before** the emit loop. If a
+submit then threw, the returned result — the only place `skippedSlots` ever
+lived, since a skipped slot never reaches the kernel — was discarded, while the
+cursor had already moved past the evidence. Seven skipped slots, no report
+anywhere, and not re-derivable on the next poll. The module's own stated
+guarantee is that the skip cannot be silent; in that path it was.
+
+Red, before the fix:
+
+```
+× leaves the skipped slots re-derivable when the FIRST submit fails
+  → cursor advanced past slots that never reached the kernel: expected 107 to be 100
+× carries the skipped slots on the error when a later submit fails
+  → the failing submit did not throw: The instanceof assertion needs a constructor but undefined was given.
+```
+
+Fix: the pre-advance is gone, and a submit failure now throws `TickEmitError`
+carrying `emittedSlots`, `outcomes` and `skippedSlots`. Three independent paths
+now account for a skip and no path drops it:
+
+- a submit succeeds → the cursor advances past the skipped slots as a side
+  effect and the **result** carries them (happy path, still exactly once);
+- a submit throws → **`TickEmitError`** carries them to the caller;
+- nothing was submitted → the cursor never moved and the next poll
+  **re-derives** the identical due range.
+
+The reviewer noted this "becomes P1 the moment the CLI runner lands, and must be
+fixed as its prerequisite" — so it is now a prerequisite that is already met.
+
+### P2-2 — a NaN grid made a schedule permanently, silently zero
+
+`epochMs` and `nowMs` were unvalidated while `intervalMs` was validated, and the
+asymmetry was the bug. A `NaN` made `slotFor` return `NaN`, every comparison
+against it false, and the poll returned an empty result: **no submit, no skip,
+no throw.** An infinity was no better as a diagnosis — the backfill loop died
+with a raw `Invalid array length`.
+
+Red, before the fix (8 cases):
+
+```
+× refuses epochMs = NaN       → promise resolved "{ emittedSlots: [], outcomes: [], …(1) }" instead of rejecting
+× refuses epochMs = Infinity  → ... but got 'Invalid array length'
+× refuses nowMs = -1          → promise resolved "{ emittedSlots: [ -1 ], …(2) }" instead of rejecting
+× refuses nowMs = 1.5         → promise resolved "{ emittedSlots: [ +0 ], …(2) }" instead of rejecting
+```
+
+Fix: `requireNonNegativeInteger` on both, mirroring `requirePositiveInteger`.
+`Number.isInteger` is false for `NaN` and both infinities, so one check covers
+all three. A grid that cannot be computed refuses at the call, by name.
+
+### P3 — the i64 literal admitted exactly the value the kernel refuses
+
+`const MAX_STALE_AFTER_MS = 9_223_372_036_854_775_807` does not express `i64::MAX`
+in a double — it rounds **up** to 2^63, i.e. `i64::MAX + 1`. So `value > MAX`
+admitted precisely the one value `relayflowd` rejects. The SDK/kernel-agreement
+failure this file exists to prevent, in miniature.
+
+Red: `rejects staleAfterMs 9223372036854776000 → expected true to be false`.
+
+Fix: the bound is `Number.MAX_SAFE_INTEGER`. Above 2^53 a JS number cannot name
+a specific integer at all, so a larger budget could not cross the boundary
+faithfully even if the kernel would take it. 2^53 ms is ~285,000 years.
+
+### Mutation verification of the fixes
+
+Pre-mutation `sha256`: `tick-source.ts` `a0f2d1e4874bf164a0cd657028c89636ebf2d4adf4977f55f7441e795b0dd3ad`,
+`validate.ts` `9986dc54c79476d1355cbfadcf83c6356ffe6d476ca4ef8286c23c6ba6cf4876`.
+Both restored to those exact hashes afterwards.
+
+| Mutation | Reverted | Result |
+|---|---|---|
+| **M3** | re-add the cursor pre-advance | 1 failed — `expected 107 to be 100` |
+| **M3b** | `throw cause` instead of `TickEmitError` | 1 failed — `expected Error: journal client: closed to be an instance of TickEmitError` |
+| **M4** | drop both `requireNonNegativeInteger` calls | **8 failed** |
+| **M5** | restore the i64 literal bound | 2 failed — `expected true to be false` |
+
+M3 and M3b failing **one test each, different tests**, is the useful result: the
+two halves of the P2-1 fix are independently load-bearing, not one mechanism
+double-counted.
+
+### Fixtures untouched
+
+`git diff --stat testdata/` is empty and `spec_hash` is unchanged at
+`0c3d089f0075c53442c5c2241ada734af5e450a2b558c16030aaf1d1e29127ff` — these
+fixes are behavioural and validation-side only, so the compiled dialect and its
+hash are identical to the signed-off head.
+
+---
+
 ## 9. What I could not verify
 
 - **Provisioned-but-never-fired liveness.** Not attempted; it needs a kernel
@@ -443,14 +544,17 @@ const replay = await emitDueTicks(spec, client, { schedule, cursor: {}, nowMs: n
 - **A schedule running in production.** No CLI runner ships here, so
   `agent-relay cloud schedules` will still report "No workflow schedules found"
   after this merges. The primitive is proven; it is not deployed.
-- **Behaviour across a daemon restart mid-backfill.** The unit test covers a
-  failed submit mid-backfill with a fake sink; I did not kill a live daemon
-  between two slots of one backfill. The dedupe claim is durable in SQLite so I
-  expect it to hold, but I did not observe it and am not claiming it.
-- **Clock skew between two hosts running the same schedule.** Two pollers on the
-  same grid dedupe correctly (proved), but I did not test hosts whose clocks
-  disagree by more than one interval — that would put them in different slots
-  and produce two runs. Real, unaddressed, out of scope here.
+- **Behaviour across a daemon restart mid-backfill.** *I* did not verify this —
+  the unit test covers a failed submit mid-backfill with a fake sink, and I did
+  not kill a live daemon between two slots of one backfill. The independent
+  signoff did, on its own live harness: dedupe survives, 3 slots to 3 journals.
+  Recorded here as the reviewer's evidence, not mine.
+- **Clock skew between two hosts running the same schedule.** I flagged this as
+  a suspected duplicate-run risk. The signoff checked it and the fear was
+  **wrong**: skew shifts *when* a slot fires, not how many times it fires,
+  because the slot's identity is a property of the grid and not of either
+  host's clock. Left here corrected rather than deleted, since the original
+  claim is in the PR description.
 - **`maxCatchUp = 60` as the right default.** Chosen as an hour of one-minute
   slots. Not empirically justified.
 - **`hn-monitor.flow.yaml` round-trip** through `kernelToAuthoring(toKernelSpec(…))`

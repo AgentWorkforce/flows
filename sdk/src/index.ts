@@ -170,6 +170,7 @@ export {
 export {
   emitDueTicks,
   scheduledForMs,
+  TickEmitError,
   slotFor,
   tickDedupeKey,
   DEFAULT_MAX_CATCH_UP,

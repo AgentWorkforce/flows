@@ -80,8 +80,17 @@ const TRIGGER_KEYS = [
  * Mirror the bound here so an unrepresentable budget is a compile error rather
  * than an engine error at submit time — a budget the sweep cannot represent
  * fails OPEN, which is the silent death this field exists to prevent.
+ *
+ * The bound is `Number.MAX_SAFE_INTEGER`, NOT `i64::MAX`. Writing the i64
+ * bound as a JS literal does not express it: `9_223_372_036_854_775_807`
+ * rounds UP to 2^63 in a double, so `value > MAX` then ADMITTED exactly the
+ * one value the kernel refuses — the SDK/kernel-agreement failure this whole
+ * file exists to prevent, in miniature. Above 2^53 a JS number cannot name a
+ * specific integer at all, so any larger budget could not be transmitted
+ * faithfully even if the kernel would take it. 2^53 ms is ~285,000 years;
+ * nothing real is lost by refusing beyond it.
  */
-const MAX_STALE_AFTER_MS = 9_223_372_036_854_775_807;
+const MAX_STALE_AFTER_MS = Number.MAX_SAFE_INTEGER;
 
 class Validator {
   private errors: string[] = [];
@@ -250,7 +259,8 @@ class Validator {
     }
     if (value > MAX_STALE_AFTER_MS) {
       this.fail(
-        `${at}: ${value} exceeds the i64 range the kernel's liveness sweep can represent`,
+        `${at}: ${value} exceeds ${MAX_STALE_AFTER_MS}, the largest budget that survives the `
+        + `SDK -> kernel boundary exactly (the sweep stores it as i64)`,
       );
     }
   }

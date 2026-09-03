@@ -338,7 +338,12 @@ describe('validate: preflight declarations', () => {
     [-1, 'expected a positive number'],
     [1.5, 'expected an integer'],
     ['180000', 'expected an integer'],
-    [Number.MAX_VALUE, 'exceeds the i64 range'],
+    [Number.MAX_VALUE, 'exceeds'],
+    // P3: 9_223_372_036_854_775_807 is not representable in JS -- the literal
+    // rounds UP to 2^63, i.e. i64::MAX + 1. A `> MAX_STALE_AFTER_MS` bound
+    // built from it therefore ADMITS exactly the one value the kernel refuses.
+    [2 ** 63, 'exceeds'],
+    [Number.MAX_SAFE_INTEGER + 1, 'exceeds'],
   ])('rejects staleAfterMs %p', (value, fragment) => {
     // A budget the kernel cannot represent fails OPEN — the sweep can never
     // mark the subscription stale — so it must not compile. Zero fails the
