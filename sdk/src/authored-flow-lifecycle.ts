@@ -1,10 +1,6 @@
-import {
-  AsyncLocalStorage,
-  createHook,
-  executionAsyncId,
-  type AsyncHook,
-} from 'node:async_hooks';
+import { AsyncLocalStorage, executionAsyncId } from 'node:async_hooks';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
+import { AuthoredPromiseGraph } from './authored-promise-graph.js';
 
 type OperationToken = object;
 type ResolverProbe = Set<number>;
@@ -26,15 +22,47 @@ const stepOwners = new WeakMap<object, {
 }>();
 let promiseAllObservers = 0;
 
+/**
+ * A `Promise.all` that records which authored operations an aggregate joins.
+ *
+ * This intercepts an intrinsic, which is a real cost and is documented as such
+ * in `ops/reviews/20260903-pr134-repair-0903.md`. It is here because a
+ * combinator's aggregate has no runtime edge to its *non-final* members: the
+ * aggregate's resolution cause reaches only the last element to settle, so
+ * without this registration `await Promise.all([a, b])` reports `a` unawaited.
+ * Every alternative that recovers the link — comparing the `onrejected`
+ * callbacks the combinator passes each element, for instance — is callback
+ * identity inference, which is exactly the forgery class this contract closed.
+ *
+ * Where it previously deviated from the specification it no longer does: a
+ * non-iterable argument is handed straight to the intrinsic so it produces the
+ * specified rejected promise rather than resolving `[]` or throwing
+ * synchronously.
+ */
 const observedPromiseAll = function <T>(
   this: PromiseConstructor,
   values: Iterable<T | PromiseLike<T>>,
 ): Promise<Awaited<T>[]> {
-  const members = Array.from(values);
+  const passThrough = (): Promise<Awaited<T>[]> =>
+    nativePromiseAll.call(this, values as unknown as readonly unknown[]) as Promise<Awaited<T>[]>;
+  if (!isIterable(values)) return passThrough();
+  let members: (T | PromiseLike<T>)[];
+  try {
+    members = Array.from(values);
+  } catch {
+    return passThrough();
+  }
   const aggregate = nativePromiseAll.call(this, members) as Promise<Awaited<T>[]>;
   activeLifecycle.getStore()?.registerPromiseAll(members, aggregate);
   return aggregate;
 };
+Object.defineProperty(observedPromiseAll, 'name', { value: 'all', configurable: true });
+Object.defineProperty(observedPromiseAll, 'length', { value: 1, configurable: true });
+
+function isIterable(value: unknown): value is Iterable<unknown> {
+  if (value === null || value === undefined) return false;
+  return typeof (value as { [Symbol.iterator]?: unknown })[Symbol.iterator] === 'function';
+}
 
 /**
  * Runtime proof that a root operation participates in the continuation which
@@ -43,12 +71,7 @@ const observedPromiseAll = function <T>(
  * called the operation's then method.
  */
 export class AuthoredFlowLifecycle {
-  private readonly hook: AsyncHook;
-  private readonly triggers = new Map<number, number>();
-  private readonly resolutionCauses = new Map<number, number>();
-  private readonly promises = new Map<number, Promise<unknown>>();
-  private readonly promiseIds = new WeakMap<object, number>();
-  private readonly settledPromises = new Set<number>();
+  private readonly graph: AuthoredPromiseGraph;
   private readonly activeResolverProbes: ResolverProbe[] = [];
   private readonly invocations = new Map<OperationToken, AuthoredOperationInvocation[]>();
   private readonly promiseAllAggregates = new Map<OperationToken, Set<number>>();
@@ -58,23 +81,15 @@ export class AuthoredFlowLifecycle {
   private closed = false;
 
   constructor() {
-    this.hook = createHook({
-      init: (asyncId, type, triggerAsyncId, resource) => {
-        if (type !== 'PROMISE' || typeof resource !== 'object' || resource === null) return;
-        this.triggers.set(asyncId, triggerAsyncId);
-        this.promises.set(asyncId, resource as Promise<unknown>);
-        this.promiseIds.set(resource, asyncId);
-      },
-      promiseResolve: (asyncId) => {
-        this.settledPromises.add(asyncId);
-        const cause = executionAsyncId();
-        if (cause !== asyncId) this.resolutionCauses.set(asyncId, cause);
+    this.graph = new AuthoredPromiseGraph(
+      () => activeLifecycle.getStore() === this,
+      (asyncId) => {
         for (const probe of this.activeResolverProbes) probe.add(asyncId);
       },
-    });
+    );
     installPromiseAllObserver();
     try {
-      this.hook.enable();
+      this.graph.enable();
     } catch (error) {
       uninstallPromiseAllObserver();
       throw error;
@@ -90,12 +105,13 @@ export class AuthoredFlowLifecycle {
   }
 
   registerPromiseAll(values: readonly unknown[], aggregate: Promise<unknown>): void {
-    const aggregateId = this.promiseIds.get(aggregate);
+    const aggregateId = this.graph.idOf(aggregate);
     if (aggregateId === undefined) return;
+    this.graph.registerRoot(aggregateId);
     const memberIds = new Set<number>();
     for (const value of values) {
       if ((typeof value !== 'object' && typeof value !== 'function') || value === null) continue;
-      const memberId = this.promiseIds.get(value);
+      const memberId = this.graph.idOf(value);
       if (memberId !== undefined) memberIds.add(memberId);
       const owner = stepOwners.get(value);
       if (owner?.lifecycle !== this) continue;
@@ -117,6 +133,7 @@ export class AuthoredFlowLifecycle {
     const operationInvocations = this.invocations.get(operation);
     if (operationInvocations === undefined) this.invocations.set(operation, [invocation]);
     else operationInvocations.push(invocation);
+    this.graph.registerRoot(asyncId);
     return invocation;
   }
 
@@ -157,24 +174,39 @@ export class AuthoredFlowLifecycle {
     const aggregates = this.aggregatesFor(operation);
     return operationInvocations.length > 0 && operationInvocations.every((invocation) =>
       invocation.bound && (
-        this.dependsOn(completion, invocation.asyncId)
-        || [...aggregates].some((aggregate) => this.dependsOn(completion, aggregate))
+        this.graph.dependsOn(completion, invocation.asyncId)
+        || [...aggregates].some((aggregate) => this.graph.dependsOn(completion, aggregate))
       ));
+  }
+
+  /**
+   * Operations that still had derived work running when the body returned.
+   *
+   * This is the question the gate used to get wrong. It previously asked which
+   * derived failures had *already landed*, and skipped every promise that had
+   * not settled — so the same program passed or failed on how many microtask
+   * ticks the failure took. Ten `await null`s, or any real derived I/O, cleared
+   * the window.
+   *
+   * Whether derived work is still in flight when the body returns is not a
+   * timing fact, it is a causal one: work the author awaited is settled at that
+   * instant in every timing, and work the author did not await is pending in
+   * every timing. Refusing on pending work therefore closes the race rather
+   * than widening it — and it makes the *settled* set complete, so reading the
+   * outcomes of the settled promises stops being a sample and becomes a total
+   * answer over a closed set.
+   *
+   * Must be called before the gate awaits anything.
+   */
+  derivedWorkInFlight<T extends OperationToken>(operations: readonly T[]): T[] {
+    return operations.filter((operation) =>
+      this.graph.inFlightFrom(this.rootsFor(operation)).length > 0);
   }
 
   async observeCallbackFailures(operations: readonly OperationToken[]): Promise<void> {
     const observations: Promise<unknown>[] = [];
-    const snapshot = [...this.promises.entries()];
     for (const operation of operations) {
-      const roots = new Set(
-        (this.invocations.get(operation) ?? [])
-          .filter((invocation) => invocation.bound)
-          .map((invocation) => invocation.asyncId),
-      );
-      for (const aggregate of this.aggregatesFor(operation)) roots.add(aggregate);
-      for (const [asyncId, promise] of snapshot) {
-        if (!this.settledPromises.has(asyncId) || roots.has(asyncId)) continue;
-        if (![...roots].some((root) => this.triggerDescendsFrom(asyncId, root))) continue;
+      for (const promise of this.graph.settledFrom(this.rootsFor(operation))) {
         observations.push(nativePromiseThen.call(
           promise,
           () => undefined,
@@ -198,9 +230,24 @@ export class AuthoredFlowLifecycle {
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    this.hook.disable();
-    this.promises.clear();
+    this.graph.disable();
+    this.graph.clear();
+    this.invocations.clear();
+    this.promiseAllAggregates.clear();
+    this.promiseAllGroups.length = 0;
+    this.callbackFailures.clear();
+    this.activeResolverProbes.length = 0;
     uninstallPromiseAllObserver();
+  }
+
+  private rootsFor(operation: OperationToken): ReadonlySet<number> {
+    const roots = new Set(
+      (this.invocations.get(operation) ?? [])
+        .filter((invocation) => invocation.bound)
+        .map((invocation) => invocation.asyncId),
+    );
+    for (const aggregate of this.aggregatesFor(operation)) roots.add(aggregate);
+    return roots;
   }
 
   private recordCallbackFailure(operation: OperationToken, error: unknown): void {
@@ -213,43 +260,13 @@ export class AuthoredFlowLifecycle {
       for (const group of this.promiseAllGroups) {
         if (
           group.members.size > 0
-          && [...group.members].some((member) => this.dependsOn(member, invocation.asyncId))
+          && [...group.members].some((member) => this.graph.dependsOn(member, invocation.asyncId))
         ) {
           aggregates.add(group.aggregate);
         }
       }
     }
     return aggregates;
-  }
-
-  private dependsOn(descendant: number, ancestor: number): boolean {
-    return this.dependenciesOf(descendant).has(ancestor);
-  }
-
-  private dependenciesOf(start: number): Set<number> {
-    const found = new Set<number>();
-    const pending = [start];
-    while (pending.length > 0) {
-      const current = pending.pop()!;
-      if (found.has(current)) continue;
-      found.add(current);
-      const trigger = this.triggers.get(current);
-      const cause = this.resolutionCauses.get(current);
-      if (trigger !== undefined && trigger !== current) pending.push(trigger);
-      if (cause !== undefined && cause !== current) pending.push(cause);
-    }
-    return found;
-  }
-
-  private triggerDescendsFrom(descendant: number, ancestor: number): boolean {
-    let current: number | undefined = descendant;
-    const seen = new Set<number>();
-    while (current !== undefined && !seen.has(current)) {
-      if (current === ancestor) return true;
-      seen.add(current);
-      current = this.triggers.get(current);
-    }
-    return false;
   }
 }
 

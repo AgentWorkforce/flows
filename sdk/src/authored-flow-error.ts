@@ -13,6 +13,7 @@ export type AuthoredFlowExecutionErrorCode =
   | 'unsupported_completion'
   | 'unsupported_gate'
   | 'unsupported_header'
+  | 'unsettled_derived_work'
   | 'unsupported_promise_lifecycle'
   | 'unawaited_step'
   | 'unsupported_verb';
