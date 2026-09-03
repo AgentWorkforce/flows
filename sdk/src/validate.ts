@@ -47,7 +47,7 @@ const RECOVERY_MODES: ReadonlySet<RecoveryMode> = new Set([
 
 const DECIMAL_RE = /^\d+(\.\d+)?$/;
 
-function isCanonicalExternalSurface(value: unknown): value is string {
+function isCanonicalPathSurface(value: unknown): value is string {
   if (!isNonEmptyString(value) || value.trim() !== value) return false;
   let tail = value;
   if (tail.startsWith('/')) tail = tail.slice(1);
@@ -373,8 +373,8 @@ class Validator {
     const s = surfaces as Record<string, unknown>;
     this.checkKeys(s, SURFACES_KEYS, at);
     if (s['workspace'] !== undefined) {
-      if (!Array.isArray(s['workspace']) || !(s['workspace'] as unknown[]).every((w) => isObject(w) && isNonEmptyString((w as Record<string, unknown>)['surface']))) {
-        this.fail(`${at}.workspace: expected an array of {surface: string}`);
+      if (!Array.isArray(s['workspace']) || !(s['workspace'] as unknown[]).every((w) => isObject(w) && isCanonicalPathSurface((w as Record<string, unknown>)['surface']))) {
+        this.fail(`${at}.workspace: expected canonical {surface: string} entries without empty, . or .. path components`);
       } else {
         for (const [i, w] of (s['workspace'] as Record<string, unknown>[]).entries()) {
           this.checkKeys(w, WORKSPACE_SURFACE_KEYS, `${at}.workspace[${i}]`);
@@ -391,7 +391,7 @@ class Validator {
       }
     }
     if (s['external'] !== undefined) {
-      if (!Array.isArray(s['external']) || !(s['external'] as unknown[]).every(isCanonicalExternalSurface)) {
+      if (!Array.isArray(s['external']) || !(s['external'] as unknown[]).every(isCanonicalPathSurface)) {
         this.fail(`${at}.external: expected canonical path strings without empty, . or .. components`);
       }
     }

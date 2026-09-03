@@ -309,6 +309,24 @@ fn external_ancestor_and_descendant_paths_conflict_but_siblings_do_not() {
 }
 
 #[test]
+fn workspace_ancestor_and_descendant_paths_conflict_but_siblings_do_not() {
+    let selected = |left: &str, right: &str| {
+        let spec = crate::RunSpec::parse(&json!({
+            "steps": [
+                {"id": "first", "type": "agent", "instruction": "a", "surfaces": {"workspace": [{"surface": left}]}},
+                {"id": "second", "type": "agent", "instruction": "b", "surfaces": {"workspace": [{"surface": right}]}}
+            ]
+        }))
+        .unwrap();
+        let state = RunState::fold("run", spec, &[]).unwrap();
+        next_actions(&state, 10)
+    };
+    assert_eq!(selected("/mount/repo", "/mount/repo/child").len(), 2);
+    assert_eq!(selected("worktrees/repo", "worktrees/repo/child").len(), 2);
+    assert_eq!(selected("/mount/left", "/mount/right").len(), 4);
+}
+
+#[test]
 fn disjoint_agent_lanes_merge_pins_in_either_completion_order() {
     for order in [["lane-b", "lane-a"], ["lane-a", "lane-b"]] {
         let spec = parallel_agent_spec(false);

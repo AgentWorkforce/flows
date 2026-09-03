@@ -23,6 +23,8 @@ mod support;
 mod surface_identity;
 #[path = "crash_resume/worker_capacity.rs"]
 mod worker_capacity;
+#[path = "crash_resume/workspace_identity.rs"]
+mod workspace_identity;
 
 use std::{
     fs, io::Write, os::unix::net::UnixStream, os::unix::process::CommandExt, process::Command,

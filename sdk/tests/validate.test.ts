@@ -330,6 +330,39 @@ describe('validate: canonical external surfaces', () => {
   });
 });
 
+describe('validate: canonical workspace mounts and worktrees', () => {
+  it.each([
+    '/mount/./repo',
+    '/mount/repo/../repo',
+    '/mount//repo',
+    '/mount/repo/',
+    ' worktrees/repo',
+    'worktrees/./repo',
+  ])('rejects alias %s', (surface) => {
+    const result = validateSpec({
+      version: '0.1.0',
+      steps: [{
+        id: 'agent', type: 'agent', instruction: 'write',
+        surfaces: { workspace: [{ surface }] },
+      }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('canonical');
+  });
+
+  it('accepts canonical mount paths and named worktrees', () => {
+    for (const surface of ['/mount/repo', 'worktrees/repo', 'repo']) {
+      expect(validateSpec({
+        version: '0.1.0',
+        steps: [{
+          id: 'agent', type: 'agent', instruction: 'write',
+          surfaces: { workspace: [{ surface }] },
+        }],
+      })).toEqual({ ok: true, errors: [] });
+    }
+  });
+});
+
 describe('validate: preflight declarations', () => {
   it('accepts CLI defaults and inert trigger data', () => {
     const result = validateSpec({

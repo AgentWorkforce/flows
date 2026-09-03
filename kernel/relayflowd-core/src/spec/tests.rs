@@ -215,6 +215,48 @@ fn external_surface_paths_must_have_one_canonical_spelling() {
 }
 
 #[test]
+fn workspace_mounts_and_worktrees_must_have_one_canonical_spelling() {
+    for surface in [
+        "/mount/./repo",
+        "/mount/repo/../repo",
+        "/mount//repo",
+        "/mount/repo/",
+        " worktrees/repo",
+        "worktrees/./repo",
+    ] {
+        let spec = RunSpec::parse(&json!({
+            "steps": [{
+                "id": "agent",
+                "type": "agent",
+                "instruction": "write",
+                "surfaces": {"workspace": [{"surface": surface}]}
+            }]
+        }))
+        .unwrap();
+        assert!(
+            matches!(
+                spec.validate(),
+                Err(SpecError::InvalidWorkspaceSurface { surface: invalid, .. })
+                    if invalid == surface
+            ),
+            "accepted non-canonical workspace surface {surface:?}"
+        );
+    }
+    for surface in ["/mount/repo", "worktrees/repo", "repo"] {
+        let spec = RunSpec::parse(&json!({
+            "steps": [{
+                "id": "agent",
+                "type": "agent",
+                "instruction": "write",
+                "surfaces": {"workspace": [{"surface": surface}]}
+            }]
+        }))
+        .unwrap();
+        assert!(spec.validate().is_ok(), "rejected {surface:?}");
+    }
+}
+
+#[test]
 fn preflight_data_is_fail_closed() {
     let malformed = RunSpec::parse(&json!({
         "triggers": [{"id": "hourly", "executor": "worker-a", "worker": "guessed"}],
