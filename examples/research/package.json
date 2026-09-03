@@ -1,0 +1,11 @@
+{
+  "name": "@relayflows/research-flow",
+  "private": true,
+  "type": "module",
+  "description": "The research example: a v2 relayflow with shims. `npm test` runs its node:test suites; `npm run typecheck` uses the sdk's TypeScript. Marks the directory as ESM so node --experimental-strip-types runs it without reparsing.",
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "typecheck": "cd ../../sdk && ./node_modules/.bin/tsc -p ../examples/research/tsconfig.json",
+    "check": "npm test && npm run typecheck"
+  }
+}
