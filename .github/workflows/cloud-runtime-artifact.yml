@@ -50,11 +50,21 @@ jobs:
       # opposite contracts that both passed because neither was ever executed.
       #
       # The toolchain and the build are already paid for above; this adds the
-      # test run and nothing else. Invoked through ops/cargo.sh, as the repo
-      # does everywhere else, so the target directory stays outside the tree.
+      # test run and nothing else.
+      #
+      # Plain `cargo`, NOT ops/cargo.sh. That wrapper unconditionally redirects
+      # RUSTUP_HOME to $HOME/.relayflows-toolchain/rustup, which on a runner is
+      # empty, so the rustup shim has nothing to choose:
+      #   error: rustup could not choose a version of cargo to run, because one
+      #   wasn't specified explicitly, and no default is configured
+      # The wrapper exists for a cloud sandbox, where the propagated tree drops
+      # files over a size cap; a GitHub runner has neither that constraint nor
+      # that tree, and dtolnay/rust-toolchain has already installed a default
+      # toolchain into the standard home. Matching the build step above is both
+      # simpler and the configuration that is known to work here.
       - name: Test kernel
         working-directory: kernel
-        run: sh ../ops/cargo.sh test --workspace
+        run: cargo test --workspace
 
       - name: Install SDK dependencies
         run: npm ci --prefix sdk
@@ -66,13 +76,28 @@ jobs:
           # added to any other file never runs, which is how ~22 of ~26 SDK
           # test files were uncovered.
           #
-          # `npm test` is the repo's own entry point and a strict superset of
-          # what this step used to do:
-          #   test:prep && typecheck && build && typecheck:tests && vitest run
-          # test:prep builds the relayflowd binary that tests/live-kernel.test.ts
-          # execs, and the build it runs is why a bare `vitest run` is wrong
-          # here -- several files fail at collection without sdk/dist.
-          npm test
+          # This is `npm test` expanded, minus test:prep. `npm test` is
+          # test:prep && typecheck && build && typecheck:tests && vitest run,
+          # and test:prep shells out to ops/cargo.sh -- which fails on a runner
+          # for the reason given on the kernel step above. Its only purpose is
+          # to produce the relayflowd binary that tests/live-kernel.test.ts
+          # execs, and this job has already built one: the release binary from
+          # the build step. Point RELAYFLOWD_BIN at it rather than compiling a
+          # second, debug copy through a wrapper that cannot run here.
+          #
+          # The build is still required: several test files fail at collection
+          # without sdk/dist, which is why a bare `vitest run` is not enough.
+          # test:prep's other half, kept: it re-asserts the executable bit on the
+          # preflight CLI fixtures. They are committed 100755 so actions/checkout
+          # already restores them, but the guard is one line and the failure it
+          # prevents is an opaque EACCES deep inside a preflight test.
+          ( [ ! -d ../testdata/preflight ] || \
+            find ../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )
+          npm run typecheck
+          npm run build
+          npm run typecheck:tests
+          RELAYFLOWD_BIN="$GITHUB_WORKSPACE/kernel/target/release/relayflowd" \
+            ./node_modules/.bin/vitest run
 
       - name: Build standalone flows CLI
         run: |
