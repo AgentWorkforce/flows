@@ -25,7 +25,7 @@ interface Case {
 }
 const corpus = JSON.parse(
   readFileSync(join(TESTDATA, 'json-schema-bound-cases.json'), 'utf8'),
-) as { marker: string; refused: Case[]; accepted: Case[] };
+) as { marker: string; refused: Case[]; accepted: Case[]; engineRefused: Case[] };
 
 const flowWith = (schema: unknown): FlowSpec =>
   ({
@@ -66,6 +66,27 @@ describe('JSON Schema termination bound', () => {
       expect(jsonSchemaBoundError(entry.schema)).toBeUndefined();
       expect(jsonSchemaError(entry.schema)).toBeUndefined();
       expect(() => compileSpec(flowWith(entry.schema))).not.toThrow();
+    },
+  );
+
+  // The narrowed premise, tested rather than asserted in a comment.
+  //
+  // The resolver leaves a reference that names no in-document resource opaque.
+  // That is only safe because such a reference is refused by the ENGINE, and
+  // the previous, wider version of this claim -- "the engine refuses anything
+  // the bound cannot resolve" -- was false for an in-document `$id`, which is
+  // the whole of signoff-4's P0. So both halves are pinned here: the bound must
+  // NOT claim these schemas, and the engine MUST refuse them. If a future
+  // change makes the engine accept an unresolvable reference, this fails and
+  // the opaque default has to be revisited.
+  it.each(corpus.engineRefused.map((entry) => [entry.name, entry] as const))(
+    'leaves %s to the engine, which refuses it',
+    (_name, entry) => {
+      expect(jsonSchemaBoundError(entry.schema)).toBeUndefined();
+      const fromEngine = jsonSchemaError(entry.schema);
+      expect(fromEngine).toBeDefined();
+      expect(fromEngine).not.toContain(UNBOUNDED_REF_CYCLE);
+      expect(() => compileSpec(flowWith(entry.schema))).toThrow();
     },
   );
 

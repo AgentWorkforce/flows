@@ -73,7 +73,12 @@ fn bound_declaration(schema: &Value) -> Result<(), String> {
         // Boolean schemas carry no references.
         return Ok(());
     }
-    let Scopes { anchors, has_ids } = collect_scopes(schema);
+    let Scopes {
+        resources,
+        anchors,
+        base_at,
+        has_ids,
+    } = collect_scopes(schema);
     let mut in_place: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut seen: HashSet<String> = HashSet::new();
     let mut queue: Vec<String> = vec![String::new()];
@@ -93,15 +98,31 @@ fn bound_declaration(schema: &Value) -> Result<(), String> {
             // Walking to the nearest `$id` is the expensive part, so it is done
             // only for a node that actually carries a reference, and skipped
             // entirely for a document with no `$id` anywhere.
-            let base = if has_ids {
-                nearest_id_base(schema, &pointer)
+            // A reference is resolved as a URI against the base URI in
+            // effect at this node (RFC 3986 §5), and only then as a fragment
+            // inside the resource it names. Keying on a leading `#` instead
+            // would miss the standard 2020-12 *compound schema document* form
+            // (spec §9.3, what every bundler emits), where a `$ref` written as
+            // a URI names an `$id` declared inside this same document and
+            // `jsonschema` resolves it from the document's own resource map.
+            let base_uri = if has_ids {
+                base_at.get(&pointer).map(String::as_str).unwrap_or("")
             } else {
-                String::new()
+                ""
             };
-            // An unresolvable reference (external URI, absolute URI, unknown
-            // anchor) is left opaque here: `jsonschema::validator_for` below
-            // refuses it outright, so nothing unresolved reaches validation.
-            if let Some(target) = resolve(&base, reference, &anchors) {
+            // A reference that names no resource declared in this document is
+            // left opaque, on a claim narrower than the one this comment used
+            // to make. It is either (a) remote, which `validator_for` refuses
+            // below because no retriever is configured, or (b) a meta-schema
+            // bundled with `jsonschema`, which cannot reference back into this
+            // document and so cannot close a cycle rooted here. Neither can
+            // participate in an unbounded in-place cycle.
+            //
+            // The older claim — "validator_for refuses anything the bound
+            // cannot resolve" — was true for remote resources and FALSE for an
+            // in-document `$id`, which is resolved from the resource map and
+            // then overflows. That gap is what this resolver closes.
+            if let Some(target) = resolve(base_uri, reference, &resources, &anchors) {
                 if schema.pointer(&target).is_some() {
                     here.push(target);
                 }
@@ -212,36 +233,148 @@ fn display_pointer(pointer: &str) -> String {
     }
 }
 
-/// Longest pointer prefix whose node declares `$id`; JSON-pointer fragments
-/// resolve against that base rather than against the document root.
-fn nearest_id_base(root: &Value, pointer: &str) -> String {
-    let mut best = String::new();
-    let mut current = String::new();
-    for segment in pointer.split('/').skip(1) {
-        current.push('/');
-        current.push_str(segment);
-        if root
-            .pointer(&current)
-            .and_then(|node| node.get("$id"))
-            .is_some()
-        {
-            best.clone_from(&current);
-        }
+/// Split `<uri>#<fragment>` into its two halves. `None` means the reference
+/// carried no `#` at all, which is distinct from an empty fragment.
+fn split_fragment(reference: &str) -> (&str, Option<&str>) {
+    match reference.find('#') {
+        Some(index) => (&reference[..index], Some(&reference[index + 1..])),
+        None => (reference, None),
     }
-    best
 }
 
-fn resolve(base: &str, reference: &str, anchors: &HashMap<String, String>) -> Option<String> {
-    if reference == "#" {
-        return Some(base.to_owned());
+fn strip_fragment(uri: &str) -> &str {
+    split_fragment(uri).0
+}
+
+/// RFC 3986 §3.1 scheme detection: `scheme ":"`, where scheme starts with a
+/// letter. Used to tell an absolute URI from a relative reference.
+fn has_scheme(reference: &str) -> bool {
+    let mut chars = reference.char_indices();
+    match chars.next() {
+        Some((_, first)) if first.is_ascii_alphabetic() => {}
+        _ => return false,
     }
-    if let Some(rest) = reference.strip_prefix("#/") {
-        return Some(format!("{base}/{}", percent_decode(rest)));
+    for (index, character) in chars {
+        if character == ':' {
+            return index > 0;
+        }
+        if !(character.is_ascii_alphanumeric()
+            || character == '+'
+            || character == '-'
+            || character == '.')
+        {
+            return false;
+        }
     }
-    if let Some(name) = reference.strip_prefix('#') {
-        return anchors.get(&percent_decode(name)).cloned();
+    false
+}
+
+/// RFC 3986 §5.2.4.
+fn remove_dot_segments(path: &str) -> String {
+    let absolute = path.starts_with('/');
+    let trailing = path.ends_with('/') || path.ends_with("/.") || path.ends_with("/..");
+    let mut out: Vec<&str> = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
     }
-    None
+    let mut resolved = String::new();
+    if absolute {
+        resolved.push('/');
+    }
+    resolved.push_str(&out.join("/"));
+    if trailing && !resolved.ends_with('/') {
+        resolved.push('/');
+    }
+    resolved
+}
+
+/// Split a URI into the part that a rooted path replaces (scheme + authority)
+/// and the path itself, so `root + path == uri` for a hierarchical URI.
+fn split_authority(uri: &str) -> (&str, &str) {
+    match uri.find("://") {
+        Some(index) => {
+            let after = &uri[index + 3..];
+            match after.find('/') {
+                Some(slash) => uri.split_at(index + 3 + slash),
+                None => (uri, ""),
+            }
+        }
+        // Opaque URI (`urn:...`): there is no authority to preserve.
+        None => match uri.rfind('/') {
+            Some(index) => uri.split_at(index + 1),
+            None => (uri, ""),
+        },
+    }
+}
+
+/// RFC 3986 §5.3 reference resolution, enough of it for schema identifiers.
+///
+/// Exactness matters less than *consistency*: every `$id` is registered
+/// through this function and every `$ref` is looked up through it, so a
+/// document whose identifiers are written literally — which is what a bundler
+/// emits — matches regardless of how this normalizes. `collect_scopes` also
+/// registers each resource under its raw `$id` string for the same reason.
+fn resolve_uri(base: &str, reference: &str) -> String {
+    if reference.is_empty() {
+        return base.to_owned();
+    }
+    if has_scheme(reference) {
+        return reference.to_owned();
+    }
+    if base.is_empty() {
+        return reference.to_owned();
+    }
+    if let Some(rest) = reference.strip_prefix("//") {
+        let scheme = base.split(':').next().unwrap_or("");
+        return format!("{scheme}://{rest}");
+    }
+    let (root, path) = split_authority(base);
+    if reference.starts_with('/') {
+        return format!("{root}{}", remove_dot_segments(reference));
+    }
+    let merged = match path.rfind('/') {
+        Some(index) => format!("{}{reference}", &path[..=index]),
+        None => format!("/{reference}"),
+    };
+    format!("{root}{}", remove_dot_segments(&merged))
+}
+
+/// Resolve a reference to the JSON pointer of the node it names, or `None`
+/// when it names nothing inside this document.
+fn resolve(
+    base: &str,
+    reference: &str,
+    resources: &HashMap<String, String>,
+    anchors: &HashMap<(String, String), String>,
+) -> Option<String> {
+    let (uri, fragment) = split_fragment(reference);
+    let (target_base, target_pointer) = if uri.is_empty() {
+        (base.to_owned(), resources.get(base)?.clone())
+    } else {
+        let resolved = resolve_uri(base, uri);
+        match resources.get(&resolved) {
+            Some(pointer) => (resolved, pointer.clone()),
+            // Literal fallback: the reference as written, in case this
+            // resolver and the `$id` that registered the resource normalized
+            // differently.
+            None => (uri.to_owned(), resources.get(uri)?.clone()),
+        }
+    };
+    match fragment {
+        None | Some("") => Some(target_pointer),
+        Some(pointer) if pointer.starts_with('/') => {
+            Some(format!("{target_pointer}{}", percent_decode(pointer)))
+        }
+        Some(name) => anchors
+            .get(&(target_base, percent_decode(name)))
+            .cloned(),
+    }
 }
 
 fn percent_decode(input: &str) -> String {
@@ -264,40 +397,71 @@ fn percent_decode(input: &str) -> String {
 }
 
 struct Scopes {
-    anchors: HashMap<String, String>,
+    /// Base URI of every resource declared in this document -> its pointer.
+    /// Each resource is registered under both its resolved and its raw `$id`.
+    resources: HashMap<String, String>,
+    /// `(base URI, anchor name)` -> pointer. Anchors are scoped to the
+    /// resource that declares them, so the same name may appear under two
+    /// different `$id`s without either shadowing the other.
+    anchors: HashMap<(String, String), String>,
+    /// Base URI in effect at each node pointer.
+    base_at: HashMap<String, String>,
     has_ids: bool,
 }
 
 fn collect_scopes(root: &Value) -> Scopes {
-    let mut anchors: HashMap<String, String> = HashMap::new();
+    let mut resources: HashMap<String, String> = HashMap::new();
+    let mut anchors: HashMap<(String, String), String> = HashMap::new();
+    let mut base_at: HashMap<String, String> = HashMap::new();
     let mut has_ids = false;
-    let mut stack: Vec<(String, &Value)> = vec![(String::new(), root)];
-    while let Some((pointer, node)) = stack.pop() {
+
+    resources.insert(String::new(), String::new());
+    let mut stack: Vec<(String, String, &Value)> = vec![(String::new(), String::new(), root)];
+    while let Some((pointer, inherited, node)) = stack.pop() {
         match node {
             Value::Object(map) => {
-                if map.contains_key("$id") {
+                let mut base = inherited;
+                if let Some(id) = map.get("$id").or_else(|| map.get("id")).and_then(Value::as_str)
+                {
                     has_ids = true;
+                    let resolved = resolve_uri(&base, strip_fragment(id));
+                    resources
+                        .entry(resolved.clone())
+                        .or_insert_with(|| pointer.clone());
+                    resources
+                        .entry(strip_fragment(id).to_owned())
+                        .or_insert_with(|| pointer.clone());
+                    base = resolved;
                 }
-                for keyword in ["$anchor", "$dynamicAnchor"] {
+                base_at.insert(pointer.clone(), base.clone());
+                for keyword in ["$anchor", "$dynamicAnchor", "$recursiveAnchor"] {
                     if let Some(name) = map.get(keyword).and_then(Value::as_str) {
                         anchors
-                            .entry(name.to_owned())
+                            .entry((base.clone(), name.to_owned()))
                             .or_insert_with(|| pointer.clone());
                     }
                 }
                 for (key, value) in map {
-                    stack.push((child_pointer(&pointer, key), value));
+                    stack.push((child_pointer(&pointer, key), base.clone(), value));
                 }
             }
             Value::Array(items) => {
+                base_at.insert(pointer.clone(), inherited.clone());
                 for (index, value) in items.iter().enumerate() {
-                    stack.push((format!("{pointer}/{index}"), value));
+                    stack.push((format!("{pointer}/{index}"), inherited.clone(), value));
                 }
             }
-            _ => {}
+            _ => {
+                base_at.insert(pointer, inherited);
+            }
         }
     }
-    Scopes { anchors, has_ids }
+    Scopes {
+        resources,
+        anchors,
+        base_at,
+        has_ids,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -396,7 +560,7 @@ mod tests {
         let corpus = corpus();
         let marker = corpus["marker"].as_str().unwrap();
         let cases = corpus["refused"].as_array().unwrap();
-        assert!(cases.len() >= 12, "corpus lost refusal cases");
+        assert!(cases.len() >= 20, "corpus lost refusal cases");
         for case in cases {
             let name = case["name"].as_str().unwrap();
             let schema = &case["schema"];
@@ -423,6 +587,76 @@ mod tests {
                 validate_declaration(&case["schema"]).is_ok(),
                 "{name}: legitimate schema must stay legal, got {:?}",
                 validate_declaration(&case["schema"])
+            );
+        }
+    }
+
+    /// The narrowed premise, tested rather than asserted in a comment.
+    ///
+    /// `resolve` leaves a reference naming no in-document resource opaque.
+    /// That is only safe because the ENGINE refuses such a reference. The
+    /// previous, wider form of this claim — "validator_for refuses anything the
+    /// bound cannot resolve" — was false for an in-document `$id`, which is
+    /// signoff-4's P0 in one sentence. Both halves are pinned: the bound must
+    /// not claim these, and `validator_for` must refuse them. If a future
+    /// `jsonschema` accepts an unresolvable reference, this fails and the
+    /// opaque default has to be revisited rather than silently becoming a hole.
+    #[test]
+    fn references_the_bound_leaves_opaque_are_refused_by_the_engine() {
+        let corpus = corpus();
+        let cases = corpus["engineRefused"].as_array().unwrap();
+        assert!(!cases.is_empty(), "corpus lost the engine-refused cases");
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let schema = &case["schema"];
+            assert!(
+                bound_declaration(schema).is_ok(),
+                "{name}: the bound must not claim a reference it cannot resolve"
+            );
+            let error = jsonschema::validator_for(schema)
+                .expect_err(&format!("{name}: the engine must refuse this reference"));
+            let error = error.to_string();
+            assert!(
+                !error.contains(UNBOUNDED_REF_CYCLE),
+                "{name}: this must be the engine's refusal, not the bound's, got {error}"
+            );
+            assert!(
+                compile(schema).is_err(),
+                "{name}: the gate as a whole must refuse it"
+            );
+        }
+    }
+
+    /// Every reference FORM in the 2020-12 vocabulary that can name a target
+    /// inside this document must be resolvable by the bound, not just the
+    /// `#`-prefixed ones. Keying on `#` is what let the compound-schema-document
+    /// (bundling) form through.
+    #[test]
+    fn in_document_uri_references_resolve_to_the_node_they_name() {
+        let schema = json!({
+            "$id": "https://ex.test/root",
+            "$defs": {
+                "a": {"$id": "https://ex.test/a", "$anchor": "nm", "type": "string"}
+            }
+        });
+        let Scopes {
+            resources, anchors, ..
+        } = collect_scopes(&schema);
+        for (base, reference, expected) in [
+            ("", "https://ex.test/a", Some("/$defs/a")),
+            ("https://ex.test/root", "a", Some("/$defs/a")),
+            ("https://ex.test/root", "/a", Some("/$defs/a")),
+            ("https://ex.test/root", "https://ex.test/a#nm", Some("/$defs/a")),
+            ("https://ex.test/a", "#nm", Some("/$defs/a")),
+            ("https://ex.test/a", "#", Some("/$defs/a")),
+            ("", "https://ex.test/root", Some("")),
+            ("", "https://elsewhere.test/a", None),
+            ("https://ex.test/root", "#unknown-anchor", None),
+        ] {
+            assert_eq!(
+                resolve(base, reference, &resources, &anchors).as_deref(),
+                expected,
+                "base {base:?} reference {reference:?}"
             );
         }
     }
