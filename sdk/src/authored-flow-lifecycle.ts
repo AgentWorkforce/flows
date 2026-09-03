@@ -14,54 +14,92 @@ export interface AuthoredOperationInvocation {
 }
 
 const nativePromiseThen = Promise.prototype.then;
-const nativePromiseAll = Promise.all;
 const activeLifecycle = new AsyncLocalStorage<AuthoredFlowLifecycle>();
 const stepOwners = new WeakMap<object, {
   lifecycle: AuthoredFlowLifecycle;
   operation: OperationToken;
 }>();
-let promiseAllObservers = 0;
 
 /**
- * A `Promise.all` that records which authored operations an aggregate joins.
+ * The four intrinsic combinators, intercepted so that an aggregate's membership
+ * is recorded exactly.
  *
- * This intercepts an intrinsic, which is a real cost and is documented as such
- * in `ops/reviews/20260903-pr134-repair-0903.md`. It is here because a
- * combinator's aggregate has no runtime edge to its *non-final* members: the
- * aggregate's resolution cause reaches only the last element to settle, so
- * without this registration `await Promise.all([a, b])` reports `a` unawaited.
- * Every alternative that recovers the link — comparing the `onrejected`
- * callbacks the combinator passes each element, for instance — is callback
- * identity inference, which is exactly the forgery class this contract closed.
+ * **Why interception, and why all four.** An aggregate is derived from *every*
+ * member, but the runtime supplies an edge to only *one* of them: the aggregate
+ * is resolved inside the reaction of whichever member settled last (`all`,
+ * `allSettled`) or first (`race`, `any`). Inferring membership from that edge is
+ * a sufficient rule, never a necessary one, and it fails in both directions —
+ * `Promise.allSettled([step, slowerUnrelated])` hid a rejected derived chain
+ * behind an aggregate an unrelated promise resolved, and
+ * `await Promise.allSettled([a, b])` refused every member except the last to
+ * settle. Membership cannot be recovered from the promise graph, so it is
+ * recorded here, where the combinator is called and the member list is in hand.
  *
- * Where it previously deviated from the specification it no longer does: a
- * non-iterable argument is handed straight to the intrinsic so it produces the
- * specified rejected promise rather than resolving `[]` or throwing
- * synchronously.
+ * A previous revision registered `Promise.all` only, and claimed a
+ * resolution-context rule covered "every combinator, present and future". That
+ * claim was wrong: it covered whichever member happened to resolve the
+ * aggregate. What is true is narrower and is what the code now implements —
+ * these four are exact, and `adoptFromResolvingContext` in the promise graph is
+ * a best-effort fallback for aggregates built by hand.
+ *
+ * The interception is disclosed to authors in `docs/SURFACE.md`. It is spec
+ * transparent: `Symbol.iterator` is read exactly once (as the intrinsic does),
+ * a non-iterable is handed to the intrinsic so it produces the specified
+ * rejected promise, `this` is honoured for subclasses, and `name`/`length`
+ * match.
  */
-const observedPromiseAll = function <T>(
-  this: PromiseConstructor,
-  values: Iterable<T | PromiseLike<T>>,
-): Promise<Awaited<T>[]> {
-  const passThrough = (): Promise<Awaited<T>[]> =>
-    nativePromiseAll.call(this, values as unknown as readonly unknown[]) as Promise<Awaited<T>[]>;
-  if (!isIterable(values)) return passThrough();
-  let members: (T | PromiseLike<T>)[];
-  try {
-    members = Array.from(values);
-  } catch {
-    return passThrough();
-  }
-  const aggregate = nativePromiseAll.call(this, members) as Promise<Awaited<T>[]>;
-  activeLifecycle.getStore()?.registerPromiseAll(members, aggregate);
-  return aggregate;
-};
-Object.defineProperty(observedPromiseAll, 'name', { value: 'all', configurable: true });
-Object.defineProperty(observedPromiseAll, 'length', { value: 1, configurable: true });
+const COMBINATORS = ['all', 'allSettled', 'any', 'race'] as const;
+type CombinatorName = (typeof COMBINATORS)[number];
+type Combinator = (this: PromiseConstructor, values: Iterable<unknown>) => Promise<unknown>;
 
-function isIterable(value: unknown): value is Iterable<unknown> {
-  if (value === null || value === undefined) return false;
-  return typeof (value as { [Symbol.iterator]?: unknown })[Symbol.iterator] === 'function';
+const nativeCombinators = Object.freeze(
+  Object.fromEntries(COMBINATORS.map((name) => [name, Promise[name] as unknown as Combinator])),
+) as Readonly<Record<CombinatorName, Combinator>>;
+
+const observedCombinators: Record<CombinatorName, Combinator> = Object.fromEntries(
+  COMBINATORS.map((name) => {
+    const native = nativeCombinators[name];
+    const observed = function (
+      this: PromiseConstructor,
+      values: Iterable<unknown>,
+    ): Promise<unknown> {
+      const members = collectMembers(values);
+      if (members === undefined) return native.call(this, values);
+      const aggregate = native.call(this, members);
+      activeLifecycle.getStore()?.registerCombinator(members, aggregate);
+      return aggregate;
+    };
+    Object.defineProperty(observed, 'name', { value: name, configurable: true });
+    Object.defineProperty(observed, 'length', { value: 1, configurable: true });
+    return [name, observed];
+  }),
+) as Record<CombinatorName, Combinator>;
+
+let combinatorObservers = 0;
+
+/**
+ * Drain an iterable into an array, reading `Symbol.iterator` exactly once.
+ *
+ * Returns `undefined` when the argument is not iterable or iteration threw, so
+ * the caller hands the original value to the intrinsic and the author sees the
+ * intrinsic's own behaviour. A previous revision used `isIterable()` followed by
+ * `Array.from()`, which invoked a `Symbol.iterator` getter twice where the
+ * intrinsic invokes it once.
+ */
+function collectMembers(values: Iterable<unknown>): unknown[] | undefined {
+  if (values === null || values === undefined) return undefined;
+  let iteratorMethod: unknown;
+  try {
+    iteratorMethod = (values as { [Symbol.iterator]?: unknown })[Symbol.iterator];
+  } catch {
+    return undefined;
+  }
+  if (typeof iteratorMethod !== 'function') return undefined;
+  try {
+    return [...(values as Iterable<unknown>)];
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -104,7 +142,7 @@ export class AuthoredFlowLifecycle {
     stepOwners.set(step, { lifecycle: this, operation });
   }
 
-  registerPromiseAll(values: readonly unknown[], aggregate: Promise<unknown>): void {
+  registerCombinator(values: readonly unknown[], aggregate: Promise<unknown>): void {
     const aggregateId = this.graph.idOf(aggregate);
     if (aggregateId === undefined) return;
     this.graph.registerRoot(aggregateId);
@@ -271,26 +309,36 @@ export class AuthoredFlowLifecycle {
 }
 
 function installPromiseAllObserver(): void {
-  if (promiseAllObservers === 0) {
-    if (Promise.all !== nativePromiseAll) {
-      throw new AuthoredFlowExecutionError(
-        'unsupported_promise_lifecycle',
-        'authored flow execution requires the intrinsic Promise.all',
-      );
+  if (combinatorObservers === 0) {
+    for (const name of COMBINATORS) {
+      if (Promise[name] !== (nativeCombinators[name] as unknown)) {
+        throw new AuthoredFlowExecutionError(
+          'unsupported_promise_lifecycle',
+          `authored flow execution requires the intrinsic Promise.${name}`,
+        );
+      }
     }
-    Promise.all = observedPromiseAll as PromiseConstructor['all'];
-  } else if (Promise.all !== observedPromiseAll) {
-    throw new AuthoredFlowExecutionError(
-      'unsupported_promise_lifecycle',
-      'the authored flow Promise.all lifecycle contract was replaced',
-    );
+    for (const name of COMBINATORS) {
+      (Promise as unknown as Record<string, unknown>)[name] = observedCombinators[name];
+    }
+  } else {
+    for (const name of COMBINATORS) {
+      if (Promise[name] !== (observedCombinators[name] as unknown)) {
+        throw new AuthoredFlowExecutionError(
+          'unsupported_promise_lifecycle',
+          `the authored flow Promise.${name} lifecycle contract was replaced`,
+        );
+      }
+    }
   }
-  promiseAllObservers += 1;
+  combinatorObservers += 1;
 }
 
 function uninstallPromiseAllObserver(): void {
-  promiseAllObservers -= 1;
-  if (promiseAllObservers > 0) return;
-  promiseAllObservers = 0;
-  Promise.all = nativePromiseAll;
+  combinatorObservers -= 1;
+  if (combinatorObservers > 0) return;
+  combinatorObservers = 0;
+  for (const name of COMBINATORS) {
+    (Promise as unknown as Record<string, unknown>)[name] = nativeCombinators[name];
+  }
 }

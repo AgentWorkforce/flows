@@ -1,6 +1,6 @@
 import { rmSync } from 'node:fs';
 import type { Server } from 'node:net';
-import { flow, type FlowHandle, type Step } from '@relayflows/surface';
+import { flow, type Ctx, type FlowHandle, type Step } from '@relayflows/surface';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { JournalClient } from '../src/journal-client.js';
@@ -229,30 +229,88 @@ describe('authored flow lifecycle through the journal executor', () => {
   // failure all the way to terminal success. Attribution is now inherited from
   // the context that resolves an aggregate, which covers every combinator
   // without intercepting any of them.
-  const combinators: Record<string, (step: Step<string>) => Promise<unknown>> = {
-    allSettled: (step) => Promise.allSettled([step]),
-    any: (step) => Promise.any([step]),
-    race: (step) => Promise.race([step]),
-    all: (step) => Promise.all([step]),
-    resolve: (step) => Promise.resolve(step),
+  // Aggregate membership. Every row here has AT LEAST TWO members, at least one
+  // of them not an authored step, and names which member resolves the aggregate.
+  //
+  // The previous revision of these tests used single-member aggregates
+  // (`Promise.allSettled([step])`). A single-member aggregate is always resolved
+  // by its only member, so those rows could not fail however the mechanism was
+  // written: they proved the code path executed, not that the bound held. They
+  // passed while `Promise.allSettled([step, slowerUnrelated])` carried a
+  // handled-and-forgotten derived failure to terminal success.
+  const slowerUnrelated = (): Promise<string> =>
+    new Promise((resolve) => setTimeout(() => resolve('unrelated'), 15));
+  const fasterUnrelated = (): Promise<string> => Promise.resolve('unrelated-fast');
+
+  const aggregates: Record<string, (step: Step<string>) => Promise<unknown>> = {
+    'allSettled resolved by an unrelated member': (step) => Promise.allSettled([step, slowerUnrelated()]),
+    'allSettled with the step declared second': (step) => Promise.allSettled([slowerUnrelated(), step]),
+    'all resolved by an unrelated member': (step) => Promise.all([step, slowerUnrelated()]),
+    'race resolved by an unrelated member': (step) => Promise.race([fasterUnrelated(), step]),
+    'any resolved by an unrelated member': (step) => Promise.any([fasterUnrelated(), step]),
+    'allSettled resolved by the step itself': (step) => Promise.allSettled([step, fasterUnrelated()]),
+    'race resolved by the step itself': (step) => Promise.race([step, slowerUnrelated()]),
   };
-  it.each(Object.keys(combinators))(
-    'refuses a deferred derived failure consumed through Promise.%s',
-    async (combinator) => {
+  it.each(Object.keys(aggregates))(
+    'refuses a deferred derived failure behind an aggregate: %s',
+    async (shape) => {
       const startedBefore = startedSpecs.length;
-      await expect(execute(flow(`combinator-${combinator}`, async (f) => {
-        const consumed = combinators[combinator]!(f.run('printf combinator'));
+      await expect(execute(flow(`aggregate-${shape}`, async (f) => {
+        const step = f.run('printf aggregate');
+        const consumed = aggregates[shape]!(step);
         const derived = consumed.then(async () => {
           for (let tick = 0; tick < 10; tick++) await null;
-          throw new Error('derived post-processing failed after the gate sampled');
+          throw new Error('work derived from the authored step failed');
         });
         derived.catch(() => undefined);
         await consumed;
+        // Await the step directly too, so this row cannot pass for the wrong
+        // reason: without it, a regression in aggregate REACHABILITY would
+        // refuse with `unawaited_step` and mask the derived-failure escape the
+        // row exists to catch.
+        await step;
         f.done('success');
-      }))).rejects.toMatchObject({ code: 'unsettled_derived_work' });
+      }))).rejects.toMatchObject({
+        code: expect.stringMatching(/^(unsettled_derived_work|operation_callback_failed)$/),
+      });
       expectNoTerminalStart(startedBefore);
     },
   );
+
+  // The same membership rule, opposite sign: a multi-member aggregate over
+  // authored steps must be ACCEPTED, whichever member resolves it. Before the
+  // membership fix, `await Promise.allSettled([a, b])` refused every step except
+  // the last to settle — and `docs/SURFACE.md` documents this as supported.
+  const acceptedAggregates: Record<string, (f: Ctx) => Promise<unknown>> = {
+    'await Promise.allSettled over two steps': (f) => Promise.allSettled([f.run('true'), f.run('true')]),
+    'await Promise.allSettled over five steps': (f) => Promise.allSettled([
+      f.run('true'), f.run('true'), f.run('true'), f.run('true'), f.run('true'),
+    ]),
+    'await Promise.all over three steps': (f) => Promise.all([f.run('true'), f.run('true'), f.run('true')]),
+    'await Promise.race over two steps': (f) => Promise.race([f.run('true'), f.run('true')]),
+    'await Promise.any over two steps': (f) => Promise.any([f.run('true'), f.run('true')]),
+    'await an aggregate mixing a step and an unrelated promise': (f) =>
+      Promise.allSettled([f.run('true'), slowerUnrelated()]),
+  };
+  it.each(Object.keys(acceptedAggregates))('preserves authoring: %s', async (shape) => {
+    const result = await execute(flow(`accepted-${shape}`, async (f) => {
+      await acceptedAggregates[shape]!(f);
+      f.done('success');
+    }));
+    expect(result.completionReason).toBe('success');
+  });
+
+  // A documented limit, pinned so it is a known boundary and not a surprise.
+  // V8's async-from-sync iterator resolves its result promise through an
+  // internal capability that carries no async_hooks edge back to the awaited
+  // value, so the gate cannot prove the step participated in the continuation.
+  // It fails CLOSED, which is the safe direction. See docs/SURFACE.md.
+  it('refuses for-await over authored steps, and says so in the docs', async () => {
+    await expect(execute(flow('for-await-limit', async (f) => {
+      for await (const value of [f.run('true')]) void value;
+      f.done('success');
+    }))).rejects.toMatchObject({ code: 'unawaited_step' });
+  });
 
   // The other side of that widening: work that merely FOLLOWS an authored step,
   // and is awaited, must not be mistaken for unfinished derived work.
