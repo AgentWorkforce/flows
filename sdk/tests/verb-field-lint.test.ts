@@ -71,7 +71,23 @@ const VERB_FIELD_VALUES: Record<string, unknown> = {
   surfaces: { workspace: [{ surface: 'foreign-worktree' }] },
   recoveryMode: 'reset',
   permissions: { accessPreset: 'readonly' },
+  output: { type: 'object' },
 };
+
+/**
+ * Fail closed on a missing sample value. A field with no entry above used to
+ * produce `{ [field]: undefined }`, which survives an in-memory validateSpec
+ * (the key is still enumerable) but is dropped by YAML serialization — so the
+ * generated case silently proved nothing on the compileYaml and `flows check`
+ * paths. A new legal field must add a sample here, not quietly weaken the
+ * generator.
+ */
+function foreignFieldValue(field: string): unknown {
+  if (!Object.hasOwn(VERB_FIELD_VALUES, field)) {
+    throw new Error(`verb-field-lint: no sample value declared for foreign field "${field}"`);
+  }
+  return VERB_FIELD_VALUES[field];
+}
 
 const ALL_VERB_FIELDS = [...new Set(Object.values(STEP_FIELDS_BY_TYPE).flat())];
 const CROSS_VERB_STEP_FIELDS: InvalidFieldCase[] = (
@@ -80,7 +96,7 @@ const CROSS_VERB_STEP_FIELDS: InvalidFieldCase[] = (
   .filter((field) => !allowed.includes(field))
   .map((field) => ({
     label: `${type} foreign ${field}`,
-    step: { ...VALID_STEP_BY_TYPE[type], [field]: VERB_FIELD_VALUES[field] },
+    step: { ...VALID_STEP_BY_TYPE[type], [field]: foreignFieldValue(field) },
     unknown: field,
   })));
 
@@ -149,8 +165,8 @@ describe('closed per-verb step fields', () => {
     expect(AGENT_DECLARATION_FIELDS).toEqual(['cli', 'model']);
     expect(STEP_FIELDS_BY_TYPE).toEqual({
       deterministic: ['command'],
-      llm: ['prompt', 'model', 'cli'],
-      agent: ['instruction', 'agent', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions'],
+      llm: ['prompt', 'model', 'cli', 'output'],
+      agent: ['instruction', 'agent', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions', 'output'],
     });
     expect(CROSS_VERB_STEP_FIELDS.map(({ label }) => label).sort()).toEqual([
       'agent foreign command',
@@ -159,6 +175,7 @@ describe('closed per-verb step fields', () => {
       'deterministic foreign cli',
       'deterministic foreign instruction',
       'deterministic foreign model',
+      'deterministic foreign output',
       'deterministic foreign permissions',
       'deterministic foreign prompt',
       'deterministic foreign recoveryMode',
