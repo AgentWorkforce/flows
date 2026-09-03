@@ -67,6 +67,7 @@ fn workspace_aliases_are_refused_and_canonical_subtrees_serialize_over_real_sock
         "/mount/repo/../repo",
         "/mount//repo",
         "/mount/repo//",
+        "/mount/repo/",
         " worktrees/repo",
         "worktrees/./repo",
     ] {
@@ -87,7 +88,7 @@ fn workspace_aliases_are_refused_and_canonical_subtrees_serialize_over_real_sock
             "run.start",
             json!({"spec": {"steps": [
                 {"id": "parent", "type": "agent", "instruction": "parent",
-                 "surfaces": {"workspace": [{"surface": "/mount/repo/"}]}},
+                 "surfaces": {"workspace": [{"surface": "/mount/repo"}]}},
                 {"id": "child", "type": "agent", "instruction": "child",
                  "surfaces": {"workspace": [{"surface": "/mount/repo/child"}]}}
             ]}}),

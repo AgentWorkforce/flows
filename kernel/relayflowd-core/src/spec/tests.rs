@@ -112,7 +112,7 @@ fn unknown_root_and_nested_fields_are_rejected() {
         RunSpec::parse(&json!({
             "steps": [{
                 "id": "a", "type": "agent", "instruction": "do",
-                "surfaces": {"workspaces": [{"surface": "repo/"}]}
+                "surfaces": {"workspaces": [{"surface": "repo"}]}
             }]
         }))
         .is_err()
@@ -146,7 +146,7 @@ fn the_full_ladder_parses_in_the_one_dialect() {
              "depends_on": ["a"], "verification": {"json_schema": {"type": "object"}}},
             {"id": "c", "type": "agent", "instruction": "edit", "depends_on": ["b"],
              "recovery_mode": "inspect",
-             "surfaces": {"workspace": [{"surface": "repo/"}], "streams": [{"stream": "results"}],
+             "surfaces": {"workspace": [{"surface": "repo"}], "streams": [{"stream": "results"}],
                           "external": ["pr://github/example"]},
              "permissions": {"access_preset": "readwrite", "file_globs": ["src/**"]}}
         ],
@@ -160,7 +160,7 @@ fn the_full_ladder_parses_in_the_one_dialect() {
 }
 
 #[test]
-fn external_surface_paths_reject_non_terminal_aliases() {
+fn external_surface_paths_must_have_one_canonical_spelling() {
     for path in [
         "",
         ".",
@@ -170,6 +170,7 @@ fn external_surface_paths_reject_non_terminal_aliases() {
         "/provider/../item",
         "/provider//item",
         "/provider/item//",
+        "/provider/item/",
         " pr://github/example",
     ] {
         let spec = RunSpec::parse(&json!({
@@ -191,7 +192,6 @@ fn external_surface_paths_reject_non_terminal_aliases() {
     }
     for path in [
         "/provider/item",
-        "/provider/item/",
         "pr://github/example",
         "provider/item",
     ] {
@@ -213,7 +213,9 @@ fn external_surface_paths_reject_non_terminal_aliases() {
         "/provider/item",
         "/provider/item/child"
     ));
-    assert!(external_surface_contains(
+    // A non-canonical spelling is not a surface, so containment fails closed
+    // rather than resolving to the canonical one.
+    assert!(!external_surface_contains(
         "/provider/item/",
         "/provider/item"
     ));
@@ -228,7 +230,7 @@ fn external_surface_paths_reject_non_terminal_aliases() {
 }
 
 #[test]
-fn workspace_mounts_and_worktrees_reject_non_terminal_aliases() {
+fn workspace_mounts_and_worktrees_must_have_one_canonical_spelling() {
     for surface in [
         "",
         ".",
@@ -238,6 +240,8 @@ fn workspace_mounts_and_worktrees_reject_non_terminal_aliases() {
         "/mount/repo/../repo",
         "/mount//repo",
         "/mount/repo//",
+        "/mount/repo/",
+        "repo/",
         " worktrees/repo",
         "worktrees/./repo",
     ] {
@@ -259,13 +263,7 @@ fn workspace_mounts_and_worktrees_reject_non_terminal_aliases() {
             "accepted non-canonical workspace surface {surface:?}"
         );
     }
-    for surface in [
-        "/mount/repo",
-        "/mount/repo/",
-        "worktrees/repo",
-        "repo",
-        "repo/",
-    ] {
+    for surface in ["/mount/repo", "worktrees/repo", "repo"] {
         let spec = RunSpec::parse(&json!({
             "steps": [{
                 "id": "agent",

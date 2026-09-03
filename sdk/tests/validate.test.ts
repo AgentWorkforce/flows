@@ -309,6 +309,7 @@ describe('validate: canonical external surfaces', () => {
     '/provider/../item',
     '/provider//item',
     '/provider/item//',
+    '/provider/item/',
   ])('rejects alias %s', (external) => {
     const result = validateSpec({
       version: '0.1.0',
@@ -324,7 +325,6 @@ describe('validate: canonical external surfaces', () => {
   it('accepts canonical absolute, relative, and URI-like identities', () => {
     for (const external of [
       '/provider/item',
-      '/provider/item/',
       'provider/item',
       'pr://github/example',
     ]) {
@@ -349,6 +349,8 @@ describe('validate: canonical workspace mounts and worktrees', () => {
     '/mount/repo/../repo',
     '/mount//repo',
     '/mount/repo//',
+    '/mount/repo/',
+    'repo/',
     ' worktrees/repo',
     'worktrees/./repo',
   ])('rejects alias %s', (surface) => {
@@ -366,10 +368,8 @@ describe('validate: canonical workspace mounts and worktrees', () => {
   it('accepts canonical mount paths and named worktrees', () => {
     for (const surface of [
       '/mount/repo',
-      '/mount/repo/',
       'worktrees/repo',
       'repo',
-      'repo/',
     ]) {
       expect(validateSpec({
         version: '0.1.0',

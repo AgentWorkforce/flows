@@ -190,9 +190,10 @@ impl RunSpec {
 /// Filesystem-free canonical identity for a declared writeback target.
 ///
 /// The kernel cannot resolve host symlinks, so specs must already name a
-/// lexical canonical path: no whitespace aliases, internal empty components,
-/// `.`, or `..`. A single terminal slash is an equivalent surface spelling;
-/// URI-like mount identities retain their scheme as a namespace.
+/// lexical canonical path: no whitespace aliases, empty components, `.`, or
+/// `..` — and a terminal slash is an empty final component, so it is refused
+/// like any other. One surface has exactly one spelling. URI-like mount
+/// identities retain their scheme as a namespace.
 pub(crate) fn path_surface_identity(path: &str) -> Option<(String, Vec<String>)> {
     if path.is_empty() || path.trim() != path {
         return None;
@@ -207,11 +208,6 @@ pub(crate) fn path_surface_identity(path: &str) -> Option<(String, Vec<String>)>
         (path[..index + 3].to_owned(), &path[index + 3..])
     } else {
         (String::new(), path)
-    };
-    let tail = if tail.len() > 1 {
-        tail.strip_suffix('/').unwrap_or(tail)
-    } else {
-        tail
     };
     if tail.is_empty() {
         return Some((namespace, Vec::new()));
