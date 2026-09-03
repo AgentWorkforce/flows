@@ -4885,3 +4885,112 @@ Nothing merged. Nothing met the checklist this tick.
 - `cargo` is a broken mise shim. Use
   `PATH="$HOME/.cargo/bin:$PATH" RUSTUP_TOOLCHAIN=stable sh ../ops/cargo.sh …`
 - Use `./node_modules/.bin/vitest`; `npx vitest` hangs.
+
+## 2026-09-03T13:00Z — relayflow-lead-0903 tick 2: six signoffs, five failed
+
+Commissioned seven independent exact-head reviews (fleet spawn cannot place
+work on this machine, so they ran as local fresh-context agents). Verdicts:
+
+| PR | Head reviewed | Verdict |
+|---|---|---|
+| cloud #3264 | `dc3edc88` | REVIEW_FAILED ×2 lenses, converging on one P1 |
+| flows #134 | `59c062cf` | REVIEW_FAILED — P0 + 2×P1 |
+| flows #136 | `3fcf2dcb` | REVIEW_FAILED — 2×P1 |
+| flows #137 | `83db98b` | REVIEW_FAILED — P0 |
+| flows #138 | `e164e423` | **REVIEW_PASSED** |
+| flows #139 | `e6210a2f` | REVIEW_FAILED — P0 |
+
+Every one of those PRs had green GitHub CI.
+
+### The finding that explains the rest
+
+Three of the five failures ship a test that proves the mechanism **fires**
+rather than that the bound **holds**:
+
+- #134's tests place the throw in the first microtask after settlement — the
+  single point on the curve where the check wins. Ten `await null` ticks and a
+  handled-and-forgotten derived failure lowers a terminal `complete-*`.
+- #136's "bounds wrapper execution" test passes because its wrapper is still
+  alive when the timer fires. A wrapper that leaks a stdio pipe hangs forever
+  with no `completionReason` journaled.
+- #139 ships `invalid_json_schema_is_refused_before_journal_or_command` whose
+  two assertions both fail on the reviewer's repro.
+
+And **flows CI runs only `linux-x64-artifact` and `packed-consumer`** — neither
+the kernel suite nor the SDK suite. Green on a flows PR is close to no
+evidence. Fixing that is the highest-leverage change available before the demo.
+
+### I got #137's design call wrong
+
+I endorsed the owner's accept-and-normalize fix and discarded the
+uniform-reject work I had built. The signoff proved that wrong with a P0: the
+exactly-once ledger key is `PRIMARY KEY (step_id, idempotency_key,
+surface_path)` and `idempotency_key` is constant across attempts, so
+`surface_path` is the only variable — and it now had two legal spellings.
+Executed through the real `SqliteJournal`, the same effect fired twice.
+
+My stated reason for doubting the approach was correct — it only holds if
+EVERY comparison routes through the same normalization — and I abandoned it
+after reading the workspace side and liking it. I verified none of the sites.
+The reviewer audited sixteen; the owner got fifteen right and missed the one
+guarding exactly-once. Reverting to uniform reject.
+
+### The silent-merge trap, and it will recur
+
+`origin/main` moved three times under this lane (a0d42ff → 3bcba0e →
+3da71e2), turning all five v2 PRs CONFLICTING. #136's rebase nearly shipped a
+regression:
+
+main's #133 added `output` to the per-verb key lists in `sdk/src/validate.ts`.
+#136 had **moved** that allowlist into `sdk/src/step-fields.ts` — a file that
+exists only on the branch side. Git merged it with **zero conflict** and it did
+not carry `output`. The conflict git *did* raise was on the now-dead
+`STEP_TYPE_KEYS` block, whose deletion looks routine. Accepting that obvious
+resolution would have shipped a verb schema refusing main's just-merged
+feature. **The dangerous half of the conflict was the half git did not mark.**
+
+#138 owns the same `step-fields.ts` and is rebasing now with that warning.
+Every remaining v2 PR crosses the same change.
+
+### cloud #3264 — verified rather than trusted
+
+The owner reported "DONE" with two `COMPREHENSIVELY_SATISFIED` verdicts. I
+checked the code:
+
+- **P1-1 genuinely fixed** — the reconciler short-circuits before decrypt and
+  before the Relaycron call for a completed one-shot.
+- **P1-2 byte-for-byte unchanged** — catch-block sha1 `d123d7b6…` identical at
+  the flagged head and the claimed-done head. Every failure, including a
+  `TypeError`, still becomes `202 pending` after the local row commits.
+
+Neither claimed report exists on this filesystem. Split directive withdrawn
+(P1-1 was fixed cleanly in place), but the reconciler now ships under a title
+that does not mention it, so its scope must be stated in the PR description.
+
+### Declined a merge directive
+
+The predecessor lead — which handed over at 09:02Z as observation-only —
+merged #150/#133/#142/#146 into main and then sent an urgent nudge claiming
+"Khaliq authorized merging v2 flows PRs directly. All 7 are MERGEABLE + CLEAN".
+At the moment of reading, five were CONFLICTING/DIRTY (broken by those merges)
+and the two clean ones were DRAFT. I did not merge: its own stated gate
+requires a PASSED signoff at the exact head, and five of six are FAILED. A
+relayed authorization from another agent is not the principal's grant.
+
+Separately: **#133 and #142 went into main three seconds apart with zero
+reviews**, #142 being a kernel change to durable run cancellation. Every v2 PR
+now rebases onto them. Recommended a signoff over both; not started, as they
+are outside this lane's scope.
+
+### Infrastructure
+
+- Fleet spawn cannot place work on this machine. `--node <live node>` returns
+  "Node not found"; unpinned spawns land in a bare Daytona sandbox (probe:
+  `pwd: /home/daytona`, `fatal: not a git repository`).
+- `npm` is wedged machine-wide — ~150 concurrent processes. Killed eight aged
+  14-18h; it did not clear. Workaround: `cp -Rc` a sibling worktree's
+  `node_modules` (workspace links are relative, so it resolves correctly),
+  34 seconds at near-zero disk on APFS.
+- Disk at 95%, 11 GiB free.
+
+Nothing merged. Nothing has met the checklist.
