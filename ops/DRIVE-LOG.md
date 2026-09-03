@@ -4776,3 +4776,112 @@ signoffs, and #3264 Phase 0 CI outcome.
 
 Scheduled for ~25 min from now. Expected to see r2 restack SHA landed +
 r6/r5b verdicts + #3264 Phase 0 result.
+
+## 2026-09-03T09:30Z — relayflow-lead-0903 tick 1 (new persistent lane lead)
+
+Predecessor `flows-claude-lead-0903` (`fleet-1615-claude-review`) handed over
+at 09:02Z and is observation-only. I own the v2 lane from here.
+
+### Two corrections to the inherited state
+
+- **#3270's CONFLICTING is real.** The prior lead checked
+  `git merge-tree origin/main pr/3270`, found it clean, and concluded GitHub
+  was stale. Wrong base: #3270's base is `feat/relayflow-dual-runtime-v2`
+  (#3264's branch), not `main`. Against its real base it conflicts in 12+
+  files. It needs another restack onto #3264's final head.
+- **#3270's authority migration must be 0120, not 0119.** #3264 at `dc3edc88`
+  now owns both `0118_workflow_run_relayflow_version.sql` and
+  `0119_workflow_schedule_relaycron_reconcile.sql`.
+
+### Fleet spawn cannot place work on this machine
+
+`--node chief-sfm-final` → `Node not found`, for a node `query_nodes` reports
+online, live, heartbeating 2 minutes prior. Same via MCP `spawn` with
+`target_node`, same with the raw node id. Untargeted spawn dispatches instead
+to a bare Daytona sandbox — a probe agent replied `pwd: /home/daytona` and
+`fatal: not a git repository`. No repo, no worktrees, no gh auth.
+
+Stopped after three attempts rather than guess a root cause; my first theory
+(capability `kind` capacity-vs-action) is disproven, since the node that
+accepted the spawn advertises identical kinds to the one that "does not exist".
+
+This reframes the lane's recent history. Every commissioned worker has been
+landing somewhere like that, which is the simplest explanation for the
+recurring "owner hit its usage limit before product edits" and "two
+replacement owners went offline before pushing", and for a #137 signoff report
+cited at a path that does not exist on this disk. Prior "dispatched a worker"
+claims are unproven unless a SHA or an on-disk file backs them.
+
+Working around it with local fresh-context subagents. Escalated to Khaliq for
+a decision on whether to fix the relay bug itself.
+
+### flows #137 shipped RED; flows CI cannot see it
+
+`53bfee0` fails the cross-boundary spec-parity gate — the repo's own "one spec
+dialect, one hash" claim:
+
+    $ cargo test -p relayflowd-core --test spec_parity
+    ---- the_kernel_parses_the_sdk_compiled_spec_and_stamps_the_same_hash stdout ----
+    panicked at relayflowd-core/tests/spec_parity.rs:87:21:
+    the ladder fixture is a valid spec: InvalidWorkspaceSurface { step: "act", surface: "repo/" }
+    test result: FAILED. 4 passed; 1 failed
+
+    $ cargo test -p relayflowd-core --lib spec::tests
+    ---- spec::tests::the_full_ladder_parses_in_the_one_dialect stdout ----
+    panicked at relayflowd-core/src/spec/tests.rs:117:5: assertion failed: spec.validate().is_ok()
+    test result: FAILED. 9 passed; 1 failed
+
+It merged green because flows CI runs only `linux-x64-artifact` and
+`packed-consumer` — neither the kernel suite nor the SDK suite. **Green CI on a
+flows PR is currently not evidence.** Offered Khaliq a separate PR for it.
+
+Repair already exists locally at `83db98b` and is good: `path_surface_identity`
+strips a terminal slash before building components, so `repo` and `repo/`
+collapse to one identity and the concurrent-admission P1 stays closed while
+shipped specs keep working. Verified at `83db98b`: 37 core lib + 5 spec_parity
+pass. I had started a uniform-reject rewrite of the fixtures; theirs is the
+non-breaking answer and I discarded mine.
+
+I was editing that worktree at the same time as its owner before noticing —
+my error. Vacated `flows-132-parallel-dispatch-wt`, now verifying from a
+detached copy, handed the lane back by DM with the red-to-green evidence.
+
+### sdk/tests/live-kernel.test.ts has been dead on main since PR #38
+
+`live-kernel.test.ts:55` calls `statSync`; the `node:fs` import has only
+`lstatSync`. The suite throws at *collection*, so all 17 real-daemon-over-a-
+real-socket tests have silently not run. `5132079` (PR #38) is an ancestor of
+`origin/main`, so this is main's, not #137's.
+
+Restoring the import makes it run and exposes a real failure:
+
+    × JournalClient wire conformance ... exercises every protocol-v0 verb with the real server
+      → JournalProtocolError: run_terminal: run 01M1K88D9V8NBZRMVX0WDV8TNJ is terminal and cannot accept mutations
+    Tests 1 failed | 248 passed (249)
+
+Attribution UNRESOLVED — the merge-base control run stalled in `npm run build`
+and I killed it rather than hang the tick. Handed to #137's owner with the
+recipe.
+
+### Lane state
+
+- **#3264 @ `dc3edc88`** (force-pushed twice this morning): CI complete and
+  green — 18 success, 4 skipped, 1 neutral (cubic), 0 pending, 0 failure;
+  combined status `success`; mergeable true; restack worktree clean. One gate
+  left: fresh independent signoff at that exact SHA. Two lenses launched.
+  Reviewers are asked to weigh in on scope growth: the PR is titled a
+  "compatibility contract" but now also ships a relaycron reconciler and
+  migration 0119.
+- **#3270 @ `71ab46ec`**: CI fully green; blocked on the restack above.
+- **#134 / #136 / #138 / #139**: CI green, heads stable, awaiting signoff.
+- **#144**: held.
+
+### Merge autonomy
+
+Nothing merged. Nothing met the checklist this tick.
+
+### Environment notes
+
+- `cargo` is a broken mise shim. Use
+  `PATH="$HOME/.cargo/bin:$PATH" RUSTUP_TOOLCHAIN=stable sh ../ops/cargo.sh …`
+- Use `./node_modules/.bin/vitest`; `npx vitest` hangs.
