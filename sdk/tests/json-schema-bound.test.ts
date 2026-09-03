@@ -69,6 +69,39 @@ describe('JSON Schema termination bound', () => {
     },
   );
 
+  // `output:` sugar lowers to a json_schema gate at compile time, so it must
+  // clear the same bound. Before this, `flows check` reported an unbounded
+  // `output` schema as a gate and the kernel refused it at run.start.
+  it.each(corpus.refused.map((entry) => [entry.name, entry] as const))(
+    'refuses %s when declared through output sugar',
+    (_name, entry) => {
+      if (typeof entry.schema !== 'object') return;
+      const flow = {
+        version: '0.1.0',
+        name: 'out',
+        steps: [{ id: 's', type: 'llm', prompt: 'p', cli: 'x', output: entry.schema }],
+      } as unknown as FlowSpec;
+      expect(() => compileSpec(flow)).toThrow(
+        new RegExp(UNBOUNDED_REF_CYCLE.replace('$', '\\$')),
+      );
+    },
+  );
+
+  it('refuses an uncompilable schema declared through output sugar', () => {
+    const flow = {
+      version: '0.1.0',
+      name: 'out',
+      steps: [{
+        id: 's',
+        type: 'llm',
+        prompt: 'p',
+        cli: 'x',
+        output: { type: 'definitely-not-a-json-schema-type' },
+      }],
+    } as unknown as FlowSpec;
+    expect(() => compileSpec(flow)).toThrow(/output: invalid JSON Schema/);
+  });
+
   it('names the cycle it found', () => {
     const message = jsonSchemaBoundError({
       $defs: { a: { $ref: '#/$defs/b' }, b: { $ref: '#/$defs/a' } },

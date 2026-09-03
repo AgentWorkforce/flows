@@ -1,3 +1,5 @@
+import { jsonSchemaError } from './json-schema.js';
+
 /** JSON Schema accepted by the `output` authoring declaration. */
 export type JsonOutputSchema = Record<string, unknown>;
 
@@ -10,6 +12,15 @@ export function validateOutputDeclaration(
   const errors: string[] = [];
   if (!isObject(step.output)) {
     errors.push(`${at}.output: expected a JSON Schema object`);
+  } else {
+    // `output` lowers to a `json_schema` gate at compile time, so it must clear
+    // exactly the gate a hand-written `verification: {type: json_schema}` does.
+    // Without this the kernel refuses at `run.start` a declaration `flows check`
+    // had just reported as a gate — the divergence this PR exists to close.
+    const invalid = jsonSchemaError(step.output);
+    if (invalid !== undefined) {
+      errors.push(`${at}.output: invalid JSON Schema: ${invalid}`);
+    }
   }
   if (step.verification !== undefined) {
     errors.push(`${at}: output already declares json_schema verification; remove verification`);
