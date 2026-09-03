@@ -4,7 +4,7 @@
 
 use std::cmp::Ordering;
 
-use relayflowd_core::{Pins, StepKind, StepSpec, StepType};
+use relayflowd_core::{Pins, StepKind, StepSpec, StepType, workspace_surfaces_equal};
 
 use super::{Sessions, Worker};
 use crate::worker::StepDispatch;
@@ -81,7 +81,7 @@ fn worker_can_pin(worker: &Worker, step: &StepSpec, required_pins: &Pins) -> boo
             .pins
             .workspace
             .iter()
-            .any(|held| held.surface == declared.surface)
+            .any(|held| workspace_surfaces_equal(&held.surface, &declared.surface))
     }) && surfaces.streams.iter().all(|declared| {
         worker
             .pins
@@ -110,7 +110,7 @@ pub(super) fn pin_value_mismatch(worker: &Worker, dispatch: &StepDispatch) -> Op
             .pins
             .workspace
             .iter()
-            .find(|held| held.surface == pin.surface);
+            .find(|held| workspace_surfaces_equal(&held.surface, &pin.surface));
         if let Some(held) = held
             && held.revision_id != pin.revision_id
         {
@@ -145,7 +145,7 @@ pub(super) fn worker_holds(worker: &Worker, pins: &Pins) -> bool {
             .pins
             .workspace
             .iter()
-            .any(|held| held.surface == pin.surface)
+            .any(|held| workspace_surfaces_equal(&held.surface, &pin.surface))
     }) && pins.streams.iter().all(|pin| {
         worker
             .pins

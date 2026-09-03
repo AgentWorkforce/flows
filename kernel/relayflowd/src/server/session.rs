@@ -8,6 +8,7 @@ use std::{
 use anyhow::Result;
 use relayflowd_core::{
     CompletionReason, EntryType, JournalEntry, Pins, StepCompletedPayload, StepType,
+    workspace_surfaces_equal,
 };
 use serde_json::json;
 
@@ -147,7 +148,7 @@ impl ProtocolHub {
                 .pins
                 .workspace
                 .iter_mut()
-                .find(|held| held.surface == pin.surface)
+                .find(|held| workspace_surfaces_equal(&held.surface, &pin.surface))
             {
                 Some(held) => held.revision_id = pin.revision_id.clone(),
                 None => worker.pins.workspace.push(pin.clone()),

@@ -190,8 +190,9 @@ impl RunSpec {
 /// Filesystem-free canonical identity for a declared writeback target.
 ///
 /// The kernel cannot resolve host symlinks, so specs must already name a
-/// lexical canonical path: no whitespace aliases, empty components, `.`, or
-/// `..`. URI-like mount identities retain their scheme as a namespace.
+/// lexical canonical path: no whitespace aliases, internal empty components,
+/// `.`, or `..`. A single terminal slash is an equivalent surface spelling;
+/// URI-like mount identities retain their scheme as a namespace.
 pub(crate) fn path_surface_identity(path: &str) -> Option<(String, Vec<String>)> {
     if path.is_empty() || path.trim() != path {
         return None;
@@ -206,6 +207,11 @@ pub(crate) fn path_surface_identity(path: &str) -> Option<(String, Vec<String>)>
         (path[..index + 3].to_owned(), &path[index + 3..])
     } else {
         (String::new(), path)
+    };
+    let tail = if tail.len() > 1 {
+        tail.strip_suffix('/').unwrap_or(tail)
+    } else {
+        tail
     };
     if tail.is_empty() {
         return Some((namespace, Vec::new()));
@@ -223,6 +229,16 @@ pub fn is_canonical_external_surface(path: &str) -> bool {
 
 pub fn is_canonical_workspace_surface(surface: &str) -> bool {
     path_surface_identity(surface).is_some()
+}
+
+/// Workspace pins and declarations may differ only by a terminal slash.
+/// Compare their parsed identities so `repo` and `repo/` remain one surface
+/// throughout dispatch, pin chaining, and completion.
+pub fn workspace_surfaces_equal(left: &str, right: &str) -> bool {
+    matches!(
+        (path_surface_identity(left), path_surface_identity(right)),
+        (Some(left), Some(right)) if left == right
+    )
 }
 
 pub fn external_surface_contains(declared: &str, target: &str) -> bool {

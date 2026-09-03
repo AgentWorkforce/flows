@@ -48,6 +48,7 @@ function isCanonicalPathSurface(value: unknown): value is string {
       tail = tail.slice(scheme + 3);
     }
   }
+  if (tail.length > 1 && tail.endsWith('/')) tail = tail.slice(0, -1);
   if (tail === '') return true;
   return tail.split('/').every((part) => part !== '' && part !== '.' && part !== '..');
 }
@@ -351,7 +352,7 @@ class Validator {
     this.checkKeys(s, SURFACES_KEYS, at);
     if (s['workspace'] !== undefined) {
       if (!Array.isArray(s['workspace']) || !(s['workspace'] as unknown[]).every((w) => isObject(w) && isCanonicalPathSurface((w as Record<string, unknown>)['surface']))) {
-        this.fail(`${at}.workspace: expected canonical {surface: string} entries without empty, . or .. path components`);
+        this.fail(`${at}.workspace: expected canonical {surface: string} entries without internal empty, . or .. path components`);
       } else {
         for (const [i, w] of (s['workspace'] as Record<string, unknown>[]).entries()) {
           this.checkKeys(w, WORKSPACE_SURFACE_KEYS, `${at}.workspace[${i}]`);
@@ -369,7 +370,7 @@ class Validator {
     }
     if (s['external'] !== undefined) {
       if (!Array.isArray(s['external']) || !(s['external'] as unknown[]).every(isCanonicalPathSurface)) {
-        this.fail(`${at}.external: expected canonical path strings without empty, . or .. components`);
+        this.fail(`${at}.external: expected canonical path strings without internal empty, . or .. components`);
       }
     }
   }

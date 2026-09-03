@@ -304,6 +304,7 @@ fn external_ancestor_and_descendant_paths_conflict_but_siblings_do_not() {
         next_actions(&state, 10)
     };
     assert_eq!(selected("/provider/item", "/provider/item/child").len(), 2);
+    assert_eq!(selected("/provider/item", "/provider/item/").len(), 2);
     assert_eq!(selected("pr://github", "pr://github/example").len(), 2);
     assert_eq!(selected("/provider/a", "/provider/b").len(), 4);
 }
@@ -322,6 +323,7 @@ fn workspace_ancestor_and_descendant_paths_conflict_but_siblings_do_not() {
         next_actions(&state, 10)
     };
     assert_eq!(selected("/mount/repo", "/mount/repo/child").len(), 2);
+    assert_eq!(selected("/mount/repo", "/mount/repo/").len(), 2);
     assert_eq!(selected("worktrees/repo", "worktrees/repo/child").len(), 2);
     assert_eq!(selected("/mount/left", "/mount/right").len(), 4);
 }

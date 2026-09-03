@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use relayflowd_core::{
     Clock, EntryType, Journal, JournalEntry, RunSpawnedPayload, RunSpec, RunState, StepKind,
-    recovery_actions_filtered,
+    recovery_actions_filtered, workspace_surfaces_equal,
 };
 use relayflowd_journal::{Registry, SqliteJournal};
 use sha2::{Digest, Sha256};
@@ -329,7 +329,7 @@ impl<C: Clock> Engine<C> {
             carried
                 .workspace
                 .iter()
-                .any(|pin| pin.surface == declared.surface)
+                .any(|pin| workspace_surfaces_equal(&pin.surface, &declared.surface))
         }) && surfaces.streams.iter().all(|declared| {
             carried
                 .streams
@@ -358,7 +358,7 @@ impl<C: Clock> Engine<C> {
                         .workspace
                         .iter()
                         .chain(worker.workspace.iter())
-                        .find(|pin| pin.surface == declared.surface)
+                        .find(|pin| workspace_surfaces_equal(&pin.surface, &declared.surface))
                         .cloned()
                 })
                 .collect(),
@@ -415,16 +415,12 @@ fn validate_agent_pins(
     let StepKind::Agent { surfaces, .. } = &step.kind else {
         return Ok(());
     };
-    let expected_workspace = surfaces
-        .workspace
-        .iter()
-        .map(|surface| surface.surface.as_str())
-        .collect::<std::collections::BTreeSet<_>>();
-    let actual_workspace = pins
-        .workspace
-        .iter()
-        .map(|pin| pin.surface.as_str())
-        .collect::<std::collections::BTreeSet<_>>();
+    let workspace_matches = surfaces.workspace.len() == pins.workspace.len()
+        && surfaces.workspace.iter().all(|surface| {
+            pins.workspace
+                .iter()
+                .any(|pin| workspace_surfaces_equal(&pin.surface, &surface.surface))
+        });
     let expected_streams = surfaces
         .streams
         .iter()
@@ -435,9 +431,8 @@ fn validate_agent_pins(
         .iter()
         .map(|pin| pin.stream.as_str())
         .collect::<std::collections::BTreeSet<_>>();
-    if expected_workspace != actual_workspace
+    if !workspace_matches
         || expected_streams != actual_streams
-        || expected_workspace.len() != pins.workspace.len()
         || expected_streams.len() != pins.streams.len()
     {
         bail!(
