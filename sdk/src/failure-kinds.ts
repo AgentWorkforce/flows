@@ -37,11 +37,16 @@ export const CHECK_FAILURE_KINDS = [
  * anything it cannot prove, so a deterministic step always leaves exactly one
  * of these: its command resolved (effects still unknowable), it did not
  * resolve, or it could not be probed at all. Silence is not one of the states.
+ *
+ * `vacuous_gate` is the same principle applied to a declared gate that judges
+ * nothing: `schema: {}` and `schema: true` are legal and accepted, but a gate
+ * accepting every output must not be reported as if it constrained one.
  */
 export const PREFLIGHT_WARNING_KINDS = [
   'unprovable_effects',
   'command_unresolved',
   'command_unprovable',
+  'vacuous_gate',
 ] as const;
 
 /** Closed outcome taxonomy owned by the `flows run` / `flows resume` surface. */

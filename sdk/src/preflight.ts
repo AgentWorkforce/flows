@@ -1,5 +1,5 @@
 import type { FlowSpec, StepSpec, TriggerSpec } from './spec.js';
-import { inspectStepGate, type StepGateInspection } from './gate-contract.js';
+import { acceptsAnyOutput, inspectStepGate, type StepGateInspection } from './gate-contract.js';
 import { compileSpec, CompileError } from './compile.js';
 import type {
   PreflightFailureKind,
@@ -156,6 +156,7 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
   }
 
   for (const step of compiled.steps) {
+    warnOnVacuousGate(step, diagnostics);
     warnOnUnprovableEffects(step, options.probes, diagnostics);
     if (step.type === 'deterministic') continue;
     const resolution = resolutionByStep.get(step.id)!;
@@ -391,6 +392,23 @@ function probeTrigger(
  * containing `/` names a path rather than relying on shell resolution, so a
  * failed existence probe refuses the flow.
  */
+/**
+ * A declared `json_schema` gate that accepts every output is legal and stays
+ * legal — but it is indistinguishable in the gate plan from one that judges
+ * something, which is exactly the confusion AGENTS.md's "never edit a gate that
+ * judges your own work" rail exists to prevent.
+ */
+function warnOnVacuousGate(step: StepSpec, diagnostics: PreflightDiagnostic[]): void {
+  if (step.verification?.type !== 'json_schema') return;
+  if (!acceptsAnyOutput(step.verification.schema)) return;
+  diagnostics.push({
+    severity: 'warning',
+    kind: 'vacuous_gate',
+    stepId: step.id,
+    message: `Step "${step.id}" declares a json_schema gate that accepts every possible output, so it judges nothing.`,
+  });
+}
+
 function warnOnUnprovableEffects(
   step: StepSpec,
   probes: PreflightProbes,

@@ -8,29 +8,21 @@
 // assumed.
 
 import { createHash } from 'node:crypto';
+import { snapshotJsonValue, type JsonValue } from './json-value.js';
 
 /**
  * Serialize a value as canonical JSON: object keys sorted recursively,
  * arrays in order, no whitespace. Numbers are kept as-is (tokens are
  * integers; money is a decimal string, never a float — so no float drift).
+ *
+ * This is an exported boundary, so runtime input is snapshotted into frozen,
+ * behavior-free data before a single byte is serialized — the same guard
+ * `validateSpec` and `kernelToAuthoring` use. Without it a Proxy or a plain
+ * getter could return one value while the identity is computed and another
+ * afterwards, and `specHash` would stamp a spec nobody ever declared.
  */
 export function canonicalize(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return '[' + (value as unknown[]).map(canonicalize).join(',') + ']';
-  }
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return (
-    '{' +
-    keys
-      .filter((k) => obj[k] !== undefined)
-      .map((k) => JSON.stringify(k) + ':' + canonicalize(obj[k]))
-      .join(',') +
-    '}'
-  );
+  return serialize(snapshotJsonValue(value, 'value'));
 }
 
 /**
@@ -38,5 +30,28 @@ export function canonicalize(value: unknown): string {
  * (`toKernelSpec`) to get the identity the kernel stamps as `spec_hash`.
  */
 export function specHash(spec: unknown): string {
-  return createHash('sha256').update(canonicalize(spec)).digest('hex');
+  return createHash('sha256').update(serialize(snapshotJsonValue(spec, 'spec'))).digest('hex');
+}
+
+/**
+ * Serialize an already-snapshotted value. Each key is read EXACTLY ONCE: the
+ * previous `keys.filter(k => obj[k] !== undefined).map(k => … obj[k])` read
+ * every property twice, which on a live getter is a TOCTOU — the filter and
+ * the serialize could disagree, and two `canonicalize` calls on one object
+ * could return different strings.
+ */
+function serialize(value: JsonValue): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return '[' + value.map(serialize).join(',') + ']';
+  }
+  const parts: string[] = [];
+  for (const key of Object.keys(value).sort()) {
+    const child = value[key];
+    if (child === undefined) continue;
+    parts.push(JSON.stringify(key) + ':' + serialize(child));
+  }
+  return '{' + parts.join(',') + '}';
 }
