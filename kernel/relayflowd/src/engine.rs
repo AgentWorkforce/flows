@@ -6,11 +6,28 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use relayflowd_core::{
     Clock, EntryType, Journal, JournalEntry, RunSpawnedPayload, RunSpec, RunState, StepKind,
-    recovery_actions_filtered, request_cancel_action,
+    recovery_actions_filtered, request_cancel_action, workspace_surfaces_equal,
 };
 use relayflowd_journal::{Registry, SqliteJournal};
 use sha2::{Digest, Sha256};
 use ulid::Ulid;
+
+#[derive(Debug)]
+pub struct RunTerminalError {
+    pub run_id: String,
+}
+
+impl std::fmt::Display for RunTerminalError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "run {} is terminal and cannot accept mutations",
+            self.run_id
+        )
+    }
+}
+
+impl std::error::Error for RunTerminalError {}
 
 use crate::clock::WallClock;
 use crate::worker::{JournalObserver, StepDispatcher};
@@ -182,13 +199,17 @@ impl<C: Clock> Engine<C> {
         let spec = journal.run_spec().context("read run spec")?;
         let state = self.load_state(&journal, spec)?;
         let mut snapshot = snapshot_from_state(&state);
-        let registry_record = self.registry()?.lookup(run_id)?;
-        if let Some(record) = registry_record.filter(|record| record.status == "waiting_worker") {
-            for step in snapshot.steps.values_mut().filter(|step| {
-                step.step_type != relayflowd_core::StepType::Deterministic
-                    && step.state == model::StepStatus::Running
-            }) {
-                step.lease_deadline_ms = record.next_wake_at_ms;
+        if let Some(dispatcher) = &self.dispatcher {
+            for step in &state.spec.steps {
+                let relayflowd_core::StepState::Running { attempt, .. } =
+                    state.steps[&step.id].state
+                else {
+                    continue;
+                };
+                if let Some(deadline) = dispatcher.active_lease_deadline(run_id, &step.id, attempt)
+                {
+                    snapshot.steps.get_mut(&step.id).unwrap().lease_deadline_ms = Some(deadline);
+                }
             }
         }
         Ok(snapshot)
@@ -245,6 +266,7 @@ impl<C: Clock> Engine<C> {
         journal: &mut SqliteJournal,
         entry: &JournalEntry,
     ) -> Result<JournalEntry> {
+        self.ensure_journal_mutable(journal)?;
         let persisted = journal.append(entry).map_err(|error| anyhow!(error))?;
         if let Some(observer) = &self.observer {
             observer.appended(&persisted);
@@ -252,7 +274,25 @@ impl<C: Clock> Engine<C> {
         Ok(persisted)
     }
 
-    fn assign_executor(&self, entry: &mut JournalEntry) -> Result<()> {
+    pub fn ensure_run_mutable(&self, run_id: &str) -> Result<()> {
+        let journal = self.open_run(run_id)?;
+        self.ensure_journal_mutable(&journal)
+    }
+
+    fn ensure_journal_mutable(&self, journal: &SqliteJournal) -> Result<()> {
+        if journal
+            .is_terminal()
+            .context("read terminal admission state")?
+        {
+            return Err(RunTerminalError {
+                run_id: journal.run_id().to_owned(),
+            }
+            .into());
+        }
+        Ok(())
+    }
+
+    fn assign_executor(&self, state: &RunState, entry: &mut JournalEntry) -> Result<()> {
         if entry.entry_type != EntryType::StepAttemptStarted {
             return Ok(());
         }
@@ -261,10 +301,19 @@ impl<C: Clock> Engine<C> {
         if payload.step_type == relayflowd_core::StepType::Deterministic {
             return Ok(());
         }
+        let step_id = entry
+            .step_id
+            .as_deref()
+            .context("out-of-band start has no step id")?;
+        let step = state
+            .spec
+            .step(step_id)
+            .with_context(|| format!("run has no step {step_id}"))?;
+        let attempt = entry.attempt.context("out-of-band start has no attempt")?;
         if let Some(executor) = self
             .dispatcher
             .as_ref()
-            .and_then(|dispatcher| dispatcher.executor(payload.step_type))
+            .and_then(|dispatcher| dispatcher.reserved_executor(&state.run_id, step, attempt))
         {
             payload.executor = executor;
             entry.payload = serde_json::to_value(payload)?;
@@ -289,7 +338,8 @@ impl<C: Clock> Engine<C> {
             .spec
             .step(step_id)
             .with_context(|| format!("run has no step {step_id}"))?;
-        payload.pins = self.resolve_agent_pins(step, &payload.pins)?;
+        let attempt = entry.attempt.context("agent start has no attempt")?;
+        payload.pins = self.resolve_agent_pins(&state.run_id, step, attempt, &payload.pins)?;
         validate_agent_pins(step, &payload.pins)?;
         entry.payload = serde_json::to_value(payload)?;
         Ok(())
@@ -302,7 +352,9 @@ impl<C: Clock> Engine<C> {
     /// agent steps may therefore declare entirely different surfaces.
     fn resolve_agent_pins(
         &self,
+        run_id: &str,
         step: &relayflowd_core::StepSpec,
+        attempt: u32,
         carried: &relayflowd_core::Pins,
     ) -> Result<relayflowd_core::Pins> {
         let StepKind::Agent { surfaces, .. } = &step.kind else {
@@ -312,7 +364,7 @@ impl<C: Clock> Engine<C> {
             carried
                 .workspace
                 .iter()
-                .any(|pin| pin.surface == declared.surface)
+                .any(|pin| workspace_surfaces_equal(&pin.surface, &declared.surface))
         }) && surfaces.streams.iter().all(|declared| {
             carried
                 .streams
@@ -327,7 +379,7 @@ impl<C: Clock> Engine<C> {
             self.dispatcher
                 .as_ref()
                 .context("agent dispatch requires an attached worker")?
-                .starting_pins(step)?
+                .reserved_starting_pins(run_id, step, attempt)?
         };
         // Project onto the declared surfaces, in declared order: a surface this
         // step does not declare is outside its contract (Appendix A rule 1) and
@@ -341,7 +393,7 @@ impl<C: Clock> Engine<C> {
                         .workspace
                         .iter()
                         .chain(worker.workspace.iter())
-                        .find(|pin| pin.surface == declared.surface)
+                        .find(|pin| workspace_surfaces_equal(&pin.surface, &declared.surface))
                         .cloned()
                 })
                 .collect(),
@@ -360,23 +412,18 @@ impl<C: Clock> Engine<C> {
         })
     }
 
-    /// Preflight for Appendix A rule 2: can the attached worker pin every
-    /// surface this agent step declares that the chain has not already pinned?
-    /// A worker that cannot is not a compatible worker for this step — the run
-    /// parks until one that can attaches, rather than failing mid-drive with an
-    /// untyped error after `run.start` has already journaled the spawn.
-    pub(super) fn agent_pins_available(
-        &self,
+    pub(super) fn dispatch_required_pins(
         state: &RunState,
         step: &relayflowd_core::StepSpec,
-    ) -> bool {
+    ) -> relayflowd_core::Pins {
+        if !matches!(step.kind, StepKind::Agent { .. }) {
+            return relayflowd_core::Pins::default();
+        }
         let carried = relayflowd_core::carried_pins_for(state.current_pins.as_ref(), step);
-        let carried = state.steps[&step.id]
+        state.steps[&step.id]
             .last_start_pins
             .clone()
-            .unwrap_or(carried);
-        self.resolve_agent_pins(step, &carried)
-            .is_ok_and(|pins| validate_agent_pins(step, &pins).is_ok())
+            .unwrap_or(carried)
     }
 
     fn open_run(&self, run_id: &str) -> Result<SqliteJournal> {
@@ -403,16 +450,12 @@ fn validate_agent_pins(
     let StepKind::Agent { surfaces, .. } = &step.kind else {
         return Ok(());
     };
-    let expected_workspace = surfaces
-        .workspace
-        .iter()
-        .map(|surface| surface.surface.as_str())
-        .collect::<std::collections::BTreeSet<_>>();
-    let actual_workspace = pins
-        .workspace
-        .iter()
-        .map(|pin| pin.surface.as_str())
-        .collect::<std::collections::BTreeSet<_>>();
+    let workspace_matches = surfaces.workspace.len() == pins.workspace.len()
+        && surfaces.workspace.iter().all(|surface| {
+            pins.workspace
+                .iter()
+                .any(|pin| workspace_surfaces_equal(&pin.surface, &surface.surface))
+        });
     let expected_streams = surfaces
         .streams
         .iter()
@@ -423,9 +466,8 @@ fn validate_agent_pins(
         .iter()
         .map(|pin| pin.stream.as_str())
         .collect::<std::collections::BTreeSet<_>>();
-    if expected_workspace != actual_workspace
+    if !workspace_matches
         || expected_streams != actual_streams
-        || expected_workspace.len() != pins.workspace.len()
         || expected_streams.len() != pins.streams.len()
     {
         bail!(

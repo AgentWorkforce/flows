@@ -44,13 +44,51 @@ pub trait StepDispatcher: Send + Sync {
 
     fn available(&self, step_type: StepType) -> bool;
 
+    /// Reserve one worker slot before the durable start is appended. Runtime
+    /// dispatchers override this atomically; stateless/in-process dispatchers
+    /// retain the legacy availability behavior through this default.
+    fn reserve_dispatch(
+        &self,
+        _run_id: &str,
+        step: &StepSpec,
+        _attempt: u32,
+        _required_pins: &Pins,
+    ) -> Result<bool> {
+        Ok(self.available(step.step_type()))
+    }
+
+    /// Executor selected by [`reserve_dispatch`](Self::reserve_dispatch).
+    fn reserved_executor(&self, _run_id: &str, step: &StepSpec, _attempt: u32) -> Option<String> {
+        self.executor(step.step_type())
+    }
+
     /// Opaque starting revisions/offsets reported by the selected worker for
     /// the first agent attempt. Later attempts are derived from the journal.
     fn starting_pins(&self, _step: &StepSpec) -> Result<Pins> {
         Ok(Pins::default())
     }
 
+    /// Starting pins reported by the worker whose capacity was reserved.
+    fn reserved_starting_pins(
+        &self,
+        _run_id: &str,
+        step: &StepSpec,
+        _attempt: u32,
+    ) -> Result<Pins> {
+        self.starting_pins(step)
+    }
+
+    /// Release an admission that did not become a live assignment.
+    fn release_dispatch_reservation(&self, _run_id: &str, _step_id: &str, _attempt: u32) {}
+
     fn dispatch(&self, dispatch: StepDispatch) -> Result<DispatchOutcome>;
+
+    /// Heartbeat-renewed operational deadline for one live assignment. The
+    /// journal retains the original grant; a live server projection must use
+    /// the assignment it currently owns instead of rewriting that history.
+    fn active_lease_deadline(&self, _run_id: &str, _step_id: &str, _attempt: u32) -> Option<i64> {
+        None
+    }
 }
 
 /// Journal watches are projections. Notification happens only after append.

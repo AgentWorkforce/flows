@@ -6,7 +6,7 @@ use super::{RunState, StateError};
 use crate::{
     entry::{JournalEntry, Pins},
     machine::carried_pins,
-    spec::{RecoveryMode, StepKind, StepType},
+    spec::{RecoveryMode, StepKind, StepType, workspace_surfaces_equal},
 };
 
 impl RunState {
@@ -74,7 +74,7 @@ impl RunState {
                     carried
                         .workspace
                         .iter()
-                        .any(|declared| declared.surface == pin.surface)
+                        .any(|declared| workspace_surfaces_equal(&declared.surface, &pin.surface))
                 })
                 .cloned()
                 .collect(),
@@ -122,7 +122,7 @@ pub(super) fn chain_forward(chain: Option<Pins>, end_pins: Option<Pins>) -> Opti
         match merged
             .workspace
             .iter_mut()
-            .find(|held| held.surface == pin.surface)
+            .find(|held| workspace_surfaces_equal(&held.surface, &pin.surface))
         {
             Some(held) => *held = pin,
             None => merged.workspace.push(pin),

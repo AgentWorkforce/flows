@@ -112,7 +112,7 @@ fn unknown_root_and_nested_fields_are_rejected() {
         RunSpec::parse(&json!({
             "steps": [{
                 "id": "a", "type": "agent", "instruction": "do",
-                "surfaces": {"workspaces": [{"surface": "repo/"}]}
+                "surfaces": {"workspaces": [{"surface": "repo"}]}
             }]
         }))
         .is_err()
@@ -146,7 +146,7 @@ fn the_full_ladder_parses_in_the_one_dialect() {
              "depends_on": ["a"], "verification": {"json_schema": {"type": "object"}}},
             {"id": "c", "type": "agent", "instruction": "edit", "depends_on": ["b"],
              "recovery_mode": "inspect",
-             "surfaces": {"workspace": [{"surface": "repo/"}], "streams": [{"stream": "results"}],
+             "surfaces": {"workspace": [{"surface": "repo"}], "streams": [{"stream": "results"}],
                           "external": ["pr://github/example"]},
              "permissions": {"access_preset": "readwrite", "file_globs": ["src/**"]}}
         ],
@@ -157,6 +157,124 @@ fn the_full_ladder_parses_in_the_one_dialect() {
     assert_eq!(spec.steps[2].step_type(), StepType::Agent);
     assert_eq!(spec.cli.as_deref(), Some("claude"));
     assert_eq!(spec.triggers[0].executor, "worker-a");
+}
+
+#[test]
+fn external_surface_paths_must_have_one_canonical_spelling() {
+    for path in [
+        "",
+        ".",
+        "..",
+        "//",
+        "/provider/./item",
+        "/provider/../item",
+        "/provider//item",
+        "/provider/item//",
+        "/provider/item/",
+        " pr://github/example",
+    ] {
+        let spec = RunSpec::parse(&json!({
+            "steps": [{
+                "id": "agent",
+                "type": "agent",
+                "instruction": "write",
+                "surfaces": {"external": [path]}
+            }]
+        }))
+        .unwrap();
+        assert!(
+            matches!(
+                spec.validate(),
+                Err(SpecError::InvalidExternalSurface { path: invalid, .. }) if invalid == path
+            ),
+            "accepted non-canonical surface {path:?}"
+        );
+    }
+    for path in [
+        "/provider/item",
+        "pr://github/example",
+        "provider/item",
+    ] {
+        let spec = RunSpec::parse(&json!({
+            "steps": [{
+                "id": "agent",
+                "type": "agent",
+                "instruction": "write",
+                "surfaces": {"external": [path]}
+            }]
+        }))
+        .unwrap();
+        assert!(
+            spec.validate().is_ok(),
+            "rejected canonical surface {path:?}"
+        );
+    }
+    assert!(external_surface_contains(
+        "/provider/item",
+        "/provider/item/child"
+    ));
+    // A non-canonical spelling is not a surface, so containment fails closed
+    // rather than resolving to the canonical one.
+    assert!(!external_surface_contains(
+        "/provider/item/",
+        "/provider/item"
+    ));
+    assert!(!external_surface_contains(
+        "/provider/item",
+        "/provider/other"
+    ));
+    assert!(!external_surface_contains(
+        "/provider/item",
+        "/provider/./item"
+    ));
+}
+
+#[test]
+fn workspace_mounts_and_worktrees_must_have_one_canonical_spelling() {
+    for surface in [
+        "",
+        ".",
+        "..",
+        "//",
+        "/mount/./repo",
+        "/mount/repo/../repo",
+        "/mount//repo",
+        "/mount/repo//",
+        "/mount/repo/",
+        "repo/",
+        " worktrees/repo",
+        "worktrees/./repo",
+    ] {
+        let spec = RunSpec::parse(&json!({
+            "steps": [{
+                "id": "agent",
+                "type": "agent",
+                "instruction": "write",
+                "surfaces": {"workspace": [{"surface": surface}]}
+            }]
+        }))
+        .unwrap();
+        assert!(
+            matches!(
+                spec.validate(),
+                Err(SpecError::InvalidWorkspaceSurface { surface: invalid, .. })
+                    if invalid == surface
+            ),
+            "accepted non-canonical workspace surface {surface:?}"
+        );
+    }
+    for surface in ["/mount/repo", "worktrees/repo", "repo"] {
+        let spec = RunSpec::parse(&json!({
+            "steps": [{
+                "id": "agent",
+                "type": "agent",
+                "instruction": "write",
+                "surfaces": {"workspace": [{"surface": surface}]}
+            }]
+        }))
+        .unwrap();
+        assert!(spec.validate().is_ok(), "rejected {surface:?}");
+    }
 }
 
 #[test]

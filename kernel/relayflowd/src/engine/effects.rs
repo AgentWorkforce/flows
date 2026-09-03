@@ -124,7 +124,14 @@ impl Engine<WallClock> {
         let StepKind::Agent { surfaces, .. } = &step.kind else {
             bail!("step {step_id} is not an agent step")
         };
-        if !surfaces.external.iter().any(|path| path == surface_path) {
+        if !relayflowd_core::is_canonical_external_surface(surface_path) {
+            bail!("effect path {surface_path} is not canonical")
+        }
+        if !surfaces
+            .external
+            .iter()
+            .any(|declared| relayflowd_core::external_surface_contains(declared, surface_path))
+        {
             bail!("effect path {surface_path} is not declared by agent step {step_id}")
         }
         let StepState::Running {

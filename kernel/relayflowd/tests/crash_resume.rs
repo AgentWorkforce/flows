@@ -11,8 +11,20 @@ mod concurrency;
 mod llm;
 #[path = "crash_resume/llm_support.rs"]
 mod llm_support;
+#[path = "crash_resume/parallel_lifecycle.rs"]
+mod parallel_lifecycle;
+#[path = "crash_resume/pin_projection.rs"]
+mod pin_projection;
+#[path = "crash_resume/protocol_admission.rs"]
+mod protocol_admission;
 #[path = "crash_resume/support.rs"]
 mod support;
+#[path = "crash_resume/surface_identity.rs"]
+mod surface_identity;
+#[path = "crash_resume/worker_capacity.rs"]
+mod worker_capacity;
+#[path = "crash_resume/workspace_identity.rs"]
+mod workspace_identity;
 
 use std::{
     fs, io::Write, os::unix::net::UnixStream, os::unix::process::CommandExt, process::Command,

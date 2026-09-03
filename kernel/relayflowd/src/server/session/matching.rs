@@ -2,17 +2,93 @@
 //! the attempt is pinned. Split from `session.rs` so worker selection and
 //! Appendix A rule 2's starting-state check read as their own subject.
 
-use relayflowd_core::{Pins, StepType};
+use std::cmp::Ordering;
+
+use relayflowd_core::{Pins, StepKind, StepSpec, StepType, workspace_surfaces_equal};
 
 use super::{Sessions, Worker};
 use crate::worker::StepDispatch;
 
-/// The single worker-selection rule, shared by pin sourcing and dispatch.
+/// Deterministic least-loaded selection. Capacity is counted across both
+/// journal-pending reservations and live assignments, so admission happens
+/// before a durable start and concurrent runs cannot overbook a worker.
 pub(super) fn select_worker(sessions: &Sessions, step_type: StepType) -> Option<&Worker> {
     sessions
         .workers
         .iter()
-        .find(|worker| worker.step_types.contains(&step_type))
+        .filter(|worker| worker.step_types.contains(&step_type))
+        .filter_map(|worker| {
+            let load = worker_load(sessions, worker.connection_id);
+            (load < worker.capacity).then_some((worker, load))
+        })
+        .min_by(|(left, left_load), (right, right_load)| {
+            normalized_load_order(*left_load, left.capacity, *right_load, right.capacity)
+        })
+        .map(|(worker, _)| worker)
+}
+
+pub(super) fn select_worker_for_step<'a>(
+    sessions: &'a Sessions,
+    step: &StepSpec,
+    required_pins: &Pins,
+) -> Option<&'a Worker> {
+    sessions
+        .workers
+        .iter()
+        .filter(|worker| worker.step_types.contains(&step.step_type()))
+        .filter(|worker| worker_can_pin(worker, step, required_pins))
+        .filter_map(|worker| {
+            let load = worker_load(sessions, worker.connection_id);
+            (load < worker.capacity).then_some((worker, load))
+        })
+        .min_by(|(left, left_load), (right, right_load)| {
+            normalized_load_order(*left_load, left.capacity, *right_load, right.capacity)
+        })
+        .map(|(worker, _)| worker)
+}
+
+fn worker_load(sessions: &Sessions, connection_id: u64) -> usize {
+    sessions
+        .assignments
+        .values()
+        .filter(|assignment| assignment.connection_id == connection_id)
+        .count()
+        + sessions
+            .reservations
+            .values()
+            .filter(|reservation| reservation.connection_id == connection_id)
+            .count()
+}
+
+fn normalized_load_order(
+    left_load: usize,
+    left_capacity: usize,
+    right_load: usize,
+    right_capacity: usize,
+) -> Ordering {
+    (left_load as u128 * right_capacity as u128).cmp(&(right_load as u128 * left_capacity as u128))
+}
+
+fn worker_can_pin(worker: &Worker, step: &StepSpec, required_pins: &Pins) -> bool {
+    if !worker_holds(worker, required_pins) {
+        return false;
+    }
+    let StepKind::Agent { surfaces, .. } = &step.kind else {
+        return true;
+    };
+    surfaces.workspace.iter().all(|declared| {
+        worker
+            .pins
+            .workspace
+            .iter()
+            .any(|held| workspace_surfaces_equal(&held.surface, &declared.surface))
+    }) && surfaces.streams.iter().all(|declared| {
+        worker
+            .pins
+            .streams
+            .iter()
+            .any(|held| held.stream == declared.stream)
+    })
 }
 
 /// Which pinned values does the selected worker not stand at? `None` when the
@@ -34,7 +110,7 @@ pub(super) fn pin_value_mismatch(worker: &Worker, dispatch: &StepDispatch) -> Op
             .pins
             .workspace
             .iter()
-            .find(|held| held.surface == pin.surface);
+            .find(|held| workspace_surfaces_equal(&held.surface, &pin.surface));
         if let Some(held) = held
             && held.revision_id != pin.revision_id
         {
@@ -69,7 +145,7 @@ pub(super) fn worker_holds(worker: &Worker, pins: &Pins) -> bool {
             .pins
             .workspace
             .iter()
-            .any(|held| held.surface == pin.surface)
+            .any(|held| workspace_surfaces_equal(&held.surface, &pin.surface))
     }) && pins.streams.iter().all(|pin| {
         worker
             .pins

@@ -171,6 +171,16 @@ impl SqliteJournal {
             .map_err(Into::into)
     }
 
+    pub fn is_terminal(&self) -> Result<bool, JournalStoreError> {
+        self.connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM entries WHERE entry_type = ?1)",
+                [relayflowd_core::EntryType::RunCompleted.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
+    }
+
     fn scan_where<const N: usize>(
         &self,
         sql: &str,
@@ -248,6 +258,8 @@ pub enum JournalStoreError {
     WrongRun { expected: String, actual: String },
     #[error("journal entry targets segment {actual}, current segment is {expected}")]
     WrongSegment { expected: i64, actual: i64 },
+    #[error("run {0} is terminal and cannot accept journal entries")]
+    RunTerminal(String),
     #[error("stream {stream} expected offset {expected}, received {actual}")]
     InvalidStreamOffset {
         stream: String,
@@ -274,7 +286,7 @@ mod tests {
 
     use relayflowd_core::{
         Budget, EffectConfirmedPayload, EffectRecordedPayload, EntryType, EpochSummaryPayload,
-        RunSpawnedPayload,
+        RunCompletedPayload, RunCompletionReason, RunSpawnedPayload,
     };
     use serde_json::json;
     use tempfile::tempdir;
@@ -334,6 +346,37 @@ mod tests {
             ))
             .unwrap_err();
         assert!(error.0.contains("readonly") || error.0.contains("read-only"));
+    }
+
+    #[test]
+    fn terminal_run_refuses_every_later_entry_atomically() {
+        let (_directory, mut journal) = created();
+        journal
+            .append(&JournalEntry::new(
+                EntryType::RunCompleted,
+                "run",
+                None,
+                None,
+                10,
+                RunCompletedPayload {
+                    completion_reason: RunCompletionReason::Success,
+                    failed_step_id: None,
+                    budget_total: Budget::default(),
+                },
+            ))
+            .unwrap();
+        let error = journal
+            .append(&JournalEntry::new(
+                EntryType::StreamAppended,
+                "run",
+                None,
+                None,
+                11,
+                json!({}),
+            ))
+            .unwrap_err();
+        assert!(error.0.contains("terminal"), "{error:?}");
+        assert_eq!(journal.scan_all().unwrap().len(), 1);
     }
 
     fn election(attempt: u32) -> JournalEntry {
