@@ -3646,3 +3646,20 @@ Queue still down (`4869ec51` pending, unmoved from 23:23Z). #3270 unchanged:
 no preview run exists on its branch, last one failed at "Mint private Flows
 artifact token". #139 signoff running at `8b7148d` — worktree clean, correct
 head, no report yet. #154 still open. Nothing actionable; no work invented.
+### Tick 03:05 — #139 signoff PASSED; #155 has a second symptom
+
+- **#139 independent signoff PASSED at `8b7148d`** (codex). Genuinely rigorous:
+  7 mutations, each with before/mutated/restored SHA-256, a failing witness and
+  a passing witness. Covered both conflicts I resolved and all four traps.
+  Confirms all six protocol helpers are defined exactly once, in
+  `server/protocol.rs`, and `run.start` maps `SpecError` → `invalid_spec`.
+  Final gates 142/142 kernel, 561/561 SDK. Worktree clean; only the report
+  added. **#139 now needs nothing but green CI, which waits on #154.**
+- **#155 is broader than filed.** The same race also fails
+  `live-kernel.test.ts > follows a live worker dispatch through flows run` with
+  `relayflowd returned status parked without a classifiable completion`. So it
+  can turn CI red from the kernel suite AND the SDK suite for one root cause,
+  and the SDK symptom is far harder to recognise. Recorded on the issue.
+  Rates 4/10 (branch) vs 1/10 (main baseline) are NOT distinguishable at n=10
+  — flagged so nobody reads them as #139 making it worse.
+- Queue still down (`4869ec51` unmoved from 23:23Z). #3270 unchanged.
