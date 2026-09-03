@@ -3567,3 +3567,55 @@ Run `npm audit` for details.
 
 CLEAN_ACCEPTANCE built_cli=executable
 ```
+
+## 2026-09-04 ~02:00 — relayflow-lead-0903
+
+**Shipped**
+- #153 `ci: run the kernel and full SDK suites` — merged. Kernel suite (130 tests)
+  and all 26 SDK test files now run in CI; previously `cargo test` appeared
+  nowhere and vitest ran 4 named files.
+- #139 rebased onto `3725025`, pushed `40edd03 → 8b7148d`, now MERGEABLE.
+  Hit **trap 1**: `main` had MOVED five protocol helpers (`decode_params`,
+  `to_value`, `protocol_conflict`, `internal_error`, `error_response`) out of
+  `server.rs` into `server/protocol.rs`; the branch re-added all five. Verified
+  per-function against main, took main's, relocated only `run_start_error` (the
+  one genuinely new) into `protocol.rs` as `pub(super)`. Kernel 142, SDK 561.
+- #134 rebased onto `3725025`, pushed `c4941e1 → 817db37`. Independent Codex
+  signoff PASSED at `c4941e1`; carried forward by hashing the four reviewed
+  files before/after the rebase — all identical, so the signoff still applies.
+  Kernel 130, SDK 526.
+- #155 filed: P1 regression in #137.
+
+**Broke, then repaired**
+- #153 shipped a command its own evidence never ran. Every local verification
+  had `RUSTUP_TOOLCHAIN=stable` prefixed; `ops/cargo.sh` redirects RUSTUP_HOME
+  to an empty dir on a runner, so CI died at `rustup could not choose a version
+  of cargo`. #154 opened to fix it: plain `cargo` for the kernel step, and
+  `npm test` expanded minus `test:prep` with `RELAYFLOWD_BIN` pointed at the
+  release binary already built in the job.
+- **Rule for next time: verify the exact string the artifact contains, with no
+  environment the artifact will not have.** An env var in front of a command is
+  part of the command.
+
+**Found (#155)**
+`worker_capacity::default_capacity_one_reopens_only_after_durable_completion_or_crash`
+fails ~15% of runs. Bisected: 60/60 pass at `16860d2`, fails at and after
+`f16b133` (#137). #137 replaced first-runnable-step dispatch with
+`parallel::runnable_batch`, which returns every dependency-free step with no
+capacity awareness; a capacity-1 worker is offered both lanes and the winner
+races. The state machine's ordering is correct — `runnable_batch` iterates in
+authored order — so the defect is that `(load < worker.capacity)` in
+`server/session/matching.rs:22` is evaluated against a stale load snapshot.
+Reframed: not an ordering wobble, a capacity bound that does not hold for a
+batch dispatched from one snapshot.
+
+**Blocked — needs Khaliq**
+`main` CI is red either way. Options put to him: (1) merge #154, CI truthful and
+red on a real bug; (2) merge #154 + revert #137; (3) revert #153, instantly
+green and blind again. Recommended (1). #139, #134 and #144 all wait on this —
+none can reach green CI until #154 lands.
+
+**Also open**
+SDK flake: `ENOENT '.relayflow/backlog-picker-entry.json'` — a test writing to a
+relative path, racing under vitest parallelism. Seen once in ~5 full runs. Not
+filed.
