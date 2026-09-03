@@ -4491,3 +4491,138 @@ Chief coordination was corrected from a nonexistent shadow address to `chief`
 on `kjg-lap`. Durable reports, rather than DM delivery, are now the handoff
 mechanism. The shared `flows-ops` checkout remains unsafe for tracked writes;
 all lead work stays in `/Users/khaliqgant/AgentWorkforce/flows-lead-wt`.
+
+## 2026-09-03T08:55Z — flows-claude-lead-0903 (Opus 4.7) picks up handoff
+
+Session-Id: harness-successor-2026-09-03T08:00Z
+
+Handoff read: `ops/HANDOFF-20260903-CLAUDE.md`, root `AGENTS.md`,
+`docs/RFC-0001-everything-is-a-relayflow.md`. Priority order re-baselined from
+mid-session Khaliq update: (1) cloud #3264 fresh signoff at `ec5e4e06`,
+(2) cloud #3270 fresh reviews + preview/live v2 proof, (3) relay #1640 status
+watch. HN migration re-ordered to v1-first under owner `aw-hn-relayflow-0903`
+on `agents-hn-relayflow-wt` (not this lane).
+
+Every Agent Relay worker named in the handoff was idle 9–14 h at session start;
+treated as quota-exhausted. Verified separately from Codex idle heuristic —
+handoff DRIVE-LOG already documented the two exhausted sessions.
+
+### Cloud PR #3270 — remote updated to `3ce981c3`
+
+Ran the review-recommended local suite at exact local head
+`3ce981c3a40393ccba57fa1538fffc6687372036`:
+
+```text
+$ node ./node_modules/vitest/vitest.mjs run --config vitest.config.ts \
+    packages/web/scripts/prove-relayflow-v2-cloud.test.ts
+Test Files  1 passed (1)
+Tests  14 passed (14)
+
+$ node ./node_modules/vitest/vitest.mjs run --config vitest.config.ts \
+    packages/web/lib/workflows/launch-runner.test.ts \
+    packages/web/lib/workflows/relayflow-v2-artifact-source.test.ts \
+    packages/web/lib/workflow-schedules/request.test.ts \
+    tests/relayflow-v2-preview-publication.test.ts \
+    tests/workflow-launch-queue-infra.test.ts \
+    tests/workflow-run-route.test.ts
+Test Files  6 passed (6)
+Tests  102 passed (102)
+
+$ node --import tsx --test \
+    packages/core/tests/relayflow-v2-artifact.test.ts \
+    packages/core/tests/relayflow-v2-executor.test.ts \
+    packages/core/tests/launch-member.test.ts \
+    tests/orchestrator/script-generator.test.ts
+tests 94, pass 94, fail 0
+
+$ node scripts/check-route-coverage.mjs \
+    && node scripts/check-route-slug-conflicts.mjs \
+    && node --import tsx scripts/check-handler-coverage.ts
+Route coverage OK (326 route-method pairs checked).
+✓ No route slug conflicts (54 dynamic route positions scanned).
+Handler coverage OK (43 stateful routes checked, 52 real-covered, 20 allowlisted).
+```
+
+Pushed with an exact lease against the recorded remote head:
+
+```text
+$ git push --force-with-lease=feat/relayflow-v2-executor:7a08d72b1e0a254ec10e94512e44bdfb911a36aa \
+    origin feat/relayflow-v2-executor
+ + 7a08d72b...3ce981c3 feat/relayflow-v2-executor -> feat/relayflow-v2-executor (forced update)
+```
+
+`gh pr view 3270`: head now `3ce981c3`, `mergeable = MERGEABLE`. CI at time of
+writing: 23 SUCCESS / 3 SKIPPED / 1 NEUTRAL (cubic AI reviewer) / 2 PENDING.
+Local review reports staged in `ops/reviews/` remain uncommitted (not folded
+into product commits per handoff rule). Fresh independent signoff and the
+authenticated preview + live v2 execution + journal export proof are still
+required before merge readiness.
+
+### Flows PR #134 — repaired and pushed by kjgbot; verified locally
+
+Between my picking up the lane and my first push, the surface worktree
+advanced two commits under kjgbot: `b89eef8 test(surface): reproduce authored
+lifecycle escapes` + `e869940 fix(surface): enforce authored lifecycle
+provenance`, both stamped Session-Id `01a062b7-2aef-7772-8225-7cb00ee311dd`.
+Confirmed the fix at HEAD:
+
+```text
+$ ./node_modules/.bin/vitest run tests/authored-flow-operation.test.ts \
+                                  tests/authored-flow-lifecycle-executor.test.ts
+Test Files  2 passed (2)
+Tests  26 passed (26)
+```
+
+Remote already at `e869940`; my force-with-lease was a no-op. `mergeable =
+MERGEABLE`. `linux-x64-artifact` + `packed-consumer` checks succeeded. Prior
+adversarial evidence in `ops/pr134-lifecycle-repair-evidence.md` on that
+commit reports 275/275 SDK regression + live daemon + packed consumer refusal
+matrix; no attempt made to re-run the full regression on my host.
+
+### Flows PR #137 — WIP committed and pushed
+
+Preserved the local WIP in `flows-132-parallel-dispatch-wt`, unstaged the
+prior review report set, and committed only product/test changes:
+
+```text
+$ cargo test -p relayflowd-core --lib machine::parallel
+9 passed; 0 failed
+
+$ cargo test -p relayflowd --test crash_resume workspace_aliases
+1 passed; 0 failed; ...; finished in 0.89s
+    (workspace_identity::workspace_aliases_are_refused_and_canonical_subtrees_serialize_over_real_sockets)
+
+$ ./node_modules/.bin/vitest run tests/validate.test.ts
+Test Files  1 passed (1)
+Tests  48 passed (48)
+```
+
+Commit `53bfee0 fix(kernel): canonicalize workspace surfaces across
+kernel/SDK/socket`. Push:
+
+```text
+$ git push --force-with-lease=feat/v2-parallel-dispatch:78812c31d3a4e54bebd9d3e37054af14df61fc68 \
+    origin feat/v2-parallel-dispatch
+   78812c3..53bfee0  feat/v2-parallel-dispatch -> feat/v2-parallel-dispatch
+```
+
+`gh pr view 137`: head `53bfee0`, `mergeable = MERGEABLE`. The prior review
+reports (`20260902-1730-*`, `20260902-1915-*`, `20260902-2010-*`) remain
+untracked in the worktree, not in this commit.
+
+### Not yet done in this session
+
+- Fresh independent signoff on cloud #3270 at exact head `3ce981c3` — DMed
+  `cloud-pr3270-restack-0903` for scope coordination before spawning.
+- Cloud #3270 preview deploy + live v2 execution + authoritative journal
+  export proof (`ops/reviews/20260902-1740-pr3270-proof.md` recipe).
+- Fresh signoffs on flows #136 (`3fcf2dcb`), #138 (`e164e4239`), #139
+  (`e6210a2`).
+- Cloud #3264 tracking only: `cloud-pr3264-signoff4a-0903` and
+  `cloud-pr3264-signoff4b-0903` running per Khaliq's update; head is now
+  `ec5e4e06`, still CONFLICTING with `main` (a `cloud-pr3264-main-restack-0903`
+  is separately restacking).
+- PR #144 held per rule.
+
+No merge or deploy performed. Chief coordination file rewritten at
+`/Users/khaliqgant/Projects/AgentWorkforce/chief/.chief-inbox/from-flows-claude-lead-0903.md`.
