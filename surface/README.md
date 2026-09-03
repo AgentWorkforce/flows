@@ -11,11 +11,17 @@ internal test seam proving an awaited plain `f.run(...)` can cross the existing
 journal protocol, but it is intentionally not exported as a runner: authored
 body progress does not yet have a durable root journal or crash-safe resume.
 Within that seam, a root operation must participate in the asynchronous
-continuation that reaches `done()`. Direct `await`, awaited `Promise.resolve`,
-and awaited `Promise.all` are supported. Ignored operations, manual `.then`
-callbacks, ignored combinators, and callback failures that are caught away are
+continuation that reaches `done()`. Direct `await` is supported, including steps
+constructed before they are awaited, and so are awaited `Promise.resolve`,
+`Promise.all`, `Promise.allSettled`, `Promise.any` and `Promise.race`. Ignored
+operations, manual `.then` callbacks, ignored combinators, callback failures that
+are caught away, and derived work still in flight when the body returns are all
 refused before the terminal journal step; callback source text is never treated
 as lifecycle proof.
+
+Note that executing an authored body replaces the global `Promise.all` for the
+duration of the run. The reason, the scope, and the one documented limit of the
+lifecycle contract are in `docs/SURFACE.md`, "The authored operation lifecycle".
 
 This is an unpublished contract foundation, not a shipped executable surface.
 Direct `.flow.ts` execution, durable authored-root resume, and input remain

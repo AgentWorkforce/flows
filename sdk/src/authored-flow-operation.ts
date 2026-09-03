@@ -146,6 +146,11 @@ export async function verifyAuthoredOperations(
     for (const operation of operations) operation.cancel(error);
   }
 
+  // Read the in-flight set before the gate awaits anything: "was derived work
+  // still running when the body returned" is the question, and every await here
+  // would move the answer.
+  const inFlight = lifecycle.derivedWorkInFlight(operations);
+
   await Promise.all(operations.map((operation) => operation.waitForSettlement()));
   await lifecycle.observeCallbackFailures(operations);
   const unawaited = operations.filter((operation) =>
@@ -171,6 +176,12 @@ export async function verifyAuthoredOperations(
   }
   if (unawaited.length > 0) {
     throw unawaitedError(flowName, unawaited);
+  }
+  if (inFlight.length > 0) {
+    throw new AuthoredFlowExecutionError(
+      'unsettled_derived_work',
+      `flow "${flowName}" completed while work derived from ${inFlight.map(formatOperation).join(', ')} was still in flight`,
+    );
   }
 }
 

@@ -1,10 +1,20 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    // ES2024.Promise only, for Promise.withResolvers in the authored lifecycle
+    // forgery tests. The SDK's own tsconfig stays on ES2022.
+    "lib": ["ES2022", "ES2024.Promise"],
     "noEmit": true,
     "rootDir": ".",
     "types": ["node", "vitest"]
   },
-  "include": ["src/**/*.ts", "tests/typed-output.test.ts"],
+  "include": [
+    "src/**/*.ts",
+    "tests/typed-output.test.ts",
+    "tests/authored-flow-lifecycle-executor.test.ts",
+    "tests/authored-flow-operation.test.ts",
+    "tests/authored-flow.test.ts",
+    "tests/journal-client-loopback.ts"
+  ],
   "exclude": ["node_modules", "dist"]
 }
