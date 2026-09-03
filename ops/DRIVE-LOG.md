@@ -3619,3 +3619,24 @@ none can reach green CI until #154 lands.
 SDK flake: `ENOENT '.relayflow/backlog-picker-entry.json'` — a test writing to a
 relative path, racing under vitest parallelism. Seen once in ~5 full runs. Not
 filed.
+### Tick 02:25 — drain check + #3270 + signoff commissioned
+
+- **Cloud queue still down.** Run `4869ec51` `pending`, last moved 23:23Z. Only
+  schedule active is `flows-v2-lead-tick-0903` (`23 * * * *`). Not retried.
+- **#3270 live proof still blocked, failure preserved.** Preview run
+  `33801381261` failed at step **"Mint private Flows artifact token"** with
+  `Token is not set` — the `environment: preview` secret scoping, unchanged. The
+  three newer green preview runs are all on `main`, not the #3270 branch. Not
+  worked around.
+- **#134 allSettled P0: no work owed.** The Codex mutation already failed 9
+  tests including four MULTI-member aggregates resolved by an unrelated member
+  (`allSettled resolved by an unrelated member`, `allSettled with the step
+  declared second`, `race`/`any` resolved by unrelated members, and a mixed
+  aggregate). That is the exact shape the concern asks for, so the five rows do
+  not need rewriting. Verified from the posted mutation output, not assumed.
+- **#139 signoff commissioned** at `8b7148d` (`flows-pr139-signoff-codex-0904b`),
+  briefed on both conflicts I resolved, the four traps, and both known flakes so
+  neither is misreported as a regression. I did the rebase, so I cannot sign it.
+- Disk 34Gi free.
+
+Still one blocker for the whole board: **#154**. Awaiting Khaliq's 1/2/3.
