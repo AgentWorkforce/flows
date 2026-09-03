@@ -7,17 +7,24 @@
 //! lease, preventing a crash/retry from turning into a last-write-wins fork.
 
 use crate::{
-    spec::{StepKind, StepSpec, external_surface_identity},
+    spec::{StepKind, StepSpec, path_surface_identity},
     state::{RunState, StepRuntime, StepState},
 };
 
 #[derive(Clone, PartialEq, Eq)]
 enum SurfaceIdentity {
     Opaque(String),
-    External {
+    Path {
+        kind: PathSurfaceKind,
         namespace: String,
         components: Vec<String>,
     },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PathSurfaceKind {
+    Workspace,
+    External,
 }
 
 impl SurfaceIdentity {
@@ -25,16 +32,19 @@ impl SurfaceIdentity {
         match (self, other) {
             (Self::Opaque(left), Self::Opaque(right)) => left == right,
             (
-                Self::External {
+                Self::Path {
+                    kind: left_kind,
                     namespace: left_namespace,
                     components: left,
                 },
-                Self::External {
+                Self::Path {
+                    kind: right_kind,
                     namespace: right_namespace,
                     components: right,
                 },
             ) => {
-                left_namespace == right_namespace
+                left_kind == right_kind
+                    && left_namespace == right_namespace
                     && (left.starts_with(right) || right.starts_with(left))
             }
             _ => false,
@@ -84,7 +94,15 @@ fn surface_keys(step: &StepSpec) -> impl Iterator<Item = SurfaceIdentity> + '_ {
     surfaces
         .workspace
         .iter()
-        .map(|surface| SurfaceIdentity::Opaque(format!("workspace:{}", surface.surface)))
+        .map(|surface| {
+            let (namespace, components) = path_surface_identity(&surface.surface)
+                .expect("validated specs have canonical workspace surfaces");
+            SurfaceIdentity::Path {
+                kind: PathSurfaceKind::Workspace,
+                namespace,
+                components,
+            }
+        })
         .chain(
             surfaces
                 .streams
@@ -92,9 +110,10 @@ fn surface_keys(step: &StepSpec) -> impl Iterator<Item = SurfaceIdentity> + '_ {
                 .map(|surface| SurfaceIdentity::Opaque(format!("stream:{}", surface.stream))),
         )
         .chain(surfaces.external.iter().map(|surface| {
-            let (namespace, components) = external_surface_identity(surface)
+            let (namespace, components) = path_surface_identity(surface)
                 .expect("validated specs have canonical external surfaces");
-            SurfaceIdentity::External {
+            SurfaceIdentity::Path {
+                kind: PathSurfaceKind::External,
                 namespace,
                 components,
             }

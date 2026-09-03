@@ -191,6 +191,17 @@ fn handle_request(
             if params.capacity == 0 {
                 return Err(("bad_request", "worker capacity must be positive".to_owned()));
             }
+            if params
+                .pins
+                .workspace
+                .iter()
+                .any(|pin| !relayflowd_core::is_canonical_workspace_surface(&pin.surface))
+            {
+                return Err((
+                    "bad_request",
+                    "worker workspace pins must use canonical surface identities".to_owned(),
+                ));
+            }
             // Appendix A rule 2: an agent attempt is journaled with the opaque
             // revisions the worker reports. A worker that accepts agent steps
             // and reports no surface at all can never supply them, and that is

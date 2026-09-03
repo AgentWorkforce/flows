@@ -135,8 +135,16 @@ impl RunSpec {
                 return Err(SpecError::EmptyStepCli(step.id.clone()));
             }
             if let StepKind::Agent { surfaces, .. } = &step.kind {
+                for workspace in &surfaces.workspace {
+                    if path_surface_identity(&workspace.surface).is_none() {
+                        return Err(SpecError::InvalidWorkspaceSurface {
+                            step: step.id.clone(),
+                            surface: workspace.surface.clone(),
+                        });
+                    }
+                }
                 for path in &surfaces.external {
-                    if external_surface_identity(path).is_none() {
+                    if path_surface_identity(path).is_none() {
                         return Err(SpecError::InvalidExternalSurface {
                             step: step.id.clone(),
                             path: path.clone(),
@@ -184,7 +192,7 @@ impl RunSpec {
 /// The kernel cannot resolve host symlinks, so specs must already name a
 /// lexical canonical path: no whitespace aliases, empty components, `.`, or
 /// `..`. URI-like mount identities retain their scheme as a namespace.
-pub(crate) fn external_surface_identity(path: &str) -> Option<(String, Vec<String>)> {
+pub(crate) fn path_surface_identity(path: &str) -> Option<(String, Vec<String>)> {
     if path.is_empty() || path.trim() != path {
         return None;
     }
@@ -210,7 +218,11 @@ pub(crate) fn external_surface_identity(path: &str) -> Option<(String, Vec<Strin
 }
 
 pub fn is_canonical_external_surface(path: &str) -> bool {
-    external_surface_identity(path).is_some()
+    path_surface_identity(path).is_some()
+}
+
+pub fn is_canonical_workspace_surface(surface: &str) -> bool {
+    path_surface_identity(surface).is_some()
 }
 
 pub fn external_surface_contains(declared: &str, target: &str) -> bool {
@@ -218,8 +230,8 @@ pub fn external_surface_contains(declared: &str, target: &str) -> bool {
         Some((declared_namespace, declared_components)),
         Some((target_namespace, target_components)),
     ) = (
-        external_surface_identity(declared),
-        external_surface_identity(target),
+        path_surface_identity(declared),
+        path_surface_identity(target),
     )
     else {
         return false;
@@ -573,6 +585,8 @@ pub enum SpecError {
     EmptyStepCli(String),
     #[error("agent step {step} declares non-canonical external surface {path:?}")]
     InvalidExternalSurface { step: String, path: String },
+    #[error("agent step {step} declares non-canonical workspace surface {surface:?}")]
+    InvalidWorkspaceSurface { step: String, surface: String },
     #[error("duplicate step id: {0}")]
     DuplicateStep(String),
     #[error("step {0} must allow at least one iteration")]
