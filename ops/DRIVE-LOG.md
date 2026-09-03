@@ -5140,3 +5140,59 @@ Chief corrected several stale claims in my prior chief-inbox update:
 - cloud #3270: stacked on #3264
 - flows #134: awaiting fresh signoff
 - flows #139/#140/#144: CONFLICTING, rebase queue
+
+## 2026-09-03T22:05Z — autonomous tick
+
+**Blocked, noted, not retried:**
+- Cloud launch queue still wedged. `53b42d64` and `f694ba94` both `pending`,
+  `sandboxId=None`, `updatedAt` unmoved since 21:19Z / 21:23Z. The
+  pre-existing `autodrive-watchdog.sh` has been logging this failure for days
+  (`WEDGED: 7df1b223 pending 2219s`, `WEDGED: 11049ec9 pending 2376s`).
+- #3270 preview `33801381261` still `failure`, no newer attempt. Blocked on
+  `GH_APP_PUSHER_ID`/`_PRIVATE_KEY` not resolving inside `environment: preview`
+  (that environment defines seven secrets, none `GH_APP_*`; several others —
+  `MINI_SANDBOX_TOKEN`, `R2_ACCESS_KEY_ID`, `LINEAR_WEBHOOK_SECRET` — also
+  resolve empty in the same job). Needs a human with environment access.
+
+**Work done: #134 combinator P0 fixed, pushed `311b18c` → `c4941e1`.**
+
+Membership is now recorded where the combinator is called, across all four
+intrinsics, rather than inferred from whichever member resolves the aggregate.
+An aggregate is derived from EVERY member but the runtime gives an edge to
+only one — the last to settle for `all`/`allSettled`, the first for
+`race`/`any` — so resolution-inference is sufficient and never necessary, and
+it failed both ways: a rejected derived chain hidden behind an aggregate an
+unrelated promise resolved, and `await Promise.allSettled([a,b])` refusing
+every member except the last.
+
+The tests could not have caught it: every combinator row used
+`Promise.allSettled([step])`, and a single-member aggregate is always resolved
+by the step itself — that shape cannot exhibit "resolved by a different
+member" by construction. Rows now use multi-member aggregates varying the
+resolver in both directions.
+
+Mutation-verified: reverting `COMBINATORS` to `['all']` fails exactly six
+tests, four "resolved instead of rejecting" and two `unawaited_step`. File
+change asserted before the run (`081787dc` → `edde33ae`), restore byte-for-byte
+after.
+
+Gates: two tsc configs 0; full SDK suite 432 passed / 3 skipped / 0 failed
+with `RELAYFLOWD_BIN` pinned; lifecycle executor 27/27.
+
+**#3270 artifact flow — root cause established, and my earlier fix proposal
+was wrong.** I proposed inverting it so `flows` publishes to the bucket. Not
+implementable: the bucket is `outputs.workflowStorageBucketName` read from
+`.sst/outputs.json` AFTER `sst deploy` — a per-stage SST resource that does
+not exist until the stage deploys and differs per preview stage. `flows` CI
+cannot push to it. The pull-model follows from that constraint rather than
+being arbitrary.
+
+The real root fix needs a stable shared artifact registry that neither repo
+owns per-stage (S3 / R2 / GHCR-as-OCI) — an infrastructure decision for
+Khaliq, not a workflow edit. Cheap intermediate available meanwhile: the key
+is content-addressed (`system/relayflow-v2/<sha>.tar.gz`) yet there is no
+`head-object` check, so every preview re-mints a cross-repo token and
+re-downloads 40 MB to re-upload an object whose content cannot have changed.
+A bucket-first check would make the token first-publication-only.
+
+**Next tick:** #139 rebase onto current main, then its signoff.
