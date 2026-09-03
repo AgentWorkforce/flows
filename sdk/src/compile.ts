@@ -97,7 +97,6 @@ function compileStep(step: StepSpec): StepSpec {
     ...(step.dependsOn !== undefined ? { dependsOn: step.dependsOn } : {}),
     ...(verification !== undefined ? { verification } : {}),
     maxIterations,
-    ...(step.timeoutMs !== undefined ? { timeoutMs: step.timeoutMs } : {}),
   };
 
   switch (step.type as StepType) {
@@ -105,7 +104,13 @@ function compileStep(step: StepSpec): StepSpec {
       const s = step as DeterministicStepSpec;
       // A deterministic step with no verification gets the implicit exit_code gate.
       const verification = s.verification ?? { type: 'exit_code' as const };
-      return { ...base, type: 'deterministic', command: s.command, verification };
+      return {
+        ...base,
+        type: 'deterministic',
+        command: s.command,
+        verification,
+        ...(s.timeoutMs !== undefined ? { timeoutMs: s.timeoutMs } : {}),
+      };
     }
     case 'llm': {
       const s = step as LlmStepSpec;
@@ -388,7 +393,6 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
         ...(step.timeoutMs !== undefined ? { timeout_ms: step.timeoutMs } : {}),
       };
     case 'llm': {
-      requireNoTimeout(step);
       return {
         ...common,
         type: 'llm',
@@ -398,7 +402,6 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
       };
     }
     case 'agent': {
-      requireNoTimeout(step);
       const out: KernelAgentStep = {
         ...common,
         type: 'agent',
@@ -422,14 +425,6 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
       }
       return out;
     }
-  }
-}
-
-function requireNoTimeout(step: StepSpec): void {
-  if (step.timeoutMs !== undefined) {
-    throw new CompileError([
-      `step "${step.id}": only deterministic steps carry a timeout in spec v${SPEC_SCHEMA_VERSION}`,
-    ]);
   }
 }
 
