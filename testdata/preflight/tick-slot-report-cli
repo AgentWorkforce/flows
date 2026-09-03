@@ -1,0 +1,29 @@
+#!/usr/bin/env node
+// Agent CLI for the `tick-heartbeat` worked example. Reads the tick that woke
+// this run out of $RELAYFLOW_WAKE_CONTEXT and emits the JSON the flow's
+// json_schema gate requires.
+//
+// Deterministic on purpose. The point of the worked example is that the
+// SCHEDULE fired the run and that one scheduled instant produces one run; a
+// model in the loop would add nondeterminism to a test whose subject is the
+// trigger plane, not the model.
+import { receiveWrapperRequest } from './wrapper-session.mjs';
+
+await receiveWrapperRequest();
+
+const raw = process.env.RELAYFLOW_WAKE_CONTEXT;
+if (raw === undefined) {
+  process.stderr.write('tick-slot-report-cli: no RELAYFLOW_WAKE_CONTEXT — this step was not woken by a tick\n');
+  process.exit(1);
+}
+const payload = JSON.parse(raw)?.triggering_event?.payload;
+if (payload === undefined || payload === null) {
+  process.stderr.write(`tick-slot-report-cli: wake context carried no triggering event payload: ${raw}\n`);
+  process.exit(1);
+}
+process.stdout.write(JSON.stringify({
+  schedule_id: payload.schedule_id,
+  slot: payload.slot,
+  scheduled_for_ms: payload.scheduled_for_ms,
+  lag_ms: payload.lag_ms,
+}));

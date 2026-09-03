@@ -71,7 +71,17 @@ const TRIGGER_KEYS = [
   'eventType',
   'pattern',
   'dedupeKeyTemplate',
+  'staleAfterMs',
 ] as const;
+
+/**
+ * The kernel stores a silence budget as SQLite `INTEGER` and compares it in
+ * `i64` (`TriggerSpec::effective_stale_after_ms`), refusing anything wider.
+ * Mirror the bound here so an unrepresentable budget is a compile error rather
+ * than an engine error at submit time — a budget the sweep cannot represent
+ * fails OPEN, which is the silent death this field exists to prevent.
+ */
+const MAX_STALE_AFTER_MS = 9_223_372_036_854_775_807;
 
 class Validator {
   private errors: string[] = [];
@@ -217,6 +227,31 @@ class Validator {
       if (!isNonEmptyString(candidate.executor)) {
         this.fail(`${at}.executor: expected a non-empty string`);
       }
+      this.validateStaleAfterMs(candidate.staleAfterMs, `${at}.staleAfterMs`);
+    }
+  }
+
+  /**
+   * A silence budget must be a positive, i64-representable whole number of
+   * milliseconds. Zero is refused rather than treated as "no budget": a
+   * zero-length budget marks the subscription stale on the very next sweep,
+   * which reads as a permanently-broken schedule and trains an operator to
+   * ignore the alert.
+   */
+  private validateStaleAfterMs(value: unknown, at: string): void {
+    if (value === undefined) return;
+    if (typeof value !== 'number' || !Number.isInteger(value)) {
+      this.fail(`${at}: expected an integer number of milliseconds`);
+      return;
+    }
+    if (value <= 0) {
+      this.fail(`${at}: expected a positive number of milliseconds, got ${value}`);
+      return;
+    }
+    if (value > MAX_STALE_AFTER_MS) {
+      this.fail(
+        `${at}: ${value} exceeds the i64 range the kernel's liveness sweep can represent`,
+      );
     }
   }
 

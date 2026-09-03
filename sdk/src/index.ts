@@ -162,3 +162,22 @@ export {
   type DirLister,
   type PollOptions as DirWatcherPollOptions,
 } from './dir-watcher-poller.js';
+
+// Tick event source — a relayflow can be scheduled. A schedule is an event
+// source subject to the same liveness sweep as any other subscription, not a
+// scheduler inside the kernel (RFC-0001 gate 2: "triggers are entry
+// conditions, not schedulers").
+export {
+  emitDueTicks,
+  scheduledForMs,
+  slotFor,
+  tickDedupeKey,
+  DEFAULT_MAX_CATCH_UP,
+  TICK_DEDUPE_KEY_TEMPLATE,
+  TICK_EVENT_TYPE,
+  type EventSink as TickEventSink,
+  type TickCursor,
+  type TickEmitResult,
+  type TickPayload,
+  type TickSchedule,
+} from './tick-source.js';

@@ -1,0 +1,56 @@
+version: '0.1.0'
+name: tick-heartbeat
+description: >-
+  Run one step on a schedule. Third proactive workload on gate 2 primitives
+  (hn-monitor is the first, dir-watcher the second) — and the one that proves
+  a relayflow can be SCHEDULED. There is no `cron:` field: the schedule is an
+  event source (sdk/src/tick-source.ts) that submits `flows.tick` through the
+  same `event.submit` path every other source uses, so it inherits the kernel's
+  dedupe claim and its liveness sweep instead of inventing either.
+triggers:
+  - id: every-minute
+    executor: agent-worker
+    eventType: flows.tick
+    # Narrow to ONE schedule. Without this, every schedule in the process would
+    # wake this flow, since they all share the `flows.tick` event type.
+    pattern:
+      schedule_id: heartbeat-1m
+    # The scheduled instant, never the wall clock at emit. Two deliveries of one
+    # slot derive the same key and the kernel's
+    # (flow_key, subscription_id, dedupe_key) claim spawns one run — so a
+    # double-fire, a re-delivery, and a poller restart that re-emits a slot are
+    # all idempotent by construction. Keep in lockstep with
+    # TICK_DEDUPE_KEY_TEMPLATE in sdk/src/tick-source.ts.
+    dedupeKeyTemplate: '{{event.type}}:{{payload.schedule_id}}:{{payload.scheduled_for_ms}}'
+    # Silence budget: three slots. A schedule whose source dies stops being
+    # silently zero — the kernel's sweep journals `subscription.stale` and
+    # logs it (kernel/relayflowd/src/server/liveness.rs). Declared rather than
+    # inherited, because the 5-minute engine default is a decision this flow's
+    # author did not make.
+    staleAfterMs: 180000
+steps:
+  - id: report-slot
+    type: agent
+    instruction: >-
+      A scheduled tick fired. Read the wake context, which carries the
+      triggering event's payload, and output a JSON object naming: the
+      schedule id, the slot index, the scheduled instant in epoch
+      milliseconds, and how far behind schedule this run started
+      (the payload's lag_ms).
+    recoveryMode: reset
+    output:
+      type: object
+      required:
+        - schedule_id
+        - slot
+        - scheduled_for_ms
+        - lag_ms
+      properties:
+        schedule_id:
+          type: string
+        slot:
+          type: integer
+        scheduled_for_ms:
+          type: integer
+        lag_ms:
+          type: integer

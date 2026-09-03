@@ -22,6 +22,7 @@ import { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 import { AgentWorker } from '../src/worker.js';
 import { resolveSpecCliPaths } from '../src/cli/hn-monitor.js';
+import { emitDueTicks, type TickCursor } from '../src/tick-source.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SDK = join(ROOT, 'sdk');
@@ -1360,6 +1361,194 @@ steps:
   });
 });
 
+describe('a relayflow can be scheduled: tick source against live relayflowd', () => {
+  // The worked example. The primitive under test is sdk/src/tick-source.ts;
+  // what makes this acceptance evidence rather than a plumbing demo is that a
+  // real relayflowd holds the dedupe claim and spawns (or refuses to spawn)
+  // the runs.
+  const TICK_SPEC = () => JSON.parse(
+    readFileSync(join(TESTDATA, 'tick-heartbeat.spec.canonical.json'), 'utf8'),
+  ) as Parameters<JournalClient['runStart']>[0] & { steps: { id: string; cli?: string }[] };
+
+  function specWithReportCli() {
+    const spec = TICK_SPEC();
+    for (const step of spec.steps) {
+      if (step.id === 'report-slot') step.cli = join(TESTDATA, 'preflight', 'tick-slot-report-cli');
+    }
+    return spec;
+  }
+
+  const MINUTE = 60_000;
+  const schedule = { scheduleId: 'heartbeat-1m', intervalMs: MINUTE, epochMs: 0 };
+
+  it('a tick spawns a real run whose step reports the SCHEDULED instant', async () => {
+    const dataDir = temporaryDirectory('flows-live-tick-');
+    await startDaemon(dataDir);
+    const client = await connectClient(dataDir);
+    await client.hello('live-tick');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-tick-worker',
+      pins: { workspace: [{ surface: 'repo', revision_id: 'rev-a' }], streams: [] },
+    });
+    await worker.attach();
+
+    const spec = specWithReportCli();
+    const cursor: TickCursor = { lastEmittedSlot: 29_399_999 };
+    // Emit 43s into slot 29_400_000. The step must report the slot boundary,
+    // not 29_400_000 * MINUTE + 43_000.
+    const nowMs = 29_400_000 * MINUTE + 43_000;
+    const result = await emitDueTicks(spec, client, { schedule, cursor, nowMs });
+
+    expect(result.emittedSlots).toEqual([29_400_000]);
+    expect(result.outcomes[0]).toMatchObject({ matched: true, deduped: false });
+    const runId = (result.outcomes[0] as { run: { run_id: string } }).run.run_id;
+
+    expect(await waitForStep(client, runId, 'report-slot', 'done', 20_000)).toMatchObject({
+      type: 'agent',
+      state: 'done',
+    });
+
+    const entries = (await client.journalRead(runId)).entries;
+    const completed = entries.find(
+      (entry) => isObject(entry) && entry['entry_type'] === 'step.completed'
+        && entry['step_id'] === 'report-slot',
+    ) as { payload: { output: Record<string, unknown> } } | undefined;
+    expect(completed, 'the tick-woken step never completed').toBeDefined();
+    // The bound: the run reports the grid instant and its own lag, so a
+    // backfilled run can tell it is running for a slot from the past.
+    expect(completed!.payload.output).toEqual({
+      schedule_id: 'heartbeat-1m',
+      slot: 29_400_000,
+      scheduled_for_ms: 29_400_000 * MINUTE,
+      lag_ms: 43_000,
+    });
+
+    await worker.close();
+  }, 45_000);
+
+  it('TWO ticks for ONE scheduled instant produce exactly ONE run', async () => {
+    // The gate. A test asserting "a tick fired" would pass with a dedupe key
+    // derived from wall clock; this one would not.
+    const dataDir = temporaryDirectory('flows-live-tick-dedupe-');
+    await startDaemon(dataDir);
+    const client = await connectClient(dataDir);
+    await client.hello('live-tick-dedupe');
+    const spec = specWithReportCli();
+
+    // Two pollers, independent cursors, same slot, different emit instants.
+    const first = await emitDueTicks(spec, client, {
+      schedule,
+      cursor: { lastEmittedSlot: 29_399_999 },
+      nowMs: 29_400_000 * MINUTE + 1_000,
+    });
+    const second = await emitDueTicks(spec, client, {
+      schedule,
+      cursor: { lastEmittedSlot: 29_399_999 },
+      nowMs: 29_400_000 * MINUTE + 52_000,
+    });
+
+    expect(first.outcomes[0]).toMatchObject({ matched: true, deduped: false });
+    expect(second.outcomes[0], 'the kernel spawned a second run for one scheduled instant')
+      .toMatchObject({ matched: true, deduped: true, run: null });
+    // One run journal on disk, not two.
+    expect(runJournals(dataDir)).toHaveLength(1);
+  }, 45_000);
+
+  it('a poller RESTART re-emitting a slot does not re-run it', async () => {
+    const dataDir = temporaryDirectory('flows-live-tick-restart-');
+    await startDaemon(dataDir);
+    const client = await connectClient(dataDir);
+    await client.hello('live-tick-restart');
+    const spec = specWithReportCli();
+
+    const before: TickCursor = { lastEmittedSlot: 29_399_999 };
+    await emitDueTicks(spec, client, { schedule, cursor: before, nowMs: 29_400_000 * MINUTE });
+    expect(runJournals(dataDir)).toHaveLength(1);
+
+    // Cursor lost. The restarted poller treats the current slot as due.
+    const afterRestart: TickCursor = {};
+    const replay = await emitDueTicks(spec, client, {
+      schedule, cursor: afterRestart, nowMs: 29_400_000 * MINUTE + 30_000,
+    });
+
+    expect(replay.emittedSlots).toEqual([29_400_000]);
+    expect(replay.outcomes[0]).toMatchObject({ matched: true, deduped: true });
+    expect(runJournals(dataDir), 'a restart inside one slot produced a second run').toHaveLength(1);
+  }, 45_000);
+
+  it('a MISSED interval is backfilled into its own run, not collapsed into the current one', async () => {
+    // The other half of the gate. Dedupe that keyed on the schedule rather
+    // than the instant would collapse all four slots into one run.
+    const dataDir = temporaryDirectory('flows-live-tick-backfill-');
+    await startDaemon(dataDir);
+    const client = await connectClient(dataDir);
+    await client.hello('live-tick-backfill');
+    const spec = specWithReportCli();
+
+    const cursor: TickCursor = { lastEmittedSlot: 29_400_000 };
+    const result = await emitDueTicks(spec, client, {
+      schedule, cursor, nowMs: 29_400_004 * MINUTE,
+    });
+
+    expect(result.emittedSlots).toEqual([29_400_001, 29_400_002, 29_400_003, 29_400_004]);
+    const runIds = result.outcomes.map((o) => (o as { run: { run_id: string } }).run.run_id);
+    expect(new Set(runIds).size, 'backfilled slots collapsed into fewer runs').toBe(4);
+    expect(runJournals(dataDir)).toHaveLength(4);
+  }, 45_000);
+
+  it('a tick for a DIFFERENT schedule id does not wake this flow', async () => {
+    // Without the trigger's `pattern`, every schedule in the process would
+    // wake every tick-triggered flow, since they share one event type.
+    const dataDir = temporaryDirectory('flows-live-tick-pattern-');
+    await startDaemon(dataDir);
+    const client = await connectClient(dataDir);
+    await client.hello('live-tick-pattern');
+    const spec = specWithReportCli();
+
+    const other = await emitDueTicks(spec, client, {
+      schedule: { ...schedule, scheduleId: 'some-other-schedule' },
+      cursor: { lastEmittedSlot: 29_399_999 },
+      nowMs: 29_400_000 * MINUTE,
+    });
+
+    expect(other.outcomes[0]).toMatchObject({ matched: false, deduped: false, run: null });
+    expect(runJournals(dataDir)).toHaveLength(0);
+  }, 45_000);
+
+  it('journals the declared silence budget, so a dead schedule is not silently zero', async () => {
+    // Liveness. `subscription.registered` carries the budget the sweep will
+    // actually apply — which is how an operator can tell a declared budget
+    // from the engine default. Without a declared budget this flow would
+    // inherit 5 minutes without its author ever choosing it.
+    const dataDir = temporaryDirectory('flows-live-tick-liveness-');
+    await startDaemon(dataDir);
+    const client = await connectClient(dataDir);
+    await client.hello('live-tick-liveness');
+    const spec = specWithReportCli();
+
+    const result = await emitDueTicks(spec, client, {
+      schedule, cursor: { lastEmittedSlot: 29_399_999 }, nowMs: 29_400_000 * MINUTE,
+    });
+    const runId = (result.outcomes[0] as { run: { run_id: string } }).run.run_id;
+
+    const entries = (await client.journalRead(runId)).entries;
+    const registered = entries.find(
+      (entry) => isObject(entry) && entry['entry_type'] === 'subscription.registered',
+    ) as { payload: Record<string, unknown> } | undefined;
+    expect(registered, 'no subscription.registered entry — the sweep has nothing to key on')
+      .toBeDefined();
+    expect(registered!.payload).toMatchObject({
+      subscription_id: 'every-minute',
+      event_type: 'flows.tick',
+      // 180_000 is the flow's declared budget; 300_000 is the engine default.
+      // Asserting the declared value is what proves staleAfterMs survives the
+      // authoring -> kernel lowering rather than being dropped.
+      effective_stale_after_ms: 180_000,
+    });
+  }, 45_000);
+});
+
+
 function requireExecutable(path: string, source: string, buildCommand: string): void {
   try {
     accessSync(path, constants.X_OK);
@@ -1487,6 +1676,17 @@ function probeAnalyzer(cli: string): { ready: boolean; detail: string } {
 
 function runArtifacts(dataDir: string): string[] {
   return readdirSync(dataDir).filter((name) => name !== 'relayflowd.sock').sort();
+}
+
+/**
+ * Per-run journal files. `runArtifacts` lists the data dir itself, which is
+ * constant regardless of how many runs exist — counting runs needs this.
+ */
+function runJournals(dataDir: string): string[] {
+  const runs = join(dataDir, 'runs');
+  return existsSync(runs)
+    ? readdirSync(runs).filter((name) => name.endsWith('.sqlite3')).sort()
+    : [];
 }
 
 function eventOnce<T>(client: JournalClient, event: string): Promise<T> {

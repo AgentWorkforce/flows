@@ -23,11 +23,13 @@ import type {
   KernelRunSpec,
   KernelStepCommon,
   KernelStepSpec,
+  KernelTriggerSpec,
   KernelVerificationSpec,
   LlmStepSpec,
   NamedAgentSpec,
   StepSpec,
   StepType,
+  TriggerSpec,
 } from './spec.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import { canonicalize, specHash } from './canonical.js';
@@ -195,7 +197,7 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
     ...(flow.name !== undefined ? { name: flow.name } : {}),
     ...(flow.description !== undefined ? { description: flow.description } : {}),
     ...(flow.cli !== undefined ? { cli: flow.cli } : {}),
-    ...(flow.triggers?.length ? { triggers: flow.triggers } : {}),
+    ...(flow.triggers?.length ? { triggers: flow.triggers.map(toKernelTrigger) } : {}),
     steps: flow.steps.map((step) => toKernelStep(resolveNamedAgent(step, flow.agents))),
     ...(flow.budget !== undefined
       ? {
@@ -222,12 +224,69 @@ export function kernelToAuthoring(value: unknown): unknown {
   );
   const steps = requireKernelArray(root['steps'], 'spec.steps')
     .map((step, index) => kernelStepToAuthoring(step, `spec.steps[${index}]`));
+  const triggers = root['triggers'];
   return {
-    ...copyDefined(root, ['version', 'name', 'description', 'cli', 'triggers']),
+    ...copyDefined(root, ['version', 'name', 'description', 'cli']),
+    ...(triggers !== undefined
+      ? {
+          triggers: requireKernelArray(triggers, 'spec.triggers')
+            .map((trigger, index) => kernelTriggerToAuthoring(trigger, `spec.triggers[${index}]`)),
+        }
+      : {}),
     steps,
     ...(root['budget'] !== undefined
       ? { budget: kernelBudgetToAuthoring(root['budget'], 'spec.budget') }
       : {}),
+  };
+}
+
+/**
+ * Lower one authoring trigger into the kernel dialect.
+ *
+ * This mapping was missing entirely: `toKernelSpec` used to spread
+ * `flow.triggers` through untouched, so every event subscription reached the
+ * kernel in camelCase and `relayflowd` — whose `TriggerSpec` is
+ * `#[serde(deny_unknown_fields)]` over snake_case — refused the spec outright:
+ *
+ *   malformed run spec: unknown field `dedupeKeyTemplate`, expected one of
+ *   `id`, `executor`, `event_type`, `pattern`, `dedupe_key_template`,
+ *   `stale_after_ms`
+ *
+ * The committed `testdata/*.spec.canonical.json` fixtures are snake_case and
+ * the kernel accepts them, which is why nothing noticed: no test compiled a
+ * triggered flow through this function and compared it to a fixture. Every
+ * triggered flow in `testdata/` was therefore unauthorable through the
+ * supported SDK path. `tests/spec-parity.test.ts` now pins the mapping.
+ */
+function toKernelTrigger(trigger: TriggerSpec): KernelTriggerSpec {
+  return {
+    id: trigger.id,
+    executor: trigger.executor,
+    ...(trigger.eventType !== undefined ? { event_type: trigger.eventType } : {}),
+    ...(trigger.pattern !== undefined ? { pattern: trigger.pattern } : {}),
+    ...(trigger.dedupeKeyTemplate !== undefined
+      ? { dedupe_key_template: trigger.dedupeKeyTemplate }
+      : {}),
+    ...(trigger.staleAfterMs !== undefined ? { stale_after_ms: trigger.staleAfterMs } : {}),
+  };
+}
+
+/** Inverse of `toKernelTrigger`. Kernel-only keys are refused, never dropped. */
+function kernelTriggerToAuthoring(value: unknown, at: string): unknown {
+  const trigger = requireKernelObject(
+    value,
+    ['id', 'executor', 'event_type', 'pattern', 'dedupe_key_template', 'stale_after_ms'],
+    at,
+  );
+  return {
+    id: trigger['id'],
+    executor: trigger['executor'],
+    ...(trigger['event_type'] !== undefined ? { eventType: trigger['event_type'] } : {}),
+    ...(trigger['pattern'] !== undefined ? { pattern: trigger['pattern'] } : {}),
+    ...(trigger['dedupe_key_template'] !== undefined
+      ? { dedupeKeyTemplate: trigger['dedupe_key_template'] }
+      : {}),
+    ...(trigger['stale_after_ms'] !== undefined ? { staleAfterMs: trigger['stale_after_ms'] } : {}),
   };
 }
 
