@@ -120,7 +120,23 @@ interface TickRunnerArgsBase {
  * to whatever worker the flow's trigger names.
  */
 export interface TickRunnerArgs extends TickRunnerArgsBase {
-  connectClient?: (socketPath: string) => TickRunnerClient;
+  /**
+   * Async, because a real `JournalClient` needs `connect()` before `hello()`.
+   * A synchronous injection surface hid that: the unit tests' fake client has
+   * no transport, so it connected vacuously and the missing `connect()` only
+   * surfaced against a live daemon with `journal client: not connected
+   * (hello)`. The default path below owns connect+hello so no caller can
+   * forget half of it.
+   */
+  connectClient?: (socketPath: string) => Promise<TickRunnerClient>;
+}
+
+/** Connect and handshake. Both steps, or neither. */
+async function defaultConnectClient(socketPath: string): Promise<TickRunnerClient> {
+  const client = new JournalClient(socketPath);
+  await client.connect();
+  await client.hello('flows-tick-runner');
+  return client;
 }
 
 /** Absolute path to the state file for one schedule. */
@@ -243,13 +259,18 @@ export async function runTickRunner(args: TickRunnerArgs, io: CliIo): Promise<nu
   const cursor: TickCursor = resuming ? { lastEmittedSlot: state.lastEmittedSlot } : {};
 
   const socketPath = join(args.dataDir, 'relayflowd.sock');
-  const client = args.connectClient
-    ? args.connectClient(socketPath)
-    : (new JournalClient(socketPath) as unknown as TickRunnerClient);
+  let client: TickRunnerClient;
+  try {
+    client = args.connectClient
+      ? await args.connectClient(socketPath)
+      : await defaultConnectClient(socketPath);
+  } catch (cause) {
+    io.stderr(`TICK_RUNNER_FAILED ${(cause as Error).constructor.name}: ${(cause as Error).message}`);
+    return 1;
+  }
 
   let exitCode = 0;
   try {
-    await client.hello('flows-tick-runner');
     const startSlot = slotFor(args.schedule, now());
     io.stdout(
       resuming

@@ -103,7 +103,7 @@ describe('bound 1: a restart emits exactly one tick per due slot', () => {
     expect(
       await runTickRunner(
         { dataDir: dir, specPath, schedule: SCHEDULE, maxPolls: 1,
-          now: () => atSlot(3), connectClient: () => first.client },
+          now: () => atSlot(3), connectClient: async () => first.client },
         io1.io,
       ),
     ).toBe(0);
@@ -117,7 +117,7 @@ describe('bound 1: a restart emits exactly one tick per due slot', () => {
     expect(
       await runTickRunner(
         { dataDir: dir, specPath, schedule: SCHEDULE, maxPolls: 1,
-          now: () => atSlot(6), connectClient: () => second.client },
+          now: () => atSlot(6), connectClient: async () => second.client },
         io2.io,
       ),
     ).toBe(0);
@@ -135,7 +135,7 @@ describe('bound 1: a restart emits exactly one tick per due slot', () => {
     const io = makeIo();
     await runTickRunner(
       { dataDir: dir, specPath, schedule: SCHEDULE, maxPolls: 1,
-        now: () => atSlot(500), connectClient: () => client },
+        now: () => atSlot(500), connectClient: async () => client },
       io.io,
     );
     expect(recorded.slots).toEqual([500]);
@@ -146,7 +146,7 @@ describe('bound 1: a restart emits exactly one tick per due slot', () => {
     const { client } = makeClient();
     await runTickRunner(
       { dataDir: dir, specPath, schedule: SCHEDULE, maxPolls: 1,
-        now: () => atSlot(9), connectClient: () => client },
+        now: () => atSlot(9), connectClient: async () => client },
       makeIo().io,
     );
     const state = await loadTickState(tickStatePath(dir, 'heartbeat'), 'heartbeat');
@@ -168,7 +168,7 @@ describe('bound 2: a slot passed over by maxCatchUp is reported, never lost', ()
     expect(
       await runTickRunner(
         { dataDir: dir, specPath, schedule: SCHEDULE, maxPolls: 1,
-          now: () => atSlot(20), connectClient: () => client },
+          now: () => atSlot(20), connectClient: async () => client },
         io.io,
       ),
     ).toBe(0);
@@ -199,7 +199,7 @@ describe('bound 2: a slot passed over by maxCatchUp is reported, never lost', ()
     expect(
       await runTickRunner(
         { dataDir: dir, specPath, schedule: SCHEDULE, maxPolls: 1,
-          now: () => atSlot(20), connectClient: () => client },
+          now: () => atSlot(20), connectClient: async () => client },
         io.io,
       ),
     ).toBe(1);
@@ -222,7 +222,7 @@ describe('bound 3: a submit failure leaves the unfired slot due', () => {
     expect(
       await runTickRunner(
         { dataDir: dir, specPath, schedule: SCHEDULE, maxPolls: 1,
-          now: () => atSlot(5), connectClient: () => client },
+          now: () => atSlot(5), connectClient: async () => client },
         io.io,
       ),
     ).toBe(1);
@@ -238,7 +238,7 @@ describe('bound 3: a submit failure leaves the unfired slot due', () => {
     expect(
       await runTickRunner(
         { dataDir: dir, specPath, schedule: SCHEDULE, maxPolls: 1,
-          now: () => atSlot(5), connectClient: () => retry.client },
+          now: () => atSlot(5), connectClient: async () => retry.client },
         makeIo().io,
       ),
     ).toBe(0);
@@ -260,7 +260,7 @@ describe('fail closed at declaration, before anything connects', () => {
       await runTickRunner(
         { dataDir: dir, specPath, schedule: schedule as TickSchedule, maxPolls: 1,
           now: () => atSlot(1),
-          connectClient: () => { connected = true; return makeClient().client; } },
+          connectClient: async () => { connected = true; return makeClient().client; } },
         io.io,
       ),
     ).toBe(1);
@@ -279,7 +279,7 @@ describe('fail closed at declaration, before anything connects', () => {
     expect(
       await runTickRunner(
         { dataDir: dir, specPath, schedule: SCHEDULE, maxPolls: 1,
-          now: () => atSlot(1), connectClient: () => makeClient().client },
+          now: () => atSlot(1), connectClient: async () => makeClient().client },
         io.io,
       ),
     ).toBe(1);
@@ -294,7 +294,7 @@ describe('fail closed at declaration, before anything connects', () => {
     expect(
       await runTickRunner(
         { dataDir: dir, specPath, schedule: SCHEDULE, maxPolls: 1,
-          now: () => atSlot(9), connectClient: () => makeClient().client },
+          now: () => atSlot(9), connectClient: async () => makeClient().client },
         io.io,
       ),
     ).toBe(1);
