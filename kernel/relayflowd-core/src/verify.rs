@@ -32,7 +32,7 @@ pub fn verify(step: &StepSpec, output: &Value) -> VerificationRecord {
 
     if let Some(schema) = &step.verification.json_schema {
         gates.push("json_schema");
-        match jsonschema::validator_for(schema) {
+        match crate::schema::compile(schema) {
             Ok(validator) => {
                 if let Err(error) = validator.validate(output) {
                     failures.push(format!("JSON schema rejected output: {error}"));
@@ -91,6 +91,34 @@ mod tests {
             )
             .verdict,
             VerificationVerdict::Fail
+        );
+    }
+
+    /// A journal written by an older kernel can still hold an unbounded
+    /// schema; `run.resume` does not re-validate the stored spec. Routing
+    /// `verify` through the same declaration gate turns that into a gate
+    /// failure with a verdict instead of a SIGABRT. Remove the bound and this
+    /// test does not fail — it aborts the whole test binary.
+    #[test]
+    fn an_unbounded_schema_in_a_journal_fails_its_gate_instead_of_aborting() {
+        let step: StepSpec = serde_json::from_value(json!({
+            "id": "poisoned",
+            "type": "deterministic",
+            "command": "true",
+            "verification": {
+                "json_schema": {
+                    "$defs": {"a": {"$ref": "#/$defs/b"}, "b": {"$ref": "#/$defs/a"}},
+                    "$ref": "#/$defs/a"
+                }
+            }
+        }))
+        .unwrap();
+        let record = verify(&step, &json!({"exit_code": 0, "stdout_tail": ""}));
+        assert_eq!(record.verdict, VerificationVerdict::Fail);
+        assert!(
+            record.detail.contains("unbounded $ref cycle"),
+            "{}",
+            record.detail
         );
     }
 

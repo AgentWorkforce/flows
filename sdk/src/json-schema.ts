@@ -3,6 +3,7 @@ import AjvDraft4 from 'ajv-draft-04';
 import Ajv2019 from 'ajv/dist/2019.js';
 import Ajv2020 from 'ajv/dist/2020.js';
 import draft6MetaSchema from 'ajv/dist/refs/json-schema-draft-06.json' with { type: 'json' };
+import { jsonSchemaBoundError } from './json-schema-bound.js';
 import { snapshotJsonValue, type JsonValue } from './json-value.js';
 
 const DRAFT_4 = 'http://json-schema.org/draft-04/schema';
@@ -13,6 +14,13 @@ const DRAFT_2020_12 = 'https://json-schema.org/draft/2020-12/schema';
 
 /** Compile a declaration with the same drafts accepted by the kernel. */
 export function jsonSchemaError(schema: boolean | Record<string, unknown>): string | undefined {
+  // Termination first: a schema whose $ref graph cycles without consuming
+  // input compiles fine here and aborts the kernel at verification time. Ajv's
+  // own overflow is a catchable RangeError, so the authoring path happened to
+  // hold for one shape of this bug and not for others; the explicit bound is
+  // what makes SDK and kernel agree. See sdk/src/json-schema-bound.ts.
+  const unbounded = jsonSchemaBoundError(schema);
+  if (unbounded !== undefined) return unbounded;
   try {
     const dialect = typeof schema === 'object' && typeof schema['$schema'] === 'string'
       ? schema['$schema'].replace(/#$/, '')

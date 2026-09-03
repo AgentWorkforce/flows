@@ -332,6 +332,17 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), { probes: probes() }),
       preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), { probes: probes({ command: () => false }) }),
       preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), { probes: probes({ command: () => { throw new Error('raw secret'); } }) }),
+      // A declared gate that accepts every output is legal, and silence about
+      // it is exactly the covenant-2 silence this test forbids.
+      preflight(
+        flow({
+          id: 'a',
+          type: 'deterministic',
+          command: 'x',
+          verification: { type: 'json_schema', schema: true },
+        } as never),
+        { probes: probes() },
+      ),
     ];
     const warningKinds = scenarios.flatMap((result) => result.diagnostics)
       .filter((diagnostic) => diagnostic.severity === 'warning')

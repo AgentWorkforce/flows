@@ -1,11 +1,12 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { checkFlow } from '../src/cli/check.js';
 import { runCli } from '../src/cli.js';
 import { compileSpec, toKernelSpec } from '../src/compile.js';
-import { inspectStepGate } from '../src/gate-contract.js';
+import { acceptsAnyOutput, inspectStepGate } from '../src/gate-contract.js';
 import { preflight } from '../src/index.js';
 import type { FlowSpec } from '../src/spec.js';
 import { validateSpec } from '../src/validate.js';
@@ -313,5 +314,79 @@ describe('data/code gate contract', () => {
         message: expect.stringMatching(/invalid JSON Schema/),
       })],
     }));
+  });
+
+  // A schema that accepts every output is legal and stays legal — the kernel
+  // accepts `{}` and `true` too — but it must not be reported as a gate that
+  // judges something.
+  describe('vacuous gates', () => {
+    it.each([
+      ['true', true],
+      ['empty object', {}],
+      ['annotations only', { $schema: 'https://json-schema.org/draft/2020-12/schema', title: 'anything' }],
+    ])('classifies %s as accepting any output', (_name, schema) => {
+      expect(acceptsAnyOutput(schema)).toBe(true);
+      expect(inspectStepGate({
+        id: 'vacuous',
+        type: 'deterministic',
+        command: 'printf ok',
+        verification: { type: 'json_schema', schema },
+      } as never)).toEqual(expect.objectContaining({ acceptsAnyOutput: true }));
+    });
+
+    it.each([
+      ['a typed schema', { type: 'object' }],
+      ['false', false],
+      ['a schema with required', { $schema: 'https://json-schema.org/draft/2020-12/schema', required: ['a'] }],
+    ])('does not flag %s', (_name, schema) => {
+      expect(acceptsAnyOutput(schema)).toBe(false);
+      expect(inspectStepGate({
+        id: 'real',
+        type: 'deterministic',
+        command: 'printf ok',
+        verification: { type: 'json_schema', schema },
+      } as never)).not.toHaveProperty('acceptsAnyOutput');
+    });
+
+    it('warns through preflight and marks the line in flows check', async () => {
+      const directory = mkdtempSync(join(tmpdir(), 'flows-vacuous-'));
+      const path = join(directory, 'vacuous.flow.yaml');
+      writeFileSync(path, [
+        "version: '0.1.0'",
+        'name: vacuous',
+        'steps:',
+        '  - id: judges-nothing',
+        '    type: deterministic',
+        '    command: printf ok',
+        '    verification:',
+        '      type: json_schema',
+        '      schema: true',
+        '',
+      ].join('\n'));
+      try {
+        const checked = checkFlow(path);
+        expect(checked.report.gates[0]).toEqual(
+          expect.objectContaining({ stepId: 'judges-nothing', acceptsAnyOutput: true }),
+        );
+        expect(checked.report.diagnostics).toContainEqual(expect.objectContaining({
+          severity: 'warning',
+          kind: 'vacuous_gate',
+          stepId: 'judges-nothing',
+        }));
+
+        const stdout: string[] = [];
+        const code = await runCli(['check', path], {
+          stdout: (line) => stdout.push(line),
+          stderr: () => {},
+        });
+        expect(code).toBe(0);
+        expect(stdout).toContain(
+          'GATE step "judges-nothing" exit_code+json_schema from data (kernel, journal-replayable)'
+          + ' [json_schema accepts any output]',
+        );
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    });
   });
 });

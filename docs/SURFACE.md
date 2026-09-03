@@ -302,8 +302,33 @@ JSON serialization and the v1 compiler; unsafe array values remain invalid.
 The public preflight boundary performs that same compilation first and refuses
 invalid raw input before running probes.
 Exported unknown-input helpers follow the same rule: `validateSpec` reports a
-failed validation without executing proxy traps or throwing, and
-`kernelToAuthoring` rejects non-inert kernel values before inspecting them.
+failed validation without executing proxy traps or throwing,
+`kernelToAuthoring` rejects non-inert kernel values before inspecting them, and
+`canonicalize`/`specHash` snapshot before serializing — an identity computed
+from a value that could change between two reads is not an identity.
+
+A declaration is legal only if compiling it succeeds **and** validating with it
+is guaranteed to terminate. A schema whose `$ref` graph cycles through only
+in-place applicators (`$ref`, `allOf`, `anyOf`, `oneOf`, `not`, `if`/`then`/
+`else`, `dependentSchemas`) re-applies to the same instance forever; it
+compiles cleanly and then recurses without bound at verification time, which in
+Rust aborts the process rather than raising anything catchable. Both sides
+therefore refuse such a declaration up front with a named `unbounded $ref
+cycle` error — before a journal exists and before the step's command runs.
+Cycles that pass through a child applicator (`properties`, `items`,
+`prefixItems`, ...) consume one level of the instance per step, so ordinary
+recursive schemas stay legal. `kernel/relayflowd-core/src/schema.rs` and
+`sdk/src/json-schema-bound.ts` implement the same rule and are pinned to the
+shared corpus in `testdata/json-schema-bound-cases.json`, so the kernel and the
+SDK agree on which schemas are legal by construction. `verify` compiles through
+the same gate, so a journal written before the bound existed fails its gate with
+a verdict instead of taking the daemon down on every resume.
+
+`schema: {}` and `schema: true` remain legal and remain accepted — but they
+accept every possible output, so `flows check` marks the gate line
+`[json_schema accepts any output]` and preflight emits a `vacuous_gate`
+warning. A gate that judges nothing must not read like one that judges
+something.
 
 The kernel evaluates those checks. `run.spawned` carries the compiled
 verification data and `step.completed.verification` carries its verdict, so

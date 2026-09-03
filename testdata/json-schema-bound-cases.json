@@ -1,0 +1,249 @@
+{
+  "_comment": [
+    "Shared corpus pinning kernel/SDK agreement on which JSON Schema declarations are legal.",
+    "Read by kernel/relayflowd-core/src/schema.rs and sdk/tests/json-schema-bound.test.ts.",
+    "Every schema under `refused` COMPILES cleanly in both engines — the only thing that",
+    "rejects it is the termination bound, which is what makes these tests test the bound",
+    "rather than the mechanism. Every schema under `accepted` is legitimately recursive or",
+    "plainly finite and must keep working.",
+    "Pre-fix kernel behaviour is recorded per case in `before`: `abort` cases took",
+    "relayflowd down with SIGABRT at verify.rs; `latent` cases only survived because the",
+    "probe instance never reached the cyclic position."
+  ],
+  "marker": "unbounded $ref cycle",
+  "refused": [
+    {
+      "name": "mutual $defs cycle with no body",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": { "a": { "$ref": "#/$defs/b" }, "b": { "$ref": "#/$defs/a" } },
+        "$ref": "#/$defs/a"
+      }
+    },
+    {
+      "name": "self $defs cycle with no body",
+      "before": "latent",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": { "a": { "$ref": "#/$defs/a" } },
+        "$ref": "#/$defs/a"
+      }
+    },
+    {
+      "name": "root self reference",
+      "before": "latent",
+      "schema": { "$schema": "https://json-schema.org/draft/2020-12/schema", "$ref": "#" }
+    },
+    {
+      "name": "allOf self cycle",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": { "a": { "allOf": [{ "$ref": "#/$defs/a" }] } },
+        "$ref": "#/$defs/a"
+      }
+    },
+    {
+      "name": "anyOf mutual cycle",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": {
+          "a": { "anyOf": [{ "$ref": "#/$defs/b" }] },
+          "b": { "anyOf": [{ "$ref": "#/$defs/a" }] }
+        },
+        "$ref": "#/$defs/a"
+      }
+    },
+    {
+      "name": "oneOf cycle",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": { "a": { "oneOf": [{ "$ref": "#/$defs/a" }] } },
+        "$ref": "#/$defs/a"
+      }
+    },
+    {
+      "name": "not cycle",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": { "a": { "not": { "$ref": "#/$defs/a" } } },
+        "$ref": "#/$defs/a"
+      }
+    },
+    {
+      "name": "if cycle",
+      "before": "latent",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": { "a": { "if": { "$ref": "#/$defs/a" } } },
+        "$ref": "#/$defs/a"
+      }
+    },
+    {
+      "name": "dependentSchemas cycle",
+      "before": "latent",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": { "a": { "dependentSchemas": { "x": { "$ref": "#/$defs/a" } } } },
+        "$ref": "#/$defs/a"
+      }
+    },
+    {
+      "name": "anchor mutual cycle",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": {
+          "a": { "$anchor": "A", "$ref": "#B" },
+          "b": { "$anchor": "B", "$ref": "#A" }
+        },
+        "$ref": "#A"
+      }
+    },
+    {
+      "name": "$id-scoped mutual cycle",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://example.com/root",
+        "$defs": {
+          "sub": {
+            "$id": "https://example.com/sub",
+            "$defs": { "a": { "$ref": "#/$defs/b" }, "b": { "$ref": "#/$defs/a" } },
+            "$ref": "#/$defs/a"
+          }
+        },
+        "$ref": "#/$defs/sub"
+      }
+    },
+    {
+      "name": "cycle reachable only under properties",
+      "before": "latent",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "p": {
+            "$defs": {
+              "a": { "$ref": "#/properties/p/$defs/b" },
+              "b": { "$ref": "#/properties/p/$defs/a" }
+            },
+            "$ref": "#/properties/p/$defs/a"
+          }
+        }
+      }
+    }
+  ],
+  "accepted": [
+    {
+      "name": "recursive array items",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": { "$ref": "#" }
+      }
+    },
+    {
+      "name": "recursive tree through properties",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "children": { "type": "array", "items": { "$ref": "#" } }
+        }
+      }
+    },
+    {
+      "name": "recursive $defs tree",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": {
+          "node": {
+            "type": "object",
+            "properties": { "kids": { "type": "array", "items": { "$ref": "#/$defs/node" } } }
+          }
+        },
+        "$ref": "#/$defs/node"
+      }
+    },
+    {
+      "name": "mutual recursion with bodies",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": {
+          "a": { "type": "object", "properties": { "b": { "$ref": "#/$defs/b" } } },
+          "b": { "type": "object", "properties": { "a": { "$ref": "#/$defs/a" } } }
+        },
+        "$ref": "#/$defs/a"
+      }
+    },
+    {
+      "name": "terminating anyOf recursion",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": {
+          "n": { "anyOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/n" } }] }
+        },
+        "$ref": "#/$defs/n"
+      }
+    },
+    {
+      "name": "recursion through prefixItems",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "prefixItems": [{ "type": "string" }, { "$ref": "#" }]
+      }
+    },
+    {
+      "name": "unused degenerate definition",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "$defs": { "a": { "$ref": "#/$defs/b" }, "b": { "$ref": "#/$defs/a" } }
+      }
+    },
+    {
+      "name": "anchor recursion through properties",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": {
+          "n": { "$anchor": "N", "type": "object", "properties": { "kid": { "$ref": "#N" } } }
+        },
+        "$ref": "#N"
+      }
+    },
+    {
+      "name": "draft-07 recursion",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": { "kid": { "$ref": "#" } }
+      }
+    },
+    {
+      "name": "draft-07 dependencies property-name array",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "dependencies": { "a": ["b"] }
+      }
+    },
+    {
+      "name": "plain object schema",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["exit_code"]
+      }
+    },
+    { "name": "vacuous object schema", "schema": {} },
+    { "name": "boolean true schema", "schema": true },
+    { "name": "boolean false schema", "schema": false }
+  ]
+}
