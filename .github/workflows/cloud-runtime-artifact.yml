@@ -42,19 +42,37 @@ jobs:
         working-directory: kernel
         run: cargo build --locked --release -p relayflowd
 
+      # The kernel suite had never run in CI. The only cargo invocation was the
+      # release build above, so every kernel-side defect was invisible here by
+      # construction -- including, on 2026-09-03, an exactly-once double-fire
+      # where one effect fired twice, a `$ref` cycle that aborted the daemon and
+      # re-ran the effect on every resume, and two tests in the tree encoding
+      # opposite contracts that both passed because neither was ever executed.
+      #
+      # The toolchain and the build are already paid for above; this adds the
+      # test run and nothing else. Invoked through ops/cargo.sh, as the repo
+      # does everywhere else, so the target directory stays outside the tree.
+      - name: Test kernel
+        working-directory: kernel
+        run: sh ../ops/cargo.sh test --workspace
+
       - name: Install SDK dependencies
         run: npm ci --prefix sdk
 
       - name: Test SDK and type-level authoring contracts
         working-directory: sdk
         run: |
-          npm run build
-          npm run typecheck:tests
-          ./node_modules/.bin/vitest run \
-            tests/typed-output.test.ts \
-            tests/validate.test.ts \
-            tests/spec-parity.test.ts \
-            tests/deterministic-llm.test.ts
+          # The whole suite, not four named files. Naming files means a test
+          # added to any other file never runs, which is how ~22 of ~26 SDK
+          # test files were uncovered.
+          #
+          # `npm test` is the repo's own entry point and a strict superset of
+          # what this step used to do:
+          #   test:prep && typecheck && build && typecheck:tests && vitest run
+          # test:prep builds the relayflowd binary that tests/live-kernel.test.ts
+          # execs, and the build it runs is why a bare `vitest run` is wrong
+          # here -- several files fail at collection without sdk/dist.
+          npm test
 
       - name: Build standalone flows CLI
         run: |
