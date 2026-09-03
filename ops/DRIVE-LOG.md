@@ -3567,3 +3567,927 @@ Run `npm audit` for details.
 
 CLEAN_ACCEPTANCE built_cli=executable
 ```
+
+## 2026-09-02 06:24 UTC — reboot recovery and tracking reconciliation (`flow/lead-0902-reconcile-wt`, base `7728565`)
+
+### Driver collision and recovered work
+
+Read `BRIEF-0902.md`, `charter/LEAD.md`, the ops rails, RFC-0001 and the
+then-current `ops/NEXT.md` before product work. The reboot had restarted two
+writers against the shared `flows-ops` checkout. The legacy
+`com.agentworkforce.autodrive` loop was paused with its documented stop marker;
+the sanctioned `com.agentworkforce.autodrive-D` loop remained running by
+Khaliq's decision. Autodrive-D targets `flows-ops` and force-resets it to
+`origin/main` about every five minutes.
+
+That reset destroyed tracked work twice: the first DRIVE-LOG entry at about
+06:10 UTC, then the first `ops/NEXT.md` and `ops/SCOREBOARD.md` reconciliation
+at about 06:20 UTC. The untracked review draft survived. Chief escalated the
+collision and provisioned the isolated worktree used for this final diff:
+
+```text
+$ cd /Users/khaliqgant/AgentWorkforce/flows-lead-wt
+$ git status --short --branch
+## flow/lead-0902-reconcile-wt...origin/main
+$ git rev-parse HEAD
+7728565813c84691bd8a152812e02677cefba390
+```
+
+No further writes were made in `flows-ops`; autodrive-D was not stopped.
+
+### Stale package caught and superseded
+
+The original package asked for an SDK worker that already merged in PR #53
+(`9681f11`) and was extended by PRs #124 (`3855099`) and #125 (`7b115bd`).
+No duplicate worker or product code was written. Chief independently accepted
+the finding and issued assessment-only `BRIEF-0902b.md`.
+
+Assessment deliverables:
+
+- `ops/reviews/20260902-0614-tracking-reconciliation.md`
+- corrected `ops/NEXT.md`
+- corrected `ops/SCOREBOARD.md`
+
+Verdict: RFC-0001 and the charter agree with the scoreboard numbering — gate
+2 is proactive agent; gate 3 is Software Garden. Gate 2 remains **AMBER**, but
+the stale tracking's wake-context, duplicate-event and trigger-liveness gaps
+are closed on merged history:
+
+- PR #125 carries the triggering payload through the SDK worker to the CLI.
+- PRs #14/#15 submit a repeated event, assert it is deduped, and assert no
+  second run exists.
+- PR #122 implements the trigger liveness sweep.
+
+The actual remaining Gate-2 gap is the real analyzer: the canonical
+`hn-monitor` step has no CLI, and PR #121's live evidence records
+`worker_error`. The corrected `ops/NEXT.md` proposes routing that implementation
+to a Claude Code product seat; this assessment did not start it.
+
+Gate 3 remains **AMBER**. The scoreboard now cites PR #123's review flow and
+PR #126's concurrent authoring driver while naming them honestly as
+scaffolding: markdown/bash claims are not kernel leases/claims/retries.
+
+### Verification
+
+The document-only diff was checked in the isolated worktree:
+
+```text
+$ git diff --check
+git_diff_check_exit=0
+$ git diff --name-only
+ops/NEXT.md
+ops/SCOREBOARD.md
+$ test -f ops/reviews/20260902-0614-tracking-reconciliation.md && echo review_artifact_exists=1
+review_artifact_exists=1
+```
+
+Every commit cited by the assessment resolves on merged history:
+
+```text
+$ for commit in 9e1d9eb e48631d 2dfc1fe 9681f11 2ac0d50 079f7c4 201542a 5835cba a774d88 3855099 7b115bd 5ed2c2f c3ee4eb 7728565; do git cat-file -e "$commit^{commit}" || exit 1; done
+commit_citations_exit=0
+```
+
+The post-reboot product-suite baseline was attempted before the assessment
+re-brief and is not green evidence. The exact kernel command failed because
+`cargo` resolved to an invalid mise shim:
+
+```text
+$ cd kernel && sh ../ops/cargo.sh test
+mise ERROR cargo is not a valid shim. This likely means you uninstalled a tool and the shim does not point to anything. Run `mise use <TOOL>` to reinstall the tool.
+mise ERROR Run with --verbose or MISE_VERBOSE=1 for more information
+```
+
+The exact SDK command emitted no output and was interrupted after more than
+three minutes; `npm --version` reproduced the hang:
+
+```text
+$ cd sdk && npm test
+^C
+(exit 130; no stdout or stderr was emitted before interruption)
+```
+
+This is an assessment-only diff. No product test, gate flip, push, merge,
+deploy or production promotion is claimed.
+
+## 2026-09-02 17:15 UTC — issue #132 and Cloud v2 execution drive
+
+Issue #132 is now the Flows integration acceptance gate rather than a loose
+collection of PRs. The current exact heads and ownership are:
+
+- #133 typed outputs: `54361d7e0cbf5affa819395f61cdbf3295fd443f`;
+  independent product reviews and the canonical review swarm pass.
+- #134 shipped surface and production authored-flow bridge:
+  `5092b76decca1530aaf6be0f81897945f9143ce5`; artifact and packed-consumer
+  CI pass, with three fresh exact-head reviews active.
+- #136 declared CLI/model with fail-closed typo checking:
+  `4888d1572ed047c5161042614ac72068d047783a`; artifact CI passes, with
+  three fresh exact-head reviews active.
+- #137 production parallel dispatch:
+  `52a112e9163361aa96a7213ab9bd07469a6f5d60`; the repaired real socket
+  probe reports both lanes before completion and three fresh reviews are
+  active.
+- #138 arbitrary-shape and cross-verb lint repair is active after a
+  maintainability failure.
+- #139 named data-gate contract and #140 direct input are green at their
+  existing heads and under fresh review. #140 must be reconciled with the new
+  #134 stack before acceptance.
+
+The issue ledger update is public at:
+https://github.com/AgentWorkforce/flows/issues/132#issuecomment-5513392510
+
+The final issue-level migration owner completed an honest inventory in the
+isolated `flows-132-integration-wt`. The authoritative research source named
+by the issue is absent. This was reproduced independently:
+
+```text
+$ gh pr list --repo AgentWorkforce/flows --state all --head research-flow --json number,title,state,headRefName,headRefOid,baseRefName,url
+[]
+
+$ gh search code 'research.flow.ts org:AgentWorkforce' --limit 100 --json repository,path,url
+[]
+
+$ find /Users/khaliqgant/AgentWorkforce -type f \( -name 'research.flow.ts' -o -path '*/research/*' \) 2>/dev/null | head -200
+[no output]
+```
+
+The sales source was then found externally in `AgentWorkforce/sales` main at
+`676970df59144f75853e6f87df03083ca9d42638`,
+`harness/flows/listen.flow.ts`. Its blocker is contractual rather than
+missing source: it embeds `ListenFlowContext`, `flow().on`, Slack and
+Notion helpers, and custom completion returns not yet present in the
+unpublished surface. Regressions are already migrated on the #140 base and
+typecheck through the documented source alias. The public correction is:
+https://github.com/AgentWorkforce/flows/issues/132#issuecomment-5513450989
+
+The research gap is recorded as a source-artifact blocker, not worked around
+by inventing a replacement flow. Issue #132 is not complete until that source
+is restored, the sales surface contracts and external consumer migration are
+delivered, the research lane gates use typed values, and a real direct run
+dispatches all three lanes concurrently.
+
+Cloud PR #3270 remains OPEN at
+`6a8981587bb4044348637da871d06bf8ba728d13`. Exact-head CI has 24
+substantive successes, zero failures, and three intentional skips. The
+operational proof-readiness reviewer passed the pinned artifact/REST/exported
+SQLite/v1-omission recipe, but independent structure and adversarial reviews
+found blocking durability and security gaps. The live repair owner is
+addressing durable artifact/mount authority, mixed-consumer admission,
+workflow-inaccessible journal authority, timeout and cancellation terminality,
+and publication ordering, plus a tracked secret-safe proof harness. No preview
+deploy, Cloud proof, merge, or v1 deprecation is claimed yet.
+
+All implementation and review ownership in this drive is through Agent Relay
+workers on the sf-mini broker. The 45-second liveness monitor remains active.
+
+## 2026-09-02 17:40 UTC — first repaired slice enters fresh signoff; coexistence owner assigned
+
+PR #138's arbitrary-shape and cross-verb validation repair is now pushed at
+`22c7d31fbd46db20d95f6fcabe000f36ece7ec52`. The exact GitHub query captured a
+clean PR and a successful Linux artifact job:
+
+```text
+$ gh pr view 138 --repo AgentWorkforce/flows --json headRefOid,mergeStateStatus,statusCheckRollup,url,reviewDecision,updatedAt
+{"headRefOid":"22c7d31fbd46db20d95f6fcabe000f36ece7ec52","mergeStateStatus":"CLEAN","reviewDecision":"","statusCheckRollup":[{"__typename":"CheckRun","completedAt":"2026-09-02T17:32:18Z","conclusion":"SUCCESS","detailsUrl":"https://github.com/AgentWorkforce/flows/actions/runs/33661371422/job/100352437959","name":"linux-x64-artifact","startedAt":"2026-09-02T17:29:21Z","status":"COMPLETED","workflowName":"Relayflow v2 Cloud runtime artifact"},{"__typename":"StatusContext","context":"CodeRabbit","startedAt":"2026-09-02T17:31:12Z","state":"SUCCESS","targetUrl":""}],"updatedAt":"2026-09-02T17:31:10Z","url":"https://github.com/AgentWorkforce/flows/pull/138"}
+```
+
+Three fresh Agent Relay reviewers are independently checking that exact commit
+through history/integration, structure/protocol, and adversarial/mutation
+lenses. CI success alone is not treated as signoff and no merge is claimed.
+
+The v1-to-v2 transition is now separately owned by
+`flows-v1-v2-migration-0902`, spawned on `sf-mini` through Agent Relay with
+invocation `inv_220960347471630336`. Its read-only assessment scope is to
+inventory all v1 Relayflows (including issue #132 and the external sales flow),
+pin omitted-version behavior to v1, define explicit opt-in v2 routing across
+admission/persistence/resume/cancel/callback/observability, order migrations,
+and specify evidence-based v1 deprecation gates. It acknowledged:
+
+```text
+ACK: I understand the read-only assessment. I’m inventorying all v1 Relayflows/runtime entrypoints (including flows#132 and external sales), then will propose the minimal opt-in v2 routing contract and a dependency-ordered migration ledger with literal command/output evidence.
+```
+
+Cloud PR #3270 remains in repair and is not cleared for preview. The release
+proof remains: explicit v2 REST launch, terminal success, exported SQLite
+journal, and a separate version-omitted v1 success. v1 support is not removed
+by this train.
+
+## 2026-09-02 18:02 UTC — v1/v2 coexistence inventory and new lifecycle owners
+
+The dedicated read-only migration assessment reports 111 checked-in v1
+authoring sources across the accessed repositories: Flows 7, relayflows 2,
+Relay 3, Factory 1, agents 1, skills 1, Cloud 93, and sales 3. This is explicitly
+a source inventory, not a claim that all 111 are active schedules. It also
+confirmed that the current Relay client/CLI has no v2 selector and the current
+v2 journal protocol has `run.start` and `run.resume` but no `run.cancel`.
+
+The accepted coexistence contract is now concrete:
+
+- `relayflowVersion` is the only public discriminator; omission remains v1,
+  v2 is explicit, and unknown values refuse before durable effects.
+- The resolved version and immutable engine binding are persisted once.
+  Resume inherits the source run's exact version/artifact/protocol/state
+  authority; no latest-artifact lookup or silent cross-version fallback.
+- v2 admission is kill-switch and consumer-epoch gated; disabling new v2 work
+  must not strand already-started runs on their pinned binding.
+- callback and cancel cannot choose a version. Terminal state is monotone and
+  version-specific validation is authoritative.
+
+Two new implementation lanes are active through the local sf-mini Agent Relay
+broker:
+
+```text
+flows-v2-cancel-0902 ACK STATUS: starting run.cancel implementation on feat/v2-run-cancel in flows-v2-cancel-wt. Reading AGENTS.md and RFC-0001 fully, then red-first tests for protocol, crash, and completion races.
+
+relay-v2-selector-0902 ACK: I’m implementing Relayflow v1/v2 public selection on feat/relayflow-version-selector: strict typed Cloud run/schedule surfaces, CLI flag and validation, red-first contract/argv/request coverage, compatibility checks, literal red-green-full evidence, changelog, trajectory, commit/push/PR; no merge or gate edits.
+```
+
+The proposed v1 deprecation gate is intentionally later than the first Cloud
+v2 proof: every known source has an owner and terminal disposition; every
+active trigger/schedule is explicitly version+digest bound; v2 has local,
+queued Cloud, crash/resume, cancel-race, callback-retry, scheduled, human-gate,
+and external-effect exactly-once evidence; new v1 admissions stay at zero for
+30 days and two releases; a rollback drill disables new v2 admission while an
+existing pinned v2 run still resumes. v1 readers/runtime/artifacts remain until
+the longest supported resume/schedule epoch expires.
+
+No v1 removal, merge, deploy, or completed migration is claimed.
+
+## 2026-09-02 18:10 UTC — issue #132 source correction routed; parallel repair re-enters review
+
+Issue #132 is the integrated authoring acceptance contract. Khaliq clarified
+on the issue that its research source moved from `research/` to
+`examples/research/` on branch `research-flow`. The integration owner
+`flows-132-direct-input-r2` has been resumed through Agent Relay and instructed
+to use that corrected path for the final typed-output, shipped-surface, direct
+input, and three-lane production-driver proof.
+
+The branch is not yet reproducible from the public repository API, so this is
+recorded as a corrected location plus an unresolved exact-ref dependency, not
+as a restored artifact:
+
+```text
+$ gh api 'repos/AgentWorkforce/flows/branches/research-flow' --jq '{name,sha:.commit.sha}'
+gh: Branch not found (HTTP 404)
+{"message":"Branch not found","documentation_url":"https://docs.github.com/rest/branches/branches#get-a-branch","status":"404"}
+
+$ gh api 'repos/AgentWorkforce/flows/git/trees/research-flow?recursive=1' --jq '.tree[] | select(.path|startswith("examples/research/")) | [.path,.type,.sha] | @tsv'
+gh: Not Found (HTTP 404)
+{"message":"Not Found","documentation_url":"https://docs.github.com/rest/git/trees#get-a-tree","status":"404"}
+```
+
+The integration owner is searching local refs/worktrees/reflogs and will name
+the exact missing SHA if the branch is still unpushed. The final command is now
+`flows run examples/research/research.flow.ts --input ...`; it must use the
+production driver, dispatch all three safe lanes concurrently, gate on parsed
+typed values, import the shipped surface, and delete local surface shims.
+
+PR #137's parallel-driver repair advanced to exact head
+`15ef36750af69001c8ac81f8900678784213b8c4`. The repository check is green:
+
+```text
+$ gh pr view 137 --repo AgentWorkforce/flows --json number,headRefOid,state,mergeStateStatus,statusCheckRollup --jq '{number,head:.headRefOid,state,merge:.mergeStateStatus,checks:[.statusCheckRollup[]|{name:.name,status:.status,conclusion:.conclusion}]}'
+{"checks":[{"conclusion":"SUCCESS","name":"linux-x64-artifact","status":"COMPLETED"},{"conclusion":null,"name":null,"status":null}],"head":"15ef36750af69001c8ac81f8900678784213b8c4","merge":"CLEAN","number":137,"state":"OPEN"}
+```
+
+Three independent Agent Relay reviewers have been restarted against that exact
+head for history/integration, structure/RFC boundary, and adversarial
+maintainability review. Their older verdicts are stale. PR #138 remains green
+in CI but review-failed; its owner has been steered back to the deterministic-
+only `timeoutMs` type/descriptor mismatch and recursive dependency traversal
+overflow. No issue completion, merge, publication, or Cloud proof is claimed.
+
+## 2026-09-02 18:28 UTC — issue #132 is an integrated release acceptance gate
+
+The issue itself was reread rather than treated as a path-only note. Its seven
+ranked gaps map to the current implementation stack as follows: typed outputs
+PR #133; shipped surface/runtime bridge PR #134; direct-run input PR #140;
+journaled declared agent CLI/model and strict model lint PR #136; production
+parallel dispatch PR #137; replayable data/code gate boundary PR #139; and
+closed per-verb fields PR #138. Individually green slices do not close the
+issue. The acceptance run remains the corrected
+`flows run examples/research/research.flow.ts --input ...` using the shipped
+surface, typed-value lane gates, no local shim, terminal completion reason, and
+all three safe lanes dispatched concurrently through the production driver.
+
+PR #140 already contains the direct-input mechanism at
+`0987e3830584d6efc3c784a7d32a98d5d660a256`, but the authoritative
+`research-flow` source is still not publicly resolvable. The integration
+owner was directly reactivated on sf-mini and acknowledged the exact
+`examples/research/` acceptance contract:
+
+```text
+flows-132-direct-input-r2 ACK: Resuming issue #132 integration lane. I will recover the exact unpublished research-flow SHA from local refs/worktree metadata/reflogs, inventory examples/research, then reconcile onto the exact current #133-#140 stack without touching PR140 or adding shims. Acceptance understood: typed lane validation, production surface/CLI, real flows run examples/research/research.flow.ts --input fixture, terminal completionReason, and three-lane production-driver concurrency. No merge.
+```
+
+Three review-failed #132 slices were also directly resumed against their exact
+heads: #136 for raw named-agent preflight, wrapper identity, and descriptor
+composition; #138 for deterministic-only `timeoutMs` plus non-recursive
+10,000-step dependency validation; and #139 for cross-verb `exit_code`,
+schema immutability/boolean parity, and exported preflight validation. Each
+owner acknowledged red-first repair, literal focused/full evidence, a new
+exact pushed head, and no merge or judging-gate edit.
+
+The recurring 45-second sf-mini liveness capture now reports the release-track
+owners actually working:
+
+```text
+2026-09-02T18:27:36Z
+flows-132-gates-r3           working
+flows-132-direct-input-r2    working
+flows-132-field-lint-r3      working
+flows-132-model-lint-r2      working
+cloud-pr3270-repair-r4       working
+```
+
+Cloud PR #3270 is not deployable at head
+`5a2389129873a10f68738a694b4b94377515a990`: exact-head CI run
+`33665502069` has four failed jobs across a stale PGlite schema fixture, a v1
+member path incorrectly hitting v2 artifact admission, and callback/generated
+template credential-revocation parity. The repair owner has active product
+changes in seven files and explicitly owns a tracked proof that exports and
+queries the exact run's SQLite journal for engine run ID,
+`step.completed`, and `run.completed`. No preview, merge, or Cloud proof is
+claimed on the red head.
+
+Relay PR #1640 remains the selector integration point. Its owner is repairing
+omitted-version serialization so omission sends no field and Cloud continues
+to resolve v1, while explicit `v1|v2` is validated before side effects.
+There will be no duplicate selector PR.
+
+## 2026-09-02 18:48 UTC — #132 stack advances; coexistence is a first-class gate
+
+Issue #132 remains the integrated acceptance contract, not the sum of seven
+mergeable PRs. Its field-lint slice advanced to PR #138 exact head
+`1c6f8a4aa46adf48a648c4ab5d25c36df2f5fbb4`; both repository checks are
+green, and three independent exact-head reviewers are now working on history,
+structure, and adversarial lenses:
+
+```text
+$ gh pr checks 138 --repo AgentWorkforce/flows
+CodeRabbit          pass  0      Review completed
+linux-x64-artifact  pass  2m19s  https://github.com/AgentWorkforce/flows/actions/runs/33668032684/job/100374467804
+```
+
+The model-lint slice advanced again after composing the closed #138
+descriptors and relative-wrapper execution identity. The old-head reviews are
+invalidated; three new Agent Relay reviewers were spawned on sf-mini against
+the new exact product head:
+
+```text
+$ gh pr view 136 --repo AgentWorkforce/flows --json headRefOid,mergeStateStatus,statusCheckRollup,url
+{"headRefOid":"62a647fcae07edf7427e3cd2dcb4a618c0842dc3","mergeStateStatus":"UNSTABLE","statusCheckRollup":[{"__typename":"CheckRun","completedAt":"0001-01-01T00:00:00Z","conclusion":"","detailsUrl":"https://github.com/AgentWorkforce/flows/actions/runs/33669241691/job/100378448190","name":"linux-x64-artifact","startedAt":"2026-09-02T18:46:12Z","status":"IN_PROGRESS","workflowName":"Relayflow v2 Cloud runtime artifact"},{"__typename":"StatusContext","context":"CodeRabbit","startedAt":"2026-09-02T18:46:14Z","state":"SUCCESS","targetUrl":""}],"url":"https://github.com/AgentWorkforce/flows/pull/136"}
+```
+
+The integration owner recovered no authoritative research source from local
+refs, worktrees, reflogs, unreachable objects, or local clones, so no source
+is being fabricated. It did rebase the integration branch onto #140 and replay
+the current #134 surface delta while preserving direct input and unawaited-step
+refusal:
+
+```text
+flows-132-direct-input-r2 STATUS integration: source remains unavailable after refs/worktrees/reflogs/unreachable-object/all-local-clone scans; no SHA exists locally. I rebased feat/v2-research-migration from stale 2a98a377 onto repaired #140 exact 0987e383 and deliberately replayed current #134 delta d830d027. New local head 4a6c0cc. Conflict resolution preserves `definition.body(context, input)` plus `refuseUnawaitedSteps`; surface test literal output: `✓ tests/flow.test.ts (7 tests)` / `Test Files 1 passed`; SDK direct-binary output: `✓ tests/authored-flow.test.ts (17 tests)` / `Test Files 1 passed`. Wrapper failure separately: `mise ERROR cargo is not a valid shim`. Proceeding to reconcile exact #133/#136/#137/#138/#139 heads while awaiting authoritative research SHA; will not fabricate source.
+```
+
+Cloud PR #3270 remains red at its old exact head, but the repair lane now has
+substantial tracked product/proof changes rather than a narrated plan. The
+proof harness itself is being strengthened to export and inspect SQLite bytes:
+
+```text
+$ git rev-parse HEAD
+5a2389129873a10f68738a694b4b94377515a990
+$ git diff --stat
+ packages/core/tests/launch-member.test.ts          |  10 +-
+ .../web/app/api/v1/workflows/callback/route.ts     |  30 ++--
+ .../lib/workflows/terminal-failure.pglite.test.ts  |   3 +
+ .../web/scripts/prove-relayflow-v2-cloud.test.ts   | 171 +++++++++++++++++-
+ packages/web/scripts/prove-relayflow-v2-cloud.ts   | 191 ++++++++++++++++++++-
+ tests/helpers/relayfile-writeback-pglite-db.ts     |   1 +
+ tests/orchestrator/helpers/pglite-db.ts            |   4 +
+ tests/orchestrator/stuck-run-reaper.test.ts        |   3 +
+ tests/orchestrator/workflow-store.test.ts          |   4 +
+ 9 files changed, 393 insertions(+), 24 deletions(-)
+```
+
+The selector proof rerun for Relay PR #1640 is still in progress, not counted
+green. All ordinary repository checks are green, but the required Cloud proof
+is the remaining gate:
+
+```text
+$ gh run view 33667836953 --repo AgentWorkforce/relay --json status,conclusion,attempt,url --jq .
+{"attempt":1,"conclusion":"","status":"in_progress","url":"https://github.com/AgentWorkforce/relay/actions/runs/33667836953"}
+```
+
+The v1/v2 coexistence owner is now actively inventorying every shipped flow as
+v1-only, v2-ready, or blocked. Acceptance requires one exact Cloud head to
+prove an explicit pinned v2 run and, separately, an omitted-version v1 run.
+Omission remains v1; no default flip or v1 removal occurs during migration.
+The later v1 deprecation gate requires an inventory with terminal dispositions,
+version/digest-bound active schedules, rollback proof, and expiration of the
+longest supported resume/schedule epoch.
+
+PR #142 also opened at `01eb0e3` for durable v2 cancellation. Its artifact
+check is green, but CodeRabbit's rate-limited status is not an independent
+review and no acceptance/merge is claimed:
+
+```text
+$ gh pr checks 142 --repo AgentWorkforce/flows
+CodeRabbit          pass  0      Review rate limited
+linux-x64-artifact  pass  2m38s  https://github.com/AgentWorkforce/flows/actions/runs/33668460194/job/100375880440
+```
+
+## 2026-09-02 19:04 UTC — fresh review failures are routed; repair ownership remains live
+
+Issue #132 is still the acceptance map. The current repository state is not
+equivalent to integrated readiness even though the individual artifact checks
+are green:
+
+```text
+$ for n in 133 134 136 137 138 139 140 142; do gh pr view "$n" --json number,headRefOid,mergeStateStatus,statusCheckRollup,url --jq '[.number,.headRefOid,.mergeStateStatus,([.statusCheckRollup[]?|(.name+":"+(.conclusion//.status))]|join(",")),.url]|@tsv'; done
+133	54361d7e0cbf5affa819395f61cdbf3295fd443f	CLEAN	linux-x64-artifact:SUCCESS,:	https://github.com/AgentWorkforce/flows/pull/133
+134	d830d027843b64da27eca3b2f805ddc9b33ac058	CLEAN	linux-x64-artifact:SUCCESS,packed-consumer:SUCCESS,:	https://github.com/AgentWorkforce/flows/pull/134
+136	62a647fcae07edf7427e3cd2dcb4a618c0842dc3	CLEAN	linux-x64-artifact:SUCCESS,:	https://github.com/AgentWorkforce/flows/pull/136
+137	15ef36750af69001c8ac81f8900678784213b8c4	CLEAN	linux-x64-artifact:SUCCESS,:	https://github.com/AgentWorkforce/flows/pull/137
+138	1c6f8a4aa46adf48a648c4ab5d25c36df2f5fbb4	CLEAN	linux-x64-artifact:SUCCESS,:	https://github.com/AgentWorkforce/flows/pull/138
+139	11ad3e2da7f473fefe1e9e0b44b599890b9de073	CLEAN	linux-x64-artifact:SUCCESS,:	https://github.com/AgentWorkforce/flows/pull/139
+140	0987e3830584d6efc3c784a7d32a98d5d660a256	DIRTY	linux-x64-artifact:SUCCESS,packed-consumer:SUCCESS,cubic · AI code reviewer:NEUTRAL,:	https://github.com/AgentWorkforce/flows/pull/140
+142	01eb0e32d62b77ec07015b76c05044e87d382df2	CLEAN	linux-x64-artifact:SUCCESS,:	https://github.com/AgentWorkforce/flows/pull/142
+```
+
+Fresh exact-head review of PR #136 produced one pass and two independent
+blocking verdicts. Structure reproduced an earlier provider/command probe
+before a later static `cli_unresolved` refusal. Maintainability reproduced a
+symlink TOCTOU between wrapper identification and the second, secret-bearing
+spawn. The implementation owner `flows-132-model-lint-r2` was steered with
+both findings and directly returned to a working state. Required repair is a
+pure whole-flow static resolution phase before any probes plus a single-process
+identity/handshake (or already-open sealed artifact) for wrapper identification
+and execution.
+
+Fresh exact-head review of PR #138 produced three blocking verdicts. The SDK's
+iterative 10,000-step dependency traversal is repaired, but the unchanged Rust
+`RunSpec::validate` recursion aborts on the same valid chain. The new public
+TypeScript contract config is also absent from canonical package test/typecheck
+and checked-in workflow commands. The implementation owner
+`flows-132-field-lint-r3` was steered with both findings and directly returned
+to a working state.
+
+PR #134 remains blocked by reflected handle forgery and operation lifecycle
+escapes after `done()`; `flows-pr134-repair-r2` acknowledged and is working.
+PR #137 remains blocked by terminal mutation admission, worker
+capacity/fairness, equivalent mount-path identity, and module-size pressure;
+`flows-132-parallel-r1` acknowledged and is working. PR #139 exact head
+`11ad3e2d` has three independent exact-head reviews in progress.
+
+The coexistence inventory found 83 shipped top-level Relayflows and classified
+all 83 as v1-only: 74 TypeScript, eight legacy v1 YAML, and one Python. No v1
+deprecation is authorized. It also found that Relay PR #1640 exposes an
+explicit v2 schedule selector while Cloud #3270 currently refuses v2 schedules.
+The selector owner was reactivated and instructed to fail closed locally for
+v2 schedules unless real server support is proven. Omitted selector remains v1;
+explicit v2 remains a run-only preview path for now.
+
+The current Relay proof is slow but still within the configured bounds. The
+30-minute workflow is the separate broker artifact build; the trusted Cloud
+dispatcher is 110 minutes and gives the Cloud runner a bounded 60 minutes:
+
+```text
+$ rg -n 'PR_PROOF_CLOUD_TIMEOUT_MS|run-cloud\.mjs|timeout-minutes' .github/workflows scripts/pr-proof tests/relayflows/cases/1640-cloud-relayflow-version
+scripts/pr-proof/run-cloud.mjs:133:  const timeoutMs = boundedDuration(process.env.PR_PROOF_CLOUD_TIMEOUT_MS, {
+.github/workflows/relayflow-pr-proof-broker.yml:37:    timeout-minutes: 30
+.github/workflows/relayflow-pr-proof.yml:31:    timeout-minutes: 110
+.github/workflows/relayflow-pr-proof.yml:129:          PR_PROOF_CLOUD_TIMEOUT_MS: '3600000'
+.github/workflows/relayflow-pr-proof.yml:130:        run: node scripts/pr-proof/run-cloud.mjs workflows/pr-proof.ts
+$ gh run view 33667836953 --json status,conclusion,createdAt,updatedAt,jobs,url --jq '{status,conclusion,createdAt,updatedAt,url,jobs:[.jobs[]|{name,status,conclusion,startedAt,completedAt}]}'
+{"conclusion":"","createdAt":"2026-09-02T18:32:32Z","jobs":[{"completedAt":"0001-01-01T00:00:00Z","conclusion":"","name":"RelayFlow PR proof dispatcher","startedAt":"2026-09-02T18:33:20Z","status":"in_progress"}],"status":"in_progress","updatedAt":"2026-09-02T18:33:21Z","url":"https://github.com/AgentWorkforce/relay/actions/runs/33667836953"}
+```
+
+Cloud PR #3270 remains at `5a238912` with nine uncommitted repair/proof files
+and a `+393/-24` diff. Its owner is working and was asked for an immediate
+phase/status report. No Cloud readiness, deployment, or dual-generation proof
+is claimed until a new exact head is pushed, CI is green, fresh independent
+reviews pass, and the same-head semantic-twin matrix captures both exported
+v2 journal bytes and a separate omitted-version v1 success.
+
+At 19:06 UTC the first fresh PR #139 verdict arrived and is blocking. Exact
+head `11ad3e2d` still permits `Proxy` traps to execute while snapshotting a
+purportedly behavior-free gate value; the reviewer captured a descriptor trap
+changing a source schema from `string` to journal-bound `number`. The real
+socket path also maps an early `RunSpec` validation refusal to generic
+`internal_error` instead of typed `invalid_spec`. Explicit `undefined` optional
+properties are additionally accepted by the public TypeScript/validation
+contract but rejected by the snapshot. These findings were routed to
+`flows-132-gates-r3`, which was directly returned to a working repair state.
+No #139 readiness is claimed while the other two fresh reviews continue.
+
+## 2026-09-02 19:13 UTC — Cloud repair head pushed, proof contract held before deployment
+
+Cloud PR #3270 advanced from `5a238912` to exact pushed head
+`28d432908e95d23ffb69ddfd33b5c688e441bb3d`. The previous five failing CI
+classes have concrete repairs, and a new hosted run is active. Independent
+local checks on the pre-push tree captured the following output; this is WIP
+evidence, not signoff:
+
+```text
+$ ./node_modules/.bin/vitest run packages/web/scripts/prove-relayflow-v2-cloud.test.ts --reporter=dot
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+$ ./node_modules/.bin/vitest run packages/web/lib/workflows/terminal-failure.pglite.test.ts --reporter=dot --maxWorkers=1
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+$ node --import tsx --test packages/core/tests/launch-member.test.ts tests/orchestrator/stuck-run-reaper.test.ts tests/orchestrator/workflow-store.test.ts
+ℹ tests 52
+ℹ suites 2
+ℹ pass 52
+ℹ fail 0
+```
+
+The pushed head is deliberately held from deployment and final review because
+source inspection found four proof-contract blockers not covered by its mocked
+5/5 test:
+
+1. One `workflow` string is submitted byte-for-byte to explicit v2 and omitted
+   v1, but canonical v2 `0.1.0` and legacy v1 are disjoint dialects. The proof
+   needs two pinned semantic-twin serializations and must log both hashes.
+2. The returned v2 authority is shape-parsed but never compared with the exact
+   expected admission epoch, artifact key, archive SHA-256, source commit,
+   protocol, and manifest schema.
+3. The journal query accepts any successful step plus any successful terminal;
+   it does not yet require the expected step identity/count, exactly one
+   terminal as the last entry, and no post-terminal entries.
+4. One token has a 60-minute lifetime while the two sequential polls each have
+   a 55-minute timeout, so the v1 half can begin after its credential expires.
+
+All four were routed to `cloud-pr3270-repair-r4` with red-first test
+requirements. CI on `28d43290` remains useful repair evidence, but a follow-up
+head is required before fresh reviews or preview deployment.
+
+## 2026-09-02 19:24 UTC — selector repaired; independent proof-gate and Cloud-base ownership assigned
+
+Relay PR #1640 advanced to product head
+`bca6cdb3af6a0b3d72c70aeb85179a1d8bf8725c`. Immediate runs preserve
+omitted/v1/v2 behavior, while the public schedule surface is now typed v1-only
+and rejects v2 before authentication, filesystem, or network work. The owner
+captured a 2-test red baseline and 113/113 focused green tests. GitHub
+concurrency automatically cancelled the old proof run `33667836953`; the
+owner recovered Cloud run ID `61231e8f-acb4-40b9-8ab8-d7e34592b7ba` with its
+last observed state `pending`, but the cancelled dispatcher uploaded no log
+artifact.
+
+The product repair invalidated the old declared proof case, which still
+expected v2 schedule forwarding. The product owner was explicitly told not to
+edit its own judging gate. Independent gate owner
+`cloud-pr3270-structure-r5` is working from exact `bca6cdb3` in
+`/Users/khaliqgant/AgentWorkforce/relay-v2-selector-gate-wt`. Its gate must
+prove both arms: base omits the run selector and accepts a schedule without a
+selector; head forwards explicit v2 for an immediate run and refuses explicit
+v2 scheduling before effects with the exact unsupported error. Only the case
+files may change, and the gate commit may fast-forward the feature branch only
+if the remote product head is unchanged.
+
+Cloud #3270 advanced again to `7a08d72b1e0a254ec10e94512e44bdfb911a36aa`
+with distinct tracked v1/v2 semantic-twin fixtures. Local proof tests are now
+7/7. This closes only the same-byte dialect defect; exact artifact-pin
+comparison, strict terminal-last journal validation, and the credential
+lifetime defect remain routed and must land before final review/deploy.
+
+Cloud #3270 is stacked on still-open base PR #3264 at exact head
+`abdc8d1361e8eaa0e4d9123861ce356bde557eaf`. #3264 is CLEAN/MERGEABLE with
+all hosted checks green, but had zero GitHub reviews and zero review threads.
+Three fresh exact-head Agent Relay assessments are now active in isolated
+worktrees: adversarial, history/integration, and structure/maintainability.
+No #3264 merge-readiness is claimed until those reports finish.
+
+## 2026-09-02 19:36 UTC — issue #132 integrated gate refreshed; parallel repair enters fresh signoff
+
+GitHub issue #132 remains OPEN. Its seven implementation slices are mapped to
+PRs #133, #134, #140, #136, #137, #139, and #138 respectively, but individual
+PR success is not the issue-level completion condition. The release gate
+remains one integrated run of the authoritative research flow through the
+shipped surface: no local declarations, typed-value gating, direct
+`flows run ... --input`, all three lanes admitted through the production
+parallel driver, and terminal journal evidence. The authoritative
+`research/research.flow.ts` source is still absent from every available ref;
+the integration owner was told not to fabricate it.
+
+PR #137 advanced to exact pushed head
+`bdd598c05d3172fd2fab6e3ec7009135ebdc2543`. The owner captured literal
+focused green output for terminal admission, canonical surface identity,
+capacity-bounded fair dispatch, production-driver batching, and crash/resume;
+full Rust all-target tests passed. The unchanged full SDK gate still contains
+a stale post-terminal mutation expectation and a missing `statSync` import,
+so no blanket SDK-green claim is made. Two fresh Codex Agent Relay signoff
+agents now own exact-head structure/integration and adversarial/load-bearing
+reviews in isolated worktrees:
+`flows-pr137-signoff-a-0902` and `flows-pr137-signoff-b-0902`.
+
+Dual fresh exact-head Codex signoffs are also active for repaired PR #136 at
+`3f129ba1`, PR #138 at `0c859270`, and PR #139 at `f5b8437b`. The #139
+owner's hosted `linux-x64-artifact` run `33673407803` completed successfully;
+this is CI evidence, not independent signoff. PR #134 remains under active
+repair at `d830d027` with product changes in its isolated worktree and is held
+from review until a new pushed head exists.
+
+The v1/v2 migration assessment found 111 checked-in v1 authoring sources
+(flows 7, relayflows 2, relay 3, factory 1, agents 1, skills 1, cloud 93,
+sales 3). This is an inventory rather than an active-schedule count. The
+coexistence policy therefore remains explicit: omitted version selects v1,
+v2 is opt-in and immutable-binding/epoch gated, each active workload receives
+an owner and migration/retire disposition, and v1 readers/runtime/artifacts
+remain available until the longest supported resume/schedule epoch expires.
+No merge or deployment was performed.
+
+## 2026-09-02 19:40 UTC — #132 integration PR exists; research adapter dependency owned
+
+Draft integration PR #144 now exists at exact head
+`b65b8d9cdc9884a66cf97342c30ed80c35da18ae`, based on repaired direct-input
+branch `feat/v2-direct-input`. It composes the current #133/#134/#136/#137/
+#138/#139 product heads without merging the source PRs. Exact-head
+`linux-x64-artifact` and `packed-consumer` checks are green. It remains
+deliberately DRAFT because the authoritative research source is unavailable
+and because inherited #133/#138/#139 preflight expectations conflict. No
+integration readiness is claimed from mechanical composition or hosted CI.
+
+Issue #141 is a related research-flow dependency: the reference flow retains
+per-flow headless agent shims even after the #132 surface declaration is
+removed. A new Agent Relay Codex implementation owner,
+`flows-141-headless-adapter-0902`, is assigned in isolated worktree
+`/Users/khaliqgant/AgentWorkforce/flows-141-headless-adapter-wt` on
+`feat/v2-headless-adapters`, stacked on repaired #136. Its gate is an
+SDK-owned structured adapter for declared Claude, Codex, and Grok CLIs:
+instruction off argv; shared preflight/execution identity; fail-closed empty
+or malformed success; journaled trajectory, usage, session, and available
+subagent evidence; red-first provider/timeout/ARG_MAX/packed-package tests.
+The owner may open only a draft PR and may not merge or publish.
+
+## 2026-09-02 19:53 UTC — Cloud compatibility base fails review; repair owner active
+
+Two independent exact-head assessments failed Cloud PR #3264 at
+`abdc8d1361e8eaa0e4d9123861ce356bde557eaf`. History/integration found that
+the base correctly refuses explicit v2 before falling through to v1, but does
+not yet inherit stored generation on resume and authorizes v2 schedules that
+the only trigger path is guaranteed to refuse. Structure/maintainability found
+that `0117_snapshot.json` omits the still-live
+`public.relayfile_durable_keys` table while the migration gate passes through
+a count-based drop allowance; it also reproduced schedule PATCH silently
+erasing an existing explicit-v2 selector to omitted/v1.
+
+Dedicated Codex Agent Relay owner `cloud-pr3264-repair-0902` is confirmed
+working in isolated worktree
+`/Users/khaliqgant/AgentWorkforce/cloud-pr3264-repair-wt`. The assigned
+repair is red-first: restore the live schema snapshot and identity-based gate,
+make schedule create/update v1-only and omission-preserving until a v2
+schedule executor exists, inherit/refuse-conflicting resume generation, and
+preserve byte-compatible omitted/explicit-v1 direct runs plus pre-effect v2
+refusal in the compatibility base. A push to the existing PR branch is allowed
+only as a fast-forward from unchanged `abdc8d13`; no merge, deploy, or
+release is authorized. Stacked Cloud PR #3270 remains held.
+
+## 2026-09-02 20:00 UTC — issue #132 is the release contract; three repaired slices return to fix loop
+
+The live issue #132 body was re-read rather than inferred from PR titles. Its
+seven ranked requirements remain typed `llm`/`agent` outputs, a shipped
+`@relayflows/surface`, direct-run input, declared `agents[].model`, production
+parallel dispatch, a data/code gate boundary, and verb-specific field refusal.
+Its `Done when` contract remains one authoritative research-flow execution:
+parsed-value gating through the shipped surface, direct `flows run ... --input`,
+all three lanes concurrent in the kernel, and terminal evidence. v1 remains the
+omitted-version default and supported runtime throughout the rollout.
+
+The exact live PR state was captured with:
+
+```text
+$ for n in 133 134 136 137 138 139 140 144; do gh pr view "$n" --repo AgentWorkforce/flows --json number,state,isDraft,mergeStateStatus,headRefOid,statusCheckRollup; done
+#133 OPEN CLEAN 54361d7e0cbf5affa819395f61cdbf3295fd443f
+#134 OPEN CLEAN d830d027843b64da27eca3b2f805ddc9b33ac058
+#136 OPEN CLEAN 3f129ba1ef955252c1a71efff0473384b6a47370
+#137 OPEN CLEAN bdd598c05d3172fd2fab6e3ec7009135ebdc2543
+#138 OPEN CLEAN 0c859270801e058bd59b76a72848b6480a740de6
+#139 OPEN CLEAN f5b8437b41e32d7ba45bb96eecf9bf8eb2aee65a
+#140 OPEN DIRTY 0987e3830584d6efc3c784a7d32a98d5d660a256
+#144 OPEN DRAFT CLEAN b65b8d9cdc9884a66cf97342c30ed80c35da18ae
+```
+
+Hosted checks on these heads are supporting evidence, not signoff. Fresh review
+returned PR #136 to `flows-132-model-lint-r2`: ambient `process.env` reaches
+the wrapper, a checked wrapper symlink can be retargeted before execution,
+child lifetime/output are unbounded, and duplicate execute frames are accepted.
+PR #138 has one structural pass and one adversarial failure: cycle diagnostics
+grow to 1,225/4,950/11,175 errors at 50/100/150 nodes, with approximately
+0.35/2.57/8.58 MB of output. That bounded-diagnostic repair is owned by
+`flows-132-field-lint-r3`. Both fresh PR #139 signoffs found the same P1:
+exported `validateSpec` and `kernelToAuthoring` reflect hostile caller objects
+before the snapshot boundary, so Node, Bun, and the packed SDK execute Proxy
+traps. `flows-132-gates-r3` owns the red-first repair. Each owner was steered
+through Agent Relay and told to preserve v1, push only after an exact remote-head
+check, and remain registered for a new fresh review iteration.
+
+Draft integration PR #144 corrected its body: it no longer claims exact ancestry
+of all repaired slice heads. Only #133 and #140/direct-input are exact ancestors
+of `b65b8d9`; the other slices require a truthful semantic-equivalence matrix or
+recomposition after their current repairs. The independent integration gate is
+still working and the PR stays draft; the unavailable authoritative
+`research/research.flow.ts` remains an explicit blocker to claiming issue #132
+complete, not permission to invent a replacement.
+
+Cloud PR #3270 is CI-green at `7a08d72b`, but direct source inspection reconfirmed
+the three remaining live-proof defects with these literal locations:
+
+```text
+$ rg -n "pollRun|parseRelayflowV2Authority|SELECT entry_type|accessTokenTtlSeconds" packages/web/scripts/prove-relayflow-v2-cloud.ts
+99:      return pollRun(... input.timeoutMs ?? 55 * 60_000 ...)
+121:    const v1 = await invoke(input.v1Workflow);
+197:  const authority = parseRelayflowV2Authority(run.relayflowV2Authority);
+300:      "SELECT entry_type, payload FROM entries WHERE entry_type IN ('step.completed', 'run.completed') ORDER BY seq",
+389:          accessTokenTtlSeconds: 60 * 60,
+```
+
+The proof therefore still lacks an exact expected authority-pin comparison,
+accepts any positive step-success count plus any successful terminal instead of
+an exact final journal, and gives two sequential 55-minute polls one 60-minute
+token. All three were returned to `cloud-pr3270-repair-r4` for red-first repair;
+there is no deployment or Cloud execution claim yet.
+
+Relay PR #1640's independent proof gate is now real. Exact head `2c12c1c2` passed
+both RelayFlow proof workflows, and automated formatter head `e8a8eae4` changes
+only one string's wrapping:
+
+```text
+$ gh run list --repo AgentWorkforce/relay --commit 2c12c1c26f9381503f345beecade0627c9d1cfba --limit 100 --json databaseId,name,conclusion
+33674697950  RelayFlow PR Proof         success
+33674697944  RelayFlow PR Proof Broker  success
+$ gh api repos/AgentWorkforce/relay/compare/2c12c1c2...e8a8eae494a5e222f550fbf4abfca7a543381cf1 --jq '{ahead_by,files:[.files[]|{filename,additions,deletions}]}'
+{"ahead_by":1,"files":[{"filename":"tests/relayflows/cases/1640-cloud-relayflow-version/run.mjs","additions":1,"deletions":2}]}
+```
+
+The PR is nevertheless `BLOCKED` with `REVIEW_REQUIRED`, and current-head jobs
+are `action_required`. Its owner was steered to obtain the required repository
+review/current-head disposition. No merge was performed.
+
+At 20:06 UTC the queued repair steers were additionally injected through the
+local Agent Relay broker because enqueue receipts had not yet become read
+receipts. Broker state then reported `working` for the #136, #138, #139, #144,
+#141, Cloud #3264, Cloud #3270, and Relay #1640 owners. This is active ownership,
+not a completion claim.
+
+Fresh PR #137 signoff also returned a P1 finding: a rejected agent completion
+advances the live pin projection, allowing an inspect-mode retry to dispatch
+from forged end pins. The exact report is
+`/Users/khaliqgant/AgentWorkforce/flows-pr137-signoff-a-wt/ops/reviews/20260902-2145-pr137-signoff-structure.md`.
+The finding was routed to `flows-132-parallel-r1`, and the broker reports that
+owner working on a red-first real-socket repair. PR #137 is not ready despite
+its green hosted checks.
+
+## 2026-09-02 20:27 UTC — repaired slice heads and Cloud base enter fresh signoff; executor proof stays held
+
+Four #132 slice owners advanced authoritative remote heads:
+
+```text
+$ gh pr view 134 --repo AgentWorkforce/flows --json headRefOid,mergeStateStatus
+5f2c0b9a22a7cab916980d49b5992f3cab041761 CLEAN
+$ gh pr view 137 --repo AgentWorkforce/flows --json headRefOid
+78812c31d3a4e54bebd9d3e37054af14df61fc68
+$ gh pr view 138 --repo AgentWorkforce/flows --json headRefOid,mergeStateStatus
+e164e4239b0aa9e8b2dd58ed126263d206ad29d0 CLEAN
+$ gh pr view 139 --repo AgentWorkforce/flows --json headRefOid
+e6210a2fc666df6dc8c777c009712ddf99efa877
+```
+
+PR #134's new lifecycle commit changes six product/test files (`+499/-135`) and
+its hosted checks are green. Two new exact-head Codex Agent Relay signoffs,
+`flows-pr134-signoff3a-0902` and `flows-pr134-signoff3b-0902`, are active over
+isolated worktrees. They must independently re-attack provenance forgery,
+precreated operations after `done`, and manual/unawaited/handled rejection
+chains before the slice can pass.
+
+PR #138's bounded-cycle repair captured a 71/71 public/type gate, full Rust
+workspace green, and a final full SDK/live run of 306/306 after honestly
+recording one initial unrelated live timeout and its focused rerun. Its exact
+artifact run is green:
+
+```text
+$ gh run list --repo AgentWorkforce/flows --branch feat/v2-field-lint --limit 1
+33678114138  Relayflow v2 Cloud runtime artifact  success  e164e4239b0a
+```
+
+PR #139's exported-boundary Proxy repair is also pushed and its exact artifact
+run is green:
+
+```text
+$ gh run list --repo AgentWorkforce/flows --branch feat/v2-gate-contract --limit 1
+33678271936  Relayflow v2 Cloud runtime artifact  success  e6210a2fc666
+```
+
+Fresh structural/adversarial Codex signoffs were started for both #138 and
+#139. Their older reviewer contexts cannot approve these new heads.
+
+PR #137's `78812c3` commit closes the forged rejected-completion pin projection
+with a literal red real-socket test followed by green, 30/30 crash/resume, full
+workspace, driver, clippy, rustfmt, and diff checks. It does **not** close the
+second signoff finding: workspace/worktree aliases such as `/mount/repo` and
+`/mount/./repo` can still be admitted concurrently. The clean post-commit
+worktree proved no second repair existed, so the same owner was explicitly
+re-driven to repair that remaining P1 before fresh review.
+
+Issue #141's implementation was stalled only by a hanging ambient npm and a
+missing local dependency tree. The target and donor package locks were verified
+byte-identical (`e57ada3603a9964d11eec6a849d14e4ca51cfddb26671ae7802d197f76a27178`),
+the donor dependency tree was APFS-cloned, and these literal gates then ran:
+
+```text
+$ ./sdk/node_modules/.bin/tsc -p sdk/tsconfig.json --noEmit --pretty false
+[exit 0]
+$ cd sdk && ./node_modules/.bin/vitest run tests/headless-adapter.test.ts tests/cli-adapter.test.ts tests/preflight.test.ts tests/model-selection.test.ts --reporter=dot --maxWorkers=1 --minWorkers=1
+Test Files  4 passed (4)
+Tests       43 passed (43)
+```
+
+The #141 owner is working again on full/live/packed verification and may open
+only a draft PR.
+
+Cloud compatibility-base PR #3264 advanced from `abdc8d13` to exact remote
+head `39f26bcd4a04dcf100ab9818f598cd39b12e041e`. The commit restores the live
+schema snapshot, hardens schedule create/update, and pins resume generation.
+Its Drizzle run is exact-head green and the main CI has every job green except
+the still-running root Vitest job:
+
+```text
+$ gh run view 33677970601 --repo AgentWorkforce/cloud --json status,conclusion,headSha
+{"status":"completed","conclusion":"success","headSha":"39f26bcd4a04dcf100ab9818f598cd39b12e041e"}
+$ gh run view 33677970885 --repo AgentWorkforce/cloud --json status,headSha
+{"status":"in_progress","headSha":"39f26bcd4a04dcf100ab9818f598cd39b12e041e"}
+```
+
+Two fresh exact-head Cloud Codex signoffs are active in isolated worktrees.
+No merge is allowed until both pass and CI finishes green.
+
+Cloud executor PR #3270 remains held. Its WIP proof repair reached 679 lines in
+the operator script and 555 in one test file, so the owner was required to split
+authority and strict-journal verification into small directly tested modules.
+The stack is also stale against the repaired base:
+
+```text
+$ git merge-base origin/feat/relayflow-dual-runtime-v2 origin/feat/relayflow-v2-executor
+abdc8d1361e8eaa0e4d9123861ce356bde557eaf
+$ git rev-parse origin/feat/relayflow-dual-runtime-v2
+39f26bcd4a04dcf100ab9818f598cd39b12e041e
+```
+
+The owner must make the final #3270 head descend from `39f26bcd`, preserve the
+three proof repairs, rerun all combined-stack CI, then pass fresh review before
+any deploy or real Cloud execution.
+
+## 2026-09-03 06:01 UTC — durable Claude lead handoff; two exhausted owners replaced
+
+The current orchestration state and the v1/v2 coexistence/deprecation contract
+are captured in `ops/HANDOFF-20260903-CLAUDE.md`. The handoff explicitly keeps
+v1 as the omitted-selector default until a separately approved removal gate,
+and requires a complete flow inventory, same-head dual compatibility matrix,
+rollback exercise, production soak, and zero unowned blockers before any v1
+deprecation proposal.
+
+Two apparent idle lanes were inspected through Agent Relay terminal attach and
+were not completions. Both Codex sessions had exhausted their usage allocation:
+
+```text
+flows-pr134-repair-r2:
+You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to
+purchase more credits or try again at Sep 7th, 2026 7:56 AM.
+
+cloud-pr3270-repair-r4:
+You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to
+purchase more credits or try again at Sep 7th, 2026 7:56 AM.
+```
+
+PR #134 was reassigned by live Agent Relay terminal injection to
+`flows-132-model-lint-r2`; the worker visibly entered `Working` on the exact
+three signoff P1s in `/Users/khaliqgant/AgentWorkforce/flows-132-surface-wt`.
+Cloud PR #3264's fresh signoff split PASS/NO-GO. The NO-GO report identifies an
+0117 snapshot/schema mismatch plus two selector-ordering side effects, so
+`cloud-pr3264-repair-0902` was live-restarted and visibly entered `Working` on
+the three red-first repairs. No merge or deployment was performed.
+
+PR #136 advanced to exact remote head
+`3fcf2dcbfcb056060b8f91e2ab6decfea5b34ba1`. Issue #141 is now draft PR #147
+at `193dd5f05fd86944386bae92c5f5890217b37b70`, stacked on #136. Cloud #3264's
+full exact-head CI completed successfully at `39f26bcd`, but the independent
+NO-GO keeps it held.
+
+Cloud #3270's repair is safely committed outside `/private/tmp` at local head
+`3ce981c3a40393ccba57fa1538fffc6687372036`, and this literal ancestry check
+passed:
+
+```text
+$ git -C /Users/khaliqgant/AgentWorkforce/cloud-relayflow-v2-executor-wt merge-base --is-ancestor 39f26bcd4a04dcf100ab9818f598cd39b12e041e HEAD
+[exit 0]
+```
+
+It is not yet remote: the worktree reports `ahead 14, behind 12` after its
+restack, while PR #3270 remains at `7a08d72b`. The successor lead must verify
+the incomplete background full-suite output, preserve the staged review files,
+and update the product branch with an exact force-with-lease only after proof.
+
+Chief coordination was corrected from a nonexistent shadow address to `chief`
+on `kjg-lap`. Durable reports, rather than DM delivery, are now the handoff
+mechanism. The shared `flows-ops` checkout remains unsafe for tracked writes;
+all lead work stays in `/Users/khaliqgant/AgentWorkforce/flows-lead-wt`.
