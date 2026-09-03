@@ -1,59 +1,82 @@
-# NEXT — Gate 2 real analyzer execution
+# NEXT — work package for this tick
 
-**Scope:** complete the real `hn-monitor` analyzer seam. CODE task,
-TypeScript/testdata side. **Route to a Claude Code product seat; Codex seats
-may assess or review this package but must not author the product code.**
+**Scope:** Make CI run the suites it already has. CI task, `.github/` only.
 
-This package is pinned to **RFC-0001 gate 2 — proactive agent**. Gate 3 means
-Software Garden; do not reuse the obsolete “worker protocol = gate 3”
-numbering.
+This run is pinned to **the CI coverage gap** and must not work on any other
+gate. It is a small change with an outsized effect, and it is the reason six of
+eight independent signoffs on 2026-09-03 found P0s in PRs that were green.
 
 ## Objective
 
-Make the real `hn-monitor` workload complete its `analyze-story` agent step
-successfully through the merged kernel + SDK worker path.
+`.github/workflows/cloud-runtime-artifact.yml` is the repository's ONLY
+workflow. Verified on 2026-09-03:
 
-## Merged prerequisites — do not redo
+- The only cargo invocation is `cargo build --locked --release -p relayflowd`.
+  **`cargo test` appears nowhere.** The entire kernel suite — 130 tests — never
+  runs in CI.
+- Vitest runs exactly **four** files:
+  `typed-output`, `validate`, `spec-parity`, `deterministic-llm`. The other ~22
+  SDK test files never run.
 
-- PR #14 (`2ac0d50`) and PR #15 (`079f7c4`): event wake, wake-context
-  journaling, and duplicate-event suppression (`deduped` + no second run).
-- PR #53 (`9681f11`): exported `AgentWorker` and live agent-step completion.
-- PR #120 (`201542a`): unattended `flows hn-monitor start` runner.
-- PR #122 (`a774d88`): trigger-plane liveness sweep.
-- PR #124 (`3855099`): object-shaped CLI JSON becomes verification input.
-- PR #125 (`7b115bd`): `RELAYFLOW_WAKE_CONTEXT` reaches the declared CLI and
-  is pinned by positive/negative live-kernel tests.
+Every kernel-side defect found on 2026-09-03 was invisible to CI by
+construction: an exactly-once double-fire where one effect fired twice; a
+`$ref` cycle that aborted the daemon and re-ran the effect on every resume
+(4 executions of one logical step); and two tests in the tree that encoded
+**opposite** contracts and both passed, because neither ran.
 
-## The remaining gap
+## What to do
 
-`testdata/hn-monitor.flow.yaml` declares the `analyze-story` agent step and
-its JSON schema but no real CLI. The merged live run in PR #121 (`5835cba`)
-therefore ended each analyzer attempt as `worker_error`. The worker and trigger
-planes are present; the real analyzer program is not.
+Add the missing coverage to `.github/workflows/cloud-runtime-artifact.yml`.
+The job already installs a Rust toolchain and builds the kernel, so the
+marginal cost of testing it is the test run itself.
 
-Use the detailed existing package at
-`ops/factory/briefs/hn-monitor-real-cli.md` as the implementation scope.
+1. Run the kernel suite: `cargo test --workspace` from `kernel/`, using
+   `ops/cargo.sh` the way the repo does elsewhere.
+2. Run the whole SDK suite rather than four named files. Note `npm test` does
+   `test:prep && typecheck && build` first — a bare `vitest run` fails ~6 files
+   because `sdk/dist` does not exist. Use the repo's own script rather than
+   inventing an invocation.
+3. Keep the existing artifact build, verify and smoke steps working. Do not
+   restructure the workflow; add coverage.
+
+## Constraints
+
+- **`.github/` only.** Do not fix any test this newly exposes. If enabling the
+  suites turns CI red, that is the correct and expected outcome — report
+  exactly which tests fail and stop. A red CI that tells the truth is the
+  deliverable; a green CI that runs nothing is what we have.
+- Do not touch `kernel/`, `sdk/`, or `testdata/`.
+- Do not add a second workflow file.
 
 ## Definition of done
 
-1. A declared, authenticated real analyzer CLI consumes
-   `RELAYFLOW_WAKE_CONTEXT` and emits exactly one valid JSON object with
-   `story_title`, `relevance_score`, and `reasoning`.
-2. A live `relayflowd` integration attaches `AgentWorker` before submitting
-   the HN event, observes `analyze-story` reach `done`, and asserts the
-   promoted output passes the canonical schema.
-3. The live acceptance evidence actually executes the analyzer. A visible
-   auth-based test skip is useful diagnostics but is not acceptance evidence.
-4. The worker adds no retry, scheduling, dedupe or lease logic; those remain
-   kernel-owned.
-5. The PR cites merged commits, literal verification commands and captured
-   output. Every new test has literal fail-first evidence.
-6. No Gate-3/Garden work, gate flip, deploy, merge or production promotion.
+ALL of the following must hold:
 
-## Explicit non-goals
+1. `.github/workflows/cloud-runtime-artifact.yml` runs `cargo test --workspace`
+   and the full SDK suite.
+2. You have run both suites LOCALLY and pasted the literal commands and their
+   output tails with test counts, so the change is grounded in what actually
+   passes rather than in what you expect CI to do.
+   - `cd kernel && PATH="$HOME/.cargo/bin:$PATH" RUSTUP_TOOLCHAIN=stable sh ../ops/cargo.sh test --workspace`
+   - `cd sdk && ./node_modules/.bin/vitest run` (after a build; `npx` hangs on
+     some hosts, use `./node_modules/.bin/`)
+3. If either suite is red locally, you STOP and report which tests fail with
+   their literal output. Do not fix them. Do not weaken the workflow to go
+   green.
+4. `sdk/tests/live-kernel.test.ts` needs a built `relayflowd`; if it cannot
+   collect in your sandbox, say so explicitly rather than reporting a pass that
+   excluded it.
+5. As your LAST action, run `git status --porcelain` and paste it.
 
-- Reimplementing wake context, duplicate-event suppression, trigger liveness,
-  or `AgentWorker`.
-- Editing `kernel/`.
-- Claiming Gate 2 GREEN from a fixture-only or auth-skipped test.
-- Starting this package from the assessment run that authored this file.
+## Why this and not a product change
+
+A sandbox cannot deliver — no git remote, no GitHub token — so its output is a
+patch a human applies. That makes a small, self-contained, high-leverage
+change the right shape for a tick. This one is three lines of intent, needs no
+product knowledge to review, and every future tick benefits from it.
+
+The previous contents of this file described building `sdk/src/worker.ts`. That
+file exists and gate-2 workloads run against it; the package was complete and
+the file had not been updated. A tick that assesses against a finished work
+package burns a whole cycle, so treat a stale NEXT.md as a defect in its own
+right and say so in your assess step if you find one.
