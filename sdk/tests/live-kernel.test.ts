@@ -231,6 +231,12 @@ steps:
       completion_reason: 'canceled',
     });
     await expect(control.runCancel(started.run_id)).resolves.toEqual(canceled);
+    // Parallel dispatch (#137) admits every mutating verb through
+    // `ensure_mutable` before the lease lookup, so an already-terminal run is
+    // refused for terminality rather than for lease ownership. `lease_conflict`
+    // would claim someone else holds this lease, which is false here: nobody
+    // does, the run is over. The refusal itself, and the journal assertions
+    // below, are unchanged.
     await expect(worker.stepComplete(
       lease.run_id,
       lease.step_id,
@@ -238,7 +244,7 @@ steps:
       lease.idempotency_key,
       'success',
       { output: { answer: 4 } },
-    )).rejects.toMatchObject({ code: 'lease_conflict' });
+    )).rejects.toMatchObject({ code: 'run_terminal' });
 
     const entries = (await control.journalRead(started.run_id, 1)).entries as {
       entry_type: string;
