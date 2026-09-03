@@ -324,6 +324,40 @@ describe('validate: preflight declarations', () => {
     expect(result.errors).toContain('spec.triggers[1].id: duplicate trigger id "hourly"');
   });
 
+  it('accepts a declared silence budget', () => {
+    const result = validateSpec({
+      version: '0.1.0',
+      triggers: [{ id: 'tick', executor: 'agent-worker', staleAfterMs: 180_000 }],
+      steps: [{ id: 'ready', type: 'deterministic', command: 'true' }],
+    });
+    expect(result).toEqual({ ok: true, errors: [] });
+  });
+
+  it.each([
+    [0, 'expected a positive number'],
+    [-1, 'expected a positive number'],
+    [1.5, 'expected an integer'],
+    ['180000', 'expected an integer'],
+    [Number.MAX_VALUE, 'exceeds'],
+    // P3: 9_223_372_036_854_775_807 is not representable in JS -- the literal
+    // rounds UP to 2^63, i.e. i64::MAX + 1. A `> MAX_STALE_AFTER_MS` bound
+    // built from it therefore ADMITS exactly the one value the kernel refuses.
+    [2 ** 63, 'exceeds'],
+    [Number.MAX_SAFE_INTEGER + 1, 'exceeds'],
+  ])('rejects staleAfterMs %p', (value, fragment) => {
+    // A budget the kernel cannot represent fails OPEN — the sweep can never
+    // mark the subscription stale — so it must not compile. Zero fails the
+    // other way: it alerts on every sweep and trains an operator to ignore it.
+    const result = validateSpec({
+      version: '0.1.0',
+      triggers: [{ id: 'tick', executor: 'agent-worker', staleAfterMs: value }],
+      steps: [{ id: 'ready', type: 'deterministic', command: 'true' }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('spec.triggers[0].staleAfterMs');
+    expect(result.errors.join(' ')).toContain(fragment);
+  });
+
   it('rejects malformed and unknown trigger/CLI fields fail-closed', () => {
     const result = validateSpec({
       version: '0.1.0',

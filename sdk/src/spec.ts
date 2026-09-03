@@ -179,11 +179,42 @@ export interface NamedAgentSpec {
   model: string;
 }
 
-/** Inert gate-1 trigger declaration. Matching and dispatch belong to gate 2. */
+/**
+ * A trigger is an entry condition, not a scheduler (RFC-0001 gate 2). It names
+ * the event type that wakes the flow, the payload subset that must match, the
+ * template that derives the dedupe key, and the silence budget after which the
+ * kernel's liveness sweep declares the subscription dead.
+ *
+ * The event-subscription fields were shipped in `testdata/` long before this
+ * interface described them: `hn-monitor.flow.yaml`, `dir-watcher.flow.yaml`
+ * and `event-triggered-flow.yaml` all carry `eventType`, `pattern` and
+ * `dedupeKeyTemplate`, and `validate.ts` has always accepted them. The type
+ * still said "inert gate-1 declaration" with only `id` and `executor`, so the
+ * authoring dialect disagreed with both the shipped specs and the kernel.
+ */
 export interface TriggerSpec {
   id: string;
   /** Executor registration required before this trigger may start a run. */
   executor: string;
+  /** Event type this trigger subscribes to. Lowers to `event_type`. */
+  eventType?: string;
+  /** Recursive-subset match against the event payload. Lowers to `pattern`. */
+  pattern?: Record<string, unknown>;
+  /** Derives the dedupe key. Lowers to `dedupe_key_template`. */
+  dedupeKeyTemplate?: string;
+  /**
+   * Silence budget in milliseconds. When no matching event arrives inside it,
+   * the kernel's liveness sweep journals `subscription.stale` and emits a
+   * `relayflowd: subscription.stale ...` line
+   * (`kernel/relayflowd/src/server/liveness.rs`). Omitted means the engine
+   * default (`DEFAULT_STALE_AFTER_MS`, 5 minutes) applies — which is a
+   * decision the author did not make, not the absence of a budget.
+   *
+   * A flow that is never triggered is silently zero (RFC-0001 §"Trigger
+   * liveness"), so declaring this is how a schedule stops being able to die
+   * quietly. Lowers to `stale_after_ms`.
+   */
+  staleAfterMs?: number;
 }
 
 /**
@@ -291,6 +322,10 @@ export interface KernelBudgetSpec {
 export interface KernelTriggerSpec {
   id: string;
   executor: string;
+  event_type?: string;
+  pattern?: Record<string, unknown>;
+  dedupe_key_template?: string;
+  stale_after_ms?: number;
 }
 
 /** The compiled spec as the kernel parses, journals, and hashes it. */
