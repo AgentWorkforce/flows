@@ -25,6 +25,7 @@ export type {
   KernelTriggerSpec,
   KernelVerificationSpec,
   LlmStepSpec,
+  NamedAgentSpec,
   OutputContainsGate,
   PermissionsSpec,
   RecoveryMode,
@@ -54,10 +55,13 @@ export {
   preflight,
   type CliResolution,
   type CliResolutionSource,
+  type CliProbeResult,
   type PreflightDiagnostic,
   type PreflightOptions,
   type PreflightProbes,
+  type PreflightRefusal,
   type PreflightResult,
+  type PreflightWarning,
 } from './preflight.js';
 export {
   CHECK_FAILURE_KINDS,

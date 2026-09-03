@@ -3,13 +3,23 @@ import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:pat
 import { spawnSync } from 'node:child_process';
 import { parse as parseYaml } from 'yaml';
 import { CompileError, compileSpec, kernelToAuthoring } from '../compile.js';
-import { MODEL_ENV } from '../worker.js';
+import {
+  adapterIdentification,
+  authenticationProbe,
+  cliAdapterKind,
+  displayInvocation,
+  modelReadinessProbe,
+  type CliInvocation,
+} from '../cli-adapter.js';
+import { MODEL_ENV } from '../worker-cli.js';
+import { modelNameError } from '../model-name.js';
 import type { FlowSpec } from '../spec.js';
 import type { CheckFailureKind } from '../failure-kinds.js';
 import {
   preflight,
   CliProbeError,
   type CliResolution,
+  type CliProbeResult,
   type PreflightDiagnostic,
   type PreflightProbes,
 } from '../preflight.js';
@@ -17,6 +27,7 @@ import {
 interface ProjectConfig {
   cli?: string;
   executors: string[];
+  models: string[];
   directory: string;
   path?: string;
 }
@@ -46,19 +57,29 @@ class CheckFailure extends Error {
   }
 }
 
-/** Compile and preflight one working-tree spec without starting a run. */
+/** Validate and preflight one working-tree spec without starting a run. */
 export function checkFlow(path: string): CheckExecution {
   const absolutePath = resolve(path);
   try {
-    const flow = readFlow(absolutePath);
+    const authoring = readFlow(absolutePath);
     const config = readProjectConfig(dirname(absolutePath));
     const probes = systemProbes(dirname(absolutePath), config);
-    const result = preflight(flow, {
+    const result = preflight(authoring, {
       projectCli: config.cli,
       projectConfigPath: config.path,
       projectSearchStart: dirname(absolutePath),
+      models: config.models,
+      ...(config.path !== undefined ? { modelRegistryPath: config.path } : {}),
       probes,
     });
+    const flow = result.ok
+      ? bindResolvedCliPaths(
+          compileSpec(authoring),
+          result.resolutions,
+          dirname(absolutePath),
+          config.directory,
+        )
+      : undefined;
     return {
       report: {
         ok: result.ok,
@@ -67,7 +88,7 @@ export function checkFlow(path: string): CheckExecution {
         resolutions: result.resolutions,
         diagnostics: result.diagnostics,
       },
-      ...(result.ok ? { flow } : {}),
+      ...(flow !== undefined ? { flow } : {}),
     };
   } catch (error) {
     const failure = error instanceof CheckFailure
@@ -107,7 +128,9 @@ function readFlow(path: string): FlowSpec {
   try {
     const marker = kernelDialectMarker(parsed);
     const authoring = marker === undefined ? parsed : kernelToAuthoring(parsed);
-    return compileSpec(authoring);
+    // Public preflight owns the first validation pass. Returning raw authoring
+    // here preserves named-agent provenance until every declaration is checked.
+    return authoring as FlowSpec;
   } catch (error) {
     if (error instanceof CheckFailure) throw error;
     if (error instanceof CompileError) {
@@ -123,15 +146,15 @@ function readFlow(path: string): FlowSpec {
 
 function readProjectConfig(start: string): ProjectConfig {
   const configPath = findConfig(start);
-  if (configPath === undefined) return { executors: [], directory: start };
+  if (configPath === undefined) return { executors: [], models: [], directory: start };
   let value: unknown;
   try {
     value = JSON.parse(readFileSync(configPath, 'utf8'));
   } catch {
     throw new CheckFailure('config_invalid', `Project config "${configPath}" is not valid JSON.`);
   }
-  if (!isObject(value) || Object.keys(value).some((key) => !['cli', 'executors'].includes(key))) {
-    throw new CheckFailure('config_invalid', `Project config "${configPath}" expects only cli and executors.`);
+  if (!isObject(value) || Object.keys(value).some((key) => !['cli', 'executors', 'models'].includes(key))) {
+    throw new CheckFailure('config_invalid', `Project config "${configPath}" expects only cli, executors, and models.`);
   }
   if (value['cli'] !== undefined && !isNonEmptyString(value['cli'])) {
     throw new CheckFailure('config_invalid', `Project config "${configPath}" has an invalid cli.`);
@@ -139,9 +162,24 @@ function readProjectConfig(start: string): ProjectConfig {
   if (value['executors'] !== undefined && (!Array.isArray(value['executors']) || !value['executors'].every(isNonEmptyString))) {
     throw new CheckFailure('config_invalid', `Project config "${configPath}" has invalid executors.`);
   }
+  if (value['models'] !== undefined) {
+    if (!Array.isArray(value['models'])) {
+      throw new CheckFailure('config_invalid', `Project config "${configPath}" has invalid models; expected an exact string allowlist.`);
+    }
+    for (const [index, model] of value['models'].entries()) {
+      const problem = modelNameError(model);
+      if (problem !== undefined) {
+        throw new CheckFailure('config_invalid', `Project config "${configPath}" models[${index}]: ${problem}.`);
+      }
+    }
+    if (new Set(value['models']).size !== value['models'].length) {
+      throw new CheckFailure('config_invalid', `Project config "${configPath}" has duplicate models.`);
+    }
+  }
   return {
     ...(value['cli'] !== undefined ? { cli: value['cli'] as string } : {}),
     executors: (value['executors'] as string[] | undefined) ?? [],
+    models: (value['models'] as string[] | undefined) ?? [],
     directory: dirname(configPath),
     path: configPath,
   };
@@ -171,29 +209,102 @@ function systemProbes(flowDirectory: string, config: ProjectConfig): PreflightPr
   };
 }
 
+function bindResolvedCliPaths(
+  flow: FlowSpec,
+  resolutions: readonly CliResolution[],
+  flowDirectory: string,
+  configDirectory: string,
+): FlowSpec {
+  const byStep = new Map(resolutions.map((resolution) => [resolution.stepId, resolution]));
+  return {
+    ...flow,
+    steps: flow.steps.map((step) => {
+      if (step.type === 'deterministic') return step;
+      const resolution = byStep.get(step.id);
+      if (resolution === undefined) return step;
+      const directory = resolution.source === 'project' ? configDirectory : flowDirectory;
+      return { ...step, cli: canonicalCli(resolution.cli, directory) };
+    }),
+  };
+}
+
+function canonicalCli(cli: string, directory: string): string {
+  if (isAbsolute(cli) || (!cli.includes('/') && !cli.includes('\\'))) return cli;
+  return resolve(directory, cli);
+}
+
 function probeCli(
   cli: string,
   directory: string,
   model?: string,
-): { exists: boolean; authenticated: boolean } {
+): CliProbeResult {
   const executable = resolveExecutable(cli, directory);
   if (executable === undefined) return { exists: false, authenticated: false };
-  // Hand the declared model to the probe the same way the worker hands it to
-  // the real invocation, and unset it otherwise — a leaked RELAYFLOW_MODEL
-  // from the checking shell would make preflight validate a model the run
-  // will never use.
+  const kind = cliAdapterKind(executable);
+  const identification = adapterIdentification(kind);
+  const identified = runProbe(executable, directory, identification.invocation);
+  if (
+    identified.status !== 0
+    || (identification.expectedStdout !== undefined
+      && identified.stdout.trim() !== identification.expectedStdout)
+  ) {
+    return { exists: true, supported: false, authenticated: false };
+  }
+  const auth = authenticationProbe(kind);
+  const authCommand = displayInvocation(cli, auth);
+  if (model === undefined) {
+    return {
+      exists: true,
+      supported: true,
+      authenticated: runProbe(executable, directory, auth).status === 0,
+      authCommand,
+    };
+  }
+
+  const scoped = modelReadinessProbe(kind, model);
+  const modelCommand = displayInvocation(cli, scoped);
+  // A successful real provider round trip (or identified wrapper probe)
+  // proves both auth and exact-model access. On failure, run the adapter's
+  // actual auth command solely to classify auth vs model access truthfully.
+  if (runProbe(executable, directory, scoped).status === 0) {
+    return {
+      exists: true,
+      supported: true,
+      authenticated: true,
+      modelAvailable: true,
+      authCommand,
+      modelCommand,
+    };
+  }
+  const authStatus = runProbe(executable, directory, auth).status;
+  return {
+    exists: true,
+    supported: true,
+    authenticated: authStatus === 0,
+    modelAvailable: false,
+    authCommand,
+    modelCommand,
+  };
+}
+
+function runProbe(
+  executable: string,
+  directory: string,
+  invocation: CliInvocation,
+): { status: number | null; stdout: string } {
   const env = { ...process.env };
   delete env[MODEL_ENV];
-  if (model !== undefined) env[MODEL_ENV] = model;
-  const result = spawnSync(executable, ['auth', 'status'], {
+  if (invocation.modelEnv !== undefined) env[MODEL_ENV] = invocation.modelEnv;
+  const result = spawnSync(executable, invocation.args, {
     cwd: directory,
-    stdio: 'ignore',
-    timeout: 10_000,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: invocation.timeoutMs,
     env,
   });
-  const failure = classifySpawnFailure(result.error, result.signal, 10_000);
+  const failure = classifySpawnFailure(result.error, result.signal, invocation.timeoutMs);
   if (failure !== undefined) throw failure;
-  return { exists: true, authenticated: result.status === 0 };
+  return { status: result.status, stdout: result.stdout };
 }
 
 function resolveExecutable(command: string, directory: string): string | undefined {
@@ -215,7 +326,7 @@ function resolveExecutable(command: string, directory: string): string | undefin
 function classifySpawnFailure(
   error: Error | undefined,
   signal: NodeJS.Signals | null,
-  timeoutMs: 5_000 | 10_000,
+  timeoutMs: number,
 ): CliProbeError | undefined {
   if (error !== undefined) {
     const detail = (error as NodeJS.ErrnoException).code === 'ETIMEDOUT'

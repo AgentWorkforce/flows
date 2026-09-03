@@ -25,6 +25,7 @@ import type {
   KernelStepSpec,
   KernelVerificationSpec,
   LlmStepSpec,
+  NamedAgentSpec,
   StepSpec,
   StepType,
 } from './spec.js';
@@ -68,12 +69,16 @@ export function compileSpec(spec: unknown): FlowSpec {
   if (!validation.ok) throw new CompileError(validation.errors);
 
   const input = spec as FlowSpec;
+  // Preserve named declarations and selectors through authoring normalization.
+  // They are resolved exactly once at the kernel boundary, after public
+  // preflight has validated every declaration with truthful provenance.
   const steps = input.steps.map(compileStep);
   const flow: FlowSpec = {
     version: input.version,
     ...(input.name !== undefined ? { name: input.name } : {}),
     ...(input.description !== undefined ? { description: input.description } : {}),
     ...(input.cli !== undefined ? { cli: input.cli } : {}),
+    ...(input.agents !== undefined ? { agents: input.agents } : {}),
     // The kernel omits an empty trigger list when serializing RunSpec. Normalize
     // it here so the authoring shape and boundary shape retain one hashable form.
     ...(input.triggers?.length ? { triggers: input.triggers } : {}),
@@ -119,6 +124,7 @@ function compileStep(step: StepSpec): StepSpec {
         ...base,
         type: 'agent',
         instruction: s.instruction,
+        ...(s.agent !== undefined ? { agent: s.agent } : {}),
         ...(s.cli !== undefined ? { cli: s.cli } : {}),
         ...(s.model !== undefined ? { model: s.model } : {}),
         recoveryMode,
@@ -141,6 +147,32 @@ function typedOutputVerification(step: StepSpec): StepSpec['verification'] {
   return step.verification;
 }
 
+/**
+ * Resolve declarative named-agent sugar at kernel lowering. Explicit step
+ * fields win independently, so an author may override
+ * only the CLI or only the model. The selector and declaration map never
+ * cross the journal boundary.
+ */
+function resolveNamedAgent(
+  step: StepSpec,
+  agents: Record<string, NamedAgentSpec> | undefined,
+): StepSpec {
+  if (step.type !== 'agent' || step.agent === undefined) return step;
+  const declaration = agents !== undefined && Object.hasOwn(agents, step.agent)
+    ? agents[step.agent]
+    : undefined;
+  if (declaration === undefined) {
+    throw new CompileError([
+      `step "${step.id}": unknown named agent "${step.agent}"`,
+    ]);
+  }
+  return {
+    ...step,
+    ...(step.cli === undefined ? { cli: declaration.cli } : {}),
+    ...(step.model === undefined ? { model: declaration.model } : {}),
+  };
+}
+
 // Kernel defaults, materialized at compile time so the emitted spec is
 // byte-identical to the kernel's own serialization of it (spec.rs defaults).
 const KERNEL_RETRY_DEFAULTS = {
@@ -156,13 +188,15 @@ const KERNEL_RETRY_DEFAULTS = {
  * sugar that the dialect cannot carry is a `CompileError`, never a silent drop.
  */
 export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
+  const validation = validateSpec(flow);
+  if (!validation.ok) throw new CompileError(validation.errors);
   return {
     version: flow.version,
     ...(flow.name !== undefined ? { name: flow.name } : {}),
     ...(flow.description !== undefined ? { description: flow.description } : {}),
     ...(flow.cli !== undefined ? { cli: flow.cli } : {}),
     ...(flow.triggers?.length ? { triggers: flow.triggers } : {}),
-    steps: flow.steps.map(toKernelStep),
+    steps: flow.steps.map((step) => toKernelStep(resolveNamedAgent(step, flow.agents))),
     ...(flow.budget !== undefined
       ? {
           budget: {

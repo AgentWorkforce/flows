@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
 import type { Server } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CheckReport, type CliIo } from '../src/cli.js';
+import { checkFlow } from '../src/cli/check.js';
 import { runFlow } from '../src/cli/run.js';
+import { runAgentCli } from '../src/worker-cli.js';
 import {
   CHECK_INPUT_FAILURE_KINDS,
   isCheckFailureKind,
@@ -23,6 +25,12 @@ import {
 const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata');
 const PREFLIGHT = join(TESTDATA, 'preflight');
 const LADDER = ['hello-deterministic', 'hello-llm', 'hello-agent'] as const;
+const TEST_MODELS = [
+  'claude-haiku-4-5-20251001',
+  'claude-sonnet-5',
+  'deterministic-test-stub',
+  'test-model-v1',
+] as const;
 const temporaryDirectories: string[] = [];
 const loopbackServers: Server[] = [];
 const KERNEL_RETRY = {
@@ -55,8 +63,50 @@ async function run(path: string, json = false): Promise<{ code: number; stdout: 
 function temporaryProject(prefix = 'flows-check-'): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
   temporaryDirectories.push(directory);
-  writeFileSync(join(directory, 'flows.json'), JSON.stringify({ executors: [] }));
+  writeFileSync(join(directory, 'flows.json'), JSON.stringify({ executors: [], models: TEST_MODELS }));
   return directory;
+}
+
+function namedAgentProject(model: string, allowedModels: string[]): {
+  directory: string;
+  flowPath: string;
+  probeLog: string;
+} {
+  const directory = temporaryProject('flows-model-');
+  const cliPath = join(directory, 'model-cli');
+  const probeLog = `${cliPath}.log`;
+  writeFileSync(cliPath, `#!/bin/sh
+if [ "\${1-}" = "--relayflows-adapter-v1" ]; then
+  printf '%s\\n' 'relayflows-agent-cli-v1'
+  exit 0
+fi
+test "$1 $2" = "auth status" || exit 9
+printf '%s\n' "\${RELAYFLOW_MODEL-UNSET}" >> "$0.log"
+test "\${RELAYFLOW_MODEL-UNSET}" = "UNSET" -o "\${RELAYFLOW_MODEL-UNSET}" = "available-model"
+`);
+  chmodSync(cliPath, 0o755);
+  writeFileSync(join(directory, 'flows.json'), JSON.stringify({ executors: [], models: allowedModels }));
+  const flowPath = join(directory, 'named-agent.flow.yaml');
+  writeFileSync(flowPath, `
+version: '0.1.0'
+agents:
+  reviewer:
+    cli: ./model-cli
+    model: ${model}
+steps:
+  - id: review
+    type: agent
+    agent: reviewer
+    instruction: Review the change.
+`);
+  return { directory, flowPath, probeLog };
+}
+
+function executableFixture(directory: string, name: string, body: string): string {
+  const path = join(directory, name);
+  writeFileSync(path, `#!/bin/sh\n${body}\n`);
+  chmodSync(path, 0o755);
+  return path;
 }
 
 /**
@@ -94,6 +144,212 @@ async function startCliLoopback(dataDir: string, handlers: LoopbackHandlers): Pr
 }
 
 describe('flows check CLI', () => {
+  it('binds a checked relative wrapper to the flow directory for worker execution', async () => {
+    const directory = temporaryProject('flows-relative-worker-');
+    const wrapper = join(directory, 'wrapper');
+    writeFileSync(wrapper, `#!/usr/bin/env node
+if (process.argv[2] === 'auth' && process.argv[3] === 'status') process.exit(0);
+if (process.argv[2] !== '--relayflows-adapter-v1') process.exit(9);
+process.stdout.write('relayflows-agent-cli-v1\\n');
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => { input += chunk; });
+process.stdin.on('end', () => {
+  if (input.trim() === '') process.exit(0);
+  JSON.parse(input);
+  process.stdout.write('relayflows-agent-cli-v1-execute\\n');
+  process.stdout.write('{"executed":true}');
+});
+`);
+    chmodSync(wrapper, 0o755);
+    const path = join(directory, 'relative.flow.yaml');
+    writeFileSync(path, `
+version: '0.1.0'
+steps:
+  - id: work
+    type: agent
+    cli: ./wrapper
+    instruction: Work from another directory.
+`);
+
+    const checked = checkFlow(path);
+    expect(checked.report.ok).toBe(true);
+    expect(checked.flow?.steps[0]).toHaveProperty('cli', wrapper);
+    const result = await runAgentCli(
+      (checked.flow?.steps[0] as { cli?: string } | undefined)?.cli ?? '',
+      'Work from another directory.',
+      undefined,
+    );
+    expect(result).toMatchObject({ exit_code: 0, stdout_tail: '{"executed":true}' });
+  });
+
+  it.each(['unused', 'shadowed'] as const)(
+    'refuses an unknown %s named-agent declaration before compilation erases it',
+    async (variant) => {
+      const directory = temporaryProject('flows-declared-model-');
+      const probeLog = join(directory, 'probe.log');
+      const cli = executableFixture(directory, 'model-cli', `printf '%s\\n' "$*" >> ${JSON.stringify(probeLog)}\nexit 0`);
+      writeFileSync(join(directory, 'flows.json'), JSON.stringify({ models: ['known-model'] }));
+      const steps = variant === 'unused'
+        ? '  - id: ready\n    type: deterministic\n    command: printf ready'
+        : '  - id: review\n    type: agent\n    agent: reviewer\n    model: known-model\n    instruction: Review.';
+      const path = join(directory, `${variant}.flow.yaml`);
+      writeFileSync(path, `version: '0.1.0'
+agents:
+  reviewer:
+    cli: ${JSON.stringify(cli)}
+    model: typo-model
+steps:
+${steps}
+`);
+
+      const result = await run(path);
+      expect(result.code).toBe(2);
+      expect(result.stderr.join('\n')).toContain('REFUSED [model_unknown]');
+      expect(result.stderr.join('\n')).toContain('Named agent "reviewer"');
+      expect(result.stderr.join('\n')).toContain('typo-model');
+      expect(existsSync(probeLog)).toBe(false);
+    },
+  );
+
+  it('uses the raw Claude adapter model flag instead of accepting auth status as model proof', async () => {
+    const directory = temporaryProject('flows-claude-adapter-');
+    const log = join(directory, 'claude.log');
+    const cli = executableFixture(directory, 'claude', `printf '%s|MODEL_ENV=%s\\n' "$*" "\${RELAYFLOW_MODEL-UNSET}" >> ${JSON.stringify(log)}
+if [ "$1 $2" = "auth status" ]; then exit 0; fi
+if [ "$1 $2 $3" = "-p --model available-model" ]; then exit 0; fi
+exit 7`);
+    writeFileSync(join(directory, 'flows.json'), JSON.stringify({ models: ['available-model'] }));
+    const path = join(directory, 'claude.flow.yaml');
+    writeFileSync(path, `version: '0.1.0'
+agents:
+  reviewer: { cli: ${JSON.stringify(cli)}, model: available-model }
+steps:
+  - id: review
+    type: agent
+    agent: reviewer
+    instruction: Review.
+`);
+
+    const result = await run(path);
+    expect(result.code).toBe(0);
+    expect(readFileSync(log, 'utf8')).toContain('-p --model available-model');
+    expect(readFileSync(log, 'utf8')).toContain('MODEL_ENV=UNSET');
+    expect(readFileSync(log, 'utf8')).toContain('auth status --help|MODEL_ENV=UNSET');
+  });
+
+  it('uses Codex login status and reports a rejected model as unavailable, not unauthenticated', async () => {
+    const directory = temporaryProject('flows-codex-adapter-');
+    const log = join(directory, 'codex.log');
+    const cli = executableFixture(directory, 'codex', `printf '%s|MODEL_ENV=%s\\n' "$*" "\${RELAYFLOW_MODEL-UNSET}" >> ${JSON.stringify(log)}
+if [ "$1 $2" = "login status" ]; then exit 0; fi
+if [ "$1" = "exec" ]; then exit 8; fi
+exit 9`);
+    writeFileSync(join(directory, 'flows.json'), JSON.stringify({ models: ['denied-model'] }));
+    const path = join(directory, 'codex.flow.yaml');
+    writeFileSync(path, `version: '0.1.0'
+agents:
+  reviewer: { cli: ${JSON.stringify(cli)}, model: denied-model }
+steps:
+  - id: review
+    type: agent
+    agent: reviewer
+    instruction: Review.
+`);
+
+    const result = await run(path);
+    expect(result.code).toBe(2);
+    expect(result.stderr.join('\n')).toContain('REFUSED [model_unavailable]');
+    expect(result.stderr.join('\n')).not.toContain('cli_unauthenticated');
+    expect(readFileSync(log, 'utf8')).toContain('exec --ephemeral');
+    expect(readFileSync(log, 'utf8')).toContain('--model denied-model');
+    expect(readFileSync(log, 'utf8')).toContain('login status|MODEL_ENV=UNSET');
+    expect(readFileSync(log, 'utf8')).toContain('login status --help|MODEL_ENV=UNSET');
+    expect(readFileSync(log, 'utf8')).not.toContain('auth status');
+  });
+
+  it('refuses a nonconforming custom wrapper without calling it an authentication failure', async () => {
+    const directory = temporaryProject('flows-wrapper-adapter-');
+    const cli = executableFixture(directory, 'not-an-adapter', 'exit 0');
+    const path = join(directory, 'wrapper.flow.yaml');
+    writeFileSync(path, `version: '0.1.0'
+steps:
+  - id: review
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    instruction: Review.
+`);
+
+    const result = await run(path);
+    expect(result.code).toBe(2);
+    expect(result.stderr.join('\n')).toContain('REFUSED [cli_unsupported]');
+    expect(result.stderr.join('\n')).not.toContain('cli_unauthenticated');
+  });
+
+  it('accepts an exact allowlisted named-agent model and probes that model', async () => {
+    const fixture = namedAgentProject('available-model', ['available-model']);
+    const result = await run(fixture.flowPath);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout.join('\n')).toContain('model "available-model"');
+    expect(readFileSync(fixture.probeLog, 'utf8')).toBe('available-model\n');
+  });
+
+  it('checks the same named-agent contract from declarative JSON', async () => {
+    const fixture = namedAgentProject('available-model', ['available-model']);
+    const jsonPath = join(fixture.directory, 'named-agent.flow.json');
+    writeFileSync(jsonPath, JSON.stringify(parseYaml(readFileSync(fixture.flowPath, 'utf8'))));
+
+    const result = await run(jsonPath);
+    expect(result.code).toBe(0);
+    expect(result.stdout.join('\n')).toContain('model "available-model"');
+  });
+
+  it('refuses a typo model before probing or contacting relayflowd', async () => {
+    const fixture = namedAgentProject('available-modle', ['available-model']);
+    const checked = await run(fixture.flowPath);
+
+    expect(checked.code).toBe(2);
+    expect(checked.stderr.join('\n')).toContain('REFUSED [model_unknown]');
+    expect(checked.stderr.join('\n')).toContain('available-modle');
+    expect(existsSync(fixture.probeLog)).toBe(false);
+
+    const output = capture();
+    const runCode = await runCli([
+      'run', '--data-dir', join(fixture.directory, 'no-daemon'), fixture.flowPath,
+    ], output.io);
+    expect(runCode).toBe(2);
+    expect(output.stderr.join('\n')).toContain('REFUSED [model_unknown]');
+    expect(output.stderr.join('\n')).not.toContain('daemon_unreachable');
+    expect(existsSync(fixture.probeLog)).toBe(false);
+  });
+
+  it('distinguishes an allowlisted but inaccessible model from broken auth', async () => {
+    const fixture = namedAgentProject('denied-model', ['denied-model']);
+    const result = await run(fixture.flowPath);
+
+    expect(result.code).toBe(2);
+    expect(result.stderr.join('\n')).toContain('REFUSED [model_unavailable]');
+    expect(result.stderr.join('\n')).toContain('denied-model');
+    expect(readFileSync(fixture.probeLog, 'utf8')).toBe('denied-model\nUNSET\n');
+  });
+
+  it.each([
+    [{ models: ['available-model', 'available-model'] }, 'duplicate models'],
+    [{ models: [' '] }, 'models[0]: expected a trimmed string'],
+    [{ models: 'available-model' }, 'expected an exact string allowlist'],
+  ] as const)('refuses malformed project model registry %j', async (config, expected) => {
+    const directory = temporaryProject('flows-model-config-');
+    writeFileSync(join(directory, 'flows.json'), JSON.stringify(config));
+    const path = join(directory, 'flow.yaml');
+    writeFileSync(path, "version: '0.1.0'\nsteps:\n  - id: ready\n    type: deterministic\n    command: printf ready\n");
+
+    const result = await run(path);
+    expect(result.code).toBe(2);
+    expect(result.stderr.join('\n')).toContain('REFUSED [config_invalid]');
+    expect(result.stderr.join('\n')).toContain(expected);
+  });
+
   it('explains kernel-dialect routing and names the offending mixed-dialect key', async () => {
     const directory = temporaryProject();
     const path = join(directory, 'mixed.flow.yaml');
@@ -322,7 +578,7 @@ steps:
     mkdirSync(flowDirectory);
     writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli: './authenticated-cli', executors: [] }));
     const cli = join(directory, 'authenticated-cli');
-    writeFileSync(cli, '#!/bin/sh\n[ "$1 $2" = "auth status" ]\n');
+    writeFileSync(cli, '#!/bin/sh\nif [ "${1-}" = "--relayflows-adapter-v1" ]; then echo relayflows-agent-cli-v1; exit 0; fi\n[ "$1 $2" = "auth status" ]\n');
     chmodSync(cli, 0o755);
     const flow = join(flowDirectory, 'project-cli.flow.yaml');
     writeFileSync(flow, "version: '0.1.0'\nsteps:\n  - id: answer\n    type: llm\n    prompt: answer\n");
@@ -332,6 +588,7 @@ steps:
     expect(result.stdout.join('\n')).toContain(
       `RESOLVED step "answer" cli "./authenticated-cli" from project (${join(directory, 'flows.json')})`,
     );
+    expect(checkFlow(flow).flow?.steps[0]).toHaveProperty('cli', cli);
   });
 
   it('uses the nearest flows.json as a whole project boundary and names it on refusal', async () => {

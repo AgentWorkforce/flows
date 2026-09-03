@@ -12,12 +12,13 @@
 // prep step chmods `testdata/preflight/*-cli` — so the Node floor is
 // the tradeoff for matching it.
 //
-// Two invocation shapes:
-//   `auth status`   → repo-wide preflight probe (sdk/src/preflight.ts).
-//                     Exit 0 only when a real round-trip succeeds.
-//   `<instruction>` → analyze; one JSON object on stdout, exit 0.
+// Two invocation shapes: `auth status` performs the model-scoped preflight;
+// `--relayflows-adapter-v1` opens the same-process worker session.
 
 import { spawnSync } from 'node:child_process';
+import { receiveWrapperRequest } from './wrapper-session.mjs';
+
+const wrapperRequest = await receiveWrapperRequest();
 
 // Say so plainly. Without this, Node 20 fails on the ESM/top-level-await
 // above with a parse error that names a syntax position, not the cause.
@@ -33,11 +34,10 @@ if (Number.isFinite(major) && major < 22) {
 // keeps this CLI independent of whatever the host has pinned.
 //
 // Precedence: the step's DECLARED model wins, because that is the choice
-// recorded in the journal. AgentWorker passes it as RELAYFLOW_MODEL and
-// leaves the variable UNSET when the step declared nothing, so absence is
-// distinguishable here rather than arriving as an empty string. The
-// operator override and the built-in default apply only to that absence.
-const MODEL = process.env.RELAYFLOW_MODEL
+// recorded in the journal. AgentWorker sends it only after this exact process
+// identifies. The operator override and built-in default apply to absence.
+const MODEL = wrapperRequest?.model
+  ?? process.env.RELAYFLOW_MODEL
   ?? process.env.RELAYFLOWS_ANALYZER_MODEL
   ?? 'claude-haiku-4-5-20251001';
 
@@ -70,20 +70,23 @@ if (process.argv[2] === 'auth' && process.argv[3] === 'status') {
   process.exit(0);
 }
 
-const instruction = process.argv[2];
+const instruction = wrapperRequest?.instruction ?? process.argv[2];
 if (!instruction) fail('no instruction argument supplied');
 
-// AgentWorker sets RELAYFLOW_WAKE_CONTEXT only when the run carries
-// wake context (sdk/src/worker.ts). Absence is meaningful, so it is an
-// error here rather than a silently-empty analysis.
-const raw = process.env.RELAYFLOW_WAKE_CONTEXT;
-if (!raw) fail('RELAYFLOW_WAKE_CONTEXT is unset — no triggering story to analyze');
-
+// The same-process wrapper helper projects the request's wake context into
+// RELAYFLOW_WAKE_CONTEXT only after identification. Absence is meaningful, so
+// it is an error here rather than a silently-empty analysis.
 let story;
-try {
-  story = JSON.parse(raw)?.triggering_event?.payload;
-} catch (error) {
-  fail(`RELAYFLOW_WAKE_CONTEXT is not valid JSON: ${String(error)}`);
+if (wrapperRequest?.wakeContext !== undefined) {
+  story = wrapperRequest.wakeContext?.triggering_event?.payload;
+} else {
+  const raw = process.env.RELAYFLOW_WAKE_CONTEXT;
+  if (!raw) fail('wrapper wake context is absent — no triggering story to analyze');
+  try {
+    story = JSON.parse(raw)?.triggering_event?.payload;
+  } catch (error) {
+    fail(`RELAYFLOW_WAKE_CONTEXT is not valid JSON: ${String(error)}`);
+  }
 }
 if (!story || story.id === undefined) fail('wake context has no triggering_event.payload.id');
 

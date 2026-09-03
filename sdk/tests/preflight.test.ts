@@ -10,6 +10,7 @@ import {
   type PreflightProbes,
 } from '../src/preflight.js';
 import type { FlowSpec } from '../src/spec.js';
+import { compileSpec, toKernelSpec } from '../src/compile.js';
 
 function flow(step: FlowSpec['steps'][number]): FlowSpec {
   return { version: '0.1.0', name: 'test', steps: [step] };
@@ -17,7 +18,7 @@ function flow(step: FlowSpec['steps'][number]): FlowSpec {
 
 function probes(overrides: Partial<PreflightProbes> = {}): PreflightProbes {
   return {
-    cli: (): CliProbeResult => ({ exists: true, authenticated: true }),
+    cli: (): CliProbeResult => ({ exists: true, authenticated: true, modelAvailable: true }),
     executor: () => true,
     command: () => true,
     ...overrides,
@@ -25,6 +26,62 @@ function probes(overrides: Partial<PreflightProbes> = {}): PreflightProbes {
 }
 
 describe('preflight: CLI resolution and refusal predicates', () => {
+  it('validates and resolves a raw named-agent authoring spec at the public boundary', () => {
+    const calls: Array<[string, string, string | undefined]> = [];
+    const authored: FlowSpec = {
+      version: '0.1.0',
+      agents: { reviewer: { cli: 'wrapper', model: 'allowed-model' } },
+      steps: [{ id: 'review', type: 'agent', agent: 'reviewer', instruction: 'Review.' }],
+    };
+
+    const result = preflight(authored, {
+      models: ['allowed-model'],
+      probes: probes({
+        cli: (cli, source, model) => {
+          calls.push([cli, source, model]);
+          return { exists: true, supported: true, authenticated: true, modelAvailable: true };
+        },
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.resolutions).toEqual([{
+      stepId: 'review',
+      cli: 'wrapper',
+      source: 'named',
+      model: 'allowed-model',
+    }]);
+    expect(calls).toEqual([['wrapper', 'named', 'allowed-model']]);
+  });
+
+  it('refuses malformed raw input before any public preflight probe', () => {
+    const calls: string[] = [];
+    const result = preflight({
+      version: '0.1.0',
+      steps: [{
+        id: 'agent',
+        type: 'agent',
+        instruction: 'Work.',
+        cli: 'wrapper',
+        command: 'must-not-cross-verbs',
+      }],
+    } as never, {
+      probes: {
+        cli: () => { calls.push('cli'); return { exists: true, authenticated: true }; },
+        command: () => { calls.push('command'); return true; },
+        executor: () => { calls.push('executor'); return true; },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      resolutions: [],
+      diagnostics: [{ severity: 'refusal', kind: 'invalid_spec' }],
+    });
+    expect(result.diagnostics[0]?.message).toContain('unknown key "command"');
+    expect(calls).toEqual([]);
+  });
+
   it('resolves step, then flow, then project without guessing a platform default', () => {
     const seen: string[] = [];
     const check = (spec: FlowSpec, projectCli?: string) => preflight(spec, {
@@ -37,6 +94,43 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(check(flow({ id: 'a', type: 'agent', instruction: 'i' }), 'project-cli').resolutions[0]?.source).toBe('project');
     expect(seen).toEqual(['step-cli', 'flow-cli', 'project-cli']);
   });
+
+  it.each(['unresolved first', 'unresolved last'] as const)(
+    'collects every static CLI refusal before every probe: %s',
+    (order) => {
+      const calls: string[] = [];
+      const unresolved: FlowSpec['steps'][number] = {
+        id: 'unresolved',
+        type: 'agent',
+        instruction: 'No CLI is declared.',
+      };
+      const resolvable: FlowSpec['steps'][number] = {
+        id: 'resolvable',
+        type: 'agent',
+        cli: 'must-not-probe',
+        instruction: 'Would otherwise probe.',
+      };
+      const result = preflight({
+        version: '0.1.0',
+        steps: order === 'unresolved first'
+          ? [unresolved, resolvable, { id: 'command', type: 'deterministic', command: 'printf ready' }]
+          : [{ id: 'command', type: 'deterministic', command: 'printf ready' }, resolvable, unresolved],
+        triggers: [{ id: 'trigger', executor: 'must-not-probe' }],
+      }, {
+        probes: {
+          cli: () => { calls.push('cli'); return { exists: true, authenticated: true }; },
+          command: () => { calls.push('command'); return true; },
+          executor: () => { calls.push('executor'); return true; },
+        },
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({ kind: 'cli_unresolved', stepId: 'unresolved' }),
+      ]);
+      expect(calls).toEqual([]);
+    },
+  );
 
   it('keeps missing and unauthenticated CLIs distinct and names the step and CLI', () => {
     const missing = preflight(flow({ id: 'missing-step', type: 'llm', prompt: 'p', cli: 'absent' }), {
@@ -220,10 +314,17 @@ describe('preflight: CLI resolution and refusal predicates', () => {
   // not read as coming from this test alone.
   it('reaches every declared refusal kind, with the converse held by the type', () => {
     const scenarios = [
+      preflight({
+        version: '0.1.0',
+        steps: [{ id: 'a', type: 'deterministic', command: 'x', prompt: 'cross-verb' }],
+      }, { probes: probes() }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: false, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: true, authenticated: false }) }) }),
+      preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: true, supported: false, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p' }), { probes: probes() }),
       preflight(flow({ id: 'a', type: 'deterministic', command: './missing' }), { probes: probes({ command: () => false }) }),
+      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x', model: 'typo-model' }), { models: ['known-model'], probes: probes() }),
+      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x', model: 'known-model' }), { models: ['known-model'], probes: probes({ cli: () => ({ exists: true, authenticated: true, modelAvailable: false }) }) }),
       preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }), triggers: [{ id: 't', executor: 'e' }] }, { probes: probes({ executor: () => false, command: () => false }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => { throw new Error('raw secret'); } }) }),
     ];
@@ -234,4 +335,120 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(new Set(refusalKinds)).toEqual(new Set(PREFLIGHT_FAILURE_KINDS));
     expect(JSON.stringify(scenarios)).not.toContain('raw secret');
   });
+
+  it('reports every model and CLI static refusal on the same step', () => {
+    const result = preflight(
+      flow({ id: 'a', type: 'agent', instruction: 'i', model: 'typo-model' }),
+      { models: ['known-model'], probes: probes() },
+    );
+
+    expect(result.diagnostics.map((diagnostic) => diagnostic.kind)).toEqual([
+      'model_unknown',
+      'cli_unresolved',
+    ]);
+    expect(result.diagnostics[0]).toMatchObject({
+      stepId: 'a',
+      model: 'typo-model',
+    });
+  });
+
+  it.each([
+    ['valid first', ['valid', 'typo']],
+    ['typo first', ['typo', 'valid']],
+  ] as const)('validates every inline model before every probe: %s', (_label, order) => {
+    const calls: string[] = [];
+    const steps: Record<(typeof order)[number], FlowSpec['steps'][number]> = {
+      valid: { id: 'valid', type: 'agent', cli: 'claude', model: 'known-model', instruction: 'Valid.' },
+      typo: { id: 'typo', type: 'agent', cli: 'claude', model: 'known-modle', instruction: 'Typo.' },
+    };
+
+    const result = preflight({
+      version: '0.1.0',
+      steps: [
+        { id: 'deterministic', type: 'deterministic', command: './must-not-probe' },
+        ...order.map((id) => steps[id]),
+      ],
+      triggers: [{ id: 'trigger', executor: 'must-not-probe' }],
+    }, {
+      models: ['known-model'],
+      probes: {
+        cli: () => { calls.push('cli'); throw new Error('PROBE_CALLED'); },
+        command: () => { calls.push('command'); throw new Error('PROBE_CALLED'); },
+        executor: () => { calls.push('executor'); throw new Error('PROBE_CALLED'); },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ kind: 'model_unknown', stepId: 'typo', model: 'known-modle' }),
+    ]);
+    expect(calls).toEqual([]);
+  });
+
+  it('returns every named and inline unknown-model diagnostic in the pure first pass', () => {
+    let probeCalls = 0;
+    const result = preflight(compileSpec({
+      version: '0.1.0',
+      agents: {
+        unused: { cli: 'claude', model: 'unknown-named' },
+      },
+      steps: [{
+        id: 'inline',
+        type: 'agent',
+        cli: 'codex',
+        model: 'unknown-inline',
+        instruction: 'Review.',
+      }],
+    }), {
+      models: ['known-model'],
+      probes: probes({
+        cli: () => {
+          probeCalls += 1;
+          return { exists: true, authenticated: true, modelAvailable: true };
+        },
+      }),
+    });
+
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ kind: 'model_unknown', agent: 'unused', model: 'unknown-named' }),
+      expect.objectContaining({ kind: 'model_unknown', stepId: 'inline', model: 'unknown-inline' }),
+    ]);
+    expect(probeCalls).toBe(0);
+  });
+
+  it.each(['unused', 'shadowed'] as const)(
+    'checks an unknown %s named declaration before authoring metadata is erased',
+    (variant) => {
+      let probeCalls = 0;
+      const compiled = compileSpec({
+        version: '0.1.0',
+        agents: { reviewer: { cli: 'claude', model: 'typo-model' } },
+        steps: variant === 'unused'
+          ? [{ id: 'ready', type: 'deterministic', command: 'printf ready' }]
+          : [{
+              id: 'review',
+              type: 'agent',
+              agent: 'reviewer',
+              model: 'known-model',
+              instruction: 'Review.',
+            }],
+      });
+
+      const result = preflight(compiled, {
+        models: ['known-model'],
+        probes: probes({ cli: () => {
+          probeCalls += 1;
+          return { exists: true, authenticated: true, modelAvailable: true };
+        } }),
+      });
+
+      expect(compiled.agents?.reviewer?.model).toBe('typo-model');
+      expect(result.ok).toBe(false);
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({ kind: 'model_unknown', agent: 'reviewer', model: 'typo-model' }),
+      ]);
+      expect(probeCalls).toBe(0);
+      expect(toKernelSpec(compiled)).not.toHaveProperty('agents');
+    },
+  );
 });

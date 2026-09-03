@@ -9,15 +9,24 @@ import type {
   DeterministicStepSpec,
   FlowSpec,
   LlmStepSpec,
+  NamedAgentSpec,
   PermissionsSpec,
   RecoveryMode,
-  StepSpec,
   StepType,
   TriggerSpec,
   VerificationSpec,
 } from './spec.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import { validateOutputDeclaration } from './output-schema.js';
+import { modelNameError } from './model-name.js';
+import { unknownKeyErrors } from './unknown-keys.js';
+import { stepDependencyErrors } from './step-dependencies.js';
+import {
+  AGENT_DECLARATION_FIELDS,
+  FLOW_FIELDS,
+  STEP_COMMON_FIELDS,
+  STEP_FIELDS_BY_TYPE,
+} from './step-fields.js';
 
 export interface ValidationResult {
   ok: boolean;
@@ -42,14 +51,7 @@ const DECIMAL_RE = /^\d+(\.\d+)?$/;
 // unknown keys (AGENTS.md rule 4; RFC covenant 2): a typo'd key like
 // `depends_on` must be an error naming the nearest valid key, never a
 // silently discarded field — silently dropping `dependsOn` loses ordering.
-const ROOT_KEYS = ['version', 'name', 'description', 'cli', 'triggers', 'steps', 'budget'] as const;
 const BUDGET_KEYS = ['maxTokensIn', 'maxTokensOut', 'maxDollars'] as const;
-const STEP_COMMON_KEYS = ['id', 'type', 'dependsOn', 'verification', 'maxIterations', 'timeoutMs'] as const;
-const STEP_TYPE_KEYS: Record<StepType, readonly string[]> = {
-  deterministic: ['command'],
-  llm: ['prompt', 'model', 'cli', 'output'],
-  agent: ['instruction', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions', 'output'],
-};
 const VERIFICATION_KEYS: Record<string, readonly string[]> = {
   exit_code: ['type', 'expect'],
   output_contains: ['type', 'value'],
@@ -74,6 +76,7 @@ const TRIGGER_KEYS = [
 class Validator {
   private errors: string[] = [];
   private ids = new Set<string>();
+  private agentNames = new Set<string>();
 
   fail(msg: string): void {
     this.errors.push(msg);
@@ -85,15 +88,7 @@ class Validator {
    * `unknown key "depends_on" — did you mean "dependsOn"?`.
    */
   private checkKeys(obj: Record<string, unknown>, allowed: readonly string[], at: string): void {
-    for (const key of Object.keys(obj)) {
-      if (allowed.includes(key)) continue;
-      const suggestion = nearestKey(key, allowed);
-      this.fail(
-        suggestion !== null
-          ? `${at}: unknown key "${key}" — did you mean "${suggestion}"?`
-          : `${at}: unknown key "${key}" (expected one of ${allowed.join(' | ')})`,
-      );
-    }
+    for (const error of unknownKeyErrors(obj, allowed, at)) this.fail(error);
   }
 
   result(): ValidationResult {
@@ -106,7 +101,7 @@ class Validator {
       return this.result();
     }
     const s = spec as Record<string, unknown>;
-    this.checkKeys(s, ROOT_KEYS, 'spec');
+    this.checkKeys(s, FLOW_FIELDS, 'spec');
 
     if (!isNonEmptyString(s['version'])) {
       this.fail(`spec.version: expected supported version "${SPEC_SCHEMA_VERSION}"`);
@@ -126,6 +121,8 @@ class Validator {
       this.fail('spec.cli: expected a non-empty string');
     }
 
+    if (s['agents'] !== undefined) this.validateAgents(s['agents']);
+
     if (s['triggers'] !== undefined) this.validateTriggers(s['triggers']);
 
     if (s['budget'] !== undefined) this.validateBudget(s['budget']);
@@ -141,8 +138,33 @@ class Validator {
     }
 
     // Dependents must reference real step ids and form a DAG (no cycles).
-    this.validateDeps(steps as StepSpec[]);
+    for (const error of stepDependencyErrors(steps, this.ids)) this.fail(error);
     return this.result();
+  }
+
+  private validateAgents(value: unknown): void {
+    if (!isObject(value)) {
+      this.fail('spec.agents: expected a map of named { cli, model } declarations');
+      return;
+    }
+    for (const [name, raw] of Object.entries(value)) {
+      const at = `spec.agents.${name}`;
+      if (!isNonEmptyString(name) || name !== name.trim()) {
+        this.fail('spec.agents: agent names must be non-empty trimmed strings');
+        continue;
+      }
+      this.agentNames.add(name);
+      if (!isObject(raw)) {
+        this.fail(`${at}: expected an object with cli and model`);
+        continue;
+      }
+      this.checkKeys(raw, AGENT_DECLARATION_FIELDS, at);
+      const declaration = raw as unknown as NamedAgentSpec;
+      if (!isNonEmptyString(declaration.cli) || declaration.cli !== declaration.cli.trim()) {
+        this.fail(`${at}.cli: expected a non-empty trimmed string`);
+      }
+      this.validateModel(declaration.model, at, true);
+    }
   }
 
   private validateBudget(b: unknown): void {
@@ -219,7 +241,7 @@ class Validator {
       return;
     }
     const type = st['type'] as StepType;
-    this.checkKeys(st, [...STEP_COMMON_KEYS, ...STEP_TYPE_KEYS[type]], at);
+    this.checkKeys(st, [...STEP_COMMON_FIELDS, ...STEP_FIELDS_BY_TYPE[type]], at);
 
     if (st['dependsOn'] !== undefined) {
       if (!Array.isArray(st['dependsOn']) || !(st['dependsOn'] as unknown[]).every(isNonEmptyString)) {
@@ -295,15 +317,20 @@ class Validator {
     if (!isNonEmptyString(st.prompt)) {
       this.fail(`${at}.prompt: expected a non-empty string`);
     }
-    if (st.model !== undefined && typeof st.model !== 'string') {
-      this.fail(`${at}.model: expected a string`);
-    }
+    this.validateModel(st.model, at);
     this.validateCli(st.cli, at);
   }
 
   private validateAgent(st: AgentStepSpec, at: string): void {
     if (!isNonEmptyString(st.instruction)) {
       this.fail(`${at}.instruction: expected a non-empty string`);
+    }
+    if (st.agent !== undefined) {
+      if (!isNonEmptyString(st.agent)) {
+        this.fail(`${at}.agent: expected a non-empty named agent`);
+      } else if (!this.agentNames.has(st.agent)) {
+        this.fail(`${at}.agent: unknown named agent "${st.agent}"`);
+      }
     }
     if (st.recoveryMode !== undefined && !RECOVERY_MODES.has(st.recoveryMode)) {
       this.fail(`${at}.recoveryMode: expected reset | inspect | manual`);
@@ -320,14 +347,14 @@ class Validator {
     }
   }
 
-  private validateModel(model: unknown, at: string): void {
+  private validateModel(model: unknown, at: string, required = false): void {
     // Rejecting the empty string matters: it would reach the CLI as
     // RELAYFLOW_MODEL='', which reads as "declared, and declared as
     // nothing" — the CLI cannot tell it from a real value and would
     // pass an empty --model. Absent and empty must not look alike.
-    if (model !== undefined && !isNonEmptyString(model)) {
-      this.fail(`${at}.model: expected a non-empty string`);
-    }
+    if (model === undefined && !required) return;
+    const problem = modelNameError(model);
+    if (problem !== undefined) this.fail(`${at}.model: ${problem}`);
   }
 
   private validateSurfaces(surfaces: AgentStepSpec['surfaces'], at: string): void {
@@ -379,84 +406,11 @@ class Validator {
     }
   }
 
-  private validateDeps(steps: StepSpec[]): void {
-    const known = this.ids;
-    const adj = new Map<string, string[]>();
-    for (const step of steps) {
-      const deps = step.dependsOn ?? [];
-      for (const d of deps) {
-        if (!known.has(d)) {
-          this.fail(`spec.steps: step "${step.id}" dependsOn unknown step "${d}"`);
-        }
-      }
-      adj.set(step.id, deps);
-    }
-    // Cycle detection (DFS, WHITE/GRAY/BLACK).
-    const WHITE = 0, GRAY = 1, BLACK = 2;
-    const color = new Map<string, number>();
-    for (const id of adj.keys()) color.set(id, WHITE);
-    const stack: string[] = [];
-    const dfs = (id: string): void => {
-      color.set(id, GRAY);
-      stack.push(id);
-      const deps = adj.get(id) ?? [];
-      for (const d of deps) {
-        const c = color.get(d);
-        if (c === GRAY) {
-          this.fail(`spec.steps: dependency cycle detected at "${d}" (path: ${[...stack].join(' -> ')} -> ${d})`);
-        } else if (c === WHITE) {
-          dfs(d);
-        }
-      }
-      stack.pop();
-      color.set(id, BLACK);
-    };
-    for (const id of adj.keys()) {
-      if (color.get(id) === WHITE) dfs(id);
-    }
-  }
 }
 
 /** Validate a parsed spec object. Returns `{ok, errors}`; never throws. */
 export function validateSpec(spec: unknown): ValidationResult {
   return new Validator().run(spec);
-}
-
-// --- unknown-key suggestions ------------------------------------------------
-
-/**
- * The nearest valid key for a typo, or null when nothing is close. A key that
- * differs only in casing/separators (`depends_on` -> `dependsOn`) always
- * matches; otherwise small edit distances catch plain misspellings.
- */
-function nearestKey(key: string, allowed: readonly string[]): string | null {
-  const normalize = (value: string): string => value.toLowerCase().replace(/[_-]/g, '');
-  let best: string | null = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (const candidate of allowed) {
-    if (normalize(candidate) === normalize(key)) return candidate;
-    const distance = levenshtein(key.toLowerCase(), candidate.toLowerCase());
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = candidate;
-    }
-  }
-  return best !== null && bestDistance <= 3 && bestDistance < best.length ? best : null;
-}
-
-function levenshtein(a: string, b: string): number {
-  let previous: number[] = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    const current: number[] = [i];
-    for (let j = 1; j <= b.length; j++) {
-      const deletion = (previous[j] ?? 0) + 1;
-      const insertion = (current[j - 1] ?? 0) + 1;
-      const substitution = (previous[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1);
-      current[j] = Math.min(deletion, insertion, substitution);
-    }
-    previous = current;
-  }
-  return previous[b.length] ?? 0;
 }
 
 // --- predicates -------------------------------------------------------------

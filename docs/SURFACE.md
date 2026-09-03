@@ -66,18 +66,113 @@ No process runs between events: the handler wakes, executes to its next await, p
    - `f.mcp` — one line to declare (`tools: { mcp: [stripe] }`), one call to use (`f.mcp.stripe.create_invoice({...})`). Preflight connects to every declared server before the run starts.
 4. **`{{prev}}` / return-value chaining.** Output flows downward implicitly; naming steps is for reaching back, not bookkeeping.
 5. **Headers are optional escalation.** identity, memory, budget, tools appear only when used. The empty header is the common case.
-6. **Agent definitions come in three sizes** — and a reusable agent *is* a flow:
+6. **Agent definitions escalate by composition** — and a reusable agent *is* a flow:
    ```yaml
    - agent: Review this diff for security issues.        # 1. anonymous
    agents:
-     reviewer: claude                                    # 2. named — name: cli
-     auditor: { cli: claude, memory: true, tools: { mcp: [semgrep] }, workspace: readonly }  # 3. escalated
+     reviewer: { cli: claude, model: claude-sonnet-4-6 } # 2. named — explicit and reusable
    ```
-   Defining your team's reviewer = writing `reviewer.flow.ts` (identity + memory + body); other flows compose it with `use:` / `f.agent(reviewer, task)`. Persona import is flow composition, not a special mechanism.
+   The declarative named-agent schema in this slice is exactly `{ cli, model }`;
+   unknown fields fail closed. Defining a richer team reviewer means writing
+   `reviewer.flow.ts` (identity + memory + body); other flows compose it with
+   `use:` / `f.agent(reviewer, task)`. Persona import is flow composition, not
+   a special mechanism.
+
+   In the canonical declarative YAML/JSON dialect, `agents:` is a top-level
+   map and an agent step selects one with `agent: reviewer`. Each named
+   declaration requires both `cli` and `model`. Compilation lowers them into
+   the existing per-step `cli` and `model` fields. The validated selector and
+   map remain authoring metadata through `flows check`, so unused and
+   step-shadowed declarations are linted too; both are removed at the kernel
+   boundary. Explicit step values win independently:
+   step `cli`/`model` → named declaration → the existing flow/project CLI
+   default. Model has no flow/project default. An inline step that selects no
+   named declaration keeps the existing optional-model behavior. The worker
+   explicitly removes ambient `RELAYFLOW_MODEL`; raw provider adapters use a
+   model flag, while at worker execution a custom wrapper receives the model
+   only inside its identified same-process session when the step declares one.
 
    **Anonymous resolution law:** `f.agent\`task\`` with no name is the *default agent*, resolved (never guessed) in order: step options → flow header → project config (`flows.json`) → platform default. *The platform-default rung is declared but not yet implemented: no platform default is provisioned as of gate 1, so a flow that reaches this rung refuses with `cli_unresolved` rather than guessing. `flows check` never invents an implicit default.* `flows check` prints each resolved step CLI and its declaration source, validates it before submission, and refuses a missing or unauthenticated resolution before the checked flow is submitted, never at minute 27. Gate 1 does not make this guarantee for callers that bypass `flows check`: the journal client's direct `run.start` path does not invoke surface preflight.
 
-   **Preflightable-CLI contract:** to be checkable, a declared `cli` must answer `<cli> auth status` — exit `0` for authenticated, non-zero for not. `flows check` resolves the binary (a path is taken relative to the file that declares it — the flow for a step/flow-level `cli`, the project config for a `flows.json` default — while a bare name resolves via `PATH`) and runs that probe once per resolved `(cli, source)`: a path that does not resolve as an executable is `cli_missing`, and non-zero is `cli_unauthenticated`. A probe process that cannot be started, is terminated by a signal, or exceeds the 10-second auth-probe timeout is `probe_failed`; the diagnostic carries that classified cause without exposing raw process errors. The probe executes the flow-declared CLI with the checking process's complete caller environment inherited. This is the whole contract — preflight never sends a prompt, never spends a token, and never invokes any other subcommand. A non-zero refusal names the exact `auth status` probe and tells the operator to authenticate the CLI or implement the probe to return exit `0`; health is never assumed.
+   **Typed CLI-adapter contract:** `flows check` and `AgentWorker` share one
+   closed adapter table. A resolved executable whose basename is `claude` uses
+   `claude auth status`, probes the exact model with a real noninteractive
+   `claude -p --model <model>` round trip, and executes with that same model
+   flag. A basename of `codex` uses `codex login status`, probes with
+   `codex exec --skip-git-repo-check --model <model>` in an ephemeral read-only
+   session, and executes noninteractively with the same Git/cwd flag. A Git
+   checkout is not a Relayflow execution prerequisite, so readiness and worker
+   execution both support non-Git working directories. Model-scoped probes may
+   contact the provider and have a 60-second timeout; this cost is the
+   honest price of proving current credential/model access rather than
+   accepting an unrelated auth command as model proof.
+
+   Every other executable is a custom Relayflows wrapper and must first answer
+   `<cli> --relayflows-adapter-v1` with exactly
+   `relayflows-agent-cli-v1`. Only an identified wrapper uses the established
+   `<cli> auth status` plus an exact-model scoped readiness probe. A missing or
+   wrong identification is `cli_unsupported`, never
+   mislabeled as `cli_unauthenticated`. If a model-scoped probe fails, the
+   adapter's real unscoped authentication command distinguishes
+   `model_unavailable` from `cli_unauthenticated`. At execution the worker
+   starts one wrapper process with only `--relayflows-adapter-v1` and a scrubbed
+   environment, waits for the exact identity token, then sends one JSON line
+   containing instruction plus any declared model/wake context over that
+   child's stdin. The same child must acknowledge with
+   `relayflows-agent-cli-v1-execute` before its remaining stdout is treated as
+   agent output. There is no second pathname resolution: replacing or
+   retargeting the declared executable after identification cannot receive the
+   private request. A direct journal submission, nonconforming wrapper, or
+   process that exits after identifying completes `worker_error`.
+
+   **Declared wrapper bounds.** A wrapper author writes against four bounds,
+   all enforced by the reader so that no wrapper can defeat one by withholding
+   an event. Each is a refusal with `exit_code: null` and a diagnostic naming
+   the bound it exceeded, which the worker completes as `worker_error`.
+
+   | Bound | Default | Applies to | On exceeding |
+   |---|---|---|---|
+   | Handshake deadline | 10 s | From spawn until the wrapper has emitted both `relayflows-agent-cli-v1` and `relayflows-agent-cli-v1-execute` | Session refused: "did not identify as `relayflows-agent-cli-v1` within *N*ms" |
+   | Handshake byte limit | 8192 bytes | Only the **un-terminated** residue of the handshake buffer — bytes not yet ended by a newline while the handshake is still open. Complete lines are drained first, so the execute token always ends the handshake before this is measured, and a result payload behind it is execution output governed by `maxOutputBytes`, not by this bound | Session refused: "exceeded the wrapper handshake limit of 8192 bytes before completing the `relayflows-agent-cli-v1` handshake" |
+   | Execution deadline | 300 s | From the execute token until the wrapper's output is complete | `SIGTERM`, then `SIGKILL` 1 s later; the reader settles on its own deadline whether or not the process closes its pipes. Refused: "execution timed out after *N*ms" |
+   | `maxOutputBytes` | 1 MiB | Total captured stdout **plus** stderr after the execute token. Inclusive: exactly at the limit is accepted, one byte over is refused. Enforced on arrival, so an unbounded or newline-free flood is cut off by the reader rather than buffered | Session refused: "exceeded the captured output limit of *N* bytes" |
+
+   Because the deadlines are reader-owned, a wrapper that exits while leaving a
+   descendant holding an inherited stdio pipe — which withholds Node's `'close'`
+   event forever — is still bounded and still journals a `completionReason`. It
+   is bounded at the *execution deadline* rather than at the wrapper's own exit,
+   so a wrapper that leaks a pipe pays the full 300 s. Wrappers should not leave
+   descendants holding stdout or stderr.
+
+   `flows check` resolves the binary (a path is relative to the declaring flow
+   or project config; a bare name resolves via `PATH`) and caches each resolved
+   `(cli, source, model)` probe. A missing executable is `cli_missing`. A probe
+   that succeeds for a relative path binds its canonical absolute executable
+   into the checked step before journal submission, so a worker running from a
+   different directory identifies and executes the same binary. A probe
+   that cannot start, is signaled, or exceeds its adapter timeout is
+   `probe_failed`, with a classified diagnostic rather than a raw process
+   error. Every subprocess starts with ambient `RELAYFLOW_MODEL` removed.
+   Provider adapters pass only the declared flag; wrapper readiness receives
+   only an allowlisted declared model, while worker instruction/model/wake
+   values travel only in the post-identification session request. Preflight
+   never invokes an undeclared model or guesses from host state.
+
+   **Deterministic model registry:** model existence is not inferred from a
+   regex or provider prefix. The nearest `flows.json` owns an exact,
+   case-sensitive `models` allowlist. `flows check` first refuses a declared
+   model absent from that list as `model_unknown`, without starting the CLI.
+   One pure first pass collects every unknown named/inline model and every
+   unresolved step CLI
+   before any CLI, command, executor, or daemon probe, independent of step
+   order. This includes every named declaration, even when unused or shadowed
+   by a step override;
+   only an allowlisted value reaches the live model-scoped probe above. The
+   registry is author-owned project configuration, reviewed and versioned with
+   the project. Updating it is an explicit file change made only after the
+   project verifies access to the added model. No remote catalog is fetched,
+   so a checkout plus its nearest config reproduces typo decisions offline.
+   Runtime access remains a live fact and is re-probed on every check call.
 
    **Accepted deterministic-command limitation (Codex P1):** `flows check`
    warns with `command_unresolved`, rather than refusing, when a deterministic
@@ -88,7 +183,13 @@ No process runs between events: the handler wakes, executes to its next await, p
    deterministic-command preflight gap.” Consequently, `cli_missing` applies
    to declared `llm` and `agent` CLIs, not deterministic command words.
 
-   **Project-config discovery:** starting in the flow file's directory, `flows check` walks parent directories through the filesystem root and selects the first readable `flows.json`. That nearest file is the whole project config; it is not merged with outer files. Its schema is `{ "cli"?: <non-empty string>, "executors"?: <non-empty string>[] }`; unknown keys fail closed as `config_invalid`. A nearer config therefore defines a self-contained nested project boundary and prevents accidental inheritance of outer credentials or executors. The selected path is printed with project-level resolutions and named in an unresolved-CLI refusal; if it declares no `cli`, outer configs remain shadowed. At gate 1, a trigger executor is considered registered only when its name is present in this author-written `executors` array; `flows check` does not yet contact a registry, broker, or RelayCron, and absence is `no_executor`.
+   **Project-config discovery:** starting in the flow file's directory, `flows check` walks parent directories through the filesystem root and selects the first readable `flows.json`. That nearest file is the whole project config; it is not merged with outer files. Its schema is `{ "cli"?: <non-empty string>, "executors"?: <non-empty string>[], "models"?: <trimmed model string>[] }`; unknown keys, malformed model entries, and duplicates fail closed as `config_invalid`. A nearer config therefore defines a self-contained nested project boundary and prevents accidental inheritance of outer credentials, executors, or model approvals. The selected path is printed with project-level resolutions and named in refusals; if it declares no `cli` or models, outer configs remain shadowed. At gate 1, a trigger executor is considered registered only when its name is present in this author-written `executors` array; `flows check` does not yet contact a registry, broker, or RelayCron, and absence is `no_executor`.
+
+   Implementation status for issue #132: this named-agent contract currently
+   ships in the canonical declarative YAML/JSON compiler. Matching
+   `FlowHeader.agents` TypeScript types depend on the separately reviewed,
+   unmerged `@relayflows/surface` package in PR #134 and are a follow-on after
+   that package lands; this compiler slice does not duplicate that package.
 7. **Two dialects, one journal.** Declarative YAML — data, fully preflightable, sage's compile target, gate 9's self-authoring output. Imperative TS — journal-memoized function, maximum ergonomics. YAML is canonical; TS is the power tool. TS preflights its declared surface (agents, helpers, tools, identity), not arbitrary control flow — declared honestly per covenant 2.
 
 ### Structured output declarations
