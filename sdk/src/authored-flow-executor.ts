@@ -20,6 +20,7 @@ import {
   stopAuthoredOperations,
   verifyAuthoredOperations,
 } from './authored-flow-operation.js';
+import { AuthoredFlowLifecycle } from './authored-flow-lifecycle.js';
 import { JournalClient } from './journal-client.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
@@ -93,6 +94,7 @@ export async function executeAuthoredFlow(
 
   const journalSteps: AuthoredFlowJournalStep[] = [];
   const authoredSteps: AuthoredFlowOperation<unknown>[] = [];
+  const lifecycle = new AuthoredFlowLifecycle();
   let nextStep = 1;
   let requestedCompletion: SurfaceRunCompletionReason | undefined;
 
@@ -118,6 +120,7 @@ export async function executeAuthoredFlow(
         'run',
         () => assertOperationAllowed('run', definition.name, requestedCompletion),
         () => lowerDeterministic(id, command),
+        lifecycle,
       ));
     },
     llm() {
@@ -127,6 +130,7 @@ export async function executeAuthoredFlow(
         id,
         'llm',
         () => assertOperationAllowed('llm', definition.name, requestedCompletion),
+        lifecycle,
       ));
     },
     agent() {
@@ -136,6 +140,7 @@ export async function executeAuthoredFlow(
         id,
         'agent',
         () => assertOperationAllowed('agent', definition.name, requestedCompletion),
+        lifecycle,
       ));
     },
     human() {
@@ -166,6 +171,7 @@ export async function executeAuthoredFlow(
           reason,
         );
       }
+      lifecycle.markCompletion();
       requestedCompletion = reason;
     },
     cloud: unsupportedCloud(
@@ -176,16 +182,25 @@ export async function executeAuthoredFlow(
   let bodyFailed = false;
   let bodyFailure: unknown;
   try {
-    await definition.body(context);
+    const bodyPromise = lifecycle.runBody(() => definition.body(context));
+    await bodyPromise;
   } catch (error) {
     bodyFailed = true;
     bodyFailure = error;
   }
   if (bodyFailed) {
-    await stopAuthoredOperations(authoredSteps, bodyFailure);
+    try {
+      await stopAuthoredOperations(authoredSteps, bodyFailure);
+    } finally {
+      lifecycle.close();
+    }
     throw bodyFailure;
   }
-  await verifyAuthoredOperations(definition.name, authoredSteps);
+  try {
+    await verifyAuthoredOperations(definition.name, authoredSteps, lifecycle);
+  } finally {
+    lifecycle.close();
+  }
   if (requestedCompletion === undefined) {
     throw new AuthoredFlowExecutionError(
       'missing_completion',
@@ -213,10 +228,11 @@ function unsupportedStep<T>(
   id: string,
   verb: string,
   assertCanStart: () => void,
+  lifecycle: AuthoredFlowLifecycle,
 ): AuthoredFlowOperation<T> {
   return new AuthoredFlowOperation<T>(id, verb, assertCanStart, async () => {
     throw unsupportedVerb(verb);
-  });
+  }, lifecycle);
 }
 
 function unsupportedVerb(verb: string): AuthoredFlowExecutionError {
