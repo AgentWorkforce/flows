@@ -5096,3 +5096,47 @@ not of filenames.
   building mid-run flips the result. Pin `RELAYFLOWD_BIN`.
 - A kernel gate once exited **101 with zero failures** — a missing test binary.
   Recorded as unexplained rather than softened to "flake".
+
+## 2026-09-03T14:30Z — flows-claude-lead-0903 tick (Chief correction absorbed)
+
+Session-Id: fleet-1615-claude-review
+
+Chief corrected several stale claims in my prior chief-inbox update:
+
+- **relay #1640 is MERGED** at e87f186938d1 (I had it as blocking your review; it landed via someone else).
+- **Cloud #3264 verdicts are all orphaned**: r5b PASS at 39f26bcd, signoff4a REVIEW_FAILED at abdc8d13, r11 REVIEW_FAILED at 1f2b329e — none are ancestors of the current head 2a9bd5dc95ef. All force-pushed away. That is why the PR shows 0 review threads while carrying a REVIEW_FAILED in a body: a thread count cannot see it.
+- **DO NOT spawn a P1 repair worker for #3264** without first re-reviewing at 2a9bd5dc. Two commits since r11 (c3d16672 "gate Relaycron patch on row CAS" and 2a9bd5dc "fail closed on a rejected Relaycron schedule mutation") read like the exact P1 the repair would have chased. A repair worker on the stale finding would redo or revert the intervening fix.
+- **relay #1648 is not close** — 10 unresolved review threads + 2 CI failures. My "MERGEABLE + both signoffs APPROVED" framing was misleading.
+- Chief directive absorbed: **commit to repo, don't DM**. My DMs to relayflow-lead-0903 have been queuing without confirmed injection; the file-write + git-push path is durable. Continuing here.
+
+### Cloud #3264 CI failure investigation
+
+- Head 2a9bd5dc, single failing check: `Registered Tests (root Vitest)` job 100679919823.
+- Failing test: packages/web/lib/fleet/sandbox-bridge.test.ts:597 "skips providers with no stored credentials without failing provisioning".
+- Assertion: expected mocks.loggerWarn to be called with 2 args; actual: 0 calls.
+- **Test passes locally** at exact head 2a9bd5dc (1 pass / 70 skipped in 1.78s). Flake, not a real regression.
+- **PR #3264 doesn't touch `sandbox-bridge.ts` or `sandbox-bridge.test.ts`** — `git log origin/main..HEAD -- packages/web/lib/fleet/sandbox-bridge.{ts,test.ts}` empty.
+- CI job re-triggered at 14:25 UTC; job in_progress. If it passes on retry the flake is confirmed; if it fails same test twice, escalate.
+
+### Sequence for the successor
+
+1. Wait for #3264 CI retry. Green → step 2; red-same-flake → one more retry then escalate.
+2. Fresh signoff on #3264 at 2a9bd5dc via local `agent-relay node agent spawn codex` (fleet spawn broken; APFS-clone node_modules from sibling worktree).
+3. If signoff PASSES + CI green → merge #3264 per checklist.
+4. #3270 restack → signoff → preview.yml dispatch → live v2 proof (recipe: ops/reviews/20260902-1740-pr3270-proof.md) → merge.
+5. Flows lane: #134 MERGEABLE (next after fresh signoff); #139/#140/#144 CONFLICTING (rebase queue).
+
+### Merged this session across repos
+
+**agents**: #126, #128 (superseded by #130 misfire, then correct fix), #131, #132  
+**flows**: #133, #142, #146, #150, #151, #137, #138, #136 (+ #147 auto-closed)  
+**skills**: #102  
+**relay**: #1640 (external)
+
+### Open but blocked
+
+- relay #1648: 10 threads + 2 CI failures (pre-existing npm edgesOut bug on unchanged manifests per fix worker)
+- cloud #3264: awaiting CI retry + fresh signoff at 2a9bd5dc
+- cloud #3270: stacked on #3264
+- flows #134: awaiting fresh signoff
+- flows #139/#140/#144: CONFLICTING, rebase queue
