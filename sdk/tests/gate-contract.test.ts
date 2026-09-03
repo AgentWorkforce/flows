@@ -198,6 +198,29 @@ describe('data/code gate contract', () => {
     expect(toJsonCalls).toBe(0);
   });
 
+  // Boundaries report a refusal in two shapes: `compileSpec`/`toKernelSpec`
+  // throw, while `preflight` returns a named `invalid_spec` diagnostic. Both
+  // are refusals; anything that returns a usable result is not, and the
+  // fallback string below cannot match the assertion.
+  const captureRefusal = (run: () => unknown): string => {
+    try {
+      const result = run() as {
+        ok?: boolean;
+        errors?: string[];
+        diagnostics?: Array<{ message?: string }>;
+      };
+      if (result !== null && typeof result === 'object' && result.ok === false) {
+        return [
+          ...(result.errors ?? []),
+          ...(result.diagnostics ?? []).map((diagnostic) => diagnostic.message ?? ''),
+        ].join('; ');
+      }
+      return 'NOT REFUSED: the boundary accepted the input';
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  };
+
   it('rejects proxy schemas without executing traps at any public data boundary', () => {
     for (const boundary of [
       (flow: FlowSpec) => compileSpec(flow),
@@ -239,7 +262,7 @@ describe('data/code gate contract', () => {
         }],
       } as FlowSpec;
 
-      expect(() => boundary(candidate)).toThrow(/proxy/i);
+      expect(captureRefusal(() => boundary(candidate))).toMatch(/proxy/i);
       expect(proxyTraps).toBe(0);
       expect(sourceSchema.type).toBe('string');
     }
