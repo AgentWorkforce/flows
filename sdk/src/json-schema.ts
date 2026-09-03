@@ -42,6 +42,17 @@ export function jsonSchemaError(schema: boolean | Record<string, unknown>): stri
     }
     return undefined;
   } catch (error) {
+    // A RangeError here is Ajv exhausting its own JS stack while COMPILING,
+    // not a verdict about the schema. The bound above has already proved this
+    // declaration terminates, and the kernel -- which is the engine that
+    // actually validates outputs -- accepts and runs it. Reporting Ajv's stack
+    // as `invalid JSON Schema: Maximum call stack size exceeded` would refuse a
+    // legal schema, leak an engine-internal message as if it were a named
+    // refusal kind, and put legality back in the hands of an engine's
+    // accidental overflow behaviour -- which is the precise defect the shared
+    // rule and corpus exist to remove. The rule decides legality; Ajv decides
+    // only well-formedness, and a stack overflow is neither verdict.
+    if (error instanceof RangeError) return undefined;
     return error instanceof Error ? error.message : String(error);
   }
 }

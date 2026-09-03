@@ -1,15 +1,5 @@
 {
-  "_comment": [
-    "Shared corpus pinning kernel/SDK agreement on which JSON Schema declarations are legal.",
-    "Read by kernel/relayflowd-core/src/schema.rs and sdk/tests/json-schema-bound.test.ts.",
-    "Every schema under `refused` COMPILES cleanly in both engines — the only thing that",
-    "rejects it is the termination bound, which is what makes these tests test the bound",
-    "rather than the mechanism. Every schema under `accepted` is legitimately recursive or",
-    "plainly finite and must keep working.",
-    "Pre-fix kernel behaviour is recorded per case in `before`: `abort` cases took",
-    "relayflowd down with SIGABRT at verify.rs; `latent` cases only survived because the",
-    "probe instance never reached the cyclic position."
-  ],
+  "_comment": "Shared kernel/SDK corpus for the JSON Schema termination bound. kernel/relayflowd-core/src/schema.rs and sdk/src/json-schema-bound.ts are pinned to this file, so a case added here is enforced on both sides or a suite goes red. Cases are enumerated along two axes: the 2020-12 APPLICATOR vocabulary (which keywords can close a cycle) and the 2020-12 REFERENCE FORMS F1-F12 (how a reference can name its target: same-resource fragment, pointer, anchor; absolute, relative, rooted and opaque URI naming an in-document $id, with and without a fragment; nested $id bases; repeated anchor names across $id scopes; and the external URI the engine refuses rather than the bound). Derive from the specification, not from this list.",
   "marker": "unbounded $ref cycle",
   "refused": [
     {
@@ -17,7 +7,14 @@
       "before": "abort",
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$defs": { "a": { "$ref": "#/$defs/b" }, "b": { "$ref": "#/$defs/a" } },
+        "$defs": {
+          "a": {
+            "$ref": "#/$defs/b"
+          },
+          "b": {
+            "$ref": "#/$defs/a"
+          }
+        },
         "$ref": "#/$defs/a"
       }
     },
@@ -26,21 +23,36 @@
       "before": "latent",
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$defs": { "a": { "$ref": "#/$defs/a" } },
+        "$defs": {
+          "a": {
+            "$ref": "#/$defs/a"
+          }
+        },
         "$ref": "#/$defs/a"
       }
     },
     {
       "name": "root self reference",
       "before": "latent",
-      "schema": { "$schema": "https://json-schema.org/draft/2020-12/schema", "$ref": "#" }
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$ref": "#"
+      }
     },
     {
       "name": "allOf self cycle",
       "before": "abort",
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$defs": { "a": { "allOf": [{ "$ref": "#/$defs/a" }] } },
+        "$defs": {
+          "a": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/a"
+              }
+            ]
+          }
+        },
         "$ref": "#/$defs/a"
       }
     },
@@ -50,8 +62,20 @@
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$defs": {
-          "a": { "anyOf": [{ "$ref": "#/$defs/b" }] },
-          "b": { "anyOf": [{ "$ref": "#/$defs/a" }] }
+          "a": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/b"
+              }
+            ]
+          },
+          "b": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/a"
+              }
+            ]
+          }
         },
         "$ref": "#/$defs/a"
       }
@@ -61,7 +85,15 @@
       "before": "abort",
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$defs": { "a": { "oneOf": [{ "$ref": "#/$defs/a" }] } },
+        "$defs": {
+          "a": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/a"
+              }
+            ]
+          }
+        },
         "$ref": "#/$defs/a"
       }
     },
@@ -70,7 +102,13 @@
       "before": "abort",
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$defs": { "a": { "not": { "$ref": "#/$defs/a" } } },
+        "$defs": {
+          "a": {
+            "not": {
+              "$ref": "#/$defs/a"
+            }
+          }
+        },
         "$ref": "#/$defs/a"
       }
     },
@@ -79,7 +117,13 @@
       "before": "latent",
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$defs": { "a": { "if": { "$ref": "#/$defs/a" } } },
+        "$defs": {
+          "a": {
+            "if": {
+              "$ref": "#/$defs/a"
+            }
+          }
+        },
         "$ref": "#/$defs/a"
       }
     },
@@ -88,7 +132,15 @@
       "before": "latent",
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$defs": { "a": { "dependentSchemas": { "x": { "$ref": "#/$defs/a" } } } },
+        "$defs": {
+          "a": {
+            "dependentSchemas": {
+              "x": {
+                "$ref": "#/$defs/a"
+              }
+            }
+          }
+        },
         "$ref": "#/$defs/a"
       }
     },
@@ -98,8 +150,14 @@
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$defs": {
-          "a": { "$anchor": "A", "$ref": "#B" },
-          "b": { "$anchor": "B", "$ref": "#A" }
+          "a": {
+            "$anchor": "A",
+            "$ref": "#B"
+          },
+          "b": {
+            "$anchor": "B",
+            "$ref": "#A"
+          }
         },
         "$ref": "#A"
       }
@@ -113,7 +171,14 @@
         "$defs": {
           "sub": {
             "$id": "https://example.com/sub",
-            "$defs": { "a": { "$ref": "#/$defs/b" }, "b": { "$ref": "#/$defs/a" } },
+            "$defs": {
+              "a": {
+                "$ref": "#/$defs/b"
+              },
+              "b": {
+                "$ref": "#/$defs/a"
+              }
+            },
             "$ref": "#/$defs/a"
           }
         },
@@ -129,12 +194,178 @@
         "properties": {
           "p": {
             "$defs": {
-              "a": { "$ref": "#/properties/p/$defs/b" },
-              "b": { "$ref": "#/properties/p/$defs/a" }
+              "a": {
+                "$ref": "#/properties/p/$defs/b"
+              },
+              "b": {
+                "$ref": "#/properties/p/$defs/a"
+              }
             },
             "$ref": "#/properties/p/$defs/a"
           }
         }
+      }
+    },
+    {
+      "name": "F4 absolute-URI $ref to an in-document $id",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ex.test/root",
+        "$defs": {
+          "a": {
+            "$id": "https://ex.test/a",
+            "$ref": "https://ex.test/b"
+          },
+          "b": {
+            "$id": "https://ex.test/b",
+            "$ref": "https://ex.test/a"
+          }
+        },
+        "$ref": "https://ex.test/a"
+      }
+    },
+    {
+      "name": "F5 absolute-URI with pointer fragment",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ex.test/root",
+        "$defs": {
+          "s": {
+            "$id": "https://ex.test/s",
+            "$defs": {
+              "a": {
+                "$ref": "https://ex.test/s#/$defs/a"
+              }
+            }
+          }
+        },
+        "$ref": "https://ex.test/s#/$defs/a"
+      }
+    },
+    {
+      "name": "F6 absolute-URI with anchor fragment",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ex.test/root",
+        "$defs": {
+          "s": {
+            "$id": "https://ex.test/s",
+            "$defs": {
+              "a": {
+                "$anchor": "loop",
+                "$ref": "https://ex.test/s#loop"
+              }
+            }
+          }
+        },
+        "$ref": "https://ex.test/s#loop"
+      }
+    },
+    {
+      "name": "F7 relative-URI reference to an in-document $id",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ex.test/root",
+        "$defs": {
+          "a": {
+            "$id": "a",
+            "$ref": "b"
+          },
+          "b": {
+            "$id": "b",
+            "$ref": "a"
+          }
+        },
+        "$ref": "a"
+      }
+    },
+    {
+      "name": "F8 rooted relative reference",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ex.test/dir/root",
+        "$defs": {
+          "a": {
+            "$id": "/x",
+            "$ref": "/y"
+          },
+          "b": {
+            "$id": "/y",
+            "$ref": "/x"
+          }
+        },
+        "$ref": "/x"
+      }
+    },
+    {
+      "name": "F9 opaque absolute URI (urn) self cycle",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:ex:root",
+        "$defs": {
+          "a": {
+            "$id": "urn:ex:a",
+            "$ref": "urn:ex:a"
+          }
+        },
+        "$ref": "urn:ex:a"
+      }
+    },
+    {
+      "name": "F10 reference resolved against a nested $id base",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ex.test/root",
+        "$defs": {
+          "s": {
+            "$id": "https://ex.test/sub/",
+            "$defs": {
+              "a": {
+                "$ref": "https://ex.test/sub/#/$defs/b"
+              },
+              "b": {
+                "$ref": "#/$defs/a"
+              }
+            }
+          }
+        },
+        "$ref": "https://ex.test/sub/#/$defs/a"
+      }
+    },
+    {
+      "name": "F11 same anchor name under two $id scopes",
+      "before": "abort",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ex.test/root",
+        "$defs": {
+          "x": {
+            "$id": "https://ex.test/x",
+            "$defs": {
+              "a": {
+                "$anchor": "nm",
+                "$ref": "https://ex.test/y#nm"
+              }
+            }
+          },
+          "y": {
+            "$id": "https://ex.test/y",
+            "$defs": {
+              "b": {
+                "$anchor": "nm",
+                "$ref": "https://ex.test/x#nm"
+              }
+            }
+          }
+        },
+        "$ref": "https://ex.test/x#nm"
       }
     }
   ],
@@ -144,7 +375,9 @@
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "array",
-        "items": { "$ref": "#" }
+        "items": {
+          "$ref": "#"
+        }
       }
     },
     {
@@ -153,8 +386,15 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
-          "name": { "type": "string" },
-          "children": { "type": "array", "items": { "$ref": "#" } }
+          "name": {
+            "type": "string"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#"
+            }
+          }
         }
       }
     },
@@ -165,7 +405,14 @@
         "$defs": {
           "node": {
             "type": "object",
-            "properties": { "kids": { "type": "array", "items": { "$ref": "#/$defs/node" } } }
+            "properties": {
+              "kids": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/node"
+                }
+              }
+            }
           }
         },
         "$ref": "#/$defs/node"
@@ -176,8 +423,22 @@
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$defs": {
-          "a": { "type": "object", "properties": { "b": { "$ref": "#/$defs/b" } } },
-          "b": { "type": "object", "properties": { "a": { "$ref": "#/$defs/a" } } }
+          "a": {
+            "type": "object",
+            "properties": {
+              "b": {
+                "$ref": "#/$defs/b"
+              }
+            }
+          },
+          "b": {
+            "type": "object",
+            "properties": {
+              "a": {
+                "$ref": "#/$defs/a"
+              }
+            }
+          }
         },
         "$ref": "#/$defs/a"
       }
@@ -187,7 +448,19 @@
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$defs": {
-          "n": { "anyOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/n" } }] }
+          "n": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/n"
+                }
+              }
+            ]
+          }
         },
         "$ref": "#/$defs/n"
       }
@@ -197,7 +470,14 @@
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "array",
-        "prefixItems": [{ "type": "string" }, { "$ref": "#" }]
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "$ref": "#"
+          }
+        ]
       }
     },
     {
@@ -205,7 +485,14 @@
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "$defs": { "a": { "$ref": "#/$defs/b" }, "b": { "$ref": "#/$defs/a" } }
+        "$defs": {
+          "a": {
+            "$ref": "#/$defs/b"
+          },
+          "b": {
+            "$ref": "#/$defs/a"
+          }
+        }
       }
     },
     {
@@ -213,7 +500,15 @@
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$defs": {
-          "n": { "$anchor": "N", "type": "object", "properties": { "kid": { "$ref": "#N" } } }
+          "n": {
+            "$anchor": "N",
+            "type": "object",
+            "properties": {
+              "kid": {
+                "$ref": "#N"
+              }
+            }
+          }
         },
         "$ref": "#N"
       }
@@ -223,7 +518,11 @@
       "schema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
-        "properties": { "kid": { "$ref": "#" } }
+        "properties": {
+          "kid": {
+            "$ref": "#"
+          }
+        }
       }
     },
     {
@@ -231,7 +530,11 @@
       "schema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
-        "dependencies": { "a": ["b"] }
+        "dependencies": {
+          "a": [
+            "b"
+          ]
+        }
       }
     },
     {
@@ -239,11 +542,227 @@
       "schema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "required": ["exit_code"]
+        "required": [
+          "exit_code"
+        ]
       }
     },
-    { "name": "vacuous object schema", "schema": {} },
-    { "name": "boolean true schema", "schema": true },
-    { "name": "boolean false schema", "schema": false }
+    {
+      "name": "vacuous object schema",
+      "schema": {}
+    },
+    {
+      "name": "boolean true schema",
+      "schema": true
+    },
+    {
+      "name": "boolean false schema",
+      "schema": false
+    },
+    {
+      "name": "F4 absolute-URI reference through a child applicator",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ex.test/r",
+        "$defs": {
+          "a": {
+            "$id": "https://ex.test/a",
+            "type": "object",
+            "properties": {
+              "n": {
+                "$ref": "https://ex.test/a"
+              }
+            }
+          }
+        },
+        "$ref": "https://ex.test/a"
+      }
+    },
+    {
+      "name": "F4 bundled compound document, terminating",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ex.test/bundle",
+        "$defs": {
+          "node": {
+            "$id": "https://ex.test/node",
+            "type": "object",
+            "properties": {
+              "child": {
+                "$ref": "https://ex.test/node"
+              }
+            }
+          }
+        },
+        "$ref": "https://ex.test/node"
+      }
+    },
+    {
+      "name": "F4 two distinct $id resources, no cycle",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ex.test/r",
+        "$defs": {
+          "a": {
+            "$id": "https://ex.test/a",
+            "$ref": "https://ex.test/b"
+          },
+          "b": {
+            "$id": "https://ex.test/b",
+            "type": "string"
+          }
+        },
+        "$ref": "https://ex.test/a"
+      }
+    },
+    {
+      "name": "F5 pointer fragment into an $id scope, terminating",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": {
+          "s": {
+            "$id": "https://ex.test/s",
+            "$defs": {
+              "a": {
+                "type": "object",
+                "properties": {
+                  "p": {
+                    "$ref": "#/$defs/a"
+                  }
+                }
+              }
+            },
+            "$ref": "#/$defs/a"
+          }
+        },
+        "$ref": "#/$defs/s"
+      }
+    },
+    {
+      "name": "F6 anchor fragment through a child applicator",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ex.test/root",
+        "$defs": {
+          "s": {
+            "$id": "https://ex.test/s",
+            "$defs": {
+              "a": {
+                "$anchor": "node",
+                "type": "object",
+                "properties": {
+                  "p": {
+                    "$ref": "https://ex.test/s#node"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "$ref": "https://ex.test/s#node"
+      }
+    },
+    {
+      "name": "F7 relative-URI reference through a child applicator",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ex.test/root",
+        "$defs": {
+          "a": {
+            "$id": "a",
+            "type": "object",
+            "properties": {
+              "n": {
+                "$ref": "a"
+              }
+            }
+          }
+        },
+        "$ref": "a"
+      }
+    },
+    {
+      "name": "F9 opaque absolute URI (urn) through a child applicator",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:ex:root",
+        "$defs": {
+          "a": {
+            "$id": "urn:ex:a",
+            "type": "object",
+            "properties": {
+              "n": {
+                "$ref": "urn:ex:a"
+              }
+            }
+          }
+        },
+        "$ref": "urn:ex:a"
+      }
+    },
+    {
+      "name": "F11 two anchors of the same name, neither cyclic",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ex.test/root",
+        "$defs": {
+          "x": {
+            "$id": "https://ex.test/x",
+            "$defs": {
+              "a": {
+                "$anchor": "nm",
+                "type": "string"
+              }
+            }
+          },
+          "y": {
+            "$id": "https://ex.test/y",
+            "$defs": {
+              "b": {
+                "$anchor": "nm",
+                "$ref": "https://ex.test/x#nm"
+              }
+            }
+          }
+        },
+        "$ref": "https://ex.test/y#nm"
+      }
+    }
+  ],
+  "engineRefused": [
+    {
+      "name": "F12 external absolute URI, no fragment",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$ref": "https://ex.test/not-in-this-document"
+      }
+    },
+    {
+      "name": "F12 external absolute URI with a pointer fragment",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$ref": "https://ex.test/other#/$defs/a"
+      }
+    },
+    {
+      "name": "F12 external absolute URI reachable only through a child applicator",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "p": {
+            "$ref": "https://ex.test/not-in-this-document"
+          }
+        }
+      }
+    },
+    {
+      "name": "F12 relative reference resolving outside the document",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ex.test/dir/root",
+        "$ref": "sibling"
+      }
+    }
   ]
 }
