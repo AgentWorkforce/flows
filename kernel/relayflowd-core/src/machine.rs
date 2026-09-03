@@ -10,7 +10,7 @@ use crate::{
         StepCompletedPayload, WaitCompletedPayload, WaitCompletionReason,
     },
     retry::backoff_delay_ms,
-    spec::{AgentSurfaces, RecoveryMode, StepKind, StepSpec, StepType},
+    spec::{AgentSurfaces, RecoveryMode, StepKind, StepSpec, StepType, workspace_surfaces_equal},
     state::{RunState, StepState},
     verify::verify,
 };
@@ -205,7 +205,7 @@ pub(crate) fn carried_pins(chain: Option<&Pins>, surfaces: &AgentSurfaces) -> Pi
                 chain
                     .workspace
                     .iter()
-                    .find(|pin| pin.surface == declared.surface)
+                    .find(|pin| workspace_surfaces_equal(&pin.surface, &declared.surface))
                     .cloned()
             })
             .collect(),

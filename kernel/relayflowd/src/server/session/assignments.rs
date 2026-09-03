@@ -1,7 +1,7 @@
 //! Capacity reservations, deterministic placement, leases, and dispatch.
 
 use anyhow::{Context, Result, bail};
-use relayflowd_core::{Pins, StepKind, StepSpec, StepType};
+use relayflowd_core::{Pins, StepKind, StepSpec, StepType, workspace_surfaces_equal};
 use serde_json::json;
 
 use super::{
@@ -173,7 +173,7 @@ impl StepDispatcher for ProtocolHub {
                     .pins
                     .workspace
                     .iter()
-                    .find(|pin| pin.surface == surface.surface)
+                    .find(|pin| workspace_surfaces_equal(&pin.surface, &surface.surface))
                     .cloned()
                     .with_context(|| {
                         format!(

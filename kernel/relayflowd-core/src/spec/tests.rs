@@ -160,12 +160,16 @@ fn the_full_ladder_parses_in_the_one_dialect() {
 }
 
 #[test]
-fn external_surface_paths_must_have_one_canonical_spelling() {
+fn external_surface_paths_reject_non_terminal_aliases() {
     for path in [
+        "",
+        ".",
+        "..",
+        "//",
         "/provider/./item",
         "/provider/../item",
         "/provider//item",
-        "/provider/item/",
+        "/provider/item//",
         " pr://github/example",
     ] {
         let spec = RunSpec::parse(&json!({
@@ -185,7 +189,12 @@ fn external_surface_paths_must_have_one_canonical_spelling() {
             "accepted non-canonical surface {path:?}"
         );
     }
-    for path in ["/provider/item", "pr://github/example", "provider/item"] {
+    for path in [
+        "/provider/item",
+        "/provider/item/",
+        "pr://github/example",
+        "provider/item",
+    ] {
         let spec = RunSpec::parse(&json!({
             "steps": [{
                 "id": "agent",
@@ -204,6 +213,10 @@ fn external_surface_paths_must_have_one_canonical_spelling() {
         "/provider/item",
         "/provider/item/child"
     ));
+    assert!(external_surface_contains(
+        "/provider/item/",
+        "/provider/item"
+    ));
     assert!(!external_surface_contains(
         "/provider/item",
         "/provider/other"
@@ -215,12 +228,16 @@ fn external_surface_paths_must_have_one_canonical_spelling() {
 }
 
 #[test]
-fn workspace_mounts_and_worktrees_must_have_one_canonical_spelling() {
+fn workspace_mounts_and_worktrees_reject_non_terminal_aliases() {
     for surface in [
+        "",
+        ".",
+        "..",
+        "//",
         "/mount/./repo",
         "/mount/repo/../repo",
         "/mount//repo",
-        "/mount/repo/",
+        "/mount/repo//",
         " worktrees/repo",
         "worktrees/./repo",
     ] {
@@ -242,7 +259,13 @@ fn workspace_mounts_and_worktrees_must_have_one_canonical_spelling() {
             "accepted non-canonical workspace surface {surface:?}"
         );
     }
-    for surface in ["/mount/repo", "worktrees/repo", "repo"] {
+    for surface in [
+        "/mount/repo",
+        "/mount/repo/",
+        "worktrees/repo",
+        "repo",
+        "repo/",
+    ] {
         let spec = RunSpec::parse(&json!({
             "steps": [{
                 "id": "agent",

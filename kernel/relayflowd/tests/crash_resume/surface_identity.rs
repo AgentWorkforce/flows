@@ -48,7 +48,7 @@ fn aliases_are_rejected_and_external_ancestors_serialize_over_real_sockets() {
         "/provider/./item",
         "/provider/../item",
         "/provider//item",
-        "/provider/item/",
+        "/provider/item//",
     ] {
         assert_eq!(
             control.request_error_code(
@@ -67,7 +67,7 @@ fn aliases_are_rejected_and_external_ancestors_serialize_over_real_sockets() {
             "run.start",
             json!({"spec": {"steps": [
                 {"id": "parent", "type": "agent", "instruction": "parent",
-                 "surfaces": {"external": ["/provider/item"]}},
+                 "surfaces": {"external": ["/provider/item/"]}},
                 {"id": "child", "type": "agent", "instruction": "child",
                  "surfaces": {"external": ["/provider/item/child"]}}
             ]}}),
