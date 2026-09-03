@@ -4714,3 +4714,65 @@ I merge only when the checklist holds; not yet.
 
 Scheduled for ~25 min: expect r2 push on #3264, signoff-0903 verdict on
 #137, and progress on the restack chain.
+
+## 2026-09-03T10:00Z — flows-claude-lead-0903 iteration 3 (post-wakeup, mid-user-conversation)
+
+Session-Id: harness-successor-2026-09-03T09:20Z (continued via mid-run
+user message about merge conflicts)
+
+### State changes
+
+- **#3264 head landed** at `9e1a83b6c4022a15406a37e444011740d01ea1cb` — the
+  0117 renumber to 0118 is complete. `git ls-tree pr3264 packages/web/drizzle/`
+  confirms:
+  - `0117_ensure_event_schedules_and_durable_keys.sql` (blob 5ceae955, matches
+    main byte-for-byte)
+  - `0117_snapshot.json` (blob 1f8646b1, matches main byte-for-byte)
+  - `0118_workflow_run_relayflow_version.sql` (blob 1c39c676 — the selector
+    migration, renumbered from old 0117)
+- **#3264 mergeable**: API says `mergeable: true, mergeable_state: unstable`.
+  Only failing check is Phase 0 → "Acceptance suite (unauthenticated contracts
+  against prod)". Overall run 33728921232 still IN_PROGRESS on "Registered
+  Tests (root Vitest)"; a new Phase 0 job is IN_PROGRESS at 9e1a83b6.
+- **#3270 remains at f64d7198**, `mergeable: false, mergeable_state: dirty`.
+  `git merge-tree --write-tree origin/main pr3270` reports 3 real conflicts:
+  - `packages/core/package.json` (content)
+  - `packages/web/drizzle/meta/0117_snapshot.json` (add/add — because #3270
+    still owns the pre-renumber 0117_workflow_run_relayflow_version blob
+    731373f3, while main has its own 0117 at blob 1f8646b1)
+  - `packages/web/drizzle/meta/_journal.json` (content)
+- **User reported "merge conflicts, fix it"** — diagnosed as the #3270
+  staleness. #3264 has none.
+- **Chief-broker is offline** in `agent-relay fleet nodes`, but its agents
+  still show as "· remote" via fleet-agent-list; may not act until it returns.
+- **All 0903 workers actually live on chief-sfm-final** (this machine) per
+  `agent-relay fleet agent list --json` — earlier "chief-broker" location
+  claim was incorrect.
+- **Two new external signoffs spawned** for #3264 at `9e1a83b6`:
+  - `cloud-pr3264-codex-signoff-r6-0903` (fleet-ensure-428150f2)
+  - `cloud-pr3264-claude-signoff-r5b-0903` (fleet-ensure-715169c8)
+
+### Actions taken
+
+- DM'd `cloud-pr3270-restack-0903` on chief-sfm-final to trigger the #3270
+  rebase onto 9e1a83b6 with 0119 renumber. That worker is idle 28 min
+  (quota-exhausted), so DM parked.
+- Spawned `cloud-pr3270-restack-r2-0903` on **sf-mini** (chief-broker
+  unavailable) with detailed rebase + rename + snapshot-regen + test +
+  force-with-lease-push instructions.
+- DM'd `cloud-pr3264-codex-signoff-r6-0903` and
+  `cloud-pr3264-claude-signoff-r5b-0903` to confirm they are on 9e1a83b6 and
+  to validate the two P1s from signoff4a (schedule pre-auth malformed
+  rejection; PATCH metadata-only workflowRequest omission + row CAS).
+- Recreated lead worktree at `flows-claude-lead-0903-wt` (autodrive removed
+  the prior one).
+
+### Merge autonomy — nothing mergeable yet
+
+Same as iteration 2. No PR meets the checklist. Waiting on r2 restack, r6/r5b
+signoffs, and #3264 Phase 0 CI outcome.
+
+### Next wakeup
+
+Scheduled for ~25 min from now. Expected to see r2 restack SHA landed +
+r6/r5b verdicts + #3264 Phase 0 result.
