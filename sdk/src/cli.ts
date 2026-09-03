@@ -14,6 +14,7 @@ import {
   type RunReport,
 } from './cli/run.js';
 import { runHnMonitor } from './cli/hn-monitor.js';
+import { runTickRunner } from './cli/tick-runner.js';
 
 export type { CheckInputDiagnostic, CheckReport } from './cli/check.js';
 
@@ -26,13 +27,17 @@ type CliExitCode = 0 | 1 | 2 | 3;
 type ParsedArgs =
   | { command: 'check'; json: boolean; value: string }
   | { command: 'run' | 'resume'; dataDir: string; json: boolean; value: string }
-  | { command: 'hn-monitor'; sub: 'start'; dataDir: string; specPath: string; pollIntervalMs: number | undefined };
+  | { command: 'hn-monitor'; sub: 'start'; dataDir: string; specPath: string; pollIntervalMs: number | undefined }
+  | { command: 'tick'; sub: 'start'; dataDir: string; specPath: string; scheduleId: string;
+      intervalMs: number; epochMs: number | undefined; maxCatchUp: number | undefined;
+      pollIntervalMs: number | undefined };
 
 const DEFAULT_DATA_DIR = '.relayflowd';
 const USAGE = [
   'Usage:',
   'flows check [--json] <flow.yaml|spec.json>',
   'flows run [--json] [--data-dir <dir>] <flow.yaml|spec.json>',
+  'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--json] [--data-dir <dir>] <run-id>',
   'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
 ].join(' ');
@@ -77,6 +82,30 @@ export async function runCli(
     }
   }
 
+  if (parsed.command === 'tick') {
+    const controller = new AbortController();
+    const onSignal = (): void => controller.abort();
+    process.once('SIGINT', onSignal);
+    process.once('SIGTERM', onSignal);
+    try {
+      return await runTickRunner({
+        dataDir: parsed.dataDir,
+        specPath: parsed.specPath,
+        schedule: {
+          scheduleId: parsed.scheduleId,
+          intervalMs: parsed.intervalMs,
+          ...(parsed.epochMs === undefined ? {} : { epochMs: parsed.epochMs }),
+          ...(parsed.maxCatchUp === undefined ? {} : { maxCatchUp: parsed.maxCatchUp }),
+        },
+        pollIntervalMs: parsed.pollIntervalMs,
+        signal: controller.signal,
+      }, io) as CliExitCode;
+    } finally {
+      process.off('SIGINT', onSignal);
+      process.off('SIGTERM', onSignal);
+    }
+  }
+
   const execution = parsed.command === 'run'
     ? await runFlow(parsed.value, parsed.dataDir, { onWait: (progress) => emitWait(progress, io) })
     : await resumeFlow(parsed.value, parsed.dataDir, { onWait: (progress) => emitWait(progress, io) });
@@ -97,6 +126,7 @@ function emitWait(
 function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   const command = args[0];
   if (command === 'hn-monitor') return parseHnMonitorArgs(args.slice(1));
+  if (command === 'tick') return parseTickArgs(args.slice(1));
   if (command !== 'check' && command !== 'run' && command !== 'resume') return undefined;
 
   let json = false;
@@ -160,6 +190,83 @@ function parseHnMonitorArgs(rest: readonly string[]): ParsedArgs | undefined {
   }
   if (positionals.length !== 1) return undefined;
   return { command: 'hn-monitor', sub: 'start', dataDir, specPath: positionals[0]!, pollIntervalMs };
+}
+
+/**
+ * `flows tick start`. Numeric flags are parsed here but their BOUNDS are not
+ * re-derived: `runTickRunner` calls `assertTickScheduleValid`, the same
+ * function `emitDueTicks` uses, so the CLI's refusal and the emit path's
+ * refusal cannot drift. This parser only rejects shapes it cannot turn into a
+ * number at all.
+ */
+function parseTickArgs(rest: readonly string[]): ParsedArgs | undefined {
+  const sub = rest[0];
+  if (sub !== 'start') return undefined;
+
+  let dataDir = DEFAULT_DATA_DIR;
+  let sawDataDir = false;
+  let scheduleId: string | undefined;
+  let intervalMs: number | undefined;
+  let epochMs: number | undefined;
+  let maxCatchUp: number | undefined;
+  let pollIntervalMs: number | undefined;
+  const positionals: string[] = [];
+
+  // Number, not parseInt: parseInt('1.5') is 1, so a fractional --interval-ms
+  // would silently become a 1ms schedule instead of being refused. Requiring
+  // an exact integer round-trip rejects '1.5', '1e3', '0x10' and ' 1' rather
+  // than coercing them into something the operator did not write.
+  const takeNumber = (value: string | undefined): number | undefined => {
+    if (value === undefined || value.startsWith('-')) return undefined;
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || String(parsed) !== value) return undefined;
+    return parsed;
+  };
+
+  for (let index = 1; index < rest.length; index += 1) {
+    const argument = rest[index]!;
+    if (argument === '--data-dir') {
+      const value = rest[index + 1];
+      if (sawDataDir || value === undefined || value.startsWith('-')) return undefined;
+      dataDir = value; sawDataDir = true; index += 1; continue;
+    }
+    if (argument === '--schedule-id') {
+      const value = rest[index + 1];
+      if (scheduleId !== undefined || value === undefined || value.startsWith('-')) return undefined;
+      scheduleId = value; index += 1; continue;
+    }
+    if (argument === '--interval-ms') {
+      if (intervalMs !== undefined) return undefined;
+      const value = takeNumber(rest[index + 1]);
+      if (value === undefined) return undefined;
+      intervalMs = value; index += 1; continue;
+    }
+    if (argument === '--epoch-ms') {
+      if (epochMs !== undefined) return undefined;
+      const value = takeNumber(rest[index + 1]);
+      if (value === undefined) return undefined;
+      epochMs = value; index += 1; continue;
+    }
+    if (argument === '--max-catch-up') {
+      if (maxCatchUp !== undefined) return undefined;
+      const value = takeNumber(rest[index + 1]);
+      if (value === undefined) return undefined;
+      maxCatchUp = value; index += 1; continue;
+    }
+    if (argument === '--poll-interval-ms') {
+      if (pollIntervalMs !== undefined) return undefined;
+      const value = takeNumber(rest[index + 1]);
+      if (value === undefined) return undefined;
+      pollIntervalMs = value; index += 1; continue;
+    }
+    if (argument.startsWith('-')) return undefined;
+    positionals.push(argument);
+  }
+  if (positionals.length !== 1 || scheduleId === undefined || intervalMs === undefined) return undefined;
+  return {
+    command: 'tick', sub: 'start', dataDir, specPath: positionals[0]!,
+    scheduleId, intervalMs, epochMs, maxCatchUp, pollIntervalMs,
+  };
 }
 
 function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
