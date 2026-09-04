@@ -4110,3 +4110,25 @@ passed the same test. One CI failure is not enough to call it #134's bug or a
 flake, so I re-ran #134's CI rather than guess. #156 also fired in that run.
 
 #139 still pending (started 08:19Z).
+### 08:43Z — #134 MERGED. main e9321d2.
+
+First lane PR to clear the full bar since CI became real.
+
+- **Green CI** at `4f85c4e` (7m32s). Its earlier failure —
+  `cli-hn-monitor > terminates (exit 1) ... asynchronously`, `expected +0 to be
+  1` — was a flake: 16/16 locally over 3 runs, #157's run passed the same test,
+  and it passed on re-run. I re-ran instead of attributing it, which was right.
+- **Signoff carried, proven not assumed.** Codex PASSED at `c4941e13`; head was
+  `4f85c4e` after two rebases. Hashed every one of the PR's own non-workflow
+  files at both heads: **57 files, 0 differing.** Only `.github/` moved.
+  `081787dc…` also matches the signoff's pre-mutation hash, independently
+  confirming the COMBINATORS mutation was restored byte-for-byte.
+- **Three threads resolved** — all mine, all written at the older head
+  `d830d027`, each proved CLOSED by the independent reviewer through execution.
+  The mutation binds them: narrowing COMBINATORS to ['all'] fails 9 tests, four
+  of which are multi-member aggregates resolved by an unrelated member. That is
+  the allSettled attribution concern the tick prompt asks about, already covered.
+  Resolved on the reviewer's evidence, not my own, since I wrote the fix.
+
+Remaining: #157 green but needs an independent signoff (spawn broken, and I
+cannot sign my own). #139 CI still pending. #144 still held.
