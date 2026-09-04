@@ -4657,3 +4657,23 @@ cloud worktree has node_modules and `npm ci` on that monorepo is heavy against
 20GiB free. CI is the gate; I have not merged.
 
 The artifact-token blocker is unchanged and unrelated to the rebase.
+### 19:03Z — #3270 CI FULLY GREEN on the rebased head. Not merged.
+
+Every check passed or skipped at `627450cb`. The two that matter most cover
+precisely what I could not run locally:
+
+- **Check for snapshot-affecting changes: SUCCESS** — the repo's own migration
+  gate accepts the 0120 -> 0121 renumber and the rebuilt chain.
+- **Registered Tests (root node:test): SUCCESS** — includes
+  `tests/web-drizzle-journal.test.ts`, the journal integrity test I explicitly
+  flagged as unrun.
+
+So the migration reasoning (0121 = main's 0120 + authority delta, not a rename)
+is confirmed by the repo's gates, not just by my structural check.
+
+`deploy-preview` / `diagnose-preview` are SKIPPED (workflow_dispatch-only), not
+failed.
+
+NOT MERGED: merging cloud push-deploys, and this PR's entire purpose — the live
+v2 execution proof — has still never run. It needs the GH_APP_PUSHER
+installation on AgentWorkforce/flows.
