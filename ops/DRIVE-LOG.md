@@ -4818,3 +4818,33 @@ the same context rather than a recomputed one).
 Filed as #167 with the mutation evidence, so the row is corrected on evidence
 rather than quietly edited. Did not edit SCOREBOARD.md myself — it is a gate
 record, and I would be marking my own homework.
+### 21:00Z — Gate 2 increment shipped: #168 (restart-durability dedupe test)
+
+Closed one of the three gaps from #167. Not the gap the scoreboard names — that
+one is already done — but the one that actually bites in production.
+
+Existing coverage submits twice through ONE Engine: proves the in-process
+short-circuit, says nothing about durability. The real case is a webhook source
+that never saw an ack retrying AFTER a daemon restart. If the claim were
+in-memory, that redelivery spawns a second run for one logical event.
+
+Test drops the first Engine and opens a second over the same data directory.
+Asserts deduped, no second run, and — the assertion worth arguing for — the
+original run's journal still holds EXACTLY ONE event.received. Suppressing a
+response is not the same as keeping the journal single, and only the journal is
+the durable fact.
+
+Mutation-verified:
+```
+before 2103ddba… mutated 8d1caf75… APPLIED
+  a_claim_survives_a_restart_so_redelivery_still_dedupes ... FAILED
+  matching_event_wakes_once_with_fresh_context ... FAILED
+restored 2103ddba… HASH MATCHES
+kernel workspace: 143 passed, 0 failed
+```
+Source restored byte-for-byte; only the test file changed.
+
+Still open on gate 2: concurrent racing deliveries, and the wake-time context
+contract (nothing specifies what wake_context guarantees, or that a RESUMED run
+must see the same context rather than a recomputed one — the genuine Appendix A
+gap, and a spec change rather than a test).
