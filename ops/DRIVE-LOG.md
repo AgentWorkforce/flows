@@ -3758,3 +3758,31 @@ whoever debugs this at the scheduler, which is working.
 - 01:55Z quiet: both 4869ec51 (2h32m) and dcf4727d (32m) still pending, never placed. #154 open, main 3725025.
 - 02:05Z quiet: both runs still pending, #154 open, main 3725025. No change.
 - 02:23Z quiet: both runs still pending, #154 open, main 3725025. No change.
+### Tick 02:41Z — slot emission is alternating, not randomly intermittent
+
+Sharper than the "intermittent" reading I recorded at 01:41Z. Four consecutive
+hourly slots on `flows-v2-lead-tick-0903` (`23 * * * *`):
+
+```
+23:23Z  FIRED    4869ec51   (pending, never placed)
+00:23Z  no run
+01:23Z  FIRED    dcf4727d   (pending, never placed)
+02:23Z  no run              (checked 02:41Z, "last run" still dcf4727d)
+```
+
+Every other slot, exactly. n=4, so it could still be coincidence, but an
+alternating pattern is a much stronger hint than randomness: it looks like a
+guard that admits a new run only once the *previous* one has been observed in
+some state, rather than a scheduler dropping ticks at random.
+
+Note this does NOT match a naive "one pending run blocks the next" rule —
+`4869ec51` and `dcf4727d` were both `pending` simultaneously at 01:41Z, so two
+pending runs can coexist. Whatever the guard keys on, it is not simply
+"is anything pending."
+
+Both runs remain `pending`, never placed. Recording the pattern rather than a
+mechanism, because I cannot enumerate runs (`agent-relay cloud` has no listing
+verb) and everything beyond the pattern would be a guess.
+
+If the next fired slot is 03:23Z and 04:23Z is skipped, the alternation is real
+and worth handing to whoever owns the launch queue.
