@@ -4255,3 +4255,45 @@ change on request.
 That completes the answer to his "3. chase root cause".
 - 10:23Z quiet: all four tick items done or blocked. #134/#139 merged; cloud wedged (6 runs, 1b798c58 still pending); #3270 awaiting Khaliq's alternative; #157 green but needs a signoff I cannot produce. main f1314b1.
 - 10:41Z quiet: 10:23Z slot skipped (alternation holds, n=9). #3270 open/blocked, #157 needs signoff, cloud wedged. No change.
+### 10:58Z — A RELAYFLOW RAN. Locally, end to end, on merged main.
+
+Executing Khaliq's instruction "just use and run the relayflow locally", which
+I had wrongly filed as blocked-on-him for several ticks while the cloud queue
+stayed wedged. Nothing was blocking me.
+
+Built from `main` `f1314b1`: surface (bun), SDK CLI, relayflowd.
+
+```
+$ relayflowd --data-dir /tmp/rf-local/data serve      # socket up
+$ node sdk/dist/cli.js run testdata/hello-deterministic.flow.yaml \
+      --data-dir /tmp/rf-local/data
+WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its
+  effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "shout" ... (same)
+RUN 01M1P115ZATR9MYSRACQS4F6FJ completed (2 steps) completionReason: success
+```
+
+Durable journal, read from the SQLite rather than trusting the CLI line:
+
+```
+seq|entry_type          |step_id|attempt
+1  |run.spawned         |       |
+2  |step.attempt.started|greet  |1
+3  |step.completed      |greet  |1
+4  |step.attempt.started|shout  |1
+5  |step.completed      |shout  |1
+6  |run.completed       |       |
+registry: 01M1P115ZATR9MYSRACQS4F6FJ | completed
+```
+
+Exactly one started/completed pair per step, dependency order preserved,
+`run.completed` last. Exactly-once visibly holds.
+
+Two friction points worth recording:
+- the kernel takes compiled canonical JSON, not YAML — `flows run` (the SDK CLI)
+  is the real entry point; feeding YAML to relayflowd fails at parse.
+- the unix socket path must be short: the scratchpad path blew `SUN_LEN`
+  (`path must be shorter than SUN_LEN`). Used `/tmp/rf-local`.
+
+**This is demoable independent of the wedged cloud queue.** Daemon left running
+at /tmp/rf-local.
