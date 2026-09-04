@@ -4747,3 +4747,4 @@ because I caused it.
 **v2 lane on flows is now complete**: #134, #136, #137, #138, #139, #140, #151,
 #152, #153, #154, #157, #158, #159 all merged. Only #161 remains, blocked on
 RELAY_WORKSPACE_KEY.
+- 20:05Z quiet: the one #3270 'preview run' is a SKIPPED pull_request-triggered run (deploy-preview is workflow_dispatch-only) — not a deploy, not evidence the app install landed. #161 review still FAILURE. Local loop 1042 completed. flows v2 lane fully merged; nothing actionable without you.
