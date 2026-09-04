@@ -4989,3 +4989,26 @@ This moves gate 2 further from green than either the scoreboard row or #167
 implied: the row says the test is missing, #167 showed it exists and is
 mutation-bound, and #169 shows the property it asserts is false under
 concurrency.
+
+### 21:55Z — #169 narrowed: two leads, one unexplained result
+
+Verified, not inferred:
+1. `engine.rs:437` — `registry()` calls `Registry::open` which does
+   `Connection::open` EVERY time. New connection per submit_event; two
+   concurrent calls are two independent writers on one file.
+2. `registry.rs:36` sets WAL + synchronous FULL and **no `busy_timeout`**, so a
+   blocked writer fails immediately rather than waiting. That fully explains the
+   local docker `database is locked`.
+
+Does NOT explain CI's `left: 2` — two INSERT OR IGNORE against the same PK
+should not both report changed==1. Considered flow_key differing per thread
+(canonical_hash = serde_json::to_vec of the parsed spec, parsed independently
+per thread) but have NO evidence and serde_json ordering is deterministic per
+build, so did not assert it.
+
+Posted the distinction on #169 explicitly: busy_timeout is probably necessary
+and probably NOT sufficient. Adding it, watching the local repro go green, and
+declaring victory would leave the actual double-execution unaddressed and harder
+to reproduce.
+
+#168 artifact check re-running; `review` still FAILURE on the missing secret.
