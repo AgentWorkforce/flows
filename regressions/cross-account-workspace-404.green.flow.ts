@@ -87,6 +87,6 @@ export default flow(
         "404 and 403 must be distinguishable by the client without guessing",
       );
 
-    return f.done("bug_fixed");
+    return f.done("success");
   },
 );

@@ -1,9 +1,13 @@
 {
-  "//": "OPT-IN typecheck for the dormant regression suite. Not referenced by sdk/package.json and not part of `npm test`. Run explicitly: cd sdk && npx tsc -p ../regressions/tsconfig.json",
+  "//": "OPT-IN typecheck for the dormant regression suite. Not part of package tests. Run explicitly: cd surface && npm run typecheck:regressions",
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@relayflows/surface": ["../surface/src/index.ts"]
+    },
     "lib": ["ES2022"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
