@@ -4198,3 +4198,33 @@ have now all landed).
 
 Also: 09:23Z cloud slot FIRED (`1b798c58`), immediately `pending`. Alternation
 holds at n=8. Sixth wedged run.
+### 09:55Z — #144 is SUPERSEDED, not merely conflicting. Did not rebase it.
+
+Its constituents all landed independently, so the composition it existed to do
+is already in `main` commit by commit. Its tree is now BEHIND what it composed:
+
+```
+169 files changed, 2696 insertions(+), 21189 deletions(-)
+  10 A   70 D   89 M
+```
+
+70 files that exist on `main` are absent here, including
+`testdata/json-schema-bound-cases.json` (768 lines, landed with #139) and
+`testdata/tick-heartbeat.*`. **Merging it would delete them**, and rebasing 47
+commits would replay merged work while inviting the exact silent-revert class
+that has bitten this stack repeatedly.
+
+So I did not rebase, despite the tick's standing instruction to. `CONFLICTING`
+here is the correct signal, not a defect to fix.
+
+Genuinely unique and worth keeping — 7 substantive files `main` lacks, a
+**direct-input / direct-run** feature:
+`sdk/src/direct-input.ts`, `sdk/src/cli/direct-run.ts`,
+`sdk/src/authored-flow-loader.ts`, `sdk/tests/direct-input.test.ts`, 3 fixtures.
+
+Recommended on the PR: close it, open a small PR adding just those seven files
+on top of `f1314b1`. Did not do it — whether that feature ships now is a scope
+call, not a mechanical rebase.
+
+Lane: everything merged except #157 (green, needs a signoff I cannot produce)
+and #144 (superseded).
