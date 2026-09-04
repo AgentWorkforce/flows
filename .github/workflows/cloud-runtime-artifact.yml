@@ -66,8 +66,17 @@ jobs:
         working-directory: kernel
         run: cargo test --workspace
 
+      - name: Build authoring surface
+        working-directory: surface
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          bun run build
+
+      # --ignore-scripts because the surface is already built above; without it
+      # npm runs the file: dependency's prepare before its own devDependencies
+      # exist. The SDK's own build is the next step, so nothing is skipped.
       - name: Install SDK dependencies
-        run: npm ci --prefix sdk
+        run: npm ci --prefix sdk --ignore-scripts
 
       - name: Test SDK and type-level authoring contracts
         working-directory: sdk

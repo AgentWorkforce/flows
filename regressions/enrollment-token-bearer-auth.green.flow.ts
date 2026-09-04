@@ -62,6 +62,6 @@ export default flow(
         "and the enrolled worker is visible to the account that minted for it",
       );
 
-    return f.done("bug_fixed");
+    return f.done("success");
   },
 );

@@ -38,7 +38,7 @@ export default flow("chief", {
 .on(slack.mention("#exec"), async (f, event) => {          // gate 2 — trigger = entry condition
   const intent = await f.llm`Extract the work request, if any: ${event.text}`
     .gate(isActionable);
-  if (!intent) return f.done("no_work");
+  if (!intent) return f.done("success"); // no work is an outcome; execution succeeded
 
   const plan = await f.agent("planner", {
     task: `Research and plan: ${intent}`,
@@ -46,7 +46,7 @@ export default flow("chief", {
   });
 
   const ok = await f.human(`Ship this?\n${plan.summary}`, { to: "khaliq" });
-  if (!ok) return f.done("declined");
+  if (!ok) return f.done("canceled");
 
   const pr = await f.dispatch("garden/implement", plan);   // gate 3 — child flow
   await f.slack.reply(event, `Shipped: ${pr.url}`);
@@ -220,6 +220,61 @@ consumer; the spec SDK does not publish an unchecked phantom type in advance.
 The authoring surface deliberately narrows `steps: []`: `flows check` refuses
 it as `invalid_spec`, while the kernel accepts it. This is a chosen
 authoring-time narrowing, not a kernel guarantee.
+
+### The authored operation lifecycle
+
+An authored TypeScript body reaches `done()` only if every step it created was
+actually consumed on the continuation that got there, and nothing derived from a
+step was still running or had failed unobserved. Three rules, in the author's
+vocabulary:
+
+1. **Await every step.** Creating `f.run(...)` and never awaiting it is
+   `unawaited_step`. Constructing steps and awaiting them later is fine —
+   `const steps = [f.run(a), f.run(b)]; for (const s of steps) await s;` is
+   ordinary, supported authoring, and so is `Promise.resolve`, `Promise.all`,
+   `Promise.allSettled`, `Promise.any` and `Promise.race` over authored steps.
+   A manual `.then(...)` callback is not an await and is refused; callback
+   source text is never treated as proof of anything.
+2. **A step's failure is yours whether or not you catch it.** A root failure is
+   recorded before author code can reach the operation, so a `catch` cannot hide
+   it. At this gate the executor only lowers `done("success")`, so there is no
+   expressible recovery from a failed step yet.
+3. **Finish your derived work before `done()`.** If a handler chained onto a step
+   is still in flight when the body returns, the run is refused with
+   `unsettled_derived_work` rather than recorded as a success nobody can prove.
+   Awaited derived work is always settled by then; only fire-and-forget work is
+   caught by this. If you start something after a step, await it before `done()`.
+
+**Documented limit.** Work that does not yet *exist* when the body returns
+cannot be seen. `setTimeout(() => { p.then(handler).catch(ignore); })` schedules
+a derived chain to begin after completion, and the gate will not observe it.
+This is the boundary of the contract, not an oversight: the flow has already
+finished when that promise is created. Do not use a timer to smuggle
+post-completion work into a run.
+
+**Disclosure: this package replaces `Promise.all` while a flow is open.** The
+lifecycle installs its own `Promise.all` on the global `Promise` for the
+duration of any authored flow execution, and restores the original when the last
+concurrent flow closes.
+
+- *Why:* a combinator's aggregate has no runtime edge back to its non-final
+  members, so `await Promise.all([a, b])` cannot otherwise be proven to have
+  consumed `a`. The alternatives all infer group membership from the callbacks
+  the combinator passes each element, which is exactly the callback-identity
+  inference this contract exists to refuse.
+- *Scope:* process-wide, for the lifetime of an authored flow execution. Any code
+  in the process — including yours and your dependencies' — sees the replacement
+  during that window.
+- *Behaviour:* the replacement delegates to the intrinsic and is specified to
+  behave identically. A non-iterable argument is handed straight through, so
+  `Promise.all(5)` and `Promise.all(null)` return the same rejected promises the
+  intrinsic returns; `name` and `length` match. If `Promise.all` has already been
+  replaced by something else, the flow refuses to start rather than fighting over
+  the intrinsic.
+
+If a process-wide intrinsic replacement is unacceptable in your deployment, do
+not run authored TypeScript bodies in that process; the declarative YAML path
+does not install it.
 
 ## 3. Plugins: the kernel is closed, the surface is open
 

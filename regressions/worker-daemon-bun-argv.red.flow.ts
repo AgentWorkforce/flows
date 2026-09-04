@@ -66,6 +66,6 @@ export default flow(
         "and cloud liveness never observes the worker the CLI said it started",
       );
 
-    return f.done("bug_reproduced");
+    return f.done("success");
   },
 );

@@ -83,6 +83,6 @@ export default flow(
         "and carries no code either — the client sees two failures it cannot tell apart",
       );
 
-    return f.done("bug_reproduced");
+    return f.done("success");
   },
 );

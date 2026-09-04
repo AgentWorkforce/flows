@@ -1,0 +1,34 @@
+{
+  "name": "@relayflows/surface",
+  "version": "0.1.0",
+  "description": "TypeScript authoring surface for Relayflows.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "bun run build",
+    "typecheck": "tsc --noEmit",
+    "typecheck:regressions": "tsc -p ../regressions/tsconfig.json",
+    "test": "bun run build && tsc -p tsconfig.test.json && vitest run"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
