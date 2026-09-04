@@ -3972,3 +3972,32 @@ Three of my own defects in the CI chain now: #153→#154 (rustup), #155→#158
 (real race the suites caught), and this one→#159.
 
 Also fired again: #156 flake. Not addressed.
+### 07:35Z — the hang is ~50%, not rare. Filed as #160.
+
+Corrected again: last tick I called it a flake because #158's rerun passed. The
+tally across every run that reached the test says otherwise —
+
+```
+#157  passed (38s binary)        #139         HUNG, cancelled 30m15s
+#134  passed (38s binary)        #158 run1    HUNG, cancelled 30m16s
+#158 rerun  passed (6m46s job)   #159         Test kernel 16+ min, hanging
+```
+
+Same commit both hung and passed (#158), which kills the "kernel-touching PRs
+are at fault" theory I put on #139 — corrected there.
+
+Why it is worse than an ordinary flaky test:
+- it is a HANG, not a failure: 30 minutes of budget per hit, then cancel;
+- cancellation skips `Install SDK dependencies` and everything after, so a hit
+  means **the SDK suite never runs** — a PR can look checked while two thirds of
+  the gate did not execute;
+- at ~50% it hits most PRs on the first attempt.
+
+Not reproducible on macOS: full binary 37-47s, 34/34, at default/4/2 threads;
+the test alone 3/3 in ~1s. Linux-runner specific.
+
+Filed **#160** with the tally and a suggestion (a hard per-test timeout, so the
+failure is a fast red with a backtrace rather than a 30-minute cancellation)
+that is useful regardless of root cause.
+
+Invisible before #153, because the kernel suite never ran.
