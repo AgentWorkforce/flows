@@ -180,11 +180,10 @@ export async function executeAuthoredFlow<Input = undefined>(
     ),
   };
 
-<<<<<<< HEAD
   let bodyFailed = false;
   let bodyFailure: unknown;
   try {
-    const bodyPromise = lifecycle.runBody(() => definition.body(context));
+    const bodyPromise = lifecycle.runBody(() => definition.body(context, input as Input));
     await bodyPromise;
   } catch (error) {
     bodyFailed = true;
@@ -203,9 +202,6 @@ export async function executeAuthoredFlow<Input = undefined>(
   } finally {
     lifecycle.close();
   }
-=======
-  await definition.body(context, input as Input);
->>>>>>> 0987e38 (fix(cli): execute direct flows through journal runtime)
   if (requestedCompletion === undefined) {
     throw new AuthoredFlowExecutionError(
       'missing_completion',

@@ -1,10 +1,6 @@
 import { rmSync } from 'node:fs';
 import type { Server } from 'node:net';
-<<<<<<< HEAD
-import { flow, type FlowHeader } from '@relayflows/surface';
-=======
-import { flow, type Ctx } from '@relayflows/surface';
->>>>>>> 0987e38 (fix(cli): execute direct flows through journal runtime)
+import { flow, type FlowHeader, type Ctx } from '@relayflows/surface';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { JournalClient } from '../src/journal-client.js';
@@ -150,7 +146,6 @@ describe('authored flow journal executor', () => {
     }), disconnectedJournal)).rejects.toMatchObject({ code: 'unsupported_gate' });
   });
 
-<<<<<<< HEAD
   it('rejects invalid raw headers before the executor can contact the journal', async () => {
     const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
 
@@ -261,7 +256,7 @@ describe('authored flow journal executor', () => {
         });
       }
       expect(startedSpecs).toHaveLength(startedBefore);
-=======
+
   it('passes direct input into the journal-backed authored body', async () => {
     const handle = flow<{ value: string }>('input-backed', async (f, input) => {
       await f.run(`emit:${input.value}`);
@@ -273,13 +268,11 @@ describe('authored flow journal executor', () => {
     try {
       await executeAuthoredFlow(handle, client, { value: 'from-direct-input' });
       expect(commandsSince(before)).toEqual(['emit:from-direct-input', ':']);
->>>>>>> 0987e38 (fix(cli): execute direct flows through journal runtime)
     } finally {
       client.close();
     }
   });
 
-<<<<<<< HEAD
   it('refuses manually chained work even when it settles before the body returns', async () => {
     const client = new JournalClient(path, { requestTimeoutMs: 2000 });
     await client.connect();
@@ -318,7 +311,7 @@ describe('authored flow journal executor', () => {
           code: testCase.code,
         });
       }
-=======
+
   it.each([
     ['truthiness', async (f: Ctx, value: string) => {
       if (value) await f.run('branch:truthy');
@@ -353,13 +346,11 @@ describe('authored flow journal executor', () => {
     try {
       await executeAuthoredFlow(handle, client);
       expect(commandsSince(before)).toEqual([`emit:${emitted}`, expected, ':']);
->>>>>>> 0987e38 (fix(cli): execute direct flows through journal runtime)
     } finally {
       client.close();
     }
   });
 
-<<<<<<< HEAD
   it('refuses forgotten work even when the body remains open long enough to settle it', async () => {
     const client = new JournalClient(path, { requestTimeoutMs: 2000 });
     await client.connect();
@@ -373,7 +364,7 @@ describe('authored flow journal executor', () => {
         f.done('success');
       }), client)).rejects.toMatchObject({ code: 'unawaited_step' });
       expect(startedSpecs).toHaveLength(startedBefore);
-=======
+
   it('preserves separately awaited sibling ordering before the join', async () => {
     const handle = flow('separate-awaits', async (f) => {
       const left = f.run('emit:left');
@@ -389,13 +380,11 @@ describe('authored flow journal executor', () => {
     try {
       await executeAuthoredFlow(handle, client);
       expect(commandsSince(before)).toEqual(['emit:left', 'emit:right', 'joined', ':']);
->>>>>>> 0987e38 (fix(cli): execute direct flows through journal runtime)
     } finally {
       client.close();
     }
   });
 
-<<<<<<< HEAD
   it('retains root operation failures even when a derived rejection handler consumes them', async () => {
     const client = new JournalClient(path, { requestTimeoutMs: 2000 });
     await client.connect();
@@ -434,7 +423,7 @@ describe('authored flow journal executor', () => {
           code: testCase.code,
         });
       }
-=======
+
   it('requires an explicit completion after journal-backed steps', async () => {
     const handle = flow('missing-completion', async (f) => {
       await f.run('emit:ran');
@@ -444,13 +433,11 @@ describe('authored flow journal executor', () => {
       await expect(executeAuthoredFlow(handle, client)).rejects.toMatchObject({
         code: 'missing_completion',
       });
->>>>>>> 0987e38 (fix(cli): execute direct flows through journal runtime)
     } finally {
       client.close();
     }
   });
 
-<<<<<<< HEAD
   it('captures a rejected derived callback instead of leaking unhandled success', async () => {
     const client = new JournalClient(path, { requestTimeoutMs: 2000 });
     await client.connect();
@@ -470,7 +457,7 @@ describe('authored flow journal executor', () => {
       client.close();
     }
   });
-=======
+
   async function connectedClient(name: string): Promise<JournalClient> {
     const client = new JournalClient(path, { requestTimeoutMs: 2000 });
     await client.connect();
@@ -484,7 +471,6 @@ describe('authored flow journal executor', () => {
       return steps[0]!['command'] as string;
     });
   }
->>>>>>> 0987e38 (fix(cli): execute direct flows through journal runtime)
 });
 
 function outputFor(command: string): string {
