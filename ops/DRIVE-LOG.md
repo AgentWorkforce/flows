@@ -4698,3 +4698,4 @@ auth, not a user token (401). No way to check from here — the real signal is
 deploy-preview getting past the mint step.
 
 Local loop: 922 completed.
+- 19:23Z quiet: #140's re-run PR check is hanging — 'Test kernel' in_progress since 19:08 (15m vs ~40s healthy). #160 signature; will cancel ~19:38. This is the second time #160 has cost this PR a full cycle.
