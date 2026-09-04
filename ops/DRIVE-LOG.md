@@ -3854,3 +3854,4 @@ Two consecutive correct predictions across seven slots. Four wedged runs now
 (`4869ec51`, `dcf4727d`, `bf17cf73`, `63d46f43`), each created within ~4s of its
 slot boundary and never placed. The alternation is stable enough to hand over as
 a reproducible symptom rather than an anecdote.
+- 05:41Z quiet: 63d46f43 still pending (18m). #154 open, main 3725025. No change.
