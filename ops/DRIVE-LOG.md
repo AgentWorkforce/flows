@@ -3913,3 +3913,34 @@ SDK step. Needs someone to reproduce under runner-like conditions (Linux, cold
 target). Reported on the PR.
 
 #158 CI still in flight.
+### 07:05Z — #155 fix CONFIRMED on the runner; a separate Linux-only hang appears
+
+**Good:** #158's CI run shows the fix working where it matters:
+```
+test worker_capacity::default_capacity_one_reopens_only_after_durable_completion_or_crash ... ok
+```
+First time that test has passed in CI.
+
+**Bad, and I got it wrong once already:** `rung_c_sigkill` hangs and the job is
+cancelled at 30 minutes — on #158 too, not just #139. I had told #139 the hang
+"looks like ours"; #158 is `main` plus a one-expression retry-timing change and
+hangs identically. Corrected on the PR.
+
+| PR | touches kernel | rung_c_sigkill |
+|---|---|---|
+| #157 | no | passed, 38s |
+| #134 | no | passed, 38s |
+| #139 | yes | hung, cancelled 30m |
+| #158 | yes | hung, cancelled 30m |
+
+Suggestive but n=2 per side. Cannot reproduce locally: the full `crash_resume`
+binary passes on this branch in 47s, 34/34, and `rung_c_sigkill` alone passes
+3/3 in ~1s. Linux-only.
+
+My #158 change is a live suspect for its own hang — removing the retry delay is
+exactly the hot-loop risk Khaliq accepted, and a sigkill/resume test is where it
+would show. But #139 hangs WITHOUT that change, so the fix cannot be the sole
+cause.
+
+Re-ran #158's job to separate "deterministic" from "flake". **#158 must not
+merge until that answers**, notwithstanding the confirmed worker_capacity pass.
