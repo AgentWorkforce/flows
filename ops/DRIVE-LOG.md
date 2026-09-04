@@ -4297,3 +4297,44 @@ Two friction points worth recording:
 
 **This is demoable independent of the wedged cloud queue.** Daemon left running
 at /tmp/rf-local.
+### 11:15Z — SCHEDULED relayflows now firing locally, autonomously
+
+Followed the one-off run with the recurring case, dogfooding #157's
+`flows tick start` rather than a shell loop (RFC-0001 §2).
+
+Note first: **`main` has `tick-heartbeat.flow.yaml` but no `tick` command.** The
+flow exists and nothing drives it — literally the "silently zero" failure
+RFC-0001 names, sitting in the repo. #157 is the thing that fixes it, and it is
+still unmerged.
+
+Running from #157's branch (`77e2b9b`) against the local daemon:
+
+```
+TICK_RUNNER schedule=heartbeat-1m first run; starting at slot 59617331
+TICK_EMITTED schedule=heartbeat-1m slot=59617331 scheduled_for_ms=1788519930000
+TICK_EMITTED schedule=heartbeat-1m slot=59617332 scheduled_for_ms=1788519960000
+```
+
+End to end, verified in the journal rather than from the log line:
+
+```
+runs:           01M1P1HGXY7B6EC57S4C6KJKNC | parked
+                01M1P1HNTHEY5PYGJ0AZ11T104 | parked
+event_dedupe:   2 claims          <- 2 ticks, 2 claims, 2 runs. No duplicates.
+
+run journal:  1 run.spawned  2 subscription.registered
+              3 event.received  4 subscription.matched
+event_key = flows.tick:heartbeat-1m:1788519930000
+wake_context.open_steps = ["report-slot"]
+```
+
+The dedupe key matches the flow's declared `dedupeKeyTemplate` exactly, so a
+double-fire or a poller restart would be idempotent by construction.
+
+`parked` is CORRECT, not a failure: `report-slot` declares `executor:
+agent-worker` and no agent worker is attached. The remaining piece for a fully
+self-driving local loop is attaching a worker.
+
+So: **scheduled relayflows are firing autonomously on this machine**, entirely
+independent of the wedged cloud queue. Daemon + tick runner left running under
+/tmp/rf-local.
