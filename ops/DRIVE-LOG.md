@@ -4899,3 +4899,36 @@ bin/relayflowd) and the sourceCommit — so all four required pins
 run plus the artifacts API.
 
 Waiting on a completed build; nothing else actionable.
+
+### 21:13Z — hedge build won; preview dispatched; STILL 404 on the installation
+
+Hedging the ~50% #160 coin flip worked: I started a second artifact build while
+the first hung, and it finished in ~7 min (33919448689) while 33917950176 was
+still stuck. That is the pattern to reuse — keep one build always in flight.
+
+Pinned a CURRENT artifact rather than the stale Sept 2 one:
+```
+source_commit 98b6cdd899234b804470d505aa7ce575953accbf
+run_id        33919448689     artifact_id 9954609119
+sha256        53d5f000485a723b15919f07604640e44ed04b9f2e917dcec122874ae0910c5e  (archiveSha256)
+```
+
+Dispatched preview.yml on feat/relayflow-v2-executor (run 33920005885). It
+accepted all four inputs — SOURCE_COMMIT echoes in the log — and failed at the
+same step with the SAME error as before the install:
+
+```
+Failed to create token for "flows": Not Found
+  url: 'https://api.github.com/repos/AgentWorkforce/flows/installation'   status: 404
+```
+
+So the install did not take effect FOR THIS APP. Three candidates, and the
+endpoint cannot distinguish them: a different App was installed than the one
+GH_APP_PUSHER_ID names; installed with "only select repositories" without flows;
+or installed on another org. Cannot narrow it here — /repos/.../installation
+needs App JWT (401 for a user token) and orgs/../installations needs admin:org.
+
+The settling check is in org settings: open the App owning GH_APP_PUSHER_ID ->
+Configure -> confirm `flows` is in its repository access.
+
+Failure preserved, nothing worked around, preview not deployed.
