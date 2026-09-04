@@ -3755,3 +3755,4 @@ or backpressure from the wedged queue.
 
 Correcting this rather than leaving it because the earlier entry would have sent
 whoever debugs this at the scheduler, which is working.
+- 01:55Z quiet: both 4869ec51 (2h32m) and dcf4727d (32m) still pending, never placed. #154 open, main 3725025.
