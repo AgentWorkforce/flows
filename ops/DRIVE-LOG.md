@@ -4600,3 +4600,26 @@ carry #134's eight commits. Retargeted to `main`; now **MERGEABLE**.
 Lesson worth keeping: a PR stacked on a sibling branch keeps pointing at it
 after that branch merges, and the resulting conflict is an artifact of the base,
 not the code. I spent two separate sessions treating it as a code problem.
+### 18:35Z — #140 GREEN at 3198d18. Found a second real bug, via CI not me.
+
+Dispatched CI on the rebuilt branch. First run FAILED on a genuine type error:
+
+```
+src/flow.ts(67,27): TS2345: AuthoredFlowDefinition<Input> is not assignable to
+AuthoredFlowDefinition<unknown>
+```
+
+One WeakMap holds definitions for many input types; `body` puts Input in a
+PARAMETER position, so the type is invariant. Cast once at the storage boundary
+with the reason recorded inline.
+
+**My local run had masked it.** I ran `bun run build >/dev/null 2>&1 && echo
+"surface built"` — which prints success regardless of exit code — so a failing
+surface build looked green to me across two commits. Re-ran every gate with its
+exit code asserted. This is the same discipline I have been applying to other
+people's gates all night and skipped on my own.
+
+Second CI run: **completed/success**. surface 7, SDK 649, kernel 142, tsc clean.
+
+#140 is now MERGEABLE + green. Not merging it myself: I rebuilt it, and I
+dropped four of its tests.
