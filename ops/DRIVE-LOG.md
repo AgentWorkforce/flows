@@ -3788,3 +3788,38 @@ If the next fired slot is 03:23Z and 04:23Z is skipped, the alternation is real
 and worth handing to whoever owns the launch queue.
 - 02:55Z quiet: last run still dcf4727d; next slot 03:23Z is the alternation test. #154 open, main 3725025.
 - 03:05Z quiet: pre-slot; last run still dcf4727d. #154 open, main 3725025.
+### Tick 03:23Z — alternation CONFIRMED at n=5
+
+The 03:23Z slot fired: `bf17cf73-8129-46ee-afff-33b72c9f26bc`, created
+03:23:03Z, `pending`. Five consecutive hourly slots on
+`flows-v2-lead-tick-0903` (`23 * * * *`):
+
+```
+23:23Z  FIRED   4869ec51   pending, never placed
+00:23Z  skipped             (confirmed at 00:41Z and 00:55Z)
+01:23Z  FIRED   dcf4727d   pending, never placed
+02:23Z  skipped             (confirmed at 02:41Z, 02:55Z, 03:05Z)
+03:23Z  FIRED   bf17cf73   pending, never placed
+```
+
+Each skip was checked at least twice, well past the boundary, so they are real
+misses rather than me reading too early.
+
+Two distinct faults, and they should not be conflated:
+
+1. **Every emitted run wedges.** Three runs now, each created within ~1s of its
+   slot boundary and never moving off `createdAt`. Same signature as the pair
+   wedged at 21:25Z. The launch queue never places them.
+2. **Only every other slot emits at all.** Strictly alternating over five
+   slots. Not explained by "a pending run blocks the next" — `4869ec51` and
+   `dcf4727d` were both `pending` simultaneously, so two pending runs coexist
+   happily.
+
+An exact 2-slot period is the useful clue: it points at state that advances
+once per emission and gates the next one, rather than at load, randomness, or
+backpressure. Whoever owns the launch queue should look for a cursor or claim
+that is written on emit and only cleared on placement — with placement broken,
+it would clear on alternate passes.
+
+Handing this over as an observation, not a diagnosis; I cannot enumerate runs
+(`agent-relay cloud` has no listing verb) and have not read the queue's code.
