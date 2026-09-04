@@ -4132,3 +4132,15 @@ First lane PR to clear the full bar since CI became real.
 
 Remaining: #157 green but needs an independent signoff (spawn broken, and I
 cannot sign my own). #139 CI still pending. #144 still held.
+### 08:55Z — #139 hit the #160 hang; re-running. #157 held green on purpose.
+
+`#139 linux-x64-artifact fail 30m14s` — the #160 signature again, not a real
+red. Re-ran the failed job.
+
+Deliberate choice on **#157**: it is green at `77e2b9b` on base `4df6d94`, and
+main has since moved to `e9321d2` (#134). I did NOT rebase it. It is MERGEABLE
+as-is, and a rebase would throw away a genuinely green run for a fresh ~50%
+chance of a 30-minute hang. The only thing it needs is an independent signoff,
+which a rebase does not help.
+
+#144 still CONFLICTING, still held until its constituents land.
