@@ -42,29 +42,9 @@ jobs:
         working-directory: kernel
         run: cargo build --locked --release -p relayflowd
 
-      # The kernel suite had never run in CI. The only cargo invocation was the
-      # release build above, so every kernel-side defect was invisible here by
-      # construction -- including, on 2026-09-03, an exactly-once double-fire
-      # where one effect fired twice, a `$ref` cycle that aborted the daemon and
-      # re-ran the effect on every resume, and two tests in the tree encoding
-      # opposite contracts that both passed because neither was ever executed.
-      #
-      # The toolchain and the build are already paid for above; this adds the
-      # test run and nothing else.
-      #
-      # Plain `cargo`, NOT ops/cargo.sh. That wrapper unconditionally redirects
-      # RUSTUP_HOME to $HOME/.relayflows-toolchain/rustup, which on a runner is
-      # empty, so the rustup shim has nothing to choose:
-      #   error: rustup could not choose a version of cargo to run, because one
-      #   wasn't specified explicitly, and no default is configured
-      # The wrapper exists for a cloud sandbox, where the propagated tree drops
-      # files over a size cap; a GitHub runner has neither that constraint nor
-      # that tree, and dtolnay/rust-toolchain has already installed a default
-      # toolchain into the standard home. Matching the build step above is both
-      # simpler and the configuration that is known to work here.
       - name: Test kernel
         working-directory: kernel
-        run: cargo test --workspace
+        run: PATH="$HOME/.cargo/bin:$PATH" RUSTUP_TOOLCHAIN=stable sh ../ops/cargo.sh test --workspace
 
       - name: Build authoring surface
         working-directory: surface
@@ -78,54 +58,9 @@ jobs:
       - name: Install SDK dependencies
         run: npm ci --prefix sdk --ignore-scripts
 
-      - name: Test SDK and type-level authoring contracts
+      - name: Test SDK
         working-directory: sdk
-        env:
-          # `live-kernel.test.ts` runs one case against the REAL Claude analyzer
-          # and fails by default when it cannot, deliberately: an unavailable
-          # analyzer is diagnostics, never acceptance, and a reader must not get
-          # a green that proves nothing about gate 2.
-          #
-          # A GitHub runner is exactly the case the flag was written for -- it
-          # has no `claude` binary and no model access:
-          #   LIVE_ANALYZER_UNAVAILABLE: ... cannot run "claude": spawnSync claude ENOENT
-          # so without this the full SDK suite can never pass here, which is a
-          # defect in #153: it enabled the suite without giving CI a way to run
-          # it.
-          #
-          # Setting it is an explicit statement, not a convenience: **this
-          # workflow is not gate-2 acceptance evidence.** Gate-2 evidence has to
-          # come from a machine that can actually reach a model, and the skipped
-          # case says so in its own output. Everything else in the suite still
-          # runs and still gates.
-          RELAYFLOWS_ALLOW_ANALYZER_SKIP: '1'
-        run: |
-          # The whole suite, not four named files. Naming files means a test
-          # added to any other file never runs, which is how ~22 of ~26 SDK
-          # test files were uncovered.
-          #
-          # This is `npm test` expanded, minus test:prep. `npm test` is
-          # test:prep && typecheck && build && typecheck:tests && vitest run,
-          # and test:prep shells out to ops/cargo.sh -- which fails on a runner
-          # for the reason given on the kernel step above. Its only purpose is
-          # to produce the relayflowd binary that tests/live-kernel.test.ts
-          # execs, and this job has already built one: the release binary from
-          # the build step. Point RELAYFLOWD_BIN at it rather than compiling a
-          # second, debug copy through a wrapper that cannot run here.
-          #
-          # The build is still required: several test files fail at collection
-          # without sdk/dist, which is why a bare `vitest run` is not enough.
-          # test:prep's other half, kept: it re-asserts the executable bit on the
-          # preflight CLI fixtures. They are committed 100755 so actions/checkout
-          # already restores them, but the guard is one line and the failure it
-          # prevents is an opaque EACCES deep inside a preflight test.
-          ( [ ! -d ../testdata/preflight ] || \
-            find ../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )
-          npm run typecheck
-          npm run build
-          npm run typecheck:tests
-          RELAYFLOWD_BIN="$GITHUB_WORKSPACE/kernel/target/release/relayflowd" \
-            ./node_modules/.bin/vitest run
+        run: npm test
 
       - name: Build standalone flows CLI
         run: |
