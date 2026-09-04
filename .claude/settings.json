@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "mcp__relaycast__*"
+      "mcp__relaycast__*",
+      "mcp__agent-relay__*"
     ]
   }
 }
