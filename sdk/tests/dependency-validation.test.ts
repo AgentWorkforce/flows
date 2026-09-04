@@ -77,6 +77,8 @@ describe('dependency validation', () => {
     expect(validateSpec(flow)).toEqual({ ok: false, errors: [expected] });
     expect(preflight(flow, { probes })).toEqual({
       ok: false,
+      // A refused spec has no gate plan: nothing compiled, so nothing is judged.
+      gates: [],
       resolutions: [],
       diagnostics: [{
         severity: 'refusal',

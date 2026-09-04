@@ -2,6 +2,7 @@
 
 use std::{path::Path, sync::Arc};
 
+use relayflowd_core::SpecError;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
@@ -56,6 +57,14 @@ fn mutation_error(error: anyhow::Error) -> (&'static str, String) {
         .is_some()
     {
         ("run_terminal", error.to_string())
+    } else {
+        internal_error(error)
+    }
+}
+
+pub(super) fn run_start_error(error: anyhow::Error) -> (&'static str, String) {
+    if error.downcast_ref::<SpecError>().is_some() {
+        ("invalid_spec", format!("{error:#}"))
     } else {
         internal_error(error)
     }

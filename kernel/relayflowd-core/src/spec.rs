@@ -156,6 +156,14 @@ impl RunSpec {
                     }
                 }
             }
+            if let Some(schema) = &step.verification.json_schema {
+                crate::schema::validate_declaration(schema).map_err(|detail| {
+                    SpecError::InvalidJsonSchema {
+                        step: step.id.clone(),
+                        detail,
+                    }
+                })?;
+            }
             step.retry.validate(&step.id)?;
         }
 
@@ -583,6 +591,8 @@ pub enum SpecError {
     DuplicateStep(String),
     #[error("step {0} must allow at least one iteration")]
     ZeroIterations(String),
+    #[error("step {step} declares an invalid JSON Schema: {detail}")]
+    InvalidJsonSchema { step: String, detail: String },
     #[error("step {step} depends on unknown step {dependency}")]
     UnknownDependency { step: String, dependency: String },
     #[error("dependency cycle includes step {0}")]

@@ -5,10 +5,10 @@ import {
 } from '../src/failure-kinds.js';
 import {
   CliProbeError,
-  preflight,
   type CliProbeResult,
   type PreflightProbes,
 } from '../src/preflight.js';
+import { preflight } from '../src/index.js';
 import type { FlowSpec } from '../src/spec.js';
 import { compileSpec, toKernelSpec } from '../src/compile.js';
 
@@ -80,6 +80,41 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     });
     expect(result.diagnostics[0]?.message).toContain('unknown key "command"');
     expect(calls).toEqual([]);
+  });
+
+  // Same guarantee for gate data specifically: a callback gate, an unknown gate
+  // type, and an uncompilable schema each refuse with a named `invalid_spec`
+  // diagnostic, and nothing in the environment is touched first.
+  it('validates raw public input before any probe or gate inspection', () => {
+    let probeCount = 0;
+    const injected = probes({
+      command: () => { probeCount += 1; return true; },
+      cli: () => { probeCount += 1; return { exists: true, authenticated: true }; },
+    });
+    const candidate = (verification: unknown): FlowSpec => ({
+      version: '0.1.0',
+      steps: [{
+        id: 'raw',
+        type: 'deterministic',
+        command: 'printf ok',
+        verification,
+      } as FlowSpec['steps'][number]],
+    });
+
+    for (const verification of [
+      (value: unknown) => value,
+      { type: 'expression', expression: 'length < 200' },
+      { type: 'json_schema', schema: { type: 'definitely-not-a-json-schema-type' } },
+    ]) {
+      const result = preflight(candidate(verification), { probes: injected });
+      expect(result).toMatchObject({
+        ok: false,
+        gates: [],
+        resolutions: [],
+        diagnostics: [{ severity: 'refusal', kind: 'invalid_spec' }],
+      });
+    }
+    expect(probeCount).toBe(0);
   });
 
   it('resolves step, then flow, then project without guessing a platform default', () => {
@@ -297,6 +332,17 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), { probes: probes() }),
       preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), { probes: probes({ command: () => false }) }),
       preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), { probes: probes({ command: () => { throw new Error('raw secret'); } }) }),
+      // A declared gate that accepts every output is legal, and silence about
+      // it is exactly the covenant-2 silence this test forbids.
+      preflight(
+        flow({
+          id: 'a',
+          type: 'deterministic',
+          command: 'x',
+          verification: { type: 'json_schema', schema: true },
+        } as never),
+        { probes: probes() },
+      ),
     ];
     const warningKinds = scenarios.flatMap((result) => result.diagnostics)
       .filter((diagnostic) => diagnostic.severity === 'warning')

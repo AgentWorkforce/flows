@@ -168,6 +168,12 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
     io.stdout(JSON.stringify(report));
     return;
   }
+  for (const gate of report.gates) {
+    // A gate that accepts every output is legal, but it must not read like a
+    // gate that judges something.
+    const vacuous = gate.acceptsAnyOutput === true ? ' [json_schema accepts any output]' : '';
+    io.stdout(`GATE step "${gate.stepId}" ${gate.checks.join('+')} from data (kernel, journal-replayable)${vacuous}`);
+  }
   for (const resolution of report.resolutions) {
     const config = resolution.source === 'project' && report.projectConfigPath !== undefined
       ? ` (${report.projectConfigPath})`

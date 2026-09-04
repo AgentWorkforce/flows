@@ -27,14 +27,17 @@ import type {
   KernelVerificationSpec,
   LlmStepSpec,
   NamedAgentSpec,
+  OutputVerificationSpec,
   StepSpec,
   StepType,
   TriggerSpec,
+  VerificationSpec,
 } from './spec.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import { canonicalize, specHash } from './canonical.js';
 import { validateOutputDeclaration } from './output-schema.js';
 import { validateSpec, type ValidationResult } from './validate.js';
+import { snapshotJsonValue } from './json-value.js';
 
 export class CompileError extends Error {
   readonly errors: string[];
@@ -67,10 +70,18 @@ export function compileYamlToCanonicalJson(yaml: string): string {
  * normalized `FlowSpec`. Throws `CompileError` on validation failure.
  */
 export function compileSpec(spec: unknown): FlowSpec {
-  const validation: ValidationResult = validateSpec(spec);
+  let snapshot: unknown;
+  try {
+    snapshot = snapshotJsonValue(spec, 'spec');
+  } catch (error) {
+    throw new CompileError([
+      error instanceof Error ? error.message : 'spec: expected JSON-compatible data',
+    ]);
+  }
+  const validation: ValidationResult = validateSpec(snapshot);
   if (!validation.ok) throw new CompileError(validation.errors);
 
-  const input = spec as FlowSpec;
+  const input = snapshot as FlowSpec;
   // Preserve named declarations and selectors through authoring normalization.
   // They are resolved exactly once at the kernel boundary, after public
   // preflight has validated every declaration with truthful provenance.
@@ -97,20 +108,26 @@ function compileStep(step: StepSpec): StepSpec {
     id: step.id,
     type: step.type,
     ...(step.dependsOn !== undefined ? { dependsOn: step.dependsOn } : {}),
-    ...(verification !== undefined ? { verification } : {}),
     maxIterations,
   };
 
   switch (step.type as StepType) {
     case 'deterministic': {
       const s = step as DeterministicStepSpec;
-      // A deterministic step with no verification gets the implicit exit_code gate.
-      const verification = s.verification ?? { type: 'exit_code' as const };
+      // A deterministic step with no verification gets the implicit exit_code
+      // gate. Read the SHARED `verification`, never `s.verification`: for this
+      // verb the two are equal today (typedOutputVerification returns
+      // `step.verification` unchanged, because `output` is not authorable on a
+      // deterministic step), but reading the shared binding is what keeps every
+      // branch of this switch on the lowered gate rather than the raw authored
+      // one. See ops/reviews/20260903-pr139-repair-0903.md §10, trap 2.
       return {
         ...base,
         type: 'deterministic',
         command: s.command,
-        verification,
+        verification: verification ?? { type: 'exit_code' as const },
+        // #138: `timeoutMs` is deterministic-only — worker-backed verbs own
+        // their dispatch timeout. It must be spread HERE and nowhere in `base`.
         ...(s.timeoutMs !== undefined ? { timeoutMs: s.timeoutMs } : {}),
       };
     }
@@ -120,6 +137,10 @@ function compileStep(step: StepSpec): StepSpec {
         ...base,
         type: 'llm',
         prompt: s.prompt,
+        // From the shared `verification` — which may have been lowered from an
+        // `output` declaration — never from `s.verification`, which would drop
+        // that lowering.
+        ...(verification !== undefined ? { verification: outputGate(verification, s.id) } : {}),
         ...(s.model !== undefined ? { model: s.model } : {}),
         ...(s.cli !== undefined ? { cli: s.cli } : {}),
       };
@@ -131,6 +152,7 @@ function compileStep(step: StepSpec): StepSpec {
         ...base,
         type: 'agent',
         instruction: s.instruction,
+        ...(verification !== undefined ? { verification: outputGate(verification, s.id) } : {}),
         ...(s.agent !== undefined ? { agent: s.agent } : {}),
         ...(s.cli !== undefined ? { cli: s.cli } : {}),
         ...(s.model !== undefined ? { model: s.model } : {}),
@@ -143,6 +165,20 @@ function compileStep(step: StepSpec): StepSpec {
       // validateSpec already gated this; unreachable.
       throw new CompileError([`step "${step.id}": unknown type "${String((step as { type: unknown }).type)}"`]);
   }
+}
+
+/**
+ * Narrow a gate to the ones an `llm`/`agent` step may carry. `validateSpec`
+ * already refuses `exit_code` off a deterministic step, so this is the
+ * fail-closed backstop for a runtime value cast past the authoring types.
+ */
+function outputGate(gate: VerificationSpec, stepId: string): OutputVerificationSpec {
+  if (gate.type === 'exit_code') {
+    throw new CompileError([
+      `step "${stepId}": exit_code is supported only on deterministic steps`,
+    ]);
+  }
+  return gate;
 }
 
 function typedOutputVerification(step: StepSpec): StepSpec['verification'] {
@@ -195,21 +231,32 @@ const KERNEL_RETRY_DEFAULTS = {
  * sugar that the dialect cannot carry is a `CompileError`, never a silent drop.
  */
 export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
-  const validation = validateSpec(flow);
-  if (!validation.ok) throw new CompileError(validation.errors);
+  // This public boundary is callable without compileSpec. Compile again so
+  // runtime casts are validated and all returned schema data is snapshotted.
+  const compiled = compileSpec(flow);
+
   return {
-    version: flow.version,
-    ...(flow.name !== undefined ? { name: flow.name } : {}),
-    ...(flow.description !== undefined ? { description: flow.description } : {}),
-    ...(flow.cli !== undefined ? { cli: flow.cli } : {}),
-    ...(flow.triggers?.length ? { triggers: flow.triggers.map(toKernelTrigger) } : {}),
-    steps: flow.steps.map((step) => toKernelStep(resolveNamedAgent(step, flow.agents))),
-    ...(flow.budget !== undefined
+    version: compiled.version,
+    ...(compiled.name !== undefined ? { name: compiled.name } : {}),
+    ...(compiled.description !== undefined ? { description: compiled.description } : {}),
+    ...(compiled.cli !== undefined ? { cli: compiled.cli } : {}),
+    // Both halves are load-bearing, and this hunk is trap 2's shape a second
+    // time. `compiled.*` is #139's snapshot guard: this boundary is callable
+    // without compileSpec, so it recompiles and reads the validated, snapshotted
+    // spec rather than the caller's raw object. `.map(toKernelTrigger)` is
+    // #151's LOWERING of authoring trigger keys into the kernel dialect --
+    // authoring sugar that becomes a different object at the boundary, exactly
+    // like `output:`. Taking either side of this conflict wholesale silently
+    // reverts the other, and `validateSpec` and `flows check` would both still
+    // look correct. See ops/reviews/20260903-pr139-repair-0903.md section 10.
+    ...(compiled.triggers?.length ? { triggers: compiled.triggers.map(toKernelTrigger) } : {}),
+    steps: compiled.steps.map((step) => toKernelStep(resolveNamedAgent(step, compiled.agents))),
+    ...(compiled.budget !== undefined
       ? {
           budget: {
-            ...(flow.budget.maxTokensIn !== undefined ? { max_tokens_in: flow.budget.maxTokensIn } : {}),
-            ...(flow.budget.maxTokensOut !== undefined ? { max_tokens_out: flow.budget.maxTokensOut } : {}),
-            ...(flow.budget.maxDollars !== undefined ? { max_dollars: flow.budget.maxDollars } : {}),
+            ...(compiled.budget.maxTokensIn !== undefined ? { max_tokens_in: compiled.budget.maxTokensIn } : {}),
+            ...(compiled.budget.maxTokensOut !== undefined ? { max_tokens_out: compiled.budget.maxTokensOut } : {}),
+            ...(compiled.budget.maxDollars !== undefined ? { max_dollars: compiled.budget.maxDollars } : {}),
           },
         }
       : {}),
@@ -222,8 +269,16 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
  * Kernel-only values with no authoring representation are refused.
  */
 export function kernelToAuthoring(value: unknown): unknown {
+  let snapshot: unknown;
+  try {
+    snapshot = snapshotJsonValue(value, 'spec');
+  } catch (error) {
+    throw new CompileError([
+      error instanceof Error ? error.message : 'spec: expected JSON-compatible data',
+    ]);
+  }
   const root = requireKernelObject(
-    value,
+    snapshot,
     ['version', 'name', 'description', 'cli', 'triggers', 'steps', 'budget'],
     'spec',
   );
@@ -495,11 +550,14 @@ function toKernelVerification(step: StepSpec): KernelVerificationSpec {
     return { json_schema: output };
   }
   const gate = step.verification;
-  // No gate / explicit exit_code both compile to {}: exit_code == 0 is the
-  // kernel's implicit gate for deterministic steps (kernel DESIGN.md §4).
+  // Validation permits explicit exit_code only on deterministic steps, where
+  // {} selects the kernel's implicit exit_code == 0 gate (DESIGN.md §4).
   if (gate === undefined || gate.type === 'exit_code') return {};
   if (gate.type === 'output_contains') return { output_contains: gate.value };
-  return { json_schema: gate.schema };
+  if (gate.type === 'json_schema') return { json_schema: gate.schema };
+  throw new CompileError([
+    `step "${step.id}".verification.type: expected exit_code | output_contains | json_schema`,
+  ]);
 }
 
 /**
