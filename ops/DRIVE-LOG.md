@@ -3663,3 +3663,26 @@ head, no report yet. #154 still open. Nothing actionable; no work invented.
   Rates 4/10 (branch) vs 1/10 (main baseline) are NOT distinguishable at n=10
   — flagged so nobody reads them as #139 making it worse.
 - Queue still down (`4869ec51` unmoved from 23:23Z). #3270 unchanged.
+### Tick 03:25 — #157 self-audit found a real silent fallback
+
+Steps 1-4 all blocked (queue down, #3270 token, #134 needs nothing, #139 signed
+off). Two `fleet spawn` attempts for a #157 signoff both returned `Node not
+found` while `node status` said CONNECTED — the registration flake. Did not
+spawn a third.
+
+Could not certify my own PR, so attacked it instead. **One real bug found in
+my own code:** `loadTickState` did `skippedSlots: Array.isArray(x) ? x : []`,
+silently turning a malformed value into "no slots were skipped" — the exact
+claim the runner exists to make trustworthy, and the same silent-fallback shape
+it was written to prevent. Now fails closed. Mutation-verified with
+before/mutated/restored hashes; the 2 new tests fail on mutation and the
+restored hash matches. 20 → 22 tests. Head `e388a5e` → `9f512a8`.
+
+**A suspected bug that was not one:** negative `lastEmittedSlot` is accepted by
+the loader, but the catch-up bound catches it and fails loudly rather than
+emitting a million ticks. Recorded so the next reviewer doesn't re-flag it.
+
+Also probed with no findings: arg parsing (rejects `1e3`, `0x10`, `+5`, `01`,
+`Infinity`, `9007199254740993`), and the state loader's other refusal paths.
+
+#157 still needs an independent signoff at `9f512a8`.
