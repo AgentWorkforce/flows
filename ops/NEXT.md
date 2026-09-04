@@ -1,82 +1,125 @@
-# NEXT — work package for this tick
+# NEXT — gate 3: cloud review-swarm (first increment)
 
-**Scope:** Make CI run the suites it already has. CI task, `.github/` only.
+## Scope
 
-This run is pinned to **the CI coverage gap** and must not work on any other
-gate. It is a small change with an outsized effect, and it is the reason six of
-eight independent signoffs on 2026-09-03 found P0s in PRs that were green.
+**Track D: Cloud review-swarm redesign** — build `.github/workflows/review-swarm.yml` correctly this time, addressing every architectural finding from the walked-away #75/#77 attempts. Parallel to Track A (hn-monitor); different territory (`.github/` + `workflows/` — no overlap with `sdk/` work).
+
+This is gate 3 work as specified in ops/TARGET.md. The local review swarm (`workflows/review-swarm.yaml`) exists and works. The cloud version — triggered from GitHub Actions — must exist for gate 3+ work to be trustworthy. Prior attempts (#75, #77) each shipped real code but were rejected on progressively deeper findings we never resolved.
 
 ## Objective
 
-`.github/workflows/cloud-runtime-artifact.yml` is the repository's ONLY
-workflow. Verified on 2026-09-03:
+Build a working cloud review-swarm system that:
+1. Triggers on every PR without author whitelisting
+2. Launches the swarm using main's gate files (immutable gate)
+3. Fetches PR data on the GHA runner before cloud upload
+4. Posts verdict + transcripts back to the PR via sticky comments
+5. Fails the workflow if any lens rejects (merge gate)
 
-- The only cargo invocation is `cargo build --locked --release -p relayflowd`.
-  **`cargo test` appears nowhere.** The entire kernel suite — 130 tests — never
-  runs in CI.
-- Vitest runs exactly **four** files:
-  `typed-output`, `validate`, `spec-parity`, `deterministic-llm`. The other ~22
-  SDK test files never run.
+## Files in scope
 
-Every kernel-side defect found on 2026-09-03 was invisible to CI by
-construction: an exactly-once double-fire where one effect fired twice; a
-`$ref` cycle that aborted the daemon and re-ran the effect on every resume
-(4 executions of one logical step); and two tests in the tree that encoded
-**opposite** contracts and both passed, because neither ran.
-
-## What to do
-
-Add the missing coverage to `.github/workflows/cloud-runtime-artifact.yml`.
-The job already installs a Rust toolchain and builds the kernel, so the
-marginal cost of testing it is the test run itself.
-
-1. Run the kernel suite: `cargo test --workspace` from `kernel/`, using
-   `ops/cargo.sh` the way the repo does elsewhere.
-2. Run the whole SDK suite rather than four named files. Note `npm test` does
-   `test:prep && typecheck && build` first — a bare `vitest run` fails ~6 files
-   because `sdk/dist` does not exist. Use the repo's own script rather than
-   inventing an invocation.
-3. Keep the existing artifact build, verify and smoke steps working. Do not
-   restructure the workflow; add coverage.
-
-## Constraints
-
-- **`.github/` only.** Do not fix any test this newly exposes. If enabling the
-  suites turns CI red, that is the correct and expected outcome — report
-  exactly which tests fail and stop. A red CI that tells the truth is the
-  deliverable; a green CI that runs nothing is what we have.
-- Do not touch `kernel/`, `sdk/`, or `testdata/`.
-- Do not add a second workflow file.
+- `.github/workflows/review-swarm.yml` — NEW: GHA trigger workflow
+- `.github/workflows/scripts/swarm-prepare.sh` — NEW: fetches PR data on GHA runner
+- `.github/workflows/scripts/swarm-post.sh` — NEW: syncs, extracts verdict, posts to PR
+- `.github/workflows/scripts/swarm-verdict.sh` — NEW: shared verdict extraction logic
+- `workflows/review-swarm.yaml` — EDIT: refactor aggregate step to use shared verdict logic
+- `.gitignore` — EDIT: drop the `.review-target` mask
+- `README.md` — EDIT: document `RELAY_WORKSPACE_KEY` secret requirement
 
 ## Definition of done
 
-ALL of the following must hold:
+All nine requirements from ops/TARGET.md addressed:
 
-1. `.github/workflows/cloud-runtime-artifact.yml` runs `cargo test --workspace`
-   and the full SDK suite.
-2. You have run both suites LOCALLY and pasted the literal commands and their
-   output tails with test counts, so the change is grounded in what actually
-   passes rather than in what you expect CI to do.
-   - `cd kernel && PATH="$HOME/.cargo/bin:$PATH" RUSTUP_TOOLCHAIN=stable sh ../ops/cargo.sh test --workspace`
-   - `cd sdk && ./node_modules/.bin/vitest run` (after a build; `npx` hangs on
-     some hosts, use `./node_modules/.bin/`)
-3. If either suite is red locally, you STOP and report which tests fail with
-   their literal output. Do not fix them. Do not weaken the workflow to go
-   green.
-4. `sdk/tests/live-kernel.test.ts` needs a built `relayflowd`; if it cannot
-   collect in your sandbox, say so explicitly rather than reporting a pass that
-   excluded it.
-5. As your LAST action, run `git status --porcelain` and paste it.
+1. **Immutable gate**: `.github/workflows/review-swarm.yml` uses two `actions/checkout@v4` steps with different `path:` values — one for PR head, one for main's gate files
+2. **Unified verdict logic**: exists in ONE file (`scripts/swarm-verdict.sh`), sourced by both aggregate step AND swarm-post.sh
+3. **Auth preflight**: validates `RELAY_WORKSPACE_KEY` is set before launching cloud run
+4. **Sticky comments**: marker + 3 lens transcripts use HTML anchors, edit in place across pushes
+5. **No author whitelist**: all PRs reviewed (no `if: github.event.pull_request.user.login == ...`)
+6. **Cloud sandbox has no gh auth**: `swarm-prepare.sh` fetches PR diff + metadata on GHA runner, stages into `.review-target/{pr-number,pr.diff,pr.json}`, `git add -f` before cloud upload
+7. **Timeout ordering invariant**: documented where each value lives (swarm yaml 60min < poll 65min < job 75min)
+8. **Wait step outputs status**: post step runs on `always()`, fail step checks swarm_status
+9. **Transcript freshness check**: aggregate rejects stale transcripts (mtime older than sync start)
 
-## Why this and not a product change
+**Verification commands** (must pass):
 
-A sandbox cannot deliver — no git remote, no GitHub token — so its output is a
-patch a human applies. That makes a small, self-contained, high-leverage
-change the right shape for a tick. This one is three lines of intent, needs no
-product knowledge to review, and every future tick benefits from it.
+```bash
+# Syntax checks
+python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))"
+bash -n .github/workflows/scripts/swarm-prepare.sh
+bash -n .github/workflows/scripts/swarm-post.sh
+bash -n .github/workflows/scripts/swarm-verdict.sh
 
-The previous contents of this file described building `sdk/src/worker.ts`. That
-file exists and gate-2 workloads run against it; the package was complete and
-the file had not been updated. A tick that assesses against a finished work
-package burns a whole cycle, so treat a stale NEXT.md as a defect in its own
-right and say so in your assess step if you find one.
+# Author whitelist absent
+! grep -q "pull_request.user.login" .github/workflows/review-swarm.yml
+
+# Immutable gate: two checkout steps
+grep -c "actions/checkout@v4" .github/workflows/review-swarm.yml | grep -q "^2$"
+
+# .review-target not in .gitignore
+! grep -q "^\.review-target$" .gitignore
+
+# SDK tests still green (no cross-track damage)
+cd sdk && npm test
+```
+
+**As final action**: `git status --porcelain`
+
+## Out of scope
+
+- `sdk/` (Track A owns that)
+- `kernel/` (gate 1 done, no changes)
+- `ops/*` (chief owns briefs and state)
+- Any GHA workflow other than review-swarm.yml
+- Actually testing the workflow in CI (requires `RELAY_WORKSPACE_KEY` secret set, which is a human step)
+- Addressing findings from reviews not yet received (this is the first increment)
+
+## Implementation strategy
+
+Phase 1: Shared verdict logic foundation
+- Create `.github/workflows/scripts/swarm-verdict.sh` implementing the three verdict rules:
+  - Transcript selection sorts by FILENAME (`YYYYMMDD-HHMM` prefix), not mtime
+  - Verdict is LAST non-empty line's token, not whole-file grep
+  - `overall = ALL lenses PASSED, else FAILED` — fail-closed on MISSING/UNCLEAR/FAILED
+
+Phase 2: GHA runner-side preparation
+- Create `.github/workflows/scripts/swarm-prepare.sh` to fetch PR metadata via `gh` on GHA runner
+- Drop `.review-target` from `.gitignore` so staged files survive `git add -f`
+
+Phase 3: Post-swarm sync and comment logic
+- Create `.github/workflows/scripts/swarm-post.sh` to:
+  - Sync cloud run results back
+  - Source swarm-verdict.sh for verdict extraction
+  - Find or create sticky marker comment
+  - Find or update 3 sticky lens transcript comments
+  - Post verdict as sticky marker edit
+
+Phase 4: Main GHA workflow
+- Create `.github/workflows/review-swarm.yml` with:
+  - Two checkout steps (PR head + main's gate files)
+  - Auth secret preflight step
+  - Prepare step (run swarm-prepare.sh)
+  - Launch step (agent-relay cloud run)
+  - Wait step (with status output, always exits 0)
+  - Post step (if: always() && run_id != '')
+  - Fail step (if: swarm_status != 'completed')
+  - Documented timeout ordering
+
+Phase 5: Refactor existing swarm aggregate
+- Edit `workflows/review-swarm.yaml` aggregate step to source swarm-verdict.sh instead of duplicating logic
+
+Phase 6: Documentation
+- Add `RELAY_WORKSPACE_KEY` secret documentation to README.md with setup instructions
+
+## Risks and mitigations
+
+**Risk**: Verdict logic duplication despite shared script
+**Mitigation**: Single source of truth in swarm-verdict.sh, both callers source it
+
+**Risk**: Stale transcripts from prior run counted as fresh
+**Mitigation**: Requirement #9 — aggregate checks mtime, rejects if older than sync start
+
+**Risk**: Cloud sandbox can't post to PR
+**Mitigation**: Requirement #6 — all PR posting happens on GHA runner in post step, not in cloud
+
+**Risk**: Swarm rejection doesn't fail the workflow
+**Mitigation**: Requirement #8 — wait step records status, separate fail step gates merge
+
