@@ -471,6 +471,14 @@ steps:
       ok: true,
       path: passPath,
       projectConfigPath: configPath,
+      gates: [{
+        stepId: 'answer',
+        kind: 'data',
+        checks: ['completion'],
+        evaluator: 'kernel',
+        preflightable: true,
+        replayable: true,
+      }],
       resolutions: [{ stepId: 'answer', cli: './authenticated-cli', source: 'step' }],
       diagnostics: [],
     });
@@ -483,6 +491,14 @@ steps:
       ok: false,
       path: refusalPath,
       projectConfigPath: configPath,
+      gates: [{
+        stepId: 'answer',
+        kind: 'data',
+        checks: ['completion'],
+        evaluator: 'kernel',
+        preflightable: true,
+        replayable: true,
+      }],
       resolutions: [{ stepId: 'answer', cli: './missing-cli', source: 'step' }],
       diagnostics: [{
         severity: 'refusal',

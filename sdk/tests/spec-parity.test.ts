@@ -6,9 +6,9 @@ import {
   compileAndHash,
   compileYaml,
   compileYamlToCanonicalJson,
-  kernelToAuthoring,
   toKernelSpec,
 } from '../src/compile.js';
+import { canonicalize, kernelToAuthoring, specHash } from '../src/index.js';
 
 // The SDK half of the cross-boundary spec-parity gate. The shared fixture in
 // testdata/ pins one spec dialect at the SDK<->kernel seam: this test proves
@@ -93,6 +93,87 @@ describe('spec parity: one dialect at the SDK<->kernel boundary', () => {
     const kernel = toKernelSpec(compileYaml(fixture('tick-heartbeat.flow.yaml')));
     (kernel.triggers![0] as Record<string, unknown>)['schedule'] = '*/5 * * * *';
     expect(() => kernelToAuthoring(kernel)).toThrow('spec.triggers[0]');
+  });
+
+  it('refuses nested proxy data before executing any trap', () => {
+    const flow = compileYaml(fixture('hello-deterministic.flow.yaml'));
+    const kernel = toKernelSpec(flow);
+    let proxyTraps = 0;
+    kernel.steps = new Proxy(kernel.steps, {
+      getPrototypeOf(target) {
+        proxyTraps += 1;
+        return Reflect.getPrototypeOf(target);
+      },
+      ownKeys(target) {
+        proxyTraps += 1;
+        return Reflect.ownKeys(target);
+      },
+      getOwnPropertyDescriptor(target, key) {
+        proxyTraps += 1;
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+    });
+
+    expect(() => kernelToAuthoring(kernel)).toThrow(/proxy/i);
+    expect(proxyTraps).toBe(0);
+  });
+
+  // `canonicalize` and `specHash` are exported unknown-input helpers, so they
+  // carry the same snapshot guard as `validateSpec` and `kernelToAuthoring`.
+  // A signoff demonstrated the gap: a raw Proxy fired 10 traps and a plain
+  // getter was read twice per call, so two `canonicalize` calls on one object
+  // could disagree — and `specHash` would then stamp a spec nobody declared.
+  it('refuses a proxy at canonicalize and specHash before executing any trap', () => {
+    let proxyTraps = 0;
+    const handler = {
+      getPrototypeOf(target: object) {
+        proxyTraps += 1;
+        return Reflect.getPrototypeOf(target);
+      },
+      ownKeys(target: object) {
+        proxyTraps += 1;
+        return Reflect.ownKeys(target);
+      },
+      getOwnPropertyDescriptor(target: object, key: string | symbol) {
+        proxyTraps += 1;
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+      get(target: object, key: string | symbol, receiver: unknown) {
+        proxyTraps += 1;
+        return Reflect.get(target, key, receiver);
+      },
+    };
+
+    expect(() => canonicalize(new Proxy({ a: 1, b: 2 }, handler))).toThrow(/proxy/i);
+    expect(() => specHash(new Proxy({ a: 1, b: 2 }, handler))).toThrow(/proxy/i);
+    expect(proxyTraps).toBe(0);
+  });
+
+  it('refuses a getter at canonicalize and never reads it', () => {
+    let getterReads = 0;
+    const build = (): Record<string, unknown> => {
+      const object = {};
+      Object.defineProperty(object, 'k', {
+        enumerable: true,
+        configurable: true,
+        get() {
+          getterReads += 1;
+          return getterReads;
+        },
+      });
+      return object as Record<string, unknown>;
+    };
+
+    expect(() => canonicalize(build())).toThrow(/accessors are not allowed/);
+    expect(() => specHash(build())).toThrow(/accessors are not allowed/);
+    expect(getterReads).toBe(0);
+  });
+
+  it('canonicalizes inert data identically on every call', () => {
+    const value = { b: 2, a: 1, c: [3, { z: 1, y: 2 }] };
+    expect(canonicalize(value)).toBe('{"a":1,"b":2,"c":[3,{"y":2,"z":1}]}');
+    expect(canonicalize(value)).toBe(canonicalize(value));
+    expect(specHash(value)).toBe(specHash(value));
   });
 
   it('round-trips flow, trigger, and step CLI declarations', () => {

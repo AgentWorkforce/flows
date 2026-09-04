@@ -233,6 +233,8 @@ describe('closed per-verb step fields', () => {
     });
     expect(result).toEqual({
       ok: false,
+      // A refused spec has no gate plan: nothing compiled, so nothing is judged.
+      gates: [],
       resolutions: [],
       diagnostics: [{
         severity: 'refusal',
@@ -295,6 +297,8 @@ describe('closed per-verb step fields', () => {
 
     expect(result).toEqual({
       ok: false,
+      // A refused spec has no gate plan: nothing compiled, so nothing is judged.
+      gates: [],
       resolutions: [],
       diagnostics: [{
         severity: 'refusal',

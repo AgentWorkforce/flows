@@ -1,9 +1,10 @@
 import type { FlowSpec, StepSpec, TriggerSpec } from './spec.js';
+import { acceptsAnyOutput, inspectStepGate, type StepGateInspection } from './gate-contract.js';
+import { compileSpec, CompileError } from './compile.js';
 import type {
   PreflightFailureKind,
   PreflightWarningKind,
 } from './failure-kinds.js';
-import { validateSpec } from './validate.js';
 
 export type CliResolutionSource = 'step' | 'named' | 'flow' | 'project';
 
@@ -94,21 +95,35 @@ export type PreflightDiagnostic = PreflightRefusal | PreflightWarning;
 
 export interface PreflightResult {
   ok: boolean;
+  gates: StepGateInspection[];
   resolutions: CliResolution[];
   diagnostics: PreflightDiagnostic[];
 }
 
 export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightResult {
-  const validation = validateSpec(flow);
-  if (!validation.ok) {
+  // Compile before touching any environment fact. `compileSpec` snapshots raw
+  // input into inert data, validates it against the closed authoring schema,
+  // and lowers `output` sugar into its json_schema gate — so the gate plan
+  // below describes what the kernel will actually judge, and no probe or gate
+  // inspection ever reads a live accessor. The failure is a named refusal
+  // rather than a thrown error (RFC covenant 2), which is the contract main
+  // settled for this boundary.
+  let compiled: FlowSpec;
+  try {
+    compiled = compileSpec(flow);
+  } catch (error) {
+    const errors = error instanceof CompileError
+      ? error.errors
+      : [error instanceof Error ? error.message : 'spec: expected JSON-compatible data'];
     return {
       ok: false,
+      gates: [],
       resolutions: [],
       diagnostics: [{
         severity: 'refusal',
         kind: 'invalid_spec',
-        message: `Relayflow spec is invalid: ${validation.errors.join('; ')}`,
-        errors: validation.errors,
+        message: `Relayflow spec is invalid: ${errors.join('; ')}`,
+        errors,
       }],
     };
   }
@@ -117,13 +132,13 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
   const resolutionByStep = new Map<string, CliResolution>();
   const cliProbeResults = new Map<string, CliProbeOutcome>();
 
-  diagnostics.push(...unknownModelDiagnostics(flow, options));
+  diagnostics.push(...unknownModelDiagnostics(compiled, options));
   // Resolve the complete flow before touching any environment fact. A later
   // statically unresolved CLI makes the whole submission impossible, so no
   // earlier command, provider/model, or trigger probe may run first.
-  for (const step of flow.steps) {
+  for (const step of compiled.steps) {
     if (step.type === 'deterministic') continue;
-    const resolution = resolveCli(step, flow, options.projectCli);
+    const resolution = resolveCli(step, compiled, options.projectCli);
     if (resolution === undefined) {
       diagnostics.push({
         severity: 'refusal',
@@ -136,21 +151,25 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
       resolutionByStep.set(step.id, resolution);
     }
   }
-  if (diagnostics.length > 0) return { ok: false, resolutions, diagnostics };
+  if (diagnostics.length > 0) {
+    return { ok: false, gates: compiled.steps.map(inspectStepGate), resolutions, diagnostics };
+  }
 
-  for (const step of flow.steps) {
+  for (const step of compiled.steps) {
+    warnOnVacuousGate(step, diagnostics);
     warnOnUnprovableEffects(step, options.probes, diagnostics);
     if (step.type === 'deterministic') continue;
     const resolution = resolutionByStep.get(step.id)!;
     probeResolvedCli(resolution, options.probes, cliProbeResults, diagnostics);
   }
 
-  for (const trigger of flow.triggers ?? []) {
+  for (const trigger of compiled.triggers ?? []) {
     probeTrigger(trigger, options.probes, diagnostics);
   }
 
   return {
     ok: !diagnostics.some((diagnostic) => diagnostic.severity === 'refusal'),
+    gates: compiled.steps.map(inspectStepGate),
     resolutions,
     diagnostics,
   };
@@ -373,6 +392,23 @@ function probeTrigger(
  * containing `/` names a path rather than relying on shell resolution, so a
  * failed existence probe refuses the flow.
  */
+/**
+ * A declared `json_schema` gate that accepts every output is legal and stays
+ * legal — but it is indistinguishable in the gate plan from one that judges
+ * something, which is exactly the confusion AGENTS.md's "never edit a gate that
+ * judges your own work" rail exists to prevent.
+ */
+function warnOnVacuousGate(step: StepSpec, diagnostics: PreflightDiagnostic[]): void {
+  if (step.verification?.type !== 'json_schema') return;
+  if (!acceptsAnyOutput(step.verification.schema)) return;
+  diagnostics.push({
+    severity: 'warning',
+    kind: 'vacuous_gate',
+    stepId: step.id,
+    message: `Step "${step.id}" declares a json_schema gate that accepts every possible output, so it judges nothing.`,
+  });
+}
+
 function warnOnUnprovableEffects(
   step: StepSpec,
   probes: PreflightProbes,

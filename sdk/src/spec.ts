@@ -40,10 +40,11 @@ export interface OutputContainsGate {
 /** Step output validates against a JSON Schema. Used for `llm` structured output. */
 export interface JsonSchemaGate {
   type: 'json_schema';
-  schema: Record<string, unknown>;
+  schema: boolean | Record<string, unknown>;
 }
 
 export type VerificationSpec = ExitCodeGate | OutputContainsGate | JsonSchemaGate;
+export type OutputVerificationSpec = OutputContainsGate | JsonSchemaGate;
 
 /**
  * Agent-step recovery modes (RFC Appendix A rule 4). Default is `reset`.
@@ -100,8 +101,6 @@ export interface BaseStepSpec {
   type: StepType;
   /** Step dependencies — a step runs only after these complete. */
   dependsOn?: string[];
-  /** Verification gate. Omit on a deterministic step to get the implicit `exit_code` gate. */
-  verification?: VerificationSpec;
   /** Semantic retry bound (kernel DESIGN.md §1.2 `max_iterations`). Default 1. */
   maxIterations?: number;
 }
@@ -116,6 +115,8 @@ export interface DeterministicStepSpec extends BaseStepSpec {
   command: string;
   /** Wall-clock command timeout; worker-backed verbs own their dispatch timeout. */
   timeoutMs?: number;
+  /** Omit to get the implicit `exit_code` gate. */
+  verification?: VerificationSpec;
 }
 
 /**
@@ -126,6 +127,7 @@ export interface DeterministicStepSpec extends BaseStepSpec {
 export interface LlmStepSpec extends BaseStepSpec {
   type: 'llm';
   prompt: string;
+  verification?: OutputVerificationSpec;
   model?: string;
   /** Inert preflight declaration; overrides the flow/project CLI default. */
   cli?: string;
@@ -145,6 +147,7 @@ export interface LlmStepSpec extends BaseStepSpec {
 export interface AgentStepSpec extends BaseStepSpec {
   type: 'agent';
   instruction: string;
+  verification?: OutputVerificationSpec;
   /** Named authoring declaration selected from `FlowSpec.agents`. Compiled away. */
   agent?: string;
   /** Inert preflight declaration; overrides the flow/project CLI default. */
@@ -265,7 +268,7 @@ export interface KernelRetryPolicy {
  */
 export interface KernelVerificationSpec {
   output_contains?: string;
-  json_schema?: Record<string, unknown>;
+  json_schema?: boolean | Record<string, unknown>;
 }
 
 export interface KernelStepCommon {

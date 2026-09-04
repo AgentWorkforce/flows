@@ -58,7 +58,10 @@ No process runs between events: the handler wakes, executes to its next await, p
 ## 2. The semantic laws
 
 1. **Three step verbs** — `run` / `llm` / `agent` — one per rung of the ladder. Four resident verbs — `on` / `human` / `dispatch` / `done`. The kernel vocabulary stops there.
-2. **Gates are postfix on the step they guard.** Never a separate machinery block.
+2. **Gates are postfix on the step they guard.** Never a separate machinery
+   block. A named data gate lowers to the guarded step's existing kernel
+   `verification`; an author callback remains TypeScript runtime code. The
+   distinction is explicit in the gate contract below.
 3. **Helpers, not primitives.** Authors never see mount paths, tokens, or protocol frames. Named helpers wrap every substrate:
    - `f.slack` / `f.github` / `f.linear` / … — **generated from the relayfile adapters** (50 providers → 50 namespaces for free), each verb compiling to a mount write. The receipt a helper returns *is* the journaled effect record (RFC Appendix A), so exactly-once dedup rides along invisibly.
    - `f.memory` — relayhistory: `f.memory.recall(query)`, `f.memory.why(task)`, `f.memory.learn(finding)`.
@@ -333,8 +336,71 @@ typed `run_not_found` refusal. A dropped connection, request failure, or
 journal may already have changed and the CLI cannot honestly claim the resume
 was refused before a write.
 
-## 6. Open surface questions (for gate-1 SDK work)
+## 6. The gate contract, and remaining open surface questions
 
-- `gate:` in YAML: tiny expression language (`length < 200`) vs named checks only. Leaning: a deliberately small expression grammar + named checks for everything else.
+The data/code split is settled: Relayflows does not have a serializable
+expression language. YAML keeps the existing `verification:` spelling and may
+name only checks that lower to the closed kernel fields available today:
+`exit_code`, `output_contains`, and `json_schema`. `flows check` validates that
+data—including compiling JSON Schema declarations with the kernel's supported
+drafts—and prints the exact kernel checks for each step. "Preflightable" means
+the declaration and its parameters are inspectable before execution; it does
+not mean preflight can predict an output that does not exist yet.
+
+`exit_code` applies only to deterministic steps; placing it on an `llm` or
+`agent` step is invalid rather than an empty verification. JSON Schema
+declarations accept both object and boolean schemas, matching the kernel. The
+compiler snapshots and freezes authoring data before validation so accessors,
+callbacks, proxies, `toJSON`, and other runtime behavior cannot change what the
+journal serializes. Explicitly `undefined` object optionals are omitted, as in
+JSON serialization and the v1 compiler; unsafe array values remain invalid.
+The public preflight boundary performs that same compilation first and refuses
+invalid raw input before running probes.
+Exported unknown-input helpers follow the same rule: `validateSpec` reports a
+failed validation without executing proxy traps or throwing,
+`kernelToAuthoring` rejects non-inert kernel values before inspecting them, and
+`canonicalize`/`specHash` snapshot before serializing — an identity computed
+from a value that could change between two reads is not an identity.
+
+A declaration is legal only if compiling it succeeds **and** validating with it
+is guaranteed to terminate. A schema whose `$ref` graph cycles through only
+in-place applicators (`$ref`, `allOf`, `anyOf`, `oneOf`, `not`, `if`/`then`/
+`else`, `dependentSchemas`) re-applies to the same instance forever; it
+compiles cleanly and then recurses without bound at verification time, which in
+Rust aborts the process rather than raising anything catchable. Both sides
+therefore refuse such a declaration up front with a named `unbounded $ref
+cycle` error — before a journal exists and before the step's command runs.
+Cycles that pass through a child applicator (`properties`, `items`,
+`prefixItems`, ...) consume one level of the instance per step, so ordinary
+recursive schemas stay legal. `kernel/relayflowd-core/src/schema.rs` and
+`sdk/src/json-schema-bound.ts` implement the same rule and are pinned to the
+shared corpus in `testdata/json-schema-bound-cases.json`, so the kernel and the
+SDK agree on which schemas are legal by construction. `verify` compiles through
+the same gate, so a journal written before the bound existed fails its gate with
+a verdict instead of taking the daemon down on every resume.
+
+`schema: {}` and `schema: true` remain legal and remain accepted — but they
+accept every possible output, so `flows check` marks the gate line
+`[json_schema accepts any output]` and preflight emits a `vacuous_gate`
+warning. A gate that judges nothing must not read like one that judges
+something.
+
+The kernel evaluates those checks. `run.spawned` carries the compiled
+verification data and `step.completed.verification` carries its verdict, so
+resume and time travel replay the journaled result rather than re-running an
+author predicate. The v1 `verification:` shape remains supported and compiles
+to the same kernel fields; no kernel verb or verification field is added by
+this decision.
+
+TypeScript may additionally accept a callback such as
+`.gate(value => value.length < 200, "keep the summary short")`. That callback
+is author code: `flows check` cannot prove it, YAML cannot serialize it, and
+the journal cannot replay the closure. A TypeScript runtime must execute it as
+runtime control flow and journal the resulting step outcome before dependents
+continue. It must never stringify the function into a spec or silently label
+it preflightable. Authors who need portable, inspectable gates use a named data
+check; plugins may contribute named checks only by compiling them to existing
+kernel primitives.
+
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.
