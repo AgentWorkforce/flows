@@ -5014,3 +5014,4 @@ to reproduce.
 #168 artifact check re-running; `review` still FAILURE on the missing secret.
 - 22:05Z quiet: #168's artifact check hung on #160 again (Test kernel 19m, cancels ~22:16) — 7th cancellation. #3270 still blocked on the App installation 404. #168 MERGEABLE but cannot get a green run; its `review` check is red on the missing RELAY_WORKSPACE_KEY.
 - 22:33Z: #168's check cancelled at 30m (7th #160 cancellation confirmed), re-run dispatched and in progress. #3270 unchanged. Nothing else actionable.
+- 22:41Z quiet: #168 re-run 15m into Test kernel, tracking toward an 8th #160 cancellation (~22:56). #3270 unchanged. Nothing actionable.
