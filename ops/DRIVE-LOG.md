@@ -4088,3 +4088,25 @@ Remaining risk is #160 at roughly 50% per run — a hit costs 30 min and skips t
 SDK suite entirely, so expect to re-run rather than to read a red as real.
 
 Cloud queue unchanged; #3270 still needs Khaliq's alternative solution.
+### 08:30Z — #157 IS GREEN. First fully passing CI run of the night.
+
+```
+#157  linux-x64-artifact  pass  6m54s   <- full kernel + full SDK suite
+```
+
+The CI chain works end to end: #154 (toolchain) + #158 (#155 race) + #159
+(analyzer gate) together produce a green run that actually executes both suites.
+That is the thing #153 set out to do, four defects later.
+
+**#157 is now merge-ready except for one thing: an independent signoff.** It has
+only my self-audit, and I wrote the PR. Spawn attempt failed again with
+`Node not found` (third time tonight; node status reports CONNECTED). Not
+retried per the rule.
+
+**#134 failed, and I could not attribute it.** `cli-hn-monitor.test.ts >
+terminates (exit 1) when the worker emits an error asynchronously`, `expected +0
+to be 1` — a classic exit-code race. Locally 16/16 pass, 3/3 runs. #157's run
+passed the same test. One CI failure is not enough to call it #134's bug or a
+flake, so I re-ran #134's CI rather than guess. #156 also fired in that run.
+
+#139 still pending (started 08:19Z).
