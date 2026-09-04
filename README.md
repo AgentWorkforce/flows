@@ -31,3 +31,10 @@ Nine gates, in `docs/RFC-0001` §3. Gate 1 first: a relayflow can run — the he
 ladder survives `kill -9` at every boundary.
 
 Private while we build. YC 2026-09-15 runs on this base.
+
+## Cloud review swarm
+
+Every pull request launches the cloud review swarm. Repository administrators
+must configure an Actions secret named `RELAY_WORKSPACE_KEY` with a workspace
+key obtained using `agent-relay workspace key --reveal-secrets`. The workflow
+fails during preflight, before submitting a run, when the secret is absent.
