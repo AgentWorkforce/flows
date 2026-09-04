@@ -4228,3 +4228,28 @@ call, not a mechanical rebase.
 
 Lane: everything merged except #157 (green, needs a signoff I cannot produce)
 and #144 (superseded).
+### 10:05Z — #160 root cause completed: it needs PARALLEL execution, and serialising costs ~1s
+
+Decisive, same container / commit / binary:
+
+```
+--test-threads=1  ->  PASS in 39s, 34 passed 0 failed
+default parallel  ->  rc=124 after 399s, rung_c_sigkill "running for over 60 seconds"
+```
+
+So the hang is not "Linux" and not that test alone — it requires tests running
+CONCURRENTLY in one process. That fits both artefacts from the live hang: a
+`relayflowd serve` reparented to init (`ppid=1`), and a socket inode held twice
+by the test process and by neither daemon, so the read could never return or
+even EOF.
+
+**Serialising costs ~1 second.** Healthy parallel run is 38s; sequential 39s —
+these tests wait on daemons and sockets, not CPU. Against a status quo where
+~50% of runs burn 30 minutes, get cancelled, and SKIP the entire SDK suite.
+
+Posted the mitigation (`--test-threads=1` on the kernel step) to #160 but did
+NOT open the PR: Khaliq asked me to chase the root cause rather than patch
+around it, and serialising is precisely patching around it. It is a one-line
+change on request.
+
+That completes the answer to his "3. chase root cause".
