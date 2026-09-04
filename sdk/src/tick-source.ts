@@ -226,6 +226,28 @@ function requireNonNegativeInteger(value: number, field: string): void {
 }
 
 /**
+ * Every bounds check `emitDueTicks` applies, in one exported place.
+ *
+ * `emitDueTicks` calls this; it is not a second copy of the rules. A runner
+ * that accepts a schedule from an operator (`sdk/src/cli/tick-runner.ts`) has
+ * to refuse a bad grid at DECLARATION rather than at the first poll — a
+ * runner that connects, attaches a worker and only then discovers that
+ * `--interval-ms` was `1.5` has already told the operator it started. Sharing
+ * this function rather than re-deriving the rules is what keeps the CLI's
+ * refusal and the emit path's refusal from drifting apart: a bound added here
+ * is enforced at both ends by construction.
+ */
+export function assertTickScheduleValid(schedule: TickSchedule, nowMs: number): void {
+  requirePositiveInteger(schedule.intervalMs, 'intervalMs');
+  requirePositiveInteger(schedule.maxCatchUp ?? DEFAULT_MAX_CATCH_UP, 'maxCatchUp');
+  requireNonNegativeInteger(schedule.epochMs ?? 0, 'epochMs');
+  requireNonNegativeInteger(nowMs, 'nowMs');
+  if (schedule.scheduleId === '') {
+    throw new Error('tick schedule: scheduleId must be a non-empty string');
+  }
+}
+
+/**
  * Submit a `flows.tick` event for every slot that has come due since the cursor
  * last advanced, and move the cursor.
  *
@@ -242,14 +264,8 @@ export async function emitDueTicks(
   options: { schedule: TickSchedule; cursor: TickCursor; nowMs: number },
 ): Promise<TickEmitResult> {
   const { schedule, cursor, nowMs } = options;
-  requirePositiveInteger(schedule.intervalMs, 'intervalMs');
+  assertTickScheduleValid(schedule, nowMs);
   const maxCatchUp = schedule.maxCatchUp ?? DEFAULT_MAX_CATCH_UP;
-  requirePositiveInteger(maxCatchUp, 'maxCatchUp');
-  requireNonNegativeInteger(schedule.epochMs ?? 0, 'epochMs');
-  requireNonNegativeInteger(nowMs, 'nowMs');
-  if (schedule.scheduleId === '') {
-    throw new Error('tick schedule: scheduleId must be a non-empty string');
-  }
 
   const currentSlot = slotFor(schedule, nowMs);
   const firstDue = cursor.lastEmittedSlot === undefined
