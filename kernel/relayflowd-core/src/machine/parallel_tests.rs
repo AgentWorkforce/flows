@@ -248,11 +248,32 @@ fn overlapping_agent_surfaces_are_serialized_in_authored_order() {
     let mut recovering_entries = entries.clone();
     recovering_entries.extend(appended_entries(&recovery_actions(&running, 12)));
     let recovering = RunState::fold("run", spec.clone(), &recovering_entries).unwrap();
+    // The invariant is that the sibling does not pass the unfinished lane. It
+    // used to be spelled "every action is an ArmTimer", which held only because
+    // a dead leased attempt served a retry delay there was a timer to arm for.
+    // Recovery no longer imposes that delay (see `abandonment_actions`), so the
+    // lane is due at once and the pass wakes it instead of sleeping. Assert the
+    // invariant itself rather than the mechanism, which is strictly stronger:
+    // no action may start the conflicting sibling, whether or not a timer is
+    // involved.
+    let recovering_actions = next_actions(&recovering, 12);
     assert!(
-        next_actions(&recovering, 12)
-            .iter()
-            .all(|action| matches!(action, Action::ArmTimer { .. })),
-        "the conflicting sibling must not pass an unfinished lane in retry backoff"
+        !recovering_actions.iter().any(|action| matches!(
+            action,
+            Action::Append(entry)
+                if entry.entry_type == EntryType::StepAttemptStarted
+                    && entry.step_id.as_deref() == Some("lane-a")
+        )),
+        "the conflicting sibling must not pass an unfinished lane being recovered"
+    );
+    assert!(
+        recovering_actions.iter().any(|action| matches!(
+            action,
+            Action::Append(entry)
+                if entry.entry_type == EntryType::WaitCompleted
+                    && entry.step_id.as_deref() == Some("lane-b")
+        )),
+        "the recovered lane must be woken before any sibling is considered"
     );
 
     entries.push(agent_success(&spec, "lane-b", "rB", 12));
@@ -432,3 +453,4 @@ fn failed_run_drains_open_siblings_before_terminal_entry() {
         Err(StateError::EntryAfterRunCompleted { .. })
     ));
 }
+
