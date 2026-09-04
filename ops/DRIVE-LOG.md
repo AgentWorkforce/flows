@@ -4253,3 +4253,4 @@ around it, and serialising is precisely patching around it. It is a one-line
 change on request.
 
 That completes the answer to his "3. chase root cause".
+- 10:23Z quiet: all four tick items done or blocked. #134/#139 merged; cloud wedged (6 runs, 1b798c58 still pending); #3270 awaiting Khaliq's alternative; #157 green but needs a signoff I cannot produce. main f1314b1.
