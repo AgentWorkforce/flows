@@ -64,7 +64,14 @@ export function flow<Input = unknown>(
     body: flowBody,
   });
   const handle: FlowHandle = Object.freeze({ name });
-  definitions.set(handle, definition);
+  // One map holds definitions of many input types, so it is stored at the
+  // default parameterisation and `getFlowDefinition<Input>` re-parameterises on
+  // the way out. The cast is needed because `body` puts `Input` in a parameter
+  // position, making the type invariant: `AuthoredFlowDefinition<Input>` is not
+  // assignable to `AuthoredFlowDefinition<unknown>` even though every read
+  // recovers the author's own type. Sound here because the handle-to-definition
+  // pairing is 1:1 and both sides are keyed by the same authored flow.
+  definitions.set(handle, definition as AuthoredFlowDefinition);
   return handle;
 }
 
