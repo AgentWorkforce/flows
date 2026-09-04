@@ -3944,3 +3944,31 @@ cause.
 
 Re-ran #158's job to separate "deterministic" from "flake". **#158 must not
 merge until that answers**, notwithstanding the confirmed worker_capacity pass.
+### 07:15Z — hang was a FLAKE; new #153 defect found and fixed (#159)
+
+**#158 rerun: kernel step PASSED.** No hang, and
+`worker_capacity::default_capacity_one_... ok` — the #155 fix confirmed on the
+runner. So the 30-minute `rung_c_sigkill` hang did NOT reproduce: flaky, not
+deterministic. My "branch-specific" claim to #139 was wrong twice over and is
+corrected there.
+
+**New defect, mine.** The rerun got far enough to reach the SDK step and hit:
+
+```
+LIVE_ANALYZER_UNAVAILABLE: analyze-story-claude-cli ... cannot run "claude":
+  spawnSync claude ENOENT — gate-2 acceptance requires the real analyzer
+```
+
+`live-kernel.test.ts` runs one case against the REAL Claude analyzer and fails
+by default when it cannot — deliberate, so nobody gets "a green that proves
+nothing about gate 2". A runner has no `claude` binary, so the step could never
+pass. #153 enabled the suite without giving CI a way to run it.
+
+**#159** sets `RELAYFLOWS_ALLOW_ANALYZER_SKIP=1`, the hatch the test itself
+documents, with the reasoning in the workflow: this workflow is NOT gate-2
+acceptance evidence; that must come from a machine that can reach a model.
+
+Three of my own defects in the CI chain now: #153→#154 (rustup), #155→#158
+(real race the suites caught), and this one→#159.
+
+Also fired again: #156 flake. Not addressed.
