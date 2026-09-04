@@ -5015,3 +5015,25 @@ to reproduce.
 - 22:05Z quiet: #168's artifact check hung on #160 again (Test kernel 19m, cancels ~22:16) — 7th cancellation. #3270 still blocked on the App installation 404. #168 MERGEABLE but cannot get a green run; its `review` check is red on the missing RELAY_WORKSPACE_KEY.
 - 22:33Z: #168's check cancelled at 30m (7th #160 cancellation confirmed), re-run dispatched and in progress. #3270 unchanged. Nothing else actionable.
 - 22:41Z quiet: #168 re-run 15m into Test kernel, tracking toward an 8th #160 cancellation (~22:56). #3270 unchanged. Nothing actionable.
+
+### 22:55Z — 8th #160 cancellation. Pausing re-runs on #168.
+
+`Test kernel` hung again; cancelled at the 30-minute limit. Tally across the
+night: #139 x1, #158 x1, #159 x1, #140 x2, original find x1, #168 x2 = **8
+cancellations, ~4 hours of CI wall clock**.
+
+Stopped re-running. Two attempts on this PR is enough to establish the pattern;
+more would be retry-spam against a known coin flip, which the rules warn against
+and which produces no new information.
+
+The change is verified independently: kernel 143 passed 0 failed locally, and
+the new test is mutation-bound (2103ddba -> 8d1caf75 fails it; restored hash
+matches). Only the demonstration through CI is blocked, not the content.
+
+#168 also carries a second unrelated red: `review` FAILURE from #164's workflow,
+missing RELAY_WORKSPACE_KEY. I merged that knowing the cost and flagged it then;
+it is now concrete on a real PR.
+
+Recorded on the PR that #160 is the blocker and that the measured one-line
+mitigation remains on hold by Khaliq's explicit decision. Not relitigating —
+recording the consequence so the tradeoff stays visible.
