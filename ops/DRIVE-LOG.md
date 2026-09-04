@@ -4677,3 +4677,24 @@ failed.
 NOT MERGED: merging cloud push-deploys, and this PR's entire purpose — the live
 v2 execution proof — has still never run. It needs the GH_APP_PUSHER
 installation on AgentWorkforce/flows.
+### 19:16Z — CORRECTION: #140's PR check was never green
+
+I reported "#140's CI is green at 3198d18". That was a **workflow_dispatch run on
+the branch** (33906312507). The PR's own `pull_request` check
+(33906309609) was **CANCELLED** — superseded the moment I dispatched the manual
+run. So the PR-level status was never green and I stated it as if it were.
+
+The distinction matters: a dispatch run tests the branch head; the PR check tests
+the merge of head into base. They are not interchangeable evidence, and only the
+second is what a reviewer sees.
+
+Re-ran the PR check. In progress 10+ minutes at time of writing, against a
+healthy ~7 minutes — possibly #160's hang (~50%, burns 30 min). Confirm next
+tick.
+
+Also tried to probe whether the GH_APP_PUSHER install had landed via
+`gh api repos/AgentWorkforce/flows/installation`; that endpoint needs App JWT
+auth, not a user token (401). No way to check from here — the real signal is
+deploy-preview getting past the mint step.
+
+Local loop: 922 completed.
