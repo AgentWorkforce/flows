@@ -79,11 +79,12 @@ type JournalStepUsesStepCompletionReason = Assert<
  * `JournalClient`; values are read back from `step.completed` journal entries.
  * Unsupported headers, verbs, gates, or completion lowering fail closed.
  */
-export async function executeAuthoredFlow(
+export async function executeAuthoredFlow<Input = undefined>(
   handle: FlowHandle,
   journal: JournalClient,
+  input?: Input,
 ): Promise<AuthoredFlowExecutionResult> {
-  const definition = getAuthoredFlowDefinition(handle);
+  const definition = getAuthoredFlowDefinition<Input>(handle);
   const headerFields = Object.keys(definition.header);
   if (headerFields.length > 0) {
     throw new AuthoredFlowExecutionError(
@@ -182,7 +183,7 @@ export async function executeAuthoredFlow(
   let bodyFailed = false;
   let bodyFailure: unknown;
   try {
-    const bodyPromise = lifecycle.runBody(() => definition.body(context));
+    const bodyPromise = lifecycle.runBody(() => definition.body(context, input as Input));
     await bodyPromise;
   } catch (error) {
     bodyFailed = true;

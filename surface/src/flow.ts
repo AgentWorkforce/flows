@@ -9,7 +9,7 @@ export interface FlowHeader {
   workspace?: string;
 }
 
-export type FlowBody = (f: Ctx) => Promise<void>;
+export type FlowBody<Input = unknown> = (f: Ctx, input: Input) => Promise<void>;
 
 export interface ReadonlyFlowHeader {
   readonly identity?: string;
@@ -23,10 +23,10 @@ export interface ReadonlyFlowHeader {
 }
 
 /** Immutable definition retained for the SDK's journal-backed runtime. */
-export interface AuthoredFlowDefinition {
+export interface AuthoredFlowDefinition<Input = unknown> {
   readonly name: string;
   readonly header: ReadonlyFlowHeader;
-  readonly body: FlowBody;
+  readonly body: FlowBody<Input>;
 }
 
 /** Opaque authored-flow handle. Execution stays behind the journal runtime. */
@@ -36,16 +36,16 @@ export interface FlowHandle {
 
 const definitions = new WeakMap<object, AuthoredFlowDefinition>();
 
-export function flow(name: string, body: FlowBody): FlowHandle;
-export function flow(
+export function flow<Input = unknown>(name: string, body: FlowBody<Input>): FlowHandle;
+export function flow<Input = unknown>(
   name: string,
   header: FlowHeader,
-  body: FlowBody,
+  body: FlowBody<Input>,
 ): FlowHandle;
-export function flow(
+export function flow<Input = unknown>(
   name: string,
-  headerOrBody: FlowHeader | FlowBody,
-  body?: FlowBody,
+  headerOrBody: FlowHeader | FlowBody<Input>,
+  body?: FlowBody<Input>,
 ): FlowHandle {
   const flowBody = typeof headerOrBody === "function" ? headerOrBody : body;
   const header = typeof headerOrBody === "function" ? {} : headerOrBody;
@@ -58,13 +58,20 @@ export function flow(
   }
   assertFlowHeader(header, name);
 
-  const definition: AuthoredFlowDefinition = Object.freeze({
+  const definition: AuthoredFlowDefinition<Input> = Object.freeze({
     name,
     header: freezeHeader(header),
     body: flowBody,
   });
   const handle: FlowHandle = Object.freeze({ name });
-  definitions.set(handle, definition);
+  // One map holds definitions of many input types, so it is stored at the
+  // default parameterisation and `getFlowDefinition<Input>` re-parameterises on
+  // the way out. The cast is needed because `body` puts `Input` in a parameter
+  // position, making the type invariant: `AuthoredFlowDefinition<Input>` is not
+  // assignable to `AuthoredFlowDefinition<unknown>` even though every read
+  // recovers the author's own type. Sound here because the handle-to-definition
+  // pairing is 1:1 and both sides are keyed by the same authored flow.
+  definitions.set(handle, definition as AuthoredFlowDefinition);
   return handle;
 }
 
@@ -72,7 +79,7 @@ export function flow(
  * Runtime bridge used by the SDK after it imports an authored `.flow.ts`.
  * The root package deliberately does not re-export this accessor.
  */
-export function getFlowDefinition(handle: FlowHandle): AuthoredFlowDefinition {
+export function getFlowDefinition<Input = unknown>(handle: FlowHandle): AuthoredFlowDefinition<Input> {
   if ((typeof handle !== "object" && typeof handle !== "function") || handle === null) {
     throw new TypeError("expected an @relayflows/surface flow handle");
   }
@@ -106,6 +113,16 @@ function isStoredDefinition(
 }
 
 function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
+  const unknownFields = Object.keys(header).filter((field) => ![
+    "identity",
+    "memory",
+    "budget",
+    "tools",
+    "workspace",
+  ].includes(field));
+  if (unknownFields.length > 0) {
+    throw new TypeError(`flow header has unknown fields: ${unknownFields.join(", ")}`);
+  }
   const memory = header.memory === undefined
     ? undefined
     : Object.freeze({ ...header.memory });

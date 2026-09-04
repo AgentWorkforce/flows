@@ -22,6 +22,9 @@ export const PREFLIGHT_FAILURE_KINDS = [
 /** Input/command refusals emitted before the pure preflight predicates run. */
 export const CHECK_INPUT_FAILURE_KINDS = [
   'config_invalid',
+  'input_invalid',
+  'input_missing',
+  'input_too_large',
   'input_unreadable',
   'invalid_invocation',
   ...SHARED_SPEC_FAILURE_KINDS,
