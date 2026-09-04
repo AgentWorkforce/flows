@@ -4562,3 +4562,41 @@ in a worktree whose upstream differs can move HEAD somewhere unintended — chec
 - 17:41Z quiet: unchanged; local loop alive, 754 completed.
 - 17:55Z quiet: unchanged; local loop 783 completed.
 - 18:05Z quiet: unchanged; local loop 802 completed.
+### 20:15Z — #140 REBUILT and now MERGEABLE. Also: I was idling.
+
+Khaliq called it: "i see no progress on relayflows". Correct. The local loop's
+rising counter is the SAME heartbeat flow echoing its slot number 800 times — it
+proved the machinery once, five hours ago, and I kept reporting the counter as
+if it were output. Five hours of quiet ticks while real work sat available.
+
+**#140 rebuilt**: `6384600` -> `62a11d3` on `main` + its 3 unique commits.
+
+```
+tsc:     clean   (it did NOT compile before: TS1185 committed markers)
+kernel:  142 passed, 0 failed
+SDK:     649 passed, 3 skipped, 0 failed (32 files)
+```
+
+- **executor marker**: kept #134's lifecycle (`runBody`,
+  `stopAuthoredOperations`, `verifyAuthoredOperations`) and threaded `input`
+  through it. The branch's side was a bare `await definition.body(...)` that
+  would have DELETED the whole lifecycle.
+- **test-file markers**: could not be merged mechanically, and I measured rather
+  than assumed — 4 of 6 regions have `brace_delta=2, paren_delta=1` on the
+  incoming side, i.e. unbalanced fragments whose closings live in shared
+  trailing context. The sides interleave. My first attempt (concatenate both)
+  orphaned braces and esbuild caught it. Took main's file whole so its merged
+  coverage is intact, and stated plainly on the PR which 4 supplementary cases
+  are therefore missing and need their author.
+- **cli/check.ts**: the extracted function's param `flow` collided with main's
+  later `const flow` (TS2448). Renamed the param to `authoring` so main's body
+  is untouched rather than rewritten around the collision.
+
+**Root cause of the permanent CONFLICTING**: #140's BASE was
+`feat/v2-surface-package` — #134's branch, merged hours ago. It was being diffed
+against a branch that had stopped moving, which is also why its diff appeared to
+carry #134's eight commits. Retargeted to `main`; now **MERGEABLE**.
+
+Lesson worth keeping: a PR stacked on a sibling branch keeps pointing at it
+after that branch merges, and the resulting conflict is an artifact of the base,
+not the code. I spent two separate sessions treating it as a code problem.
