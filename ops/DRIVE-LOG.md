@@ -4144,3 +4144,4 @@ chance of a 30-minute hang. The only thing it needs is an independent signoff,
 which a rebase does not help.
 
 #144 still CONFLICTING, still held until its constituents land.
+- 09:05Z quiet: #139 rerun in flight (9m). Cloud unchanged — 08:23Z slot skipped, alternation still holds (n=7). #157 green, still needs a signoff I cannot produce.
