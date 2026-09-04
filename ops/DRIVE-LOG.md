@@ -4623,3 +4623,37 @@ Second CI run: **completed/success**. surface 7, SDK 649, kernel 142, tsc clean.
 
 #140 is now MERGEABLE + green. Not merging it myself: I rebuilt it, and I
 dropped four of its tests.
+### 19:00Z — #3270 REBASED onto main; now MERGEABLE at 627450cb
+
+Was CONFLICTING in 10 files. `be58afd8` -> `627450cb` on `main` `5494a45e`.
+
+**Migration collision, same class as #3264.** main took
+`0120_agent_usage_rollup_final_outcomes`; the branch claimed
+`0120_workflow_run_relayflow_v2_authority`. Both snapshots shared prevId
+`bf1a9c81` — siblings.
+
+The trap a plain rename walks into: the branch snapshot was built on 0119, so it
+does NOT contain main's 0120 changes, and renaming it to 0121 would silently
+drop them (drizzle snapshots are cumulative). Diffed both against their common
+0119 parent to prove the deltas are disjoint:
+
+```
+branch: + workflow_runs.relayflow_v2_authority
+main:   + agent_deployment_runs.telemetry_disposition, + an index
+```
+
+Different tables. So 0120 = main's verbatim; 0121 = main's 0120 PLUS the
+authority column, fresh id, prevId -> main's 0120. Chain verified:
+119 bf1a9c81 -> 120 28edee1c -> 121 cf3cf2a6, all three SQL files journaled.
+
+Other three: `preview.yml` — both sides add different workflow_dispatch inputs,
+2 regions both at indent 6, union valid, and I confirmed it PARSES as YAML
+rather than eyeballing indentation. `templates.generated.ts` — generated file,
+so I regenerated it from `embed-bootstrap-templates.mjs` rather than hand-merging
+a build artifact; its source auto-merged. Rest auto-merged.
+
+**Stated plainly on the PR what I did NOT verify:** the test suites. Neither
+cloud worktree has node_modules and `npm ci` on that monorepo is heavy against
+20GiB free. CI is the gate; I have not merged.
+
+The artifact-token blocker is unchanged and unrelated to the rebase.
