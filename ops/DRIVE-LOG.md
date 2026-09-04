@@ -4145,3 +4145,31 @@ which a rebase does not help.
 
 #144 still CONFLICTING, still held until its constituents land.
 - 09:05Z quiet: #139 rerun in flight (9m). Cloud unchanged — 08:23Z slot skipped, alternation still holds (n=7). #157 green, still needs a signoff I cannot produce.
+### 09:25Z — #139's failure is flakes, not defects; consolidated the inventory
+
+#139 failed in 12m49s (a real fail, not the 30m hang) on two SDK tests. Both
+pass locally on #139's own branch — `live-kernel` 27/27 — and both passed on
+#157's and #134's runs. So neither is #139's.
+
+Documented on #156: the SDK suite has at least THREE Linux-only flakes now that
+the full suite runs:
+
+| test | symptom | local |
+|---|---|---|
+| backlog-picker | `ENOENT '.relayflow/backlog-picker-entry.json'` | passes |
+| cli-hn-monitor "terminates (exit 1) ... asynchronously" | `expected +0 to be 1` | 16/16 |
+| live-kernel "follows a live worker dispatch" | `parked without a classifiable completion` / `unprovable_effects` | 27/27 |
+
+Plus #160's kernel hang.
+
+**Every one has already been mistaken for a PR's own defect at least once
+tonight, twice by me** (#160 blamed on #139's gates, then on #158's retry
+change). Recorded the operating rule: a single red on one of these is not
+evidence — re-run first, treat as real only if it reproduces or fails locally.
+
+Shared shape worth checking: the ENOENT is a RELATIVE path shared across
+parallel test files, and the exit-code one reads a code before an async error
+propagates. Both are contention-sensitive rather than logic bugs, so per-test
+temp dirs and awaited teardown may fix the class rather than the instances.
+
+#139 re-run queued.
