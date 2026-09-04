@@ -4787,3 +4787,34 @@ redelivery across a process restart, concurrent racing deliveries, and mutation
 proof that the test binds the dedupe claim.
 
 Worktree ready at flows-gate2-wt on feat/gate2-wake-context.
+
+### 20:45Z — Gate 2: the dedupe test already exists AND is mutation-bound. Filed #167.
+
+Checked rather than assumed. `hn_monitor_integration.rs:54` and
+`event_wake.rs:48` both assert a duplicate event is `deduped` with no second
+run. Proved they BIND the claim by mutation:
+
+```
+before   2103ddbabe52f7e4…   mutated 8d1caf759435cec2…   MUTATION APPLIED
+  matching_event_wakes_once_with_fresh_context ... FAILED
+  assertion failed: second.matched && second.deduped
+restored 2103ddbabe52f7e4…   HASH MATCHES     both suites: 1 passed each
+```
+
+Tree left clean (0 dirty).
+
+So the SCOREBOARD row is wrong in BOTH directions:
+- it OVERSTATES the gap — "a test proving a duplicate event does not
+  double-execute" is done and enforced;
+- it UNDERSTATES the gate — RFC-0001 §3's real bar is hn-monitor running as a
+  relayflow IN PRODUCTION, zero bespoke persistence functions (its twelve are
+  the measure), liveness-checked trigger plane.
+
+Genuinely still missing, and narrower than the row: redelivery across a process
+restart; concurrent racing deliveries; and the wake-time context contract itself
+(nothing specifies what wake_context guarantees, or that a RESUMED run must see
+the same context rather than a recomputed one).
+
+Filed as #167 with the mutation evidence, so the row is corrected on evidence
+rather than quietly edited. Did not edit SCOREBOARD.md myself — it is a gate
+record, and I would be marking my own homework.
