@@ -3884,3 +3884,32 @@ a reproducible symptom rather than an anecdote.
   my own change.
 - Known accepted risk (Khaliq chose this scope): a repeatedly-crashing step now
   retries with no delay and can hot-loop; `max_iterations` does not bound it.
+### 06:50Z — #139 has a kernel test that HANGS in CI (new, branch-specific)
+
+`Test kernel` on #139 at `1ed9023` ran 30m15s and was cancelled:
+
+```
+06:16:41 worker_capacity::default_capacity_one_... FAILED   <- #155, fixed by #158
+06:17:00 agent::rung_c_sigkill_boundaries_resume_only_unfinished_steps_via_real_cli
+           has been running for over 60 seconds
+06:42:29 ##[error]The operation was canceled.
+```
+
+Every later step skipped, so #139's SDK suite never ran.
+
+Evidence it is this branch, not the runner:
+- the same test finishes inside a 38s binary run on #157 and #134, same `main`,
+  whole jobs 4m31s;
+- it passed locally on this exact branch (142 passed, normal time);
+- the rebase carried only `.github/` from main, so no kernel code moved.
+
+#139 reworks gate/termination handling and `rung_c_sigkill` exercises
+kill/resume boundaries against a real CLI — a resume that waits on something
+that never arrives fits. Invisible before #153 because the kernel suite never
+ran in CI.
+
+**#139 cannot go green even after #158 lands** — the hang is upstream of the
+SDK step. Needs someone to reproduce under runner-like conditions (Linux, cold
+target). Reported on the PR.
+
+#158 CI still in flight.
