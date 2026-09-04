@@ -4,7 +4,7 @@
 
 use serde_json::Value;
 
-use super::{Action, backoff_delay_ms, deterministic_ulid, idempotency_key, retry_wait_id};
+use super::{Action, deterministic_ulid, retry_wait_id};
 use crate::{
     entry::{
         Budget, CompletionReason, Disposition, EntryType, JournalEntry, Pins, SleepUntilPayload,
@@ -86,13 +86,27 @@ pub fn abandonment_actions(
         }
     );
     let may_retry = runtime.semantic_executions < spec.max_iterations;
-    let next_attempt_at_ms = (may_retry && !manual).then(|| {
-        now_ms.saturating_add(backoff_delay_ms(
-            &spec.retry,
-            &idempotency_key(&state.run_id, step_id),
-            attempt,
-        ) as i64)
-    });
+    // No retry delay for a dead leased attempt. This function records an
+    // attempt that died WITHOUT producing a result a gate could judge -- which
+    // is why, as the doc comment above says, it does not charge a semantic
+    // iteration either. Rate-limiting it is the same category error: the
+    // backoff curve exists to damp a step that keeps failing on its own merits,
+    // not one whose worker was killed.
+    //
+    // Leaving the delay in place also made recovery order a race, which is
+    // issue #155. The dead lane sat in `Backoff` with `wake_at_ms` a few
+    // milliseconds in the future; the scheduler's `due_waits` only fires once
+    // that passes, and `due_waits` is returned ahead of any `starts`. So
+    // whether the recovered lane or an idle sibling claimed the one free worker
+    // depended purely on when the next pass landed relative to that deadline:
+    //
+    //   PROBE pass now=1788503129020
+    //     states=[("lane-b", Backoff { wake_at_ms: 1788503129025 }),
+    //             ("lane-a", Runnable)]  due_waits=0
+    //
+    // Five milliseconds decided it, and `worker_capacity.rs:149` saw `lane-a`
+    // instead of the retried `lane-b` in roughly 15% of runs.
+    let next_attempt_at_ms = (may_retry && !manual).then_some(now_ms);
     let mut actions = vec![Action::Append(JournalEntry::new(
         EntryType::StepCompleted,
         state.run_id.clone(),
