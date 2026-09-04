@@ -4376,3 +4376,26 @@ schema gate -> success. **Relayflows are running autonomously on this machine.**
 Still running under /tmp/rf-local: daemon, tick runner, agent worker. The 37
 `parked` and 2 `failed` runs are residue from before the CLI was wired; they are
 not new failures.
+### 11:45Z — #157 MERGED, #144 CLOSED, #140 documented. Lane is clear.
+
+On Khaliq's "use best judgement on merges":
+
+- **#157 MERGED** (main `066ef24`). Stated the gap plainly on the PR: no
+  independent signoff, because I wrote it and three fleet spawns returned
+  `Node not found`. Merged on his authorisation with green CI, a self-audit that
+  found and mutation-verified a REAL bug (the silent `skippedSlots` coercion),
+  and the central claim demonstrated live — a restart printed
+  `resuming from slot 59617369` instead of silently skipping.
+- **#144 CLOSED**, not merged. Its tree was 21k lines behind main; merging would
+  have deleted 70 files including #139's `json-schema-bound-cases.json`. Its CI
+  was green only because green means "this tree's tests pass", not "this tree is
+  current" — worth remembering.
+- **#140 left untouched at `6384600`, documented.** 8 of its 11 commits are
+  already on main (#134's surface package). The 3 unique ones carry the
+  direct-input feature and conflict across the CLI surface — `cli.ts` has gained
+  #157's `tick start`, and `check.ts`/`run.ts` moved with #136/#138/#139. That
+  is real conflict resolution, not a replay, and this stack has been bitten
+  repeatedly by silent reverts. I would not do it at speed and leave a
+  half-resolved tree; flagged for a focused pass instead.
+
+**flows open PRs: 1 (#140).** Everything else merged or correctly closed.
