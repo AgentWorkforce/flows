@@ -71,6 +71,25 @@ jobs:
 
       - name: Test SDK and type-level authoring contracts
         working-directory: sdk
+        env:
+          # `live-kernel.test.ts` runs one case against the REAL Claude analyzer
+          # and fails by default when it cannot, deliberately: an unavailable
+          # analyzer is diagnostics, never acceptance, and a reader must not get
+          # a green that proves nothing about gate 2.
+          #
+          # A GitHub runner is exactly the case the flag was written for -- it
+          # has no `claude` binary and no model access:
+          #   LIVE_ANALYZER_UNAVAILABLE: ... cannot run "claude": spawnSync claude ENOENT
+          # so without this the full SDK suite can never pass here, which is a
+          # defect in #153: it enabled the suite without giving CI a way to run
+          # it.
+          #
+          # Setting it is an explicit statement, not a convenience: **this
+          # workflow is not gate-2 acceptance evidence.** Gate-2 evidence has to
+          # come from a machine that can actually reach a model, and the skipped
+          # case says so in its own output. Everything else in the suite still
+          # runs and still gates.
+          RELAYFLOWS_ALLOW_ANALYZER_SKIP: '1'
         run: |
           # The whole suite, not four named files. Naming files means a test
           # added to any other file never runs, which is how ~22 of ~26 SDK
