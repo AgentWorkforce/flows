@@ -4399,3 +4399,35 @@ On Khaliq's "use best judgement on merges":
   half-resolved tree; flagged for a focused pass instead.
 
 **flows open PRs: 1 (#140).** Everything else merged or correctly closed.
+
+### 11:41Z — the local loop is running clean: 33 scheduled runs, 34/34 gates passed
+
+All three processes alive (daemon, tick runner, agent worker).
+
+```
+runs:  completed 34 | failed 2 | parked 37
+ticks emitted (post-CLI-wiring runner): 33
+gate pass: 34 / 34 verified steps
+```
+
+33 ticks -> 33 completed runs, zero failures since the CLI was wired. The 2
+`failed` and 37 `parked` are pre-wiring residue, not new.
+
+Newest run `01M1P3JN3QMWECP8CATCZSYNG7`:
+
+```
+completionReason: success
+verification: {"gate":"json_schema","verdict":"pass","detail":"all gates passed"}
+output: {"lag_ms": 1638, "schedule_id": "heartbeat-1m",
+         "scheduled_for_ms": 1788522090000, "slot": 59617403}
+```
+
+Checked the gate VERDICT on every run rather than trusting run status — a run
+can close without its step having been verified, so `completed` alone would not
+have been evidence. 34/34 passed.
+
+**This is sustained autonomous relayflow execution**, ~17 minutes of it,
+independent of the cloud queue.
+
+Tick items 3 and 4 are merged; 1 and 2 remain Khaliq's. flows has one open PR
+(#140).
