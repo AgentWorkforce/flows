@@ -3695,3 +3695,29 @@ open PR fails identically. No actionable review feedback anywhere.
 
 Four PRs (#134, #139, #154, #157) are MERGEABLE with signoffs or self-audits
 done, and none can reach green CI until #154 lands. Nothing invented.
+### Tick 04:05 (00:41Z) — the outage is wider than "runs don't start"
+
+New observation, worth recording for whoever debugs the launch queue.
+
+`flows-v2-lead-tick-0903` is `23 * * * *` — hourly at :23. At **00:41Z** the
+`cloud schedules` "last run" field still points at `4869ec51`, created
+**23:23Z**. The 00:23Z slot came and went 18 minutes ago and produced no new
+run.
+
+So this is not only "runs are created but never get a sandbox." No run is being
+created for later slots at all. Two candidates, which I cannot distinguish with
+the CLI available — `agent-relay cloud` exposes only `status <runId>` and
+`schedules`, with no run-listing verb:
+
+- a concurrency guard suppressing a new run while the previous one is `pending`
+  (in which case one wedged run silently disables the whole schedule — the same
+  "silently zero" failure class RFC-0001 names for untriggered flows); or
+- the scheduler itself is down, and the stuck run is a symptom rather than a
+  cause.
+
+If it is the first, that is the more serious bug: a single stuck run takes the
+schedule offline with no error surface, and `schedules` still reports the
+schedule `active`.
+
+`4869ec51` unchanged (`pending`, updated 23:23Z). Did not retry. Everything
+else still frozen behind #154.
