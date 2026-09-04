@@ -71,13 +71,21 @@ export async function runFlow(
     return { exitCode: 2, report: fromCheckReport('run', checked.report) };
   }
 
+  return executeCheckedFlow(checked, dataDir, options);
+}
+
+async function executeCheckedFlow(
+  checked: ReturnType<typeof checkFlow>,
+  dataDir: string,
+  options: RunLifecycleOptions,
+): Promise<RunExecution> {
   const socketPath = socketFor(dataDir);
   const client = new JournalClient(socketPath);
   const connected = await connect(client, 'run', dataDir, checked.report);
   if (connected !== undefined) return connected;
 
   try {
-    const spec = toKernelSpec(checked.flow);
+    const spec = toKernelSpec(checked.flow!);
     const outcome = await client.runStart(spec);
     return await classifyOutcome(client, 'run', outcome, checked.report, socketPath, options);
   } catch (error) {
@@ -123,7 +131,7 @@ export async function resumeFlow(
   }
 }
 
-async function connect(
+export async function connect(
   client: JournalClient,
   command: RunCommand,
   dataDir: string,
@@ -318,7 +326,7 @@ async function waitForRunningStep(
   }
 }
 
-function protocolFailure(
+export function protocolFailure(
   command: RunCommand,
   base: CheckReport | RunReport,
   socketPath: string,
@@ -340,7 +348,7 @@ function protocolFailure(
   };
 }
 
-function fromCheckReport(command: RunCommand, report: CheckReport): RunReport {
+export function fromCheckReport(command: RunCommand, report: CheckReport): RunReport {
   return {
     ok: false,
     command,
@@ -351,7 +359,7 @@ function fromCheckReport(command: RunCommand, report: CheckReport): RunReport {
   };
 }
 
-function emptyReport(command: RunCommand): RunReport {
+export function emptyReport(command: RunCommand): RunReport {
   return { ok: false, command, resolutions: [], diagnostics: [] };
 }
 
@@ -359,7 +367,7 @@ function fromBase(command: RunCommand, base: CheckReport | RunReport): RunReport
   return 'command' in base ? base : fromCheckReport(command, base);
 }
 
-function socketFor(dataDir: string): string {
+export function socketFor(dataDir: string): string {
   return join(resolve(dataDir), 'relayflowd.sock');
 }
 
