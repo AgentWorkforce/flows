@@ -186,11 +186,22 @@ export async function loadTickState(
   if (state.lastEmittedSlot !== undefined && !Number.isInteger(state.lastEmittedSlot)) {
     throw new Error(`tick state at ${path} has a non-integer lastEmittedSlot`);
   }
+  // Fail closed rather than coerce. `Array.isArray(...) ? ... : []` silently
+  // turned a malformed value into "no slots were skipped" — which is the exact
+  // claim this runner exists to make trustworthy. A state file that cannot say
+  // what it missed must stop the runner, not quietly report that it missed
+  // nothing.
+  if (state.skippedSlots !== undefined && !Array.isArray(state.skippedSlots)) {
+    throw new Error(`tick state at ${path} has a non-array skippedSlots`);
+  }
+  if (state.skippedSlots?.some((slot) => !Number.isInteger(slot))) {
+    throw new Error(`tick state at ${path} has a non-integer entry in skippedSlots`);
+  }
   return {
     scheduleId,
     ...(state.lastEmittedSlot === undefined ? {} : { lastEmittedSlot: state.lastEmittedSlot }),
     ...(state.lastEmittedAtMs === undefined ? {} : { lastEmittedAtMs: state.lastEmittedAtMs }),
-    skippedSlots: Array.isArray(state.skippedSlots) ? state.skippedSlots : [],
+    skippedSlots: state.skippedSlots ?? [],
   };
 }
 

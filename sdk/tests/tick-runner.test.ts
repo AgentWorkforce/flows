@@ -94,6 +94,22 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+describe('a malformed state file stops the runner rather than claiming nothing was skipped', () => {
+  it('refuses a non-array skippedSlots instead of coercing it to []', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tick-state-'));
+    const path = join(dir, 's.json');
+    await writeFile(path, JSON.stringify({ scheduleId: 's1', skippedSlots: 'nope' }));
+    await expect(loadTickState(path, 's1')).rejects.toThrow(/non-array skippedSlots/);
+  });
+
+  it('refuses a non-integer entry inside skippedSlots', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tick-state-'));
+    const path = join(dir, 's.json');
+    await writeFile(path, JSON.stringify({ scheduleId: 's1', skippedSlots: [1, 'two', 3] }));
+    await expect(loadTickState(path, 's1')).rejects.toThrow(/non-integer entry in skippedSlots/);
+  });
+});
+
 describe('bound 1: a restart emits exactly one tick per due slot', () => {
   it('resumes from the persisted cursor instead of jumping to the current slot', async () => {
     // First runner: one poll at slot 3. Fresh cursor starts AT the current
