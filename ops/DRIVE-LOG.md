@@ -4001,3 +4001,33 @@ failure is a fast red with a backtrace rather than a 30-minute cancellation)
 that is useful regardless of root cause.
 
 Invisible before #153, because the kernel suite never ran.
+### 07:45Z — #160 narrowed: the hang is in main, two unbounded waits identified
+
+**The hang is not any PR's code.** #159 changes exactly one file
+(`.github/workflows/cloud-runtime-artifact.yml`) and nothing else — its kernel
+tree is byte-identical to main — and it has been hanging 26+ min. So the hang
+lives in `main` and is reachable by any PR. That retires both of my earlier
+wrong attributions (#139's gate work, then #158's retry change).
+
+Ruled OUT: `wait_until` is bounded — 15s then `assert!`, so a stalled journal
+condition gives a fast red, not this.
+
+Two genuinely unbounded waits, either of which fits:
+1. `kill_process_group` → `child.wait()` (`support.rs:132`) — blocks forever if
+   the SIGKILLed process group is not reaped.
+2. `resume.wait_with_output()` (`agent.rs:134`) — blocks forever if the resumed
+   run never reaches a terminal state.
+
+Relevant: the child being killed is mid-`thread::sleep(Duration::from_secs(300))`
+from `--pause-before-step`, and the whole sequence runs TWICE per test.
+
+I deliberately did NOT name which wait it is. Three wrong guesses on #155 today
+cost real time; separating these needs a thread dump or a bounded repro, not
+more reading.
+
+Recommendation unchanged and root-cause-independent: bound both waits, so this
+is a 60s red with a message instead of a 30-min cancellation that also skips the
+entire SDK suite.
+
+Asked Khaliq whether to take the timeout work or chase the root cause; no answer
+yet, so I did the part that serves either.
