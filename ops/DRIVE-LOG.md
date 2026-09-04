@@ -4748,3 +4748,42 @@ because I caused it.
 #152, #153, #154, #157, #158, #159 all merged. Only #161 remains, blocked on
 RELAY_WORKSPACE_KEY.
 - 20:05Z quiet: the one #3270 'preview run' is a SKIPPED pull_request-triggered run (deploy-preview is workflow_dispatch-only) — not a deploy, not evidence the app install landed. #161 review still FAILURE. Local loop 1042 completed. flows v2 lane fully merged; nothing actionable without you.
+### 20:30Z — PR triage done; fleet spawn broken; gate-2 scope re-read
+
+**PRs resolved.** #164 merged (consolidated review-swarm). #161, #162 closed as
+superseded duplicates — three cloud runs produced near-identical attempts.
+**#165 REJECTED**: it reverts #154, deleting the plain `cargo test` AND its
+explanatory comment, restoring the `ops/cargo.sh` invocation that fails on every
+runner. Asked for a split; its sdk/ tooling looks fine.
+
+**#3270 NOT merged, with a concrete reason.** `deploy.yml` and
+`drizzle-migrations.yml` both trigger on push to main — merging deploys the v2
+executor to prod AND applies migration 0121 to the production database, while
+its live proof has never run.
+
+**Fleet spawn is broken in two distinct ways** — this is why every spawn tonight
+failed:
+1. `chief-sfm-final` (what I had been targeting all night):
+   `Node delivery: DOWN (node websocket disconnected)`
+2. `chief-broker` (online, live, advertises spawn:codex): accepts the dispatch
+   and never launches. Tried with confirmation (120s timeout, "accepted but
+   never reported a result") and again with `--no-confirm` — neither agent ever
+   registered, no worktree created.
+Two attempts, then stopped per the rule.
+
+**Gate 2 scope, re-read from the RFC rather than the scoreboard row:**
+the scoreboard says AMBER missing (a) the Appendix A wake-time context contract
+and (b) a duplicate-event test. But RFC-0001 §3's actual bar is
+*"hn-monitor runs as a relayflow IN PRODUCTION — triggered by its real events,
+zero bespoke persistence functions (its current twelve are the measure), retried
+at step granularity, deduped by idempotency key, trigger plane liveness-checked"*.
+That is materially larger than the row implies.
+
+**And the row is partly stale.** `kernel/relayflowd/tests/hn_monitor_integration.rs:54`
+already tests duplicate delivery — same event twice, asserts
+`duplicate.matched && duplicate.deduped` and `duplicate.run.is_none()`, and
+checks the wake_context payload. What is genuinely missing is narrower:
+redelivery across a process restart, concurrent racing deliveries, and mutation
+proof that the test binds the dedupe claim.
+
+Worktree ready at flows-gate2-wt on feat/gate2-wake-context.
