@@ -4069,3 +4069,22 @@ lifetime. Posted the repro recipe so this is a 7-minute laptop loop instead of a
 
 Still open for Khaliq: (1) local relayflow runner, (2) a different solution for
 the #3270 preview secret.
+### 08:20Z — three PRs rebased onto main-with-fixes; first real shot at green
+
+main `4df6d94` now carries #158 (the #155 dispatch race) and #159 (the analyzer
+gate). Rebased all three open PRs onto it so they finally run against a CI that
+can pass:
+
+```
+#139  feat/v2-gate-contract    -> 4da825b
+#157  feat/tick-runner-0903    -> 77e2b9b
+#134  feat/v2-surface-package  -> 4f85c4e
+```
+
+All clean rebases, all three CI runs started. This is the first time any of them
+has run with both CI defects fixed underneath.
+
+Remaining risk is #160 at roughly 50% per run — a hit costs 30 min and skips the
+SDK suite entirely, so expect to re-run rather than to read a red as real.
+
+Cloud queue unchanged; #3270 still needs Khaliq's alternative solution.
