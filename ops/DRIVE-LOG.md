@@ -5038,3 +5038,4 @@ Recorded on the PR that #160 is the blocker and that the measured one-line
 mitigation remains on hold by Khaliq's explicit decision. Not relitigating —
 recording the consequence so the tradeoff stays visible.
 - 23:05Z quiet: all blocked. Cloud schedule still absent; #3270 on the App-install 404; #168 on #160 (re-runs paused by choice); #165 awaiting the requested split. Nothing invented.
+- 23:23Z quiet: no change. No new #3270 preview run (App install unresolved); cloud schedule still absent; #168 paused on #160; #165 awaiting split.
