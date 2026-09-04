@@ -4472,3 +4472,4 @@ Drain check: our schedule `flows-v2-lead-tick-0903` is still absent from
 `cloud schedules` and its run IDs 404 — unchanged since 11:45Z.
 - 12:05Z quiet: #3270 still blocked (no new preview run — app install on flows not landed). Local loop healthy: 82 completed, newest 20 gate verdicts 20/20 pass, tick runner + worker alive. Cloud schedule still absent.
 - 12:23Z quiet: #3270 still blocked, no preview run yet (app install pending). Confirmed flows is private — not itself the cause, an org-wide install covers private repos. Local loop 118 completed.
+- 12:41Z quiet: #3270 still no preview run (app install pending). Local loop alive, 154 completed.
