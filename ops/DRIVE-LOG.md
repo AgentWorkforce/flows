@@ -3826,3 +3826,4 @@ Handing this over as an observation, not a diagnosis; I cannot enumerate runs
 - 03:41Z quiet: bf17cf73 still pending (18m). #154 open, main 3725025. No change.
 - 03:55Z quiet: bf17cf73 still pending, #154 open, main 3725025. No change.
 - 04:05Z quiet: bf17cf73 still pending, #154 open, main 3725025. No change.
+- 04:23Z quiet: bf17cf73 still pending. At the 04:23Z boundary no new run yet — alternation predicts a SKIP here (prior fires landed within ~3s), confirm next tick. #154 open, main 3725025.
