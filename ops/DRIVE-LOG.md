@@ -4848,3 +4848,29 @@ Still open on gate 2: concurrent racing deliveries, and the wake-time context
 contract (nothing specifies what wake_context guarantees, or that a RESUMED run
 must see the same context rather than a recomputed one — the genuine Appendix A
 gap, and a spec change rather than a test).
+
+### 20:57Z — App installed on flows. Live proof now blocked by #160 instead.
+
+Khaliq installed GH_APP_PUSHER on AgentWorkforce/flows, so the artifact-token
+step can finally mint. Decisions recorded: (1) do NOT merge #3270 — prove on dev
+first; (2) hold #160 for a real fix, no `--test-threads=1` stopgap.
+
+To run the proof honestly I need a CURRENT artifact. The only successful
+artifact run on main is from **Sept 2** (`a0d42ff`) — it predates every merge
+tonight (#134, #136-#140, #151-#159). Pinning it would demonstrate the OLD
+runtime executing: misleading evidence for a demo about this work.
+
+Dispatched a fresh build on main `98b6cdd` (run 33917950176). Stuck: `Test
+kernel` since 20:49 against ~40s healthy — the #160 signature, cancels at 30 min.
+
+**#160's cost has changed shape.** It is no longer CI slowness; it is the thing
+standing between us and the #3270 live proof. Each attempt at a current artifact
+is a coin flip costing 30 minutes on a loss. Reporting the coupling, not
+re-litigating — the hold stands unless Khaliq changes it.
+
+Next: re-run the artifact build until one completes, then dispatch
+deploy-preview with the four pins (source_commit, run_id, artifact_id, sha256).
+
+**Process note:** `git rebase origin/<branch>` in this ops worktree has now
+TWICE moved HEAD onto flows `main` and dropped the local entry. Switching to
+fetch + reset --hard + append + push for this log.
