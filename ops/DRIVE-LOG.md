@@ -4957,3 +4957,35 @@ Also: #168's `review` check is FAILURE — that is #164's review-swarm workflow,
 now red on every PR because RELAY_WORKSPACE_KEY is still absent. Predicted cost,
 now visible. Its artifact check had been CANCELLED (#160 or my main dispatch);
 re-ran it.
+
+### 21:45Z — P0 FOUND: concurrent duplicate deliveries BOTH execute on Linux (#169)
+
+The racing test I added did its job — it failed, and it was right to.
+
+```
+CI (ubuntu-24.04):  assertion failed: exactly one racing delivery may start a run
+                    left: 2   right: 1        <- BOTH deliveries started a run
+local (docker):     SQLite journal failed: database is locked (SQLITE_BUSY)
+macOS:              passes
+```
+
+Two different Linux failure modes, one contract: gate 2's core property — a
+duplicate event does not double-execute — **holds sequentially and fails under
+concurrency**. macOS passing is why nobody has seen it.
+
+Cause: `registry.rs:143` is INSERT OR IGNORE against
+PRIMARY KEY (flow_key, subscription_id, dedupe_key). The constraint is right;
+what is missing is serialisation — two concurrent submit_event calls use the
+registry independently, with no busy_timeout and no transaction spanning
+claim-and-register.
+
+**Withdrew the test from #168** rather than ship a red gate. Explicitly did NOT
+mark it `#[ignore]`: an ignored test is precisely the silently-zero failure
+RFC-0001 names. It lives in #169 with a one-line docker reproduction and lands
+with the fix. #168 keeps the restart-durability test, which passes everywhere
+(kernel 143).
+
+This moves gate 2 further from green than either the scoreboard row or #167
+implied: the row says the test is missing, #167 showed it exists and is
+mutation-bound, and #169 shows the property it asserts is false under
+concurrency.
