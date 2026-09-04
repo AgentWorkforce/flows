@@ -3729,3 +3729,29 @@ the schedule is producing nothing while reporting `active`. #154 still open,
 main still `3725025`. Nothing invented.
 - 01:05Z quiet: 4869ec51 still pending (23:23Z), #154 open, main 3725025. No change.
 - 01:23Z quiet: 4869ec51 still pending (23:23Z, 2h wedged), #154 open, main 3725025.
+### Tick 01:41Z — CORRECTION: the scheduler is alive; the launch queue is the fault
+
+I recorded at 00:41Z and again at 00:55Z that the schedule "is producing nothing
+while reporting active," and floated that one wedged run might be silently
+disabling it. **That was wrong**, and the stronger of the two candidates I
+offered was the wrong one.
+
+The 01:23Z slot fired and created `dcf4727d-2b39-45ea-8b3a-dfbe01bb9f2e`. So the
+scheduler creates runs. What it cannot do is get them placed:
+
+```
+4869ec51  pending  updated 2026-09-03T23:23:02Z   (2h18m)
+dcf4727d  pending  updated 2026-09-04T01:23:02Z   (18m)
+```
+
+Both created exactly on their slot boundary and never moved off `createdAt` —
+the same signature as the two runs wedged at 21:25Z. So the single fault is the
+launch queue: runs are created on time and never acquire a sandbox.
+
+One real anomaly survives: the **00:23Z slot produced no run at all**. 01:23Z
+did. So slot emission is intermittent rather than dead — one missed slot, not a
+disabled schedule. Not enough signal yet to say whether that is a scheduler miss
+or backpressure from the wedged queue.
+
+Correcting this rather than leaving it because the earlier entry would have sent
+whoever debugs this at the scheduler, which is working.
