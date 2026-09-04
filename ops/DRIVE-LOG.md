@@ -4498,3 +4498,46 @@ merged/closed PRs (pr134/136/137/138/139/151 signoff and repair trees) and are
 but some of those worktrees were other agents' sessions, and deleting another
 session's build cache to save space I do not currently need is not my call.
 Flagged rather than taken.
+
+### 13:10Z — reviewed both open PRs. Merged neither, both for concrete reasons.
+
+**#161 `drive: cloud run a2b4fb12`** — cloud-drive work adding a review-swarm
+workflow. Design is genuinely good: `pull_request` not `pull_request_target` (no
+fork-secret exposure), and it checks the gate out from `main` separately from the
+PR head, so a PR cannot edit the gate that judges it. Minimal permissions,
+concurrency cancel, documented timeout ordering, fails closed.
+
+Held because `RELAY_WORKSPACE_KEY` does not exist — the repo has NO Actions
+secrets at all — so it fails on its own PR and would add a red check to every
+future PR. That is exactly the hole #153 dug tonight, which took three PRs to
+climb out of. One secret unblocks it. Also flagged: its "verification ran in-run"
+claim cannot cover this workflow, since the secret is absent in CI too.
+
+**#140 — the real finding: it has COMMITTED merge conflict markers.**
+
+```
+authored-flow-executor.ts   2 markers
+authored-flow.test.ts      12 markers
+```
+
+both citing `0987e38`; `tsc` reports `TS1185: Merge conflict marker
+encountered`. That, not the rebase, is why its CI is red — the branch does not
+compile.
+
+Rebuilt as main + its 3 unique commits and resolved FOUR sites correctly:
+`cli.ts` (kept both the run/resume split AND main's `tick`), `check.ts` (bound
+`const authoring = flow;` rather than renaming through main's evolved body),
+`surface/README.md`, and the executor marker — kept #134's lifecycle machinery
+and threaded `input` through `runBody`, instead of the branch's bare
+`await definition.body(...)` which would have deleted the whole lifecycle.
+
+**Stopped at `authored-flow.test.ts`**: six regions, several large blocks of
+main's merged lifecycle tests. Choosing wrong deletes shipped tests silently and
+looks green. Worktree restored, nothing pushed, branch untouched at `6384600`.
+Every resolution posted on the PR so none is redone.
+
+**Process note:** my own log push failed here with `Cannot rebase onto multiple
+branches` and silently rebased this ops worktree onto flows `main`, dropping the
+local entry. Recovered from the remote. Lesson: `git pull --rebase origin <br>`
+in a worktree whose upstream differs can move HEAD somewhere unintended — check
+`git branch --show-current` after, not just the push result.
