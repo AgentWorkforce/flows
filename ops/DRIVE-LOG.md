@@ -4874,3 +4874,28 @@ deploy-preview with the four pins (source_commit, run_id, artifact_id, sha256).
 **Process note:** `git rebase origin/<branch>` in this ops worktree has now
 TWICE moved HEAD onto flows `main` and dropped the local entry. Switching to
 fetch + reset --hard + append + push for this log.
+
+### 20:59Z — artifact build still hung on #160; pinned down the sha256 input
+
+Build 33917950176 (main `98b6cdd`): `Test kernel` since 20:49, 10 min against
+~40s healthy. #160. Cancels ~21:19.
+
+Prep done while waiting — the dispatch inputs are a trap worth recording. The
+artifact build log emits **two different sha256 values**:
+
+```
+archiveSha256 : 054ef2e4863bd677…   <- the runtime TARBALL. this is the input.
+"SHA256 digest of uploaded artifact zip is 371571e63d0c9cf5…"   <- the zip wrapper. NOT the input.
+```
+
+`relayflow_v2_artifact_sha256` is documented as "Exact 64-character lowercase
+SHA-256 of the runtime tarball", i.e. `archiveSha256`. Passing the zip digest
+would fail the preview's own validation, and both are 64-char lowercase hex in
+the same log, so the wrong one looks right.
+
+The build also prints a manifest with per-file digests (bin/flows,
+bin/relayflowd) and the sourceCommit — so all four required pins
+(source_commit, run_id, artifact_id, sha256) are recoverable from one completed
+run plus the artifacts API.
+
+Waiting on a completed build; nothing else actionable.
