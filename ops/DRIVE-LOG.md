@@ -5012,3 +5012,4 @@ declaring victory would leave the actual double-execution unaddressed and harder
 to reproduce.
 
 #168 artifact check re-running; `review` still FAILURE on the missing secret.
+- 22:05Z quiet: #168's artifact check hung on #160 again (Test kernel 19m, cancels ~22:16) — 7th cancellation. #3270 still blocked on the App installation 404. #168 MERGEABLE but cannot get a green run; its `review` check is red on the missing RELAY_WORKSPACE_KEY.
