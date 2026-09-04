@@ -4723,3 +4723,27 @@ Not opening that PR: Khaliq asked for root cause over patching around it. The
 running cost is now recorded so the tradeoff is explicit rather than implicit.
 
 Re-ran #140's PR check.
+### 19:56Z — #140 MERGED. main b8dc71f. flows open PRs: 1 (#161).
+
+PR-level check green at `3198d18` — the real `pull_request` check, not the
+dispatch run I wrongly cited earlier. Three cycles to get it, two lost to #160.
+
+What this PR actually needed, none of which was in its description:
+- **committed conflict markers** in two files; it did not compile (`TS1185`)
+- **a type error** once `flow()` became generic over Input —
+  `AuthoredFlowDefinition<Input>` not assignable to `<unknown>` because `body`
+  puts Input in a parameter position
+- its **base was `feat/v2-surface-package`**, merged hours earlier, which is
+  what made it permanently CONFLICTING
+
+**Filed #166 before merging**: I removed four supplementary cases from
+`authored-flow.test.ts` (direct input into a journal-backed body, sibling
+ordering before the join, explicit completion after journal-backed steps, an
+it.each table). Their hunks were unbalanced fragments, so reconstructing them
+would have been guesswork. Real loss of INTERACTION coverage; the feature itself
+stays covered by direct-input.test.ts. Tracked rather than buried in a comment,
+because I caused it.
+
+**v2 lane on flows is now complete**: #134, #136, #137, #138, #139, #140, #151,
+#152, #153, #154, #157, #158, #159 all merged. Only #161 remains, blocked on
+RELAY_WORKSPACE_KEY.
