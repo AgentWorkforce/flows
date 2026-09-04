@@ -4699,3 +4699,27 @@ deploy-preview getting past the mint step.
 
 Local loop: 922 completed.
 - 19:23Z quiet: #140's re-run PR check is hanging — 'Test kernel' in_progress since 19:08 (15m vs ~40s healthy). #160 signature; will cancel ~19:38. This is the second time #160 has cost this PR a full cycle.
+### 19:41Z — #140 cancelled by #160 again (30m). Cost tally posted.
+
+Confirmed as predicted: `Test kernel` from 19:08, cancelled at 30 minutes.
+Second hit on #140, sixth overall.
+
+```
+#139 1   #158 1   #159 1   #140 2   original find 1   = 6 cancellations
+6 x 30 min = ~3 hours of CI wall-clock
+```
+
+Each cancellation also skips `Install SDK dependencies` and everything after, so
+on those runs **the SDK suite never ran at all** — a PR can look checked with two
+thirds of the gate unexecuted.
+
+Posted the tally on #160 rather than re-arguing: the measured mitigation is
+`--test-threads=1`, 39s sequential vs 38s healthy parallel, same 34 tests,
+nothing hidden. It does NOT fix the daemon leak (the ppid=1 orphan and the
+doubly-held socket remain), it just stops the leak eating a 30-minute budget on
+half of all runs.
+
+Not opening that PR: Khaliq asked for root cause over patching around it. The
+running cost is now recorded so the tradeoff is explicit rather than implicit.
+
+Re-ran #140's PR check.
