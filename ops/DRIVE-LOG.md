@@ -3856,3 +3856,31 @@ slot boundary and never placed. The alternation is stable enough to hand over as
 a reproducible symptom rather than an anecdote.
 - 05:41Z quiet: 63d46f43 still pending (18m). #154 open, main 3725025. No change.
 - 05:55Z quiet: no change; 06:23Z predicted to SKIP.
+### 06:30Z — option 1 executed; #155 root-caused and fixed
+
+- **#154 merged.** main `3725025` → `ee28397`. CI now actually runs both suites.
+- Rebased #139 (`1ed9023`), #157 (`26a3639`), #134 (`4fa4ff5`) onto the new main
+  so they pick up the fixed workflow. #134's rebase kept BOTH its surface-build
+  step and main's fixed kernel step; its signed-off file hashes still match.
+- **CI confirmed truthful**: #157 and #134 both failed on exactly one thing —
+  `worker_capacity` — 33 passed, 1 failed. Nothing else.
+- **#155 root cause found, after two wrong hypotheses.** Recorded both dead ends
+  on the issue so they are not retried:
+  1. "stale load snapshot / capacity not enforced" — false; capacity is
+     enforced sequentially and correctly.
+  2. "a later lane overtakes an earlier one refused in the same pass" — I
+     implemented order-preserving admission and measured it: 7/40 still failed.
+     No effect. Reverted.
+  A third attempt (crash skips backoff, patched in `state.rs`) was **inert** —
+  the `Backoff` comes from the `SleepUntil` entry `recovery.rs` appends, not the
+  `Disposition::Retry` arm I patched. Caught it by checking the probe rather
+  than trusting the pass rate.
+  Actual cause: `abandonment_actions` made a dead leased attempt serve the retry
+  backoff. `wake_at_ms` five milliseconds out, `due_waits` empty, sibling takes
+  the worker. Fixed at that one expression.
+- **#158 opened**: 27 runs/4 failures before → **60 runs/0 failures** after.
+  Kernel 130, SDK 464. One assertion moved from "every action is an ArmTimer" to
+  the invariant it was proxying; flagged prominently on the PR since it judges
+  my own change.
+- Known accepted risk (Khaliq chose this scope): a repeatedly-crashing step now
+  retries with no delay and can hot-loop; `max_iterations` does not bound it.
