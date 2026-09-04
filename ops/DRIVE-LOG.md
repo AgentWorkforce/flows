@@ -4031,3 +4031,41 @@ entire SDK suite.
 
 Asked Khaliq whether to take the timeout work or chase the root cause; no answer
 yet, so I did the part that serves either.
+### 08:15Z — #158 + #159 MERGED; #160 root cause found and reproducible locally
+
+Khaliq answered: (1) run relayflows locally, (2) need another solution for the
+#3270 preview secret, (3) chase #160 root cause, (4) merge.
+
+**Merged.** main `ee28397` → `2f2676b` (#158) → `4df6d94` (#159).
+
+**#160 root cause, from a live hung process — not from reading.**
+
+Reproduced in Docker/Linux, confirmed `rc=124 after 399s` with CI's exact
+message. **Only reproduces running the WHOLE crash_resume binary**; the test
+alone passes 3/3 in 0s. So it depends on state left by earlier tests.
+
+```
+pid=528 (test)  main  wchan=futex_wait_queue
+  └─ tid=595          wchan=unix_stream_data_wait   <- the real block
+pid=603 ppid=528  relayflowd serve  (this test's)
+pid=94  ppid=1    relayflowd serve  <- ORPHANED, earlier test, dir still on disk
+```
+
+Two defects:
+1. **A leaked daemon** — `ppid=1` means an earlier test's `relayflowd serve` was
+   reparented to init, never reaped. `ServerGuard` cleanup did not run or missed.
+2. **An unbounded socket read** — `unix_stream_data_wait` in `worker.event(...)`.
+   FDs show inode 16469 held TWICE by the test process and by neither daemon, so
+   nothing will ever write, and because the test still holds the far end it does
+   not even get EOF. Blocks forever rather than failing.
+
+**Both of my earlier named candidates (`child.wait()`, `resume.wait_with_output()`)
+were wrong.** I found them by reading; this by inspecting a hung process — which
+I should have done a step earlier, having already been wrong three times on #155.
+
+Did not propose a patch: the leak is the root and deserves an owner's call on
+lifetime. Posted the repro recipe so this is a 7-minute laptop loop instead of a
+30-minute blind CI cycle.
+
+Still open for Khaliq: (1) local relayflow runner, (2) a different solution for
+the #3270 preview secret.
