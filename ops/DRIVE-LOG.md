@@ -4932,3 +4932,28 @@ The settling check is in org settings: open the App owning GH_APP_PUSHER_ID ->
 Configure -> confirm `flows` is in its repository access.
 
 Failure preserved, nothing worked around, preview not deployed.
+
+### 21:25Z — gate 2: racing-delivery test added to #168 (kernel 144)
+
+Second of three gaps from #167 closed. One Engine, two threads off a barrier:
+exactly one delivery runs, the loser reports `deduped` rather than failing.
+Mutation-verified (2103ddba -> 8d1caf75 fails all three event_wake tests;
+restored, hash matches). Kernel workspace 144 passed, 0 failed.
+
+**A wrong turn worth keeping.** My first version used TWO Engines over one data
+directory and failed:
+
+```
+called `Result::unwrap()` on an `Err` value: open run registry
+Caused by: SQLite journal failed: database is locked
+```
+
+That is real, but it is registry-open contention, not the dedupe claim — and a
+daemon does not run two registries over one directory. Shipping it would have
+asserted the wrong contract and looked like a concurrency proof. Rewrote to the
+in-process topology; the observation is preserved in the test's doc comment.
+
+Also: #168's `review` check is FAILURE — that is #164's review-swarm workflow,
+now red on every PR because RELAY_WORKSPACE_KEY is still absent. Predicted cost,
+now visible. Its artifact check had been CANCELLED (#160 or my main dispatch);
+re-ran it.
