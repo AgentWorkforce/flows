@@ -4173,3 +4173,28 @@ propagates. Both are contention-sensitive rather than logic bugs, so per-test
 temp dirs and awaited teardown may fix the class rather than the instances.
 
 #139 re-run queued.
+### 09:42Z — #139 MERGED. main f1314b1.
+
+Green at `4da825b` (6m21s) after three runs. The two reds in between were NOT
+this PR, and I re-ran rather than attributing — the rule I wrote on #156 after
+getting it wrong twice:
+- run 1: #160 hang, cancelled 30m14s
+- run 2: `live-kernel > follows a live worker dispatch` + `cli-hn-monitor
+  terminates (exit 1)`. Both pass locally here (live-kernel 27/27) and both
+  passed on #157's and #134's runs.
+- run 3: clean.
+
+Signoff carried, proven: 39 non-workflow files hashed at `8b7148d` and
+`4da825b`, **0 differing**; only `.github/` moved. Zero unresolved threads.
+
+That signoff was the rigorous one — 7 mutations, each with
+before/mutated/restored SHA-256 and a failing plus passing witness, covering
+both conflict resolutions and all four silent-revert traps.
+
+**Lane status: #134, #136, #137, #138, #139, #151, #152, #153, #154, #158, #159
+all merged.** Remaining: #157 (green, needs an independent signoff I cannot
+produce — spawn broken), #144 (CONFLICTING, was held for its constituents which
+have now all landed).
+
+Also: 09:23Z cloud slot FIRED (`1b798c58`), immediately `pending`. Alternation
+holds at n=8. Sixth wedged run.
