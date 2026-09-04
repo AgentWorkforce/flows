@@ -74,12 +74,9 @@ export function checkFlow(path: string): CheckExecution {
 }
 
 /** Preflight a validated authored flow through the same path as YAML/JSON. */
-export function checkAuthoredFlow(flow: FlowSpec, path: string): CheckExecution {
+export function checkAuthoredFlow(authoring: FlowSpec, path: string): CheckExecution {
   const absolutePath = resolve(path);
   try {
-    // Bound rather than renamed: the body below is main's, unchanged through
-    // #136/#138/#139, and it refers to `authoring`.
-    const authoring = flow;
     const config = readProjectConfig(dirname(absolutePath));
     const probes = systemProbes(dirname(absolutePath), config);
     const result = preflight(authoring, {
