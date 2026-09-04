@@ -3841,3 +3841,16 @@ only descriptive fit — which is the part worth handing over. Every fired run i
 still `pending`, never placed.
 - 04:55Z quiet: no change; next slot 05:23Z, alternation predicts a FIRE.
 - 05:05Z quiet: pre-slot, no change. 05:23Z predicted to fire.
+### Tick 05:23Z — second prediction held; n=7
+
+`63d46f43-9e97-4b5d-bd15-d4434147c4b9` created 05:23:03Z, `pending`. Predicted
+fire, and it fired.
+
+```
+23:23 F  00:23 s  01:23 F  02:23 s  03:23 F  04:23 s  05:23 F
+```
+
+Two consecutive correct predictions across seven slots. Four wedged runs now
+(`4869ec51`, `dcf4727d`, `bf17cf73`, `63d46f43`), each created within ~4s of its
+slot boundary and never placed. The alternation is stable enough to hand over as
+a reproducible symptom rather than an anecdote.
