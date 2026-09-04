@@ -3786,3 +3786,4 @@ verb) and everything beyond the pattern would be a guess.
 
 If the next fired slot is 03:23Z and 04:23Z is skipped, the alternation is real
 and worth handing to whoever owns the launch queue.
+- 02:55Z quiet: last run still dcf4727d; next slot 03:23Z is the alternation test. #154 open, main 3725025.
