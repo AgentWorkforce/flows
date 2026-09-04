@@ -4473,3 +4473,28 @@ Drain check: our schedule `flows-v2-lead-tick-0903` is still absent from
 - 12:05Z quiet: #3270 still blocked (no new preview run — app install on flows not landed). Local loop healthy: 82 completed, newest 20 gate verdicts 20/20 pass, tick runner + worker alive. Cloud schedule still absent.
 - 12:23Z quiet: #3270 still blocked, no preview run yet (app install pending). Confirmed flows is private — not itself the cause, an org-wide install covers private repos. Local loop 118 completed.
 - 12:41Z quiet: #3270 still no preview run (app install pending). Local loop alive, 154 completed.
+### 12:55Z — quiet on the lane; reclaimed disk before it bit again
+
+#3270 still has no preview run (app install pending). Local loop healthy: 183
+completed, 222 run DBs, and only **10M** total — ~45KB per run, so it can run
+indefinitely without disk concern.
+
+The real consumer was `~/.relayflows-toolchain` at **21G** — tonight's cargo
+target dirs across ~55 worktrees — against 21Gi free. Disk hit zero once
+already today, and the tick rules call it out, so I checked rather than waited.
+
+Mapped each target dir back to its worktree by the cksum key `ops/cargo.sh`
+derives, and removed only the FOUR with no worktree at all:
+
+```
+removed 2543019859 (635M)  2645464646 (641M)
+        2912108325 (647M)  3910332153 (858M)
+disk: 21Gi -> 23Gi
+```
+
+Deliberately did NOT touch the rest. Several belong to worktrees for
+merged/closed PRs (pr134/136/137/138/139/151 signoff and repair trees) and are
+~1-1.6G each — roughly 10G more is reclaimable and cargo would simply rebuild —
+but some of those worktrees were other agents' sessions, and deleting another
+session's build cache to save space I do not currently need is not my call.
+Flagged rather than taken.
