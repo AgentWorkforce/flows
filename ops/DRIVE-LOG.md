@@ -4338,3 +4338,41 @@ self-driving local loop is attaching a worker.
 So: **scheduled relayflows are firing autonomously on this machine**, entirely
 independent of the wedged cloud queue. Daemon + tick runner left running under
 /tmp/rf-local.
+### 11:35Z — FULL LOOP CLOSED. A scheduled relayflow ran and passed its gate.
+
+Attached an AgentWorker to the local daemon (same pattern as `hn-monitor`'s
+`defaultAttachWorker`) so the parked scheduled runs could execute.
+
+First attempt failed — `completionReason: worker_error`. Cause: the step has no
+`cli`, so it fell back to the project default `./preflight/authenticated-cli`,
+which cannot satisfy the flow's json_schema gate. The worked example intends
+`testdata/preflight/tick-slot-report-cli`; `live-kernel.test.ts:1398` injects it
+(`step.cli = join(TESTDATA,'preflight','tick-slot-report-cli')`). Mirrored that.
+
+Restarting the tick runner also demonstrated #157's central bound live:
+
+```
+TICK_RUNNER schedule=heartbeat-1m resuming from slot 59617369; current slot 59617369
+```
+
+It RESUMED from the persisted cursor instead of silently skipping — the exact
+failure the PR exists to prevent, shown rather than asserted.
+
+Then, end to end (run 01M1P2MDNMNRFH1V7853ES263W):
+
+```
+1 run.spawned  2 subscription.registered  3 event.received  4 subscription.matched
+5 step.attempt.started report-slot  6 step.completed  7 run.completed
+
+completionReason: success
+output: {"lag_ms": 979, "schedule_id": "heartbeat-1m",
+         "scheduled_for_ms": 1788521100000, "slot": 59617370}
+verification: {"gate":"json_schema","verdict":"pass","detail":"all gates passed"}
+```
+
+Schedule -> event -> dedupe claim -> run -> agent dispatch -> real CLI ->
+schema gate -> success. **Relayflows are running autonomously on this machine.**
+
+Still running under /tmp/rf-local: daemon, tick runner, agent worker. The 37
+`parked` and 2 `failed` runs are residue from before the CLI was wired; they are
+not new failures.
