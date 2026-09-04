@@ -3827,3 +3827,15 @@ Handing this over as an observation, not a diagnosis; I cannot enumerate runs
 - 03:55Z quiet: bf17cf73 still pending, #154 open, main 3725025. No change.
 - 04:05Z quiet: bf17cf73 still pending, #154 open, main 3725025. No change.
 - 04:23Z quiet: bf17cf73 still pending. At the 04:23Z boundary no new run yet — alternation predicts a SKIP here (prior fires landed within ~3s), confirm next tick. #154 open, main 3725025.
+### Tick 04:41Z — alternation prediction held; n=6
+
+I predicted at 04:23Z that the slot would be skipped. It was: at 04:41Z, 18
+minutes past the boundary, `last run` is still `bf17cf73` from 03:23Z.
+
+```
+23:23 FIRED  00:23 skip  01:23 FIRED  02:23 skip  03:23 FIRED  04:23 skip
+```
+
+Six consecutive slots, and the pattern now has predictive power rather than
+only descriptive fit — which is the part worth handing over. Every fired run is
+still `pending`, never placed.
