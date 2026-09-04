@@ -3840,3 +3840,4 @@ Six consecutive slots, and the pattern now has predictive power rather than
 only descriptive fit — which is the part worth handing over. Every fired run is
 still `pending`, never placed.
 - 04:55Z quiet: no change; next slot 05:23Z, alternation predicts a FIRE.
+- 05:05Z quiet: pre-slot, no change. 05:23Z predicted to fire.
