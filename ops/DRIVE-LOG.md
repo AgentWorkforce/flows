@@ -5669,3 +5669,43 @@ Note for the record: I twice guessed at this cause and was wrong both times
 (missing analyzer env, pipe-buffer deadlock). The measurement that settled it
 took one CI run once the evidence was actually captured. The cheap move was
 always to make the failure talk.
+
+## 2026-09-05 13:56Z — #174 FIXED AND MERGED (#177). The lane is unblocked.
+
+Items 1-4 unchanged. Disk 52%. Implemented last tick's root cause.
+
+**#177 merged at 13:55:43Z**, head `3f84b2ef`. Both conditions met at that exact
+head: all three preswarm lenses REVIEW_PASSED, and `linux-x64-artifact` run
+33969935112 succeeded ON `3f84b2ef` -- verified by headSha, not by the check
+name -- **with crash_resume 34 passed in 39.4s**, the suite that hung and was
+cancelled on four runs tonight.
+
+The fix: `resume` repairs the index from the authority. On a missing registry
+row, open the run's journal and, if it says it is this run, register it and
+continue.
+
+**The lenses caught a serious hole and were right to.** My first revision adopted
+any journal that merely OPENED -- and `SqliteJournal::open` reports whatever run
+id the file carries, so a well-formed journal for run A at `runs/B.sqlite3`
+would have been registered as B. That is precisely the filesystem-derived run
+existence WP-12/F7 removed on purpose. Worse, my comment and commit message both
+claimed foreign files were refused. The truncated half was true; the foreign
+half was invented. Two lenses caught the gap AND the false claim independently.
+
+Fixed by comparing `journal.run_id()` to the requested id, with a third test:
+a valid journal copied under another run's name must be refused and must leave
+no registry row. Mutation: replacing the comparison with `true` fails exactly
+that test while the other two pass.
+
+The history lens then blocked on the immutable commit message still asserting
+the false claim, and asked for a squash. Correct -- so the branch is one commit
+whose narrative matches the code. Verified the squash preserved the tree by
+comparing tree ids (9b08ba5a both sides); my first attempt to check that used an
+unquoted `HEAD^{tree}`, which zsh ate, and printed a "YES" comparing two empty
+strings. Caught it because the answer arrived too easily.
+
+**Also settled: the SDK `live-kernel` failure on the first run was a flake, not a
+regression.** A rerun of the identical head went green. I checked rather than
+assumed, having twice today mistaken a flake for a cause and a cause for a flake.
+
+#171 and #168 should now be able to get green CI. Next tick: re-run their checks.
