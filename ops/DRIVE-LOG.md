@@ -6864,3 +6864,39 @@ pinning is a real property (reproducibility, and the authority tuple the proof
 asserts), and an image-baked binary loses it. So this is not "the PR
 overengineered it"; it is a trade between per-run pinning and a much simpler
 supply chain. Khaliq should choose knowing that, not just knowing it is simpler.
+
+## 2026-09-06 — #193: recorded the merge-rail amendment. Review caught me drifting three times.
+
+Item 1 drain healthy (two active crons, nothing pending). Disk 51%. Items 3-4
+merged long ago. Item 2 fully characterized and waiting on Khaliq, so I closed a
+commitment I had made and not kept.
+
+**#193** records Khaliq's merge ruling as **settled decision #16**, with four
+conditions that must all hold: independent signoff at the exact head (explicitly
+not the Lead's own judgement), green CI at that head compared by SHA rather than
+check name, not a push-deploying branch, and not about the Lead's own authority
+or its gates. All three lenses PASSED at the final head.
+
+**The valuable part is that review caught me committing the exact failure the
+amendment exists to fix -- three separate times.**
+
+  1. First draft touched only the RFC. `AGENTS.md` still said "a human merges",
+     and that is the file every agent reads first. I would have created a second
+     contradiction while complaining about the first in the same paragraph.
+  2. Then `charter/LEAD.md` still said "You never merge." Before my diff the
+     charter and RFC AGREED; my diff made them disagree -- and the charter is
+     what governs the actor receiving the authority.
+  3. Worst: my AGENTS.md summary compressed condition (d) to "not about its own
+     authority", **dropping "or its gates"**. The conditions are all-or-nothing,
+     so that silently WIDENED my own authority in the file agents actually read.
+     And "never edit a gate" does not cover the Lead MERGING someone else's gate
+     edit, which is precisely what (d) closes.
+
+Three documents, three drifts, in a PR whose entire subject is documents drifting
+from practice. Fixed and verified by grep across all three rather than by
+reading: each now contains `decision #16` and `or its gates`, and no `You never
+merge` survives.
+
+**Not self-merging it.** #16(d) -- which this PR writes -- excludes changes about
+the Lead's own authority. Merging it under the authority it grants would be the
+plainest possible violation of the thing it is trying to write down. It waits.
