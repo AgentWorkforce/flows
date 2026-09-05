@@ -77,7 +77,8 @@ describe('the Garden join: picker output feeds the consumer', () => {
     const flowPath = join(__dirname, '..', '..', 'testdata', 'backlog-picker.flow.yaml');
     const flow = load(readFileSync(flowPath, 'utf8')) as { steps: Array<{ id: string; command: string }> };
     const step = (id: string) => flow.steps.find((s) => s.id === id)!.command;
-    const run = (cmd: string, cwd: string) => execFileSync('sh', ['-c', cmd], { cwd, encoding: 'utf8', env: { ...process.env, RELAYFLOWS_SDK_DIST: join(__dirname, '..', 'dist') }, });
+    // stdio: stderr captured, not echoed -- see backlog-picker-flow.test.ts.
+    const run = (cmd: string, cwd: string) => execFileSync('sh', ['-c', cmd], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, RELAYFLOWS_SDK_DIST: join(__dirname, '..', 'dist') }, });
 
     const dir = mkdtempSync(join(tmpdir(), 'garden-join-'));
     try {
