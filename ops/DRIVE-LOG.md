@@ -7020,3 +7020,47 @@ quoting "662 passed, 3 skipped" all night without once asking what the 3 were.
 Not verified independently yet: it needs a real analyzer rather than the skip
 path. Recorded on #189 so the finding survives whatever happens to that PR, and
 queued as the next thing I take.
+
+### Narrowing #189's finding (same tick)
+
+Checked the claim before leaving it as folklore. Two corrections to my own
+first pass, then a real narrowing.
+
+**I first grepped my own worktree and found nothing** — no `ANALYZER_SKIP`
+anywhere, no such test. That would have made my PR comment wrong. It was not:
+this worktree branch is behind `main`, and the test and the flag both exist at
+`origin/main`. Checked before publishing anything further. The lesson is the
+one already in the log twice: grep the ref you are making a claim about, not
+the checkout you happen to be standing in.
+
+**The skip claim holds, and the test is better than I gave it credit for.**
+`sdk/tests/live-kernel.test.ts:1015` fails CLOSED when no analyzer is reachable;
+skipping is opt-in, and the comment says why in as many words:
+
+    An unavailable analyzer is diagnostics, never acceptance, so this FAILS by
+    default. [...] a reader who runs the suite without special knowledge must
+    not get a green that proves nothing about gate 2.
+
+`cloud-runtime-artifact.yml:115` then sets `RELAYFLOWS_ALLOW_ANALYZER_SKIP: '1'`.
+So CI takes the documented opt-out, correctly and by design. The gap is not that
+someone hid a failure; it is that **I read "3 skipped" as noise for a whole
+night** and quoted the green without ever asking what the three were. One of
+them is the only test that exercises gate-2 acceptance at all.
+
+**One hypothesis eliminated.** The obvious cause of `payload.verification ===
+null` would be the shipped canonical spec lacking the gate — which is precisely
+the "green test, dead workload" failure the test's own comments describe having
+been fixed once before. It is not that: `testdata/hn-monitor.spec.canonical.json`
+declares `verification.json_schema` with `required: [story_title,
+relevance_score, reasoning]`.
+
+So #189's failure is either a real kernel defect — a step reaching `done` with a
+declared gate and no recorded verdict — or a stale-artifact artifact of their
+sandbox, which is the trap that already cost me 18 misattributed failures
+tonight. Reading cannot separate those two.
+
+**Stopped here deliberately.** Settling it needs a release build of
+`relayflowd` (no prebuilt binary in the toolchain or `kernel/target`). Data
+volume is at 94%, 12Gi free, and disk hit zero once today; a multi-GB cargo
+build is exactly the "check df before anything large" case. Next tick starts
+with the build, not with re-deriving any of the above.
