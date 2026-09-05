@@ -5538,3 +5538,47 @@ it exposes is real. My recommendation is on the PR: take it, since main already
 has this bug and currently expresses it as a silent 30-minute cancellation --
 merging converts an existing failure into one that names itself. But knowingly
 turning a check red on main is a human's call, not mine unattended.
+
+## 2026-09-05 12:58Z — tick: two #174 hypotheses killed by measurement, no new code
+
+Items 1-4 unchanged. Disk 49%. #175 still awaits Khaliq's merge call; #171 and
+#168 still blocked behind #174.
+
+Chased #174's root cause with the evidence #175 produced (daemon never sends the
+dispatch, `llm.rs:110`, runners only). Two hypotheses, both eliminated by
+measurement rather than by argument. **No code shipped this tick, deliberately.**
+
+**1. Missing analyzer/provider env on the runner -- NO.** The `Test kernel` step
+has no `env:` block at all while `Test SDK` carries
+`RELAYFLOWS_ALLOW_ANALYZER_SKIP`. That asymmetry looked like the answer. It is
+not: the fixture uses `"model": "deterministic-stub"`, so no provider is
+reached and a missing analyzer has nothing to break.
+
+**2. Pipe-buffer deadlock -- NO, and this one fit everything.** Both
+`spawn_resume` helpers pipe stdout AND stderr, and neither is drained until
+`wait_with_output()`, which runs only AFTER the dispatch the test is waiting
+for. A child writing past the ~64KB buffer blocks on write and never
+dispatches. Those two helpers are also the ONLY piped spawns in crash_resume --
+two tests, two files, one pattern, exactly the observed signature.
+
+Measured before believing it:
+
+  PROBE before-first:      stdout=111 bytes stderr=0 bytes
+  PROBE between-first-llm: stdout=111 bytes stderr=0 bytes
+
+111 bytes against 64KB. Not close. `RUST_LOG=trace` changes nothing either --
+the daemon has no RUST_LOG plumbing, so volume is fixed and small. Dead.
+
+Probe added and removed with hashes checked (eef69c22 while probing, restored
+8e762695, `git status --porcelain kernel/` empty).
+
+**Stopping there rather than guessing a third time.** The daemon does not
+dispatch on a runner, it is not the environment, and it is not backpressure.
+Today's expensive lesson has been that a hypothesis with no measurement behind
+it costs more than the measurement would have -- three wrong ones on #155, two
+on the WAL switch, and two more here that at least died cheaply.
+
+Recorded on #174, including the next useful step: on a dispatch timeout nothing
+captures daemon-side state, because the resumed child is still running so its
+output is never read and the journal is never inspected. A follow-up should kill
+the child on timeout and dump its output plus the run's journal rows.
