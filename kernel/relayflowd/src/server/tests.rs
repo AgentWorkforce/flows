@@ -255,6 +255,57 @@ fn run_resume_adopts_a_real_journal_whose_registry_row_is_missing() {
     );
 }
 
+/// #185. The fourth case, and the one #177 got wrong: a journal that was
+/// CREATED but never recorded its run.
+///
+/// `Engine::start` creates the journal, appends RunSpawned, then registers, so a
+/// crash has two residues. One is a real run missing its index entry -- adopt
+/// it. The other is an empty file that never became a run, and it still carries
+/// a meta row with the run id, so an id check alone accepts it. #177 did exactly
+/// that, and resume then died on `read run spec: Query returned no rows` instead
+/// of saying the run does not exist.
+#[test]
+fn run_resume_refuses_a_journal_that_never_recorded_its_run() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let run_id = "01EMPTYJOURNALEMPTYJOURNAL";
+
+    // Exactly what a kill between `create` and the RunSpawned append leaves:
+    // a valid journal for this run id, with no entries at all.
+    std::fs::create_dir_all(data_dir.join("runs")).unwrap();
+    let path = data_dir.join("runs").join(format!("{run_id}.sqlite3"));
+    let journal = relayflowd_journal::SqliteJournal::create(&path, run_id, 0).unwrap();
+    assert_eq!(journal.run_id(), run_id, "the meta row is what makes this tempting");
+    assert!(journal.run_spec().is_err(), "and there is no spec to resume");
+    drop(journal);
+
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, _peer) = shared_writer();
+    let response = request(
+        data_dir,
+        &hub,
+        1,
+        &writer,
+        &format!(r#"{{"id":"resume","verb":"run.resume","params":{{"run_id":"{run_id}"}}}}"#),
+    );
+
+    let error = response
+        .error
+        .expect("a journal that never recorded its run must be refused");
+    assert_eq!(
+        error.code, "run_not_found",
+        "refusing it as not-found is the honest answer; an internal spec-read \
+         failure is not"
+    );
+
+    let registry =
+        relayflowd_journal::Registry::open(data_dir.join("relayflowd.sqlite3")).unwrap();
+    assert!(
+        registry.lookup(run_id).unwrap().is_none(),
+        "a refused journal must not leave a registry row behind"
+    );
+}
+
 /// #174, third case: a journal that is structurally VALID but belongs to a
 /// different run must still be refused.
 ///
