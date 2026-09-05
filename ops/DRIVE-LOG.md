@@ -6831,3 +6831,36 @@ today it fetches the artifact at runtime via a signed S3 URL. Whether npm remove
 that hop depends on whether the sandbox image can carry the binary -- if it
 cannot, npm replaces the GitHub App in CI but the runtime fetch stays. I have not
 established which.
+
+## 2026-09-06 — closed my own open question: the sandbox image CAN carry relayflowd
+
+Last tick I said I could not tell whether npm removes the runtime artifact fetch,
+because the sandbox is what needs `relayflowd`. Answered it rather than leaving
+it hanging. `dev-stack/sandbox-image/Dockerfile` is 23 lines and settles it:
+
+  FROM golang:1.24-bookworm AS relayfile-mount-builder
+  RUN CGO_ENABLED=0 go build -o /out/relayfile-mount ./cmd/relayfile-mount
+
+  FROM node:20-bookworm
+  COPY --from=relayfile-mount-builder /out/relayfile-mount /usr/local/bin/relayfile-mount
+
+Two things follow:
+
+1. **The image already bakes in a compiled binary.** `relayfile-mount` is built
+   in a stage and COPY'd into the runtime image. Adding `relayflowd` is the same
+   two lines. So yes -- the sandbox can carry it, with precedent in the very file
+   that would change.
+2. **The base is node:20**, so relay's plain-JS CLI pattern runs there unmodified.
+   flows would not need `bun build --compile` for the sandbox at all.
+
+So the npm route is stronger than I described: either the sandbox npm-installs
+the packages, or the image bakes them in like relayfile-mount. Either removes the
+signed-URL fetch, the S3 hop, AND the GitHub App together.
+
+**One honest caveat against my own conclusion.** Baking into the image ties the
+runtime version to image builds. #3270 deliberately pins a specific artifact per
+run -- source commit, artifact id, sha256, verified before use. That per-run
+pinning is a real property (reproducibility, and the authority tuple the proof
+asserts), and an image-baked binary loses it. So this is not "the PR
+overengineered it"; it is a trade between per-run pinning and a much simpler
+supply chain. Khaliq should choose knowing that, not just knowing it is simpler.
