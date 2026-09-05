@@ -5931,3 +5931,52 @@ at main's tip, then `npm ci` in `surface/` and `sdk/` (with `--userconfig`),
 `RELAYFLOWD_BIN`, and `RELAYFLOWS_ALLOW_ANALYZER_SKIP=1`. That is CI's own order;
 skipping any step fails in a way that looks like a code error rather than a
 missing prerequisite.
+
+## 2026-09-05 16:30Z — #179 REPRODUCED and root-caused. PR #180 open, not yet signed off.
+
+Items 1-4 unchanged. Flows queue was empty; this is new work on the flakiness
+filed two ticks ago.
+
+**Built the reproduction environment properly this time**, following CI's own
+order after last tick failed on it. The step I had wrong: `surface` uses **bun**,
+not npm -- `bun install --frozen-lockfile --ignore-scripts && bun run build` --
+and it has no package-lock.json, which is why `npm ci` there failed with a usage
+error. Read the workflow instead of assuming, and it built first try.
+
+**Reproduced: 1 failure in 12, then 1 in 4.** Instrumented the fall-through
+branch and it named the state exactly:
+
+  PROBE_D unclassifiable inspection={"status":"running","needsHuman":false}
+
+**Root cause.** `classifyOutcome` loops while a run is parked, asking
+`inspectOutOfBandStep` what to do. That helper reports a step only when a
+non-deterministic step is `needs_human`, `runnable` or `running`. When a worker
+has just completed the step the run parked on, there is a window where none hold
+while the snapshot status is still `running` -- the daemon has not finished
+driving what follows. Every branch missed it, so the loop broke with
+`status === 'parked'` and no `parkedStep`, and the tail reported
+`parked without a classifiable completion`. **The run was healthy and about to
+succeed; the CLI failed it for being observed mid-stride.**
+
+That also explains the second signature in #179's table -- both are the CLI
+treating a transient healthy state as terminal. And the `unprovable_effects`
+WARNING both CI failures quoted is a red herring: it is in stderr on every run,
+and merely the first line of the captured stderr the assertion prints.
+
+**Fix:** poll a `running` run instead of abandoning it, bounded 40 x 50ms = 2s,
+with the existing `break` preserved so it still fails closed.
+
+  before: 1 fail / 12, then 1 / 4
+  after:  0 fail / 40, then 0 / 20 after the review fix
+  full SDK suite: 31 files, 649 tests passed, 3 skipped; typecheck clean
+
+**The lens caught a regression I introduced**: I used a bare `setTimeout` where
+the whole file uses the cancel-aware `delay(ms, signal)`, so a Ctrl-C during the
+2s window would have been ignored. Fixed, and stated the `runResume`-idempotency
+contract the loop leans on.
+
+**#180 is NOT signed off.** The same review wants a unit test for the new branch,
+and `classifyOutcome` is unexported with no test file -- pinning it means making
+it injectable first, which deserves its own pass rather than a rushed one at the
+end of a long tick. Two lenses also did not finish within their window; they need
+re-running.
