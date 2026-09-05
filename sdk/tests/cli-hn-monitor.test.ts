@@ -298,7 +298,17 @@ describe('runHnMonitor — inline primitive composition', () => {
     const code = await runHnMonitor({
       dataDir: tmp(),
       specPath: specFile(),
-      pollIntervalMs: 1,
+      // The loop must still be running when the error lands, or there is
+      // nothing to preempt and exiting 0 is correct. 10 polls x 50ms gives a
+      // ~500ms window for an error fired at 10ms.
+      //
+      // It used to be 10 polls x 1ms against that same 10ms timer -- two
+      // deadlines of the same size racing. On a loaded CI runner the loop
+      // finished first and the test failed with `expected +0 to be 1`, twice
+      // tonight (#179), while never reproducing locally. Widening the error to
+      // 60ms reproduces the old failure 8 times out of 8, which is what
+      // identified this as the test's race rather than the product's.
+      pollIntervalMs: 50,
       maxPolls: 10,
       connectClient: async () => client,
       attachWorker: async (_c, onErr) => {
