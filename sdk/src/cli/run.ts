@@ -167,7 +167,11 @@ export async function connect(
   }
 }
 
-async function classifyOutcome(
+/// Exported for tests. The `running`-with-no-identifiable-step branch (#179)
+/// only occurs in a sub-second window against a live daemon, so pinning it
+/// needs a stubbed client rather than a real run -- the integration test that
+/// found it reproduced the bug roughly 1 time in 12.
+export async function classifyOutcome(
   client: JournalClient,
   command: RunCommand,
   outcome: RunOutcome,
