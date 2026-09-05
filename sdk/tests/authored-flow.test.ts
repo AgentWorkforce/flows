@@ -465,20 +465,17 @@ describe('authored flow journal executor', () => {
     });
     const client = await connectedClient('authored-flow-missing-completion-test');
     try {
-      // The PROPERTY is what this pins: a body that runs a journal-backed step
-      // and never calls done() must be refused, not silently completed.
+      // Back to the code the original test asserted before #140 dropped it.
       //
-      // The original version of this test (dropped in #140, restored here)
-      // asserted `missing_completion`. On current main the refusal arrives as
-      // `unawaited_step` instead, because `verifyAuthoredOperations` runs
-      // before the `requestedCompletion === undefined` check in
-      // `authored-flow-executor.ts` and throws first. The body here DOES await
-      // its step, so "returned with unawaited steps" is a misleading label for
-      // it -- see #183. Asserting either code specifically would either fail on
-      // main or bake in a message that looks wrong, so this asserts the
-      // refusal and its class instead.
+      // Between the restoration and now this had to assert only the refusal's
+      // class, because the executor answered `unawaited_step` -- it verified
+      // operations before checking for a completion, and `isHandled` returns
+      // false for every operation when there is no completion to trace from.
+      // It named the step the author HAD awaited and said nothing about the
+      // `done()` they forgot (#183). Fixed by checking the completion first,
+      // so this can pin the code again.
       await expect(executeAuthoredFlow(handle, client)).rejects.toMatchObject({
-        name: 'AuthoredFlowExecutionError',
+        code: 'missing_completion',
       });
     } finally {
       client.close();
