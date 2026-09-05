@@ -156,6 +156,55 @@ pub fn journal_entries(data_dir: &Path) -> Option<Vec<JournalEntry>> {
     journal.scan_segment(segment).ok()
 }
 
+/// Everything known about a stalled resume, as one panic message.
+///
+/// When a dispatch never arrives (#174) the useful state is all on the daemon
+/// side and none of it is captured today: the resumed child is still running,
+/// so `wait_with_output` is never reached and its output is discarded when the
+/// test unwinds; the journal is never read. Four occurrences produced four test
+/// names and nothing else.
+///
+/// This kills the child first -- it is wedged by definition, and without that
+/// the read below would block as long as the one that already timed out -- then
+/// reports its output and the run's journal together.
+pub fn describe_stalled_resume(data_dir: &Path, resume: &mut Child) -> String {
+    let mut report = String::new();
+
+    // Kill before read. The child is not going to finish on its own.
+    let _ = resume.kill();
+    let _ = resume.wait();
+
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    if let Some(mut handle) = resume.stdout.take() {
+        let _ = std::io::Read::read_to_string(&mut handle, &mut stdout);
+    }
+    if let Some(mut handle) = resume.stderr.take() {
+        let _ = std::io::Read::read_to_string(&mut handle, &mut stderr);
+    }
+    report.push_str(&format!(
+        "\n--- resume child ---\nstdout ({} bytes):\n{stdout}\nstderr ({} bytes):\n{stderr}\n",
+        stdout.len(),
+        stderr.len()
+    ));
+
+    // The journal says how far the run actually got, which is the question a
+    // missing dispatch raises: did the daemon resume and stall, or never resume?
+    match journal_entries(data_dir) {
+        None => report.push_str("--- journal --- absent (no run directory)\n"),
+        Some(entries) => {
+            report.push_str(&format!("--- journal ({} entries) ---\n", entries.len()));
+            for entry in &entries {
+                report.push_str(&format!(
+                    "  seq={} type={:?} step={:?}\n",
+                    entry.seq, entry.entry_type, entry.step_id
+                ));
+            }
+        }
+    }
+    report
+}
+
 pub fn completed_step_count(entries: &[JournalEntry]) -> usize {
     entries
         .iter()

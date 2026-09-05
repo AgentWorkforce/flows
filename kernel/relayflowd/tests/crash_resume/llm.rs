@@ -11,7 +11,10 @@ use super::{
     llm_support::{
         LlmFixture, ProtocolClient, ServerGuard, attached_worker, complete, spawn_resume, start_run,
     },
-    support::{journal_entries, kill_group, only_run_id, read_pid, resume_cli, wait_until},
+    support::{
+        describe_stalled_resume, journal_entries, kill_group, only_run_id, read_pid,
+        resume_cli, wait_until,
+    },
 };
 
 #[test]
@@ -106,8 +109,17 @@ fn sigkill_sweep_covers_before_and_between_the_rung_b_steps() {
         let _server = ServerGuard::start(&fixture);
         let mut worker = attached_worker(&fixture, "boundary-stub");
         let run_id = only_run_id(&fixture.data_dir);
-        let resume = spawn_resume(&fixture, &run_id);
-        let dispatch = worker.event("step.dispatch").unwrap();
+        let mut resume = spawn_resume(&fixture, &run_id);
+        // Do not `.unwrap()` this. A missing dispatch is #174, and the whole
+        // difficulty there has been that the failure carries no daemon-side
+        // state -- so capture it here rather than losing it to the unwind.
+        let dispatch = match worker.event("step.dispatch") {
+            Ok(dispatch) => dispatch,
+            Err(error) => panic!(
+                "{label}: no step.dispatch after resume: {error}{}",
+                describe_stalled_resume(&fixture.data_dir, &mut resume)
+            ),
+        };
         complete(&mut worker, &dispatch, json!({"answer": 4})).unwrap();
         let output = resume.wait_with_output().unwrap();
         assert!(
