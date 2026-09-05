@@ -6744,3 +6744,42 @@ I did not change it. It is someone else's PR, the signing approach is a design
 choice, and verifying the swap needs the preview -- which is still blocked on the
 App credential. Reported so Khaliq chooses with the cause in hand rather than a
 budget number.
+
+## 2026-09-05 21:55Z — #3270's size overage and an untested production path are the SAME line
+
+Item 2. Followed the size finding one step further and it stopped being about
+size.
+
+`relayflow-v2-artifact-source.ts` signs the S3 URL with:
+
+  credentials: overrides.credentials ?? defaultProvider(),
+
+The heavy chain is a FALLBACK. So who takes it?
+
+  * `relayflow-v2-artifact-source.test.ts` passes explicit `credentials` on
+    every call (lines 20 and 43)
+  * `launch-runner.ts` -- the only production caller -- passes bucket, region,
+    key, sha256, expiresInSeconds and **no credentials**
+
+**So the `defaultProvider()` branch is never exercised by any test, and it is the
+only branch production uses.** The tested path and the shipped path are different
+paths.
+
+That matters beyond bundle size because of where it runs. This module is pulled
+into the Cloudflare Worker via `launch-runner.ts`, and
+`@aws-sdk/credential-provider-node` is a chain of Node-oriented providers --
+INI files, SSO config, process credentials, IMDS. Some links cannot work in a
+Worker at all.
+
+I am NOT claiming it is broken -- I have not run it, and the env-var link in the
+chain could plausibly succeed if the Worker has AWS credentials bound. What I can
+say precisely: **the branch production depends on has no test, runs in a runtime
+its dependency was not designed for, and is what costs the 22 KB.** Passing
+credentials explicitly (or `fromEnv`) would close all three at once.
+
+This is what a preview proof exists to catch, and it is a concrete argument for
+unblocking the App credential rather than treating the preview as ceremony.
+
+Still not changing it: someone else's PR, a design choice, and the fix wants the
+preview to verify. But Khaliq now has a cause rather than a budget number, and a
+correctness question rather than a trim/split choice.
