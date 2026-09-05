@@ -2,6 +2,20 @@ name: Relayflow v2 Cloud runtime artifact
 
 on:
   workflow_dispatch:
+  # Also on push to main, because a PR is checked at its own head and never as
+  # merged. Every PR squash-merges onto a main that has moved since its CI ran,
+  # so the composed result was going unverified: on 2026-09-05, twelve merges
+  # landed in one evening across the exactly-once claim path, resume adoption
+  # and the authored-flow executor -- each green on its own branch, none of them
+  # ever run together until this was dispatched by hand.
+  #
+  # A broken compose would otherwise surface as an unrelated PR going red, which
+  # is the most expensive way to find it: the author debugs their own change
+  # first. Paths are deliberately NOT filtered here -- on main the question is
+  # whether the tree is good, not whether this commit touched the kernel.
+  push:
+    branches:
+      - main
   pull_request:
     paths:
       - ".github/workflows/cloud-runtime-artifact.yml"
