@@ -6173,3 +6173,39 @@ contract and not its placement. Closing that would need a test-only seam inside
 the span the change exists to protect.
 
 Kernel workspace 156 passed, 0 failed, no warnings. Not merged — CI pending.
+
+## 2026-09-05 17:42Z — #182 merged, #169 closed. Four issues left, none of them defects I introduced.
+
+Items 1-4 unchanged. Disk 46%.
+
+**#182 merged at 17:41:07Z**, head `bc41f9e1` — three lenses REVIEW_PASSED (each
+re-run on the FINAL head, since the Err-path fix landed after structure's first
+pass) and CI run 33981376623 success on that exact sha. The panic window from
+#173 is closed.
+
+**Then found something I had not been tracking: four open flows ISSUES.** I have
+been treating an empty PR queue as an empty backlog all night, which it was not.
+
+**#169 closed** — the P0 that started the whole exactly-once thread. Verified
+both halves are on main rather than assuming #171 covered it:
+
+  * `left: 2` double-spawn -> `existing_boot == boot_id` guard present
+  * `database is locked` on Linux -> WAL-switch retry + `busy_timeout` present
+  * the racing test is present AND uses a separate `Engine` per racer, which is
+    the production topology the issue's own evidence called for
+
+Recorded honestly on it that the racing test is a weak gate (about 3 catches in
+30 against a seeded defect) and that the deterministic `registry::tests` plus
+`every_engine_in_this_process_shares_one_boot_id` are what actually hold the
+line.
+
+**Still open, and none are mine from tonight:**
+
+  #167 Gate 2 SCOREBOARD row overstates what is missing
+  #166 re-add four authored-flow tests dropped when #140's commit was rebuilt
+  #156 SDK suite flake: ENOENT '.relayflow/backlog-picker-entry.json'
+  #141 SDK first-class headless adapter per agent CLI
+
+#166 is the most concrete — dropped test coverage is a known hole with a known
+fix. #156 is another SDK flake, which after tonight I would treat as a real bug
+until measured rather than as noise.
