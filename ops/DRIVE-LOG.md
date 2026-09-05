@@ -6407,3 +6407,45 @@ test names do not. That is the STATE.md lesson, applied before it bit.
 
 **Remaining: #156 (SDK flake, ENOENT backlog-picker-entry.json) and #141
 (headless adapter per agent CLI).** Neither is from tonight's work.
+
+## 2026-09-05 19:41Z — #190 merged. #156's stated cause was wrong; the issue stays open.
+
+Items 1-4 unchanged. Disk 54%.
+
+**#190 merged**, head `7758814b`, three lenses REVIEW_PASSED and CI run
+33987493221 success on that exact sha.
+
+**#156's diagnosis did not survive contact.** It read the intermittent
+`ENOENT .relayflow/backlog-picker-entry.json` as a relative path racing under
+vitest parallelism. Every caller already runs in its own `mkdtempSync` dir with
+an explicit cwd -- there is no shared directory to race over.
+
+What the text actually is: expected output. Several tests assert a step FAILS,
+and `execFileSync` echoes the failing child's stderr into the parent's, so a
+green run prints a full stack trace. Six consecutive full suites on main before
+touching anything: 662 passed, 3 skipped EVERY time, with the ENOENT text
+present EVERY time. Never a failure, always the noise.
+
+So #190 captures that stderr rather than echoing it. 0 ENOENT lines across three
+runs; 2 when reverted; tests pass either way -- which is precisely why it read as
+a flake.
+
+**#156 left OPEN deliberately.** Its first run showed `Test Files 1 failed`, so
+something failed then and I have not explained it. Closing on "could not
+reproduce" would turn an unexplained failure into a silent one. What has changed
+is that a future ENOENT is now real signal rather than expected noise.
+
+**Two near-misses of my own this tick, both caught:**
+
+1. My first reproduction attempt grepped for the ENOENT string and reported
+   6/6 "reproductions" -- while every run PASSED. I was matching expected stderr,
+   not a failure. Caught by reading the raw output before reporting it. That is
+   the third time tonight my instrument, not the code, produced the surprising
+   number.
+2. I polled CI using PR #189's head while the PR I had just opened was #190. The
+   run I saw green belonged to a different sha. Caught by re-querying against
+   #190's actual headRefOid -- and it was still in_progress. I would have merged
+   on a stale green.
+
+**Flows: PR queue empty. Open issues #156 (open by choice, unexplained) and #141
+(design-sized).**
