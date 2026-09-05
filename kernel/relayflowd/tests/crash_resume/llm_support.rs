@@ -237,10 +237,28 @@ pub struct ProtocolClient {
     events: Vec<Value>,
 }
 
+/// Ceiling on any single protocol read in a test.
+///
+/// The whole `crash_resume` target runs in about 38 seconds, so this is far
+/// longer than any legitimate wait; it exists only to convert "never" into a
+/// failure. See `read_frame` for why that matters.
+const READ_TIMEOUT: Duration = Duration::from_secs(60);
+
 impl ProtocolClient {
     pub fn connect(socket: &Path) -> Self {
         let stream = UnixStream::connect(socket).unwrap();
-        let reader = BufReader::new(stream.try_clone().unwrap());
+        let read_half = stream.try_clone().unwrap();
+        // Without this a frame that never arrives blocks forever. These tests
+        // SIGKILL a daemon and resume it, so "the dispatch never comes" is a
+        // reachable state, not a hypothetical -- and an unbounded read turns it
+        // into a silent hang that produces NO output at all. On GitHub runners
+        // that consumed the entire 30-minute step three times (#174), and the
+        // only evidence left behind was the harness's own
+        // "has been running for over 60 seconds" line.
+        read_half
+            .set_read_timeout(Some(READ_TIMEOUT))
+            .expect("set protocol read timeout");
+        let reader = BufReader::new(read_half);
         Self {
             stream,
             reader,
@@ -312,8 +330,24 @@ impl ProtocolClient {
 
     fn read_frame(&mut self) -> Result<Value> {
         let mut line = String::new();
-        if self.reader.read_line(&mut line)? == 0 {
-            bail!("protocol connection closed")
+        match self.reader.read_line(&mut line) {
+            Ok(0) => bail!("protocol connection closed"),
+            Ok(_) => {}
+            // Name the timeout rather than letting it surface as a bare I/O
+            // error. A test that stops here is waiting for a frame the daemon
+            // never sent, and that sentence is the entire diagnosis.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                bail!(
+                    "timed out after {READ_TIMEOUT:?} waiting for a protocol frame; \
+                     the daemon sent nothing (see #174)"
+                )
+            }
+            Err(error) => return Err(error.into()),
         }
         serde_json::from_str(&line).context("decode protocol frame")
     }
