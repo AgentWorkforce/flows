@@ -6017,3 +6017,38 @@ label I gave the whole cluster when I filed it.
 
 #180's CI failed on exactly that test, so its own failure is unrelated to it;
 re-run in flight.
+
+## 2026-09-05 16:35Z — #180 MERGED. Caught my own bad measurement on the second bug.
+
+Items 1-4 unchanged. Disk 49%.
+
+**#180 merged at 16:34:42Z**, head `ae04d2a5`, both conditions verified at that
+exact sha (three lenses REVIEW_PASSED; CI run 33977404900 success, headSha
+matched rather than trusting the check name). `flows run` no longer fails a
+healthy run for being observed mid-stride.
+
+**Then went after #179's remaining failure and got a lesson instead of a bug.**
+
+My first measurement reported **15 failures out of 15** — which would have been a
+major finding: a deterministic failure hiding behind an "intermittent" label.
+It was wrong. vitest's `-t` is a REGEX, so
+`-t "terminates (exit 1) when the worker emits an error asynchronously"` turned
+`(exit 1)` into a capture group, matched nothing, and skipped all 16 tests in the
+file. A skipped run prints no "1 passed", and my counter scored every skip as a
+failure.
+
+I caught it only because I went to read the failure output before reporting it,
+and found `16 skipped` instead of an assertion. Had I trusted the counter I would
+have handed Khaliq a confident, fabricated finding.
+
+Corrected run: **20 passes, 0 failures** on that test in isolation, and three
+consecutive full SDK suites at 651 passed / 3 skipped. It does not reproduce
+here at all.
+
+So the second bug stays open and CI-only. Recorded on #179, including the `-t`
+regex trap, because "fails 15/15 locally" would have sent the next person hunting
+a deterministic bug that is not there.
+
+Standing lesson, third time today in a different costume: a measurement that
+answers too cleanly deserves one look at the raw output before it becomes a
+claim.
