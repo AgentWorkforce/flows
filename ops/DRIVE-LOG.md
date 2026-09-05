@@ -6449,3 +6449,43 @@ is that a future ENOENT is now real signal rather than expected noise.
 
 **Flows: PR queue empty. Open issues #156 (open by choice, unexplained) and #141
 (design-sized).**
+
+## 2026-09-05 19:57Z — nothing was verifying main. #191 fixes that; main is green.
+
+Items 1-4 unchanged. Disk 54%.
+
+**Found a structural gap by asking a question nobody had asked: what CI runs on
+main?** Answer: none. `cloud-runtime-artifact.yml` triggered on `pull_request`
+and `workflow_dispatch`; `review-swarm.yml` on `pull_request` only. Every PR is
+checked at its OWN head and never as merged -- and we squash-merge onto a main
+that has moved since that CI ran, so the composed tree was unverified.
+
+Twelve merges landed tonight in interacting areas: the exactly-once claim path
+(#171, #182), resume adoption (#177, #186), the authored-flow executor (#184,
+#187), the CLI run loop (#180). Each green on its own branch. Composed: never
+run.
+
+**Dispatched it by hand first, before proposing anything:**
+
+  run 33987924703  workflow_dispatch  main  completed/success  ed917bfd
+
+Main is fine. But nobody knew that, and finding out required knowing to ask.
+
+**#191 merged** (head `d1cb32a3`, three lenses, CI success verified by headSha
+AND event=pull_request -- after last tick's near-miss on a stale green I now
+check both). It adds `push: branches: [main]`, deliberately without path filters:
+on a PR the question is "does this change affect the runtime", on main it is "is
+the tree good", and a docs-only merge can land on a tree someone else broke.
+
+**The change proved itself on its own merge:**
+
+  33988646599  push  main  in_progress
+
+Why it is worth a trigger rather than a habit: without it a bad compose surfaces
+as an UNRELATED PR going red, which is the most expensive way to find anything --
+the author debugs their own change first, then the base, then the merge that
+actually broke it. Tonight produced three failures on PRs that belonged to
+something else (#179, #185, the #174 chain) and each cost a tick to attribute.
+
+**Flows: PR queue empty. Open issues #156 (open by choice, unexplained) and #141
+(design-sized).**
