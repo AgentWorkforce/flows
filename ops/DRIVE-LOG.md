@@ -6900,3 +6900,42 @@ merge` survives.
 **Not self-merging it.** #16(d) -- which this PR writes -- excludes changes about
 the Lead's own authority. Merging it under the authority it grants would be the
 plainest possible violation of the thing it is trying to write down. It waits.
+
+## 2026-09-06 — #194: NEXT.md was stale; retargeting it caught two of my own errors
+
+Drain healthy. Items 3-4 merged. Item 2 waits on Khaliq. #193 I cannot
+self-merge. So I took the stale work package a lens flagged last tick.
+
+`ops/NEXT.md` asked for the cloud review-swarm to be BUILT. It was -- the
+workflow and its three scripts are on main and it reaches step 6 of 9. This
+repo has already paid once for a tick spent assessing against a finished
+package.
+
+**#194** retargets it at the real blocker: `Launch cloud swarm` dies with
+`agent-relay: command not found`, exit 127, because nothing installs the CLI.
+All three lenses PASSED at the final head.
+
+**Two of my own errors, both caught by review, both worth recording:**
+
+1. **I hid the actual design question.** My first draft told the fixer to add
+   `setup-node` + `npm install -g` to `review-swarm.yml`. But on
+   `pull_request` GitHub takes that workflow file FROM THE PR -- so an install
+   step there is editable by the author of the PR being judged. The gate
+   already sparse-checks-out its scripts from `main` (lines 28-37) for exactly
+   that reason. I would have had the fixer undo the invariant the previous
+   package established, while quoting decision #6 two paragraphs above it. The
+   brief now poses the question and demands an answer in the PR.
+2. **A false evidence claim.** I wrote "every run since the gate was written"
+   failed at step 6. Run 33959293210 failed at step 5 with exit 126 and step 6
+   was SKIPPED -- which the same brief acknowledged higher up, so it was
+   internally contradictory too. Narrowed to: every run that REACHED step 6
+   after #172 failed with 127.
+
+Also demoted the npm recipe from assertion to lead-to-verify: if the package is
+private or differently named, an asserted recipe is a dead end.
+
+**Third instrument failure of the night, caught by habit.** My own post-edit
+check printed `claims narrowed: False` while both lenses passed. The edit HAD
+landed -- my grep searched for a substring that wraps across a line break in the
+file. The checker was wrong, not the file. I verified by reading the section
+rather than trusting either the green lens or my own red check.
