@@ -5223,3 +5223,68 @@ Note on the spawn: `fleet spawn --node chief-sfm-final` reported
 NEGATIVE — the agent did launch and is working. Verify with
 `agent-relay node agent list` rather than trusting the confirm timeout; the
 prior lead recorded the same behaviour.
+
+## 2026-09-05 09:00Z — tick: #3270 dispatched, App grant still missing; items 3 and 4 are stale
+
+**1. Queue.** `agent-relay cloud schedules` healthy (two active crons, last runs
+recorded). No pending run to drain. Disk 43%, 16Gi free.
+
+**2. #3270 — real progress, then a hard block.** The PR is now `CLEAN` /
+`MERGEABLE` at `627450cb` (the conflicts Khaliq flagged are resolved).
+
+The previously-dispatched preview run 33801381261 failed at 20:17Z after 17s.
+Re-dispatched at 08:57Z as run **33956655521** with all four required pins,
+resolved fresh from the last green flows artifact build (run 33919448689 on
+`main`):
+
+- source commit `98b6cdd899234b804470d505aa7ce575953accbf`
+- run id `33919448689`
+- artifact id `9954609119`
+- sha256 `53d5f000485a723b15919f07604640e44ed04b9f2e917dcec122874ae0910c5e`
+
+That sha256 is `archiveSha256` — the **tarball**. The upload step also prints
+`SHA256 digest of uploaded artifact zip is 52d55b94...`, which is a different
+value for a different object. The prefixes (`53d5` / `52d5`) are one character
+apart and the wrong one would fail verification after a full deploy.
+
+The run failed in 11s, same step, same error, **after** the App install:
+
+```
+Failed to create token for "flows" (attempt 1): Not Found
+  url: 'https://api.github.com/repos/AgentWorkforce/flows/installation'
+  status: 404
+```
+
+Preserved, not worked around, per instruction. The endpoint is *get a repository
+installation for the **authenticated app***, so a 404 means the App whose id is
+in `GH_APP_PUSHER_ID` still cannot see `AgentWorkforce/flows`. Two ways to get
+this exact 404 after "installing the app":
+
+- the installation is scoped to *selected repositories* and `flows` was not
+  added to the selection;
+- a different App was installed than the one `GH_APP_PUSHER_ID` names.
+
+I cannot tell which — `orgs/AgentWorkforce/installations` needs `admin:org`,
+which this token lacks, and reading the secret is forbidden. Needs Khaliq.
+
+**3. #134 allSettled P0 — ALREADY FIXED ON MAIN. The tick prompt is stale.**
+`repair/pr134-0903` exists at `311b18c` with no open PR and is 13 commits behind
+main. Checked by content rather than by branch topology: main's
+`authored-flow-lifecycle-executor.test.ts` already carries **seven** aggregate
+rows, every one multi-member, with the resolver varied in both directions
+(`allSettled resolved by an unrelated member`, `... by the step itself`,
+`race`/`any` likewise), plus an `await step` guard so a reachability regression
+cannot mask the derived-failure escape. The repair branch still holds the
+flawed single-member `Promise.allSettled([step])`. Main is ahead, not behind —
+the branch is a dead lane whose objective is already met.
+
+**4. #139 — MERGED 2026-09-04T09:42Z.** Nothing to rebase or sign off.
+
+**Stale-prompt defect.** Two of the tick's four items describe work that landed
+a day ago. This is the "lanes outlive their objectives" failure again: the
+instrument says the lane is alive, nothing says its objective is still real.
+Acting on items 3 and 4 as written would have rewritten good code with worse
+code from a stale branch.
+
+**Genuinely open:** #168 (blocked on #160, re-runs deliberately paused), #165
+(awaiting the requested split). Both were correctly parked; neither moved.
