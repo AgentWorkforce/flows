@@ -235,6 +235,9 @@ pub struct ProtocolClient {
     reader: BufReader<UnixStream>,
     next_id: u64,
     events: Vec<Value>,
+    /// The ceiling currently in force, so a timeout can report the bound that
+    /// actually fired rather than the default constant.
+    read_timeout: Duration,
 }
 
 /// Ceiling on any single protocol read in a test.
@@ -264,6 +267,7 @@ impl ProtocolClient {
             reader,
             next_id: 1,
             events: Vec::new(),
+            read_timeout: READ_TIMEOUT,
         }
     }
 
@@ -324,8 +328,39 @@ impl ProtocolClient {
         }
     }
 
-    pub fn set_read_timeout(&self, timeout: Option<Duration>) {
-        self.stream.set_read_timeout(timeout).unwrap();
+    /// Override the read ceiling. `None` restores the default -- it does NOT
+    /// make reads unbounded.
+    ///
+    /// Deliberately NOT named `set_read_timeout`: that name belongs to
+    /// `UnixStream`, where `None` means "block forever". Shadowing a std API
+    /// while inverting its meaning is a trap no docstring reliably defuses.
+    ///
+    /// That distinction is the point. Callers tighten the bound for a specific
+    /// assertion and then pass `None` to mean "back to normal". Two shapes use
+    /// it, and they are not the same:
+    ///
+    /// - `parallel_lifecycle.rs:138,208` probe for SILENCE -- 200ms, then
+    ///   assert the read errors.
+    /// - `concurrency.rs:31` tightens to 1s and expects the read to SUCCEED,
+    ///   so a missing dispatch fails fast instead of stalling the test.
+    ///
+    /// If `None` meant "block forever", every read after any of those would be
+    /// unbounded and the ceiling this type advertises would be a claim it does
+    /// not keep -- which is what two review lenses caught in the first revision
+    /// of this change.
+    pub fn override_read_timeout(&mut self, timeout: Option<Duration>) {
+        let timeout = timeout.unwrap_or(READ_TIMEOUT);
+        // Set it on the fd `read_frame` actually reads through -- the reader's,
+        // not `self.stream`. `try_clone` produces a separate descriptor, and
+        // while Linux and Darwin keep SO_RCVTIMEO on the shared socket (so
+        // writing to either fd happens to work today), that is a platform
+        // detail, not a guarantee. Going through the reader means the ceiling
+        // is set where it is read, with no hidden assumption to remember.
+        self.reader
+            .get_ref()
+            .set_read_timeout(Some(timeout))
+            .unwrap();
+        self.read_timeout = timeout;
     }
 
     fn read_frame(&mut self) -> Result<Value> {
@@ -342,8 +377,9 @@ impl ProtocolClient {
                     std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
                 ) =>
             {
+                let waited = self.read_timeout;
                 bail!(
-                    "timed out after {READ_TIMEOUT:?} waiting for a protocol frame; \
+                    "timed out after {waited:?} waiting for a protocol frame; \
                      the daemon sent nothing (see #174)"
                 )
             }
