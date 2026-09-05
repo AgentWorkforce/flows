@@ -6325,3 +6325,46 @@ Kernel workspace 157 passed, 0 failed, no warnings.
 **Flows state: PR queue empty. Open issues #183, #167, #156, #141** -- none of
 them defects from tonight's work except #183, which came out of #184's
 restoration.
+
+## 2026-09-05 18:45Z — #183 fixed as #187, three lenses passed. CI pending.
+
+Items 1-4 unchanged. Disk 47%.
+
+Took #183, the misleading `unawaited_step` I filed while restoring #166.
+
+**Cause, found by probing rather than reading the code.** I wrote a throwaway
+test that printed the real refusal:
+
+  PROBE_183_MSG: unawaited_step: flow "missing-completion" returned with
+  unawaited steps: run-1 (f.run)
+
+It named the step the body HAD awaited. That pointed at `isHandled`, which
+decides whether an operation was consumed by asking whether the COMPLETION
+depends on it -- and returns false outright when `completionAsyncId` is
+undefined. With no `done()`, every operation is unhandled by construction, so
+`verifyAuthoredOperations` computed an answer its own precondition did not
+support and reported the symptom as the cause.
+
+Fix: check the completion first, stopping operations and closing the lifecycle
+as the body-failure path already does. A body that forgets `done()` AND leaves a
+step unawaited now reports the missing completion -- the honest order, since the
+unawaited verdict is not computable without a completion to compute it against.
+
+This also closes a loop: #184 had to weaken that restored test to assert the
+refusal's CLASS because the code was wrong. It now asserts
+`missing_completion` again, exactly as it did before #140 dropped it.
+
+**A scare worth recording.** My restore-then-repatch step threw an
+AssertionError, and I had already committed and pushed. I checked the branch
+immediately rather than assuming: the fix WAS present in both tree and commit.
+The assertion was correct behaviour -- `git checkout -- <path>` restores from the
+INDEX/HEAD, and HEAD already carried the fix, so the unpatched anchor genuinely
+was not there. No damage, but I would not have known that without looking, and
+"my script errored after a push" is not a state to leave unverified.
+
+Two lens rounds. The second caught that I called a grepped snippet "output
+complete" and wrote "32 files" for a total of 33 (32 passed + 1 skipped). Both
+fair; the amended message carries verbatim output and exact counts.
+
+Full SDK suite: 33 files total (32 passed, 1 skipped), 665 tests total (662
+passed, 3 skipped). Typecheck clean. **#187 open, CI pending.**
