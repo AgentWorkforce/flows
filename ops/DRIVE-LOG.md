@@ -5884,3 +5884,50 @@ background noise.
 
 **Tonight's flows ledger:** merged #170, #171, #172, #175, #177, #178. Closed
 #165, #168, #176. Filed #173, #174 (fixed same night), #179. Queue empty.
+
+## 2026-09-05 16:00Z — attempted #179 reproduction, failed on environment. No code changed.
+
+Items 1-4 unchanged. Flows PR queue still empty; the only outstanding flows items
+are Khaliq's (the gate's missing `agent-relay` install, #3270's App credential).
+
+Went after #179, the SDK flakiness filed last tick, since it is the top remaining
+known defect and now unblocked. **Did not reproduce it. Nothing shipped.**
+
+Three environments tried, none faithful:
+
+  * `flows-cli` has node_modules and a build, but sits on a divergent branch --
+    its `live-kernel.test.ts` differs from main by 875 lines. Testing there would
+    have exercised different code, so I stopped rather than "reproduce" a
+    different test.
+  * `flows-fix-sdk-tests` -- same class.
+  * My own worktree is on the log branch, whose sdk/kernel trees are 139 lines
+    behind main because the branch predates tonight's six merges.
+
+Overlaying main's `sdk kernel testdata` into my worktree got close: the release
+kernel built, and `npm ci` worked with the `--userconfig <empty file>` guard for
+the ~/.npmrc hang. It then failed because the SDK needs `@relayflows/surface`
+built first -- CI does that as its own step -- and surface was not in my overlay.
+Adding it, surface's own `npm ci` failed and left no `tsc`.
+
+**Three process slips this tick, all mine, all recorded because they repeat:**
+
+1. I opened the tick with `git reset --hard origin/main` in the LOG worktree,
+   which moved `flow/lead-0903-claude` onto main locally (ahead 26, behind 26).
+   Caught it, verified origin still had the newest entry, and restored. The log
+   was never at risk on origin, but the next append would have landed on the
+   wrong history.
+2. `npm ci` ran BEFORE I overlaid main's sdk/, so it installed against the old
+   lockfile and ajv was missing. My sequencing, not npm's.
+3. A failed `cd` again did not stop the rest of a compound command, so two npm
+   invocations ran in the chief repo. Same trap as earlier today; the fix is
+   explicit `-C`/subshell paths, which I switched to.
+
+Worktree restored: 0 tracked changes, in sync with origin, DRIVE-LOG intact.
+Removed the node_modules I installed; disk 45%.
+
+**What a real reproduction needs**, so the next attempt starts clean: a worktree
+at main's tip, then `npm ci` in `surface/` and `sdk/` (with `--userconfig`),
+`npm run build` in surface BEFORE sdk, a release `relayflowd` for
+`RELAYFLOWD_BIN`, and `RELAYFLOWS_ALLOW_ANALYZER_SKIP=1`. That is CI's own order;
+skipping any step fails in a way that looks like a code error rather than a
+missing prerequisite.
