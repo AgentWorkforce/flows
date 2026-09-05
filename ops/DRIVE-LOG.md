@@ -7169,3 +7169,44 @@ because the daemons hold them open — that is the leak, not evidence of use.
 Not killing them unattended: they are eight processes possibly owned by other
 lanes, and a kill is the harder-to-reverse direction. Killing them would free
 roughly 5GB more and stop the climb. Flagged for a nod.
+
+## 2026-09-06 tick — a real latent hazard in test binary resolution (not #189's cause)
+
+Tick list unchanged: queue clean, #3270 grant-blocked, #134 and #139 merged. Went
+to the one open technical question, #189's `payload.verification === null`.
+
+**Found, and it is real:** `sdk/tests/live-kernel.test.ts:48` `locateRelayflowd()`
+resolves the kernel under test by scanning EVERY keyed target dir under
+`~/.relayflows-toolchain/target` and taking the most recently built:
+
+    // Pick the most recently built, which is the one this checkout just produced.
+
+That comment states the assumption and the assumption is false on any host
+running more than one lane. Right now this host has **ten** candidate
+`debug/relayflowd` binaries spanning 09-03 14:02 to 09-05 22:05, from ten
+different worktrees. The test picks by mtime across all of them, so a suite run
+here can silently exercise ANOTHER LANE's kernel — a different branch's binary —
+while reporting itself green. The function's own docstring names this as the
+thing to avoid ("a stale binary left at an older path gets exercised in place of
+the one just built"); the implementation reintroduces it one line later by
+ranking across worktrees rather than within one.
+
+That matters independently of #189: every live-kernel result produced on this
+multi-lane host is only as trustworthy as "did my build finish last".
+
+**It does NOT explain #189, and I nearly wrote that it did.** #189 ran in a cloud
+sandbox, which has one target dir and therefore one candidate. The resolution
+hazard is a property of THIS host, not of the sandbox that produced the failure.
+Two separate things that happen to touch the same function. Recording the
+correction because the tidy version — "found the cause, it was a stale binary" —
+was one sentence away and would have been wrong.
+
+**Repro deliberately not attempted this tick.** It needs `npm install` (this
+worktree has no `sdk/node_modules`), an SDK build, and a kernel build, on a
+volume at 94%, with a known npm hang mode on this host (the `~/.npmrc` Dropbox
+symlink; workaround is `--userconfig` against an empty file). That is not a
+bounded increment and it is exactly the shape of operation the disk rule exists
+for. Next tick takes it deliberately, with the reclaim done first if needed.
+
+So #189 remains genuinely open: kernel defect or sandbox-local artifact, not yet
+separated.
