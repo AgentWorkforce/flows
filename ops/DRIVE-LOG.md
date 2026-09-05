@@ -5709,3 +5709,50 @@ regression.** A rerun of the identical head went green. I checked rather than
 assumed, having twice today mistaken a flake for a cause and a cause for a flake.
 
 #171 and #168 should now be able to get green CI. Next tick: re-run their checks.
+
+## 2026-09-05 14:27Z — #171 MERGED. #160 closed. A lens caught that my fix was inert in production.
+
+Items 1-4 unchanged. Disk 54%.
+
+**#171 merged at 14:26:49Z**, head `128a6ef5`. Both conditions at that exact
+head: three lenses REVIEW_PASSED, and `linux-x64-artifact` run 33971440327
+success ON `128a6ef5` (verified by headSha).
+
+Rebased onto main (now carrying #177) first. One conflict in engine.rs -- both
+sides had inserted before `run_path`. Resolved as a UNION keeping #177's
+`pub(crate)` visibility (server.rs needs it) and #171's `boot_id()` accessor,
+then verified BOTH concerns survived by grepping for each, not by trusting a
+clean rebase.
+
+**The important part: the history lens found the fix did nothing in production.**
+
+`boot_id` was generated per `Engine`. The server builds a fresh
+`Engine::with_runtime` INSIDE `handle_request` (server.rs:129), so two
+concurrent `event.submit` calls hold two different Engines over one data dir --
+different boot ids -- and the second would still treat the first's LIVE claim as
+wreckage and spawn a duplicate. The whole fix was inert under the only topology
+that matters. Worse, my racing test SHARED one Engine, so it passed for the
+wrong reason, and I had written a doc comment asserting an invariant
+("at most one live Engine per data_dir per process") that production violates on
+every request.
+
+I verified the claim against server.rs myself before acting rather than taking
+the lens at its word. It was right.
+
+Fixed: the boot id is now process-wide (`OnceLock`), the racing test builds a
+separate Engine per racer, and the false invariant comment is replaced with the
+truth. Notably this is the exact hazard I had flagged FOR reviewers on the
+original PR -- "is per-Engine the right granularity?" -- and then failed to
+answer myself.
+
+Measured the racing test against the inert version: **2 catches in 20**. Too
+weak to be the gate for a deterministic property, so added
+`every_engine_in_this_process_shares_one_boot_id`, which fails immediately when
+`new_boot_id` returns a fresh id per call.
+
+Also squashed the branch: earlier messages carried test totals that were true
+against the old base and false after rebasing onto #177. That is the
+counts-drift lesson I already had recorded and violated again -- the amended
+message cites mutation witnesses instead, which do not drift.
+
+Remaining: #168 (rebase + signoff), #175/#176 awaiting Khaliq.
