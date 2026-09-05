@@ -6092,3 +6092,40 @@ real regression were indistinguishable here, and why I misread one as the other.
 The second is the same failure mode as the `-t` regex miscount last tick, and the
 same rule caught both: a number that surprises gets one look at its raw source
 before it becomes a claim. Twice in two ticks it was my instrument, not the code.
+
+## 2026-09-05 17:05Z — #181 merged, #179 closed. Flows queue empty again.
+
+Items 1-4 unchanged. Disk 43%.
+
+**#181 merged at 17:03:53Z**, head `4dfd4343` -- three lenses REVIEW_PASSED and
+CI run 33978898745 success on that exact sha (headSha matched, not the check
+name).
+
+**#179 closed.** Both halves resolved, and they were two DIFFERENT bugs:
+
+  * #180 -- a real CLI bug. `classifyOutcome` had no branch for a run reporting
+    `running` with no identifiable step, and failed a healthy run for being
+    observed mid-stride.
+  * #181 -- the test racing itself. ~10ms loop against a 10ms error timer;
+    exiting 0 when the loop won was correct.
+
+Their directions said they were different from the start -- one exited 1 where 0
+was wanted, the other 0 where 1 was wanted -- and I read that as one bug with two
+faces, then escalated the second to Khaliq as a correctness bug. It was the
+opposite: the product was right, the test was wrong.
+
+**The method that worked, both times: reproduce rather than re-run.** #180 needed
+the environment built to CI's spec plus instrumentation of the fall-through
+branch. #181 needed WIDENING the race until it failed 8/8, instead of trying to
+catch it at 1-in-20. Three "just re-run it" CI failures were hiding a real CLI
+bug that would otherwise still be shipping.
+
+Two measurement traps recorded on the issue for whoever meets them next:
+vitest's `-t` is a regex, so a test name containing `(exit 1)` matches nothing
+and silently skips the whole file; and a worktree with dependencies installed but
+not built has no `sdk/dist`, so every dist-dependent test fails like a
+regression.
+
+**Flows state: PR queue empty. Open issues #173 (panic-window Drop guard,
+deliberately deferred) only.** Everything else outstanding is Khaliq's: the
+review-swarm's missing `agent-relay` install, and #3270's App credential.
