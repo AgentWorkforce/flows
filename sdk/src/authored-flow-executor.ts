@@ -197,16 +197,36 @@ export async function executeAuthoredFlow<Input = undefined>(
     }
     throw bodyFailure;
   }
+  // The completion requirement is checked BEFORE operation verification,
+  // because without a completion the verification cannot answer its own
+  // question. `AuthoredFlowLifecycle.isHandled` decides whether an operation
+  // was consumed by asking whether the COMPLETION depends on it; with no
+  // completion there is no async id to trace from, so it returns false for
+  // every operation. Verifying first therefore reported correctly-awaited
+  // steps as `unawaited_step`, naming the step the author had awaited and
+  // saying nothing about the `done()` they forgot (#183).
+  //
+  // A body that both forgets `done()` and leaves a step unawaited now reports
+  // the missing completion. That is the honest order: the unawaited-step
+  // verdict is not computable until there is a completion to compute it
+  // against, and once the author adds `done()` the verification runs normally
+  // and will catch it.
+  if (requestedCompletion === undefined) {
+    const missingCompletion = new AuthoredFlowExecutionError(
+      'missing_completion',
+      `flow "${definition.name}" returned without done()`,
+    );
+    try {
+      await stopAuthoredOperations(authoredSteps, missingCompletion);
+    } finally {
+      lifecycle.close();
+    }
+    throw missingCompletion;
+  }
   try {
     await verifyAuthoredOperations(definition.name, authoredSteps, lifecycle);
   } finally {
     lifecycle.close();
-  }
-  if (requestedCompletion === undefined) {
-    throw new AuthoredFlowExecutionError(
-      'missing_completion',
-      `flow "${definition.name}" returned without done()`,
-    );
   }
 
   await lowerDeterministic(`complete-${nextStep}`, ':');
