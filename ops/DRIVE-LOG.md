@@ -5437,3 +5437,50 @@ Not merged. This is the exactly-once core and it needs an independent signoff at
 the exact head. I flagged two things for the reviewer to attack specifically:
 whether per-Engine is the right granularity for a boot id, and whether the
 release-on-failure boundary sits in the right place.
+
+## 2026-09-05 10:20Z — tick: I shipped a flaky test; caught and fixed it, and corrected my own numbers
+
+Items 1-4 unchanged. Disk 47%. Spent the tick stress-testing MY OWN change from
+last tick rather than trusting its single green run. That was the right call.
+
+**#171's racing test was flaky: 15 of 25 runs failed** with
+`open run registry: database is locked`. The "148 passed, 0 failed" I reported
+last tick was one lucky run. The test introduces the first genuinely concurrent
+access in the suite, and `Registry::open` could not survive it -- every
+`registry()` call opens its own connection.
+
+Two wrong fixes before the right one, worth recording because the reasoning
+matters more than the patch:
+
+1. `PRAGMA busy_timeout` at the END of the pragma batch -> still 34/50 failed.
+2. Moved it to the FRONT, theorising the WAL switch ran first and was therefore
+   uncovered -> still 36/50 failed.
+
+Instrumenting the batch statement-by-statement named `journal_mode` every single
+time. SQLite takes an exclusive lock to change journal mode and does NOT invoke
+the busy handler for it, so `busy_timeout` cannot cover that statement however
+early it is set. I guessed twice when a probe would have answered it once; that
+is the second time today the same shortcut cost more than it saved.
+
+Fix: the WAL switch retries on a bounded loop and then VERIFIES the mode,
+returning a new `RegistryNotWal` error otherwise. Swallowing it would leave the
+registry in rollback-journal mode silently -- the silent fallback this codebase
+refuses. `busy_timeout` is kept for ordinary statements, where it does apply.
+**50/50 racing runs pass, 0 lock failures.**
+
+**And it invalidated my own measurement.** With the lock noise gone I re-measured
+under mutation, separating assertion failures from lock failures:
+
+  caught by assertion:  3      lock noise: 0      missed: 27      (of 30)
+
+I had reported 8/10. Most of those "catches" were `database is locked` counted
+as the assertion firing. The racing test catches the seeded bug about **10%** of
+the time, not 80%. The fix is unaffected; what changed is what the evidence is
+worth. The test stays -- it exercises the real path and cannot false-positive --
+but it is NOT the gate and its comment no longer claims to be. The deterministic
+`registry::tests` are the gate, and they fail under the mutation every time.
+
+Corrected in the PR body's terms via a comment on #171, not silently.
+
+Lesson for the lane: a stress run is not optional for a concurrency test, and a
+failure count is not a kill count until you have separated the failure modes.
