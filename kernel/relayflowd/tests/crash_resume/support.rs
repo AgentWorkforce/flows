@@ -156,6 +156,61 @@ pub fn journal_entries(data_dir: &Path) -> Option<Vec<JournalEntry>> {
     journal.scan_segment(segment).ok()
 }
 
+/// Everything known about a stalled resume, as one panic message.
+///
+/// When a dispatch never arrives (#174) the useful state is all on the daemon
+/// side and none of it is captured today: `wait_with_output` is never reached,
+/// so the child's output is discarded when the test unwinds, and the journal is
+/// never read. Four occurrences produced four test names and nothing else.
+///
+/// The child may be STALLED or may have ALREADY EXITED -- #174 turned out to be
+/// the second, a resume that died instantly with `run_not_found` while the test
+/// waited on it. Both look identical from here, which is the point: this
+/// attempts termination and reaps it either way (both results are discarded
+/// because "already gone" is a normal outcome, not an error), then reports its
+/// output alongside the run's journal.
+///
+/// The journal listing covers the CURRENT segment, which is what
+/// `journal_entries` scans. These crash tests do not compact, so that is every
+/// entry they produce; it would not be under compaction.
+pub fn describe_stalled_resume(data_dir: &Path, resume: &mut Child) -> String {
+    let mut report = String::new();
+
+    // Kill before read. The child is not going to finish on its own.
+    let _ = resume.kill();
+    let _ = resume.wait();
+
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    if let Some(mut handle) = resume.stdout.take() {
+        let _ = std::io::Read::read_to_string(&mut handle, &mut stdout);
+    }
+    if let Some(mut handle) = resume.stderr.take() {
+        let _ = std::io::Read::read_to_string(&mut handle, &mut stderr);
+    }
+    report.push_str(&format!(
+        "\n--- resume child ---\nstdout ({} bytes):\n{stdout}\nstderr ({} bytes):\n{stderr}\n",
+        stdout.len(),
+        stderr.len()
+    ));
+
+    // The journal says how far the run actually got, which is the question a
+    // missing dispatch raises: did the daemon resume and stall, or never resume?
+    match journal_entries(data_dir) {
+        None => report.push_str("--- journal --- absent (no run directory)\n"),
+        Some(entries) => {
+            report.push_str(&format!("--- journal ({} entries) ---\n", entries.len()));
+            for entry in &entries {
+                report.push_str(&format!(
+                    "  seq={} type={:?} step={:?}\n",
+                    entry.seq, entry.entry_type, entry.step_id
+                ));
+            }
+        }
+    }
+    report
+}
+
 pub fn completed_step_count(entries: &[JournalEntry]) -> usize {
     entries
         .iter()

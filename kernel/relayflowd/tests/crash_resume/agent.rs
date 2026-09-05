@@ -17,8 +17,8 @@ use super::{
         start_run,
     },
     support::{
-        completed_step_count, journal_entries, kill_group, kill_process_group, read_pid,
-        resume_cli, wait_until,
+        completed_step_count, describe_stalled_resume, journal_entries, kill_group,
+        kill_process_group, read_pid, resume_cli, wait_until,
     },
 };
 
@@ -127,8 +127,20 @@ fn rung_c_sigkill_boundaries_resume_only_unfinished_steps_via_real_cli() {
         let _server = fixture.server();
         let mut worker = attached_worker(&fixture, "boundary-agent-stub");
         let run_id = super::support::only_run_id(&fixture.data_dir);
-        let resume = spawn_resume(&fixture, &run_id);
-        let dispatch = worker.event("step.dispatch").unwrap();
+        let mut resume = spawn_resume(&fixture, &run_id);
+        // Do not `.unwrap()` this. A missing dispatch is #174, and the whole
+        // difficulty there has been that the failure carries no daemon-side
+        // state -- so capture it here rather than losing it to the unwind.
+        // This fires on ANY protocol error, not only a timeout; the dump is
+        // useful either way, since it reports whether the child is stalled or
+        // already gone.
+        let dispatch = match worker.event("step.dispatch") {
+            Ok(dispatch) => dispatch,
+            Err(error) => panic!(
+                "{label}: no step.dispatch after resume: {error}{}",
+                describe_stalled_resume(&fixture.data_dir, &mut resume)
+            ),
+        };
         assert!(!record_effect(&fixture, &mut worker, &dispatch).unwrap());
         complete(&mut worker, &dispatch).unwrap();
         let output = resume.wait_with_output().unwrap();
