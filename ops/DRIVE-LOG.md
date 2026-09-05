@@ -6701,3 +6701,46 @@ everyone has been waiting on. It was invisible while the PR sat on a stale main,
 and only surfaced because the rebase forced it to be measured against reality.
 That is an argument for rebasing long-lived branches often, not for rebasing them
 well.
+
+## 2026-09-05 21:40Z — the #3270 size overage traces to ONE import
+
+Item 2. Turned last tick's "22 KB over budget, decide what to do" into a
+specific cause, which is decision-free work worth doing before asking anyone to
+choose.
+
+**First correction to my own framing.** I called #3270 "19,830 lines". Of those,
+**14,084 are `0122_snapshot.json`** -- drizzle build-time metadata, not bundled
+-- plus ~1,500 lines of tests and ~1,200 of scripts. The actual runtime addition
+is about 800 lines in `packages/core/src/bootstrap/lib/`. The PR is far smaller
+than its diff suggests, and I had been repeating the diff number as if it
+measured weight.
+
+**The cause.** `packages/web/lib/workflows/relayflow-v2-artifact-source.ts` is
+imported by `launch-runner.ts`, so it is in the Worker bundle. It imports:
+
+  import { defaultProvider } from "@aws-sdk/credential-provider-node";
+  import { SignatureV4 } from "@smithy/signature-v4";
+  import { Sha256 } from "@aws-crypto/sha256-js";
+
+`@aws-sdk/credential-provider-node` is the full credential chain -- INI parsing,
+SSO, STS, IMDS, process and web-identity providers. It is the canonical thing not
+to ship to an edge Worker.
+
+Verified it is NEW weight rather than something already present:
+
+  * it is the ONLY file in packages/web or packages/core importing it
+  * the web package's existing AWS deps are clients only -- @aws-sdk/client-s3,
+    client-sesv2, client-sqs -- never the node credential provider
+  * `aws4fetch` (10.8 KB in the current bundle, per the size report) is already
+    used by packages/relaycast, so the repo has prior art for signing AWS
+    requests without the SDK
+
+**So the decision is smaller than I made it sound.** Not "trim, split, or raise
+the budget" but "does this one signer need the full node credential chain in an
+edge Worker". The PR needs 22 KB; dropping that import plausibly returns far
+more.
+
+I did not change it. It is someone else's PR, the signing approach is a design
+choice, and verifying the swap needs the preview -- which is still blocked on the
+App credential. Reported so Khaliq chooses with the cause in hand rather than a
+budget number.
