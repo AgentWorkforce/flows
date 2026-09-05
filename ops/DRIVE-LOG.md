@@ -5980,3 +5980,40 @@ and `classifyOutcome` is unexported with no test file -- pinning it means making
 it injectable first, which deserves its own pass rather than a rushed one at the
 end of a long tick. Two lenses also did not finish within their window; they need
 re-running.
+
+## 2026-09-05 16:30Z — #180 signed off; #179's second failure is a DIFFERENT bug, and worse
+
+Items 1-4 unchanged. Disk 49%.
+
+**#180 now has all three lenses REVIEW_PASSED.** Completed what the last review
+asked for:
+
+  * The cancellation regression I introduced is fixed -- a bare `setTimeout`
+    where the whole file uses cancel-aware `delay(ms, signal)`.
+  * `classifyOutcome` is exported and the new branch is pinned by two
+    deterministic unit tests: one that the running-with-no-step case is waited
+    out and classified normally, one that a run which NEVER resolves still
+    reports rather than polling forever.
+  * Mutation: `if (false && ...)` fails the first test with the exact production
+    string, `expected [ 'protocol_error' ] to not include 'protocol_error'`,
+    while the bound test still passes. sha256 8124009e -> e80ee063 -> restored,
+    no `if (false &&` left.
+
+Full SDK suite at that head: 32 files, 651 tests passed, 3 skipped.
+
+**I was wrong about the two failures being one bug.** When filing #179 I wrote
+that `cli-hn-monitor` was probably the same defect "with two faces". It is not,
+and the direction proves it: that test fails with `expected +0 to be 1` -- exit
+**0 where 1 was wanted** -- while my bug produced exit 1 where 0 was wanted.
+Opposite symptoms, different causes.
+
+It also predates #180 (recorded from run 33973416493 at 15:04Z, before the
+branch existed), so my fix neither caused nor cured it. Corrected on #179.
+
+**And it is the more serious of the two: a run whose worker errors
+asynchronously can exit 0.** A false green is worse than a false red. It stays
+open, and it should be treated as a correctness bug rather than a flake -- the
+label I gave the whole cluster when I filed it.
+
+#180's CI failed on exactly that test, so its own failure is unrelated to it;
+re-run in flight.
