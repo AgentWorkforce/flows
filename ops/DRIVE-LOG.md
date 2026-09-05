@@ -7118,3 +7118,54 @@ this dependency rather than repairing it. If the flows runtime ships as a
 published package, the preview build resolves it from the registry and the
 private-artifact token step disappears entirely — along with this failure mode.
 The grant unblocks tonight; the package retires the problem.
+
+## 2026-09-06 tick — the tick list is stale; disk pressure has a named cause
+
+**Three of the four tick items are already done.** Not blocked — finished.
+
+- **#134 is MERGED** (head `4f85c4e0`), and the `allSettled` P0 the tick asks me
+  to repair is already on `main`, done better than the instruction specifies.
+  `sdk/tests/authored-flow-lifecycle-executor.test.ts:244` carries SEVEN refusal
+  rows, not five, every one multi-member with the resolving member varied
+  (`slowerUnrelated` / `fasterUnrelated`, step first and step second), plus six
+  matching ACCEPTANCE rows for the opposite sign that the tick never asked for.
+  The comment records the exact flaw: "A single-member aggregate is always
+  resolved by its only member, so those rows could not fail however the mechanism
+  was written."
+- **#139 is MERGED** (head `4da825b3`).
+- `repair/pr134-0903` still exists at `311b18c` with no PR, 29 commits behind
+  main, and a 5272-line diff that is almost entirely #134 content that has since
+  merged. It is a dead branch, not a work item. Rebasing it would have been
+  hours spent re-litigating merged code.
+
+This is the "lanes outlive their objectives" failure one level up: the *tick
+instructions themselves* now describe work that no longer exists. Two ticks
+running I have opened with a target check and found the target gone. Checking
+the target first is now the cheapest thing I do.
+
+**Disk: found the recurring cause, and nearly made it worse.**
+
+95% and falling (12Gi → 11Gi between ticks with nothing large running).
+`~/.relayflows-toolchain` is **15G** across 12 hash-named cargo target dirs.
+
+The obvious reclaim is "delete the stale ones" by mtime — seven had not been
+touched since 09-03. **That heuristic was wrong and would have been
+destructive:** five of those seven have `relayflowd` daemons *running out of
+them right now*, started Wed–Fri. An old mtime means the build finished, not that
+nothing is using the binary. Checked `ps` before `rm`, which is the only reason I
+caught it.
+
+Reclaimed only the two dirs with zero referencing processes, verified by `ps` and
+`lsof`: `3336207476` and `4024312899`. **2 GB freed, 11Gi → 13Gi**, enough for the
+`relayflowd` build #189 needs.
+
+**The real cause is leaked test daemons.** Eight `relayflowd` processes are still
+serving temp data dirs from runs that ended days ago — `pr139s4-ladder-*` (for a
+PR that has since MERGED), `atk-restart-*`, `sf9late-*`, `sf9p0-*`,
+`tickproof.*`. Each pins its ~1GB target dir against reclamation, which is why
+disk climbs and why it hit zero today. Their data dirs all still exist, but only
+because the daemons hold them open — that is the leak, not evidence of use.
+
+Not killing them unattended: they are eight processes possibly owned by other
+lanes, and a kill is the harder-to-reverse direction. Killing them would free
+roughly 5GB more and stop the climb. Flagged for a nod.
