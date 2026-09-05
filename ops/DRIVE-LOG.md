@@ -6209,3 +6209,40 @@ line.
 #166 is the most concrete — dropped test coverage is a known hole with a known
 fix. #156 is another SDK flake, which after tonight I would treat as a real bug
 until measured rather than as noise.
+
+## 2026-09-05 18:00Z — #166 restored as #184; restoring it found an untested refusal path (#183)
+
+Items 1-4 unchanged. Disk 46%. **#184** opened; lenses and CI not yet run.
+
+Rebuilt the four authored-flow cases #140 dropped. The issue said they were "not
+recoverable from the conflict hunks alone" and that was right -- `6384600` IS the
+conflicted commit, so each incoming side is a FRAGMENT whose closing braces live
+in the shared trailing context after the `>>>>>>>` marker. I briefly claimed the
+opposite after seeing the whole file in `git show`, then corrected on reading it:
+the file itself still contains the markers.
+
+Reconstructed each from its incoming hunk plus the trailing context, verified
+brace/paren balance and zero markers. Also had to restore `outputFor(command)` in
+the loopback -- main hardcoded `stdout_tail` for a single command, so none of
+these cases could observe a value.
+
+**One case would not restore verbatim, and chasing that was the valuable part.**
+It asserted `missing_completion`; main now refuses with `unawaited_step`, because
+`verifyAuthoredOperations` runs BEFORE the completion check and throws first --
+even though the body DOES await its step. That label is misleading enough to file
+(#183): it tells an author to await something they already awaited and says
+nothing about the `done()` they forgot.
+
+**Then the hole.** Disabling the completion check entirely
+(`if (false && requestedCompletion === undefined)`) left EVERY test in that file
+green. `missing_completion` had no coverage for that shape at all -- the
+verification refusal always wins. Added `refuses a body that completes nothing at
+all` (no operations to verify), which reaches it and fails under the same
+mutation. sha256 58b3edbf -> 5e35ffc5 -> restored 58b3edbf.
+
+Worth noting what nearly happened: the obvious move on a failing restored test is
+to update its expectation to whatever the code now returns. That would have
+"passed", hidden a misleading error code, and left a refusal path untested. The
+mutation is what showed the assertion was worthless.
+
+authored-flow.test.ts 23 passed; full SDK suite 32 files / 662 passed / 3 skipped.
