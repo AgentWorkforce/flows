@@ -167,7 +167,11 @@ export async function connect(
   }
 }
 
-async function classifyOutcome(
+/// Exported for tests. The `running`-with-no-identifiable-step branch (#179)
+/// only occurs in a sub-second window against a live daemon, so pinning it
+/// needs a stubbed client rather than a real run -- the integration test that
+/// found it reproduced the bug roughly 1 time in 12.
+export async function classifyOutcome(
   client: JournalClient,
   command: RunCommand,
   outcome: RunOutcome,
@@ -178,6 +182,7 @@ async function classifyOutcome(
   let current = outcome;
   let parkedStep: ParkedStep | undefined;
   let needsHuman = false;
+  let unclassifiedPolls = 0;
   while (current.status === 'parked') {
     const inspection = await inspectOutOfBandStep(client, current.run_id);
     if (inspection?.parkedStep !== undefined) {
@@ -194,6 +199,36 @@ async function classifyOutcome(
       current = await client.runResume(current.run_id);
       continue;
     }
+    // The run is still RUNNING but no step is identifiable at this instant.
+    //
+    // That is a healthy state, not a protocol error. It happens when a worker
+    // has just completed the step this run parked on and the daemon has not yet
+    // finished driving what follows: nothing is `needs_human`, `runnable` or
+    // `running` for a moment, while the snapshot's own status is `running`.
+    // Breaking here left `status === 'parked'` with no `parkedStep`, so the
+    // tail reported `parked without a classifiable completion` -- a spurious
+    // failure on a run that was about to succeed (#179). Reproduced 1 in 4-15
+    // locally; the probe that caught it printed
+    // `inspection={"status":"running","needsHuman":false}`.
+    //
+    // So poll it, bounded. Resuming immediately would spin, since the daemon
+    // needs a moment to advance.
+    if (inspection?.status === 'running' && unclassifiedPolls < MAX_UNCLASSIFIED_POLLS) {
+      unclassifiedPolls += 1;
+      // `delay(ms, signal)`, not a bare setTimeout: every other wait in this
+      // file is cancel-aware, and an uncancellable one here would keep polling
+      // the daemon for up to 2s after a Ctrl-C or a lifecycle abort.
+      throwIfCanceled(options.signal, current.run_id);
+      await delay(UNCLASSIFIED_POLL_MS, options.signal);
+      // Redundant resumes are safe: `run.resume` is idempotent on a run that
+      // is already progressing -- it returns the current state rather than
+      // re-dispatching. This loop leans on that up to MAX_UNCLASSIFIED_POLLS
+      // times while the daemon is mid-transition.
+      current = await client.runResume(current.run_id);
+      continue;
+    }
+    // Fail closed rather than loop forever: if it never resolves, the original
+    // error below still fires and says so.
     break;
   }
 
@@ -252,6 +287,12 @@ interface OutOfBandInspection {
 interface RunningStep extends ParkedStep {
   leaseDeadlineMs: number;
 }
+
+// Bound on re-polling a run that reports `running` with no identifiable step.
+// 40 x 50ms = 2s, far longer than the sub-second window observed in #179, and
+// short enough that a genuinely stuck run still reports rather than hangs.
+const MAX_UNCLASSIFIED_POLLS = 40;
+const UNCLASSIFIED_POLL_MS = 50;
 
 async function inspectOutOfBandStep(
   client: JournalClient,
