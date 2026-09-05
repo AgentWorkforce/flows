@@ -5756,3 +5756,48 @@ counts-drift lesson I already had recorded and violated again -- the amended
 message cites mutation witnesses instead, which do not drift.
 
 Remaining: #168 (rebase + signoff), #175/#176 awaiting Khaliq.
+
+## 2026-09-05 14:50Z — #168 CLOSED: its test cannot fail. Only #175/#176 remain.
+
+Items 1-4 unchanged. Disk 57% and falling.
+
+**Two process mistakes first, both caught before damage.**
+
+1. `git checkout feat/gate2-wake-context` failed (branch held by another
+   worktree) and I ran `git rebase origin/main` anyway -- which rebased the LOG
+   BRANCH. That is the exact trap already recorded in this file. Aborted
+   immediately; verified `flow/lead-0903-claude` matches origin with 0 diff
+   lines and the newest entry intact. No damage.
+2. A `cd` to a missing worktree left me in the CHIEF repo, where the next two
+   commands ran. Both failed on their own (unknown revision, unstaged changes),
+   so again no damage -- but the lesson is that a failed `cd` does not stop the
+   rest of a compound command.
+
+Root cause of (1): the gate2 worktree registration was PRUNABLE -- its gitdir
+pointed nowhere -- so the branch was locked by a ghost. `git worktree prune`
+removed three such registrations (127 -> 124).
+
+**#168 closed as superseded, with a measurement rather than an assertion.**
+
+Rebased it onto main and ran it. It passes -- but it CANNOT FAIL, which is worse
+than not having it. Seeding a defect in the exact invariant it claims to guard
+(`if false && registered > 0`, disabling dedupe-by-registered-run):
+
+  a_claim_survives_a_restart_so_redelivery_still_dedupes ... ok      <- blind
+  registry::tests::a_registered_run_dedupes_across_boots ... FAILED  <- catches it
+
+Why: #171 made the boot id process-wide on purpose, so the two Engines in that
+test share a boot and the redelivery is deduped by the same-boot rule before the
+registered-run path is consulted. Its docstring premise -- "no shared process
+state" -- stopped being true when #171 landed. Same shape as the single-member
+`Promise.allSettled([step])` rows: proves the path executed, not that the bound
+held.
+
+The conflict resolution on the way there is worth recording: both tests had been
+appended at the same point in event_wake.rs. Rather than merge the hunks -- the
+move that orphaned braces earlier this week -- I took main's file whole, checked
+its brace/paren balance, and appended #168's test as a block. Balanced, all three
+tests present, all passing.
+
+**The flows queue is now down to #175 and #176, both awaiting Khaliq.** Merged
+tonight: #172, #170, #177, #171. Closed: #165, #168.
