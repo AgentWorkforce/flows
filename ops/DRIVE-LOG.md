@@ -5801,3 +5801,45 @@ tests present, all passing.
 
 **The flows queue is now down to #175 and #176, both awaiting Khaliq.** Merged
 tonight: #172, #170, #177, #171. Closed: #165, #168.
+
+## 2026-09-05 15:08Z — reclaimed 7GB and corrected the recorded cause of disk pressure
+
+Items 1-4 unchanged; the flows queue is #175/#176 only, both awaiting Khaliq.
+
+Disk had gone 43% -> 57% across the session, on a machine that hit ZERO once
+today, so I measured it rather than waiting for it to bite.
+
+**The recorded cause was wrong.** DRIVE-LOG says temp proof checkouts are the
+consumer and nothing prunes them. Measured: 84 temp worktrees under
+/private/var/folders total **434M**. Not the problem.
+
+The actual consumer is `~/.relayflows-toolchain/target` at **20G** across 18
+per-worktree cargo target dirs. `ops/cargo.sh` keys them by a cksum of the
+worktree path, so each worktree that ever ran a build owns roughly 1GB.
+
+Checked for orphans first -- target dirs whose worktree no longer exists. There
+were **none**; all 18 keys matched a live worktree. Good that I checked instead
+of deleting on the assumption.
+
+So the reclaim had to key on something else. The safe discriminator is that a
+target dir holds only build output: deleting one loses no source, only rebuild
+time. I reclaimed those belonging to worktrees that were BOTH clean (zero
+uncommitted files) AND tied to a PR confirmed MERGED (#134, #137, #139, #140,
+#151 -- checked via the API, not assumed):
+
+  975M flows-bisect-137-wt      940M flows-pr140-wt
+  940M flows-pr139-repair-0903  910M flows-pr134-rebase-wt
+  888M flows-pr139-signoff3-wt  1.2G flows-pr137-lead-0903-wt
+  1.2G flows-pr139-rebase-wt
+
+**Free space 8.9Gi -> 16Gi, 57% -> 44%, target dir 20G -> 13G.**
+
+Skipped every dirty worktree, and did not touch a single source tree. Verified
+after: the three sampled worktrees still have their files and zero uncommitted
+changes, my own target dir is intact, and `cargo build -p relayflowd` still
+finishes.
+
+Note on the metric I did NOT use: `rev-list origin/main..HEAD` shows most of
+these worktrees "ahead" of main even though their work is merged, because the
+PRs were SQUASH-merged and the commit SHAs differ. Reclaiming on "ahead=0" would
+have found one dir out of eighteen and looked like there was nothing to do.
