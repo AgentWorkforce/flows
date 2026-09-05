@@ -29,6 +29,13 @@ function run(command: string, cwd: string): string {
   return execFileSync('sh', ['-c', command], {
     cwd,
     encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    // Capture stderr instead of letting it through to ours. Several tests here
+    // assert that a step FAILS, and `execFileSync` otherwise echoes the child's
+    // stack trace into the suite's output -- so a passing run prints
+    // `ENOENT ... .relayflow/backlog-picker-entry.json` and looks broken.
+    // #156 was filed on exactly that appearance. The text is still available on
+    // the thrown error for a test that wants to assert on it.
     env: { ...process.env, RELAYFLOWS_SDK_DIST: join(__dirname, '..', 'dist') },
   });
 }
