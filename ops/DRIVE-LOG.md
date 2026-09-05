@@ -6538,3 +6538,43 @@ command".
 
 Kernel workspace 158 passed, 0 failed. **Flows: PR queue empty. Open issues #156
 (kept open, unexplained) and #141 (design-sized).**
+
+## 2026-09-05 20:32Z — quiet tick. Everything actionable is done; the rest needs Khaliq.
+
+Items 1-4 all genuinely clear, checked rather than assumed:
+
+  1. DRAIN -- `agent-relay cloud schedules` healthy: two active crons with
+     recorded last runs, nothing pending, nothing stuck. Disk 48%.
+  2. #3270 -- still blocked on the App credential (an undecodable JWT, not a
+     missing installation). Not re-dispatched: Khaliq is asleep, the credential
+     cannot have changed, and a dispatch per tick is retry-spam.
+  3. #134 -- merged 2026-09-04.
+  4. #139 -- merged 2026-09-04.
+
+**Main is green at its tip**, `5cc0b2aa`, verified by the push trigger #191
+installed rather than by hand:
+
+  33990020165  push  main  completed/success  5cc0b2aa   (#192's merge)
+  33988646599  push  main  completed/success  0acd2d94   (#191's merge)
+
+That guard is now doing its job unprompted, which was the point.
+
+**No work invented.** The remaining backlog is:
+
+  #156  SDK flake -- open BY CHOICE. Cause disproved, noise removed (#190),
+        original failure never reproduced in six full suites. Closing it would
+        turn an unexplained failure into a silent one.
+  #141  headless adapter per agent CLI -- design-sized, not a defect, and not
+        something to start unattended without direction.
+  wake-context GUARANTEE -- needs Khaliq's ruling. The resume-stability half is
+        closed (#192); what the context must CONTAIN is a contract decision.
+
+Plus two standing asks that have been Khaliq's all night: the review-swarm's
+missing `agent-relay` install (every `review` check red on a gate that has never
+been able to run on a runner), and #3270's App credential.
+
+Tonight's flows ledger, for a session picking this up cold:
+  merged  #170 #171 #172 #175 #177 #178 #180 #181 #182 #184 #186 #187 #188
+          #190 #191 #192
+  closed  #165 #168 #176 (superseded), #167 #169 #173 #179 #183 #185 (fixed)
+  open    #156 #141
