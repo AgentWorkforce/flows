@@ -178,6 +178,7 @@ async function classifyOutcome(
   let current = outcome;
   let parkedStep: ParkedStep | undefined;
   let needsHuman = false;
+  let unclassifiedPolls = 0;
   while (current.status === 'parked') {
     const inspection = await inspectOutOfBandStep(client, current.run_id);
     if (inspection?.parkedStep !== undefined) {
@@ -194,6 +195,28 @@ async function classifyOutcome(
       current = await client.runResume(current.run_id);
       continue;
     }
+    // The run is still RUNNING but no step is identifiable at this instant.
+    //
+    // That is a healthy state, not a protocol error. It happens when a worker
+    // has just completed the step this run parked on and the daemon has not yet
+    // finished driving what follows: nothing is `needs_human`, `runnable` or
+    // `running` for a moment, while the snapshot's own status is `running`.
+    // Breaking here left `status === 'parked'` with no `parkedStep`, so the
+    // tail reported `parked without a classifiable completion` -- a spurious
+    // failure on a run that was about to succeed (#179). Reproduced 1 in 4-15
+    // locally; the probe that caught it printed
+    // `inspection={"status":"running","needsHuman":false}`.
+    //
+    // So poll it, bounded. Resuming immediately would spin, since the daemon
+    // needs a moment to advance.
+    if (inspection?.status === 'running' && unclassifiedPolls < MAX_UNCLASSIFIED_POLLS) {
+      unclassifiedPolls += 1;
+      await new Promise((resolve) => setTimeout(resolve, UNCLASSIFIED_POLL_MS));
+      current = await client.runResume(current.run_id);
+      continue;
+    }
+    // Fail closed rather than loop forever: if it never resolves, the original
+    // error below still fires and says so.
     break;
   }
 
@@ -252,6 +275,12 @@ interface OutOfBandInspection {
 interface RunningStep extends ParkedStep {
   leaseDeadlineMs: number;
 }
+
+/// Bound on re-polling a run that reports `running` with no identifiable step.
+/// 40 x 50ms = 2s, far longer than the sub-second window observed in #179, and
+/// short enough that a genuinely stuck run still reports rather than hangs.
+const MAX_UNCLASSIFIED_POLLS = 40;
+const UNCLASSIFIED_POLL_MS = 50;
 
 async function inspectOutOfBandStep(
   client: JournalClient,
