@@ -6665,3 +6665,39 @@ targeted gate found what twelve green checks missed, which is an argument for
 that test existing rather than a comfort about the rest.
 
 Pushed `03d7f18a`. CI re-running.
+
+## 2026-09-05 21:25Z — my snapshot fix worked; #3270 has a REAL blocker that is not the App
+
+Item 2. Confirmed my migration fix: **`Unit Tests (web)` now passes** on
+`03d7f18a`. The pointer-vs-payload error is closed.
+
+`OpenNext-CF build` still fails, and it is not a merge error -- it is a genuine
+integration finding that only appears once the PR sits on current main:
+
+  [cloud-web-worker-size] Gzip level 6: 10,442,491 bytes
+  [cloud-web-worker-size] Budget:       10,420,224 bytes  (-22,267 headroom)
+  [cloud-web-worker-size] Cloudflare hard gate: 10,485,760 (+43,269 headroom)
+
+**The Cloudflare Worker bundle is 22 KB over the project's own budget**, though
+still 42 KB under Cloudflare's actual limit.
+
+Measured whose weight it is rather than guessing. Another PR (`awscf/finn-mini-
+provenance-0905`) on the same main:
+
+  Gzip: 10,368,743 bytes   Budget headroom: +51,481 bytes
+
+So main is comfortably under, and **#3270 itself adds ~72 KB gzip** (10,442,491 -
+10,368,743 = 73,748). It passed pre-rebase because main was smaller then; main's
+growth consumed the headroom #3270 used to fit into. Both facts are true and the
+second does not excuse the first.
+
+**This is a decision, not a fix I should make.** The options are trim the PR,
+split it, or raise the budget -- and raising a size budget to admit a change is
+weakening a gate to fit the work, which is not mine to do unattended. Flagged for
+Khaliq.
+
+Worth stating plainly: this blocker has nothing to do with the App credential
+everyone has been waiting on. It was invisible while the PR sat on a stale main,
+and only surfaced because the rebase forced it to be measured against reality.
+That is an argument for rebasing long-lived branches often, not for rebasing them
+well.
