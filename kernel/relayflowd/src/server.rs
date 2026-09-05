@@ -187,8 +187,25 @@ fn handle_request(
                 // by registry-owned lookup for exactly that reason, so the
                 // comparison below is what keeps this a repair of the index
                 // rather than a reopening of that hole.
+                //
+                // "Says it is this run" is necessary but NOT sufficient, which
+                // #177 missed. `Engine::start` creates the journal, appends
+                // RunSpawned, then registers -- so a crash has TWO possible
+                // residues, not one:
+                //
+                //   * killed after RunSpawned: a real run with no index entry.
+                //     Adopt it; that is the bug #177 fixed.
+                //   * killed BEFORE RunSpawned: an empty journal that never
+                //     became a run. It still carries a meta row with the run
+                //     id, so an id check alone accepts it -- and resume then
+                //     dies on `read run spec: Query returned no rows` instead
+                //     of saying the run does not exist (#185).
+                //
+                // `run_spec()` is the honest predicate because it is exactly
+                // what resume will call next: adopt only what resume can
+                // actually use.
                 let adopted = match relayflowd_journal::SqliteJournal::open(&path) {
-                    Ok(journal) => journal.run_id() == params.run_id,
+                    Ok(journal) => journal.run_id() == params.run_id && journal.run_spec().is_ok(),
                     Err(_) => false,
                 };
                 if !adopted {
