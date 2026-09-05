@@ -6939,3 +6939,45 @@ check printed `claims narrowed: False` while both lenses passed. The edit HAD
 landed -- my grep searched for a substring that wraps across a line break in the
 file. The checker was wrong, not the file. I verified by reading the section
 rather than trusting either the green lens or my own red check.
+
+## 2026-09-06 — quiet tick. Everything actionable is done; two PRs wait on Khaliq.
+
+Items checked rather than assumed:
+
+  1. DRAIN -- schedules healthy, nothing pending, nothing stuck. Disk 51%.
+  2. #3270 -- blocked on Khaliq twice over: the App credential (undecodable JWT)
+     and the Worker-size/AWS-import decision. Fully characterized across five
+     ticks; more digging would be diminishing returns.
+  3. #134 -- merged 2026-09-04.
+  4. #139 -- merged 2026-09-04.
+
+Main's push-CI green at `5cc0b2aa`, verified through the trigger #191 added
+rather than by hand.
+
+**A decision I made and want on the record: I am not self-merging #194.**
+
+It satisfies three of decision #16's four conditions -- three lenses passed at
+the final head, no CI applies (`ops/**` sits outside the artifact workflow's path
+filter, same as #188), and flows main does not push-deploy. The open question is
+(d): *not about its own authority or its gates*.
+
+#194 is a work package directing someone to modify `review-swarm.yml` -- the gate
+that judges me. It does not edit the gate. But if I can author the brief that
+shapes my own gate AND merge it, that is the influence the rail guards against,
+one step removed.
+
+The tempting counter-argument is that the brief STRENGTHENS the gate: it tells
+the fixer to pin the version and to keep the install out of a file the PR author
+can edit. But the rail is not "do not weaken your gate" -- it is unconditional,
+precisely because the agent's own judgement about whether it is strengthening
+something is not the thing being trusted. Reasoning my way past an unconditional
+rail because this particular case looks fine is how the rail stops meaning
+anything.
+
+Same reasoning holds for #193, and more obviously: #16(d) is a clause that PR
+itself writes.
+
+**Nothing invented this tick.** Remaining work is Khaliq's: #193, #194, #3270's
+two decisions, the App credential, and the review-swarm install (#194's subject,
+which I cannot do). Open issues #156 (kept open, unreproduced) and #141
+(design-sized) are unchanged.
