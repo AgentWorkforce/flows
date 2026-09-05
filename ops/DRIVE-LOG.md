@@ -5623,3 +5623,49 @@ the commands, and say exactly what a change does not do.
 Not merged. Stacked on an unmerged PR, and its own CI will be red for the same
 reason #175's is -- the defect it exposes is real. Merge order is #175 then
 #176; if #175 is rejected, #176 should be closed with it.
+
+## 2026-09-05 13:34Z — #174 ROOT CAUSE. It is a product durability bug.
+
+Items 1-4 unchanged. Disk 52%. #176's first CI run answered #174 outright; the
+diagnostic paid for itself on its first firing.
+
+  stderr (68 bytes):
+  Error: run_not_found: run 01M1RTPC3PE8AN71QD8CQZJ26D does not exist
+  --- journal (1 entries) ---
+    seq=1 type=RunSpawned step=None
+
+**The resumed process exited immediately. It never hung.** The test then waited
+60s for a dispatch from a process that was already dead -- which is exactly why
+four previous occurrences looked like a hang and yielded nothing.
+
+**The defect.** `Engine::start` registers the run LAST: create the journal,
+append RunSpawned, then `registry.register(...)`. A SIGKILL between the append
+and the register leaves a journal holding `seq=1 RunSpawned` and no `runs` row.
+`resume` requires that row and has no fallback (server.rs:177-186), so the run
+is UNRECOVERABLE -- its journal is on disk, intact, and nothing can resume it.
+
+The codebase already disagrees with itself here: the journal-opening path
+tolerates a missing row and falls back to the conventional location
+(`unwrap_or_else(|| self.run_path(run_id))`). One path self-heals, the other
+hard-fails on the identical condition.
+
+**Why it looked runner-only.** The test kills as soon as
+`completed_step_count == 0`, true the instant the journal exists -- the earliest
+possible moment, squarely inside the window. Locally `register` wins that race
+essentially always; on a loaded runner it does not. Nothing about the runner is
+broken; it just samples the window.
+
+**Same shape as #160.** Register-after-the-fact leaves a window where a run
+exists in one store and not the other. #171 closes it for the event-claim path;
+this is the same class in `start`, costing durability instead of exactly-once.
+
+Fix options posted on #174. Preference is (1) make `resume` self-healing --
+re-register from the journal on a missing row -- because it eliminates the
+window rather than shrinking it, matches what the journal path already does, and
+recovers runs already orphaned. Not implemented: kernel-core durability wants
+its own PR and a real signoff, not a rider on the diagnostic that found it.
+
+Note for the record: I twice guessed at this cause and was wrong both times
+(missing analyzer env, pipe-buffer deadlock). The measurement that settled it
+took one CI run once the evidence was actually captured. The cheap move was
+always to make the failure talk.
