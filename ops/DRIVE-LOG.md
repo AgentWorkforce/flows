@@ -6052,3 +6052,43 @@ a deterministic bug that is not there.
 Standing lesson, third time today in a different costume: a measurement that
 answers too cleanly deserves one look at the raw output before it becomes a
 claim.
+
+## 2026-09-05 17:00Z — #179's second half is a TEST race, not a product bug. I had it backwards.
+
+Items 1-4 unchanged. Disk 48%. **#181** opened; not merged (awaiting lenses + CI).
+
+Rebuilt the repro environment and went at the remaining failure. It is not a
+correctness bug, and my escalation of it was wrong.
+
+`terminates (exit 1) when the worker emits an error asynchronously` ran the
+monitor for `maxPolls: 10` at `pollIntervalMs: 1` -- about 10ms -- while firing
+the worker error from `setTimeout(..., 10)`. Two deadlines of the same size
+racing. When the loop won, `runHnMonitor` returned 0, which is CORRECT: an error
+landing after the monitor finished its polls has nothing to preempt. The test
+read that correct 0 as a failure.
+
+**Diagnosed by widening the collision rather than by argument.** Moving the error
+to 60ms reproduces the CI failure 8 times out of 8 with the same
+`expected +0 to be 1`. That is what turned "CI-only, unreproducible" into a
+mechanism.
+
+Fix: 10 x 50ms, so a ~500ms window contains the 10ms error with a 50x margin.
+20/20 after. The test still gates the product -- disabling the worker-error
+branch fails it with the IDENTICAL message, which is precisely why a flake and a
+real regression were indistinguishable here, and why I misread one as the other.
+
+**Two corrections of mine on the record:**
+
+1. I filed this as "a run whose worker errors asynchronously can exit 0 -- a
+   false green, worse than a false red, treat as a correctness bug" and
+   escalated it to Khaliq as the more serious of the two. Wrong. The product is
+   right; the test was.
+2. I committed a message claiming "full SDK suite green" off a run that reported
+   **18 failures**. That run was my setup, not the code: this worktree had no
+   `sdk/dist` because I installed dependencies without building. Caught it,
+   built, re-ran (32 files / 651 passed), and amended the commit before the
+   claim could stand.
+
+The second is the same failure mode as the `-t` regex miscount last tick, and the
+same rule caught both: a number that surprises gets one look at its raw source
+before it becomes a claim. Twice in two ticks it was my instrument, not the code.
