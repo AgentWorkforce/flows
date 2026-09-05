@@ -6246,3 +6246,46 @@ to update its expectation to whatever the code now returns. That would have
 mutation is what showed the assertion was worthless.
 
 authored-flow.test.ts 23 passed; full SDK suite 32 files / 662 passed / 3 skipped.
+
+## 2026-09-05 18:13Z — #184 merged (#166 closed). My own #177 fix has a regression: #185.
+
+Items 1-4 unchanged. Disk 47%.
+
+**#184 merged at 18:13:04Z**, head `b8ecaa75` — three lenses REVIEW_PASSED and CI
+run 33982088411 success on that exact sha (headSha compared to PR head, not the
+check name). #166's coverage gap is closed.
+
+**The tick's real finding came from #184's first CI failure, which was not
+#184's.** `agent::rung_c_sigkill_boundaries_...` failed — and this is the payoff
+from the whole #174 chain: it FAILED in 63 seconds instead of hanging for 30
+minutes (#175's bounded read), and #176's dump named the cause outright:
+
+  stderr (114 bytes):
+  Error: journal_write_failed: read run spec: SQLite journal failed:
+  Query returned no rows
+  --- journal (0 entries) ---
+
+**Zero journal entries.** The SIGKILL landed after `SqliteJournal::create` but
+BEFORE the `RunSpawned` append.
+
+**That is a regression I introduced in #177**, filed as #185. My adoption gate
+checks that the journal opens and claims to be this run:
+
+  Ok(journal) => journal.run_id() == params.run_id
+
+An EMPTY journal still carries a meta row with the run id, so it opens, matches,
+is adopted and registered -- and then resume finds no spec and dies with an
+internal error. Before #177 that case returned a clean `run_not_found`.
+
+There are two kinds of orphan and I only saw one:
+
+  journal WITH RunSpawned, no registry row  -> a real run, adopt it (the #177 fix)
+  journal created, killed before RunSpawned -> never became a run, refuse it
+
+Fix is to require a spawn record, not merely a matching id. Not done here --
+#184 was SDK-test-only and this belongs in its own PR.
+
+Worth stating plainly: three PRs of diagnostics (#175, #176) and a root-cause fix
+(#177) are what turned a 30-minute silent hang into a 63-second failure that
+printed its own cause, including a bug in the fix itself. That chain has now paid
+for itself twice.
