@@ -7064,3 +7064,57 @@ tonight. Reading cannot separate those two.
 volume is at 94%, 12Gi free, and disk hit zero once today; a multi-GB cargo
 build is exactly the "check df before anything large" case. Next tick starts
 with the build, not with re-deriving any of the above.
+
+## 2026-09-06 tick — #3270 preview: the App grant failure, preserved
+
+Disk 94% / 12Gi. Queue: no stuck runs in `cloud schedules`; the two active
+crons (`flows-watchdog`, `verify-features.ts`) both show a last run. Nothing to
+drain.
+
+**Preview build 33801381261 failed in 17 seconds.** Not still building — it
+never got past auth. Dispatched 20:17:22Z, failed 20:17:39Z, `workflow_dispatch`
+on `feat/relayflow-v2-executor` @ `be58afd8`.
+
+Failing step: **`Mint private Flows artifact token`**, via
+`actions/create-github-app-token@v2`:
+
+    message: 'Not Found',
+    documentation_url: '.../apps#get-a-repository-installation-for-the-authenticated-app',
+    status: '404'
+
+The step, at `.github/workflows/preview.yml:173` on that ref:
+
+    - name: Mint private Flows artifact token
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ secrets.GH_APP_PUSHER_ID }}
+        private-key: ${{ secrets.GH_APP_PUSHER_PRIVATE_KEY }}
+        owner: AgentWorkforce
+        repositories: flows
+
+The 404 is on *get repository installation for the authenticated app*, not on
+authentication. So the App credential itself is fine — it minted a JWT and GitHub
+answered it. What does not exist is an installation of that App on
+`AgentWorkforce/flows`. Either the App is not installed on the repo, or it is
+installed with a selected-repositories list that omits `flows`.
+
+**This is the failure the tick told me to preserve, so I did not work around
+it.** There is a tempting workaround — swap the mint for a PAT — and it would be
+wrong twice over: it would destroy the evidence, and it would put a long-lived
+credential where a scoped 10-minute token belongs.
+
+**It also answers Khaliq's question from earlier** ("why is the app pusher
+required for that?"). `AgentWorkforce/flows` is **private**. The preview build
+has to download the flows artifact, so it mints a short-lived token scoped to
+exactly that one repo. That is the whole reason the pusher App appears in a
+*cloud* preview build.
+
+I cannot fix or even diagnose further from here: `orgs/AgentWorkforce/installations`
+404s and `gh` reports the token lacks `admin:org`. Installing an App is an
+owner action by construction.
+
+**Standing connection worth making:** Khaliq's "let's do an npm package" removes
+this dependency rather than repairing it. If the flows runtime ships as a
+published package, the preview build resolves it from the registry and the
+private-artifact token step disappears entirely — along with this failure mode.
+The grant unblocks tonight; the package retires the problem.
