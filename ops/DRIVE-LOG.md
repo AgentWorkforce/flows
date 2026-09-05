@@ -6368,3 +6368,42 @@ fair; the amended message carries verbatim output and exact counts.
 
 Full SDK suite: 33 files total (32 passed, 1 skipped), 665 tests total (662
 passed, 3 skipped). Typecheck clean. **#187 open, CI pending.**
+
+## 2026-09-05 19:12Z — #187 and #188 merged. Two issues left, neither from tonight.
+
+Items 1-4 unchanged. Disk 54% after removing the flows-183 and flows-166
+worktrees.
+
+**#187 merged** (head `58581026`, three lenses, CI green on that sha) — the
+misleading `unawaited_step` is gone; the error now names the missing `done()`.
+#183 closed.
+
+**#188 merged** (head `8e57b172`) — the gate 2 SCOREBOARD row. #167 closed.
+
+The row said gate 2 lacked "a test proving a duplicate event does not
+double-execute". That was already false when #167 was filed, and tonight took it
+further, so the row understated progress AND the gate simultaneously. Rewrote it
+with each claim checked against main rather than remembered: sequential
+duplicates (#14), concurrent racing deliveries under the real one-Engine-per-
+request topology (#171), claims surviving their process (#171, #182), resume
+adopting only a usable journal (#177, #186). Still genuinely missing: the
+Appendix A wake-context contract.
+
+The part #167 cared about most, and the part I would have missed if I had only
+checked the dedupe claim: the row UNDERSTATES the gate. RFC-0001 s3's bar is
+hn-monitor running as a relayflow IN PRODUCTION on real events with zero bespoke
+persistence -- not a passing suite. A row that reads "two things missing" invites
+someone to think two PRs finish it.
+
+**A CI judgement worth recording.** #188 is docs-only and no artifact run
+appeared. Rather than wait or assume it was queued, I read the workflow:
+`cloud-runtime-artifact.yml` filters on `kernel/**`, `sdk/**`, `testdata/**` and
+`scripts/cloud-artifact*`. `ops/**` is not in it, so no CI applies to this change
+at all -- that is a different state from "CI pending" and from "CI green", and I
+said so in the merge rather than claiming a green I did not have.
+
+Deliberately no counts in the row: counts drift with the base, PR numbers and
+test names do not. That is the STATE.md lesson, applied before it bit.
+
+**Remaining: #156 (SDK flake, ENOENT backlog-picker-entry.json) and #141
+(headless adapter per agent CLI).** Neither is from tonight's work.
