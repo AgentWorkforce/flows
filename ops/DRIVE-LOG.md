@@ -5384,3 +5384,56 @@ timing guess — the same class of mistake as the tick-count window in the
 
 Held rather than implemented: this is the exactly-once core, Khaliq asked for a
 real fix, and the change wants its own PR plus an independent signoff.
+
+## 2026-09-05 09:54Z — tick: #160 FIXED, opened as #171 (unmerged)
+
+Items 1-4 unchanged. Disk 48%. Implemented last tick's diagnosis rather than
+waiting: the rule that binds overnight is MERGE-requires-signoff, not
+implement-requires-permission.
+
+**#171** — `fix/160-claim-repair-race`, off main, not merged.
+
+The fix: the event claim now carries the engine's boot id. A claim from THIS
+boot is in flight, so it dedupes; a claim from a PREVIOUS boot with no
+registered run is wreckage, so it is repaired exactly as before. That preserves
+the crash recovery the original comment defends -- which was guarding a real
+exactly-once bug of its own -- while closing the race.
+
+One obligation follows. Under the same-boot rule, a claim this boot takes but
+cannot turn into a run would strand the event: every retry inside the process is
+told "duplicate" with no run to carry it. So the claim-to-`register` span now
+releases the claim on its failure path, scoped to the claiming run_id so a
+release cannot steal a claim another delivery legitimately holds. Existing
+databases get the column via a guarded ALTER (CREATE TABLE IF NOT EXISTS is
+inert against an existing table); pre-existing rows carry '', which matches no
+live boot and is correctly read as a previous boot.
+
+**The evidence work is the part worth reading.** The racing test is
+probabilistic by construction -- it only fires when a loser reads inside the
+winner's window. Measured against a deliberately broken guard:
+
+  2 bare threads          5/10 caught
+  2 threads + Barrier     8/10 caught
+  8 threads + Barrier     7/10 caught
+
+More racers does not help: SQLite serialises the writes, so the miss is always
+"winner registered before any loser read". I kept the barrier and 2 racers.
+
+A gate that misses a fifth of its regressions cannot be the only witness, so I
+asserted the rule directly in relayflowd-journal where no scheduling is
+involved -- same-boot dedupes, previous-boot repairs, registered-run dedupes
+across boots, release frees the event, release is scoped to its run. Two of
+those fail DETERMINISTICALLY under the mutation. That is the difference between
+a test that happens to pass and a gate with a known failing witness.
+
+Mutation applied and restored with hashes checked at each step
+(8829889b -> 5e9b1a95 -> restored, `grep -c "if false"` = 0), and wake.rs's
+pre-edit hash matched the 2103ddba recorded earlier, confirming I edited the
+right file at the right base.
+
+Kernel workspace: **148 passed, 0 failed**, no warnings (143 before, 5 added).
+
+Not merged. This is the exactly-once core and it needs an independent signoff at
+the exact head. I flagged two things for the reviewer to attack specifically:
+whether per-Engine is the right granularity for a boot id, and whether the
+release-on-failure boundary sits in the right place.
