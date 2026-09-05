@@ -6489,3 +6489,52 @@ something else (#179, #185, the #174 chain) and each cost a tick to attribute.
 
 **Flows: PR queue empty. Open issues #156 (open by choice, unexplained) and #141
 (design-sized).**
+
+## 2026-09-05 20:25Z — #192 merged: half the wake-context gap closed, the half needing no ruling
+
+Items 1-4 unchanged. Disk 54%.
+
+Gate 2's one remaining item after #188 was the wake-context contract. It splits
+cleanly, and only one half is blocked on a decision:
+
+  * what `wake_context` GUARANTEES        -- needs Khaliq's ruling, still open
+  * that it must not CHANGE across a resume -- testable now, no decision needed
+
+**#192 merged** (head `e79af19a`, three lenses, CI success verified by headSha
+AND event) closes the second.
+
+`drive.rs` already reads the context back from the journal's
+`SubscriptionMatched` entry rather than rebuilding it. **Nothing held it there.**
+The other tests in that file use `Engine::new` with no dispatcher, so they
+observe NO dispatch at all -- a refactor that rebuilt the context at dispatch
+time would have passed every one of them.
+
+Mutation modelled on the real regression rather than a strawman: rebuild from
+`spec.steps`. Both dispatches then agree WITH EACH OTHER, so an equality-only
+test still passes -- it fails on the event assertion instead. Worth designing
+rather than flipping a boolean.
+
+**Two lens catches, both mine, both the same fault -- describing what I assumed
+rather than what was there:**
+
+1. I wrote that the other tests "only assert the FIRST dispatch". They assert no
+   dispatch at all.
+2. I claimed stability "whatever the flow looks like now" -- cross-version
+   coverage this test does not have. Scope is now stated in the code.
+
+Also corrected: Appendix A does not name the wake context, so citing it as a
+settled contract was interpretive. The comment says so.
+
+**Incident: this worktree disappeared mid-tick.** The append failed with
+`no such file or directory` for ops/DRIVE-LOG.md AFTER the chief-side log had
+already pushed. Nothing was lost -- the branch on origin carried every entry
+through 19:57Z, because the standing rule is to commit and push this file every
+tick. Recreated the worktree from `flow/lead-0903-claude` and re-appended.
+
+That rule earned its keep tonight: had the log lived only on disk, this tick and
+possibly others would have gone with it. I have not established what removed the
+directory; the honest state is "unknown cause, no data lost, recovery took one
+command".
+
+Kernel workspace 158 passed, 0 failed. **Flows: PR queue empty. Open issues #156
+(kept open, unexplained) and #141 (design-sized).**
