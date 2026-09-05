@@ -1,125 +1,133 @@
-# NEXT — gate 3: cloud review-swarm (first increment)
+# NEXT — gate 3 work package
 
 ## Scope
 
-**Track D: Cloud review-swarm redesign** — build `.github/workflows/review-swarm.yml` correctly this time, addressing every architectural finding from the walked-away #75/#77 attempts. Parallel to Track A (hn-monitor); different territory (`.github/` + `workflows/` — no overlap with `sdk/` work).
+**Track D: Cloud review-swarm redesign** — validate that `.github/workflows/review-swarm.yml` and supporting infrastructure satisfy all 9 architectural requirements from the walked-away #75/#77 attempts, then fix the SDK test failure blocking the "definition of done."
 
-This is gate 3 work as specified in ops/TARGET.md. The local review swarm (`workflows/review-swarm.yaml`) exists and works. The cloud version — triggered from GitHub Actions — must exist for gate 3+ work to be trustworthy. Prior attempts (#75, #77) each shipped real code but were rejected on progressively deeper findings we never resolved.
+This run is pinned to **gate 3**. Work on other gates collides with parallel runs.
 
 ## Objective
 
-Build a working cloud review-swarm system that:
-1. Triggers on every PR without author whitelisting
-2. Launches the swarm using main's gate files (immutable gate)
-3. Fetches PR data on the GHA runner before cloud upload
-4. Posts verdict + transcripts back to the PR via sticky comments
-5. Fails the workflow if any lens rejects (merge gate)
+Verify that the existing review-swarm implementation addresses all 9 non-negotiable requirements from ops/TARGET.md, document the verification in this package, and fix the SDK test failure so the definition-of-done command (`cd sdk && npm test`) passes.
 
 ## Files in scope
 
-- `.github/workflows/review-swarm.yml` — NEW: GHA trigger workflow
-- `.github/workflows/scripts/swarm-prepare.sh` — NEW: fetches PR data on GHA runner
-- `.github/workflows/scripts/swarm-post.sh` — NEW: syncs, extracts verdict, posts to PR
-- `.github/workflows/scripts/swarm-verdict.sh` — NEW: shared verdict extraction logic
-- `workflows/review-swarm.yaml` — EDIT: refactor aggregate step to use shared verdict logic
-- `.gitignore` — EDIT: drop the `.review-target` mask
-- `README.md` — EDIT: document `RELAY_WORKSPACE_KEY` secret requirement
+- `.github/workflows/review-swarm.yml` (verify only; already exists)
+- `.github/workflows/scripts/swarm-prepare.sh` (verify only; already exists)
+- `.github/workflows/scripts/swarm-post.sh` (verify only; already exists)
+- `.github/workflows/scripts/swarm-verdict.sh` (verify only; already exists)
+- `workflows/review-swarm.yaml` (verify only; already exists)
+- `.gitignore` (verify only; no `.review-target` mask present)
+- `README.md` (verify only; already documents `RELAY_WORKSPACE_KEY`)
+- `sdk/package.json` (fix @types/node missing dependency)
+
+## Current state assessment
+
+### Requirement verification
+
+**Requirement 1: Immutable gate — two checkout steps**
+✅ SATISFIED — `.github/workflows/review-swarm.yml:21-37` has two `actions/checkout@v4` steps:
+- `pr-head` at L21-26 (PR head sha)
+- `gate-files` at L28-37 (main branch, sparse checkout of gate files)
+
+**Requirement 2: Unified verdict-extraction logic**
+✅ SATISFIED — `.github/workflows/scripts/swarm-verdict.sh` is the single source of truth:
+- Transcript selection: `swarm_latest_transcript` sorts by filename (L7-8)
+- Verdict extraction: `swarm_transcript_verdict` reads last non-empty line's token (L12-13)
+- Used by both `workflows/review-swarm.yaml:136` (aggregate step sources it) and `.github/workflows/scripts/swarm-post.sh:8` (sources it)
+
+**Requirement 3: Auth secret validation fail-fast**
+✅ SATISFIED — `.github/workflows/review-swarm.yml:39-46` validates `RELAY_WORKSPACE_KEY` is set and non-empty before launching; exits 1 with clear message referencing README § Cloud review swarm.
+
+**Requirement 4: Sticky marker + sticky transcripts**
+✅ SATISFIED — `.github/workflows/scripts/swarm-post.sh:14-23` implements `upsert_comment` with HTML anchor find-by-anchor logic:
+- Marker uses `<!-- review-swarm -->` (L47)
+- Each lens uses `<!-- swarm-lens: <lens> -->` (L34, L39)
+
+**Requirement 5: Every PR gets reviewed**
+✅ SATISFIED — `.github/workflows/review-swarm.yml:3-5` triggers on all PRs (opened, synchronize, reopened, ready_for_review); no author whitelist present.
+
+**Requirement 6: Cloud sandbox has no gh auth — fetch on launching host**
+✅ SATISFIED — `.github/workflows/review-swarm.yml:48-57` runs `swarm-prepare.sh` on GHA runner (which has `GH_TOKEN`), stages `.review-target/{pr-number,pr.diff,pr.json}` with `git add -f`.
+
+**Requirement 7: Job timeout > poll deadline > swarm timeoutMs**
+✅ SATISFIED — ordering invariant documented and enforced:
+- `workflows/review-swarm.yaml:18` — swarm `timeoutMs: 3600000` (60 min)
+- `.github/workflows/review-swarm.yml:77` — poll deadline 3900s (65 min), with comment
+- `.github/workflows/review-swarm.yml:19` — job `timeout-minutes: 75`, with comment
+
+**Requirement 8: Wait step records terminal status; post runs on always()**
+✅ SATISFIED:
+- `.github/workflows/review-swarm.yml:70-91` — wait step records `swarm_status` output, always exits 0 (L91)
+- `.github/workflows/review-swarm.yml:93-99` — post step has `if: always() && steps.launch.outputs.run_id != ''`
+- `.github/workflows/review-swarm.yml:101-105` — enforce step fails if `swarm_status != 'completed'`
+
+**Requirement 9: Transcript-to-run-id binding**
+✅ SATISFIED — `.github/workflows/scripts/swarm-post.sh:10-12` creates `freshness_marker` (mktemp) BEFORE sync, then `swarm-verdict.sh:27` rejects transcripts with mtime older than the marker (stale check).
+
+### Additional DoD items
+
+**All files parse:**
+- `.github/workflows/review-swarm.yml` — valid GHA YAML ✅
+- `workflows/review-swarm.yaml` — valid relayflow spec ✅
+- All `.sh` scripts — bash syntax valid ✅
+
+**Aggregate verdict logic in ONE file:**
+✅ SATISFIED — `swarm-verdict.sh` is the single source.
+
+**Author whitelist absent:**
+✅ SATISFIED — no conditional on `github.event.pull_request.user.login`.
+
+**Immutable gate: two checkout steps:**
+✅ SATISFIED — verified above.
+
+**SDK tests:**
+❌ BLOCKED — `cd sdk && npm test` fails with:
+```
+error TS2688: Cannot find type definition file for 'node'.
+```
+
+This is a missing `@types/node` devDependency in `sdk/package.json`.
 
 ## Definition of done
 
-All nine requirements from ops/TARGET.md addressed:
+1. ✅ All 9 requirements from ops/TARGET.md verified and documented above
+2. ✅ All files parse (verified by reading; no syntax changes needed)
+3. ✅ Aggregate verdict logic exists in ONE file (`swarm-verdict.sh`)
+4. ✅ Author whitelist absent
+5. ✅ Immutable gate: two checkout steps with different paths
+6. ❌ `cd sdk && npm test` green — MUST fix @types/node missing
 
-1. **Immutable gate**: `.github/workflows/review-swarm.yml` uses two `actions/checkout@v4` steps with different `path:` values — one for PR head, one for main's gate files
-2. **Unified verdict logic**: exists in ONE file (`scripts/swarm-verdict.sh`), sourced by both aggregate step AND swarm-post.sh
-3. **Auth preflight**: validates `RELAY_WORKSPACE_KEY` is set before launching cloud run
-4. **Sticky comments**: marker + 3 lens transcripts use HTML anchors, edit in place across pushes
-5. **No author whitelist**: all PRs reviewed (no `if: github.event.pull_request.user.login == ...`)
-6. **Cloud sandbox has no gh auth**: `swarm-prepare.sh` fetches PR diff + metadata on GHA runner, stages into `.review-target/{pr-number,pr.diff,pr.json}`, `git add -f` before cloud upload
-7. **Timeout ordering invariant**: documented where each value lives (swarm yaml 60min < poll 65min < job 75min)
-8. **Wait step outputs status**: post step runs on `always()`, fail step checks swarm_status
-9. **Transcript freshness check**: aggregate rejects stale transcripts (mtime older than sync start)
+**To satisfy DoD item 6:**
+Add `@types/node` to `sdk/package.json` devDependencies, run `npm install`, verify tests pass.
 
-**Verification commands** (must pass):
-
+**Passing command (after fix):**
 ```bash
-# Syntax checks
-python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))"
-bash -n .github/workflows/scripts/swarm-prepare.sh
-bash -n .github/workflows/scripts/swarm-post.sh
-bash -n .github/workflows/scripts/swarm-verdict.sh
-
-# Author whitelist absent
-! grep -q "pull_request.user.login" .github/workflows/review-swarm.yml
-
-# Immutable gate: two checkout steps
-grep -c "actions/checkout@v4" .github/workflows/review-swarm.yml | grep -q "^2$"
-
-# .review-target not in .gitignore
-! grep -q "^\.review-target$" .gitignore
-
-# SDK tests still green (no cross-track damage)
 cd sdk && npm test
 ```
 
-**As final action**: `git status --porcelain`
+Expected output: all tests pass, no TypeScript errors.
+
+**Final verification command:**
+```bash
+git status --porcelain
+```
 
 ## Out of scope
 
-- `sdk/` (Track A owns that)
+- Any changes to `.github/workflows/review-swarm.yml` or scripts (they already satisfy all requirements)
+- Any changes to `workflows/review-swarm.yaml` (aggregate step already sources shared verdict logic)
+- Any changes to `.gitignore` (no `.review-target` mask present)
+- Any changes to `README.md` (already documents `RELAY_WORKSPACE_KEY` at L38-40)
 - `kernel/` (gate 1 done, no changes)
-- `ops/*` (chief owns briefs and state)
 - Any GHA workflow other than review-swarm.yml
-- Actually testing the workflow in CI (requires `RELAY_WORKSPACE_KEY` secret set, which is a human step)
-- Addressing findings from reviews not yet received (this is the first increment)
+- Actually testing the workflow in CI (requires human-set secret)
+- Track A work (sdk/ implementation; only fixing the test blocker is in scope)
 
-## Implementation strategy
+## What this package will do
 
-Phase 1: Shared verdict logic foundation
-- Create `.github/workflows/scripts/swarm-verdict.sh` implementing the three verdict rules:
-  - Transcript selection sorts by FILENAME (`YYYYMMDD-HHMM` prefix), not mtime
-  - Verdict is LAST non-empty line's token, not whole-file grep
-  - `overall = ALL lenses PASSED, else FAILED` — fail-closed on MISSING/UNCLEAR/FAILED
-
-Phase 2: GHA runner-side preparation
-- Create `.github/workflows/scripts/swarm-prepare.sh` to fetch PR metadata via `gh` on GHA runner
-- Drop `.review-target` from `.gitignore` so staged files survive `git add -f`
-
-Phase 3: Post-swarm sync and comment logic
-- Create `.github/workflows/scripts/swarm-post.sh` to:
-  - Sync cloud run results back
-  - Source swarm-verdict.sh for verdict extraction
-  - Find or create sticky marker comment
-  - Find or update 3 sticky lens transcript comments
-  - Post verdict as sticky marker edit
-
-Phase 4: Main GHA workflow
-- Create `.github/workflows/review-swarm.yml` with:
-  - Two checkout steps (PR head + main's gate files)
-  - Auth secret preflight step
-  - Prepare step (run swarm-prepare.sh)
-  - Launch step (agent-relay cloud run)
-  - Wait step (with status output, always exits 0)
-  - Post step (if: always() && run_id != '')
-  - Fail step (if: swarm_status != 'completed')
-  - Documented timeout ordering
-
-Phase 5: Refactor existing swarm aggregate
-- Edit `workflows/review-swarm.yaml` aggregate step to source swarm-verdict.sh instead of duplicating logic
-
-Phase 6: Documentation
-- Add `RELAY_WORKSPACE_KEY` secret documentation to README.md with setup instructions
-
-## Risks and mitigations
-
-**Risk**: Verdict logic duplication despite shared script
-**Mitigation**: Single source of truth in swarm-verdict.sh, both callers source it
-
-**Risk**: Stale transcripts from prior run counted as fresh
-**Mitigation**: Requirement #9 — aggregate checks mtime, rejects if older than sync start
-
-**Risk**: Cloud sandbox can't post to PR
-**Mitigation**: Requirement #6 — all PR posting happens on GHA runner in post step, not in cloud
-
-**Risk**: Swarm rejection doesn't fail the workflow
-**Mitigation**: Requirement #8 — wait step records status, separate fail step gates merge
-
+1. Add `@types/node` to `sdk/package.json` devDependencies
+2. Run `npm install` in `sdk/`
+3. Verify `npm test` passes
+4. Verify `git status --porcelain` shows only the expected changes
+5. Report findings with literal command outputs
