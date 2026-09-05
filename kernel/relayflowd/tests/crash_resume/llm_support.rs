@@ -235,17 +235,39 @@ pub struct ProtocolClient {
     reader: BufReader<UnixStream>,
     next_id: u64,
     events: Vec<Value>,
+    /// The ceiling currently in force, so a timeout can report the bound that
+    /// actually fired rather than the default constant.
+    read_timeout: Duration,
 }
+
+/// Ceiling on any single protocol read in a test.
+///
+/// The whole `crash_resume` target runs in about 38 seconds, so this is far
+/// longer than any legitimate wait; it exists only to convert "never" into a
+/// failure. See `read_frame` for why that matters.
+const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 impl ProtocolClient {
     pub fn connect(socket: &Path) -> Self {
         let stream = UnixStream::connect(socket).unwrap();
-        let reader = BufReader::new(stream.try_clone().unwrap());
+        let read_half = stream.try_clone().unwrap();
+        // Without this a frame that never arrives blocks forever. These tests
+        // SIGKILL a daemon and resume it, so "the dispatch never comes" is a
+        // reachable state, not a hypothetical -- and an unbounded read turns it
+        // into a silent hang that produces NO output at all. On GitHub runners
+        // that consumed the entire 30-minute step three times (#174), and the
+        // only evidence left behind was the harness's own
+        // "has been running for over 60 seconds" line.
+        read_half
+            .set_read_timeout(Some(READ_TIMEOUT))
+            .expect("set protocol read timeout");
+        let reader = BufReader::new(read_half);
         Self {
             stream,
             reader,
             next_id: 1,
             events: Vec::new(),
+            read_timeout: READ_TIMEOUT,
         }
     }
 
@@ -306,14 +328,62 @@ impl ProtocolClient {
         }
     }
 
-    pub fn set_read_timeout(&self, timeout: Option<Duration>) {
-        self.stream.set_read_timeout(timeout).unwrap();
+    /// Override the read ceiling. `None` restores the default -- it does NOT
+    /// make reads unbounded.
+    ///
+    /// Deliberately NOT named `set_read_timeout`: that name belongs to
+    /// `UnixStream`, where `None` means "block forever". Shadowing a std API
+    /// while inverting its meaning is a trap no docstring reliably defuses.
+    ///
+    /// That distinction is the point. Callers tighten the bound for a specific
+    /// assertion and then pass `None` to mean "back to normal". Two shapes use
+    /// it, and they are not the same:
+    ///
+    /// - `parallel_lifecycle.rs:138,208` probe for SILENCE -- 200ms, then
+    ///   assert the read errors.
+    /// - `concurrency.rs:31` tightens to 1s and expects the read to SUCCEED,
+    ///   so a missing dispatch fails fast instead of stalling the test.
+    ///
+    /// If `None` meant "block forever", every read after any of those would be
+    /// unbounded and the ceiling this type advertises would be a claim it does
+    /// not keep -- which is what two review lenses caught in the first revision
+    /// of this change.
+    pub fn override_read_timeout(&mut self, timeout: Option<Duration>) {
+        let timeout = timeout.unwrap_or(READ_TIMEOUT);
+        // Set it on the fd `read_frame` actually reads through -- the reader's,
+        // not `self.stream`. `try_clone` produces a separate descriptor, and
+        // while Linux and Darwin keep SO_RCVTIMEO on the shared socket (so
+        // writing to either fd happens to work today), that is a platform
+        // detail, not a guarantee. Going through the reader means the ceiling
+        // is set where it is read, with no hidden assumption to remember.
+        self.reader
+            .get_ref()
+            .set_read_timeout(Some(timeout))
+            .unwrap();
+        self.read_timeout = timeout;
     }
 
     fn read_frame(&mut self) -> Result<Value> {
         let mut line = String::new();
-        if self.reader.read_line(&mut line)? == 0 {
-            bail!("protocol connection closed")
+        match self.reader.read_line(&mut line) {
+            Ok(0) => bail!("protocol connection closed"),
+            Ok(_) => {}
+            // Name the timeout rather than letting it surface as a bare I/O
+            // error. A test that stops here is waiting for a frame the daemon
+            // never sent, and that sentence is the entire diagnosis.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                let waited = self.read_timeout;
+                bail!(
+                    "timed out after {waited:?} waiting for a protocol frame; \
+                     the daemon sent nothing (see #174)"
+                )
+            }
+            Err(error) => return Err(error.into()),
         }
         serde_json::from_str(&line).context("decode protocol frame")
     }

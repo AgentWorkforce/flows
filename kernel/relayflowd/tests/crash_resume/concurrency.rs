@@ -28,12 +28,12 @@ fn run_start_dispatches_every_independent_lane_before_any_completion() {
     let mut worker = attached_worker(&fixture, "parallel-stub");
     let run_id = start_run(&fixture);
 
-    worker.set_read_timeout(Some(Duration::from_secs(1)));
+    worker.override_read_timeout(Some(Duration::from_secs(1)));
     let first = worker.event("step.dispatch").unwrap();
     let second = worker
         .event("step.dispatch")
         .expect("both independent lanes must dispatch before either completes");
-    worker.set_read_timeout(None);
+    worker.override_read_timeout(None);
     assert_eq!(first["step_id"], "lane-b");
     assert_eq!(second["step_id"], "lane-a");
 

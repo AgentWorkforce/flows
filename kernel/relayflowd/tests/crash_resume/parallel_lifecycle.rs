@@ -135,9 +135,9 @@ fn overlapping_agent_lanes_serialize_while_disjoint_lanes_merge_in_either_order(
     start_run(&fixture);
     let lane_b = worker.event("step.dispatch").unwrap();
     assert_eq!(lane_b["step_id"], "lane-b");
-    worker.set_read_timeout(Some(Duration::from_millis(200)));
+    worker.override_read_timeout(Some(Duration::from_millis(200)));
     assert!(worker.event("step.dispatch").is_err());
-    worker.set_read_timeout(None);
+    worker.override_read_timeout(None);
     complete_agent(&mut worker, &lane_b, &[("repo-b", "rB")]).unwrap();
     let lane_a = worker.event("step.dispatch").unwrap();
     assert_eq!(lane_a["pins"]["workspace"][0]["revision_id"], "rB");
@@ -205,9 +205,9 @@ fn overlapping_agent_conflict_survives_server_crash_and_resume() {
     let retried = replacement.event("step.dispatch").unwrap();
     assert_eq!(retried["step_id"], "lane-b");
     assert_eq!(retried["attempt"], 2);
-    replacement.set_read_timeout(Some(Duration::from_millis(200)));
+    replacement.override_read_timeout(Some(Duration::from_millis(200)));
     assert!(replacement.event("step.dispatch").is_err());
-    replacement.set_read_timeout(None);
+    replacement.override_read_timeout(None);
     complete_agent(&mut replacement, &retried, &[("repo-b", "rB")]).unwrap();
     let lane_a = replacement.event("step.dispatch").unwrap();
     complete_agent(&mut replacement, &lane_a, &[("repo-b", "rA")]).unwrap();
