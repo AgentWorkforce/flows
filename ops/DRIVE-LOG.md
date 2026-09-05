@@ -6981,3 +6981,42 @@ itself writes.
 two decisions, the App credential, and the review-swarm install (#194's subject,
 which I cannot do). Open issues #156 (kept open, unreproduced) and #141
 (design-sized) are unchanged.
+
+## 2026-09-06 — found an open PR I had not accounted for, and a gap in what "green" means
+
+Not a quiet tick after all. Disk 53%, drain healthy, main push-CI green.
+
+**flows #189 is open and I had not seen it.** `drive: cloud run 56b36757`,
+created 19:09Z, 3 files. Two consequences, one procedural and one substantive.
+
+**Procedural: it collides with my own #194.** Both rewrite `ops/NEXT.md`. I wrote
+#194 without surveying open PRs first -- exactly the check I would demand of
+anyone else before authoring a work package. Cross-linked both PRs rather than
+silently letting one clobber the other.
+
+On merits #194's NEXT.md is the more current: #189's asks someone to VERIFY the
+review-swarm and fix a missing `@types/node`, and #189's own NEEDS_HUMAN.md then
+reports that dependency was already present. Neither of #189's targets names the
+exit-127 blocker that actually stops the gate.
+
+**Substantive, and more important: #189 found something my testing cannot see.**
+Its `ops/NEEDS_HUMAN.md`:
+
+  `hn-monitor analyze-story reaches done through the real Claude analyzer CLI`
+  fails reproducibly -- completed journal entry has `payload.verification ===
+  null`, test requires `{gate: "json_schema", verdict: "pass"}`.
+  Two consecutive runs: 661 passed, 1 failed, 3 skipped.
+
+**Every SDK suite I ran last night set `RELAYFLOWS_ALLOW_ANALYZER_SKIP=1`.** So
+did CI -- deliberately, with a comment in `cloud-runtime-artifact.yml` saying
+that workflow is NOT gate-2 acceptance evidence. That test has therefore been in
+my "3 skipped" every single time, and neither I nor CI would ever have seen this.
+
+Sixteen PRs merged yesterday against a suite that structurally cannot exercise
+that path. That is a gap in what "green" has meant here, not merely one red test
+-- and it is precisely what the skip flag was documented to hide. I have been
+quoting "662 passed, 3 skipped" all night without once asking what the 3 were.
+
+Not verified independently yet: it needs a real analyzer rather than the skip
+path. Recorded on #189 so the finding survives whatever happens to that PR, and
+queued as the next thing I take.
