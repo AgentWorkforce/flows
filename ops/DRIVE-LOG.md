@@ -5329,3 +5329,58 @@ measurements put the propagated-tree problem on `kernel/target/debug` (4900
 files), not on `sdk/dist`, so deleting the type surface buys very little.
 
 #165 should be closed once #170 lands; its remainder is the CI revert.
+
+## 2026-09-05 09:36Z — tick: #160 root cause found; it is a real exactly-once bug
+
+Items 1-4 unchanged. Disk 43%. #170 (opened last tick) is substantively green:
+`linux-x64-artifact` pass 5m16s, `packed-consumer` pass; only `review` fails, on
+the missing `RELAY_WORKSPACE_KEY`, which is Khaliq's to add and unrelated.
+
+Spent the tick chasing #160, which blocks #168 and which Khaliq told me to hold
+for a real fix rather than patch around.
+
+**It is not a flake and not `busy_timeout`.** CI's `left: 2` is
+`two_racing_deliveries_of_one_event_produce_exactly_one_run`
+(`event_wake.rs:162`). The test is correct; it caught a genuine exactly-once
+violation in the product.
+
+`Registry::claim_event` repairs a claim whose run never materialised, using the
+predicate "no row in `runs` for the claimed run_id". That predicate cannot
+distinguish **a crashed run from a previous process** from **a concurrent run
+that has not registered yet** — both are exactly a claim row with no `runs` row.
+`wake.rs` makes the window explicit: `claim_event` is called, and only several
+statements later does `SqliteJournal::create` bring the run into existence.
+
+Interleaving:
+
+1. A inserts the claim, `changed == 1`, returns None, proceeds — no journal yet.
+2. B's `INSERT OR IGNORE` is ignored; B reads `existing = A`.
+3. B's `COUNT(1) FROM runs WHERE run_id = A` returns **0** — A is mid-window.
+4. B decides the claim is abandoned, takes it over, returns None.
+5. B starts a second run. `left: 2`.
+
+Explains everything that was previously unexplained: why sequential redelivery
+(#168's restart test) passes, why `busy_timeout` was necessary-but-not-sufficient
+(it addresses lock contention, not this window), and why one commit both hung and
+passed (the window's width is timing-dependent).
+
+Recording two of my own corrections: I called this branch-specific, then a rare
+flake. Both wrong — it is deterministic given the interleaving. And I earlier
+treated the racing test as having the wrong topology; the FIRST version did (two
+Engines over one dir, which produced `database is locked`), but the rewritten
+one-Engine/two-thread version is right and is what exposed this.
+
+**Fix shape, posted to #160, not implemented tonight:** record the engine's boot
+generation on the claim. A claim from the current boot is never repaired (it is
+a concurrent run — dedupe it); a claim from a previous boot with no registered
+run is repaired, which is exactly the crash case the code was written for. That
+keeps the crash-recovery behaviour the doc comment defends while closing the
+race, and needs no cross-file transaction — the journal is a separate SQLite
+file, so claim and registration cannot share one.
+
+Rejected: a time-based abandonment threshold. It swaps a correctness bound for a
+timing guess — the same class of mistake as the tick-count window in the
+`allSettled` repair.
+
+Held rather than implemented: this is the exactly-once core, Khaliq asked for a
+real fix, and the change wants its own PR plus an independent signoff.
