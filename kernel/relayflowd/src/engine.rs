@@ -60,17 +60,50 @@ pub struct CancelOptions {
     pub pause_after_request: bool,
 }
 
+/// The identity of this PROCESS, not of an `Engine`.
+///
+/// This distinction is the whole of the dedupe rule. `claim_event` treats a
+/// claim carrying this id as a run that is in flight, and any other id as
+/// wreckage from a dead process. Generating it per `Engine` would make that
+/// rule inert in production: the server constructs a fresh
+/// `Engine::with_runtime` inside `handle_request` (server.rs), so two
+/// concurrent `event.submit` calls would hold two different ids, and the second
+/// would "repair" the first's live claim and spawn a duplicate run -- exactly
+/// the bug this is supposed to close.
+///
+/// Process-wide is also the correct semantics on its own terms: a claim is
+/// abandoned when the process that took it is gone, and nothing smaller than a
+/// process can die.
+fn new_boot_id() -> String {
+    static BOOT_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    BOOT_ID.get_or_init(|| Ulid::new().to_string()).clone()
+}
+
 pub struct Engine<C = WallClock> {
     data_dir: PathBuf,
+    /// Identifies this PROCESS. Written onto every event claim so the dedupe
+    /// repair can tell a claim abandoned by a dead process from one held by a
+    /// delivery that is in flight right now (#160). See `new_boot_id`.
+    boot_id: String,
     clock: C,
     dispatcher: Option<Arc<dyn StepDispatcher>>,
     observer: Option<Arc<dyn JournalObserver>>,
 }
 
 impl Engine<WallClock> {
+    /// Open an engine over `data_dir`.
+    ///
+    /// Any number of `Engine`s may exist over one `data_dir` in one process,
+    /// which is what production does -- the server builds one per protocol
+    /// request. They share a `boot_id` because it identifies the process, so
+    /// concurrent deliveries see each other's claims as in flight rather than
+    /// as wreckage. An earlier revision generated it per `Engine` and stated
+    /// the opposite invariant here; that was wrong, and it made the #160 fix
+    /// inert under the only topology that matters.
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
         Self {
             data_dir: data_dir.into(),
+            boot_id: new_boot_id(),
             clock: WallClock,
             dispatcher: None,
             observer: None,
@@ -84,6 +117,7 @@ impl Engine<WallClock> {
     ) -> Self {
         Self {
             data_dir: data_dir.into(),
+            boot_id: new_boot_id(),
             clock: WallClock,
             dispatcher: Some(dispatcher),
             observer: Some(observer),
@@ -95,6 +129,7 @@ impl<C: Clock> Engine<C> {
     pub fn with_clock(data_dir: impl Into<PathBuf>, clock: C) -> Self {
         Self {
             data_dir: data_dir.into(),
+            boot_id: new_boot_id(),
             clock,
             dispatcher: None,
             observer: None,
@@ -438,6 +473,10 @@ impl<C: Clock> Engine<C> {
         Registry::open(self.data_dir.join("relayflowd.sqlite3")).context("open run registry")
     }
 
+    pub(super) fn boot_id(&self) -> &str {
+        &self.boot_id
+    }
+
     /// The conventional location of a run's journal. Single source of truth:
     /// the resume-repair path in `server.rs` opens by this too, so a change to
     /// the layout cannot leave the two disagreeing.
@@ -502,4 +541,42 @@ pub fn read_spec(path: &Path) -> Result<RunSpec> {
     let spec =
         RunSpec::parse(&value).with_context(|| format!("parse run spec {}", path.display()))?;
     Ok(spec)
+}
+
+#[cfg(test)]
+mod boot_identity_tests {
+    use super::*;
+
+    /// The boot id must identify the PROCESS, not an `Engine`.
+    ///
+    /// Production builds a fresh `Engine::with_runtime` inside
+    /// `handle_request`, so two concurrent `event.submit` calls hold two
+    /// different `Engine`s over one data dir. `claim_event` treats a claim from
+    /// a different boot as wreckage to be repaired, so a per-`Engine` id would
+    /// let the second delivery take over the first's LIVE claim and spawn a
+    /// duplicate run -- leaving #160 fixed only in tests that happen to share
+    /// an Engine.
+    ///
+    /// This is asserted here rather than left to the racing integration test,
+    /// which measured only 2 catches in 20 against a per-`Engine` id: the
+    /// property is deterministic, so its gate should be too.
+    #[test]
+    fn every_engine_in_this_process_shares_one_boot_id() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+
+        // Different directories, different constructors -- still one process.
+        let first = Engine::new(a.path());
+        let second = Engine::new(b.path());
+        let third = Engine::with_clock(a.path(), WallClock);
+
+        assert_eq!(
+            first.boot_id(),
+            second.boot_id(),
+            "two Engines in one process must share a boot id, or concurrent \
+             deliveries repair each other's live claims"
+        );
+        assert_eq!(first.boot_id(), third.boot_id());
+        assert!(!first.boot_id().is_empty());
+    }
 }

@@ -246,6 +246,11 @@ fn to_core_error(error: JournalStoreError) -> JournalError {
 pub enum JournalStoreError {
     #[error("journal file already exists: {0}")]
     AlreadyExists(PathBuf),
+    #[error(
+        "run registry at {path} is in journal mode {actual}, not WAL; \
+         concurrent deliveries would not be durable"
+    )]
+    RegistryNotWal { path: PathBuf, actual: String },
     #[error("journal I/O failed: {0}")]
     Io(#[from] std::io::Error),
     #[error("SQLite journal failed: {0}")]

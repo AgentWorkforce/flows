@@ -148,7 +148,13 @@ impl Registry {
                stale_after_ms   = excluded.stale_after_ms,
                last_event_at_ms = excluded.last_event_at_ms,
                stale_at_ms      = NULL",
-            params![flow_key, subscription_id, event_type, stale_after_ms, now_ms],
+            params![
+                flow_key,
+                subscription_id,
+                event_type,
+                stale_after_ms,
+                now_ms
+            ],
         )?;
         Ok(())
     }
@@ -232,7 +238,12 @@ impl Registry {
              WHERE flow_key = ?1
                AND subscription_id = ?2
                AND last_event_at_ms = ?3",
-            params![flow_key, subscription_id, detected_last_event_at_ms, stale_at_ms],
+            params![
+                flow_key,
+                subscription_id,
+                detected_last_event_at_ms,
+                stale_at_ms
+            ],
         )?;
         Ok(changed > 0)
     }
@@ -276,7 +287,12 @@ mod tests {
         let rows = registry.detect_stale(sweep_id, worker, now_ms).unwrap();
         for row in &rows {
             registry
-                .latch_stale(&row.flow_key, &row.subscription_id, row.last_event_at_ms, now_ms)
+                .latch_stale(
+                    &row.flow_key,
+                    &row.subscription_id,
+                    row.last_event_at_ms,
+                    now_ms,
+                )
                 .unwrap();
         }
         rows
@@ -305,7 +321,10 @@ mod tests {
         let first = sweep_and_latch(&registry, "bucket-1", "w", 1_030_500);
         assert_eq!(first.len(), 1);
         let second = sweep_and_latch(&registry, "bucket-2", "w", 1_060_500);
-        assert!(second.is_empty(), "sweep re-emitted a latched row: {second:?}");
+        assert!(
+            second.is_empty(),
+            "sweep re-emitted a latched row: {second:?}"
+        );
     }
 
     #[test]
@@ -377,7 +396,10 @@ mod tests {
         let winner = sweep_and_latch(&registry, "bucket-42", "w1", 1_040_000);
         assert_eq!(winner.len(), 1);
         let loser = sweep_and_latch(&registry, "bucket-42", "w2", 1_040_100);
-        assert!(loser.is_empty(), "second caller in same bucket won: {loser:?}");
+        assert!(
+            loser.is_empty(),
+            "second caller in same bucket won: {loser:?}"
+        );
     }
 
     #[test]
@@ -437,12 +459,24 @@ mod tests {
         // regressions (rowid ASC or DESC) or an omitted ORDER BY all
         // fail — only `ORDER BY r.run_id DESC` passes.
         let (dir, registry) = open_registry();
-        registry.claim_event("flow", "sub", "k1", "01AAAAAA").unwrap();
-        registry.register("01AAAAAA", &dir.path().join("a.sqlite3")).unwrap();
-        registry.claim_event("flow", "sub", "k2", "01ZZZZZZ").unwrap();
-        registry.register("01ZZZZZZ", &dir.path().join("z.sqlite3")).unwrap();
-        registry.claim_event("flow", "sub", "k3", "01MMMMMM").unwrap();
-        registry.register("01MMMMMM", &dir.path().join("m.sqlite3")).unwrap();
+        registry
+            .claim_event("flow", "sub", "k1", "01AAAAAA", "boot")
+            .unwrap();
+        registry
+            .register("01AAAAAA", &dir.path().join("a.sqlite3"))
+            .unwrap();
+        registry
+            .claim_event("flow", "sub", "k2", "01ZZZZZZ", "boot")
+            .unwrap();
+        registry
+            .register("01ZZZZZZ", &dir.path().join("z.sqlite3"))
+            .unwrap();
+        registry
+            .claim_event("flow", "sub", "k3", "01MMMMMM", "boot")
+            .unwrap();
+        registry
+            .register("01MMMMMM", &dir.path().join("m.sqlite3"))
+            .unwrap();
         let record = registry
             .last_run_for_subscription("flow", "sub")
             .unwrap()
