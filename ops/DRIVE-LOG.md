@@ -5582,3 +5582,44 @@ Recorded on #174, including the next useful step: on a dispatch timeout nothing
 captures daemon-side state, because the resumed child is still running so its
 output is never read and the journal is never inspected. A follow-up should kill
 the child on timeout and dump its output plus the run's journal rows.
+
+## 2026-09-05 13:16Z — tick: #176 opened, daemon-side capture for #174
+
+Items 1-4 unchanged. Disk 51%. #175 still awaits Khaliq's merge call.
+
+Built the follow-up I named last tick: on a missing dispatch, capture what the
+daemon was doing. **#176**, stacked on #175 (base is
+`fix/174-protocol-read-timeout`, not main) because it needs that PR's bounded
+read -- with an unbounded read there is no error to catch and nothing to report.
+
+The gap it closes: four #174 occurrences have produced four test names and
+nothing else, because the state that explains it does not survive. The resumed
+child is still running when the read gives up, so `wait_with_output` is never
+reached and its output dies in the unwind; the journal is never read at all.
+
+Now the test kills the wedged child first -- without that the read below blocks
+exactly as long as the one that already timed out -- then reports its stdout,
+stderr, and every journal entry with seq/type/step. The journal is the important
+half: it answers whether the daemon resumed and stalled partway or never resumed,
+which nothing currently does.
+
+Verified by forcing the ceiling to 1ms:
+
+  no step.dispatch after resume: timed out after 1ms ...
+  --- resume child ---
+  stdout (0 bytes): / stderr (0 bytes):
+  --- journal (1 entries) ---
+    seq=1 type=RunSpawned step=None
+
+sha256 19f3431a -> 361572ef -> restored 19f3431a; `grep -c "from_millis(1);"`
+is 0 in the tree. crash_resume 34 passed at 37.72s/37.91s/37.90s; workspace 142
+passed, 0 failed.
+
+**All three lenses PASSED first try** -- the first time today a PR of mine has
+cleared them without an iteration. The four rounds on #175 were the tuition:
+don't put line numbers in commit messages, regenerate evidence blocks by running
+the commands, and say exactly what a change does not do.
+
+Not merged. Stacked on an unmerged PR, and its own CI will be red for the same
+reason #175's is -- the defect it exposes is real. Merge order is #175 then
+#176; if #175 is rejected, #176 should be closed with it.
