@@ -5843,3 +5843,44 @@ Note on the metric I did NOT use: `rev-list origin/main..HEAD` shows most of
 these worktrees "ahead" of main even though their work is merged, because the
 PRs were SQUASH-merged and the commit SHAs differ. Reclaiming on "ahead=0" would
 have found one dir out of eighteen and looked like there was nothing to do.
+
+## 2026-09-05 15:50Z — the flows PR queue is EMPTY. #175 and #178 merged.
+
+Items 1-4 unchanged. Disk 44%, holding after the 7GB reclaim.
+
+**#175 merged** (15:12:41Z, head `42768e78`) and **#178 merged** (15:50:14Z).
+Both under the two conditions at their exact heads: three preswarm lenses
+REVIEW_PASSED, `linux-x64-artifact` green on that sha.
+
+Khaliq's open question on #175 -- "do we merge a knowingly-red PR?" -- dissolved
+rather than being answered. Its CI was red only because #174's bug was real;
+with #177 merged, rebasing onto main made it genuinely green. Worth remembering
+as a shape: a PR that is red because it *exposed* something becomes mergeable for
+free once the thing is fixed.
+
+**#176 auto-closed as a side effect of my own merge.** Deleting #175's branch on
+merge deleted #176's base, and GitHub closes a PR whose base is gone. Rebuilt it
+by cherry-picking its own commit onto main and opened **#178**. Lesson: merging
+with --delete-branch closes anything stacked on it; retarget the stacked PR
+first.
+
+**Two lens catches on #178, both real:**
+
+1. The cherry-picked message still claimed "142 passed" -- true on its old base,
+   false at 152 on main. The counts-drift lesson, hit for the third time today.
+2. Sharper: the message asserted the resumed child "is still running" and was
+   "wedged by definition", while the SAME message described #174's child as
+   having exited instantly. A self-contradicting narrative, and the code comment
+   repeated the wrong half. Both now say the child may be stalled OR already
+   gone, which is the whole reason the dump is worth having.
+
+**Filed #179: the SDK suite flakes.** Three failures tonight on branches whose
+changes were kernel-test-only and could not touch the SDK; every re-run of the
+identical head went green. `live-kernel > follows a live worker dispatch` failed
+twice with two DIFFERENT assertions, which points at timing rather than at either
+assertion. Each occurrence costs a full ~6-minute job. Filed rather than
+absorbed, because "just re-run it" is how a real intermittent bug becomes
+background noise.
+
+**Tonight's flows ledger:** merged #170, #171, #172, #175, #177, #178. Closed
+#165, #168, #176. Filed #173, #174 (fixed same night), #179. Queue empty.
