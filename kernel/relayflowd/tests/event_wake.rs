@@ -145,3 +145,113 @@ fn two_racing_deliveries_of_one_event_produce_exactly_one_run() {
         "the surviving run records the event exactly once"
     );
 }
+
+/// The wake context a resumed run dispatches must be the ORIGINAL one, read
+/// back from the journal — not one recomputed at dispatch time.
+///
+/// RFC-0001 Appendix A pins an agent step's starting state. It does not name
+/// the wake context explicitly, so treat this as the reading rather than a
+/// settled contract: an agent that resumes should see the event that woke it,
+/// as it was, rather than a value reconstructed later.
+///
+/// `drive.rs` gets this right today by scanning for the `SubscriptionMatched`
+/// entry rather than rebuilding the value, but nothing held it there. The other
+/// tests in this file cannot: they use `Engine::new` with no dispatcher, so
+/// they assert journal contents and dedupe behaviour and observe NO dispatch at
+/// all. A refactor that rebuilt the context at dispatch time would pass every
+/// one of them.
+///
+/// Scope, stated so it is not mistaken for more: this pins journal-versus-
+/// reconstruction across a resume. It does not exercise a spec that CHANGES
+/// between the wake and the resume — the journal-stored spec is immutable here,
+/// and cross-version stability would need its own test.
+///
+/// This is the half of gate 2's remaining wake-context gap that needs no design
+/// decision: whatever the contract eventually guarantees is *present*, it must
+/// be stable across a resume.
+#[test]
+fn a_resumed_run_dispatches_the_original_wake_context() {
+    use std::sync::{Arc, Mutex};
+
+    use relayflowd::worker::{DispatchOutcome, StepDispatch, StepDispatcher};
+    use relayflowd_core::StepType;
+
+    #[derive(Default)]
+    struct CapturingDispatcher {
+        contexts: Mutex<Vec<Option<serde_json::Value>>>,
+    }
+
+    impl StepDispatcher for CapturingDispatcher {
+        fn executor(&self, _step_type: StepType) -> Option<String> {
+            Some("wake-context-test".to_owned())
+        }
+
+        fn available(&self, _step_type: StepType) -> bool {
+            true
+        }
+
+        fn dispatch(&self, dispatch: StepDispatch) -> anyhow::Result<DispatchOutcome> {
+            self.contexts.lock().unwrap().push(dispatch.wake_context.clone());
+            // Never complete it: the step stays open so a resume dispatches again.
+            Ok(DispatchOutcome::NoWorker)
+        }
+    }
+
+    struct SilentObserver;
+    impl relayflowd::worker::JournalObserver for SilentObserver {
+        fn appended(&self, _entry: &relayflowd_core::JournalEntry) {}
+    }
+
+    let directory = tempfile::tempdir().unwrap();
+    let dispatcher = Arc::new(CapturingDispatcher::default());
+    let value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../testdata/event-triggered-flow.spec.canonical.json"
+    )))
+    .unwrap();
+    let spec = RunSpec::parse(&value).unwrap();
+    let event = Event {
+        event_type: "test.ping".into(),
+        payload: json!({"message": "hello"}),
+        key: None,
+    };
+
+    let run_id = {
+        let engine = Engine::with_runtime(
+            directory.path(),
+            dispatcher.clone(),
+            Arc::new(SilentObserver),
+        );
+        let first = engine.submit_event(spec, event, "test").unwrap();
+        assert!(first.matched && !first.deduped);
+        first.run.unwrap().run_id
+    };
+
+    // A fresh Engine over the same directory: the resume has no in-memory
+    // knowledge of the event, so anything it dispatches came off disk.
+    let engine = Engine::with_runtime(
+        directory.path(),
+        dispatcher.clone(),
+        Arc::new(SilentObserver),
+    );
+    engine.resume(&run_id, None).unwrap();
+
+    let contexts = dispatcher.contexts.lock().unwrap().clone();
+    assert!(
+        contexts.len() >= 2,
+        "expected a dispatch on submit and again on resume, got {}",
+        contexts.len()
+    );
+    let first = contexts.first().unwrap();
+    assert!(first.is_some(), "the first dispatch must carry a wake context");
+    assert_eq!(
+        contexts.last().unwrap(),
+        first,
+        "a resumed run must dispatch the ORIGINAL wake context, not a recomputed one"
+    );
+    assert_eq!(
+        first.as_ref().unwrap()["triggering_event"]["payload"]["message"],
+        "hello",
+        "and it must still describe the event that actually woke the run"
+    );
+}
