@@ -6783,3 +6783,51 @@ unblocking the App credential rather than treating the preview as ceremony.
 Still not changing it: someone else's PR, a design choice, and the fix wants the
 preview to verify. But Khaliq now has a cause rather than a budget number, and a
 correctness question rather than a trim/split choice.
+
+## 2026-09-06 — relay's npm prior art, answering Khaliq's question
+
+Khaliq asked whether ../relay is prior art for publishing flows to npm. It is,
+and the pattern is directly transferable. Found at
+`Projects/AgentWorkforce/relay/checkout` (sibling of chief -- "../relay").
+
+**relay ships a Rust binary through npm today.** The monorepo builds it
+(`build:rust: cargo build --release --bin agent-relay-br...`) and publishes:
+
+  agent-relay 11.5.5 (public)
+    bin:   agent-relay | relay -> dist/cli/index.js     <- plain JS
+    files: [dist, scripts/build-cjs.mjs, LICENSE, README.md]
+    optionalDependencies: { ai-hist-native: ^0.4.1 }    <- native, separate pkg
+
+and the native half is per-platform, confirmed in the local bun cache:
+
+  ai-hist-native
+  ai-hist-native-darwin-arm64@0.4.3
+
+So the shape is: **CLI as plain JS, native code as sibling per-platform packages
+pulled in through optionalDependencies.** That is the esbuild pattern, and this
+org already runs it.
+
+**Mapped onto flows:**
+
+  bin/flows      today built with `bun build --compile --target=bun-linux-x64`
+                 (a standalone executable). relay instead ships plain JS and
+                 uses the host's node -- simpler to publish, no per-platform
+                 build for the CLI itself.
+  bin/relayflowd Rust. Would become `relayflowd-native` +
+                 `relayflowd-native-linux-x64` etc., wired via
+                 optionalDependencies exactly like ai-hist-native.
+
+**Two things I do not want to overstate:**
+
+1. flows is PRIVATE. These packages would be public unless published to a
+   private registry, which is a disclosure decision, not a technical one.
+2. npm publish auth in this org has broken before (the brain records the
+   relaycast publish credential failure). Worth verifying before committing to
+   the path.
+
+**And one open question I cannot answer from here:** npm would give CLOUD the
+binaries at build time, but the SANDBOX is what actually needs `relayflowd`, and
+today it fetches the artifact at runtime via a signed S3 URL. Whether npm removes
+that hop depends on whether the sandbox image can carry the binary -- if it
+cannot, npm replaces the GitHub App in CI but the runtime fetch stays. I have not
+established which.
