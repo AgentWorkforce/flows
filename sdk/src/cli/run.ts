@@ -211,7 +211,15 @@ async function classifyOutcome(
     // needs a moment to advance.
     if (inspection?.status === 'running' && unclassifiedPolls < MAX_UNCLASSIFIED_POLLS) {
       unclassifiedPolls += 1;
-      await new Promise((resolve) => setTimeout(resolve, UNCLASSIFIED_POLL_MS));
+      // `delay(ms, signal)`, not a bare setTimeout: every other wait in this
+      // file is cancel-aware, and an uncancellable one here would keep polling
+      // the daemon for up to 2s after a Ctrl-C or a lifecycle abort.
+      throwIfCanceled(options.signal, current.run_id);
+      await delay(UNCLASSIFIED_POLL_MS, options.signal);
+      // Redundant resumes are safe: `run.resume` is idempotent on a run that
+      // is already progressing -- it returns the current state rather than
+      // re-dispatching. This loop leans on that up to MAX_UNCLASSIFIED_POLLS
+      // times while the daemon is mid-transition.
       current = await client.runResume(current.run_id);
       continue;
     }
@@ -276,9 +284,9 @@ interface RunningStep extends ParkedStep {
   leaseDeadlineMs: number;
 }
 
-/// Bound on re-polling a run that reports `running` with no identifiable step.
-/// 40 x 50ms = 2s, far longer than the sub-second window observed in #179, and
-/// short enough that a genuinely stuck run still reports rather than hangs.
+// Bound on re-polling a run that reports `running` with no identifiable step.
+// 40 x 50ms = 2s, far longer than the sub-second window observed in #179, and
+// short enough that a genuinely stuck run still reports rather than hangs.
 const MAX_UNCLASSIFIED_POLLS = 40;
 const UNCLASSIFIED_POLL_MS = 50;
 
