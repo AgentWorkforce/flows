@@ -6289,3 +6289,39 @@ Worth stating plainly: three PRs of diagnostics (#175, #176) and a root-cause fi
 (#177) are what turned a 30-minute silent hang into a 63-second failure that
 printed its own cause, including a bug in the fix itself. That chain has now paid
 for itself twice.
+
+## 2026-09-05 18:24Z — #186 merged: fixed my own #177 regression. Three lenses first pass.
+
+Items 1-4 unchanged. Disk 47%.
+
+**#186 merged at 18:24:06Z**, head `11edaa05` — three lenses REVIEW_PASSED on the
+FIRST pass (a first tonight) and CI run 33983563713 success on that exact sha.
+
+The fix: adoption now requires `run_spec()` to succeed, not merely that the
+journal opens and carries a matching id. That is the predicate resume itself
+calls next, so we adopt only what resume can actually use.
+
+**What I had missed in #177**: `Engine::start` creates the journal, appends
+RunSpawned, then registers -- so a crash leaves TWO residues, and I designed for
+one. An empty journal still carries a meta row with the run id, so my id check
+accepted a file that never became a run; it was adopted, registered, and resume
+died on `read run spec: Query returned no rows` where the honest answer is
+`run_not_found`. My fix made that sub-case worse than before it.
+
+Mutation restores #177's gate exactly and fails ONLY the new test, while the
+adoption test keeps passing -- so this narrows adoption without undoing what #177
+fixed. That distinction is worth having in the transcript: a fix for a fix can
+easily revert the original.
+
+The four resume tests now state the rule together:
+
+  refuse a file that is not a journal          (pre-existing)
+  refuse a journal that is not this run's      (#177)
+  refuse a journal that never recorded its run (#186)
+  adopt the one that did                       (#177)
+
+Kernel workspace 157 passed, 0 failed, no warnings.
+
+**Flows state: PR queue empty. Open issues #183, #167, #156, #141** -- none of
+them defects from tonight's work except #183, which came out of #184's
+restoration.
