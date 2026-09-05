@@ -5288,3 +5288,44 @@ code from a stale branch.
 
 **Genuinely open:** #168 (blocked on #160, re-runs deliberately paused), #165
 (awaiting the requested split). Both were correctly parked; neither moved.
+
+## 2026-09-05 09:18Z — tick: #165 split prepared as #170
+
+Items 1-4 unchanged from the 09:00Z tick: queue healthy with nothing to drain;
+#3270 blocked on the App grant (not re-dispatched — one dispatch per 18min
+against a sleeping operator is retry-spam, and the grant cannot have moved);
+#134 and #139 already done on main. Disk 43%.
+
+Spent the tick on the one unblocked lane item: the #165 split Khaliq asked for.
+
+**Opened #170** — `split/pr165-sdk-tooling`, sdk half only, not merged.
+
+Verified rather than assumed, in this order:
+
+- `.github/` byte-identical to main — `git diff origin/main --stat -- .github/`
+  returns 0 lines. The dropped hunk reverted #153, #154 and #159 together
+  (restored `ops/cargo.sh` for the kernel step, dropped the analyzer-skip env).
+- `sdk/package.json` differs from main by **exactly one line**. This mattered:
+  `cloud/run-663d9095` is based on an older main, so taking the file wholesale
+  could have reverted later edits silently. It did not — checked, not assumed.
+- `scripts/test.sh` is order-equivalent to the inline chain, with `set -eu`
+  supplying the fail-fast the `&&` chain gave.
+- CI is unaffected either way: the workflow runs the expanded chain minus
+  `test:prep`, never `npm test`.
+
+**One real finding, raised on the PR rather than silently fixed.**
+`prune-test-build.mjs` deletes every `.map` and `.d.ts` under `sdk/dist`
+recursively, and `sdk/package.json` declares `"types": "./dist/index.d.ts"` —
+so `npm test` leaves the declared type entry pointing at a file it just deleted.
+Latent, not live: the only in-repo consumers (`ops/probes/**`) import `.js`, and
+`surface` does not depend on the sdk. I answered this by reading the script
+rather than building — every `.d.ts` under `dist` includes `index.d.ts`, which
+is certain textually and needed no measurement. I started toward an empirical
+file count and stopped when I noticed the question was already settled.
+
+I did not edit the contributor's script: that would alter the change rather than
+split it. Recommended on the PR that we prune only `.map` — `ops/cargo.sh`'s own
+measurements put the propagated-tree problem on `kernel/target/debug` (4900
+files), not on `sdk/dist`, so deleting the type surface buys very little.
+
+#165 should be closed once #170 lands; its remainder is the CI revert.
