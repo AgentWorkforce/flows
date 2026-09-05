@@ -6578,3 +6578,52 @@ Tonight's flows ledger, for a session picking this up cold:
           #190 #191 #192
   closed  #165 #168 #176 (superseded), #167 #169 #173 #179 #183 #185 (fixed)
   open    #156 #141
+
+## 2026-09-05 21:00Z — rebased cloud#3270 (Khaliq-authorized). MERGEABLE again.
+
+Item 2. #3270 had re-conflicted: head unmoved since 09-04, cloud main had moved 9
+commits under it. Khaliq confirmed "yes rebase it".
+
+**Now MERGEABLE at `59c40c07`** (was CONFLICTING/DIRTY at `627450cb`).
+
+Four conflicts, and the migration one was the real work: **both main and the PR
+had added a `0121`.**
+
+  main : 0121_sandbox_provider_provenance_and_live_teleport   id 26e3bd0d
+  PR   : 0121_workflow_run_relayflow_v2_authority             id cf3cf2a6
+  both chained off 0120 (28edee1c)
+
+Resolved by giving main its slot and renumbering the authority migration to
+**0122**, re-chained with prevId=26e3bd0d, SQL file renamed to match, journal
+entry renumbered. Verified `0122.prevId == 0121.id` rather than trusting the
+edit. The failing commit was literally titled "restack... renumber authority to
+0120", so this PR has been renumbered before -- it is a recurring cost of a
+19.8k-line branch racing a moving main.
+
+The other two conflicts were DISJOINT CONCERNS, not competing versions:
+
+  launch-runner.ts   main = Agent37 sandbox reservation
+                     PR   = relayflow v2 artifact resolution
+                     the code AFTER the region uses both -> union, not pick
+
+  launch-runner.test.ts  main = fleet routing/record mocks
+                         PR   = artifact-source mock
+
+The test file was the orphaned-brace trap in its live form: the PR's side ended
+mid-object because the closing `}));` lives in the shared context AFTER the
+marker. A naive union would have left main's `sandbox-record` mock unclosed. I
+gave main's block its own closer and let the shared one close the PR's. Verified
+by brace/paren delta 0, 24 vi.mock calls, and all three mock targets present.
+
+Result vs main: launch-runner.ts is +60/-2 -- additive, so main's fleet work
+survived rather than being displaced. That is the check that matters after a
+union resolution; a clean rebase proves nothing about whether the other side's
+work is still there.
+
+**Also learned something that reframes the App-pusher question.** The PR's
+RUNTIME path already reads the artifact from S3 with a signed URL
+(`resolvePrivateRelayflowV2Artifact({bucket, region, key, sha256})`). The GitHub
+App is used only in CI, to move the artifact from flows into that bucket during
+the preview deploy. So the credential is a build-time hop, not a runtime
+dependency -- which is why an npm package (Khaliq's suggestion) would replace the
+hop rather than the architecture.
