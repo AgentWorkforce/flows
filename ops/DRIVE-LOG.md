@@ -6627,3 +6627,41 @@ App is used only in CI, to move the artifact from flows into that bucket during
 the preview deploy. So the credential is a build-time hop, not a runtime
 dependency -- which is why an npm package (Khaliq's suggestion) would replace the
 hop rather than the architecture.
+
+## 2026-09-05 21:10Z — my #3270 rebase broke CI. Caught it, fixed it, and the lesson is exact.
+
+Item 2. Checked my own rebase before anything else, which was right: the
+pre-rebase head `627450cb` had **CI success**, and my rebased head failed
+`Unit Tests (web)` and `OpenNext-CF build`. **I broke it.**
+
+Not the code union -- the MIGRATION renumber, which I had reported as verified.
+
+  latest snapshot (0122_workflow_run_relayflow_v2_authority) is missing
+  table identities present in an earlier snapshot
+  + [ 'public.live_teleport_generation_heads', 'public.live_teleport_sessions' ]
+
+**A drizzle snapshot is a full schema, not a delta.** I renumbered the PR's 0121
+to 0122 and rewrote its `prevId`, but the file still contained main's 0120 plus
+the authority column -- so it silently dropped the two tables main's own 0121 had
+added. 83 tables where there should be 85.
+
+**I verified `0122.prevId == 0121.id` and called the chain correct. That checks
+the POINTER, not the PAYLOAD.** A snapshot can chain perfectly onto the wrong
+content, and that is precisely what mine did. I reported "verified... rather than
+trusting the edit" -- the verification I ran could not have caught this.
+
+Second failure in the same test: the journal entry kept its original `when`
+(1788418685003), earlier than main's 0121 (1788531000000). Entries must strictly
+increase.
+
+Rebuilt correctly: main's 0121 + the single `relayflow_v2_authority` jsonb
+column, keeping identity cf3cf2a6 and prevId 26e3bd0d, `when` bumped past main's.
+Then ran the check I should have run first -- strip identity and the added
+column, assert the remainder is byte-identical to main's 0121: **True**.
+
+Worth noting what DID work: `Drizzle Migrations` passed on the broken head, and
+so did every other job. Only the dedicated journal test caught it. A single
+targeted gate found what twelve green checks missed, which is an argument for
+that test existing rather than a comfort about the rest.
+
+Pushed `03d7f18a`. CI re-running.
