@@ -6129,3 +6129,47 @@ regression.
 **Flows state: PR queue empty. Open issues #173 (panic-window Drop guard,
 deliberately deferred) only.** Everything else outstanding is Khaliq's: the
 review-swarm's missing `agent-relay` install, and #3270's App credential.
+
+## 2026-09-05 17:35Z — #173 implemented as #182. Signed off; awaiting CI.
+
+Items 1-4 unchanged. Disk 43%. Queue was empty, so I took the last open flows
+issue: the panic window I deferred from #171.
+
+**#182** — a `Drop` guard releases an event claim when a panic unwinds past the
+claim-to-`register` span. Before it, a panic leaked the claim for the life of the
+boot: every later delivery answered "duplicate" by the same-boot rule with no run
+to carry the event. All three lenses REVIEW_PASSED at the final head.
+
+**Five review rounds, and the one that mattered was about the code, not the
+prose.** My first implementation routed the ORDINARY `Err` path through `Drop`
+too. That silently downgraded a propagating `release_claim(...)?` into a
+report-and-swallow — a fail-closed-to-fail-open regression I introduced while
+fixing a durability hole. The history lens named it as an RFC-0001 Covenant 2
+contradiction and was right. Now the `Err` path releases explicitly and
+propagates, and the guard covers only the exit with no `?` to take; release
+happens before disarm, so a failing release still gets a best-effort retry during
+the unwind.
+
+The other four rounds were all my evidence claims, and each was fair:
+
+  1. described the mutation instead of showing it
+  2. abbreviated cargo's test paths as `test ...::name` while calling the block
+     literal
+  3. (the code one, above)
+  4. said "unabridged" of output I had grepped — missing `Finished`,
+     `Running unittests`, `running 4 tests`
+  5. printed commands without the `cd kernel` they were actually run in, so
+     "runnable from the repository root" was false
+
+That is four separate ways to overstate evidence in one PR. The pattern behind
+all of them: I kept summarising a transcript instead of pasting it, because the
+summary reads better. It also cannot be checked, which is the point of the rule.
+The final message contains commands that literally run and output with nothing
+removed.
+
+Also recorded honestly on the PR: the panic test constructs `ClaimGuard` directly
+rather than injecting a panic through `submit_event`, so it pins the guard's
+contract and not its placement. Closing that would need a test-only seam inside
+the span the change exists to protect.
+
+Kernel workspace 156 passed, 0 failed, no warnings. Not merged — CI pending.
