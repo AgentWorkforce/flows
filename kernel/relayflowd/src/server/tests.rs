@@ -183,6 +183,143 @@ fn run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run() {
     assert_eq!(error.code, "run_not_found");
 }
 
+/// #174: a run whose journal exists but whose registry row does not must be
+/// RESUMABLE, not refused.
+///
+/// `Engine::start` creates the journal, appends RunSpawned, then registers the
+/// run last. A crash in that window leaves exactly this state, and refusing it
+/// made the run unrecoverable forever -- the journal was on disk, complete, and
+/// nothing could reach it. That is a durability hole, not a lookup miss.
+///
+/// This is the counterpart to the orphan-file test above, and the pair states
+/// the rule together: adopt a journal that is real, refuse a file that is not.
+#[test]
+fn run_resume_adopts_a_real_journal_whose_registry_row_is_missing() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+
+    // A genuine run, created the way the engine creates one.
+    let outcome = Engine::new(data_dir)
+        .start(
+            serde_json::from_value(json!({
+                "steps": [{
+                    "id": "x",
+                    "type": "deterministic",
+                    "command": ["/bin/sh", "-c", "printf x"],
+                    "verification": {"output_contains": "x"}
+                }]
+            }))
+            .unwrap(),
+            "test",
+            None,
+        )
+        .unwrap();
+    let run_id = outcome.run_id.clone();
+    assert!(data_dir.join("runs").join(format!("{run_id}.sqlite3")).exists());
+
+    // Reproduce the crash window: the journal survives, the index entry does
+    // not. Removing the registry outright is the same state a SIGKILL between
+    // the append and the register leaves behind, and strictly harsher -- the
+    // row is not merely stale, there is nothing to consult at all.
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(
+            data_dir.join(format!("relayflowd.sqlite3{suffix}")),
+        );
+    }
+    let registry =
+        relayflowd_journal::Registry::open(data_dir.join("relayflowd.sqlite3")).unwrap();
+    assert!(registry.lookup(&run_id).unwrap().is_none());
+
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, _peer) = shared_writer();
+    let response = request(
+        data_dir,
+        &hub,
+        1,
+        &writer,
+        &format!(
+            r#"{{"id":"resume","verb":"run.resume","params":{{"run_id":"{run_id}"}}}}"#
+        ),
+    );
+
+    assert!(
+        response.ok,
+        "a real journal with no registry row must be adopted, not refused: {:?}",
+        response.error
+    );
+    // And the index is repaired, so the next lookup does not depend on this
+    // path running again.
+    assert!(
+        registry.lookup(&run_id).unwrap().is_some(),
+        "resume must re-register the run it adopted"
+    );
+}
+
+/// #174, third case: a journal that is structurally VALID but belongs to a
+/// different run must still be refused.
+///
+/// Opening a journal does not verify whose it is -- `SqliteJournal::open`
+/// reports whatever run id the file carries. Without an explicit comparison,
+/// a well-formed journal for run A dropped at `runs/B.sqlite3` would be
+/// registered as B purely on the strength of its filename, which is the
+/// filesystem-derived existence that WP-12/F7 removed on purpose.
+#[test]
+fn run_resume_refuses_a_valid_journal_that_belongs_to_another_run() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+
+    let outcome = Engine::new(data_dir)
+        .start(
+            serde_json::from_value(json!({
+                "steps": [{
+                    "id": "x",
+                    "type": "deterministic",
+                    "command": ["/bin/sh", "-c", "printf x"],
+                    "verification": {"output_contains": "x"}
+                }]
+            }))
+            .unwrap(),
+            "test",
+            None,
+        )
+        .unwrap();
+    let real_id = outcome.run_id.clone();
+
+    // A complete, openable journal -- under someone else's name.
+    let impostor = "01IMPOSTORIMPOSTORIMPOSTOR";
+    std::fs::copy(
+        data_dir.join("runs").join(format!("{real_id}.sqlite3")),
+        data_dir.join("runs").join(format!("{impostor}.sqlite3")),
+    )
+    .unwrap();
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(data_dir.join(format!("relayflowd.sqlite3{suffix}")));
+    }
+
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, _peer) = shared_writer();
+    let response = request(
+        data_dir,
+        &hub,
+        1,
+        &writer,
+        &format!(r#"{{"id":"resume","verb":"run.resume","params":{{"run_id":"{impostor}"}}}}"#),
+    );
+
+    let error = response
+        .error
+        .expect("a journal belonging to another run must be refused");
+    assert_eq!(error.code, "run_not_found");
+
+    // And nothing was adopted under the impostor id.
+    let registry =
+        relayflowd_journal::Registry::open(data_dir.join("relayflowd.sqlite3")).unwrap();
+    assert!(
+        registry.lookup(impostor).unwrap().is_none(),
+        "a refused journal must not leave a registry row behind"
+    );
+}
+
 /// Finding 3: a hung worker that stops heartbeating past its lease deadline —
 /// socket still open, so no disconnect fires — must not leave the run in
 /// waiting_worker forever. The reconciler journals a `lease_expired`

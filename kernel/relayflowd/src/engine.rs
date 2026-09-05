@@ -438,7 +438,10 @@ impl<C: Clock> Engine<C> {
         Registry::open(self.data_dir.join("relayflowd.sqlite3")).context("open run registry")
     }
 
-    pub(super) fn run_path(&self, run_id: &str) -> PathBuf {
+    /// The conventional location of a run's journal. Single source of truth:
+    /// the resume-repair path in `server.rs` opens by this too, so a change to
+    /// the layout cannot leave the two disagreeing.
+    pub(crate) fn run_path(&self, run_id: &str) -> PathBuf {
         self.data_dir.join("runs").join(format!("{run_id}.sqlite3"))
     }
 }

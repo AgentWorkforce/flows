@@ -159,10 +159,47 @@ fn handle_request(
                 .map_err(|error| internal_error(error.into()))?
                 .is_none()
             {
-                return Err((
-                    "run_not_found",
-                    format!("run {} does not exist", params.run_id),
-                ));
+                // A missing registry row does NOT mean the run does not exist.
+                //
+                // `Engine::start` creates the journal, appends RunSpawned, and
+                // registers LAST. A crash in that window leaves a complete,
+                // resumable journal on disk with no `runs` row -- and refusing
+                // here made that run unrecoverable forever, which is a
+                // durability hole, not a lookup miss. It is also how #174
+                // presented: a resume that exited instantly with
+                // `run_not_found` while the test waited on a dispatch from a
+                // process that was already dead.
+                //
+                // The journal is the authority; the registry is an index over
+                // it. So repair the index from the authority. The sibling path
+                // that opens a journal already does exactly this
+                // (`unwrap_or_else(|| self.run_path(run_id))`), and the two
+                // disagreeing is what made this reachable.
+                let path = engine.run_path(&params.run_id);
+                // Adopt ONLY a journal that both opens and says it is this run.
+                //
+                // `SqliteJournal::open` does not check that: it reads whatever
+                // run id the file carries and hands it back. Opening alone
+                // would therefore register a well-formed journal for run A
+                // sitting at `runs/B.sqlite3` as B -- accepting a foreign file
+                // on the strength of its filename. DRIVE-LOG WP-12/F7 records
+                // filesystem-derived run existence being deliberately replaced
+                // by registry-owned lookup for exactly that reason, so the
+                // comparison below is what keeps this a repair of the index
+                // rather than a reopening of that hole.
+                let adopted = match relayflowd_journal::SqliteJournal::open(&path) {
+                    Ok(journal) => journal.run_id() == params.run_id,
+                    Err(_) => false,
+                };
+                if !adopted {
+                    return Err((
+                        "run_not_found",
+                        format!("run {} does not exist", params.run_id),
+                    ));
+                }
+                registry
+                    .register(&params.run_id, &path)
+                    .map_err(|error| internal_error(error.into()))?;
             }
             // Per-run serialization: the load-state -> next_actions -> append
             // sequence must be atomic, or two concurrent resumes both see a
