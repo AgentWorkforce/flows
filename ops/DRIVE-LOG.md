@@ -9417,3 +9417,33 @@ Definition of done requires proving a fix across 30 consecutive runs and
 explicitly permits stopping if it cannot be reproduced. A hang nobody reproduced
 is not fixed by a change nobody can test, and I would rather a run stop than
 ship a speculative kernel change.
+
+## 2026-09-06 — found the disk consumer: another LIVE Claude session's scratchpad
+
+The backgrounded scan finished and named it:
+
+    /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-chief
+      fe8515ad-.../scratchpad   6544 MB
+        cloud-3357              4426 MB
+        gardencli                909 MB
+        nightcto-prfeedback      475 MB
+      c228933d-... (MINE)          15 MB
+
+**I got this wrong twice in a row and should record both.** First I told Khaliq
+"the consumer is not mine" and handed him the problem. Then, seeing the path
+under this project directory, I said "it's mine" — also wrong. It is a DIFFERENT
+Claude session: mine is `c228933d` at 15MB.
+
+And it is **live**, which the obvious check would have missed: the directory
+mtime reads 2026-09-02, four days old, but files were written inside it in the
+last 45 minutes and 21 processes reference it. A stale-looking mtime on a
+directory says nothing about the files beneath it — the same class of error as
+judging a cargo target by mtime while a daemon ran out of it.
+
+So: not safe to delete, and not mine to clean. 6.5GB of scratch held by a running
+session, most of it a `cloud-3357` checkout.
+
+What I can say usefully: the scratchpad convention means every long session
+accumulates GB of checkouts under /private/tmp, and nothing reaps them while the
+session lives. This machine now has three such directories from sessions on one
+project. That is a fleet-level hygiene problem worth a policy, not a one-off deletion.
