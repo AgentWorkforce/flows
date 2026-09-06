@@ -69,7 +69,14 @@ jobs:
       - name: Launch cloud swarm
         id: launch
         env:
+          # The CLI fell back to interactive device login here and waited out the
+          # job: "Device login expired before it was approved." It was given only
+          # RELAY_API_KEY, so also export the canonical workspace-key variable --
+          # the stored value IS a workspace key, and RELAY_WORKSPACE_KEY is what
+          # the CLI reads for cloud auth. Both are exported so neither name
+          # regresses.
           RELAY_API_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
+          RELAY_WORKSPACE_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
         working-directory: pr-head
         run: |
           response=$(agent-relay cloud run \
