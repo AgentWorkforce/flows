@@ -7417,3 +7417,41 @@ against serde, since hand-written labels drift.
 **No lens has seen `39c779c`.** The two passes were against older heads and I am
 not carrying them forward — that is what "signoff at the exact head" means, and
 tonight is the argument for it: every head so far has had something in it.
+
+## 2026-09-06 tick — 3/3 lenses passed at 39c779c, and a passing lens still found a bug
+
+Disk 10Gi/95% and falling — the leaked-daemon pin is still the cause and still
+needs a nod to clear.
+
+**All three lenses PASSED at `39c779c`:** maintainability, structure, history.
+No blockers. The history lens, which had blocked twice, explicitly recorded that
+the earlier misleading messages are corrected in the series rather than left
+standing.
+
+**And a passing lens still found a real defect**, which is the useful lesson of
+the tick: `REVIEW_PASSED` is not "nothing to fix."
+
+`reject` overwrote `failure_detail` unconditionally. `validate_agent_completion`
+runs for EVERY agent completion, not only successful ones — so a worker that
+reported its own failure and then tripped validation lost its account, replaced
+by the rejection message. **That is this branch's own bug, reintroduced one layer
+up:** the completions that lose the most information are exactly the ones where
+the most has gone wrong. I wrote the capture and then wrote the thing that
+discards it, four lines apart, in the same sitting.
+
+Both accounts are kept now — they answer different questions. The rejection says
+why the kernel refused the completion; the worker's output says what went wrong
+upstream of it.
+
+Other concerns disposed of on the PR rather than silently: the drift test's
+hand-maintained variant list (recorded, not solved — removing it means an
+iterable-enum dependency), `reason_label` duplicating serde vocabulary
+(acknowledged trade for compile-time exhaustiveness), the truncation suffix as
+kernel-side presentation (fair, wider change than this PR), mixed char/byte units
+(disarmed by docblock and the `€` test).
+
+`cargo test --workspace`: **165 passed, 0 failed.** Head `3924cf3`.
+
+**Six lens runs across four heads, and every head had something in it** —
+including the one that passed 3/3. That is the argument for signoff-at-exact-head
+stated as evidence rather than as policy. No lens has seen `3924cf3`.
