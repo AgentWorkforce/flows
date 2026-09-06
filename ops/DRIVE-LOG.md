@@ -8376,3 +8376,40 @@ Two things worth keeping:
 Also posted full-suite evidence to #196 — 662 SDK tests pass against that
 branch's kernel, including all 27 live-kernel cases that drive the changed
 completion path through a real daemon. Its prior evidence was kernel-only.
+
+## 2026-09-06 tick — #203 reviewed; the verdict change is a real hardening
+
+Disk up to 19Gi/90% — other lanes freed more after my reclaim. Fifth drive PR,
+**#203**, edits the gate in three places.
+
+**The one that matters:**
+
+    -  token=$(awk 'NF { last=$NF } END { print last }' "$transcript")
+    +  last_line=$(awk 'NF { last=$0 } END { print last }' "$transcript")
+
+The old code took the last FIELD of the last non-empty line, so any line *ending*
+in `REVIEW_PASSED` passed the gate — which is close to the substring match the
+script's own header warns is untrustworthy, because "the lens can quote arbitrary
+strings from the diff, including PASSED markers". Requiring the whole trimmed
+line to equal the token closes that. Anything else is UNCLEAR, which fails.
+**The change tightens the gate in exactly the direction its comments ask for.**
+
+Flagged one consequence: it re-classifies any existing transcript whose last line
+carries trailing content beside the marker. Fail direction is safe, but the first
+run after landing may fail for a reason unrelated to the code under review.
+
+`jq -er '.status'` replacing `jq -r '.status // "unknown"'` is also right — the
+old form coerced malformed JSON into "unknown" and then polled for 65 minutes
+before noticing.
+
+**`set +e` was the change I expected to object to, and it is safe.** The step
+ends `exit 0` and communicates only via `swarm_status`; `Enforce swarm result`
+fails on anything but `completed`. Under `bash -e` an aborted loop leaves
+`swarm_status` unset, which also fails. Fail-closed holds either way — `set +e`
+makes the intended path reliable rather than weakening it. Worth recording that
+the alarming-looking change was fine and the innocuous-looking `awk` edit was the
+consequential one.
+
+**Fifth identical NEEDS_HUMAN.** #189, #199, #201, #202, #203 — same two
+environment faults, five full cycles spent. I can disprove the first with a
+green suite. The harness assertion is overdue.
