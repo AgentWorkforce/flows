@@ -9068,3 +9068,35 @@ I have already caused one collision today by running two agents on this task.
 
 Raised one non-blocking question: `Commit version bump and create tag` pushes
 during a release, with `dry_run: false` as the only guard.
+
+## 2026-09-06 — #207 reviewed: right direction, self-contradictory, and one check I had to defend
+
+Triaged #207, the last untriaged PR. It replaces main's session-token auth in
+`review-swarm.yml` with the `CLOUD_API_KEY` path from my NEXT.md.
+
+**Context I did not have: another lane already implemented session-token auth on
+main**, with a genuinely sharp rationale — every refresh rotates the refresh
+token server-side, invalidating the secret a job cannot write back, so they set a
+deliberately far-future expiry. That is not naive work, and #207 deletes it.
+
+**The API-key direction is still right**: it removes the rotation problem rather
+than mitigating it. Said so, while crediting what is being replaced.
+
+**#207 contradicts itself.** Its `NEEDS_HUMAN.md` argues at length that the Lead
+cannot edit gates that judge its work and that `review-swarm.yml` is "the
+immutable gate file" — and the PR edits that file `+13/-52`. Flagged that the
+inconsistency is the thing to fix, whichever way it resolves.
+
+**And I nearly filed a false finding.** #207 drops main's URL-shape validation,
+leaving only `test -n "$CLOUD_API_URL"`. That looks exactly like the fail-never
+preflight I criticised on this same workflow hours ago, and I had the complaint
+half-written. Checked the library first: in 11.10.3
+`WorkflowApiKeyClient.fromEnv` **throws** `AUTH_ENV_REPROVISION_REQUIRED` on an
+unparseable URL, where the session path silently returned null and fell back to
+the device flow. The check main needed is one the library now performs itself.
+Dropping it costs an error message, not safety.
+
+Recommended keeping it anyway as two cheap lines — but as preference, clearly
+labelled, not as a defect. The difference matters: my last several reviews have
+been findings, and a reviewer who cannot tell a preference from a defect is
+teaching people to ignore both.
