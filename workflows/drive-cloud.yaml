@@ -46,7 +46,7 @@ workflows:
       \ that already has one\n# (laptop, fleet node). Both shapes are supported below; neither is\n# assumed,\
       \ and an unmaterialized sandbox fails closed and typed\n# rather than failing later as an unexplained\
       \ tool error.\nset -eu\necho \"SYNC_WORKDIR=$(pwd)\"\n\nmissing=\"\"\nfor required in AGENTS.md\
-      \ docs/RFC-0001-everything-is-a-relayflow.md ops/DIRECTIVES.md kernel sdk; do\n  [ -e \"$required\"\
+      \ docs/RFC-0001-everything-is-a-relayflow.md ops/DIRECTIVES.md kernel packages/sdk; do\n  [ -e \"$required\"\
       \ ] || missing=\"$missing $required\"\ndone\nif [ -n \"$missing\" ]; then\n  echo \"SYNC_FAIL_NOT_MATERIALIZED:\
       \ the repo is not present in this execution environment.\" >&2\n  echo \"  missing:$missing\" >&2\n\
       \  echo \"  cwd: $(pwd)\" >&2\n  echo \"  A cloud run must upload the working tree: \\`agent-relay\

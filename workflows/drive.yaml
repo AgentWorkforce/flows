@@ -49,7 +49,7 @@ workflows:
           echo "SYNC_WORKDIR=$(pwd)"
 
           missing=""
-          for required in AGENTS.md docs/RFC-0001-everything-is-a-relayflow.md ops/DIRECTIVES.md kernel sdk; do
+          for required in AGENTS.md docs/RFC-0001-everything-is-a-relayflow.md ops/DIRECTIVES.md kernel packages/sdk; do
             [ -e "$required" ] || missing="$missing $required"
           done
           if [ -n "$missing" ]; then
