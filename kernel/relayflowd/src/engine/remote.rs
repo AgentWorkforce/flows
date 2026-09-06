@@ -65,12 +65,31 @@ impl Engine<WallClock> {
         // A rejected completion names the mistake in the journal. `output` is
         // nulled for every non-success, so the detail rides the completion's
         // verification record — the same channel a failed gate uses.
-        let mut failure_detail = None;
+        //
+        // A WORKER-reported failure gets that treatment too. `OutOfBandCompletion`
+        // carries no error field, so the only account of what went wrong is the
+        // output the worker sent with its failing completion — and that is
+        // exactly what gets nulled. Capture it here, bounded, or the run records
+        // that the step failed and discards every trace of why.
+        let mut failure_detail = failure_reason
+            .is_some()
+            .then(|| worker_failure_detail(&completion.output))
+            .flatten();
         let mut rejected_completion = false;
         let mut reject = |error: anyhow::Error| {
             rejected_completion = true;
             failure_reason = Some(CompletionReason::WorkerError);
-            failure_detail = Some(format!("{error:#}"));
+            // Keep BOTH accounts when a worker reports its own failure and then
+            // trips validation. The rejection says why the kernel refused the
+            // completion; the worker's output says what went wrong upstream of
+            // that, and the two are rarely the same story. Overwriting here
+            // would discard the worker's account for exactly the completions
+            // that have the most gone wrong — the loss this whole change exists
+            // to stop, reintroduced one layer up.
+            failure_detail = Some(match failure_detail.take() {
+                Some(reported) => format!("rejected: {error:#}; worker reported: {reported}"),
+                None => format!("{error:#}"),
+            });
         };
         let effects = if matches!(step.kind, StepKind::Agent { .. }) {
             let recorded = recorded_effects(&journal, &step, completion.attempt)?;
@@ -336,4 +355,96 @@ fn next_stream_offset(journal: &SqliteJournal, stream: &str) -> Result<u64> {
         }
     }
     Ok(next)
+}
+
+/// The worker's own account of a failure, bounded so a large or hostile output
+/// cannot bloat the journal. `None` when the worker sent nothing useful, which
+/// keeps the caller's fallback ("reported X without detail") honest rather than
+/// recording an empty string as though it were a diagnostic.
+fn worker_failure_detail(output: &Value) -> Option<String> {
+    // Chars, not bytes: the cut below is by char index. The suffix reports the
+    // remainder in bytes, which is why both units appear in one function.
+    const MAX_CHARS: usize = 2000;
+    if output.is_null() {
+        return None;
+    }
+    let rendered = match output {
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
+    };
+    let trimmed = rendered.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Truncate on a char boundary; `output` is arbitrary worker-supplied data
+    // and slicing it by byte index would panic on multi-byte input.
+    Some(match trimmed.char_indices().nth(MAX_CHARS) {
+        None => trimmed.to_owned(),
+        Some((cut, _)) => format!("{}… ({} bytes truncated)", &trimmed[..cut], trimmed.len() - cut),
+    })
+}
+
+#[cfg(test)]
+mod worker_failure_detail_tests {
+    use super::worker_failure_detail;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn a_null_or_blank_output_yields_no_detail() {
+        // The caller's fallback ("reported X without detail") is only honest if
+        // this returns None rather than an empty string dressed as a diagnostic.
+        assert_eq!(worker_failure_detail(&Value::Null), None);
+        assert_eq!(worker_failure_detail(&json!("")), None);
+        assert_eq!(worker_failure_detail(&json!("   \n\t ")), None);
+    }
+
+    #[test]
+    fn a_string_output_is_carried_verbatim_and_trimmed() {
+        assert_eq!(
+            worker_failure_detail(&json!("  analyzer exited 1: no such model  ")),
+            Some("analyzer exited 1: no such model".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_non_string_output_is_rendered_rather_than_dropped() {
+        // A worker that reports structured failure data must not have it
+        // discarded just because it is not a bare string.
+        assert_eq!(
+            worker_failure_detail(&json!({"code": 2})),
+            Some(r#"{"code":2}"#.to_owned())
+        );
+    }
+
+    /// The truncation comment names a panic mode — byte slicing on multi-byte
+    /// input — and this pins it. The character matters: `€` is THREE bytes, so
+    /// byte index `MAX_CHARS` (2000) falls at 666 chars + 2 bytes, mid-character,
+    /// and `&trimmed[..MAX_CHARS]` panics on it.
+    ///
+    /// An earlier version of this test used `é` and claimed the same thing. That
+    /// was wrong: `é` is two bytes, so byte 2000 is a valid boundary and the
+    /// byte-slice mutation does NOT panic there — it silently returns half the
+    /// intended characters. The test still failed, but on a length assertion,
+    /// which is a much weaker signal than the panic it advertised. A test whose
+    /// stated rationale is false is worse than no test, because the next reader
+    /// trusts it.
+    #[test]
+    fn truncation_does_not_split_a_multi_byte_char() {
+        // 3000 three-byte chars = 9000 bytes.
+        let output = json!("€".repeat(3000));
+        let detail = worker_failure_detail(&output).expect("detail for a long output");
+        assert!(detail.contains('…'), "expected a truncation marker, got {detail:?}");
+        // Cut at 2000 CHARS = 6000 bytes, so 3000 bytes remain.
+        assert!(
+            detail.contains("3000 bytes truncated"),
+            "expected the byte remainder, got {detail:?}"
+        );
+        assert_eq!(detail.chars().take_while(|c| *c == '€').count(), 2000);
+    }
+
+    #[test]
+    fn an_output_at_the_boundary_is_not_truncated() {
+        let exact = "a".repeat(2000);
+        assert_eq!(worker_failure_detail(&json!(exact.clone())), Some(exact));
+    }
 }
