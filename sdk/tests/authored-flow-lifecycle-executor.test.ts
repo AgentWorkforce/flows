@@ -229,25 +229,62 @@ describe('authored flow lifecycle through the journal executor', () => {
   // failure all the way to terminal success. Attribution is now inherited from
   // the context that resolves an aggregate, which covers every combinator
   // without intercepting any of them.
-  const combinators: Record<string, (step: Step<string>) => Promise<unknown>> = {
-    allSettled: (step) => Promise.allSettled([step]),
-    any: (step) => Promise.any([step]),
-    race: (step) => Promise.race([step]),
-    all: (step) => Promise.all([step]),
-    resolve: (step) => Promise.resolve(step),
+  //
+  // 2026-09-06: these rows were SINGLE-member aggregates, which cannot fail by
+  // construction. With one member there is only one context that can resolve
+  // the aggregate — that member's — so attribution is inherited correctly no
+  // matter what the implementation does, and every row passed vacuously.
+  //
+  // The escape being tested needs the aggregate to be resolved by an ORDINARY
+  // promise rather than by the authored step. Each row below is therefore
+  // multi-member and arranged so the ordinary member is the resolver:
+  //
+  //   - allSettled/all resolve on the LAST settlement, so the ordinary member
+  //     must settle last;
+  //   - any/race resolve on the EARLIEST, so it must settle first.
+  //
+  // The ordering is structural, not timed. Both members are already settled
+  // before the aggregate is built (the step is awaited first, and `ordinary` is
+  // pre-resolved), so the combinator's own subscription order decides which
+  // reaction resolves the aggregate — first-listed reacts first. A timer would
+  // have made the ordering a race against a real subprocess.
+  type CombinatorCase = {
+    build: (step: Step<string>, ordinary: Promise<unknown>) => Promise<unknown>;
+    // Whether the step is awaited BEFORE the aggregate is built. With a
+    // pre-resolved `ordinary`, awaiting first makes ordinary the LAST member to
+    // settle; leaving the step pending makes it the FIRST.
+    settleStepFirst: boolean;
+  };
+  const combinators: Record<string, CombinatorCase> = {
+    // Resolve on the LAST settlement: pre-settle the step so ordinary is last.
+    allSettled: { build: (s, o) => Promise.allSettled([s, o]), settleStepFirst: true },
+    all: { build: (s, o) => Promise.all([s, o]), settleStepFirst: true },
+    // Resolve on the EARLIEST: leave the step pending so ordinary wins.
+    any: { build: (s, o) => Promise.any([o, s]), settleStepFirst: false },
+    race: { build: (s, o) => Promise.race([o, s]), settleStepFirst: false },
+    // Not an aggregate; the control that a plain passthrough still holds.
+    resolve: { build: (s) => Promise.resolve(s), settleStepFirst: false },
   };
   it.each(Object.keys(combinators))(
     'refuses a deferred derived failure consumed through Promise.%s',
     async (combinator) => {
+      const testCase = combinators[combinator]!;
       const startedBefore = startedSpecs.length;
       await expect(execute(flow(`combinator-${combinator}`, async (f) => {
-        const consumed = combinators[combinator]!(f.run('printf combinator'));
+        const step = f.run('printf combinator');
+        if (testCase.settleStepFirst) await step;
+        const consumed = testCase.build(step, Promise.resolve('ordinary'));
         const derived = consumed.then(async () => {
           for (let tick = 0; tick < 10; tick++) await null;
           throw new Error('derived post-processing failed after the gate sampled');
         });
         derived.catch(() => undefined);
         await consumed;
+        // Consume the step in every row. Where ordinary resolves the aggregate
+        // the step's own branch is discarded, and an unconsumed step would be
+        // refused as `unawaited_step` before the derived-work gate is reached —
+        // which would pass the row for the wrong reason.
+        await step;
         f.done('success');
       }))).rejects.toMatchObject({ code: 'unsettled_derived_work' });
       expectNoTerminalStart(startedBefore);
