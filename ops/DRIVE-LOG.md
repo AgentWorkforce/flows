@@ -7554,3 +7554,24 @@ wrong way, reverting work nobody notices.
 **Stated the fleet-wide consequence on #194 plainly:** #196 cannot go green until
 the CLI install lands, and neither can anything else. It is the one blocker with
 reach beyond its own PR, and it is the one I am barred from fixing.
+
+## 2026-09-06 tick — quiet; three PRs now queued behind one blocker
+
+Verified rather than assumed, and nothing moved:
+
+- Queue clean. Two active crons (`flows-watchdog`, `verify-features.ts`), both
+  with recent runs. No pending run with a null sandbox.
+- #3270: no real Preview dispatch since 02:00 (skipped). The App installation on
+  `AgentWorkforce/flows` has not landed.
+- Disk steady at 11Gi/95% — no growth since I stopped building, which confirms
+  last tick's correction that the growth was mine and not the daemons.
+
+**The one thing worth recording: all three open flows PRs now have zero reviews
+and the identical `review=FAILURE`.** #193, #194, #196. That is not three
+independent stalls, it is a queue forming behind one missing CLI install — and
+#194, the PR that fixes it, is itself stuck behind it. The blocker gates its own
+repair.
+
+No work taken. Everything in the tick list is either done, merged, or waiting on
+an action only Khaliq can perform, and inventing work here would be worse than
+stopping.
