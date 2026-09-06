@@ -45,6 +45,16 @@ jobs:
             exit 1
           fi
 
+      # `agent-relay cloud run` launches the swarm, but nothing installed the
+      # CLI, so this job failed at `Launch cloud swarm` with
+      # `agent-relay: command not found` (exit 127) on every pull request.
+      # Pinned, not floating: the gate decides whether code merges, so it must
+      # not change behaviour because a new CLI was published overnight.
+      - name: Install the Agent Relay CLI
+        run: |
+          npm install -g agent-relay@11.8.3
+          agent-relay --version
+
       - name: Prepare review input on GitHub runner
         env:
           GH_TOKEN: ${{ github.token }}
