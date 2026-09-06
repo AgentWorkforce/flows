@@ -9100,3 +9100,36 @@ Recommended keeping it anyway as two cheap lines — but as preference, clearly
 labelled, not as a defect. The difference matters: my last several reviews have
 been findings, and a reviewer who cannot tell a preference from a defect is
 teaching people to ignore both.
+
+## 2026-09-06 — the gate now fails in SECONDS and names what is missing. Two designs compete.
+
+Checked whether main's new session-token auth moved the number. It did not:
+**97 review-swarm runs, 94 failures, 3 cancelled, zero successes, ever.**
+
+But the FAILURE changed, and that is real progress:
+
+    Validate cloud authentication = failure   (seconds, not ten minutes)
+    Actions secret(s) not configured: CLOUD_API_ACCESS_TOKEN CLOUD_API_REFRESH_TOKEN
+    Install / Prepare / Launch / Wait / Post = skipped
+
+The preflight I called fail-never — the one that passed green while
+authentication failed ten minutes later — has been replaced by one that fails
+fast and **names the missing secrets**. Every downstream step is skipped rather
+than burning ten runner-minutes on a device login nobody can approve. That is
+exactly the fix I asked for, delivered by another lane.
+
+**And it exposes a decision that has to be made before any secret is created.**
+Two credential designs are now in flight and they need DIFFERENT secrets:
+
+    main today   CLOUD_API_ACCESS_TOKEN + CLOUD_API_REFRESH_TOKEN   (session)
+    PR #207      CLOUD_API_KEY                                      (API key)
+
+Provisioning the wrong pair means minting a credential the gate does not read.
+`RELAY_WORKSPACE_KEY` already exists — it is absent from the missing list.
+
+My recommendation stays the API key: the runbook mints exactly that
+(`CI_TOKEN_PROFILE=workflow-invoke`, scoped `workflow:invoke:{read,write}`,
+365-day, no browser), and main's own comments document why the session path is
+awkward — every refresh rotates the refresh token server-side and invalidates the
+secret a job cannot write back. But it is a real choice between two implemented
+designs, not a gap, and it is Khaliq's.
