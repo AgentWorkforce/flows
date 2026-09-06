@@ -7857,3 +7857,37 @@ whose rationale was false, claimed a fallback "could never" leak Debug when it
 did, and told Khaliq twice that a PR blocked others when nothing was required.
 Every one of those was caught by something adversarial looking, not by my being
 careful. That is the actual lesson of tonight, and it applies to me first.
+
+## 2026-09-06 tick — read the proof doc I had been citing, and it refutes my own recommendation
+
+Finally opened `ops/reviews/20260902-1740-pr3270-proof.md` (it lives on the
+`feat/relayflow-v2-executor` branch, not cloud main) instead of citing it from
+memory.
+
+**Route 3 does not do what I said it does.** Its recipe:
+
+    ACCESS_TOKEN="$(agent-relay cloud session --api-url "$WEB_URL" --json | jq -r .accessToken)"
+
+It calls REST directly, but sources the token from `agent-relay cloud session` —
+which needs a logged-in CLI, the exact thing CI cannot have. "Bypass the CLI"
+moved the problem one step and solved nothing. I recommended it twice, the second
+time as "the only option without a track record of failure."
+
+**The same document contains the real lead**, which I had skimmed past:
+`POST /api/v1/workflows/run` accepts session auth, `cli:auth`, the existing
+delegation, **or `workflow:invoke:write`**. A scoped permission of that shape is
+the kind of credential that can plausibly be minted without an interactive login
+and stored as an Actions secret. I cannot verify it — I cannot mint one and am
+under instruction not to create or rotate secrets — so it is a named mechanism,
+not a proven route.
+
+Corrected the table on #198: (1) newer CLI eliminated, (2) seed-a-credential
+plausible but mechanism unlocated, (3) REST-with-CLI-token **does not work in
+CI**, (4) REST with `workflow:invoke:write` is the actual candidate.
+
+**Named the pattern on the PR, because three is enough to call it:** tonight I
+have confidently asserted that #194 blocked other PRs, that a newer CLI might
+add headless auth, and that route 3 bypasses CLI auth. All three were plausible
+inferences from partial reading; all three took one command to disprove. I am
+reliably wrong when I reason from a document's summary instead of opening it.
+The corrective is not more caution in tone, it is opening the file.
