@@ -9851,3 +9851,48 @@ non-intercepting mechanism was insufficient.
 
 **Still not mergeable:** no independent signoff, and the branch is 42 commits
 behind main with no PR. Next increment: rebase onto main and open the PR.
+
+## 2026-09-06 tick — #134 is ALREADY FIXED ON MAIN; my last two ticks were wasted
+
+Went to rebase `repair/pr134-0903` onto main and found main has moved to a
+`packages/` layout — the branch edits `sdk/`, which no longer exists there. That
+forced a look at main's actual contents, which should have been my first move
+two ticks ago.
+
+**Main already carries this fix, by a better route.**
+`packages/sdk/src/authored-flow-lifecycle.ts:51` is
+`const COMBINATORS = ['all', 'allSettled', 'any', 'race'] as const;` — the same
+conclusion I reached, landed independently. Its header says it outright:
+
+> A previous revision registered `Promise.all` only, and claimed a
+> resolution-context rule covered "every combinator, present and future". That
+> claim was wrong: it covered whichever member happened to resolve the aggregate.
+
+Main's version is more complete than mine: it names the SECOND failure direction
+(`await Promise.allSettled([a, b])` refused every member except the last to
+settle), reads `Symbol.iterator` exactly once, honours `this` for subclasses, and
+keeps `adoptFromResolvingContext` as a best-effort fallback for hand-built
+aggregates. Its tests already use multi-member rows with `slowerUnrelated()` and
+`fasterUnrelated()` helpers.
+
+**Verified on main directly, not assumed:**
+- lifecycle-executor + flow-operation: **50/50 pass** (my branch: 41)
+- mutation-verified: setting `COMBINATORS = ['all']` turns **8** rows red,
+  across both the refusal rows and the authoring-preservation rows
+
+**So `repair/pr134-0903` is obsolete and should be abandoned.** Nothing on it
+needs to land. My commits `afdbe8f` and `7dc9e9e` reimplemented work that was
+already on main. Two ticks spent on a dead objective.
+
+**Why it went unnoticed:** last tick I checked `git merge-base --is-ancestor
+311b18c origin/main` and correctly concluded the branch was not merged. That
+answers "did THIS COMMIT land", never "is the DEFECT still real". A fix that
+arrives by a different commit is invisible to that test. The check that would
+have caught it is one grep of main's source for the behaviour, before any work.
+
+**Recommendation for the tick brief:** item 3 should be struck. It still
+describes `allSettled` as the open P0 and points at a branch that is superseded.
+Item 4 (#139) is the remaining live item.
+
+Worktree `flows-main-verify-wt` left in place with deps installed — #139 needs a
+main checkout and this one is ready.
