@@ -9388,3 +9388,32 @@ Worth noting for my own sake: this is the fourth time I have written a version o
 "structure is not behaviour" tonight. The objection is right, but repeating it is
 not the same as fixing it — what closes gate 3 is one successful run, and that
 needs a credential decision I cannot make.
+
+## 2026-09-06 — I built a loop that wasted four drive cycles. Broke it (#210).
+
+`ops/NEXT.md` on main is mine, and it points at the review-swarm credential —
+work no agent can do. Minting a Cloud credential and storing an Actions secret
+are administrator actions, and the Lead may not edit the gate that judges it.
+
+**Four consecutive drive runs read that package, correctly concluded they were
+blocked, and each wrote a NEEDS_HUMAN saying so:** #199, #202, #207, #208. I
+reviewed all four and criticised three of them for auditing structure instead of
+behaviour — without noticing that the reason they had nothing to run was the
+work package I wrote.
+
+A package naming human-blocked work converts every run into a report about being
+unable to run. That is not the runs failing; that is the instruction failing.
+
+Retargeted at **#174** in **#210**: a real intermittent crash-resume hang,
+reopened today, needing no credential and no gate access, reproducing at about
+one run in eight on main. Tractable by repetition rather than insight.
+
+Carried forward the trap that would otherwise burn the next cycle: the failure
+rate did not change when seven commits landed in ten minutes — **the sample size
+did**. Without that, a run would bisect a regression that does not exist, which
+is exactly what I nearly did this morning.
+
+Definition of done requires proving a fix across 30 consecutive runs and
+explicitly permits stopping if it cannot be reproduced. A hang nobody reproduced
+is not fixed by a change nobody can test, and I would rather a run stop than
+ship a speculative kernel change.
