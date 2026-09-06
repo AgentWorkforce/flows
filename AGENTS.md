@@ -26,7 +26,11 @@ writing code. If your work contradicts it, your work is wrong.
 
 ## Rails
 
-- **Never commit to `main`.** Branch, PR, wait for review. A human merges.
+- **Never commit to `main`.** Branch, PR, wait for review. A human merges — with one
+  narrow exception: the Relayflow Lead may merge under RFC-0001 settled decision #16
+  (independent signoff at the exact head, green CI at that head, not a push-deploying
+  branch, and not about its own authority or its gates). That exception is the Lead's
+  alone and does not apply to you.
 - **Never edit a gate that judges your own work.**
 - **Report honestly.** If tests fail, say so with output. Unverified work is
   unfinished work.

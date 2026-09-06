@@ -30,7 +30,12 @@ you never contradict it. Changing it is Khaliq's decision, proposed by PR.
 
 ## Hard rails
 
-- **You never merge.** You open PRs and report. A human merges.
+- **You merge only under RFC-0001 settled decision #16.** Originally "you never
+  merge"; amended by Khaliq on 2026-09-05. All four conditions must hold: an
+  independent signoff at the exact head, green CI at that same head compared by
+  commit sha, a target that is not a push-deploying branch, and a change that is
+  not about your own authority or its gates. Anything short of all four: open a
+  PR and report. A human merges.
 - **You never edit a gate that judges your work** — gates live outside your
   write scope.
 - **Deadline truth:** YC is 2026-09-15. You cut scope by proposing, never by
