@@ -8901,3 +8901,46 @@ Both look like ~1-2 minutes of life. I am not spawning a third time. The pattern
 across two nodes and one local run is consistent with an account-scoped codex
 limit, and my two attempts to instrument it failed for reasons that were mine,
 not codex's — a missing flag, then a missing channel.
+
+## 2026-09-06 — CORRECTION: codex was never dead. I was reading the wrong instrument.
+
+Khaliq said to attach. I should have done that two ticks ago instead of inferring.
+
+**`agent-relay agent list` — the workspace roster — is the wrong instrument for
+this.** It reported `codex-sfm-0906  status: unknown  lastSeenAt 11:12`, which I
+read as "died after ~90 seconds" and reported to Khaliq as an account-scoped
+codex limit. The LOCAL BROKER says otherwise:
+
+    name: codex-sfm-0906   current_state: "working"
+    last_activity_at: 2026-09-06T11:16:10Z  (13ms before the query)
+    pid: 59708   runtime: pty
+
+It has been working the whole time. The roster tracks a presence heartbeat that
+codex agents apparently do not update; `node agent list` tracks the actual
+process. Two different questions, and I answered the important one with the
+instrument that could not see it.
+
+**And attaching showed real work in progress:**
+
+    ?? .github/workflows/publish.yml        <- the deliverable
+    ?? scripts/version-packages.mjs         <- the relayfile-style version bump
+    ?? scripts/assert-release-package.mjs   <- tarball assertions
+    ?? ops/probes/publish-0906/             <- its own verification probes
+     M packages/{sdk,surface}/package.json
+
+Its own status line, read off the terminal: *"The surface build and the SDK build
+against its packed tarball completed successfully in a clean copy. The Linux run
+hit a Docker mount issue before executing any workflow steps; I'm switching to
+copying the source into the container."* It is verifying the linux-x64 binary
+path in Docker, which is more than I asked for.
+
+**One scare, resolved.** The attach showed a diff reverting `packages/sdk` to
+`sdk`. Checked the tree: my fixes are intact — `cd packages/sdk` in drive.yaml,
+`../../kernel` in test:prep, HEAD still `1c7f85b`. Codex was reading a diff, not
+writing one.
+
+**What I got wrong, twice, and it is the same error:** I declared finn-mini's
+codex dead on the same roster evidence, then built an account-scoped-limit theory
+on top of it and reported that theory to Khaliq as the likely explanation. One
+attach would have falsified it. The local run's usage-limit error was real; the
+generalisation from it was not.
