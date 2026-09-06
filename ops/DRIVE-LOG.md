@@ -9991,3 +9991,51 @@ concluding from a registry read.
 `npm install @relayflows/runtime-linux-x64` instead of minting a token and
 fetching a private artifact. That deletes the App-grant dependency for #3270
 specifically — though NOT for cloud#3393, which needs cross-repo secret writes.
+
+## 2026-09-06 tick — #3270 is CLEAN; App credential is now BROKEN, not just ungranted
+
+**#3270 is CLEAN** — conflicts resolved by my earlier merge, all checks green.
+But `reviewDecision=null` and **0 review threads**: mechanically mergeable and
+entirely unreviewed. No signoff exists, so it does not meet the merge bar, and
+cloud is Khaliq's to merge regardless.
+
+**Correction to an earlier claim of mine.** I said flows going public made the
+"Mint private Flows artifact token" step's premise expire. That is wrong. The
+token fetches a **GitHub Actions artifact**
+(`repos/AgentWorkforce/flows/actions/artifacts/<id>`), and the Actions artifact
+API requires authentication even for public repositories. The grant is required
+for #3270 as designed; only changing the provenance model would remove it.
+
+**Staged the exact dispatch inputs** from flows run `34040242641`:
+
+    source_commit = a1734c9fac1908a754feffa3c30d6e2d1514d226
+    run_id        = 34040242641
+    artifact_id   = 9991499174
+    sha256        = 477e2824579fb55727eb5e38731b79fef37ce08d93c134799600e472d1c64f33
+
+That sha256 is the tarball `archiveSha256`, NOT the `9b44c565...` upload-artifact
+zip digest sitting next to it in the same log — the documented trap, avoided.
+Cross-check: the tarball filename embeds `477e2824579fb557`.
+
+**Dispatched once** (state had changed — #3393 merged), run `34054249336`. It
+failed at the same step but with a DIFFERENT error:
+
+    Sep 3, run 33801381261:
+      Failed to create token for "flows": Not Found
+        - .../apps#get-a-repository-installation-for-the-authenticated-app
+    Now,   run 34054249336:
+      Failed to create token for "flows": A JSON web token could not be decoded
+
+That is not a missing installation. A JWT decode failure occurs **before** the
+installation lookup, so the App is no longer authenticating at all — its
+`GH_APP_PUSHER_PRIVATE_KEY` (or the paired app-id) is malformed. Between the two
+runs the credential itself broke.
+
+Consequences:
+- We can no longer tell whether the flows grant exists; the request never gets
+  far enough to ask.
+- **cloud#3393's mint workflow will fail at its own App-token step for this same
+  reason**, not for a missing grant. Dispatching it now would produce a
+  misleading result.
+
+I did not attempt any repair: rotating or re-entering that secret is prohibited.
