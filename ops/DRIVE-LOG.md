@@ -9035,3 +9035,36 @@ same: the explanation fits the symptom but nobody checked the build.
 Also visible in that CI log, working exactly as designed:
 `LIVE_ANALYZER_UNAVAILABLE … spawnSync claude ENOENT — SKIPPING`. CI has no
 analyzer, so the gate-2 case skips there and only ever ran on this machine.
+
+## 2026-09-06 — #205 green except `review`; reviewed #206 and it is better than mine
+
+**#205 at `235b948`:** `linux-x64-artifact` SUCCESS, `packed-consumer` SUCCESS,
+CodeRabbit SUCCESS, cubic SUCCESS. Only `review` fails — the repo-wide gate that
+has never passed and needs Khaliq's credential. As green as it can be. Not
+merging without his word; the earlier "go ahead" covered a specific backlog.
+
+**Reviewed #206 properly instead, and it deserves saying: it is better than what
+I wrote.** My interim workflow built the surface and symlinked it so the SDK
+could compile against a sibling whose manifest pointed at the registry. Codex's
+version builds the SDK **against the packed tarball**, then regenerates release
+lockfiles and asserts `!surface.link` — "release lockfile must resolve the
+published surface". That directly guards the failure my hack would have hidden:
+a published SDK silently resolving a local link, broken only for consumers.
+
+`version-packages.mjs` is the relayfile mechanism done right — sdk as sole
+anchor, semver validation, then a name-set pass rewriting every dependency type
+for sibling packages. It is exactly why manifests must not ship `file:` deps, and
+it makes the linking unnecessary rather than tolerable.
+
+**And I had to correct myself in the review.** I recorded #206 as "a single job
+where relayfile uses ordered ones" — from a `grep`. It is two jobs, `build` then
+`publish-packages`, with ordering inside the publish step. I counted jobs with a
+pattern instead of parsing the file, which is the same shape as the regex that
+missed nine paths: a text match standing in for structure.
+
+Its three red checks are inherited from MY #205 bug, now fixed. It needs a rebase
+onto current #205 to say anything. I did not rebase it — it is codex's branch and
+I have already caused one collision today by running two agents on this task.
+
+Raised one non-blocking question: `Commit version bump and create tag` pushes
+during a release, with `dry_run: false` as the only guard.
