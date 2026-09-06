@@ -7371,3 +7371,49 @@ which is the argument for running lenses of different kinds.
 
 `cargo test --workspace`: **164 passed, 0 failed.** Still not merging: two lenses
 by the same agent that wrote the patch is evidence, not the gate.
+
+## 2026-09-06 tick — the history lens failed #196 twice, and was right twice
+
+Ran the third lens to complete the set. It blocked, twice, on two false claims of
+mine. Both worth recording because they are the same mistake in different
+clothes.
+
+**First blocker: a mutation test that did not exercise its own stated mode.**
+`8ff925d`'s test used `"é".repeat(3000)` with `MAX_CHARS = 2000` and asserted in
+its comment that "every candidate byte index near the cut lands mid-char, so a
+byte slice would panic." **`é` is two bytes**, so byte 2000 is a valid boundary.
+The mutation does not panic there; it silently returns half the characters. The
+lens verified rather than asserted (`boundary_2000=true`). The test did fail —
+on a length assertion, a far weaker signal than the panic it advertised. And my
+commit said the mutation "panics in <test>", which is technically true of any
+failed `assert!` and implied the UTF-8 panic. I was two lenses deep into
+congratulating myself on mutation-verification while shipping a mutation test
+that did not test the mutation.
+
+Fixed with `€` (three bytes): byte 2000 lands at 666 chars + 2, mid-character.
+Literal evidence, at the slice, not an assertion:
+
+    panicked at relayflowd/src/engine/remote.rs:374:53:
+    end byte index 2000 is not a char boundary; it is inside '€' (bytes 1998..2001)
+
+**Second blocker: the vocabulary fix reintroduced the leak it removed.**
+`reason_label` serialized but fell back to `format!("{reason:?}")`, which on that
+path journals `WorkerError` beside `completionReason: worker_error` — the exact
+Debug leak DRIVE-LOG records being removed from `RunSnapshot`. So `92a25e1`'s
+"the fallback detail and the taxonomy label now agree" and its comment's "never
+shown two names" were false as written.
+
+Both my false claims share a shape: **describing the happy path as if it were the
+whole path.** That is the failure mode to watch for in my own writing, not
+carelessness about facts — every sentence was true of the branch I had in mind.
+
+Fixed at `39c779c` with an exhaustive match returning `&'static str`. No
+wildcard, so a new variant is a compile error until it has a journal label — the
+boundary fails closed at build time. Plus a test pinning all nine spellings
+against serde, since hand-written labels drift.
+
+`cargo test --workspace`: **165 passed, 0 failed.**
+
+**No lens has seen `39c779c`.** The two passes were against older heads and I am
+not carrying them forward — that is what "signoff at the exact head" means, and
+tonight is the argument for it: every head so far has had something in it.
