@@ -7927,3 +7927,40 @@ under-researched), now the runbook. Every error came from inferring instead of
 looking, and each was one search from correction. That is now four instances
 tonight of the same thing, and the fix has never once been "be more careful" — it
 has always been "open the file."
+
+## 2026-09-06 tick — found production evidence that contradicts my own auth conclusion
+
+Chased the runbook's precedent into `AgentWorkforce/relay`'s
+`relayflow-pr-proof.yml`, since a working implementation would let flows copy
+rather than design.
+
+**What relay does:** installs `agent-relay@11.10.3` — the published `latest`, via
+`npm install --global "agent-relay@$(node -p "require('./package.json').version")"`,
+NOT a local build — asserts BOTH `CLOUD_API_URL` and `CLOUD_API_KEY` are
+non-empty, then runs `run-cloud.mjs`, whose child env is built by a function
+named `createCliApiKeyEnvironment` that sets those two vars, deletes
+`LEGACY_REFRESHABLE_AUTH_KEYS`, and invokes `agent-relay`.
+
+Every signal there says the CLI authenticates headlessly from an env API key, in
+CI, today.
+
+**What I cannot square:** I grepped the published 11.10.3 tarball's dist for
+`CLOUD_API_KEY` — no match. Same for installed 11.8.3. Only hits in the whole
+tree are `GOOGLE_CLOUD_API_KEY` in an unrelated `pi-ai` dep. And my method is
+sound on that tarball: it is where I read the `cloud login` option registrations.
+
+Reported it as an unresolved contradiction rather than resolving it in my own
+favour, and named the one command that settles it (`CLOUD_API_URL=...
+CLOUD_API_KEY=... agent-relay cloud whoami` from a logged-out shell). I cannot
+run it — no key, and I am instructed not to create secret material.
+
+**Retracted two of my own claims on the PR:** that 11.8.3 "has no non-interactive
+cloud auth", and that upgrading was eliminated. Both rest on the grep that this
+contradicts. Relay's workflow is production evidence that the thing I called
+impossible is running somewhere in this org.
+
+**Fifth time tonight, same failure every time:** a confident conclusion from a
+partial search. Worth noting the shape has not varied once — it is never a
+reasoning error, always an under-read. Also worth noting what worked: I found
+this by following a citation to its implementation instead of stopping at the
+document that mentioned it.
