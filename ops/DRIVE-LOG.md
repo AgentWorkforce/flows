@@ -8226,3 +8226,38 @@ defeated by environment faults wearing code-shaped costumes.**
 Note on my own method: the npm hang workaround from memory (`--userconfig` against
 an empty file) worked first try. Having the note was worth more than the twenty
 minutes I lost last time by not using it.
+
+## 2026-09-06 tick — full suite green, and the "3 skipped" were not what I said
+
+Ran the whole SDK suite on the provisioned tree:
+
+    Test Files  32 passed | 1 skipped (33)
+         Tests  662 passed | 3 skipped (665)
+    live-kernel.test.ts (27 tests) 55116ms — all passing, including
+      "hn-monitor analyze-story reaches done through the real Claude analyzer CLI"
+
+**The Track A baseline is green.** #199's and #201's DoD blocker ("cd sdk &&
+npm test fails") is definitively an environment artifact, not a tree problem.
+This is also full-suite validation of #196, which I had only exercised at kernel
+level: 662 SDK tests pass against that kernel.
+
+**And I finally asked what the three skips are.** All in
+`tests/real-cli-adapters.test.ts`: the Claude model round-trip, the Codex login
+classification, and the Codex non-Git-directory case.
+
+**The analyzer test is not among them, and never was.** I wrote on #189, and
+repeated to Khaliq, that it "had been in my 3 skipped all night" — while making a
+point of never having checked what the three were. That was an inference dressed
+as a confession: I turned "I did not look" into a specific claim about what I
+would have found. It passed here and failed in the drive runs; it was skipped in
+neither.
+
+The durable part survives — CI does skip it via `RELAYFLOWS_ALLOW_ANALYZER_SKIP=1`,
+so gate-2 acceptance has never run there. But the sentence I built the story on
+was false, and I have corrected it on #189.
+
+Loose end recorded, not pulled: those three adapter tests skip on this machine
+even with `claude` and `codex` both installed, so their gate is narrower than CLI
+presence — login state or model availability.
+
+Disk 9.1Gi/96% after node_modules and builds; watch it.
