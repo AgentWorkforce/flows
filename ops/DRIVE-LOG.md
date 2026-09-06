@@ -7964,3 +7964,42 @@ partial search. Worth noting the shape has not varied once — it is never a
 reasoning error, always an under-read. Also worth noting what worked: I found
 this by following a citation to its implementation instead of stopping at the
 document that mentioned it.
+
+## 2026-09-06 tick — RESOLVED: headless auth exists, and #198's pin is what blocks it
+
+Closed the contradiction from last tick. The answer was in a **dependency**, which
+is why six searches missed it.
+
+`@agent-relay/cloud@11.10.3/dist/api-client.js:32`:
+
+    static fromEnv(apiUrl, env = process.env) {
+        const apiKey = env.CLOUD_API_KEY?.trim();
+        if (!apiKey) return null;
+
+And the decisive comparison:
+
+    agent-relay@11.10.3  → CLOUD_API_KEY present in @agent-relay/cloud
+    agent-relay@11.8.3   → 0 occurrences   (the pin in #198)
+
+The env-credential path was added between the two. That explains the ten-minute
+device-login hang precisely: the pinned build has no env auth path at all, so
+`cloud run` had nothing to fall back to but the device flow.
+
+**Complete fix, handed over on the PR:** bump the pin to 11.10.3 (keep pinning —
+the practice is right, the version is wrong), set `CLOUD_API_URL` and
+`CLOUD_API_KEY` on the launch step, mint per the cloud runbook, and fix the
+preflight to assert BOTH vars the way relay does. Three of those four are
+`review-swarm.yml` edits, so not mine.
+
+**Retracted properly, because the error is instructive.** I said 11.8.3 "has no
+non-interactive cloud auth" and that upgrading was eliminated because the two
+versions had identical `cloud login` options. The options ARE identical — **I
+compared the CLI's argument surface and drew a conclusion about its
+authentication implementation.** The change lived in a dependency, invisible to
+every test I picked.
+
+Six errors on this thread, one shape every time: a confident conclusion from a
+search that could not have found the answer. What broke it was not more reasoning
+about documentation — it was following relay's PRODUCTION workflow down to the
+dependency it actually loads. A working example beat every document I read
+tonight.
