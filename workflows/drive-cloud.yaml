@@ -27,7 +27,7 @@ agents:
 - name: builder
   cli: codex
   preset: worker
-  role: Implements the work package. Rust for kernel/, TypeScript for sdk/.
+  role: Implements the work package. Rust for kernel/, TypeScript for packages/sdk/.
 - name: adversary
   cli: claude
   preset: reviewer
@@ -101,7 +101,7 @@ workflows:
       \ the known\nsandbox faults that are NOT reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing\
       \ human directives outrank the backlog;\nif one is unsatisfied, it IS the work package.\nThen read\
       \ docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`, `gh pr\
-      \ list --state open` and open PR review\nstate, kernel/ and sdk/ test status. Then write ops/NEXT.md:\
+      \ list --state open` and open PR review\nstate, kernel/ and packages/sdk/ test status. Then write ops/NEXT.md:\
       \ the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until its done-when\
       \ in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must include passing\
       \ commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\nawaiting fixes\
@@ -221,19 +221,19 @@ workflows:
       \ test --workspace 2>&1); rc=$?\n  echo \"$out\" | tail -8; ran=1\n  if [ $rc -eq 124 ]; then\n\
       \    echo \"VERIFY_SUITE_TIMEOUT: the kernel suite exceeded ${VERIFY_SUITE_TIMEOUT:-900}s and was\
       \ killed.\"\n    echo \"  A hanging test is a defect, not a pass \u2014 recording it as a failure.\"\
-      \n  fi\n  [ $rc -eq 0 ] || ok=1\nfi\nif [ -f sdk/package.json ]; then\n  # node_modules is not in\
+      \n  fi\n  [ $rc -eq 0 ] || ok=1\nfi\nif [ -f packages/sdk/package.json ]; then\n  # node_modules is not in\
       \ `git ls-files`, so a sandbox has none.\n  # Install before testing, and treat a failed install\
       \ as a failed\n  # verify rather than letting `npm test` report a confusing error.\n  if [ ! -d\
-      \ sdk/node_modules ]; then\n    echo \"VERIFY_INSTALL: sdk/node_modules absent \u2014 installing\"\
-      \n    out=$(cd sdk && run_bounded \"npm ci\" npm ci 2>&1); rc=$?\n    if [ $rc -ne 0 ]; then\n \
+      \ packages/sdk/node_modules ]; then\n    echo \"VERIFY_INSTALL: packages/sdk/node_modules absent \u2014 installing\"\
+      \n    out=$(cd packages/sdk && run_bounded \"npm ci\" npm ci 2>&1); rc=$?\n    if [ $rc -ne 0 ]; then\n \
       \     echo \"$out\" | tail -12\n      echo \"VERIFY_FAIL: npm ci failed \u2014 cannot test what\
       \ did not install\"\n      exit 1\n    fi\n  fi\n  # Restore exec bits. `npm ci` reported success\
       \ (96 packages) and\n  # esbuild still failed with EACCES on run 909e18f6, so the mount\n  # this\
       \ installs onto does not carry the executable bit. That is\n  # the same fault that left ops/cargo.sh\
       \ non-executable. Which\n  # layer drops it is NOT established; this repairs the symptom\n  # where\
-      \ it is observed and is a no-op where the bit survives.\n  chmod -R +x sdk/node_modules/.bin 2>/dev/null\
-      \ || true\n  find sdk/node_modules -type d -name bin -path \"*esbuild*\" \\\n    -exec chmod -R\
-      \ +x {} + 2>/dev/null || true\n  out=$(cd sdk && run_bounded \"sdk suite\" npm test 2>&1); rc=$?\n\
+      \ it is observed and is a no-op where the bit survives.\n  chmod -R +x packages/sdk/node_modules/.bin 2>/dev/null\
+      \ || true\n  find packages/sdk/node_modules -type d -name bin -path \"*esbuild*\" \\\n    -exec chmod -R\
+      \ +x {} + 2>/dev/null || true\n  out=$(cd packages/sdk && run_bounded \"sdk suite\" npm test 2>&1); rc=$?\n\
       \  echo \"$out\" | tail -8; ran=1\n  if [ $rc -eq 124 ]; then\n    echo \"VERIFY_SUITE_TIMEOUT:\
       \ the sdk suite exceeded ${VERIFY_SUITE_TIMEOUT:-900}s and was killed.\"\n  fi\n  [ $rc -eq 0 ]\
       \ || ok=1\nfi\nif [ \"$ran\" -eq 0 ]; then\n  echo \"VERIFY_FAIL: no suite found \u2014 a verify\
@@ -244,9 +244,9 @@ workflows:
       \ on\n# #35, #40 and #48. Four recurrences after the warning is enough\n# evidence that prose does\
       \ not hold and a check does.\n#\n# Same for unevidenced test claims: \"all three tests pass\" with\
       \ no\n# transcript. validateNextWorkPackage refuses both shapes.\n#\n# Runs BEFORE the node_modules\
-      \ cleanup below, which needs sdk/dist.\nif [ -f ops/NEXT.md ] && [ -f sdk/dist/index.js ]; then\n\
+      \ cleanup below, which needs packages/sdk/dist.\nif [ -f ops/NEXT.md ] && [ -f packages/sdk/dist/index.js ]; then\n\
       \  nextout=$(node -e '\n    const fs = require(\"node:fs\");\n    const { validateNextWorkPackage\
-      \ } = require(\"./sdk/dist/index.js\");\n    const verdict = validateNextWorkPackage(\n      fs.readFileSync(\"\
+      \ } = require(\"./packages/sdk/dist/index.js\");\n    const verdict = validateNextWorkPackage(\n      fs.readFileSync(\"\
       ops/NEXT.md\", \"utf8\"),\n      (p) => fs.existsSync(p),\n    );\n    if (!verdict.accepted) {\n\
       \      console.log(\"NEXT_REFUSED \" + verdict.reason);\n      process.exit(1);\n    }\n    console.log(\"\
       NEXT_OK\");\n  ' 2>&1) || true\n  echo \"$nextout\" | tail -2\n  case \"$nextout\" in\n    *NEXT_REFUSED*)\n\
@@ -268,8 +268,8 @@ workflows:
       # a PR. A run that delivers needs its flush to work whether or not\n# its gates passed, and node_modules\
       \ is reinstallable, so there was\n# never anything to preserve for diagnosis here.\n#\n# Guarded\
       \ with || true and placed AFTER the pass/fail decision is\n# computed, so a cleanup problem can\
-      \ never change the verdict.\nrm -rf sdk/node_modules sdk/dist surface/dist 2>/dev/null || true\n\
-      echo \"VERIFY_TREE_SLIMMED: removed sdk/node_modules and generated dist trees before flush (ok=$ok)\"\
+      \ never change the verdict.\nrm -rf packages/sdk/node_modules packages/sdk/dist packages/surface/dist 2>/dev/null || true\n\
+      echo \"VERIFY_TREE_SLIMMED: removed packages/sdk/node_modules and generated dist trees before flush (ok=$ok)\"\
       \n\n# Measure the tree instead of guessing at it.\n#\n# The relayfile flush keeps failing (http\
       \ 413) and three successive\n# hypotheses about WHY were wrong: kernel/target was removed and the\n\
       # count barely moved; node_modules was removed and it still failed;\n# HOME turned out to be /home/daytona,\

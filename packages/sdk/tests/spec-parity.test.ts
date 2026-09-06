@@ -18,7 +18,7 @@ import { canonicalize, kernelToAuthoring, specHash } from '../src/index.js';
 // make "sha256(canonical JSON) == kernel spec_hash" a tested fact, not a
 // comment.
 
-const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata');
+const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'testdata');
 
 function fixture(name: string): string {
   return readFileSync(join(TESTDATA, name), 'utf8');

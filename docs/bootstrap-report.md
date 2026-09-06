@@ -5,7 +5,7 @@ Honest state only: what exists, what passed, what is missing.
 
 ## What was built
 
-All of the following is **uncommitted** on `main` (untracked `kernel/`, `sdk/`,
+All of the following is **uncommitted** on `main` (untracked `kernel/`, `packages/sdk/`,
 `testdata/`; `workflows/bootstrap-gate1.yaml` modified mid-run to swap the
 adversary agent's CLI from `grok` to `claude`). A human decides branch/commit/PR.
 
@@ -35,7 +35,7 @@ v0 (12 verbs, JSON over unix socket).
 - Largest file 397 lines; `cargo clippy -D warnings` and `cargo fmt --check`
   passed at build time (per kernel-dev's step report).
 
-### sdk/ — @relayflows/sdk, TypeScript (sdk-dev)
+### packages/sdk/ — @relayflows/sdk, TypeScript (sdk-dev)
 - `spec.ts` — spec types mirroring RFC §1's ladder (`deterministic | llm |
   agent`), verification gates, recovery modes, agent surfaces, budgets;
   zero-agent flows legal by construction.
@@ -50,7 +50,7 @@ v0 (12 verbs, JSON over unix socket).
 
 ### testdata/ — shared parity fixture
 `hello-ladder.flow.yaml` → `hello-ladder.spec.canonical.json` + sha256, pinned
-bit-for-bit on **both** sides (`sdk/tests/spec-parity.test.ts`,
+bit-for-bit on **both** sides (`packages/sdk/tests/spec-parity.test.ts`,
 `kernel/relayflowd-core/tests/spec_parity.rs`), so the SDK-compiled spec and
 the kernel-parsed spec provably hash identically.
 
@@ -112,7 +112,7 @@ test tests::append_is_durable_and_monotonic_after_reopen ... ok
 test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
-### `npm test` (sdk/: `tsc --noEmit && vitest run`) — 41 passed, 0 failed
+### `npm test` (packages/sdk/: `tsc --noEmit && vitest run`) — 41 passed, 0 failed
 
 ```
  ✓ tests/journal-client.test.ts (7 tests) 17ms
@@ -143,7 +143,7 @@ Minor observations carried forward from the review (not violations):
 2. `next_actions` returns only `ArmTimer` for the first backing-off step in
    spec order — wall-clock inefficiency for future parallel DAGs, irrelevant
    to the sequential gate-1 ladder.
-3. `sdk/dist/` build artifacts are checked in; fresh today, but they can drift.
+3. `packages/sdk/dist/` build artifacts are checked in; fresh today, but they can drift.
 
 ## What gate 1 still needs
 

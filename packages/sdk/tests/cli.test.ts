@@ -22,7 +22,7 @@ import {
   type LoopbackHandlers,
 } from './journal-client-loopback.js';
 
-const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata');
+const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'testdata');
 const DIRECT_INPUT_FLOW = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'direct-input.flow.ts');
 const PREFLIGHT = join(TESTDATA, 'preflight');
 const LADDER = ['hello-deterministic', 'hello-llm', 'hello-agent'] as const;

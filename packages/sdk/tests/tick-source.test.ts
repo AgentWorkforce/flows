@@ -17,7 +17,7 @@ import {
 } from '../src/tick-source.js';
 import { compileYaml, toKernelSpec } from '../src/compile.js';
 
-const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata');
+const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'testdata');
 
 /**
  * Stands in for the kernel's `(flow_key, subscription_id, dedupe_key)` claim.

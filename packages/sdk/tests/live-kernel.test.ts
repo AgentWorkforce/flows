@@ -24,8 +24,8 @@ import { AgentWorker } from '../src/worker.js';
 import { resolveSpecCliPaths } from '../src/cli/hn-monitor.js';
 import { emitDueTicks, type TickCursor } from '../src/tick-source.js';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const SDK = join(ROOT, 'sdk');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const SDK = join(ROOT, 'packages', 'sdk');
 const BUILT_CLI = join(SDK, 'dist', 'cli.js');
 const TESTDATA = join(ROOT, 'testdata');
 // ops/cargo.sh builds into a target dir OUTSIDE the repo, because

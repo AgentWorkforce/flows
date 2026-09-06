@@ -1,6 +1,6 @@
 // REPLACE-WHEN: gate-1 agent dispatch accepts a run-time instruction and the
 // kernel starts independent steps concurrently. Then `f.agent` is the SDK's
-// AgentWorker (sdk/src/worker.ts) and this file is deleted.
+// AgentWorker (packages/sdk/src/worker.ts) and this file is deleted.
 //
 // What this shim provides today: the `agent` verb of research.flow.ts's
 // context, executed by spawning the lane's declared CLI through its headless
@@ -159,7 +159,7 @@ export const runAgentWithCli: AgentRunner = async (options) => {
   }
   const { argv, stdin } = headlessInvocation(cli, { model, promptFile, cwd: options.cwd, binaries: options.binaries });
   const env: NodeJS.ProcessEnv = { ...process.env };
-  // Same rule as sdk/src/worker.ts: unset first, then set only when declared,
+  // Same rule as packages/sdk/src/worker.ts: unset first, then set only when declared,
   // so a CLI can tell "no model chosen" from an inherited pin.
   delete env[MODEL_ENV];
   if (model !== undefined) env[MODEL_ENV] = model;

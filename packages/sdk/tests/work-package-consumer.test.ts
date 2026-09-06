@@ -74,7 +74,7 @@ describe('the Garden join: picker output feeds the consumer', () => {
     const { join } = require('node:path') as typeof import('node:path');
     const { load } = require('js-yaml') as typeof import('js-yaml');
 
-    const flowPath = join(__dirname, '..', '..', 'testdata', 'backlog-picker.flow.yaml');
+    const flowPath = join(__dirname, '..', '..', '..', 'testdata', 'backlog-picker.flow.yaml');
     const flow = load(readFileSync(flowPath, 'utf8')) as { steps: Array<{ id: string; command: string }> };
     const step = (id: string) => flow.steps.find((s) => s.id === id)!.command;
     // stdio: stderr captured, not echoed -- see backlog-picker-flow.test.ts.

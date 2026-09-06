@@ -1,7 +1,7 @@
 //! The kernel half of the cross-boundary spec-parity gate.
 //!
 //! `testdata/hello-ladder.spec.canonical.json` is emitted by the SDK compiler
-//! (see `sdk/tests/spec-parity.test.ts`). This test proves the kernel parses
+//! (see `packages/sdk/tests/spec-parity.test.ts`). This test proves the kernel parses
 //! that exact artifact fail-closed, and that re-serializing it — precisely what
 //! the engine hashes when it stamps `spec_hash` in `run.spawned` — reproduces
 //! the same canonical bytes and the same sha256 the SDK computed. Together the

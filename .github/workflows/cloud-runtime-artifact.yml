@@ -20,7 +20,7 @@ on:
     paths:
       - ".github/workflows/cloud-runtime-artifact.yml"
       - "kernel/**"
-      - "sdk/**"
+      - "packages/sdk/**"
       - "scripts/cloud-artifact.mjs"
       - "scripts/cloud-artifact.test.mjs"
       - "testdata/**"
@@ -81,7 +81,7 @@ jobs:
         run: cargo test --workspace
 
       - name: Build authoring surface
-        working-directory: surface
+        working-directory: packages/surface
         run: |
           bun install --frozen-lockfile --ignore-scripts
           bun run build
@@ -90,10 +90,10 @@ jobs:
       # npm runs the file: dependency's prepare before its own devDependencies
       # exist. The SDK's own build is the next step, so nothing is skipped.
       - name: Install SDK dependencies
-        run: npm ci --prefix sdk --ignore-scripts
+        run: npm ci --prefix packages/sdk --ignore-scripts
 
       - name: Test SDK and type-level authoring contracts
-        working-directory: sdk
+        working-directory: packages/sdk
         env:
           # `live-kernel.test.ts` runs one case against the REAL Claude analyzer
           # and fails by default when it cannot, deliberately: an unavailable
@@ -128,7 +128,7 @@ jobs:
           # second, debug copy through a wrapper that cannot run here.
           #
           # The build is still required: several test files fail at collection
-          # without sdk/dist, which is why a bare `vitest run` is not enough.
+          # without packages/sdk/dist, which is why a bare `vitest run` is not enough.
           # test:prep's other half, kept: it re-asserts the executable bit on the
           # preflight CLI fixtures. They are committed 100755 so actions/checkout
           # already restores them, but the guard is one line and the failure it
@@ -144,7 +144,7 @@ jobs:
       - name: Build standalone flows CLI
         run: |
           mkdir -p dist/cloud-artifact-input
-          bun build sdk/src/cli-executable.ts \
+          bun build packages/sdk/src/cli-executable.ts \
             --compile \
             --target=bun-linux-x64 \
             --outfile=dist/cloud-artifact-input/flows

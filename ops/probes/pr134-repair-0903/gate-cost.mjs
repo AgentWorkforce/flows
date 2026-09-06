@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const DIST = process.argv[2] ?? 'dist';
 const N = Number(process.argv[3] ?? 30000);
-const { AuthoredFlowOperation, verifyAuthoredOperations } = await import(`${REPO}/sdk/${DIST}/authored-flow-operation.js`);
-const { AuthoredFlowLifecycle } = await import(`${REPO}/sdk/${DIST}/authored-flow-lifecycle.js`);
+const { AuthoredFlowOperation, verifyAuthoredOperations } = await import(`${REPO}/packages/sdk/${DIST}/authored-flow-operation.js`);
+const { AuthoredFlowLifecycle } = await import(`${REPO}/packages/sdk/${DIST}/authored-flow-lifecycle.js`);
 
 const lc = new AuthoredFlowLifecycle();
 const ops = [];

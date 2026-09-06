@@ -6,15 +6,15 @@ pack_dir="$(mktemp -d /tmp/relayflows-surface-pack.XXXXXX)"
 consumer_dir="$(mktemp -d /tmp/relayflows-surface-consumer.XXXXXX)"
 trap 'rm -rf "$pack_dir" "$consumer_dir"' EXIT
 
-cd "$repo_root/surface"
+cd "$repo_root/packages/surface"
 bun install --frozen-lockfile --ignore-scripts
 bun run build
 bun run test
 bun run typecheck:regressions
 bun pm pack --destination "$pack_dir"
 
-npm ci --prefix "$repo_root/sdk" --ignore-scripts
-npm run typecheck --prefix "$repo_root/sdk"
+npm ci --prefix "$repo_root/packages/sdk" --ignore-scripts
+npm run typecheck --prefix "$repo_root/packages/sdk"
 
 tarball="$(find "$pack_dir" -maxdepth 1 -type f -name '*.tgz' -print -quit)"
 if [[ -z "$tarball" ]]; then
@@ -158,8 +158,8 @@ cat > tsconfig.consumer.json <<'JSON'
 }
 JSON
 
-"$repo_root/surface/node_modules/.bin/tsc" -p tsconfig.consumer.json
+"$repo_root/packages/surface/node_modules/.bin/tsc" -p tsconfig.consumer.json
 echo "PACKED_TYPESCRIPT_OK"
 
-cd "$repo_root/sdk"
+cd "$repo_root/packages/sdk"
 ./node_modules/.bin/vitest run tests/authored-flow.test.ts

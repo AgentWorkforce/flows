@@ -37,7 +37,7 @@ interface InvalidFieldCase {
 }
 
 const AUTHENTICATED_CLI = join(
-  dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata', 'preflight', 'authenticated-cli',
+  dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'testdata', 'preflight', 'authenticated-cli',
 );
 
 const TYPO_STEP_FIELDS = [

@@ -6,7 +6,7 @@
     "moduleResolution": "Bundler",
     "baseUrl": ".",
     "paths": {
-      "@relayflows/surface": ["../surface/src/index.ts"]
+      "@relayflows/surface": ["../packages/surface/src/index.ts"]
     },
     "lib": ["ES2022"],
     "strict": true,

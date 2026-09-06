@@ -11,7 +11,7 @@
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "typeRoots": ["../../sdk/node_modules/@types"],
+    "typeRoots": ["../../packages/sdk/node_modules/@types"],
     "types": ["node"]
   },
   "include": ["**/*.ts"]

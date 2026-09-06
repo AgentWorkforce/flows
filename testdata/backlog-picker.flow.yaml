@@ -10,7 +10,7 @@ steps:
   - id: build-sdk
     type: deterministic
     dependsOn: [read-backlog]
-    command: "cd sdk && npm ci --silent --no-audit --no-fund && npm run build --silent"
+    command: "cd packages/sdk && npm ci --silent --no-audit --no-fund && npm run build --silent"
   - id: select-entry
     type: deterministic
     dependsOn: [read-backlog, build-sdk]

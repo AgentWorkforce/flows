@@ -1,7 +1,7 @@
 // Shared probe harness for the PR #134 authored-lifecycle repair.
 //
 // Drives the real `executeAuthoredFlow` against a loopback journal faithful to
-// `sdk/tests/journal-client-loopback.ts`, and reports which journal runs were
+// `packages/sdk/tests/journal-client-loopback.ts`, and reports which journal runs were
 // started — so "did the flow lower its terminal complete-* run" is observed,
 // not inferred. Run any probe in this directory with plain `node`.
 import { randomUUID } from 'node:crypto';
@@ -12,9 +12,9 @@ import { fileURLToPath } from 'node:url';
 import { rmSync } from 'node:fs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-export const { executeAuthoredFlow } = await import(`${REPO}/sdk/dist/authored-flow-executor.js`);
-export const { JournalClient } = await import(`${REPO}/sdk/dist/journal-client.js`);
-export const { flow } = await import(`${REPO}/surface/dist/index.js`);
+export const { executeAuthoredFlow } = await import(`${REPO}/packages/sdk/dist/authored-flow-executor.js`);
+export const { JournalClient } = await import(`${REPO}/packages/sdk/dist/journal-client.js`);
+export const { flow } = await import(`${REPO}/packages/surface/dist/index.js`);
 
 function sockPath() { return join(tmpdir(), `rf-${randomUUID().slice(0, 8)}.sock`); }
 

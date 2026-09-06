@@ -16,7 +16,7 @@ import type {
   LlmStepSpec,
 } from '../src/spec.js';
 
-const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata');
+const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'testdata');
 
 const extractionSchema: JsonOutputSchema = {
   type: 'object',

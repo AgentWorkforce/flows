@@ -15,7 +15,7 @@
 
 # Review rejected an in-kernel HTTP adapter (PR #16, P1): a durable-execution
 # kernel must not own provider-specific product logic or network I/O. The
-# Hacker News adapter lives at sdk/src/hn-poller.ts, outside the kernel.
+# Hacker News adapter lives at packages/sdk/src/hn-poller.ts, outside the kernel.
 kernel/relayflowd/src/engine/hn_poller.rs
 kernel/relayflowd/tests/hn_poller.rs
 

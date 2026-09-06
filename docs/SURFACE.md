@@ -385,7 +385,7 @@ cycle` error — before a journal exists and before the step's command runs.
 Cycles that pass through a child applicator (`properties`, `items`,
 `prefixItems`, ...) consume one level of the instance per step, so ordinary
 recursive schemas stay legal. `kernel/relayflowd-core/src/schema.rs` and
-`sdk/src/json-schema-bound.ts` implement the same rule and are pinned to the
+`packages/sdk/src/json-schema-bound.ts` implement the same rule and are pinned to the
 shared corpus in `testdata/json-schema-bound-cases.json`, so the kernel and the
 SDK agree on which schemas are legal by construction. `verify` compiles through
 the same gate, so a journal written before the bound existed fails its gate with

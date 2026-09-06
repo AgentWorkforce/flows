@@ -5,8 +5,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdirSync, writeFileSync } from 'node:fs';
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const { validateSpec } = await import(`${REPO}/sdk/dist/validate.js`);
-const { compileYaml, toKernelSpec } = await import(`${REPO}/sdk/dist/compile.js`);
+const { validateSpec } = await import(`${REPO}/packages/sdk/dist/validate.js`);
+const { compileYaml, toKernelSpec } = await import(`${REPO}/packages/sdk/dist/compile.js`);
 
 // Documented shape (docs/SURFACE.md): the JSON Schema sits directly under `output`.
 const OUTPUT = { type: 'object', properties: { verdict: { type: 'string' } }, required: ['verdict'] };
@@ -66,4 +66,4 @@ for (const [name, body] of Object.entries(bodies)) {
   }
   console.log(`  ${name.padEnd(14)} ${line}`);
 }
-if (outDir) console.log(`--- PATH 3 (supporting) fixtures written to ${outDir} (run: node sdk/dist/cli.js check <fixture>)`);
+if (outDir) console.log(`--- PATH 3 (supporting) fixtures written to ${outDir} (run: node packages/sdk/dist/cli.js check <fixture>)`);

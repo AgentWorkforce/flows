@@ -17,7 +17,7 @@
 //! recursive schemas: each step consumes one level of the instance, so they
 //! terminate, and they stay legal.
 //!
-//! `sdk/src/json-schema-bound.ts` implements the same rule, and
+//! `packages/sdk/src/json-schema-bound.ts` implements the same rule, and
 //! `testdata/json-schema-bound-cases.json` is the corpus both sides are pinned
 //! to, so kernel and SDK agree on which schemas are legal by construction
 //! rather than by coincidence of two engines' overflow behaviour.
