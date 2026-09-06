@@ -150,3 +150,79 @@ jobs:
             exit 0
           fi
           npm publish --access public --provenance --ignore-scripts
+
+  # Ordered after `surface`, because sdk/package.json now declares
+  # `@relayflows/surface` at an exact version rather than `file:../surface`.
+  # A file: dependency cannot be published -- consumers cannot resolve it -- but
+  # rewriting it means the build can no longer find the sibling either, so the
+  # surface is built and linked in-job while the published manifest keeps
+  # pointing at the registry.
+  sdk:
+    name: "@relayflows/sdk"
+    needs: surface
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
+      - name: Build and link the surface
+        run: |
+          set -euo pipefail
+          (cd surface && bun install --frozen-lockfile --ignore-scripts && bun run build)
+          test -f surface/dist/index.js
+          mkdir -p sdk/node_modules/@relayflows
+          ln -sfn "$PWD/surface" sdk/node_modules/@relayflows/surface
+          test -f sdk/node_modules/@relayflows/surface/dist/index.js
+
+      # `npm ci` here runs the file: dependency's prepare before its own
+      # devDependencies exist and fails on a missing tsc; the explicit build
+      # below is that script, run once the toolchain is present.
+      - name: Build the SDK
+        working-directory: sdk
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts
+          ./node_modules/.bin/tsc
+          node scripts/make-cli-executable.mjs
+          test -x dist/cli.js
+
+      - name: Update npm for OIDC support
+        run: npm install -g npm@latest
+
+      - name: Pack and inspect
+        working-directory: sdk
+        run: |
+          set -euo pipefail
+          npm pack --ignore-scripts
+          tar -tzf relayflows-sdk-*.tgz | sed 's/^/  /' | head -30
+          tar -tzf relayflows-sdk-*.tgz | grep -q 'package/dist/cli.js'
+          # The published manifest must not carry a file: dependency.
+          node -e "
+            const d=require('./package.json');
+            const all={...d.dependencies,...d.devDependencies};
+            const bad=Object.entries(all).filter(([,v])=>String(v).startsWith('file:'));
+            if (bad.length) { console.error('file: dependency would be published:', bad); process.exit(1); }
+            console.log('no file: dependencies in the manifest');
+          "
+
+      - name: Publish
+        if: inputs.dry_run == false
+        working-directory: sdk
+        run: |
+          set -euo pipefail
+          PKG=$(node -p "require('./package.json').name")
+          VER=$(node -p "require('./package.json').version")
+          if npm view "${PKG}@${VER}" version >/dev/null 2>&1; then
+            echo "${PKG}@${VER} already published; skipping"
+            exit 0
+          fi
+          npm publish --access public --provenance --ignore-scripts
