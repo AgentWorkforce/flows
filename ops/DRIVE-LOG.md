@@ -10340,3 +10340,39 @@ repo runs on. Ledger updated with the finding and the literal output:
 https://claude.ai/code/artifact/1edcf8ae-af0c-4115-b953-df5bd8cdd0c9
 
 Nothing merged this tick. Credential unchanged.
+
+## 2026-09-06 tick — filed flows#212 (durable channels); corrected the ledger
+
+Credential unchanged. No open issue duplicated 212 (only #197, #174, #141 open).
+
+**Verified the gate-1 gap properly before filing.** Last time I asserted "durable
+channels missing" from a grep for the word. This time I read `EntryType`
+(`kernel/relayflowd-core/src/entry.rs`) and searched for the CONCEPT: the nearest
+kind is `stream.appended`, an append-only entry with no consumer side, and the
+kernel's only `offset` is in `worker.rs` — the agent-step starting pin from
+Appendix A, unrelated to channel consumption. It is genuinely absent, not hiding
+under another name. **flows#212** filed with that evidence and acceptance
+criteria centred on the property (kill -9 between append and acknowledge →
+at-least-once delivery, exactly-once effects) rather than on an API.
+
+**And the same read corrected two of my own gate calls.** I had judged gates 2
+and 4 largely from `spec.ts`, which understated them — the kernel runs ahead of
+the authoring surface:
+
+- Gate 2: `event.received`, `subscription.registered`, `subscription.matched`,
+  and `subscription.stale` — the liveness sweep the gate explicitly demands —
+  all exist as journal entry kinds.
+- Gate 4: `wait.human` IS approval-as-durable-await, the gate's own primitive;
+  plus `wait.event`, and `epoch.summary` / `segment.closed`, which are exactly
+  the journal segmentation for unbounded runs the gate requires. Moved from
+  "Not started" to "Kernel only".
+
+Tally is now **2 met, 4 partial, 3 not started**. This is precisely the caveat I
+published with the first version — "a zero means absent from the authoring spec,
+not proof no implementation exists" — landing on my own numbers.
+
+The recurring shape across the ledger is worth stating: several gates have
+kernel primitives no author can reach. The gap is frequently the surface, not
+the engine.
+
+Ledger updated: https://claude.ai/code/artifact/1edcf8ae-af0c-4115-b953-df5bd8cdd0c9
