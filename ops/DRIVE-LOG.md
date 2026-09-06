@@ -10198,3 +10198,34 @@ the failure mode changed across exactly that boundary.
 **Still unknown:** whether the App is installed on flows. The Sep 3 404 said no;
 nothing since has authenticated far enough to re-ask. Fixing the key may reveal
 the original 404 again.
+
+## 2026-09-06 tick — review part 3; #3270 code review complete
+
+No state change: `GH_APP_PUSHER_PRIVATE_KEY` still March, `GH_APP_PUSHER_ID`
+still Sep 5, no new runs. Blocked exactly as root-caused last tick.
+
+Finished the review. **`launch-worker.ts`**: the v2 path checks envelope
+generation vs the authoritative row, consumer capability and epoch, authority
+equality, the launch claim, and the inverse (a v2 payload cannot launch a v1
+envelope). Its `relayflowV2AuthorityEquals` call compares the ENVELOPE against
+the DURABLE ROW — two independent sources — which is the correct use, and a
+useful contrast with the executor case I wrongly filed and retracted.
+
+**`relayflow-v2-process.ts`**: cancellation memoized so timeout, abort and
+output-overflow converge on one teardown; per-stream decoders so a multi-byte
+character split across chunks cannot corrupt output; byte accounting before
+decoding.
+
+**One nit only**, posted as optional: `:62` hardcodes "exceeded 4 MiB" while the
+limit is the `maxOutputBytes` parameter. Accurate today — one caller, and a test
+pins the string — but the sibling timeout message interpolates, and
+`formatByteLimit` exists in the artifact module. Checked the tests BEFORE
+filing this time; that is what downgraded it from finding to nit.
+
+**Whole-review tally: one retracted finding, one optional nit.** Four suspicions
+died on reading adjacent code, the fifth on reading adjacent tests. Unreviewed:
+`prove-relayflow-v2-cloud.ts` and its test.
+
+Everything in the brief is now done or blocked on Khaliq: the App credential
+(id/key mismatch), and an independent signoff I cannot supply for a branch whose
+merge commit I authored.
