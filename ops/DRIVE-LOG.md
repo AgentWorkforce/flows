@@ -8182,3 +8182,47 @@ next to the file it backs up — drop it. And its lockfile is another verified
 no-op (107 entries both sides, zero differing).
 
 `ops/NEXT.md` is now contested by **five** open PRs.
+
+## 2026-09-06 tick — ran the gate-2 acceptance test. It PASSES.
+
+Did the thing I twice called impossible, after #201 proved the failure
+reproduces. Result:
+
+    LIVE_ANALYZER ready: claude -p --model claude-haiku-4-5-20251001 round-trip OK
+    LIVE_ANALYZER analysis: {"reasoning":"...an AI agent performing autonomous
+      software engineering tasks...","relevance_score":9,
+      "story_title":"...[wake-nonce-7f3a91c4]"}
+    ✓ hn-monitor analyze-story reaches done through the real Claude analyzer CLI 11115ms
+    Test Files  1 passed (1)
+
+**The gate-2 acceptance path works.** Nonce intact, real model analysis, kernel
+recorded the json_schema verdict, 11 seconds. As far as I can tell this is the
+first time that test has ever executed to completion in this repo — CI always
+takes the documented skip, and every earlier run of it was in a sandbox that
+could not reach an analyzer.
+
+So #189's and #201's `verification: null` was the kernel dropping the reason an
+analyzer step failed (#195, fixed in #196), and the analyzer failed because their
+SANDBOX could not run it. Not a product defect.
+
+**Reproduced the provisioning failure exactly, and it is worth writing down:**
+
+1. `npm ci` fails outright — its lifecycle script runs `bun run build` → `tsc`,
+   which is not on PATH before install completes (exit 127).
+2. `npm ci --ignore-scripts` succeeds, then the SDK build fails with
+   `Cannot find module '@relayflows/surface'` — because that is a
+   `file:../surface` dependency whose `prepare` script is what builds it, and
+   `--ignore-scripts` skipped precisely that.
+3. Build `surface/` by hand, rebuild the SDK: zero errors.
+4. `tsc` alone is NOT the build. `npm run build` is
+   `tsc && node scripts/make-cli-executable.mjs`; without the second half
+   `dist/cli.js` exists but is not executable and the suite fails closed.
+
+Every one of those presents as a TypeScript or test error, and none is a code
+defect. #199 hit shape 2 and concluded `@types/node` was missing and Track A
+owned it — the dependency is declared and locked at 22.20.1. **Three drive runs
+defeated by environment faults wearing code-shaped costumes.**
+
+Note on my own method: the npm hang workaround from memory (`--userconfig` against
+an empty file) worked first try. Having the note was worth more than the twenty
+minutes I lost last time by not using it.
