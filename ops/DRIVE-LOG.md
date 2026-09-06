@@ -10123,3 +10123,44 @@ the PR. Contrast with the three suspicions last tick, all of which dissolved on
 closer reading; this one survived the same scrutiny.
 
 Still unreviewed: `relayflow-v2-process.ts`, `launch-worker.ts`, prove script.
+
+## 2026-09-06 — implemented the authority-pin fix, and RETRACTED it
+
+Khaliq said "go for it" on the finding from the previous entry. I implemented it,
+ran the suite, and the fix was wrong. Retracted on the PR before anyone acted.
+
+**What happened.** The change: write the alias before the daemon starts (so
+recovery has something authentic to check), then stop seeding
+`recoveredAuthorities` with the caller's authority, and drop `expectedAuthority`
+from both signatures. Added two tests.
+
+It failed a test that already exists in this PR:
+
+    ✖ recovers a crash-created kernel id from an isolated journal when no pointer was written
+
+`relayflow-v2-executor.test.ts:241-245` deletes the pointer directory AND the
+`cloud-run-aliases` directory, then asserts the resume SUCCEEDS. The seeding is
+exactly what makes that pass. It is deliberate, not an oversight.
+
+**What I got right vs wrong.** The mechanism was right — on that path
+`executor.ts:59` really does compare `options.authority` to itself. The
+conclusion was wrong: that is the intended cost of recovering state whose
+provenance was never durably recorded, not a hole.
+
+Even the careful variant (alias written early) still fails that test, because the
+test deletes the alias too. Making it pass would mean changing what the test
+asserts — a product decision about whether an unauthenticatable journal should be
+resumable, not a bug fix.
+
+Reverted; suite back to 18/18 pass, 0 fail.
+
+**The lesson, and it is the same one as the vacuous combinator rows.** I read the
+control flow, found a check that cannot fail, and reported it without first
+looking for a test that asserts the behaviour. One `grep` of the test file for
+the function's name would have found the deliberate case in seconds. Last tick I
+resisted three false findings by reading adjacent CODE; this one needed reading
+the adjacent TESTS. Check both before filing.
+
+Left as a suggestion instead: a comment in `discoverRelayflowV2StatePointer`
+saying the seeding is intentional. I have now filed this same hole twice in one
+session; a sentence there would stop the third time.
