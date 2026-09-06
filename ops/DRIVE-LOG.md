@@ -7824,3 +7824,36 @@ Did not consolidate the three-way NEXT.md collision after all: #199's is an audi
 and #194's is a work package, different artifacts with different purposes, and
 merging a partly-wrong audit into my own PR would launder its errors into
 something carrying my signoff.
+
+## 2026-09-06 tick — the review-swarm has NEVER succeeded. 76 runs, one week, zero.
+
+Held myself to the standard I set for #199 last tick ("a requirement is satisfied
+when a run proves it") and asked what runs exist:
+
+    TOTAL runs: 76      failure: 75      cancelled: 1      successes: 0
+    first  2026-08-30T20:22:22Z
+    latest 2026-09-06T04:03:35Z
+
+**Seventy-six runs over a full week and the swarm has never once produced a
+verdict.**
+
+This reframes everything about gate 3. Several of the nine requirements describe
+runtime behaviour — unified verdict extraction, sticky transcripts, GHA-side
+fetch, timeout ordering, `always()` post step, freshness binding — all downstream
+of a launch that has never succeeded. **None of them can be run-proven, because
+there is no successful run in existence to point at.** So #199 marking them
+SATISFIED was not carelessness; structural inspection was the only kind of answer
+available. The defect is the word COMPLETE, which reads as a claim about a
+working gate.
+
+It also settles the #198 route question harder than my last analysis did: seven
+days and 76 failures say the CLI path has never worked here even once. Route 3
+(bypass the CLI, call the cloud API directly the way #3270's proof does) is not
+just the least speculative option — it is the only one with no track record of
+failure.
+
+Said plainly on the PR that I am not throwing stones: I shipped a mutation test
+whose rationale was false, claimed a fallback "could never" leak Debug when it
+did, and told Khaliq twice that a PR blocked others when nothing was required.
+Every one of those was caught by something adversarial looking, not by my being
+careful. That is the actual lesson of tonight, and it applies to me first.
