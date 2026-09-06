@@ -9720,3 +9720,44 @@ input, which dissolves the defect above rather than detecting it.
 cannot write a secret into flows. Needs a GitHub App token with `secrets: write`
 on the target — the same grant already blocking the flows dispatch path. One
 grant unblocks both; not worth a separate long-lived PAT meanwhile.
+
+## 2026-09-06 tick — queue RECOVERED; #3270 blocked on a missing App installation
+
+**1. Drain check — queue is back up.** Watchdog run
+`954cf102-c6d0-4466-898d-3587e2c59203` shows `Status: completed`,
+`Sandbox: b355f04d-72dd-438b-9543-753c6316ecbf`, `Updated: 2026-09-06T06:06:04Z`.
+A real sandbox ID and an `updatedAt` well clear of `createdAt` — the symptom
+from 21:25Z (pending, `sandboxId: null`, clock stuck) is gone. Disk fine, 15Gi
+free.
+
+**2. #3270 — preview build 33801381261 failed; evidence preserved.** Dispatched
+20:17:22Z, failed 20:17:39Z. Seventeen seconds, so no preview exists and the
+proof in `ops/reviews/20260902-1740-pr3270-proof.md` cannot run at all.
+
+```
+Failed to create token for "flows" (attempt 1): Not Found
+  - .../apps#get-a-repository-installation-for-the-authenticated-app
+```
+
+Step `Mint private Flows artifact token` (`preview.yml:213-220` on
+`feat/relayflow-v2-executor`) — and its config is correct: `owner:
+AgentWorkforce`, `repositories: flows`, App `GH_APP_PUSHER`. A 404 on the
+installation lookup means the App has no installation covering
+`AgentWorkforce/flows`. Not a config bug; a grant only an org admin can issue.
+Left failing on purpose per standing instruction.
+
+Note the run took its workflow from the PR branch, not `main` — reading
+`main`'s `preview.yml` shows no such step and would have inverted the
+diagnosis.
+
+**Possibly retirable rather than grantable.** The step fetches a *private*
+Flows artifact; flows is public now and `@relayflows/*` is on npm. But
+`runtime-linux-x64@2.0.0` is the broken initial publish (2 files, empty `bin/`),
+so the registry cannot serve it yet. After `2.0.1`, the token step and its grant
+can likely both be deleted. Posted both paths on the PR.
+
+Same missing grant also blocks cross-repo secret writes (cloud#3391) — one
+installation unblocks both.
+
+Items 3 (#134) and 4 (#139) not started; stopped at the first item with real
+work per the tick contract.
