@@ -10261,3 +10261,44 @@ nits.** Everything else dissolved on reading adjacent code or tests.
 
 Both remaining blockers are Khaliq's: the App id/key mismatch, and an
 independent signoff I cannot supply.
+
+## 2026-09-06 tick — flows#211 MERGED; the dogfooding drive loop can start again
+
+**Found and fixed the reason relayflows v1 could not drive its own work.** Both
+`workflows/drive.yaml:52` and `drive-cloud.yaml:49` opened with a materialization
+guard listing a bare `sdk`. #205 moved that tree to `packages/sdk`, updated the
+other fourteen `packages/` references in drive.yaml, and missed this one because
+it is a bare word in a shell for-loop list rather than a `sdk/`-prefixed path —
+the tenth instance of the exact bug class that PR already chased nine times.
+
+Effect: a correctly materialized repo was rejected and both drive flows aborted
+at step one with SYNC_FAIL_NOT_MATERIALIZED, whose own message points at
+`--no-sync-code`, which was never the problem.
+
+**Independent 3-lens signoff obtained locally**, which is the gate flows actually
+keys on:
+
+    PRESWARM_structure:       REVIEW_PASSED  (exit 0)
+    PRESWARM_history:         REVIEW_PASSED  (exit 0)
+    PRESWARM_maintainability: REVIEW_PASSED  (exit 0)
+
+The history lens did not take my word for it — it extracted the guard from both
+files at both refs and executed them: `origin/main` exit 78 (fail) for both,
+`HEAD` exit 0 (pass) for both. cubic also passed.
+
+**Merged** at 20:47:12Z after confirming the one red check is environmental: the
+`review` workflow fails at `Enforce swarm result` with `CLOUD_API_KEY:` empty.
+flows holds exactly ONE secret — `RELAY_WORKSPACE_KEY` — and `RELAY_API_KEY` is
+just an alias of it (`review-swarm.yml:30`), so there is no substitute
+credential and that check cannot pass for ANY PR until the key is minted. flows
+main has no branch protection (404), so it does not block merges either.
+
+**Follow-up debt named by the maintainability lens, not fixed here:** the
+required-paths list is duplicated across the two flows and nothing prevents the
+same miss when the next path moves. It suggested extracting the list to a file
+both flows read, or a CI grep asserting no bare path literals in `workflows/`.
+Worth an issue.
+
+Also delivered this tick: the RFC-0001 gate ledger (2 met, 3 partial, 4 not
+started; gate 1's one gap is durable channels) —
+https://claude.ai/code/artifact/1edcf8ae-af0c-4115-b953-df5bd8cdd0c9
