@@ -8145,3 +8145,40 @@ records a night where two Chiefs produced disjoint records of one workstream.
 every tick for hours and never once checked whether anything ELSE was sitting
 unpushed on the branch I was pushing. The check took one command and I should
 have been running it all night, not at hour twelve.
+
+## 2026-09-06 tick — #201 reproduces #189 exactly, and refutes a claim I made twice
+
+Fourth drive PR, **#201** (`cloud/run-3acbad9d`, 06:48Z). Its `NEEDS_HUMAN`
+reports `payload.verification: null` on the hn-monitor analyzer with **661
+passing, 1 failing, 3 skipped** — byte-identical counts to #189.
+
+**That is a second independent reproduction, and it overturns me.** On #189 and
+again on #195 I wrote that the confirming datum — the `completionReason` on that
+`step.completed` — was *"permanently unavailable"* because #189's sandbox was
+gone, and that the attribution would stay "strong, and unconfirmable." Wrong. The
+failure reproduces on demand; anyone who captures that field from a fresh run
+settles it outright.
+
+The error is worth naming precisely: **the specific sandbox was gone, and I
+treated that as the evidence being gone.** Those are not the same thing, and the
+difference is a whole class of "unknowable" conclusions that are actually just
+one more run away. Corrected on #195 so a later reader does not take "permanently
+unavailable" at face value.
+
+Told #201 its blocker 1 is #195, already fixed in #196, and that
+`verification: null` means the analyzer step FAILED and the kernel dropped the
+reason — not that a gate failed to run.
+
+Its blocker 2 is a broken checkout: `.git` points at `/home/daytona/.project-git`
+which does not exist, so `git status --porcelain` dies. **That is the third drive
+run whose conclusions were shaped by a broken sandbox rather than by the tree** —
+#199's phantom `@types/node`, #201's missing git dir, and #189/#201's shared
+inability to distinguish a kernel defect from a Track A problem. Recommended the
+harness assert `npm ci` succeeded and `git rev-parse` works before any gate
+result counts as evidence.
+
+Also flagged: `ops/NEXT.md.backup` (+125) is an editor-style backup committed
+next to the file it backs up — drop it. And its lockfile is another verified
+no-op (107 entries both sides, zero differing).
+
+`ops/NEXT.md` is now contested by **five** open PRs.
