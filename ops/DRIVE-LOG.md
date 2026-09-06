@@ -9555,3 +9555,18 @@ It is still wrong and still worth deprecating, but it is inert rather than
 dangerous, and I described it in stronger terms than the evidence supported. The
 check that settled it — read the dependents, not just the artifact — took one
 command and I should have run it before calling it urgent.
+
+## 2026-09-06 tick — quiet
+
+No open PRs. Queue clean, two active crons. No #3270 preview dispatch (latest
+Preview is another branch). Disk 17Gi/92%. `runtime-linux-x64@2.0.0` still the
+only version and still not deprecated.
+
+No work taken. The lane's remaining items all need a human:
+
+    mint CLOUD_API_KEY and store it   -> the swarm's first green in 100 runs
+    npm deprecate runtime@2.0.0       -> superseded by a real pipeline run anyway
+    #3270's App grant                 -> or retire that path once runtime 2.0.1 exists
+
+Nothing here I can move without one of those, and a fifth restatement of the same
+blockers is not work.
