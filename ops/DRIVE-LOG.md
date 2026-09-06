@@ -9761,3 +9761,46 @@ installation unblocks both.
 
 Items 3 (#134) and 4 (#139) not started; stopped at the first item with real
 work per the tick contract.
+
+## 2026-09-06 tick — #134 combinator rows were vacuous; any/race escape is LIVE
+
+Items 1-2 unchanged (queue up; #3270 waiting on the org grant). Worked item 3.
+
+**#134 is MERGED.** The tick brief treats it as open. The P0 fix lives on
+`repair/pr134-0903` (`311b18c`, 1875 insertions), which is **not on main and has
+no PR** — 42 commits behind. So the defect is live on main and the fix is
+orphaned. Checked the target before working it, per the standing lesson.
+
+**The five combinator rows could not fail.** They were single-member
+aggregates: `Promise.allSettled([step])`, `any([step])`, `race([step])`,
+`all([step])`. With one member the only context that can resolve the aggregate
+is that member's, so attribution is inherited correctly whatever the
+implementation does. Five green rows, zero coverage.
+
+Rewrote them multi-member so an ORDINARY promise resolves the aggregate.
+Ordering is structural, not timed — both members are pre-settled before the
+aggregate is built, so subscription order picks the resolver; a timer would
+have raced a real subprocess. allSettled/all resolve on the LAST settlement and
+any/race on the EARLIEST, so the groups need opposite arrangements
+(`settleStepFirst`). Every row also awaits the step, because a discarded step
+branch is refused as `unawaited_step` before the derived-work gate — which
+would have passed the row for the wrong reason. Hit that on the first attempt.
+
+**Result — the escape is still open:**
+
+| row | result |
+|---|---|
+| allSettled, all, resolve | refused `unsettled_derived_work` (correct) |
+| **any, race** | **`completionReason: "success"`** while derived work threw |
+
+Committed RED as `afdbe8f` on `repair/pr134-0903`. Not merged; not signed off.
+
+**A probe of mine misled me and I nearly reported it.** I added a trailing
+`await f.run('true')` to every row to test whether SETTLED derived rejections
+escape generally. All five went red and I read that as a general gap — but the
+extra step produced `operation_callback_failed`, which is a legitimate refusal,
+not an escape. The probe was contaminated and proved nothing. Checking the
+failure MODE rather than the count is what caught it. Reverted.
+
+Next increment: fix attribution for `any`/`race`, where the aggregate is
+resolved by a member that is not the step and the step's branch is discarded.
