@@ -3,6 +3,10 @@
 # Shared, fail-closed review transcript selection and verdict extraction.
 swarm_latest_transcript() {
   local reviews_dir=$1 pr=$2 lens=$3
+  # A run whose reviews directory was never created must yield MISSING, not a
+  # `find` error. The caller keys on empty output, so returning nothing here
+  # stays fail-closed.
+  [ -d "$reviews_dir" ] || return 0
   find "$reviews_dir" -maxdepth 1 -type f \
     -name "????????-????-pr${pr}-${lens}.md" -print 2>/dev/null |
     LC_ALL=C sort | tail -n 1
