@@ -7296,3 +7296,41 @@ the fix: passes. The test catches the bug it was written for.
 standing rule and one I am not going to bend on my own patch. The review gate is
 still broken repo-wide anyway (exit 127, `agent-relay: command not found`), so
 the signoff has to come from somewhere other than that workflow.
+
+## 2026-09-06 tick — commissioned a review of my own patch; it found a real gap
+
+#196's CI: `linux-x64-artifact` SUCCESS, CodeRabbit SUCCESS, `review` FAILURE.
+Checked the failure rather than assuming it was the known one — it is:
+`Launch cloud swarm` → `agent-relay: command not found`, exit 127. Worth noting
+it now gets PAST `swarm-prepare.sh`, so the exec-bit problem Khaliq flagged is
+resolved and the missing CLI install is the next blocker.
+
+**I could fix that in ten seconds and I am not going to.** RFC-0001 line 75:
+the Lead cannot edit the gates that judge its work. `review-swarm.yml` is
+exactly that gate, and the fact that the patch it would unblock is *my own*
+makes it worse, not more excusable.
+
+What I can do is commission a review, which is not a gate edit. Ran the local
+maintainability lens against `9dfb17c`.
+
+**`REVIEW_PASSED`, zero blockers, three concerns — and the first one landed.**
+`worker_failure_detail` had no unit test. I had written a comment explicitly
+naming a panic mode ("slicing it by byte index would panic on multi-byte
+input") and then shipped no test for it. Writing down the hazard and not testing
+it is worse than not noticing, because the comment reads as though it was
+handled.
+
+Fixed all three in `8ff925d`: five unit tests (null/blank, verbatim-and-trimmed,
+non-string rendering, boundary, multi-byte truncation), `MAX` → `MAX_CHARS` with
+a note on why both units appear in one function, and the call site rewritten so
+it no longer reads as if the failure reason were consumed when it is only tested
+for presence.
+
+**Mutation-verified again**, because a test for a panic mode that does not catch
+the panic is decoration: reintroduced the byte slice, watched
+`truncation_does_not_split_a_multi_byte_char` fail on it, restored the fix.
+`cargo test --workspace`: **164 passed, 0 failed.**
+
+Recorded the signoff on #196 with an explicit statement of what it is NOT: one
+lens, locally, on my own patch — evidence for a reviewer, not satisfaction of the
+merge rule. Still not merging.
