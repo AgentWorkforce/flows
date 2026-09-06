@@ -8740,3 +8740,29 @@ daemon-kill resume case, both of which exercise repo-root paths.
 Pushed `refactor/packages-layout` at `1cf7bdc` and handed codex a brief that
 front-loads all four traps, asks it to **check my diff rather than trust it**,
 open the PR itself, and then build the release pipeline on relayfile's shape.
+
+## 2026-09-06 tick — codex never started: usage limit. PR opened so the work is not stranded.
+
+The handoff produced nothing:
+
+    ERROR: You've hit your usage limit. ... try again at Sep 7th, 2026 4:39 AM.
+
+Codex read the brief and stopped there. Exit code 0, so the background task
+reported "completed" — a success status over a run that did no work, which is
+worth noting as its own small trap: the exit code described the process, not the
+outcome.
+
+**Did not retry.** The standing rule allows one resurrection, but this is credit
+exhaustion with a stated reset roughly sixteen hours out, not a transient
+failure. Retrying would be the retry-spam the same rules forbid, and would burn
+the one permitted attempt on something that cannot succeed.
+
+Opened **#205** for the verified move instead. That is not me taking the work
+back — the branch was already pushed and green, and leaving verified work
+stranded on an unreferenced branch until tomorrow is strictly worse than making
+it reviewable. **The release pipeline, which was the second half of the codex
+brief, is deliberately NOT in that PR** and remains open for codex or Khaliq.
+
+Practical consequence for the morning: codex cannot implement anything in flows
+until Sep 7th ~04:39. If the pipeline is wanted sooner, it needs a different
+implementer, and Khaliq should know that before he plans around codex.
