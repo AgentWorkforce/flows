@@ -548,9 +548,12 @@ fn worker_reported_failure_without_detail_still_records_a_verification() {
     assert_eq!(record.gate, "execution");
     // The reason itself has to appear, or the record is present but empty of
     // information and the diagnostic is still gone.
+    // The journal's own vocabulary, not Rust's Debug spelling: the same
+    // `worker_error` a reader sees in `completionReason`. Pinning the string
+    // keeps the two from drifting apart.
     assert!(
-        record.detail.contains("WorkerError"),
-        "detail should name the reported reason, got {:?}",
+        record.detail.contains("worker_error"),
+        "detail should name the reported reason in journal vocabulary, got {:?}",
         record.detail
     );
     // And the taxonomy label must still be the reason the worker gave, not

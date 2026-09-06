@@ -302,6 +302,19 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
     vec![Action::Append(started), execute]
 }
 
+/// A completion reason in the journal's own vocabulary rather than Rust's.
+/// `CompletionReason` serializes `rename_all = "snake_case"`, so this yields
+/// the same spelling the `completionReason` field carries (`worker_error`), and
+/// a reader is never shown two names for one thing. `Debug` would emit
+/// `WorkerError` — an engine-internal representation crossing into text the
+/// author reads.
+fn reason_label(reason: &CompletionReason) -> String {
+    serde_json::to_value(reason)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| format!("{reason:?}"))
+}
+
 /// `semantic_executions` is the number of *completed* semantic executions
 /// before this attempt (`StepRuntime::semantic_executions`). The attempt being
 /// completed here ran to a result, so it is the `semantic_executions + 1`-th
@@ -333,7 +346,7 @@ pub fn completion_actions(
             detail: result
                 .failure_detail
                 .clone()
-                .unwrap_or_else(|| format!("worker reported {reason:?} without detail")),
+                .unwrap_or_else(|| format!("worker reported {} without detail", reason_label(reason))),
         }),
     };
     let verified = verification
