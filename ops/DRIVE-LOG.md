@@ -10411,3 +10411,33 @@ than the gate it appears to belong to. Same family as the earlier lesson that a
 code comment is a claim rather than evidence.
 
 Ledger: https://claude.ai/code/artifact/1edcf8ae-af0c-4115-b953-df5bd8cdd0c9
+
+## 2026-09-06 tick — quiet: all blockers unchanged; filed flows#213
+
+Nothing moved. `GH_APP_PUSHER_PRIVATE_KEY` still March against a Sep-5 id;
+flows still holds only `RELAY_WORKSPACE_KEY`; the last preview run skipped and
+the last mint run is still the 19:35Z failure.
+
+Filed **flows#213** — the one genuinely outstanding follow-up, raised by the
+maintainability lens during #211 and deliberately left out of scope there:
+nothing prevents the next stale path literal. #211 was the TENTH instance of
+that class. The reason it keeps escaping is that the literal is a bare word in a
+shell for-loop list, so `sdk/` misses it while `\bsdk\b` drowns in false
+positives — the same asymmetry that let nine slip past three separate
+mechanisms in #205.
+
+Two options in the issue: extract the required-paths list to a file both flows
+read (better end state, subsumes the duplication), or a CI assertion that fails
+on a path literal naming a top-level directory that does not exist (cheaper, and
+would actually have caught #211 before merge).
+
+**I did not implement either**, and said so in the issue: RFC-0001 settled
+decision #6 says an agent can never edit the gates that judge its work, and both
+options are precisely a check that would gate my own PRs. Filed for a human or
+an agent under a different mandate.
+
+Deliberately did NOT do another ledger pass. I revised gate 4 three times in
+three ticks; a fourth self-audit is not evidence, it is churn.
+
+Open in flows: #212 (durable channels, the actionable one), #213, #197, #174,
+#141.
