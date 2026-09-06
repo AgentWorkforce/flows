@@ -1,6 +1,6 @@
 {
   "name": "@relayflows/surface",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "TypeScript authoring surface for Relayflows.",
   "type": "module",
   "main": "./dist/index.js",

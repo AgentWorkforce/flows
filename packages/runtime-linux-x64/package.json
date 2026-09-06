@@ -1,6 +1,6 @@
 {
   "name": "@relayflows/runtime-linux-x64",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Relayflow v2 runtime for linux-x64: the relayflowd kernel and the flows CLI, as prebuilt binaries",
   "license": "Apache-2.0",
   "repository": {
