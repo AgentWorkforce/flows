@@ -7575,3 +7575,31 @@ repair.
 No work taken. Everything in the tick list is either done, merged, or waiting on
 an action only Khaliq can perform, and inventing work here would be worse than
 stopping.
+
+## 2026-09-06 tick — evaluated the one thing I had deferred to a human
+
+Blocked items unchanged: queue clean, no real #3270 Preview dispatch since 02:36,
+#194 and #196 still at zero reviews. Disk steady 11Gi/95%.
+
+Rather than report the same quiet state twice, I closed the one gap I had left
+open **for** a human: #189's `sdk/package-lock.json`, which I had called the only
+part nobody had evaluated.
+
+Parsed both lockfiles and compared the dependency maps as data instead of reading
+a 61/61 diff:
+
+    package entries: main=107 pr189=107
+    only in main : none      only in pr189: none
+    entries with differing CONTENT: 0
+    VERDICT: IDENTICAL dependency graph (reordering only)
+
+Every entry present on both sides with byte-identical `version`, `resolved` and
+`integrity`. npm rewrote the key order; nothing was added, removed, upgraded or
+downgraded. A symmetric insertion/deletion count is a good tell for this, but the
+tell is not the proof — parsing is, and it took one command.
+
+So #189 now has nothing unevaluated in it. Recommended closing, and still did not
+close it: another run's PR, and nothing merges before morning, so there is no
+urgency that would justify me deciding it unilaterally. The distinction I am
+holding to is between removing a human's *reason to look* — which is my job — and
+removing their *decision*, which is not.
