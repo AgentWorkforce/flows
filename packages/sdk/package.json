@@ -45,6 +45,6 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/AgentWorkforce/flows.git",
-    "directory": "sdk"
+    "directory": "packages/sdk"
   }
 }

@@ -1,0 +1,102 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+const versionScript = resolve('scripts/version-packages.mjs');
+const packScript = resolve('scripts/pack-release.mjs');
+const read = (path) => JSON.parse(readFileSync(path, 'utf8'));
+function fixture(t) {
+  const root = mkdtempSync(join(tmpdir(), 'flows-publish-test-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  for (const name of ['surface', 'sdk', 'runtime-linux-x64']) {
+    mkdirSync(join(root, 'packages', name), { recursive: true });
+    const path = join(root, 'packages', name, 'package.json');
+    cpSync(`packages/${name}/package.json`, path);
+    const pkg = read(path);
+    pkg.version = '2.0.0';
+    writeFileSync(path, JSON.stringify(pkg));
+  }
+  return root;
+}
+function version(root, env) {
+  return spawnSync(process.execPath, [versionScript], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, CUSTOM_VERSION: '', ...env },
+  });
+}
+
+test('one SDK anchor rewrites all internal dependency types and preserves external ranges', (t) => {
+  const root = fixture(t);
+  const path = join(root, 'packages/sdk/package.json');
+  const pkg = read(path);
+  pkg.dependencies['@relayflows/surface'] = 'file:../surface';
+  pkg.optionalDependencies = { '@relayflows/runtime-linux-x64': '^1.0.0' };
+  pkg.peerDependencies = { '@relayflows/surface': '^1.0.0' };
+  pkg.devDependencies['@relayflows/surface'] = 'workspace:*';
+  writeFileSync(path, JSON.stringify(pkg));
+  const result = version(root, { CUSTOM_VERSION: '3.0.0-rc.2' });
+  assert.equal(result.status, 0, result.stderr);
+  for (const name of ['sdk', 'surface', 'runtime-linux-x64']) {
+    assert.equal(read(join(root, 'packages', name, 'package.json')).version, '3.0.0-rc.2');
+  }
+  const updated = read(path);
+  for (const type of ['dependencies', 'devDependencies', 'peerDependencies']) {
+    assert.equal(updated[type]['@relayflows/surface'], '3.0.0-rc.2');
+  }
+  assert.equal(updated.optionalDependencies['@relayflows/runtime-linux-x64'], '3.0.0-rc.2');
+  assert.equal(updated.dependencies.yaml, pkg.dependencies.yaml);
+});
+
+test('prerelease bumps use the SDK anchor and output the resolved version', (t) => {
+  const root = fixture(t);
+  const output = join(root, 'output');
+  const result = version(root, { VERSION_TYPE: 'preminor', PREID: 'beta', GITHUB_OUTPUT: output });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(read(join(root, 'packages/sdk/package.json')).version, '2.1.0-beta.0');
+  assert.equal(readFileSync(output, 'utf8'), 'new_version=2.1.0-beta.0\nis_prerelease=true\n');
+});
+
+test('invalid custom versions fail before any package changes', (t) => {
+  const root = fixture(t);
+  for (const value of ['invalid', '--help', '2.0.1; echo injected']) {
+    const result = version(root, { CUSTOM_VERSION: value });
+    assert.notEqual(result.status, 0);
+    assert.equal(read(join(root, 'packages/sdk/package.json')).version, '2.0.0');
+  }
+});
+
+test('actual npm tarballs reject missing dist and local dependencies, then accept built surface', (t) => {
+  const root = fixture(t);
+  const run = () => spawnSync(process.execPath, [packScript, 'surface'], { cwd: root, encoding: 'utf8' });
+  const missing = run();
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /missing package\/dist\/index.js/);
+  const dist = join(root, 'packages/surface/dist');
+  mkdirSync(dist);
+  for (const file of ['index.js', 'index.d.ts', 'runtime.js', 'runtime.d.ts']) {
+    writeFileSync(join(dist, file), 'export {};\n');
+  }
+  const path = join(root, 'packages/surface/package.json');
+  const pkg = read(path);
+  pkg.dependencies = { external: 'file:../external' };
+  writeFileSync(path, JSON.stringify(pkg));
+  const local = run();
+  assert.notEqual(local.status, 0);
+  assert.match(local.stderr, /local dependency external/);
+  delete pkg.dependencies;
+  writeFileSync(path, JSON.stringify(pkg));
+  const built = run();
+  assert.equal(built.status, 0, built.stderr);
+  assert.match(built.stdout, /PACK_OK @relayflows\/surface@2.0.0/);
+});
+
+test('runtime tarball refuses an unstaged binary package', (t) => {
+  const root = fixture(t);
+  const result = spawnSync(process.execPath, [packScript, 'runtime-linux-x64'], {
+    cwd: root, encoding: 'utf8',
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /missing package\/bin\/relayflowd/);
+});
