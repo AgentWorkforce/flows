@@ -1,85 +1,84 @@
-# NEXT — give the review gate a credential
+# NEXT — fix the crash-resume hang (#174)
 
-**Scope:** one Actions secret and two `env:` lines in
-`.github/workflows/review-swarm.yml`. Nothing else.
+**Scope:** `kernel/relayflowd/`, the crash-resume test suite, and nothing else.
 
-**The Relayflow Lead cannot do this one.** RFC-0001 decision #6 and the
-charter's second hard rail: it cannot edit the gates that judge its work.
+## Why this and not gate 3
 
-## The headline
+The previous package pointed at the review-swarm credential. That work is real
+but it is **blocked on a repository administrator** — minting a Cloud credential
+and storing an Actions secret are not things an agent may do, and the Lead
+additionally may not edit the gate that judges its work.
 
-**The review swarm has never succeeded.**
+Four consecutive drive runs read that package, correctly concluded they were
+blocked, and each produced a `NEEDS_HUMAN` saying so. That is four cycles spent
+re-deriving the same fact. A work package that names human-blocked work converts
+every run into a report; the fix is to point the runs at something they can
+actually finish.
 
-```
-TOTAL runs: 76      failure: 75      cancelled: 1      successes: 0
-first  2026-08-30T20:22:22Z
-latest 2026-09-06T04:03:35Z
-```
+The credential decision is tracked and waiting elsewhere. Do not work on it here.
 
-Treat any claim that gate 3 is "architecturally complete" against that number.
-Most of its nine requirements describe behaviour downstream of a launch that has
-never happened, so nothing past authentication has ever executed.
+## The problem
 
-## What already shipped (2026-09-06)
-
-Four layers, each revealing the next:
-
-| step | failed because | closed by |
-|---|---|---|
-| `Validate cloud authentication` | repo had zero Actions secrets | `RELAY_WORKSPACE_KEY` added |
-| `Prepare review input` | gate scripts were mode `100644`, exit 126 | #172 |
-| `Launch cloud swarm` | CLI never installed, exit 127 | #198 |
-| `Launch cloud swarm` | pinned runtime read no API key | #198 (pin → 11.10.3) |
-
-Also landed: #203 (whole-line verdict matching, `jq -er` on the poll response),
-#202 (a missing reviews directory yields `MISSING` rather than a `find` error).
-
-## The one thing left
-
-The job now has a CLI that can read an API key, and no key to read.
-`agent-relay cloud run` falls back to the interactive device flow and dies after
-ten minutes:
+`llm::sigkill_sweep_covers_before_and_between_the_rung_b_steps` hangs
+intermittently on GitHub runners. Issue **#174**, reopened 2026-09-06 with fresh
+evidence after being closed.
 
 ```
-Device login expired before it was approved. Run the command again to get a new code.
+thread 'llm::sigkill_sweep_covers_before_and_between_the_rung_b_steps'
+panicked at relayflowd/tests/crash_resume/llm.rs:121:27
+test result: FAILED. 33 passed; 1 failed
 ```
 
-`@agent-relay/cloud@11.10.3` resolves `CLOUD_API_KEY` through
-`WorkflowApiKeyClient.fromEnv`, which `workflowApiClient` prefers over the stored
-login. With the variable set, the device flow is never reached.
+Line 121 is the `no step.dispatch after resume` path — the worker never receives
+a dispatch after the daemon is SIGKILLed and resumed. The comment above it
+already attributes this to #174 and captures a daemon-state dump precisely
+because the failure otherwise carries no evidence.
+
+## The evidence, and what makes it tractable now
+
+It reproduces at roughly one run in eight on `main`:
+
+```
+main, cloud-runtime-artifact.yml, last 8 runs:  7 success, 1 failure
+```
+
+Earlier this looked like a regression from a specific commit, because `main`
+normally runs about once a day and seven commits landed within ten minutes. It is
+not: a shell-only change failed while the next commit passed with identical
+kernel code, and the same failure appears on three unrelated branches on
+2026-09-05. **The rate did not change; the sample size did.**
+
+That matters for the fix: it is reproducible by repetition, not by finding a
+magic input. Run the crash-resume suite in a loop and it will show up.
 
 ## What to do
 
-1. **Mint the credential.** `AgentWorkforce/cloud` →
-   `docs/runbooks/relay-ci-workflow-credential.md`, profile
-   `CI_TOKEN_PROFILE=workflow-invoke`. Non-human, workspace-bound, scoped to
-   exactly `workflow:invoke:read` and `workflow:invoke:write`. The runbook notes
-   provisioning and rotation "require no browser login".
-2. **Store it.** An operator mints; **a repository administrator stores it**. The
-   runbook is explicit that an agent is not authorized to create or update
-   GitHub secrets.
-3. **Set both variables** on the `Launch cloud swarm` step: `CLOUD_API_URL` and
-   `CLOUD_API_KEY`.
-4. **Fix the preflight, which currently cannot fail.** `Validate cloud
-   authentication` tests that `RELAY_WORKSPACE_KEY` is non-empty, never examines
-   the credential `cloud run` uses, and never attempts an authentication — it
-   passed green on run 34007204726, whose authentication then failed ten minutes
-   later. Assert both variables, the way `AgentWorkforce/relay` does:
-
-   ```bash
-   test -n "$CLOUD_API_URL"
-   test -n "$CLOUD_API_KEY"
-   ```
-
-**Precedent:** `AgentWorkforce/relay`'s `.github/workflows/relayflow-pr-proof.yml`
-runs this exact shape in production — published CLI, `CLOUD_API_URL` and
-`CLOUD_API_KEY` in the environment, no interactive login.
+1. Reproduce it locally. `cd kernel && sh ../ops/cargo.sh test -p relayflowd --test crash_resume`
+   in a loop until it fails. Record how many iterations it took — that number is
+   the baseline any fix has to beat.
+2. Find where the dispatch is lost. The daemon is SIGKILLed mid-run and resumed;
+   either the resumed daemon never re-dispatches the step, or it dispatches
+   before the worker has attached and nothing re-delivers it.
+3. Fix it in `kernel/relayflowd/`. Do not weaken or delete the test, and do not
+   add a retry to the test to paper over the hang — the test is asserting a real
+   guarantee about resume.
+4. Prove the fix by repetition, not by one green run. State the iteration count
+   before and after.
 
 ## Definition of done
 
-1. A review-swarm run reaches a step after `Launch cloud swarm` — the first
-   non-zero success in this workflow's history.
-2. Paste the literal step list showing `Launch cloud swarm` succeeded.
-3. If it fails, paste the literal error and STOP. Do not weaken the gate to make
-   it green. A gate that passes without running is the failure this whole
-   sequence has been climbing out of.
+1. `cargo test --workspace` green from `kernel/`.
+2. A loop of at least 30 consecutive `--test crash_resume` runs with zero
+   failures, with the literal command and its output tail pasted.
+3. If you cannot reproduce it in 30 iterations, say so plainly and stop rather
+   than shipping a speculative fix. A hang nobody reproduced is not fixed by a
+   change nobody can test.
+
+## Constraints
+
+- `kernel/` only. Do not touch `.github/workflows/`, `packages/`, or the
+  publish pipeline.
+- Do not edit `testdata/tick-heartbeat.*` or `hello-ladder.*` — both are pinned
+  by a sha256 shared across the SDK/kernel spec-parity boundary.
+- `ops/reviews/`, `ops/DRIVE-LOG.md` and `ops/BACKLOG.md` are records of what was
+  true when written. Do not rewrite them.
