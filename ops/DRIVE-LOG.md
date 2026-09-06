@@ -8664,3 +8664,41 @@ Worth recording as a general trap: **a workflow that gates its own risk behind a
 input cannot be tested before it lands.** The mitigations (dry_run defaults true,
 every job asserts tarball contents, runtime executes both binaries first) are
 real, but they are arguments rather than evidence until someone dispatches it.
+
+## 2026-09-06 — main is publishable; the interim workflow was the wrong shape
+
+Khaliq corrected the approach twice in one tick, both times rightly.
+
+**First: the in-job link was a workaround, not a pipeline.** My publish.yml built
+the surface and symlinked it so the sdk could compile against a sibling whose
+manifest pointed at the registry. Reading relayfile's and relay's actual release
+workflows showed the real answer: a **"Version all packages"** step bumps every
+manifest from one anchor and rewrites internal dependencies to the new version,
+then jobs publish in dependency order. No linking anywhere. relay even has a
+dedicated `publish-sdk-internal-deps` job for exactly this. Removed my workflow
+rather than land a shape that would have to be unpicked.
+
+**Second: he wants to publish manually first.** So the deliverable changed from
+"a workflow" to "main is publishable", which is a much better first step anyway —
+a pipeline that has never published cannot be debugged against a registry that
+has never seen the package.
+
+**Verifying rather than assuming caught a real defect.** I packed each manifest
+and inspected the tarball:
+
+    surface, before build:   9 files, HAS dist/index.js: False
+    surface, after build:   37 files, HAS dist/index.js: True
+
+`main` is `./dist/index.js`, so the first tarball would have published a package
+whose entry point does not exist. `prepare` builds dist and `--ignore-scripts` —
+which every org publish workflow passes — skips it. **That is a property of the
+package, not the workflow, so it would have bitten the manual publish just as
+hard.** This is the tarball equivalent of the skipped-test problem: a green
+`npm pack` that shipped nothing usable.
+
+Merged #204. `origin/main` now carries LICENSE (Apache-2.0, copied verbatim from
+relay so the text is identical, not merely the same SPDX id) and all three
+manifests at 2.0.0 / Apache-2.0 with no `file:` dependencies.
+
+Note flows had **no LICENSE at all** — `--access public` would have published
+around that silently.
