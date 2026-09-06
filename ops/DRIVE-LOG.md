@@ -9496,3 +9496,36 @@ guard that would have caught `runtime-linux-x64@2.0.0` shipping with an empty
 **A real run now fixes the broken package as a side effect.** `version-packages`
 anchors on sdk and bumps all three, so `dry_run: false, version=patch` publishes
 2.0.1 everywhere with real binaries staged and executed first.
+
+## 2026-09-06 — main green after three merges; gate now on CLOUD_API_KEY; one diagnostic regression
+
+Main is fully green: `Publish Package` (my dry run) and three
+`cloud-runtime-artifact` runs all succeeded. Disk recovered to 17Gi.
+
+Confirmed #207 took effect — main's gate env now carries
+`CLOUD_API_KEY: ${{ secrets.CLOUD_API_KEY }}`, which is the secret name I gave
+Khaliq. The most recent review-swarm run still shows the OLD preflight because it
+was created at 14:24, before #207 merged at 14:46. Checked the timestamps rather
+than assuming the change had not landed.
+
+**One regression worth flagging, small but real.** The preflight is now:
+
+    test -n "$CLOUD_API_URL"
+    test -n "$CLOUD_API_KEY"
+
+Under `bash -e` that fails correctly, but it prints **nothing**. The version it
+replaced accumulated a `missing=` list and printed
+`Actions secret(s) not configured: CLOUD_API_ACCESS_TOKEN CLOUD_API_REFRESH_TOKEN`
+plus a pointer to the README. So the gate has kept its fail-fast behaviour and
+lost its diagnostic.
+
+That matters in exactly the situation Khaliq is about to be in: pushing a PR
+before the secret exists, and getting a bare non-zero step. The command is
+visible in the log so it is inferable, but "inferable from a shell trace" is a
+step down from a named error.
+
+I flagged the dropped URL-shape check on #207 as preference-not-defect and was
+right to. This one I under-weighted: I noted the preflight got simpler without
+noticing it had stopped saying which variable was missing. Not worth reverting a
+merged change over, and it is a one-line fix for whoever next touches the gate —
+which cannot be me.
