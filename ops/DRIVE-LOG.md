@@ -7524,3 +7524,33 @@ Checked for live cargo/rustc first — none.
 Not touching `3693316369` (my own, still referenced) or the daemon-pinned dirs.
 The daemon nod is still worth having, but it is now a ~5GB one-time reclaim, not
 a fix for a leak — because the leak was me.
+
+## 2026-09-06 tick — closed the open loops rather than leaving them implying pending evidence
+
+Disk holding at 11Gi/95% after last tick's reclaim. Queue clean. No responses on
+#189 or #196 — every comment on #189 is mine, and no review on #196 yet.
+
+**#189 will never answer.** It was a one-shot cloud drive run; its sandbox is
+gone. So the `completionReason` I asked for as the one datum that would confirm
+its run hit the #195 path is permanently unavailable. Recorded that on #189 and
+on #195 itself, because #195 currently reads "not yet reproduced against a live
+kernel" and a later reader would take that as *reproduction pending*. It is not
+pending; it is unobtainable. The defect stands on the source path regardless —
+that was never the part in doubt.
+
+**Resolved the collision I created.** #189 and #194 both rewrite `ops/NEXT.md`.
+With #189's substantive finding now living in #195/#196, the rest of it is
+superseded except `sdk/package-lock.json`, which nobody has evaluated.
+Recommended closing #189 pending a look at that diff, and said explicitly why I
+am not closing it myself: not my run, and an unreviewed lockfile is not something
+to discard on my own judgement.
+
+Flagged the merge hazard for whoever handles it: two PRs rewriting one file will
+conflict, and a merger resolving that by taking "theirs" would silently reinstate
+a stale work package. That is the shape of the silent-merge trap already in this
+log — an edit that lands with no conflict signal, or with a conflict resolved the
+wrong way, reverting work nobody notices.
+
+**Stated the fleet-wide consequence on #194 plainly:** #196 cannot go green until
+the CLI install lands, and neither can anything else. It is the one blocker with
+reach beyond its own PR, and it is the one I am barred from fixing.
