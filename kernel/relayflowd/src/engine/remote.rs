@@ -406,23 +406,30 @@ mod worker_failure_detail_tests {
         );
     }
 
-    /// The comment on the truncation names a panic mode — byte slicing on
-    /// multi-byte input — and nothing tested it. A future "simplification" back
-    /// to `&trimmed[..MAX_CHARS]` panics here instead of in production.
+    /// The truncation comment names a panic mode — byte slicing on multi-byte
+    /// input — and this pins it. The character matters: `€` is THREE bytes, so
+    /// byte index `MAX_CHARS` (2000) falls at 666 chars + 2 bytes, mid-character,
+    /// and `&trimmed[..MAX_CHARS]` panics on it.
+    ///
+    /// An earlier version of this test used `é` and claimed the same thing. That
+    /// was wrong: `é` is two bytes, so byte 2000 is a valid boundary and the
+    /// byte-slice mutation does NOT panic there — it silently returns half the
+    /// intended characters. The test still failed, but on a length assertion,
+    /// which is a much weaker signal than the panic it advertised. A test whose
+    /// stated rationale is false is worse than no test, because the next reader
+    /// trusts it.
     #[test]
     fn truncation_does_not_split_a_multi_byte_char() {
-        // 3000 two-byte chars: every candidate byte index near the cut lands
-        // mid-char, so a byte slice would panic.
-        let output = json!("é".repeat(3000));
+        // 3000 three-byte chars = 9000 bytes.
+        let output = json!("€".repeat(3000));
         let detail = worker_failure_detail(&output).expect("detail for a long output");
         assert!(detail.contains('…'), "expected a truncation marker, got {detail:?}");
-        assert!(detail.contains("bytes truncated"));
-        // Cut at 2000 chars, so 1000 chars * 2 bytes remain.
+        // Cut at 2000 CHARS = 6000 bytes, so 3000 bytes remain.
         assert!(
-            detail.contains("2000 bytes truncated"),
+            detail.contains("3000 bytes truncated"),
             "expected the byte remainder, got {detail:?}"
         );
-        assert_eq!(detail.chars().take_while(|c| *c == 'é').count(), 2000);
+        assert_eq!(detail.chars().take_while(|c| *c == '€').count(), 2000);
     }
 
     #[test]
