@@ -9630,3 +9630,37 @@ No work taken.
 ## 2026-09-06 tick — quiet, unchanged
 
 No open PRs, latest swarm run still 14:24Z, queue clean, disk 14Gi. No work taken.
+
+## 2026-09-06 tick — quiet; recording the credential-minting analysis before it is lost
+
+No open PRs, latest swarm run still 14:24Z, queue clean, disk 16Gi. No work taken.
+
+Recording what came out of Khaliq's questions about the credential, because it is
+session knowledge that dies with the transcript:
+
+**Exact mint procedure.** Two terminals. `sudo npx sst tunnel install` once, then
+`npx sst tunnel --stage <stage>` left running; then
+`CI_TOKEN_PROFILE=workflow-invoke CI_TOKEN_USER_EMAIL=... CI_TOKEN_WORKSPACE_ID=50587328-441d-4acb-b8f3-dbe1b3c5de99 npm run mint-ci-token`.
+The script header documents the tunnel requirement in as many words, and its
+worked example carries that same workspace UUID.
+
+**The stage is the trap.** `CLOUD_API_URL` defaults to production, so a tunnel
+pointed at `dev` looks the user up in the dev database and mints a credential
+production will not recognise. `seed-user.ts` uses `--stage dev` as its example,
+which is the wrong one for this.
+
+**The real footgun:** `const profile = value?.trim() || "deployment"`. Omit
+`CI_TOKEN_PROFILE` and you silently mint DEPLOYMENT scopes — no warning. You would
+store it, push a PR, and watch the gate fail authentication with nothing pointing
+at the credential type.
+
+**And a correction I owe the record.** I proposed adding `workflow-invoke` to the
+workspace-token UI as an easy fix. Khaliq pushed back and was right: that card
+lives in `app/dashboard/`, so it is user-facing, and the change would let any
+workspace user mint a credential that runs workflows in that workspace. There is
+also no `app/admin` route in the cloud repo at all.
+
+Which reframes the friction: **requiring a production VPC tunnel IS the
+authorization boundary today.** Crude, but it restricts minting to people who
+already hold production infrastructure access. "Easier" without an admin gate
+would mean weaker. I had read the ceremony as laziness; some of it is load-bearing.
