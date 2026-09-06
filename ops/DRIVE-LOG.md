@@ -7258,3 +7258,41 @@ story as the settled one.
 
 Three ticks, three targets checked before work; this one paid off by making a
 queued build unnecessary.
+
+## 2026-09-06 tick — fixed #195, opened #196 (not merged)
+
+Tick list unchanged. Built the fix for the defect I filed last tick.
+
+**The first fix I wrote would have been theatre.** The obvious repair is a
+fallback in `completion_actions` so the record is never null. But the complaint
+in #195 is that "the reason exists only in the taxonomy label" — and a fallback
+that writes *the taxonomy label* into the record fixes the null and restores no
+diagnostic whatsoever. It would have closed the issue while leaving the actual
+information loss in place, and the test would have gone green.
+
+What is actually lost is `completion.output`: `OutOfBandCompletion` carries **no
+error field at all**, so the worker's output is the only account of what went
+wrong that exists — and it is exactly what gets nulled for every non-success. So
+the fix is two halves: `remote.rs` captures that output as the detail (bounded to
+2000 chars, truncated on a char boundary — it is arbitrary worker-supplied data
+and byte slicing panics on multi-byte input), and `machine.rs` always emits a
+record, falling back to naming the reason when nothing accompanied it.
+
+This also corrects #195's own suggested fix, which said "have remote.rs populate
+`failure_detail` from the worker-reported completion." There is nothing to
+populate it *from* — no such field exists. I wrote that before reading
+`OutOfBandCompletion`.
+
+**Mutation-verified the test, not just the file.** Asserting the edit landed is
+the standing rule; for a regression test that is not enough, because a test that
+passes on the broken code is worse than no test. Reverted the `machine.rs` arm to
+its original form: the new test fails with its own assertion message ("a
+worker-reported failure must journal WHY, not just its taxonomy label"). Restored
+the fix: passes. The test catches the bug it was written for.
+
+`cargo test --workspace`: **159 passed, 0 failed.** Disk held at 13Gi/94%.
+
+**#196 opened, NOT merged** — no independent signoff at head yet, which is the
+standing rule and one I am not going to bend on my own patch. The review gate is
+still broken repo-wide anyway (exit 127, `agent-relay: command not found`), so
+the signoff has to come from somewhere other than that workflow.
