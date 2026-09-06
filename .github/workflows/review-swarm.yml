@@ -17,35 +17,15 @@ jobs:
     runs-on: ubuntu-latest
     # Ordering invariant: swarm 60m < poll 65m < job 75m.
     timeout-minutes: 75
-    # `agent-relay cloud run` authenticates as a Cloud *user session* and as
-    # nothing else. Read out of agent-relay@11.8.3: `runWorkflow()` calls
-    # `ensureAuthenticated()`, which resolves, in this order,
-    #   1. an env-backed session -- CLOUD_API_URL, CLOUD_API_ACCESS_TOKEN,
-    #      CLOUD_API_REFRESH_TOKEN, CLOUD_API_ACCESS_TOKEN_EXPIRES_AT;
-    #   2. ~/.agentworkforce/relay/cloud-auth.json, written by a local login;
-    #   3. an INTERACTIVE login -- the device flow on any Linux runner, which
-    #      waits out the grant nobody is there to approve and exits 1 with
-    #      "Device login expired before it was approved."
-    # RELAY_WORKSPACE_KEY, RELAY_API_KEY and AGENT_RELAY_WORKSPACE_KEY are read
-    # only by the workspace-key resolver that picks a *messaging* workspace; the
-    # cloud auth module never reads any of them. That is why exporting them onto
-    # the launch step left the device login exactly where it was -- it was never
-    # a variable-naming gap, it is a credential-type gap. A runner has no login
-    # on disk, so (1) is the only branch that can authenticate this job.
+    # `agent-relay cloud run` authenticates using CLOUD_API_KEY.
+    # @agent-relay/cloud@11.10.3 adds WorkflowApiKeyClient.fromEnv, which
+    # prefers CLOUD_API_KEY over stored login, avoiding the interactive device
+    # flow. The credential is minted per AgentWorkforce/cloud →
+    # docs/runbooks/relay-ci-workflow-credential.md, profile workflow-invoke,
+    # scoped to workflow:invoke:read and workflow:invoke:write.
     env:
       CLOUD_API_URL: ${{ vars.CLOUD_API_URL || 'https://agentrelay.com/cloud' }}
-      CLOUD_API_ACCESS_TOKEN: ${{ secrets.CLOUD_API_ACCESS_TOKEN }}
-      CLOUD_API_REFRESH_TOKEN: ${{ secrets.CLOUD_API_REFRESH_TOKEN }}
-      # Deliberately far-future by default, and NOT the token's real expiry.
-      # The CLI refreshes once the access token is within five minutes of the
-      # recorded expiry, and every refresh rotates the refresh token server-side
-      # -- invalidating the one held in the secret, which a job cannot write
-      # back. Recording an expiry that has passed would therefore rotate the
-      # credential out from under the very next `cloud status` call in the poll
-      # loop. Left far-future, a still-valid token never rotates; a genuinely
-      # expired one gets exactly one forced refresh on its first 401 and then
-      # fails fast, which is the signal to re-mint the secret.
-      CLOUD_API_ACCESS_TOKEN_EXPIRES_AT: ${{ vars.CLOUD_API_ACCESS_TOKEN_EXPIRES_AT || '2099-01-01T00:00:00.000Z' }}
+      CLOUD_API_KEY: ${{ secrets.CLOUD_API_KEY }}
       RELAY_WORKSPACE_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
       RELAY_API_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
     steps:
@@ -68,33 +48,14 @@ jobs:
             .github/workflows/scripts/swarm-verdict.sh
 
       # Fail here, in seconds, rather than in `Launch cloud swarm` ten minutes
-      # later. `readEnvAuth()` drops the entire env-backed session -- silently,
-      # straight back to the device flow -- when any one of the four variables
-      # is missing, the URL does not parse, or the expiry is not a date. So
-      # check all four exactly the way it does.
+      # later. WorkflowApiKeyClient.fromEnv requires CLOUD_API_URL and
+      # CLOUD_API_KEY; if either is missing the CLI falls back to the device
+      # flow. Check both exactly as ops/NEXT.md specifies.
       - name: Validate cloud authentication
         run: |
-          missing=
-          [ -n "$RELAY_WORKSPACE_KEY" ] || missing="$missing RELAY_WORKSPACE_KEY"
-          [ -n "$CLOUD_API_ACCESS_TOKEN" ] || missing="$missing CLOUD_API_ACCESS_TOKEN"
-          [ -n "$CLOUD_API_REFRESH_TOKEN" ] || missing="$missing CLOUD_API_REFRESH_TOKEN"
-          if [ -n "$missing" ]; then
-            echo "Actions secret(s) not configured:$missing" >&2
-            echo "See README § Cloud review swarm." >&2
-            exit 1
-          fi
-          case "$CLOUD_API_URL" in
-            http://*|https://*) ;;
-            *)
-              echo "CLOUD_API_URL must be an absolute http(s) URL; the CLI ignores an env session it cannot parse." >&2
-              exit 1
-              ;;
-          esac
-          if ! date -u -d "$CLOUD_API_ACCESS_TOKEN_EXPIRES_AT" >/dev/null 2>&1; then
-            echo "CLOUD_API_ACCESS_TOKEN_EXPIRES_AT must be a parseable timestamp." >&2
-            exit 1
-          fi
-          echo "Cloud session variables present; interactive login is unreachable from here."
+          test -n "$CLOUD_API_URL"
+          test -n "$CLOUD_API_KEY"
+          echo "CLOUD_API_URL and CLOUD_API_KEY present; interactive login is unreachable from here."
 
       # `agent-relay cloud run` launches the swarm, but nothing installed the
       # CLI, so this job failed at `Launch cloud swarm` with
