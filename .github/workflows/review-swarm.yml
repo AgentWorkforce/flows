@@ -101,9 +101,20 @@ jobs:
       # `agent-relay: command not found` (exit 127) on every pull request.
       # Pinned, not floating: the gate decides whether code merges, so it must
       # not change behaviour because a new CLI was published overnight.
+      #
+      # 11.10.3, not 11.8.3. Both resolve an env-backed session, but they read
+      # different credentials: 11.8.3 accepts CLOUD_API_ACCESS_TOKEN plus its
+      # refresh token and expiry (a session, which ages out), while
+      # @agent-relay/cloud@11.10.3 adds CLOUD_API_KEY via
+      # `WorkflowApiKeyClient.fromEnv`, preferred over the stored login in
+      # workflows.js. The credential this gate is meant to carry is the one
+      # minted by cloud's docs/runbooks/relay-ci-workflow-credential.md, which
+      # issues an API key scoped to workflow:invoke:{read,write} -- so the
+      # runtime has to be a version that reads an API key. Verified: that
+      # symbol is absent from 11.8.3.
       - name: Install the Agent Relay CLI
         run: |
-          npm install -g agent-relay@11.8.3
+          npm install -g agent-relay@11.10.3
           agent-relay --version
 
       - name: Prepare review input on GitHub runner
