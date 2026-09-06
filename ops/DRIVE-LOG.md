@@ -8003,3 +8003,33 @@ search that could not have found the answer. What broke it was not more reasonin
 about documentation — it was following relay's PRODUCTION workflow down to the
 dependency it actually loads. A working example beat every document I read
 tonight.
+
+## 2026-09-06 tick — verified my own fix spec before anyone acts on it
+
+Six wrong calls on this thread came from stopping at the first hit, so I checked
+whether `fromEnv` is actually REACHED by `cloud run` or merely present.
+
+`@agent-relay/cloud@11.10.3`, `dist/workflows.js:550`:
+
+    async function workflowApiClient(apiUrl) {
+        return WorkflowApiKeyClient.fromEnv(apiUrl) ?? storedWorkflowClient(apiUrl);
+    }
+
+The env key is tried FIRST; stored login is the fallback. So `CLOUD_API_KEY` set
+means `cloud run` never reaches the device-login path at all.
+
+`dist/identity.js:134` states the intent outright: *"a child process inherits
+whatever its parent published, and so CI can inject identity without a login."*
+A designed CI path, not a side effect.
+
+Full chain now checked link by link: `workflowApiClient` prefers `fromEnv` →
+`fromEnv` reads `env.CLOUD_API_KEY` → absent in 11.8.3 → hence the device flow →
+and relay runs this shape in production on 11.10.3.
+
+That is the verification I should have done before each of the six earlier
+claims rather than after the last one. The habit worth keeping from tonight is
+not "check the string exists" — every wrong claim passed that bar. It is **trace
+the call to the thing that would actually run.**
+
+Lane state: every technical question in this lane is now closed and verified.
+What remains is provisioning and review, all of it human.
