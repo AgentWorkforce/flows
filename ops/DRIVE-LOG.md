@@ -9804,3 +9804,50 @@ failure MODE rather than the count is what caught it. Reverted.
 
 Next increment: fix attribution for `any`/`race`, where the aggregate is
 resolved by a member that is not the step and the step's branch is discarded.
+
+## 2026-09-06 tick — #134 any/race escape CLOSED (7dc9e9e), and a correction
+
+**Correction to the previous entry.** I reported that the five combinator rows
+"passed vacuously". They did not — I never ran them before editing. At HEAD
+`311b18c` the `any` and `race` rows were ALREADY RED, already showing
+`completionReason: "success"`. The branch head was never green. What is true is
+that the rows were single-member and so could not express the ordinary-resolver
+case; what is false is that they were passing. Baseline before editing, always.
+
+**Root cause.** `promiseResolve` inherits attribution only when the RESOLVING
+context is itself attributed:
+
+    const adopted = this.attributedRoots.get(cause);
+
+An aggregate resolved by an ordinary promise inherits nothing. For `any` and
+`race` the resolver is by definition whichever member settles first — an
+ordinary member wins — so the aggregate is orphaned and every derived failure
+escapes. The commit's claim to "cover every combinator without intercepting any
+of them" is false for the earliest-settlement combinators.
+
+**Fix.** All four combinators now register the member edge through the same
+combinator-agnostic `registerPromiseAll`. Attribution no longer depends on which
+member resolves the aggregate.
+
+**Verified:**
+- lifecycle-executor + flow-operation: 41/41 pass
+- full SDK suite: 2 failures, both `tests/live-kernel.test.ts`, both
+  pre-existing — HEAD fails 3 in that file with unmodified source (flaky count)
+- `tsc --noEmit` clean
+- mutation-verified at the exact committed head: restricting interception back
+  to `Promise.all` turns `any`/`race` red again
+
+**Two of my own errors, both caught by checking modes rather than counts:**
+- A non-unique string replace rewrote an unrelated test block, producing
+  `ReferenceError: testCase is not defined`. I nearly filed it as a product
+  regression. The assertion detail, not the failure count, exposed it.
+- A `requireOwnedMember` guard I added on the hypothesis that spurious roots
+  caused those failures did nothing. Kept — it is correct on its own terms
+  (a new aggregate with no authored member should not become a root) — but it
+  was not the cause and should not be described as part of the fix.
+
+docs/SURFACE.md updated: discloses all four replacements and why the
+non-intercepting mechanism was insufficient.
+
+**Still not mergeable:** no independent signoff, and the branch is 42 commits
+behind main with no PR. Next increment: rebase onto main and open the PR.
