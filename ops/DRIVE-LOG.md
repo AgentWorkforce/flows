@@ -8512,3 +8512,13 @@ an inference from duration, not evidence, and that being wrong would cost a
 wasted dispatch and a false all-clear. It would have cost exactly that: I would
 have re-dispatched #3270's preview on the strength of a run that never attempted
 the thing I was testing for.
+
+## 2026-09-06 tick — quiet
+
+Queue clean (2 active crons). Disk 19Gi/90%. Ten flows PRs open, all still at
+zero reviews. No #3270 preview dispatch; the two recent Preview runs are other
+branches and skipped.
+
+No work taken. Everything in the tick list is done, merged, blocked on the App
+grant, or waiting on a human reviewer — and the five-way `ops/NEXT.md` collision
+cannot be resolved by me without closing other lanes' PRs.
