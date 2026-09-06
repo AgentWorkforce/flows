@@ -8830,3 +8830,40 @@ failures. Overriding that unilaterally the moment the delegate stumbles is how
 an operator stops being able to trust a delegation at all. What he needs from me
 is the fact that node-switching will not fix an account-scoped limit — that
 changes his options, and it is his call which to take.
+
+## 2026-09-06 — the structure lens failed #205 and was right. Seven real misses.
+
+Commissioned the structure lens on my own layout refactor, since 123 files had
+gone unreviewed. **REVIEW_FAILED, with blockers.** It earned its keep.
+
+**One flaw produced all of them.** My rewrite used a negative lookbehind
+excluding `/` and `.`, so it skipped every PATH-PREFIXED reference —
+`./sdk/dist`, `$repo_root/sdk`, `../surface/src`, `${REPO}/sdk/dist` — and
+`cd sdk` has no trailing slash to match at all. Those are precisely the
+executable ones. The pattern was tuned to avoid double-prefixing
+`packages/sdk/` and in doing so blinded itself to the cases that mattered.
+
+Left pointing at directories that no longer exist:
+
+- `workflows/drive.yaml` / `drive-cloud.yaml` — guards migrated, bodies not. So
+  `cd sdk` short-circuited npm ci and npm test, and `require("./sdk/dist/index.js")`
+  threw. **The drive verify gate was broken by its own migration.**
+- `scripts/surface-package-gate.sh` — the body of the surface-package gate whose
+  paths filter had already moved.
+- `regressions/tsconfig.json`, `examples/research/tsconfig.json`
+- four `ops/probes/*.mjs`, one of which had its println migrated and its imports
+  left behind.
+
+Then RUNNING the gate script found a seventh the lens had not seen:
+`tsc -p ../regressions/tsconfig.json` in packages/surface's own scripts, plus
+`test:prep` in packages/sdk pointing at `../kernel` and `../testdata`.
+
+**The lesson is about my evidence, not my regex.** I reported "662 SDK and 165
+kernel passing" as if it settled the refactor. It never could: no test runs
+drive.yaml, the gate script, the regressions tsconfig, or the probes — and I
+invoked vitest directly, so `npm test` never ran and `test:prep` never executed.
+**A green suite was structurally incapable of seeing any of this**, which is the
+same shape as the skipped analyzer test I criticised five drive runs for.
+
+Fixed at `ff50419` and `1c7f85b`. Residual sweep with a pattern that catches all
+forms is clean; `@relayflows/surface` specifiers are package names and untouched.
