@@ -8261,3 +8261,47 @@ even with `claude` and `codex` both installed, so their gate is narrower than CL
 presence — login state or model availability.
 
 Disk 9.1Gi/96% after node_modules and builds; watch it.
+
+## 2026-09-06 tick — THE DISK HIT ZERO. Recovered to 7.7Gi.
+
+The outage the standing rules warned about happened, and I watched it arrive
+without acting fast enough.
+
+    tick N-1: 9.1Gi
+    tick N:   7.5Gi   ← I noticed the slope and started diagnosing
+    minutes later: ENOSPC — my own tooling could not write its output file
+    root volume: 122Mi free, 100%
+
+**I diagnosed while it was still falling instead of freeing first.** At 7.5Gi
+and dropping ~1.6GB per tick with an active fleet, the correct first move was to
+reclaim something — anything — and investigate afterwards. I spent two commands
+measuring and the third came back ENOSPC. A machine at 97% with other lanes
+writing is not a puzzle to solve, it is a fire.
+
+**Recovery, in order:**
+
+1. Deleted my own scratchpad tarballs and my toolchain target `3693316369`
+   (~1.5G). 122Mi → 1.6Gi, enough to run commands again.
+2. Enumerated every target dir against live processes rather than mtime — the
+   check that saved me from a destructive mistake earlier tonight:
+
+       942047033  1773MB procs=0     3886256635 1647MB procs=1
+       1578293128 1511MB procs=0     1188819845 1071MB procs=2
+       2684255783  951MB procs=0     978412413  1010MB procs=2
+       1107369837 1009MB procs=0     2129177155 1040MB procs=1
+                                     2441514132 1009MB procs=1
+                                     173824371  1009MB procs=1
+
+3. Removed the four with **zero** referencing processes: **1.6Gi → 7.7Gi**.
+
+Six dirs remain, ~5.7GB, every one pinned by a leaked daemon from a finished test
+run. That is the standing ask I have raised three times and it is no longer
+theoretical: those daemons are the difference between 7.7Gi of headroom and
+13GB.
+
+**What I would do differently, stated plainly:** free first, diagnose second,
+whenever free space is both low and falling. The diagnosis was correct and
+useless — I knew which lanes were writing right as the volume filled. And the
+rule I was given said exactly this: check `df` before anything large. I checked
+it, read 7.5Gi, and proceeded as though a number falling by 1.6GB a tick were a
+static one.
