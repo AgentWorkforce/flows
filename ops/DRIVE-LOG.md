@@ -10229,3 +10229,35 @@ died on reading adjacent code, the fifth on reading adjacent tests. Unreviewed:
 Everything in the brief is now done or blocked on Khaliq: the App credential
 (id/key mismatch), and an independent signoff I cannot supply for a branch whose
 merge commit I authored.
+
+## 2026-09-06 tick — reviewed the prove script; #3270 review now complete
+
+No state change (App secrets untouched, no new runs, #3270 CLEAN/unreviewed).
+Reviewed the last unreviewed file, `prove-relayflow-v2-cloud.ts` — worth doing
+before the unblock rather than after, since it is what runs the moment the
+credential is fixed.
+
+**It cannot pass on wrong evidence**, which is the property that matters:
+`expectedAuthority` is caller-supplied rather than read from the response;
+`stateKey` is independently recomputed from `run.runId`; the journal is fetched
+by exact tar path with duplicate/empty rejection; gzip magic and the
+`SQLite format 3\0` header are both checked before querying.
+
+**Nit filed:** the state-key derivation is duplicated in THREE places — state.ts
+(source of truth), the prove script `:423`, and the prove script's TEST `:87`.
+The test re-deriving it the same way is the interesting part: after a change to
+`relayflowV2StateKey`, script and test would keep agreeing with each other while
+both disagreed with production, so the test cannot catch that drift. Same shape
+as the vacuous combinator rows — a test that shares the assumption it should be
+checking.
+
+Severity stated honestly: it FAILS SAFE. A drifted derivation means
+`readExactTarEntry` throws `missing ...`, so the risk is a confusing false
+negative mid-demo, not a false pass. `packages/web` already imports from
+`@cloud/core/...`, so importing the shared function is a small fix.
+
+**#3270 review complete across four parts: one retracted finding, two optional
+nits.** Everything else dissolved on reading adjacent code or tests.
+
+Both remaining blockers are Khaliq's: the App id/key mismatch, and an
+independent signoff I cannot supply.
