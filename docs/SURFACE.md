@@ -252,25 +252,34 @@ This is the boundary of the contract, not an oversight: the flow has already
 finished when that promise is created. Do not use a timer to smuggle
 post-completion work into a run.
 
-**Disclosure: this package replaces `Promise.all` while a flow is open.** The
-lifecycle installs its own `Promise.all` on the global `Promise` for the
-duration of any authored flow execution, and restores the original when the last
-concurrent flow closes.
+**Disclosure: this package replaces `Promise.all`, `Promise.allSettled`,
+`Promise.any` and `Promise.race` while a flow is open.** The lifecycle installs
+its own versions on the global `Promise` for the duration of any authored flow
+execution, and restores the originals when the last concurrent flow closes.
 
-- *Why:* a combinator's aggregate has no runtime edge back to its non-final
-  members, so `await Promise.all([a, b])` cannot otherwise be proven to have
-  consumed `a`. The alternatives all infer group membership from the callbacks
-  the combinator passes each element, which is exactly the callback-identity
-  inference this contract exists to refuse.
+- *Why:* a combinator's aggregate has no runtime edge back to its members, so
+  `await Promise.all([a, b])` cannot otherwise be proven to have consumed `a`.
+  The alternatives all infer group membership from the callbacks the combinator
+  passes each element, which is exactly the callback-identity inference this
+  contract exists to refuse.
+- *Why all four:* an earlier revision intercepted only `Promise.all` and covered
+  the rest by inheriting attribution from whichever context resolved the
+  aggregate. That inheritance fires only when the RESOLVING context is itself
+  attributed, so an aggregate resolved by an ordinary promise inherits nothing —
+  and for `any` and `race` the resolver is by definition whichever member settles
+  first, which an ordinary member wins. Measured: multi-member `Promise.any` and
+  `Promise.race` carried a thrown derived failure through to
+  `completionReason: "success"`. Attribution must not depend on WHICH member
+  resolves the aggregate, and the member edge is what makes it independent.
 - *Scope:* process-wide, for the lifetime of an authored flow execution. Any code
   in the process — including yours and your dependencies' — sees the replacement
   during that window.
 - *Behaviour:* the replacement delegates to the intrinsic and is specified to
   behave identically. A non-iterable argument is handed straight through, so
   `Promise.all(5)` and `Promise.all(null)` return the same rejected promises the
-  intrinsic returns; `name` and `length` match. If `Promise.all` has already been
-  replaced by something else, the flow refuses to start rather than fighting over
-  the intrinsic.
+  intrinsic returns; `name` and `length` match, for each of the four. If any of
+  them has already been replaced by something else, the flow refuses to start
+  rather than fighting over the intrinsic.
 
 If a process-wide intrinsic replacement is unacceptable in your deployment, do
 not run authored TypeScript bodies in that process; the declarative YAML path

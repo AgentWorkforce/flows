@@ -15,6 +15,9 @@ export interface AuthoredOperationInvocation {
 
 const nativePromiseThen = Promise.prototype.then;
 const nativePromiseAll = Promise.all;
+const nativePromiseAllSettled = Promise.allSettled;
+const nativePromiseAny = Promise.any;
+const nativePromiseRace = Promise.race;
 const activeLifecycle = new AsyncLocalStorage<AuthoredFlowLifecycle>();
 const stepOwners = new WeakMap<object, {
   lifecycle: AuthoredFlowLifecycle;
@@ -23,41 +26,87 @@ const stepOwners = new WeakMap<object, {
 let promiseAllObservers = 0;
 
 /**
- * A `Promise.all` that records which authored operations an aggregate joins.
+ * Combinators that record which authored operations an aggregate joins.
  *
- * This intercepts an intrinsic, which is a real cost and is documented as such
- * in `ops/reviews/20260903-pr134-repair-0903.md`. It is here because a
- * combinator's aggregate has no runtime edge to its *non-final* members: the
- * aggregate's resolution cause reaches only the last element to settle, so
- * without this registration `await Promise.all([a, b])` reports `a` unawaited.
- * Every alternative that recovers the link — comparing the `onrejected`
- * callbacks the combinator passes each element, for instance — is callback
- * identity inference, which is exactly the forgery class this contract closed.
+ * This intercepts intrinsics, which is a real cost and is documented as such in
+ * `ops/reviews/20260903-pr134-repair-0903.md`. It is here because a
+ * combinator's aggregate has no runtime edge to its members: the aggregate's
+ * resolution cause reaches only the member that settles it, so without this
+ * registration `await Promise.all([a, b])` reports `a` unawaited. Every
+ * alternative that recovers the link — comparing the `onrejected` callbacks the
+ * combinator passes each element, for instance — is callback identity
+ * inference, which is exactly the forgery class this contract closed.
  *
- * Where it previously deviated from the specification it no longer does: a
+ * 2026-09-06: `allSettled`, `any` and `race` are intercepted here too. The
+ * previous revision covered them by inheriting attribution in `promiseResolve`
+ * from the context that resolved the aggregate, on the reasoning that this
+ * covers every combinator without intercepting any of them. It does not. That
+ * inheritance only fires when the RESOLVING context is itself attributed, so an
+ * aggregate resolved by an ordinary promise inherits nothing — and for `any`
+ * and `race` the resolver is by definition whichever member settles first,
+ * which an ordinary member wins. Measured: multi-member `Promise.any` and
+ * `Promise.race` rows carried a thrown derived failure to
+ * `completionReason: "success"`. Single-member aggregates cannot show this,
+ * because with one member the resolver is always that member.
+ *
+ * Attribution must not depend on WHICH member resolves the aggregate, and the
+ * member edge is the only thing that makes it independent of that.
+ *
+ * Where these previously deviated from the specification they no longer do: a
  * non-iterable argument is handed straight to the intrinsic so it produces the
  * specified rejected promise rather than resolving `[]` or throwing
  * synchronously.
  */
-const observedPromiseAll = function <T>(
+type CombinatorIntrinsic = (
   this: PromiseConstructor,
-  values: Iterable<T | PromiseLike<T>>,
-): Promise<Awaited<T>[]> {
-  const passThrough = (): Promise<Awaited<T>[]> =>
-    nativePromiseAll.call(this, values as unknown as readonly unknown[]) as Promise<Awaited<T>[]>;
-  if (!isIterable(values)) return passThrough();
-  let members: (T | PromiseLike<T>)[];
-  try {
-    members = Array.from(values);
-  } catch {
-    return passThrough();
-  }
-  const aggregate = nativePromiseAll.call(this, members) as Promise<Awaited<T>[]>;
-  activeLifecycle.getStore()?.registerPromiseAll(members, aggregate);
-  return aggregate;
-};
-Object.defineProperty(observedPromiseAll, 'name', { value: 'all', configurable: true });
-Object.defineProperty(observedPromiseAll, 'length', { value: 1, configurable: true });
+  values: Iterable<unknown>,
+) => Promise<unknown>;
+
+function observeCombinator(
+  native: CombinatorIntrinsic,
+  name: string,
+  requireOwnedMember = false,
+): CombinatorIntrinsic {
+  const observed = function (
+    this: PromiseConstructor,
+    values: Iterable<unknown>,
+  ): Promise<unknown> {
+    const passThrough = (): Promise<unknown> => native.call(this, values);
+    if (!isIterable(values)) return passThrough();
+    let members: unknown[];
+    try {
+      members = Array.from(values);
+    } catch {
+      return passThrough();
+    }
+    const aggregate = native.call(this, members);
+    activeLifecycle.getStore()?.registerPromiseAll(members, aggregate, requireOwnedMember);
+    return aggregate;
+  };
+  Object.defineProperty(observed, 'name', { value: name, configurable: true });
+  Object.defineProperty(observed, 'length', { value: 1, configurable: true });
+  return observed;
+}
+
+const observedPromiseAll = observeCombinator(nativePromiseAll as CombinatorIntrinsic, 'all');
+const observedCombinators = [
+  { key: 'all' as const, native: nativePromiseAll as CombinatorIntrinsic, observed: observedPromiseAll },
+  {
+    key: 'allSettled' as const,
+    native: nativePromiseAllSettled as CombinatorIntrinsic,
+    observed: observeCombinator(nativePromiseAllSettled as CombinatorIntrinsic, 'allSettled', true),
+  },
+  {
+    key: 'any' as const,
+    native: nativePromiseAny as CombinatorIntrinsic,
+    observed: observeCombinator(nativePromiseAny as CombinatorIntrinsic, 'any', true),
+  },
+  {
+    key: 'race' as const,
+    native: nativePromiseRace as CombinatorIntrinsic,
+    observed: observeCombinator(nativePromiseRace as CombinatorIntrinsic, 'race', true),
+  },
+];
 
 function isIterable(value: unknown): value is Iterable<unknown> {
   if (value === null || value === undefined) return false;
@@ -104,9 +153,18 @@ export class AuthoredFlowLifecycle {
     stepOwners.set(step, { lifecycle: this, operation });
   }
 
-  registerPromiseAll(values: readonly unknown[], aggregate: Promise<unknown>): void {
+  registerPromiseAll(
+    values: readonly unknown[],
+    aggregate: Promise<unknown>,
+    requireOwnedMember = false,
+  ): void {
     const aggregateId = this.graph.idOf(aggregate);
     if (aggregateId === undefined) return;
+    if (requireOwnedMember && !values.some((value) => (
+      (typeof value === 'object' || typeof value === 'function')
+      && value !== null
+      && stepOwners.get(value)?.lifecycle === this
+    ))) return;
     this.graph.registerRoot(aggregateId);
     const memberIds = new Set<number>();
     for (const value of values) {
@@ -271,19 +329,26 @@ export class AuthoredFlowLifecycle {
 }
 
 function installPromiseAllObserver(): void {
+  const slot = Promise as unknown as Record<string, CombinatorIntrinsic>;
   if (promiseAllObservers === 0) {
-    if (Promise.all !== nativePromiseAll) {
-      throw new AuthoredFlowExecutionError(
-        'unsupported_promise_lifecycle',
-        'authored flow execution requires the intrinsic Promise.all',
-      );
+    for (const combinator of observedCombinators) {
+      if (slot[combinator.key] !== combinator.native) {
+        throw new AuthoredFlowExecutionError(
+          'unsupported_promise_lifecycle',
+          `authored flow execution requires the intrinsic Promise.${combinator.key}`,
+        );
+      }
     }
-    Promise.all = observedPromiseAll as PromiseConstructor['all'];
-  } else if (Promise.all !== observedPromiseAll) {
-    throw new AuthoredFlowExecutionError(
-      'unsupported_promise_lifecycle',
-      'the authored flow Promise.all lifecycle contract was replaced',
-    );
+    for (const combinator of observedCombinators) slot[combinator.key] = combinator.observed;
+  } else {
+    for (const combinator of observedCombinators) {
+      if (slot[combinator.key] !== combinator.observed) {
+        throw new AuthoredFlowExecutionError(
+          'unsupported_promise_lifecycle',
+          `the authored flow Promise.${combinator.key} lifecycle contract was replaced`,
+        );
+      }
+    }
   }
   promiseAllObservers += 1;
 }
@@ -292,5 +357,6 @@ function uninstallPromiseAllObserver(): void {
   promiseAllObservers -= 1;
   if (promiseAllObservers > 0) return;
   promiseAllObservers = 0;
-  Promise.all = nativePromiseAll;
+  const slot = Promise as unknown as Record<string, CombinatorIntrinsic>;
+  for (const combinator of observedCombinators) slot[combinator.key] = combinator.native;
 }

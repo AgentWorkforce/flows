@@ -250,6 +250,15 @@ describe('authored flow lifecycle through the journal executor', () => {
   // have made the ordering a race against a real subprocess.
   type CombinatorCase = {
     build: (step: Step<string>, ordinary: Promise<unknown>) => Promise<unknown>;
+    // Which refusal the row must produce. Both are refusals — the flow is
+    // rejected and records no terminal success — but they are reached by
+    // different guards, so pinning one code for every row would be wrong.
+    // Where the derived rejection is still in flight when the body returns the
+    // gate refuses it as `unsettled_derived_work`. Where the ordinary member
+    // resolves the aggregate first (any/race), the attributed derived failure
+    // surfaces through the operation callback instead. Asserting the specific
+    // code per row keeps a regression to terminal success visible.
+    expectedCode: 'unsettled_derived_work' | 'operation_callback_failed';
     // Whether the step is awaited BEFORE the aggregate is built. With a
     // pre-resolved `ordinary`, awaiting first makes ordinary the LAST member to
     // settle; leaving the step pending makes it the FIRST.
@@ -257,13 +266,13 @@ describe('authored flow lifecycle through the journal executor', () => {
   };
   const combinators: Record<string, CombinatorCase> = {
     // Resolve on the LAST settlement: pre-settle the step so ordinary is last.
-    allSettled: { build: (s, o) => Promise.allSettled([s, o]), settleStepFirst: true },
-    all: { build: (s, o) => Promise.all([s, o]), settleStepFirst: true },
+    allSettled: { build: (s, o) => Promise.allSettled([s, o]), settleStepFirst: true, expectedCode: 'unsettled_derived_work' },
+    all: { build: (s, o) => Promise.all([s, o]), settleStepFirst: true, expectedCode: 'unsettled_derived_work' },
     // Resolve on the EARLIEST: leave the step pending so ordinary wins.
-    any: { build: (s, o) => Promise.any([o, s]), settleStepFirst: false },
-    race: { build: (s, o) => Promise.race([o, s]), settleStepFirst: false },
+    any: { build: (s, o) => Promise.any([o, s]), settleStepFirst: false, expectedCode: 'operation_callback_failed' },
+    race: { build: (s, o) => Promise.race([o, s]), settleStepFirst: false, expectedCode: 'operation_callback_failed' },
     // Not an aggregate; the control that a plain passthrough still holds.
-    resolve: { build: (s) => Promise.resolve(s), settleStepFirst: false },
+    resolve: { build: (s) => Promise.resolve(s), settleStepFirst: false, expectedCode: 'unsettled_derived_work' },
   };
   it.each(Object.keys(combinators))(
     'refuses a deferred derived failure consumed through Promise.%s',
@@ -286,7 +295,7 @@ describe('authored flow lifecycle through the journal executor', () => {
         // which would pass the row for the wrong reason.
         await step;
         f.done('success');
-      }))).rejects.toMatchObject({ code: 'unsettled_derived_work' });
+      }))).rejects.toMatchObject({ code: testCase.expectedCode });
       expectNoTerminalStart(startedBefore);
     },
   );
