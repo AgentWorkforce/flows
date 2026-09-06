@@ -1,0 +1,152 @@
+name: Publish Relayflow v2 packages
+
+# Provenance, not a token. `id-token: write` lets npm mint an OIDC-backed
+# attestation tying each tarball to this workflow and commit, which is how every
+# other package in this org is published. No NPM_TOKEN secret is involved.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack and validate without publishing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # The binaries have to exist on the registry before anything that depends on
+  # them. Today nothing does, but the ordering is the same one agent-relay's
+  # publish workflow documents the hard way: a wrapper that declares an
+  # exact-version optionalDependency races the registry if it publishes first.
+  runtime:
+    name: "@relayflows/runtime-linux-x64"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Plain `cargo`, NOT ops/cargo.sh: that wrapper redirects CARGO_TARGET_DIR
+      # outside the tree, and the staging step below reads from kernel/target.
+      - name: Build relayflowd
+        working-directory: kernel
+        run: cargo build --locked --release -p relayflowd
+
+      - name: Build standalone flows CLI
+        run: |
+          set -euo pipefail
+          mkdir -p dist/publish-input
+          bun build sdk/src/cli.ts \
+            --compile \
+            --target=bun-linux-x64 \
+            --outfile=dist/publish-input/flows
+
+      - name: Stage binaries into the package tree
+        run: |
+          set -euo pipefail
+          cp kernel/target/release/relayflowd packages/runtime-linux-x64/bin/relayflowd
+          cp dist/publish-input/flows packages/runtime-linux-x64/bin/flows
+          chmod +x packages/runtime-linux-x64/bin/relayflowd packages/runtime-linux-x64/bin/flows
+          ls -lh packages/runtime-linux-x64/bin/
+
+      # A published binary that cannot run is worse than a failed publish: it
+      # fails at the consumer, after install, with no signal here.
+      - name: Smoke the staged binaries
+        run: |
+          set -euo pipefail
+          packages/runtime-linux-x64/bin/relayflowd --help > /dev/null
+          packages/runtime-linux-x64/bin/flows check --json testdata/hello-deterministic.flow.yaml > /dev/null
+          echo "both binaries execute"
+
+      - name: Update npm for OIDC support
+        run: npm install -g npm@latest
+
+      # `npm pack` proves the tarball contains what `files` claims before any
+      # publish decision. Publishing is the irreversible half; this is not.
+      - name: Pack and inspect
+        working-directory: packages/runtime-linux-x64
+        run: |
+          set -euo pipefail
+          npm pack --ignore-scripts
+          tar -tzf relayflows-runtime-linux-x64-*.tgz | sed 's/^/  /'
+          tar -tzf relayflows-runtime-linux-x64-*.tgz | grep -q 'package/bin/relayflowd'
+          tar -tzf relayflows-runtime-linux-x64-*.tgz | grep -q 'package/bin/flows'
+
+      - name: Publish
+        if: inputs.dry_run == false
+        working-directory: packages/runtime-linux-x64
+        run: |
+          set -euo pipefail
+          PKG=$(node -p "require('./package.json').name")
+          VER=$(node -p "require('./package.json').version")
+          # Republishing a version is refused by the registry anyway; skipping
+          # keeps a re-dispatch idempotent instead of failing the whole run.
+          if npm view "${PKG}@${VER}" version >/dev/null 2>&1; then
+            echo "${PKG}@${VER} already published; skipping"
+            exit 0
+          fi
+          npm publish --access public --provenance --ignore-scripts
+
+  surface:
+    name: "@relayflows/surface"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
+      # `--ignore-scripts` on install, then an explicit build: the package's own
+      # `prepare` runs `bun run build`, and npm runs a file: dependency's
+      # prepare before its devDependencies are present, which is exactly how a
+      # plain `npm ci` fails here.
+      - name: Build the surface
+        working-directory: surface
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile --ignore-scripts
+          bun run build
+          test -f dist/index.js
+
+      - name: Update npm for OIDC support
+        run: npm install -g npm@latest
+
+      - name: Pack and inspect
+        working-directory: surface
+        run: |
+          set -euo pipefail
+          npm pack --ignore-scripts
+          tar -tzf relayflows-surface-*.tgz | sed 's/^/  /'
+          tar -tzf relayflows-surface-*.tgz | grep -q 'package/dist/index.js'
+
+      - name: Publish
+        if: inputs.dry_run == false
+        working-directory: surface
+        run: |
+          set -euo pipefail
+          PKG=$(node -p "require('./package.json').name")
+          VER=$(node -p "require('./package.json').version")
+          if npm view "${PKG}@${VER}" version >/dev/null 2>&1; then
+            echo "${PKG}@${VER} already published; skipping"
+            exit 0
+          fi
+          npm publish --access public --provenance --ignore-scripts

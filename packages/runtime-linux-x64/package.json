@@ -1,0 +1,21 @@
+{
+  "name": "@relayflows/runtime-linux-x64",
+  "version": "2.0.0",
+  "description": "Relayflow v2 runtime for linux-x64: the relayflowd kernel and the flows CLI, as prebuilt binaries",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AgentWorkforce/flows.git",
+    "directory": "packages/runtime-linux-x64"
+  },
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "files": ["bin/"],
+  "bin": {
+    "relayflowd": "./bin/relayflowd",
+    "flows": "./bin/flows"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

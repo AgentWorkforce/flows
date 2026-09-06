@@ -1,6 +1,6 @@
 {
   "name": "@relayflows/surface",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "description": "TypeScript authoring surface for Relayflows.",
   "type": "module",
   "main": "./dist/index.js",
@@ -30,5 +30,10 @@
   "devDependencies": {
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AgentWorkforce/flows.git",
+    "directory": "surface"
   }
 }
