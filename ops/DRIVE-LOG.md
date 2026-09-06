@@ -8413,3 +8413,40 @@ consequential one.
 **Fifth identical NEEDS_HUMAN.** #189, #199, #201, #202, #203 — same two
 environment faults, five full cycles spent. I can disprove the first with a
 green suite. The harness assertion is overdue.
+
+## 2026-09-06 tick — two corrections, and the second changes what five runs mean
+
+Went to add an environment preflight to `workflows/drive.yaml` and found **it is
+already there**:
+
+    if [ ! -d sdk/node_modules ]; then
+      out=$(cd sdk && run_bounded "npm ci" npm ci 2>&1); rc=$?
+      if [ $rc -ne 0 ]; then
+        echo "VERIFY_FAIL: npm ci failed — cannot test what did not install"; exit 1
+      fi
+    fi
+
+It even repairs exec bits on `node_modules/.bin` afterwards. **I recommended
+this exact assertion five times, on five PRs, without ever opening drive.yaml.**
+Same failure as the `cloud login` options and the `@agent-relay/cloud`
+dependency: confident advice from a summary I never checked against the file.
+
+**The second correction is the substantive one.** Because `npm ci` demonstrably
+succeeds in those sandboxes, my explanation — "the sandbox could not reach an
+analyzer" — cannot be right. If `probeAnalyzer` had failed, the test fails closed
+with `LIVE_ANALYZER_UNAVAILABLE` and never reaches the verification assertion.
+Five runs reported the VERIFICATION assertion. So the probe passed, the analyzer
+was invoked, the step reached `done`, and the completion carried
+`verification: null`.
+
+**The analyzer ran and something about that invocation failed, and the kernel
+erased the reason.** That is #195 exactly — and it promotes #196 from a
+diagnostic nicety to the thing that would have told five runs what went wrong.
+
+It also means a real analyzer-side fault may exist in the sandbox — mid-run auth
+expiry, malformed response, model refusal — that nobody can see, and my green
+suite does NOT rule out. My green run explains why I cannot reproduce it; it does
+not explain what failed for them. I had been treating those as the same claim
+across four PR comments.
+
+Did not touch drive.yaml. There was nothing to add.
