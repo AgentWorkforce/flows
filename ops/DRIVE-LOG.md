@@ -9570,3 +9570,25 @@ No work taken. The lane's remaining items all need a human:
 
 Nothing here I can move without one of those, and a fifth restatement of the same
 blockers is not work.
+
+## 2026-09-06 tick — the tick prompt itself is the stale work package
+
+Quiet otherwise: no open PRs, queue clean, disk 17Gi, runtime 2.0.0 still
+undeprecated.
+
+Checked the tick's own items and they are dead: **#134 merged 2026-09-04 08:42,
+#139 merged 09:42** — two days ago, before this session started. Item 2 names a
+preview run dispatched 20:17Z yesterday. Three of four numbered items have been
+stale for the entire ~18 hours of ticking, and every tick I have re-derived that
+before finding real work.
+
+That is precisely the failure #210 fixed one level down: my `ops/NEXT.md` pointed
+drive runs at human-blocked work and got four "I am blocked" reports back. The
+same shape was above me the whole time and I kept noting it in passing rather
+than fixing it.
+
+Wrote a replacement prompt into the inbox for Khaliq to paste into the cron:
+drain check, credential gate, release, #174, triage — plus the rules this session
+actually paid for, including `node agent list` over `agent list` for liveness,
+the npm userconfig workaround, free-disk-before-diagnosing, and that exit 124 is
+a timeout rather than a failure.
