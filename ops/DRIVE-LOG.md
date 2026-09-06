@@ -9529,3 +9529,29 @@ right to. This one I under-weighted: I noted the preflight got simpler without
 noticing it had stopped saying which variable was missing. Not worth reverting a
 merged change over, and it is a one-line fix for whoever next touches the gate —
 which cannot be me.
+
+## 2026-09-06 — PR board is clear; published packages verified working; broken runtime is inert
+
+**No open PRs.** Everything opened tonight is merged or closed.
+
+**Verified the published packages from a consumer's position**, which nobody had
+done — the manual publish had only been checked by reading tarball listings:
+
+    npm install @relayflows/sdk@2.0.0     added 12 packages in 2s
+    node_modules/.bin/flows -> ../@relayflows/sdk/dist/cli.js
+    ./node_modules/.bin/flows --help      REFUSED [invalid_invocation] Usage: flows check ...
+    @relayflows/surface 2.0.0  main ./dist/index.js   (from registry, not a link)
+
+The CLI runs and prints its own usage. Surface resolves from the registry with a
+real entry point. So sdk and surface are genuinely usable, not merely present.
+
+**And I owe a recalibration on the broken runtime.** I flagged
+`runtime-linux-x64@2.0.0` as urgent. Checking the dependency graph:
+`@relayflows/sdk@2.0.0` depends on `@relayflows/surface` and third-party packages
+— **not** the runtime, and nothing else in the repo references it. So its blast
+radius is anyone who explicitly installs it, with no transitive exposure.
+
+It is still wrong and still worth deprecating, but it is inert rather than
+dangerous, and I described it in stronger terms than the evidence supported. The
+check that settled it — read the dependents, not just the artifact — took one
+command and I should have run it before calling it urgent.
