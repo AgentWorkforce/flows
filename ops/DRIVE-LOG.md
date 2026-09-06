@@ -9191,3 +9191,40 @@ The runbook never mentions `cld_at_` at all, describes a credential with
 `CI_TOKEN_PROFILE=workflow-invoke ... npm run mint-ci-token`, and says in as many
 words: *"Do not substitute a human CLI session, Relay workspace token, Relaycast
 key, or another service token."*
+
+## 2026-09-06 — #206 MERGED, pipeline dispatched, and its first run failed on its own test
+
+**#205 and #206 are both merged.** `main` has `packages/{sdk,surface,runtime-linux-x64}`
+and the release pipeline. Main CI green at `5ca5a7a`.
+
+Merging #206 put publish.yml on the **default branch**, which finally made
+`workflow_dispatch` reachable — the thing I could not do before merge. Dispatched
+run 34035686278 with `dry_run: true`.
+
+**It failed at step 7 of 17: `Test release tooling`** — codex's own test of its
+release scripts. Everything after is `skipped`, so `Version all packages`, the
+pack-and-assert steps and the runtime binary build are all still unexercised.
+
+The cause is precise:
+
+    The input did not match /missing package\/dist\/index.js/. Input:
+      > @relayflows/surface@2.0.0 prepare
+      > bun run build
+      $ tsc
+      error: script "build" exited with code 1
+
+The fixture copies each real `package.json` verbatim, `prepare` included, and
+**npm ran `prepare` despite `--ignore-scripts`** — `bun run build` -> `tsc`
+inside a `mkdtemp` that installs no toolchain. npm failed before pack-release
+could emit the error the test asserts on.
+
+**And this is the important part: that test passes on my machine, and passed
+before the fix.** It was reading the developer's environment rather than the
+code, because this host has the toolchain the fixture never installs. Exactly the
+shape of the analyzer test that has only ever run here. I ran it locally twice
+today and took the green as evidence about the code; it was evidence about my
+laptop.
+
+Fixed in **#209** by dropping the packaging lifecycle hooks from the fixture.
+Explicitly did NOT claim the local pass as verification — CI is the only
+instrument that can settle this one.
