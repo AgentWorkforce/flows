@@ -10075,3 +10075,51 @@ modules: `relayflow-v2-executor.ts`, `-state.ts`, `-process.ts`,
 Resisting a false finding was the main discipline here: three plausible bugs,
 each one dissolved by reading the adjacent code rather than reporting the
 suspicion.
+
+## 2026-09-06 tick — review part 2: found a fail-open in #3270's resume authority pin
+
+No state change: credential still fails JWT decode, no new preview runs, #3270
+still CLEAN with zero reviews. Continued the review into the modules I had
+explicitly left.
+
+**Finding (posted to the PR).** `runRelayflowV2` refuses a resume whose durable
+state was created under a different artifact:
+
+    // executor.ts:54-61
+    const resumePointer = await readRelayflowV2StatePointer(
+      stateRoot, options.resumeRunId, options.authority);
+    if (!relayflowV2AuthorityEquals(resumePointer.authority, options.authority)) throw ...
+
+The caller's authority goes IN to the reader and is compared against what comes
+OUT. Fast path is fine — a parseable pointer carries an authority from disk. The
+recovery path is not:
+
+    // state.ts:104-105
+    const recoveredAuthorities = new Map<...>();
+    if (expectedAuthority) recoveredAuthorities.set(cloudRunKey, expectedAuthority);
+
+`cloudRunKey` is always a candidate. Every OTHER candidate must have its
+authority parsed from an on-disk alias (`:129`), whose catch explicitly says an
+unauthenticated legacy alias cannot recover authority. The cloudRunKey entry
+skips that. So when that directory has one journal and no valid alias, the
+returned authority IS `options.authority` and `executor.ts:59` cannot fail.
+
+The inverted part: passing `expectedAuthority` is what ADMITS that candidate.
+Without it, `:150`'s `if (!authority) continue` would skip the directory. The
+parameter's presence weakens the check.
+
+Bounded: needs a missing or unparseable alias, and the normal write path always
+writes one. A fail-open in a degraded path, not the happy path — but the
+degraded path is exactly where the pin matters.
+
+Proposed fix: stop seeding the map from the caller; admit cloudRunKey only via
+an authenticated alias, then drop `expectedAuthority` from both signatures.
+Flagged that it may be a deliberate bootstrap allowance, in which case it needs
+a comment — and named the test that would settle it (resume with mismatched
+authority and a deleted alias; should fail today if I am right).
+
+**Not verified by execution** — this is a control-flow reading, and I said so on
+the PR. Contrast with the three suspicions last tick, all of which dissolved on
+closer reading; this one survived the same scrutiny.
+
+Still unreviewed: `relayflow-v2-process.ts`, `launch-worker.ts`, prove script.
