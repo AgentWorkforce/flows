@@ -10376,3 +10376,38 @@ kernel primitives no author can reach. The gap is frequently the surface, not
 the engine.
 
 Ledger updated: https://claude.ai/code/artifact/1edcf8ae-af0c-4115-b953-df5bd8cdd0c9
+
+## 2026-09-06 tick — checked WHERE the journal entries are emitted; reverted my own gate-4 upgrade
+
+Credential unchanged. Spent the tick verifying last tick's ledger correction
+instead of building on it, because it rested on entry-kind names alone.
+
+**I over-corrected gate 4 and have walked it back.** Last tick I upgraded it to
+"Kernel only" on the strength of `wait.human` existing in `EntryType`. Checking
+the construction site: it is emitted from `machine/recovery.rs:137`, and its own
+test asserts "manual recovery must park on wait.human". That is the kernel
+parking for MANUAL INTERVENTION during recovery — adjacent to approval, and
+reusable for it, but not an approval an author can request. Confirming from the
+other side: `StepType` is exactly `Deterministic | Llm | Agent` in BOTH
+`packages/sdk/src/spec.ts:16` and `kernel/relayflowd-core/src/spec.rs:383`, so
+there is no step that could ever produce an authored wait. Gate 4 is back to
+Not started.
+
+**Gate 2 held up, and for better reasons than I gave.** The trigger plane is
+genuinely wired, not merely declared: `engine/wake.rs:234-239` appends
+`subscription.registered`, `event.received` and `subscription.matched`;
+`engine/drive.rs:172` consumes matches; `server/liveness.rs:181` emits
+`subscription.stale`, which is the staleness sweep the gate demands. And
+triggers ARE authorable — `triggers?: TriggerSpec[]` at spec.ts:239, which my
+earlier "triggers: 2" grep under-read.
+
+Tally is back to **2 met, 3 partial, 4 not started** — a full round trip. Saying
+that plainly rather than quietly reverting the number.
+
+**The rule this produced, now in the ledger's lede:** where a journal entry
+exists for a gate, check what EMITS it before counting it. An enum variant is a
+vocabulary word, not a capability; more than one here serves recovery rather
+than the gate it appears to belong to. Same family as the earlier lesson that a
+code comment is a claim rather than evidence.
+
+Ledger: https://claude.ai/code/artifact/1edcf8ae-af0c-4115-b953-df5bd8cdd0c9
