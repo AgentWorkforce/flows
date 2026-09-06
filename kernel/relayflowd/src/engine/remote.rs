@@ -71,7 +71,10 @@ impl Engine<WallClock> {
         // output the worker sent with its failing completion — and that is
         // exactly what gets nulled. Capture it here, bounded, or the run records
         // that the step failed and discards every trace of why.
-        let mut failure_detail = failure_reason.and_then(|_| worker_failure_detail(&completion.output));
+        let mut failure_detail = failure_reason
+            .is_some()
+            .then(|| worker_failure_detail(&completion.output))
+            .flatten();
         let mut rejected_completion = false;
         let mut reject = |error: anyhow::Error| {
             rejected_completion = true;
@@ -349,7 +352,9 @@ fn next_stream_offset(journal: &SqliteJournal, stream: &str) -> Result<u64> {
 /// keeps the caller's fallback ("reported X without detail") honest rather than
 /// recording an empty string as though it were a diagnostic.
 fn worker_failure_detail(output: &Value) -> Option<String> {
-    const MAX: usize = 2000;
+    // Chars, not bytes: the cut below is by char index. The suffix reports the
+    // remainder in bytes, which is why both units appear in one function.
+    const MAX_CHARS: usize = 2000;
     if output.is_null() {
         return None;
     }
@@ -363,8 +368,66 @@ fn worker_failure_detail(output: &Value) -> Option<String> {
     }
     // Truncate on a char boundary; `output` is arbitrary worker-supplied data
     // and slicing it by byte index would panic on multi-byte input.
-    Some(match trimmed.char_indices().nth(MAX) {
+    Some(match trimmed.char_indices().nth(MAX_CHARS) {
         None => trimmed.to_owned(),
         Some((cut, _)) => format!("{}… ({} bytes truncated)", &trimmed[..cut], trimmed.len() - cut),
     })
+}
+
+#[cfg(test)]
+mod worker_failure_detail_tests {
+    use super::worker_failure_detail;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn a_null_or_blank_output_yields_no_detail() {
+        // The caller's fallback ("reported X without detail") is only honest if
+        // this returns None rather than an empty string dressed as a diagnostic.
+        assert_eq!(worker_failure_detail(&Value::Null), None);
+        assert_eq!(worker_failure_detail(&json!("")), None);
+        assert_eq!(worker_failure_detail(&json!("   \n\t ")), None);
+    }
+
+    #[test]
+    fn a_string_output_is_carried_verbatim_and_trimmed() {
+        assert_eq!(
+            worker_failure_detail(&json!("  analyzer exited 1: no such model  ")),
+            Some("analyzer exited 1: no such model".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_non_string_output_is_rendered_rather_than_dropped() {
+        // A worker that reports structured failure data must not have it
+        // discarded just because it is not a bare string.
+        assert_eq!(
+            worker_failure_detail(&json!({"code": 2})),
+            Some(r#"{"code":2}"#.to_owned())
+        );
+    }
+
+    /// The comment on the truncation names a panic mode — byte slicing on
+    /// multi-byte input — and nothing tested it. A future "simplification" back
+    /// to `&trimmed[..MAX_CHARS]` panics here instead of in production.
+    #[test]
+    fn truncation_does_not_split_a_multi_byte_char() {
+        // 3000 two-byte chars: every candidate byte index near the cut lands
+        // mid-char, so a byte slice would panic.
+        let output = json!("é".repeat(3000));
+        let detail = worker_failure_detail(&output).expect("detail for a long output");
+        assert!(detail.contains('…'), "expected a truncation marker, got {detail:?}");
+        assert!(detail.contains("bytes truncated"));
+        // Cut at 2000 chars, so 1000 chars * 2 bytes remain.
+        assert!(
+            detail.contains("2000 bytes truncated"),
+            "expected the byte remainder, got {detail:?}"
+        );
+        assert_eq!(detail.chars().take_while(|c| *c == 'é').count(), 2000);
+    }
+
+    #[test]
+    fn an_output_at_the_boundary_is_not_truncated() {
+        let exact = "a".repeat(2000);
+        assert_eq!(worker_failure_detail(&json!(exact.clone())), Some(exact));
+    }
 }
