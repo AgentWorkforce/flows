@@ -7334,3 +7334,40 @@ the panic is decoration: reintroduced the byte slice, watched
 Recorded the signoff on #196 with an explicit statement of what it is NOT: one
 lens, locally, on my own patch — evidence for a reviewer, not satisfaction of the
 merge rule. Still not merging.
+
+## 2026-09-06 tick — second lens on #196; it caught one thing having two names
+
+#196 at `8ff925d`: artifact green, CodeRabbit green, `review` still red on the
+repo-wide `agent-relay: command not found`. Ran the STRUCTURE lens (opencode /
+deepseek) rather than a second pass of the same model, so the evidence is not
+one family reviewing itself.
+
+**`REVIEW_PASSED`, no blockers, two concerns.**
+
+**Concern 1 was right, and worse than it knew.** It flagged
+`format!("{reason:?}")` as leaking Rust `Debug` into journal text, against RFC
+Covenant 1 ("the author's vocabulary, never engine internals"). Debug emits
+`WorkerError`. But `CompletionReason` serializes `rename_all = "snake_case"`, so
+the `completionReason` field sitting directly beside my string already said
+`worker_error` — **one thing with two spellings depending on which field you
+read**, inside a record whose only job is telling a human why their step failed.
+I introduced that while fixing a diagnostic-loss bug.
+
+Fixed in `92a25e1` with `reason_label` over the serde representation, and the
+regression test now pins the string rather than leaving the contract implicit:
+it asserts `worker_error`, so a silent return to Debug fails it. That also makes
+the test self-verifying — it passes only because the helper works.
+
+**Concern 2 I declined, on the merits and said so.** It observed that machine.rs
+now documents a cross-component invariant the boundary must uphold. Fair, but
+this change *reduces* that coupling: core no longer depends on the detail being
+present, and that dependency was the bug. Closing it properly needs a type making
+"reason without detail" unrepresentable — a larger refactor than a diagnostic fix
+should smuggle in. Recorded as worth an issue, not this PR.
+
+The lens independently confirmed the boundary split matches RFC §4 and called the
+multi-byte truncation test exemplary — the test the *other* lens had to ask for,
+which is the argument for running lenses of different kinds.
+
+`cargo test --workspace`: **164 passed, 0 failed.** Still not merging: two lenses
+by the same agent that wrote the patch is evidence, not the gate.
