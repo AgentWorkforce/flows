@@ -9133,3 +9133,32 @@ My recommendation stays the API key: the runbook mints exactly that
 awkward — every refresh rotates the refresh token server-side and invalidates the
 secret a job cannot write back. But it is a real choice between two implemented
 designs, not a gap, and it is Khaliq's.
+
+## 2026-09-06 — rebased #206 onto fixed #205; answered the refresh-token question
+
+Rebased #206 (`feat/publish-packages`) onto current `refactor/packages-layout`.
+Clean, no conflicts, now `c97c8b4` / MERGEABLE. Verified both sides survived:
+manifests still 2.0.0 / Apache-2.0 / repository set / no `file:` deps, the
+pipeline files all present, and my layout fixes intact (`cd packages/sdk` ×2 in
+drive.yaml, `working-directory: packages/surface`, the canonical spec pair).
+
+Ran **codex's own release-tooling test** before pushing — `node
+scripts/publish.test.mjs`, exit 0. Its pipeline ships tests for itself, which is
+the right instinct and meant I could check its work with its own instrument.
+
+I had declined this rebase last tick on the grounds that it was codex's branch
+and I had already caused one collision. That reasoning expired: codex-sfm is
+released and codex-finn finished, so nobody was going to do it, and #206's red
+checks were caused by MY bug in #205. Fixing the consequence of my own defect is
+not the same as taking over someone's work.
+
+**Khaliq asked why a refresh token is needed. It is not — under the design I am
+recommending.** The refresh token is a requirement of main's CURRENT session-token
+implementation, which reads `CLOUD_API_ACCESS_TOKEN` + `CLOUD_API_REFRESH_TOKEN`
+that only exist in a local login's `cloud-auth.json`. Getting them means logging
+in on a machine and extracting them from disk — and main's own comments document
+the trap that follows: every refresh rotates the refresh token server-side,
+invalidating the copy held in the secret, which a job cannot write back.
+
+The runbook path issues no refresh token at all. `CI_TOKEN_PROFILE=workflow-invoke`
+prints `CLOUD_API_URL` and `CLOUD_API_KEY`, and that is the whole credential.
