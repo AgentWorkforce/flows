@@ -9447,3 +9447,19 @@ What I can say usefully: the scratchpad convention means every long session
 accumulates GB of checkouts under /private/tmp, and nothing reaps them while the
 session lives. This machine now has three such directories from sessions on one
 project. That is a fleet-level hygiene problem worth a policy, not a one-off deletion.
+
+## 2026-09-06 tick — quiet
+
+Disk 11Gi/95%, queue clean, no new PRs, no #3270 preview dispatch (the latest
+Preview run is another branch entirely).
+
+Four PRs open, all reviewed, all waiting on Khaliq:
+
+    #207  swap the gate to CLOUD_API_KEY      — needs the credential decision
+    #208  gate-3 assessment                    — collides with #207, stale if #207 lands
+    #209  hermetic release-tooling fixture     — unblocks the publish dry run
+    #210  retarget NEXT.md at #174             — stops drive runs re-reporting a block
+
+No work taken. Everything reachable is done; what remains needs a decision or a
+secret, and inventing a fifth review of the same gate would be worse than
+stopping.
