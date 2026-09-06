@@ -81,7 +81,7 @@ jobs:
         run: cargo test --workspace
 
       - name: Build authoring surface
-        working-directory: surface
+        working-directory: packages/surface
         run: |
           bun install --frozen-lockfile --ignore-scripts
           bun run build
@@ -90,10 +90,10 @@ jobs:
       # npm runs the file: dependency's prepare before its own devDependencies
       # exist. The SDK's own build is the next step, so nothing is skipped.
       - name: Install SDK dependencies
-        run: npm ci --prefix sdk --ignore-scripts
+        run: npm ci --prefix packages/sdk --ignore-scripts
 
       - name: Test SDK and type-level authoring contracts
-        working-directory: sdk
+        working-directory: packages/sdk
         env:
           # `live-kernel.test.ts` runs one case against the REAL Claude analyzer
           # and fails by default when it cannot, deliberately: an unavailable
