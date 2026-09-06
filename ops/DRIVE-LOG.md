@@ -8867,3 +8867,37 @@ same shape as the skipped analyzer test I criticised five drive runs for.
 
 Fixed at `ff50419` and `1c7f85b`. Residual sweep with a pattern that catches all
 forms is clean; `@relayflows/surface` specifiers are package names and untouched.
+
+## 2026-09-06 — the gate script PASSES on the moved layout. Codex telemetry failed twice.
+
+**Real verification, at last.** `scripts/surface-package-gate.sh` — the body of
+the `packed-consumer` check, and the thing the structure lens said was broken —
+runs end to end on `refactor/packages-layout`, exit 0:
+
+    PACKED_RUNTIME_OK name=packed-runtime-consumer completionReason=success
+    PACKED_RUNTIME_REFUSAL_OK invalidHeaders=9 forgedHandle=refused
+    PACKED_TYPESCRIPT_OK
+    Test Files 1 passed (1)   Tests 23 passed (23)
+
+That exercises packing, a packed-runtime consumer, refusal semantics and the
+TypeScript consumer — none of which the vitest suite touches. It is the first
+evidence about this refactor that is not circular.
+
+**It only ran because of the npm workaround.** The first attempt sat at 0:00.00
+CPU from 12:58 onward: `~/.npmrc` is a symlink into Dropbox and any bare `npm`
+hangs with no output. `NPM_CONFIG_USERCONFIG=/tmp/empty-npmrc` fixed it. Worth
+noting the gate itself calls bare `npm`, so **this gate cannot be run locally on
+this host without that override** — in CI it is fine.
+
+**Codex telemetry failed twice, differently each time.** finn-mini: I forgot
+`--channel`. sf-mini: I passed `--channel flows-packages-0906` and the channel
+**did not exist** — `fleet spawn --channel` does not create one, so the agent was
+told to check in somewhere unreachable. I created it after the fact; it is empty.
+
+    codex-finn-0906   offline   last seen 10:50:47
+    codex-sfm-0906    unknown   last seen 11:12:19  (spawned 11:10:52)
+
+Both look like ~1-2 minutes of life. I am not spawning a third time. The pattern
+across two nodes and one local run is consistent with an account-scoped codex
+limit, and my two attempts to instrument it failed for reasons that were mine,
+not codex's — a missing flag, then a missing channel.
