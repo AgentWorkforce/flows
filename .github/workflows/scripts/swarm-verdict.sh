@@ -9,9 +9,11 @@ swarm_latest_transcript() {
 }
 
 swarm_transcript_verdict() {
-  local transcript=$1 token
-  token=$(awk 'NF { last=$NF } END { print last }' "$transcript")
-  case "$token" in
+  local transcript=$1 last_line
+  last_line=$(awk 'NF { last=$0 } END { print last }' "$transcript")
+  last_line=${last_line#"${last_line%%[![:space:]]*}"}
+  last_line=${last_line%"${last_line##*[![:space:]]}"}
+  case "$last_line" in
     REVIEW_PASSED) printf '%s\n' PASSED ;;
     REVIEW_FAILED) printf '%s\n' FAILED ;;
     *) printf '%s\n' UNCLEAR ;;

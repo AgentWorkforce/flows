@@ -52,6 +52,7 @@ jobs:
         run: |
           ../gate-files/.github/workflows/scripts/swarm-prepare.sh \
             "${{ github.event.pull_request.number }}"
+          mkdir -p .github/workflows/scripts
           cp ../gate-files/.github/workflows/scripts/swarm-verdict.sh \
             .github/workflows/scripts/swarm-verdict.sh
           git add -f .github/workflows/scripts/swarm-verdict.sh
@@ -73,6 +74,7 @@ jobs:
         env:
           RELAY_API_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
         run: |
+          set +e
           # Ordering invariant: swarm 60m < this poll deadline 65m < job 75m.
           deadline=$((SECONDS + 3900))
           status=timed_out
@@ -81,7 +83,11 @@ jobs:
               status=status_error
               break
             }
-            status=$(jq -r '.status // "unknown"' <<<"$response")
+            parsed_status=$(jq -er '.status' <<<"$response") || {
+              status=status_error
+              break
+            }
+            status=$parsed_status
             case "$status" in
               completed|failed|cancelled) break ;;
             esac
