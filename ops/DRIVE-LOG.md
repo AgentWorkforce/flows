@@ -9688,3 +9688,35 @@ The practical consequence is unchanged either way: whether minting moves behind 
 admin route is his design call, and the narrow fix — making `CI_TOKEN_PROFILE`
 required instead of silently defaulting to `deployment` — is worth doing
 regardless.
+
+## 2026-09-06 — CI credential minting: filed cloud#3391, proposed workflow path
+
+Filed **cloud#3391**: `CI_TOKEN_PROFILE` silently defaults to `deployment`, so
+omitting it mints deployment scopes while printing a valid-looking key. The gate
+then fails authentication with nothing pointing at the credential *type*.
+Argument rests on in-file inconsistency: `resolveCiTokenWorkspaceId`
+(`mint-ci-token-profile.ts:49-58`) already throws for a missing input on this
+exact profile.
+
+Khaliq asked whether a GitHub Action could do the minting. Evidence says yes,
+and that the manual procedure rests on a stale premise:
+
+- `mint-ci-token.ts` header claims it "requires the SST tunnel for DB access".
+- `.github/actions/run-drizzle-migrations/run.sh:7-9` states Neon is a public
+  TLS endpoint and the tunnel machinery existed only for VPC-private Aurora.
+- Migrations against that same database already run in CI on every deploy
+  (`preview.yml:333`), authenticating by OIDC and resolving resources through
+  `npx sst shell --stage "$stage" -- ...`.
+
+Not proven — I have not run the mint script tunnel-less — but strong.
+
+Proposed shape on the issue: `workflow_dispatch` → OIDC → `sst shell` → mint →
+`gh secret set` into the consuming repo. Plaintext never leaves the runner
+(today it crosses a terminal and a clipboard), and dispatch permission is the
+admin gate, so no admin UI is needed. `profile` becomes a required enumerated
+input, which dissolves the defect above rather than detecting it.
+
+**Gap:** cloud carries only the default `GITHUB_TOKEN`, scoped to itself, so it
+cannot write a secret into flows. Needs a GitHub App token with `secrets: write`
+on the target — the same grant already blocking the flows dispatch path. One
+grant unblocks both; not worth a separate long-lived PAT meanwhile.
