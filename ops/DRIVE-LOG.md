@@ -8596,3 +8596,40 @@ prefix on every name.
 Left two decisions explicitly unmade in that PR: `license` is `UNLICENSED`, which
 is incoherent with `--access public`, and `@relayflows/sdk` stays private. Neither
 is mine.
+
+## 2026-09-06 tick — verified main after the merges; found a flake, not a regression
+
+Merging seven PRs and not checking what they did to `main` would have been the
+obvious way to end the night badly. Checked.
+
+**Two of the post-merge runs failed**, both on
+`llm::sigkill_sweep_covers_before_and_between_the_rung_b_steps` at
+`crash_resume/llm.rs:121` — the `no step.dispatch after resume` assertion.
+
+    faf625b (#193)  success
+    25f38ec (#196)  FAILURE   <- my kernel change
+    082c62a (#203)  success
+    755b37a (#202)  FAILURE
+    99b6f61 (#198)  success
+    everything before today: success
+
+The first failure is on **my** kernel commit and every earlier `main` run passed,
+which reads exactly like a regression I introduced. It is not, and the
+disconfirming evidence is clean: `755b37a` is a shell-only change to
+`swarm-verdict.sh` that cannot touch the kernel, and it failed, while `99b6f61`
+passed with identical kernel code. The same workflow also failed on three other
+branches on 09-05, before any of today's merges.
+
+**Issue #174 documents this exact hang and was CLOSED.** Reopened it with the
+evidence.
+
+**The real explanation is sample size, not failure rate.** `main` sees about one
+run a day; today it saw seven in ten minutes. A ~2-in-7 intermittent failure is
+invisible at the former and glaring at the latter. Nothing got worse — the
+measurement got denser.
+
+Worth keeping as a general shape: **a defect that appears exactly when you start
+merging faster is usually a flake meeting a larger sample, not a regression.**
+And the way to tell them apart is to find a commit that could not possibly have
+caused it and check whether it failed too. That test took one command and settled
+what an hour of reading the kernel diff would not have.
