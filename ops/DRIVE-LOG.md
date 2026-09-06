@@ -10302,3 +10302,41 @@ Worth an issue.
 Also delivered this tick: the RFC-0001 gate ledger (2 met, 3 partial, 4 not
 started; gate 1's one gap is durable channels) —
 https://claude.ai/code/artifact/1edcf8ae-af0c-4115-b953-df5bd8cdd0c9
+
+## 2026-09-06 tick — the repo's own flows are NOT relayflows the kernel can run
+
+Ran the published v1/v2 tooling against the repo's own operational flows, using
+`@relayflows/sdk@2.0.1`'s `flows check` — i.e. dogfooding the thing we ship.
+
+**All four operational flows are REFUSED by the kernel's own checker:**
+
+    workflows/drive.yaml          REFUSED [invalid_spec]
+      unknown key "swarm" · unknown key "workflows"
+      version "1.0" unsupported (expected "0.1.0")
+      agents: expected a map · steps: expected a non-empty array
+    workflows/{drive-cloud,review-swarm,watchdog}.yaml  REFUSED, identically
+
+**Control (the CLI is not broken):**
+
+    testdata/hello-ladder.flow.yaml   WARNING [unprovable_effects]   accepted
+    testdata/hn-monitor.flow.yaml     GATE json_schema, journal-replayable
+
+**Two dialects, and they are not the same system.**
+- v2 relayflow spec — `version: 0.1.0`, top-level `steps:` — testdata/*.flow.yaml.
+  This is what the kernel executes.
+- agent-relay swarm spec — `version: '1.0'`, `swarm.pattern: dag`, `agents:` as a
+  list, steps nested under `workflows:` — workflows/*.yaml. This is what the
+  drive loop runs on.
+
+So "relayflows v1" is the **swarm plane**, not the relayflow kernel. My #211 fix
+was real and did unblock the drive loop — but it unblocked the v1/swarm loop,
+not a v2 relayflow. Correcting my own framing from last tick, where I called it
+"the dogfooding loop" without qualification.
+
+**Consequence for the spec:** RFC-0001 §2's method — rewrite relayflows using
+relayflows — is NOT in effect for the repo's own drive work, and this appears in
+no gate, because the gates describe what the kernel can do rather than what the
+repo runs on. Ledger updated with the finding and the literal output:
+https://claude.ai/code/artifact/1edcf8ae-af0c-4115-b953-df5bd8cdd0c9
+
+Nothing merged this tick. Credential unchanged.
