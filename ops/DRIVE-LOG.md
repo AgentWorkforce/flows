@@ -8339,3 +8339,40 @@ Worth noting the asymmetry: I have spent tonight criticising these runs for
 auditing structure over behaviour, and #202 is a run that shipped two small,
 correct, behaviour-preserving fixes to the gate. The critique holds for their
 conclusions and not for their code.
+
+## 2026-09-06 tick — applied last tick's lesson; 7.2Gi → 15Gi
+
+Disk had fallen 12Gi → 7.2Gi again in one tick. **Freed first, diagnosed second**
+— the exact inversion of what cost me the outage an hour ago.
+
+First pass found nothing: all six remaining toolchain targets still have live
+daemons. Then the diagnosis, which was the useful part: ~9GB sits in stale
+worktrees, each carrying a **nested `kernel/target`** — the in-tree build cache
+`ops/cargo.sh` exists specifically to prevent, and which the repo documents as
+causing HTTP 413 flush failures that silently lose a run's work.
+
+Sized each against live processes:
+
+    flows-132-parallel-dispatch-wt  2082MB  procs=2   ← left alone
+    flows-173                       2086MB  procs=0
+    flows-cli                       1851MB  procs=0
+    flows-wakectx                   1149MB  procs=0
+    flows-132-surface-wt            1003MB  procs=0
+    flows-fix-sdk-tests              631MB  procs=0
+
+Removed the five unreferenced `kernel/target` directories only — no worktrees, no
+sources. **7.2Gi → 15Gi**, the most headroom all night.
+
+Two things worth keeping:
+
+- **The hazard and the disk pressure are the same object.** Those nested targets
+  are not just bulk; each one is the artifact that makes a sandbox flush fail
+  non-fatally and lose work. Reclaiming them fixes a documented correctness risk
+  as a side effect.
+- **Freeing first cost nothing when it found nothing.** The first pass returned
+  zero bytes and one command. That is the whole price of the rule, against an
+  outage that took the machine down.
+
+Also posted full-suite evidence to #196 — 662 SDK tests pass against that
+branch's kernel, including all 27 live-kernel cases that drive the changed
+completion path through a real daemon. Its prior evidence was kernel-only.
