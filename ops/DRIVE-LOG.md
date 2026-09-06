@@ -7747,3 +7747,41 @@ more effort goes into the CLI path.
 
 Handled no secret: no credential file read, no `--reveal-token` run. Locating a
 mechanism does not require holding the value.
+
+## 2026-09-06 tick — #199 escalated a decision built on a false premise
+
+New drive PR **#199** (`cloud/run-579149fc`, 03:27Z). Note for tick item 1: drive
+runs are landing PRs again (#189 at 19:09, #199 at 03:27), so the launch queue is
+producing even though the review gate's own `cloud run` cannot authenticate.
+
+Its `ops/NEEDS_HUMAN.md` escalates a "gate 3 scope vs DoD conflict" to the
+operator: `cd sdk && npm test` fails with `TS2688: Cannot find type definition
+file for 'node'`, framed as a missing `@types/node` that is Track A's territory,
+with three options and a recommendation to add the dependency.
+
+**Checked the premise first, and it is false.** From `origin/main`:
+
+    sdk/package.json  devDependencies -> {'@types/node': '^22.7.0'}
+    sdk/package-lock.json  node_modules/@types/node  22.20.1
+
+Declared and locked. So TS2688 here is a sandbox that never installed
+`sdk/node_modules`, or whose install failed — not a missing dependency. The two
+produce an identical error, which is what makes it a trap.
+
+**Third time this class has bitten in this repo.** A missing `sdk/dist` produced
+18 failures blamed on product code earlier this cycle; #189's NEEDS_HUMAN hit the
+same `@types/node` question and reported the dep already present; #199 hit it and
+concluded the opposite.
+
+All three of its options answer a non-existent problem, and option C — weaken the
+DoD — would be actively harmful: making a gate permanently blinder to accommodate
+an environment failure. Told it plainly that no operator decision is needed, and
+that "BLOCKED" should read "not attempted" until someone confirms whether
+`npm ci` ran at all.
+
+**Also: `ops/NEXT.md` is now a THREE-way collision** (#189, #194, #199). Whoever
+merges last silently discards the others unless it is consolidated first.
+
+Kept the credit where it belonged — its nine-requirement audit and parse checks
+are real verification, and a run that over-reports a blocker is still better than
+one that swallows it. #189 over-reporting is how #195 got found.
