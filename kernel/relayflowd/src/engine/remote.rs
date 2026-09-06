@@ -65,7 +65,13 @@ impl Engine<WallClock> {
         // A rejected completion names the mistake in the journal. `output` is
         // nulled for every non-success, so the detail rides the completion's
         // verification record — the same channel a failed gate uses.
-        let mut failure_detail = None;
+        //
+        // A WORKER-reported failure gets that treatment too. `OutOfBandCompletion`
+        // carries no error field, so the only account of what went wrong is the
+        // output the worker sent with its failing completion — and that is
+        // exactly what gets nulled. Capture it here, bounded, or the run records
+        // that the step failed and discards every trace of why.
+        let mut failure_detail = failure_reason.and_then(|_| worker_failure_detail(&completion.output));
         let mut rejected_completion = false;
         let mut reject = |error: anyhow::Error| {
             rejected_completion = true;
@@ -336,4 +342,29 @@ fn next_stream_offset(journal: &SqliteJournal, stream: &str) -> Result<u64> {
         }
     }
     Ok(next)
+}
+
+/// The worker's own account of a failure, bounded so a large or hostile output
+/// cannot bloat the journal. `None` when the worker sent nothing useful, which
+/// keeps the caller's fallback ("reported X without detail") honest rather than
+/// recording an empty string as though it were a diagnostic.
+fn worker_failure_detail(output: &Value) -> Option<String> {
+    const MAX: usize = 2000;
+    if output.is_null() {
+        return None;
+    }
+    let rendered = match output {
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
+    };
+    let trimmed = rendered.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Truncate on a char boundary; `output` is arbitrary worker-supplied data
+    // and slicing it by byte index would panic on multi-byte input.
+    Some(match trimmed.char_indices().nth(MAX) {
+        None => trimmed.to_owned(),
+        Some((cut, _)) => format!("{}… ({} bytes truncated)", &trimmed[..cut], trimmed.len() - cut),
+    })
 }

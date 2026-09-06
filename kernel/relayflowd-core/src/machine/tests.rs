@@ -489,3 +489,71 @@ impl AppendAction for Action {
         }
     }
 }
+
+/// Regression, 2026-09-06 (#195): a WORKER-reported failure carries no
+/// `failure_detail` — that field is set only for kernel-side rejections — and
+/// the completion used to map over it, journaling `verification: null`. The
+/// reason then survived only as the taxonomy label, which is precisely what the
+/// branch was written to prevent, and `output` is nulled for every non-success
+/// so nothing else carried it either.
+///
+/// Every other row in this file sets `failure_detail: Some(..)`, so the whole
+/// suite exercised the arm that worked and none of it touched the arm that did
+/// not. This asserts the arm that did not.
+#[test]
+fn worker_reported_failure_without_detail_still_records_a_verification() {
+    let spec: crate::RunSpec = serde_json::from_value(json!({
+        "version": "0.1.0",
+        "steps": [
+            {
+                "id": "only",
+                "type": "deterministic",
+                "command": "false",
+                "max_iterations": 1
+            }
+        ]
+    }))
+    .unwrap();
+    let result = AttemptResult {
+        output: Value::Null,
+        budget: Budget::default(),
+        completed_by: "worker".to_owned(),
+        end_pins: None,
+        effects: Vec::new(),
+        trajectory_tail: None,
+        failure_reason: Some(CompletionReason::WorkerError),
+        // The point of the case: the worker reported a failure and sent no
+        // detail with it.
+        failure_detail: None,
+    };
+    let entries: Vec<_> = completion_actions("run", &spec.steps[0], 1, 0, result, 1_000)
+        .into_iter()
+        .filter_map(|action| match action {
+            Action::Append(entry) => Some(entry),
+            _ => None,
+        })
+        .collect();
+
+    let completed = entries
+        .iter()
+        .find(|entry| entry.entry_type == EntryType::StepCompleted)
+        .expect("a step.completed entry");
+    let payload: StepCompletedPayload =
+        serde_json::from_value(serde_json::to_value(&completed.payload).unwrap()).unwrap();
+
+    let record = payload
+        .verification
+        .expect("a worker-reported failure must journal WHY, not just its taxonomy label");
+    assert_eq!(record.verdict, crate::VerificationVerdict::Fail);
+    assert_eq!(record.gate, "execution");
+    // The reason itself has to appear, or the record is present but empty of
+    // information and the diagnostic is still gone.
+    assert!(
+        record.detail.contains("WorkerError"),
+        "detail should name the reported reason, got {:?}",
+        record.detail
+    );
+    // And the taxonomy label must still be the reason the worker gave, not
+    // overwritten by the verification bookkeeping.
+    assert_eq!(payload.completion_reason, CompletionReason::WorkerError);
+}

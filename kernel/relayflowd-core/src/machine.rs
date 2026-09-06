@@ -320,14 +320,21 @@ pub fn completion_actions(
     // taxonomy label and the diagnostic is gone.
     let verification = match &result.failure_reason {
         None => Some(verify(step, &result.output)),
-        Some(_) => result
-            .failure_detail
-            .as_ref()
-            .map(|detail| crate::entry::VerificationRecord {
-                gate: "execution".to_owned(),
-                verdict: crate::entry::VerificationVerdict::Fail,
-                detail: detail.clone(),
-            }),
+        // `failure_detail` is populated only for kernel-side rejections, so
+        // mapping over it dropped the record entirely whenever a WORKER
+        // reported the failure — leaving the reason in the taxonomy label
+        // alone, which is the outcome this branch exists to prevent. The
+        // record is now unconditional: a failure always names itself, and the
+        // fallback marks that no detail accompanied the report rather than
+        // implying one was given.
+        Some(reason) => Some(crate::entry::VerificationRecord {
+            gate: "execution".to_owned(),
+            verdict: crate::entry::VerificationVerdict::Fail,
+            detail: result
+                .failure_detail
+                .clone()
+                .unwrap_or_else(|| format!("worker reported {reason:?} without detail")),
+        }),
     };
     let verified = verification
         .as_ref()
