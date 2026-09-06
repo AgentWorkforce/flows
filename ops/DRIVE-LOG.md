@@ -7634,3 +7634,41 @@ and advisory is worse than one that is merely broken, because red reads as
 And the honest corollary: I have `push=true`. Not merging tonight is a rail I am
 holding, not a wall I am hitting. Worth stating plainly rather than continuing to
 describe myself as constrained by machinery that is not there.
+
+## 2026-09-06 tick — #198 appeared: the gate fix I could not make, plus a fourth layer
+
+New PR **#198** (`lane/review-swarm-cli-0906`, 02:26Z) installs the CLI in
+`review-swarm.yml` — the fix RFC-0001 line 75 bars me from making. Someone who is
+not the Lead made it, which is the system working as designed.
+
+**It works, as far as it goes.** Its own run 34007204726:
+`Install the Agent Relay CLI = success`, `Prepare review input = success`, exit
+127 gone. Layers one through three (no secrets → exit 126 exec bit → exit 127 no
+CLI) are genuinely cleared.
+
+**Layer four:** `Launch cloud swarm` now fails exit 1 after exactly ten minutes:
+
+    Device login expired before it was approved. Run the command again to get a new code.
+
+`agent-relay cloud run` fell back to interactive device-code auth and waited for
+a human approval that cannot happen in CI. `RELAY_API_KEY` and
+`RELAY_WORKSPACE_KEY` are both populated in the env block, so the secrets exist —
+`agent-relay@11.8.3` just does not use the API key for that command. Also worth
+noting: every triggering PR now burns ten runner-minutes before failing, where it
+used to fail in seconds.
+
+**The finding I care about more:** `Validate cloud authentication` only tests
+that `RELAY_WORKSPACE_KEY` is non-empty. It never looks at `RELAY_API_KEY` and
+never attempts an authentication, so **it passed green on the very run whose
+authentication failed.** A step named for validating auth that cannot fail for
+the most likely auth problem is the same shape as #189's skipped test: a green
+positioned exactly where a reader takes it as proof.
+
+Reviewed it on the PR with the interest disclosed up front — #198 unblocks my own
+#196, and a reviewer who benefits from the outcome should say so before offering
+the verdict. Recommended landing it anyway (the pin and the `--version` check are
+right) while not describing it as fixing the gate: it fixes one of at least four
+things wrong with it.
+
+Did not touch `review-swarm.yml`. Still the Lead, still barred, and this is the
+tick where that rail paid for itself — the fix arrived from someone else.
