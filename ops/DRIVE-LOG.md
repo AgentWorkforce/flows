@@ -8796,3 +8796,37 @@ Two risks I am not papering over:
 
 Next tick: look for a PR on flows, and if none, check whether the node has a
 flows clone at all.
+
+## 2026-09-06 tick — codex on finn-mini also died. Credits are likely account-scoped.
+
+No PR, no new branch, ~25 minutes after the spawn. The agent record:
+
+    codex-finn-0906   status: unknown   lastSeenAt: 2026-09-06T10:37:00Z
+    (spawned 10:34:48)
+
+**Alive for roughly two minutes, then silent.** That is not a long-running agent
+working quietly; that is start, fail, exit.
+
+**Leading hypothesis, and the reason this matters: codex credits are billed per
+ACCOUNT, not per machine.** The local run died with "You've hit your usage limit
+... try again at Sep 7th 4:39 AM". If finn-mini authenticates the same ChatGPT
+account, moving nodes changes nothing and a two-minute life is exactly what an
+immediate usage-limit rejection looks like. Khaliq's instinct — different node —
+was reasonable, but it treats a machine limit where the limit is on the identity.
+
+The alternative is a node-local failure: finn-mini had no flows clone (confirmed
+by the earlier probe: `NO_FLOWS_OPS`), so a failed clone or missing toolchain
+would also produce an early exit. I cannot separate these from here without
+output, and I have no output **because I forgot `--channel` on the spawn** — my
+error, and the reason this tick can only narrow rather than settle it.
+
+**Not spawning a third time.** The standing rule allows one resurrection and I
+have used it. A third attempt against what is probably an account-level limit
+would be exactly the retry-spam the rules forbid.
+
+**Holding the pipeline work rather than taking it back.** Khaliq was explicit
+that codex owns the implementation and reaffirmed it when I raised the prior
+failures. Overriding that unilaterally the moment the delegate stumbles is how
+an operator stops being able to trust a delegation at all. What he needs from me
+is the fact that node-switching will not fix an account-scoped limit — that
+changes his options, and it is his call which to take.
