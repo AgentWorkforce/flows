@@ -7210,3 +7210,51 @@ for. Next tick takes it deliberately, with the reclaim done first if needed.
 
 So #189 remains genuinely open: kernel defect or sandbox-local artifact, not yet
 separated.
+
+## 2026-09-06 tick — #189 explained: the kernel drops the reason a step failed (#195)
+
+Disk 13Gi/94%. Tick list unchanged. Took #189, and it resolved by reading rather
+than by building — the repro I had queued turned out to be unnecessary.
+
+**`verification === null` does not mean the gate failed to run. It means the step
+FAILED and the kernel discarded why.**
+
+Two files, one gap:
+
+- `engine/remote.rs:63` derives `failure_reason` from the worker's OWN reported
+  `completion_reason`. `failure_detail` is assigned in exactly one place, the
+  `reject` closure, which serves kernel-side rejections only
+  (`validate_agent_completion`, undeclared effects). So a worker reporting a
+  non-success completion yields `failure_reason: Some(_)`, `failure_detail: None`.
+- `machine.rs:321` handles that arm with
+  `result.failure_detail.as_ref().map(...)`. `.map()` over `None` is `None`.
+  `payload.verification` is null, and `output` is nulled for every non-success,
+  so no channel carries the reason.
+
+What makes it a defect rather than a design choice is that **both comments assert
+the invariant it breaks.** machine.rs: "without this the reason exists only in
+the taxonomy label and the diagnostic is gone." remote.rs: "the detail rides the
+completion's verification record." The guard covers kernel-side rejections and
+misses worker-reported failures — which is the common case, an agent CLI
+erroring, timing out, or exiting non-zero. A journal-first system silently
+discarding why work failed.
+
+**Why no test caught it:** every row in `machine/tests.rs` sets
+`failure_detail: Some(...)`. The whole suite takes the arm that works. The broken
+arm has no coverage at all.
+
+Filed **#195** with the path, the reachability argument, and a two-part fix (a
+fallback record in `completion_actions`, plus populating `failure_detail` in
+`remote.rs` so the common case is informative rather than synthesized). Answered
+#189's `NEEDS_HUMAN.md` on the PR.
+
+**Held the line on attribution.** The mechanism and the reachability of
+`failure_detail: None` are read off main and I am confident. That #189's specific
+run took that path is inference from symptom shape — strong, not proven. I asked
+for the one datum that settles it: the `completionReason` on their
+`step.completed`. If it is `success` with a null verification, that is a
+different and worse bug. Said so on the PR rather than presenting the likely
+story as the settled one.
+
+Three ticks, three targets checked before work; this one paid off by making a
+queued build unnecessary.
