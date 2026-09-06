@@ -7785,3 +7785,42 @@ merges last silently discards the others unless it is consolidated first.
 Kept the credit where it belonged — its nine-requirement audit and parse checks
 are real verification, and a run that over-reports a blocker is still better than
 one that swallows it. #189 over-reporting is how #195 got found.
+
+## 2026-09-06 tick — #199's audit marks SATISFIED a requirement disproved 43 minutes earlier
+
+Read #199's `ops/NEXT.md` before deciding whether to consolidate it into #194.
+Found a second, worse problem than its `@types/node` premise.
+
+**Requirement 3, "Auth secret validation fail-fast", is marked SATISFIED.** The
+step it cites tests that `RELAY_WORKSPACE_KEY` is non-empty, never looks at
+`RELAY_API_KEY`, and never attempts an authentication.
+
+Run 34007204726 on #198's branch, **02:44–02:54Z**: `Validate cloud
+authentication = success`, then `Launch cloud swarm = failure` with `Device login
+expired before it was approved`. #199 was opened at **03:27Z** — 43 minutes after
+the evidence existed.
+
+A preflight named for validating auth that goes green on a run whose auth fails
+is not fail-fast, it is fail-never. And it is load-bearing: the headline claim
+"gate 3 implementation: COMPLETE per all architectural requirements" rests on it.
+
+**Both of this run's errors share a root: auditing structure instead of
+behaviour.** `@types/node` read as absent because a build failed, without
+checking whether it was declared (it is, locked at 22.20.1). Requirement 3 read
+as satisfied because a step exists, without checking whether it can fail. An
+audit that asks "is there a step for this?" returns SATISFIED for every
+requirement with a plausible implementation.
+
+That is the same failure as #189's skipped test and the `sdk/dist` episode: a
+green whose meaning nobody checked. Third distinct instance tonight, which starts
+to look like the house failure mode rather than three accidents.
+
+Recommended not merging that NEXT.md as written, and re-checking the other eight
+requirements against "what RUN proves this?" Kept the credit for requirement 1 —
+the immutable-gate analysis is right, and I verified that structure myself while
+reviewing #198.
+
+Did not consolidate the three-way NEXT.md collision after all: #199's is an audit
+and #194's is a work package, different artifacts with different purposes, and
+merging a partly-wrong audit into my own PR would launder its errors into
+something carrying my signoff.
