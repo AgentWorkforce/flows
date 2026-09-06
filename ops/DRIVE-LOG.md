@@ -7891,3 +7891,39 @@ add headless auth, and that route 3 bypasses CLI auth. All three were plausible
 inferences from partial reading; all three took one command to disprove. I am
 reliably wrong when I reason from a document's summary instead of opening it.
 The corrective is not more caution in tone, it is opening the file.
+
+## 2026-09-06 tick — the answer was in a runbook the whole time
+
+Searched the cloud repo for `workflow:invoke:write` and found
+**`docs/runbooks/relay-ci-workflow-credential.md`** — a documented procedure for
+exactly the credential the review gate needs.
+
+- `subjectType=ci`, workspace-bound, scopes exactly `workflow:invoke:read` and
+  `workflow:invoke:write`. No deployment/account/admin scopes.
+- Minted with `CI_TOKEN_PROFILE=workflow-invoke ... npm run mint-ci-token`.
+- **"provisioning and rotation are repeatable and require no browser login"** —
+  the exact property `cloud login`'s device flow lacks.
+- 365-day default TTL, `CI_TOKEN_TTL_DAYS` to shorten, workspace binding enforced
+  server-side so the token cannot reach a sibling workspace.
+- **Precedent:** the runbook maps its output into `AgentWorkforce/relay` secrets
+  for that repo's PR proof workflow. Another repo in this org already
+  authenticates CI to the cloud API this way. The swarm would be doing a proven
+  thing, not inventing one.
+
+So layer four stops being a design question and becomes provisioning: an operator
+mints (needs the SST tunnel and an authorized identity), an admin stores it — the
+runbook explicitly says an agent may not create or update GitHub secrets — and
+`Launch cloud swarm` sends `Authorization: Bearer $CLOUD_API_KEY` to
+`POST /api/v1/workflows/run` instead of shelling to the CLI. Only that last step
+touches flows, and it is a gate edit, so not mine.
+
+Did not run the mint command. It emits secret material and I am instructed not to
+create, rotate or print secrets. Finding the runbook needed no credential.
+
+**My route table across three comments went wrong twice before landing here:**
+"bypass the CLI with REST" (wrong — needs a logged-in CLI), then
+"`workflow:invoke:write` might be mintable, unverifiable by me" (right but
+under-researched), now the runbook. Every error came from inferring instead of
+looking, and each was one search from correction. That is now four instances
+tonight of the same thing, and the fix has never once been "be more careful" — it
+has always been "open the file."
