@@ -8063,3 +8063,29 @@ barely moves, that is a signal.
 flagged it on each. It is now the most likely way for work to be silently lost
 here: whichever lands last conflicts, and a merger taking one side wholesale
 discards the rest.
+
+## 2026-09-06 tick — retargeted my own NEXT.md; it was aimed at a closed layer
+
+#194 told a reader the gate was broken because nothing installed the CLI. **#198
+closed that**, and my package would have sent someone at a problem that no longer
+exists. Rewrote it at `4037ba1` against the blocker I verified last tick:
+
+- the pin, not a missing secret: `CLOUD_API_KEY` present in
+  `@agent-relay/cloud@11.10.3`, **0 occurrences** in the pinned 11.8.3;
+- `fromEnv` is preferred over the stored login at `workflows.js:550`, so setting
+  the variable means the device flow is never reached;
+- four concrete steps with the evidence for each, and the operator/administrator
+  split the cloud runbook requires;
+- leads with 76 runs / 0 successes / one week, which is the number any "gate 3
+  complete" claim has to survive.
+
+**Rewrote rather than opening a fifth PR.** `ops/NEXT.md` is already contested by
+four; adding another would have deepened the collision while claiming to fix it.
+This keeps the count and makes the surviving version the verified one.
+
+Worth noting what this tick actually was: **maintenance of my own earlier work
+after the ground moved.** Three layers of this outage were peeled back overnight
+and my package silently went stale at the second one. A work package that names a
+fixed problem is worse than none, because it looks authoritative — the same
+defect I flagged in #199's audit, arriving in my own file. The rule generalises:
+after someone else closes a layer, re-read anything you wrote that named it.
