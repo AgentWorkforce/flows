@@ -9463,3 +9463,36 @@ Four PRs open, all reviewed, all waiting on Khaliq:
 No work taken. Everything reachable is done; what remains needs a decision or a
 secret, and inventing a fifth review of the same gate would be worse than
 stopping.
+
+## 2026-09-06 — merged #209/#210/#207, closed #208, and the publish pipeline PASSES END TO END
+
+Khaliq: "whatever can be merged now should". Merged **#209** (hermetic fixture),
+**#210** (retarget NEXT.md at #174), **#207** (gate reads CLOUD_API_KEY). Closed
+**#208** — both its files were superseded while it was open: #210 retargeted
+NEXT.md, #207 replaced the auth design it assessed. Said plainly in the close
+comment that the loop which produced it was my work package, not its failure.
+
+**Then dispatched the publish dry run, and it passed all 17 steps:**
+
+    Test release tooling                                      success
+    Version all packages                                      success
+    Build surface / Pack and assert surface                   success
+    Build SDK against packed surface / Pack and assert SDK     success
+    Build relayflowd / Build and execute runtime binaries      success
+    Pack and assert runtime (executes both unpacked binaries)  success
+    Publish packages in dependency order                       success
+
+Three things worth naming:
+
+**#209 is now verified, and only CI could do it.** I said that explicitly when I
+opened it — no PR check runs `publish.test.mjs`, my local pass proved nothing,
+and my attempt to simulate CI produced two wrong answers. Merge-then-dispatch was
+the only path and it worked.
+
+**`Pack and assert runtime (executes both unpacked binaries)` passed** — the
+guard that would have caught `runtime-linux-x64@2.0.0` shipping with an empty
+`bin/`. The manual publish went around it; the pipeline does not.
+
+**A real run now fixes the broken package as a side effect.** `version-packages`
+anchors on sdk and bumps all three, so `dry_run: false, version=patch` publishes
+2.0.1 everywhere with real binaries staged and executed first.
