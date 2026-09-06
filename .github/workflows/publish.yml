@@ -1,0 +1,197 @@
+name: Publish Package
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/publish.yml
+      - scripts/version-packages.mjs
+      - scripts/assert-release-package.mjs
+      - packages/**
+      - kernel/**
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package to publish (single-package selection is dry-run only)
+        required: true
+        type: choice
+        options: [all, surface, sdk, runtime-linux-x64]
+        default: all
+      version:
+        description: Version bump type
+        required: true
+        type: choice
+        options: [patch, minor, major, prepatch, preminor, premajor, prerelease]
+        default: patch
+      custom_version:
+        description: Custom version (optional, overrides version type)
+        required: false
+        type: string
+      preid:
+        description: Prerelease identifier (used with pre* version types)
+        required: false
+        type: choice
+        options: [beta, alpha, rc]
+        default: beta
+      dry_run:
+        description: Dry run (do not actually publish)
+        required: false
+        type: boolean
+        default: true
+      tag:
+        description: NPM dist-tag
+        required: false
+        type: choice
+        options: [latest, next, beta, alpha, rc]
+        default: latest
+
+concurrency:
+  group: publish-package-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'release' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  NPM_CONFIG_FUND: 'false'
+
+jobs:
+  publish:
+    name: Build, version, verify & publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PACKAGE: ${{ inputs.package || 'all' }}
+      # PRs always exercise the real build, pack, and smoke steps without publishing.
+      DRY_RUN: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # npm >=11.5.1 supports trusted publishing. No npm token is used.
+      # Each npm package must trust AgentWorkforce/flows / publish.yml.
+      - name: Update npm for OIDC support
+        run: npm install -g npm@11
+
+      # Like relayfile, the anchor and all internal dependencies move together.
+      # A partial real release would leave dependencies at unpublished versions.
+      - name: Validate release mode
+        run: |
+          if [[ "$PACKAGE" != all && "$DRY_RUN" != true ]]; then
+            echo 'Real releases require package=all; use dry_run for individual packages.' >&2
+            exit 1
+          fi
+
+      - name: Version all packages
+        id: bump
+        env:
+          CUSTOM_VERSION: ${{ inputs.custom_version }}
+          VERSION_TYPE: ${{ inputs.version || 'patch' }}
+          PREID: ${{ inputs.preid || 'beta' }}
+          DIST_TAG: ${{ inputs.tag || 'latest' }}
+        run: node scripts/version-packages.mjs
+
+      - name: Build authoring surface
+        working-directory: packages/surface
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          bun run build
+
+      - name: Pack and assert surface
+        run: |
+          mkdir -p dist/npm
+          npm pack ./packages/surface --ignore-scripts --pack-destination dist/npm
+          node scripts/assert-release-package.mjs surface dist/npm
+
+      # Install the exact built surface, without a source symlink or saving a
+      # file: dependency. The new version need not exist on npm, even in dry runs.
+      - name: Build SDK against packed surface
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+        run: |
+          npm install --prefix packages/sdk --ignore-scripts --no-save --package-lock=false \
+            "$PWD/dist/npm/relayflows-surface-${NEW_VERSION}.tgz"
+          test ! -L packages/sdk/node_modules/@relayflows/surface
+          npm run build --prefix packages/sdk
+
+      - name: Pack and assert SDK
+        run: |
+          npm pack ./packages/sdk --ignore-scripts --pack-destination dist/npm
+          node scripts/assert-release-package.mjs sdk dist/npm
+
+      - name: Build relayflowd
+        working-directory: kernel
+        run: cargo build --locked --release -p relayflowd
+
+      - name: Build and stage runtime binaries
+        run: |
+          mkdir -p packages/runtime-linux-x64/bin
+          cp kernel/target/release/relayflowd packages/runtime-linux-x64/bin/relayflowd
+          bun build packages/sdk/src/cli-executable.ts --compile --target=bun-linux-x64 \
+            --outfile=packages/runtime-linux-x64/bin/flows
+          chmod +x packages/runtime-linux-x64/bin/relayflowd packages/runtime-linux-x64/bin/flows
+
+      - name: Pack and assert runtime
+        run: |
+          npm pack ./packages/runtime-linux-x64 --ignore-scripts --pack-destination dist/npm
+          node scripts/assert-release-package.mjs runtime-linux-x64 dist/npm
+
+      # Execute the actual packed binaries, also on dry runs. Artifact upload
+      # would otherwise hide lost executable bits and omitted binary files.
+      - name: Smoke packed packages
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+        run: |
+          mkdir -p dist/runtime-smoke
+          tar -xzf "dist/npm/relayflows-runtime-linux-x64-${NEW_VERSION}.tgz" -C dist/runtime-smoke
+          test -x dist/runtime-smoke/package/bin/relayflowd
+          test -x dist/runtime-smoke/package/bin/flows
+          dist/runtime-smoke/package/bin/relayflowd --help
+          dist/runtime-smoke/package/bin/flows check --json testdata/hello-deterministic.flow.yaml > dist/runtime-smoke/check.json
+          node -e '
+            const report = require("./dist/runtime-smoke/check.json");
+            if (report.ok !== true || report.path !== "testdata/hello-deterministic.flow.yaml") {
+              throw new Error("packed flows smoke failed: " + JSON.stringify(report));
+            }
+            console.log("PACKED_RUNTIME_OK", JSON.stringify(report));
+          '
+          consumer="$(mktemp -d)"
+          npm install --prefix "$consumer" --ignore-scripts --no-audit --no-fund \
+            "$PWD/dist/npm/relayflows-surface-${NEW_VERSION}.tgz" \
+            "$PWD/dist/npm/relayflows-sdk-${NEW_VERSION}.tgz"
+          node --input-type=module -e "await import('file://$consumer/node_modules/@relayflows/surface/dist/index.js'); await import('file://$consumer/node_modules/@relayflows/sdk/dist/index.js'); console.log('PACKED_IMPORTS_OK')"
+          node "$consumer/node_modules/@relayflows/sdk/dist/cli.js" check --json testdata/hello-deterministic.flow.yaml
+
+      - name: Upload verified tarballs
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-packages-${{ steps.bump.outputs.new_version }}
+          path: dist/npm/*.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+      # Publish the inspected tarballs, sequentially in dependency order.
+      - name: Publish to NPM (or dry run)
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+          DIST_TAG: ${{ inputs.tag || 'latest' }}
+        run: |
+          for package in surface sdk runtime-linux-x64; do
+            if [[ "$PACKAGE" != all && "$PACKAGE" != "$package" ]]; then continue; fi
+            tarball="dist/npm/relayflows-${package}-${NEW_VERSION}.tgz"
+            if [[ "$DRY_RUN" == true ]]; then
+              npm publish "$tarball" --dry-run --access public --ignore-scripts --tag "$DIST_TAG"
+            else
+              npm publish "$tarball" --access public --provenance --ignore-scripts --tag "$DIST_TAG"
+            fi
+          done
