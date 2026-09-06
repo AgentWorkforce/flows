@@ -10164,3 +10164,37 @@ the adjacent TESTS. Check both before filing.
 Left as a suggestion instead: a comment in `discoverRelayflowV2StatePointer`
 saying the seeding is intentional. I have now filed this same hole twice in one
 session; a sentence there would stop the third time.
+
+## 2026-09-06 tick — root-caused the App blocker: id rotated, key not
+
+Khaliq dispatched `mint-ci-token.yml` (run 34055358884). It **failed**, at the
+App-token step, with `401: A JSON web token could not be decoded` — the same
+error as the preview build. **Not a bug in my workflow:** it failed closed, every
+downstream step skipped, no AWS assumed and no credential minted, and the input
+parsing step passed. Two independent workflows now produce the identical failure.
+
+**Root cause, from secret METADATA only (no values are exposed by that API):**
+
+    GH_APP_PUSHER_ID           created=2026-03-26  updated=2026-09-05T09:53:09Z
+    GH_APP_PUSHER_PRIVATE_KEY  created=2026-03-26  updated=2026-03-26
+
+The app-id was rewritten on Sep 5; the private key never has been. The workflows
+sign a JWT for a new app-id with the old app's key, so GitHub rejects it at 401
+before the installation lookup ever happens.
+
+Timeline corroborates:
+- Sep 3 (33801381261): 404 installation not found — old id + old key, JWT valid,
+  app simply not installed on flows.
+- Sep 5 09:53: GH_APP_PUSHER_ID updated.
+- Sep 6 (34054249336, 34055358884): 401 JWT decode — new id, old key.
+
+Fix is org-admin: set the private key to one generated for the App the id now
+names, or revert the id. I touched neither.
+
+Flagged the inference honestly — `updated_at` moves on any write, so an
+identical re-save looks the same. But the key was not rewritten, the id was, and
+the failure mode changed across exactly that boundary.
+
+**Still unknown:** whether the App is installed on flows. The Sep 3 404 said no;
+nothing since has authenticated far enough to re-ask. Fixing the key may reveal
+the original 404 again.
