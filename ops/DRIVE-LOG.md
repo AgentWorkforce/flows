@@ -9592,3 +9592,16 @@ drain check, credential gate, release, #174, triage — plus the rules this sess
 actually paid for, including `node agent list` over `agent list` for liveness,
 the npm userconfig workaround, free-disk-before-diagnosing, and that exit 124 is
 a timeout rather than a failure.
+
+## 2026-09-06 tick — quiet; no PR exists to test the credential against
+
+No open PRs, queue clean, disk 17Gi. The newest review-swarm run is still
+14:24Z, which predates #207's merge at 14:46 — so nothing has exercised the
+CLOUD_API_KEY preflight yet.
+
+Worth noting the shape: with the board cleared, there is no open PR to push to,
+so even once the secret lands nothing will test it until someone opens a PR. The
+first thing to do after minting is push any trivial commit to a branch and watch
+`review` — which is step 2 of the replacement tick prompt in the inbox.
+
+No work taken.
