@@ -9664,3 +9664,27 @@ Which reframes the friction: **requiring a production VPC tunnel IS the
 authorization boundary today.** Crude, but it restricts minting to people who
 already hold production infrastructure access. "Easier" without an admin gate
 would mean weaker. I had read the ceremony as laziness; some of it is load-bearing.
+
+## 2026-09-06 tick — quiet; admin-route question left open honestly
+
+No open PRs, latest swarm run still 14:24Z, queue clean, disk 16Gi. No work taken
+in the lane.
+
+Khaliq is fairly certain an admin route exists; I could not find one. Looked at
+`packages/web/app` (no `admin` dir), `app/dashboard/*` (agents, chief, factory,
+fleet, integrations, reflex, relayfile, settings, workflow, workflows,
+workforce), and `app/api/internal/*` — which turns out to be internal SERVICE
+APIs (cataloging, cloud-agent-box, fleet, proactive-runtime, relayfile), not an
+admin panel. `gh search code` returns nothing for "admin", which I do not trust
+either given it also returned nothing useful for role/permission terms.
+
+**Left it open rather than asserting absence again.** I already made that mistake
+once today — asserting "no admin panel" off a capped search after explicitly
+noting capped searches prove nothing. Twice would be a pattern rather than a
+slip. If it exists it is somewhere I did not think to look, and the cheapest
+resolution is Khaliq naming it.
+
+The practical consequence is unchanged either way: whether minting moves behind an
+admin route is his design call, and the narrow fix — making `CI_TOKEN_PROFILE`
+required instead of silently defaulting to `deployment` — is worth doing
+regardless.
