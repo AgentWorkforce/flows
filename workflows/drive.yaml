@@ -426,11 +426,11 @@ workflows:
           # 0), which was not enough on its own: run 5ecf7078 still flushed
           # 1932 files and still hit 413.
           #
-          # sdk/node_modules is what remains — 1226 files, 52 MB, and already
-          # gitignored, so nothing downstream of here reads it: the suites have
-          # finished by this line, and commit/handoff touch only tracked files.
-          # Removing it after the gates pass costs nothing and takes the bulk
-          # of the payload out of every flush from here on.
+          # Dependency and compiler outputs are already gitignored, and nothing
+          # downstream of here reads them: the suites and NEXT validation have
+          # finished by this line, while commit/handoff touch tracked files.
+          # Removing them after the gates run costs nothing and keeps them out
+          # of every flush from here on.
           #
           # Runs on pass AND fail. The first version only slimmed on a green
           # verify, to keep a failing run's tree intact for diagnosis. That
@@ -443,8 +443,8 @@ workflows:
           #
           # Guarded with || true and placed AFTER the pass/fail decision is
           # computed, so a cleanup problem can never change the verdict.
-          rm -rf sdk/node_modules 2>/dev/null || true
-          echo "VERIFY_TREE_SLIMMED: removed sdk/node_modules before flush (ok=$ok)"
+          rm -rf sdk/node_modules sdk/dist surface/dist 2>/dev/null || true
+          echo "VERIFY_TREE_SLIMMED: removed sdk/node_modules and generated dist trees before flush (ok=$ok)"
 
           # Measure the tree instead of guessing at it.
           #
