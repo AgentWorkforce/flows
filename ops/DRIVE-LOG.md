@@ -9228,3 +9228,34 @@ laptop.
 Fixed in **#209** by dropping the packaging lifecycle hooks from the fixture.
 Explicitly did NOT claim the local pass as verification — CI is the only
 instrument that can settle this one.
+
+## 2026-09-06 — I cannot verify #209 locally, and no CI runs it either
+
+Went to verify #209 and found the claim I made to Khaliq was wrong: **no
+PR-triggered workflow runs `publish.test.mjs`.** It is referenced only by
+`publish.yml`, which is `workflow_dispatch`-only. So "CI is the only verification
+that means anything" was false — CI will not verify it at all before merge.
+#209's checks are `review`, `cubic` and CodeRabbit, none of which execute the test.
+
+Tried to build a local reproduction of the CI condition (a PATH with node and npm
+but no `bun`) and **got two wrong answers in a row before getting none**:
+
+1. First run appeared to reproduce it — right assertion text. Then the post-fix
+   run "failed" too, which I briefly read as *the fix does not work*. It was
+   `Cannot find module scripts/pack-release.mjs`: I was in the LAYOUT worktree,
+   which predates #206's merge and has no such file. A failure from the wrong
+   checkout, not from the fix.
+2. Re-run in the correct worktree: **both pre-fix and post-fix pass** without
+   bun. So the simulation does not reproduce CI at all, and the first
+   "reproduction" was probably the same module error wearing the same assertion.
+
+Honest position: **the fix is reasoned, not verified.** The mechanism is
+evidenced by the CI log itself — npm ran `prepare` -> `bun run build` -> `tsc`
+despite `--ignore-scripts`, in a temp dir with no toolchain — and removing the
+lifecycle hooks from the fixture addresses exactly that. But I have no instrument
+here that can confirm it, and I should not manufacture one by fiddling with PATH
+until a number looks right.
+
+The only real verification is: merge #209, dispatch publish.yml again, read the
+result. Same shape as the workflow itself being un-dry-runnable before merge —
+this pipeline can only be debugged from main.
