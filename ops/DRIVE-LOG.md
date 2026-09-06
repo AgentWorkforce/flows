@@ -9358,3 +9358,33 @@ further, which is the part I can affect.
 Flagged for Khaliq rather than acted on. A machine at 99% with an actively
 growing 3.8G database and a 5.9G VM disk needs a decision about which to shrink,
 and both belong to somebody else.
+
+## 2026-09-06 — disk recovered to 11Gi; #208 triaged; the gate is now 0/100
+
+Disk back to 11Gi/95% — someone acted on the colima datadisk or the writer
+finished. Not my doing, and worth not claiming otherwise.
+
+**#208** is a fourth gate-3 assessment (docs only) marking all nine requirements
+"implemented and verified". Against the record:
+
+    review-swarm.yml — 100 runs: 97 failure, 3 cancelled, 0 success
+
+So "verified" can only mean the file contains a step. Six of the nine describe
+behaviour downstream of `Launch cloud swarm`, and nothing downstream of
+authentication has ever executed in this workflow's history.
+
+**Credited the one requirement that IS now run-verified**, because the review
+would be dishonest otherwise: the auth preflight fails in seconds naming the
+missing secrets, with everything after it skipped. That is a preflight working,
+and it has evidence behind it. The other eight do not.
+
+**Flagged a collision that matters more than the audit.** #207 and #208 both
+rewrite `ops/NEEDS_HUMAN.md`, and they disagree on substance — #207 replaces
+session-token auth with `CLOUD_API_KEY`, #208 assesses the session-token design
+as complete. Landing #208 then #207 leaves a NEEDS_HUMAN describing a design that
+no longer exists. Recommended settling the credential first.
+
+Worth noting for my own sake: this is the fourth time I have written a version of
+"structure is not behaviour" tonight. The objection is right, but repeating it is
+not the same as fixing it — what closes gate 3 is one successful run, and that
+needs a credential decision I cannot make.
