@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const DIST = process.argv[2] ?? 'dist';
-const { AuthoredFlowLifecycle } = await import(`${REPO}/sdk/${DIST}/authored-flow-lifecycle.js`);
+const { AuthoredFlowLifecycle } = await import(`${REPO}/packages/sdk/${DIST}/authored-flow-lifecycle.js`);
 
 const nativeAll = Promise.all;
 const lc = new AuthoredFlowLifecycle();

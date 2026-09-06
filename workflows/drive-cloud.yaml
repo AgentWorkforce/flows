@@ -225,7 +225,7 @@ workflows:
       \ `git ls-files`, so a sandbox has none.\n  # Install before testing, and treat a failed install\
       \ as a failed\n  # verify rather than letting `npm test` report a confusing error.\n  if [ ! -d\
       \ packages/sdk/node_modules ]; then\n    echo \"VERIFY_INSTALL: packages/sdk/node_modules absent \u2014 installing\"\
-      \n    out=$(cd sdk && run_bounded \"npm ci\" npm ci 2>&1); rc=$?\n    if [ $rc -ne 0 ]; then\n \
+      \n    out=$(cd packages/sdk && run_bounded \"npm ci\" npm ci 2>&1); rc=$?\n    if [ $rc -ne 0 ]; then\n \
       \     echo \"$out\" | tail -12\n      echo \"VERIFY_FAIL: npm ci failed \u2014 cannot test what\
       \ did not install\"\n      exit 1\n    fi\n  fi\n  # Restore exec bits. `npm ci` reported success\
       \ (96 packages) and\n  # esbuild still failed with EACCES on run 909e18f6, so the mount\n  # this\
@@ -233,7 +233,7 @@ workflows:
       \ non-executable. Which\n  # layer drops it is NOT established; this repairs the symptom\n  # where\
       \ it is observed and is a no-op where the bit survives.\n  chmod -R +x packages/sdk/node_modules/.bin 2>/dev/null\
       \ || true\n  find packages/sdk/node_modules -type d -name bin -path \"*esbuild*\" \\\n    -exec chmod -R\
-      \ +x {} + 2>/dev/null || true\n  out=$(cd sdk && run_bounded \"sdk suite\" npm test 2>&1); rc=$?\n\
+      \ +x {} + 2>/dev/null || true\n  out=$(cd packages/sdk && run_bounded \"sdk suite\" npm test 2>&1); rc=$?\n\
       \  echo \"$out\" | tail -8; ran=1\n  if [ $rc -eq 124 ]; then\n    echo \"VERIFY_SUITE_TIMEOUT:\
       \ the sdk suite exceeded ${VERIFY_SUITE_TIMEOUT:-900}s and was killed.\"\n  fi\n  [ $rc -eq 0 ]\
       \ || ok=1\nfi\nif [ \"$ran\" -eq 0 ]; then\n  echo \"VERIFY_FAIL: no suite found \u2014 a verify\
@@ -246,7 +246,7 @@ workflows:
       \ no\n# transcript. validateNextWorkPackage refuses both shapes.\n#\n# Runs BEFORE the node_modules\
       \ cleanup below, which needs packages/sdk/dist.\nif [ -f ops/NEXT.md ] && [ -f packages/sdk/dist/index.js ]; then\n\
       \  nextout=$(node -e '\n    const fs = require(\"node:fs\");\n    const { validateNextWorkPackage\
-      \ } = require(\"./sdk/dist/index.js\");\n    const verdict = validateNextWorkPackage(\n      fs.readFileSync(\"\
+      \ } = require(\"./packages/sdk/dist/index.js\");\n    const verdict = validateNextWorkPackage(\n      fs.readFileSync(\"\
       ops/NEXT.md\", \"utf8\"),\n      (p) => fs.existsSync(p),\n    );\n    if (!verdict.accepted) {\n\
       \      console.log(\"NEXT_REFUSED \" + verdict.reason);\n      process.exit(1);\n    }\n    console.log(\"\
       NEXT_OK\");\n  ' 2>&1) || true\n  echo \"$nextout\" | tail -2\n  case \"$nextout\" in\n    *NEXT_REFUSED*)\n\

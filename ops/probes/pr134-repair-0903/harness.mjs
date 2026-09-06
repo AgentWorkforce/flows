@@ -12,9 +12,9 @@ import { fileURLToPath } from 'node:url';
 import { rmSync } from 'node:fs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-export const { executeAuthoredFlow } = await import(`${REPO}/sdk/dist/authored-flow-executor.js`);
-export const { JournalClient } = await import(`${REPO}/sdk/dist/journal-client.js`);
-export const { flow } = await import(`${REPO}/surface/dist/index.js`);
+export const { executeAuthoredFlow } = await import(`${REPO}/packages/sdk/dist/authored-flow-executor.js`);
+export const { JournalClient } = await import(`${REPO}/packages/sdk/dist/journal-client.js`);
+export const { flow } = await import(`${REPO}/packages/surface/dist/index.js`);
 
 function sockPath() { return join(tmpdir(), `rf-${randomUUID().slice(0, 8)}.sock`); }
 

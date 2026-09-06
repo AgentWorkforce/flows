@@ -352,7 +352,7 @@ workflows:
             # verify rather than letting `npm test` report a confusing error.
             if [ ! -d packages/sdk/node_modules ]; then
               echo "VERIFY_INSTALL: packages/sdk/node_modules absent — installing"
-              out=$(cd sdk && run_bounded "npm ci" npm ci 2>&1); rc=$?
+              out=$(cd packages/sdk && run_bounded "npm ci" npm ci 2>&1); rc=$?
               if [ $rc -ne 0 ]; then
                 echo "$out" | tail -12
                 echo "VERIFY_FAIL: npm ci failed — cannot test what did not install"
@@ -368,7 +368,7 @@ workflows:
             chmod -R +x packages/sdk/node_modules/.bin 2>/dev/null || true
             find packages/sdk/node_modules -type d -name bin -path "*esbuild*" \
               -exec chmod -R +x {} + 2>/dev/null || true
-            out=$(cd sdk && run_bounded "sdk suite" npm test 2>&1); rc=$?
+            out=$(cd packages/sdk && run_bounded "sdk suite" npm test 2>&1); rc=$?
             echo "$out" | tail -8; ran=1
             if [ $rc -eq 124 ]; then
               echo "VERIFY_SUITE_TIMEOUT: the sdk suite exceeded ${VERIFY_SUITE_TIMEOUT:-900}s and was killed."
@@ -394,7 +394,7 @@ workflows:
           if [ -f ops/NEXT.md ] && [ -f packages/sdk/dist/index.js ]; then
             nextout=$(node -e '
               const fs = require("node:fs");
-              const { validateNextWorkPackage } = require("./sdk/dist/index.js");
+              const { validateNextWorkPackage } = require("./packages/sdk/dist/index.js");
               const verdict = validateNextWorkPackage(
                 fs.readFileSync("ops/NEXT.md", "utf8"),
                 (p) => fs.existsSync(p),
