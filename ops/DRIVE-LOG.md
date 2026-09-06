@@ -8522,3 +8522,40 @@ branches and skipped.
 No work taken. Everything in the tick list is done, merged, blocked on the App
 grant, or waiting on a human reviewer — and the five-way `ops/NEXT.md` collision
 cannot be resolved by me without closing other lanes' PRs.
+
+## 2026-09-06 tick — answered my own question: cloud needs a BINARY package, not a JS one
+
+Khaliq pushed back that we settled on an npm package hours ago and I kept citing
+the App grant as a blocker. He is right; I logged that publishing removes the
+mint step and then reported the blocker for a dozen ticks without acting on the
+decision. Rather than wait on both questions I asked him, I answered the one that
+is a fact.
+
+**What cloud actually consumes**, from `cloud-runtime-artifact.yml`:
+
+    cargo build --locked --release -p relayflowd
+    bun build ... --target=bun-linux-x64 --outfile=dist/cloud-artifact-input/flows
+    --relayflowd kernel/target/release/relayflowd
+    --flows-executable dist/cloud-artifact-input/flows
+    upload-artifact name: relayflow-v2-linux-x64-<sha>
+
+A **linux-x64 tarball of two compiled binaries** — `bin/relayflowd` (Rust) and
+`bin/flows` (a standalone bun executable). Not a TypeScript library.
+
+**So "which package should cloud consume" has a factual answer: neither existing
+one.** `@relayflows/sdk` (private:true) and `@relayflows/surface` are TS
+libraries; cloud needs the compiled runtime. The npm shape is the esbuild
+pattern — a wrapper package with per-platform `optionalDependencies`
+(`@relayflows/runtime-linux-x64` carrying the two binaries), so `npm install`
+resolves the right build.
+
+**And it sharpens the registry question into a real one rather than a
+preference.** The current mechanism is a private artifact behind a scoped token
+*because flows is a private repo*. Publishing those binaries to public npm
+changes the disclosure posture — it would put the compiled kernel on a public
+registry. That is a decision with consequences, not a detail, which is exactly
+why I am not choosing it unilaterally.
+
+Held rather than built. Publishing binaries out of a private repo is irreversible
+in the way that matters: you cannot unpublish something people have already
+fetched.
