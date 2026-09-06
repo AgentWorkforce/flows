@@ -7489,3 +7489,38 @@ reader trusts.
 
 Nine lens runs, five heads. Not merging: `review` still red repo-wide, and every
 one of those nine runs was commissioned by the agent that wrote the patch.
+
+## 2026-09-06 tick — disk was falling because of ME, not the leaked daemons
+
+Disk hit **8.6Gi/96%** this tick, down from 13Gi three ticks ago — roughly 1.5GB
+per tick, on a machine that hit zero once today. Chased it instead of assuming.
+
+**Correction to what I reported earlier.** I told Khaliq the eight leaked
+daemons were "why disk climbs and why it hit zero today." That was wrong as
+stated. They pin ~5GB against RECLAMATION, but they are static — they do not
+grow. The growth was mine: a 1.35GB toolchain target for this branch plus a
+1.7GB stray target inside the worktree. I made a confident causal claim from a
+correlation (daemons present, disk falling) and it does not hold. Same shape as
+the other overstatements tonight.
+
+**The stray target is the interesting part.** `flows-195-wt/kernel/target` held
+1.7GB with an mtime of 03:07 — which is when the history lens ran
+`cargo test --workspace` itself. `ops/cargo.sh:51` exports
+`CARGO_TARGET_DIR="$toolchain_home/target/$_worktree_key}"` precisely so builds
+land OUTSIDE the repo; the lens invoked cargo directly and bypassed it.
+
+That matters beyond the gigabytes. `ops/cargo.sh:30` explains why the redirect
+exists: `kernel/target/debug` is ~4900 files, and its presence in the propagated
+tree makes the sandbox's relayfile flush fail with **HTTP 413 — non-fatally, so
+runs silently lose their work**. The independent verification I praised last tick
+for running the suite itself also produced the exact artifact this repo designs
+against. Both things are true: its verdict was the most valuable evidence on
+#196, and its method left a hazard behind.
+
+Deleted the stray target: **1GB freed, 8.6Gi → 11Gi**. Verified the toolchain
+binary at `target/3693316369/debug/relayflowd` survives, so the suite still runs.
+Checked for live cargo/rustc first — none.
+
+Not touching `3693316369` (my own, still referenced) or the daemon-pinned dirs.
+The daemon nod is still worth having, but it is now a ~5GB one-time reclaim, not
+a fix for a leak — because the leak was me.
