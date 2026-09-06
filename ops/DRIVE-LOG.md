@@ -8450,3 +8450,33 @@ not explain what failed for them. I had been treating those as the same claim
 across four PR comments.
 
 Did not touch drive.yaml. There was nothing to add.
+
+## 2026-09-06 tick — a live Preview run may mean the App grant landed. Not asserting it yet.
+
+Disk 19Gi/90%. Nothing merged since the status report; all ten PRs still open,
+zero reviews.
+
+**Preview run 34022723326 is IN PROGRESS** (`workflow_dispatch`, 08:44:58Z) —
+the first non-skipped Preview in this whole session.
+
+**It is not #3270's.** Its branch is `feat/issue-3351-ephemeral-workspace`, not
+`feat/relayflow-v2-executor`. I nearly logged "the preview is up" on the strength
+of a blank conclusion field; checking the branch stopped a false positive that
+would have sent the next tick chasing a proof that was never dispatched.
+
+**But it is a useful probe.** The last #3270 Preview died in **17 seconds** at
+`Mint private Flows artifact token` with a 404 on the App's repository
+installation. This run has been alive for four-plus minutes. If it is past the
+mint step, the App grant on `AgentWorkforce/flows` now exists — which would
+unblock #3270's live proof entirely.
+
+**I am not asserting that.** GitHub does not expose step conclusions while the
+job is in progress, so "it has run longer than the failure did" is an inference
+from duration, not evidence. Inferring rather than confirming is the exact
+failure I have made six times tonight, and the cost of being wrong here is a
+wasted dispatch and a false all-clear in the log.
+
+Next tick: read that run's `Mint private Flows artifact token` conclusion. If it
+succeeded, the grant is live and #3270's preview can be re-dispatched — which is
+tick item 2 and the highest-value item in the lane. If it failed the same way,
+the grant is still missing and the evidence stands preserved.
