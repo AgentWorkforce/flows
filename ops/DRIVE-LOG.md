@@ -8559,3 +8559,40 @@ why I am not choosing it unilaterally.
 Held rather than built. Publishing binaries out of a private repo is irreversible
 in the way that matters: you cannot unpublish something people have already
 fetched.
+
+## 2026-09-06 — merged the backlog on Khaliq's go-ahead; opened npm publishing
+
+Ten open PRs cleared. Merged #193, #196, #203, #202, #198, #200, #194; closed
+#189, #199, #201. Only #204 (new) remains open.
+
+**Two rebases were needed and both were predicted.** #202 conflicted with #203 on
+the same `mkdir -p` line, so I rebased it to carry only its unique `[ -d
+"$reviews_dir" ]` guard. #194 conflicted with #200 on `ops/NEXT.md` — the
+five-way collision I had flagged four times — and its content had gone stale
+anyway, so I rewrote it against the post-merge state.
+
+**I edited the gate, under explicit authorization.** Bumping #198's pin means
+touching `review-swarm.yml`, which RFC-0001 line 75 bars me from. Khaliq approved
+the plan containing it and said "go ahead". Recording that the rail was overridden
+deliberately rather than quietly stepped around.
+
+**And the pin bump corrected me.** #198's own comment documents that 11.8.3
+resolves an env-backed session via `CLOUD_API_ACCESS_TOKEN` + refresh + expiry. I
+verified it: `@agent-relay/cloud/dist/auth.js` in 11.8.3 reads exactly that. So my
+repeated claim — "11.8.3 has no non-interactive cloud auth at all" — was **wrong**,
+and I had contradicted an author who read the source correctly. The pin bump is
+still right, but for a better reason than I gave: the runbook mints an API KEY,
+and only 11.10.3 reads `CLOUD_API_KEY`. Session tokens age out; an API key is the
+durable, rotatable, scoped credential. I wrote that reasoning into the workflow
+comment rather than the wrong one.
+
+**Publishing (#204).** flows is public now, so: `@relayflows/runtime-linux-x64`
+(the two binaries cloud consumes) and `@relayflows/surface`, both 2.0.0,
+published with OIDC provenance and no token, `dry_run` defaulting true. Naming:
+v1 already holds `core`/`cli`/`*-primitive` at 1.1.4, so v2 takes unused nouns and
+starts a major ahead — the generation lives in the version rather than a `v2-`
+prefix on every name.
+
+Left two decisions explicitly unmade in that PR: `license` is `UNLICENSED`, which
+is incoherent with `--access public`, and `@relayflows/sdk` stays private. Neither
+is mine.
