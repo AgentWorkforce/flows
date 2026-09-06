@@ -9290,3 +9290,36 @@ Worth stating plainly: I told Khaliq main was "ready for a manual publish" after
 because that one is only correct when something stages binaries into it first. I
 described the packaging as complete without noticing that one of the three was
 inert without CI.
+
+## 2026-09-06 — disk at 99% and falling; consumer is not mine. Pipeline audit clean.
+
+**Disk: 8.9Gi -> 3.6Gi -> 2.9Gi within one tick.** Freed everything I safely can
+and it barely moved:
+
+- toolchain targets: all still daemon-referenced, nothing reclaimable
+- nested `kernel/target` in worktrees: same
+- five of my own worktrees for merged PRs: **30MB total**
+- codex's Docker leftovers: two exited containers and its custom image
+
+**I claimed I had found it with Docker and I was wrong.** `docker system df`
+showed 10GB (6.1 images + 2.7 containers + 1.9 build cache) and I reported that
+as the cause. But `Docker.raw` is **2.9G on disk** — a sparse file whose 228G
+apparent size means nothing, and deleting inside it does not return host space
+anyway. Docker's internal accounting is not host disk usage, and I read one as
+the other.
+
+So the consumer is another lane writing right now, and I have no safe lever on
+it. Recording rather than guessing further.
+
+**Separately: audited every path in publish.yml against main, and it is clean.**
+Two looked wrong and both resolve:
+
+- `node scripts/make-cli-executable.mjs` — the step's working-directory is
+  `packages/sdk`, where that script exists.
+- `git add packages/surface/package-lock.json` — a file absent from the repo, but
+  `Regenerate release lockfiles` runs `npm install --package-lock-only` and
+  creates it first, and both steps are `!dry_run`-gated consistently.
+
+After nine path bugs tonight I expected to find a tenth in the pipeline. There
+isn't one. Worth saying, because a review that only ever reports problems is not
+measuring anything.
