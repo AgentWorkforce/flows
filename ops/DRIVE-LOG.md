@@ -9259,3 +9259,34 @@ until a number looks right.
 The only real verification is: merge #209, dispatch publish.yml again, read the
 result. Same shape as the workflow itself being un-dry-runnable before merge —
 this pipeline can only be debugged from main.
+
+## 2026-09-06 — runtime-linux-x64@2.0.0 PUBLISHED BROKEN (2 files, no binaries)
+
+Khaliq published manually and hit `TS2688: Cannot find type definition file for
+'node'` on the sdk. That is `prepare` running `tsc` before devDependencies exist
+— the same error #199 reported, same cause, now reproduced on a human's machine.
+
+Checking what had already landed found something worse:
+
+    @relayflows/surface@2.0.0           37 files, dist/index.js present   OK
+    @relayflows/runtime-linux-x64@2.0.0  2 files: package.json, README.md  BROKEN
+
+**The runtime package shipped with no binaries.** It declares
+`bin: { relayflowd, flows }` and `files: ["bin/"]`, and `bin/` was empty in the
+checkout — I created that directory empty on purpose, because CI stages the
+binaries into it. Published from a clean tree, it carries two bin entries
+pointing at files that do not exist.
+
+npm versions are immutable, so 2.0.0 cannot be replaced: it needs 2.0.1 with the
+binaries staged, and `npm deprecate` on 2.0.0.
+
+**This is the exact failure codex's pipeline was built to prevent** — "Pack and
+assert runtime (executes both unpacked binaries)". That step never ran, because
+the dry run died at step 7 on the fixture bug. The guard existed and the release
+went around it.
+
+Worth stating plainly: I told Khaliq main was "ready for a manual publish" after
+#204. It was ready for surface and sdk; it was NOT ready for the runtime package,
+because that one is only correct when something stages binaries into it first. I
+described the packaging as complete without noticing that one of the three was
+inert without CI.
