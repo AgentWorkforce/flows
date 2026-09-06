@@ -8974,3 +8974,34 @@ which is also, precisely, what #206's failing checks were telling me.
 
 Committed around codex's uncommitted work with a stash/pop so its in-flight
 files survived.
+
+## 2026-09-06 — cleaned up my own double-spawn: two pipelines, one branch polluted
+
+Consequence of misreading finn's codex as dead: I spawned a second on sf-mini,
+and **both delivered a release pipeline.**
+
+    #206 (finn, miyaontherelay)  publish.yml +242, pack-release.mjs, publish.test.mjs
+    d380008 (sf-mini)            publish.yml +197, assert-release-package.mjs
+
+Two independent implementations of the same thing. Worse, the sf-mini run
+committed **directly onto `refactor/packages-layout`**, so #205 was carrying both
+a layout move and a release pipeline — two changes in one PR, and the layout no
+longer reviewable on its own.
+
+Checked first that my own fix survived: `5cdab76` is an ancestor of the new head
+and the no-slash corrections are intact at HEAD. Codex built on my work rather
+than over it.
+
+**Released `codex-sfm-0906`** (graceful stop) and reverted `d380008`. #205 is a
+pure layout move again; #206 keeps the pipeline, which is what its own
+description already claimed ("stacked on #205").
+
+Deliberately did NOT delete the reverted work: it stays in branch history at
+`d380008`. If the sf-mini implementation turns out to be the better of the two,
+that should be settled on the merits — not by which agent happened to push last,
+which is the only thing my cleanup would otherwise have decided.
+
+**The whole episode traces to one wrong reading.** `agent-relay agent list` said
+"unknown / last seen 11:12"; I called it dead, spawned a replacement, and created
+duplicate work plus a polluted branch. The correct instrument, `node agent list`,
+was one command away and I did not run it until Khaliq told me to attach.
