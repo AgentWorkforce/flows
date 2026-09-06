@@ -8089,3 +8089,26 @@ and my package silently went stale at the second one. A work package that names 
 fixed problem is worse than none, because it looks authoritative — the same
 defect I flagged in #199's audit, arriving in my own file. The rule generalises:
 after someone else closes a layer, re-read anything you wrote that named it.
+
+## 2026-09-06 tick — quiet, except my own PR description was still lying
+
+Nothing moved: queue clean, two active crons with recent runs, no real #3270
+Preview dispatch since 06:22, seven open flows PRs all at zero reviews, disk
+steady at 11Gi.
+
+One real thing, and it was mine. Last tick I rewrote #194's `ops/NEXT.md` and
+never touched the PR **description**, which still led with
+`agent-relay: command not found` and exit 127 — the layer #198 closed hours ago.
+Anyone reading the PR rather than the diff would have been sent at a fixed
+problem by an authoritative-looking summary.
+
+That is precisely the defect I criticised in #199's audit two ticks ago, and I
+committed it in the same file I was fixing it in. Updated the body to match
+`4037ba1`, and said in it that the original is left in comment history rather
+than edited away — a retargeted package should show what it used to claim.
+
+Worth naming the general shape, because it has now bitten twice in two ticks:
+**a document has more than one surface, and fixing one does not fix the others.**
+The file, the PR body, the title, and the comments are four separate claims about
+the same work, and they drift independently. When the ground moves, all four need
+re-reading, not just the one being edited.
