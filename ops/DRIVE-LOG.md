@@ -8944,3 +8944,33 @@ codex dead on the same roster evidence, then built an account-scoped-limit theor
 on top of it and reported that theory to Khaliq as the likely explanation. One
 attach would have falsified it. The local run's usage-limit error was real; the
 generalisation from it was not.
+
+## 2026-09-06 — #206 is codex's PR. It never died. And CI caught my eighth miss.
+
+**#206 "ci: publish versioned packages with verified tarball" is authored by
+`miyaontherelay` — the FINN-MINI codex.** It ran ~16 minutes, opened the PR at
+10:50:27, and then went idle. I read that idleness as death and reported an
+account-scoped credit theory built on it. It had simply finished.
+
+So both codex runs worked. The sf-mini one is still going, which means **two
+agents are now doing the same task** — my doing, from a wrong liveness call.
+
+**CI then caught an eighth stale path in my own #205:**
+
+    Build authoring surface
+    error: working directory '.../flows/surface': No such file or directory
+
+Same blind spot as `cd sdk`: my pattern required a trailing slash, so every bare
+directory VALUE was invisible. Five remained — `working-directory: surface`,
+`working-directory: sdk`, `npm ci --prefix sdk`, and `cd sdk` in
+backlog-picker.flow.yaml and bootstrap-gate1.yaml. Fixed at `5cdab76`.
+
+**Three layers of verification missed these and CI did not.** The vitest suite
+never runs those files; the structure lens read the diff rather than executing
+it; surface-package-gate.sh does not touch cloud-runtime-artifact.yml. The first
+thing that actually ran the workflow found it in seconds. That is the argument
+for pushing a branch and letting its CI speak before believing a local green —
+which is also, precisely, what #206's failing checks were telling me.
+
+Committed around codex's uncommitted work with a stash/pop so its in-flight
+files survived.
