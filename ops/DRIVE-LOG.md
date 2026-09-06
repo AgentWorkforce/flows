@@ -9005,3 +9005,33 @@ which is the only thing my cleanup would otherwise have decided.
 "unknown / last seen 11:12"; I called it dead, spawned a replacement, and created
 duplicate work plus a polluted branch. The correct instrument, `node agent list`,
 was one command away and I did not run it until Khaliq told me to attach.
+
+## 2026-09-06 — CI found the ninth miss; packed-consumer now green on #205
+
+`packed-consumer` passes on #205 — the gate-script path fixes hold in CI, not just
+locally. `linux-x64-artifact` still failed, on something neither the lens nor the
+local suite could have seen:
+
+    AssertionError: step "build-sdk" diverges from the canonical spec:
+    expected 'cd sdk && npm ci --silent …' to be 'cd packages/sdk && npm ci --silent …'
+
+`testdata/backlog-picker.flow.yaml` and `backlog-picker.spec.canonical.json` are
+a **compiled pair** checked against each other by spec-parity. I changed the
+flow's `cd sdk` and left the canonical spec behind. Unlike tick-heartbeat and
+hello-ladder this pair has no pinned sha256, so editing both is the right fix
+rather than reverting. Fixed at `235b948`.
+
+**A near-miss worth recording.** Re-running the parity tests locally gave 4
+failures in backlog-picker, and I had a tidy explanation ready: BACKLOG.md still
+says `sdk/` by design, the picker validates paths, therefore the entries went
+non-actionable. Plausible, coherent, and wrong. It was a **stale `dist/`** — I had
+`git reset --hard`ed the branch without rebuilding. Rebuilt: 45 passed, then the
+full suite 662 passed / 3 skipped.
+
+That is the third time tonight the stale-artifact trap has produced a convincing
+false diagnosis, and the second time I nearly filed one. The tell is always the
+same: the explanation fits the symptom but nobody checked the build.
+
+Also visible in that CI log, working exactly as designed:
+`LIVE_ANALYZER_UNAVAILABLE … spawnSync claude ENOENT — SKIPPING`. CI has no
+analyzer, so the gate-2 case skips there and only ever ran on this machine.
