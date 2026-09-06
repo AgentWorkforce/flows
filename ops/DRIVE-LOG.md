@@ -7455,3 +7455,37 @@ kernel-side presentation (fair, wider change than this PR), mixed char/byte unit
 **Six lens runs across four heads, and every head had something in it** —
 including the one that passed 3/3. That is the argument for signoff-at-exact-head
 stated as evidence rather than as policy. No lens has seen `3924cf3`.
+
+## 2026-09-06 tick — clean 3/3 at 3924cf3; stopped iterating on purpose
+
+Disk 10Gi/95%, unchanged. All three lenses PASSED at `3924cf3` with no code
+changes since — the first head where that is true.
+
+**The history lens ran `cargo test --workspace` itself this time** (165 passed,
+0 failed) instead of accepting my count, which its previous pass had explicitly
+flagged as unverified. That is the only verification on this PR that did not
+come from me, and it matters more than the other five passes combined.
+
+**Stopped iterating deliberately, and this is the judgement call of the tick.**
+Four rounds ran the same loop: lens finds something real, I fix it, the head
+moves, no lens has seen the new head. The loop was productive — it caught a
+mutation test that did not test its mutation, a Debug leak reintroduced by the
+fix for a Debug leak, and an overwrite that destroyed the diagnostic this PR
+exists to preserve — but it converged. Continuing past convergence would trade a
+reviewed head for an unreviewed one every round, forever.
+
+So the remaining concerns went to **#197** rather than into the diff: vocabulary
+duplication, the hand-maintained variant array, an implicit ordering constraint,
+`machine.rs` at 502 lines, two accounts flattened into one `detail` field, and
+
+**a docstring of mine that overstates its own guarantee.** `worker_failure_detail`
+says it is bounded "so a large or hostile output cannot bloat the journal", then
+renders the whole value with `to_string()` before measuring. The journal write is
+bounded; the allocation is not. Same failure mode the history lens caught twice
+in my commit messages — the happy path written as if it were the whole path.
+Third instance tonight. Naming it in the PR rather than only in an issue, because
+a comment that promises more than the code does is the kind of thing the next
+reader trusts.
+
+Nine lens runs, five heads. Not merging: `review` still red repo-wide, and every
+one of those nine runs was commissioned by the agent that wrote the patch.
