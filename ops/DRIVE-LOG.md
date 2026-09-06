@@ -8633,3 +8633,34 @@ merging faster is usually a flake meeting a larger sample, not a regression.**
 And the way to tell them apart is to find a commit that could not possibly have
 caused it and check whether it failed too. That test took one command and settled
 what an hour of reading the kernel diff would not have.
+
+## 2026-09-06 tick — main green at HEAD; #204 completed with both decisions applied
+
+Main's two pending runs both passed: 5 success / 2 #174-flake failures across the
+seven merge commits, and **green at HEAD**.
+
+Khaliq settled both open decisions mid-tick: **Apache-2.0** (same as relay) and
+**sdk publishes alongside** the runtime. Applied at `8335b8d`.
+
+**Copied relay's LICENSE verbatim** rather than generating one, so the text is
+identical and not merely the same SPDX id. flows had no LICENSE at all — which
+`--access public` would have published around silently.
+
+**Publishing the sdk took more than clearing `private`.** Its dependency was
+`"@relayflows/surface": "file:../surface"`, which cannot be published — a
+consumer cannot resolve it. Rewriting it to `2.0.0` then breaks the build, since
+the sdk can no longer find the sibling. The job now builds the surface and links
+it in-job while the published manifest points at the registry, and the pack step
+asserts no `file:` dependency survives into the tarball.
+
+**And I could not dry-run the workflow.** GitHub refused:
+`HTTP 404: workflow publish.yml not found on the default branch`.
+`workflow_dispatch` only exposes workflows present on the default branch, so the
+first real execution happens AFTER merge. Said so on the PR rather than letting a
+green `packed-consumer` imply the pipeline is proven — that check covers the
+surface package, not this workflow.
+
+Worth recording as a general trap: **a workflow that gates its own risk behind an
+input cannot be tested before it lands.** The mitigations (dry_run defaults true,
+every job asserts tarball contents, runtime executes both binaries first) are
+real, but they are arguments rather than evidence until someone dispatches it.
