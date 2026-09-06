@@ -9896,3 +9896,52 @@ Item 4 (#139) is the remaining live item.
 
 Worktree `flows-main-verify-wt` left in place with deps installed — #139 needs a
 main checkout and this one is ready.
+
+## 2026-09-06 tick — #3270 unblocked from DIRTY to UNSTABLE (25c1440c3)
+
+**Items 3 and 4 are both dead.** #134 is fixed on main (last tick). **#139 is
+MERGED** — same failure mode, so the brief now has two stale items. Zero open
+PRs in flows.
+
+**An instrument nearly cost me the tick.** I listed cloud's open PRs with
+`--limit 10` and grepped for v2, got nothing, and wrote "no v2 PRs open in
+cloud". Cloud has 100+ open PRs; the sample simply did not reach #3270. Querying
+the PR directly showed `OPEN / DIRTY`. A filtered listing that returns nothing
+is not evidence of absence when the listing was truncated.
+
+**#3270 was conflicted, which blocks it independently of the App grant.** A
+DIRTY PR cannot merge no matter who grants what, so this was unblocked work
+sitting behind a stale brief. Six conflicts:
+
+- `package.json` / `package-lock.json` — union, not either/or: main bumped
+  `@agent-relay/sdk` to 11.10.3, the branch added `@aws-crypto/sha256-js`. Lock
+  regenerated with `--package-lock-only`, then verified to carry both.
+- `packages/core/src/bootstrap/launcher.ts` — union; both sides appended env
+  vars at the same point.
+- `templates.generated.ts` — 451KB generated file. Regenerated via
+  `embed-bootstrap-templates.mjs`. Its two SOURCE templates merged without
+  conflict, so I checked the merged result actually contained both sides
+  (5 v2 markers, 3 setup-broker markers) rather than trusting a clean merge.
+- `packages/web/drizzle` — the real one. Both sides claimed **0122**: main's
+  `nango_sync_unroutable_parking` versus the branch's
+  `workflow_run_relayflow_v2_authority`, and main had also landed 0123 and 0124.
+
+Drizzle resolution: renumber the branch's migration to **0125**, take main's
+journal chain and append, keep main's `0122_snapshot.json` verbatim, and
+**rebuild** `0125_snapshot.json` from main's 0124 snapshot with the one added
+column, chaining `prevId` to main's 0124.
+
+The trap avoided: the branch's snapshot could NOT simply be renamed. It was
+built on main's 0121 and predates 0122-0124, so a rename would have silently
+reverted three migrations' worth of schema — a plausible-looking file that
+merges green and corrupts prod. The migration itself is one line:
+`ALTER TABLE "workflow_runs" ADD COLUMN "relayflow_v2_authority" jsonb;`
+
+**Result:** pushed `25c1440c3`; PR moved **DIRTY -> UNSTABLE**. Conflicts are
+gone and CI is now the gate. Nothing merged to main — pushing to a PR branch
+does not deploy.
+
+Not verified here: no typecheck or test run; both need a full monorepo install.
+CI on the PR judges that. Next tick: read its CI result.
+
+The App grant is still required for the preview build and the live proof.
