@@ -10455,3 +10455,9 @@ someone else's active workstream. Noted, not touched.
 
 No work done. Items 2-4 blocked or dead, #212 and #213 filed and awaiting an
 implementer who is not me.
+
+## 2026-09-07 tick — quiet; identical state
+
+No change on any blocker: App key March vs Sep-5 id, flows holds only
+`RELAY_WORKSPACE_KEY`, #3270 CLEAN with no review, mint still the 19:35Z
+failure. #212/#213 open and unclaimed. Nothing done.
