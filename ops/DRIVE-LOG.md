@@ -9620,3 +9620,9 @@ at 2.0.0 only. No work taken.
 ## 2026-09-06 tick — quiet, unchanged
 
 No open PRs, latest swarm run still 14:24Z, queue clean, disk 16Gi. No work taken.
+
+## 2026-09-06 tick — quiet, unchanged
+
+No open PRs, latest swarm run still 14:24Z, queue clean. Disk 14Gi (down from 16;
+watching, not acting — the other session's scratchpad grows and shrinks on its own).
+No work taken.
