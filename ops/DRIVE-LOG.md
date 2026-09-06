@@ -8480,3 +8480,35 @@ Next tick: read that run's `Mint private Flows artifact token` conclusion. If it
 succeeded, the grant is live and #3270's preview can be re-dispatched — which is
 tick item 2 and the highest-value item in the lane. If it failed the same way,
 the grant is still missing and the evidence stands preserved.
+
+## 2026-09-06 tick — the probe was invalid, and the real finding is a merge hazard
+
+Read run 34022723326's steps as committed. **It succeeded, and it contains no
+mint step at all** — checkout → AWS → node → build → SST deploy. So my "four
+minutes versus seventeen seconds" reasoning proved nothing.
+
+Checked why:
+
+    "Mint private Flows artifact token" on cloud main:                0
+    "Mint private Flows artifact token" on feat/relayflow-v2-executor: 1
+
+**#3270 introduces the mint step.** It is not part of main's preview workflow at
+all, which is why every other branch's preview sails past and why nobody else has
+ever hit the grant requirement.
+
+**The real finding, which is worth more than the probe would have been:** the
+step has **no `if:` guard** and sits *before* `Configure AWS credentials`. Today
+that breaks only #3270's own preview. **After merge it runs in every preview
+deploy in the cloud repo and fails identically** — 404, seventeen seconds, before
+AWS is configured. Merging #3270 without the grant in place takes preview deploys
+down repo-wide.
+
+Posted that on #3270 with the ordering: grant first, re-dispatch and confirm the
+mint passes, run the proof, then merge. Offered the `if:`-guard alternative as a
+design call rather than proposing a patch to someone else's PR.
+
+**Holding last tick paid.** I wrote then that "ran longer than the failure did" is
+an inference from duration, not evidence, and that being wrong would cost a
+wasted dispatch and a false all-clear. It would have cost exactly that: I would
+have re-dispatched #3270's preview on the strength of a run that never attempted
+the thing I was testing for.
