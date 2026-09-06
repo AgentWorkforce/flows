@@ -8702,3 +8702,41 @@ manifests at 2.0.0 / Apache-2.0 with no `file:` dependencies.
 
 Note flows had **no LICENSE at all** — `--access public` would have published
 around that silently.
+
+## 2026-09-06 — packages/ layout moved and verified; handed to codex as implementer
+
+Khaliq asked for `sdk/` and `surface/` under `packages/`, done comprehensively by
+a codex agent. I raised that my notes record three prior codex-on-flows attempts
+each shipping bugs the swarm caught, and that the standing tick rule is to work
+directly in-session. **He reaffirmed twice — codex is the implementer.** Recorded
+as his decision, taken with the evidence in front of him.
+
+Before handing over I secured a verified baseline rather than a description.
+
+**The headline number was wrong in a useful direction.** 138 files reference the
+old paths, but only **19** needed changing. The rest are `ops/reviews/*`,
+DRIVE-LOG, briefs and past run reports — records of what was true when written.
+Rewriting those would falsify history to match a layout that did not exist yet,
+so they keep saying `sdk/`.
+
+**Four things bit, each caught by running rather than reading:**
+
+1. Tests reached the repo root with two `..`, which now lands at `packages/`. All
+   repo-root climbs are three levels; package-relative single-`..` uses stay.
+2. My first sweep fixed only `testdata`, missing `ops/BACKLOG.md` — which a live
+   test reads. The fix is the path, not the document.
+3. My generic second sweep then **over-corrected testdata to four levels**. The
+   suite caught it. A regex that matches its own previous output is a good way to
+   break something quietly.
+4. Editing a comment inside `testdata/tick-heartbeat.*` broke
+   `spec parity: hashes tick-heartbeat to the pinned spec_hash` — that content is
+   sha256-pinned across the SDK/kernel boundary. Reverted; their prose is now
+   stale on purpose, and correcting it means regenerating the hash on both sides.
+
+Verified in the moved layout: **kernel 165 passed / 0 failed, sdk 662 passed /
+3 skipped / 0 failed**, including the real-analyzer gate-2 case and the
+daemon-kill resume case, both of which exercise repo-root paths.
+
+Pushed `refactor/packages-layout` at `1cf7bdc` and handed codex a brief that
+front-loads all four traps, asks it to **check my diff rather than trust it**,
+open the PR itself, and then build the release pipeline on relayfile's shape.
