@@ -1,0 +1,242 @@
+# Model: AgentWorkforce/relayfile/.github/workflows/publish.yml.
+# Configure each npm trusted publisher for AgentWorkforce/flows, publish.yml.
+name: Publish Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package to publish (single-package selections are dry-run only)
+        required: true
+        type: choice
+        options: [all, surface, sdk, runtime-linux-x64]
+        default: all
+      version:
+        description: Version bump type
+        required: true
+        type: choice
+        options: [patch, minor, major, prepatch, preminor, premajor, prerelease]
+        default: patch
+      custom_version:
+        description: Custom version (overrides bump type)
+        required: false
+        type: string
+      preid:
+        description: Prerelease identifier
+        type: choice
+        options: [beta, alpha, rc]
+        default: beta
+      dry_run:
+        description: Dry run (build, pack and verify without publishing)
+        type: boolean
+        default: true
+      tag:
+        description: NPM dist-tag
+        type: choice
+        options: [latest, next, beta, alpha]
+        default: latest
+
+concurrency:
+  group: publish-package
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  NPM_CONFIG_FUND: 'false'
+
+jobs:
+  build:
+    name: Build & Version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
+      is_prerelease: ${{ steps.bump.outputs.is_prerelease }}
+    steps:
+      - name: Validate release mode
+        env:
+          PACKAGE: ${{ inputs.package }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [[ "$DRY_RUN" != true && ( "$PACKAGE" != all || "$REF_TYPE" != branch ) ]]; then
+            echo 'Real releases require package=all and a branch: all versions and internal dependencies advance together.' >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: packages/sdk/package-lock.json
+          registry-url: https://registry.npmjs.org
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: |
+          npm install --prefix packages/surface --ignore-scripts
+          npm ci --prefix packages/sdk --ignore-scripts
+      - name: Test release tooling
+        run: node --test scripts/publish.test.mjs
+      - name: Version all packages
+        id: bump
+        env:
+          CUSTOM_VERSION: ${{ inputs.custom_version }}
+          VERSION_TYPE: ${{ inputs.version }}
+          PREID: ${{ inputs.preid }}
+        run: node scripts/version-packages.mjs
+      - name: Build surface
+        working-directory: packages/surface
+        run: ./node_modules/.bin/tsc
+      - name: Pack and assert surface
+        id: surface
+        run: node scripts/pack-release.mjs surface
+      # Install the actual packed surface, without saving a file: dependency.
+      # npm ci's development link must not be the SDK's build-time dependency.
+      - name: Build SDK against packed surface
+        env:
+          SURFACE_TARBALL: ${{ steps.surface.outputs.tarball }}
+        working-directory: packages/sdk
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts "$SURFACE_TARBALL"
+          test ! -L node_modules/@relayflows/surface
+          ./node_modules/.bin/tsc
+          node scripts/make-cli-executable.mjs
+      - name: Pack and assert SDK
+        run: node scripts/pack-release.mjs sdk
+      - name: Build relayflowd
+        working-directory: kernel
+        run: cargo build --locked --release -p relayflowd
+      - name: Build and execute runtime binaries
+        run: |
+          mkdir -p packages/runtime-linux-x64/bin
+          cp kernel/target/release/relayflowd packages/runtime-linux-x64/bin/relayflowd
+          bun build packages/sdk/src/cli-executable.ts --compile --target=bun-linux-x64 \
+            --outfile=packages/runtime-linux-x64/bin/flows
+          chmod +x packages/runtime-linux-x64/bin/relayflowd packages/runtime-linux-x64/bin/flows
+          packages/runtime-linux-x64/bin/relayflowd --help
+          packages/runtime-linux-x64/bin/flows check --json testdata/hello-deterministic.flow.yaml
+      - name: Pack and assert runtime (executes both unpacked binaries)
+        run: node scripts/pack-release.mjs runtime-linux-x64
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: dist/publish/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-packages:
+    name: Publish packages in dependency order
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+      # OIDC requires npm >=11.5.1. Keep Node 22 compatible with npm's major.
+      - name: Update npm for OIDC support
+        run: npm install -g npm@11
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-output
+          path: dist/build-output
+      - name: Restore built packages
+        env:
+          NEW_VERSION: ${{ needs.build.outputs.new_version }}
+        run: |
+          for package in surface sdk runtime-linux-x64; do
+            tar -xzf "dist/build-output/relayflows-${package}-${NEW_VERSION}.tgz" \
+              --strip-components=1 -C "packages/$package"
+          done
+      # Repack and check EVERYTHING before the first publish. Tar archives
+      # preserve executable bits across Actions artifact upload/download.
+      - name: Pack and assert all release tarballs
+        run: |
+          node scripts/pack-release.mjs surface
+          node scripts/pack-release.mjs sdk
+          node scripts/pack-release.mjs runtime-linux-x64
+      - name: Publish to NPM (surface before SDK)
+        env:
+          PACKAGE: ${{ inputs.package }}
+          NEW_VERSION: ${{ needs.build.outputs.new_version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          NPM_TAG: ${{ inputs.tag }}
+        run: |
+          for package in surface sdk runtime-linux-x64; do
+            if [[ "$PACKAGE" != all && "$PACKAGE" != "$package" ]]; then continue; fi
+            args=()
+            if [[ "$DRY_RUN" == true ]]; then args+=(--dry-run); fi
+            npm publish "dist/publish/relayflows-${package}-${NEW_VERSION}.tgz" \
+              --access public --provenance --ignore-scripts --tag "$NPM_TAG" "${args[@]}"
+          done
+      - name: Regenerate release lockfiles
+        if: ${{ !inputs.dry_run }}
+        env:
+          NEW_VERSION: ${{ needs.build.outputs.new_version }}
+        run: |
+          npm install --prefix packages/surface --package-lock-only --ignore-scripts
+          npm install --prefix packages/sdk --package-lock-only --ignore-scripts --save-exact "@relayflows/surface@$NEW_VERSION"
+          node --input-type=module - <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const lock = JSON.parse(readFileSync('packages/sdk/package-lock.json', 'utf8'));
+          const surface = lock.packages['node_modules/@relayflows/surface'];
+          assert.equal(surface.version, process.env.NEW_VERSION);
+          assert.match(surface.resolved, /^https:\/\/registry\.npmjs\.org\//);
+          assert(!surface.link, 'release lockfile must resolve the published surface');
+          NODE
+          npm ci --prefix packages/surface --dry-run --ignore-scripts
+          npm ci --prefix packages/sdk --dry-run --ignore-scripts
+      - name: Commit version bump and create tag
+        if: ${{ !inputs.dry_run }}
+        env:
+          NEW_VERSION: ${{ needs.build.outputs.new_version }}
+          RELEASE_BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name 'GitHub Actions'
+          git config user.email 'actions@github.com'
+          git add packages/surface/package.json packages/surface/package-lock.json \
+            packages/sdk/package.json packages/sdk/package-lock.json \
+            packages/runtime-linux-x64/package.json
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(release): v${NEW_VERSION}"
+          fi
+          git tag -a "v${NEW_VERSION}" -m "Release v${NEW_VERSION}"
+          git push --atomic origin "HEAD:refs/heads/${RELEASE_BRANCH}" "refs/tags/v${NEW_VERSION}"
+      - name: Create GitHub Release
+        if: ${{ !inputs.dry_run }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build.outputs.new_version }}
+          name: v${{ needs.build.outputs.new_version }}
+          prerelease: ${{ needs.build.outputs.is_prerelease == 'true' }}
+          generate_release_notes: true
+          files: dist/publish/*.tgz
+      - name: Summary
+        if: always()
+        env:
+          NEW_VERSION: ${{ needs.build.outputs.new_version }}
+          PACKAGE: ${{ inputs.package }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          NPM_TAG: ${{ inputs.tag }}
+          RESULT: ${{ job.status }}
+        run: |
+          {
+            echo "Package: $PACKAGE"
+            echo "Version: $NEW_VERSION"
+            echo "NPM tag: $NPM_TAG"
+            echo "Dry run: $DRY_RUN"
+            echo "Publish job: $RESULT"
+          } >> "$GITHUB_STEP_SUMMARY"
