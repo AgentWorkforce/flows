@@ -10441,3 +10441,17 @@ three ticks; a fourth self-audit is not evidence, it is churn.
 
 Open in flows: #212 (durable channels, the actionable one), #213, #197, #174,
 #141.
+
+## 2026-09-06 tick — quiet; no change, nothing invented
+
+All blockers identical: `GH_APP_PUSHER_PRIVATE_KEY` March vs a Sep-5 id, flows
+holds only `RELAY_WORKSPACE_KEY`, #3270 CLEAN with no review, cloud launch queue
+healthy (both schedules active).
+
+One new signal checked and dismissed: a cloud `Deploy` failed 21:26Z after one
+succeeded 21:06Z. All four recent Deploy runs are on branch
+`awscf/agent37-dev-control-0906` — the AWS-CF lane, not main and not prod, and
+someone else's active workstream. Noted, not touched.
+
+No work done. Items 2-4 blocked or dead, #212 and #213 filed and awaiting an
+implementer who is not me.
