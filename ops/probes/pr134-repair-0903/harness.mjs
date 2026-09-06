@@ -1,7 +1,7 @@
 // Shared probe harness for the PR #134 authored-lifecycle repair.
 //
 // Drives the real `executeAuthoredFlow` against a loopback journal faithful to
-// `sdk/tests/journal-client-loopback.ts`, and reports which journal runs were
+// `packages/sdk/tests/journal-client-loopback.ts`, and reports which journal runs were
 // started — so "did the flow lower its terminal complete-* run" is observed,
 // not inferred. Run any probe in this directory with plain `node`.
 import { randomUUID } from 'node:crypto';

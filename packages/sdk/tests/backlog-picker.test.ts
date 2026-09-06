@@ -60,7 +60,7 @@ describe('backlog picker', () => {
   });
 
   it('does not treat backticked prose containing a slash as a file in scope', () => {
-    const flowPath = join(__dirname, '..', '..', 'testdata', 'backlog-picker.flow.yaml');
+    const flowPath = join(__dirname, '..', '..', '..', 'testdata', 'backlog-picker.flow.yaml');
     const flow = load(readFileSync(flowPath, 'utf8')) as {
       steps: Array<{ id: string; command: string }>;
     };
@@ -138,7 +138,7 @@ describe('work package validation', () => {
   });
 
   it('keeps at least twenty real backlog entries actionable', async () => {
-    const backlog = readFileSync(join(__dirname, '..', '..', 'ops', 'BACKLOG.md'), 'utf8');
+    const backlog = readFileSync(join(__dirname, '..', '..', '..', 'ops', 'BACKLOG.md'), 'utf8');
     const entries = [...backlog.matchAll(/^- \*\*(.+?)\*\*\s*(.*(?:\n  .*)*)/gm)].map(
       (match) => ({
         title: match[1] ?? '',

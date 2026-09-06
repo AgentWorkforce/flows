@@ -16,7 +16,7 @@ import { jsonSchemaBoundError, UNBOUNDED_REF_CYCLE } from '../src/json-schema-bo
 import { jsonSchemaError } from '../src/json-schema.js';
 import type { FlowSpec } from '../src/spec.js';
 
-const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata');
+const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'testdata');
 
 interface Case {
   name: string;

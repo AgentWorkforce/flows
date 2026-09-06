@@ -15,11 +15,11 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const BUILT_CLI = join(ROOT, 'sdk', 'dist', 'cli.js');
-const FLOW = join(ROOT, 'sdk', 'tests', 'fixtures', 'direct-input.flow.ts');
-const CONTROL_FLOW = join(ROOT, 'sdk', 'tests', 'fixtures', 'direct-output-control.flow.ts');
-const SIDE_EFFECT_FLOW = join(ROOT, 'sdk', 'tests', 'fixtures', 'pre-journal-side-effect.flow.ts');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const BUILT_CLI = join(ROOT, 'packages', 'sdk', 'dist', 'cli.js');
+const FLOW = join(ROOT, 'packages', 'sdk', 'tests', 'fixtures', 'direct-input.flow.ts');
+const CONTROL_FLOW = join(ROOT, 'packages', 'sdk', 'tests', 'fixtures', 'direct-output-control.flow.ts');
+const SIDE_EFFECT_FLOW = join(ROOT, 'packages', 'sdk', 'tests', 'fixtures', 'pre-journal-side-effect.flow.ts');
 const TOOLCHAIN_TARGET = process.env['CARGO_TARGET_DIR']
   ?? join(process.env['RELAYFLOWS_TOOLCHAIN_HOME'] ?? join(homedir(), '.relayflows-toolchain'), 'target');
 const RELAYFLOWD = resolve(process.env['RELAYFLOWD_BIN'] ?? locateRelayflowd());

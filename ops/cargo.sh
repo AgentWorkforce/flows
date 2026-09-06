@@ -40,7 +40,7 @@ export RUSTUP_HOME="$toolchain_home/rustup"
 # whole of the problem.
 #
 # Anything that hardcodes kernel/target/debug must read RELAYFLOWD_BIN instead;
-# sdk/tests/live-kernel.test.ts already does.
+# packages/sdk/tests/live-kernel.test.ts already does.
 # Keyed per worktree. Review caught that a single shared target dir would be
 # used by every worktree under the same HOME (PR #38): cargo locks it, so the
 # builds are safe, but two different source trees sharing one target thrash

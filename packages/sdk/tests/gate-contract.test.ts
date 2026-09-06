@@ -11,7 +11,7 @@ import { preflight } from '../src/index.js';
 import type { FlowSpec } from '../src/spec.js';
 import { validateSpec } from '../src/validate.js';
 
-const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'testdata');
+const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'testdata');
 
 function schemaFixture(name: 'valid' | 'invalid'): unknown {
   return JSON.parse(readFileSync(join(TESTDATA, `json-schema-${name}.json`), 'utf8'));

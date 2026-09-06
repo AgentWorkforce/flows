@@ -20,7 +20,7 @@ agents:
   - name: builder
     cli: codex
     preset: worker
-    role: Implements the work package. Rust for kernel/, TypeScript for sdk/.
+    role: Implements the work package. Rust for kernel/, TypeScript for packages/sdk/.
   - name: adversary
     cli: claude
     preset: reviewer
@@ -153,7 +153,7 @@ workflows:
           if one is unsatisfied, it IS the work package.
           Then read docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,
           `git log --oneline -15`, `gh pr list --state open` and open PR review
-          state, kernel/ and sdk/ test status. Then write ops/NEXT.md: the
+          state, kernel/ and packages/sdk/ test status. Then write ops/NEXT.md: the
           SINGLE highest-priority work package toward the current gate
           (gate 1 until its done-when in RFC-0001 §3 holds), with: objective,
           files in scope, definition of done (must include passing commands),
@@ -346,12 +346,12 @@ workflows:
             fi
             [ $rc -eq 0 ] || ok=1
           fi
-          if [ -f sdk/package.json ]; then
+          if [ -f packages/sdk/package.json ]; then
             # node_modules is not in `git ls-files`, so a sandbox has none.
             # Install before testing, and treat a failed install as a failed
             # verify rather than letting `npm test` report a confusing error.
-            if [ ! -d sdk/node_modules ]; then
-              echo "VERIFY_INSTALL: sdk/node_modules absent — installing"
+            if [ ! -d packages/sdk/node_modules ]; then
+              echo "VERIFY_INSTALL: packages/sdk/node_modules absent — installing"
               out=$(cd sdk && run_bounded "npm ci" npm ci 2>&1); rc=$?
               if [ $rc -ne 0 ]; then
                 echo "$out" | tail -12
@@ -365,8 +365,8 @@ workflows:
             # the same fault that left ops/cargo.sh non-executable. Which
             # layer drops it is NOT established; this repairs the symptom
             # where it is observed and is a no-op where the bit survives.
-            chmod -R +x sdk/node_modules/.bin 2>/dev/null || true
-            find sdk/node_modules -type d -name bin -path "*esbuild*" \
+            chmod -R +x packages/sdk/node_modules/.bin 2>/dev/null || true
+            find packages/sdk/node_modules -type d -name bin -path "*esbuild*" \
               -exec chmod -R +x {} + 2>/dev/null || true
             out=$(cd sdk && run_bounded "sdk suite" npm test 2>&1); rc=$?
             echo "$out" | tail -8; ran=1
@@ -390,8 +390,8 @@ workflows:
           # Same for unevidenced test claims: "all three tests pass" with no
           # transcript. validateNextWorkPackage refuses both shapes.
           #
-          # Runs BEFORE the node_modules cleanup below, which needs sdk/dist.
-          if [ -f ops/NEXT.md ] && [ -f sdk/dist/index.js ]; then
+          # Runs BEFORE the node_modules cleanup below, which needs packages/sdk/dist.
+          if [ -f ops/NEXT.md ] && [ -f packages/sdk/dist/index.js ]; then
             nextout=$(node -e '
               const fs = require("node:fs");
               const { validateNextWorkPackage } = require("./sdk/dist/index.js");
@@ -443,8 +443,8 @@ workflows:
           #
           # Guarded with || true and placed AFTER the pass/fail decision is
           # computed, so a cleanup problem can never change the verdict.
-          rm -rf sdk/node_modules sdk/dist surface/dist 2>/dev/null || true
-          echo "VERIFY_TREE_SLIMMED: removed sdk/node_modules and generated dist trees before flush (ok=$ok)"
+          rm -rf packages/sdk/node_modules packages/sdk/dist packages/surface/dist 2>/dev/null || true
+          echo "VERIFY_TREE_SLIMMED: removed packages/sdk/node_modules and generated dist trees before flush (ok=$ok)"
 
           # Measure the tree instead of guessing at it.
           #

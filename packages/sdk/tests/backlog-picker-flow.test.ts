@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
  * test of a paraphrase would pass while the flow stayed broken.
  */
 function stepCommands(): Record<string, string> {
-  const flowPath = join(__dirname, '..', '..', 'testdata', 'backlog-picker.flow.yaml');
+  const flowPath = join(__dirname, '..', '..', '..', 'testdata', 'backlog-picker.flow.yaml');
   const flow = load(readFileSync(flowPath, 'utf8')) as { steps: Array<{ id: string; command: string }> };
   return Object.fromEntries(flow.steps.map((s) => [s.id, s.command]));
 }
@@ -114,7 +114,7 @@ describe('backlog-picker canonical spec', () => {
     // caught it. A divergence between the two is silent by nature: both files
     // are valid, the tests over the yaml pass, and the kernel keeps executing
     // the stale command.
-    const root = join(__dirname, '..', '..');
+    const root = join(__dirname, '..', '..', '..');
     const flow = load(readFileSync(join(root, 'testdata', 'backlog-picker.flow.yaml'), 'utf8')) as {
       steps: Array<{ id: string; command?: string }>;
     };
@@ -143,7 +143,7 @@ describe('backlog-picker canonical spec', () => {
     // The rule is shape, not content: whatever fields the kernel-authored
     // steps carry, every step must carry, and no step may carry an authoring
     // -surface alias the kernel does not read.
-    const root = join(__dirname, '..', '..');
+    const root = join(__dirname, '..', '..', '..');
     const canonical = JSON.parse(
       readFileSync(join(root, 'testdata', 'backlog-picker.spec.canonical.json'), 'utf8'),
     ) as { steps: Array<Record<string, unknown>> };
@@ -176,7 +176,7 @@ describe('backlog-picker canonical spec', () => {
     // yaml declares the dependencies; the canonical spec must carry the same
     // ones under `depends_on`. This cannot go stale as the kernel's schema
     // grows, because it asserts a relationship rather than a field list.
-    const root = join(__dirname, '..', '..');
+    const root = join(__dirname, '..', '..', '..');
     const flow = load(readFileSync(join(root, 'testdata', 'backlog-picker.flow.yaml'), 'utf8')) as {
       steps: Array<{ id: string; dependsOn?: string[] }>;
     };

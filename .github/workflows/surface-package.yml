@@ -6,18 +6,18 @@ on:
     paths:
       - ".github/workflows/surface-package.yml"
       - "scripts/surface-package-gate.sh"
-      - "surface/**"
+      - "packages/surface/**"
       - "regressions/**"
-      - "sdk/**"
+      - "packages/sdk/**"
   push:
     branches:
       - main
     paths:
       - ".github/workflows/surface-package.yml"
       - "scripts/surface-package-gate.sh"
-      - "surface/**"
+      - "packages/surface/**"
       - "regressions/**"
-      - "sdk/**"
+      - "packages/sdk/**"
 
 permissions:
   contents: read

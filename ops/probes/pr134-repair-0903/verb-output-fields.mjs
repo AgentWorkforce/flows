@@ -66,4 +66,4 @@ for (const [name, body] of Object.entries(bodies)) {
   }
   console.log(`  ${name.padEnd(14)} ${line}`);
 }
-if (outDir) console.log(`--- PATH 3 (supporting) fixtures written to ${outDir} (run: node sdk/dist/cli.js check <fixture>)`);
+if (outDir) console.log(`--- PATH 3 (supporting) fixtures written to ${outDir} (run: node packages/sdk/dist/cli.js check <fixture>)`);

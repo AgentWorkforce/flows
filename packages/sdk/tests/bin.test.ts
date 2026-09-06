@@ -12,8 +12,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const SDK = join(ROOT, 'sdk');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const SDK = join(ROOT, 'packages', 'sdk');
 const BUILT_CLI = join(SDK, 'dist', 'cli.js');
 const PREFLIGHT = join(ROOT, 'testdata', 'preflight');
 const temporaryDirectories: string[] = [];
