@@ -8305,3 +8305,37 @@ useless — I knew which lanes were writing right as the volume filled. And the
 rule I was given said exactly this: check `df` before anything large. I checked
 it, read 7.5Gi, and proceeded as though a number falling by 1.6GB a tick were a
 static one.
+
+## 2026-09-06 tick — #202 reviewed; fail-open risk checked and cleared
+
+Disk recovered to 12Gi. Triaged #202, the tick's owed item.
+
+It touches the **gate**: `mkdir -p .github/workflows/scripts` before the verdict
+script copy, and a `[ -d "$reviews_dir" ] || return 0` guard in
+`swarm_latest_transcript`.
+
+**The guard deserved real scrutiny and passes it.** Returning SUCCESS from a
+missing directory is precisely the shape that flips a fail-closed gate open. It
+does not here, because the caller keys on emptiness, not exit status:
+
+    transcript=$(swarm_latest_transcript ...)
+    if [ -z "$transcript" ]; then printf 'MISSING\t\n'
+
+Empty → MISSING → non-PASSED → aggregate fails. The guard replaces a `find`
+error with a clean MISSING verdict, which is strictly better. Fail-closed intact.
+The `mkdir -p` is straightforwardly right.
+
+**Its NEEDS_HUMAN repeats #201's two blockers**, and I can now disprove the first
+outright rather than reasoning about it: the analyzer test passes here, full
+suite 662/3/0. Told it there is no Track A defect to integrate.
+
+**Fourth run defeated by the same environment.** #189, #199, #201, #202 — a
+phantom missing `@types/node` that is declared and locked, a missing git dir
+twice, an analyzer that cannot run. Four escalations, zero product defects among
+them. Gave the harness assertion again, now backed by having hit all four
+failures myself while reproducing.
+
+Worth noting the asymmetry: I have spent tonight criticising these runs for
+auditing structure over behaviour, and #202 is a run that shipped two small,
+correct, behaviour-preserving fixes to the gate. The critique holds for their
+conclusions and not for their code.
