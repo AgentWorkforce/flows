@@ -7707,3 +7707,43 @@ timeouts because I started a command with `npm root -g`. The npm hang from the
 I walked into it anyway. Resolving the path through `command -v` + `readlink`
 took one command. A known hazard I have written down is not the same as a hazard
 I avoid.
+
+## 2026-09-06 tick — eliminated route 1 by verification; refused to guess route 2
+
+Followed up on the three routes out of layer four rather than leaving them as a
+menu.
+
+**Route 1 (newer CLI) is dead, and this was worth checking.** Fetched
+`agent-relay@11.10.3` from the registry with curl (no npm — see last tick) and
+compared command definitions against the installed 11.8.3. The `cloud` command
+file registers an **identical** option set in both: `--api-url`, `--device`,
+`--enrollment-url`, `--force`, `--json`, `--reveal-token`. No API-key or token
+mode appears between those versions. Upgrading past the pin buys nothing, and
+#198's pin reasoning stands.
+
+Method note: my first attempt grepped both bundles for `--api-key` and found it in
+BOTH, which would have read as "11.8.3 already supports it" — wrong, because the
+string belongs to other commands. Grepping for a flag is not the same as finding
+the command that registers it. Anchoring on the command-definition file is what
+made the comparison mean anything.
+
+**Route 2 (seed the credential): plausible, and I stopped short of a recipe.**
+`cloud session --json --reveal-token` proves the token is extractable. But
+`cloud login` has no token input, and `cloud enroll --token` is fleet-node
+enrollment whose `--workspace` flag mints "using the stored login" — so it
+probably presupposes what CI lacks.
+
+I found `auth.json` in the bundle and briefly had route 2 as an exact path. **It
+was a false lead:** the `auth.json` files on this host are per-workspace agent
+auth under `~/.agentworkforce/relayhistory-*`, and `~/.agent-relay/auth.json`
+does not exist. Reported it as unlocated rather than shipping a plausible wrong
+path — a confident wrong recipe would have cost the next person more than an
+honest gap.
+
+**Route 3 (REST, bypassing the CLI) is now the least speculative**, since #3270's
+proof already authenticates to the cloud API directly. Flagged that it is also
+the one route that makes #198 unnecessary, which someone should decide before
+more effort goes into the CLI path.
+
+Handled no secret: no credential file read, no `--reveal-token` run. Locating a
+mechanism does not require holding the value.
