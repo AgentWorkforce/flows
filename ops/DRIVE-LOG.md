@@ -10039,3 +10039,39 @@ Consequences:
   misleading result.
 
 I did not attempt any repair: rotating or re-entering that secret is prohibited.
+
+## 2026-09-06 tick — reviewed #3270's risk surface; three suspicions, zero defects
+
+Items 3 and 4 remain dead; item 2's live proof is still blocked on the App
+credential (unchanged — no newer preview runs). #3270 is CLEAN with green CI and
+**zero reviews**, so review was the one unblocked path forward.
+
+Reviewed the risk surface rather than the diff bulk: of 63 files, the 14,380-line
+`0125_snapshot.json` is my generated renumber. Chased three concrete suspicions
+and **all three were correctly handled** — recorded on the PR so nobody re-derives
+them:
+
+1. **HTTPS checked after the fetch.** `response.url`'s protocol is validated
+   post-`fetch`, which would leak the authorization header over cleartext. Moot:
+   `parseArtifactUrl` rejects non-https before the request.
+2. **`relayflowV2AuthorityEquals` compares paths by index**, and a test asserts a
+   "reordered" authority is equal. The test reorders OBJECT KEYS, not array
+   elements, and reuses `relayfileMount` by reference. Correct by design: JSONB
+   does not preserve key order but does preserve array order.
+3. **`relayflowVersion` accepts any string** at `route.ts:757`. Moot:
+   `route.ts:905` resolves it immediately and returns a 400.
+
+The artifact installer is unusually well defended for code that downloads and
+executes a binary — archive sha before extraction, redirects refused so the auth
+header cannot follow one, dual size caps, a separate zip-bomb pass, `O_NOFOLLOW`
+at 0o600, exact manifest file-set matching in both directions, containment
+asserted against both path and realpath.
+
+**Not a signoff.** I authored the merge commit on this branch, so I am not
+independent on that part of the diff, and I said so on the PR. Unreviewed
+modules: `relayflow-v2-executor.ts`, `-state.ts`, `-process.ts`,
+`launch-worker.ts`, and the prove script.
+
+Resisting a false finding was the main discipline here: three plausible bugs,
+each one dissolved by reading the adjacent code rather than reporting the
+suspicion.
