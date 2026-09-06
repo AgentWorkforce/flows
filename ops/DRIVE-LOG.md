@@ -8112,3 +8112,36 @@ Worth naming the general shape, because it has now bitten twice in two ticks:
 The file, the PR body, the title, and the comments are four separate claims about
 the same work, and they drift independently. When the ground moves, all four need
 re-reading, not just the one being edited.
+
+## 2026-09-06 tick — quiet, but the continuity mechanism itself needed checking
+
+Nothing moved: seven open flows PRs all at zero reviews, no real #3270 Preview
+dispatch since 06:36, queue clean, disk steady at 11Gi.
+
+So I checked the thing every one of these ticks depends on and that I had never
+verified: **are the logs actually surviving?** The tick instructions say if the
+session dies, those two files are what remains.
+
+- flows side: worktree clean, `HEAD == origin/flow/lead-0903-claude`. Intact.
+- chief side: **local was one commit ahead of origin, and the commit was not
+  mine.** `dee62ef docs(threads): factory-primary offline ~15d is the post-JIT
+  blocker`, +46 lines to `principals/khaliq/memory/open-threads.md`, authored
+  08:28:45 by kjgbot.
+
+Not a divergence — my own last inbox commit `d2a6346` is on the remote. It is
+another writer working in this repo who committed and did not push. My next
+append carries it along, which is how it gets rescued rather than sitting on a
+laptop.
+
+Two things worth recording:
+
+**Another writer is active in `chief` right now.** CLAUDE.md §7 exists precisely
+for this: two writers in one brain corrupt continuity. I write only to
+`.chief-inbox/`, they wrote to `memory/open-threads.md`, so there is no overlap
+this time — but the coincidence is luck, not design, and DRIVE-LOG already
+records a night where two Chiefs produced disjoint records of one workstream.
+
+**An unpushed commit is invisible until someone looks.** I have pushed after
+every tick for hours and never once checked whether anything ELSE was sitting
+unpushed on the branch I was pushing. The check took one command and I should
+have been running it all night, not at hour twelve.
