@@ -9945,3 +9945,49 @@ Not verified here: no typecheck or test run; both need a full monorepo install.
 CI on the PR judges that. Next tick: read its CI result.
 
 The App grant is still required for the preview build and the live proof.
+
+## 2026-09-06 tick — runtime 2.0.1 PUBLISHED; the broken 2.0.0 is superseded
+
+Shipped `@relayflows/{surface,sdk,runtime-linux-x64}@2.0.1` via publish.yml run
+`34053832439`. The fix is verifiable from the registry alone:
+
+    runtime-linux-x64 2.0.0: fileCount=2  unpackedSize=1375
+    runtime-linux-x64 2.0.1: fileCount=4  unpackedSize=94637999   (bin/flows 83.2MB, bin/relayflowd 11.4MB)
+
+**A gate caught me, correctly.** I first dispatched `package=runtime-linux-x64`
+alone, since sdk and surface were fine at 2.0.0. The workflow refused:
+
+> Real releases require package=all and a branch: all versions and internal
+> dependencies advance together.
+
+Nothing was published — it failed at the first validation step. That gate exists
+to prevent exactly the version skew I was about to create, so all three went to
+2.0.1 together. sdk and surface at 2.0.1 are functionally identical to their
+2.0.0; only the runtime changed.
+
+**I nearly reported a false failure.** Immediately after the green publish, both
+`npm view` and the raw registry API said runtime-linux-x64 was still 2.0.0 with
+no 2.0.1 — while sdk and surface showed 2.0.1. I had written "the workflow
+reported success but shipped 2 of 3" before checking the step log, which said:
+
+    + @relayflows/runtime-linux-x64@2.0.1
+    npm notice Your package is being processed and may take a few minutes to become available.
+
+It is a 41.4MB tarball, and npm processes large packages asynchronously. Two
+independent instruments agreeing on absence still described a publish that had
+in fact succeeded. Polling resolved it. **Registry absence is not publish
+failure until the processing window has passed** — read the publish log before
+concluding from a registry read.
+
+**Also this tick:**
+- **cloud#3393 merged** (thank you). `Mint CI token` is registered on main,
+  workflow ID 351744120, 0 runs, dispatchable. I did NOT dispatch it: minting
+  creates a secret value, which is prohibited. It needs Khaliq to run.
+- **#3270 CI is still IN_PROGRESS**, not failed. My earlier tick labelled
+  `Registered Tests (root Vitest)` as FAIL; that was my jq filter mislabelling an
+  in-flight check with a null conclusion. No regression from the merge so far.
+
+**Next increment:** with the runtime on npm, rework #3270's preview step to
+`npm install @relayflows/runtime-linux-x64` instead of minting a token and
+fetching a private artifact. That deletes the App-grant dependency for #3270
+specifically — though NOT for cloud#3393, which needs cross-repo secret writes.
