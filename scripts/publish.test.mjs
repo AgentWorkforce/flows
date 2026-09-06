@@ -17,6 +17,15 @@ function fixture(t) {
     cpSync(`packages/${name}/package.json`, path);
     const pkg = read(path);
     pkg.version = '2.0.0';
+    // Drop packaging lifecycle scripts. The fixture exists to exercise
+    // pack-release's OWN assertions, and `npm pack --ignore-scripts` was still
+    // running `prepare` -> `bun run build` -> `tsc` on a CI runner, so npm
+    // failed before the script could report `missing package/dist/index.js`.
+    // It passed locally only because this machine happened to have the
+    // toolchain the fixture does not install.
+    for (const hook of ['prepare', 'prepack', 'postpack', 'prepublishOnly']) {
+      delete pkg.scripts?.[hook];
+    }
     writeFileSync(path, JSON.stringify(pkg));
   }
   return root;
