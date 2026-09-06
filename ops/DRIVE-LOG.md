@@ -9162,3 +9162,32 @@ invalidating the copy held in the secret, which a job cannot write back.
 
 The runbook path issues no refresh token at all. `CI_TOKEN_PROFILE=workflow-invoke`
 prints `CLOUD_API_URL` and `CLOUD_API_KEY`, and that is the whole credential.
+
+## 2026-09-06 — #205 MERGED; #206 rebased onto main; the token UI is the wrong credential
+
+**#205 merged at 12:54Z.** `main` now has `packages/{sdk,surface,runtime-linux-x64}`
+and no root `sdk/` or `surface/`. Nine stale-path misses, four verification
+layers, and CI found the last two.
+
+**#206 rebased onto main.** The first attempt conflicted because #205 was
+SQUASH-merged: git did not recognise the branch's copies of those commits as
+already applied and tried to replay them. `git rebase --onto origin/main <last-205-commit>`
+replays only codex's commit. Now `1b981b1`, base `main`, MERGEABLE.
+
+**A scare that was not one.** After the rebase `node scripts/publish.test.mjs`
+appeared to FAIL. It had exit 124 — a **timeout**, from the npm hang, under a
+shorter budget than my earlier passing run. With `NPM_CONFIG_USERCONFIG` it is
+`pass 5, fail 0` in 2.6s. I nearly reported a rebase regression that did not
+exist; the tell was that 124 is timeout, not failure.
+
+**Khaliq is at the Workspace API tokens UI and asked if that is the credential.
+It is not, and I am glad he asked before clicking.** That page offers Deployment
+token, Workspace API Key and Relayfile agent key, all `cld_at_`-prefixed, and its
+own copy says Workspace API Keys authorize "only Relayfile agent startup" while
+deployment tokens authorize "CI deploy and list". Neither is `workflow:invoke`.
+
+The runbook never mentions `cld_at_` at all, describes a credential with
+`subjectType=ci` scoped to `workflow:invoke:{read,write}`, minted by
+`CI_TOKEN_PROFILE=workflow-invoke ... npm run mint-ci-token`, and says in as many
+words: *"Do not substitute a human CLI session, Relay workspace token, Relaycast
+key, or another service token."*
