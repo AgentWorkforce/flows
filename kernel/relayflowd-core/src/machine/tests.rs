@@ -560,3 +560,30 @@ fn worker_reported_failure_without_detail_still_records_a_verification() {
     // overwritten by the verification bookkeeping.
     assert_eq!(payload.completion_reason, CompletionReason::WorkerError);
 }
+
+/// `reason_label` hand-writes the journal spellings, so nothing but a test stops
+/// it drifting from what `CompletionReason` actually serializes. Pins every
+/// variant against serde rather than spot-checking one, so a rename in either
+/// place fails here instead of silently showing a reader two names for one
+/// completion.
+#[test]
+fn every_reason_label_matches_its_serialized_form() {
+    for reason in [
+        CompletionReason::Success,
+        CompletionReason::VerificationFailed,
+        CompletionReason::RetriesExhausted,
+        CompletionReason::LeaseExpired,
+        CompletionReason::Crashed,
+        CompletionReason::Timeout,
+        CompletionReason::WorkerError,
+        CompletionReason::BudgetExceeded,
+        CompletionReason::Canceled,
+    ] {
+        let serialized = serde_json::to_value(reason).unwrap();
+        assert_eq!(
+            serialized.as_str().expect("a string spelling"),
+            super::reason_label(&reason),
+            "journal label drifted from the serialized form for {reason:?}"
+        );
+    }
+}

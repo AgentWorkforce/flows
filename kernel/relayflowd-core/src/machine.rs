@@ -303,16 +303,30 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
 }
 
 /// A completion reason in the journal's own vocabulary rather than Rust's.
-/// `CompletionReason` serializes `rename_all = "snake_case"`, so this yields
-/// the same spelling the `completionReason` field carries (`worker_error`), and
-/// a reader is never shown two names for one thing. `Debug` would emit
-/// `WorkerError` — an engine-internal representation crossing into text the
-/// author reads.
-fn reason_label(reason: &CompletionReason) -> String {
-    serde_json::to_value(reason)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_else(|| format!("{reason:?}"))
+///
+/// Exhaustive on purpose. An earlier version serialized and fell back to
+/// `format!("{reason:?}")`, which meant the fallback path could journal
+/// `WorkerError` beside `completionReason: worker_error` — the same
+/// engine-internal spelling leak DRIVE-LOG records being removed from
+/// `RunSnapshot`. A match with no wildcard cannot leak: adding a variant is a
+/// compile error here until it is given its journal label, so the boundary
+/// fails closed at build time rather than at runtime.
+///
+/// These strings must stay identical to the `rename_all = "snake_case"`
+/// spellings `CompletionReason` serializes with, which
+/// `every_reason_label_matches_its_serialized_form` pins.
+fn reason_label(reason: &CompletionReason) -> &'static str {
+    match reason {
+        CompletionReason::Success => "success",
+        CompletionReason::VerificationFailed => "verification_failed",
+        CompletionReason::RetriesExhausted => "retries_exhausted",
+        CompletionReason::LeaseExpired => "lease_expired",
+        CompletionReason::Crashed => "crashed",
+        CompletionReason::Timeout => "timeout",
+        CompletionReason::WorkerError => "worker_error",
+        CompletionReason::BudgetExceeded => "budget_exceeded",
+        CompletionReason::Canceled => "canceled",
+    }
 }
 
 /// `semantic_executions` is the number of *completed* semantic executions
