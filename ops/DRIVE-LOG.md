@@ -8766,3 +8766,33 @@ brief, is deliberately NOT in that PR** and remains open for codex or Khaliq.
 Practical consequence for the morning: codex cannot implement anything in flows
 until Sep 7th ~04:39. If the pipeline is wanted sooner, it needs a different
 implementer, and Khaliq should know that before he plans around codex.
+
+## 2026-09-06 — codex respawned on finn-mini (the first run was local)
+
+Khaliq asked which node the failed codex run was on: **it was local**, `codex exec`
+on this host (SF-Mac-Mini), so the usage limit is sf-mini's codex account. That is
+why moving nodes is the right response rather than waiting until Sep 7.
+
+`agent-relay fleet nodes` shows **finn-mini online and live with `spawn:codex`**.
+Spawned `codex-finn-0906` there with the full brief — all four traps, the
+relayfile-shaped pipeline requirements, and explicit "open a PR, do not merge".
+
+Confirmed it is on the roster: `fleet agent list` shows `codex-finn-0906` under
+node `finn-mini`. **That is weaker evidence than it looks.** Every one of the 21
+records on that node reports `status: None, pid: None`, so the listing proves
+registration, not that a process is running — and my notes record that fleet
+spawn returns success even on a silent name collision.
+
+Two risks I am not papering over:
+
+1. **No channel.** The brief opens with a STEP 0 post to "the channel you were
+   given" and I did not pass `--channel`, so it has nowhere to report. That was my
+   error in the spawn invocation; the observable artifact is now a PR appearing on
+   flows, nothing sooner.
+2. **finn-mini's GitHub identity is `miyaontherelay`**, per the node probe earlier
+   in this session — not kjgbot. Whether that account can push to
+   AgentWorkforce/flows is unverified. If it cannot, the run will do the work and
+   fail at the last step, which is the worst shape of failure.
+
+Next tick: look for a PR on flows, and if none, check whether the node has a
+flows clone at all.
