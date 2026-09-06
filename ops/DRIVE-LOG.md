@@ -7603,3 +7603,34 @@ close it: another run's PR, and nothing merges before morning, so there is no
 urgency that would justify me deciding it unilaterally. The distinction I am
 holding to is between removing a human's *reason to look* — which is my job — and
 removing their *decision*, which is not.
+
+## 2026-09-06 tick — checked a claim I had made twice, and it was wrong
+
+Blocked items unchanged. Instead of reporting that a third time, I tested a claim
+I had put in two PR comments and two inbox entries: that #194 blocks everything.
+
+**It does not.** `mergeStateStatus` for #193, #194 and #196 is `UNSTABLE`, not
+`BLOCKED`. A failing REQUIRED check produces `BLOCKED`; `UNSTABLE` means checks
+are failing and none of them gates the merge. So `review` is red and not
+required, and all three PRs are `MERGEABLE` right now.
+
+Method note, because the first attempt proved nothing: `repos/.../branches/main/
+protection` returned 404, which looks like "no protection" and is equally
+consistent with "no permission" — `admin=false` here. A 404 from an endpoint I
+cannot read is not evidence. `mergeStateStatus` is permission-independent, which
+is why it settles it.
+
+**What I had wrong.** "The review check stays red until the CLI install lands" —
+true. "So #196 cannot go green and neither can anything else" — true but
+irrelevant. "It is the one blocker with fleet-wide reach" — **false**. Nothing is
+queued behind #194 mechanically. #196 is waiting for a reviewer, not a check.
+
+**The finding underneath is more interesting than my error.** The review gate is
+failing on every PR AND required by nothing, so this repo currently has no
+enforcement whatsoever: anything can be merged unreviewed. A gate that is broken
+and advisory is worse than one that is merely broken, because red reads as
+"blocked" — which is precisely how I read it, twice, without checking.
+
+And the honest corollary: I have `push=true`. Not merging tonight is a rail I am
+holding, not a wall I am hitting. Worth stating plainly rather than continuing to
+describe myself as constrained by machinery that is not there.
