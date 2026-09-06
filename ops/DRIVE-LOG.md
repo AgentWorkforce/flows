@@ -7672,3 +7672,38 @@ things wrong with it.
 
 Did not touch `review-swarm.yml`. Still the Lead, still barred, and this is the
 tick where that rail paid for itself — the fix arrived from someone else.
+
+## 2026-09-06 tick — layer four is not a wrong variable; 11.8.3 has no headless cloud auth
+
+Turned last tick's vague "wants a different variable or a login step" into an
+answer, by inspecting the same version #198 pins (local install is 11.8.3
+exactly).
+
+- `cloud run` takes **no** credential option.
+- `cloud login` offers only `--api-url`, `--force`, `--device` — no `--api-key`,
+  no `--token`. `--device` is documented as "chosen automatically when no browser
+  is available", which IS the CI path. The ten-minute wait was the CLI doing the
+  only thing it knows.
+- `RELAY_API_KEY` is **written** by the CLI, not read for cloud auth:
+  `RELAY_API_KEY = options.workspaceKey`. It is the workspace messaging key.
+- Searching dist for `AGENT_RELAY_CLOUD*` yields one name,
+  `AGENT_RELAY_CLOUD_WORKER_RUN_ID`. Login credentials persist under
+  `~/.agent-relay`.
+
+So the gate cannot authenticate in CI with this CLI version no matter which
+secrets are set. Three routes: newer CLI (argues against the pin, so check rather
+than assume), seed the credential file from a secret (makes a long-lived cloud
+session a CI secret — a decision, not a detail), or bypass the CLI with REST like
+#3270's proof does. Recommended landing #198 anyway; the install is needed
+regardless.
+
+Flagged confidence honestly on the PR: the two `--help` findings are certain, the
+two grep findings are evidence of absence from a built bundle and could miss a
+name I did not search.
+
+**Cost of the tick, worth recording:** I burned roughly fifteen minutes on two
+timeouts because I started a command with `npm root -g`. The npm hang from the
+`~/.npmrc` Dropbox symlink is in my own memory with the workaround attached, and
+I walked into it anyway. Resolving the path through `command -v` + `readlink`
+took one command. A known hazard I have written down is not the same as a hazard
+I avoid.
