@@ -9323,3 +9323,38 @@ Two looked wrong and both resolve:
 After nine path bugs tonight I expected to find a tenth in the pipeline. There
 isn't one. Worth saying, because a review that only ever reports problems is not
 measuring anything.
+
+## 2026-09-06 — named the disk consumers precisely. Neither is safely mine to reclaim.
+
+Disk at 3.0Gi/99%. Stopped guessing and searched for large files modified in the
+last 90 minutes, which is the question that actually matters — not what is big,
+but what GREW.
+
+    ~/.local/share/ai-hist/ai-history.db     3.8G real, still being written
+    ~/.colima/_lima/_disks/colima/datadisk   5.9G real (20G apparent)
+    ~/.colima/_lima/colima/disk              1.1G real
+
+**Colima is the Docker backend on this machine** — `limactl` processes are live.
+That is why my Docker.raw check was meaningless: Docker Desktop's file is not in
+play, and codex's container builds grew colima's `datadisk` instead. Removing the
+containers freed space INSIDE the VM; the datadisk file does not shrink on the
+host, so `docker system df` improving by 7GB returned nothing.
+
+Two corrections stacked here, both the same error in different clothes: I read
+Docker's internal accounting as host usage, then read a sparse file's apparent
+size as real. **Apparent size, VM-internal usage, and host bytes are three
+different numbers, and I treated all three as interchangeable within one tick.**
+
+Neither consumer is safely mine:
+
+- `ai-history.db` is somebody's data store, actively written. Not mine to delete.
+- Reclaiming the datadisk needs VM compaction, which is not a safe unattended
+  operation while another lane may be mid-build inside it.
+
+What I did do: removed codex's dead containers and image, and pruned the build
+cache. That does not return host space today but stops the datadisk growing
+further, which is the part I can affect.
+
+Flagged for Khaliq rather than acted on. A machine at 99% with an actively
+growing 3.8G database and a 5.9G VM disk needs a decision about which to shrink,
+and both belong to somebody else.
