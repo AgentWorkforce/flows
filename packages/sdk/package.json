@@ -24,7 +24,7 @@
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.type-tests.json",
     "typecheck:tests": "tsc -p tsconfig.tests.json",
-    "test:prep": "( cd ../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../testdata/preflight ] || find ../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )",
+    "test:prep": "( cd ../../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../../testdata/preflight ] || find ../../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )",
     "test": "sh scripts/test.sh",
     "test:watch": "vitest"
   },
