@@ -79,7 +79,17 @@ impl Engine<WallClock> {
         let mut reject = |error: anyhow::Error| {
             rejected_completion = true;
             failure_reason = Some(CompletionReason::WorkerError);
-            failure_detail = Some(format!("{error:#}"));
+            // Keep BOTH accounts when a worker reports its own failure and then
+            // trips validation. The rejection says why the kernel refused the
+            // completion; the worker's output says what went wrong upstream of
+            // that, and the two are rarely the same story. Overwriting here
+            // would discard the worker's account for exactly the completions
+            // that have the most gone wrong — the loss this whole change exists
+            // to stop, reintroduced one layer up.
+            failure_detail = Some(match failure_detail.take() {
+                Some(reported) => format!("rejected: {error:#}; worker reported: {reported}"),
+                None => format!("{error:#}"),
+            });
         };
         let effects = if matches!(step.kind, StepKind::Agent { .. }) {
             let recorded = recorded_effects(&journal, &step, completion.attempt)?;

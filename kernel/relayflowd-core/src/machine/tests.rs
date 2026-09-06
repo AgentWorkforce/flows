@@ -566,6 +566,12 @@ fn worker_reported_failure_without_detail_still_records_a_verification() {
 /// variant against serde rather than spot-checking one, so a rename in either
 /// place fails here instead of silently showing a reader two names for one
 /// completion.
+///
+/// The list below is itself hand-maintained: `reason_label`'s wildcard-free
+/// match makes a NEW variant a compile error there, but a new variant simply
+/// missing from this array is not caught by anything. Add variants in both
+/// places. (An iterable-enum derive would remove the second list; that is a
+/// dependency decision, not one to smuggle into a diagnostic fix.)
 #[test]
 fn every_reason_label_matches_its_serialized_form() {
     for reason in [
