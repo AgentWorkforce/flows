@@ -22,7 +22,8 @@
 #   flows run workflows/restack-verify.yaml
 #
 # Exit 0 = these structural checks passed or were inapplicable.
-# This does not prove SQL/schema equivalence or run the target repo test suites.
+# Table loss fails pending semantic schema verification; this does not prove
+# SQL/schema equivalence or run the target repo test suites.
 # Non-zero = one named check failed.
 #
 # Gate: exit_code == 0 is implicit for deterministic steps; each runner exits
@@ -51,7 +52,8 @@ steps:
     dependsOn: [no-conflict-markers]
     timeoutMs: 300000
     # Checks duplicate tags, orphaned .sql files, snapshot lineage, and
-    # strictly increasing migration timestamps.
+    # strictly increasing migration timestamps. Table loss blocks until semantic
+    # verification distinguishes an intentional drop from a stale snapshot.
     command: "sh ops/restack-verify/migration-journal.sh"
 
   - id: worker-bindings

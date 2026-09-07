@@ -74,10 +74,16 @@ class RestackChecks(unittest.TestCase):
         self.snapshot(1, 'b', 'wrong', {'users': {}})
         self.check('migration-journal', 1, 'prevId does not match predecessor a')
 
-    def test_valid_drop_is_not_a_stale_snapshot(self):
+    def test_table_loss_requires_semantic_verification(self):
         self.journal()
         self.snapshot(0, 'a', ZERO, {'users': {}, 'old': {}})
         self.snapshot(1, 'b', 'a', {'users': {}})
+        self.check('migration-journal', 1, 'intentional drop or stale snapshot')
+
+    def test_valid_lineage_passes(self):
+        self.journal()
+        self.snapshot(0, 'a', ZERO, {'users': {}})
+        self.snapshot(1, 'b', 'a', {'users': {}, 'new': {}})
         self.check('migration-journal', 0, 'PASSED')
 
     def test_equal_or_out_of_order_timestamps_fail(self):

@@ -42,12 +42,13 @@ whens = [e["when"] for e in entries]
 if any(a >= b for a, b in zip(whens, whens[1:])):
     problems.append("journal timestamps must be strictly increasing in entry order")
 
-# Snapshot lineage is structural. Table sets are not monotonic: a legitimate
-# DROP TABLE removes tables. Proving SQL/schema equivalence needs database
-# replay, which this structural check does not claim to perform.
+# Validate lineage and flag lost tables for semantic review. A DROP TABLE may
+# be intentional, but lineage alone cannot distinguish it from a stale snapshot.
+# Fail closed on that ambiguity; database replay is needed to decide it.
 snaps = sorted(f for f in os.listdir(d) if f.endswith("_snapshot.json"))
 previous = "00000000-0000-0000-0000-000000000000"
 seen = set()
+previous_tables = None
 for name in snaps:
     snapshot = json.load(open(os.path.join(d, name)))
     ident = snapshot.get("id")
@@ -58,6 +59,18 @@ for name in snaps:
     if isinstance(ident, str):
         seen.add(ident)
     previous = ident
+    tables = snapshot.get("tables")
+    if not isinstance(tables, dict):
+        problems.append(f"{name}: tables must be an object")
+        continue
+    if previous_tables is not None:
+        lost = sorted(previous_tables - set(tables))
+        if lost:
+            problems.append(
+                f"{name}: removed tables require semantic schema verification "
+                f"(intentional drop or stale snapshot): {lost}"
+            )
+    previous_tables = set(tables)
 
 if problems:
     print("RESTACK_VERIFY migration-journal: FAILED")
