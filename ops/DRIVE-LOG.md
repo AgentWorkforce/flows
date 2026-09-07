@@ -11967,3 +11967,40 @@ items are now stale or answered.
 **cloud#3416** (build workspace packages before the mint) is OPEN and green on
 everything that applies — the SKIPPEDs are path filters for a `.github`-only
 change. NOT merged: no independent signoff, and CLEAN is not reviewed.
+
+## 2026-09-07 tick — preview deploying; artifact tuple ACCEPTED; auth is the last gap
+
+**Preview run 34130601571 is deploying** (dispatched 14:00:59Z). The pinned
+artifact tuple was ACCEPTED by the workflow's own validation:
+
+    success  Validate Relayflow v2 artifact inputs
+    success  Fetch pinned private Relayflow v2 artifact
+
+That is the sha256 trap cleared against the real artifact, not just against my
+local arithmetic. Currently at `Seed SST stage secrets`.
+
+Incidental corroboration for cloud#3416: this workflow runs `Build
+@cloud/platform` and `Build @cloud/core` as explicit steps. The mint workflow
+needs exactly that and lacks it — same repo, same requirement, already
+established practice.
+
+**Read the proof recipe** (`ops/reviews/20260902-1740-pr3270-proof.md`). My
+dispatch matched its shape exactly; I substituted a fresh artifact from today's
+main (`460c0f77`, artifact 10012558263) for its stale 2026-09-02 one
+(`a0d42ffb`, artifact 9849853218), which proves against current flows rather
+than a five-day-old build.
+
+**The remaining gap is authentication, and it is narrow.** The recipe needs
+`ACCESS_TOKEN` from `agent-relay cloud login --api-url "$WEB_URL"`, which is
+interactive. The local canonical session exists but is bound to
+`https://agentrelay.com/cloud` (production), expiring 2026-09-08T10:38Z. A
+preview stage is a separate SST stage with its own database, so a prod token
+probably will not authenticate against it — but that is TESTABLE and I will
+test it before asking Khaliq for anything. Do not assume the 401.
+
+**Staging is not the proof target and is separately broken**: `/cloud/api/health`
+-> 503, `/api/health` -> 404. Main moved the URL shape off the `/cloud` prefix
+(visible in the #3270 merge: branch emitted `web_url=${appUrl}/cloud`, main
+emits `${appUrl}`), so staging is on the old shape AND erroring. The proof must
+run against the preview stage regardless — that is where the artifact under
+test actually is.
