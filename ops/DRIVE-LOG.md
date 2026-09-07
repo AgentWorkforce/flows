@@ -10986,3 +10986,27 @@ carrying the pre-renumber row.
 
 Pushed `8c83ef22a`, re-dispatched as **34099933426**. Now past
 `Fetch pinned private Relayflow v2 artifact` and into the SST deploy.
+
+## 2026-09-07 tick — preview 34099933426 still deploying (11 min in, Deploy SST)
+
+No failure. The run is `in_progress` at `Deploy SST`, with Drizzle migrations,
+D1 migrations, Read preview outputs and Publish verified artifact all `pending`
+behind it. Created 08:18:48Z, 11 minutes elapsed.
+
+**Nearly mislabelled it as failed.** My jq filter
+`select(.conclusion!="success" and .conclusion!=null)` matched steps whose
+conclusion is the EMPTY STRING rather than null — i.e. steps that have not run
+yet — and printed four of them as `FAILED`. Re-queried on `.status` instead and
+they are `in_progress` / `pending`. Third time this session a filter has turned
+"not yet" into "broken"; the tell is always that the run itself still says
+in_progress.
+
+Everything through the App gate and the artifact fetch is green:
+
+    success  Mint private Flows artifact token
+    success  Fetch pinned private Relayflow v2 artifact
+    success  Build packages/web for Cloudflare Worker (OpenNext-CF)
+    success  Deploy Persona Compile Worker before SST
+
+Next tick: if SST finishes and Drizzle passes with 0126, the preview is up and
+the #3270 live proof becomes runnable for the first time since Sep 3.
