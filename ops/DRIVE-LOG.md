@@ -12488,3 +12488,36 @@ next occurrence answers it in one line.
 
 Live proof still the merge blocker. Not merging: green CI is necessary, not
 sufficient, and this change's own acceptance signal has never once passed.
+
+## 2026-09-07 tick — waiting tick: preview redeploying, proof staged
+
+**Drain**: cloud API reachable, schedules healthy (flows-watchdog, verify-features
+both active), nothing pending. The two earlier runs read as unreachable, which
+is SST replacing the worker mid-redeploy, not a new fault.
+
+**Preview run 34145477823** at `c71f482f2` is through artifact validate + fetch,
+SST providers, stage secrets and the OpenNext build; currently prebundling.
+SST deploy, migrations, publish, two admission passes and verification still
+ahead — roughly 10 more minutes. Nothing to decide until it lands.
+
+**Items 3 and 4 remain stale**: #134 (`4f85c4e`) and #139 (`4da825b`) are both
+MERGED, and the allSettled P0 was measured not to reproduce (4/4 STABLE). Three
+of the brief's four items are now answered or moot; only item 2 carries work.
+
+**Staged the full proof** as `scratchpad/pr3270-proof.sh` (99 lines, syntax
+checked, sqlite3 3.51.0 present) so it fires the moment the stage is up rather
+than costing another tick:
+
+  - health + deployed sha assertion
+  - submit v2, and v1 with `relayflowVersion` OMITTED
+  - poll both to terminal
+  - print the v2 terminal record INCLUDING the authority tuple
+    (sha256 / sourceCommit / key / consumerEpoch)
+  - v1 sanity assertion (must read v1)
+  - export, walk the pointer at
+    `.agent-relay/relayflow-v2/runs/<cloudRunId>.json` to `stateKey` +
+    `engineRunId`, write the LITERAL journal SQLite, and query its `entries`
+    table ordered by seq
+
+Never prints the access token. If the v2 run fails again it now fails with a
+NAMED cause, because this deploy carries the diagnostic split.
