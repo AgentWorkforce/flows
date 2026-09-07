@@ -11249,3 +11249,12 @@ to merge. But if one acquires a marker, it would merge with no kernel or SDK
 test signal whatsoever. Worth folding into the same fix.
 
 Main green on 460c0f77. Disk 9.1Gi.
+
+## 2026-09-07 tick — quiet; merge gate still unfixed, everything else blocked
+
+    auto-merge-loop.sh CI references: 0   (unchanged)
+    main: success 460c0f77
+    #3270: OPEN, zero reviews
+    disk: 9.2Gi
+
+Brief items 1-4 all dead or blocked. No work done, none invented.
