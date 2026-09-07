@@ -13,6 +13,8 @@ mod concurrency;
 mod llm;
 #[path = "crash_resume/llm_support.rs"]
 mod llm_support;
+#[path = "crash_resume/memory.rs"]
+mod memory;
 #[path = "crash_resume/parallel_lifecycle.rs"]
 mod parallel_lifecycle;
 #[path = "crash_resume/pin_projection.rs"]
