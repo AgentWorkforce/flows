@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, thread, time::Duration};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use relayflowd_core::{
     Action, AttemptResult, Clock, CompletionReason, RunCompletionReason, RunSpec, RunState,
     abandonment_actions, completion_actions, next_actions,
@@ -94,6 +94,7 @@ impl<C: Clock> Engine<C> {
                         let prepared = (|| -> Result<()> {
                             self.prepare_start_entry(&state, &mut entry)?;
                             self.assign_executor(&state, &mut entry)?;
+                            self.route_start(&mut journal, &state, &mut entry)?;
                             self.append(&mut journal, &entry)?;
                             Ok(())
                         })();
@@ -116,10 +117,31 @@ impl<C: Clock> Engine<C> {
                         if !self.ensure_step_memory(&mut journal, &step, attempt)? {
                             continue;
                         }
-                        let injected = self.load_state(&journal, spec.clone())?.steps[&step.id]
-                            .memory
-                            .clone();
-                        let result = exec_det::execute_with_memory(&step, injected.as_ref());
+                        let started = self.load_state(&journal, spec.clone())?;
+                        let runtime = &started.steps[&step.id];
+                        let workspace = started
+                            .routing
+                            .get(&step.id)
+                            .and_then(|r| r.workspace.as_deref());
+                        let mut result = exec_det::execute_placed(
+                            &step,
+                            runtime.memory.as_ref(),
+                            workspace.map(std::path::Path::new),
+                        );
+                        if let Some(path) = workspace {
+                            match crate::workspace::pin(std::path::Path::new(path)) {
+                                Ok(pin) => {
+                                    result.end_pins = Some(relayflowd_core::Pins {
+                                        workspace: vec![pin],
+                                        streams: vec![],
+                                    })
+                                }
+                                Err(error) => {
+                                    result.failure_reason = Some(CompletionReason::WorkerError);
+                                    result.failure_detail = Some(error.to_string());
+                                }
+                            }
+                        }
                         let semantic_executions = state.steps[&step.id].semantic_executions;
                         for action in completion_actions(
                             journal.run_id(),
@@ -187,6 +209,7 @@ impl<C: Clock> Engine<C> {
                                     lease_id,
                                     idempotency_key,
                                     pins,
+                                    routing: started_state.routing.get(&step.id).context("dispatch has no journaled route")?.clone(),
                                     wake_context: journal.scan_from(1, usize::MAX).ok().and_then(|entries| entries.into_iter()
                                         .find(|entry| entry.entry_type == relayflowd_core::EntryType::SubscriptionMatched)
                                         .and_then(|entry| entry.payload.get("wake_context").cloned())),

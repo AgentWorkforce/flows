@@ -23,6 +23,7 @@ export const STEP_COMMON_FIELDS = [
   'verification',
   'maxIterations',
   'memory',
+  'requirements',
 ] as const;
 
 /**

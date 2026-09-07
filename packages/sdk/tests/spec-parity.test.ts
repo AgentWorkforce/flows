@@ -25,7 +25,7 @@ function fixture(name: string): string {
 }
 
 describe('spec parity: one dialect at the SDK<->kernel boundary', () => {
-  for (const name of ['hello-deterministic', 'hello-ladder', 'hello-llm', 'hello-agent', 'step-memory']) {
+  for (const name of ['hello-deterministic', 'hello-ladder', 'hello-llm', 'hello-agent', 'step-memory', 'step-placement']) {
     it(`compiles ${name} to the pinned canonical JSON`, () => {
       const yaml = fixture(`${name}.flow.yaml`);
       const canonical = compileYamlToCanonicalJson(yaml);

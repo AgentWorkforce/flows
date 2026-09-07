@@ -74,6 +74,7 @@ fn epoch_carries_pack_and_exact_charge_and_refuses_duplicate_injection() {
         pinned_revisions: BTreeMap::new(),
         budget_spent: Budget::default(),
         memory: BTreeMap::new(),
+        routing: BTreeMap::new(),
     };
     assert!(
         journal

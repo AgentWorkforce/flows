@@ -9,7 +9,7 @@ use crate::{
         RunCancelRequestedPayload, RunCompletedPayload, RunCompletionReason, SleepUntilPayload,
         StepCompletedPayload, WaitCompletedPayload, WaitCompletionReason,
     },
-    spec::{RunSpec, StepKind, StepType},
+    spec::{RunSpec, StepKind},
 };
 
 mod budget;
@@ -74,6 +74,7 @@ pub struct RunState {
     pub cancel_requested: Option<RunCancelRequestedPayload>,
     /// Appendix A rule 6 chain head: the last successful agent completion.
     pub current_pins: Option<Pins>,
+    pub routing: BTreeMap<String, crate::RoutingDecision>,
 }
 
 impl RunState {
@@ -111,6 +112,7 @@ impl RunState {
             completion: None,
             cancel_requested: None,
             current_pins: None,
+            routing: BTreeMap::new(),
         };
 
         for entry in entries {
@@ -122,6 +124,15 @@ impl RunState {
             }
             match entry.entry_type {
                 EntryType::EpochSummary => state.apply_epoch(entry)?,
+                EntryType::StepRouted => {
+                    let id = entry.step_id.as_ref().ok_or(StateError::MissingStep(entry.seq))?;
+                    if !state.steps.contains_key(id) { return Err(StateError::UnknownStep(id.clone())); }
+                    let route: crate::RoutingDecision = decode(entry)?;
+                    if state.routing.contains_key(id) || route.profile.trim().is_empty() || route.provider.trim().is_empty() {
+                        return Err(StateError::InvalidRouting(id.clone()));
+                    }
+                    state.routing.insert(id.clone(), route);
+                }
                 EntryType::StepAttemptStarted => {
                     let payload: crate::entry::AttemptStartedPayload = decode(entry)?;
                     state.validate_start_pins(entry, &payload)?;
@@ -133,9 +144,7 @@ impl RunState {
                         lease_deadline_ms: payload.lease_deadline_ms,
                         idempotency_key: payload.idempotency_key,
                     };
-                    if payload.step_type == StepType::Agent {
-                        step.last_start_pins = Some(payload.pins);
-                    }
+                    step.last_start_pins = Some(payload.pins);
                 }
                 EntryType::MemoryInjected => state.apply_memory_injected(entry)?,
                 EntryType::StepCompleted => state.apply_step_completed(entry)?,
@@ -300,7 +309,12 @@ impl RunState {
         if payload.disposition == Disposition::StepDone
             && payload.completion_reason == CompletionReason::Success
         {
-            if is_agent {
+            if is_agent
+                || matches!(
+                    self.spec.step(&step_id).map(|s| &s.kind),
+                    Some(StepKind::Deterministic { .. })
+                )
+            {
                 self.current_pins =
                     pins::chain_forward(self.current_pins.take(), payload.end_pins.clone());
             }
@@ -311,6 +325,12 @@ impl RunState {
 
     fn apply_epoch(&mut self, entry: &JournalEntry) -> Result<(), StateError> {
         let payload: EpochSummaryPayload = decode(entry)?;
+        self.routing = payload.routing;
+        for (id, route) in &self.routing {
+            if !self.steps.contains_key(id) || !route.is_valid() {
+                return Err(StateError::InvalidRouting(id.clone()));
+            }
+        }
         self.memo.clear();
         self.budget = payload.budget_spent;
         for runtime in self.steps.values_mut() {
@@ -420,6 +440,8 @@ fn decode<T: serde::de::DeserializeOwned>(entry: &JournalEntry) -> Result<T, Sta
 
 #[derive(Debug, Error)]
 pub enum StateError {
+    #[error("invalid or duplicate routing decision for step {0}")]
+    InvalidRouting(String),
     #[error("invalid memory fact for step {step}: {detail}")]
     InvalidMemory { step: String, detail: String },
     #[error(transparent)]

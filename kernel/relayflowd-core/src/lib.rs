@@ -11,6 +11,7 @@ pub mod event;
 pub mod journal;
 pub mod machine;
 pub mod memory;
+pub mod placement;
 pub mod retry;
 mod schema;
 pub mod spec;
@@ -27,6 +28,7 @@ pub use machine::{
     request_cancel_action,
 };
 pub use memory::{MemoryInjectedPayload, MemoryScope, MemorySpec};
+pub use placement::{ExecutionMode, PlacementRequirements, RoutingDecision};
 pub use spec::*;
 pub use state::{RunState, StateError, StepRuntime, StepState};
 

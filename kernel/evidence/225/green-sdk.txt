@@ -1,0 +1,20 @@
+$ cd packages/sdk && node node_modules/vitest/vitest.mjs run tests/placement.test.ts tests/spec-parity.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/packages/sdk
+
+ ✓ tests/placement.test.ts (54 tests) 11ms
+ ✓ tests/spec-parity.test.ts (31 tests) 209ms
+
+ Test Files  2 passed (2)
+      Tests  85 passed (85)
+   Start at  13:58:43
+   Duration  819ms (transform 206ms, setup 0ms, collect 489ms, tests 221ms, environment 0ms, prepare 129ms)
+
+
+exit_code=0
+$ cd packages/sdk && node node_modules/typescript/bin/tsc --noEmit
+
+exit_code=0
+$ cd packages/sdk && node node_modules/typescript/bin/tsc -p tsconfig.type-tests.json
+
+exit_code=0

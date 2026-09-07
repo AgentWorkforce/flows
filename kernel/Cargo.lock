@@ -903,6 +903,7 @@ dependencies = [
  "libc",
  "relayflowd-core",
  "relayflowd-journal",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",

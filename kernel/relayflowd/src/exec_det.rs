@@ -19,6 +19,14 @@ pub fn execute_with_memory(
     step: &StepSpec,
     memory: Option<&relayflowd_core::MemoryInjectedPayload>,
 ) -> AttemptResult {
+    execute_placed(step, memory, None)
+}
+
+pub(crate) fn execute_placed(
+    step: &StepSpec,
+    memory: Option<&relayflowd_core::MemoryInjectedPayload>,
+    workspace: Option<&std::path::Path>,
+) -> AttemptResult {
     let StepKind::Deterministic {
         command,
         timeout_ms,
@@ -41,6 +49,9 @@ pub fn execute_with_memory(
             command
         }
     };
+    if let Some(workspace) = workspace {
+        process.current_dir(workspace);
+    }
     process.env_remove("RELAYFLOW_MEMORY");
     if let Some(memory) = memory {
         process.env("RELAYFLOW_MEMORY", memory.pack.to_string());

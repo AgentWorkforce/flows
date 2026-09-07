@@ -9,3 +9,5 @@ pub use engine::{
     CancelOptions, DriveOptions, Engine, OutOfBandCompletion, RunOutcome, RunSnapshot, RunStatus,
     StepSnapshot, StepStatus,
 };
+
+mod workspace;
