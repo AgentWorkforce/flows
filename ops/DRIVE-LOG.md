@@ -14038,3 +14038,39 @@ did not copy it.
 
 Disk recovered 13Gi -> 16Gi unattended as agents finished building, which
 retroactively confirms not deleting their worktrees was right.
+
+## 2026-09-08 — sweep FIXED and proven against live Daytona (dry-run)
+
+Merged cloud#3435 (`af6b7c7e4`) on the bar Khaliq set for #3433: green, no PR
+feedback (6 pass / 0 fail, MERGEABLE/CLEAN, 0 review threads, the single
+comment being CodeRabbit's auto-summary). Verified on main: `await
+daytona.list()` 0 occurrences, for-await present.
+
+Re-ran the sweep dry-run. It works, against the real account:
+
+    {"check":"daytona-orphan-sweep","mode":"dry-run","totalOnAccount":178,
+     "managedInWorkspace":100,"eligible":78,"willStop":20,
+     "minAgeHours":12,"limit":20}
+
+    would-stop: 5df35b31 ... ageHours 41.6, cpu 2
+                521316c2 ... ageHours 41.6, cpu 2
+                20735d5a ... ageHours 41.6, cpu 2   (oldest first, as designed)
+
+**78 eligible orphans, every one over 12 hours old, ~156 CPU held against a
+250 limit.** That is the quota the swarm cannot get a sandbox from. The count
+moved since the earlier inventory (90 -> 100 managed, 193 -> 178 total), so
+the population churns while the old ones persist — consistent with creation
+continuing and nothing reaping.
+
+The dry-run is the verification I failed to do the first time. Simulating
+selection against captured JSON told me the filter arithmetic was right and
+nothing about whether the program runs. One real dry-run would have caught the
+async-iterable bug before it was merged.
+
+**Not applying it.** `dry_run=false` stops 20 live sandboxes; that is
+destructive, outward-facing, and Khaliq is asleep. He asked hours ago to "kill
+some", but that predates knowing the quota is the swarm blocker and predates
+the sweep being proven — I would rather he authorise the real run with the
+numbers in front of him than infer consent from an earlier remark.
+
+Ready for one word: `dry_run=false`, min_age 12h, limit 20 reclaims ~40 CPU.
