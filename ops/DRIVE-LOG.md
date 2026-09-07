@@ -12685,3 +12685,29 @@ Also corrected an earlier overstatement of my own: I reported "#3270 CI green,
 26 pass, 0 fail" when `Registered Tests (root Vitest)` was still PENDING, not
 passing. A pending check is not a passing one, and I read the summary counts
 instead of the buckets.
+
+## 2026-09-07 tick — waiting on the check that caught the merge defect
+
+`head=698138286`, 26 pass / 0 fail / 1 pending. The pending check is
+`Registered Tests (root Vitest)` — precisely the one my fix targets, so it is
+the only one whose result carries information right now.
+
+**Typecheck PASSED at this head.** That closes the question: it has now passed
+at two heads and OOM'd at two, with an identical `Reached heap limit` /
+exit 134 signature each time. Intermittent infrastructure, confirmed by
+observation rather than assumed. Deliberately never "fixed" it in the diff.
+
+**Not dispatching the redeploy yet, on purpose.** The batched deploy would
+carry `2b91c43f7` (payload key-set diagnostic) and `698138286` (the merge test
+fix), and it does not technically depend on Vitest being green — but deploying
+a head whose tests I have not confirmed is how a bad artifact reaches a stage,
+and each deploy costs ~20 min plus a device approval from Khaliq. Sequencing
+the confirmation before the spend.
+
+Standing state:
+  - proof: 2 of 3 elements PASS (authority tuple round-trips; v1 default holds)
+  - blocked element: execution. v2 fails at a NAMED arm,
+    "payload carrying no v2JobId" — proven to be the v1 shape arriving at the
+    consumer, cause outside this source tree
+  - next deploy converts that into a key list, ending five ticks of inference
+  - nothing merged; #3270 has no passing live proof
