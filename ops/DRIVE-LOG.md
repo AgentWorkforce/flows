@@ -12611,3 +12611,48 @@ time.
 Export step still unexercised: it 409'd because the run never completed, which
 is correct behaviour. The literal journal SQLite assertion cannot run until a
 v2 run actually executes.
+
+## 2026-09-07 tick — fifth hypothesis tested and KILLED; stopping inference
+
+Chased the v2 `payload carrying no v2JobId` finding without spending a deploy.
+Established statically, then killed the best remaining lead:
+
+**Ruled out this tick:**
+- *An older branch bridge mapped `v2JobId` -> `jobId`.* Dead. Only two commits
+  ever touched `workflow-launch-queue-bridge.ts` on this branch (`fbb972fae`
+  added v2 with 4 refs, `541b93b7d` predates v2 with 0). No version performs
+  that mapping.
+- *A second queue or consumer.* Dead. `infra/workflow-launch-queue.ts` defines
+  ONE SQS queue with one consumer (`launch-worker.handler`) plus a DLQ whose
+  worker only marks jobs failed.
+- *The retry path degrades v2 to v1.* This looked exactly right and I nearly
+  filed it. `launch-worker.ts:364` reads
+  `envelope?.relayflowVersion === "v2" ? {v2JobId...} : {jobId...}`, and
+  `envelope` is declared null OUTSIDE the try, so a decryption failure would
+  re-enqueue a v2 job in the v1 shape — precisely our symptom. **But the retry
+  is unreachable from there**: it fires only on
+  `WorkflowSandboxProvisioningPendingError` or a post-create transport failure,
+  both of which happen well after decryption, so `envelope` is always non-null
+  at that point. Killed by checking the guard rather than by reading the
+  ternary.
+
+That is five hypotheses tested and discarded (epoch skew, bridge
+first-match-wins, bridge log-flattening, my merge dropping v2 support, and now
+the retry degradation). Every one looked plausible from source. Static analysis
+has run out of road here.
+
+**Stopping inference deliberately.** `2b91c43f7` already reports the payload's
+KEY SET; the next preview deploy converts this from a guessing game into a
+one-line answer. Continuing to theorise costs ticks and has now been wrong five
+times.
+
+**One latent issue worth hardening later, NOT today's cause**: that retry
+derives the queue shape from the decrypted envelope rather than from the
+authoritative run record. It is safe only because no pre-decryption failure is
+currently retryable. If any future failure mode between decrypt and
+provisioning becomes retryable, a v2 job silently degrades to v1 forever. Not
+fixing it in this PR — it is unrelated to the blocker and #3270 has taken
+enough unrelated churn.
+
+Drain: both proof runs terminal, no pending work. Preview healthy at
+`c71f482f2`. Nothing merged.
