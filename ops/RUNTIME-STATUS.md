@@ -356,3 +356,13 @@ ops/runtime-evidence/workflow-checks.txt:32: new blank line at EOF.
 
 The source/documentation-only check excludes those literal transcripts:
 `git diff --cached --check -- . ':!ops/runtime-evidence/**'` (exit 0, no output).
+
+## Delivery
+
+PR: https://github.com/AgentWorkforce/flows/pull/231 (human review/merge).
+Branch: `runtime/flows-restore-0907`.
+
+- `89f2f1d31f262420c2c5f613efa3f50c70153bfa`: local runner and package scaffold.
+- `77a60be`: flow-produced F8b source change and captured runtime evidence.
+
+The PR is open; no merge, CI-green claim, or independent signoff is recorded.
