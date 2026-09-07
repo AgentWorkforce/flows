@@ -11842,3 +11842,41 @@ token, so one credential lands in both places and no human handles it.
 
 Everything remains blocked on merges that are not mine: cloud#3413, flows#229
 (then #227 clears), and the preview login.
+
+## 2026-09-07 — dropped AWS from the mint workflow (cloud#3414); closed #3413
+
+Khaliq asked why minting a token needs AWS during an AWS migration. It does not,
+and the dependency was mine.
+
+**Evidence, gathered before changing anything:**
+
+    mint-ci-token.ts        -> drizzle-orm, getDb, auth/store, api-token-store
+    auth/store.ts           -> 0 AWS references
+    auth/api-token-store.ts -> 0 AWS references (node:crypto + Postgres)
+
+Minting is `node:crypto` plus two Postgres writes. AWS existed solely so
+`sst shell` could resolve `SST_RESOURCE_NeonDatabaseUrl` into a connection
+string — and `drizzle-database-url.cjs` checks `DATABASE_URL` FIRST, ahead of the
+SST branch, so supplying it directly removes the whole path.
+
+Also found `mint-ci-token.ts` takes NO argv (0 matches for argv/--stage). So the
+`stage` input I had put in the interface was never read by the script — it only
+ever fed `sst shell`. Removed it rather than leave a dead knob.
+
+Removed: `id-token: write`, the Configure AWS credentials step, the `sst shell`
+wrapper, the `stage` input. Added `CI_MINT_DATABASE_URL` with an explicit
+fail-closed check — an empty env var is NOT an error to the resolver, it falls
+through to the SST and PG* branches and surfaces as a confusing connection
+failure. That silent-empty behaviour is precisely what cost the last run:
+`vars.AWS_ROLE_TO_ASSUME` resolved empty, the input was omitted, and the error
+named none of it.
+
+**Stated the trade-off rather than selling the simplification.** OIDC bought
+short-lived federated access with no credential at rest; this stores a
+connection string. The mitigation is to scope the Neon role to the two tables
+this writes (`api_token_sessions`, `users`) instead of the schema owner, and it
+has to happen when the secret is created, not later. Put that in the PR body
+where whoever creates the secret will read it.
+
+cloud#3414 opened; #3413 closed as superseded — it taught the workflow to
+resolve a variable it no longer needs.
