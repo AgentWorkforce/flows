@@ -10700,3 +10700,34 @@ primitives harden. Flagged on the PR; told the lane explicitly to leave it alone
 
 Findings posted to #215 and DM'd to the lane in steer mode with a
 do-not-reply/start-now shape. Told it not to weaken a test to satisfy the lens.
+
+## 2026-09-07 tick — the steer DM never took; drive-attach revived the lane
+
+`kernel-channels-0907` sat idle 13.6 minutes after I sent the review findings as
+a `send_dm` in **steer** mode. Head unchanged at `4c87d107`, 2 commits, nothing
+moved. The DM receipt had said `queued_unconfirmed` and warned in as many words
+that it confirms enqueue, not injection — which turned out to be the whole
+story. Steer mode did not reach it.
+
+Fell back to the documented drive-mode attach technique. **First attempt failed
+on my own error**, not the agent's: I ran `expect` from `/tmp` and got
+
+    Error: could not locate broker connection. Pass --broker-url, set
+    RELAY_BROKER_URL, or run from a directory containing
+    .agentworkforce/relay/connection.json
+
+The connection lives at `chief/.agentworkforce/relay/connection.json`, so the
+attach has to run with that as cwd. Retried from there with the recipe that
+works — settle 3s, send the text with NO newline, pause 2s, submit `\r`, hold
+8s, then detach with `\x02`.
+
+Verified by state change, not by exit code: the TUI showed a Working spinner in
+`flows-212-channels-wt`, and `node agent list` went `idle (817680ms)` ->
+`working (9ms)`.
+
+Standing lesson reinforced: for these PTY lanes, a queued DM is not delivery.
+Drive-attach is the reliable channel, and the cwd requirement is part of the
+recipe.
+
+Rule respected: this counts as ONE revival. If it goes deaf again I do the four
+fixes myself rather than resurrect a second time.
