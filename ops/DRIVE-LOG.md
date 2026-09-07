@@ -11586,3 +11586,44 @@ shared workspace regression for #225` — 155 lines of red evidence under
 the suite. Test-first with captured evidence, third lane in a row.
 
 Preview run route still 401 — #3270 still needs the one login.
+
+## 2026-09-07 — gate 7 PR #227 reviewed, held by CI, fixed on its own branch
+
+Lane delivered `541d900 feat: journal fixed step placement and pin declared
+workspaces` and opened **#227** (+1813/-17, 41 files). Ran the independent
+3-lens gate — legitimate, I did not author it:
+
+    PRESWARM_structure:       REVIEW_PASSED
+    PRESWARM_history:         REVIEW_PASSED
+    PRESWARM_maintainability: REVIEW_PASSED
+    linux-x64-artifact:       FAILURE      <- blocks
+
+**The merge-gate fix earned itself back on its first real test.** All three
+lenses passed, CI was red, and the loop HELD it:
+
+    #227 HELD: required check 'linux-x64-artifact' = FAILURE
+
+Before today that combination merged — it is exactly how #221 broke main.
+
+**The failure was the same trap as #221:** `requirements` added to
+`STEP_COMMON_FIELDS` without updating the pin in `verb-field-lint.test.ts`.
+
+Drive-attached the lane with the fix; it did NOT take — still idle, head
+unchanged, activity clock climbing. That is one revival attempt, so I did it
+myself per the standing rule.
+
+**Fixed on the PR's OWN branch (`9f3b265`), not a new PR.** That is the #217
+lesson applied: last time I found a lane's work unpushed I opened a duplicate
+and had to close it. Pushing to `feat/step-placement-225` puts the fix where the
+work is.
+
+Verified: verb-field-lint 78 passed; full SDK suite 741 passed, 3 skipped, 0
+failed.
+
+**Filed flows#228** on the root cause of the repeat: the pin's assertion message
+elides the differing entries behind `…(4)` / `…(3)`, so it names neither the
+added field nor the file to edit, and reads like a bug rather than a request for
+acknowledgement. Suggested a self-describing assertion message. Did not
+implement — it gates my own PRs (decision #6), same as #213 and #218.
+
+Preview route still 401; #3270 still needs the login.
