@@ -13432,3 +13432,37 @@ smallest thing that distinguishes the only two remaining explanations.
 
 Needs Khaliq: merge cloud#3432 and flows#232, then one mint + one run produces
 both fingerprints.
+
+## 2026-09-07 — my #3430 made the mint dispatchable ONLY from main
+
+Tried to get the mint-side fingerprint without waiting for a merge, by
+dispatching `mint-ci-token.yml` with `--ref fix/mint-fingerprint`. It failed
+with `steps=0` — job setup, before any step ran.
+
+Cause: `environment: production`, which I added in cloud#3430, and that
+environment's deployment branch policy allows only:
+
+    main
+    chore/relayflows-1.2.0-beta-dev-0827
+
+**A real cost of my own change that I did not flag when I made it.** Before
+#3430 the mint read a repo-level secret and could be dispatched from any
+branch; now it can only run from main, so mint changes cannot be exercised
+before merging. That is defensible — production credentials should not be
+mintable from an arbitrary branch — but it is a tradeoff, not a free
+improvement, and I sold it as a free improvement. If it becomes painful the
+mitigation is adding a branch to the environment policy, not reverting the
+environment.
+
+So the fingerprint comparison needs cloud#3432 on main first. Watching its CI.
+
+**flows#232's own `review` check FAILS, and that is the gate working
+correctly** — it now probes the credential, the credential is genuinely
+invalid, so it refuses. Worth stating because it looks like a regression and is
+the opposite: the check that used to pass while everything downstream failed
+now fails honestly. It does mean #232 cannot merge on a green `review` until
+the credential is fixed, which is a chicken-and-egg the fingerprint pair is
+meant to break.
+
+Standing evidence unchanged: CI holds fingerprint 3973e022e932, which 401s on
+the same route the mint got 200 from 16 minutes earlier.
