@@ -12711,3 +12711,37 @@ Standing state:
     consumer, cause outside this source tree
   - next deploy converts that into a key list, ending five ticks of inference
   - nothing merged; #3270 has no passing live proof
+
+## 2026-09-07 tick — second attempt at the merge-created test (cloud 4556a6dc0)
+
+My first fix was right about the CAUSE and wrong about the FIX. The failure
+moved instead of clearing:
+
+    before   expected "vi.fn()" to be called with [...]   (generation guard threw)
+    after    expected true to be false                    (ran PAST the boundary)
+
+Adding `relayflowVersion` cleared the guard and exposed the real coupling: this
+branch performs one MORE `workflowStore.get` than main — the durable-generation
+read at `launch-worker.ts:204` — so main's two positional
+`mockResolvedValueOnce` values land a slot early and `beforeSandboxCreate`
+reads past them into the default.
+
+**Counting calls does not fix it, and that was my first instinct.**
+`workflowRunHasTerminalSandbox` treats "cancelled" as terminal REGARDLESS of
+sandboxId and runs unconditionally at line 173, so any earlier read returning
+cancelled short-circuits with the duplicate-launch message instead of reaching
+the boundary under test. I checked that function before writing the fix, which
+is the only reason the second attempt is not another wrong one.
+
+Fix expresses the test's actual intent — the run turns terminal AT the
+provider-dispatch boundary — via a flag the launch mock flips. Independent of
+how many reads precede it, which is exactly the property the positional version
+lacked and the reason a v2-side change could break a v1-side test at all.
+
+**The generalisable lesson**: a test coupled to CALL INDEX breaks whenever the
+code under test adds a read anywhere earlier, and the break surfaces in a test
+whose subject is unrelated to the change. Order by observable state
+transitions, not by call ordinal.
+
+Could not run vitest locally (no node_modules in that worktree); said so in the
+commit rather than implying otherwise. CI is the check.
