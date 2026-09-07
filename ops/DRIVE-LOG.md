@@ -13037,3 +13037,36 @@ workflow says so at line 92). Offered the honest alternative rather than just
 defending the design: a PAT with `repo` scope would work identically; I still
 prefer the App because its tokens are short-lived and scoped to one repo, but
 it is a one-line swap if the grant is friction.
+
+## 2026-09-07 — MINT SUCCEEDED; `Validate cloud authentication` PASSES
+
+Khaliq granted the App the secrets permission. Re-dispatched the mint
+(run 34157825362): **completed/success, every step green**, including
+`Mint the credential and install it into the target` — the step that had been
+403ing on `.../flows/actions/secrets/public-key`.
+
+Verified the secret actually landed rather than trusting the green run:
+
+    CLOUD_API_KEY   updated=2026-09-07T20:04:40Z
+    CLOUD_API_URL   updated=2026-09-07T20:04:40Z
+
+**Re-ran #229's review and `Validate cloud authentication` is SUCCESS** — the
+step that failed on all six PRs all day, with everything downstream skipping.
+The swarm is now past authentication and installing the CLI. First time today.
+
+Re-ran ONE PR rather than all six on purpose: if something else is broken
+downstream of auth, finding it on one costs one cloud swarm, not six.
+
+**The chain took four distinct fixes, none of them a retry:**
+
+    #3414  drop AWS from the mint (Khaliq caught the dependency)
+    #3416  build the workspace packages the mint script imports
+    (grant) App secrets:write on AgentWorkforce/flows
+    rerun  stale check results do not clear themselves when a secret appears
+
+That last one is worth keeping: the six PRs still read `review=fail` for
+several minutes after the secret existed, because a check result is a
+historical record, not a live query. Fixing the cause does not repaint the
+gate; something has to re-run it.
+
+Prod deploy 34155753309 still in_progress, carrying the v2 executor.
