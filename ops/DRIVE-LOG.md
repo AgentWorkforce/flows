@@ -13637,3 +13637,42 @@ over org secrets and therefore org shadowing was "moot". That was a claim from
 memory, not from evidence, and it let me eliminate a candidate I had never
 tested. I could not read org secrets (403, needs admin:org). If this probe
 comes back shadowed, that unverified assumption is where the evening went.
+
+## 2026-09-07 — ROOT CAUSE: the mint wrote the literal string "-"
+
+    sha256("-") = 3973e022e932   == exactly the fingerprint CI held
+
+`gh secret set ... --body -` does NOT read stdin. From `gh secret set --help`:
+
+    -b, --body string   The value for the secret
+                        (reads from standard input if not specified)
+
+`-` is an ordinary value, not a sentinel. Every mint tonight stored the
+one-character string "-" and discarded the piped token.
+
+**Three independent success signals were all wrong**: gh exited 0, the secrets
+API returned a fresh updated_at, and the step logged "installed CLOUD_API_KEY
+into AgentWorkforce/flows". Downstream every run got "-" and 401'd.
+
+**What exposed it was the CONSTANT, not the value.** The fingerprint was
+identical across two mints of two different tokens. A correct write must
+change. That invariant is what made a masked value falsifiable.
+
+**The guards I built tonight could not catch this, by construction:**
+
+  - mint verify-before-install (#3429) verified `$api_key` — always valid. It
+    never read back what was STORED.
+  - review-swarm's real probe (flows#232) correctly reported 401, but
+    "credential rejected" reads as a credential problem, not a WRITER problem.
+    It sent me hunting the token for hours.
+
+Only write-fingerprint vs read-fingerprint found it. **Verifying an
+operation's inputs is not verifying its effect** — and my verify-before-install
+fix got exactly that wrong while claiming to solve it.
+
+Merged cloud#3433 (`1224a8061`), verified on main ('--body -' 0 occurrences,
+stdin form present), re-minted: fingerprint **91f0d17f1360**. Triggered CI at
+21:53:25Z to confirm it now receives that value.
+
+Cleanup owed regardless of outcome: remove the temporary canary probe from
+flows#232, and delete the CLOUD_API_KEY_CANARY secret.
