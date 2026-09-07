@@ -13892,3 +13892,44 @@ confidently.
 Lane state: credential chain proven end to end; swarm launches and runs; the
 remaining failures are inside the cloud workload and are NOT what I fixed
 tonight. Open flows PRs 7 (was 10).
+
+## 2026-09-08 — the spec-review agent found a FAIL-OPEN in my own review gate
+
+Read `ops/SPEC-REVIEW-0907.md` (720 lines + captured evidence files). All five
+lane PRs left OPEN, nothing merged — the agent respected the gate.
+
+Its P1 on #229 is against MY work, and it is correct. `lens-runner.sh` REVIEW_PASSED arm:
+
+    REVIEW_PASSED)
+      if [ "$CLI_RC" -eq 0 ]; then
+        echo "PRESWARM_${LENS}: REVIEW_PASSED"
+        exit 0        <- never consults the Blockers section
+
+Verified by reading the code, then by executing all five arms. A review that
+enumerated blockers — the agent's repro used "unauthorized writes" — and ended
+in REVIEW_PASSED exited 0.
+
+**The comment I wrote above that arm says the classifier "NEVER upgrades a
+verdict". That is true and it was the wrong property to reason about.**
+One-directional safety guards fail->pass, which fails CLOSED anyway. It left
+fail-OPEN unguarded, which is the only direction a gate cannot afford to get
+wrong. I wrote a proof of safety about the harmless half and stopped.
+
+Fixed and verified across all five arms:
+
+    blockers listed + PASSED  -> CONTRADICTION (exit 1)   WAS exit 0
+    Blockers: None  + PASSED  -> REVIEW_PASSED  (exit 0)
+    no section      + PASSED  -> REVIEW_PASSED  (exit 0)  unchanged
+    Blockers: None  + FAILED  -> CONTRADICTION (exit 1)
+    blockers listed + FAILED  -> REVIEW_FAILED  (exit 1)
+
+`blockers_are_listed` is deliberately not the negation of `blockers_say_none`:
+an absent section returns false, so non-conforming lenses keep their current
+behaviour. Strictly tightening — it can only turn a pass into a non-verdict.
+
+**Worth stating plainly**: I built this gate, tested it against six shapes
+earlier tonight, and shipped a fail-open. An independent reviewer reading the
+same file found it in one pass. That is the argument for the review swarm
+existing at all, made at my own expense.
+
+Disk 15Gi, down from 21Gi across the session as three agents build. Watching.
