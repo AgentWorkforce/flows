@@ -13766,3 +13766,53 @@ than the launch did:
 
 Drain: no pending cloud runs of mine; both earlier proof runs terminal. Items 3
 and 4 remain merged/stale. Disk 18Gi, flat since the last tick.
+
+## 2026-09-08 — credential fix CONFIRMED end-to-end; next fault is a 429 not retried
+
+Holding the five re-runs was right. #232's swarm went further than anything
+today and then failed differently:
+
+    success  Validate cloud authentication
+    success  Launch cloud swarm
+    success  Wait for cloud swarm        <- the swarm RAN TO COMPLETION
+    failure  Post verdict and transcripts
+
+The cloud run itself failed. Queried it directly rather than guessing:
+
+    runId 4117b5f2-b656-4b0a-a6c5-173077b2c673
+    status failed, ver v1, 196s, sandboxId None
+    error: relayfile ACL GET /.relayfile.acl failed with status 429
+
+So the credential chain is fully proven: mint -> secret -> CI -> authenticate ->
+launch -> run. What killed it is a rate limit, unrelated to the credential and
+unrelated to the PR's content.
+
+**And the retry that should have absorbed it does not cover 429.**
+cloud#3411 ("retry transient Relayfile ACL setup") IS in the deployed build —
+verified `git merge-base --is-ancestor` against prod's deploymentSha aa83d8b8e,
+not assumed. But its predicate:
+
+    function isRelayfileAclFailureRetryable(failure) {
+      if (failure.kind === "protocol") return false;
+      if (failure.status >= 400 && failure.status <= 499) return false;
+      return failure.kind === "network" || failure.kind === "timeout";
+    }
+
+**429 is inside 400-499, so it is classified permanent.** The same file carries
+purpose-built 429 machinery — `retryableWorkspaceBusy`, `retryAfterSeconds`,
+`cappedRetryAfterMs`, and a `response.status !== 429` branch that inspects the
+body — but that path only engages when the server marks the response
+workspace-busy. A plain rate-limit 429 falls through the blanket 4xx rejection
+and is never retried.
+
+Note the sibling predicate in the SAME subsystem gets it right:
+
+    isTransientRelayAuthStatus(status) => status === 429 || (500..599)
+
+Two retry predicates, one subsystem, opposite answers for 429. That is the
+defect: not a missing feature, an inconsistency.
+
+NOT fixing it in this tick. It is a cloud change in a subsystem I do not own,
+the evidence is one occurrence, and 429 also means something upstream is rate
+limiting — possibly the volume of runs I fired tonight. Establishing whether it
+recurs comes before changing a retry policy.
