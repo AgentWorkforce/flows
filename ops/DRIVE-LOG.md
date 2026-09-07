@@ -13933,3 +13933,34 @@ same file found it in one pass. That is the argument for the review swarm
 existing at all, made at my own expense.
 
 Disk 15Gi, down from 21Gi across the session as three agents build. Watching.
+
+## 2026-09-08 — P2 defeated the P1 fix I shipped an hour earlier
+
+Both Blockers helpers used a FIRST-match awk. A review with an early
+"Blockers: None" summary and a later real section reads as "None":
+
+    first-match -> None                    guard PASSES the review
+    last-match  -> - unauthorized write    guard BLOCKS it
+
+So the fail-open I closed was still reachable via a differently-shaped review,
+and `blockers_are_listed` inherited the flaw the moment I built it on the same
+pattern. Fixing P1 without P2 fixed nothing an adversary would hit.
+
+**The comment lied, and I believed it.** It has said "the LAST `### Blockers`
+heading" since the original change; the code never did that. I read that
+comment twice while fixing P1 and took it as a description of behaviour. A
+comment stating intent instead of behaviour is worse than none — it is a
+false witness that survives review because it reads like documentation.
+
+Both helpers now accumulate to the last matching section. Verified across seven
+arms including both multi-section adversarial cases. Pushed to
+fix/lens-verdict-218 (PR #229).
+
+Score for the night on this one file: I wrote the gate, tested six shapes,
+shipped a fail-open; an independent review found it; my fix for that finding
+was itself defeated by the second finding in the same report. Three passes to
+get one classifier right.
+
+**Disk 13Gi, down from 21Gi over the session.** Three codex worktrees plus
+cargo targets. Not yet blocking, but the trend is monotonic and disk hit zero
+once today — flagging before it matters rather than after.
