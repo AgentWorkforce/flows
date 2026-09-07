@@ -11796,3 +11796,49 @@ exit 0.
     disk                8.5Gi
 
 Nothing done, none invented.
+
+## 2026-09-07 — dispatched the mint at Khaliq's request; found a bug in my own workflow
+
+He asked me to kick off `mint-ci-token.yml` with his email. Run 34126863744:
+
+    success  Mint a token for the target repository   <- his key rotation works
+    failure  Configure AWS credentials
+
+    ##[error]Credentials could not be loaded: Could not load credentials from
+    any providers
+
+`role-to-assume` was ABSENT from the resolved inputs — `${{ vars.AWS_ROLE_TO_ASSUME }}`
+evaluated to empty.
+
+**My bug, in the workflow I wrote.** `AWS_ROLE_TO_ASSUME` is an ENVIRONMENT
+variable, not a repository one. Only `AWS_REGION` is repo-level, which is
+exactly why `aws-region` resolved and `role-to-assume` silently did not.
+`preview.yml` carries `environment: preview` on its job for this reason; mine
+declared none, so the variable was out of scope. Verified rather than assumed:
+
+    repo variables:          AWS_REGION
+    preview environment:     AWS_ROLE_TO_ASSUME
+    production environment:  AWS_ROLE_TO_ASSUME  (rule: branch_policy only)
+
+Fix in **cloud#3413**, one line:
+`environment: ${{ inputs.stage == 'production' && 'production' || 'preview' }}`
+— both environments define the variable, so the stage maps onto the environment
+holding its role rather than hardcoding one. No approval gate introduced;
+production's only rule is a branch policy and this workflow is dispatch-only
+from the default branch.
+
+Worth recording that the failure mode was silent: an empty `vars.X` does not
+error, it just omits the input, and `configure-aws-credentials` then reports a
+generic "no providers" message that points nowhere near the cause. Reading the
+resolved `with:` block — and noticing what was MISSING from it rather than what
+was wrong in it — is what found it.
+
+**Also answered his 1Password question honestly: the workflow cannot output the
+secret, by design.** Mint and install happen in one step precisely so the
+plaintext never reaches an output, artifact or log. That does mean the
+credential is unrecoverable once set, which makes his instinct reasonable —
+offered three options and recommended adding an `op` step with a service-account
+token, so one credential lands in both places and no human handles it.
+
+Everything remains blocked on merges that are not mine: cloud#3413, flows#229
+(then #227 clears), and the preview login.
