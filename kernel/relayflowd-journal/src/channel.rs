@@ -24,6 +24,9 @@ impl SqliteJournal {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // TODO(epoch-compaction): #212 — replace retained-history folds here
+        // and in validate_entry with bounded epoch channel snapshots before
+        // archived segments can be removed. insert_entry currently folds again.
         let entries = read_entries(&tx, &self.run_id)?;
         if entries
             .iter()

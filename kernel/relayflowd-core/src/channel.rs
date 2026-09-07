@@ -68,13 +68,21 @@ fn require(condition: bool, detail: &str) -> Result<(), ChannelError> {
     }
 }
 
+/// Decode once when applying a fact; decisions use typed fields while replies
+/// and replay retain the original journal entry, including its metadata.
+#[derive(Debug, Clone, PartialEq)]
+struct ChannelFact<P> {
+    entry: JournalEntry,
+    payload: P,
+}
+
 /// A projection of journal facts, with no I/O, timers, or session state.
 /// Retained entries also supply append deduplication and historical deliveries.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ChannelState {
-    messages: BTreeMap<String, Vec<JournalEntry>>,
-    deliveries: BTreeMap<i64, JournalEntry>,
-    acknowledgements: BTreeMap<(String, String), JournalEntry>,
+    messages: BTreeMap<String, Vec<ChannelFact<ChannelAppendedPayload>>>,
+    deliveries: BTreeMap<i64, ChannelFact<ChannelDeliveredPayload>>,
+    acknowledgements: BTreeMap<(String, String), ChannelFact<ChannelAcknowledgedPayload>>,
 }
 
 impl ChannelState {
@@ -89,18 +97,14 @@ impl ChannelState {
     pub fn offset(&self, channel: &str, consumer: &str) -> u64 {
         self.acknowledgements
             .get(&(channel.to_owned(), consumer.to_owned()))
-            .map(|entry| {
-                entry.payload["offset"]
-                    .as_u64()
-                    .expect("validated acknowledgement")
-            })
+            .map(|fact| fact.payload.offset)
             .unwrap_or(0)
     }
 
     /// Historical delivery order, including retries. Replay never calls receive
     /// or executes consumer code: it reads these already committed facts.
     pub fn deliveries(&self) -> impl Iterator<Item = &JournalEntry> {
-        self.deliveries.values()
+        self.deliveries.values().map(|fact| &fact.entry)
     }
 
     pub fn apply(&mut self, entry: &JournalEntry) -> Result<(), ChannelError> {
@@ -115,19 +119,28 @@ impl ChannelState {
                     entry.step_id.as_deref() == Some(&p.producer),
                     "producer does not match step",
                 )?;
-                let messages = self.messages.entry(p.channel).or_default();
+                let messages = self
+                    .messages
+                    .get(&p.channel)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
                 require(
                     p.offset == messages.len() as u64 + 1,
                     "append offset is not consecutive",
                 )?;
                 require(
                     !messages.iter().any(|e| {
-                        e.payload["producer"] == p.producer
-                            && e.payload["message_id"] == p.message_id
+                        e.payload.producer == p.producer && e.payload.message_id == p.message_id
                     }),
                     "duplicate message id",
                 )?;
-                messages.push(entry.clone());
+                self.messages
+                    .entry(p.channel.clone())
+                    .or_default()
+                    .push(ChannelFact {
+                        entry: entry.clone(),
+                        payload: p,
+                    });
             }
             EntryType::ChannelDelivered => {
                 let p: ChannelDeliveredPayload = serde_json::from_value(entry.payload.clone())?;
@@ -143,14 +156,20 @@ impl ChannelState {
                     .message(&p.channel, p.offset)
                     .ok_or_else(|| ChannelError::Invalid("delivery has no append".into()))?;
                 require(
-                    message.payload["message"] == p.message,
+                    message.payload.message == p.message,
                     "delivery differs from appended message",
                 )?;
                 require(
                     !self.deliveries.contains_key(&entry.seq),
                     "duplicate delivery sequence",
                 )?;
-                self.deliveries.insert(entry.seq, entry.clone());
+                self.deliveries.insert(
+                    entry.seq,
+                    ChannelFact {
+                        entry: entry.clone(),
+                        payload: p,
+                    },
+                );
             }
             EntryType::ChannelAcknowledged => {
                 let p: ChannelAcknowledgedPayload = serde_json::from_value(entry.payload.clone())?;
@@ -160,22 +179,27 @@ impl ChannelState {
                 )?;
                 let delivery = self.delivery(&p.channel, &p.consumer, p.delivery_seq)?;
                 require(
-                    delivery.payload["offset"] == p.offset,
+                    delivery.payload.offset == p.offset,
                     "acknowledgement offset differs from delivery",
                 )?;
                 require(
                     p.offset == self.offset(&p.channel, &p.consumer) + 1,
                     "acknowledgement must advance exactly one message",
                 )?;
-                self.acknowledgements
-                    .insert((p.channel, p.consumer), entry.clone());
+                self.acknowledgements.insert(
+                    (p.channel.clone(), p.consumer.clone()),
+                    ChannelFact {
+                        entry: entry.clone(),
+                        payload: p,
+                    },
+                );
             }
             _ => {}
         }
         Ok(())
     }
 
-    fn message(&self, channel: &str, offset: u64) -> Option<&JournalEntry> {
+    fn message(&self, channel: &str, offset: u64) -> Option<&ChannelFact<ChannelAppendedPayload>> {
         let index = usize::try_from(offset.checked_sub(1)?).ok()?;
         self.messages.get(channel)?.get(index)
     }
@@ -185,13 +209,13 @@ impl ChannelState {
         channel: &str,
         consumer: &str,
         seq: i64,
-    ) -> Result<&JournalEntry, ChannelError> {
+    ) -> Result<&ChannelFact<ChannelDeliveredPayload>, ChannelError> {
         let delivery = self
             .deliveries
             .get(&seq)
             .ok_or_else(|| ChannelError::Invalid("unknown delivery sequence".into()))?;
         require(
-            delivery.payload["channel"] == channel && delivery.payload["consumer"] == consumer,
+            delivery.payload.channel == channel && delivery.payload.consumer == consumer,
             "delivery belongs to another channel or consumer",
         )?;
         Ok(delivery)
@@ -220,13 +244,13 @@ impl ChannelState {
                     .map(Vec::as_slice)
                     .unwrap_or_default();
                 if let Some(existing) = messages.iter().find(|e| {
-                    e.payload["producer"] == actor.step_id && e.payload["message_id"] == message_id
+                    e.payload.producer == actor.step_id && e.payload.message_id == message_id
                 }) {
                     require(
-                        existing.payload["message"] == message,
+                        existing.payload.message == message,
                         "message id reused with different content",
                     )?;
-                    return Ok(Some(existing.clone()));
+                    return Ok(Some(existing.entry.clone()));
                 }
                 (
                     EntryType::ChannelAppended,
@@ -250,21 +274,19 @@ impl ChannelState {
                         channel: channel.to_owned(),
                         consumer: actor.step_id.clone(),
                         offset,
-                        message: message.payload["message"].clone(),
+                        message: message.payload.message.clone(),
                     })?,
                 )
             }
             ChannelCommand::Acknowledge { delivery_seq } => {
                 let delivery = self.delivery(channel, &actor.step_id, delivery_seq)?;
-                let offset = delivery.payload["offset"]
-                    .as_u64()
-                    .expect("validated delivery");
+                let offset = delivery.payload.offset;
                 let current = self.offset(channel, &actor.step_id);
                 if offset <= current {
                     return Ok(self
                         .acknowledgements
                         .get(&(channel.to_owned(), actor.step_id.clone()))
-                        .cloned());
+                        .map(|fact| fact.entry.clone()));
                 }
                 require(offset == current + 1, "acknowledgement would skip messages")?;
                 (

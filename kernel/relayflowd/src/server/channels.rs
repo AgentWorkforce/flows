@@ -4,6 +4,14 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::{Engine, ProtocolHub, protocol::*};
+use crate::engine::ChannelCommandError;
+use relayflowd_journal::JournalStoreError;
+
+enum ChannelVerb {
+    Append,
+    Receive,
+    Ack,
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -26,13 +34,24 @@ pub(super) fn handle(
     verb: &str,
     mut params: Value,
 ) -> ProtocolResult<Value> {
+    let verb = match verb {
+        "channel.append" => ChannelVerb::Append,
+        "channel.receive" => ChannelVerb::Receive,
+        "channel.ack" => ChannelVerb::Ack,
+        _ => {
+            return Err((
+                "unsupported_verb",
+                format!("unknown journal protocol verb {verb}"),
+            ));
+        }
+    };
     let object = params
         .as_object_mut()
         .ok_or(("bad_request", "channel params must be an object".into()))?;
     let extra = match verb {
-        "channel.append" => &["message_id", "message"][..],
-        "channel.ack" => &["delivery_seq"][..],
-        _ => &[],
+        ChannelVerb::Append => &["message_id", "message"][..],
+        ChannelVerb::Ack => &["delivery_seq"][..],
+        ChannelVerb::Receive => &[],
     };
     for field in object.keys() {
         if !["run_id", "step_id", "attempt", "idempotency_key", "channel"].contains(&field.as_str())
@@ -57,18 +76,18 @@ pub(super) fn handle(
         idempotency_key: p.idempotency_key,
     };
     let command = match verb {
-        "channel.append" => ChannelCommand::Append {
+        ChannelVerb::Append => ChannelCommand::Append {
             message_id: p
                 .message_id
                 .ok_or(("bad_request", "message_id must be a string".into()))?,
             message: p.message,
         },
-        "channel.ack" => ChannelCommand::Acknowledge {
+        ChannelVerb::Ack => ChannelCommand::Acknowledge {
             delivery_seq: p
                 .delivery_seq
                 .ok_or(("bad_request", "delivery_seq must be an integer".into()))?,
         },
-        _ => ChannelCommand::Receive,
+        ChannelVerb::Receive => ChannelCommand::Receive,
     };
     let lock = hub.run_lock(&actor.run_id);
     let _guard = lock.lock().expect("run lock");
@@ -80,15 +99,32 @@ pub(super) fn handle(
     .map_err(protocol_conflict)?;
     let entry = engine
         .channel_command(&actor, &p.channel, command)
-        .map_err(|error| {
-            if matches!(
-                error.downcast_ref::<relayflowd_journal::JournalStoreError>(),
-                Some(relayflowd_journal::JournalStoreError::Channel(_))
-            ) {
+        .map_err(|error| match error {
+            ChannelCommandError::Journal(JournalStoreError::Channel(error)) => {
                 ("channel_conflict", error.to_string())
-            } else {
-                internal_error(error)
             }
+            ChannelCommandError::Journal(error) => internal_error(error.into()),
+            ChannelCommandError::OpenRun(error) => internal_error(error),
         })?;
     to_value(entry)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_verb_never_falls_through_to_receive() {
+        let directory = tempfile::tempdir().unwrap();
+        let engine = Engine::new(directory.path());
+        let hub = ProtocolHub::default();
+        let error = handle(&engine, &hub, 1, "channel.future", Value::Null).unwrap_err();
+        assert_eq!(
+            error,
+            (
+                "unsupported_verb",
+                "unknown journal protocol verb channel.future".to_owned()
+            )
+        );
+    }
 }

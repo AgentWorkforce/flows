@@ -38,6 +38,7 @@ mod effects;
 mod model;
 mod remote;
 mod wake;
+pub use channels::ChannelCommandError;
 pub use model::{RunOutcome, RunSnapshot, RunStatus, StepSnapshot, StepStatus};
 use model::{outcome_from_state, snapshot_from_state};
 pub use remote::OutOfBandCompletion;
