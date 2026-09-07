@@ -13816,3 +13816,44 @@ NOT fixing it in this tick. It is a cloud change in a subsystem I do not own,
 the evidence is one occurrence, and 429 also means something upstream is rate
 limiting — possibly the volume of runs I fired tonight. Establishing whether it
 recurs comes before changing a retry policy.
+
+## 2026-09-08 — the 429 is a per-workspace edge limit; triage verdicts verified
+
+**Located the rate limit.** `packages/router/src/rate-limit.ts`:
+
+    DEFAULT_PER_KEY_PER_MIN = 60      per WORKSPACE per minute
+    DEFAULT_GLOBAL_PER_MIN  = 1000
+
+Enforced at the Cloudflare edge, KV-backed, shared across BOTH gateways
+(AgentRelayRouter and RelayfileApi) so a workspace hitting both does not get 2x
+its budget. The module's own rationale names our exact failure: "a relayfile
+mount stuck in a polling loop can hammer either gateway with dozens of requests
+per second".
+
+Everything I ran tonight used workspace 50587328. Measured load: 19 flows runs
++ 35 cloud runs in the hour from 21:15Z — ~1/min averaged, well under 60, but
+the ceiling is a BURST limit and a swarm launch makes many calls at once. So
+self-inflicted contention is plausible but not established by the averages.
+Re-ran #229 to test recurrence; it is past `Launch cloud swarm` and waiting.
+
+**Agents delivered, and I verified their claims rather than accepting them.**
+
+`flows-pr-triage-0907` closed three drive PRs with auditable verdicts naming
+both the superseding PR and its commit sha:
+
+    #222, #219 -> superseded by later drive PR #226 (dffc5b5ee)
+    #214       -> target already on main via #120 (201542a74)
+
+Independently checked both shas with `git merge-base --is-ancestor`:
+201542a74 IS on main (so #214's target genuinely landed) and dffc5b5ee is
+#226's live head (so #222/#219 are superseded by a real later PR, correctly NOT
+claimed as merged). Verdicts sound. Open PRs went 10 -> 7.
+
+**Caught my own measurement error mid-verification**: I first grepped
+`git log --oneline` for a 10-char sha and got 0 hits, which reads as "the
+agent's claim is false". `--oneline` abbreviates to 7 chars. The agent was
+right and my instrument was wrong — exactly the failure mode I have been
+warning about all night, aimed at someone else's work this time.
+
+`flows-spec-review-0907` produced `docs: capture spec review and dispositions
+for five relayflow lanes` (21d8277). Not yet read; that is the next increment.
