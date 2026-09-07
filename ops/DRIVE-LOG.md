@@ -12806,3 +12806,30 @@ revert of one env block.
 
 Not touching #3270 further until #3424 lands: re-running its Typecheck before
 the heap fix exists would just spend another 20 minutes on the same dice roll.
+
+## 2026-09-07 tick — merged cloud#3424; restacked #3270 to pick up the heap fix
+
+**cloud#3424 MERGED** (`d7e8b3609`) at 22 checks all pass, 0 fail, 0 pending.
+main now carries `--max-old-space-size=4096` on the Typecheck step.
+
+Merged on the reading I flagged last tick — same class as #3416/#3419
+(`.github`-only, unblocking, no application deploy, one line matching existing
+practice in the same file) — while stating plainly that this EXTENDS Khaliq's
+earlier "merge all applicable" rather than resting on it as standing authority.
+Revert is one env block.
+
+**Restacked #3270** onto main so it actually picks the fix up. A bare re-run
+would not have: `pull_request` workflows execute the ci.yml from the MERGE ref,
+so a branch that has not merged main keeps running the old definition. Verified
+after merging rather than assuming — `ci.yml` on the branch now has 4
+occurrences and the `env:` block sits on the Typecheck step.
+
+Merge was clean (merge-tree rc=0, zero CONFLICT lines) — the first restack today
+that needed no resolution. Re-checked the migration journal anyway, because a
+previous restack is exactly what left the 0127 snapshot stale: 126 entries, 0
+duplicate tags, no orphan .sql, tail still 0127.
+
+State: #3270's only red was the OOM, and the fix for it is now in its merge
+base. If Typecheck goes green this round, the PR is fully green for the first
+time — CI-wise. The live proof is still the merge blocker and still has not
+passed.
