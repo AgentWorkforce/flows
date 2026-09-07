@@ -13466,3 +13466,48 @@ meant to break.
 
 Standing evidence unchanged: CI holds fingerprint 3973e022e932, which 401s on
 the same route the mint got 200 from 16 minutes earlier.
+
+## 2026-09-07 — VERIFIED: a relayflow runs locally (flows#231, codex agent)
+
+`flows-runtime-0907` finished: 3 commits, a 368-line `ops/RUNTIME-STATUS.md`,
+and flows#231 (+1347/-2).
+
+**Verified its central claim independently rather than accepting the summary**,
+per the rule that agent reports are not evidence. Read the run journal SQLite
+directly:
+
+    .relayflowd/runs/01M1YSGZZJ3Z0SD3RCM53EF8G5.sqlite3   32768 bytes
+    tables: effects entries meta segments stream_index
+    1 run.spawned
+    2 step.attempt.started
+    3 step.completed
+    4 step.attempt.started
+    5 step.completed
+    6 run.completed
+
+A real two-step execution with a terminal `run.completed`, on this machine,
+with no Cloud admission, Daytona, Relaycast workspace or model provider. The
+claim holds.
+
+**This answers Khaliq's question directly.** Relayflows were not running
+locally for two reasons, neither of which was "they cannot":
+
+  1. setup gap — no built SDK and no local daemon
+  2. FORMAT gap — the legacy `drive.yaml` uses an old `swarm`/`workflows`
+     schema that the current SDK REFUSES before execution
+
+The second is the interesting one: `drive.yaml` is not merely unused, it is
+unrunnable against today's SDK. Anyone reaching for it to dogfood would hit a
+schema rejection, not a missing feature.
+
+It also executed a REAL backlog item (F8b) as four journaled deterministic
+steps rather than a toy, and deliberately did NOT commit or open the PR from
+inside the tick — the operator delivers the recorded diff. Correct instinct on
+the merge gate.
+
+**Worth noting for the #3270 proof**: this is the same artifact shape the v2
+proof needs — an `entries` table ending in a terminal record. The journal
+mechanism demonstrably works; what does not work is the Cloud v2 launch path.
+Those are separable problems, and only the second is blocked.
+
+cloud#3432 at 17 pass / 2 pending / 0 fail.
