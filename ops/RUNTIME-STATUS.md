@@ -366,3 +366,20 @@ Branch: `runtime/flows-restore-0907`.
 - `77a60be`: flow-produced F8b source change and captured runtime evidence.
 
 The PR is open; no merge, CI-green claim, or independent signoff is recorded.
+
+## Spec review follow-up (2026-09-07)
+
+The package now writes and flushes a same-directory temporary file, renames it
+atomically, and flushes its directory. A SIGKILL injected during the temporary
+write leaves the target intact; retry applies the package and a second retry
+observes the intended final bytes. Local test fixtures are removed after the
+suite. Captured command/output: [five local checks](runtime-evidence/spec-review-local-tests.txt).
+
+The existing test-count finding was not reproduced: the fresh run produced 63
+CLI tests plus 28 parity tests (91 total). See the literal
+[rerun](runtime-evidence/spec-review-existing-tests.txt); the earlier journal
+transcripts are preserved. [SDK build](runtime-evidence/spec-review-build.txt)
+is also captured. `workflow-summary.txt` now contains freshly captured full CLI
+output and exit codes, replacing its previously transformed summary JSON.
+
+These local checks do not supply independent merge signoff or green CI.

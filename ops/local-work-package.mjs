@@ -2,7 +2,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 const target = 'packages/sdk/src/compile.ts';
 const packagePath = '.relayflow/drive-local/package.json';
@@ -11,6 +13,19 @@ const newName = 'validateAuthoringRetryDefaults';
 const hash = text => createHash('sha256').update(text).digest('hex');
 const read = path => readFileSync(path, 'utf8');
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+
+// A killed writer leaves the destination wholly old or wholly new. Flush the
+// replacement before rename and the containing directory before reporting it.
+function writeAtomically(path, contents) {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    const mode = path === target ? statSync(path).mode & 0o777 : 0o600;
+    writeFileSync(temporary, contents, { flag: 'wx', mode, flush: true });
+    renameSync(temporary, path);
+    const directory = openSync(dirname(path), 'r');
+    try { fsyncSync(directory); } finally { closeSync(directory); }
+  } finally { rmSync(temporary, { force: true }); }
+}
 
 switch (process.argv[2]) {
   case 'select': {
@@ -23,7 +38,7 @@ switch (process.argv[2]) {
     assert.equal(source.split(oldName).length - 1, 2, 'PACKAGE_ALREADY_APPLIED_OR_CHANGED: expected declaration and call');
     const work = { id: 'F8b', entry, branch, target, before: hash(source), after: hash(source.replaceAll(oldName, newName)) };
     mkdirSync('.relayflow/drive-local', { recursive: true });
-    writeFileSync(packagePath, JSON.stringify(work, null, 2) + '\n');
+    writeAtomically(packagePath, JSON.stringify(work, null, 2) + '\n');
     assert.equal(JSON.parse(read(packagePath)).before, work.before);
     console.log(JSON.stringify(work));
     break;
@@ -37,7 +52,7 @@ switch (process.argv[2]) {
     assert.equal(hash(before), work.before, 'TARGET_CHANGED: refusing to overwrite intervening work');
     const after = before.replaceAll(oldName, newName);
     assert.notEqual(after, before);
-    writeFileSync(target, after);
+    writeAtomically(target, after);
     assert.equal(hash(read(target)), work.after, 'MUTATION_NOT_PERSISTED');
     console.log(`PACKAGE_APPLIED: F8b ${work.before} -> ${work.after}`);
     console.log(git('diff', '--', target));

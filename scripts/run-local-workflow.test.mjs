@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import test from 'node:test';
+import test, { after } from 'node:test';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 mkdirSync(join(root, '.relayflow'), { recursive: true });
 const fixtures = mkdtempSync(join(root, '.relayflow', 'launcher-tests-'));
+const dataDirectories = new Set();
+after(() => {
+  for (const path of dataDirectories) rmSync(path, { recursive: true, force: true });
+  rmSync(fixtures, { recursive: true, force: true });
+});
 
 function run(name, steps, env = {}) {
   const path = join(fixtures, `${name}.json`);
@@ -15,9 +20,10 @@ function run(name, steps, env = {}) {
   const result = spawnSync(process.execPath, ['scripts/run-local-workflow.mjs', path], {
     cwd: root, encoding: 'utf8', timeout: 15000, env: { ...process.env, ...env },
   });
+  const dataDir = result.stdout.match(/^LOCAL_DATA_DIR=(.+)$/m)?.[1];
+  if (dataDir) dataDirectories.add(dataDir);
   assert.equal(result.error, undefined, result.stderr);
   const records = result.stdout.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line));
-  const dataDir = result.stdout.match(/^LOCAL_DATA_DIR=(.+)$/m)?.[1];
   if (dataDir) assert(!existsSync(join(dataDir, 'relayflowd.sock')), 'owned daemon socket must be removed on exit');
   return { ...result, records, dataDir };
 }
