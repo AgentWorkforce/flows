@@ -12419,3 +12419,41 @@ before believing it.
 afternoon. Each one silently zeroes its CI until noticed. Either it merges
 soon or it needs main to hold still; the current pattern burns a tick every
 time.
+
+## 2026-09-07 tick — two tests, opposite contracts, one block (cloud c71f482f2)
+
+My launcher fix worked: `Unit Tests (orchestrator / personas)` went FAIL ->
+pass. It then broke a DIFFERENT suite, and the pair explains why this merge
+kept going wrong.
+
+    tests/orchestrator/launcher.test.ts        (branch)
+      assert.deepEqual(calls, ["stop", "delete"])
+    packages/core/tests/launch-member.test.ts  (main)
+      "detached Daytona create compensates when durable locator persistence
+       fails" -- and its mock exposes NO stop method
+
+Calling `stop()` on main's mock throws TypeError, which fell into the cleanup
+catch and surfaced as AggregateError instead of the original persistence error.
+Satisfy one contract literally and you break the other.
+
+**Both are right, and the reconciliation is a real semantic, not a fudge.** A
+real Daytona client should stop before deleting; a compensation must still
+delete and must propagate the original failure. So the stop is now best-effort:
+a stop that fails, or a client exposing no stop, neither aborts the delete nor
+masks the original error. Delete is what actually reclaims the resource.
+
+Verified by extracting the block VERBATIM and running both mocks through it,
+since neither suite runs on this host (both import built JS from packages/core):
+
+    branch  calls = ["stop","delete"]  rejects "launch claim cancelled"     PASS
+    main    deleted = [sandbox]        rejects "locator persistence failed" PASS
+
+Said plainly in the commit that this is a semantic check of the extracted
+block, not a substitute for CI.
+
+**The pattern worth keeping**: when two suites disagree about one block, the
+answer is usually a weaker, more honest contract that both can hold — not
+picking a winner. Picking a winner is what I did twice today, in both
+directions, and it failed twice.
+
+Typecheck still fails on OOM (`Reached heap limit`, exit 134), unrelated.
