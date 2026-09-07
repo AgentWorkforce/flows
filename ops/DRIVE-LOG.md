@@ -13070,3 +13070,47 @@ historical record, not a live query. Fixing the cause does not repaint the
 gate; something has to re-run it.
 
 Prod deploy 34155753309 still in_progress, carrying the v2 executor.
+
+## 2026-09-07 — the minted key 401s on prod: DB target and API URL are uncoupled
+
+The mint SUCCEEDED and the swarm still failed. #229 rerun:
+
+    Validate cloud authentication : SUCCESS
+    Launch cloud swarm            : FAILURE
+      Workflow prepare failed: 401 Unauthorized: Unauthorized
+      (CLOUD_API_URL: https://agentrelay.com/cloud)
+
+**Root cause, `packages/web/scripts/mint-ci-token.ts:42`:**
+
+    const API_URL = process.env.CLOUD_API_URL?.trim() || "https://agentrelay.com/cloud";
+
+The session row is written to whatever `CI_MINT_DATABASE_URL` points at, while
+the advertised `CLOUD_API_URL` defaults to PRODUCTION unconditionally. Nothing
+couples them. Point that connection string at any database other than prod's
+and you get a credential that mints cleanly, installs successfully, reports
+green, and 401s on first real use.
+
+**Two design gaps this exposes, both worth fixing:**
+
+1. **The mint installs an unvalidated credential.** It never calls the API it
+   just advertised. One authenticated GET before `gh secret set` would have
+   turned a silent cross-environment mismatch into an immediate, local error
+   instead of six red PRs and a swarm launch.
+2. **"Validate cloud authentication" validates presence, not validity.**
+
+       test -n "$CLOUD_API_URL"
+       test -n "$CLOUD_API_KEY"
+
+   Its own comment says it exists to "fail here, in seconds, rather than in
+   Launch cloud swarm ten minutes later" — but it can only catch a MISSING
+   key, never a wrong one. It did its job and still let this through. A name
+   that promises validation while testing presence is worse than no check: it
+   reads as a cleared gate.
+
+**What Khaliq needs to change**: point `CI_MINT_DATABASE_URL` at the
+PRODUCTION Neon database — the one `agentrelay.com/cloud` actually reads —
+still scoped to `api_token_sessions` and `users` rather than schema owner. Then
+re-dispatch; no code change required to unblock.
+
+Re-ran ONE PR rather than six, which is why this cost one swarm launch instead
+of six.
