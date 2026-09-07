@@ -11341,3 +11341,43 @@ instead of using the path that already worked.
 still has 0 CI references, and the last two lanes' output merged without
 anyone approving it. The issue is useful whenever it is picked up; the lane is
 not, until a red CI can stop a merge.
+
+## 2026-09-07 — MERGE GATE FIXED: auto-merge now requires green CI
+
+Khaliq instructed me to fix it so a lane can be dispatched. Worth noting the
+direction, because I had held off on decision #6 grounds: that rule exists to
+stop an agent WIDENING its own gate. This tightens it, at the principal's
+explicit instruction — the opposite concern.
+
+`~/AgentWorkforce/auto-merge-loop.sh`, three changes:
+
+1. `REQUIRED_CHECK="${AUTO_MERGE_REQUIRED_CHECK:-linux-x64-artifact}"` —
+   configurable, documented as the TEST signal distinct from the swarm marker's
+   REVIEW signal. `review` deliberately NOT required: it fails on every PR for
+   want of CLOUD_API_KEY (#218), so requiring it would wedge the loop entirely.
+2. `required_check_green()` — fails CLOSED in all three bad cases: check absent,
+   check not SUCCESS, or API unreadable. **Absent is a block**, because a PR
+   that never ran the suite has no evidence, and the drive PRs carry no artifact
+   check at all.
+3. The gate condition gains `&& required_check_green "$pr"`.
+
+Header contract updated to match, so the file no longer describes a gate it does
+not implement.
+
+**Verified against reality before going live**, not just `bash -n`:
+
+    #224 / #222 / #219   HELD   check absent          (drive PRs)
+    #221                 HELD   check = FAILURE       <- THE INCIDENT
+    #223                 ALLOW  check = SUCCESS       (legitimately green)
+
+#221 is the regression test that matters: the merge that broke main for ~90
+minutes is now blocked by the exact predicate, tested against the real PR rather
+than a mock.
+
+Backed up the original to `/tmp/auto-merge-loop.sh.bak-<ts>` first. Restarted via
+`kill` and let launchd's `KeepAlive` bring it back — pid 1261 -> 62792, and the
+log line `auto-merge starting` at 10:44:59 confirms it re-read the file rather
+than continuing on the old parse.
+
+**This unblocks dispatching flows#225 (gate 7).** A lane's output can now be
+stopped by red CI, which was not true for the last two.
