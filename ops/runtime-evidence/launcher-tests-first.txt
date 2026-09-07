@@ -1,0 +1,69 @@
+✖ local launcher journals deterministic effects and reads more than one journal page (556.277042ms)
+✖ a failed command fails the run and prevents dependent effects (128.573917ms)
+✖ the SDK worker completes an agent step through the local journal protocol (508.455542ms)
+✔ missing daemon is refused before a data directory or run is created (61.799041ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 1
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1293.743333
+
+✖ failing tests:
+
+test at scripts/run-local-workflow.test.mjs:25:1
+✖ local launcher journals deterministic effects and reads more than one journal page (556.277042ms)
+  AssertionError [ERR_ASSERTION]: owned daemon socket must be removed on exit
+      at run (file:///Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/scripts/run-local-workflow.test.mjs:21:16)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/scripts/run-local-workflow.test.mjs:26:18)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.start (node:internal/test_runner/test:1257:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/run-local-workflow.test.mjs:37:1
+✖ a failed command fails the run and prevents dependent effects (128.573917ms)
+  AssertionError [ERR_ASSERTION]: owned daemon socket must be removed on exit
+      at run (file:///Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/scripts/run-local-workflow.test.mjs:21:16)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/scripts/run-local-workflow.test.mjs:39:18)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/run-local-workflow.test.mjs:50:1
+✖ the SDK worker completes an agent step through the local journal protocol (508.455542ms)
+  AssertionError [ERR_ASSERTION]: owned daemon socket must be removed on exit
+      at run (file:///Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/scripts/run-local-workflow.test.mjs:21:16)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/scripts/run-local-workflow.test.mjs:55:18)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

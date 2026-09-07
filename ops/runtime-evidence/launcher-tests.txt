@@ -1,0 +1,12 @@
+✔ local launcher journals deterministic effects and reads more than one journal page (537.042792ms)
+✔ a failed command fails the run and prevents dependent effects (127.248833ms)
+✔ the SDK worker completes an agent step through the local journal protocol (541.697084ms)
+✔ missing daemon is refused before a data directory or run is created (59.212417ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1305.905833

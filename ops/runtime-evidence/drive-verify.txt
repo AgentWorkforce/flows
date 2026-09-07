@@ -1,0 +1,17 @@
+
+> @relayflows/sdk@2.0.1 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+ RUN  v2.1.9 /Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/packages/sdk
+
+ ✓ tests/spec-parity.test.ts (28 tests) 160ms
+ ✓ tests/cli.test.ts (63 tests) 2386ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 380ms
+   ✓ flows check CLI > resolves a project CLI path relative to the flows.json that declares it 310ms
+
+ Test Files  2 passed (2)
+      Tests  91 passed (91)
+   Start at  22:49:22
+   Duration  2.79s (transform 168ms, setup 0ms, collect 402ms, tests 2.55s, environment 0ms, prepare 75ms)
+

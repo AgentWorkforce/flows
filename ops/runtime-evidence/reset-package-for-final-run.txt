@@ -1,0 +1,3 @@
+Restored only the first local tick's two-line rename to scaffold HEAD for the final run.
+before=92d08a43a14c1406b2238259513fda0906da276470b24f76270b0f5ed863aa93
+after=5840c31f95d1446cbbd8e523073176abb3c2fffd684864cb4fdeb2932709865d
