@@ -13228,3 +13228,47 @@ Still open: WHY the workspace does not resolve for the minted token
 (50587328-441d-4acb-b8f3-dbe1b3c5de99 is the active Cloud workspace ID and
 resolves fine for my own session). Next step is the mint's workspace binding,
 not another probe.
+
+## 2026-09-07 — dug into the 401: eliminated four causes, isolated the last variable
+
+Khaliq: "dig into this and fix". Ruled out, each with evidence rather than
+reasoning:
+
+  - **Scope.** `/workflows/prepare` returns 401 when `resolveRequestAuth`
+    yields null and 403 for insufficient scope. We get 401, so the scope gate
+    is never reached. This killed an attractive theory (the workflow-invoke
+    profile mints no relayfile scope, and the command uses `--sync-code`).
+    Reading the route's own error taxonomy beat reasoning about plausible
+    causes.
+  - **Workspace binding at mint time.** `mint-ci-token.ts` calls
+    `getAuthContext(user.id, WORKSPACE_ID)` and THROWS if the resolved
+    workspace differs. The mint succeeded, so it bound
+    50587328-441d-4acb-b8f3-dbe1b3c5de99 correctly.
+  - **CLI transport.** Installed @agent-relay/cloud@11.10.3 (the CI version;
+    this machine had 11.8.3, which predates `WorkflowApiKeyClient`) into a
+    scratch dir and read it: `fromEnv` reads CLOUD_API_KEY, validates the URL,
+    and `bearerHeaders` sets `Authorization: Bearer ${apiKey}`. No hidden guard,
+    correct scheme.
+  - **Token validity.** `resolveApiTokenSession` is a plain hash lookup on
+    `api_token_sessions` (not revoked, not expired) — and the mint's own probe
+    got **200 from prod at 20:43:06** with that token. The row exists.
+
+**The one variable left untested: whether the RE-RUN used the new secret.** All
+six failures were `gh run rerun` of runs created BEFORE the credential was
+fixed. A re-run may replay with the original run's secret snapshot; I asserted
+it would pick up current values and never checked.
+
+Testing it properly: opened flows#230 from a clean branch, which fires a
+genuine `pull_request` event with current secrets. The workflow has no
+`workflow_dispatch`, so a fresh PR is the only way to get a first-class run.
+
+Used real work rather than a throwaway: the PR carries
+`workflows/restack-verify.yaml`. It also demonstrates the skip path — the
+migration step reports SKIPPED in flows, since flows has no drizzle journal.
+
+**A disclosure**: while probing `/workflows/prepare` with my own session token I
+printed the response body, which contained a live child upload token
+(`s3Credentials.sessionToken`, prefix cld_at_Ycm...). Short-lived and scoped to
+one run's storage prefix, but it is in the transcript and should be treated as
+compromised. The probe should have discarded the body; flagged for rotation
+rather than left quiet.
