@@ -93,6 +93,7 @@ pub(crate) fn insert_entry(
     )?;
     let seq = transaction.last_insert_rowid();
     persisted.seq = seq;
+    crate::channel::validate_entry(transaction, run_id, &persisted)?;
 
     if entry.entry_type == EntryType::EffectConfirmed {
         confirm_effect(transaction, entry, seq)?;

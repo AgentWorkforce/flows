@@ -39,6 +39,12 @@ pub enum EntryType {
     WaitCompleted,
     #[serde(rename = "stream.appended")]
     StreamAppended,
+    #[serde(rename = "channel.appended")]
+    ChannelAppended,
+    #[serde(rename = "channel.delivered")]
+    ChannelDelivered,
+    #[serde(rename = "channel.acknowledged")]
+    ChannelAcknowledged,
     #[serde(rename = "effect.recorded")]
     EffectRecorded,
     #[serde(rename = "effect.confirmed")]
@@ -67,6 +73,9 @@ impl EntryType {
             Self::SleepUntil => "sleep.until",
             Self::WaitCompleted => "wait.completed",
             Self::StreamAppended => "stream.appended",
+            Self::ChannelAppended => "channel.appended",
+            Self::ChannelDelivered => "channel.delivered",
+            Self::ChannelAcknowledged => "channel.acknowledged",
             Self::EffectRecorded => "effect.recorded",
             Self::EffectConfirmed => "effect.confirmed",
             Self::EpochSummary => "epoch.summary",
@@ -90,6 +99,9 @@ impl EntryType {
             "sleep.until" => Self::SleepUntil,
             "wait.completed" => Self::WaitCompleted,
             "stream.appended" => Self::StreamAppended,
+            "channel.appended" => Self::ChannelAppended,
+            "channel.delivered" => Self::ChannelDelivered,
+            "channel.acknowledged" => Self::ChannelAcknowledged,
             "effect.recorded" => Self::EffectRecorded,
             "effect.confirmed" => Self::EffectConfirmed,
             "epoch.summary" => Self::EpochSummary,
