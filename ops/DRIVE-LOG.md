@@ -13569,3 +13569,41 @@ being measured rather than assumed.
 Agents running: `flows-spec-review-0907` on the five lane PRs against RFC-0001,
 `flows-pr-triage-0907` on the five drive PRs. Neither may merge without green
 CI at the exact head; neither may edit a gate that judges its own work.
+
+## 2026-09-07 — my prediction was WRONG: not propagation lag
+
+Second read at 21:41:42Z, 4.5 minutes after the mint wrote f034ce43f5da:
+
+    CI fingerprint: 3973e022e932   (unchanged)
+
+I predicted propagation lag and recorded that prediction beforehand. It was
+wrong. Writing that down because the value of a pre-registered prediction is
+entirely in honouring it when it fails.
+
+Checked next whether the fingerprint is even of a real value, since a constant
+fingerprint could mean CI reads a placeholder. It is not degenerate:
+
+    sha256("")          e3b0c44298fc
+    sha256("***")       596f4162a52f
+    sha256("null")      74234e98afe7
+    sha256("cld_at_")   3fe0e75e5b69
+    CI                  3973e022e932   <- matches none
+
+So CI holds a REAL token that is simply not the installed one.
+
+**Running the decisive, non-destructive experiment**: wrote
+`CLOUD_API_KEY_CANARY` to flows with a value I chose (`canary-214251`,
+fingerprint `ff1cbabeb7eb`, written 21:42:52Z) and added a temporary probe that
+prints its fingerprint alongside CLOUD_API_KEY's. Two outcomes, mutually
+exclusive:
+
+    canary ff1cbabeb7eb appears  -> secret writes DO reach runners; something
+                                    specific to CLOUD_API_KEY is stale/stuck
+    canary absent or different   -> secret writes are not reaching runs at all,
+                                    which is a platform-level problem
+
+A canary is the right instrument here because it is the one value whose
+expected fingerprint I know in advance — CLOUD_API_KEY's is unknowable from
+outside, which is exactly what made this unfalsifiable for hours.
+
+The probe is marked TEMPORARY and must come out of flows#232 before it merges.
