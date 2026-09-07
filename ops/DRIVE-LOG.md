@@ -13391,3 +13391,44 @@ non-reversible sha256 fingerprint. The mint prints one too. One line on each
 end settles in seconds what cost an evening.
 
 Tail stopped and its log removed from the laptop.
+
+## 2026-09-07 — CI's credential is REJECTED by the same route the mint passed
+
+flows#232's real auth probe ran on its own PR and produced the first
+comparable evidence:
+
+    CLOUD_API_KEY fingerprint (sha256, first 12): 3973e022e932
+    ::error::CLOUD_API_KEY is set but not accepted by
+             https://agentrelay.com/cloud (HTTP 401)
+
+**Same route the mint got 200 from, 16 minutes earlier.** So the value CI holds
+is either not the value that was minted, or it stopped working after minting.
+
+**Everything between mint and use is now checked and clean**, each with
+evidence rather than assumption:
+
+    TTL                     365 days (CI_DEPLOY_API_ACCESS_TOKEN_TTL_SECONDS)
+    value formatting        `CLOUD_API_KEY=${accessToken}`, no quotes
+    install_secret          printf '%s', no trailing newline
+    later mints             none after 20:58:08
+    sibling revocation      createApiTokenSession only inserts
+    secret timing           repo secret updated 20:58:05, run failed 21:13
+    environment shadowing   flows has no environments
+    org shadowing           moot, repo secrets take precedence
+    probe validity          /workflows/runs 401s for a fabricated token AND
+                            for no token, so the mint's 200 was real
+
+**Opened cloud#3432**: the mint prints the same fingerprint for what it
+installs. One comparison then splits the two remaining worlds:
+
+    differ -> delivery is broken; CI is not using what was minted
+    match  -> the session was invalidated server-side after minting, which is
+              considerably more serious and belongs to whoever owns
+              api_token_sessions
+
+I have stopped generating hypotheses. Ten have died tonight, and each one cost
+a cycle. The fingerprint pair is a measurement, not a guess, and it is the
+smallest thing that distinguishes the only two remaining explanations.
+
+Needs Khaliq: merge cloud#3432 and flows#232, then one mint + one run produces
+both fingerprints.
