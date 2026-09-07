@@ -11381,3 +11381,49 @@ than continuing on the old parse.
 
 **This unblocks dispatching flows#225 (gate 7).** A lane's output can now be
 stopped by red CI, which was not true for the last two.
+
+## 2026-09-07 — #3270 ROOT CAUSE FOUND: drizzle selects by timestamp, not hash
+
+Khaliq said go at the demo. Went at #3270 and found it, from drizzle's source
+rather than another deploy.
+
+`drizzle-orm/pg-core/dialect.js:57-62`:
+
+    select id, hash, created_at from __drizzle_migrations order by created_at desc limit 1
+    if (!lastDbMigration || Number(lastDbMigration.created_at) < migration.folderMillis)
+
+**Selection is by TIMESTAMP. The hash is stored and never consulted.**
+
+This branch's migration was authored as 0122 with `when=1788531001000` and kept
+that value through every renumber. main has since landed migrations at
+`when=1788616800000..002`, ~24h later. The preview DB has main's chain, so
+`1788616800002 < 1788531001000` is false and it is SKIPPED — drizzle then
+reports "applied successfully" having applied nothing.
+
+**It also explains the anomaly I could not explain**: my 0126 ensure migration
+carried when=1788531001001 and was skipped by the same test. An idempotent
+ADD COLUMN IF NOT EXISTS cannot help if it never runs. That anomaly was the
+correct thing to be puzzled by — I just could not see the selection rule from
+the outside.
+
+All three theories are now dead, including the error message's own suggestion
+about stale hash rows: hashes are irrelevant to selection. The message is
+misleading, and that is worth reporting upstream separately.
+
+**Fix pushed as `32c658d83`:** renumber 0125 -> 0127 (after main's 0126) with
+when = main's newest + 1000; drop 0126_ensure (wrong theory AND its tag now
+collides with main's own 0126); snapshot follows; migration body unchanged.
+
+Verified by simulating drizzle's predicate against the DB state:
+idx 127 when=1788616801002 -> APPLIES.
+
+**Deliberately did NOT resolve the rest of the merge.** The branch is 10 behind
+and conflicts on fleet code — main rewrote the sandbox cleanup path and replaced
+`assertLaunchActive` with `beforeSandboxCreate`. cloud#3388/#3392/#3397/#3404
+all landed in that area today. Guessing semantics on the demo branch is worse
+than leaving it for whoever owns that refactor. Said so on the PR.
+
+The lesson worth keeping: when a tool reports success and the world disagrees,
+read the tool's SELECTION rule. Two deploys and three theories died because I
+kept reasoning about the database instead of about what the migrator chooses to
+run.
