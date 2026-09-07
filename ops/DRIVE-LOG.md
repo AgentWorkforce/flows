@@ -11450,3 +11450,30 @@ drizzle's own source and simulated, not inferred.
 Disk 7.1Gi — down from 9.5 again, and the other session was the driver last
 time. Watching rather than acting; my own footprint is one worktree with no
 cargo target.
+
+## 2026-09-07 tick — preview still deploying; disk reclaimed again, other session now 16G
+
+**Preview 34114184175 still `in_progress`** — SST deploy running ~25 min, with
+Drizzle, Read preview outputs and Publish verified artifact all still `pending`
+behind it. No failure. The timestamp fix is untested until that step runs.
+
+**Disk fell 9.5 -> 6.2Gi across three ticks.** Measured rather than assumed:
+
+    fe8515ad (other live session)  16G   (was 15G, 6.4G earlier today)
+    ~/.relayflows-toolchain/target 6.6G
+    my scratchpad                  168M
+    my worktrees                   1.1G + 62M
+
+Reclaimed `flows-main-verify-wt/kernel/target` (991M) — mine, cargo rebuilds it,
+and nothing needs it right now since lens runs read diffs rather than build.
+6.2 -> **7.6Gi**.
+
+That is the second time I have paid down my own footprint while the actual
+driver keeps growing. My total is now ~1.3G against 16G in one other session,
+15 claude processes live. I am not touching it — a running session's scratchpad
+is working state — but the arithmetic is worth stating plainly: I can no longer
+offset it. Two more ticks of the same growth and this machine is in trouble,
+with a preview deploy in flight.
+
+Also visible and not mine: `flows-132-parallel-dispatch-wt` at 2.1G, an
+apparently abandoned worktree from the smithers issue closed earlier.
