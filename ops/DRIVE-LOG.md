@@ -10776,3 +10776,29 @@ lens had failed, I started to conclude the lane had merged its own PR against an
 explicit "do not merge". The PR comment timeline showed otherwise: kjgbot is the
 identity the swarm and auto-merge both post under, and the lane never merged
 anything. Checked before reporting.
+
+## 2026-09-07 tick — fixes landed via the lane's own #216; closed my duplicate #217
+
+Main now carries both halves:
+
+    b5896a8  durable channels with acknowledged delivery and crash replay (#215)
+    e649ad4  address durable channel maintainability review (#216)
+
+Verified on main rather than assumed: `"channel.receive" => ChannelVerb::Receive`
+present, `downcast_ref` count 0. **My #217's diff against main is empty**, so it
+was pure duplication. Closed it with the reason stated.
+
+**My mistake, and it is a repeatable one.** On finding the lane's fix commit
+`3abffd6` unpushed, I cherry-picked it myself. Cherry-picking is the move when a
+lane is GONE; this one was idle, not gone. The correct and much cheaper action
+was a one-line nudge to push what it already had. We then raced and produced the
+same change twice — the same work-unit-claimed-twice shape as AR-448, at small
+scale. Rule for next time: if the work already exists in a live lane's tree, get
+the lane to push it; only reconstruct it yourself once the lane is actually
+dead.
+
+**The systemic finding survives both PRs and is still unaddressed:** the
+maintainability lens returned FAIL on my run and PASS on the repo's post-push
+swarm for identical code, and auto-merge acted on the PASS. Neither #216 nor
+#217 touches that. Gate 1's durable channels are done; the gate that judged them
+is not trustworthy.
