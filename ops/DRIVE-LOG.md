@@ -12833,3 +12833,28 @@ State: #3270's only red was the OOM, and the fix for it is now in its merge
 base. If Typecheck goes green this round, the PR is fully green for the first
 time — CI-wise. The live proof is still the merge blocker and still has not
 passed.
+
+## 2026-09-07 tick — the heap fix WORKS: Typecheck passes on #3270
+
+`head=592518cf7`: **Typecheck PASS**, `Build core + platform` PASS, 16 pass /
+11 pending / **0 fail**. cloud#3424 did what it claimed — the OOM that failed 3
+of 5 runs is gone now that the Typecheck step has the same
+`--max-old-space-size=4096` its sibling jobs always had.
+
+Confirmed by observing the check on a real head rather than trusting the
+change, which matters here: the failure was intermittent, so "it passed once"
+was never going to be proof on its own. It is the combination of a known
+mechanism plus a pass at a head that previously OOM'd.
+
+**Holding the preview redeploy until CI settles**, deliberately. The batched
+deploy would carry `2b91c43f7` (payload key-set diagnostic), `698138286` and
+`4556a6dc0` (the two test fixes), and `592518cf7` (this restack). Waiting costs
+nothing real: the deploy takes ~20 min and then blocks on a device approval
+from Khaliq, who is asleep, so dispatching now would not make the proof run any
+sooner. It would only risk deploying a head whose tests have not reported.
+
+Drain: nothing pending in cloud; both earlier proof runs terminal. Items 3 and
+4 still stale (#134 and #139 merged).
+
+Next, in order: CI settles -> redeploy preview -> Khaliq approves a device code
+-> proof runs and the v2 failure finally names its own payload keys.
