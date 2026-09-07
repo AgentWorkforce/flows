@@ -11756,3 +11756,33 @@ header has warned about since it was written is still open.
 
 flows#229 opened. Not merging it myself — it is the gate that judges my work,
 and a self-merged gate change is exactly what decision #6 exists to prevent.
+
+## 2026-09-07 tick — the repo refuses to let #229 judge itself, which creates a bind
+
+Everything in the brief is blocked (preview still 401; #229 and #227 both await
+a merge that is not mine). So I smoke-tested the modified lens runner
+end-to-end, since I had only run `bash -n` and unit-tested the detector.
+
+**It refused, correctly, on a guard I had not seen:**
+
+    lens-runner: REFUSING to run — this diff modifies the pre-swarm-check itself
+                 A branch-owned gate cannot judge its own modifications
+                 (RFC-0001 settled decision 6)
+                 Set PRESWARM_ALLOW_SELF_JUDGE=1 to override ...
+
+So decision #6 is mechanically enforced here, not just a principle I was
+applying by hand. I did NOT set the override.
+
+**The bind that follows, and I flagged it on the PR:** the guard names the
+post-push review-swarm — running from MAIN's copy — as the authoritative gate
+for this PR. That is the weaker, drifted lens #229 exists to repair. So the fix
+for the gate is judged by the broken gate: a PASS from it is weak evidence, and
+a FAIL may be the very contradiction #218 documents.
+
+Not an argument for merging unreviewed. An argument for a human reading it: two
+files, +58/-3, one prompt rule and one classifier branch that can only relabel a
+failure, never upgrade one.
+
+What I could verify without the gate: detector against six shapes including two
+adversarial, `bash -n` clean, YAML parses, and no path that was exit 1 becomes
+exit 0.
