@@ -12946,3 +12946,23 @@ highest-risk element of this merge.
 successful production deploy at a glance. It was a cancellation. Any watch that
 keys on `status == completed` without reading `conclusion` will report a
 cancelled prod deploy as a finished one.
+
+## 2026-09-07 tick — preview live at the green head; device code issued
+
+Preview redeploy COMPLETE at `592518cf7` — health ok, bindingsOk true, and this
+is the head carrying the payload key-set diagnostic plus every fix from today.
+
+**Hardened both scripts before the next run rather than after it failed.**
+`pr3270-proof.sh` and `device-auth.sh` pinned the literal IP 104.18.12.48 from
+the earlier NXDOMAIN workaround. Cloudflare serves this host from more than one
+address — 104.18.12.48 AND 104.18.13.48 both observed — so a hardcoded pin is a
+silent breakage waiting for a deploy to move it. Both now resolve via 1.1.1.1
+with an 8.8.8.8 fallback and fail loudly if neither answers. Verified the only
+remaining `104.18.` strings are in the explanatory comment, not the code path.
+
+Prod deploy for the merge (`57db0de23`, the superseding run) still pending its
+gates. My merge is confirmed an ancestor of it, so nothing is lost.
+
+Device code issued; the proof runs the moment Khaliq approves. This is the run
+that should finally NAME the v2 failure instead of describing it: the guard now
+reports the payload's key set, ending five ticks of inference.
