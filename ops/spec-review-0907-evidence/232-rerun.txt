@@ -1,0 +1,3 @@
+$ gh run rerun 34163837060 --failed
+
+exit_code=0

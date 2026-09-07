@@ -1,0 +1,4 @@
+$ gh run view 34164770687 --log-failed
+run 34164770687 is still in progress; logs will be available when it is complete
+
+exit_code=1

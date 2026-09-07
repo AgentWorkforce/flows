@@ -1,0 +1,4 @@
+$ gh pr view 230 --json headRefOid,state,statusCheckRollup
+{"headRefOid":"abf4442d3902041318423d1ad20e10ff770550da","state":"OPEN","statusCheckRollup":[{"__typename":"CheckRun","completedAt":"2026-09-07T21:44:40Z","conclusion":"FAILURE","detailsUrl":"https://github.com/AgentWorkforce/flows/actions/runs/34164170263/job/101871818032","name":"review","startedAt":"2026-09-07T21:43:49Z","status":"COMPLETED","workflowName":"Review swarm"},{"__typename":"CheckRun","completedAt":"0001-01-01T00:00:00Z","conclusion":"","detailsUrl":"https://www.cubic.dev/pr/AgentWorkforce/flows/pull/230","name":"cubic · AI code reviewer","startedAt":"2026-09-07T21:43:52Z","status":"IN_PROGRESS","workflowName":""},{"__typename":"StatusContext","context":"CodeRabbit","startedAt":"2026-09-07T21:43:49Z","state":"SUCCESS","targetUrl":""}]}
+
+exit_code=0

@@ -1,0 +1,5 @@
+Updated spec review at d7df77cc555227c392c645c59b188f1b0d240ba7: BLOCKED / leave open.
+
+I reread the complete updated diff. This head adds a temporary canary-secret fingerprint; it does not resolve the earlier finding. `.github/workflows/review-swarm.yml:79-85` still has an unbounded curl request, folds transport failure into a status string, and tells the operator to re-mint for every non-200 response. The independent gate owner must bound the probe and distinguish credential rejection from transport/server failures on this branch. Remove temporary diagnostics when no longer needed.
+
+This supports covenant 2 preflight but still needs the above repair. Decision #6 prevents me editing the CI review gate that judges this assignment. CI authentication recovered in a separate lane and live swarms are now running; the earlier 401 evidence is historical and cannot serve as a current content verdict. Await CI at this actual head, the independent gate repair, and resolution of the outstanding thread. No merge.

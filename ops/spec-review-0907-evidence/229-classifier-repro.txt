@@ -1,0 +1,9 @@
+$ python3 ops/spec-review-0907-evidence/229-classifier-repro.py
+blocker_plus_pass: exit=0
+PRESWARM_structure: REVIEW_PASSED
+first_none_last_blocker: exit=1
+PRESWARM_structure: CONTRADICTION — review says 'Blockers: None' but emitted REVIEW_FAILED; treating as NO_VERDICT (gate defect, not a finding)
+none_plus_fail: exit=1
+PRESWARM_structure: CONTRADICTION — review says 'Blockers: None' but emitted REVIEW_FAILED; treating as NO_VERDICT (gate defect, not a finding)
+
+exit_code=0

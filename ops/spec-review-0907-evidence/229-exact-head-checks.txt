@@ -1,0 +1,4 @@
+$ gh api repos/AgentWorkforce/flows/commits/a7b23cff7f394e16a77d02bc727be958365b8ae9/check-runs --jq '[.check_runs[] | {name,head_sha,status,conclusion,details_url}]'
+[{"conclusion":"failure","details_url":"https://github.com/AgentWorkforce/flows/actions/runs/34124184705/job/101873935143","head_sha":"a7b23cff7f394e16a77d02bc727be958365b8ae9","name":"review","status":"completed"},{"conclusion":"success","details_url":"https://www.cubic.dev/pr/AgentWorkforce/flows/pull/229","head_sha":"a7b23cff7f394e16a77d02bc727be958365b8ae9","name":"cubic · AI code reviewer","status":"completed"}]
+
+exit_code=0

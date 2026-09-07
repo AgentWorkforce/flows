@@ -1,0 +1,8 @@
+$ gh api repos/AgentWorkforce/flows/issues/231/comments --jq '.[-5:] | .[] | {html_url,body}'
+{"body":"\u003c!-- swarm-lens: maintainability --\u003e\n## Review swarm: maintainability\n\nNo fresh transcript was produced for run `7845c989-5b9a-44dc-b613-9a10aa92622f` (MISSING).","html_url":"https://github.com/AgentWorkforce/flows/pull/231#issuecomment-5575686376"}
+{"body":"\u003c!-- swarm-lens: history --\u003e\n## Review swarm: history\n\nNo fresh transcript was produced for run `7845c989-5b9a-44dc-b613-9a10aa92622f` (MISSING).","html_url":"https://github.com/AgentWorkforce/flows/pull/231#issuecomment-5575686512"}
+{"body":"\u003c!-- swarm-lens: structure --\u003e\n## Review swarm: structure\n\nNo fresh transcript was produced for run `7845c989-5b9a-44dc-b613-9a10aa92622f` (MISSING).","html_url":"https://github.com/AgentWorkforce/flows/pull/231#issuecomment-5575686645"}
+{"body":"🎯 review-swarm: FAILED (M:fail H:pass S:missing)\n\nLens transcripts posted as sibling comments above.\n\u003c!-- swarm-aggregate --\u003e","html_url":"https://github.com/AgentWorkforce/flows/pull/231#issuecomment-5575686784"}
+{"body":"\u003c!-- review-swarm --\u003e\n## Review swarm: FAILED\n\n- maintainability: MISSING\n- history: MISSING\n- structure: MISSING\n\nCloud run: `7845c989-5b9a-44dc-b613-9a10aa92622f`","html_url":"https://github.com/AgentWorkforce/flows/pull/231#issuecomment-5576028664"}
+
+exit_code=0

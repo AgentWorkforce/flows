@@ -1,0 +1,4 @@
+$ gh api repos/AgentWorkforce/flows/pulls/229/reviews --input /tmp/spec-review-229-disposition.json --jq '{html_url,state,commit_id}'
+{"commit_id":"a7b23cff7f394e16a77d02bc727be958365b8ae9","html_url":"https://github.com/AgentWorkforce/flows/pull/229#pullrequestreview-5135450392","state":"COMMENTED"}
+
+exit_code=0

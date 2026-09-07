@@ -1,0 +1,427 @@
+$ gh run view 34122631900 --log-failed
+review	UNKNOWN STEP	﻿2026-09-07T20:43:52.1024492Z Current runner version: '2.337.0'
+review	UNKNOWN STEP	2026-09-07T20:43:52.1049276Z ##[group]Runner Image Provisioner
+review	UNKNOWN STEP	2026-09-07T20:43:52.1050613Z Hosted Compute Agent
+review	UNKNOWN STEP	2026-09-07T20:43:52.1051382Z Version: 20260828.587
+review	UNKNOWN STEP	2026-09-07T20:43:52.1052104Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+review	UNKNOWN STEP	2026-09-07T20:43:52.1052993Z Build Date: 2026***08***28T16:44:25Z
+review	UNKNOWN STEP	2026-09-07T20:43:52.1053928Z Worker ID: {df6c2eb9***6236***4baa***9361***c50d077a2b5c}
+review	UNKNOWN STEP	2026-09-07T20:43:52.1054784Z Azure Region: westus2
+review	UNKNOWN STEP	2026-09-07T20:43:52.1055486Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:52.1057024Z ##[group]Operating System
+review	UNKNOWN STEP	2026-09-07T20:43:52.1057895Z Ubuntu
+review	UNKNOWN STEP	2026-09-07T20:43:52.1058529Z 24.04.4
+review	UNKNOWN STEP	2026-09-07T20:43:52.1059120Z LTS
+review	UNKNOWN STEP	2026-09-07T20:43:52.1060008Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:52.1060714Z ##[group]Runner Image
+review	UNKNOWN STEP	2026-09-07T20:43:52.1061514Z Image: ubuntu***24.04
+review	UNKNOWN STEP	2026-09-07T20:43:52.1062199Z Version: 20260831.293.1
+review	UNKNOWN STEP	2026-09-07T20:43:52.1063622Z Included Software: https://github.com/actions/runner***images/blob/ubuntu24/20260831.293/images/ubuntu/Ubuntu2404***Readme.md
+review	UNKNOWN STEP	2026-09-07T20:43:52.1065342Z Image Release: https://github.com/actions/runner***images/releases/tag/ubuntu24%2F20260831.293
+review	UNKNOWN STEP	2026-09-07T20:43:52.1066440Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:52.1067829Z ##[group]GITHUB_TOKEN Permissions
+review	UNKNOWN STEP	2026-09-07T20:43:52.1070083Z Contents: read
+review	UNKNOWN STEP	2026-09-07T20:43:52.1071039Z Metadata: read
+review	UNKNOWN STEP	2026-09-07T20:43:52.1071685Z PullRequests: write
+review	UNKNOWN STEP	2026-09-07T20:43:52.1072419Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:52.1074582Z Secret source: Actions
+review	UNKNOWN STEP	2026-09-07T20:43:52.1075840Z Prepare workflow directory
+review	UNKNOWN STEP	2026-09-07T20:43:52.1616354Z Prepare all required actions
+review	UNKNOWN STEP	2026-09-07T20:43:52.1663556Z Getting action download info
+review	UNKNOWN STEP	2026-09-07T20:43:52.4988751Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+review	UNKNOWN STEP	2026-09-07T20:43:52.6942332Z Complete job name: review
+review	UNKNOWN STEP	2026-09-07T20:43:52.7677698Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025***09***19***deprecation***of***node***20***on***github***actions***runners/
+review	UNKNOWN STEP	2026-09-07T20:43:52.7686658Z ##[group]Run actions/checkout@v4
+review	UNKNOWN STEP	2026-09-07T20:43:52.7687565Z with:
+review	UNKNOWN STEP	2026-09-07T20:43:52.7688117Z   ref: 8bbafca34b6fb15556b67b374da0625dd65d11ea
+review	UNKNOWN STEP	2026-09-07T20:43:52.7688832Z   path: pr***head
+review	UNKNOWN STEP	2026-09-07T20:43:52.7689385Z   fetch***depth: 0
+review	UNKNOWN STEP	2026-09-07T20:43:52.7690137Z   repository: AgentWorkforce/flows
+review	UNKNOWN STEP	2026-09-07T20:43:52.7693998Z   token: ***
+review	UNKNOWN STEP	2026-09-07T20:43:52.7694524Z   ssh***strict: true
+review	UNKNOWN STEP	2026-09-07T20:43:52.7695052Z   ssh***user: git
+review	UNKNOWN STEP	2026-09-07T20:43:52.7695584Z   persist***credentials: true
+review	UNKNOWN STEP	2026-09-07T20:43:52.7696147Z   clean: true
+review	UNKNOWN STEP	2026-09-07T20:43:52.7696694Z   sparse***checkout***cone***mode: true
+review	UNKNOWN STEP	2026-09-07T20:43:52.7697359Z   fetch***tags: false
+review	UNKNOWN STEP	2026-09-07T20:43:52.7697905Z   show***progress: true
+review	UNKNOWN STEP	2026-09-07T20:43:52.7698428Z   lfs: false
+review	UNKNOWN STEP	2026-09-07T20:43:52.7698909Z   submodules: false
+review	UNKNOWN STEP	2026-09-07T20:43:52.7699456Z   set***safe***directory: true
+review	UNKNOWN STEP	2026-09-07T20:43:52.7700214Z   allow***unsafe***pr***checkout: false
+review	UNKNOWN STEP	2026-09-07T20:43:52.7701094Z env:
+review	UNKNOWN STEP	2026-09-07T20:43:52.7701641Z   CLOUD_API_URL: https://agentrelay.com/cloud
+review	UNKNOWN STEP	2026-09-07T20:43:52.7702347Z   CLOUD_API_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:43:52.7703006Z   RELAY_WORKSPACE_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:43:52.7703654Z   RELAY_API_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:43:52.7704164Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:52.8683309Z Syncing repository: AgentWorkforce/flows
+review	UNKNOWN STEP	2026-09-07T20:43:52.8685379Z ##[group]Getting Git version info
+review	UNKNOWN STEP	2026-09-07T20:43:52.8686281Z Working directory is '/home/runner/work/flows/flows/pr***head'
+review	UNKNOWN STEP	2026-09-07T20:43:52.8687404Z [command]/usr/bin/git version
+review	UNKNOWN STEP	2026-09-07T20:43:52.8776024Z git version 2.55.0
+review	UNKNOWN STEP	2026-09-07T20:43:52.8828384Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:52.8842361Z Temporarily overriding HOME='/home/runner/work/_temp/c6e92572***9bd2***4114***8405***aef27a610d63' before making global git config changes
+review	UNKNOWN STEP	2026-09-07T20:43:52.8844075Z Adding repository directory to the temporary git global config as a safe directory
+review	UNKNOWN STEP	2026-09-07T20:43:52.8851154Z [command]/usr/bin/git config ***global ***add safe.directory /home/runner/work/flows/flows/pr***head
+review	UNKNOWN STEP	2026-09-07T20:43:52.8894230Z ##[group]Initializing the repository
+review	UNKNOWN STEP	2026-09-07T20:43:52.8897792Z [command]/usr/bin/git init /home/runner/work/flows/flows/pr***head
+review	UNKNOWN STEP	2026-09-07T20:43:52.8999100Z hint: Using 'master' as the name for the initial branch. This default branch name
+review	UNKNOWN STEP	2026-09-07T20:43:52.9000765Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+review	UNKNOWN STEP	2026-09-07T20:43:52.9002426Z hint: to use in all of your new repositories, which will suppress this warning,
+review	UNKNOWN STEP	2026-09-07T20:43:52.9003623Z hint: call:
+review	UNKNOWN STEP	2026-09-07T20:43:52.9004551Z hint:
+review	UNKNOWN STEP	2026-09-07T20:43:52.9005801Z hint: 	git config ***global init.defaultBranch <name>
+review	UNKNOWN STEP	2026-09-07T20:43:52.9007137Z hint:
+review	UNKNOWN STEP	2026-09-07T20:43:52.9008384Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+review	UNKNOWN STEP	2026-09-07T20:43:52.9010854Z hint: 'development'. The just***created branch can be renamed via this command:
+review	UNKNOWN STEP	2026-09-07T20:43:52.9012668Z hint:
+review	UNKNOWN STEP	2026-09-07T20:43:52.9013656Z hint: 	git branch ***m <name>
+review	UNKNOWN STEP	2026-09-07T20:43:52.9014791Z hint:
+review	UNKNOWN STEP	2026-09-07T20:43:52.9016102Z hint: Disable this message with "git config set advice.defaultBranchName false"
+review	UNKNOWN STEP	2026-09-07T20:43:52.9018084Z Initialized empty Git repository in /home/runner/work/flows/flows/pr***head/.git/
+review	UNKNOWN STEP	2026-09-07T20:43:52.9021308Z [command]/usr/bin/git remote add origin https://github.com/AgentWorkforce/flows
+review	UNKNOWN STEP	2026-09-07T20:43:52.9060970Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:52.9062479Z ##[group]Disabling automatic garbage collection
+review	UNKNOWN STEP	2026-09-07T20:43:52.9065794Z [command]/usr/bin/git config ***local gc.auto 0
+review	UNKNOWN STEP	2026-09-07T20:43:52.9094847Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:52.9095667Z ##[group]Setting up auth
+review	UNKNOWN STEP	2026-09-07T20:43:52.9101504Z [command]/usr/bin/git config ***local ***name***only ***get***regexp core\.sshCommand
+review	UNKNOWN STEP	2026-09-07T20:43:52.9132143Z [command]/usr/bin/git submodule foreach ***recursive sh ***c "git config ***local ***name***only ***get***regexp 'core\.sshCommand' && git config ***local ***unset***all 'core.sshCommand' || :"
+review	UNKNOWN STEP	2026-09-07T20:43:52.9465076Z [command]/usr/bin/git config ***local ***name***only ***get***regexp http\.https\:\/\/github\.com\/\.extraheader
+review	UNKNOWN STEP	2026-09-07T20:43:52.9495227Z [command]/usr/bin/git submodule foreach ***recursive sh ***c "git config ***local ***name***only ***get***regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config ***local ***unset***all 'http.https://github.com/.extraheader' || :"
+review	UNKNOWN STEP	2026-09-07T20:43:52.9708771Z [command]/usr/bin/git config ***local ***name***only ***get***regexp ^includeIf\.gitdir:
+review	UNKNOWN STEP	2026-09-07T20:43:52.9740065Z [command]/usr/bin/git submodule foreach ***recursive git config ***local ***show***origin ***name***only ***get***regexp remote.origin.url
+review	UNKNOWN STEP	2026-09-07T20:43:52.9955898Z [command]/usr/bin/git config ***local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+review	UNKNOWN STEP	2026-09-07T20:43:52.9994234Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:52.9995119Z ##[group]Fetching the repository
+review	UNKNOWN STEP	2026-09-07T20:43:53.0003071Z [command]/usr/bin/git ***c protocol.version=2 fetch ***prune ***no***recurse***submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/*
+review	UNKNOWN STEP	2026-09-07T20:43:54.5786017Z From https://github.com/AgentWorkforce/flows
+review	UNKNOWN STEP	2026-09-07T20:43:54.5788259Z  * [new branch]      ci/analyzer***skip***0904   ***> origin/ci/analyzer***skip***0904
+review	UNKNOWN STEP	2026-09-07T20:43:54.5790686Z  * [new branch]      ci/fix***toolchain***home***0904 ***> origin/ci/fix***toolchain***home***0904
+review	UNKNOWN STEP	2026-09-07T20:43:54.5792768Z  * [new branch]      ci/run***the***suites***0904  ***> origin/ci/run***the***suites***0904
+review	UNKNOWN STEP	2026-09-07T20:43:54.5794669Z  * [new branch]      cloud/run***0eaab9d6      ***> origin/cloud/run***0eaab9d6
+review	UNKNOWN STEP	2026-09-07T20:43:54.5796339Z  * [new branch]      cloud/run***1095ede6      ***> origin/cloud/run***1095ede6
+review	UNKNOWN STEP	2026-09-07T20:43:54.5797902Z  * [new branch]      cloud/run***5a846d38      ***> origin/cloud/run***5a846d38
+review	UNKNOWN STEP	2026-09-07T20:43:54.5799645Z  * [new branch]      cloud/run***663d9095      ***> origin/cloud/run***663d9095
+review	UNKNOWN STEP	2026-09-07T20:43:54.5801528Z  * [new branch]      cloud/run***7be717cb      ***> origin/cloud/run***7be717cb
+review	UNKNOWN STEP	2026-09-07T20:43:54.5802377Z  * [new branch]      cloud/run***85e680b3      ***> origin/cloud/run***85e680b3
+review	UNKNOWN STEP	2026-09-07T20:43:54.5803245Z  * [new branch]      cloud/run***88aaba35      ***> origin/cloud/run***88aaba35
+review	UNKNOWN STEP	2026-09-07T20:43:54.5804547Z  * [new branch]      cloud/run***8abf7774      ***> origin/cloud/run***8abf7774
+review	UNKNOWN STEP	2026-09-07T20:43:54.5805598Z  * [new branch]      cloud/run***a2b4fb12      ***> origin/cloud/run***a2b4fb12
+review	UNKNOWN STEP	2026-09-07T20:43:54.5806638Z  * [new branch]      cloud/run***a4980bfe      ***> origin/cloud/run***a4980bfe
+review	UNKNOWN STEP	2026-09-07T20:43:54.5892791Z  * [new branch]      cloud/run***a579a0a5      ***> origin/cloud/run***a579a0a5
+review	UNKNOWN STEP	2026-09-07T20:43:54.5894270Z  * [new branch]      cloud/run***a7041b3d      ***> origin/cloud/run***a7041b3d
+review	UNKNOWN STEP	2026-09-07T20:43:54.5895146Z  * [new branch]      cloud/run***a81e42e3      ***> origin/cloud/run***a81e42e3
+review	UNKNOWN STEP	2026-09-07T20:43:54.5895745Z  * [new branch]      cloud/run***b09aa939      ***> origin/cloud/run***b09aa939
+review	UNKNOWN STEP	2026-09-07T20:43:54.5896336Z  * [new branch]      cloud/run***c24f8554      ***> origin/cloud/run***c24f8554
+review	UNKNOWN STEP	2026-09-07T20:43:54.5896896Z  * [new branch]      cloud/run***c6bdf420      ***> origin/cloud/run***c6bdf420
+review	UNKNOWN STEP	2026-09-07T20:43:54.5897468Z  * [new branch]      cloud/run***d5c7bec9      ***> origin/cloud/run***d5c7bec9
+review	UNKNOWN STEP	2026-09-07T20:43:54.5898020Z  * [new branch]      cloud/run***d658c5bf      ***> origin/cloud/run***d658c5bf
+review	UNKNOWN STEP	2026-09-07T20:43:54.5898554Z  * [new branch]      cloud/run***da056466      ***> origin/cloud/run***da056466
+review	UNKNOWN STEP	2026-09-07T20:43:54.5899086Z  * [new branch]      cloud/run***e1d7225d      ***> origin/cloud/run***e1d7225d
+review	UNKNOWN STEP	2026-09-07T20:43:54.5900103Z  * [new branch]      cloud/run***f18ec684      ***> origin/cloud/run***f18ec684
+review	UNKNOWN STEP	2026-09-07T20:43:54.5900835Z  * [new branch]      cloud/run***fb9fce40      ***> origin/cloud/run***fb9fce40
+review	UNKNOWN STEP	2026-09-07T20:43:54.5901420Z  * [new branch]      cloud/run***fd5fa5dd      ***> origin/cloud/run***fd5fa5dd
+review	UNKNOWN STEP	2026-09-07T20:43:54.5901984Z  * [new branch]      cloud/run***fe00707a      ***> origin/cloud/run***fe00707a
+review	UNKNOWN STEP	2026-09-07T20:43:54.5903037Z  * [new branch]      cloud/run***fef37e36      ***> origin/cloud/run***fef37e36
+review	UNKNOWN STEP	2026-09-07T20:43:54.5904458Z  * [new branch]      diag/174***dump***daemon***state ***> origin/diag/174***dump***daemon***state
+review	UNKNOWN STEP	2026-09-07T20:43:54.5905359Z  * [new branch]      feat/durable***channels***212 ***> origin/feat/durable***channels***212
+review	UNKNOWN STEP	2026-09-07T20:43:54.5906012Z  * [new branch]      feat/gate2***wake***context ***> origin/feat/gate2***wake***context
+review	UNKNOWN STEP	2026-09-07T20:43:54.5906609Z  * [new branch]      feat/step***memory***220    ***> origin/feat/step***memory***220
+review	UNKNOWN STEP	2026-09-07T20:43:54.5907227Z  * [new branch]      feat/step***placement***225 ***> origin/feat/step***placement***225
+review	UNKNOWN STEP	2026-09-07T20:43:54.5907830Z  * [new branch]      feat/tick***runner***0903   ***> origin/feat/tick***runner***0903
+review	UNKNOWN STEP	2026-09-07T20:43:54.5908439Z  * [new branch]      feat/v2***direct***input    ***> origin/feat/v2***direct***input
+review	UNKNOWN STEP	2026-09-07T20:43:54.5909054Z  * [new branch]      feat/v2***field***lint      ***> origin/feat/v2***field***lint
+review	UNKNOWN STEP	2026-09-07T20:43:54.5909631Z  * [new branch]      feat/v2***gate***contract   ***> origin/feat/v2***gate***contract
+review	UNKNOWN STEP	2026-09-07T20:43:54.5910742Z  * [new branch]      feat/v2***gate***contract***preserved***0903 ***> origin/feat/v2***gate***contract***preserved***0903
+review	UNKNOWN STEP	2026-09-07T20:43:54.5911688Z  * [new branch]      feat/v2***gate***contract***sfmini***preserved***0903 ***> origin/feat/v2***gate***contract***sfmini***preserved***0903
+review	UNKNOWN STEP	2026-09-07T20:43:54.5912476Z  * [new branch]      feat/v2***headless***adapters ***> origin/feat/v2***headless***adapters
+review	UNKNOWN STEP	2026-09-07T20:43:54.5913137Z  * [new branch]      feat/v2***parallel***dispatch ***> origin/feat/v2***parallel***dispatch
+review	UNKNOWN STEP	2026-09-07T20:43:54.5913768Z  * [new branch]      feat/v2***research***migration ***> origin/feat/v2***research***migration
+review	UNKNOWN STEP	2026-09-07T20:43:54.5914599Z  * [new branch]      feat/v2***run***cancel      ***> origin/feat/v2***run***cancel
+review	UNKNOWN STEP	2026-09-07T20:43:54.5915216Z  * [new branch]      feat/v2***surface***package ***> origin/feat/v2***surface***package
+review	UNKNOWN STEP	2026-09-07T20:43:54.5915978Z  * [new branch]      feat/v2***surface***package***preserved***0903 ***> origin/feat/v2***surface***package***preserved***0903
+review	UNKNOWN STEP	2026-09-07T20:43:54.5916895Z  * [new branch]      feat/v2***surface***package***sfmini***preserved***0903 ***> origin/feat/v2***surface***package***sfmini***preserved***0903
+review	UNKNOWN STEP	2026-09-07T20:43:54.5917924Z  * [new branch]      feat/v2***typed***outputs   ***> origin/feat/v2***typed***outputs
+review	UNKNOWN STEP	2026-09-07T20:43:54.5918748Z  * [new branch]      fix/155***crash***skips***backoff ***> origin/fix/155***crash***skips***backoff
+review	UNKNOWN STEP	2026-09-07T20:43:54.5920376Z  * [new branch]      fix/lens***verdict***218    ***> origin/fix/lens***verdict***218
+review	UNKNOWN STEP	2026-09-07T20:43:54.5921871Z  * [new branch]      fix/observer***link***in***run***workflow ***> origin/fix/observer***link***in***run***workflow
+review	UNKNOWN STEP	2026-09-07T20:43:54.5923404Z  * [new branch]      fix/sdk***test***prep***kernel ***> origin/fix/sdk***test***prep***kernel
+review	UNKNOWN STEP	2026-09-07T20:43:54.5924568Z  * [new branch]      flow/cloud***execution    ***> origin/flow/cloud***execution
+review	UNKNOWN STEP	2026-09-07T20:43:54.5925677Z  * [new branch]      flow/drive***45cc352***08272150 ***> origin/flow/drive***45cc352***08272150
+review	UNKNOWN STEP	2026-09-07T20:43:54.5926926Z  * [new branch]      flow/drive***57e923c***08271542 ***> origin/flow/drive***57e923c***08271542
+review	UNKNOWN STEP	2026-09-07T20:43:54.5928518Z  * [new branch]      flow/drive***57e923c***08271542***assess***28e5892 ***> origin/flow/drive***57e923c***08271542***assess***28e5892
+review	UNKNOWN STEP	2026-09-07T20:43:54.5930317Z  * [new branch]      flow/drive***615f97d***08280219 ***> origin/flow/drive***615f97d***08280219
+review	UNKNOWN STEP	2026-09-07T20:43:54.5931923Z  * [new branch]      flow/drive***6366943***08272219 ***> origin/flow/drive***6366943***08272219
+review	UNKNOWN STEP	2026-09-07T20:43:54.5933172Z  * [new branch]      flow/drive***77b2457***08280016 ***> origin/flow/drive***77b2457***08280016
+review	UNKNOWN STEP	2026-09-07T20:43:54.5934380Z  * [new branch]      flow/drive***77b2457***08280058 ***> origin/flow/drive***77b2457***08280058
+review	UNKNOWN STEP	2026-09-07T20:43:54.5935874Z  * [new branch]      flow/drive***c52d6df***08280519 ***> origin/flow/drive***c52d6df***08280519
+review	UNKNOWN STEP	2026-09-07T20:43:54.5936642Z  * [new branch]      flow/drive***de5f378***08280313 ***> origin/flow/drive***de5f378***08280313
+review	UNKNOWN STEP	2026-09-07T20:43:54.5937290Z  * [new branch]      flow/drive***f59e279***08271341 ***> origin/flow/drive***f59e279***08271341
+review	UNKNOWN STEP	2026-09-07T20:43:54.5937946Z  * [new branch]      flow/g2***real***analyzer***0902 ***> origin/flow/g2***real***analyzer***0902
+review	UNKNOWN STEP	2026-09-07T20:43:54.5938605Z  * [new branch]      flow/lead***0902***reconcile ***> origin/flow/lead***0902***reconcile
+review	UNKNOWN STEP	2026-09-07T20:43:54.5939345Z  * [new branch]      flow/lead***0902***reconcile***wt ***> origin/flow/lead***0902***reconcile***wt
+review	UNKNOWN STEP	2026-09-07T20:43:54.5940439Z  * [new branch]      flow/lead***0903***claude   ***> origin/flow/lead***0903***claude
+review	UNKNOWN STEP	2026-09-07T20:43:54.5941072Z  * [new branch]      flow/wp10***gate1***green   ***> origin/flow/wp10***gate1***green
+review	UNKNOWN STEP	2026-09-07T20:43:54.5941745Z  * [new branch]      flows/relaycast***500***regression ***> origin/flows/relaycast***500***regression
+review	UNKNOWN STEP	2026-09-07T20:43:54.5942441Z  * [new branch]      handA/hn***monitor***cli    ***> origin/handA/hn***monitor***cli
+review	UNKNOWN STEP	2026-09-07T20:43:54.5943155Z  * [new branch]      handD/gate***2***green***declaration ***> origin/handD/gate***2***green***declaration
+review	UNKNOWN STEP	2026-09-07T20:43:54.5944375Z  * [new branch]      handE/dir***watcher***poller ***> origin/handE/dir***watcher***poller
+review	UNKNOWN STEP	2026-09-07T20:43:54.5945725Z  * [new branch]      handE/gate***2***liveness***sweep ***> origin/handE/gate***2***liveness***sweep
+review	UNKNOWN STEP	2026-09-07T20:43:54.5946911Z  * [new branch]      handF/preswarm***check***flow ***> origin/handF/preswarm***check***flow
+review	UNKNOWN STEP	2026-09-07T20:43:54.5947647Z  * [new branch]      handG/agent***runtime***stub***demo ***> origin/handG/agent***runtime***stub***demo
+review	UNKNOWN STEP	2026-09-07T20:43:54.5948605Z  * [new branch]      handH/wake***context***in***dispatch ***> origin/handH/wake***context***in***dispatch
+review	UNKNOWN STEP	2026-09-07T20:43:54.5949283Z  * [new branch]      handI/factory***driver    ***> origin/handI/factory***driver
+review	UNKNOWN STEP	2026-09-07T20:43:54.5950119Z  * [new branch]      main                    ***> origin/main
+review	UNKNOWN STEP	2026-09-07T20:43:54.5950670Z  * [new branch]      rebase/pr138***0903       ***> origin/rebase/pr138***0903
+review	UNKNOWN STEP	2026-09-07T20:43:54.5951282Z  * [new branch]      refactor/packages***layout ***> origin/refactor/packages***layout
+review	UNKNOWN STEP	2026-09-07T20:43:54.5951875Z  * [new branch]      repair/pr134***0903       ***> origin/repair/pr134***0903
+review	UNKNOWN STEP	2026-09-07T20:43:54.5952478Z  * [new branch]      repair/pr136***wrapper***0903 ***> origin/repair/pr136***wrapper***0903
+review	UNKNOWN STEP	2026-09-07T20:43:54.5953189Z  * [new branch]      repair/pr137***uniform***reject***0903 ***> origin/repair/pr137***uniform***reject***0903
+review	UNKNOWN STEP	2026-09-07T20:43:54.5953846Z  * [new branch]      repair/pr139***0903       ***> origin/repair/pr139***0903
+review	UNKNOWN STEP	2026-09-07T20:43:54.5954438Z  * [new branch]      rescue/tick14***live***kernel ***> origin/rescue/tick14***live***kernel
+review	UNKNOWN STEP	2026-09-07T20:43:54.5955024Z  * [new branch]      research***flow           ***> origin/research***flow
+review	UNKNOWN STEP	2026-09-07T20:43:54.5955673Z  * [new branch]      research***flow***local***squash***0903 ***> origin/research***flow***local***squash***0903
+review	UNKNOWN STEP	2026-09-07T20:43:54.5956347Z  * [new branch]      review/pr134***signoff3a  ***> origin/review/pr134***signoff3a
+review	UNKNOWN STEP	2026-09-07T20:43:54.5956928Z  * [new branch]      review/pr134***signoff3b  ***> origin/review/pr134***signoff3b
+review	UNKNOWN STEP	2026-09-07T20:43:54.5957512Z  * [new branch]      review/pr136***signoff***a  ***> origin/review/pr136***signoff***a
+review	UNKNOWN STEP	2026-09-07T20:43:54.5958262Z  * [new branch]      review/pr136***signoff***b  ***> origin/review/pr136***signoff***b
+review	UNKNOWN STEP	2026-09-07T20:43:54.5959052Z  * [new branch]      review/pr137***signoff***0903 ***> origin/review/pr137***signoff***0903
+review	UNKNOWN STEP	2026-09-07T20:43:54.5959688Z  * [new branch]      review/pr137***signoff***a  ***> origin/review/pr137***signoff***a
+review	UNKNOWN STEP	2026-09-07T20:43:54.5960701Z  * [new branch]      review/pr137***signoff***b  ***> origin/review/pr137***signoff***b
+review	UNKNOWN STEP	2026-09-07T20:43:54.5961321Z  * [new branch]      review/pr138***signoff***a  ***> origin/review/pr138***signoff***a
+review	UNKNOWN STEP	2026-09-07T20:43:54.5962201Z  * [new branch]      review/pr138***signoff***b  ***> origin/review/pr138***signoff***b
+review	UNKNOWN STEP	2026-09-07T20:43:54.5962826Z  * [new branch]      review/pr139***signoff***a  ***> origin/review/pr139***signoff***a
+review	UNKNOWN STEP	2026-09-07T20:43:54.5963415Z  * [new branch]      review/pr139***signoff***b  ***> origin/review/pr139***signoff***b
+review	UNKNOWN STEP	2026-09-07T20:43:54.5964002Z  * [new branch]      review/pr139***signoff2a  ***> origin/review/pr139***signoff2a
+review	UNKNOWN STEP	2026-09-07T20:43:54.5964524Z  * [new tag]         v2.0.1                  ***> v2.0.1
+review	UNKNOWN STEP	2026-09-07T20:43:54.5966084Z [command]/usr/bin/git rev***parse ***verify ***quiet 8bbafca34b6fb15556b67b374da0625dd65d11ea^{object}
+review	UNKNOWN STEP	2026-09-07T20:43:54.5966677Z 8bbafca34b6fb15556b67b374da0625dd65d11ea
+review	UNKNOWN STEP	2026-09-07T20:43:54.5967641Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:54.5968120Z ##[group]Determining the checkout info
+review	UNKNOWN STEP	2026-09-07T20:43:54.5968640Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:54.5968983Z [command]/usr/bin/git sparse***checkout disable
+review	UNKNOWN STEP	2026-09-07T20:43:54.5970236Z [command]/usr/bin/git config ***local ***unset***all extensions.worktreeConfig
+review	UNKNOWN STEP	2026-09-07T20:43:54.5971542Z ##[group]Checking out the ref
+review	UNKNOWN STEP	2026-09-07T20:43:54.5972102Z [command]/usr/bin/git checkout ***progress ***force 8bbafca34b6fb15556b67b374da0625dd65d11ea
+review	UNKNOWN STEP	2026-09-07T20:43:54.6396793Z Note: switching to '8bbafca34b6fb15556b67b374da0625dd65d11ea'.
+review	UNKNOWN STEP	2026-09-07T20:43:54.6397461Z 
+review	UNKNOWN STEP	2026-09-07T20:43:54.6397770Z You are in 'detached HEAD' state. You can look around, make experimental
+review	UNKNOWN STEP	2026-09-07T20:43:54.6398490Z changes and commit them, and you can discard any commits you make in this
+review	UNKNOWN STEP	2026-09-07T20:43:54.6399569Z state without impacting any branches by switching back to a branch.
+review	UNKNOWN STEP	2026-09-07T20:43:54.6400517Z 
+review	UNKNOWN STEP	2026-09-07T20:43:54.6401209Z If you want to create a new branch to retain commits you create, you may
+review	UNKNOWN STEP	2026-09-07T20:43:54.6402402Z do so (now or later) by using ***c with the switch command. Example:
+review	UNKNOWN STEP	2026-09-07T20:43:54.6403071Z 
+review	UNKNOWN STEP	2026-09-07T20:43:54.6403413Z   git switch ***c <new***branch***name>
+review	UNKNOWN STEP	2026-09-07T20:43:54.6403892Z 
+review	UNKNOWN STEP	2026-09-07T20:43:54.6404164Z Or undo this operation with:
+review	UNKNOWN STEP	2026-09-07T20:43:54.6404577Z 
+review	UNKNOWN STEP	2026-09-07T20:43:54.6404836Z   git switch ***
+review	UNKNOWN STEP	2026-09-07T20:43:54.6405156Z 
+review	UNKNOWN STEP	2026-09-07T20:43:54.6405706Z Turn off this advice by setting config variable advice.detachedHead to false
+review	UNKNOWN STEP	2026-09-07T20:43:54.6406451Z 
+review	UNKNOWN STEP	2026-09-07T20:43:54.6407017Z HEAD is now at 8bbafca fix: document local pin defaults and explain routing failures
+review	UNKNOWN STEP	2026-09-07T20:43:54.6412483Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:54.6452440Z [command]/usr/bin/git log ***1 ***format=%H
+review	UNKNOWN STEP	2026-09-07T20:43:54.6475238Z 8bbafca34b6fb15556b67b374da0625dd65d11ea
+review	UNKNOWN STEP	2026-09-07T20:43:54.6806224Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025***09***19***deprecation***of***node***20***on***github***actions***runners/
+review	UNKNOWN STEP	2026-09-07T20:43:54.6808240Z ##[group]Run actions/checkout@v4
+review	UNKNOWN STEP	2026-09-07T20:43:54.6808576Z with:
+review	UNKNOWN STEP	2026-09-07T20:43:54.6808839Z   ref: main
+review	UNKNOWN STEP	2026-09-07T20:43:54.6809168Z   path: gate***files
+review	UNKNOWN STEP	2026-09-07T20:43:54.6810318Z   sparse***checkout: workflows/review***swarm.yaml
+review	UNKNOWN STEP	.github/workflows/scripts/swarm***post.sh
+review	UNKNOWN STEP	.github/workflows/scripts/swarm***prepare.sh
+review	UNKNOWN STEP	.github/workflows/scripts/swarm***verdict.sh
+review	UNKNOWN STEP	
+review	UNKNOWN STEP	2026-09-07T20:43:54.6811231Z   repository: AgentWorkforce/flows
+review	UNKNOWN STEP	2026-09-07T20:43:54.6813821Z   token: ***
+review	UNKNOWN STEP	2026-09-07T20:43:54.6814121Z   ssh***strict: true
+review	UNKNOWN STEP	2026-09-07T20:43:54.6814440Z   ssh***user: git
+review	UNKNOWN STEP	2026-09-07T20:43:54.6814797Z   persist***credentials: true
+review	UNKNOWN STEP	2026-09-07T20:43:54.6815116Z   clean: true
+review	UNKNOWN STEP	2026-09-07T20:43:54.6815446Z   sparse***checkout***cone***mode: true
+review	UNKNOWN STEP	2026-09-07T20:43:54.6815821Z   fetch***depth: 1
+review	UNKNOWN STEP	2026-09-07T20:43:54.6816124Z   fetch***tags: false
+review	UNKNOWN STEP	2026-09-07T20:43:54.6816433Z   show***progress: true
+review	UNKNOWN STEP	2026-09-07T20:43:54.6816725Z   lfs: false
+review	UNKNOWN STEP	2026-09-07T20:43:54.6816995Z   submodules: false
+review	UNKNOWN STEP	2026-09-07T20:43:54.6817325Z   set***safe***directory: true
+review	UNKNOWN STEP	2026-09-07T20:43:54.6817691Z   allow***unsafe***pr***checkout: false
+review	UNKNOWN STEP	2026-09-07T20:43:54.6818049Z env:
+review	UNKNOWN STEP	2026-09-07T20:43:54.6818366Z   CLOUD_API_URL: https://agentrelay.com/cloud
+review	UNKNOWN STEP	2026-09-07T20:43:54.6818773Z   CLOUD_API_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:43:54.6819165Z   RELAY_WORKSPACE_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:43:54.6819551Z   RELAY_API_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:43:54.6819991Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:54.7643811Z Syncing repository: AgentWorkforce/flows
+review	UNKNOWN STEP	2026-09-07T20:43:54.7650654Z ##[group]Getting Git version info
+review	UNKNOWN STEP	2026-09-07T20:43:54.7651762Z Working directory is '/home/runner/work/flows/flows/gate***files'
+review	UNKNOWN STEP	2026-09-07T20:43:54.7689372Z [command]/usr/bin/git version
+review	UNKNOWN STEP	2026-09-07T20:43:54.7725347Z git version 2.55.0
+review	UNKNOWN STEP	2026-09-07T20:43:54.7746271Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:54.7759410Z Temporarily overriding HOME='/home/runner/work/_temp/7355242e***3b52***4eb3***b66f***7e7615d00337' before making global git config changes
+review	UNKNOWN STEP	2026-09-07T20:43:54.7761349Z Adding repository directory to the temporary git global config as a safe directory
+review	UNKNOWN STEP	2026-09-07T20:43:54.7766130Z [command]/usr/bin/git config ***global ***add safe.directory /home/runner/work/flows/flows/gate***files
+review	UNKNOWN STEP	2026-09-07T20:43:54.7798627Z ##[group]Initializing the repository
+review	UNKNOWN STEP	2026-09-07T20:43:54.7802948Z [command]/usr/bin/git init /home/runner/work/flows/flows/gate***files
+review	UNKNOWN STEP	2026-09-07T20:43:54.7842497Z hint: Using 'master' as the name for the initial branch. This default branch name
+review	UNKNOWN STEP	2026-09-07T20:43:54.7843733Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+review	UNKNOWN STEP	2026-09-07T20:43:54.7844420Z hint: to use in all of your new repositories, which will suppress this warning,
+review	UNKNOWN STEP	2026-09-07T20:43:54.7845330Z hint: call:
+review	UNKNOWN STEP	2026-09-07T20:43:54.7845845Z hint:
+review	UNKNOWN STEP	2026-09-07T20:43:54.7846961Z hint: 	git config ***global init.defaultBranch <name>
+review	UNKNOWN STEP	2026-09-07T20:43:54.7847745Z hint:
+review	UNKNOWN STEP	2026-09-07T20:43:54.7848497Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+review	UNKNOWN STEP	2026-09-07T20:43:54.7850018Z hint: 'development'. The just***created branch can be renamed via this command:
+review	UNKNOWN STEP	2026-09-07T20:43:54.7850976Z hint:
+review	UNKNOWN STEP	2026-09-07T20:43:54.7851554Z hint: 	git branch ***m <name>
+review	UNKNOWN STEP	2026-09-07T20:43:54.7852105Z hint:
+review	UNKNOWN STEP	2026-09-07T20:43:54.7852832Z hint: Disable this message with "git config set advice.defaultBranchName false"
+review	UNKNOWN STEP	2026-09-07T20:43:54.7854060Z Initialized empty Git repository in /home/runner/work/flows/flows/gate***files/.git/
+review	UNKNOWN STEP	2026-09-07T20:43:54.7856790Z [command]/usr/bin/git remote add origin https://github.com/AgentWorkforce/flows
+review	UNKNOWN STEP	2026-09-07T20:43:54.7921712Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:54.7922622Z ##[group]Disabling automatic garbage collection
+review	UNKNOWN STEP	2026-09-07T20:43:54.7927597Z [command]/usr/bin/git config ***local gc.auto 0
+review	UNKNOWN STEP	2026-09-07T20:43:54.7957765Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:54.7959129Z ##[group]Setting up auth
+review	UNKNOWN STEP	2026-09-07T20:43:54.7966268Z [command]/usr/bin/git config ***local ***name***only ***get***regexp core\.sshCommand
+review	UNKNOWN STEP	2026-09-07T20:43:54.7999495Z [command]/usr/bin/git submodule foreach ***recursive sh ***c "git config ***local ***name***only ***get***regexp 'core\.sshCommand' && git config ***local ***unset***all 'core.sshCommand' || :"
+review	UNKNOWN STEP	2026-09-07T20:43:54.8214842Z [command]/usr/bin/git config ***local ***name***only ***get***regexp http\.https\:\/\/github\.com\/\.extraheader
+review	UNKNOWN STEP	2026-09-07T20:43:54.8243688Z [command]/usr/bin/git submodule foreach ***recursive sh ***c "git config ***local ***name***only ***get***regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config ***local ***unset***all 'http.https://github.com/.extraheader' || :"
+review	UNKNOWN STEP	2026-09-07T20:43:54.8458937Z [command]/usr/bin/git config ***local ***name***only ***get***regexp ^includeIf\.gitdir:
+review	UNKNOWN STEP	2026-09-07T20:43:54.8488250Z [command]/usr/bin/git submodule foreach ***recursive git config ***local ***show***origin ***name***only ***get***regexp remote.origin.url
+review	UNKNOWN STEP	2026-09-07T20:43:54.8709219Z [command]/usr/bin/git config ***local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+review	UNKNOWN STEP	2026-09-07T20:43:54.8740961Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:54.8741683Z ##[group]Fetching the repository
+review	UNKNOWN STEP	2026-09-07T20:43:54.8750154Z [command]/usr/bin/git ***c protocol.version=2 fetch ***no***tags ***prune ***no***recurse***submodules ***filter=blob:none ***depth=1 origin +refs/heads/main*:refs/remotes/origin/main* +refs/tags/main*:refs/tags/main*
+review	UNKNOWN STEP	2026-09-07T20:43:55.3822999Z From https://github.com/AgentWorkforce/flows
+review	UNKNOWN STEP	2026-09-07T20:43:55.3825358Z  * [new branch]      main       ***> origin/main
+review	UNKNOWN STEP	2026-09-07T20:43:55.3828282Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:55.3829147Z ##[group]Determining the checkout info
+review	UNKNOWN STEP	2026-09-07T20:43:55.3835394Z [command]/usr/bin/git branch ***list ***remote origin/main
+review	UNKNOWN STEP	2026-09-07T20:43:55.3860113Z   origin/main
+review	UNKNOWN STEP	2026-09-07T20:43:55.3865427Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:55.3866518Z ##[group]Setting up sparse checkout
+review	UNKNOWN STEP	2026-09-07T20:43:55.3871411Z [command]/usr/bin/git sparse***checkout set workflows/review***swarm.yaml .github/workflows/scripts/swarm***post.sh .github/workflows/scripts/swarm***prepare.sh .github/workflows/scripts/swarm***verdict.sh
+review	UNKNOWN STEP	2026-09-07T20:43:55.3907340Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:55.3908056Z ##[group]Checking out the ref
+review	UNKNOWN STEP	2026-09-07T20:43:55.3913030Z [command]/usr/bin/git checkout ***progress ***force ***B main refs/remotes/origin/main
+review	UNKNOWN STEP	2026-09-07T20:43:55.7506105Z Switched to a new branch 'main'
+review	UNKNOWN STEP	2026-09-07T20:43:55.7508691Z branch 'main' set up to track 'origin/main'.
+review	UNKNOWN STEP	2026-09-07T20:43:55.7515251Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:55.7556720Z [command]/usr/bin/git log ***1 ***format=%H
+review	UNKNOWN STEP	2026-09-07T20:43:55.7581298Z 460c0f7723da0c0fe8d5fffb87f60c058996ca3e
+review	UNKNOWN STEP	2026-09-07T20:43:55.7775061Z ##[group]Run test ***n "$CLOUD_API_URL"
+review	UNKNOWN STEP	2026-09-07T20:43:55.7775484Z ^[[36;1mtest ***n "$CLOUD_API_URL"^[[0m
+review	UNKNOWN STEP	2026-09-07T20:43:55.7775806Z ^[[36;1mtest ***n "$CLOUD_API_KEY"^[[0m
+review	UNKNOWN STEP	2026-09-07T20:43:55.7776285Z ^[[36;1mecho "CLOUD_API_URL and CLOUD_API_KEY present; interactive login is unreachable from here."^[[0m
+review	UNKNOWN STEP	2026-09-07T20:43:55.7816137Z shell: /usr/bin/bash ***e {0}
+review	UNKNOWN STEP	2026-09-07T20:43:55.7816420Z env:
+review	UNKNOWN STEP	2026-09-07T20:43:55.7816685Z   CLOUD_API_URL: https://agentrelay.com/cloud
+review	UNKNOWN STEP	2026-09-07T20:43:55.7817037Z   CLOUD_API_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:43:55.7817366Z   RELAY_WORKSPACE_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:43:55.7817686Z   RELAY_API_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:43:55.7817913Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:43:55.7892465Z CLOUD_API_URL and CLOUD_API_KEY present; interactive login is unreachable from here.
+review	UNKNOWN STEP	2026-09-07T20:43:55.7932296Z ##[group]Run npm install ***g agent***relay@11.10.3
+review	UNKNOWN STEP	2026-09-07T20:43:55.7932758Z ^[[36;1mnpm install ***g agent***relay@11.10.3^[[0m
+review	UNKNOWN STEP	2026-09-07T20:43:55.7933143Z ^[[36;1magent***relay ***version^[[0m
+review	UNKNOWN STEP	2026-09-07T20:43:55.7966817Z shell: /usr/bin/bash ***e {0}
+review	UNKNOWN STEP	2026-09-07T20:43:55.7967090Z env:
+review	UNKNOWN STEP	2026-09-07T20:43:55.7967360Z   CLOUD_API_URL: https://agentrelay.com/cloud
+review	UNKNOWN STEP	2026-09-07T20:43:55.7967703Z   CLOUD_API_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:43:55.7968051Z   RELAY_WORKSPACE_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:43:55.7968357Z   RELAY_API_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:43:55.7968579Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:44:09.5859389Z npm warn deprecated node***domexception@1.0.0: Use your platform's native DOMException instead
+review	UNKNOWN STEP	2026-09-07T20:44:26.6132659Z 
+review	UNKNOWN STEP	2026-09-07T20:44:26.6133320Z added 457 packages in 31s
+review	UNKNOWN STEP	2026-09-07T20:44:26.6133850Z 
+review	UNKNOWN STEP	2026-09-07T20:44:26.6134064Z 78 packages are looking for funding
+review	UNKNOWN STEP	2026-09-07T20:44:26.6134590Z   run `npm fund` for details
+review	UNKNOWN STEP	2026-09-07T20:44:27.2436321Z 
+review	UNKNOWN STEP	2026-09-07T20:44:27.2438790Z Agent Relay collects usage telemetry to improve the product.
+review	UNKNOWN STEP	2026-09-07T20:44:27.2439588Z Run `agent***relay telemetry disable` to opt out.
+review	UNKNOWN STEP	2026-09-07T20:44:27.2440860Z Learn more: https://agentrelay.com/telemetry
+review	UNKNOWN STEP	2026-09-07T20:44:27.2441302Z 
+review	UNKNOWN STEP	2026-09-07T20:44:27.2584167Z 11.10.3
+review	UNKNOWN STEP	2026-09-07T20:44:27.2752252Z ##[group]Run ../gate***files/.github/workflows/scripts/swarm***prepare.sh \
+review	UNKNOWN STEP	2026-09-07T20:44:27.2752820Z ^[[36;1m../gate***files/.github/workflows/scripts/swarm***prepare.sh \^[[0m
+review	UNKNOWN STEP	2026-09-07T20:44:27.2753221Z ^[[36;1m  "227"^[[0m
+review	UNKNOWN STEP	2026-09-07T20:44:27.2753471Z ^[[36;1mmkdir ***p .github/workflows/scripts^[[0m
+review	UNKNOWN STEP	2026-09-07T20:44:27.2753882Z ^[[36;1mcp ../gate***files/.github/workflows/scripts/swarm***verdict.sh \^[[0m
+review	UNKNOWN STEP	2026-09-07T20:44:27.2754317Z ^[[36;1m  .github/workflows/scripts/swarm***verdict.sh^[[0m
+review	UNKNOWN STEP	2026-09-07T20:44:27.2754757Z ^[[36;1mgit add ***f .github/workflows/scripts/swarm***verdict.sh^[[0m
+review	UNKNOWN STEP	2026-09-07T20:44:27.2790549Z shell: /usr/bin/bash ***e {0}
+review	UNKNOWN STEP	2026-09-07T20:44:27.2790808Z env:
+review	UNKNOWN STEP	2026-09-07T20:44:27.2791060Z   CLOUD_API_URL: https://agentrelay.com/cloud
+review	UNKNOWN STEP	2026-09-07T20:44:27.2791378Z   CLOUD_API_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:44:27.2791684Z   RELAY_WORKSPACE_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:44:27.2791980Z   RELAY_API_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:44:27.2794421Z   GH_TOKEN: ***
+review	UNKNOWN STEP	2026-09-07T20:44:27.2794670Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:44:28.6682736Z ##[group]Run response=$(agent***relay cloud run \
+review	UNKNOWN STEP	2026-09-07T20:44:28.6683163Z ^[[36;1mresponse=$(agent***relay cloud run \^[[0m
+review	UNKNOWN STEP	2026-09-07T20:44:28.6683610Z ^[[36;1m  ../gate***files/workflows/review***swarm.yaml ***sync***code ***json)^[[0m
+review	UNKNOWN STEP	2026-09-07T20:44:28.6684074Z ^[[36;1mrun_id=$(jq ***er '.runId // .id' <<<"$response")^[[0m
+review	UNKNOWN STEP	2026-09-07T20:44:28.6684442Z ^[[36;1mecho "run_id=$run_id" >> "$GITHUB_OUTPUT"^[[0m
+review	UNKNOWN STEP	2026-09-07T20:44:28.6719567Z shell: /usr/bin/bash ***e {0}
+review	UNKNOWN STEP	2026-09-07T20:44:28.6720081Z env:
+review	UNKNOWN STEP	2026-09-07T20:44:28.6720327Z   CLOUD_API_URL: https://agentrelay.com/cloud
+review	UNKNOWN STEP	2026-09-07T20:44:28.6720649Z   CLOUD_API_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:44:28.6720950Z   RELAY_WORKSPACE_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:44:28.6721237Z   RELAY_API_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:44:28.6721457Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:44:29.2066284Z Validating workflow...
+review	UNKNOWN STEP	2026-09-07T20:44:29.2071212Z Preparing run...
+review	UNKNOWN STEP	2026-09-07T20:44:30.7121690Z Workflow prepare failed: 401 Unauthorized: Unauthorized
+review	UNKNOWN STEP	2026-09-07T20:44:30.7707997Z ##[error]Process completed with exit code 1.
+review	UNKNOWN STEP	2026-09-07T20:44:30.7804965Z ##[group]Run echo "Review swarm did not complete successfully: " >&2
+review	UNKNOWN STEP	2026-09-07T20:44:30.7805468Z ^[[36;1mecho "Review swarm did not complete successfully: " >&2^[[0m
+review	UNKNOWN STEP	2026-09-07T20:44:30.7805997Z ^[[36;1mexit 1^[[0m
+review	UNKNOWN STEP	2026-09-07T20:44:30.7840355Z shell: /usr/bin/bash ***e {0}
+review	UNKNOWN STEP	2026-09-07T20:44:30.7840617Z env:
+review	UNKNOWN STEP	2026-09-07T20:44:30.7840889Z   CLOUD_API_URL: https://agentrelay.com/cloud
+review	UNKNOWN STEP	2026-09-07T20:44:30.7841209Z   CLOUD_API_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:44:30.7841517Z   RELAY_WORKSPACE_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:44:30.7841811Z   RELAY_API_KEY: ***
+review	UNKNOWN STEP	2026-09-07T20:44:30.7842027Z ##[endgroup]
+review	UNKNOWN STEP	2026-09-07T20:44:30.7894174Z Review swarm did not complete successfully: 
+review	UNKNOWN STEP	2026-09-07T20:44:30.7896983Z ##[error]Process completed with exit code 1.
+review	UNKNOWN STEP	2026-09-07T20:44:30.8010692Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025***09***19***deprecation***of***node***20***on***github***actions***runners/
+review	UNKNOWN STEP	2026-09-07T20:44:30.8011997Z Post job cleanup.
+review	UNKNOWN STEP	2026-09-07T20:44:30.8831610Z [command]/usr/bin/git version
+review	UNKNOWN STEP	2026-09-07T20:44:30.8868110Z git version 2.55.0
+review	UNKNOWN STEP	2026-09-07T20:44:30.8904390Z Temporarily overriding HOME='/home/runner/work/_temp/cbc0d69c***4f2e***47e3***807b***fcf523678dc0' before making global git config changes
+review	UNKNOWN STEP	2026-09-07T20:44:30.8905495Z Adding repository directory to the temporary git global config as a safe directory
+review	UNKNOWN STEP	2026-09-07T20:44:30.8910654Z [command]/usr/bin/git config ***global ***add safe.directory /home/runner/work/flows/flows/gate***files
+review	UNKNOWN STEP	2026-09-07T20:44:30.8946264Z [command]/usr/bin/git config ***local ***name***only ***get***regexp core\.sshCommand
+review	UNKNOWN STEP	2026-09-07T20:44:30.8979377Z [command]/usr/bin/git submodule foreach ***recursive sh ***c "git config ***local ***name***only ***get***regexp 'core\.sshCommand' && git config ***local ***unset***all 'core.sshCommand' || :"
+review	UNKNOWN STEP	2026-09-07T20:44:30.9234554Z [command]/usr/bin/git config ***local ***name***only ***get***regexp http\.https\:\/\/github\.com\/\.extraheader
+review	UNKNOWN STEP	2026-09-07T20:44:30.9259819Z http.https://github.com/.extraheader
+review	UNKNOWN STEP	2026-09-07T20:44:30.9271564Z [command]/usr/bin/git config ***local ***unset***all http.https://github.com/.extraheader
+review	UNKNOWN STEP	2026-09-07T20:44:30.9304710Z [command]/usr/bin/git submodule foreach ***recursive sh ***c "git config ***local ***name***only ***get***regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config ***local ***unset***all 'http.https://github.com/.extraheader' || :"
+review	UNKNOWN STEP	2026-09-07T20:44:30.9521810Z [command]/usr/bin/git config ***local ***name***only ***get***regexp ^includeIf\.gitdir:
+review	UNKNOWN STEP	2026-09-07T20:44:30.9551972Z [command]/usr/bin/git submodule foreach ***recursive git config ***local ***show***origin ***name***only ***get***regexp remote.origin.url
+review	UNKNOWN STEP	2026-09-07T20:44:31.0035292Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025***09***19***deprecation***of***node***20***on***github***actions***runners/
+review	UNKNOWN STEP	2026-09-07T20:44:31.0036584Z Post job cleanup.
+review	UNKNOWN STEP	2026-09-07T20:44:31.0886107Z [command]/usr/bin/git version
+review	UNKNOWN STEP	2026-09-07T20:44:31.0922266Z git version 2.55.0
+review	UNKNOWN STEP	2026-09-07T20:44:31.0958531Z Temporarily overriding HOME='/home/runner/work/_temp/e1cd1694***77cb***4d6a***acc0***c37f3e9c5d3b' before making global git config changes
+review	UNKNOWN STEP	2026-09-07T20:44:31.0959436Z Adding repository directory to the temporary git global config as a safe directory
+review	UNKNOWN STEP	2026-09-07T20:44:31.0965085Z [command]/usr/bin/git config ***global ***add safe.directory /home/runner/work/flows/flows/pr***head
+review	UNKNOWN STEP	2026-09-07T20:44:31.1000911Z [command]/usr/bin/git config ***local ***name***only ***get***regexp core\.sshCommand
+review	UNKNOWN STEP	2026-09-07T20:44:31.1033622Z [command]/usr/bin/git submodule foreach ***recursive sh ***c "git config ***local ***name***only ***get***regexp 'core\.sshCommand' && git config ***local ***unset***all 'core.sshCommand' || :"
+review	UNKNOWN STEP	2026-09-07T20:44:31.1253450Z [command]/usr/bin/git config ***local ***name***only ***get***regexp http\.https\:\/\/github\.com\/\.extraheader
+review	UNKNOWN STEP	2026-09-07T20:44:31.1276258Z http.https://github.com/.extraheader
+review	UNKNOWN STEP	2026-09-07T20:44:31.1286988Z [command]/usr/bin/git config ***local ***unset***all http.https://github.com/.extraheader
+review	UNKNOWN STEP	2026-09-07T20:44:31.1318428Z [command]/usr/bin/git submodule foreach ***recursive sh ***c "git config ***local ***name***only ***get***regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config ***local ***unset***all 'http.https://github.com/.extraheader' || :"
+review	UNKNOWN STEP	2026-09-07T20:44:31.1534878Z [command]/usr/bin/git config ***local ***name***only ***get***regexp ^includeIf\.gitdir:
+review	UNKNOWN STEP	2026-09-07T20:44:31.1564421Z [command]/usr/bin/git submodule foreach ***recursive git config ***local ***show***origin ***name***only ***get***regexp remote.origin.url
+review	UNKNOWN STEP	2026-09-07T20:44:31.1907503Z Cleaning up orphan processes
+review	UNKNOWN STEP	2026-09-07T20:44:31.2202343Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025***09***19***deprecation***of***node***20***on***github***actions***runners/
+
+exit_code=0

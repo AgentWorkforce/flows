@@ -1,0 +1,188 @@
+$ gh pr diff 230
+diff --git a/ops/restack-verify/migration-journal.sh b/ops/restack-verify/migration-journal.sh
+new file mode 100755
+index 00000000..56c0b9e8
+--- /dev/null
++++ b/ops/restack-verify/migration-journal.sh
+@@ -0,0 +1,64 @@
++#!/bin/sh
++# Verify a drizzle migration journal is internally coherent after a merge.
++#
++# Skips cleanly when the repo has no such journal — this flow is meant to be
++# runnable in any checkout, and "not applicable" must not read as "failed".
++set -eu
++JOURNAL="packages/web/drizzle/meta/_journal.json"
++if [ ! -f "$JOURNAL" ]; then
++  echo "RESTACK_VERIFY migration-journal: SKIPPED (no $JOURNAL)"
++  exit 0
++fi
++python3 - "$JOURNAL" <<'PY'
++import json, os, sys
++p = sys.argv[1]
++d = os.path.dirname(p)
++sqldir = os.path.dirname(d)
++j = json.load(open(p))
++entries = j.get("entries", [])
++tags = [e["tag"] for e in entries]
++problems = []
++
++dupes = sorted({t for t in tags if tags.count(t) > 1})
++if dupes:
++    problems.append(f"duplicate journal tags: {dupes}")
++
++missing = [t for t in tags if not os.path.exists(os.path.join(sqldir, f"{t}.sql"))]
++if missing:
++    problems.append(f"journal entries with no .sql file: {missing}")
++
++on_disk = {f[:-4] for f in os.listdir(sqldir) if f.endswith(".sql")}
++orphans = sorted(on_disk - set(tags))
++if orphans:
++    problems.append(f".sql files with no journal entry: {orphans}")
++
++# The tail must sort last. A renumbered migration whose `when` was not raised
++# above the new base is the exact defect this catches -- drizzle selects by
++# timestamp, never by filename.
++whens = [e["when"] for e in entries]
++if whens and whens[-1] != max(whens):
++    problems.append(
++        f"last entry {tags[-1]} (when={whens[-1]}) does not sort last; max is {max(whens)}"
++    )
++
++# Cumulative snapshots: the newest must not have FEWER tables than the one
++# before it. Renumbering a migration to the end without regenerating its
++# snapshot shrinks the schema silently.
++snaps = sorted(f for f in os.listdir(d) if f.endswith("_snapshot.json"))
++if len(snaps) >= 2:
++    def tables(f):
++        return set(json.load(open(os.path.join(d, f))).get("tables", {}))
++    prev, last = tables(snaps[-2]), tables(snaps[-1])
++    lost = sorted(prev - last)
++    if lost:
++        problems.append(
++            f"{snaps[-1]} is missing tables present in {snaps[-2]}: {lost}"
++        )
++
++if problems:
++    print("RESTACK_VERIFY migration-journal: FAILED")
++    for x in problems:
++        print(f"  - {x}")
++    raise SystemExit(1)
++print(f"RESTACK_VERIFY migration-journal: PASSED ({len(entries)} entries, tail {tags[-1] if tags else 'none'})")
++PY
+diff --git a/ops/restack-verify/no-conflict-markers.sh b/ops/restack-verify/no-conflict-markers.sh
+new file mode 100755
+index 00000000..d47a7291
+--- /dev/null
++++ b/ops/restack-verify/no-conflict-markers.sh
+@@ -0,0 +1,14 @@
++#!/bin/sh
++# Fail if any TRACKED file still carries a conflict marker.
++#
++# Deliberately excludes lockfiles: a resolved lockfile legitimately contains
++# long hash strings, and matching on "<<<<<<<" at line start avoids those
++# anyway. Uses git grep so untracked scratch files cannot fail the gate.
++set -eu
++if git grep -n -e '^<<<<<<< ' -e '^>>>>>>> ' -- ':!*.lock' ':!*-lock.json' >/tmp/rv-markers.txt 2>/dev/null; then
++  echo "RESTACK_VERIFY no-conflict-markers: FAILED"
++  echo "tracked files still contain conflict markers:"
++  cat /tmp/rv-markers.txt
++  exit 1
++fi
++echo "RESTACK_VERIFY no-conflict-markers: PASSED"
+diff --git a/ops/restack-verify/worker-bindings.sh b/ops/restack-verify/worker-bindings.sh
+new file mode 100755
+index 00000000..06efc3de
+--- /dev/null
++++ b/ops/restack-verify/worker-bindings.sh
+@@ -0,0 +1,19 @@
++#!/bin/sh
++# Run the repo's own worker-binding gate, if it has one.
++#
++# Does not reimplement the check. The point of a restack gate is to re-run the
++# checks the repo already trusts, because a merge can invalidate them without
++# producing a conflict.
++set -eu
++SCRIPT="scripts/verify-fast-path-bindings.mjs"
++CONFIG="packages/web/wrangler.production.toml"
++if [ ! -f "$SCRIPT" ] || [ ! -f "$CONFIG" ]; then
++  echo "RESTACK_VERIFY worker-bindings: SKIPPED (no $SCRIPT)"
++  exit 0
++fi
++if node "$SCRIPT" --wrangler-config "$CONFIG"; then
++  echo "RESTACK_VERIFY worker-bindings: PASSED"
++else
++  echo "RESTACK_VERIFY worker-bindings: FAILED"
++  exit 1
++fi
+diff --git a/workflows/restack-verify.yaml b/workflows/restack-verify.yaml
+new file mode 100644
+index 00000000..ae27bb23
+--- /dev/null
++++ b/workflows/restack-verify.yaml
+@@ -0,0 +1,64 @@
++# Restack-verify — the deterministic gate that runs after merging the base
++# branch into a long-lived feature branch.
++#
++# Provenance: on 2026-09-07 this exact sequence was hand-driven EIGHT times
++# against cloud#3270 across a single evening. Every step below is a check that
++# was typed out by hand, repeatedly, and three of the defects found that night
++# were introduced BY a restack and existed in neither parent:
++#
++#   - a renumbered migration whose cumulative snapshot still described its old
++#     position (87 tables where the base had 90)
++#   - a policy file whose emptied exemption list was silently re-populated from
++#     the stale side of the merge
++#   - a test from the base branch meeting a guard from the feature branch, so
++#     that neither side was wrong and the combination was
++#
++# None of those produce a conflict marker. That is the point of this flow: a
++# clean `git merge` is not evidence, and the checks that catch these are
++# mechanical, so a human should not be running them from memory eight times.
++#
++# Usage from a repo checkout, after merging your base branch:
++#
++#   flows run workflows/restack-verify.yaml
++#
++# Exit 0 = the restack is structurally sound. Non-zero = one named check failed.
++#
++# Gate: exit_code == 0 is implicit for deterministic steps; each runner exits
++# non-zero on its own failure. No output_contains gate is layered on top —
++# a substring match on a diff-derived body is fail-open, per the reasoning
++# already recorded in workflows/preswarm-check.yaml.
++
++version: '0.1.0'
++name: restack-verify
++description: >
++  Verify a just-merged base branch did not silently break the feature branch:
++  no leftover conflict markers, migration journal still coherent, worker env
++  bindings still accounted for, and the suites that guard those invariants
++  still pass.
++
++steps:
++  - id: no-conflict-markers
++    type: deterministic
++    dependsOn: []
++    timeoutMs: 120000
++    # Cheapest possible check, and it must run first: every later result is
++    # meaningless if a marker is sitting in a tracked file.
++    command: "sh ops/restack-verify/no-conflict-markers.sh"
++
++  - id: migration-journal
++    type: deterministic
++    dependsOn: [no-conflict-markers]
++    timeoutMs: 300000
++    # Catches the class where a renumbered migration's snapshot is stale:
++    # duplicate tags, orphaned .sql files, a broken prevId chain, or a tail
++    # entry that no longer sorts last.
++    command: "sh ops/restack-verify/migration-journal.sh"
++
++  - id: worker-bindings
++    type: deterministic
++    dependsOn: [no-conflict-markers]
++    timeoutMs: 300000
++    # Catches the class where the merge adds an env binding that the
++    # deploy-time config does not declare. Skips cleanly in repos that have no
++    # such gate rather than failing them.
++    command: "sh ops/restack-verify/worker-bindings.sh"
+
+exit_code=0

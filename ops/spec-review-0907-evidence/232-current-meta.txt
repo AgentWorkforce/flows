@@ -1,0 +1,4 @@
+$ gh pr view 232 --json headRefName,headRefOid,state,statusCheckRollup
+{"headRefName":"fix/review-swarm-real-auth-check","headRefOid":"d7df77cc555227c392c645c59b188f1b0d240ba7","state":"OPEN","statusCheckRollup":[{"__typename":"CheckRun","completedAt":"0001-01-01T00:00:00Z","conclusion":"","detailsUrl":"https://github.com/AgentWorkforce/flows/actions/runs/34164737245/job/101873438820","name":"review","startedAt":"2026-09-07T21:53:32Z","status":"IN_PROGRESS","workflowName":"Review swarm"},{"__typename":"StatusContext","context":"CodeRabbit","startedAt":"2026-09-07T21:53:32Z","state":"SUCCESS","targetUrl":""},{"__typename":"CheckRun","completedAt":"2026-09-07T21:55:14Z","conclusion":"SUCCESS","detailsUrl":"https://www.cubic.dev/pr/AgentWorkforce/flows/pull/232","name":"cubic · AI code reviewer","startedAt":"2026-09-07T21:53:31Z","status":"COMPLETED","workflowName":""}]}
+
+exit_code=0

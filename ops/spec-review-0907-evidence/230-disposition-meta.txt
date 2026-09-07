@@ -1,0 +1,4 @@
+$ gh pr view 230 --json headRefOid,state,statusCheckRollup,mergeStateStatus
+{"headRefOid":"82297638ec8c4f18ac5acd355134d20c78a1b08c","mergeStateStatus":"UNSTABLE","state":"OPEN","statusCheckRollup":[{"__typename":"CheckRun","completedAt":"2026-09-07T21:58:03Z","conclusion":"FAILURE","detailsUrl":"https://github.com/AgentWorkforce/flows/actions/runs/34164770687/job/101873532992","name":"review","startedAt":"2026-09-07T21:54:08Z","status":"COMPLETED","workflowName":"Review swarm"},{"__typename":"StatusContext","context":"CodeRabbit","startedAt":"2026-09-07T21:54:05Z","state":"SUCCESS","targetUrl":""},{"__typename":"CheckRun","completedAt":"2026-09-07T21:58:36Z","conclusion":"SUCCESS","detailsUrl":"https://www.cubic.dev/pr/AgentWorkforce/flows/pull/230","name":"cubic · AI code reviewer","startedAt":"2026-09-07T21:54:22Z","status":"COMPLETED","workflowName":""}]}
+
+exit_code=0

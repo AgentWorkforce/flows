@@ -1,0 +1,16 @@
+$ node node_modules/vitest/vitest.mjs run tests/spec-parity.test.ts tests/cli.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/packages/sdk
+
+ ✓ tests/spec-parity.test.ts (28 tests) 153ms
+ ✓ tests/cli.test.ts (63 tests) 2492ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 474ms
+   ✓ flows check CLI > uses the raw Claude adapter model flag instead of accepting auth status as model proof 306ms
+
+ Test Files  2 passed (2)
+      Tests  91 passed (91)
+   Start at  23:44:42
+   Duration  2.86s (transform 166ms, setup 0ms, collect 408ms, tests 2.64s, environment 0ms, prepare 76ms)
+
+
+exit_code=0

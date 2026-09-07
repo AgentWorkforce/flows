@@ -1,0 +1,4 @@
+$ gh pr view 229 --json headRefName,headRefOid,state,statusCheckRollup
+{"headRefName":"fix/lens-verdict-218","headRefOid":"a7b23cff7f394e16a77d02bc727be958365b8ae9","state":"OPEN","statusCheckRollup":[{"__typename":"CheckRun","completedAt":"0001-01-01T00:00:00Z","conclusion":"","detailsUrl":"https://github.com/AgentWorkforce/flows/actions/runs/34124184705/job/101873935143","name":"review","startedAt":"2026-09-07T21:56:32Z","status":"IN_PROGRESS","workflowName":"Review swarm"},{"__typename":"StatusContext","context":"CodeRabbit","startedAt":"2026-09-07T12:51:49Z","state":"SUCCESS","targetUrl":""},{"__typename":"CheckRun","completedAt":"2026-09-07T12:59:00Z","conclusion":"SUCCESS","detailsUrl":"https://www.cubic.dev/pr/AgentWorkforce/flows/pull/229","name":"cubic · AI code reviewer","startedAt":"2026-09-07T12:52:04Z","status":"COMPLETED","workflowName":""}]}
+
+exit_code=0

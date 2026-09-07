@@ -1,0 +1,53 @@
+$ gh run view 34163837060 --log-failed
+review	Validate cloud authentication	﻿2026-09-07T21:38:07.1650443Z ##[group]Run test ***n "$CLOUD_API_URL"
+review	Validate cloud authentication	2026-09-07T21:38:07.1651115Z ^[[36;1mtest ***n "$CLOUD_API_URL"^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1651554Z ^[[36;1mtest ***n "$CLOUD_API_KEY"^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1652035Z ^[[36;1m# Presence is not validity. This step was named "Validate cloud^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1653036Z ^[[36;1m# authentication" while only asserting the variables were non***empty, so on^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1653719Z ^[[36;1m# 2026***09***07 it passed on every run while `agent***relay cloud run` failed^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1654386Z ^[[36;1m# immediately after with `Workflow prepare failed: 401 Unauthorized` ***^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1654991Z ^[[36;1m# six PRs, repeatedly, behind a green check.^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1655386Z ^[[36;1m#^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1655830Z ^[[36;1m# Actually exercise the credential against the same host the CLI will use.^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1656439Z ^[[36;1m# /api/v1/workflows/runs requires a RESOLVED WORKSPACE and returns 401 for^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1657032Z ^[[36;1m# a fabricated or absent token (verified against production), so 200 here^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1657755Z ^[[36;1m# means the credential can genuinely act, not merely that a string was set.^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1658314Z ^[[36;1m#^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1658725Z ^[[36;1m# Also print a NON***REVERSIBLE fingerprint of the key. When this check^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1659323Z ^[[36;1m# passes and the launch still 401s, the fingerprint answers whether CI is^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1659961Z ^[[36;1m# even using the credential the mint installed *** otherwise unanswerable^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1660507Z ^[[36;1m# from outside, because the value is masked everywhere it appears.^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1661097Z ^[[36;1mfp="$(printf '%s' "$CLOUD_API_KEY" | shasum ***a 256 | cut ***c1***12)"^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1661668Z ^[[36;1mecho "CLOUD_API_KEY fingerprint (sha256, first 12): $fp"^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1662660Z ^[[36;1mstatus="$(curl ***s ***o /dev/null ***w '%{http_code}' \^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1663355Z ^[[36;1m  ***H "Authorization: ***" \^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1663798Z ^[[36;1m  "${CLOUD_API_URL%/}/api/v1/workflows/runs" || echo 000)"^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1664233Z ^[[36;1mif [ "$status" != "200" ]; then^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1664984Z ^[[36;1m  echo "::error::CLOUD_API_KEY is set but not accepted by $CLOUD_API_URL (HTTP $status). Re***mint the credential; do not re***run this job." >&2^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1665666Z ^[[36;1m  exit 1^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1665962Z ^[[36;1mfi^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1666465Z ^[[36;1mecho "CLOUD_API_KEY authenticates against $CLOUD_API_URL; interactive login is unreachable from here."^[[0m
+review	Validate cloud authentication	2026-09-07T21:38:07.1695591Z shell: /usr/bin/bash ***e {0}
+review	Validate cloud authentication	2026-09-07T21:38:07.1696156Z env:
+review	Validate cloud authentication	2026-09-07T21:38:07.1696533Z   CLOUD_API_URL: https://agentrelay.com/cloud
+review	Validate cloud authentication	2026-09-07T21:38:07.1696946Z   CLOUD_API_KEY: ***
+review	Validate cloud authentication	2026-09-07T21:38:07.1697431Z   RELAY_WORKSPACE_KEY: ***
+review	Validate cloud authentication	2026-09-07T21:38:07.1697800Z   RELAY_API_KEY: ***
+review	Validate cloud authentication	2026-09-07T21:38:07.1698145Z ##[endgroup]
+review	Validate cloud authentication	2026-09-07T21:38:07.2269062Z CLOUD_API_KEY fingerprint (sha256, first 12): 3973e022e932
+review	Validate cloud authentication	2026-09-07T21:38:11.3476428Z ##[error]CLOUD_API_KEY is set but not accepted by https://agentrelay.com/cloud (HTTP 401). Re***mint the credential; do not re***run this job.
+review	Validate cloud authentication	2026-09-07T21:38:11.3487776Z ##[error]Process completed with exit code 1.
+review	Enforce swarm result	﻿2026-09-07T21:38:11.3619119Z ##[group]Run echo "Review swarm did not complete successfully: " >&2
+review	Enforce swarm result	2026-09-07T21:38:11.3619738Z ^[[36;1mecho "Review swarm did not complete successfully: " >&2^[[0m
+review	Enforce swarm result	2026-09-07T21:38:11.3620157Z ^[[36;1mexit 1^[[0m
+review	Enforce swarm result	2026-09-07T21:38:11.3645568Z shell: /usr/bin/bash ***e {0}
+review	Enforce swarm result	2026-09-07T21:38:11.3646131Z env:
+review	Enforce swarm result	2026-09-07T21:38:11.3646484Z   CLOUD_API_URL: https://agentrelay.com/cloud
+review	Enforce swarm result	2026-09-07T21:38:11.3646870Z   CLOUD_API_KEY: ***
+review	Enforce swarm result	2026-09-07T21:38:11.3647354Z   RELAY_WORKSPACE_KEY: ***
+review	Enforce swarm result	2026-09-07T21:38:11.3647732Z   RELAY_API_KEY: ***
+review	Enforce swarm result	2026-09-07T21:38:11.3648061Z ##[endgroup]
+review	Enforce swarm result	2026-09-07T21:38:11.3691255Z Review swarm did not complete successfully: 
+review	Enforce swarm result	2026-09-07T21:38:11.3694658Z ##[error]Process completed with exit code 1.
+
+exit_code=0

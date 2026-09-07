@@ -1,0 +1,16 @@
+$ node --test scripts/run-local-workflow.test.mjs ops/local-work-package.test.mjs
+✔ interrupted package write preserves the original and retry applies once (243.952833ms)
+✔ local launcher journals deterministic effects and reads more than one journal page (601.889709ms)
+✔ a failed command fails the run and prevents dependent effects (130.195167ms)
+✔ the SDK worker completes an agent step through the local journal protocol (595.823584ms)
+✔ missing daemon is refused before a data directory or run is created (62.254666ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1429.743458
+
+exit_code=0

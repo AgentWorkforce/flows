@@ -1,0 +1,28 @@
+$ gh run view 34164420311 --log-failed
+review	Post verdict and transcripts	﻿2026-09-07T22:01:47.5307936Z ##[group]Run ../gate-files/.github/workflows/scripts/swarm-post.sh "7845c989-5b9a-44dc-b613-9a10aa92622f" "231"
+review	Post verdict and transcripts	2026-09-07T22:01:47.5309230Z ^[[36;1m../gate-files/.github/workflows/scripts/swarm-post.sh "7845c989-5b9a-44dc-b613-9a10aa92622f" "231"^[[0m
+review	Post verdict and transcripts	2026-09-07T22:01:47.5343607Z shell: /usr/bin/bash -e {0}
+review	Post verdict and transcripts	2026-09-07T22:01:47.5343863Z env:
+review	Post verdict and transcripts	2026-09-07T22:01:47.5344104Z   CLOUD_API_URL: https://agentrelay.com/cloud
+review	Post verdict and transcripts	2026-09-07T22:01:47.5344597Z   CLOUD_API_KEY: ***
+review	Post verdict and transcripts	2026-09-07T22:01:47.5344904Z   RELAY_WORKSPACE_KEY: ***
+review	Post verdict and transcripts	2026-09-07T22:01:47.5345199Z   RELAY_API_KEY: ***
+review	Post verdict and transcripts	2026-09-07T22:01:47.5347877Z   GH_TOKEN: ***
+review	Post verdict and transcripts	2026-09-07T22:01:47.5348095Z ##[endgroup]
+review	Post verdict and transcripts	2026-09-07T22:01:48.1225888Z Fetching patch for run 7845c989-5b9a-44dc-b613-9a10aa92622f...
+review	Post verdict and transcripts	2026-09-07T22:01:49.3736062Z No changes to sync — the workflow did not modify any files.
+review	Post verdict and transcripts	2026-09-07T22:01:53.6989121Z ##[error]Process completed with exit code 1.
+review	Enforce swarm result	﻿2026-09-07T22:01:53.7039697Z ##[group]Run echo "Review swarm did not complete successfully: failed" >&2
+review	Enforce swarm result	2026-09-07T22:01:53.7040269Z ^[[36;1mecho "Review swarm did not complete successfully: failed" >&2^[[0m
+review	Enforce swarm result	2026-09-07T22:01:53.7040632Z ^[[36;1mexit 1^[[0m
+review	Enforce swarm result	2026-09-07T22:01:53.7074814Z shell: /usr/bin/bash -e {0}
+review	Enforce swarm result	2026-09-07T22:01:53.7075068Z env:
+review	Enforce swarm result	2026-09-07T22:01:53.7075316Z   CLOUD_API_URL: https://agentrelay.com/cloud
+review	Enforce swarm result	2026-09-07T22:01:53.7075850Z   CLOUD_API_KEY: ***
+review	Enforce swarm result	2026-09-07T22:01:53.7076198Z   RELAY_WORKSPACE_KEY: ***
+review	Enforce swarm result	2026-09-07T22:01:53.7076493Z   RELAY_API_KEY: ***
+review	Enforce swarm result	2026-09-07T22:01:53.7076707Z ##[endgroup]
+review	Enforce swarm result	2026-09-07T22:01:53.7129744Z Review swarm did not complete successfully: failed
+review	Enforce swarm result	2026-09-07T22:01:53.7133342Z ##[error]Process completed with exit code 1.
+
+exit_code=0

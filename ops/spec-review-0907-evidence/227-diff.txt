@@ -1,0 +1,3054 @@
+$ gh pr diff 227
+diff --git a/kernel/Cargo.lock b/kernel/Cargo.lock
+index c7d7cda4..bee67632 100644
+--- a/kernel/Cargo.lock
++++ b/kernel/Cargo.lock
+@@ -903,6 +903,7 @@ dependencies = [
+  "libc",
+  "relayflowd-core",
+  "relayflowd-journal",
++ "rusqlite",
+  "serde",
+  "serde_json",
+  "sha2",
+diff --git a/kernel/evidence/225/README.md b/kernel/evidence/225/README.md
+new file mode 100644
+index 00000000..7a1a239d
+--- /dev/null
++++ b/kernel/evidence/225/README.md
+@@ -0,0 +1,71 @@
++# Issue 225 — gate 7 slice 1
++
++The red test was committed before implementation in `fa54257`. It submits two
++deterministic steps with placement requirements: the first copies a source file
++into a relative output file, the second reads that output. Resume runs from a
++different working directory. The initial failure was the kernel rejecting
++`requirements`, captured verbatim in [red.txt](red.txt).
++
++The implementation adds:
++
++- Authoring and kernel `requirements`: execution (`batch` or `interactive`),
++  workspace, network, expected duration, and cost/latency/reliability/balanced
++  preference. Duration lowers from `expectedDurationMs` to `expected_duration_ms`.
++  Provider names and revisions are not authoring fields. Shared canonical JSON,
++  hash, and an acceptance/rejection corpus pin both dialects.
++- `step.routed`: profile, provider, fallbacks attempted, and optional provider
++  workspace identity. A step has one routing fact, written before execution and
++  retained on retries and epoch rollover. `StepDispatch.routing` carries that
++  fact to the adapter. Duplicate routing writes fail inside the SQLite append
++  transaction. A failed append prevents attempt start and dispatch.
++- Fixed local batch placement for deterministic steps. Declaring requirements
++  opts into a shared worktree unless `workspace: false`; submission records its
++  canonical directory. Attempts and completions record its Git base commit.
++  Each command executes in the recorded directory, including after resume from
++  elsewhere. Local interactive execution and unavailable source commits are
++  refused before submission. Network is a capability need (`false` means no
++  need), not a network isolation policy; duration and preference are hints for
++  later ranking.
++- The default in-process worker pin source reads declared worktree base commits
++  instead of returning empty workspace pins. Remote workers continue to report
++  their own revision facts through the existing override/protocol.
++
++## Scope and integration boundary
++
++This is a declaration and journal slice, not all of gate 7. No sandbox, source
++uploader, root lease manager, provider SDK, or ranking engine is introduced.
++`StepDispatcher::routing_decision` is the adapter hook for an existing provider
++orchestrator; it is invoked only until its decision is durable. Dispatch must
++consume the recorded decision without selecting another provider on retry.
++The default attached-worker dispatcher rejects unsupported placement declarations.
++
++The remote-shaped test uses `test-cloud-adapter`, an in-process test dispatcher.
++It is **not a live cloud run**. No claim is made that Daytona source sync,
++remote deterministic execution, or actual sandbox destruction was verified.
++Connecting the flows transport to cloud's existing code-sync and sandbox
++orchestration remains integration work. Git pins here are worktree base commits,
++as allowed by Appendix A; they are not snapshots of uncommitted files. Agent
++reset/inspect/manual recovery retains its existing revision protocol.
++
++Existing specs without requirements keep their execution behavior; local
++worktree pinning is enabled by the new declaration. Their routing choices are
++still recorded when execution is admitted.
++
++## Captured commands and output
++
++Each transcript contains the literal command, stdout/stderr, and exit code.
++
++- [Red regression](red.txt):
++  `cd kernel && cargo test --workspace --test crash_resume placement:: -- --nocapture`
++- [Complete kernel gate](green-kernel.txt):
++  `cd kernel && cargo test --workspace`
++- [SDK parity and type checks](green-sdk.txt):
++  `cd packages/sdk && node node_modules/vitest/vitest.mjs run tests/placement.test.ts tests/spec-parity.test.ts`
++  plus `node node_modules/typescript/bin/tsc --noEmit` and
++  `node node_modules/typescript/bin/tsc -p tsconfig.type-tests.json` in that directory.
++
++The SDK dependencies were copied into this worktree from the existing
++`flows-212-channels-wt/packages/sdk/node_modules` after the local `npm` process
++stalled before installing dependencies. No dependency manifest or lockfile was
++changed for that copy. The Rust dev dependency on the already-used `rusqlite`
++crate supports an actual SQLite failure-injection test.
+diff --git a/kernel/evidence/225/green-kernel.txt b/kernel/evidence/225/green-kernel.txt
+new file mode 100644
+index 00000000..e6e5065f
+--- /dev/null
++++ b/kernel/evidence/225/green-kernel.txt
+@@ -0,0 +1,313 @@
++$ cd kernel && cargo test --workspace
++   Compiling relayflowd-core v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd-core)
++   Compiling relayflowd-journal v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd-journal)
++   Compiling relayflowd v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd)
++    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.66s
++     Running unittests src/lib.rs (target/debug/deps/relayflowd-3287862779f564ca)
++
++running 36 tests
++test engine::remote::worker_failure_detail_tests::a_null_or_blank_output_yields_no_detail ... ok
++test engine::remote::worker_failure_detail_tests::a_string_output_is_carried_verbatim_and_trimmed ... ok
++test engine::remote::worker_failure_detail_tests::a_non_string_output_is_rendered_rather_than_dropped ... ok
++test engine::remote::worker_failure_detail_tests::an_output_at_the_boundary_is_not_truncated ... ok
++test engine::remote::worker_failure_detail_tests::truncation_does_not_split_a_multi_byte_char ... ok
++test server::client::tests::resume_waits_while_the_heartbeat_renewed_lease_is_live ... ok
++test engine::boot_identity_tests::every_engine_in_this_process_shares_one_boot_id ... ok
++test server::liveness::tests::sweep_id_buckets_by_the_interval ... ok
++test server::channels::tests::unknown_verb_never_falls_through_to_receive ... ok
++test exec_det::tests::timeout_has_an_explicit_completion_reason ... ok
++test exec_det::tests::captures_deterministic_output ... ok
++test engine::wake::claim_guard_tests::a_disarmed_guard_leaves_the_claim_alone ... ok
++test server::tests::agent::contract::an_agent_worker_attaching_without_pins_is_refused_at_attach ... ok
++test server::liveness::tests::sweep_pass_healthy_subscription_is_a_noop ... ok
++test server::liveness::tests::sweep_pass_latches_after_journaling_and_next_bucket_is_empty ... ok
++test engine::wake::claim_guard_tests::a_guard_only_releases_its_own_run ... ok
++test server::tests::agent::contract::an_oversized_trajectory_tail_is_refused_at_step_complete ... ok
++test engine::wake::claim_guard_tests::an_armed_guard_releases_the_claim_when_dropped ... ok
++test engine::wake::claim_guard_tests::a_panic_between_claim_and_register_still_releases ... ok
++test server::tests::agent::contract::an_agent_worker_missing_a_declared_surface_parks_the_run_instead_of_erroring ... ok
++test server::tests::hello_enforces_protocol_version ... ok
++test server::tests::agent::contract::agent_without_a_compatible_worker_parks_without_starting ... ok
++test server::tests::run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run ... ok
++test server::tests::agent::contract::an_llm_completion_claiming_an_effect_fails_closed_with_the_reason_journaled ... ok
++test server::tests::a_failed_disconnect_journal_append_is_retained_and_retried_not_dropped ... ok
++test server::tests::run_start_fails_closed_on_an_unknown_verification_key ... ok
++test server::tests::agent::contract::a_replacement_worker_that_never_reported_the_pinned_surface_is_not_dispatched_to ... ok
++test server::tests::run_resume_refuses_a_journal_that_never_recorded_its_run ... ok
++test server::tests::agent::pins::reset_worker_reporting_a_revision_other_than_its_pin_fails_closed_as_worker_error ... ok
++test server::tests::run_resume_adopts_a_real_journal_whose_registry_row_is_missing ... ok
++test server::tests::agent::pins::consecutive_agent_steps_on_different_surfaces_each_start_from_their_own_pins ... ok
++test server::tests::run_resume_refuses_a_valid_journal_that_belongs_to_another_run ... ok
++test server::tests::stopped_heartbeats_past_the_deadline_journal_lease_expired_and_release_the_step ... ok
++test exec_det::tests::timeout_kills_the_whole_process_group ... ok
++test server::tests::agent::pins::a_replacement_worker_at_a_different_revision_is_not_dispatched_the_stale_pins ... ok
++test server::tests::an_entry_appended_during_watch_registration_is_delivered_exactly_once ... ok
++
++test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
++
++     Running unittests src/main.rs (target/debug/deps/relayflowd-ae3ceb16e5d803ec)
++
++running 0 tests
++
++test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
++
++     Running tests/crash_resume.rs (target/debug/deps/crash_resume-4619905d2726c36c)
++
++running 40 tests
++test agent::resume_without_a_worker_parks_immediately_instead_of_timing_out ... ok
++test agent::rung_c_sigkill_after_final_effect_replays_results_without_redispatch ... ok
++test channels::channels_reject_foreign_workers_stale_attempts_and_invalid_acknowledgements ... ok
++test concurrency::cancel_and_completion_race_has_one_terminal_fact ... ok
++test agent::rung_c_sigkill_between_agent_completion_and_final_effect_memoizes_the_agent ... ok
++test concurrency::run_start_dispatches_every_independent_lane_before_any_completion ... ok
++test concurrency::cancel_closes_the_lease_and_rejects_a_late_completion ... ok
++test agent::rung_c_crash_between_effect_election_and_the_provider_call_performs_it_exactly_once ... ok
++test agent::rung_c_reset_sigkill_mid_edit_restores_pins_dedupes_effect_and_explains_attempts ... ok
++test concurrency::concurrent_resumes_lease_exactly_one_attempt ... ok
++test llm::serve_plumbs_watch_events_and_replayable_stream_verbs ... ok
++test concurrency::live_resume_leaves_an_active_lease_running ... ok
++test llm::completed_llm_output_is_memoized_when_serve_dies_during_the_next_step ... ok
++test concurrency::server_restart_recovers_every_parallel_lease_without_duplicate_success ... ok
++test llm::llm_verification_exhaustion_is_a_declared_failure_kind ... ok
++test llm::failing_llm_verification_schedules_a_durable_retry_and_succeeds ... ok
++test llm::sigkill_after_the_final_rung_b_effect_resumes_without_redispatching_llm ... ok
++test memory::memory_sigkill_after_injection_replays_pack_and_charges_it_once ... ok
++test llm::sigkill_under_serve_mid_llm_releases_the_lease_and_finishes_via_cli_resume ... ok
++test llm::worker_killed_while_holding_a_lease_is_explained_and_released_on_cli_resume ... ok
++test pin_projection::rejected_completion_cannot_forge_inspect_retry_pins_over_the_real_socket ... ok
++test agent::rung_c_sigkill_boundaries_resume_only_unfinished_steps_via_real_cli ... ok
++test parallel_lifecycle::overlapping_agent_conflict_survives_server_crash_and_resume ... ok
++test placement::declared_placement_keeps_one_source_tree_across_resume ... ok
++test parallel_lifecycle::terminal_failure_drains_or_explains_every_live_sibling ... ok
++test sigkill_mid_step_replaces_and_explains_the_dead_attempt ... ok
++test protocol_admission::every_mutating_run_verb_refuses_terminal_before_changing_state ... ok
++test sigkill_after_cancel_request_resumes_to_one_canceled_fact ... ok
++test placement::sigkill_mid_step_keeps_the_route_and_source_tree ... ok
++test parallel_lifecycle::overlapping_agent_lanes_serialize_while_disjoint_lanes_merge_in_either_order ... ok
++test surface_identity::aliases_are_rejected_and_external_ancestors_serialize_over_real_sockets ... ok
++test placement::sigkill_before_first_step_preserves_the_submitted_workspace ... ok
++test llm::sigkill_sweep_covers_before_and_between_the_rung_b_steps ... ok
++test workspace_identity::workspace_aliases_are_refused_and_canonical_subtrees_serialize_over_real_sockets ... ok
++test sigkill_under_serve_resumes_the_socket_started_run ... ok
++test worker_capacity::two_workers_receive_a_deterministic_fair_capacity_bounded_batch ... ok
++test sigkill_sweep_covers_every_hello_step_boundary ... ok
++test worker_capacity::default_capacity_one_reopens_only_after_durable_completion_or_crash ... ok
++test channels::channels_sigkill_resume_redelivers_unacked_messages_with_exactly_once_effects ... ok
++test parallel_lifecycle::renewed_parallel_leases_survive_the_original_grant_and_remain_distinct ... ok
++
++test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 37.79s
++
++     Running tests/event_wake.rs (target/debug/deps/event_wake-bc602276d1cebcd0)
++
++running 3 tests
++test matching_event_wakes_once_with_fresh_context ... ok
++test two_racing_deliveries_of_one_event_produce_exactly_one_run ... ok
++test a_resumed_run_dispatches_the_original_wake_context ... ok
++
++test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
++
++     Running tests/hn_monitor_integration.rs (target/debug/deps/hn_monitor_integration-6b22693ad979dd80)
++
++running 1 test
++test hn_story_event_wakes_monitor_once_with_story_context ... ok
++
++test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
++
++     Running tests/invalid_schema_preflight.rs (target/debug/deps/invalid_schema_preflight-2c352b9351d5acf8)
++
++running 3 tests
++test invalid_json_schema_is_refused_before_journal_or_command ... ok
++test unbounded_json_schema_is_refused_before_journal_or_command ... ok
++test legitimately_recursive_json_schema_still_starts ... ok
++
++test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.30s
++
++     Running tests/memory.rs (target/debug/deps/memory-a74848a8274a290e)
++
++running 5 tests
++test rejected_journal_fact_releases_reservation_and_never_dispatches ... ok
++test llm_dispatch_receives_same_pack_after_resume_without_provider ... ok
++test replay_and_resume_need_no_provider_and_script_receives_recorded_pack ... ok
++test semantic_retry_reuses_memory_without_a_second_charge ... ok
++test over_budget_and_provider_errors_fail_without_dispatch_or_charge ... ok
++
++test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
++
++     Running tests/memory_epoch.rs (target/debug/deps/memory_epoch-edee30a47cad81b5)
++
++running 1 test
++test epoch_carries_pack_and_exact_charge_and_refuses_duplicate_injection ... ok
++
++test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
++
++     Running tests/parallel_driver.rs (target/debug/deps/parallel_driver-74d9d10149c534bd)
++
++running 4 tests
++test stop_after_one_holds_for_an_independent_deterministic_batch ... ok
++test backpressured_or_mismatched_lane_does_not_drop_a_later_dispatch ... ok
++test crash_boundaries_resume_the_real_driver_with_one_effect_per_lane ... ok
++test pause_before_second_independent_step_holds_the_driver_boundary ... ok
++
++test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
++
++     Running tests/placement_pins.rs (target/debug/deps/placement_pins-893a8773fbe94aee)
++
++running 2 tests
++test unsupported_local_pty_is_refused_before_an_earlier_step_can_run ... ok
++test default_worker_pins_the_declared_worktree_base_commit_and_refuses_missing_source ... ok
++
++test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
++
++     Running tests/placement_routing.rs (target/debug/deps/placement_routing-aabf5947f3ca76b4)
++
++running 3 tests
++test a_failed_routing_append_never_starts_or_dispatches_work ... ok
++test crash_between_routing_and_start_does_not_redecide ... ok
++test worker_retry_consumes_the_original_routing_fact ... ok
++
++test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
++
++     Running tests/subscription_liveness.rs (target/debug/deps/subscription_liveness-9506d11f678a9586)
++
++running 3 tests
++test submit_event_upserts_subscription_row_and_sweep_flags_it_stale_after_budget ... ok
++test stale_transition_is_journaled_as_subscription_stale_entry_in_the_last_known_run ... ok
++test a_fresh_arrival_re_arms_the_latch_and_the_next_silence_can_stale_again ... ok
++
++test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
++
++     Running unittests src/lib.rs (target/debug/deps/relayflowd_core-b1fe3b3250e9e7a2)
++
++running 60 tests
++test clock::tests::simulated_clock_is_explicitly_advanced ... ok
++test journal::tests::memory_journal_assigns_sequences_and_rolls_epochs ... ok
++test channel::tests::malformed_payloads_and_invalid_new_channel_appends_leave_state_unchanged ... ok
++test channel::tests::send_retry_is_stable_and_conflicting_content_is_rejected ... ok
++test channel::tests::delivery_replay_and_independent_acknowledged_offsets ... ok
++test channel::tests::forged_deliveries_and_acknowledgements_fail_closed ... ok
++test machine::tests::all_backing_off_steps_return_timers ... ok
++test machine::parallel_tests::machine_starts_every_runnable_step_in_authored_order ... ok
++test machine::parallel_tests::failed_run_drains_open_siblings_before_terminal_entry ... ok
++test machine::parallel_tests::parallel_lanes_do_not_cross_the_dependency_barrier_early ... ok
++test machine::parallel_tests::crash_resume_preserves_each_parallel_lease_exactly_once ... ok
++test machine::parallel_tests::every_declared_mutable_surface_participates_in_conflict_selection ... ok
++test machine::tests::every_reason_label_matches_its_serialized_form ... ok
++test machine::parallel_tests::overlapping_agent_surfaces_are_serialized_in_authored_order ... ok
++test machine::tests::cancel_request_closes_the_active_lease_before_the_terminal_fact ... ok
++test machine::parallel_tests::external_ancestor_and_descendant_paths_conflict_but_siblings_do_not ... ok
++test machine::tests::durable_cancel_request_outranks_crash_recovery ... ok
++test machine::tests::crashed_attempt_does_not_consume_an_iteration ... ok
++test machine::parallel_tests::workspace_ancestor_and_descendant_paths_conflict_but_siblings_do_not ... ok
++test machine::tests::repeated_cancel_request_is_idempotent ... ok
++test machine::tests::machine_starts_runnable_step_with_stable_effect_key ... ok
++test machine::tests::inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail ... ok
++test machine::tests::successful_memo_is_never_scheduled_again ... ok
++test machine::tests::manual_recovery_parks_needs_human_and_never_redispatches ... ok
++test machine::tests::verification_failure_schedules_a_durable_retry ... ok
++test machine::tests::worker_reported_failure_without_detail_still_records_a_verification ... ok
++test retry::tests::jitter_is_repeatable_and_bounded ... ok
++test memory::tests::caps_compare_exact_decimals_and_each_token_dimension ... ok
++test machine::tests::every_failed_run_terminates_with_declared_completion_reasons ... ok
++test machine::parallel_tests::disjoint_agent_lanes_merge_pins_in_either_completion_order ... ok
++test machine::tests::reset_recovery_dispatches_the_original_pinned_revision ... ok
++test schema::tests::in_document_uri_references_resolve_to_the_node_they_name ... ok
++test schema::tests::refusal_names_the_cycle_it_found ... ok
++test spec::tests::a_misspelled_step_level_key_is_a_parse_error ... ok
++test spec::tests::a_misspelled_verification_gate_key_is_a_parse_error_not_a_dropped_gate ... ok
++test spec::tests::cycles_are_rejected ... ok
++test spec::tests::preflight_data_is_fail_closed ... ok
++test spec::tests::spec_version_is_semver_and_gated ... ok
++test spec::tests::external_surface_paths_must_have_one_canonical_spelling ... ok
++test schema::tests::references_the_bound_leaves_opaque_are_refused_by_the_engine ... ok
++test spec::tests::unknown_root_and_nested_fields_are_rejected ... ok
++test spec::tests::zero_agent_flow_is_valid ... ok
++test state::budget::tests::adds_costs_exactly_beyond_machine_decimal_precision ... ok
++test spec::tests::workspace_mounts_and_worktrees_must_have_one_canonical_spelling ... ok
++test state::budget::tests::overflow_and_malformed_cost_leave_total_unchanged ... ok
++test state::tests::budget_decimal_strings_add_without_floats ... ok
++test state::tests::a_completion_that_omits_a_surface_does_not_drop_it_from_the_pin_chain ... ok
++test state::tests::journal_replays_data_gate_verdict_without_rerunning_completed_code ... ok
++test verify::tests::an_unbounded_schema_in_a_journal_fails_its_gate_instead_of_aborting ... ok
++test verify::tests::deterministic_output_requires_successful_exit_and_content ... ok
++test state::tests::end_pin_chain_is_enforced_and_a_broken_chain_is_a_hard_error ... ok
++test verify::tests::json_schema_is_a_control_gate ... ok
++test spec::tests::the_full_ladder_parses_in_the_one_dialect ... ok
++test schema::tests::a_property_named_ref_is_not_a_reference ... ok
++test schema::tests::shared_declarations_and_boolean_schemas_are_validated ... ok
++test schema::tests::every_accepted_corpus_schema_is_accepted ... ok
++test schema::tests::every_refused_corpus_schema_compiles_but_is_refused_by_the_bound ... ok
++test spec::tests::sdk_boundary_rejects_a_10_000_step_cycle_with_a_typed_error ... ok
++test spec::tests::sdk_boundary_accepts_a_valid_10_000_step_reverse_chain ... ok
++test schema::tests::deeply_nested_schemas_do_not_overflow_the_checker ... ok
++
++test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
++
++     Running tests/spec_parity.rs (target/debug/deps/spec_parity-bbda6cf1e1cf1c19)
++
++running 9 tests
++test the_kernel_parses_the_event_triggered_spec_and_stamps_the_same_hash ... ok
++test placement_requirements_have_identical_canonical_bytes_and_hash ... ok
++test the_kernel_parses_the_deterministic_rung_and_stamps_the_same_hash ... ok
++test step_memory_has_identical_canonical_bytes_and_hash ... ok
++test the_kernel_parses_the_rung_c_agent_spec_and_stamps_the_same_hash ... ok
++test memory_declaration_acceptance_matches_the_sdk_corpus ... ok
++test placement_declaration_acceptance_matches_the_sdk_corpus ... ok
++test the_kernel_parses_the_sdk_compiled_spec_and_stamps_the_same_hash ... ok
++test the_kernel_parses_the_rung_b_spec_and_stamps_the_same_hash ... ok
++
++test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
++
++     Running unittests src/lib.rs (target/debug/deps/relayflowd_journal-d13cb7954335385c)
++
++running 28 tests
++test registry::tests::a_registered_run_dedupes_across_boots ... ok
++test registry::tests::registry_is_a_rebuildable_run_locator ... ok
++test registry::tests::a_same_boot_claim_with_no_run_yet_is_a_duplicate_not_wreckage ... ok
++test registry::tests::a_previous_boots_claim_with_no_run_is_repaired ... ok
++test registry::tests::releasing_a_claim_lets_the_same_boot_retry ... ok
++test registry::tests::a_pre_migration_registry_gains_boot_id_and_its_claims_are_repairable ... ok
++test channel::tests::stale_attempts_and_raw_forged_acknowledgements_cannot_change_offsets ... ok
++test subscriptions::tests::detect_without_latch_stays_available_for_the_next_sweep ... ok
++test registry::tests::releasing_is_scoped_to_the_claiming_run ... ok
++test subscriptions::tests::latch_is_a_no_op_if_a_fresh_event_arrived_between_detect_and_latch ... ok
++test subscriptions::tests::last_run_for_subscription_returns_none_before_first_arrival ... ok
++test subscriptions::tests::last_run_for_subscription_returns_the_lex_greatest_ulid_regardless_of_insertion ... ok
++test subscriptions::tests::prune_sweep_claims_deletes_only_rows_older_than_cutoff ... ok
++test channel::tests::channels_cross_segment_boundaries_and_terminal_runs_reject_mutations ... ok
++test subscriptions::tests::sweep_does_not_re_emit_the_same_stale_row_on_a_later_tick ... ok
++test subscriptions::tests::sweep_marks_row_stale_when_silence_exceeds_budget ... ok
++test subscriptions::tests::sweep_election_gives_the_first_caller_the_result_and_second_gets_empty ... ok
++test subscriptions::tests::sweep_ignores_subscriptions_whose_silence_is_still_within_budget ... ok
++test subscriptions::tests::upsert_is_idempotent_across_bumps_and_preserves_event_type_updates ... ok
++test subscriptions::tests::upsert_after_stale_re_arms_and_next_silence_can_re_emit ... ok
++test channel::tests::failed_channel_writes_never_expose_delivery_or_advance_acknowledged_offset ... ok
++test tests::append_is_durable_and_monotonic_after_reopen ... ok
++test tests::effects_are_deduplicated_at_the_journal_boundary ... ok
++test tests::an_unconfirmed_election_is_reclaimed_by_the_next_attempt_not_treated_as_done ... ok
++test tests::rollover_is_atomic_scaffolding_for_epoch_resume ... ok
++test tests::failed_commit_is_returned_not_swallowed ... ok
++test tests::terminal_run_refuses_every_later_entry_atomically ... ok
++test channel::tests::independent_connections_serialize_send_receive_and_acknowledgement ... ok
++
++test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
++
++   Doc-tests relayflowd
++
++running 0 tests
++
++test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
++
++   Doc-tests relayflowd_core
++
++running 0 tests
++
++test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
++
++   Doc-tests relayflowd_journal
++
++running 0 tests
++
++test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
++
++
++exit_code=0
+diff --git a/kernel/evidence/225/green-sdk.txt b/kernel/evidence/225/green-sdk.txt
+new file mode 100644
+index 00000000..539d621f
+--- /dev/null
++++ b/kernel/evidence/225/green-sdk.txt
+@@ -0,0 +1,20 @@
++$ cd packages/sdk && node node_modules/vitest/vitest.mjs run tests/placement.test.ts tests/spec-parity.test.ts
++
++ RUN  v2.1.9 /Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/packages/sdk
++
++ ✓ tests/placement.test.ts (54 tests) 11ms
++ ✓ tests/spec-parity.test.ts (31 tests) 209ms
++
++ Test Files  2 passed (2)
++      Tests  85 passed (85)
++   Start at  13:58:43
++   Duration  819ms (transform 206ms, setup 0ms, collect 489ms, tests 221ms, environment 0ms, prepare 129ms)
++
++
++exit_code=0
++$ cd packages/sdk && node node_modules/typescript/bin/tsc --noEmit
++
++exit_code=0
++$ cd packages/sdk && node node_modules/typescript/bin/tsc -p tsconfig.type-tests.json
++
++exit_code=0
+diff --git a/kernel/evidence/225/red.txt b/kernel/evidence/225/red.txt
+new file mode 100644
+index 00000000..f90f323d
+--- /dev/null
++++ b/kernel/evidence/225/red.txt
+@@ -0,0 +1,155 @@
++$ cd kernel && cargo test --workspace --test crash_resume placement:: -- --nocapture
++   Compiling proc-macro2 v1.0.107
++   Compiling quote v1.0.47
++   Compiling unicode-ident v1.0.24
++   Compiling libc v0.2.189
++   Compiling cfg-if v1.0.4
++   Compiling stable_deref_trait v1.2.1
++   Compiling version_check v0.9.5
++   Compiling autocfg v1.5.1
++   Compiling serde_core v1.0.229
++   Compiling getrandom v0.3.4
++   Compiling zerocopy v0.8.56
++   Compiling serde v1.0.229
++   Compiling smallvec v1.15.2
++   Compiling litemap v0.8.3
++   Compiling writeable v0.6.4
++   Compiling num-traits v0.2.19
++   Compiling memchr v2.8.3
++   Compiling generic-array v0.14.7
++   Compiling icu_properties_data v2.3.0
++   Compiling utf8_iter v1.0.4
++   Compiling icu_normalizer_data v2.3.0
++   Compiling parking_lot_core v0.9.12
++   Compiling typenum v1.20.1
++   Compiling zmij v1.0.23
++   Compiling ref-cast v1.0.27
++   Compiling syn v3.0.4
++   Compiling syn v2.0.119
++   Compiling synstructure v0.13.2
++   Compiling num-integer v0.1.47
++   Compiling num-bigint v0.4.8
++   Compiling aho-corasick v1.1.5
++   Compiling ahash v0.8.12
++   Compiling zerofrom-derive v0.1.7
++   Compiling yoke-derive v0.8.2
++   Compiling shlex v2.0.1
++   Compiling zerofrom v0.1.8
++   Compiling serde_json v1.0.151
++   Compiling once_cell v1.21.4
++   Compiling regex-syntax v0.8.11
++   Compiling scopeguard v1.2.0
++   Compiling find-msvc-tools v0.1.11
++   Compiling lock_api v0.4.14
++   Compiling cc v1.4.4
++   Compiling num-rational v0.4.2
++   Compiling zerovec-derive v0.11.6
++   Compiling displaydoc v0.2.7
++   Compiling serde_derive v1.0.229
++   Compiling ref-cast-impl v1.0.27
++   Compiling yoke v0.8.3
++   Compiling num-iter v0.1.46
++   Compiling num-complex v0.4.6
++   Compiling rand_core v0.9.5
++   Compiling bit-vec v0.8.0
++   Compiling pkg-config v0.3.34
++   Compiling itoa v1.0.18
++   Compiling borrow-or-share v0.2.4
++   Compiling regex-automata v0.4.18
++   Compiling vcpkg v0.2.15
++   Compiling ppv-lite86 v0.2.21
++   Compiling bit-set v0.8.0
++   Compiling num v0.4.3
++   Compiling parking_lot v0.12.5
++   Compiling block-buffer v0.10.4
++   Compiling rand_chacha v0.9.0
++   Compiling crypto-common v0.1.7
++   Compiling uuid v1.26.0
++   Compiling libsqlite3-sys v0.35.0
++   Compiling vsimd v0.8.0
++   Compiling utf8parse v0.2.2
++   Compiling zerovec v0.11.8
++   Compiling zerotrie v0.2.5
++   Compiling thiserror v2.0.20
++   Compiling lazy_static v1.5.0
++   Compiling foldhash v0.1.5
++   Compiling percent-encoding v2.3.2
++   Compiling outref v0.5.2
++   Compiling bitflags v2.13.1
++   Compiling uuid-simd v0.8.0
++   Compiling hashbrown v0.15.5
++   Compiling fraction v0.15.4
++   Compiling anstyle-parse v1.0.0
++   Compiling rand v0.9.5
++   Compiling digest v0.10.7
++   Compiling thiserror-impl v2.0.20
++   Compiling cpufeatures v0.2.17
++   Compiling anstyle v1.0.14
++   Compiling num-cmp v0.1.0
++   Compiling bytecount v0.6.9
++   Compiling colorchoice v1.0.5
++   Compiling is_terminal_polyfill v1.70.2
++   Compiling anstyle-query v1.1.5
++   Compiling base64 v0.22.1
++   Compiling sha2 v0.10.9
++   Compiling anstream v1.0.0
++   Compiling hashlink v0.10.0
++   Compiling clap_lex v1.1.0
++   Compiling fallible-iterator v0.3.0
++   Compiling strsim v0.11.1
++   Compiling heck v0.5.0
++   Compiling anyhow v1.0.104
++   Compiling fallible-streaming-iterator v0.1.9
++   Compiling clap_builder v4.6.6
++   Compiling tinystr v0.8.4
++   Compiling potential_utf v0.1.6
++   Compiling clap_derive v4.6.4
++   Compiling getrandom v0.4.3
++   Compiling icu_locale_core v2.3.0
++   Compiling icu_collections v2.3.0
++   Compiling rustix v1.1.4
++   Compiling fancy-regex v0.16.2
++   Compiling icu_provider v2.3.1
++   Compiling fluent-uri v0.3.2
++   Compiling icu_normalizer v2.3.0
++   Compiling icu_properties v2.3.0
++   Compiling email_address v0.2.9
++   Compiling regex v1.13.1
++   Compiling ulid v1.2.1
++   Compiling clap v4.6.6
++   Compiling referencing v0.33.0
++   Compiling wait-timeout v0.2.1
++   Compiling errno v0.3.14
++   Compiling fastrand v2.5.0
++   Compiling idna_adapter v1.2.2
++   Compiling idna v1.1.0
++   Compiling jsonschema v0.33.0
++   Compiling tempfile v3.27.0
++   Compiling rusqlite v0.37.0
++   Compiling relayflowd-core v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd-core)
++   Compiling relayflowd-journal v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd-journal)
++   Compiling relayflowd v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd)
++    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.12s
++     Running tests/crash_resume.rs (target/debug/deps/crash_resume-e6635a3f0d48512c)
++
++running 1 test
++
++thread 'placement::declared_placement_keeps_one_source_tree_across_resume' (84534924) panicked at relayflowd/tests/crash_resume/placement.rs:40:5:
++run failed: Error: parse run spec /var/folders/yv/nbp9l2c55wlbj1x0gml37s7c0000gn/T/.tmpsHRxJK/flow.json
++
++Caused by:
++    unknown field "requirements" at steps[0] — refusing to guess (fail closed)
++
++note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
++test placement::declared_placement_keeps_one_source_tree_across_resume ... FAILED
++
++failures:
++
++failures:
++    placement::declared_placement_keeps_one_source_tree_across_resume
++
++test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.65s
++
++error: test failed, to rerun pass `-p relayflowd --test crash_resume`
++
++exit_code=101
+diff --git a/kernel/evidence/225/review-9f3b265-green.txt b/kernel/evidence/225/review-9f3b265-green.txt
+new file mode 100644
+index 00000000..a789d61e
+--- /dev/null
++++ b/kernel/evidence/225/review-9f3b265-green.txt
+@@ -0,0 +1,321 @@
++$ cd kernel && cargo test --workspace
++   Compiling relayflowd-core v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd-core)
++   Compiling relayflowd-journal v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd-journal)
++   Compiling relayflowd v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd)
++    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.51s
++     Running unittests src/lib.rs (target/debug/deps/relayflowd-3287862779f564ca)
++
++running 36 tests
++test engine::remote::worker_failure_detail_tests::a_null_or_blank_output_yields_no_detail ... ok
++test engine::remote::worker_failure_detail_tests::a_string_output_is_carried_verbatim_and_trimmed ... ok
++test engine::remote::worker_failure_detail_tests::an_output_at_the_boundary_is_not_truncated ... ok
++test engine::remote::worker_failure_detail_tests::a_non_string_output_is_rendered_rather_than_dropped ... ok
++test engine::remote::worker_failure_detail_tests::truncation_does_not_split_a_multi_byte_char ... ok
++test server::client::tests::resume_waits_while_the_heartbeat_renewed_lease_is_live ... ok
++test server::liveness::tests::sweep_id_buckets_by_the_interval ... ok
++test server::channels::tests::unknown_verb_never_falls_through_to_receive ... ok
++test engine::boot_identity_tests::every_engine_in_this_process_shares_one_boot_id ... ok
++test exec_det::tests::timeout_has_an_explicit_completion_reason ... ok
++test exec_det::tests::captures_deterministic_output ... ok
++test server::liveness::tests::sweep_pass_healthy_subscription_is_a_noop ... ok
++test engine::wake::claim_guard_tests::a_disarmed_guard_leaves_the_claim_alone ... ok
++test server::tests::agent::contract::an_agent_worker_attaching_without_pins_is_refused_at_attach ... ok
++test server::liveness::tests::sweep_pass_latches_after_journaling_and_next_bucket_is_empty ... ok
++test server::tests::agent::contract::an_oversized_trajectory_tail_is_refused_at_step_complete ... ok
++test engine::wake::claim_guard_tests::a_panic_between_claim_and_register_still_releases ... ok
++test engine::wake::claim_guard_tests::a_guard_only_releases_its_own_run ... ok
++test engine::wake::claim_guard_tests::an_armed_guard_releases_the_claim_when_dropped ... ok
++test server::tests::agent::contract::agent_without_a_compatible_worker_parks_without_starting ... ok
++test server::tests::hello_enforces_protocol_version ... ok
++test server::tests::agent::contract::an_agent_worker_missing_a_declared_surface_parks_the_run_instead_of_erroring ... ok
++test server::tests::agent::contract::a_replacement_worker_that_never_reported_the_pinned_surface_is_not_dispatched_to ... ok
++test server::tests::run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run ... ok
++test server::tests::a_failed_disconnect_journal_append_is_retained_and_retried_not_dropped ... ok
++test server::tests::run_start_fails_closed_on_an_unknown_verification_key ... ok
++test server::tests::agent::contract::an_llm_completion_claiming_an_effect_fails_closed_with_the_reason_journaled ... ok
++test server::tests::agent::pins::reset_worker_reporting_a_revision_other_than_its_pin_fails_closed_as_worker_error ... ok
++test server::tests::run_resume_refuses_a_journal_that_never_recorded_its_run ... ok
++test server::tests::run_resume_adopts_a_real_journal_whose_registry_row_is_missing ... ok
++test server::tests::agent::pins::consecutive_agent_steps_on_different_surfaces_each_start_from_their_own_pins ... ok
++test server::tests::run_resume_refuses_a_valid_journal_that_belongs_to_another_run ... ok
++test server::tests::stopped_heartbeats_past_the_deadline_journal_lease_expired_and_release_the_step ... ok
++test exec_det::tests::timeout_kills_the_whole_process_group ... ok
++test server::tests::agent::pins::a_replacement_worker_at_a_different_revision_is_not_dispatched_the_stale_pins ... ok
++test server::tests::an_entry_appended_during_watch_registration_is_delivered_exactly_once ... ok
++
++test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
++
++     Running unittests src/main.rs (target/debug/deps/relayflowd-ae3ceb16e5d803ec)
++
++running 0 tests
++
++test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
++
++     Running tests/crash_resume.rs (target/debug/deps/crash_resume-4619905d2726c36c)
++
++running 40 tests
++test concurrency::cancel_closes_the_lease_and_rejects_a_late_completion ... ok
++test agent::rung_c_sigkill_after_final_effect_replays_results_without_redispatch ... ok
++test agent::resume_without_a_worker_parks_immediately_instead_of_timing_out ... ok
++test concurrency::cancel_and_completion_race_has_one_terminal_fact ... ok
++test concurrency::concurrent_resumes_lease_exactly_one_attempt ... ok
++test agent::rung_c_sigkill_between_agent_completion_and_final_effect_memoizes_the_agent ... ok
++test channels::channels_reject_foreign_workers_stale_attempts_and_invalid_acknowledgements ... ok
++test concurrency::run_start_dispatches_every_independent_lane_before_any_completion ... ok
++test concurrency::live_resume_leaves_an_active_lease_running ... ok
++test agent::rung_c_reset_sigkill_mid_edit_restores_pins_dedupes_effect_and_explains_attempts ... ok
++test agent::rung_c_crash_between_effect_election_and_the_provider_call_performs_it_exactly_once ... ok
++test llm::serve_plumbs_watch_events_and_replayable_stream_verbs ... ok
++test llm::completed_llm_output_is_memoized_when_serve_dies_during_the_next_step ... ok
++test llm::sigkill_after_the_final_rung_b_effect_resumes_without_redispatching_llm ... ok
++test llm::llm_verification_exhaustion_is_a_declared_failure_kind ... ok
++test llm::failing_llm_verification_schedules_a_durable_retry_and_succeeds ... ok
++test concurrency::server_restart_recovers_every_parallel_lease_without_duplicate_success ... ok
++test agent::rung_c_sigkill_boundaries_resume_only_unfinished_steps_via_real_cli ... ok
++test llm::sigkill_under_serve_mid_llm_releases_the_lease_and_finishes_via_cli_resume ... ok
++test pin_projection::rejected_completion_cannot_forge_inspect_retry_pins_over_the_real_socket ... ok
++test memory::memory_sigkill_after_injection_replays_pack_and_charges_it_once ... ok
++test llm::worker_killed_while_holding_a_lease_is_explained_and_released_on_cli_resume ... ok
++test placement::declared_placement_keeps_one_source_tree_across_resume ... ok
++test sigkill_after_cancel_request_resumes_to_one_canceled_fact ... ok
++test protocol_admission::every_mutating_run_verb_refuses_terminal_before_changing_state ... ok
++test parallel_lifecycle::overlapping_agent_conflict_survives_server_crash_and_resume ... ok
++test sigkill_mid_step_replaces_and_explains_the_dead_attempt ... ok
++test placement::sigkill_before_first_step_preserves_the_submitted_workspace ... ok
++test placement::sigkill_mid_step_keeps_the_route_and_source_tree ... ok
++test parallel_lifecycle::overlapping_agent_lanes_serialize_while_disjoint_lanes_merge_in_either_order ... ok
++test surface_identity::aliases_are_rejected_and_external_ancestors_serialize_over_real_sockets ... ok
++test parallel_lifecycle::terminal_failure_drains_or_explains_every_live_sibling ... ok
++test llm::sigkill_sweep_covers_before_and_between_the_rung_b_steps ... ok
++test sigkill_under_serve_resumes_the_socket_started_run ... ok
++test worker_capacity::two_workers_receive_a_deterministic_fair_capacity_bounded_batch ... ok
++test workspace_identity::workspace_aliases_are_refused_and_canonical_subtrees_serialize_over_real_sockets ... ok
++test worker_capacity::default_capacity_one_reopens_only_after_durable_completion_or_crash ... ok
++test channels::channels_sigkill_resume_redelivers_unacked_messages_with_exactly_once_effects ... ok
++test sigkill_sweep_covers_every_hello_step_boundary ... ok
++test parallel_lifecycle::renewed_parallel_leases_survive_the_original_grant_and_remain_distinct ... ok
++
++test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 37.95s
++
++     Running tests/event_wake.rs (target/debug/deps/event_wake-bc602276d1cebcd0)
++
++running 3 tests
++test matching_event_wakes_once_with_fresh_context ... ok
++test two_racing_deliveries_of_one_event_produce_exactly_one_run ... ok
++test a_resumed_run_dispatches_the_original_wake_context ... ok
++
++test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
++
++     Running tests/hn_monitor_integration.rs (target/debug/deps/hn_monitor_integration-6b22693ad979dd80)
++
++running 1 test
++test hn_story_event_wakes_monitor_once_with_story_context ... ok
++
++test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
++
++     Running tests/invalid_schema_preflight.rs (target/debug/deps/invalid_schema_preflight-2c352b9351d5acf8)
++
++running 3 tests
++test invalid_json_schema_is_refused_before_journal_or_command ... ok
++test unbounded_json_schema_is_refused_before_journal_or_command ... ok
++test legitimately_recursive_json_schema_still_starts ... ok
++
++test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.36s
++
++     Running tests/memory.rs (target/debug/deps/memory-a74848a8274a290e)
++
++running 5 tests
++test rejected_journal_fact_releases_reservation_and_never_dispatches ... ok
++test llm_dispatch_receives_same_pack_after_resume_without_provider ... ok
++test semantic_retry_reuses_memory_without_a_second_charge ... ok
++test replay_and_resume_need_no_provider_and_script_receives_recorded_pack ... ok
++test over_budget_and_provider_errors_fail_without_dispatch_or_charge ... ok
++
++test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
++
++     Running tests/memory_epoch.rs (target/debug/deps/memory_epoch-edee30a47cad81b5)
++
++running 1 test
++test epoch_carries_pack_and_exact_charge_and_refuses_duplicate_injection ... ok
++
++test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
++
++     Running tests/parallel_driver.rs (target/debug/deps/parallel_driver-74d9d10149c534bd)
++
++running 4 tests
++test stop_after_one_holds_for_an_independent_deterministic_batch ... ok
++test backpressured_or_mismatched_lane_does_not_drop_a_later_dispatch ... ok
++test crash_boundaries_resume_the_real_driver_with_one_effect_per_lane ... ok
++test pause_before_second_independent_step_holds_the_driver_boundary ... ok
++
++test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
++
++     Running tests/placement_pins.rs (target/debug/deps/placement_pins-893a8773fbe94aee)
++
++running 2 tests
++test unsupported_local_pty_is_refused_before_an_earlier_step_can_run ... ok
++test default_worker_pins_the_declared_worktree_base_commit_and_refuses_missing_source ... ok
++
++test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
++
++     Running tests/placement_routing.rs (target/debug/deps/placement_routing-aabf5947f3ca76b4)
++
++running 3 tests
++test a_failed_routing_append_never_starts_or_dispatches_work ... ok
++test crash_between_routing_and_start_does_not_redecide ... ok
++test worker_retry_consumes_the_original_routing_fact ... ok
++
++test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
++
++     Running tests/routing_diagnostics.rs (target/debug/deps/routing_diagnostics-ddddee3a427ee9ae)
++
++running 2 tests
++test duplicate_routes_have_a_distinct_diagnostic_and_leave_the_original_fact_intact ... ok
++test malformed_routes_name_the_same_field_at_append_replay_and_epoch_replay ... ok
++
++test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
++
++     Running tests/subscription_liveness.rs (target/debug/deps/subscription_liveness-9506d11f678a9586)
++
++running 3 tests
++test submit_event_upserts_subscription_row_and_sweep_flags_it_stale_after_budget ... ok
++test stale_transition_is_journaled_as_subscription_stale_entry_in_the_last_known_run ... ok
++test a_fresh_arrival_re_arms_the_latch_and_the_next_silence_can_stale_again ... ok
++
++test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
++
++     Running unittests src/lib.rs (target/debug/deps/relayflowd_core-b1fe3b3250e9e7a2)
++
++running 60 tests
++test clock::tests::simulated_clock_is_explicitly_advanced ... ok
++test journal::tests::memory_journal_assigns_sequences_and_rolls_epochs ... ok
++test channel::tests::send_retry_is_stable_and_conflicting_content_is_rejected ... ok
++test channel::tests::forged_deliveries_and_acknowledgements_fail_closed ... ok
++test channel::tests::malformed_payloads_and_invalid_new_channel_appends_leave_state_unchanged ... ok
++test channel::tests::delivery_replay_and_independent_acknowledged_offsets ... ok
++test machine::parallel_tests::external_ancestor_and_descendant_paths_conflict_but_siblings_do_not ... ok
++test machine::parallel_tests::every_declared_mutable_surface_participates_in_conflict_selection ... ok
++test machine::parallel_tests::workspace_ancestor_and_descendant_paths_conflict_but_siblings_do_not ... ok
++test machine::parallel_tests::failed_run_drains_open_siblings_before_terminal_entry ... ok
++test machine::tests::all_backing_off_steps_return_timers ... ok
++test machine::tests::cancel_request_closes_the_active_lease_before_the_terminal_fact ... ok
++test machine::parallel_tests::crash_resume_preserves_each_parallel_lease_exactly_once ... ok
++test machine::parallel_tests::machine_starts_every_runnable_step_in_authored_order ... ok
++test machine::parallel_tests::parallel_lanes_do_not_cross_the_dependency_barrier_early ... ok
++test machine::tests::every_reason_label_matches_its_serialized_form ... ok
++test machine::parallel_tests::overlapping_agent_surfaces_are_serialized_in_authored_order ... ok
++test machine::tests::durable_cancel_request_outranks_crash_recovery ... ok
++test machine::tests::machine_starts_runnable_step_with_stable_effect_key ... ok
++test machine::tests::crashed_attempt_does_not_consume_an_iteration ... ok
++test machine::parallel_tests::disjoint_agent_lanes_merge_pins_in_either_completion_order ... ok
++test machine::tests::repeated_cancel_request_is_idempotent ... ok
++test machine::tests::manual_recovery_parks_needs_human_and_never_redispatches ... ok
++test machine::tests::worker_reported_failure_without_detail_still_records_a_verification ... ok
++test machine::tests::successful_memo_is_never_scheduled_again ... ok
++test retry::tests::jitter_is_repeatable_and_bounded ... ok
++test machine::tests::every_failed_run_terminates_with_declared_completion_reasons ... ok
++test machine::tests::verification_failure_schedules_a_durable_retry ... ok
++test memory::tests::caps_compare_exact_decimals_and_each_token_dimension ... ok
++test machine::tests::inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail ... ok
++test machine::tests::reset_recovery_dispatches_the_original_pinned_revision ... ok
++test schema::tests::in_document_uri_references_resolve_to_the_node_they_name ... ok
++test schema::tests::refusal_names_the_cycle_it_found ... ok
++test spec::tests::a_misspelled_step_level_key_is_a_parse_error ... ok
++test spec::tests::a_misspelled_verification_gate_key_is_a_parse_error_not_a_dropped_gate ... ok
++test spec::tests::cycles_are_rejected ... ok
++test spec::tests::external_surface_paths_must_have_one_canonical_spelling ... ok
++test spec::tests::preflight_data_is_fail_closed ... ok
++test spec::tests::spec_version_is_semver_and_gated ... ok
++test schema::tests::references_the_bound_leaves_opaque_are_refused_by_the_engine ... ok
++test spec::tests::unknown_root_and_nested_fields_are_rejected ... ok
++test spec::tests::zero_agent_flow_is_valid ... ok
++test state::budget::tests::adds_costs_exactly_beyond_machine_decimal_precision ... ok
++test state::budget::tests::overflow_and_malformed_cost_leave_total_unchanged ... ok
++test spec::tests::workspace_mounts_and_worktrees_must_have_one_canonical_spelling ... ok
++test state::tests::budget_decimal_strings_add_without_floats ... ok
++test state::tests::end_pin_chain_is_enforced_and_a_broken_chain_is_a_hard_error ... ok
++test state::tests::a_completion_that_omits_a_surface_does_not_drop_it_from_the_pin_chain ... ok
++test verify::tests::an_unbounded_schema_in_a_journal_fails_its_gate_instead_of_aborting ... ok
++test state::tests::journal_replays_data_gate_verdict_without_rerunning_completed_code ... ok
++test verify::tests::deterministic_output_requires_successful_exit_and_content ... ok
++test spec::tests::the_full_ladder_parses_in_the_one_dialect ... ok
++test verify::tests::json_schema_is_a_control_gate ... ok
++test schema::tests::a_property_named_ref_is_not_a_reference ... ok
++test schema::tests::shared_declarations_and_boolean_schemas_are_validated ... ok
++test schema::tests::every_accepted_corpus_schema_is_accepted ... ok
++test schema::tests::every_refused_corpus_schema_compiles_but_is_refused_by_the_bound ... ok
++test spec::tests::sdk_boundary_rejects_a_10_000_step_cycle_with_a_typed_error ... ok
++test spec::tests::sdk_boundary_accepts_a_valid_10_000_step_reverse_chain ... ok
++test schema::tests::deeply_nested_schemas_do_not_overflow_the_checker ... ok
++
++test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
++
++     Running tests/spec_parity.rs (target/debug/deps/spec_parity-bbda6cf1e1cf1c19)
++
++running 9 tests
++test placement_requirements_have_identical_canonical_bytes_and_hash ... ok
++test the_kernel_parses_the_deterministic_rung_and_stamps_the_same_hash ... ok
++test the_kernel_parses_the_event_triggered_spec_and_stamps_the_same_hash ... ok
++test step_memory_has_identical_canonical_bytes_and_hash ... ok
++test the_kernel_parses_the_rung_c_agent_spec_and_stamps_the_same_hash ... ok
++test memory_declaration_acceptance_matches_the_sdk_corpus ... ok
++test placement_declaration_acceptance_matches_the_sdk_corpus ... ok
++test the_kernel_parses_the_sdk_compiled_spec_and_stamps_the_same_hash ... ok
++test the_kernel_parses_the_rung_b_spec_and_stamps_the_same_hash ... ok
++
++test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
++
++     Running unittests src/lib.rs (target/debug/deps/relayflowd_journal-d13cb7954335385c)
++
++running 28 tests
++test registry::tests::a_same_boot_claim_with_no_run_yet_is_a_duplicate_not_wreckage ... ok
++test registry::tests::a_previous_boots_claim_with_no_run_is_repaired ... ok
++test registry::tests::registry_is_a_rebuildable_run_locator ... ok
++test registry::tests::a_registered_run_dedupes_across_boots ... ok
++test registry::tests::releasing_a_claim_lets_the_same_boot_retry ... ok
++test registry::tests::a_pre_migration_registry_gains_boot_id_and_its_claims_are_repairable ... ok
++test channel::tests::stale_attempts_and_raw_forged_acknowledgements_cannot_change_offsets ... ok
++test subscriptions::tests::detect_without_latch_stays_available_for_the_next_sweep ... ok
++test registry::tests::releasing_is_scoped_to_the_claiming_run ... ok
++test subscriptions::tests::last_run_for_subscription_returns_none_before_first_arrival ... ok
++test subscriptions::tests::last_run_for_subscription_returns_the_lex_greatest_ulid_regardless_of_insertion ... ok
++test subscriptions::tests::latch_is_a_no_op_if_a_fresh_event_arrived_between_detect_and_latch ... ok
++test subscriptions::tests::prune_sweep_claims_deletes_only_rows_older_than_cutoff ... ok
++test channel::tests::channels_cross_segment_boundaries_and_terminal_runs_reject_mutations ... ok
++test subscriptions::tests::sweep_election_gives_the_first_caller_the_result_and_second_gets_empty ... ok
++test subscriptions::tests::sweep_ignores_subscriptions_whose_silence_is_still_within_budget ... ok
++test subscriptions::tests::sweep_marks_row_stale_when_silence_exceeds_budget ... ok
++test subscriptions::tests::sweep_does_not_re_emit_the_same_stale_row_on_a_later_tick ... ok
++test subscriptions::tests::upsert_after_stale_re_arms_and_next_silence_can_re_emit ... ok
++test subscriptions::tests::upsert_is_idempotent_across_bumps_and_preserves_event_type_updates ... ok
++test tests::append_is_durable_and_monotonic_after_reopen ... ok
++test tests::failed_commit_is_returned_not_swallowed ... ok
++test tests::an_unconfirmed_election_is_reclaimed_by_the_next_attempt_not_treated_as_done ... ok
++test tests::terminal_run_refuses_every_later_entry_atomically ... ok
++test tests::effects_are_deduplicated_at_the_journal_boundary ... ok
++test tests::rollover_is_atomic_scaffolding_for_epoch_resume ... ok
++test channel::tests::failed_channel_writes_never_expose_delivery_or_advance_acknowledged_offset ... ok
++test channel::tests::independent_connections_serialize_send_receive_and_acknowledgement ... ok
++
++test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
++
++   Doc-tests relayflowd
++
++running 0 tests
++
++test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
++
++   Doc-tests relayflowd_core
++
++running 0 tests
++
++test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
++
++   Doc-tests relayflowd_journal
++
++running 0 tests
++
++test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
++
++
++exit_code=0
+diff --git a/kernel/evidence/225/review-9f3b265-red.txt b/kernel/evidence/225/review-9f3b265-red.txt
+new file mode 100644
+index 00000000..ff3b27b5
+--- /dev/null
++++ b/kernel/evidence/225/review-9f3b265-red.txt
+@@ -0,0 +1,32 @@
++$ cd kernel && cargo test --workspace --test routing_diagnostics
++   Compiling relayflowd v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd)
++    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.95s
++     Running tests/routing_diagnostics.rs (target/debug/deps/routing_diagnostics-ddddee3a427ee9ae)
++
++running 2 tests
++test malformed_routes_name_the_same_field_at_append_replay_and_epoch_replay ... FAILED
++test duplicate_routes_have_a_distinct_diagnostic_and_leave_the_original_fact_intact ... FAILED
++
++failures:
++
++---- malformed_routes_name_the_same_field_at_append_replay_and_epoch_replay stdout ----
++
++thread 'malformed_routes_name_the_same_field_at_append_replay_and_epoch_replay' (85896877) panicked at relayflowd/tests/routing_diagnostics.rs:40:9:
++assertion failed: journal.append(&entry).unwrap_err().to_string().contains(&expected)
++note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
++
++---- duplicate_routes_have_a_distinct_diagnostic_and_leave_the_original_fact_intact stdout ----
++
++thread 'duplicate_routes_have_a_distinct_diagnostic_and_leave_the_original_fact_intact' (85896876) panicked at relayflowd/tests/routing_diagnostics.rs:57:5:
++assertion failed: journal.append(&entry).unwrap_err().to_string().contains(expected)
++
++
++failures:
++    duplicate_routes_have_a_distinct_diagnostic_and_leave_the_original_fact_intact
++    malformed_routes_name_the_same_field_at_append_replay_and_epoch_replay
++
++test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
++
++error: test failed, to rerun pass `-p relayflowd --test routing_diagnostics`
++
++exit_code=101
+diff --git a/kernel/evidence/225/review-9f3b265.md b/kernel/evidence/225/review-9f3b265.md
+new file mode 100644
+index 00000000..4c52aa64
+--- /dev/null
++++ b/kernel/evidence/225/review-9f3b265.md
+@@ -0,0 +1,30 @@
++# Maintainability blockers at 9f3b265
++
++Both requested blockers are addressed:
++
++1. `StepDispatcher::starting_pins` documents the local filesystem/Git default,
++   its failure conditions, and the overrides remote dispatchers must supply.
++   `reserved_starting_pins` documents that its default delegates to that same
++   behavior. This is a documentation correction, with no pin-source behavior change.
++2. `StateError::InvalidRouting` carries `step` and `detail`. Duplicate decisions
++   report `routing decision already recorded`; malformed decisions identify
++   `profile`, `provider`, `workspace`, or the blank fallback's array index.
++   `RoutingDecision::validate` is the shared field validator for engine admission,
++   SQLite routing admission, state replay, and epoch replay. Unknown steps retain
++   their own error, and attempt-scoped routing has its own detail. Routing replay
++   moved into `state/routing.rs` to keep `state.rs` below 500 lines.
++
++The new tests check diagnostic agreement across SQLite append, replay, and epoch
++replay, plus transaction rollback and preservation of the original routing fact
++on duplicate admission. Existing tests and review gates were not edited.
++
++Other review concerns are outside this repair. In particular, this does not
++claim to change epoch-summary write admission, source-revision selection,
++workspace inheritance, or execution/pinning failure precedence.
++
++Literal commands and complete captured output:
++
++- [Failing diagnostic tests before the fix](review-9f3b265-red.txt):
++  `cd kernel && cargo test --workspace --test routing_diagnostics`
++- [Full workspace gate after the fix](review-9f3b265-green.txt):
++  `cd kernel && cargo test --workspace`
+diff --git a/kernel/relayflowd-core/src/entry.rs b/kernel/relayflowd-core/src/entry.rs
+index 7927017d..81a832a9 100644
+--- a/kernel/relayflowd-core/src/entry.rs
++++ b/kernel/relayflowd-core/src/entry.rs
+@@ -25,6 +25,8 @@ pub enum EntryType {
+     /// "Native silent-death" answer at the journal level.
+     #[serde(rename = "subscription.stale")]
+     SubscriptionStale,
++    #[serde(rename = "step.routed")]
++    StepRouted,
+     #[serde(rename = "step.attempt.started")]
+     StepAttemptStarted,
+     #[serde(rename = "step.completed")]
+@@ -68,6 +70,7 @@ impl EntryType {
+             Self::SubscriptionRegistered => "subscription.registered",
+             Self::SubscriptionMatched => "subscription.matched",
+             Self::SubscriptionStale => "subscription.stale",
++            Self::StepRouted => "step.routed",
+             Self::StepAttemptStarted => "step.attempt.started",
+             Self::StepCompleted => "step.completed",
+             Self::WaitEvent => "wait.event",
+@@ -95,6 +98,7 @@ impl EntryType {
+             "subscription.registered" => Self::SubscriptionRegistered,
+             "subscription.matched" => Self::SubscriptionMatched,
+             "subscription.stale" => Self::SubscriptionStale,
++            "step.routed" => Self::StepRouted,
+             "step.attempt.started" => Self::StepAttemptStarted,
+             "step.completed" => Self::StepCompleted,
+             "wait.event" => Self::WaitEvent,
+@@ -385,6 +389,8 @@ pub struct EpochSummaryPayload {
+     /// Accepted packs are retained without charging them again at the epoch boundary.
+     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+     pub memory: BTreeMap<String, crate::memory::MemoryInjectedPayload>,
++    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
++    pub routing: BTreeMap<String, crate::RoutingDecision>,
+ }
+ 
+ #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+diff --git a/kernel/relayflowd-core/src/journal.rs b/kernel/relayflowd-core/src/journal.rs
+index 22e03af2..beb0e29c 100644
+--- a/kernel/relayflowd-core/src/journal.rs
++++ b/kernel/relayflowd-core/src/journal.rs
+@@ -136,6 +136,7 @@ mod tests {
+                     pinned_revisions: BTreeMap::new(),
+                     budget_spent: Budget::default(),
+                     memory: BTreeMap::new(),
++                    routing: BTreeMap::new(),
+                 },
+                 10,
+             )
+diff --git a/kernel/relayflowd-core/src/lib.rs b/kernel/relayflowd-core/src/lib.rs
+index a5310e08..c5e15500 100644
+--- a/kernel/relayflowd-core/src/lib.rs
++++ b/kernel/relayflowd-core/src/lib.rs
+@@ -11,6 +11,7 @@ pub mod event;
+ pub mod journal;
+ pub mod machine;
+ pub mod memory;
++pub mod placement;
+ pub mod retry;
+ mod schema;
+ pub mod spec;
+@@ -27,6 +28,7 @@ pub use machine::{
+     request_cancel_action,
+ };
+ pub use memory::{MemoryInjectedPayload, MemoryScope, MemorySpec};
++pub use placement::{ExecutionMode, PlacementRequirements, RoutingDecision};
+ pub use spec::*;
+ pub use state::{RunState, StateError, StepRuntime, StepState};
+ 
+diff --git a/kernel/relayflowd-core/src/placement.rs b/kernel/relayflowd-core/src/placement.rs
+new file mode 100644
+index 00000000..da20ee11
+--- /dev/null
++++ b/kernel/relayflowd-core/src/placement.rs
+@@ -0,0 +1,96 @@
++//! Gate 7 declaration and durable decision. No provider or filesystem I/O.
++use serde::{Deserialize, Serialize};
++
++#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
++#[serde(deny_unknown_fields)]
++pub struct PlacementRequirements {
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub execution: Option<ExecutionMode>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub workspace: Option<bool>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub network: Option<bool>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub expected_duration_ms: Option<u64>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub preference: Option<PlacementPreference>,
++}
++
++impl PlacementRequirements {
++    pub fn validate(&self) -> Result<(), String> {
++        if self
++            .expected_duration_ms
++            .is_some_and(|ms| ms == 0 || ms > 9_007_199_254_740_991)
++        {
++            return Err("requirements.expected_duration_ms must be a positive safe integer".into());
++        }
++        Ok(())
++    }
++}
++
++pub fn validate_shape(value: &serde_json::Value) -> Result<(), String> {
++    let object = value.as_object().ok_or("requirements must be an object")?;
++    if object.values().any(serde_json::Value::is_null) {
++        return Err("requirements fields cannot be null".into());
++    }
++    let requirements: PlacementRequirements =
++        serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
++    requirements.validate()
++}
++
++#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
++#[serde(rename_all = "snake_case")]
++pub enum ExecutionMode {
++    Batch,
++    Interactive,
++}
++
++#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
++#[serde(rename_all = "snake_case")]
++pub enum PlacementPreference {
++    Cost,
++    Latency,
++    Reliability,
++    Balanced,
++}
++
++/// One fixed decision per step, retained on retry and replay. A provider adapter
++/// consumes this fact; it must not rank providers again after the append.
++#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
++pub struct RoutingDecision {
++    pub profile: String,
++    pub provider: String,
++    pub fallbacks_attempted: Vec<String>,
++    /// Opaque provider workspace identity. Local execution uses a canonical cwd;
++    /// cloud adapters can identify their existing per-run sandbox here.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub workspace: Option<String>,
++}
++
++impl RoutingDecision {
++    /// Shared field validation for admission, replay, and epoch reconstruction.
++    /// Return the rejected field so operational failures retain their cause.
++    pub fn validate(&self) -> Result<(), String> {
++        for (field, value) in [
++            ("profile", self.profile.as_str()),
++            ("provider", self.provider.as_str()),
++        ] {
++            if value.trim().is_empty() {
++                return Err(format!("{field} must not be blank"));
++            }
++        }
++        if self
++            .workspace
++            .as_ref()
++            .is_some_and(|value| value.trim().is_empty())
++        {
++            return Err("workspace must not be blank".into());
++        }
++        for (index, value) in self.fallbacks_attempted.iter().enumerate() {
++            if value.trim().is_empty() {
++                return Err(format!("fallbacks_attempted[{index}] must not be blank"));
++            }
++        }
++        Ok(())
++    }
++}
+diff --git a/kernel/relayflowd-core/src/spec.rs b/kernel/relayflowd-core/src/spec.rs
+index fc09140e..4011873a 100644
+--- a/kernel/relayflowd-core/src/spec.rs
++++ b/kernel/relayflowd-core/src/spec.rs
+@@ -172,6 +172,9 @@ impl RunSpec {
+                         detail,
+                     })?;
+             }
++            if let Some(requirements) = &step.requirements {
++                requirements.validate().map_err(SpecError::Malformed)?;
++            }
+             step.retry.validate(&step.id)?;
+         }
+ 
+@@ -275,6 +278,7 @@ const STEP_COMMON_FIELDS: &[&str] = &[
+     "retry",
+     "verification",
+     "memory",
++    "requirements",
+ ];
+ const STEP_DETERMINISTIC_FIELDS: &[&str] = &["command", "timeout_ms"];
+ const STEP_LLM_FIELDS: &[&str] = &["prompt", "model", "cli"];
+@@ -312,6 +316,9 @@ fn reject_unknown_step_fields(value: &Value) -> Result<(), SpecError> {
+                 detail,
+             })?;
+         }
++        if let Some(requirements) = object.get("requirements") {
++            crate::placement::validate_shape(requirements).map_err(SpecError::Malformed)?;
++        }
+         for key in object.keys() {
+             if !STEP_COMMON_FIELDS.contains(&key.as_str()) && !kind_fields.contains(&key.as_str()) {
+                 return Err(SpecError::UnknownField {
+@@ -337,6 +344,8 @@ pub struct StepSpec {
+     pub verification: VerificationSpec,
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     pub memory: Option<crate::memory::MemorySpec>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub requirements: Option<crate::PlacementRequirements>,
+     #[serde(flatten)]
+     pub kind: StepKind,
+ }
+diff --git a/kernel/relayflowd-core/src/state.rs b/kernel/relayflowd-core/src/state.rs
+index a31ec2f1..9575fd85 100644
+--- a/kernel/relayflowd-core/src/state.rs
++++ b/kernel/relayflowd-core/src/state.rs
+@@ -9,12 +9,13 @@ use crate::{
+         RunCancelRequestedPayload, RunCompletedPayload, RunCompletionReason, SleepUntilPayload,
+         StepCompletedPayload, WaitCompletedPayload, WaitCompletionReason,
+     },
+-    spec::{RunSpec, StepKind, StepType},
++    spec::{RunSpec, StepKind},
+ };
+ 
+ mod budget;
+ mod memory;
+ mod pins;
++mod routing;
+ use budget::add_budget;
+ 
+ #[derive(Debug, Clone, PartialEq)]
+@@ -74,6 +75,7 @@ pub struct RunState {
+     pub cancel_requested: Option<RunCancelRequestedPayload>,
+     /// Appendix A rule 6 chain head: the last successful agent completion.
+     pub current_pins: Option<Pins>,
++    pub routing: BTreeMap<String, crate::RoutingDecision>,
+ }
+ 
+ impl RunState {
+@@ -111,6 +113,7 @@ impl RunState {
+             completion: None,
+             cancel_requested: None,
+             current_pins: None,
++            routing: BTreeMap::new(),
+         };
+ 
+         for entry in entries {
+@@ -122,6 +125,7 @@ impl RunState {
+             }
+             match entry.entry_type {
+                 EntryType::EpochSummary => state.apply_epoch(entry)?,
++                EntryType::StepRouted => state.apply_routing(entry)?,
+                 EntryType::StepAttemptStarted => {
+                     let payload: crate::entry::AttemptStartedPayload = decode(entry)?;
+                     state.validate_start_pins(entry, &payload)?;
+@@ -133,9 +137,7 @@ impl RunState {
+                         lease_deadline_ms: payload.lease_deadline_ms,
+                         idempotency_key: payload.idempotency_key,
+                     };
+-                    if payload.step_type == StepType::Agent {
+-                        step.last_start_pins = Some(payload.pins);
+-                    }
++                    step.last_start_pins = Some(payload.pins);
+                 }
+                 EntryType::MemoryInjected => state.apply_memory_injected(entry)?,
+                 EntryType::StepCompleted => state.apply_step_completed(entry)?,
+@@ -300,7 +302,12 @@ impl RunState {
+         if payload.disposition == Disposition::StepDone
+             && payload.completion_reason == CompletionReason::Success
+         {
+-            if is_agent {
++            if is_agent
++                || matches!(
++                    self.spec.step(&step_id).map(|s| &s.kind),
++                    Some(StepKind::Deterministic { .. })
++                )
++            {
+                 self.current_pins =
+                     pins::chain_forward(self.current_pins.take(), payload.end_pins.clone());
+             }
+@@ -311,6 +318,8 @@ impl RunState {
+ 
+     fn apply_epoch(&mut self, entry: &JournalEntry) -> Result<(), StateError> {
+         let payload: EpochSummaryPayload = decode(entry)?;
++        self.validate_routing(&payload.routing)?;
++        self.routing = payload.routing;
+         self.memo.clear();
+         self.budget = payload.budget_spent;
+         for runtime in self.steps.values_mut() {
+@@ -420,6 +429,8 @@ fn decode<T: serde::de::DeserializeOwned>(entry: &JournalEntry) -> Result<T, Sta
+ 
+ #[derive(Debug, Error)]
+ pub enum StateError {
++    #[error("invalid routing decision for step {step}: {detail}")]
++    InvalidRouting { step: String, detail: String },
+     #[error("invalid memory fact for step {step}: {detail}")]
+     InvalidMemory { step: String, detail: String },
+     #[error(transparent)]
+diff --git a/kernel/relayflowd-core/src/state/routing.rs b/kernel/relayflowd-core/src/state/routing.rs
+new file mode 100644
+index 00000000..2c2ef476
+--- /dev/null
++++ b/kernel/relayflowd-core/src/state/routing.rs
+@@ -0,0 +1,49 @@
++//! Routing replay shares field validation with journal admission.
++use super::{RunState, StateError, decode};
++use crate::{JournalEntry, RoutingDecision};
++use std::collections::BTreeMap;
++
++impl RunState {
++    pub(super) fn apply_routing(&mut self, entry: &JournalEntry) -> Result<(), StateError> {
++        let id = entry
++            .step_id
++            .as_ref()
++            .ok_or(StateError::MissingStep(entry.seq))?;
++        if self.routing.contains_key(id) {
++            return Err(StateError::InvalidRouting {
++                step: id.clone(),
++                detail: "routing decision already recorded".into(),
++            });
++        }
++        let route: RoutingDecision = decode(entry)?;
++        self.validate_routing_decision(id, &route)?;
++        self.routing.insert(id.clone(), route);
++        Ok(())
++    }
++
++    pub(super) fn validate_routing(
++        &self,
++        routing: &BTreeMap<String, RoutingDecision>,
++    ) -> Result<(), StateError> {
++        for (id, route) in routing {
++            self.validate_routing_decision(id, route)?;
++        }
++        Ok(())
++    }
++
++    fn validate_routing_decision(
++        &self,
++        id: &str,
++        route: &RoutingDecision,
++    ) -> Result<(), StateError> {
++        if !self.steps.contains_key(id) {
++            return Err(StateError::UnknownStep(id.into()));
++        }
++        route
++            .validate()
++            .map_err(|detail| StateError::InvalidRouting {
++                step: id.into(),
++                detail,
++            })
++    }
++}
+diff --git a/kernel/relayflowd-core/tests/spec_parity.rs b/kernel/relayflowd-core/tests/spec_parity.rs
+index 5158ff6f..66c5d2dc 100644
+--- a/kernel/relayflowd-core/tests/spec_parity.rs
++++ b/kernel/relayflowd-core/tests/spec_parity.rs
+@@ -129,3 +129,37 @@ fn memory_declaration_acceptance_matches_the_sdk_corpus() {
+         );
+     }
+ }
++
++#[test]
++fn placement_requirements_have_identical_canonical_bytes_and_hash() {
++    assert_parity(
++        include_str!("../../../testdata/step-placement.spec.canonical.json"),
++        include_str!("../../../testdata/step-placement.spec.sha256"),
++    );
++}
++
++#[test]
++fn placement_declaration_acceptance_matches_the_sdk_corpus() {
++    let cases: Vec<Value> =
++        serde_json::from_str(include_str!("../../../testdata/placement-spec-cases.json")).unwrap();
++    for case in cases {
++        for kind in ["deterministic", "llm", "agent"] {
++            let mut step =
++                serde_json::json!({"id":"s","type":kind,"requirements":case["requirements"]});
++            step[match kind {
++                "deterministic" => "command",
++                "llm" => "prompt",
++                _ => "instruction",
++            }] = serde_json::json!("true");
++            let accepted = RunSpec::parse(&serde_json::json!({"steps":[step]}))
++                .and_then(|s| s.validate())
++                .is_ok();
++            assert_eq!(
++                accepted,
++                case["valid"].as_bool().unwrap(),
++                "{}: {kind}",
++                case["name"]
++            );
++        }
++    }
++}
+diff --git a/kernel/relayflowd-journal/src/append.rs b/kernel/relayflowd-journal/src/append.rs
+index 8c6dacff..53911c80 100644
+--- a/kernel/relayflowd-journal/src/append.rs
++++ b/kernel/relayflowd-journal/src/append.rs
+@@ -93,6 +93,7 @@ pub(crate) fn insert_entry(
+     )?;
+     let seq = transaction.last_insert_rowid();
+     persisted.seq = seq;
++    crate::placement::validate_entry(transaction, run_id, &persisted)?;
+     crate::memory::validate_entry(transaction, run_id, &persisted)?;
+     crate::channel::validate_entry(transaction, run_id, &persisted)?;
+ 
+diff --git a/kernel/relayflowd-journal/src/lib.rs b/kernel/relayflowd-journal/src/lib.rs
+index 5183ccbd..3bbf1e56 100644
+--- a/kernel/relayflowd-journal/src/lib.rs
++++ b/kernel/relayflowd-journal/src/lib.rs
+@@ -3,6 +3,7 @@
+ mod append;
+ mod channel;
+ mod memory;
++mod placement;
+ mod registry;
+ mod segment;
+ mod subscriptions;
+@@ -496,6 +497,7 @@ mod tests {
+                     pinned_revisions: BTreeMap::new(),
+                     budget_spent: Budget::default(),
+                     memory: BTreeMap::new(),
++                    routing: BTreeMap::new(),
+                 },
+                 20,
+             )
+diff --git a/kernel/relayflowd-journal/src/placement.rs b/kernel/relayflowd-journal/src/placement.rs
+new file mode 100644
+index 00000000..2d1d78d0
+--- /dev/null
++++ b/kernel/relayflowd-journal/src/placement.rs
+@@ -0,0 +1,80 @@
++//! Routing is an append-only fact, including across epoch boundaries.
++use crate::{JournalStoreError, append::entry_from_row};
++use relayflowd_core::{EntryType, EpochSummaryPayload, JournalEntry, RoutingDecision, StateError};
++use rusqlite::Transaction;
++use std::collections::BTreeMap;
++
++fn decisions(
++    tx: &Transaction<'_>,
++    run_id: &str,
++) -> Result<BTreeMap<String, RoutingDecision>, JournalStoreError> {
++    let mut query = tx.prepare("SELECT seq, segment_id, entry_type, step_id, attempt, at_ms, payload FROM entries WHERE entry_type IN ('step.routed', 'epoch.summary') ORDER BY seq")?;
++    let entries = query
++        .query_map([], |row| entry_from_row(row, run_id))?
++        .collect::<Result<Vec<_>, _>>()?;
++    let mut routing = BTreeMap::new();
++    for entry in entries {
++        if entry.entry_type == EntryType::EpochSummary {
++            routing = serde_json::from_value::<EpochSummaryPayload>(entry.payload)?.routing;
++            continue;
++        }
++        let id = entry.step_id.ok_or(StateError::MissingStep(entry.seq))?;
++        let route: RoutingDecision = serde_json::from_value(entry.payload)?;
++        if routing.contains_key(&id) {
++            return Err(StateError::InvalidRouting {
++                step: id,
++                detail: "routing decision already recorded".into(),
++            }
++            .into());
++        }
++        route
++            .validate()
++            .map_err(|detail| StateError::InvalidRouting {
++                step: id.clone(),
++                detail,
++            })?;
++        routing.insert(id, route);
++    }
++    Ok(routing)
++}
++
++pub(crate) fn validate_entry(
++    tx: &Transaction<'_>,
++    run_id: &str,
++    entry: &JournalEntry,
++) -> Result<(), JournalStoreError> {
++    if entry.entry_type == EntryType::StepRouted {
++        let id = entry
++            .step_id
++            .as_deref()
++            .ok_or(StateError::MissingStep(entry.seq))?;
++        let payload: String = tx.query_row(
++            "SELECT payload FROM entries WHERE entry_type = 'run.spawned' ORDER BY seq LIMIT 1",
++            [],
++            |row| row.get(0),
++        )?;
++        let spawn: relayflowd_core::RunSpawnedPayload = serde_json::from_str(&payload)?;
++        let spec = relayflowd_core::RunSpec::parse(&spawn.spec).map_err(StateError::from)?;
++        if spec.step(id).is_none() {
++            return Err(StateError::UnknownStep(id.into()).into());
++        }
++        if entry.attempt.is_some() {
++            return Err(StateError::InvalidRouting {
++                step: id.into(),
++                detail: "routing decision must not specify an attempt".into(),
++            }
++            .into());
++        }
++        decisions(tx, run_id)?;
++    }
++    Ok(())
++}
++
++pub(crate) fn carry_summary(
++    tx: &Transaction<'_>,
++    run_id: &str,
++    summary: &mut EpochSummaryPayload,
++) -> Result<(), JournalStoreError> {
++    summary.routing = decisions(tx, run_id)?;
++    Ok(())
++}
+diff --git a/kernel/relayflowd-journal/src/segment.rs b/kernel/relayflowd-journal/src/segment.rs
+index 2c98ac80..79723883 100644
+--- a/kernel/relayflowd-journal/src/segment.rs
++++ b/kernel/relayflowd-journal/src/segment.rs
+@@ -19,6 +19,7 @@ impl SqliteJournal {
+             .connection
+             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+ 
++        crate::placement::carry_summary(&transaction, &self.run_id, &mut summary)?;
+         crate::memory::carry_summary(&transaction, &self.run_id, &mut summary)?;
+ 
+         let closed = insert_entry(
+diff --git a/kernel/relayflowd/Cargo.toml b/kernel/relayflowd/Cargo.toml
+index b23bb3fd..d6e79a7c 100644
+--- a/kernel/relayflowd/Cargo.toml
++++ b/kernel/relayflowd/Cargo.toml
+@@ -19,4 +19,5 @@ wait-timeout.workspace = true
+ libc.workspace = true
+ 
+ [dev-dependencies]
++rusqlite.workspace = true
+ tempfile.workspace = true
+diff --git a/kernel/relayflowd/src/engine.rs b/kernel/relayflowd/src/engine.rs
+index a1fe8674..4d666161 100644
+--- a/kernel/relayflowd/src/engine.rs
++++ b/kernel/relayflowd/src/engine.rs
+@@ -37,6 +37,7 @@ mod drive;
+ mod effects;
+ mod memory;
+ mod model;
++mod placement;
+ mod remote;
+ mod wake;
+ pub use channels::ChannelCommandError;
+@@ -167,6 +168,7 @@ impl<C: Clock> Engine<C> {
+         options: DriveOptions,
+     ) -> Result<RunOutcome> {
+         spec.validate().context("invalid run spec")?;
++        self.preflight_placement(&spec)?;
+         let run_id = Ulid::new().to_string();
+         let path = self.run_path(&run_id);
+         let now_ms = self.clock.now_ms();
+@@ -193,6 +195,7 @@ impl<C: Clock> Engine<C> {
+         self.registry()?
+             .register(&run_id, &path)
+             .context("register run")?;
++        self.bind_local_workspaces(&mut journal, &spec)?;
+         self.drive(journal, spec, options)
+     }
+ 
+diff --git a/kernel/relayflowd/src/engine/drive.rs b/kernel/relayflowd/src/engine/drive.rs
+index 50b06a23..c8991b8b 100644
+--- a/kernel/relayflowd/src/engine/drive.rs
++++ b/kernel/relayflowd/src/engine/drive.rs
+@@ -1,6 +1,6 @@
+ use std::{collections::BTreeSet, thread, time::Duration};
+ 
+-use anyhow::{Result, bail};
++use anyhow::{Context, Result, bail};
+ use relayflowd_core::{
+     Action, AttemptResult, Clock, CompletionReason, RunCompletionReason, RunSpec, RunState,
+     abandonment_actions, completion_actions, next_actions,
+@@ -94,6 +94,7 @@ impl<C: Clock> Engine<C> {
+                         let prepared = (|| -> Result<()> {
+                             self.prepare_start_entry(&state, &mut entry)?;
+                             self.assign_executor(&state, &mut entry)?;
++                            self.route_start(&mut journal, &state, &mut entry)?;
+                             self.append(&mut journal, &entry)?;
+                             Ok(())
+                         })();
+@@ -116,10 +117,31 @@ impl<C: Clock> Engine<C> {
+                         if !self.ensure_step_memory(&mut journal, &step, attempt)? {
+                             continue;
+                         }
+-                        let injected = self.load_state(&journal, spec.clone())?.steps[&step.id]
+-                            .memory
+-                            .clone();
+-                        let result = exec_det::execute_with_memory(&step, injected.as_ref());
++                        let started = self.load_state(&journal, spec.clone())?;
++                        let runtime = &started.steps[&step.id];
++                        let workspace = started
++                            .routing
++                            .get(&step.id)
++                            .and_then(|r| r.workspace.as_deref());
++                        let mut result = exec_det::execute_placed(
++                            &step,
++                            runtime.memory.as_ref(),
++                            workspace.map(std::path::Path::new),
++                        );
++                        if let Some(path) = workspace {
++                            match crate::workspace::pin(std::path::Path::new(path)) {
++                                Ok(pin) => {
++                                    result.end_pins = Some(relayflowd_core::Pins {
++                                        workspace: vec![pin],
++                                        streams: vec![],
++                                    })
++                                }
++                                Err(error) => {
++                                    result.failure_reason = Some(CompletionReason::WorkerError);
++                                    result.failure_detail = Some(error.to_string());
++                                }
++                            }
++                        }
+                         let semantic_executions = state.steps[&step.id].semantic_executions;
+                         for action in completion_actions(
+                             journal.run_id(),
+@@ -187,6 +209,7 @@ impl<C: Clock> Engine<C> {
+                                     lease_id,
+                                     idempotency_key,
+                                     pins,
++                                    routing: started_state.routing.get(&step.id).context("dispatch has no journaled route")?.clone(),
+                                     wake_context: journal.scan_from(1, usize::MAX).ok().and_then(|entries| entries.into_iter()
+                                         .find(|entry| entry.entry_type == relayflowd_core::EntryType::SubscriptionMatched)
+                                         .and_then(|entry| entry.payload.get("wake_context").cloned())),
+diff --git a/kernel/relayflowd/src/engine/placement.rs b/kernel/relayflowd/src/engine/placement.rs
+new file mode 100644
+index 00000000..d094376a
+--- /dev/null
++++ b/kernel/relayflowd/src/engine/placement.rs
+@@ -0,0 +1,169 @@
++use super::Engine;
++use anyhow::{Context, Result, bail};
++use relayflowd_core::{
++    AttemptStartedPayload, Clock, EntryType, ExecutionMode, JournalEntry, RoutingDecision,
++    RunState, StepType,
++};
++use relayflowd_journal::SqliteJournal;
++use std::path::Path;
++
++impl<C: Clock> Engine<C> {
++    pub(super) fn preflight_placement(&self, spec: &relayflowd_core::RunSpec) -> Result<()> {
++        for step in &spec.steps {
++            if step.step_type() != StepType::Deterministic {
++                continue;
++            }
++            if let Some(requirements) = &step.requirements {
++                if requirements.execution == Some(ExecutionMode::Interactive) {
++                    bail!(
++                        "step {} requires interactive execution; local deterministic executor supports batch only",
++                        step.id
++                    );
++                }
++                if requirements.workspace != Some(false) {
++                    crate::workspace::pin(&std::env::current_dir()?)?;
++                }
++            }
++        }
++        Ok(())
++    }
++
++    /// Bind declared local workspaces at submission, before a pause/crash can
++    /// make a later step inherit the cwd of a different daemon process.
++    pub(super) fn bind_local_workspaces(
++        &self,
++        journal: &mut SqliteJournal,
++        spec: &relayflowd_core::RunSpec,
++    ) -> Result<()> {
++        for step in &spec.steps {
++            if step.step_type() != StepType::Deterministic
++                || !step
++                    .requirements
++                    .as_ref()
++                    .is_some_and(|r| r.workspace != Some(false))
++            {
++                continue;
++            }
++            let pin = crate::workspace::pin(&std::env::current_dir()?)?;
++            let route = RoutingDecision {
++                profile: "batch".into(),
++                provider: "local".into(),
++                fallbacks_attempted: vec![],
++                workspace: Some(pin.surface),
++            };
++            self.append(
++                journal,
++                &JournalEntry::new(
++                    EntryType::StepRouted,
++                    journal.run_id().to_owned(),
++                    Some(step.id.clone()),
++                    None,
++                    self.clock.now_ms(),
++                    route,
++                ),
++            )?;
++        }
++        Ok(())
++    }
++
++    /// Persist the decision before the attempt starts. If that append succeeds
++    /// but the process dies before start, replay uses the decision already made.
++    pub(super) fn route_start(
++        &self,
++        journal: &mut SqliteJournal,
++        state: &RunState,
++        entry: &mut JournalEntry,
++    ) -> Result<()> {
++        if entry.entry_type != EntryType::StepAttemptStarted {
++            return Ok(());
++        }
++        let step_id = entry.step_id.as_deref().context("start has no step")?;
++        let step = state
++            .spec
++            .step(step_id)
++            .context("start names unknown step")?;
++        let mut start: AttemptStartedPayload = serde_json::from_value(entry.payload.clone())?;
++        let route = if let Some(route) = state.routing.get(step_id) {
++            route.clone()
++        } else {
++            let route = if step.step_type() == StepType::Deterministic {
++                if step.requirements.as_ref().and_then(|r| r.execution)
++                    == Some(ExecutionMode::Interactive)
++                {
++                    bail!(
++                        "step {step_id} requires interactive execution; local deterministic executor supports batch only"
++                    );
++                }
++                let workspace = if step
++                    .requirements
++                    .as_ref()
++                    .is_some_and(|r| r.workspace != Some(false))
++                {
++                    Some(
++                        match state
++                            .routing
++                            .values()
++                            .find(|r| r.provider == "local" && r.workspace.is_some())
++                        {
++                            Some(route) => route.workspace.clone().unwrap(),
++                            None => std::env::current_dir()?
++                                .canonicalize()?
++                                .to_str()
++                                .context("workspace path is not UTF-8")?
++                                .to_owned(),
++                        },
++                    )
++                } else {
++                    None
++                };
++                RoutingDecision {
++                    profile: "batch".into(),
++                    provider: "local".into(),
++                    fallbacks_attempted: vec![],
++                    workspace,
++                }
++            } else {
++                self.dispatcher
++                    .as_ref()
++                    .context("placement requires a worker")?
++                    .routing_decision(
++                        &state.run_id,
++                        step,
++                        entry.attempt.context("start has no attempt")?,
++                    )?
++            };
++            route
++                .validate()
++                .map_err(anyhow::Error::msg)
++                .with_context(|| format!("invalid routing decision for step {step_id}"))?;
++            // Resolve source facts before appending the routing decision.
++            if route.provider == "local"
++                && let Some(path) = &route.workspace
++            {
++                crate::workspace::pin(Path::new(path))?;
++            }
++            self.append(
++                journal,
++                &JournalEntry::new(
++                    EntryType::StepRouted,
++                    &state.run_id,
++                    Some(step_id.to_owned()),
++                    None,
++                    self.clock.now_ms(),
++                    &route,
++                ),
++            )?;
++            route
++        };
++        if step.step_type() == StepType::Deterministic {
++            if route.provider != "local" {
++                bail!("local executor cannot execute provider {}", route.provider);
++            }
++            if let Some(path) = &route.workspace {
++                start.pins.workspace = vec![crate::workspace::pin(Path::new(path))?];
++            }
++        }
++        entry.payload = serde_json::to_value(start)?;
++        Ok(())
++    }
++}
+diff --git a/kernel/relayflowd/src/exec_det.rs b/kernel/relayflowd/src/exec_det.rs
+index a590861a..07a80635 100644
+--- a/kernel/relayflowd/src/exec_det.rs
++++ b/kernel/relayflowd/src/exec_det.rs
+@@ -18,6 +18,14 @@ pub fn execute(step: &StepSpec) -> AttemptResult {
+ pub fn execute_with_memory(
+     step: &StepSpec,
+     memory: Option<&relayflowd_core::MemoryInjectedPayload>,
++) -> AttemptResult {
++    execute_placed(step, memory, None)
++}
++
++pub(crate) fn execute_placed(
++    step: &StepSpec,
++    memory: Option<&relayflowd_core::MemoryInjectedPayload>,
++    workspace: Option<&std::path::Path>,
+ ) -> AttemptResult {
+     let StepKind::Deterministic {
+         command,
+@@ -41,6 +49,9 @@ pub fn execute_with_memory(
+             command
+         }
+     };
++    if let Some(workspace) = workspace {
++        process.current_dir(workspace);
++    }
+     process.env_remove("RELAYFLOW_MEMORY");
+     if let Some(memory) = memory {
+         process.env("RELAYFLOW_MEMORY", memory.pack.to_string());
+diff --git a/kernel/relayflowd/src/lib.rs b/kernel/relayflowd/src/lib.rs
+index df00e788..6c964cb8 100644
+--- a/kernel/relayflowd/src/lib.rs
++++ b/kernel/relayflowd/src/lib.rs
+@@ -9,3 +9,5 @@ pub use engine::{
+     CancelOptions, DriveOptions, Engine, OutOfBandCompletion, RunOutcome, RunSnapshot, RunStatus,
+     StepSnapshot, StepStatus,
+ };
++
++mod workspace;
+diff --git a/kernel/relayflowd/src/worker.rs b/kernel/relayflowd/src/worker.rs
+index 52a4d846..854814e2 100644
+--- a/kernel/relayflowd/src/worker.rs
++++ b/kernel/relayflowd/src/worker.rs
+@@ -16,6 +16,7 @@ pub struct StepDispatch {
+     pub lease_id: String,
+     pub idempotency_key: String,
+     pub pins: Pins,
++    pub routing: relayflowd_core::RoutingDecision,
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub wake_context: Option<serde_json::Value>,
+     #[serde(skip_serializing_if = "Option::is_none")]
+@@ -65,13 +66,20 @@ pub trait StepDispatcher: Send + Sync {
+         self.executor(step.step_type())
+     }
+ 
+-    /// Opaque starting revisions/offsets reported by the selected worker for
+-    /// the first agent attempt. Later attempts are derived from the journal.
+-    fn starting_pins(&self, _step: &StepSpec) -> Result<Pins> {
+-        Ok(Pins::default())
++    /// Supply starting pins for declared surfaces not yet covered by the journal.
++    /// The default runs `git rev-parse --verify HEAD` in each declared local
++    /// worktree, using this process's filesystem, and fails on unreadable
++    /// worktrees or declared streams (it cannot report stream offsets).
++    /// Remote dispatchers must override this or `reserved_starting_pins` to
++    /// report revisions/offsets from their selected worker instead of local Git.
++    /// Surfaces already pinned by the run are carried forward from the journal.
++    fn starting_pins(&self, step: &StepSpec) -> Result<Pins> {
++        crate::workspace::starting_pins(step)
+     }
+ 
+-    /// Starting pins reported by the worker whose capacity was reserved.
++    /// Starting pins for the worker whose capacity was reserved. The default
++    /// delegates to `starting_pins`, including its local filesystem/Git behavior;
++    /// remote dispatchers override this when pin lookup depends on the reservation.
+     fn reserved_starting_pins(
+         &self,
+         _run_id: &str,
+@@ -84,6 +92,30 @@ pub trait StepDispatcher: Send + Sync {
+     /// Release an admission that did not become a live assignment.
+     fn release_dispatch_reservation(&self, _run_id: &str, _step_id: &str, _attempt: u32) {}
+ 
++    /// Fixed attached-worker placement. Provider-backed adapters override this
++    /// to report their existing orchestration decision; dispatch consumes the
++    /// journaled decision, including on retry, without choosing again.
++    fn routing_decision(
++        &self,
++        _run_id: &str,
++        step: &StepSpec,
++        _attempt: u32,
++    ) -> Result<relayflowd_core::RoutingDecision> {
++        if step
++            .requirements
++            .as_ref()
++            .is_some_and(|r| r != &relayflowd_core::PlacementRequirements::default())
++        {
++            anyhow::bail!("worker dispatcher must match the declared placement requirements");
++        }
++        Ok(relayflowd_core::RoutingDecision {
++            profile: "attached-worker".into(),
++            provider: "worker".into(),
++            fallbacks_attempted: vec![],
++            workspace: None,
++        })
++    }
++
+     fn dispatch(&self, dispatch: StepDispatch) -> Result<DispatchOutcome>;
+ 
+     /// Heartbeat-renewed operational deadline for one live assignment. The
+diff --git a/kernel/relayflowd/src/workspace.rs b/kernel/relayflowd/src/workspace.rs
+new file mode 100644
+index 00000000..cd3b22fd
+--- /dev/null
++++ b/kernel/relayflowd/src/workspace.rs
+@@ -0,0 +1,50 @@
++//! Local worktree facts at the I/O edge. This is not a sandbox provisioner.
++use anyhow::{Context, Result, bail};
++use relayflowd_core::{Pins, StepKind, StepSpec, WorkspacePin};
++use std::{path::Path, process::Command};
++
++pub(crate) fn pin(path: &Path) -> Result<WorkspacePin> {
++    let path = path
++        .canonicalize()
++        .with_context(|| format!("workspace {} is unavailable", path.display()))?;
++    let output = Command::new("git")
++        .args(["rev-parse", "--verify", "HEAD"])
++        .current_dir(&path)
++        .output()
++        .context("read workspace base commit")?;
++    if !output.status.success() {
++        bail!(
++            "workspace {} has no readable base commit: {}",
++            path.display(),
++            String::from_utf8_lossy(&output.stderr)
++        );
++    }
++    let revision_id = String::from_utf8(output.stdout)?.trim().to_owned();
++    if revision_id.is_empty() {
++        bail!("workspace base commit is empty");
++    }
++    Ok(WorkspacePin {
++        surface: path
++            .to_str()
++            .context("workspace path is not UTF-8")?
++            .to_owned(),
++        revision_id,
++    })
++}
++
++/// Default in-process dispatcher pins declared worktrees. Remote dispatchers
++/// override this with relayfile revision facts from their selected worker.
++pub(crate) fn starting_pins(step: &StepSpec) -> Result<Pins> {
++    let mut pins = Pins::default();
++    if let StepKind::Agent { surfaces, .. } = &step.kind {
++        for surface in &surfaces.workspace {
++            let mut pinned = pin(Path::new(&surface.surface))?;
++            pinned.surface = surface.surface.clone();
++            pins.workspace.push(pinned);
++        }
++        if !surfaces.streams.is_empty() {
++            bail!("dispatcher must report declared stream offsets");
++        }
++    }
++    Ok(pins)
++}
+diff --git a/kernel/relayflowd/tests/crash_resume.rs b/kernel/relayflowd/tests/crash_resume.rs
+index 51d36f03..c77613d8 100644
+--- a/kernel/relayflowd/tests/crash_resume.rs
++++ b/kernel/relayflowd/tests/crash_resume.rs
+@@ -29,6 +29,8 @@ mod surface_identity;
+ mod worker_capacity;
+ #[path = "crash_resume/workspace_identity.rs"]
+ mod workspace_identity;
++#[path = "crash_resume/placement.rs"]
++mod placement;
+ 
+ use std::{
+     fs, io::Write, os::unix::net::UnixStream, os::unix::process::CommandExt, process::Command,
+diff --git a/kernel/relayflowd/tests/crash_resume/placement.rs b/kernel/relayflowd/tests/crash_resume/placement.rs
+new file mode 100644
+index 00000000..9df99b3e
+--- /dev/null
++++ b/kernel/relayflowd/tests/crash_resume/placement.rs
+@@ -0,0 +1,194 @@
++use std::{
++    fs,
++    os::unix::process::CommandExt,
++    process::{Command, Stdio},
++};
++
++use relayflowd::{RunOutcome, RunStatus};
++use relayflowd_core::EntryType;
++use serde_json::json;
++use tempfile::tempdir;
++
++use super::support::{
++    journal_entries, kill_group, kill_process_group, only_run_id, read_pid, wait_until,
++};
++
++#[test]
++fn declared_placement_keeps_one_source_tree_across_resume() {
++    shared_tree("between");
++}
++
++#[test]
++fn sigkill_mid_step_keeps_the_route_and_source_tree() {
++    shared_tree("during");
++}
++
++#[test]
++fn sigkill_before_first_step_preserves_the_submitted_workspace() {
++    shared_tree("before");
++}
++
++fn shared_tree(boundary: &str) {
++    let crash = boundary == "during";
++    let directory = tempdir().unwrap();
++    let tree = directory.path().join("source");
++    let elsewhere = directory.path().join("elsewhere");
++    let data = directory.path().join("data");
++    fs::create_dir(&tree).unwrap();
++    fs::create_dir(&elsewhere).unwrap();
++    fs::write(tree.join("source.txt"), "source-present\n").unwrap();
++    for args in [
++        vec!["init", "-q"],
++        vec!["add", "source.txt"],
++        vec![
++            "-c",
++            "user.name=Test",
++            "-c",
++            "user.email=test@example.com",
++            "commit",
++            "-qm",
++            "source",
++        ],
++    ] {
++        assert!(
++            Command::new("git")
++                .args(args)
++                .current_dir(&tree)
++                .status()
++                .unwrap()
++                .success()
++        );
++    }
++    let revision = Command::new("git")
++        .args(["rev-parse", "HEAD"])
++        .current_dir(&tree)
++        .output()
++        .unwrap();
++    let revision = String::from_utf8(revision.stdout)
++        .unwrap()
++        .trim()
++        .to_owned();
++    let spec = directory.path().join("flow.json");
++    let read_command = if crash {
++        "echo $$ > step.pid; touch started; while [ ! -f continue ]; do sleep 0.02; done; cat shared.txt"
++    } else {
++        "cat shared.txt"
++    };
++    fs::write(&spec, json!({"steps":[
++        {"id":"write","type":"deterministic","requirements":{"workspace":true,"execution":"batch"},
++         "command":"cat source.txt > shared.txt"},
++        {"id":"read","type":"deterministic","depends_on":["write"],
++         "requirements":{"workspace":true,"execution":"batch"},
++         "command":read_command,"verification":{"output_contains":"source-present"}}
++    ]}).to_string()).unwrap();
++    let mut command = Command::new(env!("CARGO_BIN_EXE_relayflowd"));
++    command
++        .arg("--data-dir")
++        .arg(&data)
++        .arg("run")
++        .arg(&spec)
++        .current_dir(&tree);
++    if boundary == "before" {
++        let mut child = command
++            .args(["--pause-before-step", "write"])
++            .stdout(Stdio::null())
++            .process_group(0)
++            .spawn()
++            .unwrap();
++        wait_until("submitted workspace binding", || {
++            journal_entries(&data).is_some_and(|entries| {
++                entries
++                    .iter()
++                    .filter(|e| e.entry_type.as_str() == "step.routed")
++                    .count()
++                    == 2
++            })
++        });
++        kill_process_group(&mut child);
++    } else if crash {
++        let mut child = command
++            .stdout(Stdio::null())
++            .process_group(0)
++            .spawn()
++            .unwrap();
++        wait_until("placed command starts", || tree.join("started").exists());
++        kill_process_group(&mut child);
++        kill_group(read_pid(&tree.join("step.pid")));
++        fs::write(tree.join("continue"), "").unwrap();
++    } else {
++        let first = command.args(["--stop-after", "1"]).output().unwrap();
++        assert!(
++            first.status.success(),
++            "run failed: {}",
++            String::from_utf8_lossy(&first.stderr)
++        );
++    }
++    let run = only_run_id(&data);
++    let resumed = Command::new(env!("CARGO_BIN_EXE_relayflowd"))
++        .arg("--data-dir")
++        .arg(&data)
++        .args(["resume", &run])
++        .current_dir(&elsewhere)
++        .output()
++        .unwrap();
++    assert!(resumed.status.success(), "resume failed: {resumed:?}");
++    let outcome: RunOutcome = serde_json::from_slice(&resumed.stdout).unwrap();
++    assert_eq!(outcome.status, RunStatus::Completed);
++    assert_eq!(
++        fs::read_to_string(tree.join("shared.txt")).unwrap(),
++        "source-present\n"
++    );
++    assert!(!elsewhere.join("shared.txt").exists());
++    let entries = journal_entries(&data).unwrap();
++    assert_eq!(
++        entries
++            .iter()
++            .filter(|e| e.entry_type == EntryType::StepAttemptStarted)
++            .count(),
++        if crash { 3 } else { 2 }
++    );
++    if crash {
++        assert!(
++            entries
++                .iter()
++                .any(|e| e.entry_type == EntryType::StepCompleted
++                    && e.payload["completionReason"] == "crashed")
++        );
++    }
++    let routes: Vec<_> = entries
++        .iter()
++        .filter(|e| e.entry_type.as_str() == "step.routed")
++        .collect();
++    assert_eq!(routes.len(), 2, "each routing decision must be durable");
++    for route in routes {
++        assert_eq!(route.payload["profile"], "batch");
++        assert_eq!(route.payload["provider"], "local");
++        assert_eq!(route.payload["fallbacks_attempted"], json!([]));
++    }
++    for start in entries
++        .iter()
++        .filter(|e| e.entry_type == EntryType::StepAttemptStarted)
++    {
++        assert_eq!(
++            start.payload["pins"]["workspace"][0]["revision_id"],
++            revision
++        );
++        assert_eq!(
++            start.payload["pins"]["workspace"][0]["surface"],
++            fs::canonicalize(&tree).unwrap().to_str().unwrap()
++        );
++    }
++    let replay = Command::new(env!("CARGO_BIN_EXE_relayflowd"))
++        .arg("--data-dir")
++        .arg(&data)
++        .args(["resume", &run])
++        .current_dir(&elsewhere)
++        .output()
++        .unwrap();
++    assert!(replay.status.success());
++    assert_eq!(
++        entries,
++        journal_entries(&data).unwrap(),
++        "completed replay must not decide again"
++    );
++}
+diff --git a/kernel/relayflowd/tests/memory_epoch.rs b/kernel/relayflowd/tests/memory_epoch.rs
+index 74951a5d..d76f6ba1 100644
+--- a/kernel/relayflowd/tests/memory_epoch.rs
++++ b/kernel/relayflowd/tests/memory_epoch.rs
+@@ -74,6 +74,7 @@ fn epoch_carries_pack_and_exact_charge_and_refuses_duplicate_injection() {
+         pinned_revisions: BTreeMap::new(),
+         budget_spent: Budget::default(),
+         memory: BTreeMap::new(),
++        routing: BTreeMap::new(),
+     };
+     assert!(
+         journal
+diff --git a/kernel/relayflowd/tests/placement_pins.rs b/kernel/relayflowd/tests/placement_pins.rs
+new file mode 100644
+index 00000000..d96f8be6
+--- /dev/null
++++ b/kernel/relayflowd/tests/placement_pins.rs
+@@ -0,0 +1,86 @@
++use relayflowd::{
++    Engine,
++    worker::{DispatchOutcome, StepDispatch, StepDispatcher},
++};
++use relayflowd_core::{RunSpec, StepType};
++use serde_json::json;
++use std::{path::Path, process::Command};
++use tempfile::tempdir;
++
++struct LocalWorker;
++impl StepDispatcher for LocalWorker {
++    fn executor(&self, _: StepType) -> Option<String> {
++        Some("local-worker".into())
++    }
++    fn available(&self, _: StepType) -> bool {
++        true
++    }
++    fn dispatch(&self, _: StepDispatch) -> anyhow::Result<DispatchOutcome> {
++        unreachable!()
++    }
++}
++
++fn git(tree: &Path, args: &[&str]) -> String {
++    let output = Command::new("git")
++        .args(args)
++        .current_dir(tree)
++        .output()
++        .unwrap();
++    assert!(output.status.success(), "git failed: {output:?}");
++    String::from_utf8(output.stdout).unwrap().trim().into()
++}
++
++#[test]
++fn default_worker_pins_the_declared_worktree_base_commit_and_refuses_missing_source() {
++    let tree = tempdir().unwrap();
++    git(tree.path(), &["init", "-q"]);
++    git(
++        tree.path(),
++        &[
++            "-c",
++            "user.name=Test",
++            "-c",
++            "user.email=test@example.com",
++            "commit",
++            "--allow-empty",
++            "-qm",
++            "base",
++        ],
++    );
++    let revision = git(tree.path(), &["rev-parse", "HEAD"]);
++    let surface = tree
++        .path()
++        .canonicalize()
++        .unwrap()
++        .to_str()
++        .unwrap()
++        .to_owned();
++    let spec = RunSpec::parse(
++        &json!({"steps":[{"id":"edit","type":"agent","instruction":"edit",
++        "surfaces":{"workspace":[{"surface":surface}]}}]}),
++    )
++    .unwrap();
++    let pins = LocalWorker.starting_pins(&spec.steps[0]).unwrap();
++    assert_eq!(pins.workspace.len(), 1);
++    assert_eq!(pins.workspace[0].surface, surface);
++    assert_eq!(pins.workspace[0].revision_id, revision);
++    std::fs::remove_dir_all(tree.path().join(".git")).unwrap();
++    assert!(LocalWorker.starting_pins(&spec.steps[0]).is_err());
++}
++
++#[test]
++fn unsupported_local_pty_is_refused_before_an_earlier_step_can_run() {
++    let directory = tempdir().unwrap();
++    let marker = directory.path().join("must-not-exist");
++    let spec = RunSpec::parse(&json!({"steps":[
++        {"id":"first","type":"deterministic","command": ["touch", marker]},
++        {"id":"pty","type":"deterministic","depends_on":["first"],"command":"true",
++         "requirements":{"execution":"interactive"}}
++    ]}))
++    .unwrap();
++    let engine = Engine::new(directory.path().join("data"));
++    let error = engine.start(spec, "test", None).unwrap_err();
++    assert!(format!("{error:#}").contains("supports batch only"));
++    assert!(!marker.exists());
++    assert!(!directory.path().join("data/runs").exists());
++}
+diff --git a/kernel/relayflowd/tests/placement_routing.rs b/kernel/relayflowd/tests/placement_routing.rs
+new file mode 100644
+index 00000000..5ece7a57
+--- /dev/null
++++ b/kernel/relayflowd/tests/placement_routing.rs
+@@ -0,0 +1,217 @@
++use relayflowd::{
++    Engine,
++    worker::{DispatchOutcome, JournalObserver, StepDispatch, StepDispatcher},
++};
++use relayflowd_core::{
++    CompletionReason, EntryType, EpochSummaryPayload, Journal, JournalEntry, Pins, RoutingDecision,
++    RunSpec, RunState, StepSpec, StepType, WorkspacePin,
++};
++use relayflowd_journal::SqliteJournal;
++use serde_json::json;
++use std::{
++    collections::BTreeMap,
++    sync::{
++        Arc, Mutex,
++        atomic::{AtomicUsize, Ordering},
++    },
++};
++use tempfile::tempdir;
++
++#[derive(Default)]
++struct FixedProvider {
++    decisions: AtomicUsize,
++    dispatched: Mutex<Vec<StepDispatch>>,
++}
++impl JournalObserver for FixedProvider {
++    fn appended(&self, _: &JournalEntry) {}
++}
++impl StepDispatcher for FixedProvider {
++    fn available(&self, _: StepType) -> bool {
++        true
++    }
++    fn executor(&self, _: StepType) -> Option<String> {
++        Some("cloud-worker".into())
++    }
++    fn starting_pins(&self, _: &StepSpec) -> anyhow::Result<Pins> {
++        Ok(Pins {
++            workspace: vec![WorkspacePin {
++                surface: "/repo".into(),
++                revision_id: "relayfile-revision-1".into(),
++            }],
++            streams: vec![],
++        })
++    }
++    fn routing_decision(&self, _: &str, _: &StepSpec, _: u32) -> anyhow::Result<RoutingDecision> {
++        assert_eq!(
++            self.decisions.fetch_add(1, Ordering::SeqCst),
++            0,
++            "replay must not call the router again"
++        );
++        Ok(RoutingDecision {
++            profile: "interactive".into(),
++            provider: "test-cloud-adapter".into(),
++            fallbacks_attempted: vec!["unavailable-pool".into()],
++            workspace: Some("sandbox-for-run".into()),
++        })
++    }
++    fn dispatch(&self, dispatch: StepDispatch) -> anyhow::Result<DispatchOutcome> {
++        self.dispatched.lock().unwrap().push(dispatch);
++        Ok(DispatchOutcome::Dispatched)
++    }
++}
++
++#[test]
++fn worker_retry_consumes_the_original_routing_fact() {
++    let directory = tempdir().unwrap();
++    let provider = Arc::new(FixedProvider::default());
++    let engine = Engine::with_runtime(directory.path(), provider.clone(), provider.clone());
++    let spec = RunSpec::parse(&json!({"steps":[{"id":"edit","type":"agent","instruction":"edit",
++        "requirements":{"workspace":true,"execution":"interactive"},"surfaces":{"workspace":[{"surface":"/repo"}]}}]})).unwrap();
++    let run = engine.start(spec.clone(), "test", None).unwrap();
++    engine
++        .abandon_out_of_band(&run.run_id, "edit", 1, CompletionReason::Crashed)
++        .unwrap();
++    let engine = Engine::with_runtime(directory.path(), provider.clone(), provider.clone());
++    engine.resume(&run.run_id, None).unwrap();
++    let dispatches = provider.dispatched.lock().unwrap();
++    assert_eq!(dispatches.len(), 2);
++    assert_eq!(dispatches[0].routing, dispatches[1].routing);
++    assert_eq!(dispatches[0].pins, dispatches[1].pins);
++    assert_eq!(dispatches[1].attempt, 2);
++    assert_eq!(provider.decisions.load(Ordering::SeqCst), 1);
++    let mut journal = SqliteJournal::open(
++        directory
++            .path()
++            .join("runs")
++            .join(format!("{}.sqlite3", run.run_id)),
++    )
++    .unwrap();
++    let before = RunState::fold(&run.run_id, spec.clone(), &journal.scan_all().unwrap()).unwrap();
++    let duplicate = JournalEntry::new(
++        EntryType::StepRouted,
++        &run.run_id,
++        Some("edit".into()),
++        None,
++        10,
++        &dispatches[0].routing,
++    );
++    assert!(
++        journal.append(&duplicate).is_err(),
++        "duplicate routing must fail in the append transaction"
++    );
++    let unknown = JournalEntry::new(
++        EntryType::StepRouted,
++        &run.run_id,
++        Some("unknown".into()),
++        None,
++        10,
++        &dispatches[0].routing,
++    );
++    assert!(
++        journal.append(&unknown).is_err(),
++        "an undeclared step cannot acquire a route"
++    );
++    let summary = EpochSummaryPayload {
++        epoch: 0,
++        prev_segment_id: 0,
++        journal_version: 1,
++        steps_done: BTreeMap::new(),
++        steps_open: BTreeMap::new(),
++        open_waits: BTreeMap::new(),
++        stream_state: BTreeMap::new(),
++        pinned_revisions: BTreeMap::new(),
++        budget_spent: before.budget,
++        memory: BTreeMap::new(),
++        routing: BTreeMap::new(),
++    };
++    journal.rollover(summary, 20).unwrap();
++    let after = RunState::fold(
++        &run.run_id,
++        spec,
++        &journal
++            .scan_segment(journal.current_segment().unwrap())
++            .unwrap(),
++    )
++    .unwrap();
++    assert_eq!(
++        before.routing, after.routing,
++        "epoch automatically retains routing decisions"
++    );
++    assert!(
++        journal.append(&duplicate).is_err(),
++        "rollover must not permit a second choice"
++    );
++}
++
++struct RejectRoutingWrites(std::path::PathBuf, Mutex<Option<String>>);
++impl JournalObserver for RejectRoutingWrites {
++    fn appended(&self, entry: &JournalEntry) {
++        if entry.entry_type == EntryType::RunSpawned {
++            *self.1.lock().unwrap() = Some(entry.run_id.clone());
++            let connection = rusqlite::Connection::open(
++                self.0
++                    .join("runs")
++                    .join(format!("{}.sqlite3", entry.run_id)),
++            )
++            .unwrap();
++            connection.execute_batch("CREATE TRIGGER reject_route BEFORE INSERT ON entries WHEN NEW.entry_type = 'step.routed' BEGIN SELECT RAISE(ABORT, 'injected routing write failure'); END;").unwrap();
++        }
++    }
++}
++
++#[test]
++fn a_failed_routing_append_never_starts_or_dispatches_work() {
++    let directory = tempdir().unwrap();
++    let provider = Arc::new(FixedProvider::default());
++    let observer = Arc::new(RejectRoutingWrites(
++        directory.path().into(),
++        Mutex::new(None),
++    ));
++    let engine = Engine::with_runtime(directory.path(), provider.clone(), observer.clone());
++    let spec =
++        RunSpec::parse(&json!({"steps":[{"id":"edit","type":"agent","instruction":"edit"}]}))
++            .unwrap();
++    let error = engine.start(spec, "test", None).unwrap_err();
++    assert!(format!("{error:#}").contains("injected routing write failure"));
++    assert!(provider.dispatched.lock().unwrap().is_empty());
++    let run_id = observer.1.lock().unwrap().clone().unwrap();
++    let entries = engine.journal_entries(&run_id, 0, 100).unwrap();
++    assert!(entries.iter().all(|e| !matches!(
++        e.entry_type,
++        EntryType::StepRouted | EntryType::StepAttemptStarted
++    )));
++}
++
++struct CrashAfterRoute(Mutex<Option<String>>);
++impl JournalObserver for CrashAfterRoute {
++    fn appended(&self, entry: &JournalEntry) {
++        if entry.entry_type == EntryType::StepRouted {
++            *self.0.lock().unwrap() = Some(entry.run_id.clone());
++            panic!("injected crash after durable routing, before attempt start");
++        }
++    }
++}
++
++#[test]
++fn crash_between_routing_and_start_does_not_redecide() {
++    let directory = tempdir().unwrap();
++    let provider = Arc::new(FixedProvider::default());
++    let observer = Arc::new(CrashAfterRoute(Mutex::new(None)));
++    let engine = Engine::with_runtime(directory.path(), provider.clone(), observer.clone());
++    let spec =
++        RunSpec::parse(&json!({"steps":[{"id":"edit","type":"agent","instruction":"edit"}]}))
++            .unwrap();
++    assert!(
++        std::panic::catch_unwind(std::panic::AssertUnwindSafe(
++            || engine.start(spec, "test", None)
++        ))
++        .is_err()
++    );
++    let run_id = observer.0.lock().unwrap().clone().unwrap();
++    let engine = Engine::with_runtime(directory.path(), provider.clone(), provider.clone());
++    engine.resume(&run_id, None).unwrap();
++    assert_eq!(provider.decisions.load(Ordering::SeqCst), 1);
++    let dispatches = provider.dispatched.lock().unwrap();
++    assert_eq!(dispatches.len(), 1);
++    assert_eq!(dispatches[0].routing.provider, "test-cloud-adapter");
++}
+diff --git a/kernel/relayflowd/tests/routing_diagnostics.rs b/kernel/relayflowd/tests/routing_diagnostics.rs
+new file mode 100644
+index 00000000..87328474
+--- /dev/null
++++ b/kernel/relayflowd/tests/routing_diagnostics.rs
+@@ -0,0 +1,112 @@
++use relayflowd_core::{EntryType, Journal, JournalEntry, RunSpec, RunState};
++use relayflowd_journal::SqliteJournal;
++use serde_json::{Value, json};
++use tempfile::tempdir;
++
++fn spec() -> RunSpec {
++    RunSpec::parse(&json!({"steps":[{"id":"s","type":"deterministic","command":"true"}]})).unwrap()
++}
++
++fn route() -> Value {
++    json!({"profile":"batch","provider":"local","workspace":"/repo","fallbacks_attempted":["pool-a"]})
++}
++
++fn routed(payload: Value) -> JournalEntry {
++    JournalEntry::new(
++        EntryType::StepRouted,
++        "run",
++        Some("s".into()),
++        None,
++        1,
++        payload,
++    )
++}
++
++fn journal(path: &std::path::Path) -> SqliteJournal {
++    let mut journal = SqliteJournal::create(path, "run", 0).unwrap();
++    journal.append(&JournalEntry::new(EntryType::RunSpawned, "run", None, None, 0,
++        json!({"spec":spec(),"spec_hash":"test","parent_run_id":null,"journal_version":1,"created_by":"test"}))).unwrap();
++    journal
++}
++
++#[test]
++fn malformed_routes_name_the_same_field_at_append_replay_and_epoch_replay() {
++    for (field, value, detail) in [
++        ("profile", json!("  "), "profile must not be blank"),
++        ("provider", json!("\t"), "provider must not be blank"),
++        ("workspace", json!(""), "workspace must not be blank"),
++        (
++            "fallbacks_attempted",
++            json!(["pool-a", " "]),
++            "fallbacks_attempted[1] must not be blank",
++        ),
++    ] {
++        let directory = tempdir().unwrap();
++        let mut journal = journal(&directory.path().join("run.sqlite3"));
++        let mut payload = route();
++        payload[field] = value;
++        let entry = routed(payload.clone());
++        let expected = format!("invalid routing decision for step s: {detail}");
++        let before = journal.scan_all().unwrap();
++        assert!(
++            journal
++                .append(&entry)
++                .unwrap_err()
++                .to_string()
++                .contains(&expected)
++        );
++        assert_eq!(
++            journal.scan_all().unwrap(),
++            before,
++            "invalid append must roll back"
++        );
++        assert_eq!(
++            RunState::fold("run", spec(), &[entry])
++                .unwrap_err()
++                .to_string(),
++            expected
++        );
++        let epoch = JournalEntry::new(
++            EntryType::EpochSummary,
++            "run",
++            None,
++            None,
++            2,
++            json!({"epoch":2,"prev_segment_id":1,"journal_version":1,"budget_spent":{},"routing":{"s":payload}}),
++        );
++        assert_eq!(
++            RunState::fold("run", spec(), &[epoch])
++                .unwrap_err()
++                .to_string(),
++            expected
++        );
++    }
++}
++
++#[test]
++fn duplicate_routes_have_a_distinct_diagnostic_and_leave_the_original_fact_intact() {
++    let directory = tempdir().unwrap();
++    let mut journal = journal(&directory.path().join("run.sqlite3"));
++    let entry = routed(route());
++    journal.append(&entry).unwrap();
++    let before = journal.scan_all().unwrap();
++    let expected = "invalid routing decision for step s: routing decision already recorded";
++    assert!(
++        journal
++            .append(&entry)
++            .unwrap_err()
++            .to_string()
++            .contains(expected)
++    );
++    assert_eq!(journal.scan_all().unwrap(), before);
++    assert_eq!(
++        RunState::fold("run", spec(), &[entry.clone(), entry])
++            .unwrap_err()
++            .to_string(),
++        expected
++    );
++    assert_eq!(
++        RunState::fold("run", spec(), &before).unwrap().routing["s"].provider,
++        "local"
++    );
++}
+diff --git a/packages/sdk/src/compile.ts b/packages/sdk/src/compile.ts
+index 87f1f248..444c2a6f 100644
+--- a/packages/sdk/src/compile.ts
++++ b/packages/sdk/src/compile.ts
+@@ -110,6 +110,7 @@ function compileStep(step: StepSpec): StepSpec {
+     ...(step.dependsOn !== undefined ? { dependsOn: step.dependsOn } : {}),
+     maxIterations,
+     ...(step.memory !== undefined ? { memory: step.memory } : {}),
++    ...(step.requirements !== undefined ? { requirements: step.requirements } : {}),
+   };
+ 
+   switch (step.type as StepType) {
+@@ -353,13 +354,13 @@ function kernelTriggerToAuthoring(value: unknown, at: string): unknown {
+ 
+ function kernelStepToAuthoring(value: unknown, at: string): unknown {
+   const unionKeys = [
+-    'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory',
++    'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements',
+     'command', 'timeout_ms', 'prompt', 'model', 'cli', 'instruction',
+     'recovery_mode', 'surfaces', 'permissions',
+   ] as const;
+   const step = requireKernelObject(value, unionKeys, at);
+   const type = step['type'];
+-  const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory'] as const;
++  const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements'] as const;
+   const typeKeys = type === 'deterministic'
+     ? ['command', 'timeout_ms'] as const
+     : type === 'llm'
+@@ -373,6 +374,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
+   const common = {
+     id: step['id'],
+     type,
++    ...(step['requirements'] !== undefined ? { requirements: kernelRequirementsToAuthoring(step['requirements'], `${at}.requirements`) } : {}),
+     ...(dependsOn !== undefined && (!Array.isArray(dependsOn) || dependsOn.length > 0)
+       ? { dependsOn }
+       : {}),
+@@ -507,6 +509,10 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
+     max_iterations: step.maxIterations ?? 1,
+     retry: { ...KERNEL_RETRY_DEFAULTS },
+     verification: toKernelVerification(step),
++    ...(step.requirements !== undefined ? { requirements: {
++      ...Object.fromEntries(Object.entries(step.requirements).filter(([key]) => key !== 'expectedDurationMs')),
++      ...(step.requirements.expectedDurationMs !== undefined ? { expected_duration_ms: step.requirements.expectedDurationMs } : {}),
++    } } : {}),
+     ...(step.memory !== undefined ? { memory: {
+       scope: step.memory.scope,
+       query: step.memory.query,
+@@ -590,3 +596,11 @@ export function compileAndHash(yaml: string): { spec: FlowSpec; kernelSpec: Kern
+ }
+ 
+ export { SPEC_SCHEMA_VERSION, canonicalize, specHash };
++
++function kernelRequirementsToAuthoring(value: unknown, at: string): unknown {
++  const requirements = requireKernelObject(value, ['execution', 'workspace', 'network', 'expected_duration_ms', 'preference'], at);
++  return {
++    ...copyDefined(requirements, ['execution', 'workspace', 'network', 'preference']),
++    ...(requirements['expected_duration_ms'] !== undefined ? { expectedDurationMs: requirements['expected_duration_ms'] } : {}),
++  };
++}
+diff --git a/packages/sdk/src/index.ts b/packages/sdk/src/index.ts
+index 6c4daefb..53ca9040 100644
+--- a/packages/sdk/src/index.ts
++++ b/packages/sdk/src/index.ts
+@@ -35,6 +35,8 @@ export type {
+   StreamSurface,
+   StepSpec,
+   StepType,
++  PlacementRequirements,
++  KernelPlacementRequirements,
+   TriggerSpec,
+   VerificationGateType,
+   VerificationSpec,
+@@ -118,6 +120,7 @@ export type {
+   StepCompleteParams,
+   StepCompleteResult,
+   StepDispatchEvent,
++  RoutingDecision,
+   MemoryInjectedPayload,
+   StepHeartbeatParams,
+   StepHeartbeatResult,
+diff --git a/packages/sdk/src/protocol.ts b/packages/sdk/src/protocol.ts
+index 24f81aee..ad07426c 100644
+--- a/packages/sdk/src/protocol.ts
++++ b/packages/sdk/src/protocol.ts
+@@ -171,7 +171,16 @@ export interface MemoryInjectedPayload {
+   provider: string;
+ }
+ 
++export interface RoutingDecision {
++  profile: string;
++  provider: string;
++  fallbacks_attempted: string[];
++  workspace?: string;
++}
++
+ export interface StepDispatchEvent {
++  /** Durable choice; optional only for older kernel protocol compatibility. */
++  routing?: RoutingDecision;
+   /** Already journaled and charged; completion usage excludes this cost. */
+   memory?: MemoryInjectedPayload;
+   run_id: string;
+diff --git a/packages/sdk/src/spec.ts b/packages/sdk/src/spec.ts
+index 408ffb77..42264395 100644
+--- a/packages/sdk/src/spec.ts
++++ b/packages/sdk/src/spec.ts
+@@ -48,7 +48,7 @@ export type OutputVerificationSpec = OutputContainsGate | JsonSchemaGate;
+ 
+ /**
+  * Agent-step recovery modes (RFC Appendix A rule 4). Default is `reset`.
+- * `deterministic` / `llm` steps have no workspace, so these do not apply.
++ * These recovery modes apply to agent steps; deterministic steps retry their commands.
+  */
+ export type RecoveryMode = 'reset' | 'inspect' | 'manual';
+ 
+@@ -107,8 +107,24 @@ export interface KernelMemorySpec {
+   budget: KernelBudgetSpec;
+ }
+ 
++/** Capability needs, never provider names or source revisions. */
++export interface PlacementRequirements {
++  execution?: 'batch' | 'interactive';
++  /** Share the run tree; defaults true for deterministic steps declaring requirements. */
++  workspace?: boolean;
++  /** True requests connectivity; false does not impose a network deny policy. */
++  network?: boolean;
++  expectedDurationMs?: number;
++  preference?: 'cost' | 'latency' | 'reliability' | 'balanced';
++}
++
++export interface KernelPlacementRequirements extends Omit<PlacementRequirements, 'expectedDurationMs'> {
++  expected_duration_ms?: number;
++}
++
+ /** Fields shared by every step on the ladder. */
+ export interface BaseStepSpec {
++  requirements?: PlacementRequirements;
+   memory?: MemorySpec;
+   /** Stable step identity; journaled as `step_id` and hashed into the idempotency key. */
+   id: string;
+@@ -122,7 +138,7 @@ export interface BaseStepSpec {
+ /**
+  * Rung 1 — a pure script. Executed by the `relayflowd` binary: spawn command,
+  * capture stdout/exit code. Output = `{exit_code, stdout_tail}`. Gate-1
+- * deterministic steps are pure (no pins).
++ * deterministic steps with placement requirements pin their worktree base commit.
+  */
+ export interface DeterministicStepSpec extends BaseStepSpec {
+   type: 'deterministic';
+@@ -286,6 +302,7 @@ export interface KernelVerificationSpec {
+ }
+ 
+ export interface KernelStepCommon {
++  requirements?: KernelPlacementRequirements;
+   memory?: KernelMemorySpec;
+   id: string;
+   depends_on: string[];
+diff --git a/packages/sdk/src/step-fields.ts b/packages/sdk/src/step-fields.ts
+index a67fbf78..634900d4 100644
+--- a/packages/sdk/src/step-fields.ts
++++ b/packages/sdk/src/step-fields.ts
+@@ -23,6 +23,7 @@ export const STEP_COMMON_FIELDS = [
+   'verification',
+   'maxIterations',
+   'memory',
++  'requirements',
+ ] as const;
+ 
+ /**
+diff --git a/packages/sdk/src/validate.ts b/packages/sdk/src/validate.ts
+index 3eb26143..1429a5f5 100644
+--- a/packages/sdk/src/validate.ts
++++ b/packages/sdk/src/validate.ts
+@@ -229,6 +229,24 @@ class Validator {
+     }
+   }
+ 
++  private validateRequirements(value: unknown, at: string): void {
++    if (!isObject(value)) { this.fail(`${at}: expected an object`); return; }
++    this.checkKeys(value, ['execution', 'workspace', 'network', 'expectedDurationMs', 'preference'], at);
++    for (const field of ['workspace', 'network']) {
++      if (value[field] !== undefined && typeof value[field] !== 'boolean') this.fail(`${at}.${field}: expected a boolean`);
++    }
++    if (value['execution'] !== undefined && !['batch', 'interactive'].includes(value['execution'] as string)) {
++      this.fail(`${at}.execution: expected batch | interactive`);
++    }
++    if (value['preference'] !== undefined && !['cost', 'latency', 'reliability', 'balanced'].includes(value['preference'] as string)) {
++      this.fail(`${at}.preference: expected cost | latency | reliability | balanced`);
++    }
++    if (value['expectedDurationMs'] !== undefined &&
++        (!Number.isSafeInteger(value['expectedDurationMs']) || (value['expectedDurationMs'] as number) <= 0)) {
++      this.fail(`${at}.expectedDurationMs: expected a positive safe integer`);
++    }
++  }
++
+   private validateMemory(value: unknown, at: string): void {
+     if (!isObject(value)) {
+       this.fail(`${at}: expected an object`);
+@@ -328,6 +346,7 @@ class Validator {
+     const type = st['type'] as StepType;
+     this.checkKeys(st, [...STEP_COMMON_FIELDS, ...STEP_FIELDS_BY_TYPE[type]], at);
+ 
++    if (st['requirements'] !== undefined) this.validateRequirements(st['requirements'], `${at}.requirements`);
+     if (st['memory'] !== undefined) this.validateMemory(st['memory'], `${at}.memory`);
+ 
+     if (st['dependsOn'] !== undefined) {
+diff --git a/packages/sdk/tests/placement.test.ts b/packages/sdk/tests/placement.test.ts
+new file mode 100644
+index 00000000..63533678
+--- /dev/null
++++ b/packages/sdk/tests/placement.test.ts
+@@ -0,0 +1,27 @@
++import { readFileSync } from 'node:fs';
++import { describe, it, expect } from 'vitest';
++import { compileSpec, kernelToAuthoring, toKernelSpec } from '../src/compile.js';
++
++const cases = JSON.parse(readFileSync(new URL('../../../testdata/placement-spec-cases.json', import.meta.url), 'utf8'));
++
++describe('placement declarations', () => {
++  for (const test of cases) {
++    for (const type of ['deterministic', 'llm', 'agent']) {
++      it(`${test.name}: ${type}`, () => {
++        const requirements = test.requirements && !Array.isArray(test.requirements)
++          ? Object.fromEntries(Object.entries(test.requirements).map(([key, value]) => [key === 'expected_duration_ms' ? 'expectedDurationMs' : key, value]))
++          : test.requirements;
++        const field = type === 'deterministic' ? 'command' : type === 'llm' ? 'prompt' : 'instruction';
++        const flow = { version: '0.1.0', steps: [{ id: 's', type, [field]: 'true', requirements }] };
++        if (test.valid) {
++          const compiled = compileSpec(flow);
++          const kernel = toKernelSpec(compiled);
++          expect(kernel.steps[0]?.requirements).toEqual(test.requirements);
++          expect(kernelToAuthoring(kernel)).toEqual(compiled);
++        } else {
++          expect(() => compileSpec(flow)).toThrow();
++        }
++      });
++    }
++  }
++});
+diff --git a/packages/sdk/tests/spec-parity.test.ts b/packages/sdk/tests/spec-parity.test.ts
+index 309a832e..48e25ac2 100644
+--- a/packages/sdk/tests/spec-parity.test.ts
++++ b/packages/sdk/tests/spec-parity.test.ts
+@@ -25,7 +25,7 @@ function fixture(name: string): string {
+ }
+ 
+ describe('spec parity: one dialect at the SDK<->kernel boundary', () => {
+-  for (const name of ['hello-deterministic', 'hello-ladder', 'hello-llm', 'hello-agent', 'step-memory']) {
++  for (const name of ['hello-deterministic', 'hello-ladder', 'hello-llm', 'hello-agent', 'step-memory', 'step-placement']) {
+     it(`compiles ${name} to the pinned canonical JSON`, () => {
+       const yaml = fixture(`${name}.flow.yaml`);
+       const canonical = compileYamlToCanonicalJson(yaml);
+diff --git a/packages/sdk/tests/verb-field-lint.test.ts b/packages/sdk/tests/verb-field-lint.test.ts
+index 821794b1..3d6c6847 100644
+--- a/packages/sdk/tests/verb-field-lint.test.ts
++++ b/packages/sdk/tests/verb-field-lint.test.ts
+@@ -183,6 +183,10 @@ describe('closed per-verb step fields', () => {
+       // verb-specific: any step kind may declare a pack, so it generates no
+       // foreign-field pairs.
+       'memory',
++      // Added by #227 (gate 7 slice 1), and common for the same reason: any
++      // step kind may declare placement requirements, so `requirements`
++      // generates no foreign-field pairs either.
++      'requirements',
+     ]);
+     expect(STEP_FIELDS_BY_TYPE).toEqual({
+       deterministic: ['command', 'timeoutMs'],
+diff --git a/testdata/placement-spec-cases.json b/testdata/placement-spec-cases.json
+new file mode 100644
+index 00000000..b8124741
+--- /dev/null
++++ b/testdata/placement-spec-cases.json
+@@ -0,0 +1,127 @@
++[
++  {
++    "name": "all",
++    "requirements": {
++      "execution": "batch",
++      "workspace": true,
++      "network": true,
++      "expected_duration_ms": 120000,
++      "preference": "cost"
++    },
++    "valid": true
++  },
++  {
++    "name": "empty",
++    "requirements": {},
++    "valid": true
++  },
++  {
++    "name": "interactive",
++    "requirements": {
++      "execution": "interactive"
++    },
++    "valid": true
++  },
++  {
++    "name": "false",
++    "requirements": {
++      "workspace": false,
++      "network": false
++    },
++    "valid": true
++  },
++  {
++    "name": "null",
++    "requirements": null,
++    "valid": false
++  },
++  {
++    "name": "array",
++    "requirements": [],
++    "valid": false
++  },
++  {
++    "name": "typo",
++    "requirements": {
++      "workspce": true
++    },
++    "valid": false
++  },
++  {
++    "name": "provider",
++    "requirements": {
++      "provider": "daytona"
++    },
++    "valid": false
++  },
++  {
++    "name": "null-field",
++    "requirements": {
++      "execution": null
++    },
++    "valid": false
++  },
++  {
++    "name": "bad-mode",
++    "requirements": {
++      "execution": "shell"
++    },
++    "valid": false
++  },
++  {
++    "name": "bad-bool",
++    "requirements": {
++      "workspace": "true"
++    },
++    "valid": false
++  },
++  {
++    "name": "bad-network",
++    "requirements": {
++      "network": "internet"
++    },
++    "valid": false
++  },
++  {
++    "name": "bad-preference",
++    "requirements": {
++      "preference": "cheap"
++    },
++    "valid": false
++  },
++  {
++    "name": "zero",
++    "requirements": {
++      "expected_duration_ms": 0
++    },
++    "valid": false
++  },
++  {
++    "name": "negative",
++    "requirements": {
++      "expected_duration_ms": -1
++    },
++    "valid": false
++  },
++  {
++    "name": "fraction",
++    "requirements": {
++      "expected_duration_ms": 1.5
++    },
++    "valid": false
++  },
++  {
++    "name": "unsafe",
++    "requirements": {
++      "expected_duration_ms": 9007199254740992
++    },
++    "valid": false
++  },
++  {
++    "name": "safe",
++    "requirements": {
++      "expected_duration_ms": 9007199254740991
++    },
++    "valid": true
++  }
++]
+diff --git a/testdata/step-placement.flow.yaml b/testdata/step-placement.flow.yaml
+new file mode 100644
+index 00000000..931c78db
+--- /dev/null
++++ b/testdata/step-placement.flow.yaml
+@@ -0,0 +1,11 @@
++version: 0.1.0
++steps:
++  - id: write
++    type: deterministic
++    command: cat source.txt > shared.txt
++    requirements:
++      execution: batch
++      workspace: true
++      network: true
++      expectedDurationMs: 120000
++      preference: cost
+diff --git a/testdata/step-placement.spec.canonical.json b/testdata/step-placement.spec.canonical.json
+new file mode 100644
+index 00000000..f10743e2
+--- /dev/null
++++ b/testdata/step-placement.spec.canonical.json
+@@ -0,0 +1 @@
++{"steps":[{"command":"cat source.txt > shared.txt","depends_on":[],"id":"write","max_iterations":1,"requirements":{"execution":"batch","expected_duration_ms":120000,"network":true,"preference":"cost","workspace":true},"retry":{"initial_backoff_ms":100,"jitter_percent":20,"max_backoff_ms":60000,"multiplier":2},"type":"deterministic","verification":{}}],"version":"0.1.0"}
+diff --git a/testdata/step-placement.spec.sha256 b/testdata/step-placement.spec.sha256
+new file mode 100644
+index 00000000..8c4b10de
+--- /dev/null
++++ b/testdata/step-placement.spec.sha256
+@@ -0,0 +1 @@
++e9ff5958dc0424087468f4d9fa2867c1ca59cfe9f442b9d3d2b1311de4e5558f
+
+exit_code=0
