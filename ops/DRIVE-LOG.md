@@ -13544,3 +13544,28 @@ The instrument was the fix. Two fingerprints, one comparison, one line.
 Not chasing the propagation mechanism tonight — the actionable next step is to
 confirm whether a later run picks up f034ce43f5da, which distinguishes
 propagation lag from a genuinely stuck secret.
+
+## 2026-09-07 tick — separating propagation lag from a stuck secret
+
+Triggered a second fingerprint read at 21:41:31Z, four minutes after the mint
+at 21:37:12Z (the secrets API confirms `updated_at 2026-09-07T21:37:12Z`).
+
+The two outcomes are diagnostic and mutually exclusive:
+
+    CI reads f034ce43f5da  -> propagation lag. The first read at 21:38:11 was
+                              59s after the write and simply too early. Fix is
+                              a wait or a retry in the mint, not a code change.
+    CI reads 3973e022e932  -> the secret is STUCK. `gh secret set` reports
+                              success, the API reports a fresh updated_at, and
+                              runs keep receiving a stale value. That is a much
+                              worse finding and would need escalating.
+
+Recording the prediction BEFORE the result, because I have been wrong about
+this failure ten times tonight and every wrong call felt reasonable in advance:
+I expect propagation lag, on the weak grounds that 59 seconds is short and
+GitHub does not promise read-after-write on secrets. Weak grounds are why it is
+being measured rather than assumed.
+
+Agents running: `flows-spec-review-0907` on the five lane PRs against RFC-0001,
+`flows-pr-triage-0907` on the five drive PRs. Neither may merge without green
+CI at the exact head; neither may edit a gate that judges its own work.
