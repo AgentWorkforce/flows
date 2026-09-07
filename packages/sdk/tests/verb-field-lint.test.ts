@@ -183,6 +183,10 @@ describe('closed per-verb step fields', () => {
       // verb-specific: any step kind may declare a pack, so it generates no
       // foreign-field pairs.
       'memory',
+      // Added by #227 (gate 7 slice 1), and common for the same reason: any
+      // step kind may declare placement requirements, so `requirements`
+      // generates no foreign-field pairs either.
+      'requirements',
     ]);
     expect(STEP_FIELDS_BY_TYPE).toEqual({
       deterministic: ['command', 'timeoutMs'],
