@@ -1,0 +1,84 @@
+# NEXT — fix the crash-resume hang (#174)
+
+**Scope:** `kernel/relayflowd/`, the crash-resume test suite, and nothing else.
+
+## Why this and not gate 3
+
+The previous package pointed at the review-swarm credential. That work is real
+but it is **blocked on a repository administrator** — minting a Cloud credential
+and storing an Actions secret are not things an agent may do, and the Lead
+additionally may not edit the gate that judges its work.
+
+Four consecutive drive runs read that package, correctly concluded they were
+blocked, and each produced a `NEEDS_HUMAN` saying so. That is four cycles spent
+re-deriving the same fact. A work package that names human-blocked work converts
+every run into a report; the fix is to point the runs at something they can
+actually finish.
+
+The credential decision is tracked and waiting elsewhere. Do not work on it here.
+
+## The problem
+
+`llm::sigkill_sweep_covers_before_and_between_the_rung_b_steps` hangs
+intermittently on GitHub runners. Issue **#174**, reopened 2026-09-06 with fresh
+evidence after being closed.
+
+```
+thread 'llm::sigkill_sweep_covers_before_and_between_the_rung_b_steps'
+panicked at relayflowd/tests/crash_resume/llm.rs:121:27
+test result: FAILED. 33 passed; 1 failed
+```
+
+Line 121 is the `no step.dispatch after resume` path — the worker never receives
+a dispatch after the daemon is SIGKILLed and resumed. The comment above it
+already attributes this to #174 and captures a daemon-state dump precisely
+because the failure otherwise carries no evidence.
+
+## The evidence, and what makes it tractable now
+
+It reproduces at roughly one run in eight on `main`:
+
+```
+main, cloud-runtime-artifact.yml, last 8 runs:  7 success, 1 failure
+```
+
+Earlier this looked like a regression from a specific commit, because `main`
+normally runs about once a day and seven commits landed within ten minutes. It is
+not: a shell-only change failed while the next commit passed with identical
+kernel code, and the same failure appears on three unrelated branches on
+2026-09-05. **The rate did not change; the sample size did.**
+
+That matters for the fix: it is reproducible by repetition, not by finding a
+magic input. Run the crash-resume suite in a loop and it will show up.
+
+## What to do
+
+1. Reproduce it locally. `cd kernel && sh ../ops/cargo.sh test -p relayflowd --test crash_resume`
+   in a loop until it fails. Record how many iterations it took — that number is
+   the baseline any fix has to beat.
+2. Find where the dispatch is lost. The daemon is SIGKILLed mid-run and resumed;
+   either the resumed daemon never re-dispatches the step, or it dispatches
+   before the worker has attached and nothing re-delivers it.
+3. Fix it in `kernel/relayflowd/`. Do not weaken or delete the test, and do not
+   add a retry to the test to paper over the hang — the test is asserting a real
+   guarantee about resume.
+4. Prove the fix by repetition, not by one green run. State the iteration count
+   before and after.
+
+## Definition of done
+
+1. `cargo test --workspace` green from `kernel/`.
+2. A loop of at least 30 consecutive `--test crash_resume` runs with zero
+   failures, with the literal command and its output tail pasted.
+3. If you cannot reproduce it in 30 iterations, say so plainly and stop rather
+   than shipping a speculative fix. A hang nobody reproduced is not fixed by a
+   change nobody can test.
+
+## Constraints
+
+- `kernel/` only. Do not touch `.github/workflows/`, `packages/`, or the
+  publish pipeline.
+- Do not edit `testdata/tick-heartbeat.*` or `hello-ladder.*` — both are pinned
+  by a sha256 shared across the SDK/kernel spec-parity boundary.
+- `ops/reviews/`, `ops/DRIVE-LOG.md` and `ops/BACKLOG.md` are records of what was
+  true when written. Do not rewrite them.
