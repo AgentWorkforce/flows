@@ -13998,3 +13998,43 @@ system behaving correctly, not a leak.
 Escalation point rather than an action: if this reaches ~5Gi, the right move is
 to stand agents down in order and reclaim their worktrees deliberately — not to
 sweep directories while they run.
+
+## 2026-09-08 — the swarm failure and the orphaned sandboxes are the SAME problem
+
+Third swarm failure on #229, and this one names its cause:
+
+    Step "lens-maintainability" failed after 2 retries:
+    Total CPU limit exceeded. Maximum allowed: 250.
+    To increase concurrency limits, upgrade your organization's Tier
+
+That closes a loop opened hours ago. Measured earlier tonight: Daytona holds
+**193 sandboxes / 392 CPU**, of which 90 are Factory-managed orphans (180 CPU)
+that no reaper can see — `stop_stale_matrix_count` filters on a
+`sandbox-matrix-` prefix and a hardcoded 2026-08-28 cutoff, matching 0 of 90.
+
+**392 CPU against a 250 limit.** The swarm cannot get a sandbox because the
+orphans hold the quota. The 429, the 400 and now this were not three unrelated
+faults; capacity exhaustion is the shape underneath.
+
+Dispatched cloud#3419's sweep (dry-run, min_age 12h, limit 20). It failed
+instantly:
+
+    TypeError: all.filter is not a function
+
+**My bug, and my verification could not have caught it.** `daytona.list()` is an
+ASYNC ITERABLE; `await` on it yields the iterator, not an array. I "verified"
+the sweep by simulating its SELECTION against a captured JSON array and
+reported "72 eligible, stops 20, reclaims 40 CPU" as evidence it worked. That
+exercised the filtering and never the SDK call, so a shape error upstream of
+every filter was invisible.
+
+This is the same defect shape as the mint's verify-before-install: validating
+an INPUT rather than an EFFECT. Twice tonight I built a verification that
+tested the half I had already reasoned about.
+
+Fix opened as cloud#3435. `preview.yml`'s inventory step has always consumed
+the iterable correctly with for-await; I had working code in the same repo and
+did not copy it.
+
+Disk recovered 13Gi -> 16Gi unattended as agents finished building, which
+retroactively confirms not deleting their worktrees was right.
