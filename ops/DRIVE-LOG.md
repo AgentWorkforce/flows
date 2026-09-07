@@ -11880,3 +11880,54 @@ where whoever creates the secret will read it.
 
 cloud#3414 opened; #3413 closed as superseded — it taught the workflow to
 resolve a variable it no longer needs.
+
+## 2026-09-07 tick — #134 allSettled P0 does NOT reproduce; #3270 restacked
+
+**#134 is MERGED** (`4f85c4e`). The standing brief's item 3 targets a merged
+PR. `repair/pr134-0903` is 11 ahead / 48 behind, diverged, and was NEVER
+opened as a PR — its work is stranded, though the probe directory itself did
+land on main.
+
+**The `allSettled` P0 does not reproduce on main.** The brief is right that
+`combinators.mjs` is vacuous: every shape wraps a SINGLE step
+(`Promise.allSettled([s])`), so the member determining settlement is always
+the step, and resolver-dependence cannot be expressed. I rewrote it with
+two-member aggregates varying the resolver. Result: 4/4 STABLE, zero
+resolver-dependent combinators. An aggregate resolved by an ordinary
+non-step promise keeps its attribution.
+
+**I nearly reported the opposite.** My first version ordered the members with
+`s.then(() => other.resolve())` and showed 4/4 DIVERGENT with even the legit
+row REFUSED. That was my probe, not the product: attaching ANY continuation
+to a step handle refuses with `unawaited_step`, and a discriminator showed the
+refusal persists when that continuation is itself awaited
+(`Promise.all([aggregate, link])`), while the same settle order produced by
+awaiting the step directly PASSES. The knob was the defect. Baseline first,
+then isolate the mechanism before believing a red row.
+
+**Separate observation, NOT filed as a P0** (needs a spec answer first):
+awaiting a step-derived promise via `Promise.all([aggregate, link])` still
+refuses `unawaited_step`. That may be intended — the rule may require awaiting
+the step handle itself, not a derivative. Worth a decision, not a fix.
+
+**cloud#3270**: CONFLICTING/12-behind -> MERGEABLE, behind=0, ahead=7
+(`440ed98df`). Four conflicts resolved; `launch-worker.ts` kept BOTH
+`assertLaunchActive` and `beforeSandboxCreate` (separate guards at separate
+layers, not one hook renamed — taking either side alone deletes a live check).
+CI so far: Replay migrations PASS, Build core + platform PASS.
+
+**Still blocked**: all six open flows PRs are `review=FAILURE` at "Validate
+cloud authentication" (missing `CLOUD_API_KEY`); `deploy-preview` on #3270 is
+SKIPPED so the live proof has no preview yet. Drain check: cloud API reachable,
+schedules healthy, no stuck runIds recoverable and the CLI has no list-runs verb.
+
+**Mint dispatched (secret landed).** Run 34129899548 got past every gate #3414
+removed and failed inside the mint: `Cannot find module
+'@cloud/core/dist/db/client.js'` — `npm ci` links the workspace package but
+does not build it. Gap predates #3414 (the AWS version failed earlier and
+never reached the mint). Fix opened as cloud#3416.
+
+**cloud#3270 CI all green** on the restack `440ed98df`: Typecheck, Build core
++ platform, Replay migrations + schema drift, Next.js build, Phase 0,
+OpenNext-CF build (deploy-equivalent). `deploy-preview` remains SKIPPED, so
+the live proof still has no preview.
