@@ -12154,3 +12154,38 @@ which the 15-second `diagnose-preview` tail cannot capture (it filters on
 never provisioned. Separate defect, separate owner.
 
 Not merged: cloud#3416 still unsigned. No runs resubmitted.
+
+## 2026-09-07 tick — Daytona capacity saturated; 90 heartbeated sandboxes, 72 over 12h
+
+Read the `Inventory Factory-managed Daytona capacity` probe from diagnostics
+run 34133297617 (I had failed to actually read it last tick):
+
+    {"check":"managed-capacity","totalCount":193,"totalCpu":392,
+     "count":90,"managedCpu":180,"otherCount":103,"otherCpu":212}
+
+    90 Factory-managed, ALL state=started, ALL in workspace 50587328
+    oldest 32.8h   newest 3.2h   72 older than 12h   20 older than 24h
+    idle >30m: 0   -- every one heartbeated within the last 5 minutes
+
+**This is the leading explanation for v1's `launch deadline` failure**: with
+193 sandboxes and 392 CPU already allocated, a new sandbox create plausibly
+blocks or is refused, and the run dies waiting. Stated as correlation plus a
+mechanism, NOT as confirmed cause — confirming it needs the Daytona account
+quota, which the probe does not report. I have misread this run three times
+today by asserting ahead of the evidence; not doing it a fourth.
+
+**The sharper structural finding: none of these are idle.** All 90 are
+heartbeated within 5 minutes, so they are "alive" by every activity metric
+while 72 of them are over twelve hours old. Any reaper keyed on
+`lastActivityAt` will never fire on a single one. Liveness proves a process is
+running; it never proves its objective is still real. Same shape as the sf-mini
+lane audit where 5 of 19 live lanes were working already-merged targets.
+
+**Not acting on this.** Stopping sandboxes is destructive and outside anything
+authorised; `preview.yml` already exposes `stop_sandbox_id`,
+`stop_expected_name` and `stop_stale_matrix_count` as OPERATOR-gated bounded
+cleanup, which is the correct instrument and the correct gate. Flagging for
+Khaliq, not reaping.
+
+Cost note worth a human eye: 90 managed sandboxes at 2 CPU each, running
+12-32h, is a standing spend nobody appears to have chosen.
