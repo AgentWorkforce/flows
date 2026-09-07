@@ -10802,3 +10802,41 @@ maintainability lens returned FAIL on my run and PASS on the repo's post-push
 swarm for identical code, and auto-merge acted on the PASS. Neither #216 nor
 #217 touches that. Gate 1's durable channels are done; the gate that judged them
 is not trustworthy.
+
+## 2026-09-07 tick — root-caused the gate disagreement; filed flows#218
+
+#212 is CLOSED — gate 1's durable channels are complete on main (#215 + #216).
+
+Chased the FAIL-vs-PASS disagreement to its cause instead of leaving it as
+"non-determinism". **It is not flakiness — it is prompt drift.** Same model
+family (`cli: claude` for maintainability in both), different prompts:
+
+`ops/preswarm-check/lens-runner.sh:115-119` — the run that FAILED:
+  "...Name unclear boundaries, IMPLICIT CONTRACTS, MISSING FAILURE HANDLING,
+   comments that assert what the code does not do, and TESTS THAT WOULD NOT
+   FAIL IF THE BEHAVIOR BROKE."
+
+`workflows/review-swarm.yaml:27` — the run that PASSED and triggered auto-merge:
+  "Reviews for maintainability — will a stranger understand and safely change
+   this in six months?"
+
+The second is the first sentence with every specific instruction stripped. The
+stripped clauses are exactly what caught the defects: a `_ =>` fallthrough IS
+missing failure handling; an anyhow downcast that degrades on `.context()` IS an
+implicit contract. The weaker prompt had no reason to look for either.
+
+Two different reviewers wearing the same name — and **the weaker one holds the
+merge gate**, because auto-merge acts on the post-push swarm while the stricter
+pre-swarm check is advisory and pre-push. A lane that skips the local check
+never meets the stricter question at all.
+
+`lens-runner.sh` predicted this in its own lines 4-7: "This file duplicates them
+today; consolidating them into one file both consumers read is called out in
+README as a known drift risk, not solved here." This is that risk arriving, with
+#215 as the bill.
+
+Filed **flows#218** with both prompt texts side by side. Did NOT implement:
+settled decision #6 forbids an agent editing the gates that judge its work, and
+both fixes are exactly that. Same reasoning as #213.
+
+Open in flows: #218, #213, #197, #174, #141.
