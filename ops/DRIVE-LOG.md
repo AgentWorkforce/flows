@@ -10872,3 +10872,42 @@ knowing.
   `<div>` vs `</div>` before publishing; balance is now 0/0.
 
 Ledger: https://claude.ai/code/artifact/1edcf8ae-af0c-4115-b953-df5bd8cdd0c9
+
+## 2026-09-07 tick — reclaimed the idle lane; filed #220 and repointed it at gate 5
+
+`kernel-channels-0907` had been idle 65 minutes with its objective (#212) closed
+— the "lane outlives its objective" pattern, a held seat with no live target.
+Reconciled by target rather than by liveness.
+
+**Verified gate 5 is genuinely unstarted before scoping it**, applying the
+`wait.human` lesson that a word is not a capability:
+
+    memory in packages/sdk/src/spec.ts   0 occurrences
+    memory in kernel/**/*.rs             every match is MemoryJournal (the
+                                         in-memory TEST journal) or a
+                                         // SAFETY: comment
+    relayhistory                         mentioned only in kernel/DESIGN.md
+
+Gate 7 likewise: 0 for requirements/sandbox/placement in the spec.
+
+Filed **flows#220** — gate 5 SLICE 1 only, and the boundary is the point. The
+gate's real "Done when" is behavioural (an agent avoiding a mistake recorded in
+a previous trajectory, with a citation) and needs relayhistory plus an eval;
+that is not one PR. Slice 1 is the substrate: the `memory:` declaration in both
+spec dialects, the injected pack recorded as a JOURNAL FACT, and exact budget
+accounting under resume so a pack is never charged twice. Explicitly excluded
+any relayhistory call — a stub provider is correct.
+
+Acceptance follows #212's shape: pin the property, not the API. Kill after
+injection before completion, resume, assert the pack injected once and charged
+once; plus a replay test proving the pack is reproduced from the journal rather
+than re-derived.
+
+Repointed the lane by drive-attach (DM is unreliable here). Moved its worktree
+to `feat/step-memory-220` off current main and told it to `git status` before
+starting rather than trusting my word for where it is. Verified the state change
+rather than the exit code: idle (3945415ms) -> working (7ms).
+
+**Flagged the ordering as not mine.** I chose gate 5 over gate 7 because gate 9
+depends on 5 + 8 while routing is standalone — that is the RFC's dependency
+graph, not a product call I own. Said so in the issue and offered to repoint.
