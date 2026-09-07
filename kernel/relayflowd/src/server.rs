@@ -9,6 +9,8 @@ use crate::{Engine, OutOfBandCompletion};
 #[cfg(unix)]
 mod cancel;
 #[cfg(unix)]
+mod channels;
+#[cfg(unix)]
 pub mod liveness;
 #[cfg(unix)]
 mod reconcile;
@@ -432,6 +434,9 @@ fn handle_request(
                     .submit_event(spec, params.event, "protocol-v0")
                     .map_err(internal_error)?,
             )
+        }
+        "channel.append" | "channel.receive" | "channel.ack" => {
+            channels::handle(&engine, hub, connection_id, &request.verb, request.params)
         }
         "stream.append" => {
             let params: StreamAppendParams = decode_params(request.params)?;

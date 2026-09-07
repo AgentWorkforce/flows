@@ -4,6 +4,7 @@
 //! or wall-clock access. Callers persist [`JournalEntry`] actions before
 //! interpreting any execution action.
 
+pub mod channel;
 pub mod clock;
 pub mod entry;
 pub mod event;

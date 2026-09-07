@@ -1,6 +1,7 @@
 //! Append-only SQLite implementation of the Relayflow journal protocol.
 
 mod append;
+mod channel;
 mod registry;
 mod segment;
 mod subscriptions;
@@ -244,6 +245,10 @@ fn to_core_error(error: JournalStoreError) -> JournalError {
 
 #[derive(Debug, Error)]
 pub enum JournalStoreError {
+    #[error(transparent)]
+    Channel(#[from] relayflowd_core::channel::ChannelError),
+    #[error(transparent)]
+    State(#[from] relayflowd_core::StateError),
     #[error("journal file already exists: {0}")]
     AlreadyExists(PathBuf),
     #[error(

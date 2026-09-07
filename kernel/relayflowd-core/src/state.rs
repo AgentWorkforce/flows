@@ -183,6 +183,9 @@ impl RunState {
                 // state machine — it never affects run/step state, so state
                 // folding ignores it here.
                 | EntryType::SubscriptionStale
+                | EntryType::ChannelAppended
+                | EntryType::ChannelDelivered
+                | EntryType::ChannelAcknowledged
                 | EntryType::StreamAppended
                 | EntryType::EffectRecorded
                 | EntryType::EffectConfirmed

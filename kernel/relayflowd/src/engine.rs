@@ -32,6 +32,7 @@ impl std::error::Error for RunTerminalError {}
 use crate::clock::WallClock;
 use crate::worker::{JournalObserver, StepDispatcher};
 
+mod channels;
 mod drive;
 mod effects;
 mod model;
