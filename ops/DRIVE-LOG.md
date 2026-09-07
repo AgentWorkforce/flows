@@ -10628,3 +10628,34 @@ pid, and 16 codex processes are live. Name collision would have been silent, so
 the pid check was the point.
 
 Posted the brief to #212 so the intent survives the process.
+
+## 2026-09-07 tick — #212 lane is live and doing the right thing
+
+`kernel-channels-0907` is working (pid 69775, last activity 13ms) with 32 dirty
+files, and has landed its first commit:
+
+    38dcef9 test(kernel): pin durable channel crash-resume contract (#212)
+      kernel/evidence/212/red-channel.txt              +19
+      kernel/relayflowd/tests/crash_resume.rs           +2
+      kernel/relayflowd/tests/crash_resume/channels.rs +152
+
+It wrote the FAILING test first and captured the red evidence, which is exactly
+what the brief asked for. The failure is for the right reason, not an
+accidental one:
+
+    panicked at crash_resume/channels.rs:25:41:
+    durable channel append must exist:
+      unsupported_verb: unknown journal protocol verb channel.append
+    test result: FAILED. 0 passed; 1 failed; 34 filtered out
+
+The test name is the contract:
+`channels_sigkill_resume_redelivers_unacked_messages_with_exactly_once_effects`
+— SIGKILL, redelivery of unacked messages, exactly-once effects. That is gate
+1's property, not an API shape.
+
+Verified by reading the commit from the shared object store rather than touching
+its worktree; no git command was run inside `flows-212-channels-wt` that could
+race its index. Read-only inspection only — one worker, one working directory.
+
+Blockers unchanged: App id/key mismatch, `CLOUD_API_KEY`, #3270 signoff.
+Disk 12Gi (kernel target dir growing under the new worktree, expected).
