@@ -12858,3 +12858,30 @@ Drain: nothing pending in cloud; both earlier proof runs terminal. Items 3 and
 
 Next, in order: CI settles -> redeploy preview -> Khaliq approves a device code
 -> proof runs and the v2 failure finally names its own payload keys.
+
+## 2026-09-07 tick — #3270 is FULLY GREEN for the first time; redeploy dispatched
+
+    head=592518cf7   MERGEABLE/CLEAN
+    27 pass · 0 fail · 0 pending · 4 skipping
+
+**CLEAN, not UNSTABLE** — every required check passes. First time today. Six
+real defects had to be closed to get here, five of them found by CI or by
+checking rather than assumed:
+
+    567724e06  stale cumulative migration snapshot (my renumbering)
+    02a81ae23  6 RELAYFLOW_V2 bindings unaccounted for in the fast-path gate
+    41164d6bc  main's emptied acknowledgedGaps, nearly re-introduced by merge
+    21b243d33  launcher lost stop-before-delete (my wrong merge call)
+    c71f482f2  best-effort stop, reconciling two opposing test contracts
+    4556a6dc0  merge-created test failure present in NEITHER parent
+    d7e8b3609  (#3424, on main) Typecheck heap headroom
+
+**Dispatched preview run 34155405484** carrying the whole batch: the payload
+key-set diagnostic, both test fixes, and the restack.
+
+Verified the run targets `592518cf7` by querying THAT run id — the
+`gh run list ... -L 1` listing returned a stale earlier run (`c71f482f2`) and
+would have had me believe I was deploying the old head. Listings order by
+something other than dispatch time here; check the run you actually created.
+
+Live proof remains the merge blocker. Nothing merged on #3270.
