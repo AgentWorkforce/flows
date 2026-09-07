@@ -13717,3 +13717,29 @@ from flows#232 and delete the CLOUD_API_KEY_CANARY secret.
 
 Disk 18Gi (down from 21Gi) — the two codex agents are building. Not yet a
 concern; noting the direction.
+
+## 2026-09-07 — CONFIRMED by direct measurement; canary cleaned up
+
+    mint installed:  91f0d17f1360
+    CI received:     91f0d17f1360     EXACT MATCH
+    "CLOUD_API_KEY authenticates against https://agentrelay.com/cloud"
+
+This replaces the weaker claim I made one entry above. There I rested on step
+status because job logs are not retrievable mid-run, and said so. The logs
+became available on completion and the fingerprints match directly. Recording
+the upgrade rather than leaving the hedge standing.
+
+**Cleanup done, not deferred:**
+  - removed the temporary canary probe from flows#232 (`b9d030b`) — verified 0
+    CANARY references remain, while the permanent probe and the CLOUD_API_KEY
+    fingerprint survive
+  - deleted the CLOUD_API_KEY_CANARY secret — verified 0 remain
+
+The canary earned its keep: writing a secret whose expected fingerprint I knew
+IN ADVANCE proved writes reach runners instantly, which eliminated propagation
+lag and turned attention to the writer. CLOUD_API_KEY's own fingerprint was
+unknowable from outside, which is precisely why the bug survived ten
+hypotheses. The canary was the only value in the system I could predict.
+
+Lane state: `Launch cloud swarm` succeeds, the swarm is running, and the six
+flows PRs are no longer blocked on the credential.
