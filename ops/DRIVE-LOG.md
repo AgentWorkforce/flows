@@ -13511,3 +13511,36 @@ mechanism demonstrably works; what does not work is the Cloud v2 launch path.
 Those are separable problems, and only the second is blocked.
 
 cloud#3432 at 17 pass / 2 pending / 0 fail.
+
+## 2026-09-07 — ANSWERED: CI is not using the credential the mint installs
+
+The fingerprint pair (cloud#3432 + flows#232) resolved it in one comparison:
+
+    mint installed  21:37:12   f034ce43f5da
+    CI is using     21:38:11   3973e022e932    <- different, and older
+
+**They DIFFER.** So this was never a credential problem. Every re-mint I ran
+tonight succeeded and verified itself with a live 200 against prod, and every
+CI run then failed 401 — because CI was reading a *different, older* secret
+value the whole time.
+
+That also explains the contradiction that ate the evening: the mint's probe
+(200) and CI's probe (401) were testing DIFFERENT TOKENS. Same endpoint,
+opposite results, no paradox.
+
+Corroborating: 3973e022e932 was also what CI held at 21:13, i.e. it predates
+the 20:58 AND 21:37 mints. The likely stale value is from an early mint that
+ran BEFORE cloud#3430 pointed the mint at production's database — a token
+written to the wrong database, which is exactly why it resolves to no
+`api_token_sessions` row on prod.
+
+**What I got wrong, and it cost hours**: I treated `gh secret set` reporting
+success plus the API reporting `updated_at` as proof CI would read that value.
+Neither is evidence about what a workflow run actually receives. Ten hypotheses
+died because all of them assumed the delivered value was the minted one.
+
+The instrument was the fix. Two fingerprints, one comparison, one line.
+
+Not chasing the propagation mechanism tonight — the actionable next step is to
+confirm whether a later run picks up f034ce43f5da, which distinguishes
+propagation lag from a genuinely stuck secret.
