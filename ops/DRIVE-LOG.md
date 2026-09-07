@@ -13151,3 +13151,37 @@ workflow. Offered, not assumed.
 
 Still waiting on two decisions: the prod v2 probe, and the CI_MINT_DATABASE_URL
 target.
+
+## 2026-09-07 — mint fixed at the source; credential VERIFIED, six PRs re-running
+
+Merged cloud#3429 (`5436b3340`, verify before install) and cloud#3430
+(`ac05696a1`, read production's `NEON_APP_DATABASE_URL`). Verified on main:
+`environment: production` present, ZERO `CI_MINT_DATABASE_URL` references left,
+#3429's probe still intact.
+
+**Re-dispatched the mint (34160297019): completed/success — and this time that
+means something.**
+
+    verified: the minted credential authenticates against https://agentrelay.com/cloud
+    installed CLOUD_API_KEY into AgentWorkforce/flows
+    installed CLOUD_API_URL into AgentWorkforce/flows
+
+The previous mint reported the SAME "success" and shipped a dead key. The
+difference is that the credential is now probed against production before
+`gh secret set`, so "success" finally carries evidence rather than just
+absence-of-error. Worth stating because a green run that proves nothing is
+exactly what cost today six PRs and several hours.
+
+No neonctl or ssh needed in the end: `NEON_APP_DATABASE_URL` already existed in
+the `production` environment. The fix was to stop maintaining a hand-copied
+duplicate, not to source a new value. `CI_MINT_DATABASE_URL` is now unreferenced
+and can be deleted.
+
+Re-ran `review` on all six PRs (#229 #227 #226 #222 #219 #214). All six
+dispatched. This is the first time today they can get past
+`Validate cloud authentication` with a credential that actually works.
+
+Also landed this evening: `workflows/restack-verify.yaml` (`f084a4d`) — the
+three-step gate I hand-drove eight times, proven in both directions against the
+real pre-fix snapshot; and codex agent `flows-runtime-0907` spawned in its own
+worktree to get relayflows executing locally.
