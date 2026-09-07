@@ -224,3 +224,51 @@ fn forged_deliveries_and_acknowledgements_fail_closed() {
         .is_none()
     );
 }
+
+#[test]
+fn malformed_payloads_and_invalid_new_channel_appends_leave_state_unchanged() {
+    let mut state = ChannelState::default();
+    let mut journal = MemoryJournal::new("run");
+    let appended = perform(
+        &mut state,
+        &mut journal,
+        &actor("alice"),
+        ChannelCommand::Append {
+            message_id: "one".into(),
+            message: Value::Null,
+        },
+    )
+    .unwrap();
+    let delivered = perform(
+        &mut state,
+        &mut journal,
+        &actor("alice"),
+        ChannelCommand::Receive,
+    )
+    .unwrap();
+    let acknowledgement = state
+        .decide(
+            &actor("alice"),
+            "chat",
+            ChannelCommand::Acknowledge {
+                delivery_seq: delivered.seq,
+            },
+            42,
+        )
+        .unwrap()
+        .unwrap();
+    let snapshot = state.clone();
+    for mut entry in [appended.clone(), delivered, acknowledgement] {
+        entry.payload["offset"] = serde_json::json!("malformed");
+        assert!(matches!(state.apply(&entry), Err(ChannelError::Payload(_))));
+        assert_eq!(state, snapshot);
+    }
+    let mut invalid = appended;
+    invalid.payload["channel"] = serde_json::json!("new-channel");
+    invalid.payload["offset"] = serde_json::json!(2);
+    assert!(matches!(
+        state.apply(&invalid),
+        Err(ChannelError::Invalid(_))
+    ));
+    assert_eq!(state, snapshot);
+}
