@@ -11550,3 +11550,39 @@ choice is declared, made by the engine, and journaled. Acceptance drawn from
 relayflows#52's live failure rather than invented.
 
 Disk 6.7Gi. A cargo target in the new worktree will cost ~1.7G; watching.
+
+## 2026-09-07 tick — reclaimed 4.5G of stale build cache; gate 7 lane landed its red test
+
+**Disk was 5.4Gi — 2-3 ticks from zero.** Diagnosed properly instead of flagging
+a fourth time.
+
+`fe8515ad` is 18G (from 16G) but the breakdown shows it is genuine working
+state, not a runaway artifact: five named task directories — relaysmoke 5.0G,
+ensure 4.3G, relaybase 2.6G, sgreg 1.0G, gardencli 909M. Still not mine to
+delete, and that judgement is unchanged.
+
+**What WAS reclaimable was a shared cargo cache nobody had touched in four
+days.** `~/.relayflows-toolchain/target` held six hashed target dirs; mtimes:
+
+    1.0G  2026-09-03 14:02  173824371
+    1.0G  2026-09-03 14:26  2441514132
+    1.0G  2026-09-03 14:39  2129177155
+    1.0G  2026-09-03 14:55  1188819845
+    1.0G  2026-09-03 15:02  978412413
+    1.6G  2026-09-04 00:36  3886256635   <- KEPT
+
+Removed the five from 09-03. Kept `3886256635`: the live-kernel tests reference
+it by path (`LIVE_KERNEL relayflowd=.../3886256635/debug/relayflowd`), and it is
+the most recent.
+
+**5.4Gi -> 9.9Gi.** Derived data, rebuildable by cargo, and mtime is a sound
+staleness signal here because a build that used a cache would write artifacts
+into it. My gate 7 lane builds into its own worktree target, not this one, so
+nothing live was disturbed.
+
+**Gate 7 lane is doing the right thing:** `fa54257 test: capture placement and
+shared workspace regression for #225` — 155 lines of red evidence under
+`kernel/evidence/225/red.txt`, a new `crash_resume/placement.rs`, registered in
+the suite. Test-first with captured evidence, third lane in a row.
+
+Preview run route still 401 — #3270 still needs the one login.
