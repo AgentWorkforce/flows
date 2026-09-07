@@ -55,7 +55,31 @@ jobs:
         run: |
           test -n "$CLOUD_API_URL"
           test -n "$CLOUD_API_KEY"
-          echo "CLOUD_API_URL and CLOUD_API_KEY present; interactive login is unreachable from here."
+          # Presence is not validity. This step was named "Validate cloud
+          # authentication" while only asserting the variables were non-empty, so on
+          # 2026-09-07 it passed on every run while `agent-relay cloud run` failed
+          # immediately after with `Workflow prepare failed: 401 Unauthorized` --
+          # six PRs, repeatedly, behind a green check.
+          #
+          # Actually exercise the credential against the same host the CLI will use.
+          # /api/v1/workflows/runs requires a RESOLVED WORKSPACE and returns 401 for
+          # a fabricated or absent token (verified against production), so 200 here
+          # means the credential can genuinely act, not merely that a string was set.
+          #
+          # Also print a NON-REVERSIBLE fingerprint of the key. When this check
+          # passes and the launch still 401s, the fingerprint answers whether CI is
+          # even using the credential the mint installed -- otherwise unanswerable
+          # from outside, because the value is masked everywhere it appears.
+          fp="$(printf '%s' "$CLOUD_API_KEY" | shasum -a 256 | cut -c1-12)"
+          echo "CLOUD_API_KEY fingerprint (sha256, first 12): $fp"
+          status="$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $CLOUD_API_KEY" \
+            "${CLOUD_API_URL%/}/api/v1/workflows/runs" || echo 000)"
+          if [ "$status" != "200" ]; then
+            echo "::error::CLOUD_API_KEY is set but not accepted by $CLOUD_API_URL (HTTP $status). Re-mint the credential; do not re-run this job." >&2
+            exit 1
+          fi
+          echo "CLOUD_API_KEY authenticates against $CLOUD_API_URL; interactive login is unreachable from here."
 
       # `agent-relay cloud run` launches the swarm, but nothing installed the
       # CLI, so this job failed at `Launch cloud swarm` with
