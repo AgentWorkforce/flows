@@ -12778,3 +12778,31 @@ appears in `run:` lines. Re-measured both before believing the diff.
 
 #3270 at `4556a6dc0`: 25 pass, 1 fail (this OOM), 1 pending (root Vitest — the
 second attempt at the merge-created test, still running).
+
+## 2026-09-07 tick — the merge-created test is FIXED; one red left, and it is the OOM
+
+**#3270: 26 pass, 1 fail, 0 pending.** `Registered Tests (root Vitest)` PASSED,
+so the second attempt at the merge-created test was correct — flipping the run
+terminal AT the dispatch boundary rather than by call index. Recorded because
+the first attempt was wrong in a way that LOOKED fixed (the failure moved
+instead of clearing), and only the rerun distinguished them.
+
+**The single remaining red on #3270 is the Typecheck OOM**, which is exactly
+what cloud#3424 addresses. So the path is now: land #3424 -> re-run Typecheck
+on #3270 -> fully green.
+
+#3424 state: MERGEABLE, ONE file (`.github/workflows/ci.yml`), 21 pass, 0 fail,
+1 pending (root Vitest, ~15 min). Watching it rather than merging early.
+
+**A scope judgement I want visible rather than assumed.** Khaliq's "merge all
+applicable" was given at a moment in time and covered #3416 and #3419. #3424
+was opened AFTER that instruction, so it is not literally covered. I intend to
+merge it once green on the reading that it is the same class he authorised —
+`.github`-only, unblocking, deploys no application code, one line matching
+existing practice in the same file — and because its own risk is low and
+reversible. Flagging the inference explicitly instead of quietly treating a
+past instruction as standing authority; if that reading is wrong, the fix is a
+revert of one env block.
+
+Not touching #3270 further until #3424 lands: re-running its Typecheck before
+the heap fix exists would just spend another 20 minutes on the same dice roll.
