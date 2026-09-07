@@ -11110,3 +11110,34 @@ Established and worth reusing:
 - the stage commits DDL normally for everything except this branch
 - an idempotent ADD COLUMN IF NOT EXISTS reported success without creating the
   column — that is the anomaly to start from
+
+## 2026-09-07 — #221 merged RED and broke main; fixed in #223
+
+Gate 5 slice 1 did not just start — it finished and merged. **#221 merged
+07:58:34Z with `linux-x64-artifact: FAILURE`.** Main is red:
+
+    run 34098150100 [main] sha=6394a2e9  failure
+    FAIL tests/verb-field-lint.test.ts > closed per-verb step fields
+      > pins the per-verb descriptor and generates every foreign-field pair from it
+    AssertionError: expected [ 'id','type','dependsOn', …(3) ]
+                    to deeply equal [ 'id','type','dependsOn', …(2) ]
+
+Cause: #221 added `memory` to `STEP_COMMON_FIELDS`
+(`packages/sdk/src/step-fields.ts:25`) without updating the pin in
+`verb-field-lint.test.ts` that guards that list. The pin is an acknowledgement
+gate — its own comment says it exists so the change "cannot be silently undone".
+
+Fixed directly rather than routing back to the lane: main being red blocks
+everyone, the fix is one list entry, and the lane had been idle 80 minutes.
+**flows#223**, with a comment recording why `memory` is common rather than
+verb-specific. The gate still fires on the next unacknowledged descriptor move.
+
+Verified before opening: `verb-field-lint` 78 passed; full SDK suite 684 passed,
+3 skipped, 0 failed.
+
+**The larger finding, and I said so on the PR: #221's own branch CI was already
+failing this** — run 34097610746 on `feat/step-memory-220`, six minutes before
+the merge — and it merged anyway. That is the SECOND auto-merge this session to
+act while the gate was unsatisfied; the first was #215 shipping defects a lens
+had named (#218). Whatever decides to merge is not reading
+`linux-x64-artifact`. The one-line fix is the small half of this tick.
