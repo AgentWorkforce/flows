@@ -13114,3 +13114,40 @@ re-dispatch; no code change required to unblock.
 
 Re-ran ONE PR rather than six, which is why this cost one swarm launch instead
 of six.
+
+## 2026-09-07 tick — mint now verifies before installing (cloud#3429)
+
+Prod deploy of the v2 merge SUCCEEDED (`34155753309`, `57db0de23`, 20:11).
+Verified prod health after shipping rather than assuming: status ok,
+`deploymentSha 57db0de23`, bindingsOk true, missing []. And confirmed
+`59735b011` is an ancestor of main, so the v2 executor and the key-set
+diagnostic are live on production.
+
+**Built the one improvement that is right regardless of which option Khaliq
+picks**: the mint now proves the credential works before installing it.
+
+Today's failure was not that a credential was wrong — it was that nothing
+noticed. The mint reported success, installed the key, and the truth surfaced
+hours later in a different repository as `401 Unauthorized` on six PRs. The
+gate in between printed "CLOUD_API_KEY present", which is true and useless.
+
+Added one authenticated GET against the URL the token is about to be advertised
+for, before `gh secret set`. **Proved the probe discriminates BEFORE relying on
+it** — against production: live token -> 200, fabricated token -> 401. Token
+travels in a header, never printed, existing ::add-mask:: still applies.
+
+The error message names the likely cause, not just the status. "401" alone sent
+today's diagnosis through the launch queue, the bridge and the consumer before
+landing on a connection string; the next person gets pointed at
+CI_MINT_DATABASE_URL directly.
+
+Explicit about scope in the PR: this does NOT fix a wrong connection string. It
+makes a wrong one fail in the run that caused it rather than somewhere else,
+later, in someone else's repo.
+
+**Did NOT make the `environment: production` change I proposed** — that
+pre-empts Khaliq's choice between repointing the secret and rewiring the
+workflow. Offered, not assumed.
+
+Still waiting on two decisions: the prod v2 probe, and the CI_MINT_DATABASE_URL
+target.
