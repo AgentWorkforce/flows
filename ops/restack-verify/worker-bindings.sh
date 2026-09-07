@@ -7,10 +7,16 @@
 set -eu
 SCRIPT="scripts/verify-fast-path-bindings.mjs"
 CONFIG="packages/web/wrangler.production.toml"
-if [ ! -f "$SCRIPT" ] || [ ! -f "$CONFIG" ]; then
-  echo "RESTACK_VERIFY worker-bindings: SKIPPED (no $SCRIPT)"
+if [ ! -f "$SCRIPT" ] && [ ! -f "$CONFIG" ]; then
+  echo "RESTACK_VERIFY worker-bindings: SKIPPED (no $SCRIPT or $CONFIG)"
   exit 0
 fi
+for required in "$SCRIPT" "$CONFIG"; do
+  if [ ! -f "$required" ]; then
+    echo "RESTACK_VERIFY worker-bindings: FAILED (missing $required)" >&2
+    exit 1
+  fi
+done
 if node "$SCRIPT" --wrangler-config "$CONFIG"; then
   echo "RESTACK_VERIFY worker-bindings: PASSED"
 else

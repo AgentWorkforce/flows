@@ -15,7 +15,10 @@ p = sys.argv[1]
 d = os.path.dirname(p)
 sqldir = os.path.dirname(d)
 j = json.load(open(p))
-entries = j.get("entries", [])
+if not isinstance(j, dict) or not isinstance(j.get("entries"), list):
+    print("RESTACK_VERIFY migration-journal: FAILED (entries must be a list)")
+    raise SystemExit(1)
+entries = j["entries"]
 tags = [e["tag"] for e in entries]
 problems = []
 
@@ -36,24 +39,25 @@ if orphans:
 # above the new base is the exact defect this catches -- drizzle selects by
 # timestamp, never by filename.
 whens = [e["when"] for e in entries]
-if whens and whens[-1] != max(whens):
-    problems.append(
-        f"last entry {tags[-1]} (when={whens[-1]}) does not sort last; max is {max(whens)}"
-    )
+if any(a >= b for a, b in zip(whens, whens[1:])):
+    problems.append("journal timestamps must be strictly increasing in entry order")
 
-# Cumulative snapshots: the newest must not have FEWER tables than the one
-# before it. Renumbering a migration to the end without regenerating its
-# snapshot shrinks the schema silently.
+# Snapshot lineage is structural. Table sets are not monotonic: a legitimate
+# DROP TABLE removes tables. Proving SQL/schema equivalence needs database
+# replay, which this structural check does not claim to perform.
 snaps = sorted(f for f in os.listdir(d) if f.endswith("_snapshot.json"))
-if len(snaps) >= 2:
-    def tables(f):
-        return set(json.load(open(os.path.join(d, f))).get("tables", {}))
-    prev, last = tables(snaps[-2]), tables(snaps[-1])
-    lost = sorted(prev - last)
-    if lost:
-        problems.append(
-            f"{snaps[-1]} is missing tables present in {snaps[-2]}: {lost}"
-        )
+previous = "00000000-0000-0000-0000-000000000000"
+seen = set()
+for name in snaps:
+    snapshot = json.load(open(os.path.join(d, name)))
+    ident = snapshot.get("id")
+    if not isinstance(ident, str) or not ident or ident in seen:
+        problems.append(f"{name}: missing or duplicate snapshot id")
+    if snapshot.get("prevId") != previous:
+        problems.append(f"{name}: prevId does not match predecessor {previous}")
+    if isinstance(ident, str):
+        seen.add(ident)
+    previous = ident
 
 if problems:
     print("RESTACK_VERIFY migration-journal: FAILED")

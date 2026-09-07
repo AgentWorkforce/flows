@@ -1,14 +1,20 @@
 #!/bin/sh
-# Fail if any TRACKED file still carries a conflict marker.
-#
-# Deliberately excludes lockfiles: a resolved lockfile legitimately contains
-# long hash strings, and matching on "<<<<<<<" at line start avoids those
-# anyway. Uses git grep so untracked scratch files cannot fail the gate.
+# Check all tracked files, including lockfiles; untracked scratch is irrelevant.
 set -eu
-if git grep -n -e '^<<<<<<< ' -e '^>>>>>>> ' -- ':!*.lock' ':!*-lock.json' >/tmp/rv-markers.txt 2>/dev/null; then
-  echo "RESTACK_VERIFY no-conflict-markers: FAILED"
-  echo "tracked files still contain conflict markers:"
-  cat /tmp/rv-markers.txt
-  exit 1
-fi
-echo "RESTACK_VERIFY no-conflict-markers: PASSED"
+markers=$(mktemp)
+trap 'rm -f "$markers"' EXIT HUP INT TERM
+status=0
+git grep -n -e '^<<<<<<< ' -e '^>>>>>>> ' -- >"$markers" || status=$?
+case "$status" in
+  0)
+    echo "RESTACK_VERIFY no-conflict-markers: FAILED"
+    echo "tracked files still contain conflict markers:"
+    cat "$markers"
+    exit 1
+    ;;
+  1) echo "RESTACK_VERIFY no-conflict-markers: PASSED" ;;
+  *)
+    echo "RESTACK_VERIFY no-conflict-markers: FAILED (git grep exit $status)" >&2
+    exit 1
+    ;;
+esac

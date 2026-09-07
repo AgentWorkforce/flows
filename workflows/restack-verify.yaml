@@ -21,7 +21,9 @@
 #
 #   flows run workflows/restack-verify.yaml
 #
-# Exit 0 = the restack is structurally sound. Non-zero = one named check failed.
+# Exit 0 = these structural checks passed or were inapplicable.
+# This does not prove SQL/schema equivalence or run the target repo test suites.
+# Non-zero = one named check failed.
 #
 # Gate: exit_code == 0 is implicit for deterministic steps; each runner exits
 # non-zero on its own failure. No output_contains gate is layered on top —
@@ -33,8 +35,7 @@ name: restack-verify
 description: >
   Verify a just-merged base branch did not silently break the feature branch:
   no leftover conflict markers, migration journal still coherent, worker env
-  bindings still accounted for, and the suites that guard those invariants
-  still pass.
+  bindings still accounted for. Run the target repo test suites separately.
 
 steps:
   - id: no-conflict-markers
@@ -49,9 +50,8 @@ steps:
     type: deterministic
     dependsOn: [no-conflict-markers]
     timeoutMs: 300000
-    # Catches the class where a renumbered migration's snapshot is stale:
-    # duplicate tags, orphaned .sql files, a broken prevId chain, or a tail
-    # entry that no longer sorts last.
+    # Checks duplicate tags, orphaned .sql files, snapshot lineage, and
+    # strictly increasing migration timestamps.
     command: "sh ops/restack-verify/migration-journal.sh"
 
   - id: worker-bindings
