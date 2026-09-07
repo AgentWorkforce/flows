@@ -12048,3 +12048,59 @@ only v2 stalls it is v2-specific. Neither conclusion is available yet.
 **Not merged, nothing to merge:** cloud#3416 still lacks an independent
 signoff. #134 and #139 are both already MERGED — three of the brief's four
 items are stale or answered.
+
+## 2026-09-07 tick — LIVE PROOF: 2 of 3 elements PASS, execution blocked by TWO distinct failures
+
+**Both ladder rungs reached a terminal state with DIFFERENT errors:**
+
+    v2  runId 2dfbab0a-1ab8-473b-ae69-ba27897f4aab  failed after 553s
+        error: "Relayflow v2 consumer capability is missing"
+    v1  runId 1358c059-7d59-4dd8-b309-1934beb15bff  failed after 482s
+        error: "Workflow bootstrap did not start before its launch deadline"
+
+They share a surface signature (pending / sandboxId null / updatedAt frozen)
+but are NOT the same defect. v1 is a sandbox-provisioning timeout. v2 is a
+v2-specific admission failure, code `relayflow_v2_consumer_capability_missing`,
+thrown at `launch-worker.ts:217` when the QUEUE MESSAGE payload lacks `v2JobId`
+or carries the wrong `consumerEpoch`.
+
+**PROOF ELEMENTS ESTABLISHED (2 of 3), both from persisted state:**
+
+1. **Authority tuple round-trips.** The persisted `relayflowV2Authority` on the
+   run carries exactly the tuple pinned at dispatch:
+   sha256 `e4bcf2b2...ce5`, sourceCommit `460c0f77...`, key
+   `system/relayflow-v2/<sha>.tar.gz`, consumerEpoch
+   `relayflow-v2-2026-09-02.1`, relayfileMount scope kind `run`.
+   dispatchType `sandbox`, relayflowVersion `v2`.
+2. **v1 remains the default.** The run submitted with `relayflowVersion`
+   OMITTED persisted as `ver=v1`. Recipe finding #4, proven live, needs no
+   execution.
+3. **BLOCKED:** `completionReason` + the literal journal SQLite. Cannot be
+   produced while nothing executes. Preserved as failure evidence, not worked
+   around.
+
+**Root cause of the v2 error NOT isolated. Hypotheses tested and KILLED:**
+
+- *Consumer epoch mismatch from my fresh artifact choice* — dead.
+  `RELAYFLOW_V2_CONSUMER_EPOCH` is a cloud-side constant
+  (`relayflow-v2-2026-09-02.1`) and the persisted record carries exactly it.
+  Pinning today's flows build did not cause this.
+- *Bridge first-match-wins* — `parseWorkflowLaunchJob` checks the v1 `jobId`
+  shape BEFORE the v2 shape, which would drop `v2JobId` if both were present.
+  Dead: the producer (`run/route.ts:1634,1655`) is exclusive, a ternary
+  emitting one shape or the other, never both.
+- *Bridge flattening on forward* — `logFieldsForJob` collapses
+  `v2JobId -> jobId`, but it is a LOGGING helper, not the forward path. Dead.
+
+**Diagnostics run 34133297617 did not answer it.** `Tail fleet sandbox ensure
+failures` is a 15-second wrangler tail filtered to `fleet-node-sandbox-ensure`;
+it captured nothing from failures that landed at ~14:31:43. The instrument is
+too narrow and too short for this question.
+
+**Discipline note — I misread this run three times before getting it right.**
+Called the stall signature at 71 seconds (normal provisioning); called it "not
+v2-specific" when the terminal errors are distinct; called the rows "written
+and never read" when they were processed and failed. Each was a confident
+statement from insufficient duration or a single sample. The correct reading
+only appeared at terminal state. Do not characterise a queued run before it
+terminates.
