@@ -11010,3 +11010,35 @@ Everything through the App gate and the artifact fetch is green:
 
 Next tick: if SST finishes and Drizzle passes with 0126, the preview is up and
 the #3270 live proof becomes runnable for the first time since Sep 3.
+
+## 2026-09-07 tick — preview reaches Drizzle and stalls; my ensure migration did NOT fix it
+
+Run 34099933426 failed at `Run Drizzle migrations` with 0126 present:
+
+    [✓] migrations applied successfully!  Migrations complete
+    verify-applied-schema: FAIL — behind 0126_snapshot.json
+      Missing columns (1): public.workflow_runs.relayflow_v2_authority
+
+**That falsifies the hash-row theory I acted on**, including the tool's own
+suggestion. Hash rows cause a migration to be SKIPPED; 0126 is a new file with a
+new hash, so it ran — and an unconditional `ADD COLUMN IF NOT EXISTS` that runs
+cannot leave the column absent in the database it ran against.
+
+So migrate and verify are not seeing the same database state, despite run.sh
+documenting a shared resolver. Visible candidates: the pooled-vs-direct endpoint
+split run.sh itself mentions, a Neon branch re-seed between steps, or an
+owner-vs-app role/branch difference. **I cannot confirm any of them from CI logs
+and stopped rather than guess a third time.**
+
+Reported on #3270 with both runs' literal output, and offered to revert 0126 —
+it is harmless and correct for the genuine post-renumber case, but it fixed
+nothing here and should not be read as the remedy.
+
+Green through the App gate on both runs, which does settle the old question:
+**the App IS installed on AgentWorkforce/flows.**
+
+Cost of this: two full preview deploys (~12 min each) spent on a theory the
+first failure's own error message proposed. The lesson is narrow — when a tool
+suggests a cause, its suggestion is a hypothesis, not a diagnosis, and an
+idempotent fix that reports success while changing nothing is the signal that
+you are looking at the wrong database, not the wrong migration.
