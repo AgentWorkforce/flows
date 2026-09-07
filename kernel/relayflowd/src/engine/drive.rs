@@ -113,7 +113,13 @@ impl<C: Clock> Engine<C> {
                         }
                     }
                     Action::ExecDeterministic { step, attempt } => {
-                        let result = exec_det::execute(&step);
+                        if !self.ensure_step_memory(&mut journal, &step, attempt)? {
+                            continue;
+                        }
+                        let injected = self.load_state(&journal, spec.clone())?.steps[&step.id]
+                            .memory
+                            .clone();
+                        let result = exec_det::execute_with_memory(&step, injected.as_ref());
                         let semantic_executions = state.steps[&step.id].semantic_executions;
                         for action in completion_actions(
                             journal.run_id(),
@@ -150,6 +156,18 @@ impl<C: Clock> Engine<C> {
                         if skipped_dispatches.remove(&(step.id.clone(), attempt)) {
                             continue;
                         }
+                        let injection = self.ensure_step_memory(&mut journal, &step, attempt);
+                        if !matches!(injection, Ok(true)) {
+                            if let Some(dispatcher) = &self.dispatcher {
+                                dispatcher.release_dispatch_reservation(
+                                    &state.run_id,
+                                    &step.id,
+                                    attempt,
+                                );
+                            }
+                            injection?;
+                            continue;
+                        }
                         let started_state = self.load_state(&journal, spec.clone())?;
                         let pins = started_state.steps[&step.id]
                             .last_start_pins
@@ -165,6 +183,7 @@ impl<C: Clock> Engine<C> {
                                     attempt,
                                     step_type: worker_class,
                                     spec: step.clone(),
+                                    memory: started_state.steps[&step.id].memory.clone(),
                                     lease_id,
                                     idempotency_key,
                                     pins,

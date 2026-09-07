@@ -94,8 +94,22 @@ export interface BudgetSpec {
   maxDollars?: string;
 }
 
+/** Slice 1 records a fixed pack; retrieval is supplied by a future provider. */
+export interface MemorySpec {
+  scope: 'script' | 'agent';
+  query: string;
+  budget: BudgetSpec;
+}
+
+export interface KernelMemorySpec {
+  scope: 'script' | 'agent';
+  query: string;
+  budget: KernelBudgetSpec;
+}
+
 /** Fields shared by every step on the ladder. */
 export interface BaseStepSpec {
+  memory?: MemorySpec;
   /** Stable step identity; journaled as `step_id` and hashed into the idempotency key. */
   id: string;
   type: StepType;
@@ -272,6 +286,7 @@ export interface KernelVerificationSpec {
 }
 
 export interface KernelStepCommon {
+  memory?: KernelMemorySpec;
   id: string;
   depends_on: string[];
   max_iterations: number;

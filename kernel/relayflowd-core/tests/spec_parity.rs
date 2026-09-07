@@ -103,3 +103,29 @@ fn assert_parity(canonical_fixture: &str, expected_hash: &str) {
         .collect();
     assert_eq!(hash, expected_hash.trim(), "spec_hash parity with the SDK");
 }
+
+#[test]
+fn step_memory_has_identical_canonical_bytes_and_hash() {
+    assert_parity(
+        include_str!("../../../testdata/step-memory.spec.canonical.json"),
+        include_str!("../../../testdata/step-memory.spec.sha256"),
+    );
+}
+
+#[test]
+fn memory_declaration_acceptance_matches_the_sdk_corpus() {
+    let cases: Vec<Value> =
+        serde_json::from_str(include_str!("../../../testdata/memory-spec-cases.json")).unwrap();
+    for case in cases {
+        let spec = serde_json::json!({"steps":[{"id":"s","type":"deterministic","command":"true","memory":case["memory"]}]});
+        let accepted = RunSpec::parse(&spec)
+            .and_then(|spec| spec.validate())
+            .is_ok();
+        assert_eq!(
+            accepted,
+            case["valid"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+    }
+}

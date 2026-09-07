@@ -203,28 +203,51 @@ class Validator {
     }
   }
 
-  private validateBudget(b: unknown): void {
+  private validateBudget(b: unknown, at = 'spec.budget'): void {
     if (!isObject(b)) {
-      this.fail('spec.budget: expected an object');
+      this.fail(`${at}: expected an object`);
       return;
     }
-    this.checkKeys(b, BUDGET_KEYS, 'spec.budget');
+    this.checkKeys(b, BUDGET_KEYS, at);
     const budget = b as BudgetSpec;
     if (
       budget.maxTokensIn !== undefined &&
       !isNonNegInt(budget.maxTokensIn)
     ) {
-      this.fail('spec.budget.maxTokensIn: expected a non-negative integer');
+      this.fail(`${at}.maxTokensIn: expected a non-negative integer`);
     }
     if (
       budget.maxTokensOut !== undefined &&
       !isNonNegInt(budget.maxTokensOut)
     ) {
-      this.fail('spec.budget.maxTokensOut: expected a non-negative integer');
+      this.fail(`${at}.maxTokensOut: expected a non-negative integer`);
     }
     if (budget.maxDollars !== undefined) {
       if (typeof budget.maxDollars !== 'string' || !DECIMAL_RE.test(budget.maxDollars)) {
-        this.fail('spec.budget.maxDollars: expected a decimal string, e.g. "1.50"');
+        this.fail(`${at}.maxDollars: expected a decimal string, e.g. "1.50"`);
+      }
+    }
+  }
+
+  private validateMemory(value: unknown, at: string): void {
+    if (!isObject(value)) {
+      this.fail(`${at}: expected an object`);
+      return;
+    }
+    this.checkKeys(value, ['scope', 'query', 'budget'], at);
+    if (value['scope'] !== 'script' && value['scope'] !== 'agent') {
+      this.fail(`${at}.scope: expected script | agent`);
+    }
+    if (typeof value['query'] !== 'string' || value['query'].trim().length === 0) {
+      this.fail(`${at}.query: expected a non-empty string`);
+    }
+    this.validateBudget(value['budget'], `${at}.budget`);
+    if (isObject(value['budget'])) {
+      for (const key of ['maxTokensIn', 'maxTokensOut']) {
+        const limit = value['budget'][key];
+        if (limit !== undefined && !Number.isSafeInteger(limit)) {
+          this.fail(`${at}.budget.${key}: expected a safe integer`);
+        }
       }
     }
   }
@@ -304,6 +327,8 @@ class Validator {
     }
     const type = st['type'] as StepType;
     this.checkKeys(st, [...STEP_COMMON_FIELDS, ...STEP_FIELDS_BY_TYPE[type]], at);
+
+    if (st['memory'] !== undefined) this.validateMemory(st['memory'], `${at}.memory`);
 
     if (st['dependsOn'] !== undefined) {
       if (!Array.isArray(st['dependsOn']) || !(st['dependsOn'] as unknown[]).every(isNonEmptyString)) {

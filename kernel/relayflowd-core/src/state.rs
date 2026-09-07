@@ -13,6 +13,7 @@ use crate::{
 };
 
 mod budget;
+mod memory;
 mod pins;
 use budget::add_budget;
 
@@ -57,6 +58,7 @@ pub struct StepRuntime {
     pub last_end_pins: Option<Pins>,
     pub last_completion_reason: Option<CompletionReason>,
     pub trajectory_tail: Option<Value>,
+    pub memory: Option<crate::MemoryInjectedPayload>,
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +100,7 @@ impl RunState {
                             last_end_pins: None,
                             last_completion_reason: None,
                             trajectory_tail: None,
+                            memory: None,
                         },
                     )
                 })
@@ -134,6 +137,7 @@ impl RunState {
                         step.last_start_pins = Some(payload.pins);
                     }
                 }
+                EntryType::MemoryInjected => state.apply_memory_injected(entry)?,
                 EntryType::StepCompleted => state.apply_step_completed(entry)?,
                 EntryType::SleepUntil => {
                     let payload: SleepUntilPayload = decode(entry)?;
@@ -318,6 +322,7 @@ impl RunState {
                 last_end_pins: None,
                 last_completion_reason: None,
                 trajectory_tail: None,
+                memory: None,
             };
         }
         // No epoch writer populates `pinned_revisions` yet, and a workspace-only
@@ -325,6 +330,13 @@ impl RunState {
         // `validate_start_pins` enforces. Until epochs carry full pins, an epoch
         // resets the chain head rather than half-restoring it.
         self.current_pins = None;
+        for (id, memory) in payload.memory {
+            self.validate_memory_payload(&id, &memory)?;
+            self.steps
+                .get_mut(&id)
+                .ok_or_else(|| StateError::UnknownStep(id.clone()))?
+                .memory = Some(memory);
+        }
         for (id, done) in payload.steps_done {
             let step = self
                 .steps
@@ -408,6 +420,8 @@ fn decode<T: serde::de::DeserializeOwned>(entry: &JournalEntry) -> Result<T, Sta
 
 #[derive(Debug, Error)]
 pub enum StateError {
+    #[error("invalid memory fact for step {step}: {detail}")]
+    InvalidMemory { step: String, detail: String },
     #[error(transparent)]
     InvalidSpec(#[from] crate::spec::SpecError),
     #[error("journal entry belongs to run {0}")]
@@ -439,6 +453,8 @@ pub enum StateError {
     },
     #[error("invalid non-negative decimal dollar amount {0:?}")]
     InvalidDollars(String),
+    #[error("budget token total overflow")]
+    BudgetOverflow,
 }
 
 #[cfg(test)]

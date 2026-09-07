@@ -1,0 +1,21 @@
+   Compiling relayflowd-core v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-212-channels-wt/kernel/relayflowd-core)
+   Compiling relayflowd-journal v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-212-channels-wt/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-212-channels-wt/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.54s
+     Running tests/crash_resume.rs (target/debug/deps/crash_resume-e6635a3f0d48512c)
+
+running 1 test
+
+thread 'memory::memory_sigkill_after_injection_replays_pack_and_charges_it_once' (76337868) panicked at relayflowd/tests/crash_resume/memory.rs:25:10:
+a step-declared memory pack must be supported: invalid_spec: unknown field "memory" at steps[1] — refusing to guess (fail closed)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test memory::memory_sigkill_after_injection_replays_pack_and_charges_it_once ... FAILED
+
+failures:
+
+failures:
+    memory::memory_sigkill_after_injection_replays_pack_and_charges_it_once
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.68s
+
+error: test failed, to rerun pass `-p relayflowd --test crash_resume`

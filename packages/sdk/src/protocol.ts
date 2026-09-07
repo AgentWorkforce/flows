@@ -9,7 +9,7 @@
 //
 // This module is the typed wire surface; `journal-client.ts` implements it.
 
-import type { KernelRunSpec, StepType } from './spec.js';
+import type { KernelRunSpec, KernelMemorySpec, StepType } from './spec.js';
 
 /** Stamped per segment; readers read every past version, writers write newest. */
 export const PROTOCOL_VERSION = 0 as const;
@@ -164,7 +164,16 @@ export interface WakeContext {
 }
 
 /** Server then pushes `step.dispatch` events to the attached worker. */
+export interface MemoryInjectedPayload {
+  request: KernelMemorySpec;
+  pack: unknown;
+  budget: { tokens_in: number; tokens_out: number; dollars: string };
+  provider: string;
+}
+
 export interface StepDispatchEvent {
+  /** Already journaled and charged; completion usage excludes this cost. */
+  memory?: MemoryInjectedPayload;
   run_id: string;
   step_id: string;
   attempt: number;

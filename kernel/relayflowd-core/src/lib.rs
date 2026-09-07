@@ -10,6 +10,7 @@ pub mod entry;
 pub mod event;
 pub mod journal;
 pub mod machine;
+pub mod memory;
 pub mod retry;
 mod schema;
 pub mod spec;
@@ -25,6 +26,7 @@ pub use machine::{
     completion_actions, next_actions, recovery_actions, recovery_actions_filtered,
     request_cancel_action,
 };
+pub use memory::{MemoryInjectedPayload, MemoryScope, MemorySpec};
 pub use spec::*;
 pub use state::{RunState, StateError, StepRuntime, StepState};
 

@@ -10,6 +10,9 @@ pub struct StepDispatch {
     pub attempt: u32,
     pub step_type: StepType,
     pub spec: StepSpec,
+    /// The already journaled pack; workers must not charge its budget again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory: Option<relayflowd_core::MemoryInjectedPayload>,
     pub lease_id: String,
     pub idempotency_key: String,
     pub pins: Pins,

@@ -109,6 +109,7 @@ function compileStep(step: StepSpec): StepSpec {
     type: step.type,
     ...(step.dependsOn !== undefined ? { dependsOn: step.dependsOn } : {}),
     maxIterations,
+    ...(step.memory !== undefined ? { memory: step.memory } : {}),
   };
 
   switch (step.type as StepType) {
@@ -352,13 +353,13 @@ function kernelTriggerToAuthoring(value: unknown, at: string): unknown {
 
 function kernelStepToAuthoring(value: unknown, at: string): unknown {
   const unionKeys = [
-    'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification',
+    'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory',
     'command', 'timeout_ms', 'prompt', 'model', 'cli', 'instruction',
     'recovery_mode', 'surfaces', 'permissions',
   ] as const;
   const step = requireKernelObject(value, unionKeys, at);
   const type = step['type'];
-  const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification'] as const;
+  const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory'] as const;
   const typeKeys = type === 'deterministic'
     ? ['command', 'timeout_ms'] as const
     : type === 'llm'
@@ -377,6 +378,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
       : {}),
     ...(step['max_iterations'] !== undefined ? { maxIterations: step['max_iterations'] } : {}),
     ...kernelVerificationToAuthoring(type, step['verification'], `${at}.verification`),
+    ...(step['memory'] !== undefined ? { memory: kernelMemoryToAuthoring(step['memory'], `${at}.memory`) } : {}),
   };
   if (type === 'deterministic') {
     return {
@@ -432,6 +434,14 @@ function kernelVerificationToAuthoring(
     return { verification: { type: 'json_schema', schema: verification['json_schema'] } };
   }
   return type === 'deterministic' ? { verification: { type: 'exit_code' } } : {};
+}
+
+function kernelMemoryToAuthoring(value: unknown, at: string): unknown {
+  const memory = requireKernelObject(value, ['scope', 'query', 'budget'], at);
+  return {
+    scope: memory['scope'], query: memory['query'],
+    budget: kernelBudgetToAuthoring(memory['budget'], `${at}.budget`),
+  };
 }
 
 function kernelBudgetToAuthoring(value: unknown, at: string): unknown {
@@ -497,6 +507,15 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
     max_iterations: step.maxIterations ?? 1,
     retry: { ...KERNEL_RETRY_DEFAULTS },
     verification: toKernelVerification(step),
+    ...(step.memory !== undefined ? { memory: {
+      scope: step.memory.scope,
+      query: step.memory.query,
+      budget: {
+        ...(step.memory.budget.maxTokensIn !== undefined ? { max_tokens_in: step.memory.budget.maxTokensIn } : {}),
+        ...(step.memory.budget.maxTokensOut !== undefined ? { max_tokens_out: step.memory.budget.maxTokensOut } : {}),
+        ...(step.memory.budget.maxDollars !== undefined ? { max_dollars: step.memory.budget.maxDollars } : {}),
+      },
+    } } : {}),
   };
   switch (step.type) {
     case 'deterministic':

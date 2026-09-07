@@ -19,6 +19,8 @@ impl SqliteJournal {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
 
+        crate::memory::carry_summary(&transaction, &self.run_id, &mut summary)?;
+
         let closed = insert_entry(
             &transaction,
             &self.run_id,
