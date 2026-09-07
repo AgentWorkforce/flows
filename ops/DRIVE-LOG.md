@@ -13607,3 +13607,33 @@ expected fingerprint I know in advance — CLOUD_API_KEY's is unknowable from
 outside, which is exactly what made this unfalsifiable for hours.
 
 The probe is marked TEMPORARY and must come out of flows#232 before it merges.
+
+## 2026-09-07 — CANARY PROVES: secret writes DO reach runners, instantly
+
+    CANARY        ff1cbabeb7eb   <- exactly the value I wrote 20 seconds earlier
+    CLOUD_API_KEY 3973e022e932   <- NOT f034ce43f5da, written 6 minutes earlier
+
+So propagation is not the problem and never was. A brand-new secret written 20
+seconds before a run arrives intact; CLOUD_API_KEY written six minutes before
+the same run does not. Something is specific to that NAME.
+
+**Final discriminator, running now**: wrote a value I control directly to
+CLOUD_API_KEY itself — `probe-214425`, fingerprint `3b64c5b6dbc6`, at
+21:44:26Z — and triggered a read.
+
+    reads 3b64c5b6dbc6  -> writes to this name DO land; the mint's write was
+                           being overwritten or lost between mint and read
+    reads 3973e022e932  -> the name is SHADOWED. Something outside the repo
+                           secret supplies CLOUD_API_KEY to these runs, and
+                           every mint tonight has been writing to a value the
+                           workflow never reads
+
+The credential is deliberately invalid during this test. It was already
+non-functional — CI has not held a working token all evening — so the test
+costs nothing that was working, and a re-mint restores it in ~3 minutes.
+
+**On my own reasoning**: I asserted earlier that repo secrets take precedence
+over org secrets and therefore org shadowing was "moot". That was a claim from
+memory, not from evidence, and it let me eliminate a candidate I had never
+tested. I could not read org secrets (403, needs admin:org). If this probe
+comes back shadowed, that unverified assumption is where the evening went.
