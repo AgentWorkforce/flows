@@ -12298,3 +12298,53 @@ diagnostic commit is finally being validated.
 Open and waiting on Khaliq: cloud#3416 (mint build fix -> unblocks
 CLOUD_API_KEY and six flows PRs), cloud#3419 (Daytona age-based sweep),
 cloud#3270 itself. Nothing merged.
+
+## 2026-09-07 tick — my renumbering left a stale snapshot; fixed (cloud 567724e06)
+
+Merged cloud#3416 and #3419 on Khaliq's "merge all applicable"; did NOT merge
+#3270 (4 failing checks, and its own live proof has not passed). Re-dispatched
+the mint: my build fix WORKED — `Build the workspace packages the mint script
+imports` succeeded and the module error is gone. It now fails at the last step,
+which is the failure the brief says to preserve:
+
+    failed to fetch public key: HTTP 403: Resource not accessible by integration
+    https://api.github.com/repos/AgentWorkforce/flows/actions/secrets/public-key
+
+The credential mints; it cannot WRITE the secret into flows. The workflow takes
+a token via `create-github-app-token` with `GH_APP_PUSHER_ID`, scoped
+`owner: AgentWorkforce, repositories: flows`. That App needs
+**Secrets: Read and write** on `AgentWorkforce/flows`, or flows added to its
+installation. Not working around it: printing the token violates the
+no-secrets rule, and hand-pasting is the practice this workflow exists to
+retire.
+
+**Then found a defect of my own in #3270.** Its 4 failing checks were not all
+noise. `Unit Tests (web)` failed on `tests/web-drizzle-journal.test.ts`:
+
+    latest snapshot (0127_workflow_run_relayflow_v2_authority) is missing table
+    identities present in an earlier snapshot
+      + public.ephemeral_workspace_leases
+      + public.ephemeral_workspace_projection_recoveries
+      + public.relayfile_candidate_deployments
+
+Renumbering 0125 -> 0127 to fix the `when` ordering moved the migration to the
+END of the sequence while its snapshot still described the schema at its OLD
+position. Drizzle snapshots are CUMULATIVE — the last one must contain
+everything before it. Mine had 87 tables against 0126's 90, and its prevId
+pointed at the wrong parent.
+
+Rebuilt 0127 from 0126 plus exactly the column the migration adds. Asserted the
+result differs from 0126 by nothing else: identical table sets (90), only
+`public.workflow_runs` differing, only `relayflow_v2_authority` added, none
+removed, prevId chaining correctly. Baselined BOTH directions with
+`node --test`: 2 failed / 7 passed before, 9 passed / 0 failed after.
+
+**Why the preview still deployed green with a wrong snapshot**: drizzle selects
+migrations by journal timestamp, never by snapshot. The migration applied fine.
+The damage was deferred to the next `drizzle-kit generate`, which would have
+diffed against a schema missing three tables and tried to recreate them. A
+green deploy was not evidence the renumbering was complete.
+
+Typecheck's failure is unrelated and NOT mine: `FATAL ERROR: Reached heap limit
+Allocation failed - JavaScript heap out of memory`, exit 134. Infrastructure,
+not types.
