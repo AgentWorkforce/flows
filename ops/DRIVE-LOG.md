@@ -10572,3 +10572,10 @@ I authored.
 
 13Gi free is not urgent, but if `fe8515ad` keeps growing at this rate it will be
 within a few hours.
+
+## 2026-09-07 tick — quiet; blockers unchanged, disk stabilized
+
+No change on any blocker. **Disk held at 13Gi free** (unchanged from last tick),
+so the 17->13Gi drop has stopped rather than continued. Downgrading last tick's
+"a few hours from being a problem" — that extrapolated a single interval, and
+the trend did not hold. Nothing to act on.
