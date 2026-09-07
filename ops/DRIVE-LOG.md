@@ -12104,3 +12104,53 @@ and never read" when they were processed and failed. Each was a confident
 statement from insufficient duration or a single sample. The correct reading
 only appeared at terminal state. Do not characterise a queued run before it
 terminates.
+
+## 2026-09-07 tick — v2 failure traced end-to-end in source; chain is CORRECT
+
+Traced the full producer -> consumer path for
+`relayflow_v2_consumer_capability_missing`. Every link is correct at the PR
+head, which relocates the defect from code to deployment.
+
+    run/route.ts:1634        emits EXCLUSIVE ternary:
+                             v2 -> {v2JobId, runId, consumerEpoch}
+                             v1 -> {jobId, runId}            never both
+    durable-launch-queue.ts  Worker env -> bridge (preview is runtime:"worker",
+                             so the bridge path, not direct SQS)
+    web .../queue-bridge.ts  JSON.stringify({ job })          preserves fields
+    core .../queue-bridge.ts parseWorkflowLaunchJob -> exclusive shape,
+                             then JSON.stringify(job) to SQS
+    launch-worker.ts:474     parsePayload, same exclusive shapes
+    launch-worker.ts:217     guard throws if !("v2JobId" in payload)
+
+**A latent hazard worth filing separately, though NOT the cause here.** Both
+`parseWorkflowLaunchJob` (bridge) and `parsePayload` (worker) check the v1
+`jobId` shape BEFORE the v2 shape. Any producer that ever emits both fields —
+a compatibility shim, a DLQ replay, a future caller — silently degrades v2 to
+v1 and surfaces as this exact error, pointing at the consumer rather than the
+producer. First-match-wins over a superset. It is safe only because today's
+sole producer is an exclusive ternary.
+
+**Hypotheses tested and KILLED this tick:**
+
+- *My merge dropped v2 bridge support.* Main has ZERO `v2JobId` refs; the
+  branch has 4. This was the exact silent-merge shape, so I checked instead of
+  assuming: `32c658d83` (pre-merge) = 4, `440ed98df` (my merge) = 4. Preserved.
+  Not my merge.
+- *Bridge rejects v2 (main's code deployed).* Dead by observation: main's
+  parser would 400 the v2 body, `enqueueWorkflowLaunchJobViaBridge` would
+  throw, and the API would have failed at dispatch. We got 202 + a real
+  launchJobId, so the deployed bridge IS v2-aware.
+- *Launch-worker running main's code.* Dead: the error string
+  "Relayflow v2 consumer capability is missing" exists ONLY on the branch, so
+  the consumer is branch code.
+
+**Remaining hypothesis, untested: version skew between the web Worker and the
+launch-worker Lambda within the same stage** — the only way a correct chain
+produces this error. Confirming it needs the Lambda's own logs at failure time,
+which the 15-second `diagnose-preview` tail cannot capture (it filters on
+`fleet-node-sandbox-ensure` and ran at 14:31 against failures landing 14:31:43).
+
+**v1's failure is unrelated and simpler**: `launch deadline` — the sandbox was
+never provisioned. Separate defect, separate owner.
+
+Not merged: cloud#3416 still unsigned. No runs resubmitted.
