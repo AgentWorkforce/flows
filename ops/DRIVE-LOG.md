@@ -11931,3 +11931,39 @@ never reached the mint). Fix opened as cloud#3416.
 + platform, Replay migrations + schema drift, Next.js build, Phase 0,
 OpenNext-CF build (deploy-equivalent). `deploy-preview` remains SKIPPED, so
 the live proof still has no preview.
+
+## 2026-09-07 tick — the preview was never going to build; dispatched it
+
+**Root cause of "preview still building": it never starts from a PR event.**
+`deploy-preview` in `preview.yml` is gated
+
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnostics_only != true
+
+with the `preview` label path DISABLED since 2026-05-14 for the cloud-web
+migration. Every `pull_request` run reports `deploy-preview=SKIPPED`. The
+brief's run 33801381261 is from 2026-09-03 and FAILED — four days stale.
+Reporting "preview still building" each tick was reporting a run that does
+not exist.
+
+**Dispatched: run 34130601571** on `feat/relayflow-v2-executor` for PR 3270.
+
+Artifact pinned from flows run 34106113360 (main @ `460c0f77`), artifact id
+10012558263. The sha256 trap is live and I hit all four candidates:
+
+    e4bcf2b2...ce5  archiveSha256 (tarball)   <- CORRECT, used
+    5a7afac7...b79  upload-artifact zip digest   <- the decoy the API returns
+    5853d8e0..., d665744...  other sha256s in the same log
+
+Verified three ways before spending a 12-minute deploy: computed
+`shasum -a 256` over the extracted tarball, the published `.sha256` sidecar,
+and `archiveSha256` in the run log — all agree. `publish-relayflow-v2-artifact.ts`
+hashes the archive file itself and keys it `system/relayflow-v2/<sha>.tar.gz`,
+confirming the tarball is the right preimage.
+
+**Items 3 and 4 of the standing brief both target MERGED PRs.** #134 merged
+`4f85c4e`, #139 merged `4da825b`. The brief needs rewriting; three of its four
+items are now stale or answered.
+
+**cloud#3416** (build workspace packages before the mint) is OPEN and green on
+everything that applies — the SKIPPEDs are path filters for a `.github`-only
+change. NOT merged: no independent signoff, and CLEAN is not reviewed.
