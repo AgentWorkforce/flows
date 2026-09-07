@@ -29,6 +29,8 @@ mod surface_identity;
 mod worker_capacity;
 #[path = "crash_resume/workspace_identity.rs"]
 mod workspace_identity;
+#[path = "crash_resume/placement.rs"]
+mod placement;
 
 use std::{
     fs, io::Write, os::unix::net::UnixStream, os::unix::process::CommandExt, process::Command,
