@@ -13301,3 +13301,52 @@ If 34161427990 passes, the chain closes and the six PRs follow. If it fails
 with the same 401, then GET-vs-POST is real and the next place to look is what
 `/prepare` does differently — not the credential, which will have been
 certified three ways.
+
+## 2026-09-07 — the 401 is NOT the credential. Nine theories dead; server logs needed
+
+Post-mint run 34161427990 failed identically: `Workflow prepare failed: 401
+Unauthorized` at 20:59:39, using a token minted 20:58:05 and certified by a
+workspace-REQUIRING GET.
+
+**The credential is certified three independent ways** and still cannot POST.
+The reproducible contradiction:
+
+    same token, GET  /api/v1/workflows/runs     -> 200   (from the mint job)
+    same token, POST /api/v1/workflows/prepare  -> 401   (from the swarm job)
+
+Both from GitHub runners, both against https://agentrelay.com/cloud, 90
+seconds apart.
+
+**Eliminated, each with evidence:**
+
+  1. Scope — prepare returns 401 for unresolved auth, 403 for bad scope. 401
+     means the scope gate is never reached.
+  2. Mint-time workspace binding — mint-ci-token.ts throws on mismatch; it
+     succeeded.
+  3. CLI transport — read @agent-relay/cloud@11.10.3 itself: `fromEnv` has no
+     hidden guard, `bearerHeaders` sets `Authorization: Bearer`.
+  4. Token validity — resolveApiTokenSession is a plain hash lookup; the
+     mint's own probe got 200.
+  5. Stale re-run secrets — opened flows#230 for a genuine `pull_request`
+     event; same failure.
+  6. CI-subject rejection — enumerated resolveRequestAuth: a ci token takes
+     `if (!canFollowUserWorkspace(tokenAuth)) return tokenAuth`, NON-null.
+  7. Environment secret shadowing — flows has NO environments and the job
+     declares none, so the repo-level secret is what is read.
+  8. URL construction — ran the CLI's own `buildApiUrl`:
+     `https://agentrelay.com/cloud/api/v1/workflows/prepare`, correct.
+  9. Deployed-vs-main drift — **checked this because my own rule says verify
+     against the deployed tag, not main, and I had been reading main all
+     night.** Prod is `5436b3340`, 3 commits behind. `request-auth.ts` DOES
+     differ — but the 10 lines are pure `@ts-ignore` comments. No behavioural
+     difference.
+
+**What would settle it, and what I cannot do from here**: the server-side log
+for that specific 401. `wrangler tail` on the production web worker would show
+whether `resolveApiTokenSession` found the row and, if not, what hash it looked
+up. That needs Cloudflare credentials this session does not have.
+
+**Honest position**: I can prove the credential works and cannot explain why
+one POST rejects it. Everything I can test from the client side is exhausted.
+This is not "one more theory away" — the next step is an instrument I do not
+have, not another hypothesis.
