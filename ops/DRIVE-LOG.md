@@ -13743,3 +13743,26 @@ hypotheses. The canary was the only value in the system I could predict.
 
 Lane state: `Launch cloud swarm` succeeds, the swarm is running, and the six
 flows PRs are no longer blocked on the credential.
+
+## 2026-09-08 tick — holding the five until one swarm returns a VERDICT
+
+#232's review is still `pending` — the swarm launched and is running. The other
+five (#229 #227 #226 #222 #219 #214) still read `fail`, which is STALE: those
+results predate the credential fix and no re-run has happened since.
+
+**Deliberately not re-running all six yet.** Launching is not completing. The
+swarm has never once produced a verdict in this repo today, so "it launched"
+is evidence about authentication, not about whether the swarm works. Re-running
+six now would spend six cloud swarms to discover the same downstream fault, and
+that is exactly the mistake I avoided earlier when I re-ran one PR instead of
+six and it cost one swarm to learn the credential was dead.
+
+Waiting on #232 to return pass or fail. Either answers a different question
+than the launch did:
+
+    pass -> the swarm works end to end; re-run the remaining five
+    fail -> a downstream fault the credential was masking all day; find it on
+            one PR, not six
+
+Drain: no pending cloud runs of mine; both earlier proof runs terminal. Items 3
+and 4 remain merged/stale. Disk 18Gi, flat since the last tick.
