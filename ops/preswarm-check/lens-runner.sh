@@ -182,6 +182,20 @@ $(cat "$DIFF_FILE")
 Produce a concise review (200-500 words). Cite specific files and line ranges
 from the diff. Name blockers vs concerns vs notes.
 
+Structure the review with a section headed EXACTLY:
+
+  ### Blockers
+
+If there are no blockers, the first word under that heading must be `None`.
+
+Your final token is DERIVED from that section — it is not a separate judgement:
+  - `### Blockers` says None            -> you MUST end with REVIEW_PASSED
+  - `### Blockers` lists one or more    -> you MUST end with REVIEW_FAILED
+
+A token that disagrees with your own Blockers section is a defect in the review,
+not a stricter verdict. Concerns and notes are NOT blockers and must not change
+the token.
+
 END your output with EXACTLY ONE of these tokens on its own line:
   REVIEW_PASSED   — no blockers
   REVIEW_FAILED   — at least one blocker
@@ -239,8 +253,28 @@ printf '%s\n' "$OUTPUT"
 #   - LAST_VERDICT == "REVIEW_PASSED" AND CLI_RC != 0  → exit 1 (NO_VERDICT — a CLI that emitted PASSED then errored is untrustworthy)
 #   - LAST_VERDICT missing (no anchored line at all)   → exit 1 (NO_VERDICT)
 LAST_VERDICT=$(printf '%s\n' "$OUTPUT" | grep -E '^REVIEW_(PASSED|FAILED)$' | tail -1)
+
+# Does the review's own Blockers section say there are none? Read the first
+# non-blank line under the LAST `### Blockers` heading. This NEVER upgrades a
+# verdict — it only relabels REVIEW_FAILED as CONTRADICTION, and the exit code
+# stays 1. Turning a failure into a pass on a substring would be exactly the
+# fail-open the classifier above refuses.
+blockers_say_none() {
+  printf '%s\n' "$OUTPUT" \
+    | awk '/^#+[[:space:]]*Blockers[[:space:]]*$/{f=1;next} f&&NF{print;exit}' \
+    | grep -qiE '^\**None\b'
+}
+
 case "$LAST_VERDICT" in
   REVIEW_FAILED)
+    if blockers_say_none; then
+      # The lens found nothing blocking and still emitted REVIEW_FAILED. That is
+      # a broken review, not a stricter one, and a caller cannot appeal it: the
+      # exit code is authoritative by design. Say so plainly so the branch is not
+      # blamed for a gate defect. See flows#218.
+      echo "PRESWARM_${LENS}: CONTRADICTION — review says 'Blockers: None' but emitted REVIEW_FAILED; treating as NO_VERDICT (gate defect, not a finding)" >&2
+      exit 1
+    fi
     echo "PRESWARM_${LENS}: REVIEW_FAILED"
     exit 1
     ;;
