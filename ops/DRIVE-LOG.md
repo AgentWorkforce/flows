@@ -11263,3 +11263,46 @@ Brief items 1-4 all dead or blocked. No work done, none invented.
 
 merge-gate CI refs 0, main success 460c0f77, #3270 unreviewed, flows still holds
 only RELAY_WORKSPACE_KEY, disk 9.1Gi. Nothing done.
+
+## 2026-09-07 — relayflows#52 cross-referenced; Khaliq was right that cloud already has sandbox logic
+
+Answered whether v2 handles relayflows#52 (Daytona backend provisions a separate
+unsynced sandbox per deterministic step, sends the LOCAL cwd to a remote machine,
+exposes no sandbox id).
+
+**v2 cannot hit it, and that is not a fix.** Zero occurrences of
+`sandbox|environment|daytona|cwd|workdir` in `kernel/**/*.rs`; `exec_det.rs`
+runs `Command::new("/bin/sh")` in the daemon's own process space. One machine,
+one tree, by construction — the bug is structurally impossible because remote
+execution does not exist yet.
+
+**Khaliq's challenge — "sandbox logic is already thought about in cloud isn't
+it?" — was correct and corrected my ledger.** Cloud has substantially more than
+I had credited:
+
+    packages/core/src/code-sync/ + storage/code-transfer   source INTO the sandbox
+    packages/core/src/executor/sandbox-orchestrator.ts     per-root leases, acquire/release
+    bootstrap (SandboxedStepExecutor, writeRunManifest)    one sandbox per RUN
+    packages/core/src/runtime/{daytona,local-http}.ts      provider runtimes
+
+So all three of #52's symptoms are already solved elsewhere in the org. That
+reframes the issue usefully: `process-backend-executor.ts` is a THIRD, thinner
+implementation that provisions per step and never joins the code-transfer path.
+The question becomes why that backend does not use the orchestration that works,
+not what new code is needed.
+
+**v2 does hold the contract for the source-binding half**, unimplemented:
+`entry.rs:185` `Pins { workspace: Vec<WorkspacePin{surface, revision_id}> }`,
+documented as journal facts and never spec fields — structurally what the
+candidate fix in that thread bolted on. But `worker.rs:70` returns
+`Ok(Pins::default())`. Declared, not populated.
+
+Posted the mapping to #52 and cited it as ready-made acceptance criteria for
+gate 7, so the fix is not rediscovered a third time.
+
+**Ledger gate 7 corrected**: was "the sandbox-router exists outside flows;
+nothing connects them", which understated cloud badly. Now names what cloud
+already runs, states the gap as the FLOWS-SIDE CONTRACT (no `requirements`
+vocabulary, routing decision not a journal entry, `Pins` returned empty), and
+cites relayflows#52 as the acceptance case. The capability exists; the
+declaration does not.
