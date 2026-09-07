@@ -13185,3 +13185,46 @@ Also landed this evening: `workflows/restack-verify.yaml` (`f084a4d`) — the
 three-step gate I hand-drove eight times, proven in both directions against the
 real pre-fix snapshot; and codex agent `flows-runtime-0907` spawned in its own
 worktree to get relayflows executing locally.
+
+## 2026-09-07 — my own verification gate certified a dead credential (cloud#3431)
+
+The mint printed "verified: the minted credential authenticates against
+https://agentrelay.com/cloud", installed it, and all six flows PRs still failed:
+
+    Launch cloud swarm : FAILURE
+    Workflow prepare failed: 401 Unauthorized
+
+**The gate I built in #3429 could not have caught this.** It probed
+`/api/v1/auth/whoami` — the ONE route calling
+
+    resolveRequestAuth(request, { allowMissingWorkspace: true })
+
+Every route the CLI actually uses omits that option, and
+
+    if (!options.allowMissingWorkspace || !isNoActiveWorkspaceError(error)) throw
+
+so a token whose workspace does not resolve returns **200 from whoami and 401
+from everything real**. I chose whoami because it was "the cheapest
+authenticated GET". That was the wrong selection criterion, and it happened to
+select the single endpoint incapable of failing.
+
+**The 401-vs-403 distinction is what cracked it.** `/workflows/prepare` returns
+401 when `resolveRequestAuth` yields null and 403 for insufficient scope. I had
+started down a scope hunt — the workflow-invoke profile mints
+workflow:invoke:{read,write} and workflow:{runs,logs}:read and no relayfile
+scope, which looked like a promising story. The status code ruled it out: 401
+means the token never resolved, so scope was never reached. Reading the gate's
+own error taxonomy beat reasoning about plausible causes.
+
+Fix opened as cloud#3431: probe `/api/v1/workflows/runs`, the cheapest GET that
+requires a RESOLVED WORKSPACE, on the same code path the CLI uses.
+
+**Rule worth keeping**: a verification probe must exercise the capability being
+certified, not merely prove the credential parses. I wrote a gate, merged it,
+and it passed a credential that could not do the one thing it was minted for —
+within the hour.
+
+Still open: WHY the workspace does not resolve for the minted token
+(50587328-441d-4acb-b8f3-dbe1b3c5de99 is the active Cloud workspace ID and
+resolves fine for my own session). Next step is the mint's workspace binding,
+not another probe.
