@@ -12557,3 +12557,57 @@ Two of my own defects fixed this tick:
 Drain: schedules healthy, nothing pending. Items 3 and 4 remain stale (#134 and
 #139 both MERGED). Nothing to merge: #3270 CI is green but its live proof has
 still never passed.
+
+## 2026-09-07 — LIVE PROOF RAN. 2 of 3 elements PASS; v2 blocked at a named arm
+
+Khaliq approved device code 893C-V7GW. Proof executed against the redeployed
+stage (`sha c71f482f2`, bindingsOk true).
+
+**PASS — authority tuple round-trips** (persisted on the run record):
+
+    authority.sha256        e4bcf2b2c963b6f5bbcdbe41bb6d14d3c2294693f8de4e5736dda51b6bfb8ce5
+    authority.sourceCommit  460c0f7723da0c0fe8d5fffb87f60c058996ca3e
+    authority.key           system/relayflow-v2/e4bcf2b2...tar.gz
+    consumerEpoch           relayflow-v2-2026-09-02.1
+
+**PASS — v1 remains the default**: submitted with `relayflowVersion` OMITTED,
+persisted as `relayflowVersion=v1`. Recipe finding #4, live.
+
+**FAIL — execution**, and the diagnostic split earned its keep on first use:
+
+    v2 f9001ec0  failed 145s  "Relayflow v2 launch received a payload carrying no v2JobId"
+    v1 9882e364  failed 149s  "Relaycast workspace key repair failed: 530 unknown"
+
+The v2 error is ARM 1, not the epoch mismatch I had been assuming for three
+ticks. That is now PROVEN, not inferred: `parsePayload` THROWS unless a branch
+matches, so returning a v1-shaped payload means the queue message literally
+carried a non-empty `jobId`.
+
+**Nothing in this repository can produce that for a v2 run.** All three
+producers are exclusive ternaries (`run/route.ts:1632`, `:1698`,
+`launch-worker.ts:364`); the queue bridge passes the parsed shape through
+unchanged; the DLQ worker only marks jobs failed, never re-enqueues. Main's
+bridge cannot be the deployed one either — it REJECTS a v2 payload with
+"requires jobId" (400), and our submit returned 202 with a launchJobId. So the
+message was produced or rewritten outside this source tree: deployment
+topology, not code.
+
+Pushed `2b91c43f7`: the error now reports the payload's KEY SET (keys only,
+never values). The next occurrence names the culprit instead of costing another
+inference cycle.
+
+**v1's 530 was transient.** The preview Relaycast gateway is healthy:
+`preview-pr-3270-gateway.relaycast.dev/health` -> 200, resolves fine, root 404
+matches prod's own behaviour. Not a standing defect; also note v1's failure
+MOVED (launch-deadline -> Relaycast), so these are separate transient faults
+rather than one persistent one.
+
+**Loop cost worth stating plainly**: each diagnostic iteration needs a preview
+redeploy (~20 min) AND a fresh device approval from Khaliq, because a redeploy
+recreates the Neon branch and wipes `api_token_sessions`. Two human touches per
+hypothesis. That is the real constraint on closing this out, not engineering
+time.
+
+Export step still unexercised: it 409'd because the run never completed, which
+is correct behaviour. The literal journal SQLite assertion cannot run until a
+v2 run actually executes.
