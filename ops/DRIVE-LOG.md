@@ -12885,3 +12885,34 @@ would have had me believe I was deploying the old head. Listings order by
 something other than dispatch time here; check the run you actually created.
 
 Live proof remains the merge blocker. Nothing merged on #3270.
+
+## 2026-09-07 — cloud#3270 MERGED on Khaliq's instruction (59735b011)
+
+Khaliq said "go ahead and merge". State verified immediately before, not from
+an earlier reading: `head=592518cf7`, `MERGEABLE/CLEAN`, 27 pass / 0 fail /
+0 pending, behind=2 ahead=18. Squash-merged as `59735b011` at 19:25:12Z.
+
+**Merged WITHOUT a passing live proof**, which is a departure from the standing
+rule, at the principal's explicit direction after I had raised the concern
+repeatedly across many ticks. Recording that plainly: the rule was not
+satisfied, it was overridden by the person who owns the gate.
+
+**The fact that bounds the risk, stated once at merge time**: v2 is opt-in and
+v1 remains the default — proven live earlier today, a run submitted with
+`relayflowVersion` OMITTED persisted as `v1`. So this ships a v2 path that
+currently fails at the launch boundary
+(`relayflow_v2_payload_missing_v2_job_id`) without changing behaviour for any
+caller that does not explicitly ask for v2.
+
+Merging cloud main push-deploys to prod, so the deploy is being WATCHED rather
+than assumed: Deploy, Drizzle Migrations, Smoke Sandbox Image and the broker
+mcp-args contract smoke all triggered at 19:25 on `59735b011`.
+
+Note the preview redeploy (run 34155405484) is now moot for merge purposes but
+still useful: it carries the payload key-set diagnostic, which is what will
+finally name the cause of the v2 launch failure. That work continues — the
+merge did not fix the defect, it shipped around it.
+
+Still outstanding for Khaliq: the `GH_APP_PUSHER` secrets:write grant on
+AgentWorkforce/flows, which blocks CLOUD_API_KEY and the `review` check on six
+flows PRs.
