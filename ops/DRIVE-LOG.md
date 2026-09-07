@@ -10599,3 +10599,32 @@ No change on any blocker. #212 open, 0 assignees, 0 comments. Nothing done.
 ## 2026-09-07 tick — quiet; identical state
 
 No change on any blocker. #212 still unclaimed. Nothing done.
+
+## 2026-09-07 — dispatched #212 to codex (kernel-channels-0907)
+
+Khaliq asked whether I had assigned #212 to codex. **I had not** — I recommended
+it and left it as his call, which was too passive given he had already said
+codex should be the implementer. Corrected immediately.
+
+Spawned `kernel-channels-0907` (codex, pty, pid 69775, state: working) via
+`agent-relay node agent spawn --cwd`. Note this is the LOCAL BROKER spawn, not
+the fleet spawn that lands in repo-less Daytona sandboxes — `--cwd` places it in
+a real directory, which is what made this viable.
+
+Gave it a dedicated worktree, `flows-212-channels-wt` on
+`feat/durable-channels-212` from main @ 5c9758b. One worker, one working
+directory: the three idle codex agents already on this node
+(garden-agent-reg-0906, nightcto-prod-health-0906, cloud-acl-release-lead-0905b)
+belong to other lanes and were deliberately NOT repurposed.
+
+Brief shaped per the lesson that instruction shape decides whether a lane works:
+start now, do not reply, do not return to the prompt, progress observed through
+commits and a PR rather than status replies. Content: the failing crash-resume
+test is the deliverable, written failing first; kernel-only with no authoring
+field; `cargo test --workspace` is the gate; opens a PR and does not merge.
+
+Verified rather than trusted: `node agent list` shows it working with a fresh
+pid, and 16 codex processes are live. Name collision would have been silent, so
+the pid check was the point.
+
+Posted the brief to #212 so the intent survives the process.
