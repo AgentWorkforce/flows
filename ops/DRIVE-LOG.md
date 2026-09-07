@@ -11306,3 +11306,38 @@ already runs, states the gap as the FLOWS-SIDE CONTRACT (no `requirements`
 vocabulary, routing decision not a journal entry, `Pins` returned empty), and
 cites relayflows#52 as the acceptance case. The capability exists; the
 declaration does not.
+
+## 2026-09-07 tick — scoped gate 7 as flows#225 (scoping only, NOT dispatched)
+
+Brief items 1-4 still blocked or dead. Did the thing I told Khaliq was next and
+that needs nothing from him: scoping. Filing an issue does not merge anything,
+so the broken merge gate is not a blocker for it.
+
+Verified the baseline rather than reusing yesterday's belief:
+
+    requirements|sandbox|placement in spec.ts   0
+    worker.rs Ok(Pins::default())               1   (still stubbed)
+    existing gate-7 issue                       0   (no duplicate)
+
+**flows#225 is deliberately small, because gate 7 is much cheaper than the gate
+text reads.** Cloud already has code-sync, per-run sandbox continuity, per-root
+leases and provider runtimes. The issue names those explicitly as
+DO-NOT-REBUILD, and scopes slice 1 to the flows-side contract only: a step can
+declare requirements, the engine records the routing decision as a journal
+entry, and `Pins` gets populated with the workspace revision each step started
+from.
+
+Acceptance is lifted from relayflows#52 rather than invented — its three
+symptoms are gate 7's three requirements stated as failures, with a live
+reproduction attached. The sharpest single test: two deterministic steps in one
+run, step 1 writes a file and step 2 reads it back. That one kills the
+separate-sandbox and no-source-sync symptoms together.
+
+Explicit instruction in the issue not to add a second sandbox implementation —
+relayflows#52 exists *because* a third thinner implementation was written
+instead of using the path that already worked.
+
+**Not dispatched.** Two idle codex agents are available, but the merge gate
+still has 0 CI references, and the last two lanes' output merged without
+anyone approving it. The issue is useful whenever it is picked up; the lane is
+not, until a red CI can stop a merge.
