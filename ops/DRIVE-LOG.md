@@ -12966,3 +12966,41 @@ gates. My merge is confirmed an ancestor of it, so nothing is lost.
 Device code issued; the proof runs the moment Khaliq approves. This is the run
 that should finally NAME the v2 failure instead of describing it: the guard now
 reports the payload's key set, ending five ticks of inference.
+
+## 2026-09-07 — I raced my own merge: the preview stage is GONE
+
+The preview redeploy (34155405484) reached `Recheck preview eligibility before
+publication`, FAILED it, and is now running `Remove unpublished preview stage`.
+The device flow died mid-poll with `cloud web worker binding unavailable`, then
+the host stopped answering entirely (http=000).
+
+**Cause, confirmed from preview.yml source rather than guessed:**
+
+    if (pr.state !== "open" || pr.head.sha !== expectedSha || ...) throw
+
+I dispatched that preview at ~19:22 and merged #3270 at 19:25:12Z. By the time
+the deploy reached the recheck, the PR was closed, so the guard correctly
+refused to publish a preview for a merged PR and tore the stage down.
+
+**This was my sequencing error.** The merge was on Khaliq's instruction, but
+the ordering was mine, and it was foreseeable: merging a PR invalidates any
+preview deploy in flight for it. I had a deploy running specifically to
+diagnose the v2 failure and merged the PR out from under it.
+
+**Consequence**: there is no longer a pr-3270 preview stage, so the payload
+key-set diagnostic cannot be exercised there. Five ticks of narrowing ended one
+approval short of the answer.
+
+**The diagnostic is not lost** — it is on main (`592518cf7` merged as
+`59735b011`) and reaches prod with the current deploy. Two ways forward, and
+the second is not mine to choose unilaterally:
+
+  a) Open a throwaway PR to mint a fresh preview stage, redeploy, re-approve.
+     Costs another ~20 min deploy plus a device approval.
+  b) Submit ONE opt-in v2 run against PROD once the deploy lands. It fails at
+     the launch guard before any sandbox is provisioned, so blast radius is a
+     single failed workflow row, and it prints the payload key set directly.
+     Cheaper and faster — but it is an experiment on production, which is
+     Khaliq's call, not mine.
+
+Not doing (b) unasked.
