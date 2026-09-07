@@ -10840,3 +10840,35 @@ settled decision #6 forbids an agent editing the gates that judge its work, and
 both fixes are exactly that. Same reasoning as #213.
 
 Open in flows: #218, #213, #197, #174, #141.
+
+## 2026-09-07 tick — ledger updated: GATE 1 IS MET
+
+Verified on main before changing the published map, rather than inferring from
+the merge:
+
+    entry.rs      channel.appended / channel.delivered / channel.acknowledged
+    tests         channels_sigkill_resume_redelivers_unacked_messages_with_
+                    exactly_once_effects            (4 SIGKILL references)
+                  channels_reject_foreign_workers_stale_attempts_and_
+                    invalid_acknowledgements
+    CI            cargo test --workspace  (cloud-runtime-artifact.yml:81)
+
+Gate 1 moves Near -> **Met**. Tally is now **3 met, 2 partial, 4 not started**,
+and the DAG's "1 run" node is green.
+
+Recorded HOW it landed in the ledger, not just that it did: the change merged
+once carrying two defects a review had already named, because the pre-push and
+post-push copies of the maintainability lens have drifted into different prompts
+and auto-merge acts on the weaker one. A follow-up fixed the code; the gate is
+open as flows#218. A ledger that said only "met" would hide the thing most worth
+knowing.
+
+**Two of my own edit bugs, caught by checking rather than by publishing:**
+- A `str.replace` assertion failed because I was matching text I had already
+  rewritten in an earlier tick. Fixed by reading the file instead of trusting my
+  memory of it.
+- Slicing by line number left two orphan lines from the old Proof block —
+  `div` balance went to -1 and the Proof text was duplicated. Caught by counting
+  `<div>` vs `</div>` before publishing; balance is now 0/0.
+
+Ledger: https://claude.ai/code/artifact/1edcf8ae-af0c-4115-b953-df5bd8cdd0c9
