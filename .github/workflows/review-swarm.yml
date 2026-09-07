@@ -26,7 +26,6 @@ jobs:
     env:
       CLOUD_API_URL: ${{ vars.CLOUD_API_URL || 'https://agentrelay.com/cloud' }}
       CLOUD_API_KEY: ${{ secrets.CLOUD_API_KEY }}
-      CLOUD_API_KEY_CANARY: ${{ secrets.CLOUD_API_KEY_CANARY }}
       RELAY_WORKSPACE_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
       RELAY_API_KEY: ${{ secrets.RELAY_WORKSPACE_KEY }}
     steps:
@@ -72,9 +71,6 @@ jobs:
           # even using the credential the mint installed -- otherwise unanswerable
           # from outside, because the value is masked everywhere it appears.
           fp="$(printf '%s' "$CLOUD_API_KEY" | shasum -a 256 | cut -c1-12)"
-          # TEMPORARY canary. Written at a known value to distinguish "secret
-          # writes never reach runners" from "this one secret is stuck".
-          echo "CANARY fingerprint: $(printf '%s' "$CLOUD_API_KEY_CANARY" | shasum -a 256 | cut -c1-12)"
           echo "CLOUD_API_KEY fingerprint (sha256, first 12): $fp"
           status="$(curl -s -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer $CLOUD_API_KEY" \
