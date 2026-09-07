@@ -1,0 +1,3 @@
+$ git merge-base --is-ancestor 201542a7485d0ad6274bb5939da51535831984b9 origin/main
+
+[exit 0]

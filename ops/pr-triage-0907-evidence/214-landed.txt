@@ -1,0 +1,6 @@
+$ git log origin/main --oneline -- sdk/src/cli/hn-monitor.ts packages/sdk/src/cli/hn-monitor.ts
+5ca5a7a refactor(layout): move sdk/ and surface/ under packages/ (#205)
+51415d9 feat(gate2): real Claude analyzer for hn-monitor, with a declared model (#130)
+201542a feat(cli): flows hn-monitor start — CLI-inlined proactive workload for gate 2 (#120)
+
+[exit 0]

@@ -1,0 +1,11 @@
+$ git grep -n -A 7 'Validate cloud authentication' origin/main -- .github/workflows/review-swarm.yml
+origin/main:.github/workflows/review-swarm.yml:54:      - name: Validate cloud authentication
+origin/main:.github/workflows/review-swarm.yml-55-        run: |
+origin/main:.github/workflows/review-swarm.yml-56-          test -n "$CLOUD_API_URL"
+origin/main:.github/workflows/review-swarm.yml-57-          test -n "$CLOUD_API_KEY"
+origin/main:.github/workflows/review-swarm.yml-58-          echo "CLOUD_API_URL and CLOUD_API_KEY present; interactive login is unreachable from here."
+origin/main:.github/workflows/review-swarm.yml-59-
+origin/main:.github/workflows/review-swarm.yml-60-      # `agent-relay cloud run` launches the swarm, but nothing installed the
+origin/main:.github/workflows/review-swarm.yml-61-      # CLI, so this job failed at `Launch cloud swarm` with
+
+[exit 0]

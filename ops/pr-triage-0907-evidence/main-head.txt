@@ -1,0 +1,4 @@
+$ git rev-parse origin/main
+3dc8a041d554903269a5b3c66d9a2605f0c3f9a4
+
+[exit 0]

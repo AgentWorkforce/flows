@@ -1,0 +1,8 @@
+$ git log origin/main --oneline -5 -- ops/NEXT.md
+9c1aa86 docs(next): point drive runs at #174 instead of human-blocked credential work (#210)
+7023884 docs(next): the gate has a CLI that reads an API key, and no key to read (#194)
+f163806 drive: cloud run 1ffd2aee (#200)
+98b6cdd drive: cloud run fb9fce40 (#164)
+27b7151 ops(next): point the tick at the CI coverage gap, not finished work (#152)
+
+[exit 0]

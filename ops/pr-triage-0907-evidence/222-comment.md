@@ -1,0 +1,392 @@
+<!-- pr-triage-0907 -->
+
+**Verdict: supersede-and-close — superseded by later drive PR #226 (`dffc5b5ee3742c8a6d27f078ad388fda2f1db416`).**
+
+Actual change: adds `test -n "$RELAY_WORKSPACE_KEY"` to `.github/workflows/review-swarm.yml` and rewrites `ops/NEXT.md` as a 239-line audit/assignment for that same check.
+
+Direct comparison with #226 shows the workflow files differ only in the success echo string. Both enforce exactly the same three presence checks; #226 additionally addresses the credential-documentation issue. The audit prose is not byte-identical and will remain preserved here, but adds no separate implementation to retain. #226 is still open, not merged; closure consolidates duplicate implementation into that surviving proposal.
+
+Staleness: three-way integration into current main is conflict-free, but the work package is superseded by #226. Main still lacks the workspace presence assertion; this closure does not claim the assertion already landed. #234 changes only NEEDS_HUMAN and does not replace the implementation.
+
+Action: close in favor of #226; no merge or branch rewrite.
+
+Compared against `origin/main` at `3dc8a041d554903269a5b3c66d9a2605f0c3f9a4`. Captured commands and literal output follow; `[exit N]` is the capture wrapper reporting the exit code. `refs/triage/pr-N` is the locally fetched `refs/pull/N/head`. Git merge-tree checks textual three-way integration only; it is not a test-suite run or an actual rebase.
+
+```text
+$ git diff --stat origin/main...refs/triage/pr-222
+ .github/workflows/review-swarm.yml |   3 +-
+ ops/NEXT.md                        | 279 ++++++++++++++++++++++++++++---------
+ 2 files changed, 219 insertions(+), 63 deletions(-)
+
+[exit 0]
+```
+
+```text
+$ git merge-tree --write-tree origin/main refs/triage/pr-222
+da477e0ade84886635247143e9d98a88b91ee761
+
+[exit 0]
+```
+
+```text
+$ git diff refs/triage/pr-222 refs/triage/pr-226 -- .github/workflows/review-swarm.yml
+diff --git a/.github/workflows/review-swarm.yml b/.github/workflows/review-swarm.yml
+index 4008e8b..c37c23b 100644
+--- a/.github/workflows/review-swarm.yml
++++ b/.github/workflows/review-swarm.yml
+@@ -56,7 +56,7 @@ jobs:
+           test -n "$CLOUD_API_URL"
+           test -n "$CLOUD_API_KEY"
+           test -n "$RELAY_WORKSPACE_KEY"
+-          echo "Cloud authentication secrets present; interactive login is unreachable."
++          echo "CLOUD_API_URL, CLOUD_API_KEY, and RELAY_WORKSPACE_KEY present; interactive login is unreachable from here."
+ 
+       # `agent-relay cloud run` launches the swarm, but nothing installed the
+       # CLI, so this job failed at `Launch cloud swarm` with
+
+[exit 0]
+```
+
+```text
+$ git grep -n -A 7 'Validate cloud authentication' origin/main -- .github/workflows/review-swarm.yml
+origin/main:.github/workflows/review-swarm.yml:54:      - name: Validate cloud authentication
+origin/main:.github/workflows/review-swarm.yml-55-        run: |
+origin/main:.github/workflows/review-swarm.yml-56-          test -n "$CLOUD_API_URL"
+origin/main:.github/workflows/review-swarm.yml-57-          test -n "$CLOUD_API_KEY"
+origin/main:.github/workflows/review-swarm.yml-58-          echo "CLOUD_API_URL and CLOUD_API_KEY present; interactive login is unreachable from here."
+origin/main:.github/workflows/review-swarm.yml-59-
+origin/main:.github/workflows/review-swarm.yml-60-      # `agent-relay cloud run` launches the swarm, but nothing installed the
+origin/main:.github/workflows/review-swarm.yml-61-      # CLI, so this job failed at `Launch cloud swarm` with
+
+[exit 0]
+```
+
+<details><summary>Inspected GitHub PR diff (captured verbatim)</summary>
+
+```diff
+$ gh pr diff 222 --repo AgentWorkforce/flows
+diff --git a/.github/workflows/review-swarm.yml b/.github/workflows/review-swarm.yml
+index 852f186c..4008e8ba 100644
+--- a/.github/workflows/review-swarm.yml
++++ b/.github/workflows/review-swarm.yml
+@@ -55,7 +55,8 @@ jobs:
+         run: |
+           test -n "$CLOUD_API_URL"
+           test -n "$CLOUD_API_KEY"
+-          echo "CLOUD_API_URL and CLOUD_API_KEY present; interactive login is unreachable from here."
++          test -n "$RELAY_WORKSPACE_KEY"
++          echo "Cloud authentication secrets present; interactive login is unreachable."
+ 
+       # `agent-relay cloud run` launches the swarm, but nothing installed the
+       # CLI, so this job failed at `Launch cloud swarm` with
+diff --git a/ops/NEXT.md b/ops/NEXT.md
+index a75b36db..6b28344e 100644
+--- a/ops/NEXT.md
++++ b/ops/NEXT.md
+@@ -1,84 +1,239 @@
+-# NEXT — fix the crash-resume hang (#174)
++# NEXT — verify gate 3 review-swarm implementation
+ 
+-**Scope:** `kernel/relayflowd/`, the crash-resume test suite, and nothing else.
++**Scope:** Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time, addressing every architectural finding from the walked-away #75/#77 attempts. Parallel to Track A (hn-monitor); different territory (`.github/` + `workflows/` — no overlap with `sdk/` work).
+ 
+-## Why this and not gate 3
++## Objective
+ 
+-The previous package pointed at the review-swarm credential. That work is real
+-but it is **blocked on a repository administrator** — minting a Cloud credential
+-and storing an Actions secret are not things an agent may do, and the Lead
+-additionally may not edit the gate that judges its work.
++Audit the existing review-swarm implementation against the 9 non-negotiable requirements from the gate 3 brief and document whether each is satisfied.
+ 
+-Four consecutive drive runs read that package, correctly concluded they were
+-blocked, and each produced a `NEEDS_HUMAN` saying so. That is four cycles spent
+-re-deriving the same fact. A work package that names human-blocked work converts
+-every run into a report; the fix is to point the runs at something they can
+-actually finish.
++## Files in scope
+ 
+-The credential decision is tracked and waiting elsewhere. Do not work on it here.
++- `.github/workflows/review-swarm.yml`
++- `.github/workflows/scripts/swarm-post.sh`
++- `.github/workflows/scripts/swarm-prepare.sh`
++- `.github/workflows/scripts/swarm-verdict.sh`
++- `workflows/review-swarm.yaml`
++- `.gitignore`
++- `README.md`
++- `ops/NEXT.md` (this file)
+ 
+-## The problem
++## Definition of done
++
++Each of the 9 non-negotiable requirements verified against the actual implementation with line citations and literal command output:
++
++### Requirement 1: Immutable gate
++`.github/workflows/review-swarm.yml` must checkout `main`'s copy of `workflows/review-swarm.yaml` + scripts SEPARATELY from the PR head.
+ 
+-`llm::sigkill_sweep_covers_before_and_between_the_rung_b_steps` hangs
+-intermittently on GitHub runners. Issue **#174**, reopened 2026-09-06 with fresh
+-evidence after being closed.
++**Verified:** ✓ SATISFIED
++- Line 32-37: checks out PR head to `pr-head/`
++- Line 39-48: checks out main to `gate-files/` with sparse-checkout
++- Line 101: runs `agent-relay cloud run ../gate-files/workflows/review-swarm.yaml`
+ 
++### Requirement 2: Unified verdict-extraction logic
++Aggregate logic lives in ONE place, both callers use it.
++
++**Verified:** ✓ SATISFIED
++```bash
++grep -n "swarm-verdict.sh" workflows/review-swarm.yaml .github/workflows/scripts/swarm-post.sh
++```
+ ```
+-thread 'llm::sigkill_sweep_covers_before_and_between_the_rung_b_steps'
+-panicked at relayflowd/tests/crash_resume/llm.rs:121:27
+-test result: FAILED. 33 passed; 1 failed
++workflows/review-swarm.yaml:132:          . .github/workflows/scripts/swarm-verdict.sh
++.github/workflows/scripts/swarm-post.sh:7:# shellcheck source=swarm-verdict.sh
++.github/workflows/scripts/swarm-post.sh:8:source "$script_dir/swarm-verdict.sh"
+ ```
+ 
+-Line 121 is the `no step.dispatch after resume` path — the worker never receives
+-a dispatch after the daemon is SIGKILLed and resumed. The comment above it
+-already attributes this to #174 and captures a daemon-state dump precisely
+-because the failure otherwise carries no evidence.
++Shared logic at `.github/workflows/scripts/swarm-verdict.sh`:
++- Line 11: filename sorting via `LC_ALL=C sort`
++- Line 17: last non-empty line via `awk 'NF { last=$0 } END { print last }'`
++- Line 23: fail-closed on unmatched verdict returns `UNCLEAR`
++
++### Requirement 3: Auth secret validation fail-fast
++Preflight validates `RELAY_WORKSPACE_KEY` is set before launching.
++
++**Verified:** PARTIALLY SATISFIED (validates CLOUD_API_KEY, not RELAY_WORKSPACE_KEY)
++
++The workflow validates `CLOUD_API_KEY`:
++```bash
++grep -A3 "Validate cloud authentication" .github/workflows/review-swarm.yml
++```
++```
++      - name: Validate cloud authentication
++        run: |
++          test -n "$CLOUD_API_URL"
++          test -n "$CLOUD_API_KEY"
++          echo "CLOUD_API_URL and CLOUD_API_KEY present; interactive login is unreachable from here."
++```
+ 
+-## The evidence, and what makes it tractable now
++But requirement says validate `RELAY_WORKSPACE_KEY`. The secret IS declared (line 29-30) but not validated in preflight.
+ 
+-It reproduces at roughly one run in eight on `main`:
++### Requirement 4: Sticky marker + sticky transcripts
++Edit-in-place across pushes via HTML anchors.
+ 
++**Verified:** ✓ SATISFIED
++```bash
++grep -n "<!-- swarm-lens:" .github/workflows/scripts/swarm-post.sh
++```
++```
++34:    body="<!-- swarm-lens: $lens -->
++39:    body="<!-- swarm-lens: $lens -->
++```
++```bash
++grep -n "<!-- review-swarm -->" .github/workflows/scripts/swarm-post.sh
+ ```
+-main, cloud-runtime-artifact.yml, last 8 runs:  7 success, 1 failure
+ ```
++47:upsert_comment '<!-- review-swarm -->' "<!-- review-swarm -->
++```
++
++`upsert_comment()` at line 14-23 finds by anchor, patches if found, creates if not.
+ 
+-Earlier this looked like a regression from a specific commit, because `main`
+-normally runs about once a day and seven commits landed within ten minutes. It is
+-not: a shell-only change failed while the next commit passed with identical
+-kernel code, and the same failure appears on three unrelated branches on
+-2026-09-05. **The rate did not change; the sample size did.**
++### Requirement 5: Every PR gets reviewed
++NO author whitelist.
+ 
+-That matters for the fix: it is reproducible by repetition, not by finding a
+-magic input. Run the crash-resume suite in a loop and it will show up.
++**Verified:** ✓ SATISFIED
++```bash
++grep -n "github.event.pull_request.user.login" .github/workflows/review-swarm.yml
++```
++(no output — no whitelist exists)
+ 
+-## What to do
++### Requirement 6: Cloud sandbox has no gh auth
++GHA runner fetches PR diff+metadata, stages to `.review-target/`, `git add -f`.
+ 
+-1. Reproduce it locally. `cd kernel && sh ../ops/cargo.sh test -p relayflowd --test crash_resume`
+-   in a loop until it fails. Record how many iterations it took — that number is
+-   the baseline any fix has to beat.
+-2. Find where the dispatch is lost. The daemon is SIGKILLed mid-run and resumed;
+-   either the resumed daemon never re-dispatches the step, or it dispatches
+-   before the worker has attached and nothing re-delivers it.
+-3. Fix it in `kernel/relayflowd/`. Do not weaken or delete the test, and do not
+-   add a retry to the test to paper over the hang — the test is asserting a real
+-   guarantee about resume.
+-4. Prove the fix by repetition, not by one green run. State the iteration count
+-   before and after.
++**Verified:** ✓ SATISFIED
++- Line 81-91: `swarm-prepare.sh` runs on GHA runner with `GH_TOKEN`
++- `swarm-prepare.sh` line 7-13: creates `.review-target/`, fetches via `gh`, `git add -f`
+ 
+-## Definition of done
++`.gitignore` check:
++```bash
++grep -n "review-target" .gitignore
++```
++(no output — no mask exists, so `-f` flag will work)
++
++### Requirement 7: Job timeout > poll deadline > swarm timeoutMs
++Documented invariant.
++
++**Verified:** ✓ SATISFIED
++```bash
++grep -n "Ordering invariant" .github/workflows/review-swarm.yml workflows/review-swarm.yaml
++```
++```
++.github/workflows/review-swarm.yml:18:    # Ordering invariant: swarm 60m < poll 65m < job 75m.
++.github/workflows/review-swarm.yml:111:          # Ordering invariant: swarm 60m < this poll deadline 65m < job 75m.
++workflows/review-swarm.yaml:17:  # Ordering invariant: this 60m timeout < GHA poll 65m < GHA job 75m.
++```
++
++Values:
++- `workflows/review-swarm.yaml:18`: `timeoutMs: 3600000` (60 min)
++- `.github/workflows/review-swarm.yml:112`: `deadline=$((SECONDS + 3900))` (65 min = 3900s)
++- `.github/workflows/review-swarm.yml:19`: `timeout-minutes: 75`
++
++### Requirement 8: Wait step records terminal status; post runs on always()
++Transcripts reach PR even on rejection.
++
++**Verified:** ✓ SATISFIED
++- Line 106-130: wait step records `swarm_status` output, exits 0 (line 130)
++- Line 132-137: post step uses `if: always() && steps.launch.outputs.run_id != ''`
++- Line 139-143: fail step uses `if: always() && steps.wait.outputs.swarm_status != 'completed'`
++
++### Requirement 9: Transcript-to-run-id binding
++Reject stale transcripts via freshness marker.
++
++**Verified:** ✓ SATISFIED
++- `swarm-prepare.sh:11`: `touch .review-target/run-start` creates freshness marker
++- `swarm-verdict.sh:33`: checks `[ ! "$transcript" -nt "$freshness_marker" ]`, returns `STALE`
++- `swarm-post.sh:10`: creates `freshness_marker=$(mktemp)` for sync comparison
++
++## Additional checks from Definition of done
++
++### All files parse
++```bash
++python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml')); print('review-swarm.yml: valid YAML')"
++```
++```
++review-swarm.yml: valid YAML
++```
++
++```bash
++python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml')); print('review-swarm.yaml: valid YAML')"
++```
++```
++review-swarm.yaml: valid YAML
++```
++
++```bash
++bash -n .github/workflows/scripts/swarm-post.sh && echo "swarm-post.sh: valid bash"
++```
++```
++swarm-post.sh: valid bash
++```
++
++```bash
++bash -n .github/workflows/scripts/swarm-prepare.sh && echo "swarm-prepare.sh: valid bash"
++```
++```
++swarm-prepare.sh: valid bash
++```
++
++```bash
++bash -n .github/workflows/scripts/swarm-verdict.sh && echo "swarm-verdict.sh: valid bash"
++```
++```
++swarm-verdict.sh: valid bash
++```
++
++### Aggregate verdict logic exists in ONE file
++✓ Confirmed: `.github/workflows/scripts/swarm-verdict.sh` is sourced by both callers
++
++### Author whitelist absent
++✓ Confirmed: `grep` found no matches for `github.event.pull_request.user.login`
++
++### Immutable gate: two checkout steps
++✓ Confirmed: lines 32-37 and 39-48
++
++### README documents RELAY_WORKSPACE_KEY
++```bash
++grep -A1 "RELAY_WORKSPACE_KEY" README.md | head -4
++```
++```
++| `RELAY_WORKSPACE_KEY` | Selects the messaging workspace the swarm runs in. | `agent-relay workspace key --reveal-secrets` |
++| `CLOUD_API_ACCESS_TOKEN` | The Cloud **user session** access token. | `agent-relay cloud session --json --reveal-token` after a login dedicated to CI |
++```
++✓ Documented at README.md line 43
++
++## Finding: One requirement gap
++
++**Requirement 3 is not fully satisfied.** The preflight validates `CLOUD_API_KEY` but the requirement says "Add a preflight step that validates `RELAY_WORKSPACE_KEY` is set and non-empty BEFORE launching the cloud run."
++
++The workflow declares both secrets (line 29-30) but only validates `CLOUD_API_KEY` (line 54-58). `RELAY_WORKSPACE_KEY` should also be validated.
++
++## Work package for this tick
++
++Add `RELAY_WORKSPACE_KEY` validation to the preflight step, addressing requirement 3 completely.
++
++### Change required
++
++In `.github/workflows/review-swarm.yml` line 54-58, add validation for `RELAY_WORKSPACE_KEY`:
++
++```yaml
++      - name: Validate cloud authentication
++        run: |
++          test -n "$CLOUD_API_URL"
++          test -n "$CLOUD_API_KEY"
++          test -n "$RELAY_WORKSPACE_KEY"
++          echo "Cloud authentication secrets present; interactive login is unreachable."
++```
++
++### Definition of done for this change
++
++1. Preflight validates all three required env vars: `CLOUD_API_URL`, `CLOUD_API_KEY`, `RELAY_WORKSPACE_KEY`
++2. YAML still parses: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))"`
++3. All 9 requirements satisfied with literal line citations
++4. `git status --porcelain` shows only `.github/workflows/review-swarm.yml` and `ops/NEXT.md`
++
++## Out of scope
+ 
+-1. `cargo test --workspace` green from `kernel/`.
+-2. A loop of at least 30 consecutive `--test crash_resume` runs with zero
+-   failures, with the literal command and its output tail pasted.
+-3. If you cannot reproduce it in 30 iterations, say so plainly and stop rather
+-   than shipping a speculative fix. A hang nobody reproduced is not fixed by a
+-   change nobody can test.
+-
+-## Constraints
+-
+-- `kernel/` only. Do not touch `.github/workflows/`, `packages/`, or the
+-  publish pipeline.
+-- Do not edit `testdata/tick-heartbeat.*` or `hello-ladder.*` — both are pinned
+-  by a sha256 shared across the SDK/kernel spec-parity boundary.
+-- `ops/reviews/`, `ops/DRIVE-LOG.md` and `ops/BACKLOG.md` are records of what was
+-  true when written. Do not rewrite them.
++- `sdk/` (Track A)
++- `kernel/` (gate 1 done)
++- `ops/DRIVE-LOG.md`, `ops/BACKLOG.md` (records, not targets)
++- Other GHA workflows
++- Actually testing in CI (requires human secret configuration)
++- README credential drift (not in the 9 requirements)
+
+[exit 0]
+```
+
+</details>

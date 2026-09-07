@@ -1,0 +1,61 @@
+$ git diff origin/main...refs/triage/pr-226 -- .github/workflows/review-swarm.yml README.md
+diff --git a/.github/workflows/review-swarm.yml b/.github/workflows/review-swarm.yml
+index 852f186..c37c23b 100644
+--- a/.github/workflows/review-swarm.yml
++++ b/.github/workflows/review-swarm.yml
+@@ -55,7 +55,8 @@ jobs:
+         run: |
+           test -n "$CLOUD_API_URL"
+           test -n "$CLOUD_API_KEY"
+-          echo "CLOUD_API_URL and CLOUD_API_KEY present; interactive login is unreachable from here."
++          test -n "$RELAY_WORKSPACE_KEY"
++          echo "CLOUD_API_URL, CLOUD_API_KEY, and RELAY_WORKSPACE_KEY present; interactive login is unreachable from here."
+ 
+       # `agent-relay cloud run` launches the swarm, but nothing installed the
+       # CLI, so this job failed at `Launch cloud swarm` with
+diff --git a/README.md b/README.md
+index 0ea1ae5..ec6c5e5 100644
+--- a/README.md
++++ b/README.md
+@@ -35,31 +35,21 @@ Private while we build. YC 2026-09-15 runs on this base.
+ ## Cloud review swarm
+ 
+ Every pull request launches the cloud review swarm. Repository administrators
+-must configure three Actions secrets. The workflow fails during preflight, in
+-seconds and before submitting a run, when any of them is absent.
++must configure two Actions secrets. The workflow fails during preflight, in
++seconds and before submitting a run, when either is absent.
+ 
+ | Secret | What it is | How to obtain it |
+ |---|---|---|
+ | `RELAY_WORKSPACE_KEY` | Selects the messaging workspace the swarm runs in. | `agent-relay workspace key --reveal-secrets` |
+-| `CLOUD_API_ACCESS_TOKEN` | The Cloud **user session** access token. | `agent-relay cloud session --json --reveal-token` after a login dedicated to CI |
+-| `CLOUD_API_REFRESH_TOKEN` | That session's refresh token. | `~/.agentworkforce/relay/cloud-auth.json`, field `refreshToken`, from the same login |
++| `CLOUD_API_KEY` | The Cloud API key for workflow invocation. | Follow `AgentWorkforce/cloud` → `docs/runbooks/relay-ci-workflow-credential.md`, profile `workflow-invoke` |
+ 
+ `CLOUD_API_URL` and `CLOUD_API_ACCESS_TOKEN_EXPIRES_AT` are not secret; the
+ workflow defaults them and either can be overridden with a repository variable
+ of the same name.
+ 
+ A workspace key alone cannot run the swarm. `agent-relay cloud run` authenticates
+-to the Cloud API as a user session and as nothing else: the workspace key is read
+-only by the resolver that picks a messaging workspace, and `POST
+-/api/v1/workflows/prepare` — which `--sync-code` requires, and `--sync-code` is
+-how the swarm receives the PR diff — admits only a browser session or a token
+-carrying the `cli:auth` scope. Given no session, the CLI opens an interactive
+-device login that no runner can approve and exits after the grant expires.
+-
+-**These tokens expire, and this is a stopgap.** A CLI login mints a 24-hour
+-access token backed by a 90-day refresh token, and every refresh rotates the
+-refresh token server-side — invalidating the copy held in the secret, which a
+-job cannot write back. Expect to re-mint `CLOUD_API_ACCESS_TOKEN` and
+-`CLOUD_API_REFRESH_TOKEN` roughly daily until Cloud can issue a long-lived,
+-non-refreshing CI token that carries `cli:auth` (the existing CI deployment
+-tokens carry only `deployments:ci:*` and cannot launch a workflow).
++to the Cloud API using `CLOUD_API_KEY`: the workspace key is read only by the
++resolver that picks a messaging workspace, while the API key authenticates
++`POST /api/v1/workflows/prepare` — which `--sync-code` requires, and `--sync-code`
++is how the swarm receives the PR diff. Given no API key, the CLI falls back to an
++interactive device login that no runner can approve and exits after the grant expires.
+
+[exit 0]

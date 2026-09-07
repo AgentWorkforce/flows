@@ -1,0 +1,4 @@
+$ gh pr view 222 --repo AgentWorkforce/flows --json number,state,headRefOid,mergedAt,url
+{"headRefOid":"f7baf4e3dec56116ebe987913a41aa8dfff19b08","mergedAt":null,"number":222,"state":"CLOSED","url":"https://github.com/AgentWorkforce/flows/pull/222"}
+
+[exit 0]

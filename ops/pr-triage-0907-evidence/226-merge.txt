@@ -1,0 +1,10 @@
+$ git merge-tree --write-tree origin/main refs/triage/pr-226
+f15c6678f6f2be5104c6ccad43c77c93388fc318
+100644 0ea1ae575842dc566e77004a375b7fc622697e20 1	README.md
+100644 1e6aa326fdf355657fffc6440e756769eeb9b143 2	README.md
+100644 ec6c5e5b46d03ad1678a43c0b230bea87c6b406d 3	README.md
+
+Auto-merging README.md
+CONFLICT (content): Merge conflict in README.md
+
+[exit 1]

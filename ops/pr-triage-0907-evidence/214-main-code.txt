@@ -1,0 +1,22 @@
+$ git grep -n -E 'signal\?: AbortSignal|HnTransientFetchError|non-transient error|Not implemented: releasing|private attached|private closing|private readonly inFlight|SURVIVES a typed|terminates.*JournalProtocolError' origin/main -- packages/sdk/src/cli/hn-monitor.ts packages/sdk/src/worker.ts packages/sdk/tests/cli-hn-monitor.test.ts
+origin/main:packages/sdk/src/cli/hn-monitor.ts:9: *   - `instanceof HnTransientFetchError` → log and continue next tick.
+origin/main:packages/sdk/src/cli/hn-monitor.ts:17:import { pollHackerNewsOnce, HnTransientFetchError, type Fetcher } from '../hn-poller.js';
+origin/main:packages/sdk/src/cli/hn-monitor.ts:59:  signal?: AbortSignal;
+origin/main:packages/sdk/src/cli/hn-monitor.ts:127:function sleepInterruptible(ms: number, signal?: AbortSignal): Promise<void> {
+origin/main:packages/sdk/src/cli/hn-monitor.ts:257:        if (err instanceof HnTransientFetchError) {
+origin/main:packages/sdk/src/cli/hn-monitor.ts:263:          io.stderr(`hn-monitor: non-transient error, terminating: ${nameAndMessage(err)}`);
+origin/main:packages/sdk/src/worker.ts:24: * Not implemented: releasing the worker registration with the kernel.
+origin/main:packages/sdk/src/worker.ts:32:  private attached = false;
+origin/main:packages/sdk/src/worker.ts:33:  private closing = false;
+origin/main:packages/sdk/src/worker.ts:34:  private readonly inFlight: Set<Promise<void>> = new Set();
+origin/main:packages/sdk/tests/cli-hn-monitor.test.ts:17:import { HnTransientFetchError } from '../src/hn-poller.js';
+origin/main:packages/sdk/tests/cli-hn-monitor.test.ts:194:  it('terminates (exit 1) on a JournalProtocolError from eventSubmit', async () => {
+origin/main:packages/sdk/tests/cli-hn-monitor.test.ts:213:    expect(io.stderr_lines.some((l) => l.includes('non-transient error, terminating'))).toBe(true);
+origin/main:packages/sdk/tests/cli-hn-monitor.test.ts:237:    expect(io.stderr_lines.some((l) => l.includes('non-transient error, terminating'))).toBe(true);
+origin/main:packages/sdk/tests/cli-hn-monitor.test.ts:240:  it('SURVIVES a typed HnTransientFetchError (continues to next tick)', async () => {
+origin/main:packages/sdk/tests/cli-hn-monitor.test.ts:253:        if (call === 1) throw new HnTransientFetchError('HN fetch failed: HTTP 503');
+origin/main:packages/sdk/tests/cli-hn-monitor.test.ts:262:  it('SURVIVES a fetch()-level TypeError wrapped as HnTransientFetchError by defaultFetcher', async () => {
+origin/main:packages/sdk/tests/cli-hn-monitor.test.ts:265:    // Now defaultFetcher wraps them in HnTransientFetchError so the
+origin/main:packages/sdk/tests/cli-hn-monitor.test.ts:279:        if (call === 1) throw new HnTransientFetchError(
+
+[exit 0]

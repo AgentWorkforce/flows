@@ -1,0 +1,16 @@
+$ git diff refs/triage/pr-222 refs/triage/pr-226 -- .github/workflows/review-swarm.yml
+diff --git a/.github/workflows/review-swarm.yml b/.github/workflows/review-swarm.yml
+index 4008e8b..c37c23b 100644
+--- a/.github/workflows/review-swarm.yml
++++ b/.github/workflows/review-swarm.yml
+@@ -56,7 +56,7 @@ jobs:
+           test -n "$CLOUD_API_URL"
+           test -n "$CLOUD_API_KEY"
+           test -n "$RELAY_WORKSPACE_KEY"
+-          echo "Cloud authentication secrets present; interactive login is unreachable."
++          echo "CLOUD_API_URL, CLOUD_API_KEY, and RELAY_WORKSPACE_KEY present; interactive login is unreachable from here."
+ 
+       # `agent-relay cloud run` launches the swarm, but nothing installed the
+       # CLI, so this job failed at `Launch cloud swarm` with
+
+[exit 0]

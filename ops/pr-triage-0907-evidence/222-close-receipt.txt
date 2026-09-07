@@ -1,0 +1,4 @@
+$ gh pr close 222 --repo AgentWorkforce/flows
+✓ Closed pull request AgentWorkforce/flows#222 (drive: cloud run a579a0a5)
+
+[exit 0]
