@@ -12916,3 +12916,33 @@ merge did not fix the defect, it shipped around it.
 Still outstanding for Khaliq: the `GH_APP_PUSHER` secrets:write grant on
 AgentWorkforce/flows, which blocks CLOUD_API_KEY and the `review` check on six
 flows PRs.
+
+## 2026-09-07 — prod Deploy for the merge was CANCELLED, not failed (and not lost)
+
+The monitor reported "PROD DEPLOY SETTLED". Settled is not succeeded, so I
+checked the conclusion rather than reading completion as success:
+
+    completed/success    Drizzle Migrations            <- 0127 applied on PROD
+    completed/success    Smoke Sandbox Image
+    completed/success    Smoke — broker mcp-args contract
+    completed/success    Warm node_modules cache
+    completed/CANCELLED  Deploy   id=34155506954
+
+**Cancelled by concurrency supersede, not by failure.** A newer Deploy started
+19:29 for `57db0de23` (#3427, "inline RelayAuth token mint") and the
+concurrency group killed mine from 19:25.
+
+**Verified my merge is not lost** rather than assuming a later deploy carries
+it: `git merge-base --is-ancestor 59735b011 57db0de23` -> YES, and the v2
+diagnostic string is present on main. So prod gets the v2 executor via the
+superseding run, which is now being watched (id 34155753309).
+
+**The genuinely good news is Drizzle Migrations passing on PRODUCTION.** That
+migration is the one I renumbered 0125 -> 0127 and whose cumulative snapshot I
+had to rebuild; it applied cleanly against the real prod database. That was the
+highest-risk element of this merge.
+
+**A trap worth naming**: "Deploy: completed" plus four green smokes reads as a
+successful production deploy at a glance. It was a cancellation. Any watch that
+keys on `status == completed` without reading `conclusion` will report a
+cancelled prod deploy as a finished one.
