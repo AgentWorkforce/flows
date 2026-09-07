@@ -68,16 +68,29 @@ pub struct RoutingDecision {
 }
 
 impl RoutingDecision {
-    pub fn is_valid(&self) -> bool {
-        !self.profile.trim().is_empty()
-            && !self.provider.trim().is_empty()
-            && self
-                .workspace
-                .as_ref()
-                .is_none_or(|value| !value.trim().is_empty())
-            && self
-                .fallbacks_attempted
-                .iter()
-                .all(|value| !value.trim().is_empty())
+    /// Shared field validation for admission, replay, and epoch reconstruction.
+    /// Return the rejected field so operational failures retain their cause.
+    pub fn validate(&self) -> Result<(), String> {
+        for (field, value) in [
+            ("profile", self.profile.as_str()),
+            ("provider", self.provider.as_str()),
+        ] {
+            if value.trim().is_empty() {
+                return Err(format!("{field} must not be blank"));
+            }
+        }
+        if self
+            .workspace
+            .as_ref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err("workspace must not be blank".into());
+        }
+        for (index, value) in self.fallbacks_attempted.iter().enumerate() {
+            if value.trim().is_empty() {
+                return Err(format!("fallbacks_attempted[{index}] must not be blank"));
+            }
+        }
+        Ok(())
     }
 }

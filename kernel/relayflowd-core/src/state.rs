@@ -15,6 +15,7 @@ use crate::{
 mod budget;
 mod memory;
 mod pins;
+mod routing;
 use budget::add_budget;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,15 +125,7 @@ impl RunState {
             }
             match entry.entry_type {
                 EntryType::EpochSummary => state.apply_epoch(entry)?,
-                EntryType::StepRouted => {
-                    let id = entry.step_id.as_ref().ok_or(StateError::MissingStep(entry.seq))?;
-                    if !state.steps.contains_key(id) { return Err(StateError::UnknownStep(id.clone())); }
-                    let route: crate::RoutingDecision = decode(entry)?;
-                    if state.routing.contains_key(id) || route.profile.trim().is_empty() || route.provider.trim().is_empty() {
-                        return Err(StateError::InvalidRouting(id.clone()));
-                    }
-                    state.routing.insert(id.clone(), route);
-                }
+                EntryType::StepRouted => state.apply_routing(entry)?,
                 EntryType::StepAttemptStarted => {
                     let payload: crate::entry::AttemptStartedPayload = decode(entry)?;
                     state.validate_start_pins(entry, &payload)?;
@@ -325,12 +318,8 @@ impl RunState {
 
     fn apply_epoch(&mut self, entry: &JournalEntry) -> Result<(), StateError> {
         let payload: EpochSummaryPayload = decode(entry)?;
+        self.validate_routing(&payload.routing)?;
         self.routing = payload.routing;
-        for (id, route) in &self.routing {
-            if !self.steps.contains_key(id) || !route.is_valid() {
-                return Err(StateError::InvalidRouting(id.clone()));
-            }
-        }
         self.memo.clear();
         self.budget = payload.budget_spent;
         for runtime in self.steps.values_mut() {
@@ -440,8 +429,8 @@ fn decode<T: serde::de::DeserializeOwned>(entry: &JournalEntry) -> Result<T, Sta
 
 #[derive(Debug, Error)]
 pub enum StateError {
-    #[error("invalid or duplicate routing decision for step {0}")]
-    InvalidRouting(String),
+    #[error("invalid routing decision for step {step}: {detail}")]
+    InvalidRouting { step: String, detail: String },
     #[error("invalid memory fact for step {step}: {detail}")]
     InvalidMemory { step: String, detail: String },
     #[error(transparent)]

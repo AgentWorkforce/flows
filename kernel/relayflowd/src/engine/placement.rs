@@ -132,9 +132,10 @@ impl<C: Clock> Engine<C> {
                         entry.attempt.context("start has no attempt")?,
                     )?
             };
-            if !route.is_valid() {
-                bail!("step {step_id} received an empty routing decision");
-            }
+            route
+                .validate()
+                .map_err(anyhow::Error::msg)
+                .with_context(|| format!("invalid routing decision for step {step_id}"))?;
             // Resolve source facts before appending the routing decision.
             if route.provider == "local"
                 && let Some(path) = &route.workspace

@@ -20,9 +20,20 @@ fn decisions(
         }
         let id = entry.step_id.ok_or(StateError::MissingStep(entry.seq))?;
         let route: RoutingDecision = serde_json::from_value(entry.payload)?;
-        if !route.is_valid() || routing.insert(id.clone(), route).is_some() {
-            return Err(StateError::InvalidRouting(id).into());
+        if routing.contains_key(&id) {
+            return Err(StateError::InvalidRouting {
+                step: id,
+                detail: "routing decision already recorded".into(),
+            }
+            .into());
         }
+        route
+            .validate()
+            .map_err(|detail| StateError::InvalidRouting {
+                step: id.clone(),
+                detail,
+            })?;
+        routing.insert(id, route);
     }
     Ok(routing)
 }
@@ -44,8 +55,15 @@ pub(crate) fn validate_entry(
         )?;
         let spawn: relayflowd_core::RunSpawnedPayload = serde_json::from_str(&payload)?;
         let spec = relayflowd_core::RunSpec::parse(&spawn.spec).map_err(StateError::from)?;
-        if spec.step(id).is_none() || entry.attempt.is_some() {
-            return Err(StateError::InvalidRouting(id.into()).into());
+        if spec.step(id).is_none() {
+            return Err(StateError::UnknownStep(id.into()).into());
+        }
+        if entry.attempt.is_some() {
+            return Err(StateError::InvalidRouting {
+                step: id.into(),
+                detail: "routing decision must not specify an attempt".into(),
+            }
+            .into());
         }
         decisions(tx, run_id)?;
     }

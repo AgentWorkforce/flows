@@ -66,13 +66,20 @@ pub trait StepDispatcher: Send + Sync {
         self.executor(step.step_type())
     }
 
-    /// Opaque starting revisions/offsets reported by the selected worker for
-    /// the first agent attempt. Later attempts are derived from the journal.
+    /// Supply starting pins for declared surfaces not yet covered by the journal.
+    /// The default runs `git rev-parse --verify HEAD` in each declared local
+    /// worktree, using this process's filesystem, and fails on unreadable
+    /// worktrees or declared streams (it cannot report stream offsets).
+    /// Remote dispatchers must override this or `reserved_starting_pins` to
+    /// report revisions/offsets from their selected worker instead of local Git.
+    /// Surfaces already pinned by the run are carried forward from the journal.
     fn starting_pins(&self, step: &StepSpec) -> Result<Pins> {
         crate::workspace::starting_pins(step)
     }
 
-    /// Starting pins reported by the worker whose capacity was reserved.
+    /// Starting pins for the worker whose capacity was reserved. The default
+    /// delegates to `starting_pins`, including its local filesystem/Git behavior;
+    /// remote dispatchers override this when pin lookup depends on the reservation.
     fn reserved_starting_pins(
         &self,
         _run_id: &str,
