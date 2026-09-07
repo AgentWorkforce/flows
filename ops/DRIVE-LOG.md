@@ -11517,3 +11517,36 @@ run route alive ✓ · preview auth ✗
 
 Also worth flagging separately: `PROACTIVE_RUNTIME_WORKER` is missing from the
 preview's bindings. Harmless for this proof, but it is a real gap in the stage.
+
+## 2026-09-07 tick — gate 7 dispatched (gate7-placement-0907); proof still blocked on preview auth
+
+**Item 2 unchanged:** preview run route still 401 with the production session.
+`whoami --api-url <staging>` still reports the production API URL, so the flag
+does not switch sessions — there is one session and it is production's. Needs
+Khaliq's one login command.
+
+**Dispatched flows#225 (gate 7 slice 1).** This is now legitimate because the
+merge gate is fixed — `required_check_green` is live, so a lane's output can be
+stopped by red CI, which was not true for the previous two lanes.
+
+Spawned `gate7-placement-0907` (codex, pty) with its own worktree
+`flows-225-placement-wt` on `feat/step-placement-225` off main @ 460c0f7. Did
+NOT repurpose any of the five idle codex agents — garden-agent, rc315-readwrite,
+sg-reg-regression, rc-flake-tests, cloud-acl-release-lead all belong to other
+lanes.
+
+**The spawn command timed out, but the spawn succeeded.** Verified rather than
+retried: the roster shows `gate7-placement-0907  current_state: working`, and
+codex processes went 20 -> 25. `pid: null` in the listing, which is a reporting
+quirk rather than absence — the standing lesson is that a spawn can succeed
+without returning, and retrying on the timeout would have produced a duplicate.
+
+Brief given in the shape that has worked twice: start now, do not reply, do not
+return to the prompt; failing test FIRST with red evidence under
+`kernel/evidence/225/`; `cargo test --workspace` is the gate; open a PR, do not
+merge. Scope boundary stated explicitly — do NOT build a second sandbox
+implementation, provider selection may be a fixed choice, the point is that the
+choice is declared, made by the engine, and journaled. Acceptance drawn from
+relayflows#52's live failure rather than invented.
+
+Disk 6.7Gi. A cargo target in the new worktree will cost ~1.7G; watching.
