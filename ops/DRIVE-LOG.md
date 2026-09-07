@@ -10731,3 +10731,48 @@ recipe.
 
 Rule respected: this counts as ONE revival. If it goes deaf again I do the four
 fixes myself rather than resurrect a second time.
+
+## 2026-09-07 tick — #215 merged WITHOUT the fixes; the swarm gate disagreed with itself
+
+**Gate 1's durable channels are on main.** `b5896a8 feat(kernel): durable
+channels with acknowledged delivery and crash replay (#215)`, merged 05:57:44Z.
+That closes the last named gate 1 capability — real spec movement.
+
+**But it merged without the maintainability fixes, and the reason matters.**
+Reconstructed timeline:
+
+    05:48:38  #215 opened at head 4c87d107
+    (my tick) local 3-lens run: structure PASS, history PASS,
+              maintainability FAIL -> posted blockers, sent branch back
+    05:56:47  repo's post-push swarm posts "maintainability lens — PASS"
+              on the SAME unfixed head
+    05:57:44  auto-merge fires
+    08:11:54  lane commits 3abffd6 with the fixes — never pushed
+
+**Two runs of nominally the same lens, on the same code, reached opposite
+verdicts.** Mine blocked it; the repo's passed it. A gate that is not
+deterministic is not a gate, and this is the concrete cost: a PR shipped with
+defects a reviewer had already named.
+
+Verified the defects were genuinely still on main rather than assuming:
+
+    server/channels.rs:71   _ => ChannelCommand::Receive      (fallthrough live)
+    downcast_ref count: 1                                     (still there)
+    3abffd6 is NOT an ancestor of origin/main
+
+#215 was squash-merged, so the lane's fix commit was orphaned. Cherry-picked it
+onto current main, clean, and opened **flows#217**. Asserted the fixes landed
+rather than trusting the pick:
+
+    "channel.receive" => ChannelVerb::Receive   (explicit arm)
+    downcast_ref count: 0
+
+Ran the real gate myself: `cd kernel && cargo test --workspace` -> **176 passed,
+0 failed**. Not merging #217 — I wrote the cherry-pick, so I am not independent
+on it.
+
+**I was wrong in my first read of this.** Seeing `merged by kjgbot` while my
+lens had failed, I started to conclude the lane had merged its own PR against an
+explicit "do not merge". The PR comment timeline showed otherwise: kjgbot is the
+identity the swarm and auto-merge both post under, and the lane never merged
+anything. Checked before reporting.
