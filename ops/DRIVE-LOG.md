@@ -10579,3 +10579,7 @@ No change on any blocker. **Disk held at 13Gi free** (unchanged from last tick),
 so the 17->13Gi drop has stopped rather than continued. Downgrading last tick's
 "a few hours from being a problem" — that extrapolated a single interval, and
 the trend did not hold. Nothing to act on.
+
+## 2026-09-07 tick — quiet; identical state, disk steady at 13Gi
+
+No change on any blocker. Nothing done.
