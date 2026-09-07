@@ -1,0 +1,23 @@
+$ python3 ops/spec-review-0907-evidence/227-source-drift-repro.py /Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/target/debug/relayflowd
+$ git init -q
+exit_code=0
+$ git add source.txt
+exit_code=0
+$ git -c user.name=Fixture -c user.email=fixture@example.test -c commit.gpgsign=false commit -qm original
+exit_code=0
+$ /Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/target/debug/relayflowd --data-dir /var/folders/yv/nbp9l2c55wlbj1x0gml37s7c0000gn/T/placement-drift-dsqt865h/data run /var/folders/yv/nbp9l2c55wlbj1x0gml37s7c0000gn/T/placement-drift-dsqt865h/flow.json --stop-after 1
+{"run_id":"01M1YXR74Z6RWZMCYJ8HW9SY9S","status":"interrupted","completion_reason":null,"completed_steps":1}
+exit_code=0
+$ git add source.txt
+exit_code=0
+$ git -c user.name=Fixture -c user.email=fixture@example.test -c commit.gpgsign=false commit -qm changed
+exit_code=0
+$ /Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/target/debug/relayflowd --data-dir /var/folders/yv/nbp9l2c55wlbj1x0gml37s7c0000gn/T/placement-drift-dsqt865h/data resume 01M1YXR74Z6RWZMCYJ8HW9SY9S
+{"run_id":"01M1YXR74Z6RWZMCYJ8HW9SY9S","status":"completed","completion_reason":"success","completed_steps":2}
+exit_code=0
+{"entry_type": "step.attempt.started", "step": "first", "pins": {"streams": [], "workspace": [{"revision_id": "c2df7c0316d15be56f8cb282cd67da83a70c7704", "surface": "/private/var/folders/yv/nbp9l2c55wlbj1x0gml37s7c0000gn/T/placement-drift-dsqt865h/tree"}]}, "output": null}
+{"entry_type": "step.completed", "step": "first", "pins": null, "output": {"exit_code": 0, "stderr_tail": "", "stdout_tail": "original\n"}}
+{"entry_type": "step.attempt.started", "step": "second", "pins": {"streams": [], "workspace": [{"revision_id": "14f735f5866363a1de0b1fef8faa1200c6d0e7f8", "surface": "/private/var/folders/yv/nbp9l2c55wlbj1x0gml37s7c0000gn/T/placement-drift-dsqt865h/tree"}]}, "output": null}
+{"entry_type": "step.completed", "step": "second", "pins": null, "output": {"exit_code": 0, "stderr_tail": "", "stdout_tail": "changed-between-steps\n"}}
+
+exit_code=0

@@ -1,0 +1,16 @@
+$ node node_modules/vitest/vitest.mjs run tests/placement.test.ts tests/spec-parity.test.ts tests/verb-field-lint.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/packages/sdk
+
+ ✓ tests/placement.test.ts (54 tests) 11ms
+ ✓ tests/spec-parity.test.ts (31 tests) 226ms
+ ✓ tests/verb-field-lint.test.ts (78 tests) 518ms
+   ✓ closed per-verb step fields > carries the llm/agent `output` sugar through every path > flows check accepts output on llm 321ms
+
+ Test Files  3 passed (3)
+      Tests  163 passed (163)
+   Start at  23:52:12
+   Duration  1.23s (transform 359ms, setup 0ms, collect 1.16s, tests 755ms, environment 0ms, prepare 170ms)
+
+
+exit_code=0

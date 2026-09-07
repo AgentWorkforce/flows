@@ -9,6 +9,12 @@ impl RunState {
             .step_id
             .as_ref()
             .ok_or(StateError::MissingStep(entry.seq))?;
+        if entry.attempt.is_some() {
+            return Err(StateError::InvalidRouting {
+                step: id.clone(),
+                detail: "routing decision must not specify an attempt".into(),
+            });
+        }
         if self.routing.contains_key(id) {
             return Err(StateError::InvalidRouting {
                 step: id.clone(),

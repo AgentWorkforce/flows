@@ -8,7 +8,7 @@ pub(crate) fn pin(path: &Path) -> Result<WorkspacePin> {
         .canonicalize()
         .with_context(|| format!("workspace {} is unavailable", path.display()))?;
     let output = Command::new("git")
-        .args(["rev-parse", "--verify", "HEAD"])
+        .args(["rev-parse", "--verify", "HEAD^{commit}"])
         .current_dir(&path)
         .output()
         .context("read workspace base commit")?;

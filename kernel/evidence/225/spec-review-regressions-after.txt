@@ -1,0 +1,17 @@
+$ env RUSTC=/Users/khaliqgant/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc /Users/khaliqgant/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo test --manifest-path kernel/Cargo.toml --locked --offline --test spec_review_routing
+   Compiling relayflowd-core v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd-core)
+   Compiling relayflowd-journal v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.99s
+     Running tests/spec_review_routing.rs (kernel/target/debug/deps/spec_review_routing-a37130322a188264)
+
+running 4 tests
+test attempt_scoped_route_is_rejected_at_append_and_replay ... ok
+test malformed_epoch_routes_are_rejected_before_commit ... ok
+test epoch_cannot_drop_or_replace_a_durable_route ... ok
+test workspace_pin_peels_tags_and_refuses_non_commit_objects ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+
+exit_code=0

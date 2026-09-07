@@ -67,7 +67,7 @@ pub trait StepDispatcher: Send + Sync {
     }
 
     /// Supply starting pins for declared surfaces not yet covered by the journal.
-    /// The default runs `git rev-parse --verify HEAD` in each declared local
+    /// The default runs `git rev-parse --verify HEAD^{commit}` in each declared local
     /// worktree, using this process's filesystem, and fails on unreadable
     /// worktrees or declared streams (it cannot report stream offsets).
     /// Remote dispatchers must override this or `reserved_starting_pins` to
