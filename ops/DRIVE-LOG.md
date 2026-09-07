@@ -10911,3 +10911,34 @@ rather than the exit code: idle (3945415ms) -> working (7ms).
 **Flagged the ordering as not mine.** I chose gate 5 over gate 7 because gate 9
 depends on 5 + 8 while routing is standalone — that is the RFC's dependency
 graph, not a product call I own. Said so in the issue and offered to repoint.
+
+## 2026-09-07 tick — #220 red test landed, same discipline as #212
+
+Lane working (2ms), 32 dirty files, first commit in:
+
+    72e03d5 test(kernel): pin step memory crash-resume accounting (#220)
+      kernel/evidence/220/red-memory.txt          +21
+      kernel/relayflowd/tests/crash_resume.rs      +2
+      kernel/relayflowd/tests/crash_resume/memory.rs +106
+
+Test-first with captured red evidence again, and failing for the right reason:
+
+    panicked at crash_resume/memory.rs:25:10:
+    a step-declared memory pack must be supported:
+      invalid_spec: unknown field "memory" at steps[1] — refusing to guess (fail closed)
+    test result: FAILED. 0 passed; 1 failed; 36 filtered out
+
+Note the failure message is the spec validator doing exactly what it should —
+refusing an unknown field rather than guessing. That is the honest "this does
+not exist yet", and it also confirms my baseline check (`memory` absent from the
+spec) from the kernel's own side.
+
+Test name is the contract:
+`memory_sigkill_after_injection_replays_pack_and_charges_it_once` — SIGKILL
+after injection, replay the pack, charge it once. That is #220's acceptance
+property, not an API shape.
+
+Read the commit from the shared object store; ran nothing inside the lane's
+worktree that could race its index.
+
+Blockers unchanged: App id/key, `CLOUD_API_KEY`, #3270 signoff.
