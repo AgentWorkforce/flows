@@ -11671,3 +11671,47 @@ findings on their merits rather than on which run produced them.
 **Drive-attach worked this time** — lane went idle -> working (14ms). The
 earlier failed attach was transient, not a dead lane, so no resurrection was
 needed.
+
+## 2026-09-07 — #227's blockers fixed; now blocked by a self-contradictory lens
+
+The lane fixed both blockers properly, and I verified rather than trusting the
+commit message:
+
+    state.rs    InvalidRouting { step: String, detail: String }  + state/routing.rs
+    worker.rs   doc now says the default "runs `git rev-parse --verify HEAD` in
+                each declared local worktree, using this process's filesystem"
+                and "Remote dispatchers must override this"
+
+CI green at 8bbafca. Structure passed. Then maintainability returned:
+
+    ### Blockers
+    None. The invariants that could break silently do fail closed ...
+    REVIEW_FAILED
+
+**It states no blockers and emits REVIEW_FAILED.** Analysis and verdict disagree
+inside one run.
+
+**I did not override it**, and that is the point. `lens-runner.sh` makes the exit
+code the authority precisely so nobody layers a substring match on top — its own
+comment says a substring gate would be fail-open because a lens can quote
+arbitrary strings. That reasoning is correct, which is exactly why this defect
+has no appeal: I cannot legitimately read past the token, and it is the gate
+that judges my work.
+
+Three runs on one PR, three behaviours:
+
+    541d900   REVIEW_PASSED   false green — findings later shown to exist
+    9f3b265   REVIEW_FAILED   correct, two real blockers, both fixed
+    8bbafca   REVIEW_FAILED   contradicts its own "Blockers: None"
+
+So the lens produces genuine value and unreliable verdicts from the same
+mechanism. Filed as evidence on #218 with the full history, and noted on #227
+that the branch is blocked on the gate rather than on its code — nothing further
+is asked of the lane.
+
+This is now the second gate defect this session to stop good work: the merge
+gate ignored CI (fixed, mine), and the review gate emits verdicts uncorrelated
+with its findings (not mine to fix). Both were invisible until a lane ran
+through them.
+
+Preview still 401. #3270 still needs the login.
