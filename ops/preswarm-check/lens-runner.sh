@@ -267,7 +267,7 @@ LAST_VERDICT=$(printf '%s\n' "$OUTPUT" | grep -E '^REVIEW_(PASSED|FAILED)$' | ta
 # reviews that never emitted the section at all.
 blockers_are_listed() {
   first="$(printf '%s\n' "$OUTPUT" \
-    | awk '/^#+[[:space:]]*Blockers[[:space:]]*$/{f=1;next} f&&NF{print;exit}')"
+    | awk '/^#+[[:space:]]*Blockers[[:space:]]*$/{f=1;buf="";next} f&&NF&&buf==""{buf=$0} END{print buf}')"
   [ -n "$first" ] || return 1
   printf '%s' "$first" | grep -qiE '^\**None\b' && return 1
   return 0
@@ -275,7 +275,7 @@ blockers_are_listed() {
 
 blockers_say_none() {
   printf '%s\n' "$OUTPUT" \
-    | awk '/^#+[[:space:]]*Blockers[[:space:]]*$/{f=1;next} f&&NF{print;exit}' \
+    | awk '/^#+[[:space:]]*Blockers[[:space:]]*$/{f=1;buf="";next} f&&NF&&buf==""{buf=$0} END{print buf}' \
     | grep -qiE '^\**None\b'
 }
 
