@@ -13857,3 +13857,38 @@ warning about all night, aimed at someone else's work this time.
 
 `flows-spec-review-0907` produced `docs: capture spec review and dispositions
 for five relayflow lanes` (21d8277). Not yet read; that is the next increment.
+
+## 2026-09-08 — 429 did NOT recur; a different downstream error did
+
+Re-ran #229 as the recurrence test. It got further than anything before the
+credential fix and failed differently:
+
+    run 4117b5f2 (#232, 22:0xZ)  error: relayfile ACL GET /.relayfile.acl
+                                        failed with status 429
+    run 7532caef (#229, 22:1xZ)  error: Request failed with status code 400
+
+Both reached `Launch cloud swarm: success` and `Wait for cloud swarm: success`
+— the swarm RUNS now — and both died in the cloud workload itself.
+
+**So the 429 was transient, and I was right not to change the retry policy on
+one occurrence.** The evidence for the retry gap still stands
+(`isRelayfileAclFailureRetryable` rejects all 4xx while
+`isTransientRelayAuthStatus` retries 429 in the same subsystem), but it is a
+latent inconsistency, not tonight's cause. Fixing it on one sighting would have
+been treating a symptom I could not reproduce.
+
+**The 400 is new and unexplained.** "Request failed with status code 400" with
+no context is a client error from somewhere inside the swarm workload. Two runs,
+two different faults, suggests the swarm workload or its environment is
+unstable rather than one specific broken call.
+
+**Process note on my own sloppiness**: I extracted the runId with a loose UUID
+regex and queried two wrong ids, getting "Run not found" twice, which could
+easily have been misread as "the run vanished". The runId had to come from the
+`agent-relay cloud status "<uuid>"` line where it is unambiguous. Pattern
+matching on shape rather than on position is how you query the wrong object
+confidently.
+
+Lane state: credential chain proven end to end; swarm launches and runs; the
+remaining failures are inside the cloud workload and are NOT what I fixed
+tonight. Open flows PRs 7 (was 10).
