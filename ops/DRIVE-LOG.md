@@ -11786,3 +11786,13 @@ failure, never upgrade one.
 What I could verify without the gate: detector against six shapes including two
 adversarial, `bash -n` clean, YAML parses, and no path that was exit 1 becomes
 exit 0.
+
+## 2026-09-07 tick — quiet; everything waits on a human merge or a login
+
+    preview POST        401   (needs the staging login)
+    #229 review-gate    OPEN  (cannot self-judge; needs a human read)
+    #227 gate 7         OPEN  (code finished, blocked behind #229)
+    main                460c0f7, unchanged
+    disk                8.5Gi
+
+Nothing done, none invented.
