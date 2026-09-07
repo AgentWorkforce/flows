@@ -10659,3 +10659,44 @@ race its index. Read-only inspection only — one worker, one working directory.
 
 Blockers unchanged: App id/key mismatch, `CLOUD_API_KEY`, #3270 signoff.
 Disk 12Gi (kernel target dir growing under the new worktree, expected).
+
+## 2026-09-07 tick — #215 opened, reviewed, and SENT BACK (2 pass / 1 fail)
+
+The codex lane finished: `4c87d10 feat(kernel): journal durable channel delivery
+and acknowledged offsets`, clean tree, **PR flows#215** opened (+1702/-0, 19
+files), then went idle. It stopped at the PR and did not merge, as briefed.
+
+**CI's real gate is green.** `linux-x64-artifact` passes, which is the job that
+runs `cargo test --workspace` — so the crash-resume test genuinely passes now.
+The red `review` check is the known empty `CLOUD_API_KEY`, which fails for every
+PR in the repo.
+
+**I ran the independent 3-lens review** — legitimate here because I did not
+author this code, unlike #3270:
+
+    PRESWARM_structure:       REVIEW_PASSED
+    PRESWARM_history:         REVIEW_PASSED
+    PRESWARM_maintainability: REVIEW_FAILED   <-- blocks
+
+Not merged. The gate failed, and I do not hold the merge gate regardless.
+
+**The blockers are the silent-failure class this session keeps finding:**
+- `server/channels.rs:71` — `channel.receive` collapses into `_ =>`, so a future
+  fourth verb is silently treated as receive.
+- `server/channels.rs:84-88` — `downcast_ref` on anyhow; any `.context(...)`
+  added upstream turns every conflict into `internal_error`.
+- `channel.rs` — typed payloads declared then bypassed with
+  `entry.payload["producer"]`; a field rename breaks dedup and offsets with no
+  compiler help.
+- Double journal fold per call, disclosed as scaffolding but unmarked.
+
+**Bigger question the structure lens raised, deliberately NOT sent to the lane:**
+the kernel now carries two overlapping vocabularies — the existing `stream.*`
+primitive alongside the new `channel.*` family — while RFC-0001 settled decision
+#7 says "channels are kernel streams… agents move to a new stream API". Either
+`delivered`/`acknowledged` should have extended `stream`, or `stream` retires.
+That is Khaliq's call, not a lane's, and it is far cheaper to settle before both
+primitives harden. Flagged on the PR; told the lane explicitly to leave it alone.
+
+Findings posted to #215 and DM'd to the lane in steer mode with a
+do-not-reply/start-now shape. Told it not to weaken a test to satisfy the lens.
