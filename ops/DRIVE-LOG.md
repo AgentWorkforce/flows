@@ -13004,3 +13004,36 @@ the second is not mine to choose unilaterally:
      Khaliq's call, not mine.
 
 Not doing (b) unasked.
+
+## 2026-09-07 tick — all four brief items closed or blocked; waiting on prod deploy
+
+Genuinely blocked, stated in one line per the rule, with the state that makes
+it checkable:
+
+  1. DRAIN — clean. Schedules healthy (flows-watchdog, verify-features active).
+     Both proof runs terminal. No pending cloud work.
+  2. #3270 — MERGED (`59735b011`). Its preview stage is GONE: the eligibility
+     guard refuses to publish a preview for a closed PR, and I merged the PR
+     out from under my own in-flight diagnostic deploy. Teardown verified
+     CLEAN — `Remove unpublished preview stage: success`, DNS NXDOMAIN, a
+     second-pass `Preview Cleanup` queued at 19:44. No leaked stage.
+     Running the key-set diagnostic now needs a decision from Khaliq
+     (throwaway PR for a fresh preview vs one opt-in v2 run on prod). Not
+     choosing that alone.
+  3. #134 — MERGED; the allSettled P0 measured 4/4 STABLE, does not reproduce.
+  4. #139 — MERGED.
+
+**Prod deploy `34155753309` (`57db0de23`) still in_progress**, ~20 min in. That
+is the run carrying the v2 executor to production; my merge is a confirmed
+ancestor of its sha. Until it lands, the key-set diagnostic does not exist on
+prod either, so option (b) is not even available yet.
+
+**Answered Khaliq's challenge on the GitHub App**: flows being public
+(`visibility=public`) does not remove the need. Repo visibility governs reading
+CODE; Actions secrets stay private and need write permission regardless. The
+App exists for ONE line — `gh secret set --repo "$TARGET"` — a cross-repo
+secret write, and the default GITHUB_TOKEN is scoped to `cloud` only (the
+workflow says so at line 92). Offered the honest alternative rather than just
+defending the design: a PAT with `repo` scope would work identically; I still
+prefer the App because its tokens are short-lived and scoped to one repo, but
+it is a one-line swap if the grant is friction.
