@@ -12221,3 +12221,42 @@ Deliberate scope note: this changes #3270 while it awaits signoff. Justified
 because there is no signoff yet to invalidate, and the PR cannot pass its own
 live proof while its primary failure mode is undiagnosable. Flagging it rather
 than burying it.
+
+## 2026-09-07 tick — WHY the sandboxes are alive: nothing can reap them
+
+Khaliq asked why so many Daytona sandboxes are alive. Answer: **nothing reaps
+this class, and the existing reaper is structurally blind to it.**
+
+`preview.yml`'s `stop_stale_matrix_count` selects on:
+
+    sandbox.name.startsWith("sandbox-matrix-")
+    && String(sandbox.createdAt) < "2026-08-28T00:00:00.000Z"
+
+Measured against the live 90:
+
+    name starts 'sandbox-matrix-':    0 / 90     (names are UUIDs)
+    createdAt < 2026-08-28:           0 / 90     (all 2026-09-06..07)
+    MATCH BOTH (what it would stop):  0 / 90
+
+A hardcoded date cutoff and a name prefix that no current sandbox can satisfy.
+The only other instrument, `stop_sandbox_id`, stops ONE per workflow dispatch
+with a name-assertion interlock — 90 dispatches is not a cleanup path.
+
+**They are orphaned, not busy.** The relay workspace reports 4510 agents:
+4491 offline, 19 unknown, **0 ONLINE**. Nothing is attached to any of the 90.
+The `lastActivityAt` heartbeat within 5 minutes is Daytona's own polling, which
+is exactly why an idle-keyed reaper would never fire either. Liveness of the
+sandbox is not liveness of its work.
+
+**Nearly recommended a tool that does nothing.** I was about to hand Khaliq
+`stop_stale_matrix_count` before checking what it actually selects. Prove the
+instrument can express the thing you are asking it about, every time.
+
+Wrote a bounded reaper (scratchpad `reap-daytona.mjs`, not committed):
+fleet-node label + single workspace + state=started + min age + `--limit`,
+DRY-RUN unless `--apply`, and it re-reads each sandbox immediately before
+stopping so it never acts on a stale listing. I have no local DAYTONA_API_KEY,
+so Khaliq runs it. Did NOT stop anything myself.
+
+Real fix worth a PR: teach cloud's cleanup to reap UUID-named fleet-node
+sandboxes by age, instead of a name prefix plus a frozen date.
