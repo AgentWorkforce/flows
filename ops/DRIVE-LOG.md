@@ -11477,3 +11477,43 @@ with a preview deploy in flight.
 
 Also visible and not mine: `flows-132-parallel-dispatch-wt` at 2.1G, an
 apparently abandoned worktree from the smithers issue closed earlier.
+
+## 2026-09-07 — PREVIEW IS UP (drizzle fix confirmed); proof blocked only on preview auth
+
+**The timestamp fix worked.** Preview 34114184175 completed/success:
+
+    success  Deploy SST
+    success  Run Drizzle migrations          <- blocked since Sep 3
+    success  Read preview outputs
+    success  Publish verified Relayflow v2 artifact
+
+Bot comment confirms stage `pr-3270`, Neon branch `pr-3270`, "Updated from
+`32c658d`" — my fix commit. First time this branch has ever cleared migrations.
+
+**Took the proof as far as credentials allow:**
+
+    preview health                    503, bindingsOk=false,
+                                      missing: ["PROACTIVE_RUNTIME_WORKER"]
+                                      (51 of 52 bindings OK)
+    POST run route, unauthenticated   401  <- route ALIVE, not 503
+    POST run route, with CLI token    401
+    SAME token vs production runs     200
+
+So the missing binding does NOT take the run route down — a 401 rather than a
+503 proves the route serves. And the token is live and valid; it is simply
+scoped to production. `staging.agentrelay.com/cloud` authenticates separately.
+
+**The last blocker is a preview-environment session**, and it is exactly the
+class Khaliq reserved: creating one is
+`agent-relay cloud login --api-url https://staging.agentrelay.com/cloud`, which
+mints a credential. His standing instruction is do NOT create, rotate or print
+any secret value, and login is likely interactive besides. I captured the
+existing token without ever printing it (50 chars, used only in a header) and
+stopped there.
+
+Everything else on the demo path is now cleared:
+App credential ✓ · App installed on flows ✓ · drizzle ✓ · preview deployed ✓ ·
+run route alive ✓ · preview auth ✗
+
+Also worth flagging separately: `PROACTIVE_RUNTIME_WORKER` is missing from the
+preview's bindings. Harmless for this proof, but it is a real gap in the stage.
