@@ -10942,3 +10942,47 @@ Read the commit from the shared object store; ran nothing inside the lane's
 worktree that could race its index.
 
 Blockers unchanged: App id/key, `CLOUD_API_KEY`, #3270 signoff.
+
+## 2026-09-07 — KEY ROTATION WORKED; preview past the App gate, then hit my renumber
+
+Khaliq rotated `GH_APP_PUSHER_PRIVATE_KEY` in cloud at 08:02:40Z. Dispatched
+preview 34098593798 with fresh artifact inputs from flows main (e649ad4,
+artifact 10006884765, archiveSha256 711aec3b…, NOT the zip digest).
+
+    success  Mint private Flows artifact token
+
+**Two questions answered at once.** The diagnosis was right — id/key mismatch —
+and getting PAST that step also proves the App IS installed on
+`AgentWorkforce/flows`. The Sep-3 404 was the OLD App, which had no install; the
+Sep-5 id change was pointing at a NEW App that does, and it was half-applied
+(id without key). Khaliq's rotation completed it.
+
+His challenge — "why does the app pusher still work for the relay repo?" — was
+the right question and resolved it: repo secrets are per-repo, and relay's pair
+was written 25 seconds apart on 2026-03-02, internally consistent. Cloud's was
+not.
+
+**Then it failed at Run Drizzle migrations, and that one is mine:**
+
+    verify-applied-schema: FAIL — DB schema is behind committed snapshot
+    0125_snapshot.json ... Missing columns (1):
+      - public.workflow_runs.relayflow_v2_authority
+
+Cause: my merge renumbered the branch's migration 0122 -> 0125 without changing
+its SQL body, so its drizzle hash is unchanged. The pr-3270 preview DB had
+already stamped the old 0122 row, so it skips the renamed file — row present,
+column absent. A consequence of the conflict resolution I did, surfacing only on
+a long-lived stage.
+
+Fixed with the idiom the error message itself prescribes and the codebase
+already established (`0028_ensure_workflow_run_paths.sql`,
+`0029_recover_workflow_run_paths.sql`): `0126_ensure_workflow_run_relayflow_v2_
+authority.sql`, `ADD COLUMN IF NOT EXISTS`, type mirroring 0125 exactly, plus
+journal idx 126 and a snapshot that is 0125's with a fresh id and prevId chained
+to it. Asserted all of that before pushing rather than trusting the edit.
+
+A fresh database never needs it; 0125 alone is right there. It exists for stages
+carrying the pre-renumber row.
+
+Pushed `8c83ef22a`, re-dispatched as **34099933426**. Now past
+`Fetch pinned private Relayflow v2 artifact` and into the SST deploy.
