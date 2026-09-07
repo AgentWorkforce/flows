@@ -50,12 +50,14 @@ jobs:
       # Fail here, in seconds, rather than in `Launch cloud swarm` ten minutes
       # later. WorkflowApiKeyClient.fromEnv requires CLOUD_API_URL and
       # CLOUD_API_KEY; if either is missing the CLI falls back to the device
-      # flow. Check both exactly as ops/NEXT.md specifies.
+      # flow. RELAY_WORKSPACE_KEY selects the messaging workspace. Check all
+      # three exactly as TARGET.md requirement 3 specifies.
       - name: Validate cloud authentication
         run: |
           test -n "$CLOUD_API_URL"
           test -n "$CLOUD_API_KEY"
-          echo "CLOUD_API_URL and CLOUD_API_KEY present; interactive login is unreachable from here."
+          test -n "$RELAY_WORKSPACE_KEY"
+          echo "CLOUD_API_URL, CLOUD_API_KEY, and RELAY_WORKSPACE_KEY present; interactive login is unreachable from here."
 
       # `agent-relay cloud run` launches the swarm, but nothing installed the
       # CLI, so this job failed at `Launch cloud swarm` with
