@@ -13350,3 +13350,44 @@ up. That needs Cloudflare credentials this session does not have.
 one POST rejects it. Everything I can test from the client side is exhausted.
 This is not "one more theory away" — the next step is an instrument I do not
 have, not another hypothesis.
+
+## 2026-09-07 — wrangler tail on PROD: the token resolves to NO api_token_sessions row
+
+Khaliq authorised ssh to the laptop. Host alias is `kjg-lap` (not
+`kjg-laptop`); tooling needs a login shell (`zsh -lc`) and
+`CLOUDFLARE_ACCOUNT_ID=f7232cb8...` because the account is ambiguous
+non-interactively. Tailed `cloud-web-worker` on production and triggered a
+swarm run to capture the failure live.
+
+**Captured the exact request:**
+
+    POST https://agentrelay.com/cloud/api/v1/workflows/prepare  ->  401
+    has-authorization: true
+    [cloud-2307-diag] relayfile-JWT 401 classify:
+      {"prefix":"other","segments":1,...}
+
+**What that proves.** The bearer arrives. `tryApiTokenSessionAuth` returns
+NULL, execution falls through to the relayfile-JWT path (so /prepare is a
+relayfile-allowed path), and that rejects a 1-segment non-JWT. So
+`resolveApiTokenSession` found no matching, unrevoked, unexpired row for the
+token CI is sending. That is server-side fact, not inference — the first hard
+evidence all evening.
+
+**And it is not the probe being weak this time.** Verified against production:
+`/api/v1/workflows/runs` returns 401 for a fabricated token AND for no token,
+so the mint's 200 was real. Also ruled out: TTL (365 days), value formatting
+(`CLOUD_API_KEY=${accessToken}`, no quotes), secret timing (repo secret
+updated 20:58:05, failing run 21:08), Dependabot namespace (none), and org
+shadowing is moot since repo secrets take precedence.
+
+**So: the mint's token resolves and CI's token does not.** The remaining
+question is whether they are the same value — unanswerable from outside
+because the secret is masked everywhere it appears.
+
+Stopped inferring and built the instrument instead: **flows#232** makes
+`Validate cloud authentication` actually probe the credential (it only tested
+non-emptiness, which is why it stayed green through six failures) and print a
+non-reversible sha256 fingerprint. The mint prints one too. One line on each
+end settles in seconds what cost an evening.
+
+Tail stopped and its log removed from the laptop.
