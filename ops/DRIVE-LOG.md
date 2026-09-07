@@ -12521,3 +12521,39 @@ than costing another tick:
 
 Never prints the access token. If the v2 run fails again it now fails with a
 NAMED cause, because this deploy carries the diagnostic split.
+
+## 2026-09-07 tick — BLOCKED on device approval; preview healthy at c71f482f2
+
+**Preview is up and correct**: `status ok, sha c71f482f2, bindingsOk true` —
+the head with all five fixes AND the diagnostic error split. Deploy 34145477823
+completed success; the stage was NOT torn down (the unpublished-cleanup steps
+skipped).
+
+**Blocked on one human action.** Device code RX8R-RCB6 expired unapproved; the
+token file is still the stale 16:22 one.
+
+**Why a second approval is needed at all — worth recording, it is structural.**
+The first token was NOT expired (21h of life left). The redeploy recreated the
+Neon branch `pr-3270`, which wiped `api_token_sessions`, so the token string
+stayed valid-looking while its row vanished and every authed call 401s.
+**Any preview redeploy invalidates every session minted against that stage.**
+Anyone reusing a cached preview token after a redeploy will read this as an
+auth bug rather than a wiped database.
+
+Checked for a legitimate non-interactive path and there is none:
+`/api/auth/dev-login` is gated on `NEXT_PUBLIC_SST_STAGE === "development"` and
+the stage is `pr-3270`, so it 404s. Correctly fail-closed. Not routing around
+an auth gate.
+
+Two of my own defects fixed this tick:
+  - macOS cached the NXDOMAIN from the redeploy window; the host resolved fine
+    on 8.8.8.8 and 1.1.1.1. The workflow's own verification passing from
+    GitHub's network is what proved the stage was fine and my resolver was not.
+    Bypassed with `curl --resolve` rather than mutating system DNS.
+  - The proof script polled 35 iterations for runs that were never created
+    after both submits 401'd. Now aborts when a submit yields no runId. A fast
+    failure quietly turned into a slow one.
+
+Drain: schedules healthy, nothing pending. Items 3 and 4 remain stale (#134 and
+#139 both MERGED). Nothing to merge: #3270 CI is green but its live proof has
+still never passed.
