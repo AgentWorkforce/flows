@@ -11042,3 +11042,38 @@ first failure's own error message proposed. The lesson is narrow — when a tool
 suggests a cause, its suggestion is a hypothesis, not a diagnosis, and an
 idempotent fix that reports success while changing nothing is the signal that
 you are looking at the wrong database, not the wrong migration.
+
+## 2026-09-07 tick — falsified my OWN second hypothesis by reading the source
+
+Last tick I said migrate and verify must be seeing different databases, and that
+I could not confirm it from CI logs. Correct on the second half, wrong to leave
+it there: the answer was in the source, not the logs.
+
+    drizzle.config.ts:25              const url = resolveDrizzleDatabaseUrl();
+    verify-applied-schema.cjs:109      const connectionString = resolveDrizzleDatabaseUrl();
+
+**Identical function**, and it is the one that applies `toDirectEndpoint`, so the
+pooled-vs-direct split I speculated about is not it either. run.sh invokes both
+under one `sst shell --stage`, sequentially, in a single step — same env, same
+URL.
+
+Both my hypotheses are now dead:
+- stale hash rows: killed by 0126 running and reporting success with the column
+  still absent;
+- different databases: killed by the shared resolver.
+
+What remains, stated as facts with no theory attached: migrate says applied, the
+file contains an unconditional ADD COLUMN IF NOT EXISTS, the verifier seconds
+later on the same URL says the column is missing, and the verifier can see the
+0126 files because it names them. Those cannot all hold of one database unless
+`drizzle-kit migrate` is not executing the file it reports applying — which
+points at journal selection, not at the database.
+
+**Deliberately did not test that.** Each hypothesis costs a ~12 minute preview
+deploy and I have spent two on guesses the evidence then killed. Posted the
+narrowed search to #3270 and offered to run a specific experiment for someone
+with more context.
+
+The useful shift this tick: I stopped generating explanations and started
+eliminating them, using source rather than logs. Elimination narrowed the
+problem; the third guess would only have widened it.
