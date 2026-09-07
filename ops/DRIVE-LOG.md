@@ -11141,3 +11141,37 @@ the merge — and it merged anyway. That is the SECOND auto-merge this session t
 act while the gate was unsatisfied; the first was #215 shipping defects a lens
 had named (#218). Whatever decides to merge is not reading
 `linux-x64-artifact`. The one-line fix is the small half of this tick.
+
+## 2026-09-07 — main unbroken (#223 merged); disk is the new risk
+
+**#223 merged 09:27:23Z, main is 460c0f7.** Ran the full gate first:
+
+    PRESWARM_structure:       REVIEW_PASSED
+    PRESWARM_history:         REVIEW_PASSED
+    PRESWARM_maintainability: REVIEW_PASSED
+    linux-x64-artifact:       SUCCESS
+
+Same precedent as #211: I wrote the diff, so the three lenses are the
+independent readers, not me. The maintainability lens added something worth
+keeping — `foreignFieldValue`'s fail-closed contract still holds because
+`memory` is common, and if anyone later moves it into `STEP_FIELDS_BY_TYPE` the
+generator throws with a clear message. The gate this restores is still a gate.
+
+Main CI is re-running on the merge; identical content already passed on the
+branch (34105234917).
+
+**Disk went 13Gi -> 7.0Gi and the cause is NOT mine.** Session `fe8515ad` has
+grown 6.4G -> 15G in roughly two hours, with 21 claude processes live. My own
+footprint was 2.8G across two worktrees.
+
+Reclaimed what is mine: removed
+`flows-212-channels-wt/kernel/target` (1.7G) — the lane is idle and BOTH its
+objectives (#212 durable channels, #220/#221 step memory) are merged, so the
+build output has no live consumer. Disk 7.0 -> 9.5Gi. Cargo rebuilds it on
+demand.
+
+**Not touching `fe8515ad`** — same call as earlier: a large scratchpad belonging
+to a running session is working state, not garbage. But at 15G and climbing
+against 9.5Gi free, it is now the thing most likely to take this machine down,
+and disk already hit zero once today. Flagged for Khaliq; it is his session to
+inspect, not mine to delete.
