@@ -5,6 +5,8 @@
 mod agent;
 #[path = "crash_resume/agent_support.rs"]
 mod agent_support;
+#[path = "crash_resume/channels.rs"]
+mod channels;
 #[path = "crash_resume/concurrency.rs"]
 mod concurrency;
 #[path = "crash_resume/llm.rs"]

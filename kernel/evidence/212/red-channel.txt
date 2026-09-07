@@ -1,0 +1,19 @@
+   Compiling relayflowd v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-212-channels-wt/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.68s
+     Running tests/crash_resume.rs (target/debug/deps/crash_resume-e6635a3f0d48512c)
+
+running 1 test
+
+thread 'channels::channels_sigkill_resume_redelivers_unacked_messages_with_exactly_once_effects' (72743573) panicked at relayflowd/tests/crash_resume/channels.rs:25:41:
+durable channel append must exist: unsupported_verb: unknown journal protocol verb channel.append
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test channels::channels_sigkill_resume_redelivers_unacked_messages_with_exactly_once_effects ... FAILED
+
+failures:
+
+failures:
+    channels::channels_sigkill_resume_redelivers_unacked_messages_with_exactly_once_effects
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 34 filtered out; finished in 0.49s
+
+error: test failed, to rerun pass `-p relayflowd --test crash_resume`
