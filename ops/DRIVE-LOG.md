@@ -11175,3 +11175,33 @@ to a running session is working state, not garbage. But at 15G and climbing
 against 9.5Gi free, it is now the thing most likely to take this machine down,
 and disk already hit zero once today. Flagged for Khaliq; it is his session to
 inspect, not mine to delete.
+
+## 2026-09-07 tick — ledger: gate 5 moves to Substrate (3 met / 3 partial / 3 not started)
+
+Brief items all dead or blocked; main is green on 460c0f77. Updated the map,
+which was the one thing genuinely stale.
+
+Verified on main before changing it:
+
+    packages/sdk/src/spec.ts:112   memory?: MemorySpec
+    kernel dialect         :289    memory?: KernelMemorySpec
+    entry.rs                       "memory.injected"
+    tests                          memory_sigkill_after_injection_replays_pack_
+                                     and_charges_it_once
+
+Gate 5 was "Not started" and is now **Substrate** — deliberately not "partial"
+as a vague label. The chip says what exists: a step can declare `memory:`, the
+injected pack is a journal fact, and resume charges it once.
+
+**Kept the gap honest rather than letting the merge read as progress on the
+gate.** What landed is plumbing. Nothing retrieves — relayhistory is still
+unconsumed, the provider is a stub, and the gate's actual acceptance (an agent
+avoiding a mistake from a previous trajectory, with a citation) is untested.
+Retrieval quality is the hard part and it has not started. A ledger that scored
+slice 1 as "gate 5 progress" would flatter the work.
+
+Tally now **3 met, 3 partial, 3 not started**; DAG node 5 amber.
+
+Two edit-hygiene notes, both caught before publishing: div/span balance verified
+0/0 after the splice (that bit me last time), and I removed a `09:5xZ`
+placeholder I had left in the anchor line rather than shipping it.
