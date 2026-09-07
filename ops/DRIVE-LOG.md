@@ -13676,3 +13676,44 @@ stdin form present), re-minted: fingerprint **91f0d17f1360**. Triggered CI at
 
 Cleanup owed regardless of outcome: remove the temporary canary probe from
 flows#232, and delete the CLOUD_API_KEY_CANARY secret.
+
+## 2026-09-07 — FIXED. `Launch cloud swarm: SUCCESS` for the first time today
+
+Run 34164737245 (flows#232, created 21:53:29Z), after cloud#3433 removed
+`--body -`:
+
+    success  Validate cloud authentication      <- now a REAL 200-required probe
+    success  Install the Agent Relay CLI
+    success  Prepare review input on GitHub runner
+    success  Launch cloud swarm                 <- FIRST TIME ALL DAY
+    in_progress  Wait for cloud swarm
+
+Every previous run today died at `Launch cloud swarm` with
+`Workflow prepare failed: 401 Unauthorized`. The swarm is now actually running.
+
+Could not read the fingerprint line directly — job logs are not retrievable
+while a run is in_progress (2 lines returned). Saying so rather than implying I
+confirmed it: the evidence here is the STEP STATUS, and it is sufficient,
+because the validate step fails closed on anything other than HTTP 200 from a
+workspace-requiring route. Its success means the credential authenticates.
+
+**The whole chain, and what each fix actually bought:**
+
+    #3414  drop AWS from the mint            (Khaliq caught the dependency)
+    #3416  build the workspace packages      module-not-found -> reached the mint
+    grant  App secrets:write on flows        403 -> could write at all
+    #3430  read production's NEON_APP_...    right database
+    #3429  verify before install             verified the INPUT; missed the bug
+    #3431  probe a workspace-resolving route not /auth/whoami's permissive path
+    #3432  fingerprint what is installed     the half that made it falsifiable
+    #232   fingerprint what CI receives      the other half
+    #3433  drop `--body -`                   THE BUG: stored the literal "-"
+
+Six of those were necessary. Only the last was sufficient, and it was findable
+only once the two fingerprints existed to be compared.
+
+Owed cleanup, tracked so it is not forgotten: remove the temporary canary probe
+from flows#232 and delete the CLOUD_API_KEY_CANARY secret.
+
+Disk 18Gi (down from 21Gi) — the two codex agents are building. Not yet a
+concern; noting the direction.
