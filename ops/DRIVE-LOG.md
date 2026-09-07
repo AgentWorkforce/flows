@@ -12457,3 +12457,34 @@ picking a winner. Picking a winner is what I did twice today, in both
 directions, and it failed twice.
 
 Typecheck still fails on OOM (`Reached heap limit`, exit 134), unrelated.
+
+## 2026-09-07 tick — #3270 CI is GREEN; redeploying preview at the fixed head
+
+    head c71f482f2   MERGEABLE/UNSTABLE
+    26 pass · 0 fail · 1 pending · 4 skipping
+
+Both launcher contracts now hold simultaneously, and **Typecheck passes** — the
+`Reached heap limit / exit 134` OOM was transient, as suspected. Worth noting
+because I had (correctly) declined to "fix" it: an OOM in tsc is not a defect
+in the diff, and chasing it would have been wasted work.
+
+Every defect found in this PR today is now fixed:
+  - migration renumbering left a stale cumulative snapshot   (567724e06)
+  - 6 RELAYFLOW_V2 worker env bindings unaccounted for       (02a81ae23)
+  - main's emptied acknowledgedGaps re-introduced by merge   (41164d6bc)
+  - launcher compensation dropped stop-before-delete         (21b243d33)
+  - ...then broke main's stop-less mock; best-effort stop    (c71f482f2)
+
+**Dispatched preview run 34145477823 at c71f482f2** (confirmed: the run's
+headSha is the current head, not the stale 440ed98df the last preview used).
+Same artifact tuple, already verified three ways.
+
+This redeploy matters beyond refreshing the stage: it carries the diagnostic
+error split, so the next v2 run reports WHICH arm of the consumer-capability
+guard fails — `relayflow_v2_payload_missing_v2_job_id` (producer/bridge
+degraded the job) or `relayflow_v2_consumer_epoch_mismatch` (which prints both
+epoch values). Two ticks went into distinguishing those by reading source; the
+next occurrence answers it in one line.
+
+Live proof still the merge blocker. Not merging: green CI is necessary, not
+sufficient, and this change's own acceptance signal has never once passed.
