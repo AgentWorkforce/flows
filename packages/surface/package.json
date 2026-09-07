@@ -24,6 +24,7 @@
     "prepare": "bun run build",
     "typecheck": "tsc --noEmit",
     "typecheck:regressions": "tsc -p ../../regressions/tsconfig.json",
+    "typecheck:examples": "tsc -p ../../examples/tsconfig.json",
     "test": "bun run build && tsc -p tsconfig.test.json && vitest run"
   },
   "license": "Apache-2.0",
