@@ -12745,3 +12745,36 @@ transitions, not by call ordinal.
 
 Could not run vitest locally (no node_modules in that worktree); said so in the
 commit rather than implying otherwise. CI is the check.
+
+## 2026-09-07 tick — Typecheck OOM is a GAP, not noise (cloud#3424)
+
+Third Typecheck OOM on #3270. I had been correctly calling it "unrelated
+infrastructure" and correctly declining to fix it inside the PR — but
+"unrelated" is not the same as "acceptable", and I had stopped there for three
+ticks. Measured: OOM at 3 heads, passing at 2, identical
+`Reached heap limit` / exit 134 signature, no relevant input change between.
+
+**It is a gap, not a new requirement.** `ci.yml` ALREADY sets
+`--max-old-space-size=4096` for `next-build` and the OpenNext
+deploy-equivalent build, and both deploy workflows do the same, for exactly
+this reason. The `typecheck` job simply never got it, while
+`npm run typecheck` builds platform and core then runs tsc over packages/web in
+ONE process. One `env:` block on the existing step; verified the delta is
+exactly +1 NODE_OPTIONS (2 -> 3) and the YAML still parses with 20 jobs.
+
+Opened as **cloud#3424 against main**, NOT folded into #3270: it affects every
+PR in the repo, and #3270 has already absorbed enough unrelated churn.
+
+**Why it was worth a tick.** An intermittent OOM on a REQUIRED check reports
+type errors and memory pressure through the same red X. That teaches people to
+re-run a red Typecheck instead of reading it, which is how a real type error
+eventually gets waved through. The cost is the lost signal, not the lost
+minutes.
+
+Also caught myself asserting a wrong baseline mid-edit: I predicted the
+`max-old-space-size` count would go 2 -> 3, having actually counted
+`NODE_OPTIONS` earlier; the real counts were 3 -> 4 because the string also
+appears in `run:` lines. Re-measured both before believing the diff.
+
+#3270 at `4556a6dc0`: 25 pass, 1 fail (this OOM), 1 pending (root Vitest — the
+second attempt at the merge-created test, still running).
