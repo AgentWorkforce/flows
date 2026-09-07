@@ -11077,3 +11077,36 @@ with more context.
 The useful shift this tick: I stopped generating explanations and started
 eliminating them, using source rather than logs. Elimination narrowed the
 problem; the third guess would only have widened it.
+
+## 2026-09-07 tick — narrowed #3270 by elimination again; stopped before a third guess
+
+Free checks only this tick, no deploys.
+
+**Eliminated the path-divergence candidate:** root `drizzle.config.ts:45` has
+`out: "./packages/web/drizzle"` — the same directory `verify-applied-schema.cjs`
+reads. Migrator and verifier share the resolver AND the snapshot directory.
+
+**New narrowing fact, from output I already had:** the verifier reports
+`Missing columns (1)` and no missing tables. It checks EVERY table and column in
+the latest snapshot, which includes everything main landed — `0122_nango_sync_
+unroutable_parking` carries real DDL and is not reported missing.
+
+So on the same database, in the same step, main's migrations committed their DDL
+and only this branch's column did not. **That eliminates the whole
+"stage cannot commit DDL" class** — cancelled transactions, replication lag,
+stamping without committing — since those would have taken main's migrations
+down too. The failure is specific to the lineage this branch introduced: 0125
+(the renumbered original) and 0126 (the ensure).
+
+I can see a next candidate — how drizzle-kit chooses journal entries, given 0125
+still carries the `when` value from when it was 0122 — but that is a third
+guess, and each costs a ~12 minute deploy plus a migration on a shared branch.
+Posted the established facts to #3270 instead so the next person skips my two
+dead ends.
+
+Established and worth reusing:
+- App credential fixed; preview builds, deploys, reaches migrations
+- migrate and verify share resolver AND out directory
+- the stage commits DDL normally for everything except this branch
+- an idempotent ADD COLUMN IF NOT EXISTS reported success without creating the
+  column — that is the anomaly to start from
