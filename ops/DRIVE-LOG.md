@@ -11427,3 +11427,26 @@ The lesson worth keeping: when a tool reports success and the world disagrees,
 read the tool's SELECTION rule. Two deploys and three theories died because I
 kept reasoning about the database instead of about what the migrator chooses to
 run.
+
+## 2026-09-07 tick — preview 34114184175 dispatched to test the timestamp fix
+
+First real test of `32c658d83`. Fresh artifact inputs from flows main @
+460c0f77 (run 34106113360, artifact 10012558263, archiveSha256 e4bcf2b2… —
+the TARBALL digest, not the upload zip).
+
+In flight at `Prebundle CF Worker for SST`; migrations run after the SST deploy,
+so the answer is ~10 minutes out. Everything before it green again, including
+the App token and artifact fetch.
+
+What this run decides: whether `idx 127 when=1788616801002` clears the
+`created_at < folderMillis` test against the preview DB's applied chain. If it
+does, the column lands and `verify-applied-schema` passes for the first time —
+and the branch reaches "Read preview outputs", which is the gate before the live
+proof.
+
+If it fails, it fails on something new; the timestamp rule is read from
+drizzle's own source and simulated, not inferred.
+
+Disk 7.1Gi — down from 9.5 again, and the other session was the driver last
+time. Watching rather than acting; my own footprint is one worktree with no
+cargo target.
