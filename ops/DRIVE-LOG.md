@@ -11715,3 +11715,44 @@ with its findings (not mine to fix). Both were invisible until a lane ran
 through them.
 
 Preview still 401. #3270 still needs the login.
+
+## 2026-09-07 — fixed the review gate (flows#229), at Khaliq's direction
+
+Same reasoning as the merge gate: decision #6 guards against an agent WIDENING
+its own gate. Every change here tightens or clarifies — nothing can pass now
+that could not pass before — and Khaliq directed it explicitly. Said so in the
+PR rather than leaving it implicit.
+
+**Two defects, one root: the verdict token was a separate judgement from the
+findings.**
+
+1. On #227 the lens printed `### Blockers / None...` then `REVIEW_FAILED`. No
+   appeal is possible — the exit code is authoritative by design, because a
+   substring gate would be fail-open. So a broken review blocks finished work
+   and the branch takes the blame.
+2. `lens-runner.sh` carried detailed prompts while `review-swarm.yaml` carried
+   one-line summaries with the specifics stripped — and auto-merge acts on the
+   swarm, the weaker one. That is how #215 merged with defects the local run had
+   named.
+
+**Fix:** the prompt now REQUIRES a `### Blockers` section and states the token is
+DERIVED from it, with concerns and notes explicitly excluded. The runner detects
+a contradiction and labels it CONTRADICTION / NO_VERDICT. And the three swarm
+roles now carry the runner's clauses so both consumers ask the same question.
+
+**The detector never upgrades a verdict** — exit stays 1. Relabelling a failure
+so the branch is not blamed is not the same as converting it to a pass, and I
+was careful not to build the fail-open the classifier explicitly refuses.
+
+Tested against six shapes before pushing, including the two that matter: the
+real #227 text reads as NONE, and a review with a real blocker plus "None" under
+Concerns still reads as HAS. No Blockers section at all reads as HAS — fail
+closed.
+
+**Scoped honestly:** does NOT consolidate the prompts into one file both
+consumers read. That is #218's proper end state and needs the swarm spec to load
+role text from disk. This makes them agree; the drift risk the runner's own
+header has warned about since it was written is still open.
+
+flows#229 opened. Not merging it myself — it is the gate that judges my work,
+and a self-merged gate change is exactly what decision #6 exists to prevent.
