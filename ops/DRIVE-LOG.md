@@ -12387,3 +12387,35 @@ otherwise.
 
 Typecheck still fails and is NOT a type error: `Reached heap limit ... heap out
 of memory`, exit 134. Infrastructure/OOM, unrelated to this PR's content.
+
+## 2026-09-07 tick — third restack; a SEMANTIC policy conflict (cloud 41164d6bc)
+
+#3270 was CONFLICTING/DIRTY again and back to 2 checks — the CI-suppression
+pattern from two ticks ago, recurring. Main is moving fast enough (3 commits in
+~20 min) that this PR cannot stay mergeable unattended. Third restack today.
+
+**The one conflict was semantic, not textual.** Main emptied
+`acknowledgedGaps` to `{}`; the branch still carried 24 entries. Those are
+MAIN's keys, and main resolved them properly rather than abandoning them, so
+keeping the branch's list would have re-introduced exemptions main deliberately
+retired — a silent weakening of a production gate, arriving through a merge.
+
+Took main's `{}` and let the real checker decide rather than reasoning about
+it: `fast-path binding verification passed ... all 86 environment keys
+accounted for`, which only holds if main genuinely declared them. My additions
+survived intact: 4 RELAYFLOW_V2 keys in `emptyInProduction`, 2 literal
+constants in wrangler.production.toml.
+
+Re-ran the migration journal suite after merging, because a previous restack is
+exactly what left the 0127 snapshot stale: 9 passed / 0 failed. Checking the
+thing a past merge broke, after every subsequent merge.
+
+Result: `mergeable=true`, behind=0, ahead=12. Note the first read right after
+pushing still said CONFLICTING — GitHub's mergeability is computed
+asynchronously, so a reading taken immediately after a push is stale. Re-query
+before believing it.
+
+**Worth Khaliq's attention**: #3270 has now required 3 restacks in one
+afternoon. Each one silently zeroes its CI until noticed. Either it merges
+soon or it needs main to hold still; the current pattern burns a tick every
+time.
