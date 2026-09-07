@@ -13964,3 +13964,37 @@ get one classifier right.
 **Disk 13Gi, down from 21Gi over the session.** Three codex worktrees plus
 cargo targets. Not yet blocking, but the trend is monotonic and disk hit zero
 once today — flagging before it matters rather than after.
+
+## 2026-09-08 tick — disk investigated; NO safe reclaim, and that is the finding
+
+13Gi free, 94% used, down from 21Gi across the session. Measured rather than
+guessed:
+
+    3.0G  flows-225-placement-wt          <- LIVE codex agent (pids 74818, 80763)
+    2.1G  flows-132-parallel-dispatch-wt  <- LIVE relayflowd (67778, 75043), 9 dirty files
+    1.0G  flows-runtime-0907-wt           <- my own codex agent, active
+    490M  cloud-pr3264-*-wt (x4)          <- #3264 merged 09-03, but each has an
+                                             uncommitted file and 3 processes
+    2.3G  ~/Library/Caches
+    665M  ~/.npm
+
+**The two largest are held by live workers.** Deleting `flows-225-placement-wt`
+would have destroyed a running codex agent's workspace, and
+`flows-132-parallel-dispatch-wt` carries NINE uncommitted files behind live
+relayflowd processes. I checked `lsof -d cwd` and `git status` before touching
+anything, because destroying a lane's uncommitted work is a mistake already in
+this session's memory.
+
+**Not the known cargo-target profile.** `~/.relayflows-toolchain` is 106M here,
+not the ~20G case recorded earlier. Same symptom, different cause — worth not
+pattern-matching to the old fix.
+
+**Deliberately reclaiming nothing.** The only large space is live work; the only
+idle candidates total 490M and are not cleanly safe. Freeing 490M against 13Gi
+free, by deleting worktrees with uncommitted files, is a bad trade taken to make
+a number move. The disk trend is three agents doing real work, which is the
+system behaving correctly, not a leak.
+
+Escalation point rather than an action: if this reaches ~5Gi, the right move is
+to stand agents down in order and reclaim their worktrees deliberately — not to
+sweep directories while they run.
