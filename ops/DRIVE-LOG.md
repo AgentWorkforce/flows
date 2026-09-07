@@ -10551,3 +10551,24 @@ No change on any blocker. Nothing done.
 ## 2026-09-07 tick — quiet; identical state (23rd consecutive)
 
 No change on any blocker. Nothing done.
+
+## 2026-09-07 tick — quiet on blockers; noted a disk trend, cleaned my own footprint
+
+No change on any blocker (24th consecutive quiet tick on that axis).
+
+**Disk dropped 17Gi -> 13Gi free in ~18 minutes**, which matters because it hit
+zero once yesterday. Traced it, and it is NOT this session: my whole scratchpad
+is ~295M. The bulk is 6.4G under session `fe8515ad`, which is the live session I
+identified earlier (15 claude processes running now). Left alone — same call as
+before, and the same reason: a large scratchpad belonging to a running session
+is working state, not garbage.
+
+Other consumers for reference: `~/.relayflows-toolchain/target` at 6.6G, which
+is the known cargo-target pressure.
+
+Removed my own `cloud-mint-wt` worktree (127M) since cloud#3393 merged at
+18:55Z. Kept `cloud-3270-wt` — #3270 is still open and it holds the merge commit
+I authored.
+
+13Gi free is not urgent, but if `fe8515ad` keeps growing at this rate it will be
+within a few hours.
