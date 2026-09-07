@@ -12189,3 +12189,35 @@ Khaliq, not reaping.
 
 Cost note worth a human eye: 90 managed sandboxes at 2 CPU each, running
 12-32h, is a standing spend nobody appears to have chosen.
+
+## 2026-09-07 tick — made the v2 blocker self-diagnosing (cloud 5d71f224c)
+
+AWS is unreachable from this host (`aws --version` itself hangs), so the
+launch-worker Lambda's own logs — the only thing that can settle the remaining
+version-skew hypothesis — are out of reach. Closed that route.
+
+**Did the next best thing: made the failure name itself.** The guard at
+`launch-worker.ts:217` collapsed two unrelated faults into one message:
+
+    if (!("v2JobId" in payload) || payload.consumerEpoch !== EPOCH)
+      -> "Relayflow v2 consumer capability is missing"
+
+Split into:
+
+    relayflow_v2_payload_missing_v2_job_id   producer/bridge degraded a v2 job
+    relayflow_v2_consumer_epoch_mismatch     producer and consumer built from
+                                             different revisions; now reports
+                                             BOTH epoch values in the message
+
+I spent two ticks walking producer -> bridge -> SQS -> consumer to distinguish
+these, and the chain is correct at this head end to end. The ambiguity was the
+whole cost. The next occurrence answers the question by itself.
+
+Pushed to `feat/relayflow-v2-executor` as `5d71f224c` after confirming the
+remote head was still my `440ed98df`. Nothing referenced the old code, and
+NO TEST covers this guard — which is part of why it stayed ambiguous.
+
+Deliberate scope note: this changes #3270 while it awaits signoff. Justified
+because there is no signoff yet to invalidate, and the PR cannot pass its own
+live proof while its primary failure mode is undiagnosable. Flagging it rather
+than burying it.
