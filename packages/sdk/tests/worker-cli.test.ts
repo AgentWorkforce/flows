@@ -461,3 +461,42 @@ setTimeout(() => {}, 5000);
     expect(result.stderr_tail).toMatch(/handshake limit of 8192 bytes/i);
   }, 20_000);
 });
+
+it('delivers the journaled memory pack to the real wrapper and excludes its charge from completion usage', async () => {
+  const directory = makeDirectory();
+  const wrapper = makeWrapper(directory, 'memory-wrapper', `
+process.stdout.write('relayflows-agent-cli-v1\\n');
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => { input += chunk; });
+process.stdin.on('end', () => {
+  const request = JSON.parse(input);
+  process.stdout.write('relayflows-agent-cli-v1-execute\\n');
+  process.stdout.write(JSON.stringify({ instruction: request.instruction }));
+});
+`);
+  const completions: unknown[][] = [];
+  const client = new EventEmitter() as EventEmitter & Record<string, unknown>;
+  client.workerAttach = async () => ({});
+  client.stepComplete = async (...args: unknown[]) => { completions.push(args); return {}; };
+  const worker = new AgentWorker(client as unknown as JournalClient, { workerId: 'memory', pins: { workspace: [], streams: [] } });
+  const errors: unknown[] = [];
+  worker.on('error', error => errors.push(error));
+  await worker.attach();
+  const pack = { text: 'specific recorded lesson', citations: ['stub:test'] };
+  client.emit('step.dispatch', {
+    run_id: 'memory', step_id: 's', attempt: 2, step_type: 'agent',
+    spec: { cli: wrapper, instruction: 'Use context' }, pins: { workspace: [], streams: [] },
+    lease_id: 'lease', idempotency_key: 'effect',
+    memory: { request: { scope: 'agent', query: 'lessons', budget: {} }, pack,
+      budget: { tokens_in: 7, tokens_out: 0, dollars: '0.002' }, provider: 'stub' },
+  });
+  await worker.close();
+  expect(errors).toEqual([]);
+  expect(completions).toHaveLength(1);
+  expect(completions[0]?.[4]).toBe('success');
+  const result = completions[0]?.[5] as { output: { instruction: string }; budget?: unknown };
+  expect(result.output.instruction).toContain('Use context');
+  expect(result.output.instruction).toContain(JSON.stringify(pack));
+  expect(result.budget).toBeUndefined();
+}, 20_000);

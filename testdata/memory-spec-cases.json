@@ -1,0 +1,19 @@
+[
+  {"name":"script exact limits","valid":true,"memory":{"scope":"script","query":"lessons","budget":{"max_tokens_in":7,"max_tokens_out":0,"max_dollars":"0.002"}}},
+  {"name":"agent unbounded","valid":true,"memory":{"scope":"agent","query":"lessons","budget":{}}},
+  {"name":"safe integer boundary","valid":true,"memory":{"scope":"agent","query":"lessons","budget":{"max_tokens_in":9007199254740991}}},
+  {"name":"absent scope","valid":false,"memory":{"query":"lessons","budget":{}}},
+  {"name":"unknown scope","valid":false,"memory":{"scope":"run","query":"lessons","budget":{}}},
+  {"name":"empty query","valid":false,"memory":{"scope":"agent","query":" ","budget":{}}},
+  {"name":"absent budget","valid":false,"memory":{"scope":"agent","query":"lessons"}},
+  {"name":"null declaration","valid":false,"memory":null},
+  {"name":"null budget","valid":false,"memory":{"scope":"agent","query":"lessons","budget":null}},
+  {"name":"null optional limit","valid":false,"memory":{"scope":"agent","query":"lessons","budget":{"max_tokens_in":null}}},
+  {"name":"negative tokens","valid":false,"memory":{"scope":"agent","query":"lessons","budget":{"max_tokens_in":-1}}},
+  {"name":"fractional tokens","valid":false,"memory":{"scope":"agent","query":"lessons","budget":{"max_tokens_out":1.5}}},
+  {"name":"unsafe integer","valid":false,"memory":{"scope":"agent","query":"lessons","budget":{"max_tokens_in":9007199254740992}}},
+  {"name":"numeric dollars","valid":false,"memory":{"scope":"agent","query":"lessons","budget":{"max_dollars":0.002}}},
+  {"name":"exponent dollars","valid":false,"memory":{"scope":"agent","query":"lessons","budget":{"max_dollars":"2e-3"}}},
+  {"name":"unknown memory key","valid":false,"memory":{"scope":"agent","query":"lessons","budget":{},"retrieval":true}},
+  {"name":"unknown budget key","valid":false,"memory":{"scope":"agent","query":"lessons","budget":{"tokens":7}}}
+]

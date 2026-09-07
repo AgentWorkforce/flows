@@ -164,6 +164,14 @@ impl RunSpec {
                     }
                 })?;
             }
+            if let Some(memory) = &step.memory {
+                memory
+                    .validate()
+                    .map_err(|detail| SpecError::InvalidMemory {
+                        step: step.id.clone(),
+                        detail,
+                    })?;
+            }
             step.retry.validate(&step.id)?;
         }
 
@@ -266,6 +274,7 @@ const STEP_COMMON_FIELDS: &[&str] = &[
     "max_iterations",
     "retry",
     "verification",
+    "memory",
 ];
 const STEP_DETERMINISTIC_FIELDS: &[&str] = &["command", "timeout_ms"];
 const STEP_LLM_FIELDS: &[&str] = &["prompt", "model", "cli"];
@@ -293,6 +302,16 @@ fn reject_unknown_step_fields(value: &Value) -> Result<(), SpecError> {
             // Missing/unknown type is rejected by serde's tagged-enum error.
             _ => continue,
         };
+        if let Some(memory) = object.get("memory") {
+            crate::memory::validate_shape(memory).map_err(|detail| SpecError::InvalidMemory {
+                step: object
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?")
+                    .into(),
+                detail,
+            })?;
+        }
         for key in object.keys() {
             if !STEP_COMMON_FIELDS.contains(&key.as_str()) && !kind_fields.contains(&key.as_str()) {
                 return Err(SpecError::UnknownField {
@@ -316,6 +335,8 @@ pub struct StepSpec {
     pub retry: RetryPolicy,
     #[serde(default)]
     pub verification: VerificationSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory: Option<crate::memory::MemorySpec>,
     #[serde(flatten)]
     pub kind: StepKind,
 }
@@ -563,6 +584,8 @@ fn default_jitter_percent() -> u8 {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum SpecError {
+    #[error("step {step} has invalid memory: {detail}")]
+    InvalidMemory { step: String, detail: String },
     #[error("unsupported run spec version {0} (this kernel reads {SPEC_VERSION})")]
     UnsupportedVersion(String),
     #[error("unknown field \"{field}\" at {at} — refusing to guess (fail closed)")]

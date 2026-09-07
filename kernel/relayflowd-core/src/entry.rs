@@ -39,6 +39,8 @@ pub enum EntryType {
     WaitCompleted,
     #[serde(rename = "stream.appended")]
     StreamAppended,
+    #[serde(rename = "memory.injected")]
+    MemoryInjected,
     #[serde(rename = "channel.appended")]
     ChannelAppended,
     #[serde(rename = "channel.delivered")]
@@ -73,6 +75,7 @@ impl EntryType {
             Self::SleepUntil => "sleep.until",
             Self::WaitCompleted => "wait.completed",
             Self::StreamAppended => "stream.appended",
+            Self::MemoryInjected => "memory.injected",
             Self::ChannelAppended => "channel.appended",
             Self::ChannelDelivered => "channel.delivered",
             Self::ChannelAcknowledged => "channel.acknowledged",
@@ -99,6 +102,7 @@ impl EntryType {
             "sleep.until" => Self::SleepUntil,
             "wait.completed" => Self::WaitCompleted,
             "stream.appended" => Self::StreamAppended,
+            "memory.injected" => Self::MemoryInjected,
             "channel.appended" => Self::ChannelAppended,
             "channel.delivered" => Self::ChannelDelivered,
             "channel.acknowledged" => Self::ChannelAcknowledged,
@@ -378,6 +382,9 @@ pub struct EpochSummaryPayload {
     pub pinned_revisions: BTreeMap<String, String>,
     #[serde(default)]
     pub budget_spent: Budget,
+    /// Accepted packs are retained without charging them again at the epoch boundary.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub memory: BTreeMap<String, crate::memory::MemoryInjectedPayload>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

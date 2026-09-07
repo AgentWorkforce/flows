@@ -135,6 +135,7 @@ mod tests {
                     stream_state: BTreeMap::new(),
                     pinned_revisions: BTreeMap::new(),
                     budget_spent: Budget::default(),
+                    memory: BTreeMap::new(),
                 },
                 10,
             )

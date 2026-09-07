@@ -35,6 +35,7 @@ use crate::worker::{JournalObserver, StepDispatcher};
 mod channels;
 mod drive;
 mod effects;
+mod memory;
 mod model;
 mod remote;
 mod wake;
@@ -90,6 +91,7 @@ pub struct Engine<C = WallClock> {
     clock: C,
     dispatcher: Option<Arc<dyn StepDispatcher>>,
     observer: Option<Arc<dyn JournalObserver>>,
+    memory_provider: Arc<dyn crate::memory::MemoryProvider>,
 }
 
 impl Engine<WallClock> {
@@ -109,6 +111,7 @@ impl Engine<WallClock> {
             clock: WallClock,
             dispatcher: None,
             observer: None,
+            memory_provider: Arc::new(crate::memory::FixedMemoryProvider),
         }
     }
 
@@ -123,6 +126,7 @@ impl Engine<WallClock> {
             clock: WallClock,
             dispatcher: Some(dispatcher),
             observer: Some(observer),
+            memory_provider: Arc::new(crate::memory::FixedMemoryProvider),
         }
     }
 }
@@ -135,6 +139,7 @@ impl<C: Clock> Engine<C> {
             clock,
             dispatcher: None,
             observer: None,
+            memory_provider: Arc::new(crate::memory::FixedMemoryProvider),
         }
     }
 

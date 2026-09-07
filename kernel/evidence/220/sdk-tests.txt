@@ -1,0 +1,18 @@
+
+ RUN  v2.1.9 /Users/khaliqgant/AgentWorkforce/flows-212-channels-wt/packages/sdk
+
+ ✓ tests/memory.test.ts (18 tests) 6ms
+ ✓ tests/spec-parity.test.ts (28 tests) 213ms
+ ✓ tests/worker-cli.test.ts (13 tests) 20130ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 1745ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 1712ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3255ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11255ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 471ms
+   ✓ delivers the journaled memory pack to the real wrapper and excludes its charge from completion usage 346ms
+
+ Test Files  3 passed (3)
+      Tests  59 passed (59)
+   Start at  09:47:45
+   Duration  20.46s (transform 263ms, setup 0ms, collect 612ms, tests 20.35s, environment 0ms, prepare 191ms)
+

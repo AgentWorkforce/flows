@@ -1,0 +1,33 @@
+version: '0.1.0'
+name: step-memory
+steps:
+  - id: script
+    type: deterministic
+    command: 'echo "$RELAYFLOW_MEMORY"'
+    memory:
+      scope: script
+      query: previous script lessons
+      budget:
+        maxTokensIn: 7
+        maxTokensOut: 0
+        maxDollars: '0.002'
+  - id: reason
+    type: llm
+    dependsOn: [script]
+    cli: claude
+    prompt: Use the supplied context.
+    memory:
+      scope: script
+      query: previous reasoning lessons
+      budget: {}
+  - id: agent
+    type: agent
+    dependsOn: [reason]
+    cli: claude
+    instruction: Use the supplied context.
+    memory:
+      scope: agent
+      query: previous agent lessons
+      budget:
+        maxTokensIn: 9007199254740991
+        maxDollars: '0001.5000'

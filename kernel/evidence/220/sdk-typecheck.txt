@@ -1,0 +1,10 @@
+$ node node_modules/typescript/bin/tsc --noEmit
+exit_status: 0
+$ node node_modules/typescript/bin/tsc -p tsconfig.type-tests.json
+exit_status: 0
+$ node node_modules/typescript/bin/tsc -p tsconfig.tests.json
+exit_status: 0
+$ node node_modules/typescript/bin/tsc
+exit_status: 0
+$ node scripts/make-cli-executable.mjs
+exit_status: 0

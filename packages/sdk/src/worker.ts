@@ -91,7 +91,7 @@ export class AgentWorker extends EventEmitter {
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
     const spec = dispatch.spec as Partial<KernelAgentStep>;
     const result = typeof spec.cli === 'string' && typeof spec.instruction === 'string'
-      ? await runAgentCli(spec.cli, spec.instruction, dispatch.wake_context, spec.model)
+      ? await runAgentCli(spec.cli, memoryInstruction(spec.instruction, dispatch.memory), dispatch.wake_context, spec.model)
       : { exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' };
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
 
@@ -147,4 +147,10 @@ export function parseJsonOutput(stdout: string): Record<string, unknown> | null 
     return null;
   }
   return parsed as Record<string, unknown>;
+}
+
+/** Pass the journaled pack to both raw CLI and wrapper execution paths. */
+function memoryInstruction(instruction: string, memory: StepDispatchEvent['memory']): string {
+  return memory === undefined ? instruction
+    : `${instruction}\n\nMemory context (journaled):\n${JSON.stringify(memory.pack)}`;
 }

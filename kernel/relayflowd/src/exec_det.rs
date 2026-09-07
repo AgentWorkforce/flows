@@ -12,6 +12,13 @@ use wait_timeout::ChildExt;
 const OUTPUT_TAIL_BYTES: usize = 64 * 1024;
 
 pub fn execute(step: &StepSpec) -> AttemptResult {
+    execute_with_memory(step, None)
+}
+
+pub fn execute_with_memory(
+    step: &StepSpec,
+    memory: Option<&relayflowd_core::MemoryInjectedPayload>,
+) -> AttemptResult {
     let StepKind::Deterministic {
         command,
         timeout_ms,
@@ -34,6 +41,10 @@ pub fn execute(step: &StepSpec) -> AttemptResult {
             command
         }
     };
+    process.env_remove("RELAYFLOW_MEMORY");
+    if let Some(memory) = memory {
+        process.env("RELAYFLOW_MEMORY", memory.pack.to_string());
+    }
     process.stdout(Stdio::piped()).stderr(Stdio::piped());
     // Run the command in its own process group so a timeout can kill every
     // descendant. Killing only the shell leaves children that inherited the

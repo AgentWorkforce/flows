@@ -1,6 +1,7 @@
 pub mod clock;
 pub mod engine;
 pub mod exec_det;
+pub mod memory;
 pub mod server;
 pub mod worker;
 
