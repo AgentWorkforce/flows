@@ -12656,3 +12656,32 @@ enough unrelated churn.
 
 Drain: both proof runs terminal, no pending work. Preview healthy at
 `c71f482f2`. Nothing merged.
+
+## 2026-09-07 tick — a merge-created test failure neither side owns
+
+`Registered Tests (root Vitest)` failed on "rechecks terminal cancellation at
+the final provider-dispatch boundary". Traced to origin rather than guessed:
+
+    the test  is MAIN's    (main 1, branch-before-merge 0)
+    the guard is the BRANCH's (branch 1, main 0)
+
+Main's test mocks `workflowStore.get` WITHOUT `relayflowVersion` because main's
+launch worker never reads it. This branch fences a generation mismatch, so
+`undefined !== "v1"` throws before execution reaches the boundary under test.
+Neither side is defective; the combination my merge produced is. That is the
+third distinct instance today of a merge creating a defect that exists in
+neither parent.
+
+Fixed by declaring `relayflowVersion: "v1"` on both run mocks. Audited the rest
+of the file rather than patching only the red one: 7 run-shaped mocks, 4 lacked
+the field, 2 of those are launch-JOB records where it does not belong.
+
+**Typecheck's failure is NOT mine and not a type error**: `Reached heap limit`,
+exit 134. It has now passed at one head and OOM'd at two — intermittent
+infrastructure. I checked rather than assuming, because I have been wrong about
+"unrelated" failures before.
+
+Also corrected an earlier overstatement of my own: I reported "#3270 CI green,
+26 pass, 0 fail" when `Registered Tests (root Vitest)` was still PENDING, not
+passing. A pending check is not a passing one, and I read the summary counts
+instead of the buckets.
