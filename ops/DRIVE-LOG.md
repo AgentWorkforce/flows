@@ -11205,3 +11205,47 @@ Tally now **3 met, 3 partial, 3 not started**; DAG node 5 amber.
 Two edit-hygiene notes, both caught before publishing: div/span balance verified
 0/0 after the splice (that bit me last time), and I removed a `09:5xZ`
 placeholder I had left in the anchor line rather than shipping it.
+
+## 2026-09-07 — ROOT CAUSE of both bad merges: auto-merge never reads CI
+
+Recording this in the log rather than only in chat, because it is the most
+consequential finding of the session and the log is what survives.
+
+The merge gate is **not** in the repo and **not** branch protection (flows has
+none — 404). It is a launchd loop on this machine:
+
+    ~/AgentWorkforce/auto-merge-loop.sh   (com.agentworkforce.auto-merge.plist)
+
+Its entire condition, line 11:
+
+    if swarm PASSED + mergeable + no non-bot commenters → merge (squash)
+
+**It contains zero references to CI.** grep for
+`statusCheckRollup|checkSuite|conclusion|gh pr checks` returns 0. The gate is a
+comment marker (`🎯 review-swarm:` at line 22, counted at line 79), mergeability,
+and a commenter allowlist. Nothing else.
+
+That single fact explains both incidents exactly, and neither is a mystery any
+more:
+
+- **#221** merged with `linux-x64-artifact: FAILURE` and broke main for ~90
+  minutes. CI was never consulted, so red CI could not stop it.
+- **#215** merged carrying two defects my maintainability lens had named. My
+  FAIL is not a `🎯 review-swarm:` marker comment, and `kjgbot` — the identity I
+  post under — is inside `BOT_ALLOWLIST_RE`, so my objection did not even
+  register as a blocking commenter.
+
+So the review I run is advisory by construction. I blocked #215 and it merged
+anyway; that was not a race or a timing accident.
+
+**Fix (his, not mine):** require `linux-x64-artifact == SUCCESS` before the
+`gh pr merge` call in that script. Settled decision #6 forbids me editing the
+gate that judges my work, which is exactly what this is.
+
+**Related observation from this tick:** the three open drive PRs (#224, #222,
+#219) carry NO `linux-x64-artifact` check at all — only `review`, which is red
+for the CLOUD_API_KEY reason. None has a PASSED marker yet, so nothing is about
+to merge. But if one acquires a marker, it would merge with no kernel or SDK
+test signal whatsoever. Worth folding into the same fix.
+
+Main green on 460c0f77. Disk 9.1Gi.
