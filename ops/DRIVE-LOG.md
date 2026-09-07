@@ -12348,3 +12348,42 @@ green deploy was not evidence the renumbering was complete.
 Typecheck's failure is unrelated and NOT mine: `FATAL ERROR: Reached heap limit
 Allocation failed - JavaScript heap out of memory`, exit 134. Infrastructure,
 not types.
+
+## 2026-09-07 tick — #3270's fast-path binding gate: 6 problems, fixed (cloud 02a81ae23)
+
+Snapshot fix landed: `Registered Tests (root node:test)` went from FAIL to
+pass. Remaining `Unit Tests (web)` failure was a different, real defect in the
+PR:
+
+    fast-path binding verification FAILED (6 problem(s)):
+      RELAYFLOW_V2_ADMISSION_EPOCH, ARTIFACT_KEY, ARTIFACT_SHA256,
+      ARTIFACT_SOURCE_COMMIT, ARTIFACT_PROTOCOL_VERSION,
+      ARTIFACT_MANIFEST_SCHEMA_VERSION
+    — in the infra/web-worker.ts `environment:` block but neither declared in
+      wrangler.production.toml nor accounted for in the policy
+
+`scripts/verify-fast-path-bindings.mjs` exists to stop exactly this: a PR that
+adds a Worker env binding cannot merge without deciding what the production
+fast path does with it. A fast-path `wrangler deploy` is DECLARATIVE for
+non-secret bindings, so an undeclared key is a DELETED binding.
+
+**The six do not get the same answer, and that is the whole point:**
+
+    process.env.X ?? ""   4 keys -> emptyInProduction. Only preview.yml's
+                          admission step sets them; in production they are
+                          provably "" so deleting the binding cannot change
+                          behaviour. The checker RE-DERIVES this every run, so
+                          the exemption cannot outlive its justification.
+    literal "0" / "1"     2 keys -> declared in wrangler.production.toml. NOT
+                          empty. Exempting them would let a fast-path deploy
+                          delete a real binding the Worker reads — the
+                          cloud#3390 shape.
+
+Ran the real checker both directions rather than trusting my own reading:
+reverted -> FAILED (6 problems); applied -> "passed ... all 86
+infra/web-worker.ts environment keys accounted for". The checker independently
+confirmed the four are provably empty; it would have rejected the exemption
+otherwise.
+
+Typecheck still fails and is NOT a type error: `Reached heap limit ... heap out
+of memory`, exit 134. Infrastructure/OOM, unrelated to this PR's content.
