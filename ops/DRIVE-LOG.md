@@ -13272,3 +13272,32 @@ printed the response body, which contained a live child upload token
 one run's storage prefix, but it is in the transcript and should be treated as
 compromised. The probe should have discarded the body; flagged for rotation
 rather than left quiet.
+
+## 2026-09-07 tick — waiting on the first run to use a workspace-certified token
+
+Merged cloud#3431 (`aa83d8b8e`) and re-minted (run 34161215965, 20:58:05Z).
+
+**The stricter probe passes.** `/api/v1/workflows/runs` requires a RESOLVED
+workspace, and the minted token gets 200. So the credential now
+demonstrably: authenticates, resolves a workspace, and can read. Three
+independent certifications.
+
+**Which leaves a sharp contradiction: GET works, POST /workflows/prepare
+401s.** Before treating that as the finding, note the timing — EVERY failure
+observed so far, including the "fresh" flows#230 run at 20:53, predates the
+20:58 mint. Not one of them exercised a workspace-certified credential. Pushed
+an empty commit (`cafd8f7`, 20:58:52Z) so run 34161427990 is the first that
+does. Currently at `Install the Agent Relay CLI`.
+
+**Source archaeology is exhausted and I have stopped doing it.** Systematically
+enumerated `resolveRequestAuth`: a CI-subject token takes the
+`if (!canFollowUserWorkspace(tokenAuth)) return tokenAuth` branch and returns
+NON-null, so a valid CI token cannot produce 401 there. Combined with the
+probe's 200, the code says this should work. Five theories died tonight
+(scope, mint-time workspace binding, CLI transport, token validity, stale
+re-run secrets); the sixth is being tested empirically rather than argued.
+
+If 34161427990 passes, the chain closes and the six PRs follow. If it fails
+with the same 401, then GET-vs-POST is real and the next place to look is what
+`/prepare` does differently — not the credential, which will have been
+certified three ways.
