@@ -14074,3 +14074,41 @@ the sweep being proven — I would rather he authorise the real run with the
 numbers in front of him than infer consent from an earlier remark.
 
 Ready for one word: `dry_run=false`, min_age 12h, limit 20 reclaims ~40 CPU.
+
+## 2026-09-08 — two of three agents left their work one command from destruction
+
+Checked what the agents actually persisted, not what they reported:
+
+    flows-pr-triage-0907    594-line report + 65 evidence files  UNCOMMITTED (??)
+    flows-spec-review-0907  720-line report                      committed, UNPUSHED
+    flows-runtime-0907      3 commits                            clean and pushed
+
+**I nearly deleted one of those worktrees two ticks ago while hunting disk
+space.** The triage analysis existed only as untracked files in a disposable
+worktree; `git worktree remove` would have taken 594 lines of reasoning and 65
+evidence files with it, silently. The only reason it survived is that I
+checked `git status` before deleting — which I did for safety-of-live-work
+reasons, not because I suspected uncommitted deliverables.
+
+Both are now committed and pushed:
+    triage/pr-cleanup-0907   bf3c299
+    review/spec-lane-0907    21d8277
+
+**The general lesson**: an agent reporting "done" and an agent having produced
+DURABLE work are different claims, and I verified the first while assuming the
+second. A report in a worktree is not a deliverable; it is a draft on a disk I
+was actively trying to reclaim. Delegation is not complete until the artifact
+is somewhere the worktree's death cannot reach.
+
+Triage verdicts, now durable, three already applied:
+
+    #214 closed  completed-target output, on main via #120 (201542a74, verified)
+    #219 closed  superseded by #226 (dffc5b5ee, verified as #226's live head)
+    #222 closed  superseded by #226
+    #226 OPEN    needs-human
+    #234 OPEN    needs-human
+
+The agent also recorded that it accepted the CLOUD_API_KEY 401 as a supplied
+operational fact and excluded it from code-quality judgement. That is correct:
+a broken credential is not evidence about a diff, and it is why its verdicts
+are about content rather than CI colour.
