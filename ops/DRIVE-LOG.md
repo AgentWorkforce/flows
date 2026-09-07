@@ -12260,3 +12260,41 @@ so Khaliq runs it. Did NOT stop anything myself.
 
 Real fix worth a PR: teach cloud's cleanup to reap UUID-named fleet-node
 sandboxes by age, instead of a name prefix plus a frozen date.
+
+## 2026-09-07 tick — a CONFLICTING PR reports almost no CI, not failing CI
+
+**My diagnostic commit `5d71f224c` sat unvalidated for 24 minutes and I nearly
+missed it.** #3270 showed `2 checks, all pass` — which reads like green. The
+previous head had 22. The API was blunter: zero check-runs and zero workflow
+runs existed for that sha. Nothing was queued or gated; nothing was ever
+created.
+
+Root cause: main moved 5 commits and #3270 went `CONFLICTING/DIRTY` again.
+`pull_request` workflows run against the PR's merge ref, and GitHub cannot
+build that ref for a dirty merge, so no workflow fires at all.
+
+**The trap is the shape of the signal.** A conflicting PR does not report
+failing CI. It reports a small number of passing checks, because only the
+handful that trigger on `push` or from external apps survive. "2 checks, all
+pass" and "22 checks, all pass" look equally green in a rollup. Check the
+COUNT against the previous head, and check `mergeStateStatus`, before reading
+a rollup as evidence.
+
+Ruled out in order rather than guessed: push landed (remote head correct, new
+error codes present 2, old code 0); Actions healthy repo-wide (my #3419 branch
+got CI at 15:41, other branches 15:34 and 15:06); PR still OPEN and not draft.
+Only then did `mergeStateStatus=DIRTY` explain it.
+
+**Restacked**: `4b5faf86e`. 5 behind, 2 conflicts, both prettier reflow on main
+colliding with v2 test setup on the branch — kept main's formatting and the
+branch's semantics in each (`launch-worker.test.ts` v2 claim/attach/release
+mocks + relayflowVersion; `launch-runner.test.ts`
+resolvePrivateRelayflowV2Artifact mock). Migration journal re-verified after
+the merge: 126 entries, 0 duplicate tags, no orphan .sql, tail still 0127.
+
+Result: `MERGEABLE/UNSTABLE` and 7 workflow runs fired immediately. The
+diagnostic commit is finally being validated.
+
+Open and waiting on Khaliq: cloud#3416 (mint build fix -> unblocks
+CLOUD_API_KEY and six flows PRs), cloud#3419 (Daytona age-based sweep),
+cloud#3270 itself. Nothing merged.
