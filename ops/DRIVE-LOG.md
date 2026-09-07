@@ -12004,3 +12004,47 @@ test it before asking Khaliq for anything. Do not assume the 401.
 emits `${appUrl}`), so staging is on the old shape AND erroring. The proof must
 run against the preview stage regardless — that is where the artifact under
 test actually is.
+
+## 2026-09-07 tick — preview LIVE, v2 run submitted, both ladder rungs in flight
+
+**Preview is up and running the restack.**
+
+    https://preview-pr-3270.agentrelay.com/cloud/api/health -> 200
+    deploymentSha 440ed98dffea84d37a12351748599ba77ee7c6d8   <- my merge commit
+    bindingsOk true, missing []
+
+Every deploy step passed, including `Publish verified Relayflow v2 artifact`
+(content-addressed upload, re-hashed and read back) and `Verify exact preview
+web deployment` — which ran AFTER the two admission redeploys, confirming the
+step ordering chosen in the preview.yml conflict resolution. Drizzle migrations
+succeeded, so the 0127 renumbering is proven against a real database, not just
+the journal-integrity check.
+
+**Auth solved by device flow, at Khaliq's suggestion.** `agent-relay cloud
+login --device` exists; backgrounding the CLI produced nothing, and
+`cloud session --api-url` returns the canonical PRODUCTION session regardless
+of the URL — the CLI holds one global session and cannot carry a preview
+session beside prod. Drove the device flow over REST directly instead
+(`/api/v1/auth/device/{start,token}`), token stored mode-600, never printed.
+Scope `cli:auth ...`, which the run API accepts.
+
+**Both ladder rungs submitted:**
+
+    v2 (relayflowVersion: "v2")  runId 2dfbab0a-1ab8-473b-ae69-ba27897f4aab
+    v1 (field OMITTED)           runId 1358c059-7d59-4dd8-b309-1934beb15bff
+
+Both returned a real `launchJobId`, so the REST path works and the queue
+accepted them. The recipe is right that `agent-relay cloud run
+--relayflow-version` is fiction.
+
+**Self-correction, logged because it nearly became a false finding.** At
+14:23:41 I read v2 as `pending / sandboxId null / updatedAt == createdAt` and
+called it the exact signature of the 21:25Z launch-queue defect. It was 71
+SECONDS old. That is normal for a launch still provisioning a sandbox. The
+stall signature requires DURATION, and I asserted it from a single sample.
+Running v1 alongside as the discriminator: if both stall it is the queue, if
+only v2 stalls it is v2-specific. Neither conclusion is available yet.
+
+**Not merged, nothing to merge:** cloud#3416 still lacks an independent
+signoff. #134 and #139 are both already MERGED — three of the brief's four
+items are stale or answered.
