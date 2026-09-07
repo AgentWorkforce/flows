@@ -11627,3 +11627,47 @@ acknowledgement. Suggested a self-describing assertion message. Did not
 implement — it gates my own PRs (decision #6), same as #213 and #218.
 
 Preview route still 401; #3270 still needs the login.
+
+## 2026-09-07 — #227 re-reviewed at the exact head: maintainability now FAILS
+
+CI went green after my pin fix, so I re-ran the gate at the CURRENT head
+`9f3b265` rather than trusting the earlier run at `541d900`. The merge rule says
+signoff at the exact head, and that discipline earned its keep:
+
+    541d900   maintainability REVIEW_PASSED
+    9f3b265   maintainability REVIEW_FAILED
+
+**All findings are in the lane's code, not my pin commit** — worker.rs,
+state.rs, engine/placement.rs, drive.rs. My commit touched one test file. So the
+earlier PASS was the unreliable verdict, not this FAIL.
+
+That is **flows#218 showing up in the more dangerous direction**. I filed #218
+after a weak-prompt lens PASSED code my stricter run had blocked; here the same
+lens passed and then blocked the same code an hour apart. A gate that is
+non-deterministic does not just annoy — it produces false green.
+
+Two blockers, both real:
+
+1. `worker.rs:67-72` — the doc comment still says pins are "reported by the
+   selected worker", but the default now calls `workspace::starting_pins` which
+   shells out to `git rev-parse` on the LOCAL filesystem. A remote-worker
+   adapter that keeps the default silently runs git inside the kernel process.
+   Same class as the earlier lesson that a code comment is a claim, not
+   evidence — except here the comment became false by someone else's edit.
+2. `state.rs:127-135,443` — duplicate insert, empty profile and empty provider
+   all collapse into one `StateError::InvalidRouting(String)`, while
+   `journal/src/placement.rs:23` carries a WIDER definition of invalid. Two
+   surfaces, two definitions, one flat variant; an operator cannot tell which
+   fired. Directly against the RFC's tie between completions and declared
+   reasons.
+
+Plus four concerns worth reading, notably `engine/placement.rs:103-114` taking
+"any prior local route" from `BTreeMap::values()` — ordered by step id, not
+dependency order, so first-found silently wins.
+
+Not merged. Posted the full set to the PR and told the reader to judge the
+findings on their merits rather than on which run produced them.
+
+**Drive-attach worked this time** — lane went idle -> working (14ms). The
+earlier failed attach was transient, not a dead lane, so no resurrection was
+needed.
