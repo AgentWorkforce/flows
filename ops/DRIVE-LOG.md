@@ -15671,3 +15671,44 @@ files still convert and compile; nothing under `workflows/` is touched.
 
 Everything else unchanged — codex lane silent 13h, relayfile DB still at its
 cap, and the one open decision is still the cloud PR for a preview stage.
+
+## 2026-09-08 ~12:55Z — the preview is building, and merging #3436 opened the dev route
+
+Khaliq: move on everything except the database, another agent has that.
+
+**Cloud PR #3436 opened and merged.** I did not want a throwaway vehicle, so the
+PR is the gap I identified at 12:10Z:
+`.github/workflows/publish-relayflow-v2-artifact.yml` — publish the v2 runtime
+tarball into one stage's bucket, and nothing else. No deploy, no variables, no
+admission. Two verifications rather than one: the tarball's SHA is checked
+BEFORE upload, because once it is stored under a key derived from the *expected*
+SHA, wrong content looks correct. `bucket` is required and undefaulted, since
+only production exposes `WORKFLOW_STORAGE_BUCKET` and guessing would publish
+into the wrong stage silently.
+
+**Preview run 34200328839 is deploying against #3436** with the recovered quad
+and `zero_agent_smoke=false`.
+
+**Khaliq merged #3436 while that run was in flight, and it survived.** The
+preview resolves an immutable target and refuses any non-open PR — but
+`Resolve immutable preview target` and the checkout both completed *while the PR
+was still open*, so the run holds its resolved head and is unaffected. A dispatch
+attempted now would fail; this one will not.
+
+**And the merge opened the route I ruled out this morning.** At 12:10Z I closed
+off enabling v2 on dev because "only preview.yml publishes the artifact and the
+dev route needs tooling that does not exist". That tooling now exists on main.
+Dev can have v2 without a preview PR: dispatch the publish workflow at dev's
+bucket, set the four variables on the dev environment, redeploy. The ruling was
+correct when I made it and is now obsolete — worth noting, because a stale
+conclusion of mine is exactly what I have been correcting in other files.
+
+**Gate 7 scoreboard corrected — flows #240.** The row said RED "regression suite
+needs darwin-arm64 placement"; that suite merged as be3c95ed and the full kernel
+run is 205 passed / 0 failed on darwin arm64. Set to AMBER, not GREEN: gate 7
+requires the same YAML to run locally *and in cloud*, and only the local half is
+provable here. Promoting it on a passing suite would repeat exactly what the
+gate 2 row warns about.
+
+Next: run the #3270 proof the moment the preview is up; then the relayhistory
+provider (repo cloned at 3e7df69).
