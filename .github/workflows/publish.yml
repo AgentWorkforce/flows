@@ -114,12 +114,22 @@ jobs:
       # builds against the packed SDK the same way the SDK builds against the
       # packed surface — and it's cheap enough to smoke-test for real here
       # rather than only asserting the tarball's shape in pack-release.mjs.
+      #
+      # Both tarballs, not just the SDK's: relayflows doesn't depend on
+      # @relayflows/surface directly, but the SDK tarball does (transitively),
+      # at this same freshly-bumped, never-published version. Installing only
+      # the SDK tarball leaves npm to resolve that transitive dependency from
+      # the real registry — which 404s on every version bump, since nothing
+      # is published yet at build time. Feeding the surface tarball too
+      # satisfies it locally, the same reason the SDK step above installs the
+      # surface tarball rather than letting its own dependency resolve remotely.
       - name: Build relayflows CLI wrapper against packed SDK
         env:
           SDK_TARBALL: ${{ steps.sdk.outputs.tarball }}
+          SURFACE_TARBALL: ${{ steps.surface.outputs.tarball }}
         working-directory: packages/relayflows
         run: |
-          npm install --no-save --package-lock=false --ignore-scripts "$SDK_TARBALL"
+          npm install --no-save --package-lock=false --ignore-scripts "$SDK_TARBALL" "$SURFACE_TARBALL"
           test ! -L node_modules/@relayflows/sdk
           report=$(node bin/flows.js check --json ../../testdata/hello-deterministic.flow.yaml)
           echo "$report" | node -e '
