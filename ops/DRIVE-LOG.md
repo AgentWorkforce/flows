@@ -15276,3 +15276,43 @@ between me and a fabricated verification.
 
 **Zero open PRs in flows.** Main is at c9bf155, restack-verify passes, and nine
 PRs merged tonight: #226, #227, #229, #230, #231, #232, #234, #235, #236.
+
+## 2026-09-08 ~09:45Z — verified merged main after nine unsignoffed merges
+
+Nine PRs went into main tonight without a swarm signoff. I had verified each
+branch separately; nobody had verified the nine of them together. Main is
+c9bf155.
+
+    kernel (cargo test, fresh worktree)   205 passed, 0 failed
+    SDK    (vitest, 34 files)             741 passed, 3 skipped, 0 failed
+    launcher (#231, node --test)          4 passed, rc=0
+    restack-verify                        PASSED (2 of 3 checks skip in flows)
+
+The SDK count moved 684 -> 741 across the merges, which is the placement tests
+#227 brought with it.
+
+**Two scares, both mine, both environment rather than regression — and I had to
+check to know that.**
+
+The launcher tests reported `4 tests, 0 pass, 4 fail` on merged main after
+passing on the branch an hour earlier. That is exactly what a merge regression
+looks like. It was a bare worktree with no built SDK, and the test says so
+plainly: `LOCAL_SDK_MISSING: build packages/sdk first`. Worth crediting the
+test's author — it fails **closed with a named reason** rather than skipping or
+passing vacuously, which is why the diagnosis took one command instead of an
+hour. Built the SDK, re-ran: 4/4, rc=0.
+
+The SDK suite printed **nothing at all** in the same worktree, because
+`node_modules` was absent so the vitest binary did not exist. That is the third
+time tonight empty output nearly became "it passed". `npm ci` then failed
+`EUSAGE` in that scratch worktree, so rather than debug an install I ran the
+suite in `flows-runtime-0907-wt`, which already had dependencies and whose own
+branch had just merged — nothing there to lose.
+
+**Nothing about the nine merges is broken.** That is the answer I wanted before
+the swarm comes back, because when it does return, a red gate on main would be
+ambiguous between "the gate works again" and "one of tonight's merges was
+wrong". Now it will not be.
+
+Flows: zero open PRs. The lane's remaining blocker is unchanged and not in this
+repo — the Relayfile database at its 10 GiB cap.
