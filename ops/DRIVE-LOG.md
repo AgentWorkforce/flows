@@ -14139,3 +14139,86 @@ blocker, the one action needing Khaliq (`dry_run=false`), and #3270's state.
 Going forward this tick's checklist is: work, DRIVE-LOG, INBOX, push. The rule
 was explicit and I half-followed it for eight hours because the drive log felt
 like "the log".
+
+## 2026-09-08 ~00:30Z — the #3270 live proof: found the exact gate, and it is one open PR
+
+Ran the tick in order. 1/ drain: two cron schedules only, no stuck runs to
+recover. Capacity unchanged — dry-run sweep reports
+`totalOnAccount 167, managedInWorkspace 103, eligible 79, willStop 20`.
+Nothing has aged out on its own.
+
+2/ #3270 live proof. Preview build 33801381261 **failed 17 seconds in** on
+2026-09-03T20:17Z, five days ago, at step "Mint private Flows artifact token":
+
+    Failed to create token for "flows" (attempt 1): Not Found
+    https://docs.github.com/rest/apps/apps#get-a-repository-installation-for-the-authenticated-app
+    status: 404
+
+That is the missing GitHub App repo grant the brief told me to preserve rather
+than work around. Preserved above. **It is also stale evidence**: mint-ci-token
+runs against `AgentWorkforce/flows` with the *same* `GH_APP_PUSHER` app
+succeeded five times on 2026-09-07 (34164547936, 34163619271, 34161215965,
+34160297019). The installation exists now. That 404 is history, not a blocker.
+
+So I traced what actually stops the proof today, and it is a single line.
+
+**The gate.** `preview.yml` resolves an immutable target before doing anything:
+
+    if (pr.state !== "open") {
+      throw new Error(`PR #${prNumber} is not open`);
+    }
+
+#3270 is merged, so it is closed, so no preview stage can ever be rebuilt for
+it. `refs/pull/3270/head` still resolves (592518cf), checkout would work fine —
+the workflow refuses earlier, on purpose. This is a legitimate invariant:
+a privileged preview binds to an open same-repo PR head so the deployed code
+cannot be swapped after review. I am not touching it.
+
+**What I confirmed does NOT block it**, each of which I had listed as a risk:
+
+- Admission on the preview stage. `RELAYFLOW_V2_ADMISSION_EPOCH` is unset at
+  repo level and absent from the `preview` environment, so I expected to need a
+  variable set — which would have meant touching config prod also reads.
+  It does not. `preview.yml` sets it *itself*, in a deliberate two-phase deploy:
+  lines 483/485 deploy with `RELAYFLOW_V2_ADMISSION_EPOCH=` (empty, admission
+  off) to publish the artifact, then 544-548 redeploy with
+  `consumer_epoch="relayflow-v2-2026-09-02.1"`. A preview stage is the designed
+  home for this proof and needs no shared config, no prod exposure.
+- The artifact quad. Recovered intact from the failed run's env dump:
+  source_commit `a0d42ffbdc7fb60b42c0b5bea4f58408249b08a2`,
+  run_id `33638358385`, artifact_id `9849853218`,
+  sha256 `054ef2e4863bd6770e99c37d78312348eb4a7cc022dfe4ac468e52ba206941cd`.
+  A re-dispatch does not need a rebuild.
+
+**So the proof is one open PR away.** Any open PR on current main carries the
+v2 executor, since #3270 is merged into it (main af6b7c7e4).
+
+**I did not open one, for two reasons.**
+
+First, I went looking for real work to carry the PR rather than an empty
+vehicle, and the candidate I had been carrying is not a defect. My open-threads
+note said `isRelayfileAclFailureRetryable` rejects all 4xx including 429 while
+the auth path retries 429. It reads:
+
+    return failure.status === 429
+      ? failure.retryableWorkspaceBusy
+      : failure.status !== undefined && failure.status >= 500 && ...
+
+429 is special-cased and gated on `retryableWorkspaceBusy`. Either I misread it
+or it was fixed; either way the entry was wrong and I have dropped it. I would
+rather kill a phantom than open a PR on it.
+
+Second, and this is the part that matters: the preview path runs
+`zero_agent_smoke` against Daytona, and **we are at the CPU cap**. Opening a PR
+to build a preview that then fails on capacity would burn a deploy and prove
+nothing. The quota is upstream of the demo artifact, not beside it.
+
+**One action still gates everything, and it is Khaliq's:** run
+`daytona-sweep-orphans.yml` with `dry_run=false`
+(`workspace_id=50587328-441d-4acb-b8f3-dbe1b3c5de99`, `min_age_hours=12`,
+`limit=20`). ~40 CPU per run, repeatable, proven in dry-run. Destructive, so I
+have not.
+
+Next tick, if capacity is back: open a PR on main, dispatch preview.yml with
+the recovered quad, run the proof from
+`ops/reviews/20260902-1740-pr3270-proof.md`.
