@@ -14558,3 +14558,38 @@ before touching it: clean, no uncommitted work, `.git` mtime 23:41, over three
 hours idle. The hazard is destroying someone's uncommitted work, and there was
 none, so pushing was safe. Last tick I learned to check instead of assume in
 the other direction; the check is what makes either answer usable.
+
+## 2026-09-08 ~03:30Z — #232's probe blamed the credential for Cloud being down
+
+Cleared #232's only thread (2a1ffca). Eight findings left across four PRs.
+
+cubic P2, confidence 10, right on all three counts: no timeout, transport
+failure conflated with HTTP status, and the re-mint message fired for any
+non-200.
+
+The wait was not the worst part. `|| echo 000` fed a curl transport failure
+into the same non-200 branch as a rejection, so an unreachable Cloud produced
+an error telling a maintainer to **re-mint a credential that was never the
+problem** — after burning the 75-minute job timeout to say it. This gate exists
+because a check reported the wrong thing for six PRs behind a green tick.
+Shipping it with its own misattribution built in would have been that same
+mistake one layer up, which is the part I should have caught while writing it.
+
+Now bounded (`--connect-timeout 10 --max-time 30`) with three separated arms: a
+curl failure is a transport verdict, 401/403 is the credential, anything else
+is Cloud being unhealthy. Each names which of the three it is.
+
+Verified behaviourally: all six arms dispatch correctly (transport / 200 / 401
+/ 403 / 502 / 429), and curl against a blackhole address returns rc=28 in about
+three seconds rather than hanging.
+
+Two small things worth keeping:
+
+- My own grep for leftovers reported `echo 000` still present and I nearly
+  treated that as a failed edit. It was matching the comment I had just written
+  quoting the old code. A grep for a string cannot tell live code from prose
+  about it; I checked the line before believing it.
+- The first behavioural run printed nothing at all — `status` is read-only in
+  zsh, so every arm silently produced an empty result. Re-ran under bash, which
+  is what the workflow actually uses. An empty result read as a pass would have
+  been a fabricated verification.
