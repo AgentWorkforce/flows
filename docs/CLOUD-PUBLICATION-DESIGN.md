@@ -174,8 +174,7 @@ was published unless that snapshot exists and can be read under these rules.
 
 ## Gallery design — no app, site, or route implementation
 
-The gallery's headline is **Deterministic gates + session replay + BYO CLI
-harness**. Each entry presents an actual public example run: its explicitly
+Each gallery entry presents an actual public example run: its explicitly
 published title, gate result, terminal outcome, and a replay link only when
 replay is published. Harness metadata is excluded until a versioned, sanitized,
 explicit-opt-in projection and API are defined; the current schema has none.

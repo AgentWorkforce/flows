@@ -47,7 +47,7 @@ $ node node_modules/vitest/vitest.mjs run tests/cli.test.ts tests/cloud-run.test
 EXIT CODE: 0
 ```
 
-The complete current commands/output (baseline, source comparison, both typechecks, CLI/cloud suites, rebuild/pack/install and HTTPS dispatch) are in [ws14-review-fixes.txt](../runtime-evidence/ws14-review-fixes.txt). [All 20 thread dispositions and swarm responses](ws14-review-responses.md) explain fixes and scope decisions.
+The complete current commands/output (baseline, source comparison, both typechecks, CLI/cloud suites, rebuild/pack/install and HTTPS dispatch) are in [ws14-review-fixes.txt](../runtime-evidence/ws14-review-fixes.txt). [Review thread dispositions and swarm responses](ws14-review-responses.md) explain fixes and scope decisions.
 
 Commands and literal captured output are committed in [ws14-cloud.txt](../runtime-evidence/ws14-cloud.txt); the credential probe and HTTP 401 are in [ws14-cloud-auth.txt](../runtime-evidence/ws14-cloud-auth.txt). The baseline comparison is captured in [ws14-wrapper-baseline.txt](../runtime-evidence/ws14-wrapper-baseline.txt). Raw test-output whitespace is retained verbatim.
 

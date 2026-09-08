@@ -92,7 +92,7 @@ by this endpoint and is not synthesized by the SDK.
 - Live proof: **BLOCKED-ON-CREDENTIAL**. The captured error is
   `Authenticated Cloud-base-path read HTTP: 401`. No hosted run is claimed, and
   this lane is not pursuing another credential. The package proof uses a local
-  HTTPSS contract server and is labeled accordingly.
+  HTTPS contract server and is labeled accordingly.
 
 `node scripts/cloud-package-proof.mjs` installs the packed SDK in a fresh
 temporary npm project and exercises both its exported function and installed
