@@ -4612,3 +4612,43 @@ shows dev and production did not reproduce *at probe time*, not that their
 schemas are right. Their databases predate the deletion and carry the historical
 columns — **a freshly provisioned dev or production database would hit this.**
 That is the part worth acting on before someone reprovisions.
+
+### 2026-09-08 — the skew is deeper than one column; schema fix handed to the cloud lane
+
+The relayauth lane's repair disposition is the most useful artifact of the night.
+It wrote a reproducible harness (`ops/verify-keyprefix-skew.py`, in-memory
+SQLite only) rather than asserting conclusions, and it found the problem is
+bigger than `key_prefix`:
+
+- Applying all nine OSS migrations gives `prefix`, `scopes_json`, `updated_at` —
+  and neither `key_prefix` nor `scopes`.
+- Adding `key_prefix` alone then fails on `scopes`.
+- Adding both still fails cloud's INSERT with
+  `NOT NULL constraint failed: api_keys.prefix`, and that INSERT also omits a
+  required `updated_at`.
+- A database built from cloud's historical `0002_api_keys.sql` accepts the same
+  INSERT and lookup — which is exactly why existing dev/prod schemas mask this.
+
+So "add the missing column" would not have fixed it. Good thing the lane
+declined to write that migration.
+
+**The finding with the longest reach:** *the existing cloud affinity test uses a
+regex-based fake database and therefore cannot catch missing columns.* That is
+why CI never caught this, and it means the same class of bug ships again unless
+the test is backed by real SQLite. That is worth fixing independently of this
+incident.
+
+The lane also stayed inside its scope: no cloud checkout modified, no cloud fix
+claimed, no database deleted/reset/mutated, and the only live probes were the
+GET requests with a deliberately invalid key.
+
+**Handed the schema fix to `cloud-keyprefix-0908`**, which owns cloud and is
+alive. Sent it as a DM (delivery went to a background task, so unconfirmed) AND
+wrote `BRIEF-2-schema.md` into its worktree, because a DM receipt confirms
+enqueue rather than reading. It carries the established facts so it does not
+re-derive them, both hard requirements (reuse the SQLite harness; replace the
+regex fake test), and an instruction to open a PR separate from #3459 so the
+masking fix and the schema fix stay independently reviewable.
+
+I corrected my own error in that brief explicitly: my first brief told it not to
+touch the schema because I had misattributed the defect to relayauth.
