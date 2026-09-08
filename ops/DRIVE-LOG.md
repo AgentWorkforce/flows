@@ -15583,3 +15583,50 @@ open cloud PR. That is the same one decision I flagged at 01:50Z, and it is now
 the only thing between us and a converged drive loop.
 
 #238 updated to carry this answer.
+
+## 2026-09-08 ~12:10Z — tried to route the #3270 proof around the PR requirement; it does not go
+
+Last tick established that cloud#3270's v2 runtime is the bridge between the two
+schemas and that it is admission-disabled everywhere. I spent this tick trying
+to enable it on **dev** instead of a preview stage, to avoid needing an open
+cloud PR. It does not work, and the reason is worth recording so nobody spends
+the tick again.
+
+**What enabling v2 on a stage actually requires**, from
+`_deploy-cloud-stage.yml` lines 566-577 — four environment variables, validated
+together and failing closed if partial:
+
+    RELAYFLOW_V2_ADMISSION_EPOCH    = relayflow-v2-2026-09-02.1   (exact match enforced)
+    RELAYFLOW_V2_ARTIFACT_SHA256    = 64-hex
+    RELAYFLOW_V2_ARTIFACT_SOURCE_COMMIT = 40-hex
+    RELAYFLOW_V2_ARTIFACT_KEY       = non-empty
+
+I have all four. The key is derived, not secret —
+`system/relayflow-v2/$SHA256.tar.gz` (preview.yml:339) — and the sha256 and
+source commit are the quad I recovered from the failed 09-03 dispatch. So the
+variable side is fully specified.
+
+**The artifact side is what blocks it.** The tarball is uploaded by
+`scripts/publish-relayflow-v2-artifact.ts` into
+`steps.outputs.outputs.workflow_storage_bucket` — the *stage's own* bucket.
+Each stage has its own `WORKFLOW_STORAGE_BUCKET`; production's variable list
+confirms it. Setting the four variables on dev without first publishing the
+tarball into dev's bucket produces a deploy that admits v2 and then cannot
+fetch what it admitted.
+
+And **only `preview.yml` publishes that artifact.** `grep -rln
+publish-relayflow-v2-artifact .github/workflows/` returns exactly one file.
+`deploy.yml` carries no RELAYFLOW_V2 inputs at all; it reads them from `vars.`
+on the environment and assumes the artifact is already there.
+
+**So the dev route is strictly more work, not less.** It needs a publish path
+that does not exist yet — a new workflow or a hand-run script against dev's
+bucket with AWS credentials — plus the four variables plus a redeploy. The
+preview route needs an open PR and one dispatch, because preview.yml already
+does publish, enable and deploy in a single two-phase run.
+
+That closes the alternative I had been hoping for. **The ask is unchanged and
+now justified by evidence rather than by my first instinct: one open cloud PR,
+then dispatch preview.yml with the recovered quad.** I did not set any variable
+or publish anything — that is shared cloud infrastructure and this is unattended
+at 06:00.
