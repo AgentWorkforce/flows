@@ -16577,3 +16577,39 @@ grep could not tell live text from prose about it.
 
 Zero unresolved findings across #238, #240, #242, #244. All four PRs wait on a
 signoff that is not me.
+
+## 2026-09-08 ~22:00Z — the login was a device flow, which I could have started myself
+
+Khaliq asked whether the preview login is a device login. It is, and that
+changes who has to do what.
+
+At 21:00Z I read `--device` in `agent-relay cloud login --help` — "Authorize
+from a browser on another machine (for headless/ssh hosts)" — wrote down that
+it is "still a human authorizing in a browser", and concluded the proof needed
+Khaliq to run the command. Both halves of that were true and the conclusion did
+not follow. A device flow means **I** run the command and a human approves a
+code. The difference is between "blocked on Khaliq" and "blocked on one click",
+and I reported the first for an hour.
+
+Started it:
+
+    To authorize this machine, visit:
+      https://preview-pr-3442.agentrelay.com/cloud/device
+    and enter code:
+      D4V6-KCZX
+    Waiting for authorization...
+
+Running as pid 32500 with the poll held open. Device codes lapse in roughly ten
+to fifteen minutes; if this one expires I start another rather than waiting.
+
+On authorization the token lands scoped to that preview and the proof runs
+immediately — v2 POST, `completionReason`, `/export?format=json`, the literal
+journal SQLite at
+`.agent-relay/relayflow-v2/states/<stateKey>/journal/runs/<engineRunId>.sqlite3`,
+the authority tuple, then the omitted-selector v1 sanity run.
+
+The lesson is narrower than "read the help more carefully". I did read it. What
+I did not do is ask what the flag would let *me* do differently — I evaluated it
+only as a description of a constraint, not as a capability. That is the same
+mistake as the `agent-relay node agent` surface I missed for hours after
+concluding from three failed searches that local spawn did not exist.
