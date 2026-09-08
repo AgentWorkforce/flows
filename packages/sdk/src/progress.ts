@@ -29,14 +29,23 @@ export async function observeStep<T>(
   execute: () => Promise<T>,
   emit?: (event: ProgressEvent) => void,
 ): Promise<T> {
+  const publish = (event: ProgressEvent): void => {
+    try { emit?.(event); } catch {
+      // A projection failure must not turn a journaled success into a retry,
+      // or replace the executor's original failure. Surface it separately.
+      process.emitWarning(`Progress observer failed for ${event.type}.`, {
+        code: 'FLOWS_PROGRESS_OBSERVER_ERROR',
+      });
+    }
+  };
   const started = performance.now();
-  emit?.({ type: 'step.started', stepId, stepType, elapsedMs: 0 });
+  publish({ type: 'step.started', stepId, stepType, elapsedMs: 0 });
   try {
     const result = await execute();
-    emit?.({ type: 'step.completed', stepId, stepType, elapsedMs: performance.now() - started, completionReason: 'success' });
+    publish({ type: 'step.completed', stepId, stepType, elapsedMs: performance.now() - started, completionReason: 'success' });
     return result;
   } catch (error) {
-    emit?.({ type: 'step.failed', stepId, stepType, elapsedMs: performance.now() - started });
+    publish({ type: 'step.failed', stepId, stepType, elapsedMs: performance.now() - started });
     throw error;
   }
 }

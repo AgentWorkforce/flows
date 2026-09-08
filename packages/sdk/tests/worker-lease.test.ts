@@ -103,3 +103,17 @@ describe('worker lease ownership', () => {
     expect(String(errors[0])).toContain('already expired');
   });
 });
+
+it('refuses completion past the deadline even before the expiry timer runs', async () => {
+  const { client, worker, errors, dispatch } = setup();
+  vi.mocked(runAgentCli).mockImplementation(async () => {
+    vi.setSystemTime(Date.now() + 30_001); // changes the clock WITHOUT running timers
+    return { exit_code: 0, stdout_tail: 'late', stderr_tail: '' };
+  });
+  await worker.attach();
+  client.emit('step.dispatch', dispatch);
+  await worker.close();
+  expect(runAgentCli).toHaveBeenCalledTimes(1);
+  expect(client.stepComplete).not.toHaveBeenCalled();
+  expect(String(errors[0])).toContain('lease expired before completion');
+});

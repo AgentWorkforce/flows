@@ -11,11 +11,18 @@ const wrapperHelper = resolve('../../testdata/preflight/wrapper-session.mjs');
 // Ask the existing build wrapper for its target directory. A temp fixture's
 // cwd cannot discover the checkout, and test:prep's child-shell exports do not
 // survive into vitest. Do not select another worktree's most recent binary.
-const relayflowd = process.env['RELAYFLOWD_BIN'] ?? join(JSON.parse(execFileSync('sh', [
-  resolve('../../ops/cargo.sh'), 'metadata', '--format-version=1', '--no-deps', '--locked', '--offline',
-], { cwd: resolve('../../kernel'), encoding: 'utf8',
-  env: { ...process.env, RELAYFLOWS_NO_TOOLCHAIN_INSTALL: '1' },
-})).target_directory, 'debug', 'relayflowd');
+function resolveDaemon(): string {
+  if (process.env['RELAYFLOWD_BIN']) return process.env['RELAYFLOWD_BIN'];
+  try {
+    return join(JSON.parse(execFileSync('sh', [
+      resolve('../../ops/cargo.sh'), 'metadata', '--format-version=1', '--no-deps', '--locked', '--offline',
+    ], { cwd: resolve('../../kernel'), encoding: 'utf8',
+      env: { ...process.env, RELAYFLOWS_NO_TOOLCHAIN_INSTALL: '1' },
+    })).target_directory, 'debug', 'relayflowd');
+  } catch (cause) {
+    throw new Error('Live CLI tests require npm run test:prep or an explicit RELAYFLOWD_BIN.', { cause });
+  }
+}
 afterEach(() => {
   for (const root of roots.splice(0)) {
     const connection = join(root, 'data/connection.json');
@@ -32,6 +39,7 @@ afterEach(() => {
 });
 
 function fixture(exitCode = 0, workspace?: string, delayMs = 0) {
+  const relayflowd = resolveDaemon();
   const root = mkdtempSync(join(tmpdir(), 'flows-local-agent-'));
   roots.push(root);
   symlinkSync(join(sdk, 'node_modules'), join(root, 'node_modules'));

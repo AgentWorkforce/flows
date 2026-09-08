@@ -9,6 +9,7 @@ export async function withWorkerLease<T>(
 ): Promise<T> {
   const controller = new AbortController();
   let stopped = false;
+  let latestDeadline = dispatch.lease_deadline_ms;
   let renewalTimer: NodeJS.Timeout | undefined;
   let expiryTimer: NodeJS.Timeout | undefined;
   let pending: Promise<void> = Promise.resolve();
@@ -18,6 +19,7 @@ export async function withWorkerLease<T>(
     if (!Number.isFinite(remaining) || remaining <= 0) {
       throw new Error(`Agent lease is already expired for ${dispatch.run_id}/${dispatch.step_id}.`);
     }
+    latestDeadline = deadline;
     if (expiryTimer !== undefined) clearTimeout(expiryTimer);
     expiryTimer = setTimeout(() => fail(new Error(
       `Agent lease expired before renewal for ${dispatch.run_id}/${dispatch.step_id}.`,
@@ -47,6 +49,11 @@ export async function withWorkerLease<T>(
     // racing after completion would otherwise report a spurious lease error.
     await pending;
     controller.signal.throwIfAborted();
+    // Timer callbacks can be delayed behind a resolved subprocess promise.
+    // Check the clock itself before permitting step.complete.
+    if (Date.now() >= latestDeadline) {
+      throw new Error(`Agent lease expired before completion for ${dispatch.run_id}/${dispatch.step_id}.`);
+    }
     return result;
   } finally {
     stopped = true;

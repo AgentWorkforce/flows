@@ -146,8 +146,10 @@ export async function runCli(
     onProgress: showProgress,
     onWait: (progress: RunProgress) => {
       emitWait(progress, io);
+      const now = performance.now();
+      if (!startedSteps.has(progress.stepId)) startedSteps.set(progress.stepId, now);
       showProgress({ type: 'step.running', stepId: progress.stepId, stepType: progress.stepType,
-        elapsedMs: performance.now() - (startedSteps.get(progress.stepId) ?? performance.now()) });
+        elapsedMs: now - startedSteps.get(progress.stepId)! });
     },
     daemon: { spawn: parsed.spawn && spawnAllowedByEnv() },
   };

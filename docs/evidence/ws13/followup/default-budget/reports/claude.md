@@ -55,5 +55,5 @@ Test both models by construction, not by hope: crash-inject at every step bounda
 7. https://www.zenml.io/blog/no-journal-replay — argument against journal-replay for AI agents (Kitaru project) — verified (fetched)
 8. https://docs.temporal.io/develop/go/workflows/versioning — Temporal GetVersion/Patch API for replay-safe code evolution — verified (fetched)
 9. TigerBeetle deterministic simulation testing blog posts (tigerbeetle.com/blog) — unverified (reported by subagent, not independently fetched)
-10. /private/tmp/ws13-gallery-followup/docs/RFC-0001-everything-is-a-relayflow.md — local repo RFC documenting the step-journal-over-replay decision — verified (read directly, full text)
-11. /private/tmp/ws13-gallery-followup/kernel/DESIGN.md — local kernel journal entry-type design — unverified in this pass (reported by subagent; not independently re-read by lead)
+10. docs/RFC-0001-everything-is-a-relayflow.md — local repo RFC documenting the step-journal-over-replay decision — verified (read directly, full text)
+11. kernel/DESIGN.md — local kernel journal entry-type design — unverified in this pass (reported by subagent; not independently re-read by lead)

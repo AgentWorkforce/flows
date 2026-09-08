@@ -1,0 +1,46 @@
+$ node node_modules/vitest/vitest.mjs run tests/local-dev-ux.test.ts tests/worker-lease.test.ts tests/worker-platform.test.ts tests/cli-progress-wait.test.ts tests/direct-run-failure.test.ts tests/worker-cli-abort.test.ts tests/worker-cli.test.ts --reporter=verbose --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/packages/sdk
+
+ ✓ tests/worker-cli.test.ts > custom wrapper execution identity > passes an explicit safe environment at identification and execution 1397ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution identity > refuses a wrapper symlink retarget before delivering private values 2845ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution identity > bounds wrapper execution after acknowledgement 4958ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution identity > bounds captured wrapper output 2942ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution identity > refuses a duplicate execute protocol frame 595ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 2448ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 2217ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3256ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11304ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution bounds are reader-owned > accepts an execute token and an over-8KiB payload flushed in one write 303ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 907ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution bounds are reader-owned > still bounds an un-terminated handshake buffer and names the bound 525ms
+ ✓ tests/worker-cli.test.ts > delivers the journaled memory pack to the real wrapper and excludes its charge from completion usage 607ms
+ ✓ tests/worker-lease.test.ts > worker lease ownership > renews the same attempt through a long subprocess and drains before completing once
+ ✓ tests/worker-lease.test.ts > worker lease ownership > aborts execution and never completes after a rejected heartbeat
+ ✓ tests/worker-lease.test.ts > worker lease ownership > expires locally when a renewal response never arrives, without stranding close
+ ✓ tests/worker-lease.test.ts > worker lease ownership > does not spawn a process for an already-expired dispatch
+ ✓ tests/worker-lease.test.ts > refuses completion past the deadline even before the expiry timer runs
+ ✓ tests/local-dev-ux.test.ts > SDK project scaffolder > emits an agent starter, local-worker command and the chosen CLI
+ ✓ tests/local-dev-ux.test.ts > SDK project scaffolder > offers a credential-free deterministic starter
+ ✓ tests/local-dev-ux.test.ts > SDK project scaffolder > refuses an existing project without changing any files
+ ✓ tests/local-dev-ux.test.ts > SDK project scaffolder > validates names and template before writing
+ ✓ tests/local-dev-ux.test.ts > progress is an observation of execution > does not report completion before the journal operation resolves
+ ✓ tests/local-dev-ux.test.ts > progress is an observation of execution > propagates a journal failure without inventing a successful completion
+ ✓ tests/local-dev-ux.test.ts > progress is an observation of execution > renders time and strips terminal controls from step names
+ ✓ tests/local-dev-ux.test.ts > observer exceptions neither fail committed work nor mask the journal error
+ ✓ tests/worker-cli-abort.test.ts > stops claude and its process group when lease ownership is lost 1652ms
+ ✓ tests/worker-cli-abort.test.ts > stops wrapper.mjs and its process group when lease ownership is lost 1888ms
+ ✓ tests/direct-run-failure.test.ts > preserves authored agent_cli_unresolved classification despite a worker failure
+ ✓ tests/direct-run-failure.test.ts > preserves authored agent_parked classification despite a worker failure
+ ✓ tests/direct-run-failure.test.ts > preserves authored step_failed classification despite a worker failure
+ ✓ tests/direct-run-failure.test.ts > uses the worker cause when the authored executor only saw a generic disconnect
+ ✓ tests/cli-progress-wait.test.ts > run starts the wait clock on its first observed lease
+ ✓ tests/cli-progress-wait.test.ts > resume starts the wait clock on its first observed lease
+ ✓ tests/worker-platform.test.ts > fails closed before spawning a lease-bound process on Windows
+
+ Test Files  7 passed (7)
+      Tests  35 passed (35)
+   Start at  22:10:00
+   Duration  74.22s (transform 4.07s, setup 0ms, collect 18.83s, tests 38.05s, environment 2ms, prepare 7.30s)
+
+EXIT_CODE=0

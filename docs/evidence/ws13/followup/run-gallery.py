@@ -18,6 +18,9 @@ if any(evidence.glob('gallery-*.txt')):
 node = shutil.which('node')
 if node is None:
     raise SystemExit('Node 22.18+ is required on PATH.')
+version = subprocess.check_output([node, '-p', 'process.versions.node'], text=True, timeout=10).strip()
+if tuple(map(int, version.split('.'))) < (22, 18, 0):
+    raise SystemExit(f'Node 22.18+ is required on PATH; found {version} at {node}.')
 cli = str(root / 'node_modules/relayflows/bin/flows.js')
 cases = [
     ('dependency-upgrade-bot', 120, [node, cli, 'run',

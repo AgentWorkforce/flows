@@ -1,5 +1,0 @@
-$ cd /tmp/ws13-gallery
-$ node --experimental-strip-types examples/research/shims/run.ts --slug ws13-verification --question 'Compare durable step journals with deterministic replay. Keep every report under 200 words.' --timeout-minutes 1
-None
-EXIT_CODE=124
-ELAPSED_SECONDS=150.067

@@ -75,7 +75,10 @@ export async function runDirectFlow(
       },
     };
   } catch (caught) {
-    const error = localAgent?.failure ?? caught;
+    // Preserve authored classifications/run IDs; use the worker's cause only
+    // when its connection teardown left a generic transport error.
+    const error = caught instanceof AuthoredFlowExecutionError || caught instanceof AuthoredFlowLoadError
+      ? caught : localAgent?.failure ?? caught;
     // `agent_cli_unresolved` and `unsupported_workspace_permission` are
     // preflight-shaped refusals, not protocol failures — `flows check`
     // returns exit 2 for the equivalent declarative-spec failures, and this

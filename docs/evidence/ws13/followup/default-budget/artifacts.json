@@ -3,8 +3,11 @@
     "name": "claude",
     "source": "/tmp/ws13-research-followup-runs/2026-09-08-ws13-default-budget/claude/report.md",
     "file": "docs/evidence/ws13/followup/default-budget/reports/claude.md",
-    "bytes": 12957,
-    "sha256": "a6ecb1f63eed56aa6d1cc79b813c864950dc298fa5a2b5fb7c93d92cd7453f63"
+    "bytes": 12887,
+    "sha256": "435dbb3907c4e41a488c493ab7706e1bb4a904f75dced36756f21e54474f8647",
+    "originalBytes": 12957,
+    "originalSha256": "a6ecb1f63eed56aa6d1cc79b813c864950dc298fa5a2b5fb7c93d92cd7453f63",
+    "normalization": "Removed temporary checkout prefix from repository citations; content otherwise unchanged. Paths are relative to repository root at ab1e3ff."
   },
   {
     "name": "codex",
@@ -17,14 +20,20 @@
     "name": "grok",
     "source": "/tmp/ws13-research-followup-runs/2026-09-08-ws13-default-budget/grok/report.md",
     "file": "docs/evidence/ws13/followup/default-budget/reports/grok.md",
-    "bytes": 23777,
-    "sha256": "b733b7b6b0bb673dc5d8a2c4ba1b494d343585469f12fbdf507bdf733aa5d05e"
+    "bytes": 23322,
+    "sha256": "d0b6245e6e3641c2ae7906ab21e69b4687406b86b052d7e0526213ced037887b",
+    "originalBytes": 23777,
+    "originalSha256": "b733b7b6b0bb673dc5d8a2c4ba1b494d343585469f12fbdf507bdf733aa5d05e",
+    "normalization": "Removed temporary checkout prefix from repository citations; content otherwise unchanged. Paths are relative to repository root at ab1e3ff."
   },
   {
     "name": "synthesis",
     "source": "/tmp/ws13-research-followup-runs/2026-09-08-ws13-default-budget/SYNTHESIS.md",
     "file": "docs/evidence/ws13/followup/default-budget/reports/synthesis.md",
-    "bytes": 24831,
-    "sha256": "ebf4fbfddf85693dcd0ac500d41333b7e987a3e8279e730643d1a0834fdba239"
+    "bytes": 24411,
+    "sha256": "7d8ed0a19996cd09c42f9a3949fe8e762120db7f6687cda0207ab5351f219574",
+    "originalBytes": 24831,
+    "originalSha256": "ebf4fbfddf85693dcd0ac500d41333b7e987a3e8279e730643d1a0834fdba239",
+    "normalization": "Removed temporary checkout prefix from repository citations; content otherwise unchanged. Paths are relative to repository root at ab1e3ff."
   }
 ]

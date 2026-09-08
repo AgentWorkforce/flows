@@ -35,6 +35,9 @@ export async function runAgentCli(
   signal?: AbortSignal,
 ): Promise<WorkerCliResult> {
   signal?.throwIfAborted();
+  if (signal !== undefined && process.platform === 'win32') {
+    throw new Error('Lease-bound agent execution requires macOS or Linux process-group cancellation; Windows is unsupported.');
+  }
   const kind = cliAdapterKind(cli);
 
   if (kind === 'relayflows-wrapper-v1') {

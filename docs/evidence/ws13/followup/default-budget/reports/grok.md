@@ -164,23 +164,23 @@ Control flow lives in the spec + kernel machine, not in user source that must re
 7. https://docs.temporal.io/workflow-definition — Determinism constraints; Command/Event matching; non-deterministic errors; versioning. `verified`
 8. https://docs.langchain.com/oss/python/langgraph/persistence — Checkpointers as graph-state snapshots; in-memory saver is not durable. `verified`
 9. https://www.inngest.com/docs/learn/durable-agents — Calls memoization “deterministic replay”; dynamic agent loops. `verified`
-10. `/private/tmp/ws13-gallery-followup/docs/RFC-0001-everything-is-a-relayflow.md` — Decision #2 no deterministic replay; journal + memoization; Appendix A; epoch compaction. `verified`
-11. `/private/tmp/ws13-gallery-followup/kernel/DESIGN.md` — Entry types, SQLite schema, memoized resume algorithm, protocol v0. `verified`
-12. Same as [11] plus `/private/tmp/ws13-gallery-followup/kernel/relayflowd-core/src/state.rs`, `machine.rs`. `verified`
+10. `docs/RFC-0001-everything-is-a-relayflow.md` — Decision #2 no deterministic replay; journal + memoization; Appendix A; epoch compaction. `verified`
+11. `kernel/DESIGN.md` — Entry types, SQLite schema, memoized resume algorithm, protocol v0. `verified`
+12. Same as [11] plus `kernel/relayflowd-core/src/state.rs`, `machine.rs`. `verified`
 13. https://temporal.io/blog/of-course-you-can-build-dynamic-ai-agents-with-temporal — Agents via Activities. `unverified` (search snippet only)
 14. https://docs.hatchet.run/v1/architecture-and-guarantees — Postgres state; **at-least-once**; tasks must be idempotent. `verified`
 15. https://restate.dev/blog/solving-durable-executions-immutability-problem/ — Versioned deployments vs patching. `unverified` (parent did not fetch)
 16. https://martinfowler.com/bliki/CQRS.html — CQRS. `unverified` (search only)
-17. `/private/tmp/ws13-gallery-followup/packages/sdk/src/protocol.ts` — Verb set including `run.resume`, `effect.record`/`confirm`, `journal.read`. `verified`
-18. `/private/tmp/ws13-gallery-followup/kernel/relayflowd-journal/src/append.rs` — Immediate transaction, fail-closed. `verified`
-19. `/private/tmp/ws13-gallery-followup/kernel/relayflowd/src/engine.rs` — `resume` / `resume_filtered`. `verified`
-20. `/private/tmp/ws13-gallery-followup/kernel/relayflowd-core/src/state.rs` — `RunState::fold`. `verified`
-21. `/private/tmp/ws13-gallery-followup/kernel/relayflowd-core/src/machine/recovery.rs` — Dead attempts → `crashed` / `lease_expired`. `verified`
-22. `/private/tmp/ws13-gallery-followup/kernel/relayflowd/src/engine/effects.rs` — Elect / confirm. `verified`
-23. `/private/tmp/ws13-gallery-followup/kernel/DURABLE-CHANNELS.md` — Replay deliveries, do not re-execute receive. `verified`
-24. `/private/tmp/ws13-gallery-followup/kernel/MEMORY.md` — Pack reused on resume; provider stub. `verified`
-25. `/private/tmp/ws13-gallery-followup/kernel/relayflowd-journal/src/lib.rs` — `rollover_is_atomic_scaffolding_for_epoch_resume`. `verified`
-26. `/private/tmp/ws13-gallery-followup/kernel/relayflowd/tests/crash_resume.rs` — SIGKILL then resume; “completed effects must not be replayed as code”. `verified`
+17. `packages/sdk/src/protocol.ts` — Verb set including `run.resume`, `effect.record`/`confirm`, `journal.read`. `verified`
+18. `kernel/relayflowd-journal/src/append.rs` — Immediate transaction, fail-closed. `verified`
+19. `kernel/relayflowd/src/engine.rs` — `resume` / `resume_filtered`. `verified`
+20. `kernel/relayflowd-core/src/state.rs` — `RunState::fold`. `verified`
+21. `kernel/relayflowd-core/src/machine/recovery.rs` — Dead attempts → `crashed` / `lease_expired`. `verified`
+22. `kernel/relayflowd/src/engine/effects.rs` — Elect / confirm. `verified`
+23. `kernel/DURABLE-CHANNELS.md` — Replay deliveries, do not re-execute receive. `verified`
+24. `kernel/MEMORY.md` — Pack reused on resume; provider stub. `verified`
+25. `kernel/relayflowd-journal/src/lib.rs` — `rollover_is_atomic_scaffolding_for_epoch_resume`. `verified`
+26. `kernel/relayflowd/tests/crash_resume.rs` — SIGKILL then resume; “completed effects must not be replayed as code”. `verified`
 27. https://github.com/humanlayer/12-factor-agents/blob/main/content/factor-05-unify-execution-state.md — Unify execution/business state; resume by loading the thread. `verified`
 28. https://web.stanford.edu/class/cs345d-01/rl/aries.pdf — ARIES WAL. `unverified` (Landscape claimed fetch; parent did not)
 29. https://cadenceworkflow.io/docs/go-client/workflow-replay-shadowing — Cadence replayer. `unverified`

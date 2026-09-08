@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createFlow } from '../src/create-flow.js';
 import { observeStep, renderProgress, type ProgressEvent } from '../src/progress.js';
 
@@ -69,4 +69,19 @@ describe('progress is an observation of execution', () => {
     expect(renderProgress([{ type: 'step.running', stepId: '\x1b[2Jagent', stepType: 'agent', elapsedMs: 1234 }]))
       .toEqual(['↻ ?[2Jagent (agent) [agent: running] 1.23s']);
   });
+});
+
+it('observer exceptions neither fail committed work nor mask the journal error', async () => {
+  const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {});
+  const observer = (): never => { throw new Error('display failed'); };
+  try {
+    await expect(observeStep('ok', 'agent', async () => 42, observer)).resolves.toBe(42);
+    const journalError = new Error('journal write rejected');
+    await expect(observeStep('bad', 'agent', async () => { throw journalError; }, observer)).rejects.toBe(journalError);
+    expect(warning).toHaveBeenCalledTimes(4);
+    expect(warning.mock.calls.map(call => call[0])).toEqual([
+      'Progress observer failed for step.started.', 'Progress observer failed for step.completed.',
+      'Progress observer failed for step.started.', 'Progress observer failed for step.failed.',
+    ]);
+  } finally { warning.mockRestore(); }
 });

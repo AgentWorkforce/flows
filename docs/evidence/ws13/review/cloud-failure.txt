@@ -1,0 +1,17 @@
+$ gh run view 34267938676 --log | sed -n '498,513p'
+review	Wait for cloud swarm	2026-09-08T19:16:55.9809793Z ##[endgroup]
+review	Wait for cloud swarm	2026-09-08T19:19:31.1680377Z swarm failure reason:
+review	Wait for cloud swarm	2026-09-08T19:19:31.1682875Z     relayfile ACL GET /.relayfile.acl failed with status 429 (correlationId=499e3981-c303-48e3-89be-595ac66ee3c4)
+review	Post verdict and transcripts	﻿2026-09-08T19:19:31.1733020Z ##[group]Run ../gate-files/.github/workflows/scripts/swarm-post.sh "48b040cc-52e7-49ce-8dc3-f24df51b8687" "247"
+review	Post verdict and transcripts	2026-09-08T19:19:31.1733822Z [36;1m../gate-files/.github/workflows/scripts/swarm-post.sh "48b040cc-52e7-49ce-8dc3-f24df51b8687" "247"[0m
+review	Post verdict and transcripts	2026-09-08T19:19:31.1754377Z shell: /usr/bin/bash -e {0}
+review	Post verdict and transcripts	2026-09-08T19:19:31.1754716Z env:
+review	Post verdict and transcripts	2026-09-08T19:19:31.1755052Z   CLOUD_API_URL: https://agentrelay.com/cloud
+review	Post verdict and transcripts	2026-09-08T19:19:31.1755591Z   CLOUD_API_KEY: ***
+review	Post verdict and transcripts	2026-09-08T19:19:31.1755986Z   RELAY_WORKSPACE_KEY: ***
+review	Post verdict and transcripts	2026-09-08T19:19:31.1756314Z   RELAY_API_KEY: ***
+review	Post verdict and transcripts	2026-09-08T19:19:31.1758969Z   GH_TOKEN: ***
+review	Post verdict and transcripts	2026-09-08T19:19:31.1759281Z ##[endgroup]
+review	Post verdict and transcripts	2026-09-08T19:19:31.5616062Z Fetching patch for run 48b040cc-52e7-49ce-8dc3-f24df51b8687...
+review	Post verdict and transcripts	2026-09-08T19:19:33.3740051Z No changes to sync — the workflow did not modify any files.
+review	Post verdict and transcripts	2026-09-08T19:19:38.6752567Z ##[error]Process completed with exit code 1.

@@ -389,32 +389,32 @@ Restate Go durable-steps) except where I fetched them myself — see [9].
     truth; external gateways must be gated on replay. (grok)
 15. https://github.com/humanlayer/12-factor-agents/blob/main/content/factor-05-unify-execution-state.md
     — unify execution and business state; resume by loading the thread. (grok)
-16. `/private/tmp/ws13-gallery-followup/docs/RFC-0001-everything-is-a-relayflow.md`
+16. `docs/RFC-0001-everything-is-a-relayflow.md`
     — decision #2 (no deterministic replay), journal + memoization, Appendix A,
     epoch compaction, decisions #8/#14/#15. (claude, grok)
-17. `/private/tmp/ws13-gallery-followup/kernel/DESIGN.md` — entry types, SQLite
+17. `kernel/DESIGN.md` — entry types, SQLite
     schema, memoized resume algorithm, protocol v0, elect/perform/confirm.
     (codex, grok)
-18. `/private/tmp/ws13-gallery-followup/kernel/relayflowd-core/src/state.rs`,
+18. `kernel/relayflowd-core/src/state.rs`,
     `machine.rs` — `RunState::fold`; pure state machine on a `Clock` trait.
     (grok)
-19. `/private/tmp/ws13-gallery-followup/kernel/relayflowd-core/src/machine/recovery.rs`
+19. `kernel/relayflowd-core/src/machine/recovery.rs`
     — dead attempts resolved to `crashed` / `lease_expired`. (grok)
-20. `/private/tmp/ws13-gallery-followup/kernel/relayflowd/src/engine.rs` —
+20. `kernel/relayflowd/src/engine.rs` —
     `resume` / `resume_filtered`. (grok)
-21. `/private/tmp/ws13-gallery-followup/kernel/relayflowd/src/engine/effects.rs`
+21. `kernel/relayflowd/src/engine/effects.rs`
     — two-phase election and confirmation. (grok)
-22. `/private/tmp/ws13-gallery-followup/kernel/relayflowd-journal/src/append.rs`
+22. `kernel/relayflowd-journal/src/append.rs`
     — immediate transaction, fail-closed append. (grok)
-23. `/private/tmp/ws13-gallery-followup/kernel/relayflowd-journal/src/segment.rs`,
+23. `kernel/relayflowd-journal/src/segment.rs`,
     `lib.rs` — segment rollover;
     `rollover_is_atomic_scaffolding_for_epoch_resume`. (grok)
-24. `/private/tmp/ws13-gallery-followup/kernel/relayflowd/tests/crash_resume.rs`
+24. `kernel/relayflowd/tests/crash_resume.rs`
     — SIGKILL at step boundaries then `resume`; completed effects must not be
     replayed as code; `assert_exact_journal`. (grok)
-25. `/private/tmp/ws13-gallery-followup/kernel/DURABLE-CHANNELS.md` — replay
+25. `kernel/DURABLE-CHANNELS.md` — replay
     recorded deliveries; do not re-execute receive. (grok)
-26. `/private/tmp/ws13-gallery-followup/kernel/MEMORY.md` — journaled pack
+26. `kernel/MEMORY.md` — journaled pack
     reused on resume; `FixedMemoryProvider` is a stub. (grok)
-27. `/private/tmp/ws13-gallery-followup/packages/sdk/src/protocol.ts` — verb set
+27. `packages/sdk/src/protocol.ts` — verb set
     including `run.resume`, `effect.record` / `confirm`, `journal.read`. (grok)

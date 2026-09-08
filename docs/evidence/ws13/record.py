@@ -51,6 +51,11 @@ with open(prefix + '.cast', 'w') as cast, open(prefix + '.txt', 'w') as transcri
             except ProcessLookupError:
                 pass
             break
+    tail = decoder.decode(b'', final=True)
+    if tail:
+        cast.write(json.dumps([round(time.monotonic() - started, 6), 'o', tail]) + '\n')
+        transcript.write(tail.replace('\r\n', '\n'))
+    os.close(fd)
     _, status = os.waitpid(pid, 0)
     code = os.waitstatus_to_exitcode(status)
     elapsed = time.monotonic() - started
@@ -58,4 +63,7 @@ with open(prefix + '.cast', 'w') as cast, open(prefix + '.txt', 'w') as transcri
     transcript.write(ending)
     cast.write(json.dumps([round(elapsed, 6), 'o', ending.replace('\n', '\r\n')]) + '\n')
     print(ending)
-    sys.exit(code if code >= 0 else 128 - code)
+# Normalize only the readable transcript; the cast retains terminal bytes.
+path = Path(prefix + '.txt')
+path.write_text('\n'.join(line.rstrip() for line in path.read_text().splitlines()) + '\n')
+sys.exit(code if code >= 0 else 128 - code)

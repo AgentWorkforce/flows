@@ -51,6 +51,9 @@ export function runWrapperSession(
   signal?: AbortSignal,
 ): Promise<WrapperSessionResult> {
   if (signal?.aborted) return Promise.reject(signal.reason);
+  if (signal !== undefined && process.platform === 'win32') {
+    return Promise.reject(new Error('Lease-bound wrapper execution requires macOS or Linux process-group cancellation; Windows is unsupported.'));
+  }
   const limits = sessionLimits(overrides);
   let request: string;
   try {

@@ -1,3 +1,0 @@
-$ npm --prefix examples/research run typecheck
-npm notice run typecheck
-npm notice run ../../packages/sdk/node_modules/.bin/tsc -p tsconfig.json

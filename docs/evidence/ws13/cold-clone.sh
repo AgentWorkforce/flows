@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -eu
-export npm_config_registry="$1"
+export npm_config_registry="${1:?Usage: cold-clone.sh CANDIDATE_REGISTRY_URL}"
 export npm_config_cache=/tmp/ws13-empty-cache
 export npm_config_audit=false
 export npm_config_fund=false
