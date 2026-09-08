@@ -16368,3 +16368,43 @@ discriminating on the `'launching'` status filter.
 Khaliq has authorized driving the fix through, with the demo sooner than seven
 days and robustness still required. Next increment is the fix itself across both
 enqueue paths, then re-running the proof on the live preview.
+
+## 2026-09-08 ~19:45Z — the v2 launch defect is fixed, red then green
+
+cloud#3442. The demo blocker has a root cause, a fix, and a test that failed for
+the right reason before it passed.
+
+**The fix.** Both reaper re-enqueue paths now select `wr.relayflow_version` and
+choose the payload shape through one helper. Every query producing those rows
+already joined `workflow_runs`, so it costs a column and not a join. One helper
+rather than a conditional at each site, because the two sites are ~380 lines
+apart — which is how a producer and a consumer drift out of agreement in the
+first place, and this defect is precisely that drift.
+
+**The scope was wider than I claimed twice.** I said "two call sites" before
+counting; there are two enqueues but six RETURNING clauses, and the single-line
+one appears **twice**, not once. The assertion in my patch script caught that
+and refused to write — the second time tonight a guard I put in a script stopped
+me from shipping a partial fix on a count I had asserted rather than checked.
+
+**Red for the right reason.** The first test failed vacuously: nothing was
+enqueued at all, because both reconcilers issue an `UPDATE` against
+`workflow_launch_jobs` and my stub matched the wrong one. That would have been a
+failing test proving nothing. Discriminating on the `'launching'` filter gave
+the real failure —
+
+    a v2 run must be re-enqueued with v2JobId; got keys jobId,runId
+
+— the production key list reproduced in a unit test. Then green, 2/2, with
+`workflow-launch-queue-bridge` 9/9 unaffected.
+
+**The mirror case is in the PR on purpose.** A fix that emitted the v2 shape
+unconditionally would pass the first test and break every v1 run — the same
+defect pointed the other way. Tonight has been full of assertions that could
+only pass, so the v1 case is asserted as a `deepEqual` against the exact v1
+payload.
+
+Not claiming end-to-end yet. The live proof re-run against the preview is the
+next increment, and I said so in the PR rather than implying more than I have —
+two earlier hypotheses about this defect were wrong, and this is the first with
+a reproduction.
