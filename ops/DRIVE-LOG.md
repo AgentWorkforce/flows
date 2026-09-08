@@ -3687,3 +3687,44 @@ genuinely open — it is not evidence either way. It still needs worker logs.
 reachable, and repointing stage config is not something I will do unattended.
 Everything else in the lane is unchanged: authority tuple populates, 3 of 4 v2
 gates pass, #3446 held unmerged, #3442 red only on `cleanup-preview` teardown.
+
+### 2026-09-08 — repointed the preview's Relaycast; redeploy dispatched
+
+Khaliq authorized repointing. Root cause pinned before changing anything:
+
+`infra/relaycast.ts:379` resolves `RELAYCAST_URL` or falls back to
+`https://<stage>-cast.agentrelay.com`. `preview.yml:193` passes
+`inputs.relaycast_url || ''`, and the stage was built with it empty, so the web
+worker was calling **`preview-pr-3446-cast.agentrelay.com`** — which does not
+resolve at all (connection failure). relaycast-cloud does not deploy a per-PR
+canonical gateway; the zone has no origin for that hostname, which is the 530.
+
+Probed the alternatives rather than guessing:
+
+| host | `/internal/workspaces/<id>/api-key` |
+|---|---|
+| `preview-pr-3446-cast.agentrelay.com` | no connection — the 530 |
+| `preview-pr-3446-gateway.relaycast.dev` | 401 unauthorized (route live) |
+| `dev-cast.agentrelay.com` | 401 unauthorized (route live) |
+| `cast.agentrelay.com` (prod) | alive — deliberately NOT used |
+
+Chose the preview's **own** gateway `preview-pr-3446-gateway.relaycast.dev`: it
+is deployed by this repo for this stage, so it shares the stage's
+`RelaycastInternalSecret`, whereas dev-cast is deployed by another repo and
+would likely 401 on the secret. Prod `cast` was rejected outright — a preview
+must not mint keys against prod Relaycast. If the choice is wrong the run fails
+401 instead of 530, which is diagnosable and non-destructive.
+
+Dispatched preview.yml run **34234667816** with all four required artifact
+inputs supplied explicitly (an unset deploy input silently disables a feature):
+
+- source_commit `a0d42ffbdc7fb60b42c0b5bea4f58408249b08a2`
+- run_id `33638358385`, artifact_id `9849853218`
+- sha256 `054ef2e4…941cd`
+
+The sha and source commit were taken from the **deployed stage's own authority
+record**, not from the artifact listing — that is what keeps the tarball
+`archiveSha256` from being confused with the upload-artifact zip digest.
+
+Next: when the build lands, re-run the v2 proof. v1 is the cheaper canary — if
+it stops reporting the 530 the repoint worked.
