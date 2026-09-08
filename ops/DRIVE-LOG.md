@@ -3831,3 +3831,41 @@ not a #3446 regression.
 
 Unchanged: authority tuple populates, 3 of 4 v2 gates pass, no relayflow has yet
 reached compute (`sandboxId` null on all nine runs), #3446 held unmerged.
+
+### 2026-09-08 — #134: the brief is stale; the P0 is already fixed. Cleaned a stray lockfile.
+
+Item 2 stays blocked on secret material, so moved to item 3 and checked the
+objective before doing the work.
+
+**#134 is MERGED**, and its head was `feat/v2-surface-package`, not
+`repair/pr134-0903`. The brief's stated head `311b18c` has also moved to
+`7dc9e9e`. The two commits *after* `311b18c` already did exactly what the brief
+asks:
+
+- `afdbe8f` test(sdk): make the combinator rows able to fail — any/race still escape
+- `7dc9e9e` fix(sdk): intercept allSettled/any/race so attribution survives any resolver
+
+The fix's own rationale matches the brief's reasoning precisely: inheritance
+fires only when the RESOLVING context is attributed, so an aggregate resolved by
+an ordinary member inherits nothing, and for `any`/`race` an ordinary member
+wins by definition. It intercepts all four combinators rather than just
+`Promise.all`. So there are no five test rows left to rewrite.
+
+**What was actually wrong.** `7dc9e9e` also committed a stray root
+`package-lock.json` — 93 bytes, package name `flows-pr134-wt`, i.e. the name of
+the worktree npm happened to run in. There is no root `package.json`, so it
+locks nothing, and it does not exist on main. Nothing in the build or CI reads
+it; the only hits are historical prose in `ops/reviews`.
+
+Removed it on the branch (`2c4199f`), asserted the mutation: 93-byte file
+present -> absent, staged as 6 deletions, remote head confirmed 7dc9e9e -> 2c4199f.
+
+`kernel/package-lock.json` is the same 85-byte empty-stub shape but predates this
+branch (came in with PR #131 and is on main), so I left it rather than widening
+the change. Recurring accident worth a guard eventually: npm writing stub
+lockfiles named after the worktree directory.
+
+**Branch status:** 11 ahead of main, 74 behind, and no PR open. Rebasing 11
+commits across 74 and opening the PR is the next real step, but it is a bigger
+unit than a tick and the merge rules require an independent signoff at the exact
+head, so I did not start it unattended.
