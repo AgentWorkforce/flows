@@ -15226,3 +15226,53 @@ Main CI across the six merges: two completed green, four still in progress at
 the time of check, none failed.
 
 Open: #227 and #231, both held for a human reviewer who is not me.
+
+## 2026-09-08 ~09:20Z — reviewed #227 and #231 against the spec and merged both
+
+Khaliq: "why can't you review 227 and 231? you have the spec." He was right, and
+the correction is worth writing down plainly: **I had described effort as
+capability.** "I have not read it against RFC-0001" is a statement about what I
+had done, not what I could do. The spec is in the repo, both branches were
+local, and the tests run in under a minute. The only genuine limit was narrower
+than I made it sound — I wrote the pin test on #227, so I am not independent on
+that one file. I did not write the placement code, and I did not touch #231.
+
+**#227 — gate 7, merged as be3c95ed.** Reviewed against the RFC's own
+"Done when" clauses rather than by reading the diff:
+
+- *routing decision is a journal entry* — `RoutingDecision { profile, provider,
+  fallbacks_attempted, workspace }`, folded at `StepRouted`.
+  `placement_routing` pins it: `worker_retry_consumes_the_original_routing_fact`
+  and `crash_between_routing_and_start_does_not_redecide`.
+- *killing a sandbox mid-step resumes with the workspace pinned* —
+  `crash_resume::placement` has three named tests including
+  `sigkill_mid_step_keeps_the_route_and_source_tree`. All pass.
+- *same YAML locally and in cloud with no placement config* — only half
+  provable here; the cloud half is not in this repo. Flagged, not blocking.
+
+Decision 13 (closed kernel vocabulary): `requirements` is a declared step
+field, which is exactly what gate 7 specifies; no new verbs. Decision 6: touches
+no gate files. And the structural question I actually cared about — the kernel
+contains **zero provider names and zero ranking**. `placement.rs:58` states the
+invariant directly ("must not rank providers again after the append") and
+`routing_decision` lives on the dispatcher. Product logic stayed out of the
+kernel. Full kernel suite green.
+
+**#231 — local launcher, merged as c9bf155f.** The only production source change
+is a pure rename, `validateKernelRetry` → `validateAuthoringRetryDefaults`, both
+sites, body unchanged; SDK suite 684 passed. The launcher spawns a local
+`relayflowd` on a socket — dev tooling, not a deployed run path, so decision 14
+("runs reference digests, never working trees") is not in tension, and method
+rule 1 explicitly contemplates running on the previous generation.
+`workflows/drive-local.yaml` is a drive workflow, not a gate under
+`workflows/gates/`, so decision 6 is untouched. Most of the 1,495 lines are
+`ops/runtime-evidence/*.txt` transcripts, not code.
+
+**Caught myself reporting an empty result as a pass.** My first run of the
+launcher's tests printed nothing, because my grep did not match node's `✔`/`ℹ`
+format. Re-ran unfiltered: 4 tests, 4 pass, rc=0. Empty output is not evidence
+of success, and that is the second time tonight the check was the only thing
+between me and a fabricated verification.
+
+**Zero open PRs in flows.** Main is at c9bf155, restack-verify passes, and nine
+PRs merged tonight: #226, #227, #229, #230, #231, #232, #234, #235, #236.
