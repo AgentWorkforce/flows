@@ -4540,3 +4540,39 @@ launch path on cloud where a merge push-deploys.
 relayauth lane still working (0 commits, 3 dirty files) — its job is the schema
 side, which is now known to live in cloud's adapter rather than the OSS package.
 Disk 6.9Gi.
+
+### 2026-09-08 — reviewed cloud#3459 (now CLEAN); explicitly NOT signing it off
+
+Read the source diff rather than trusting the lane's summary. The change is
+sound:
+
+- `RelayAuthIdentityRecoveryError` with `retryable = false` — a 500 from a schema
+  mismatch cannot be repaired by redelivering the job, which is precisely the
+  loop the worker logs showed.
+- It deliberately does not retain raw recovery errors or response bodies because
+  they may carry credentials.
+- A `v2LaunchClaimed` flag releases the run only when *this attempt* claimed it,
+  which is the narrow correct fix rather than releasing unconditionally.
+- The ordering (release the run before making the job claimable) names the real
+  mechanism: otherwise redelivery cannot claim the still-`launching` run and
+  reports a cancel over the true error.
+
+Two items I raised for a reviewer rather than deciding myself:
+
+1. A RelayAuth 500 that *was* transient now fails terminally instead of
+   retrying. I think failing closed is right — the error is specifically
+   "unable to verify whether creation committed" and a retry mints a new
+   identity name that could duplicate a committed write — but it is a real
+   trade and should be an explicit decision.
+2. Classification uses `error.name === "..."` rather than `instanceof`. Probably
+   deliberate for bundling/cross-realm reasons, but it silently matches anything
+   setting that name.
+
+**I did not approve it and said so on the PR.** I wrote the brief that framed
+this hypothesis, so I am not an independent reviewer of the result — the merge
+rule wants a signoff from someone who did not commission the work. Posting a
+review while calling it a signoff would defeat the point of the rule.
+
+Also not merging regardless: a cloud merge push-deploys.
+
+relayauth lane still at 0 commits, 3 dirty files, alive. Disk 6.9Gi.
