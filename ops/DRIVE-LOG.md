@@ -16004,3 +16004,42 @@ establish, and it is a producer-side question now, not a worker-side one.
 
 Both tests need their setup corrected to enqueue a v2-shaped record before they
 assert anything. Leaving them uncommitted rather than pushing a vacuous test.
+
+## 2026-09-08 ~16:35Z — the local drive loop can now pick its own work
+
+Khaliq asked whether I was using spawned agents to drive this. I was not — one
+DM to the codex lane, unread for twelve hours, and everything else by hand. He
+told me to generalize the local loop and not to make him ask again.
+
+**Done, and the fix was smaller than expected because the piece already
+existed.** `ops/local-work-package.mjs` hardcoded one file and two identifiers;
+meanwhile the SDK has carried a backlog picker since gate 3 / PR #20, with
+selection determinism asserted across 25 runs. The local script was a second,
+worse implementation of something already shipped. It now calls the real one, so
+the local and cloud loops cannot drift about what "next" means.
+
+**The deeper limit was the step type, not the selector.** A deterministic step
+can only make mechanical changes, which is why the old flow could only ever do a
+rename — generalizing the selector alone would have produced a loop that picks
+real work and then cannot do it. Implementation is now an agent step. The
+launcher's own test proves those run locally ("the SDK worker completes an agent
+step through the local journal protocol").
+
+**Verified rather than asserted, and both checks caught something.** The
+compiler refused my first draft: an agent step cannot declare `timeoutMs`, which
+is exactly the loss I recorded in the migrator this morning and then walked
+straight into. And the selector threw `TypeError: selectBacklogEntry is not a
+function` — the SDK index re-exports `packageFromEntry` and
+`validateWorkPackage` but not `selectBacklogEntry` or `renderWorkPackage`, so
+importing the index gets two of the four.
+
+Running for real, it selected a genuine item — "`timeoutMs` is enforced LATE,
+not never — a step ran 2.3x past its limit" — with a definition of done and a
+pinned HEAD. Not F8b.
+
+Shipped as flows#238-sibling PR on `feat/drive-local-general`.
+
+**One limitation I am not going to paper over:** the picker returned
+`files in scope: .` for that entry. Technically valid, useless as scope. That is
+the picker's extraction, not this flow's, and it wants a look before the loop
+runs unattended — an agent told its scope is "." has been told nothing.
