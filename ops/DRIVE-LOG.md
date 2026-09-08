@@ -4458,3 +4458,42 @@ What is solid enough to hand over: the preview's RelayAuth returns
 the 500 blocking every launch, and the migration set at the pinned version
 cannot produce that column. The owners of relayauth can close the loop far
 faster than I can from outside the repo.
+
+### 2026-09-08 — the lanes found it, and it corrects my hand-off
+
+Both spawned lanes are alive and producing (`relayauth-keyprefix-0908` pid 9728,
+`cloud-keyprefix-0908` pid 15510, 203 and 91 line findings respectively).
+
+**The failing SQL is in CLOUD, not relayauth.** It is cloud's own Cloudflare
+API-key storage adapter,
+`packages/relayauth/src/storage/cloudflare/api-keys.ts:42`:
+
+```sql
+key_prefix AS keyPrefix,
+```
+
+selected `FROM api_keys`. Applying the nine OSS `@relayauth/server` migrations
+produces an api_keys schema **without** that column, so the statement fails.
+
+I verified the核心 claim myself rather than taking the lane's word: the file and
+that line exist on cloud `origin/main`. One number I did **not** reproduce — the
+lane cites "offset 66"; measuring the SELECT literal alone I get 57. The
+difference is consistent with the template's leading text in the interpolated
+statement, but I have not independently confirmed 66.
+
+**This corrects what I told Khaliq.** I handed this over as "another repo's
+schema — relayauth's owners can close it faster than I can". That was wrong.
+`key_prefix` appears nowhere in `@relayauth/server` at v0.2.31 — the lane
+downloaded the published tarball, verified its SHA-512 against registry
+integrity metadata, and searched all 282 files for both spellings: zero matches.
+The reason I could not find the requirement in the relayauth repo is that it was
+never there. It is cloud's adapter disagreeing with the OSS migrations.
+
+**Scope, per the lane, with its own caveat preserved:** preview still 500s while
+dev and production return the expected 401 for the same probe, so existing
+databases carrying the historical cloud schema keep working and a *fresh*
+database gets the incompatible one. The lane explicitly did not obtain live dev
+and production table definitions, so it does not certify their exact schema.
+That caveat matters — it means "dev and prod are fine" is untested, not proven.
+
+Disk fell 11Gi -> 6.0Gi as the two new lanes work. Watching, not acting.
