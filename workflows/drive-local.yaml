@@ -21,7 +21,7 @@ name: drive-local
 description: >-
   Select the next work package from ops/BACKLOG.md, implement it, verify it
   against its own definition of done, and report. Selection, implementation,
-  verification and reporting are journaled as four steps.
+  scope enforcement, verification and reporting are journaled as five steps.
 steps:
   # No build-sdk step. The launcher asserts `packages/sdk/dist/cli.js` exists
   # during preflight, before it submits anything, so a build step inside the
@@ -70,13 +70,26 @@ steps:
       type: output_contains
       value: "DONE"
 
-  - id: verify
+  - id: scope
     type: deterministic
     dependsOn: [implement]
-    timeoutMs: 900000
-    # The suites, not the agent's own account of itself.
+    timeoutMs: 120000
+    # This preamble is captured in the submitted spec. Check the verifier
+    # BEFORE executing it; an agent cannot bypass scope by editing the script.
     command: |
       set -eu
+      git diff --exit-code HEAD -- ops/local-work-package.mjs ops/local-work-verification.mjs ops/BACKLOG.md workflows/drive-local.yaml packages/sdk/src/backlog-picker.ts
+      git diff --cached --exit-code HEAD -- ops/local-work-package.mjs ops/local-work-verification.mjs ops/BACKLOG.md workflows/drive-local.yaml packages/sdk/src/backlog-picker.ts
+      node ops/local-work-package.mjs scope
+
+  - id: verify
+    type: deterministic
+    dependsOn: [scope]
+    timeoutMs: 900000
+    # The selected package's checks must pass before the regression suite.
+    command: |
+      set -eu
+      node ops/local-work-package.mjs verify
       cd packages/sdk
       node node_modules/vitest/vitest.mjs run
 

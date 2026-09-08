@@ -17,12 +17,13 @@
 // are not mechanical. The flow now hands the package to an agent step, which is
 // what makes the loop general.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync,
 } from 'node:fs';
 import { dirname } from 'node:path';
+import { checkScope, runChecks, verificationCommands } from './local-work-verification.mjs';
 
 const packagePath = '.relayflow/drive-local/package.json';
 const backlogPath = 'ops/BACKLOG.md';
@@ -53,8 +54,7 @@ async function loadPicker() {
     return await import(sdkEntry.href);
   } catch (cause) {
     // Say which build is missing rather than surfacing a bare module error.
-    // The flow builds the SDK before this step; a failure here means that
-    // step did not run or did not finish.
+    // Building the SDK is a launcher prerequisite, not a step in this flow.
     throw new Error(
       `SDK_NOT_BUILT: ${sdkEntry.pathname} is not importable — run the build step first`,
       { cause },
@@ -62,11 +62,9 @@ async function loadPicker() {
   }
 }
 
-async function select() {
+async function choose(markdown, { pathExists = existsSync, log = true } = {}) {
   const { selectBacklogEntry, packageFromEntry, validateWorkPackage, renderWorkPackage } =
     await loadPicker();
-  let markdown = read(backlogPath);
-  const backlogSha256 = hash(markdown);
   const skipped = [];
   let entry = null;
   let validation = null;
@@ -75,7 +73,8 @@ async function select() {
   // entry -- the first top-level bullet with a bold title -- so "next" is found
   // by removing the one just rejected and asking it again, rather than writing
   // a second parser that could disagree with it about what an entry is.
-  for (let guard = 0; guard < 50; guard += 1) {
+  let commands;
+  while (markdown.length > 0) {
     const candidateEntry = selectBacklogEntry(markdown);
     if (!candidateEntry) break;
 
@@ -99,11 +98,13 @@ async function select() {
     // failures the flow's instruction explicitly forbids. Skipping here means a
     // rotted entry can never silently become an agent's instruction, and the
     // skip line names the missing paths so the entry can be repaired.
-    const missing = unbounded ? [] : scope.filter((path) => !existsSync(path));
+    const missing = unbounded ? [] : scope.filter((path) => !pathExists(path));
+    const checks = verificationCommands(candidateEntry.body);
 
-    if (result.accepted && !unbounded && missing.length === 0) {
+    if (result.accepted && !unbounded && missing.length === 0 && checks.length > 0) {
       entry = candidateEntry;
       validation = result;
+      commands = checks;
       break;
     }
     skipped.push({
@@ -112,34 +113,70 @@ async function select() {
         ? result.reason
         : unbounded
           ? 'unbounded_scope'
-          : `stale_scope: ${missing.join(', ')}`,
+          : missing.length > 0
+            ? `stale_scope: ${missing.join(', ')}`
+            : 'missing_executable_checks',
     });
-    const at = markdown.indexOf(candidateEntry.title);
-    // Cut past this entry's title so the next exec finds the following bullet.
-    markdown = at === -1 ? '' : markdown.slice(at + candidateEntry.title.length);
+    // Locate the bullet the SDK matched, never a mention of its title in an
+    // earlier entry's body. Consuming the full line guarantees forward progress.
+    const lines = markdown.split('\n');
+    const at = lines.findIndex(line => line.startsWith(`- **${candidateEntry.title}**`));
+    assert(at >= 0, 'BACKLOG_CURSOR_LOST');
+    markdown = lines.slice(at + 1).join('\n');
   }
 
-  for (const s of skipped) console.log(`SKIPPED [${s.reason}] ${s.title.slice(0, 90)}`);
+  if (log) for (const s of skipped) console.log(`SKIPPED [${s.reason}] ${s.title.slice(0, 90)}`);
   assert(
     entry && validation?.accepted,
     `NO_BOUNDED_WORK: ${skipped.length} entr(y|ies) considered, none named files ` +
-      `this loop can scope. Add explicit paths to a BACKLOG entry.`,
+      `this loop can scope and verify. Add explicit paths and Verify: JSON argv to a BACKLOG entry.`,
   );
 
+  return {
+    title: validation.work.title,
+    filesInScope: validation.work.files_in_scope,
+    definitionOfDone: validation.work.definition_of_done,
+    verificationCommands: commands,
+    brief: renderWorkPackage(entry),
+  };
+}
+
+async function select() {
+  const markdown = read(backlogPath);
+  const work = await choose(markdown);
   const pkg = {
     selectedAt: new Date().toISOString(),
     branch: git('branch', '--show-current'),
     head: git('rev-parse', 'HEAD'),
-    backlogSha256,
-    title: validation.work.title,
-    filesInScope: validation.work.files_in_scope,
-    definitionOfDone: validation.work.definition_of_done,
-    brief: renderWorkPackage(entry),
+    backlogSha256: hash(markdown),
+    ...work,
   };
   writeAtomically(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
   console.log(`SELECTED ${pkg.title}`);
   console.log(`  files in scope: ${pkg.filesInScope.join(', ')}`);
   console.log(`  definition of done: ${pkg.definitionOfDone.length} item(s)`);
+}
+
+async function verifiedPackage() {
+  const pkg = JSON.parse(read(packagePath));
+  assert.equal(git('rev-parse', 'HEAD'), pkg.head, 'HEAD_MOVED');
+  assert.equal(git('branch', '--show-current'), pkg.branch, 'BRANCH_MOVED');
+  const markdown = read(backlogPath);
+  assert.equal(hash(markdown), pkg.backlogSha256, 'BACKLOG_CHANGED');
+  // Reconstruct from the unchanged backlog, so editing ignored package.json
+  // cannot widen scope or replace acceptance commands with `true`.
+  const selected = await choose(markdown, {
+    log: false,
+    // Consult the selected commit so deleting an in-scope file neither shifts
+    // selection nor resurrects an earlier entry with stale paths.
+    pathExists: path => spawnSync('git', ['cat-file', '-e', `${pkg.head}:${path.replace(/\/$/, '')}`],
+      { stdio: 'ignore' }).status === 0,
+  });
+  for (const key of Object.keys(selected)) {
+    assert.deepEqual(pkg[key], selected[key], `PACKAGE_CHANGED: ${key}`);
+  }
+  checkScope(pkg);
+  return pkg;
 }
 
 function report() {
@@ -157,7 +194,13 @@ function report() {
 const command = process.argv[2];
 if (command === 'select') await select();
 else if (command === 'report') report();
+else if (command === 'scope') await verifiedPackage();
+else if (command === 'verify') {
+  const pkg = await verifiedPackage();
+  runChecks(pkg);
+  await verifiedPackage();
+}
 else {
-  console.error('usage: local-work-package.mjs <select|report>');
+  console.error('usage: local-work-package.mjs <select|scope|verify|report>');
   process.exit(2);
 }

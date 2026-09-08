@@ -238,6 +238,9 @@ complete. Recorded here so they are tracked rather than lost — found by tick
   message.
 - **F8b** — `validateKernelRetry` names an authoring rule as if the kernel
   imposed it — a doc claim the kernel does not make.
+  Scope: `packages/sdk/src/compile.ts`. Use `validateAuthoringRetryDefaults`
+  for the authoring validator and its call site; remove the old identifier.
+  Verify: ["node", "--input-type=module", "-e", "import assert from 'node:assert/strict'; import {readFileSync} from 'node:fs'; const source = readFileSync('packages/sdk/src/compile.ts', 'utf8'); assert(!source.includes('validateKernelRetry')); assert(source.includes('function validateAuthoringRetryDefaults(')); assert(source.includes('validateAuthoringRetryDefaults(step['));"]
 - **F9** — `probeTrigger` catches every error with no classification, so a
   broken probe environment is indistinguishable from a bad trigger.
 - **F10** — small load-bearing boundary details a reader will trip over.
