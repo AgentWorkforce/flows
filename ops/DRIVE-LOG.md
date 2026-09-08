@@ -14281,3 +14281,29 @@ liveness is not objective — except the stale thing is the instruction sheet.
 The real backlog is the seven open PRs: #234, #232, #231, #230, #229, #227,
 #226. A brief pointed at those would have work in it. This one does not, and I
 am not going to manufacture some.
+
+## 2026-09-08 ~01:10Z — quiet tick, but the cap is not draining on its own
+
+All four brief items unchanged: 1/ no stuck runs; 3/ and 4/ merged 09-04;
+2/ still gated on Daytona capacity.
+
+One new datum worth recording. Two dry-run sweeps ~20 minutes apart:
+
+    00:15Z  totalOnAccount 167  managedInWorkspace 103  eligible 79
+    01:05Z  totalOnAccount 165  managedInWorkspace 104  eligible 79
+
+Total fell by 2, but `managedInWorkspace` went **up** by one and `eligible`
+did not move at all. Something is still creating sandboxes at roughly the rate
+old ones expire. **Waiting does not clear this cap** — I had been treating it
+as a queue that would drain if left alone, and these two samples say it is a
+steady state, not a backlog.
+
+That also settles a question I left open last tick: whether opening a PR now
+would put the preview vehicle in place ahead of capacity. It would not help.
+`zero_agent_smoke` is optional and could be skipped, but the proof itself is a
+v2 run, and a v2 run launches a sandbox. Capacity is on the critical path no
+matter how the preview is dispatched, so there is nothing to pre-stage.
+
+Still one action, still Khaliq's: `daytona-sweep-orphans.yml` with
+`dry_run=false` (workspace 50587328-441d-4acb-b8f3-dbe1b3c5de99,
+min_age_hours=12, limit=20). ~40 CPU per run, repeatable.
