@@ -1,0 +1,103 @@
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud
+$ git rev-parse HEAD
+d1ef3ae8f8feaf15012aeab9f6416cc0729909b3
+EXIT CODE: 0
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud
+$ git diff --exit-code f0a3b3b HEAD -- packages/sdk/tests/cli.test.ts packages/sdk/src/cli/check.ts packages/sdk/src/worker-cli.ts
+EXIT CODE: 0
+
+cwd: /tmp/ws14-pre-cloud-baseline/packages/sdk
+$ node node_modules/vitest/vitest.mjs run tests/cli.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /private/tmp/ws14-pre-cloud-baseline/packages/sdk
+
+ ✓ tests/cli.test.ts (63 tests) 17364ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 6739ms
+   ✓ flows check CLI > uses the raw Claude adapter model flag instead of accepting auth status as model proof 523ms
+   ✓ flows check CLI > uses Codex login status and reports a rejected model as unavailable, not unauthenticated 1137ms
+   ✓ flows check CLI > refuses a nonconforming custom wrapper without calling it an authentication failure 679ms
+   ✓ flows check CLI > accepts an exact allowlisted named-agent model and probes that model 404ms
+   ✓ flows check CLI > checks the same named-agent contract from declarative JSON 667ms
+   ✓ flows check CLI > distinguishes an allowlisted but inaccessible model from broken auth 986ms
+   ✓ flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 949ms
+   ✓ flows check CLI > refuses ladder flow hello-llm with no_executor under an induced fault 348ms
+   ✓ flows check CLI > checks the compiled kernel-dialect canonical spec as well as YAML 342ms
+   ✓ flows check CLI > resolves a project CLI path relative to the flows.json that declares it 411ms
+   ✓ flows run/resume CLI over the journal protocol > exits 3 and names the parked llm step 307ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 520ms
+   ✓ flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 343ms
+   ✓ flows run/resume CLI over the journal protocol > allows a caller to cancel a worker-lease wait 338ms
+
+ Test Files  1 passed (1)
+      Tests  63 passed (63)
+   Start at  22:10:00
+   Duration  31.87s (transform 5.53s, setup 0ms, collect 7.30s, tests 17.36s, environment 0ms, prepare 4.42s)
+
+EXIT CODE: 0
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.8 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+EXIT CODE: 0
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.8 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+EXIT CODE: 0
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ node node_modules/vitest/vitest.mjs run tests/cli.test.ts tests/cloud-run.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+
+ ✓ tests/cli.test.ts (63 tests) 8583ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 684ms
+   ✓ flows check CLI > uses the raw Claude adapter model flag instead of accepting auth status as model proof 367ms
+   ✓ flows check CLI > uses Codex login status and reports a rejected model as unavailable, not unauthenticated 668ms
+   ✓ flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 836ms
+   ✓ flows check CLI > passes relocated ladder flow hello-agent when no fault is induced 363ms
+   ✓ flows check CLI > refuses ladder flow hello-llm with cli_missing under an induced fault 398ms
+   ✓ flows check CLI > refuses ladder flow hello-llm with cli_unauthenticated under an induced fault 336ms
+   ✓ flows check CLI > checks the compiled kernel-dialect canonical spec as well as YAML 301ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 408ms
+   ✓ flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 481ms
+ ✓ tests/cloud-run.test.ts (45 tests) 1106ms
+   ✓ hosted v2 submission > accepts compiled kernel JSON using the existing compiler conversion 377ms
+
+ Test Files  2 passed (2)
+      Tests  108 passed (108)
+   Start at  22:11:58
+   Duration  27.75s (transform 7.23s, setup 0ms, collect 13.29s, tests 9.69s, environment 1ms, prepare 1.38s)
+
+EXIT CODE: 0
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud
+$ node scripts/cloud-package-proof.mjs
+$ "openssl" "req" "-x509" "-newkey" "rsa:2048" "-nodes" "-days" "1" "-subj" "/CN=local-cloud-contract" "-config" "/var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/flows-cloud-package-th7aLg/openssl.cnf" "-keyout" "/var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/flows-cloud-package-th7aLg/contract-key.pem" "-out" "/var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/flows-cloud-package-th7aLg/contract-cert.pem"
+..+............+..+.+++++++++++++++++++++++++++++++++++++++*...+..+.+......+.....+.+...+..+....+........+++++++++++++++++++++++++++++++++++++++*......+............+..+..........+..+...+.+.........+.....+...+.........+..........+.....+....+..+....+..............+....+...+............+..+.+.....+...............+...+.+...........+.............+.................+.......+...............+........+.........+....+..+............+.+..+....+........+.+......+......+..+.......+..............+............+....+.....+.+...+.................+....+.....+...+.+..+...+....+.....+......+......+..........+.....+.+...+......+...+..+......+...+..........+..+...+.......+..+.....................+.+...+......+.........+...+...+...........+....++++++
+.+.+.........+..+.........+.............+...........+....+......+.....+......+.+..+.......+.....+.+........+............+..........+.....+...+............+++++++++++++++++++++++++++++++++++++++*...+............+..........+.....+...+.+......+...+.....+.......+......+........+....+++++++++++++++++++++++++++++++++++++++*..+...+...+...+.+......+............+...+....................+.......+..+...............+.+............+............+.........+.....+........................+............+.+..+...............+...+.........+.+..............+.+..+............+...+.+..+.......+...+..+.+.....+.+.....+.+.........+...............+.....+.+..+......+....+...+...+..+...+....+...+...+..............+......+.........+...+...+.+.....+...............+....+..+....+.....+.........+......+.........+......+.+..+..........+.....+...+..........+...+..+...+....+..+.+.................+.+.........+...........+......+....+..+...+............+.......+......+.........+......+.....+.......+..+.............+..+.......+...+.....+...+...+......+......+.......+............+.....+....+..+............+.+......+.....+...+.+......+......+...+..+.......+........+....+...+......+..+............+.+..+......................+...+..+.+.....+....+..+...+.............+........+.+...+..+.+.............................+..........+.....+...+.+..+....+......+..+.+..+....+...............+......+.........+........+......+.+...+...+..............+......+.......+..+....+..+....+...+.....+............+...+.......+.........+..+...+.+...............+......+.....+...+.........+.+......+.........+..+..........+.....+.............+.....+......+....+.....+......+......+...+.+...+........+...+.......+...+...............+.................+.......+..+..................+......+.......+..+...+....+...........+..........+............+..+...+.+......+...+...........+.+.....+....+.....+......+...+......+.+......+..+.............+...+..+.......+...+...+......+........+...+...+....+......+......+...+............+........+.+...........+.+..+...+....+.........+..+.........+...............+....+.................+...+.........+.+...........+......+.........+...+...+.......+..+.+...+.........+..+.+.....+.........................+...+..+....+......+..............+.............+..........................+..........+.................+...+....+.....+.+...........+.+..+.+..............+...+...+.......+............+........+.........+..........+...+....................+.......+...+...+.........+........+.+..............+...+.........+.........+.........+...+....+...+..+...+.............+...+.....+....+..+....+.....+.+.....+.+............+...+...............+...+.....+.......+.................++++++
+-----
+$ "npm" "run" "build"
+
+> @relayflows/sdk@2.0.8 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ "npm" "pack" "--ignore-scripts" "--silent" "--pack-destination" "/var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/flows-cloud-package-th7aLg"
+relayflows-sdk-2.0.8.tgz
+$ "npm" "install" "--ignore-scripts" "--no-audit" "--no-fund" "/var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/flows-cloud-package-th7aLg/relayflows-sdk-2.0.8.tgz"
+
+added 12 packages in 9s
+$ "npm" "exec" "--no" "--" "flows" "run" "--cloud" "--json" "flow.yaml"
+{"ok":true,"runId":"contract-1","status":"pending","specHash":"1b001aa32a7bf5b0999e87e13c7e686abbbb2321c980069a7ca33930a915d213","apiUrl":"https://127.0.0.1:50572/api/v1/workflows/runs/contract-1"}
+$ "/Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node" "--input-type=module" "-e" "import { runInCloud } from '@relayflows/sdk'; console.log(JSON.stringify(await runInCloud({path:'flow.yaml'})));"
+{"runId":"contract-2","status":"pending","specHash":"1b001aa32a7bf5b0999e87e13c7e686abbbb2321c980069a7ca33930a915d213","apiUrl":"https://127.0.0.1:50572/api/v1/workflows/runs/contract-2"}
+PACKAGED_CLOUD_CONTRACT_OK: CLI + SDK dispatched v2; local HTTPS server only, no hosted run claimed.
+EXIT CODE: 0

@@ -11,28 +11,40 @@ The client reuses the existing compiler, preserves the production `/cloud` base 
 
 Cloud’s current v2 bootstrap rejects authored TypeScript; the SDK refuses `.flow.ts` before HTTP. Cloud retains its separate one-hour execution deadline. No authored-flow executor, kernel, verifier, or gate changes are included.
 
-Historical validation at `c515d06` (before the review fixes): the rerun passed **63/63 CLI + 22/22 cloud tests (85/85)**. The earlier 62/63 wrapper-preflight failure is retained in the original transcript. It did not reproduce on either the pre-change revision `f0a3b3b` (full CLI 63/63) or WS-14 (full CLI 63/63), so its cause is unconfirmed; it is not established as a pre-existing defect or a cloud regression. The wrapper test, preflight implementation, and worker implementation are byte-for-byte unchanged against that revision. No pre-existing tests, gates, or timeout limits were changed; this PR adds cloud regression tests.
+Review fixes in `d1ef3ae`: distinguish unknown admission from interrupted observation; retry only transient GET failures; classify local input and pre-admission HTTP 401/403 as exit 2; require HTTPS; validate terminal completion reasons; use the central CLI parser; correct design-only cache/schema notes and evidence claims.
 
-Historical rerun from `packages/sdk` (literal command and output; full baseline/current transcript linked below):
+Current verification at `d1ef3ae`: **63 CLI + 45 cloud tests = 108 passed**, both typechecks passed, and the rebuilt packed CLI/SDK proof passed over local HTTPS with certificate verification enabled. This is contract/packaging evidence, not hosted execution. The earlier wrapper assertion did not reproduce on either baseline `f0a3b3b` (63/63) or current source (63/63); its cause remains unconfirmed. The old failures are retained, not relabeled as passing. No pre-existing tests, gates, or timeout limits were modified; the PR adds cloud regression tests.
+
+Captured current test command/output:
 
 ```text
 $ node node_modules/vitest/vitest.mjs run tests/cli.test.ts tests/cloud-run.test.ts --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
 
- ✓ tests/cli.test.ts (63 tests) 3439ms
-   ✓ flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 360ms
- ✓ tests/cloud-run.test.ts (22 tests) 200ms
+ ✓ tests/cli.test.ts (63 tests) 8583ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 684ms
+   ✓ flows check CLI > uses the raw Claude adapter model flag instead of accepting auth status as model proof 367ms
+   ✓ flows check CLI > uses Codex login status and reports a rejected model as unavailable, not unauthenticated 668ms
+   ✓ flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 836ms
+   ✓ flows check CLI > passes relocated ladder flow hello-agent when no fault is induced 363ms
+   ✓ flows check CLI > refuses ladder flow hello-llm with cli_missing under an induced fault 398ms
+   ✓ flows check CLI > refuses ladder flow hello-llm with cli_unauthenticated under an induced fault 336ms
+   ✓ flows check CLI > checks the compiled kernel-dialect canonical spec as well as YAML 301ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 408ms
+   ✓ flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 481ms
+ ✓ tests/cloud-run.test.ts (45 tests) 1106ms
+   ✓ hosted v2 submission > accepts compiled kernel JSON using the existing compiler conversion 377ms
 
  Test Files  2 passed (2)
-      Tests  85 passed (85)
-   Start at  20:47:48
-   Duration  5.01s (transform 539ms, setup 0ms, collect 906ms, tests 3.64s, environment 0ms, prepare 124ms)
+      Tests  108 passed (108)
+   Start at  22:11:58
+   Duration  27.75s (transform 7.23s, setup 0ms, collect 13.29s, tests 9.69s, environment 1ms, prepare 1.38s)
 
 EXIT CODE: 0
 ```
 
-Prior SDK/type/test typechecks, build, and rebuilt-package CLI/SDK contract check passed; their literal commands/output are in the evidence below. The package check uses a local HTTP server, not hosted execution. Its six-minute dependency installation does not establish fresh-machine timing acceptance.
+The complete current commands/output (baseline, source comparison, both typechecks, CLI/cloud suites, rebuild/pack/install and HTTPS dispatch) are in [ws14-review-fixes.txt](../runtime-evidence/ws14-review-fixes.txt). [All 20 thread dispositions and swarm responses](ws14-review-responses.md) explain fixes and scope decisions.
 
 Commands and literal captured output are committed in [ws14-cloud.txt](../runtime-evidence/ws14-cloud.txt); the credential probe and HTTP 401 are in [ws14-cloud-auth.txt](../runtime-evidence/ws14-cloud-auth.txt). The baseline comparison is captured in [ws14-wrapper-baseline.txt](../runtime-evidence/ws14-wrapper-baseline.txt). Raw test-output whitespace is retained verbatim.
 
