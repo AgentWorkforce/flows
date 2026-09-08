@@ -16090,3 +16090,39 @@ backlog entry that no longer matches the tree cannot silently become an agent's
 instruction.
 
 Pushed to flows#242.
+
+## 2026-09-08 ~17:20Z — the guard shipped, and it wrote the cleanup list itself
+
+Khaliq asked which of the two options I recommended. Answer: the guard first,
+because it generates the worklist for the cleanup — repairing entries by hand is
+a one-time fix that rots again at the next reorg, and the `sdk/` ->
+`packages/sdk/` move already proves that happens.
+
+Shipped to flows#242. `select` now verifies every declared path exists and skips
+entries whose scope has rotted, naming the missing files in the skip line.
+
+**What it says about the current BACKLOG, generated rather than audited:**
+
+    5  unbounded_scope            (picker returned ["."], no path named)
+    5  missing_scope              (no files at all)
+    1  missing_definition_of_done
+    1  stale_scope                sdk/tests/live-kernel.test.ts, sdk/src/protocol.ts,
+                                  sdk/src/journal-client.ts, sdk/src/cli/run.ts
+    -> SELECTED Regression suite (`regressions/`, dormant)
+       files in scope: regressions/MANIFEST.json   (exists)
+
+Twelve entries skipped, then real bounded work. That is the loop doing its job:
+it did not stall, it did not widen scope to find something, and it said exactly
+why it passed on each one.
+
+**Two of the skipped entries are titled "DONE (PR #45, merged)" and "DONE
+(PR #42, merged)".** Completed work still sitting in the backlog as candidate
+work. They skipped for missing scope, which is lucky rather than principled —
+nothing in the loop checks whether an entry is already finished, and a DONE
+entry that happened to name files would have been selected and handed to an
+agent. That is worth a guard of its own, and it is a better catch than the one
+I set out to make.
+
+The loop is now safe to run on what it selects. I have not run the agent step —
+that is a live `claude` spawn making real edits, and the first one should happen
+where Khaliq can watch it rather than at 07:20 on a tick.
