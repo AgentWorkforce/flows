@@ -14887,3 +14887,44 @@ at head, one closed by a new test. Two P1s, both in gates I wrote. Six PRs
 touched: #226, #229, #230, #232, #234, plus #235 opened and #227 tested.
 Zero merges, correctly — every one wants a swarm signoff, and the swarm wants
 Daytona CPU that only `dry_run=false` will free.
+
+## 2026-09-08 ~06:10Z — the blocker moved again: the database is full
+
+Capacity eased on its own. Sweep now reports `totalOnAccount 144,
+managedInWorkspace 100` against 156-167 all night. Swarms get further as a
+result — and now fail somewhere new.
+
+Latest swarm (34186927963, run ad1e97f9) got sandbox 105b7e47 and died with
+**no `result.error` at all**; `result` is null. The reason is at the *top*
+level of the payload:
+
+    Exact root /workflows/runs/ff7644a6-...: Relayfile mount --once process failed (exit 1)
+    ...
+    failed to start poll mount: push local and flush once:
+      http 500 internal_error: Exceeded the maximum database size.
+
+Two things follow.
+
+**1. The Daytona CPU cap is no longer the top blocker.** It eased without the
+sweep. The new one is a full database behind the Relayfile mount, which no
+amount of orphan-stopping touches. The sweep is still worth running to keep
+headroom, but it is no longer the thing standing between us and a green swarm.
+
+**2. My #235 fix catches this shape too, and I did not design it to.** I wrote
+`.result.error // .error` reaching for a fallback; this run has `result: null`
+and the error only at top level, so the fallback is doing the whole job. Ran
+the expression against the real payload to confirm rather than assume:
+
+    $ jq -r '.result.error // .error // empty' <run>
+    Exact root /workflows/runs/...: Relayfile mount --once process failed (exit 1)
+    ... Exceeded the maximum database size.
+
+Without it the gate log again says only `failed`. Two distinct failure shapes
+in one night, both invisible from GitHub, both recoverable only by querying the
+run by hand. That PR is worth more than I thought when I opened it.
+
+**Also worth noting for the record:** the gate's own wait step logged
+`status=status_error` at 04:26:02, four minutes before the run finished failing
+— so the poll hit an error path early and the eventual verdict came from
+elsewhere. Not chasing it this tick, but it means `status_error` and `failed`
+are being conflated somewhere in the wait loop.
