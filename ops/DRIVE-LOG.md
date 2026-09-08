@@ -4028,3 +4028,48 @@ cost, not just untidy state.
 and Khaliq's call, and adding running-reaping to #3442 would be scope creep on a
 PR that exists to fix the v2 launch payload shape. Recorded here and in the
 inbox rather than opening a new issue unattended.
+
+### 2026-09-08 — pr134 rebase is not mechanical; aborted cleanly. I under-called this.
+
+Attempted the rebase I said I could do unattended. **It is a bigger job than I
+represented, and I am correcting that.**
+
+`git rebase origin/main` failed on commit 1 of 12 with 4 conflicts
+(`README.md`, `regressions/MANIFEST.json`, `regressions/README.md`,
+`regressions/tsconfig.json`). Aborted; worktree restored to `2c4199f`, clean, no
+rebase in progress.
+
+The conflict is structural, not textual:
+
+```
+<<<<<<< HEAD        (main)
+      "@relayflows/surface": ["../packages/surface/src/index.ts"]
+=======             (branch)
+      "@relayflows/surface": ["../surface/src/index.ts"]
+```
+
+**Main relocated the surface package to `packages/surface/`; the branch still
+adds it at top level.** Replaying 12 commits means relocating the branch's whole
+surface package through every one of them — precisely the shape that produces a
+silent merge trap.
+
+I then checked whether the P0 fix could be extracted on its own, since
+`sdk/src/authored-flow-lifecycle.ts` imports only node plus two local modules.
+It cannot be a small patch: **none of the authored-flow subsystem exists on
+main.** The branch adds all ten of
+
+```
+sdk/src/authored-flow{,-error,-executor,-lifecycle,-operation}.ts
+sdk/src/authored-promise-graph.ts
+sdk/tests/authored-flow{,-lifecycle-executor,-operation}.test.ts
+sdk/tests/fixtures/runtime-bridge.flow.ts
+```
+
+So this branch is an entire unlanded feature — authored-flow subsystem plus the
+surface package — 79 commits behind, across a directory move. Landing it is a
+project with a real design decision (squash the net diff onto current main with
+the relocation applied, as one reviewable commit, versus replaying history), not
+a tick's work, and it needs an independent signoff before merge either way.
+
+Stopping rather than forcing it. Forcing a 12-commit replay through a directory
+relocation unattended is how a subtly wrong tree gets merged.
