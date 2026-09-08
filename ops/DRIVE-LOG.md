@@ -14844,3 +14844,46 @@ thread, which at least says plainly that the case is unverified.
 
 The thread stays open with that reasoning posted. Next tick opens with the
 implementation.
+
+## 2026-09-08 ~05:50Z — wrote the test, and the mutation moved the conclusion
+
+Wrote and landed the regression test for #227's source-pin finding (3736b0b).
+**All thirteen findings are now closed.**
+
+`a_resumed_attempt_keeps_the_original_pin_after_the_worktree_head_moves`: start
+an agent step over a git worktree, let the dispatcher take the lease so the run
+parks, commit again to move HEAD, resume under a fresh `Engine` — new boot id,
+so the leased attempt reads as dead and the step retries. Assert both attempts
+carry the elected revision and that a recording dispatcher was asked for pins
+exactly once. Three tests green.
+
+**Then I tried to make it fail, and that is where the tick earned its keep.**
+Forcing the `covered` branch off in `resolve_agent_pins` does fail the test —
+but on the *call count*, not the revision. `pin_requests` 2 against an expected
+1. The revision assertion held even with the short-circuit disabled.
+
+The reason: the projection reads
+`carried.workspace.iter().chain(worker.workspace.iter())` and takes the first
+match, so a carried pin wins over anything the worker reports. **Carried-first
+is what protects the pin; `covered` only avoids asking a question whose answer
+would be discarded.** I had it backwards two ticks ago when I told the thread
+the `covered` branch was the mechanism — the code I quoted was right, my
+reading of which half mattered was not.
+
+Which is the whole night in one test. Had I stopped at green I would have
+shipped a test that passes, believing it guarded the revision through the
+`covered` branch, when it guards it through a different line entirely. The
+mutation is the only reason I know which. A green test is a claim; a test that
+fails when you break the thing is evidence.
+
+And the finding itself: cubic pointed at the wrong line — `drive.rs:97` is
+`route_start`, which reuses the durable route — but the property it was
+protecting was real and genuinely untested. Wrong diagnosis, right instinct.
+That is thirteen for thirteen where going to the code changed something about
+the answer.
+
+**Night's close.** Thirteen findings, seven real fixes, five that did not hold
+at head, one closed by a new test. Two P1s, both in gates I wrote. Six PRs
+touched: #226, #229, #230, #232, #234, plus #235 opened and #227 tested.
+Zero merges, correctly — every one wants a swarm signoff, and the swarm wants
+Daytona CPU that only `dry_run=false` will free.
