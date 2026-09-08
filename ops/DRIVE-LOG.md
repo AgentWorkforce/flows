@@ -15782,3 +15782,38 @@ locate the orchestrator package finally returned. It adds nothing — the schema
 question it was meant to answer was settled conclusively at 11:50Z from
 `@agent-relay/cloud/dist/workflows.js`, and its output does not contradict that.
 Noting it so the notification is not mistaken later for an open thread.
+
+## 2026-09-08 ~14:00Z — the preview died on a recheck I did not know existed
+
+**Preview 34200328839 failed**, and the cause is mine.
+
+    Error: PR #3436 is no longer eligible for exact preview publication
+
+Preserved verbatim, per the brief. The step is "Recheck preview eligibility
+before publication", at 07:56Z — sixteen minutes into the deploy. #3436 was
+merged at 07:41:16Z. The run then tore the stage down.
+
+**I told Khaliq it had survived the merge, and I was wrong.** I checked that
+`Resolve immutable preview target` and the checkout had completed while the PR
+was open, saw them green, and concluded the run was safe. There is a *second*
+eligibility check, immediately before publication, and I did not know it was
+there. That is verify-once-and-treat-it-as-constant, the same failure as
+checking Daytona capacity and assuming it held — except this time I reported the
+wrong conclusion upward before it was disproved.
+
+**The message named none of it.** Four independent conditions —
+`state !== "open"`, wrong head repo, moved head SHA, removed label — collapse
+into one sentence that says only that the run died. Diagnosing "the PR was
+merged" cost a full build. That is the third instance tonight of a gate
+reporting *that* it failed and not *why*, after #232's auth probe and #235's
+swarm status.
+
+**Fixed and re-dispatched.** cloud#3438 makes each condition report what it
+found (`state is closed, expected open (was it merged or closed mid-deploy?)`,
+the SHA it moved to versus the one resolved, and so on), joining multiple causes
+so a second is not hidden behind the first. The PR body asks reviewers not to
+merge it while a preview is deploying against it — which is both the failure it
+documents and the reason it must stay open.
+
+New preview run 34202221395 is building against #3438 with the same recovered quad.
+**#3438 must stay open for roughly sixteen minutes.**
