@@ -16291,3 +16291,32 @@ path near 585).
 
 Not writing that fix at 18:45 unattended on a cloud launch path. Recording it
 cold, with the eliminations, so it can be written deliberately.
+
+## 2026-09-08 ~18:55Z — a lane on #243 against the spec
+
+Khaliq asked for a lane reviewing flows#243 ("make f.agent real, fix
+cross-package flow-handle identity, TS quickstart", +379/-40 across 8 files)
+against the established spec.
+
+Spawned `flows-spec-review-243` (codex) on its own worktree at the PR head,
+verified live — pid 44705, pending 0, and `node tail` shows it reading the RFC
+and the authored-flow sources rather than sitting at a prompt.
+
+The brief names the spec as the authority and asks five questions with citations
+required, chosen for what this diff actually touches: whether making `f.agent`
+real widens the closed kernel vocabulary (decision 13) or compiles to the
+existing verb; whether the flow-handle identity change alters what crosses the
+kernel boundary (decision 9); decision 6 on self-widening permissions;
+`completionReason` discipline (decision 11); and whether the quickstart
+documents behaviour the code actually has.
+
+The method instruction matters more than the verdict, and it is drawn from this
+week: build and run, settle by running anything settleable by running, and call
+out a test that passes for a reason other than the one it names — a vacuous
+assertion, an aggregate that cannot fail, an empty result read as success. That
+class has been the most common defect here, including in my own work twice
+today. Deliverable is one review comment with a verdict and evidence; no
+approve, no merge, no push.
+
+Both lanes are now live and observable: `flows-drive-hardening-0908` on #242's
+three remaining findings, and this one on #243.
