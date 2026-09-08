@@ -15057,3 +15057,40 @@ someone to raise a batch size that is not the problem — and it would have
 carried my name and a confident number. Twice tonight a plausible reading
 survived until something was run; this is the third, and the only reason I
 caught it is that I went back to the code before publishing rather than after.
+
+## 2026-09-08 ~07:20Z — measured instead of reasoned: the database is frozen
+
+Re-ran the read-only storage-stats endpoint against rw_7ccfea89, 2.5 hours
+after the 04:53Z sample. Every count is identical to the digit:
+
+                              04:53Z        07:20Z
+    events                    2,965,362  →  2,965,362
+    files                     1,107,434  →  1,107,434
+    pending_inline_content    1,104,119  →  1,104,119
+
+**Zero change in two and a half hours, in both directions.** The drain removed
+nothing, and — the part I did not expect — nothing was written either. `files`
+and `events` are frozen too. This is not a queue losing a race against inflow.
+The database is not accepting writes at all.
+
+That is a measurement, and it is worth more than everything I inferred about
+this table in the last hour. My throttle story was wrong (retracted at 07:05Z),
+and even the corrected deadlock story was a hypothesis about the drain
+specifically. The counts say something simpler and larger: at its 10 GiB cap,
+D1 is refusing every write to this workspace, so the queue that must shrink
+cannot shrink and no new work can land either.
+
+Stating the one alternative honestly: identical counts would also be produced
+by a cached response from the stats endpoint. I have no evidence of caching,
+and `events` standing still for 2.5 hours on a live shared workspace is itself
+hard to explain any other way — but I have not ruled it out, and the way to
+rule it out is a third sample on a different cadence rather than more reading.
+
+**What this changes.** The Daytona sweep is now irrelevant to the lane; capacity
+eased on its own hours ago and was never the last blocker. Nothing I can do from
+here moves this. It needs someone with relayfile-cloud production access to
+export first, then reclaim space — and my own notes are emphatic that D1
+deletion is unrecoverable, that Time Travel dies with the database, and that
+names lie in both directions about which database serves production.
+
+Every open PR in the lane is waiting behind this one fact.
