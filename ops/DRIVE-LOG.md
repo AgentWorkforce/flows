@@ -4928,3 +4928,42 @@ compute.
 
 I am not claiming the demo works. Two blockers are cleared and verified; whether
 a v2 run completes end to end is still unproven, and no v2 run ever has.
+
+### 2026-09-09 — pre-flighted the stage and staged the proof; one click remains
+
+Drain: nothing pending. Disk 6.5Gi.
+
+Before spending Khaliq's device click I checked the new stage can actually admit
+v2 — otherwise the login would be burned on a run failing for an unrelated
+reason. All four v2 steps on deploy 34290481495 succeeded:
+
+```
+success  Validate Relayflow v2 artifact inputs
+success  Fetch pinned private Relayflow v2 artifact
+success  Publish verified Relayflow v2 artifact
+success  Enable Relayflow v2 admission after immutable publication
+```
+
+So `preview-pr-3461` is v2-capable, carries the schema fix (`DEPLOY_VERSION`
+== #3461 head) and the `_DEV` Relaycast secret.
+
+Wrote `proof-3270-pr3461.sh` (also copied into `chief/.chief-inbox/` with its two
+request bodies) so the click converts directly into a result instead of a fresh
+round of typing. Syntax-checked. It:
+
+1. **refuses to run unless the stored token is scoped to pr-3461** — that guard
+   exists because I have twice mistaken a stage-scoped 401 for a product failure;
+2. POSTs the v2 run and polls to terminal, printing sandboxId each tick;
+3. prints the authority tuple and asserts
+   `relayflowVersion=v2 && status=completed && completionReason=success`;
+4. pulls `/export?format=json` and locates the literal journal SQLite path;
+5. runs the omitted-selector v1 sanity run.
+
+I deliberately did **not** start a device login this tick. Codes lapse in about
+ten to fifteen minutes and Khaliq is asleep, so starting one now just leaves a
+dead code in the log — I have done that once already tonight. I will start it
+when he is back, or on request.
+
+Honest position: two of the three blockers are cleared and independently
+verified. The v2 proof itself has still never run to completion, and I am not
+going to imply otherwise until that tuple asserts.
