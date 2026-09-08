@@ -4423,3 +4423,38 @@ to it. Worth checking whether dev and production are on the same footing.
 Not fixing it unattended — it is another repo's schema, and the memory on D1
 deletion being unrecoverable argues for care. Handing it to Khaliq with the
 exact error.
+
+### 2026-09-08 — scoped the RelayAuth schema skew; one half proven, one half not
+
+Followed up on the `key_prefix` D1 error to find whether it is preview-only.
+
+**Established:**
+
+- cloud/main pins `@relayauth/server` **0.2.31** and `package-lock.json` resolves
+  0.2.31, so that is what the preview deployed.
+- **No migration at tag v0.2.31 creates `key_prefix`** — checked every
+  `packages/server/src/db/migrations/*.sql` for both `key_prefix` and
+  `keyPrefix`. Zero hits.
+- The migration sequence at that tag has a gap: `0001, 0002, 0004 … 0010`.
+  **0003 is absent.** Worth someone confirming that is intentional and not a
+  deleted migration, because a removed migration is exactly how a column ends up
+  in code but never in a schema.
+
+**Not established, and I am not going to imply otherwise:** I could not find
+where the deployed code requires `key_prefix`. Neither spelling appears in the
+source files I sampled (`lib/api-keys.ts`, `middleware/api-key-auth.ts`,
+`routes/api-keys.ts`, `routes/identities.ts`, `storage/*-types.ts`). I sampled a
+filtered subset rather than the whole tree, so absence there proves nothing —
+it may live in a file I did not read, or be produced by an ORM schema
+definition. The mechanism is therefore only half traced.
+
+**Also stale-tree note:** the local clone has 0.2.29 installed while main pins
+0.2.31, and 0.2.29 has no `key_prefix` either. Reading that clone's
+`node_modules` to answer "what is deployed" would have given a confidently wrong
+answer about a version that is not running anywhere.
+
+What is solid enough to hand over: the preview's RelayAuth returns
+`D1_ERROR: no such column: key_prefix` on every `/v1/identities` call, that is
+the 500 blocking every launch, and the migration set at the pinned version
+cannot produce that column. The owners of relayauth can close the loop far
+faster than I can from outside the repo.
