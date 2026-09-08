@@ -1,8 +1,8 @@
 # dependency-upgrade-bot
 
 **BLOCKED — not runnable on the current authored executor.** The candidate
-CLI refuses the `budget` header before any step runs (exit 2, 0.138s).
-[Exact command and captured output](../../docs/evidence/ws13/followup/final-sdk/gallery-dependency-upgrade-bot.txt).
+CLI refuses the `budget` header before any step runs (exit 2, 5.138s).
+[Exact command and captured output](../../docs/evidence/ws13/review/gallery/gallery-dependency-upgrade-bot.txt).
 The SDK/kernel capability owner must supply budget-header support, postfix
 artifact gates, and the declared workspace behavior before this example can
 be advertised as working. Its existing requirements remain intact.

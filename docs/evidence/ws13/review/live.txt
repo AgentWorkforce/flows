@@ -1,0 +1,16 @@
+$ RELAYFLOWD_BIN=/tmp/ws13-consumer/hello/node_modules/@relayflows/runtime-darwin-arm64/bin/relayflowd node node_modules/vitest/vitest.mjs run tests/local-agent-live.test.ts --reporter=verbose --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/packages/sdk
+
+ ✓ tests/local-agent-live.test.ts > built CLI local agent against a real daemon > dispatches through the wrapper and keeps --json stdout report-shaped 2034ms
+ ✓ tests/local-agent-live.test.ts > built CLI local agent against a real daemon > runs beyond the initial 30-second lease without a second invocation 37796ms
+ ✓ tests/local-agent-live.test.ts > built CLI local agent against a real daemon > renders actual agent completion in text output 3675ms
+ ✓ tests/local-agent-live.test.ts > built CLI local agent against a real daemon > returns a failed run when the agent process fails 1311ms
+ ✓ tests/local-agent-live.test.ts > built CLI local agent against a real daemon > refuses a workspace it cannot pin before invoking the agent 667ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  22:12:50
+   Duration  46.42s (transform 150ms, setup 0ms, collect 114ms, tests 45.49s, environment 0ms, prepare 207ms)
+
+EXIT_CODE=0

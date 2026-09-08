@@ -8,9 +8,14 @@ For a working local starting point, use the [small agent starter](../README.md)
 
 | Example | Status | Observed result | Elapsed |
 |---|---|---|---:|
-| [dependency-upgrade-bot](dependency-upgrade-bot/) | **BLOCKED** | SDK refuses unsupported `budget` header before entering the body; exit 2 | [0.138s](../docs/evidence/ws13/followup/final-sdk/gallery-dependency-upgrade-bot.txt) |
-| [pr-review-pipeline](pr-review-pipeline/) | **BLOCKED** | SDK refuses unsupported `budget` header before entering the body; exit 2 | [0.143s](../docs/evidence/ws13/followup/final-sdk/gallery-pr-review-pipeline.txt) |
+| [dependency-upgrade-bot](dependency-upgrade-bot/) | **BLOCKED** | SDK refuses unsupported `budget` header before entering the body; exit 2 | [5.138s](../docs/evidence/ws13/review/gallery/gallery-dependency-upgrade-bot.txt) |
+| [pr-review-pipeline](pr-review-pipeline/) | **BLOCKED** | SDK refuses unsupported `budget` header before entering the body; exit 2 | [3.539s](../docs/evidence/ws13/review/gallery/gallery-pr-review-pipeline.txt) |
 | [research](research/) | **PASS** | All model probes passed; three lane reports and synthesis produced; exit 0, `completionReason: synthesized` | [690.935s](../docs/evidence/ws13/followup/default-budget/gallery-research.txt) |
+
+**Correction:** the previously listed 0.138s and 0.143s captures used a stale
+launcher and returned `invalid_invocation`. They did not establish budget
+refusals. The current values above come from a fresh,
+[verified candidate install](../docs/evidence/ws13/review/installed-identity.txt).
 
 Each link contains the literal command, captured output, exit code and timing.
 These are individual runs from a separate clone on an authenticated macOS

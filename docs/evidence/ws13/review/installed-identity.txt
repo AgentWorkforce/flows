@@ -1,0 +1,9 @@
+$ python3 docs/evidence/ws13/review/verify-installed.py
+PASS: @relayflows/sdk: all 271 installed files match /tmp/ws13-review-artifacts/relayflows-sdk-2.0.8.tgz
+SHA256=b7d0cc50aa4bd76fe577d6a07bf865bb37b7944e0e1f277d0d8743f281e5bbda
+PASS: relayflows: all 3 installed files match /tmp/ws13-review-artifacts/relayflows-2.0.8.tgz
+SHA256=ae555a4aa2a65b15fe934286d158d2b5477ad7a1eba8fbf738889416475ec7c0
+PASS: @relayflows/runtime-darwin-arm64: all 4 installed files match /tmp/ws13-artifacts/relayflows-runtime-darwin-arm64-2.0.8.tgz
+SHA256=6e2d749b641abd66812c5e2633f37937b941854533b65993cb571ddfbb1c0744
+PASS: launcher resolves the verified candidate SDK: /private/tmp/ws13-gallery-review/node_modules/@relayflows/sdk/dist/cli.js
+EXIT_CODE=0

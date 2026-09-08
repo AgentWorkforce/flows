@@ -8,8 +8,8 @@ The three requested gallery entries have individual, explicit outcomes:
 
 | Entry | Result | Elapsed | Command and output |
 |---|---|---:|---|
-| dependency-upgrade-bot | BLOCKED: `unsupported_header` for `budget`, exit 2 before the body | 0.138s | [Final SDK capture](final-sdk/gallery-dependency-upgrade-bot.txt) |
-| pr-review-pipeline | BLOCKED: `unsupported_header` for `budget`, exit 2 before the body | 0.143s | [Final SDK capture](final-sdk/gallery-pr-review-pipeline.txt) |
+| dependency-upgrade-bot | BLOCKED: `unsupported_header` for `budget`, exit 2 before the body | 5.138s | [Verified launcher capture](../review/gallery/gallery-dependency-upgrade-bot.txt) |
+| pr-review-pipeline | BLOCKED: `unsupported_header` for `budget`, exit 2 before the body | 3.539s | [Verified launcher capture](../review/gallery/gallery-pr-review-pipeline.txt) |
 | research | PASS: three lane reports and synthesis, `completionReason: synthesized`, exit 0 | 690.935s | [Default-budget capture](default-budget/gallery-research.txt) |
 
 The SDK/kernel capability owner must supply the two blocked flows' budget
@@ -17,9 +17,16 @@ headers, postfix artifact gates and declared workspace behavior. Those
 requirements were not removed or weakened. Research uses its documented source
 shim; the SDK examples use installed candidate npm artifacts. These are runs
 on an authenticated development host in a separate clone, not cold benchmarks.
-The final SDK artifact's [hash](final-sdk/artifact.json) identifies the package
-used for the last two invocations; it includes the lease fix below. Research's
-shim does not import AgentWorker and was unchanged by that fix.
+**Correction:** the earlier `final-sdk/` invocations returned `invalid_invocation`
+from a stale public launcher. The 0.138s / 0.143s values were incorrectly labeled
+as budget refusals. Those captures are retained as failed packaging evidence,
+not gallery capability evidence. Installing only a candidate SDK let npm
+re-resolve the launcher from public npm. The current table uses a fresh install
+with both launcher and SDK pinned to explicit candidate tarballs, every installed
+file compared against its tarball and ESM resolution checked from the launcher.
+See [installation/provenance and corrected results](../review/README.md).
+Research's source shim does not import AgentWorker and was unchanged by the
+worker fixes.
 
 Research now prints each preflight probe and its timeout on stderr, leaving
 stdout for the structured result. The first follow-up used a shorter three-minute
@@ -53,8 +60,8 @@ No full-suite green or mutation verification is claimed. No package was
 published. The release-gate owner must register `create-flow` for packaging and
 publishing. The review-swarm/CI owner must obtain fresh maintainability, history
 and structure transcripts; the old missing transcripts and new review comments
-are not approving signoff at the final head. Lower-priority review comments
-remain for review; this report does not claim every comment is resolved.
+are not approving signoff at the final head. The [review response ledger](../review/threads.md) records each original thread
+and its disposition; none of these responses constitute independent signoff.
 
 `run-gallery.py` takes a clone and a fresh evidence directory. Use
 `research-default` for the documented-budget research run or `sdk-only` for the

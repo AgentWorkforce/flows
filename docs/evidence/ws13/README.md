@@ -18,7 +18,9 @@ Cloud run-publication API is part of this follow-up.
 The [current three-entry gallery](../../../examples/README.md) is **1 PASS,
 2 BLOCKED** and supersedes the initial invocation results below. Research
 completed with the default budget in [690.935s](followup/default-budget/gallery-research.txt);
-the SDK flows still refuse unsupported budget headers. Research now reports each provider probe
+the SDK flows still refuse unsupported budget headers in the
+[corrected, verified launcher runs](review/README.md). The prior 0.138s/0.143s
+captures were stale-launcher invocation refusals and had been misclassified. Research now reports each provider probe
 and timeout on stderr. [Research regression tests](followup/research-tests.txt)
 and [typecheck](followup/research-typecheck.txt) contain the commands/output.
 
@@ -34,7 +36,7 @@ and [typecheck](followup/research-typecheck.txt) contain the commands/output.
 | First live-worker test attempt | 3 process timeouts, 1 passed | [Command and output](local-agent-tests-first-attempt.txt) |
 | Real Claude invocation in the generated project | Completed, 132.637s for the command; existing authenticated macOS host | [Transcript](agent-run.txt), [asciicast v2 recording](agent-run.cast) |
 | Earlier recording attempts | Auth probe timeout; then a broken host Node shared-library dependency | [Auth timeout](agent-probe-timeout.txt), [host failure](agent-host-node-failure.txt) |
-| Empty-cache install + deterministic run in fresh Debian Trixie container | Completed in 43.374s; deterministic template, no source clone or agent | [Command and output](cold-trixie.txt) |
+| Empty-cache install + deterministic run in fresh Debian Trixie container | Completed in 43.374s; Node/image provisioning excluded, empty npm cache, deterministic template, no source clone or agent | [Command and output](cold-trixie.txt) |
 | Empty-cache install + deterministic run in fresh Debian Bookworm container | Refused: published Linux daemon requires GLIBC_2.39; 55.223s | [Command and output](cold-container.txt) |
 | Linux container test runner | esbuild Go runtime crashed under amd64 emulation before collecting tests | [Command, script and full output](container-tests.txt) |
 | Research typecheck after correcting its compiler path | Superseded by the complete follow-up capture | [Command and output](followup/research-typecheck.txt) |

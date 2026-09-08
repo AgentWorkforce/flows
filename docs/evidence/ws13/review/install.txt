@@ -1,0 +1,9 @@
+$ git clone --no-hardlinks --single-branch --branch feat/flows-local-dev-ux /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local /tmp/ws13-gallery-review
+Cloning into '/tmp/ws13-gallery-review'...
+done.
+EXIT_CODE=0
+$ cd /tmp/ws13-gallery-review
+$ npm install --ignore-scripts --no-audit --no-fund /tmp/ws13-review-artifacts/relayflows-sdk-2.0.8.tgz /tmp/ws13-review-artifacts/relayflows-2.0.8.tgz /tmp/ws13-artifacts/relayflows-runtime-darwin-arm64-2.0.8.tgz @relayflows/surface@2.0.8
+
+added 14 packages in 10s
+EXIT_CODE=0
