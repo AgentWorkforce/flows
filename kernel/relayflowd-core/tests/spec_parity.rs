@@ -129,3 +129,37 @@ fn memory_declaration_acceptance_matches_the_sdk_corpus() {
         );
     }
 }
+
+#[test]
+fn placement_requirements_have_identical_canonical_bytes_and_hash() {
+    assert_parity(
+        include_str!("../../../testdata/step-placement.spec.canonical.json"),
+        include_str!("../../../testdata/step-placement.spec.sha256"),
+    );
+}
+
+#[test]
+fn placement_declaration_acceptance_matches_the_sdk_corpus() {
+    let cases: Vec<Value> =
+        serde_json::from_str(include_str!("../../../testdata/placement-spec-cases.json")).unwrap();
+    for case in cases {
+        for kind in ["deterministic", "llm", "agent"] {
+            let mut step =
+                serde_json::json!({"id":"s","type":kind,"requirements":case["requirements"]});
+            step[match kind {
+                "deterministic" => "command",
+                "llm" => "prompt",
+                _ => "instruction",
+            }] = serde_json::json!("true");
+            let accepted = RunSpec::parse(&serde_json::json!({"steps":[step]}))
+                .and_then(|s| s.validate())
+                .is_ok();
+            assert_eq!(
+                accepted,
+                case["valid"].as_bool().unwrap(),
+                "{}: {kind}",
+                case["name"]
+            );
+        }
+    }
+}

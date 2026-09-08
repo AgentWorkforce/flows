@@ -1,0 +1,177 @@
+$ env RUSTC=/Users/khaliqgant/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc /Users/khaliqgant/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo test --manifest-path kernel/Cargo.toml --locked --offline --test spec_review_routing
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling libc v0.2.189
+   Compiling cfg-if v1.0.4
+   Compiling stable_deref_trait v1.2.1
+   Compiling version_check v0.9.5
+   Compiling autocfg v1.5.1
+   Compiling serde_core v1.0.229
+   Compiling zerocopy v0.8.56
+   Compiling getrandom v0.3.4
+   Compiling serde v1.0.229
+   Compiling smallvec v1.15.2
+   Compiling memchr v2.8.3
+   Compiling num-traits v0.2.19
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling generic-array v0.14.7
+   Compiling icu_properties_data v2.3.0
+   Compiling icu_normalizer_data v2.3.0
+   Compiling utf8_iter v1.0.4
+   Compiling syn v3.0.4
+   Compiling syn v2.0.119
+   Compiling synstructure v0.13.2
+   Compiling typenum v1.20.1
+   Compiling parking_lot_core v0.9.12
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling num-integer v0.1.47
+   Compiling zmij v1.0.23
+   Compiling ref-cast v1.0.27
+   Compiling num-bigint v0.4.8
+   Compiling zerofrom v0.1.8
+   Compiling aho-corasick v1.1.5
+   Compiling ahash v0.8.12
+   Compiling scopeguard v1.2.0
+   Compiling shlex v2.0.1
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling serde_json v1.0.151
+   Compiling find-msvc-tools v0.1.11
+   Compiling once_cell v1.21.4
+   Compiling regex-syntax v0.8.11
+   Compiling ppv-lite86 v0.2.21
+   Compiling cc v1.4.4
+   Compiling num-rational v0.4.2
+   Compiling lock_api v0.4.14
+   Compiling yoke v0.8.3
+   Compiling num-iter v0.1.46
+   Compiling num-complex v0.4.6
+   Compiling rand_core v0.9.5
+   Compiling borrow-or-share v0.2.4
+   Compiling pkg-config v0.3.34
+   Compiling itoa v1.0.18
+   Compiling bit-vec v0.8.0
+   Compiling vcpkg v0.2.15
+   Compiling bit-set v0.8.0
+   Compiling num v0.4.3
+   Compiling rand_chacha v0.9.0
+   Compiling parking_lot v0.12.5
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling outref v0.5.2
+   Compiling vsimd v0.8.0
+   Compiling lazy_static v1.5.0
+   Compiling regex-automata v0.4.18
+   Compiling libsqlite3-sys v0.35.0
+   Compiling bitflags v2.13.1
+   Compiling uuid v1.26.0
+   Compiling thiserror v2.0.20
+   Compiling percent-encoding v2.3.2
+   Compiling foldhash v0.1.5
+   Compiling utf8parse v0.2.2
+   Compiling anstyle-parse v1.0.0
+   Compiling hashbrown v0.15.5
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling uuid-simd v0.8.0
+   Compiling fraction v0.15.4
+   Compiling digest v0.10.7
+   Compiling rand v0.9.5
+   Compiling thiserror-impl v2.0.20
+   Compiling cpufeatures v0.2.17
+   Compiling fluent-uri v0.3.2
+   Compiling email_address v0.2.9
+   Compiling colorchoice v1.0.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling base64 v0.22.1
+   Compiling bytecount v0.6.9
+   Compiling num-cmp v0.1.0
+   Compiling anstyle v1.0.14
+   Compiling referencing v0.33.0
+   Compiling anstyle-query v1.1.5
+   Compiling ulid v1.2.1
+   Compiling sha2 v0.10.9
+   Compiling hashlink v0.10.0
+   Compiling anstream v1.0.0
+   Compiling clap_lex v1.1.0
+   Compiling heck v0.5.0
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling anyhow v1.0.104
+   Compiling fallible-iterator v0.3.0
+   Compiling strsim v0.11.1
+   Compiling clap_derive v4.6.4
+   Compiling getrandom v0.4.3
+   Compiling clap_builder v4.6.6
+   Compiling rustix v1.1.4
+   Compiling errno v0.3.14
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling fancy-regex v0.16.2
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_collections v2.3.0
+   Compiling regex v1.13.1
+   Compiling wait-timeout v0.2.1
+   Compiling fastrand v2.5.0
+   Compiling clap v4.6.6
+   Compiling icu_provider v2.3.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling tempfile v3.27.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling jsonschema v0.33.0
+   Compiling rusqlite v0.37.0
+   Compiling relayflowd-core v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd-core)
+   Compiling relayflowd-journal v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.90s
+     Running tests/spec_review_routing.rs (kernel/target/debug/deps/spec_review_routing-a37130322a188264)
+
+running 4 tests
+test malformed_epoch_routes_are_rejected_before_commit ... FAILED
+test attempt_scoped_route_is_rejected_at_append_and_replay ... FAILED
+test epoch_cannot_drop_or_replace_a_durable_route ... FAILED
+test workspace_pin_peels_tags_and_refuses_non_commit_objects ... FAILED
+
+failures:
+
+---- malformed_epoch_routes_are_rejected_before_commit stdout ----
+
+thread 'malformed_epoch_routes_are_rejected_before_commit' (89080030) panicked at relayflowd/tests/spec_review_routing.rs:38:9:
+malformed routing summary was committed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- attempt_scoped_route_is_rejected_at_append_and_replay stdout ----
+
+thread 'attempt_scoped_route_is_rejected_at_append_and_replay' (89080028) panicked at relayflowd/tests/spec_review_routing.rs:28:53:
+called `Result::unwrap_err()` on an `Ok` value: RunState { run_id: "run", spec: RunSpec { version: "0.1.0", name: None, description: None, cli: None, triggers: [], steps: [StepSpec { id: "s", depends_on: [], max_iterations: 1, retry: RetryPolicy { initial_backoff_ms: 100, max_backoff_ms: 60000, multiplier: 2, jitter_percent: 20 }, verification: VerificationSpec { output_contains: None, json_schema: None }, memory: None, requirements: None, kind: Deterministic { command: Shell("true"), timeout_ms: None } }], budget: None }, steps: {"s": StepRuntime { state: Runnable, attempts: 0, semantic_executions: 0, last_start_pins: None, last_end_pins: None, last_completion_reason: None, trajectory_tail: None, memory: None }}, memo: {}, budget: Budget { tokens_in: 0, tokens_out: 0, dollars: "0" }, completion: None, cancel_requested: None, current_pins: None, routing: {"s": RoutingDecision { profile: "batch", provider: "local", fallbacks_attempted: [], workspace: None }} }
+
+---- epoch_cannot_drop_or_replace_a_durable_route stdout ----
+
+thread 'epoch_cannot_drop_or_replace_a_durable_route' (89080029) panicked at relayflowd/tests/spec_review_routing.rs:51:9:
+epoch rewrote a durable route
+
+---- workspace_pin_peels_tags_and_refuses_non_commit_objects stdout ----
+
+thread 'workspace_pin_peels_tags_and_refuses_non_commit_objects' (89080031) panicked at relayflowd/tests/spec_review_routing.rs:78:5:
+assertion `left == right` failed
+  left: "657cfabb34dda0a5749214a3cde7216fe937b2c1"
+ right: "7f15257e6e0007ab0cd0717af19ef5bf8602dbff"
+
+
+failures:
+    attempt_scoped_route_is_rejected_at_append_and_replay
+    epoch_cannot_drop_or_replace_a_durable_route
+    malformed_epoch_routes_are_rejected_before_commit
+    workspace_pin_peels_tags_and_refuses_non_commit_objects
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p relayflowd --test spec_review_routing`
+
+exit_code=101

@@ -3,6 +3,7 @@
 mod append;
 mod channel;
 mod memory;
+mod placement;
 mod registry;
 mod segment;
 mod subscriptions;
@@ -496,6 +497,7 @@ mod tests {
                     pinned_revisions: BTreeMap::new(),
                     budget_spent: Budget::default(),
                     memory: BTreeMap::new(),
+                    routing: BTreeMap::new(),
                 },
                 20,
             )

@@ -37,6 +37,7 @@ mod drive;
 mod effects;
 mod memory;
 mod model;
+mod placement;
 mod remote;
 mod wake;
 pub use channels::ChannelCommandError;
@@ -167,6 +168,7 @@ impl<C: Clock> Engine<C> {
         options: DriveOptions,
     ) -> Result<RunOutcome> {
         spec.validate().context("invalid run spec")?;
+        self.preflight_placement(&spec)?;
         let run_id = Ulid::new().to_string();
         let path = self.run_path(&run_id);
         let now_ms = self.clock.now_ms();
@@ -193,6 +195,7 @@ impl<C: Clock> Engine<C> {
         self.registry()?
             .register(&run_id, &path)
             .context("register run")?;
+        self.bind_local_workspaces(&mut journal, &spec)?;
         self.drive(journal, spec, options)
     }
 

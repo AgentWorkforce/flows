@@ -1,0 +1,11 @@
+version: 0.1.0
+steps:
+  - id: write
+    type: deterministic
+    command: cat source.txt > shared.txt
+    requirements:
+      execution: batch
+      workspace: true
+      network: true
+      expectedDurationMs: 120000
+      preference: cost

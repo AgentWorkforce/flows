@@ -136,6 +136,7 @@ mod tests {
                     pinned_revisions: BTreeMap::new(),
                     budget_spent: Budget::default(),
                     memory: BTreeMap::new(),
+                    routing: BTreeMap::new(),
                 },
                 10,
             )

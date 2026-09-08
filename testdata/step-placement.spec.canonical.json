@@ -1,0 +1,1 @@
+{"steps":[{"command":"cat source.txt > shared.txt","depends_on":[],"id":"write","max_iterations":1,"requirements":{"execution":"batch","expected_duration_ms":120000,"network":true,"preference":"cost","workspace":true},"retry":{"initial_backoff_ms":100,"jitter_percent":20,"max_backoff_ms":60000,"multiplier":2},"type":"deterministic","verification":{}}],"version":"0.1.0"}

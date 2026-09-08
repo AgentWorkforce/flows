@@ -16,6 +16,7 @@ pub struct StepDispatch {
     pub lease_id: String,
     pub idempotency_key: String,
     pub pins: Pins,
+    pub routing: relayflowd_core::RoutingDecision,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wake_context: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,13 +66,20 @@ pub trait StepDispatcher: Send + Sync {
         self.executor(step.step_type())
     }
 
-    /// Opaque starting revisions/offsets reported by the selected worker for
-    /// the first agent attempt. Later attempts are derived from the journal.
-    fn starting_pins(&self, _step: &StepSpec) -> Result<Pins> {
-        Ok(Pins::default())
+    /// Supply starting pins for declared surfaces not yet covered by the journal.
+    /// The default runs `git rev-parse --verify HEAD^{commit}` in each declared local
+    /// worktree, using this process's filesystem, and fails on unreadable
+    /// worktrees or declared streams (it cannot report stream offsets).
+    /// Remote dispatchers must override this or `reserved_starting_pins` to
+    /// report revisions/offsets from their selected worker instead of local Git.
+    /// Surfaces already pinned by the run are carried forward from the journal.
+    fn starting_pins(&self, step: &StepSpec) -> Result<Pins> {
+        crate::workspace::starting_pins(step)
     }
 
-    /// Starting pins reported by the worker whose capacity was reserved.
+    /// Starting pins for the worker whose capacity was reserved. The default
+    /// delegates to `starting_pins`, including its local filesystem/Git behavior;
+    /// remote dispatchers override this when pin lookup depends on the reservation.
     fn reserved_starting_pins(
         &self,
         _run_id: &str,
@@ -83,6 +91,30 @@ pub trait StepDispatcher: Send + Sync {
 
     /// Release an admission that did not become a live assignment.
     fn release_dispatch_reservation(&self, _run_id: &str, _step_id: &str, _attempt: u32) {}
+
+    /// Fixed attached-worker placement. Provider-backed adapters override this
+    /// to report their existing orchestration decision; dispatch consumes the
+    /// journaled decision, including on retry, without choosing again.
+    fn routing_decision(
+        &self,
+        _run_id: &str,
+        step: &StepSpec,
+        _attempt: u32,
+    ) -> Result<relayflowd_core::RoutingDecision> {
+        if step
+            .requirements
+            .as_ref()
+            .is_some_and(|r| r != &relayflowd_core::PlacementRequirements::default())
+        {
+            anyhow::bail!("worker dispatcher must match the declared placement requirements");
+        }
+        Ok(relayflowd_core::RoutingDecision {
+            profile: "attached-worker".into(),
+            provider: "worker".into(),
+            fallbacks_attempted: vec![],
+            workspace: None,
+        })
+    }
 
     fn dispatch(&self, dispatch: StepDispatch) -> Result<DispatchOutcome>;
 

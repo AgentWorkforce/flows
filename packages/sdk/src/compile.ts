@@ -110,6 +110,7 @@ function compileStep(step: StepSpec): StepSpec {
     ...(step.dependsOn !== undefined ? { dependsOn: step.dependsOn } : {}),
     maxIterations,
     ...(step.memory !== undefined ? { memory: step.memory } : {}),
+    ...(step.requirements !== undefined ? { requirements: step.requirements } : {}),
   };
 
   switch (step.type as StepType) {
@@ -353,13 +354,13 @@ function kernelTriggerToAuthoring(value: unknown, at: string): unknown {
 
 function kernelStepToAuthoring(value: unknown, at: string): unknown {
   const unionKeys = [
-    'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory',
+    'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements',
     'command', 'timeout_ms', 'prompt', 'model', 'cli', 'instruction',
     'recovery_mode', 'surfaces', 'permissions',
   ] as const;
   const step = requireKernelObject(value, unionKeys, at);
   const type = step['type'];
-  const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory'] as const;
+  const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements'] as const;
   const typeKeys = type === 'deterministic'
     ? ['command', 'timeout_ms'] as const
     : type === 'llm'
@@ -373,6 +374,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
   const common = {
     id: step['id'],
     type,
+    ...(step['requirements'] !== undefined ? { requirements: kernelRequirementsToAuthoring(step['requirements'], `${at}.requirements`) } : {}),
     ...(dependsOn !== undefined && (!Array.isArray(dependsOn) || dependsOn.length > 0)
       ? { dependsOn }
       : {}),
@@ -507,6 +509,10 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
     max_iterations: step.maxIterations ?? 1,
     retry: { ...KERNEL_RETRY_DEFAULTS },
     verification: toKernelVerification(step),
+    ...(step.requirements !== undefined ? { requirements: {
+      ...Object.fromEntries(Object.entries(step.requirements).filter(([key]) => key !== 'expectedDurationMs')),
+      ...(step.requirements.expectedDurationMs !== undefined ? { expected_duration_ms: step.requirements.expectedDurationMs } : {}),
+    } } : {}),
     ...(step.memory !== undefined ? { memory: {
       scope: step.memory.scope,
       query: step.memory.query,
@@ -590,3 +596,11 @@ export function compileAndHash(yaml: string): { spec: FlowSpec; kernelSpec: Kern
 }
 
 export { SPEC_SCHEMA_VERSION, canonicalize, specHash };
+
+function kernelRequirementsToAuthoring(value: unknown, at: string): unknown {
+  const requirements = requireKernelObject(value, ['execution', 'workspace', 'network', 'expected_duration_ms', 'preference'], at);
+  return {
+    ...copyDefined(requirements, ['execution', 'workspace', 'network', 'preference']),
+    ...(requirements['expected_duration_ms'] !== undefined ? { expectedDurationMs: requirements['expected_duration_ms'] } : {}),
+  };
+}

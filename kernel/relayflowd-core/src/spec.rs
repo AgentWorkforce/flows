@@ -172,6 +172,9 @@ impl RunSpec {
                         detail,
                     })?;
             }
+            if let Some(requirements) = &step.requirements {
+                requirements.validate().map_err(SpecError::Malformed)?;
+            }
             step.retry.validate(&step.id)?;
         }
 
@@ -275,6 +278,7 @@ const STEP_COMMON_FIELDS: &[&str] = &[
     "retry",
     "verification",
     "memory",
+    "requirements",
 ];
 const STEP_DETERMINISTIC_FIELDS: &[&str] = &["command", "timeout_ms"];
 const STEP_LLM_FIELDS: &[&str] = &["prompt", "model", "cli"];
@@ -312,6 +316,9 @@ fn reject_unknown_step_fields(value: &Value) -> Result<(), SpecError> {
                 detail,
             })?;
         }
+        if let Some(requirements) = object.get("requirements") {
+            crate::placement::validate_shape(requirements).map_err(SpecError::Malformed)?;
+        }
         for key in object.keys() {
             if !STEP_COMMON_FIELDS.contains(&key.as_str()) && !kind_fields.contains(&key.as_str()) {
                 return Err(SpecError::UnknownField {
@@ -337,6 +344,8 @@ pub struct StepSpec {
     pub verification: VerificationSpec,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory: Option<crate::memory::MemorySpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requirements: Option<crate::PlacementRequirements>,
     #[serde(flatten)]
     pub kind: StepKind,
 }

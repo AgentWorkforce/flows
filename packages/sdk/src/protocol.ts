@@ -171,7 +171,16 @@ export interface MemoryInjectedPayload {
   provider: string;
 }
 
+export interface RoutingDecision {
+  profile: string;
+  provider: string;
+  fallbacks_attempted: string[];
+  workspace?: string;
+}
+
 export interface StepDispatchEvent {
+  /** Durable choice; optional only for older kernel protocol compatibility. */
+  routing?: RoutingDecision;
   /** Already journaled and charged; completion usage excludes this cost. */
   memory?: MemoryInjectedPayload;
   run_id: string;

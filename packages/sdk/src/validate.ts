@@ -229,6 +229,24 @@ class Validator {
     }
   }
 
+  private validateRequirements(value: unknown, at: string): void {
+    if (!isObject(value)) { this.fail(`${at}: expected an object`); return; }
+    this.checkKeys(value, ['execution', 'workspace', 'network', 'expectedDurationMs', 'preference'], at);
+    for (const field of ['workspace', 'network']) {
+      if (value[field] !== undefined && typeof value[field] !== 'boolean') this.fail(`${at}.${field}: expected a boolean`);
+    }
+    if (value['execution'] !== undefined && !['batch', 'interactive'].includes(value['execution'] as string)) {
+      this.fail(`${at}.execution: expected batch | interactive`);
+    }
+    if (value['preference'] !== undefined && !['cost', 'latency', 'reliability', 'balanced'].includes(value['preference'] as string)) {
+      this.fail(`${at}.preference: expected cost | latency | reliability | balanced`);
+    }
+    if (value['expectedDurationMs'] !== undefined &&
+        (!Number.isSafeInteger(value['expectedDurationMs']) || (value['expectedDurationMs'] as number) <= 0)) {
+      this.fail(`${at}.expectedDurationMs: expected a positive safe integer`);
+    }
+  }
+
   private validateMemory(value: unknown, at: string): void {
     if (!isObject(value)) {
       this.fail(`${at}: expected an object`);
@@ -328,6 +346,7 @@ class Validator {
     const type = st['type'] as StepType;
     this.checkKeys(st, [...STEP_COMMON_FIELDS, ...STEP_FIELDS_BY_TYPE[type]], at);
 
+    if (st['requirements'] !== undefined) this.validateRequirements(st['requirements'], `${at}.requirements`);
     if (st['memory'] !== undefined) this.validateMemory(st['memory'], `${at}.memory`);
 
     if (st['dependsOn'] !== undefined) {

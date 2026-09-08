@@ -1,0 +1,127 @@
+[
+  {
+    "name": "all",
+    "requirements": {
+      "execution": "batch",
+      "workspace": true,
+      "network": true,
+      "expected_duration_ms": 120000,
+      "preference": "cost"
+    },
+    "valid": true
+  },
+  {
+    "name": "empty",
+    "requirements": {},
+    "valid": true
+  },
+  {
+    "name": "interactive",
+    "requirements": {
+      "execution": "interactive"
+    },
+    "valid": true
+  },
+  {
+    "name": "false",
+    "requirements": {
+      "workspace": false,
+      "network": false
+    },
+    "valid": true
+  },
+  {
+    "name": "null",
+    "requirements": null,
+    "valid": false
+  },
+  {
+    "name": "array",
+    "requirements": [],
+    "valid": false
+  },
+  {
+    "name": "typo",
+    "requirements": {
+      "workspce": true
+    },
+    "valid": false
+  },
+  {
+    "name": "provider",
+    "requirements": {
+      "provider": "daytona"
+    },
+    "valid": false
+  },
+  {
+    "name": "null-field",
+    "requirements": {
+      "execution": null
+    },
+    "valid": false
+  },
+  {
+    "name": "bad-mode",
+    "requirements": {
+      "execution": "shell"
+    },
+    "valid": false
+  },
+  {
+    "name": "bad-bool",
+    "requirements": {
+      "workspace": "true"
+    },
+    "valid": false
+  },
+  {
+    "name": "bad-network",
+    "requirements": {
+      "network": "internet"
+    },
+    "valid": false
+  },
+  {
+    "name": "bad-preference",
+    "requirements": {
+      "preference": "cheap"
+    },
+    "valid": false
+  },
+  {
+    "name": "zero",
+    "requirements": {
+      "expected_duration_ms": 0
+    },
+    "valid": false
+  },
+  {
+    "name": "negative",
+    "requirements": {
+      "expected_duration_ms": -1
+    },
+    "valid": false
+  },
+  {
+    "name": "fraction",
+    "requirements": {
+      "expected_duration_ms": 1.5
+    },
+    "valid": false
+  },
+  {
+    "name": "unsafe",
+    "requirements": {
+      "expected_duration_ms": 9007199254740992
+    },
+    "valid": false
+  },
+  {
+    "name": "safe",
+    "requirements": {
+      "expected_duration_ms": 9007199254740991
+    },
+    "valid": true
+  }
+]

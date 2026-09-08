@@ -48,7 +48,7 @@ export type OutputVerificationSpec = OutputContainsGate | JsonSchemaGate;
 
 /**
  * Agent-step recovery modes (RFC Appendix A rule 4). Default is `reset`.
- * `deterministic` / `llm` steps have no workspace, so these do not apply.
+ * These recovery modes apply to agent steps; deterministic steps retry their commands.
  */
 export type RecoveryMode = 'reset' | 'inspect' | 'manual';
 
@@ -107,8 +107,24 @@ export interface KernelMemorySpec {
   budget: KernelBudgetSpec;
 }
 
+/** Capability needs, never provider names or source revisions. */
+export interface PlacementRequirements {
+  execution?: 'batch' | 'interactive';
+  /** Share the run tree; defaults true for deterministic steps declaring requirements. */
+  workspace?: boolean;
+  /** True requests connectivity; false does not impose a network deny policy. */
+  network?: boolean;
+  expectedDurationMs?: number;
+  preference?: 'cost' | 'latency' | 'reliability' | 'balanced';
+}
+
+export interface KernelPlacementRequirements extends Omit<PlacementRequirements, 'expectedDurationMs'> {
+  expected_duration_ms?: number;
+}
+
 /** Fields shared by every step on the ladder. */
 export interface BaseStepSpec {
+  requirements?: PlacementRequirements;
   memory?: MemorySpec;
   /** Stable step identity; journaled as `step_id` and hashed into the idempotency key. */
   id: string;
@@ -122,7 +138,7 @@ export interface BaseStepSpec {
 /**
  * Rung 1 — a pure script. Executed by the `relayflowd` binary: spawn command,
  * capture stdout/exit code. Output = `{exit_code, stdout_tail}`. Gate-1
- * deterministic steps are pure (no pins).
+ * deterministic steps with placement requirements pin their worktree base commit.
  */
 export interface DeterministicStepSpec extends BaseStepSpec {
   type: 'deterministic';
@@ -286,6 +302,7 @@ export interface KernelVerificationSpec {
 }
 
 export interface KernelStepCommon {
+  requirements?: KernelPlacementRequirements;
   memory?: KernelMemorySpec;
   id: string;
   depends_on: string[];

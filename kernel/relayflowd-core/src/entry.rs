@@ -25,6 +25,8 @@ pub enum EntryType {
     /// "Native silent-death" answer at the journal level.
     #[serde(rename = "subscription.stale")]
     SubscriptionStale,
+    #[serde(rename = "step.routed")]
+    StepRouted,
     #[serde(rename = "step.attempt.started")]
     StepAttemptStarted,
     #[serde(rename = "step.completed")]
@@ -68,6 +70,7 @@ impl EntryType {
             Self::SubscriptionRegistered => "subscription.registered",
             Self::SubscriptionMatched => "subscription.matched",
             Self::SubscriptionStale => "subscription.stale",
+            Self::StepRouted => "step.routed",
             Self::StepAttemptStarted => "step.attempt.started",
             Self::StepCompleted => "step.completed",
             Self::WaitEvent => "wait.event",
@@ -95,6 +98,7 @@ impl EntryType {
             "subscription.registered" => Self::SubscriptionRegistered,
             "subscription.matched" => Self::SubscriptionMatched,
             "subscription.stale" => Self::SubscriptionStale,
+            "step.routed" => Self::StepRouted,
             "step.attempt.started" => Self::StepAttemptStarted,
             "step.completed" => Self::StepCompleted,
             "wait.event" => Self::WaitEvent,
@@ -385,6 +389,8 @@ pub struct EpochSummaryPayload {
     /// Accepted packs are retained without charging them again at the epoch boundary.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub memory: BTreeMap<String, crate::memory::MemoryInjectedPayload>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub routing: BTreeMap<String, crate::RoutingDecision>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

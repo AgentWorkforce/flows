@@ -1,0 +1,32 @@
+$ cd kernel && cargo test --workspace --test routing_diagnostics
+   Compiling relayflowd v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-225-placement-wt/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.95s
+     Running tests/routing_diagnostics.rs (target/debug/deps/routing_diagnostics-ddddee3a427ee9ae)
+
+running 2 tests
+test malformed_routes_name_the_same_field_at_append_replay_and_epoch_replay ... FAILED
+test duplicate_routes_have_a_distinct_diagnostic_and_leave_the_original_fact_intact ... FAILED
+
+failures:
+
+---- malformed_routes_name_the_same_field_at_append_replay_and_epoch_replay stdout ----
+
+thread 'malformed_routes_name_the_same_field_at_append_replay_and_epoch_replay' (85896877) panicked at relayflowd/tests/routing_diagnostics.rs:40:9:
+assertion failed: journal.append(&entry).unwrap_err().to_string().contains(&expected)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- duplicate_routes_have_a_distinct_diagnostic_and_leave_the_original_fact_intact stdout ----
+
+thread 'duplicate_routes_have_a_distinct_diagnostic_and_leave_the_original_fact_intact' (85896876) panicked at relayflowd/tests/routing_diagnostics.rs:57:5:
+assertion failed: journal.append(&entry).unwrap_err().to_string().contains(expected)
+
+
+failures:
+    duplicate_routes_have_a_distinct_diagnostic_and_leave_the_original_fact_intact
+    malformed_routes_name_the_same_field_at_append_replay_and_epoch_replay
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p relayflowd --test routing_diagnostics`
+
+exit_code=101
