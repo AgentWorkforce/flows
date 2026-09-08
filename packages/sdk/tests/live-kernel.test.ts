@@ -63,6 +63,8 @@ function locateRelayflowd(): string {
 }
 const temporaryDirectories: string[] = [];
 const daemons: ChildProcess[] = [];
+/** Detached daemons this suite did not spawn itself, reaped by pid. */
+const daemonPids: number[] = [];
 const clients: JournalClient[] = [];
 
 beforeAll(() => {
@@ -75,6 +77,13 @@ beforeAll(() => {
 afterEach(async () => {
   for (const client of clients.splice(0)) client.close();
   for (const daemon of daemons.splice(0)) await stopDaemon(daemon);
+  for (const pid of daemonPids.splice(0)) {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      // Already gone.
+    }
+  }
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -1170,10 +1179,14 @@ steps:
     expect(refused.stderr).toContain('REFUSED [cli_missing]');
     expect(runArtifacts(dataDir)).toEqual(before);
 
+    // `--no-spawn` is what still makes an absent daemon a refusal: `flows run`
+    // otherwise starts one (kernel/DAEMON-LIFECYCLE.md §3, §4). The property
+    // this case pins -- refused before any journal write, naming the socket --
+    // is unchanged, and `runArtifacts(absentDir)` below still proves it.
     const absentDir = temporaryDirectory('flows-live-absent-');
     const absentSocket = join(absentDir, 'relayflowd.sock');
     const unreachable = invokeCli([
-      'run', '--data-dir', absentDir, join(TESTDATA, 'hello-deterministic.flow.yaml'),
+      'run', '--no-spawn', '--data-dir', absentDir, join(TESTDATA, 'hello-deterministic.flow.yaml'),
     ]);
     expect(unreachable.status).toBe(2);
     expect(unreachable.stderr).toContain('REFUSED [daemon_unreachable]');
@@ -1181,6 +1194,41 @@ steps:
     expect(unreachable.stderr).toContain('relayflowd --data-dir');
     expect(runArtifacts(absentDir)).toEqual([]);
   });
+
+  // kernel/DAEMON-LIFECYCLE.md §6 test 15, against the real binary: the
+  // property is enforced by the daemon's `flock(2)`, so nothing short of two
+  // real relayflowd processes contending for one data dir tests it. The
+  // CLI-side half (a losing child exits 3 and its CLI keeps polling) is
+  // covered hermetically in daemon-lifecycle-live.test.ts.
+  it('starts exactly one daemon when two runs race for one empty data dir', async () => {
+    const dataDir = join(temporaryDirectory('flows-live-race-'), 'data');
+    const flow = join(TESTDATA, 'hello-deterministic.flow.yaml');
+
+    const [first, second] = await Promise.all([
+      invokeCliAsync(['run', '--data-dir', dataDir, flow]),
+      invokeCliAsync(['run', '--data-dir', dataDir, flow]),
+    ]);
+
+    expect(first.status, first.stderr).toBe(0);
+    expect(second.status, second.stderr).toBe(0);
+    expect(first.stdout).toContain('completionReason: success');
+    expect(second.stdout).toContain('completionReason: success');
+
+    // One socket, one owner. `ps` rather than the connection file, because the
+    // question is how many PROCESSES survived, and a file can only ever name
+    // the last writer.
+    const surviving = spawnSync('/bin/sh', ['-c', `ps ax -o pid=,command= | grep -F -- '--data-dir ${dataDir} serve' | grep -v grep`], { encoding: 'utf8' })
+      .stdout.split('\n').filter((line) => line.trim().length > 0);
+    for (const line of surviving) {
+      const pid = Number.parseInt(line.trim().split(/\s+/)[0]!, 10);
+      if (Number.isInteger(pid)) daemonPids.push(pid);
+    }
+    expect(surviving, surviving.join('\n')).toHaveLength(1);
+
+    // Two runs, two journals: both CLIs reached the same daemon rather than
+    // one of them quietly reusing the other's run.
+    expect(runJournals(dataDir)).toHaveLength(2);
+  }, 60_000);
 });
 
 describe('JournalClient wire conformance against live relayflowd', () => {

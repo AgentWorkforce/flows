@@ -120,7 +120,12 @@ pub fn sweep_pass(
         // a no-op. The signal we just emitted was a spurious alert
         // (harmless — at-least-once observability); the row remains
         // sweep-visible for the next real crossing.
-        match registry.latch_stale(&row.flow_key, &row.subscription_id, row.last_event_at_ms, now_ms) {
+        match registry.latch_stale(
+            &row.flow_key,
+            &row.subscription_id,
+            row.last_event_at_ms,
+            now_ms,
+        ) {
             Ok(true) => {}
             Ok(false) => {
                 eprintln!(
@@ -251,7 +256,9 @@ mod tests {
         sweep_pass(dir.path(), &sweep_id_for(1_040_000), "w", 1_040_000).unwrap();
 
         // Next bucket, same row: must NOT re-emit (latched).
-        let leftover = registry.detect_stale(&sweep_id_for(1_080_000), "w", 1_080_000).unwrap();
+        let leftover = registry
+            .detect_stale(&sweep_id_for(1_080_000), "w", 1_080_000)
+            .unwrap();
         assert!(
             leftover.is_empty(),
             "subscription.stale re-emitted after being latched: {leftover:?}"

@@ -298,17 +298,43 @@ Gate 1 ships three CLI verbs over the journal protocol:
 
 ```text
 flows check [--json] <flow.yaml|spec.json>
-flows run [--json] [--data-dir <dir>] <flow.yaml|spec.json>
-flows run [--json] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>
-flows resume [--json] [--data-dir <dir>] <run-id>
+flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>
+flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>
+flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>
 ```
 
 `check` compiles and preflights without starting a run. `run` performs that
 same preflight before contacting `relayflowd`, then submits the compiled spec
 to `<data-dir>/relayflowd.sock`; `resume` asks that daemon to continue an
 existing run from its journal. The data directory defaults to `.relayflowd`.
-Neither verb starts the daemon implicitly. `--json` writes one report-shaped
-object to stdout while diagnostics remain on stderr.
+`--json` writes one report-shaped object to stdout while diagnostics remain on
+stderr.
+
+`run` and `resume` attach to the daemon serving `<data-dir>` or start one
+(kernel/DAEMON-LIFECYCLE.md). The attach is decided by the socket, not by a
+file: `<data-dir>/connection.json` is read and validated, but nothing is
+attached to until a `hello` is answered on the socket path recomputed from
+`--data-dir`. When nothing answers, the CLI spawns `relayflowd serve
+--data-dir <dir>` detached — in its own session, with stdio never inheriting
+the CLI's and its stderr appended to `<data-dir>/relayflowd.log` — and polls
+for it, bounded. Concurrent invocations are safe: the daemon holds an
+exclusive lock on the data dir, so a redundant one exits without touching
+anything and its CLI attaches to the winner.
+
+`relayflowd serve` remains fully supported and unchanged for an operator who
+starts it by hand; `run` and `resume` attach to it and never signal, restart,
+or terminate a daemon. `--no-spawn` (or `FLOWS_NO_SPAWN=1`) refuses instead of
+starting one — the lever for CI that means to assert a daemon is already
+present. `check` never opens a socket and needs no daemon, no data directory,
+and no `relayflowd` binary at all.
+
+A `run` or `resume` that cannot get a daemon is refused before any journal
+write (exit 2) and names which step failed: `daemon_unreachable` under
+`--no-spawn`, `relayflowd_not_found` when no binary could be located,
+`daemon_start_failed` when the spawned daemon exited during startup,
+`daemon_start_timeout` when it never began serving, and
+`daemon_protocol_mismatch` against a live daemon speaking another protocol
+version — which refuses rather than starting a second daemon over it.
 
 A direct `.flow.ts` run requires `--input`. When its argument names an existing
 regular file, the CLI parses that file as JSON; otherwise it parses the argument

@@ -27,6 +27,17 @@ import type { KernelRunSpec, StepType } from './spec.js';
 export interface JournalClientOptions {
   /** Override the timeout for bounded protocol requests (ms). Default 30000. */
   requestTimeoutMs?: number;
+  /**
+   * Bound on `connect()` (ms). Default 2000.
+   *
+   * `connect()` used to have no timer at all, which was survivable while the
+   * only caller was a command that had already decided a daemon was there.
+   * `daemon-lifecycle.ts` probes the socket before every command, and a
+   * listener that accepts but never answers would otherwise hold the CLI for
+   * the 30s request default before it could decide to spawn
+   * (kernel/DAEMON-LIFECYCLE.md §4).
+   */
+  connectTimeoutMs?: number;
 }
 
 interface Pending {
@@ -51,6 +62,7 @@ export class JournalClient extends EventEmitter {
   private buffer = '';
   private readonly pending = new Map<string, Pending>();
   private readonly requestTimeoutMs: number;
+  private readonly connectTimeoutMs: number;
 
   constructor(
     private readonly socketPath: string,
@@ -58,6 +70,7 @@ export class JournalClient extends EventEmitter {
   ) {
     super();
     this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
+    this.connectTimeoutMs = options.connectTimeoutMs ?? 2_000;
   }
 
   /** Open the unix socket connection. Rejects on connect failure (fail-closed). */
@@ -65,13 +78,21 @@ export class JournalClient extends EventEmitter {
     return new Promise((resolve, reject) => {
       if (this.socket) return resolve();
       const socket = createConnection({ path: this.socketPath });
+      const timer = setTimeout(() => {
+        socket.removeAllListeners();
+        socket.destroy();
+        this.failAll(new Error(`journal client: connect timed out after ${this.connectTimeoutMs}ms`));
+        reject(new Error(`journal client: connect timed out after ${this.connectTimeoutMs}ms`));
+      }, this.connectTimeoutMs);
       const onError = (err: Error): void => {
+        clearTimeout(timer);
         socket.removeAllListeners();
         this.failAll(err);
         reject(new Error(`journal client: connect failed: ${err.message}`));
       };
       socket.once('error', onError);
       socket.once('connect', () => {
+        clearTimeout(timer);
         socket.removeListener('error', onError);
         socket.on('error', (err) => this.failAll(err));
         socket.on('data', (chunk) => this.onData(chunk));

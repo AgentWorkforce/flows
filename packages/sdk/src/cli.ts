@@ -11,6 +11,7 @@ import {
   resumeFlow,
   runFlow,
   type RunExecution,
+  type RunProgress,
   type RunReport,
 } from './cli/run.js';
 import { runDirectFlow } from './cli/direct-run.js';
@@ -28,8 +29,8 @@ export interface CliIo {
 type CliExitCode = 0 | 1 | 2 | 3;
 type ParsedArgs =
   | { command: 'check'; json: boolean; value: string }
-  | { command: 'run'; dataDir: string; input: string | undefined; json: boolean; value: string }
-  | { command: 'resume'; dataDir: string; json: boolean; value: string }
+  | { command: 'run'; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; value: string }
+  | { command: 'resume'; dataDir: string; json: boolean; spawn: boolean; value: string }
   | { command: 'hn-monitor'; sub: 'start'; dataDir: string; specPath: string; pollIntervalMs: number | undefined }
   | { command: 'tick'; sub: 'start'; dataDir: string; specPath: string; scheduleId: string;
       intervalMs: number; epochMs: number | undefined; maxCatchUp: number | undefined;
@@ -39,12 +40,22 @@ const DEFAULT_DATA_DIR = '.relayflowd';
 const USAGE = [
   'Usage:',
   'flows check [--json] <flow.yaml|spec.json>',
-  'flows run [--json] [--data-dir <dir>] <flow.yaml|spec.json>',
-  'flows run [--json] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>',
+  'flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>',
+  'flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
-  'flows resume [--json] [--data-dir <dir>] <run-id>',
+  'flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>',
   'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
 ].join(' ');
+
+/**
+ * `FLOWS_NO_SPAWN=1` is `--no-spawn` for a whole environment: the lever for CI
+ * that means to assert a daemon is already present rather than conjure one
+ * (kernel/DAEMON-LIFECYCLE.md §4). Only the exact string `1` counts — an
+ * unset or empty variable must not be read as an opinion.
+ */
+function spawnAllowedByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env['FLOWS_NO_SPAWN'] !== '1';
+}
 
 const PROCESS_IO: CliIo = {
   stdout: (line) => process.stdout.write(`${line}\n`),
@@ -63,6 +74,11 @@ export async function runCli(
   }
 
   if (parsed.command === 'check') {
+    // Deliberately daemon-free (kernel/DAEMON-LIFECYCLE.md §4). `checkFlow` is
+    // a pure compile-and-preflight that opens no socket, and the parser
+    // refuses `--data-dir` on `check`, so there is no data dir to attach to.
+    // `flows check` keeps working with no daemon, no relayflowd binary and no
+    // data directory at all -- a property worth keeping, not an omission.
     const checked = checkFlow(parsed.value);
     emitCheckReport(checked.report, parsed.json, io);
     return checked.report.ok ? 0 : 2;
@@ -110,16 +126,19 @@ export async function runCli(
     }
   }
 
+  // Attach-or-spawn runs inside `runFlow`/`resumeFlow`/`runDirectFlow`, at the
+  // single `connect()` seam immediately before journal-client.ts is used --
+  // not here. Hoisting it above the dispatch would start a daemon as a side
+  // effect of an invocation that is about to be refused for bad input.
+  const lifecycle = {
+    onWait: (progress: RunProgress) => emitWait(progress, io),
+    daemon: { spawn: parsed.spawn && spawnAllowedByEnv() },
+  };
   const execution = parsed.command === 'run'
     ? isAuthoredFlowPath(parsed.value)
-      ? await runDirectFlow(
-          parsed.value,
-          parsed.input,
-          parsed.dataDir,
-          { onWait: (progress) => emitWait(progress, io) },
-        )
-      : await runFlow(parsed.value, parsed.dataDir, { onWait: (progress) => emitWait(progress, io) })
-    : await resumeFlow(parsed.value, parsed.dataDir, { onWait: (progress) => emitWait(progress, io) });
+      ? await runDirectFlow(parsed.value, parsed.input, parsed.dataDir, lifecycle)
+      : await runFlow(parsed.value, parsed.dataDir, lifecycle)
+    : await resumeFlow(parsed.value, parsed.dataDir, lifecycle);
   emitRunReport(execution, parsed.json, io);
   return execution.exitCode;
 }
@@ -143,6 +162,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let json = false;
   let dataDir = DEFAULT_DATA_DIR;
   let sawDataDir = false;
+  let spawn = true;
   let input: string | undefined;
   let sawInput = false;
   const positionals: string[] = [];
@@ -151,6 +171,13 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     if (argument === '--json') {
       if (json) return undefined;
       json = true;
+      continue;
+    }
+    if (argument === '--no-spawn') {
+      // Refused on `check` for the same reason `--data-dir` is: `check` never
+      // opens a socket, so a daemon flag there would describe nothing.
+      if (command === 'check' || !spawn) return undefined;
+      spawn = false;
       continue;
     }
     if (argument === '--data-dir') {
@@ -178,8 +205,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   return command === 'check'
     ? { command, json, value: positionals[0]! }
     : command === 'run'
-      ? { command, dataDir, input, json, value: positionals[0]! }
-      : { command, dataDir, json, value: positionals[0]! };
+      ? { command, dataDir, input, json, spawn, value: positionals[0]! }
+      : { command, dataDir, json, spawn, value: positionals[0]! };
 }
 
 function parseHnMonitorArgs(rest: readonly string[]): ParsedArgs | undefined {
