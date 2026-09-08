@@ -58,3 +58,15 @@ resolver that picks a messaging workspace, while the API key authenticates
 `POST /api/v1/workflows/prepare` — which `--sync-code` requires, and `--sync-code`
 is how the swarm receives the PR diff. Given no API key, the CLI falls back to an
 interactive device login that no runner can approve and exits after the grant expires.
+
+# Get Started
+
+Installation:
+```
+npm install -g relayflows
+```
+
+Give your agent a skill to write a flow:
+```
+npx skills add https://github.com/agentworkforce/skills --skill writing-relayflows
+```

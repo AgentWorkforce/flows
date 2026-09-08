@@ -9,7 +9,7 @@ on:
         description: Package to publish (single-package selections are dry-run only)
         required: true
         type: choice
-        options: [all, surface, sdk, runtime-linux-x64]
+        options: [all, surface, sdk, runtime-linux-x64, relayflows]
         default: all
       version:
         description: Version bump type
@@ -108,7 +108,26 @@ jobs:
           ./node_modules/.bin/tsc
           node scripts/make-cli-executable.mjs
       - name: Pack and assert SDK
+        id: sdk
         run: node scripts/pack-release.mjs sdk
+      # relayflows only re-exposes the SDK's CLI under the unscoped name, so it
+      # builds against the packed SDK the same way the SDK builds against the
+      # packed surface — and it's cheap enough to smoke-test for real here
+      # rather than only asserting the tarball's shape in pack-release.mjs.
+      - name: Build relayflows CLI wrapper against packed SDK
+        env:
+          SDK_TARBALL: ${{ steps.sdk.outputs.tarball }}
+        working-directory: packages/relayflows
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts "$SDK_TARBALL"
+          test ! -L node_modules/@relayflows/sdk
+          report=$(node bin/flows.js check --json ../../testdata/hello-deterministic.flow.yaml)
+          echo "$report" | node -e '
+            const report = JSON.parse(require("fs").readFileSync(0, "utf8"));
+            if (report.ok !== true) { console.error(report); process.exit(1); }
+          '
+      - name: Pack and assert relayflows CLI wrapper
+        run: node scripts/pack-release.mjs relayflows
       - name: Build relayflowd
         working-directory: kernel
         run: cargo build --locked --release -p relayflowd
@@ -152,13 +171,19 @@ jobs:
         with:
           name: build-output
           path: dist/build-output
+      # relayflows is the one unscoped package, so `npm pack` names its tarball
+      # `relayflows-<version>.tgz`, not `relayflows-relayflows-<version>.tgz`.
       - name: Restore built packages
         env:
           NEW_VERSION: ${{ needs.build.outputs.new_version }}
         run: |
-          for package in surface sdk runtime-linux-x64; do
-            tar -xzf "dist/build-output/relayflows-${package}-${NEW_VERSION}.tgz" \
-              --strip-components=1 -C "packages/$package"
+          for package in surface sdk runtime-linux-x64 relayflows; do
+            if [[ "$package" == relayflows ]]; then
+              tarball="relayflows-${NEW_VERSION}.tgz"
+            else
+              tarball="relayflows-${package}-${NEW_VERSION}.tgz"
+            fi
+            tar -xzf "dist/build-output/$tarball" --strip-components=1 -C "packages/$package"
           done
       # Repack and check EVERYTHING before the first publish. Tar archives
       # preserve executable bits across Actions artifact upload/download.
@@ -167,18 +192,24 @@ jobs:
           node scripts/pack-release.mjs surface
           node scripts/pack-release.mjs sdk
           node scripts/pack-release.mjs runtime-linux-x64
-      - name: Publish to NPM (surface before SDK)
+          node scripts/pack-release.mjs relayflows
+      - name: Publish to NPM (surface before SDK, relayflows last)
         env:
           PACKAGE: ${{ inputs.package }}
           NEW_VERSION: ${{ needs.build.outputs.new_version }}
           DRY_RUN: ${{ inputs.dry_run }}
           NPM_TAG: ${{ inputs.tag }}
         run: |
-          for package in surface sdk runtime-linux-x64; do
+          for package in surface sdk runtime-linux-x64 relayflows; do
             if [[ "$PACKAGE" != all && "$PACKAGE" != "$package" ]]; then continue; fi
+            if [[ "$package" == relayflows ]]; then
+              tarball="relayflows-${NEW_VERSION}.tgz"
+            else
+              tarball="relayflows-${package}-${NEW_VERSION}.tgz"
+            fi
             args=()
             if [[ "$DRY_RUN" == true ]]; then args+=(--dry-run); fi
-            npm publish "dist/publish/relayflows-${package}-${NEW_VERSION}.tgz" \
+            npm publish "dist/publish/$tarball" \
               --access public --provenance --ignore-scripts --tag "$NPM_TAG" "${args[@]}"
           done
       - name: Regenerate release lockfiles
@@ -188,17 +219,24 @@ jobs:
         run: |
           npm install --prefix packages/surface --package-lock-only --ignore-scripts
           npm install --prefix packages/sdk --package-lock-only --ignore-scripts --save-exact "@relayflows/surface@$NEW_VERSION"
+          npm install --prefix packages/relayflows --package-lock-only --ignore-scripts --save-exact "@relayflows/sdk@$NEW_VERSION"
           node --input-type=module - <<'NODE'
           import assert from 'node:assert/strict';
           import { readFileSync } from 'node:fs';
-          const lock = JSON.parse(readFileSync('packages/sdk/package-lock.json', 'utf8'));
-          const surface = lock.packages['node_modules/@relayflows/surface'];
-          assert.equal(surface.version, process.env.NEW_VERSION);
-          assert.match(surface.resolved, /^https:\/\/registry\.npmjs\.org\//);
-          assert(!surface.link, 'release lockfile must resolve the published surface');
+          const version = process.env.NEW_VERSION;
+          const check = (lockPath, depNodeModulesPath) => {
+            const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
+            const dep = lock.packages[depNodeModulesPath];
+            assert.equal(dep.version, version);
+            assert.match(dep.resolved, /^https:\/\/registry\.npmjs\.org\//);
+            assert(!dep.link, `release lockfile must resolve the published dependency (${lockPath})`);
+          };
+          check('packages/sdk/package-lock.json', 'node_modules/@relayflows/surface');
+          check('packages/relayflows/package-lock.json', 'node_modules/@relayflows/sdk');
           NODE
           npm ci --prefix packages/surface --dry-run --ignore-scripts
           npm ci --prefix packages/sdk --dry-run --ignore-scripts
+          npm ci --prefix packages/relayflows --dry-run --ignore-scripts
       - name: Commit version bump and create tag
         if: ${{ !inputs.dry_run }}
         env:
@@ -209,7 +247,8 @@ jobs:
           git config user.email 'actions@github.com'
           git add packages/surface/package.json packages/surface/package-lock.json \
             packages/sdk/package.json packages/sdk/package-lock.json \
-            packages/runtime-linux-x64/package.json
+            packages/runtime-linux-x64/package.json \
+            packages/relayflows/package.json packages/relayflows/package-lock.json
           if ! git diff --staged --quiet; then
             git commit -m "chore(release): v${NEW_VERSION}"
           fi
