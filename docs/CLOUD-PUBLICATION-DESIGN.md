@@ -2,8 +2,10 @@
 
 Status: **DESIGN ONLY — DO NOT BUILD.** The rollout coordinator relayed Khaliq's
 revised WS-14 scope on 2026-09-08: no standalone showcase app, gallery site, or
-gallery route; no publication backend implementation. Cloud surface ownership
-has not been identified. Every endpoint, scope, type, and URL below is proposed,
+gallery route; no publication backend implementation. Publishing requires a
+new endpoint in the Cloud repository, outside this lane, with no assigned owner.
+The written design is the deliverable; implementation is not an acceptance
+dependency for WS-14. Every endpoint, scope, type, and URL below is proposed,
 not an existing callable API. The SDK does not export `publishFlowRun` today.
 
 The built portion of WS-14 is declarative `runInCloud` plus cancellable
@@ -183,7 +185,7 @@ Examples that exist only as design source are not runnable gallery entries.
 
 Before implementation, an identified Cloud owner must settle storage/migrations,
 scope issuance, run-read delegation, journal projection versioning, replay
-sanitization, revocation behavior, and retention. A landing owner must identify
-the existing deployment target. Before a gallery launch, at least one real run
-must be published, viewed anonymously, excluded when unlisted, and revoked to
-404. These are proposed acceptance requirements, not test results for WS-14.
+sanitization, revocation behavior, and retention. The landing page was cancelled
+by Khaliq and has no WS-14 acceptance requirement. Before a future gallery
+launch, at least one real run must be published, viewed anonymously, excluded
+when unlisted, and revoked to 404. These are proposed acceptance requirements, not test results for WS-14.

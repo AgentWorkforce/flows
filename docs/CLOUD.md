@@ -46,7 +46,7 @@ Submission is never automatically retried: a lost HTTP response may follow a
 successful admission, and retrying without server idempotency could run twice.
 The receipt's `apiUrl` requires authentication and is **not a public share URL**.
 
-## Current limits and rollout dependencies
+## Current limits and scope
 
 - Cloud's v2 bootstrap explicitly rejects authored `.flow.ts` files. The SDK
   refuses those before HTTP rather than uploading code that cannot run. Inputs,
@@ -59,7 +59,9 @@ The receipt's `apiUrl` requires authentication and is **not a public share URL**
 - Cloud must provision and preflight agent workers; this client performs spec
   compilation only and cannot prove hosted credentials or worker availability.
 - `publishFlowRun` and the gallery are **design-only** under the revised WS-14
-  scope. No standalone app, site, route, or publication backend is being built.
+  scope, by Khaliq’s ruling. Publication needs a new endpoint in the Cloud
+  repository, outside this lane, with no assigned owner. The written design is
+  the deliverable; implementation is not a WS-14 acceptance dependency.
   The [publication and gallery design](CLOUD-PUBLICATION-DESIGN.md) specifies
   proposed endpoints, token scopes, visibility tiers, and public records. Cloud
   ownership has not been identified; the SDK does not export `publishFlowRun`.
@@ -73,7 +75,7 @@ temporary npm project and exercises both its exported function and installed
 `flows run --cloud` command. It verifies packaging and the HTTP contract, not
 Cloud execution.
 
-## Landing copy prepared for the showcase
+## Proposed positioning copy — document only
 
 **Deterministic gates. Session replay. Your CLI harness.**
 
@@ -87,8 +89,6 @@ work, then replay the session to understand how it got there.
 - **Bring your harness.** Keep your preferred coding-agent CLI and place the
   same explicit checks around its work.
 
-The [complete landing rewrite](LANDING-COPY.md) includes hero, feature sections,
-availability copy, and CTAs for the existing landing owner. It is not a
-deployment claim; the existing target is still unidentified.
-Cloud submission and public-gallery CTAs must not imply unsupported authored
-TypeScript execution or link to fabricated public runs.
+The landing page is **cancelled, not deferred**, by Khaliq’s ruling. This
+proposed copy is retained here as a document only. It will not be applied to a
+page; there is no deployment target or landing acceptance dependency.
