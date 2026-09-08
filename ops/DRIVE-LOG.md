@@ -3992,3 +3992,39 @@ Kept two caveats explicitly rather than declaring the PR clean:
 I did not merge it and did not recommend merging it — only withdrew the reason I
 had given for holding it. That call belongs to a reviewer who can verify the
 v1/SQS half.
+
+### 2026-09-08 — no reaper covers runs wedged in `running` (11 of them, all holding sandboxes)
+
+Drain: 1787 runs, **0 pending/launching**. The 11 in `running` are unchanged.
+
+Followed up because the stuck-run-reaper is exactly the file #3442 modifies.
+Every predicate in `stuck-run-reaper-core.ts` keys on either
+`wr.status = 'pending'` (lines 195, 281) or
+`wr.status IN ('completed','failed','cancelled')` (line 548). **Nothing matches
+`wr.status = 'running'`.** By construction the reaper cannot clear a run wedged
+in that state.
+
+An absence discriminates nothing on its own, so I checked whether something else
+covers it. The other code touching `'running'` is clone jobs, warm boxes,
+sandboxes and executors — none is a workflow-run staleness path. I did not prove
+exhaustively that no mechanism exists anywhere, but nothing in this repo
+transitions a workflow run out of `running` on staleness, and the observed
+zombies are consistent with that.
+
+All 11, and every one still holds a `sandboxId`:
+
+```
+58c94221  2026-05-29    c01f055c  2026-05-29    ceaac05a  2026-08-23
+3e231026  2026-08-26    687da868  2026-08-26    ebd68712  2026-08-26
+c1dc53fc  2026-08-26    ad5402b4  2026-08-26    fc4ce0ee  2026-08-27
+8178b6a1  2026-08-28    d390706f  2026-08-28
+```
+
+The two from 2026-05-29 have been `running` for over three months. If those
+sandbox IDs still correspond to live Daytona sandboxes, this is also a standing
+cost, not just untidy state.
+
+**Not acting on it.** Cancelling runs is a destructive outward-facing mutation
+and Khaliq's call, and adding running-reaping to #3442 would be scope creep on a
+PR that exists to fix the v2 launch payload shape. Recorded here and in the
+inbox rather than opening a new issue unattended.
