@@ -15445,3 +15445,47 @@ previous run's trajectory, with the citation in its output".
 Given ASAP: the first concrete step is cloning relayhistory and reading its
 `pack`/`learn`/`pair` serialization contract, because "consumed, not rewritten"
 means the contract dictates the provider's shape.
+
+## 2026-09-08 ~11:00Z — briefed the codex lane on the schema gap; could not confirm it landed
+
+Khaliq: have the codex agent drive the YAML schema gap.
+
+**Pinned the gap first**, so the brief would be actionable rather than a
+pointer. Reproduced in the lane's own worktree, rc=2:
+
+    $ node scripts/run-local-workflow.mjs workflows/drive.yaml
+    spec: unknown key "swarm"      (expected version|name|description|cli|agents|triggers|steps|budget)
+    spec: unknown key "workflows"
+    spec.version: unsupported version "1.0" (expected "0.1.0")
+    spec.agents: expected a map of named { cli, model } declarations
+    spec.steps: expected a non-empty array
+
+Seven files carry the legacy schema: drive.yaml, drive-cloud.yaml,
+bootstrap-gate1.yaml, review-swarm.yaml, watchdog.yaml, and both probes. The
+agents-as-list and workflows[].steps problems are structural, not cosmetic.
+
+**Sent a full brief** to `flows-runtime-0907` in steer mode, shaped by what this
+lane has taught me about instructions: start now, do not reply, do not return to
+your prompt, status comes from artifacts. It carries the five errors, the seven
+files, decision 13 as the constraint on choosing a compat shim over migration,
+the green baseline to not regress (kernel 205 / SDK 741), and "open a PR, do not
+merge".
+
+**I cannot confirm it was received, and I am not going to say otherwise.**
+`get_message_readers` returns `queued_or_unread`, readers empty. The receipt
+confirms enqueue, not injection — a distinction the tool states outright and one
+this lane has been burned by before.
+
+Tried to read the agent's screen to see whether it landed and could not:
+`dump-pty` needs a broker connection, there is no `.agentworkforce/relay/
+connection.json` in the worktree, and the broker's `AGENT_RELAY_BROKER_PORT` is
+`0` with no TCP listener visible on pid 58326. So the read path is closed to me
+from here.
+
+**What is actually known:** the process is alive (pid 58346, up ~10h) and has
+committed nothing since 2026-09-07 23:47Z. A queued DM waits for the recipient's
+next idle boundary; an agent parked at an interactive prompt may never reach
+one, which fits ten silent hours exactly.
+
+Not starting the same work in parallel — two workers on one task is the failure
+this repo keeps relearning. Escalating the choice to Khaliq instead.
