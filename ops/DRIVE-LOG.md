@@ -14514,3 +14514,47 @@ with one untracked probe file — so I worked in the directory that already owne
 the branch rather than fighting it. Checking before assuming cost one command.
 
 Remaining: #230's P1, then the P2s. Still no merges — signoff needs the swarm.
+
+## 2026-09-08 ~03:10Z — #230's two findings, and a gate that warned about its own defect
+
+Cleared both open threads on #230 (2e6a2b9). Nine findings left across five PRs.
+
+**P2 was the serious one.** The loss check scans every consecutive snapshot
+pair in the whole journal, so one legitimate `DROP TABLE` — or a RENAME, which
+drizzle snapshots as a drop plus a create — would fail this gate on every
+future run, forever. The uncomfortable part: **the PR description names that
+exact failure mode** ("or the gate gets disabled the first time someone runs it
+elsewhere") and I shipped it anyway. Writing down the risk is not the same as
+checking whether the thing I wrote has it, and it reads as though I had.
+
+Fixed with an acknowledgement file rather than by scoping to the merge — the
+script genuinely cannot know which migrations a merge introduced. Deliberate
+removals go in `ops/restack-verify/intentional-drops.txt`, one
+`<snapshot>:<table>` or `<snapshot>:<table>.<column>` per line. The gate keeps
+failing closed on an unexplained loss and an intentional one gets a place to be
+recorded instead of a reason to delete the gate.
+
+**P1's premise was wrong; its concern was not.** cubic said the loop "never
+inspects the snapshot payload" — it does, at the `tables` comparison, and the
+gate rejects the real pre-fix snapshot at `567724e06~1`. But the residual gap
+is real: coherent lineage plus an unchanged table set could still be stale,
+because nothing looked inside a table. And that is precisely the defect this
+gate exists for — a snapshot missing one jsonb column, which a table-name
+comparison passes. Columns are now compared per retained table. I said so on
+the thread rather than accepting a claim I could show was inaccurate.
+
+Four fixture cases, lineage coherent throughout: missing column -> exit 1;
+acknowledged -> 0; dropped table -> 1; table added -> 0.
+
+**And I nearly recorded those results wrong.** My first run printed `exit=0`
+for the failing case and I almost wrote it up as a bug in the fix. The `$?`
+was reading `sed`'s status through the pipe, not the script's. Same
+pipeline-exit mistake I made with `git push` earlier tonight, third time in
+this session. Re-ran capturing into a variable; all four are correct.
+
+**Process note that paid off:** `feat/restack-verify-flow` was checked out at
+`/private/tmp/flows-spec-review-230` — the spec-review agent's tree. I checked
+before touching it: clean, no uncommitted work, `.git` mtime 23:41, over three
+hours idle. The hazard is destroying someone's uncommitted work, and there was
+none, so pushing was safe. Last tick I learned to check instead of assume in
+the other direction; the check is what makes either answer usable.
