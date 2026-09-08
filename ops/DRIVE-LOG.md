@@ -3752,3 +3752,39 @@ transient build space being held and released, not a leak. Acting on the single
 sample would have destroyed a live lane's 22G for no reason.
 
 Rule worth keeping: one disk sample is not a trend, in either direction.
+
+### 2026-09-08 — repoint #1 confirmed working; wrong target, re-dispatched
+
+Preview 34234667816 completed **success**. Polled it inline to completion rather
+than deferring a tick, since it was minutes out. (It was 16 min in, not 40 — I
+misread the clock first time.)
+
+v1 canary `eec56e16` against the redeployed stage:
+
+```
+Relaycast workspace key repair failed: 404 Workspace not found
+```
+
+**The error changed from 530 to 404, which is the proof the repoint took
+effect.** 530 was an unreachable origin; 404 is a live gateway answering. The
+`RELAYCAST_URL` override works and the mechanism is confirmed.
+
+But `preview-pr-3446-gateway.relaycast.dev` was the wrong choice: it is a fresh
+per-preview gateway with its own empty database, so workspace
+`50587328-441d-4acb-b8f3-dbe1b3c5de99` does not exist there. This is exactly the
+diagnosable, non-destructive failure predicted when choosing between the two
+candidates.
+
+The signal I under-weighted: this stage's **Relayfile is
+`dev.file.agentrelay.com` — shared dev, not per-preview**. Shared-dev is the
+established pattern for the stage's dependencies, which makes `dev-cast` right
+and the isolated per-preview gateway wrong. Isolation was the wrong instinct
+here; the run needs a gateway that already knows the workspace.
+
+Re-dispatched as **34236980774** with
+`relaycast_url=https://dev-cast.agentrelay.com`, same four artifact inputs.
+Prod `cast.agentrelay.com` remains excluded.
+
+Note the cost shape: each attempt is a ~17 min deploy, so the candidate order
+matters. If 404 persists on dev-cast, the workspace itself does not exist on any
+gateway and the fix moves to workspace provisioning, not URL selection.
