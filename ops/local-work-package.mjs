@@ -1,71 +1,115 @@
-// The smallest useful local drive package: a mechanical change from BACKLOG.
+// Select one work package from ops/BACKLOG.md for a local drive tick.
+//
+// This used to hardcode a single item. The constants at the top named one file,
+// one old identifier and one new one, and `select` asserted that BACKLOG still
+// contained that exact entry. It proved a relayflow could drive a real change on
+// this checkout, which was the point at the time, but it could only ever drive
+// that one change — every later tick needed a human to rewrite the script first.
+//
+// Selection now comes from the SDK's backlog picker (gate 3, PR #20), which is
+// the same rule the cloud drive uses: the first top-level bullet whose title is
+// bold, validated for a title, files in scope, and a definition of done. Using
+// it here rather than a second implementation means the local loop and the cloud
+// loop cannot drift into disagreeing about what "the next work package" is.
+//
+// Implementation is no longer this script's job. A mechanical rewrite is the
+// only kind of change a deterministic step can make, and most backlog entries
+// are not mechanical. The flow now hands the package to an agent step, which is
+// what makes the loop general.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync,
+} from 'node:fs';
 import { dirname } from 'node:path';
-import { randomUUID } from 'node:crypto';
 
-const target = 'packages/sdk/src/compile.ts';
 const packagePath = '.relayflow/drive-local/package.json';
-const oldName = 'validateKernelRetry';
-const newName = 'validateAuthoringRetryDefaults';
-const hash = text => createHash('sha256').update(text).digest('hex');
-const read = path => readFileSync(path, 'utf8');
-const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+const backlogPath = 'ops/BACKLOG.md';
+// The picker's own module, not the package index: index.js re-exports
+// packageFromEntry and validateWorkPackage but NOT selectBacklogEntry or
+// renderWorkPackage, so importing the index gets you two of the four.
+const sdkEntry = new URL('../packages/sdk/dist/backlog-picker.js', import.meta.url);
+
+const read = (p) => readFileSync(p, 'utf8');
+const hash = (t) => createHash('sha256').update(t).digest('hex');
+const git = (...a) => execFileSync('git', a, { encoding: 'utf8' }).trim();
 
 // A killed writer leaves the destination wholly old or wholly new. Flush the
 // replacement before rename and the containing directory before reporting it.
 function writeAtomically(path, contents) {
   const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
-    const mode = path === target ? statSync(path).mode & 0o777 : 0o600;
-    writeFileSync(temporary, contents, { flag: 'wx', mode, flush: true });
-    renameSync(temporary, path);
-    const directory = openSync(dirname(path), 'r');
-    try { fsyncSync(directory); } finally { closeSync(directory); }
-  } finally { rmSync(temporary, { force: true }); }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(temporary, contents, { mode: 0o600 });
+  const handle = openSync(temporary, 'r');
+  try { fsyncSync(handle); } finally { closeSync(handle); }
+  renameSync(temporary, path);
+  const directory = openSync(dirname(path), 'r');
+  try { fsyncSync(directory); } finally { closeSync(directory); }
 }
 
-switch (process.argv[2]) {
-  case 'select': {
-    const branch = git('branch', '--show-current');
-    assert(branch && branch !== 'main', 'LOCAL_DRIVE_REFUSED: use a work branch');
-    assert.equal(git('status', '--porcelain', '--', target), '', 'LOCAL_DRIVE_REFUSED: target has uncommitted edits');
-    const entry = read('ops/BACKLOG.md').match(/^- \*\*F8b\*\*[^\n]*(?:\n  [^\n]*)*/m)?.[0];
-    assert(entry?.includes(oldName), 'BACKLOG_F8B_MISSING: expected the recorded work item');
-    const source = read(target);
-    assert.equal(source.split(oldName).length - 1, 2, 'PACKAGE_ALREADY_APPLIED_OR_CHANGED: expected declaration and call');
-    const work = { id: 'F8b', entry, branch, target, before: hash(source), after: hash(source.replaceAll(oldName, newName)) };
-    mkdirSync('.relayflow/drive-local', { recursive: true });
-    writeAtomically(packagePath, JSON.stringify(work, null, 2) + '\n');
-    assert.equal(JSON.parse(read(packagePath)).before, work.before);
-    console.log(JSON.stringify(work));
-    break;
+async function loadPicker() {
+  try {
+    return await import(sdkEntry.href);
+  } catch (cause) {
+    // Say which build is missing rather than surfacing a bare module error.
+    // The flow builds the SDK before this step; a failure here means that
+    // step did not run or did not finish.
+    throw new Error(
+      `SDK_NOT_BUILT: ${sdkEntry.pathname} is not importable — run the build step first`,
+      { cause },
+    );
   }
-  case 'apply': {
-    const work = JSON.parse(read(packagePath));
-    assert.equal(git('branch', '--show-current'), work.branch, 'work branch changed');
-    const before = read(target);
-    // A retry after an interrupted write can observe the exact intended end state.
-    if (hash(before) === work.after) { console.log('PACKAGE_ALREADY_APPLIED: F8b'); break; }
-    assert.equal(hash(before), work.before, 'TARGET_CHANGED: refusing to overwrite intervening work');
-    const after = before.replaceAll(oldName, newName);
-    assert.notEqual(after, before);
-    writeAtomically(target, after);
-    assert.equal(hash(read(target)), work.after, 'MUTATION_NOT_PERSISTED');
-    console.log(`PACKAGE_APPLIED: F8b ${work.before} -> ${work.after}`);
-    console.log(git('diff', '--', target));
-    break;
-  }
-  case 'report': {
-    const work = JSON.parse(read(packagePath));
-    assert.equal(hash(read(target)), work.after, 'TARGET_CHANGED: expected the applied package');
-    const diff = git('diff', '--', target);
-    assert(diff.includes(`+function ${newName}(`), 'PACKAGE_DIFF_MISSING');
-    console.log('PACKAGE_EXECUTED: F8b; delivery requires a branch commit and human-reviewed PR.');
-    console.log(diff);
-    break;
-  }
-  default: throw new Error('Usage: node ops/local-work-package.mjs <select|apply|report>');
+}
+
+async function select() {
+  const { selectBacklogEntry, packageFromEntry, validateWorkPackage, renderWorkPackage } =
+    await loadPicker();
+  const markdown = read(backlogPath);
+  const entry = selectBacklogEntry(markdown);
+  assert(entry, `BACKLOG_EMPTY: no selectable entry in ${backlogPath}`);
+
+  const candidate = packageFromEntry(entry);
+  const validation = validateWorkPackage(candidate);
+  // Refuse rather than hand an agent an underspecified package. A tick that
+  // starts without a definition of done cannot tell whether it finished.
+  assert(
+    validation.accepted,
+    `WORK_PACKAGE_REJECTED: ${validation.accepted ? '' : validation.reason} — ${entry.title}`,
+  );
+
+  const pkg = {
+    selectedAt: new Date().toISOString(),
+    branch: git('branch', '--show-current'),
+    head: git('rev-parse', 'HEAD'),
+    backlogSha256: hash(markdown),
+    title: validation.work.title,
+    filesInScope: validation.work.files_in_scope,
+    definitionOfDone: validation.work.definition_of_done,
+    brief: renderWorkPackage(entry),
+  };
+  writeAtomically(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+  console.log(`SELECTED ${pkg.title}`);
+  console.log(`  files in scope: ${pkg.filesInScope.join(', ')}`);
+  console.log(`  definition of done: ${pkg.definitionOfDone.length} item(s)`);
+}
+
+function report() {
+  const pkg = JSON.parse(read(packagePath));
+  // The package pins the HEAD it was selected against. Reporting a diff from a
+  // different commit would describe work this tick did not do.
+  const head = git('rev-parse', 'HEAD');
+  assert.equal(head, pkg.head, `HEAD_MOVED: selected at ${pkg.head}, now ${head}`);
+  const stat = git('diff', '--stat');
+  console.log(`REPORT ${pkg.title}`);
+  console.log(stat || '  (no working-tree changes)');
+  for (const item of pkg.definitionOfDone) console.log(`  DoD: ${item}`);
+}
+
+const command = process.argv[2];
+if (command === 'select') await select();
+else if (command === 'report') report();
+else {
+  console.error('usage: local-work-package.mjs <select|report>');
+  process.exit(2);
 }

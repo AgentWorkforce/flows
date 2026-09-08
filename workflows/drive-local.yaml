@@ -1,28 +1,83 @@
-# A bounded, deterministic drive tick: execute backlog F8b on this checkout.
+# A local drive tick: pick the next backlog item, do it, verify it, report.
+#
+# This replaces a flow that could only ever execute BACKLOG F8b. That version
+# proved a relayflow can drive a real change on this checkout with no Cloud
+# admission, no Daytona and no Relaycast workspace — but its selector hardcoded
+# one file and one identifier, so every subsequent tick needed a human to edit
+# the script before the loop could run again. A loop that needs editing between
+# iterations is not a loop.
+#
+# Two changes make it general. Selection comes from the SDK's backlog picker
+# (gate 3), the same rule the cloud drive uses, so the two cannot drift about
+# what "next" means. And implementation is an agent step rather than a
+# deterministic rewrite, because a deterministic step can only make mechanical
+# changes and most backlog entries are not mechanical.
+#
 # Run: node scripts/run-local-workflow.mjs workflows/drive-local.yaml
-# Selection, mutation, existing tests, and the resulting diff are journaled.
-# Delivery is a branch/PR by the operator; this flow never merges or switches branches.
+# Delivery stays with the operator: this flow never commits, never switches
+# branches and never merges. It leaves a working tree and a report.
 version: '0.1.0'
-name: drive-local-f8b
-description: Correct the retry validator name to describe the authoring restriction (BACKLOG F8b).
+name: drive-local
+description: >-
+  Select the next work package from ops/BACKLOG.md, implement it, verify it
+  against its own definition of done, and report. Selection, implementation,
+  verification and reporting are journaled as four steps.
 steps:
-  - id: select-package
+  - id: build-sdk
     type: deterministic
-    command: node ops/local-work-package.mjs select
-  - id: implement-package
-    type: deterministic
-    dependsOn: [select-package]
-    command: node ops/local-work-package.mjs apply
-  - id: verify-package
-    type: deterministic
-    dependsOn: [implement-package]
-    timeoutMs: 120000
+    timeoutMs: 600000
+    # The selector imports the built picker. Building here rather than assuming
+    # a prior build means a cold checkout runs the same way as a warm one.
     command: |
       set -eu
-      npm_config_cache="$PWD/.relayflow/npm-cache" npm --userconfig /tmp/empty-npmrc run build --prefix packages/sdk
-      cd packages/sdk
-      node node_modules/vitest/vitest.mjs run tests/spec-parity.test.ts tests/cli.test.ts
-  - id: report-package
+      npm_config_cache="$PWD/.relayflow/npm-cache" \
+        npm --userconfig /tmp/empty-npmrc run build --prefix packages/sdk
+
+  - id: select
     type: deterministic
-    dependsOn: [verify-package]
+    dependsOn: [build-sdk]
+    timeoutMs: 120000
+    command: node ops/local-work-package.mjs select
+
+  - id: implement
+    type: agent
+    cli: claude
+    dependsOn: [select]
+    # No timeoutMs: 0.1.0 bounds deterministic steps only, so an agent step
+    # cannot declare one. The run-level bound is the operator's.
+    maxIterations: 1
+    instruction: |
+      Read .relayflow/drive-local/package.json. It holds one work package
+      selected from ops/BACKLOG.md: a title, the files in scope, and a
+      definition of done.
+
+      Implement exactly that package on this checkout. Stay inside the files it
+      names; if the work genuinely requires a file outside that list, say so in
+      your output rather than widening scope silently.
+
+      Do not commit, do not switch branches, do not merge. The operator delivers
+      the diff.
+
+      If the package cannot be implemented as written — it is already done, its
+      premise is false, or it is underspecified — say that plainly and change
+      nothing. A tick that reports "already done" is a good tick; a tick that
+      invents an edit to look busy is not.
+    verification:
+      type: output_contains
+      value: "DONE"
+
+  - id: verify
+    type: deterministic
+    dependsOn: [implement]
+    timeoutMs: 900000
+    # The suites, not the agent's own account of itself.
+    command: |
+      set -eu
+      cd packages/sdk
+      node node_modules/vitest/vitest.mjs run
+
+  - id: report
+    type: deterministic
+    dependsOn: [verify]
+    timeoutMs: 120000
     command: node ops/local-work-package.mjs report
