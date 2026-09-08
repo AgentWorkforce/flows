@@ -14798,3 +14798,49 @@ itself reading three files.
 head), one open and honestly labelled. Two P1s fixed, both in gates I wrote.
 None of it needed capacity. Still zero merges — every PR wants a swarm signoff
 and the swarm wants Daytona CPU that only the `dry_run=false` sweep will free.
+
+## 2026-09-08 ~05:30Z — found the seams for #227's regression test, did not write it
+
+Spent this tick working out how to test the one open finding, and stopped short
+of writing it. Recording the plan so the next tick starts cold on
+implementation rather than repeating this.
+
+**Confirmed there is no existing coverage.** `crash_resume/workspace_identity.rs`
+is about aliases and canonical subtrees, not a moving HEAD.
+`placement_pins.rs` calls `LocalWorker.starting_pins(...)` directly, which does
+re-read HEAD every call — but that is the worker's job, not the question. The
+question is whether the *engine* asks it again for a surface the chain already
+covers, and nothing exercises that.
+
+**The seams, all public:**
+
+- `StepDispatcher::reserved_starting_pins` (`worker.rs:83`) is a trait method,
+  so a test double can record whether it was consulted. That is the sharpest
+  assertion available: on a covered second attempt it must never be called, and
+  the pin must be unchanged. `placement_pins.rs` already defines a `LocalWorker`
+  double to copy from.
+- `DriveOptions::pause_before_step` — "pause immediately before this runnable
+  step starts" — gives a clean stop between attempts without the socket
+  harness or a SIGKILL.
+- `Engine::resume(run_id, stop_after)` produces the second attempt;
+  `sigkill_mid_step_replaces_and_explains_the_dead_attempt` shows an
+  interrupted step does start a fresh one on resume.
+- `Engine::with_runtime(...)` is needed rather than `Engine::new(...)`: without
+  a dispatcher an agent step is never admitted, so `Engine::new` cannot reach
+  this path at all.
+
+**Shape:** start an agent step over a git worktree surface, pause before the
+step, capture attempt 1's `revision_id` from the journal, commit to move HEAD,
+resume, assert attempt 2 carries the same `revision_id` and that the double's
+`reserved_starting_pins` was not called.
+
+**Why I stopped.** A Rust integration test with a custom dispatcher double and
+several build cycles is not a bounded increment at 05:30, and the failure mode
+is specific: a rushed test that passes for the wrong reason. Tonight already
+produced five findings that looked right until something was run, and one of my
+own fail-opens survived review because the comment justifying it read as
+deliberate. A green test I do not fully trust would be worse than the open
+thread, which at least says plainly that the case is unverified.
+
+The thread stays open with that reasoning posted. Next tick opens with the
+implementation.
