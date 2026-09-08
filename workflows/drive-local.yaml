@@ -23,19 +23,13 @@ description: >-
   against its own definition of done, and report. Selection, implementation,
   verification and reporting are journaled as four steps.
 steps:
-  - id: build-sdk
-    type: deterministic
-    timeoutMs: 600000
-    # The selector imports the built picker. Building here rather than assuming
-    # a prior build means a cold checkout runs the same way as a warm one.
-    command: |
-      set -eu
-      npm_config_cache="$PWD/.relayflow/npm-cache" \
-        npm --userconfig /tmp/empty-npmrc run build --prefix packages/sdk
-
+  # No build-sdk step. The launcher asserts `packages/sdk/dist/cli.js` exists
+  # during preflight, before it submits anything, so a build step inside the
+  # flow can never run on the cold checkout it was meant to serve. Building the
+  # SDK is a prerequisite of invoking this flow, not part of it:
+  #     npm --prefix packages/sdk run build
   - id: select
     type: deterministic
-    dependsOn: [build-sdk]
     timeoutMs: 120000
     command: node ops/local-work-package.mjs select
 
@@ -43,6 +37,12 @@ steps:
     type: agent
     cli: claude
     dependsOn: [select]
+    # Required, not decorative: the launcher refuses an agent step with no pins
+    # (`LOCAL_AGENT_PINS_REQUIRED: declare a stream; the kernel refuses workers
+    # with no pins`) and the run is never created. Verified by running it.
+    surfaces:
+      streams:
+        - stream: drive-local
     # No timeoutMs: 0.1.0 bounds deterministic steps only, so an agent step
     # cannot declare one. The run-level bound is the operator's.
     maxIterations: 1
@@ -57,6 +57,10 @@ steps:
 
       Do not commit, do not switch branches, do not merge. The operator delivers
       the diff.
+
+      End your final message with the single uppercase word DONE on its own
+      line. The verification below gates on that exact marker, so a correct
+      implementation that omits it is recorded as a failure.
 
       If the package cannot be implemented as written — it is already done, its
       premise is false, or it is underspecified — say that plainly and change
