@@ -16658,3 +16658,46 @@ Next: the CF-native `workflow-launch-consumer` worker
 (`infra/workflow-launch-cf-queue.ts`) is the component that would leave messages
 unconsumed. Whether a preview stage deploys a working one is the question, and
 it is answerable without another 16-minute build.
+
+## 2026-09-08 ~23:00Z — root cause: the preview deploy ends with the launch queue subscriber DELETED
+
+Both proof runs are still `pending` with **`updatedAt` identical to
+`createdAt`** — the rows have never been touched since insert. That is verbatim
+the symptom this tick brief opens with ("two runs stuck `pending` with
+`sandboxId: null`, `updatedAt` never moving off `createdAt`"). I had been
+treating it as a new preview-specific problem; it is the same condition.
+
+**Found it in the deploy's own log.** The queue subscriber's resource events, in
+order:
+
+    10:57:20.657  Created  WorkflowLaunchQueueSubscriberSuaxdv
+    10:57:20.960  Created  WorkflowLaunchQueueSubscriberSuaxdv
+    10:57:29.281  Updated  WorkflowLaunchQueueSubscriberSuaxdv
+    10:57:32.632  Deleted  WorkflowLaunchQueueSubscriberSuaxdv
+    10:57:32.833  Deleted  WorkflowLaunchQueueSubscriberSuaxdv
+
+The last events are **deletes**, nothing recreates it, and the deploy continued
+to 11:01:57 and reported `✓ Complete`. So the stage finished a *successful*
+deploy with its launch queue holding no consumer. Messages are enqueued and
+nothing ever reads them — which is exactly `updatedAt` never moving, no sandbox,
+no error, on both generations.
+
+Created twice and deleted twice in one deploy looks like a duplicate-consumer
+resolution: `infra/workflow-launch-cf-queue.ts:132` notes Cloudflare rejects a
+second consumer per queue with API error 11004 and says to "delete the old one
+first". The observed sequence is consistent with both being removed rather than
+one surviving. I am stating the sequence as fact and that reading as a reading.
+
+**A hypothesis I dropped on evidence.** I expected the two-phase bootstrap: on a
+cold stage, phase 1 drops the CLOUD_WEB service binding and phase 2 restores it,
+so a consumer stuck in phase-1 shape would consume and fail to forward. The log
+shows both phases ran — "Phase 1: deploy without bidirectional service bindings"
+and "Phase 2: enable service bindings" — with the consumer rebuilt in each.
+Wrong hypothesis, killed by its own log rather than carried.
+
+**What this settles.** The remaining blocker on the #3270 proof is not v2, not
+cloud#3442, and not admission. It is that a preview stage deploys with no
+consumer on its workflow-launch queue. cloud#3442's defect stays fixed — the
+~166s terminal `v2JobId` failure has not recurred across four runs on a stage
+carrying it — and the tuple cannot assert on a stage where nothing launches at
+all.
