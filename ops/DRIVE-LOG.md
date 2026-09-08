@@ -14716,3 +14716,43 @@ three files worse.
 
 Also incidental: the full SDK suite runs green here — 33 files, 684 passed, 3
 skipped, 53s — including live-kernel tests that kill a real daemon.
+
+## 2026-09-08 ~04:50Z — two more #227 findings that do not hold at head
+
+Cleared two of #227's three threads, **both with no code change**. One finding
+left in the whole backlog.
+
+**The `STEP_COMMON_FIELDS` snapshot (confidence 10).** cubic said adding
+`requirements` breaks `verb-field-lint.test.ts`, which still pins the old
+array. At 733cf17 that test already lists `requirements`, with the explanatory
+comment the finding asks for, and runs green — 78 passed. Written against an
+earlier push and fixed since.
+
+**The routing fold (confidence 8).** cubic said `apply_routing` accepts a blank
+fallback or workspace identity because it checks only `profile` and `provider`.
+It calls `validate_routing_decision` -> `RoutingDecision::validate()`, which
+covers blank profile, blank provider, a present-but-blank `workspace`, and every
+`fallbacks_attempted` entry by index. There is no `is_valid()` at all — the
+finding names a method that does not exist. And the case is already pinned:
+
+    $ cargo test -p relayflowd --test routing_diagnostics
+    test malformed_routes_name_the_same_field_at_append_replay_and_epoch_replay ... ok
+    test result: ok. 2 passed; 0 failed
+
+with a table of `("profile","  ")`, `("provider","\t")`, `("workspace","")` and
+`fallbacks_attempted[1]`, asserted at append, replay and epoch replay.
+
+I ran both rather than reading the call chains. That is the whole method now:
+every finding tonight that I settled by reading agreed with me, and three of
+the four I settled by running came back different from what reading suggested.
+
+**Tally for the night: thirteen findings, seven real, six not.** The six that
+did not hold split two ways — some were fixed between the review and now, some
+were wrong when written. Both look identical from the thread. Neither is
+visible from a check status, and neither can be told apart without going to the
+code and running it.
+
+Remaining: #227's drive.rs source-pin finding — a declared local run that
+resumes after its worktree HEAD moves records a different pin for the same
+durable route. That one is a real design question, not a staleness check, so it
+gets its own tick rather than a hurried patch at the end of this one.
