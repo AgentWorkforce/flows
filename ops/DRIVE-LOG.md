@@ -16170,3 +16170,41 @@ match a mention of a later title inside an earlier body and cut the wrong place.
 
 The pattern across all of tonight's self-inflicted findings is the same one:
 I verify the part I just wrote and not the part it depends on.
+
+## 2026-09-08 ~18:05Z — reclaimed the codex seat, and the cause was nameable
+
+Khaliq asked why I kept calling the codex lane dead weight and what would fix
+it. Both answerable from evidence rather than impression.
+
+**What "dead weight" meant, precisely.** The process was alive — 12h56m — while
+relay's own registry said:
+
+    name: flows-runtime-0907   status: offline
+    lastSeenAt: 2026-09-08T09:28:25Z   channels: []
+
+A live process whose relay identity is **offline and in no channels**. That is
+why my brief sat `queued_or_unread` for hours and never appeared in dead
+letters: messages queue against an agent the bus considers gone, so there was
+nothing to fail and nothing to retry. It was not ignoring me; it could not hear
+me.
+
+And it could not be reached the other way either — the broker holds only unix
+sockets, exposes no TCP listener, and there is no `connection.json` in its
+worktree, so `dump-pty` cannot attach. Both the message path and the terminal
+path were closed.
+
+**The shape matches something already in my notes:** heartbeated agents going
+unreachable around the 13-14 hour mark with the process tree still healthy. The
+lesson recorded from that incident is not to revive them but to spawn fresh, and
+to `agent-relay agent remove <name>` before any respawn so the name is free.
+
+**Reclaimed, after checking there was nothing to lose:** tree clean, zero
+unpushed commits, zero stashes, and its PR #231 merged at 06:13Z. Removed the
+registration, then stopped the broker; all four pids (58326, 58345, 58346,
+58745) are down and the worktree has no open handles.
+
+**What I am not claiming.** I have not respawned it. My notes say fleet spawn
+cannot place locally — `--node <live node>` returns "Node not found" and
+unpinned spawns land in a repo-less sandbox — so standing a replacement up is a
+separate problem from freeing the seat, and I would rather report the seat free
+than report a spawn that lands somewhere useless.
