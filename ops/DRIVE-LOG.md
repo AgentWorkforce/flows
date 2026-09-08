@@ -15184,3 +15184,45 @@ two that most need a reviewer who is not me.
 Every merge here went in without an independent signoff, on Khaliq's explicit
 authority, because the swarm cannot run while the Relayfile database is frozen.
 That is worth remembering if one of them turns out wrong.
+
+## 2026-09-08 ~08:55Z — ran the gate I merged against the merges, and it caught me being sloppy
+
+Post-merge verification of the six. Main is at b0046ea.
+
+**Ran #230's restack-verify against main**, which is exactly the scenario it was
+built for — six squash-merges, two of them hand-resolved conflicts:
+
+    no-conflict-markers.sh   rc=0  PASSED
+    migration-journal.sh     rc=0  SKIPPED (no packages/web/drizzle/meta/_journal.json)
+    worker-bindings.sh       rc=0  SKIPPED (no scripts/verify-fast-path-bindings.mjs ...)
+    test_checks.py           rc=0  OK
+
+Worth being honest about that result: **two of its three checks skip in the repo
+it lives in.** Both are cloud-repo shaped. In flows the gate currently verifies
+conflict markers and nothing else. It is not wrong — "not applicable must not
+read as failed" is a deliberate property — but I merged it partly on the
+strength of the column-comparison work, and that check does not run here.
+
+**Then the check that mattered.** Three PRs edited one shell block in an hour,
+so YAML parsing is not enough — a merge can produce valid YAML holding broken
+shell. Extracted every `run:` block from the merged workflow and ran `bash -n`
+on each: 7 ok, 0 bad. The validate step reads coherently end to end, with all
+three PRs' contributions in sensible order.
+
+**And it surfaced a defect I had introduced 30 minutes earlier.** Resolving the
+three-way conflict, I lifted `test -n "$RELAY_WORKSPACE_KEY"` out of the branch
+side and carried the surrounding block's indentation with it, so it sat two
+spaces deeper than the two presence checks it belongs with. Shell does not care.
+A reader does — misaligned indentation arriving from a merge is the first thing
+that makes someone wonder what else that merge got wrong. Fixed in #236,
+verified all three now share one indent level, merged.
+
+That is the fourth time tonight an indentation slip came out of anchor-based
+text replacement. The pattern is consistent enough that I should treat "lifted a
+line out of a differently-indented block" as a thing to check rather than a
+thing to notice afterwards.
+
+Main CI across the six merges: two completed green, four still in progress at
+the time of check, none failed.
+
+Open: #227 and #231, both held for a human reviewer who is not me.
