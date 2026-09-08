@@ -4891,3 +4891,40 @@ One consequence to flag: this builds a **new** stage, `preview-pr-3461`. Each
 preview runs its own RelayAuth, so the token I hold for pr-3446 will 401 there
 and the proof needs a fresh device login — a human click. I will surface the
 link rather than pretend the proof can complete tonight without it.
+
+### 2026-09-09 — #3461 IS PROVEN: the RelayAuth 500 is fixed
+
+Deploy **34290481495** completed success, and this time the deployed code is
+verifiably the fix: `DEPLOY_VERSION: 63de5232a6b853190b312692955415913316feea`,
+identical to #3461's head SHA. That is the check the lane's provenance work
+taught me, and it is the one I skipped last time.
+
+Then I realised the fix could be tested **without a device login**: the failing
+path is reachable unauthenticated, because an invalid API key still hits the
+storage lookup. Same probe the relayauth lane used, run against both stages in
+the same minute:
+
+| stage | GET | POST |
+|---|---|---|
+| `preview-pr-3461-api` (with #3461) | **401 `invalid_api_key`** | **401 `invalid_api_key`** |
+| `preview-pr-3446-api` (without) | 500 `internal_error` | 500 `internal_error` |
+
+**The 500 is gone on the fixed stage**, and the unfixed stage still reproduces it
+at the same moment — so this is a controlled comparison, not a stage-to-stage
+fluke or a transient recovery. The probe used a deliberately invalid key; no
+credential was created, read or printed.
+
+So the chain is now:
+
+- **#3457 (Relaycast `_DEV`) — proven.** Launches get past workspace-key repair.
+- **#3461 (schema adapter) — proven.** The RelayAuth 500 is resolved.
+- **#3459 (masking) — real, tested, unmerged.** Independent of the above.
+
+Remaining for the #3270 v2 proof: the `preview-pr-3461` stage runs its own
+RelayAuth, so my token is scoped to the wrong stage and a **device login is
+needed** before I can POST a workflow run there. That is one human click, and it
+is now the only thing between here and the first v2 run that can actually reach
+compute.
+
+I am not claiming the demo works. Two blockers are cleared and verified; whether
+a v2 run completes end to end is still unproven, and no v2 run ever has.
