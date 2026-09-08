@@ -1,0 +1,236 @@
+version: '1.0'
+name: flows-daemon-lifecycle
+description: >
+  Phase 1 of "package flows so it's frictionless": relayflowd currently
+  requires a human to build it and run `relayflowd serve` by hand before any
+  `flows run`/`flows check`/`flows resume` can connect — the CLI fails closed
+  on a missing socket rather than starting one. Give relayflowd a connection
+  file and give the flows CLI attach-or-spawn logic, so `npm install -g
+  relayflows && flows run x.yaml` needs no manual daemon step, mirroring the
+  proven pattern in ../relay (packages/cli/src/cli/lib/broker-lifecycle.ts +
+  broker-connection.ts + packages/harness-driver/src/broker-path.ts).
+  Orchestrated by the previous-generation engine, per RFC-0001 §2 rule 1 and
+  the precedent of workflows/bootstrap-gate1.yaml, which bootstrapped gate 1
+  itself the same way.
+
+swarm:
+  pattern: dag
+  channel: flows-daemon-lifecycle
+  timeoutMs: 7200000
+
+agents:
+  - name: architect
+    cli: claude
+    preset: analyst
+    role: >
+      Systems architect. Reads the existing kernel/CLI contract and the
+      ../relay precedent, writes a precise design doc for the connection-file
+      handshake and attach-or-spawn protocol.
+  - name: kernel-dev
+    cli: codex
+    preset: worker
+    role: Rust systems engineer. Implements relayflowd's side of the handshake.
+  - name: cli-dev
+    cli: claude
+    preset: worker
+    role: TypeScript engineer. Implements the flows CLI's attach-or-spawn logic.
+  - name: adversary
+    cli: claude
+    preset: reviewer
+    role: >
+      Adversarial reviewer. Tries to refute that the implementation is safe
+      under concurrent invocation, stale state, and crash recovery.
+
+workflows:
+  - name: daemon-lifecycle
+    steps:
+      - name: design
+        type: agent
+        agent: architect
+        task: |
+          Read, in this order:
+          1. docs/SURFACE.md section 5 ("Invocation: the gate-1 CLI") — the
+             current `flows check`/`flows run`/`flows resume` contract, which
+             today requires a daemon already listening at
+             `<data-dir>/relayflowd.sock` and fails closed otherwise.
+          2. kernel/relayflowd/src/main.rs and kernel/relayflowd/src/server.rs
+             — how `relayflowd serve --data-dir <dir>` currently starts and
+             what `server::serve` does.
+          3. packages/sdk/src/journal-client.ts — how the CLI currently
+             connects to that socket (fail-closed, no retry, no spawn).
+          4. The reference implementation in the sibling checkout at
+             ../relay: packages/cli/src/cli/lib/broker-lifecycle.ts (spawn
+             detached, write `connection.json` with url/port/api_key/pid,
+             poll for readiness, attach-or-spawn on every command),
+             packages/cli/src/cli/lib/broker-connection.ts (reading/validating
+             that file), and packages/harness-driver/src/broker-path.ts (why
+             it tries multiple resolution anchors). Port the *protocol shape*
+             to our unix-socket daemon, not the TCP/port allocation
+             specifics — relayflowd has no port to negotiate.
+
+          Write kernel/DAEMON-LIFECYCLE.md specifying, concretely:
+          1. The connection file: exact path (`<data-dir>/connection.json`),
+             exact JSON shape (at minimum: socket_path, pid, relayflowd
+             version, started_at_ms), and exactly when relayflowd writes it
+             (only after the socket is accepting connections — never before)
+             and removes it (clean shutdown on SIGTERM/SIGINT; a stale file
+             left behind by a kill -9 must be detectable, not trusted blindly).
+          2. The staleness check the CLI must run before trusting an existing
+             connection.json: is the pid alive, does the socket still accept
+             a connection. Both, not just one — a stale file with a live
+             unrelated pid must not falsely "attach".
+          3. The attach-or-spawn algorithm the CLI runs before every
+             `check`/`run`/`resume`: read connection.json, validate it, attach
+             if valid; otherwise spawn `relayflowd serve --data-dir <dir>`
+             detached (not inheriting the CLI's stdio, survives the CLI
+             exiting), poll for connection.json to appear with a bounded
+             timeout, then attach. State exactly how this stays correct when
+             two `flows` invocations race to spawn simultaneously (a lock
+             file, or accept-and-let-the-loser-retry — pick one and justify
+             it; don't hand-wave "TODO: handle races").
+          4. What changes in packages/sdk/src/journal-client.ts and
+             packages/sdk/src/cli.ts vs. what's new (e.g. a new
+             daemon-lifecycle.ts mirroring the ../relay file it's modeled on).
+          5. Backward compatibility: an operator who still runs
+             `relayflowd serve` by hand (as documented in docs/SURFACE.md
+             today) must keep working exactly as before — attach-or-spawn is
+             an addition, not a replacement of manual operation.
+          Keep it tight and concrete — this is an implementation spec, not a
+          survey. No speculative scope beyond this handshake.
+          End your output with the line DESIGN_COMPLETE.
+        verification:
+          type: output_contains
+          value: DESIGN_COMPLETE
+        timeoutMs: 1800000
+
+      - name: kernel-impl
+        type: agent
+        agent: kernel-dev
+        dependsOn: [design]
+        maxIterations: 3
+        task: |
+          Read kernel/DAEMON-LIFECYCLE.md and AGENTS.md. Implement
+          relayflowd's side of the handshake exactly per the design:
+          - `relayflowd serve` writes the connection file only once the unix
+            socket is actually accepting connections, and removes it on clean
+            shutdown (SIGTERM/SIGINT). A crash (kill -9) must leave a file the
+            CLI can detect as stale by the design's staleness check — do not
+            rely on relayflowd to clean up after its own hard kill.
+          - No behavior change for an operator who already runs
+            `relayflowd serve` manually today.
+          - Unit/integration tests: connection file appears only after the
+            socket is live (not before); is removed on clean shutdown; a
+            kill -9'd process leaves a file the staleness check correctly
+            identifies as stale (dead pid, or live-but-wrong-process pid via
+            a process-identity check if the design calls for one).
+          `cargo test --workspace` must pass. Keep files small and
+          single-purpose per AGENTS.md.
+          End your output with the line KERNEL_IMPL_DONE.
+        verification:
+          type: output_contains
+          value: KERNEL_IMPL_DONE
+        timeoutMs: 3600000
+
+      - name: kernel-tests
+        type: deterministic
+        dependsOn: [kernel-impl]
+        command: cd kernel && ../ops/cargo.sh test --workspace 2>&1 | tail -30
+        timeoutMs: 900000
+
+      - name: cli-impl
+        type: agent
+        agent: cli-dev
+        dependsOn: [design]
+        maxIterations: 3
+        task: |
+          Read kernel/DAEMON-LIFECYCLE.md and AGENTS.md. Implement the flows
+          CLI's side of the handshake exactly per the design:
+          - A new module (e.g. packages/sdk/src/daemon-lifecycle.ts) that:
+            reads and validates `<data-dir>/connection.json`; attaches if
+            valid; otherwise spawns `relayflowd serve --data-dir <dir>`
+            detached (survives this CLI process exiting), polls for the
+            connection file with a bounded timeout, then attaches. Handles
+            the concurrent-invocation race per the design's chosen strategy.
+          - Wire it into packages/sdk/src/cli.ts so `flows check`, `flows
+            run`, and `flows resume` all call attach-or-spawn before using
+            journal-client.ts, instead of journal-client.ts failing closed on
+            first connect. Preserve journal-client.ts's existing fail-closed
+            behavior for the actual protocol calls once connected — this only
+            changes how the socket gets there.
+          - Tests: cold start (no connection file, no daemon running) spawns
+            one and the run succeeds; warm start (daemon already running)
+            attaches without spawning a second process; a stale connection
+            file (dead pid) is detected and a fresh daemon is spawned; two
+            concurrent invocations against an empty data-dir do not race into
+            two daemons owning the same socket path.
+          `npm test` (per packages/sdk's existing test script) must pass.
+          End your output with the line CLI_IMPL_DONE.
+        verification:
+          type: output_contains
+          value: CLI_IMPL_DONE
+        timeoutMs: 3600000
+
+      - name: sdk-tests
+        type: deterministic
+        dependsOn: [cli-impl, kernel-tests]
+        command: cd packages/sdk && npm install --no-audit --no-fund >/dev/null 2>&1 && npm test 2>&1 | tail -30
+        timeoutMs: 900000
+
+      - name: e2e-smoke
+        type: deterministic
+        dependsOn: [sdk-tests]
+        command: >
+          rm -rf /tmp/flows-daemon-lifecycle-smoke &&
+          node --experimental-strip-types packages/sdk/dist/cli.js check --json
+          testdata/hello-deterministic.flow.yaml --data-dir /tmp/flows-daemon-lifecycle-smoke 2>&1 | tail -5 &&
+          node --experimental-strip-types packages/sdk/dist/cli.js run --json
+          testdata/hello-deterministic.flow.yaml --data-dir /tmp/flows-daemon-lifecycle-smoke 2>&1 | tail -20
+        timeoutMs: 300000
+
+      - name: adversarial-review
+        type: agent
+        agent: adversary
+        dependsOn: [e2e-smoke]
+        task: |
+          Read kernel/DAEMON-LIFECYCLE.md and the full diff introduced by the
+          kernel-impl and cli-impl steps (git diff against this workflow's
+          starting commit). Adversarially review, specifically:
+          - Can two concurrent `flows` invocations against an empty data-dir
+            end up with two live relayflowd processes both believing they own
+            the same socket path? Walk the exact interleaving.
+          - Can a stale connection.json (from a kill -9) cause a CLI to
+            "attach" to a dead or unrelated process instead of detecting
+            staleness and spawning fresh?
+          - Does a spawned relayflowd actually survive the spawning CLI
+            process exiting (detached correctly), or does it die with its
+            parent?
+          - Does an operator who runs `relayflowd serve` by hand exactly as
+            documented today still work unchanged?
+          - Is the connection file written strictly after the socket is live,
+            never before (a race here means the CLI attaches to a socket
+            that isn't accepting yet)?
+          List every violation found with file:line. If violations exist, end
+          with REVIEW_FAILED. If the implementation honestly holds up under
+          all of the above, end with REVIEW_PASSED.
+        verification:
+          type: output_contains
+          value: REVIEW_PASSED
+        maxIterations: 1
+        timeoutMs: 1800000
+
+      - name: report
+        type: agent
+        agent: architect
+        dependsOn: [adversarial-review]
+        task: |
+          Write ops/DAEMON-LIFECYCLE-REPORT.md: what was built, test results
+          verbatim (kernel-tests, sdk-tests, e2e-smoke), the adversarial
+          review verdict, what Phase 2 (per-platform relayflowd/flows binary
+          packages, mirroring packages/runtime-linux-x64) still needs once
+          this lands, and any open risk this workflow did not resolve. Honest
+          state only — no claiming green where evidence is thin.
+          End with REPORT_DONE.
+        verification:
+          type: output_contains
+          value: REPORT_DONE
+        timeoutMs: 1200000

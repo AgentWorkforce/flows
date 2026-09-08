@@ -52,18 +52,42 @@ export const PREFLIGHT_WARNING_KINDS = [
   'vacuous_gate',
 ] as const;
 
-/** Closed outcome taxonomy owned by the `flows run` / `flows resume` surface. */
+/**
+ * Closed outcome taxonomy owned by the `flows run` / `flows resume` surface.
+ *
+ * The four daemon-lifecycle kinds after `daemon_unreachable` are the
+ * attach-or-spawn refusals from kernel/DAEMON-LIFECYCLE.md §3. They split what
+ * used to be one message: `daemon_unreachable` now means only "nothing is
+ * serving and this invocation was told not to start one" (`--no-spawn`), while
+ * a spawn that was attempted and did not produce a serving daemon names which
+ * step failed. All of them are still exit 2 — refused before a journal write.
+ */
 export const RUN_FAILURE_KINDS = [
   'daemon_unreachable',
+  'daemon_protocol_mismatch',
+  'daemon_start_failed',
+  'daemon_start_timeout',
+  'relayflowd_not_found',
   'protocol_error',
   'run_parked',
   'run_unavailable',
+] as const;
+
+/**
+ * Non-refusing outcomes of the attach step. `connection_file_stale` is
+ * DAEMON-LIFECYCLE.md §2 row 2: the socket answered while `connection.json`
+ * described a process that is gone. The socket is the authority, so this
+ * attaches — but it says so rather than passing in silence.
+ */
+export const RUN_WARNING_KINDS = [
+  'connection_file_stale',
 ] as const;
 
 export type PreflightFailureKind = (typeof PREFLIGHT_FAILURE_KINDS)[number];
 export type CheckFailureKind = (typeof CHECK_FAILURE_KINDS)[number];
 export type PreflightWarningKind = (typeof PREFLIGHT_WARNING_KINDS)[number];
 export type RunFailureKind = (typeof RUN_FAILURE_KINDS)[number];
+export type RunWarningKind = (typeof RUN_WARNING_KINDS)[number];
 
 const CHECK_FAILURE_KIND_SET: ReadonlySet<string> = new Set(CHECK_FAILURE_KINDS);
 const RUN_FAILURE_KIND_SET: ReadonlySet<string> = new Set(RUN_FAILURE_KINDS);

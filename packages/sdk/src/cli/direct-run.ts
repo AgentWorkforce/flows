@@ -21,7 +21,7 @@ export async function runDirectFlow(
   path: string,
   inputArgument: string | undefined,
   dataDir: string,
-  _options: RunLifecycleOptions = {},
+  options: RunLifecycleOptions = {},
 ): Promise<RunExecution> {
   let input: unknown;
   try {
@@ -40,7 +40,7 @@ export async function runDirectFlow(
   const socketPath = socketFor(dataDir);
   const base: RunReport = { ...emptyReport('run'), path };
   const client = new JournalClient(socketPath);
-  const connected = await connect(client, 'run', dataDir, base);
+  const connected = await connect(client, 'run', dataDir, base, options);
   if (connected !== undefined) return connected;
 
   try {

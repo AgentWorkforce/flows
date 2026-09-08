@@ -11,6 +11,8 @@ mod cancel;
 #[cfg(unix)]
 mod channels;
 #[cfg(unix)]
+mod lifecycle;
+#[cfg(unix)]
 pub mod liveness;
 #[cfg(unix)]
 mod reconcile;
@@ -46,13 +48,22 @@ pub fn serve(data_dir: &Path) -> Result<()> {
     };
 
     std::fs::create_dir_all(data_dir)?;
+    let _lock = match lifecycle::acquire(data_dir) {
+        Ok(lock) => lock,
+        Err(lifecycle::AcquireError::AlreadyServing) => {
+            eprintln!(
+                "relayflowd: another relayflowd is already serving {}",
+                data_dir.display()
+            );
+            std::process::exit(3);
+        }
+        Err(lifecycle::AcquireError::Io(error)) => return Err(error.into()),
+    };
     let socket_path = data_dir.join("relayflowd.sock");
-    if socket_path.exists() {
-        std::fs::remove_file(&socket_path)
-            .with_context(|| format!("remove stale socket {}", socket_path.display()))?;
-    }
+    lifecycle::remove_residue(data_dir)?;
     let listener = UnixListener::bind(&socket_path)
         .with_context(|| format!("bind socket {}", socket_path.display()))?;
+    lifecycle::publish(&socket_path)?;
     let hub = Arc::new(ProtocolHub::default());
     reconcile::spawn_reconciler(data_dir.to_path_buf(), hub.clone());
     // Trigger-plane liveness sweep (RFC-0001 gate 2, Native silent-death

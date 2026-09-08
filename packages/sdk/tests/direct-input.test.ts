@@ -103,11 +103,15 @@ describe('direct .flow.ts input through the built CLI and live runtime', () => {
     expect(missingInputValue.stderr).toContain('REFUSED [invalid_invocation]');
   });
 
+  // `--no-spawn` keeps this case about the property it names. `flows run` now
+  // starts a daemon when none is serving (kernel/DAEMON-LIFECYCLE.md §3), so
+  // without the flag the refusal under test would be about the spawn rather
+  // than about the authored module never being imported.
   it('does not import or execute authored code before daemon availability', () => {
     const directory = temporaryDirectory();
     const marker = join(directory, 'marker.txt');
     const result = invokeCli([
-      'run', SIDE_EFFECT_FLOW, '--input', JSON.stringify({ marker }),
+      'run', '--no-spawn', SIDE_EFFECT_FLOW, '--input', JSON.stringify({ marker }),
       '--data-dir', join(directory, 'absent-daemon'),
     ], { RELAYFLOWS_TEST_IMPORT_MARKER: marker });
 

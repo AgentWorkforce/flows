@@ -215,19 +215,21 @@ fn run_resume_adopts_a_real_journal_whose_registry_row_is_missing() {
         )
         .unwrap();
     let run_id = outcome.run_id.clone();
-    assert!(data_dir.join("runs").join(format!("{run_id}.sqlite3")).exists());
+    assert!(
+        data_dir
+            .join("runs")
+            .join(format!("{run_id}.sqlite3"))
+            .exists()
+    );
 
     // Reproduce the crash window: the journal survives, the index entry does
     // not. Removing the registry outright is the same state a SIGKILL between
     // the append and the register leaves behind, and strictly harsher -- the
     // row is not merely stale, there is nothing to consult at all.
     for suffix in ["", "-wal", "-shm"] {
-        let _ = std::fs::remove_file(
-            data_dir.join(format!("relayflowd.sqlite3{suffix}")),
-        );
+        let _ = std::fs::remove_file(data_dir.join(format!("relayflowd.sqlite3{suffix}")));
     }
-    let registry =
-        relayflowd_journal::Registry::open(data_dir.join("relayflowd.sqlite3")).unwrap();
+    let registry = relayflowd_journal::Registry::open(data_dir.join("relayflowd.sqlite3")).unwrap();
     assert!(registry.lookup(&run_id).unwrap().is_none());
 
     let hub = Arc::new(ProtocolHub::default());
@@ -237,9 +239,7 @@ fn run_resume_adopts_a_real_journal_whose_registry_row_is_missing() {
         &hub,
         1,
         &writer,
-        &format!(
-            r#"{{"id":"resume","verb":"run.resume","params":{{"run_id":"{run_id}"}}}}"#
-        ),
+        &format!(r#"{{"id":"resume","verb":"run.resume","params":{{"run_id":"{run_id}"}}}}"#),
     );
 
     assert!(
@@ -275,8 +275,15 @@ fn run_resume_refuses_a_journal_that_never_recorded_its_run() {
     std::fs::create_dir_all(data_dir.join("runs")).unwrap();
     let path = data_dir.join("runs").join(format!("{run_id}.sqlite3"));
     let journal = relayflowd_journal::SqliteJournal::create(&path, run_id, 0).unwrap();
-    assert_eq!(journal.run_id(), run_id, "the meta row is what makes this tempting");
-    assert!(journal.run_spec().is_err(), "and there is no spec to resume");
+    assert_eq!(
+        journal.run_id(),
+        run_id,
+        "the meta row is what makes this tempting"
+    );
+    assert!(
+        journal.run_spec().is_err(),
+        "and there is no spec to resume"
+    );
     drop(journal);
 
     let hub = Arc::new(ProtocolHub::default());
@@ -298,8 +305,7 @@ fn run_resume_refuses_a_journal_that_never_recorded_its_run() {
          failure is not"
     );
 
-    let registry =
-        relayflowd_journal::Registry::open(data_dir.join("relayflowd.sqlite3")).unwrap();
+    let registry = relayflowd_journal::Registry::open(data_dir.join("relayflowd.sqlite3")).unwrap();
     assert!(
         registry.lookup(run_id).unwrap().is_none(),
         "a refused journal must not leave a registry row behind"
@@ -363,8 +369,7 @@ fn run_resume_refuses_a_valid_journal_that_belongs_to_another_run() {
     assert_eq!(error.code, "run_not_found");
 
     // And nothing was adopted under the impostor id.
-    let registry =
-        relayflowd_journal::Registry::open(data_dir.join("relayflowd.sqlite3")).unwrap();
+    let registry = relayflowd_journal::Registry::open(data_dir.join("relayflowd.sqlite3")).unwrap();
     assert!(
         registry.lookup(impostor).unwrap().is_none(),
         "a refused journal must not leave a registry row behind"

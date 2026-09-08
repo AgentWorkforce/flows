@@ -1,6 +1,8 @@
 import { join, resolve } from 'node:path';
 import { toKernelSpec } from '../compile.js';
-import type { RunFailureKind } from '../failure-kinds.js';
+import { ensureDaemon, type EnsureDaemonOptions } from '../daemon-lifecycle.js';
+import { daemonRefusal } from './daemon-refusal.js';
+import type { RunFailureKind, RunWarningKind } from '../failure-kinds.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
 import type { PreflightDiagnostic } from '../preflight.js';
 import type {
@@ -24,8 +26,8 @@ export interface ParkedStep {
 }
 
 export interface RunDiagnostic {
-  severity: 'refusal' | 'failure' | 'parked';
-  kind: RunFailureKind | RunCompletionReason;
+  severity: 'refusal' | 'failure' | 'parked' | 'warning';
+  kind: RunFailureKind | RunWarningKind | RunCompletionReason;
   message: string;
 }
 
@@ -59,6 +61,12 @@ export interface RunProgress {
 export interface RunLifecycleOptions {
   signal?: AbortSignal;
   onWait?: (progress: RunProgress) => void;
+  /**
+   * Attach-or-spawn policy for the daemon this command needs
+   * (kernel/DAEMON-LIFECYCLE.md §3). `{ spawn: false }` is `--no-spawn`:
+   * refuse instead of starting one, which is today's exact behavior.
+   */
+  daemon?: EnsureDaemonOptions;
 }
 
 export async function runFlow(
@@ -80,16 +88,19 @@ async function executeCheckedFlow(
   options: RunLifecycleOptions,
 ): Promise<RunExecution> {
   const socketPath = socketFor(dataDir);
+  // Carry the preflight's diagnostics as a RunReport from here on, so the
+  // attach step has one accumulator to append to (see `connect`).
+  const base = fromCheckReport('run', checked.report);
   const client = new JournalClient(socketPath);
-  const connected = await connect(client, 'run', dataDir, checked.report);
+  const connected = await connect(client, 'run', dataDir, base, options);
   if (connected !== undefined) return connected;
 
   try {
     const spec = toKernelSpec(checked.flow!);
     const outcome = await client.runStart(spec);
-    return await classifyOutcome(client, 'run', outcome, checked.report, socketPath, options);
+    return await classifyOutcome(client, 'run', outcome, base, socketPath, options);
   } catch (error) {
-    return protocolFailure('run', checked.report, socketPath, error);
+    return protocolFailure('run', base, socketPath, error);
   } finally {
     client.close();
   }
@@ -103,7 +114,7 @@ export async function resumeFlow(
   const socketPath = socketFor(dataDir);
   const base = emptyReport('resume');
   const client = new JournalClient(socketPath);
-  const connected = await connect(client, 'resume', dataDir, base);
+  const connected = await connect(client, 'resume', dataDir, base, options);
   if (connected !== undefined) return connected;
 
   try {
@@ -131,13 +142,53 @@ export async function resumeFlow(
   }
 }
 
+/**
+ * Get a live daemon, then open the socket to it.
+ *
+ * This is the single seam every journal-opening verb shares (`runFlow`,
+ * `resumeFlow`, `runDirectFlow`), and it is where attach-or-spawn belongs —
+ * *after* the command has compiled, preflighted and validated its input, and
+ * immediately before `JournalClient` is used. Hoisting it into `runCli`
+ * instead would make a malformed invocation start a daemon as a side effect,
+ * breaking the surface's promise that missing, invalid, and oversized input is
+ * refused before the CLI contacts relayflowd (docs/SURFACE.md §5).
+ *
+ * Everything past `ensureDaemon` is unchanged and still fails closed: a
+ * connect or `hello` that fails against a daemon we just attached to is a
+ * refusal, with no retry and no second spawn.
+ */
 export async function connect(
   client: JournalClient,
   command: RunCommand,
   dataDir: string,
-  base: CheckReport | RunReport,
+  base: RunReport,
+  options: RunLifecycleOptions = {},
 ): Promise<RunExecution | undefined> {
   const socketPath = socketFor(dataDir);
+  const daemon = await ensureDaemon(dataDir, options.daemon ?? {});
+  if (daemon.kind !== 'attached') {
+    client.close();
+    return {
+      exitCode: 2,
+      report: {
+        ...fromBase(command, base),
+        socketPath,
+        diagnostics: [...base.diagnostics, daemonRefusal(daemon, dataDir, socketPath)],
+      },
+    };
+  }
+  if (daemon.warning !== undefined) {
+    // `base.diagnostics` is the accumulator that becomes the report's
+    // diagnostics, so a warning raised while attaching belongs in it — the
+    // attach succeeded, and silence about an anomaly is what AGENTS.md rule 4
+    // forbids.
+    base.diagnostics.push({
+      severity: 'warning',
+      kind: 'connection_file_stale',
+      message: daemon.warning,
+    });
+  }
+
   try {
     await client.connect();
   } catch {
@@ -396,7 +447,9 @@ export function fromCheckReport(command: RunCommand, report: CheckReport): RunRe
     ...(report.path !== undefined ? { path: report.path } : {}),
     ...(report.projectConfigPath !== undefined ? { projectConfigPath: report.projectConfigPath } : {}),
     resolutions: report.resolutions,
-    diagnostics: report.diagnostics,
+    // Copied, not aliased: the returned report is an accumulator the attach
+    // step appends to, and it must not write back into the check report.
+    diagnostics: [...report.diagnostics],
   };
 }
 
