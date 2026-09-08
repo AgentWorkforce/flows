@@ -4174,3 +4174,47 @@ unattended:
 `~/.colima` (a rebuildable VM disk image) is the obvious 7G candidate and
 `~/.rustup`/`~/.codex` are caches, but colima may hold live container state and
 the decision is Khaliq's. Asked; awaiting an answer.
+
+### 2026-09-08 — cleared ~11.5G; Data volume 2.5Gi -> 11Gi free
+
+Khaliq authorized clearing space. Freed in order of increasing risk, verifying
+each delete actually took:
+
+| what | freed |
+|---|---|
+| my own `/tmp/runs*.json` dumps (38MB written per tick, never cleaned) | 299M |
+| `~/.npm/_cacache`, `~/Library/pnpm/store`, `~/.cache`, Homebrew cache, `~/.cargo/registry` | 1799M |
+| `~/Library/Caches/*` | 2258M |
+| `colima delete -f` (instance) | 1124M |
+| orphaned `~/.colima/_lima/_disks` left behind by that delete | 6024M |
+
+**2.5Gi -> 11Gi free (99% -> 95%).**
+
+Two things the assert-the-mutation rule caught:
+
+- The first `rm -rf ~/.npm/_cacache` did **not** remove it — something was writing
+  concurrently; it went 603M -> 57M and needed a second pass. Exit code was 0
+  both times.
+- `colima delete -f` reported "done" but left `_disks` at 5.9G orphaned — 84% of
+  the reclaim was in the part the tool did not delete. Trusting its success
+  message would have left the bulk on disk.
+
+**Deliberately not deleted**, with reasons:
+
+- `~/.local` (8.0G) — a live process runs node from
+  `~/.local/share/mise/installs/node/22.23.2`; deleting it breaks running lanes.
+- `~/.local/share/ai-hist` (3.9G), `~/.hermes` (2.5G, has `auth.json` + state) —
+  data, not cache.
+- `~/.codex` (3.4G) — live codex lanes.
+- `cloud-v2cf-work/node_modules` (3.8G) and the cloud clone's (3.8G) — both
+  active checkouts; regenerable but breaks work in flight.
+- The 22G scratchpad session — still written to within the last 45 min.
+
+**What was actually lost:** the local docker VM. It was `Stopped`, so nothing was
+running in it, but its images and any volumes are gone. `colima start` recreates
+it; images re-pull.
+
+Instrument correction worth keeping: `df /` reports the *System* volume in its
+used column (12.6 GB), which is not where user files live. The right instrument
+is `df -h /System/Volumes/Data`. Free space happens to be shared, so the free
+column was right all along — only the used column misled.
