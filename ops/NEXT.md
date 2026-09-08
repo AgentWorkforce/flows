@@ -22,19 +22,14 @@ The review-swarm implementation is 90% complete. Analysis of the 9 non-negotiabl
 8. ✅ Wait step records status, post runs on always() — review-swarm.yml:106-130,132-137
 9. ✅ Transcript-to-run-id binding via freshness — swarm-prepare.sh:11 creates run-start marker; swarm-verdict.sh:33-34 rejects stale transcripts
 
-Additionally: README.md's secrets table is already correct — it documents
-`RELAY_WORKSPACE_KEY` and `CLOUD_API_KEY`, and names neither
-`CLOUD_API_ACCESS_TOKEN` nor `CLOUD_API_REFRESH_TOKEN`. The one residual is the
-sentence after the table, which still tells admins they may override
-`CLOUD_API_ACCESS_TOKEN_EXPIRES_AT`; the workflow no longer reads that variable
-at all, so the override has no effect.
+Additionally: README.md is already correct and needs no edit. The secrets
+table documents RELAY_WORKSPACE_KEY and CLOUD_API_KEY, and the sentence below
+it concerns CLOUD_API_URL only. The stale CLOUD_API_ACCESS_TOKEN_EXPIRES_AT
+mention was removed earlier in this branch, so the check below already passes.
 
 ## Files in scope
 
-- `README.md` — drop `CLOUD_API_ACCESS_TOKEN_EXPIRES_AT` from the non-secret
-  sentence under the secrets table; it names a variable nothing reads.
-
-Nothing else. The two items previously listed here — preflight validation and
+Nothing. Every item this brief once listed is already done in this branch. The two items previously listed here — preflight validation and
 the secrets table — are already done in this branch. A brief that asks for
 finished work does not produce a no-op; it produces an agent that re-derives
 the state, changes something to justify the trip, or declares a false blocked,
@@ -49,11 +44,10 @@ test -n "$CLOUD_API_KEY"
 test -n "$RELAY_WORKSPACE_KEY"
 ```
 
-2. ✅ Already satisfied — README's § "Cloud review swarm" secrets table names
-   `RELAY_WORKSPACE_KEY` and `CLOUD_API_KEY`. What remains is only to remove the
-   stale `CLOUD_API_ACCESS_TOKEN_EXPIRES_AT` mention below it:
+2. ✅ Already satisfied — README needs no change. Its table names
+   RELAY_WORKSPACE_KEY and CLOUD_API_KEY, and the stale expiry mention is gone:
 ```
-grep -c CLOUD_API_ACCESS_TOKEN_EXPIRES_AT README.md   # must be 0
+grep -c CLOUD_API_ACCESS_TOKEN_EXPIRES_AT README.md   # already 0
 ```
 
 3. All files continue to parse:
