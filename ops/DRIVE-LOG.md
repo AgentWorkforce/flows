@@ -15409,3 +15409,39 @@ kernel suite green on darwin arm64, including `placement_routing`,
 `placement_pins` and three `crash_resume::placement` cases. I merged the work and
 did not update the row that tracks it — the same staleness I spent four ticks
 correcting in other people's files.
+
+## 2026-09-08 ~10:40Z — memory and relayhistory: yes in the spec, stub in the code
+
+Khaliq asked whether memory uses `../relayhistory`. Checked both sides rather
+than agreeing.
+
+**Spec: yes, explicitly.** Gate 5 says script memory is "backed by the journal +
+relayhistory trajectories", that "every relayflow run pushes trajectories to
+relayhistory without opt-in code", and names it under *Exists today*:
+"relayhistory (Rust, SQLite/FTS5, MCP server, `pack`/`learn`/`pair`) — promoted
+from tool to core component, **consumed over its serialization contract, not
+rewritten**." The repo is public, Rust, last pushed 2026-09-07 20:19Z. It is not
+cloned on this machine.
+
+**Code: no, and the kernel says so in its own words.** `kernel/MEMORY.md`: the
+default `FixedMemoryProvider` returns `{"text":"fixed memory pack",
+"citations":[]}` with synthetic usage of 7 input tokens and `"0.002"` dollars —
+"a substrate stub: there is no retrieval, relayhistory call, or claim about
+memory quality." `relayflowd/src/memory.rs` repeats it at line 2. All three
+`Engine` constructors wire `FixedMemoryProvider`.
+
+**So what #221 landed is the seam, not the memory.** `MemoryProvider`,
+`MemoryPack`, and `memory.injected` journaled against the consuming `step_id`
+and initial `attempt` with exact resume accounting. That is decision 10 — memory
+tokens charged to the consuming step, itemized, no shared pools — and it is the
+part that is architecturally hard to retrofit. It is done.
+
+**What remains for gate 5 is bounded and nameable:** a `MemoryProvider`
+implementation that calls relayhistory over its serialization contract, plus the
+push side so trajectories land without opt-in code. The acceptance bar is not a
+passing test — the RFC asks for "an agent avoiding a mistake recorded in a
+previous run's trajectory, with the citation in its output".
+
+Given ASAP: the first concrete step is cloning relayhistory and reading its
+`pack`/`learn`/`pair` serialization contract, because "consumed, not rewritten"
+means the contract dictates the provider's shape.
