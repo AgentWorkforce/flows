@@ -15630,3 +15630,44 @@ now justified by evidence rather than by my first instinct: one open cloud PR,
 then dispatch preview.yml with the recovered quad.** I did not set any variable
 or publish anything — that is shared cloud infrastructure and this is unattended
 at 06:00.
+
+## 2026-09-08 ~12:30Z — #238's own migrator dropped fields silently
+
+Three cubic findings on #238, all unresolved behind a green cubic check. Third
+time tonight that "pass" carried live findings; I no longer read the check at
+all, only the threads.
+
+**P1 (confidence 9) is the one that stings.** `cli`, `triggers` and `budget`
+are *valid* 0.1.0 fields, so they sailed through my unknown-key check — and
+then the return statement emitted a fixed four-key dict and dropped them. A
+file declaring a global CLI, a trigger registration or a budget limit would
+have migrated cleanly and silently lost it.
+
+That is verbatim the failure this script's own docstring refuses to commit:
+"a migration that silently drops a field is worse than one that fails: the flow
+runs, looks fine, and means something else." I guarded the input and never the
+output. Writing the principle into the file did not make me check whether the
+file obeyed it — which is the same shape as the fail-open I defended with a
+careful comment at 02:50Z, and as #230's PR describing the permanent-red
+failure mode it then shipped.
+
+Absent optionals were also emitted as explicit nulls, which is not a valid
+value for them. Output is now built conditionally from what the source set.
+
+**P2:** the source version was read but never checked, so a 0.2.0 file would
+have been restamped 0.1.0 and migrated by guesswork. Refused now, with the
+version named.
+
+**P3, and this one is about my own honesty with evidence.** The README showed
+the SDK refusal as a readable multi-line list under a `$` prompt. The script
+actually emits **one JSON diagnostic on stderr and exits 2**. I ran the real
+command, then reformatted its output for readability without marking it as
+reformatted — which inside a fenced block reads as a transcript. Replaced with
+the literal 923 bytes and a note that an earlier revision paraphrased it.
+
+Verified all three: 0.2.0 refused rc=1; `cli` and `budget` survive a round trip
+while an absent `description` is omitted rather than nulled; all seven legacy
+files still convert and compile; nothing under `workflows/` is touched.
+
+Everything else unchanged — codex lane silent 13h, relayfile DB still at its
+cap, and the one open decision is still the cloud PR for a preview stage.
