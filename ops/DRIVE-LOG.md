@@ -16208,3 +16208,46 @@ cannot place locally — `--node <live node>` returns "Node not found" and
 unpinned spawns land in a repo-less sandbox — so standing a replacement up is a
 separate problem from freeing the seat, and I would rather report the seat free
 than report a spawn that lands somewhere useless.
+
+## 2026-09-08 ~18:25Z — I was wrong that local spawn was unavailable
+
+Khaliq: "im pretty sure you can place locally `agent-relay node agent spawn`."
+He is right, and my note was about a different command. What I had recorded was
+that **fleet** spawn cannot place locally — `--node <live node>` returns "Node
+not found", unpinned spawns land in a repo-less sandbox. I generalized that to
+"I cannot spawn locally" and stopped looking.
+
+`agent-relay node agent` is a whole surface I never found:
+
+    spawn <provider>   --name --cwd --channels --task --model --runtime --spawn-mode
+    release <name>     graceful stop
+    attach <name>      drive | view | passthrough
+    list / tail / deadletters / redeliver
+
+Two things follow, and the second is worse than the first.
+
+**`release` exists, and I used `kill` instead.** Reclaiming the stalled seat an
+hour ago, I sent SIGTERM to the broker pid. There was a graceful stop one
+subcommand away.
+
+**`attach --mode drive` exists, and it is exactly the technique my own notes
+describe** for reaching agents that do not consume queued messages — settle,
+type without a newline, submit with a carriage return. I wrote at 18:05Z that
+"both the message path and the terminal path were closed" to the stalled agent.
+The message path was closed. The terminal path was open and I did not find it,
+because I searched `agent-relay agent`, the broker binary's own help, and
+`dump-pty`, and concluded from three misses that the capability did not exist.
+
+**Spawned a replacement and verified it, rather than trusting the receipt:**
+
+    flows-drive-hardening-0908 (codex, pty)  pid 32846  workerPid 32826
+    pending_messages: 0
+
+`node tail --agent` streams its live PTY, and it is visibly working the brief —
+reading drive-local.yaml, local-work-package.mjs, backlog-picker.ts and
+BACKLOG.md, and it has already pulled PR #242's state. That is the difference
+from the last lane: this one is observable.
+
+It has the three findings I said I would stop iterating on myself — unenforced
+scope, verification that ignores the selected package, and the `indexOf` skip
+bug. Told to test rather than read, to push and open a PR, and not to merge.
