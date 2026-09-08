@@ -16320,3 +16320,51 @@ approve, no merge, no push.
 
 Both lanes are now live and observable: `flows-drive-hardening-0908` on #242's
 three remaining findings, and this one on #243.
+
+## 2026-09-08 ~19:20Z — the #243 lane delivered, and the reaper fix is bigger than I framed it
+
+**#243 review is in.** Verdict **NOT ALIGNED** at 3252115, posted by the lane as
+a PR review at 09:58Z. Six findings — two P1: an executor that silently executes
+unsupported workspace permission annotations instead of refusing them, and a
+30-second completion deadline imposed on parked/running agent outcomes that
+should be classified rather than timed out.
+
+It answered all five spec questions with citations, and the answers are not a
+rubber stamp in either direction: kernel vocabulary **aligned** (`f.agent`
+lowers to the existing `type: 'agent'` then `toKernelSpec`), boundary **aligned
+in shape**, permissions **cannot sign off** because findings 1 and 4 show
+declared readonly scope is ineffective, completionReason **journal discipline
+retained but surface reporting incorrect**, quickstart **partially accurate**.
+
+It also did the thing the brief asked for that I care about most: it judged the
+new live test rather than counting it. "The new live test is not vacuous: it
+starts a daemon, attaches an AgentWorker, launches a real fixture CLI, and
+asserts the exact returned instruction-derived summary." With executed numbers —
+52 targeted, 7 surface, 803 full SDK with one failure — and the literal commands
+captured. That is a better review than I would have written by hand.
+
+Worth recording that I nearly misread its status twice. `node tail` was silent
+for 40s and CPU showed 0.0, which looked stalled; the worktree had 2,778 files
+touched in fifteen minutes, which did not. And when Khaliq said a review had
+posted, the newest *comment* was the review-swarm bot reporting FAILED with all
+three lenses MISSING — the lane's work was a *review*, not a comment, and I
+would have reported the wrong thing if I had stopped at the comment list.
+
+**The reaper fix is wider than I said.** I told Khaliq two call sites. There are
+two enqueues (lines 290 and 674) but **six** RETURNING clauses, three of which
+produce job_id/run_id rows. Both enqueue paths' queries do join `workflow_runs`,
+so both are fixable the same way — but I had asserted "two call sites" before
+counting, and the count is the part that decides whether a fix is complete.
+
+Failing test written and failing for the right reason:
+
+    a v2 run must be re-enqueued with v2JobId; got keys jobId,runId
+
+That is the production key list reproduced in a unit test. Its first version
+failed vacuously — nothing was enqueued, because both reconcilers issue an
+UPDATE against workflow_launch_jobs and my stub matched the wrong one. Fixed by
+discriminating on the `'launching'` status filter.
+
+Khaliq has authorized driving the fix through, with the demo sooner than seven
+days and robustness still required. Next increment is the fix itself across both
+enqueue paths, then re-running the proof on the live preview.
