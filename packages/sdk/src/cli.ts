@@ -15,6 +15,7 @@ import {
   type RunReport,
 } from './cli/run.js';
 import { runDirectFlow } from './cli/direct-run.js';
+import { runCloudCli } from './cli/cloud-run.js';
 import { isAuthoredFlowPath } from './direct-input.js';
 import { runHnMonitor } from './cli/hn-monitor.js';
 import { runTickRunner } from './cli/tick-runner.js';
@@ -41,6 +42,7 @@ const USAGE = [
   'Usage:',
   'flows check [--json] <flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>',
+  'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>',
@@ -66,6 +68,7 @@ export async function runCli(
   args: readonly string[],
   io: CliIo = PROCESS_IO,
 ): Promise<CliExitCode> {
+  if (args.includes('--cloud')) return runCloudCli(args, io);
   const parsed = parseArgs(args);
   if (parsed === undefined) {
     const report = inputFailureReport({ kind: 'invalid_invocation', message: USAGE });

@@ -1,5 +1,5 @@
 export interface CloudConnectionOptions {
-  /** Cloud application origin, e.g. https://agentworkforce.com. */
+  /** Cloud application origin; defaults to https://agentrelay.com. */
   apiUrl?: string;
   /** Scoped Cloud API token; never a Relay workspace key. */
   token?: string;
@@ -25,7 +25,7 @@ export function cloudConnection(options: CloudConnectionOptions): { origin: stri
   }
   let url: URL;
   try {
-    url = new URL(options.apiUrl ?? process.env['FLOWS_CLOUD_URL'] ?? 'https://agentworkforce.com');
+    url = new URL(options.apiUrl ?? process.env['FLOWS_CLOUD_URL'] ?? 'https://agentrelay.com');
   } catch {
     throw new CloudFlowError('configuration', 'FLOWS_CLOUD_URL must be an absolute Cloud application origin.');
   }

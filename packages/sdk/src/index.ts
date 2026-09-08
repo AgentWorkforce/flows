@@ -44,6 +44,12 @@ export type {
 } from './spec.js';
 export { SPEC_SCHEMA_VERSION } from './spec.js';
 
+export { CloudFlowError, type CloudConnectionOptions } from './cloud-http.js';
+export {
+  runInCloud, getCloudFlowRun, waitForCloudFlowRun,
+  type CloudFlowSource, type RunInCloudOptions, type CloudRunReceipt, type CloudRunState,
+} from './cloud-run.js';
+
 export { canonicalize, specHash } from './canonical.js';
 export {
   compileAndHash,
