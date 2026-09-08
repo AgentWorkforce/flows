@@ -4117,3 +4117,9 @@ Drain 0 pending/launching of 1795; 11 `running` unchanged.
 `RELAYCAST_INTERNAL_SECRET_DEV` still absent on cloud, so the demo is blocked at
 the same point. #134 needs a landing decision, #139 merged. Disk 3.4Gi, steady
 since last tick. Nothing to do.
+
+### 2026-09-08 — quiet tick
+
+0 pending/launching of 1799 (up 4 — the ~10 min schedule keeps firing and
+failing on the same 401), 11 `running` unchanged, secret still absent, disk
+3.4Gi steady. Nothing to do.
