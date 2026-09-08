@@ -4854,3 +4854,40 @@ Nothing else to do this tick. The state is honest and unchanged:
 I am deliberately not redeploying or re-running the canary again this tick.
 Repeating a measurement that has already returned the same answer twice adds
 nothing until someone establishes whether the new code is running.
+
+### 2026-09-09 — my test method was structurally wrong; the lane proved it with provenance
+
+The lane answered BRIEF-3 properly, and the answer is that **my combined-branch
+experiment could never have tested #3461.**
+
+`preview.yml` resolves `pulls.get(pr_number)`, publishes `head_sha = pr.head.sha`,
+and checks that out. So `--ref` selects only the **workflow definition**; the
+**application code** always comes from the PR named in `pr_number`. Its
+provenance table traces one SHA end to end:
+
+```
+dispatch branch      test/combined-proof-0909
+Actions headSha      cabcf55db...           (the workflow revision)
+checkout ref         b5035cdfc...           (PR 3446 head — the code deployed)
+SST DEPLOY_VERSION   b5035cdfc...
+web health SHA       b5035cdfc...  exact-preview-healthy
+```
+
+So the deploy was green and the health check honest — it faithfully proved the
+**old** SHA. "Deploy succeeded" was never evidence that either fix ran.
+
+**This does not retract #3457.** That change lives in the workflow file itself,
+which does come from `--ref`, and its effect was observable: the Relaycast 401
+disappeared and launches began reaching RelayAuth. Workflow-level changes take
+effect this way; application-code changes do not. That distinction is the whole
+lesson, and I had been applying one rule to both.
+
+Corrected the method rather than repeating it: dispatched run **34290481495**
+with the **workflow** from `fix/preview-relaycast-dev-secret` (so the `_DEV`
+secret is seeded) and **`pr_number=3461`** (so the deployed application code is
+the schema fix). That is the only combination that puts both in one stage.
+
+One consequence to flag: this builds a **new** stage, `preview-pr-3461`. Each
+preview runs its own RelayAuth, so the token I hold for pr-3446 will 401 there
+and the proof needs a fresh device login — a human click. I will surface the
+link rather than pretend the proof can complete tonight without it.
