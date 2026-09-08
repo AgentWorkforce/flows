@@ -65,24 +65,57 @@ async function loadPicker() {
 async function select() {
   const { selectBacklogEntry, packageFromEntry, validateWorkPackage, renderWorkPackage } =
     await loadPicker();
-  const markdown = read(backlogPath);
-  const entry = selectBacklogEntry(markdown);
-  assert(entry, `BACKLOG_EMPTY: no selectable entry in ${backlogPath}`);
+  let markdown = read(backlogPath);
+  const backlogSha256 = hash(markdown);
+  const skipped = [];
+  let entry = null;
+  let validation = null;
 
-  const candidate = packageFromEntry(entry);
-  const validation = validateWorkPackage(candidate);
-  // Refuse rather than hand an agent an underspecified package. A tick that
-  // starts without a definition of done cannot tell whether it finished.
+  // Take the first entry this loop can actually bound. The picker returns one
+  // entry -- the first top-level bullet with a bold title -- so "next" is found
+  // by removing the one just rejected and asking it again, rather than writing
+  // a second parser that could disagree with it about what an entry is.
+  for (let guard = 0; guard < 50; guard += 1) {
+    const candidateEntry = selectBacklogEntry(markdown);
+    if (!candidateEntry) break;
+
+    const candidate = packageFromEntry(candidateEntry);
+    const result = validateWorkPackage(candidate);
+    const scope = result.accepted ? result.work.files_in_scope : [];
+
+    // The picker emits ['.'] when an entry references code but names no path.
+    // That is deliberate on its side -- its comment calls it "honest breadth" --
+    // and it is a fair description of the entry. It is not usable as scope for
+    // an agent: "." is the whole repository, and an agent told its scope is
+    // everything has been told nothing. Skip rather than widen what an
+    // unattended tick may touch.
+    const unbounded = scope.length === 1 && scope[0] === '.';
+    if (result.accepted && !unbounded) {
+      entry = candidateEntry;
+      validation = result;
+      break;
+    }
+    skipped.push({
+      title: candidateEntry.title,
+      reason: result.accepted ? 'unbounded_scope' : result.reason,
+    });
+    const at = markdown.indexOf(candidateEntry.title);
+    // Cut past this entry's title so the next exec finds the following bullet.
+    markdown = at === -1 ? '' : markdown.slice(at + candidateEntry.title.length);
+  }
+
+  for (const s of skipped) console.log(`SKIPPED [${s.reason}] ${s.title.slice(0, 90)}`);
   assert(
-    validation.accepted,
-    `WORK_PACKAGE_REJECTED: ${validation.accepted ? '' : validation.reason} — ${entry.title}`,
+    entry && validation?.accepted,
+    `NO_BOUNDED_WORK: ${skipped.length} entr(y|ies) considered, none named files ` +
+      `this loop can scope. Add explicit paths to a BACKLOG entry.`,
   );
 
   const pkg = {
     selectedAt: new Date().toISOString(),
     branch: git('branch', '--show-current'),
     head: git('rev-parse', 'HEAD'),
-    backlogSha256: hash(markdown),
+    backlogSha256,
     title: validation.work.title,
     filesInScope: validation.work.files_in_scope,
     definitionOfDone: validation.work.definition_of_done,
