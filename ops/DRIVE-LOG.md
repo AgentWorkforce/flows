@@ -16845,3 +16845,40 @@ asked for.
 
 **Disk: 9.9Gi free, down from 16Gi.** The lane's worktree is 4.3G. Not urgent,
 worth watching given disk hit zero once today.
+
+## 2026-09-09 ~00:55Z — #3442's CI caught two real bugs I could not have found by reading
+
+Khaliq flagged #3442 red. Both failures were mine and both were invisible
+without running.
+
+**A SQL scope error.** The queued-reconciliation query joins `workflow_runs`
+inside a CTE and then does `UPDATE ... FROM candidates`. My
+`wr.relayflow_version` in that *outer* RETURNING is an undefined range table —
+Postgres 42P01, `errorMissingRTE` at position 638. The column is now selected in
+the CTE and read as `candidates.relayflow_version`. The other two RETURNING
+clauses are fine: both of their queries have `workflow_runs` in the outer FROM,
+which is why one of three edits broke and two did not.
+
+**Then the comment explaining that fix broke the build.** It contained backticks
+around `wr` and `UPDATE ... FROM candidates`, inside a JavaScript template
+literal, which terminated the SQL string. A TransformError with no useful
+message until I looked at the region.
+
+**Why this reached CI at all is the part worth keeping.** When I wrote the
+original fix I searched `packages/core/tests/*reaper*`, found nothing, and wrote
+"No reaper test exists" — then designed a stub-based test from scratch. The
+suite lives at `tests/orchestrator/stuck-run-reaper.test.ts`, thirty cases,
+covering exactly this code. **A search that missed is not a search that proved
+absence**, and I have now made that mistake twice in one night: once concluding
+local spawn did not exist after three failed searches, once here.
+
+Fixed in df8a8f9b6. `tests/orchestrator/stuck-run-reaper.test.ts` 30 passed /
+0 failed, and my own v2/v1 shape tests still pass 2/2.
+
+**On #3446 and merge timing.** It is CLEAN — 21 pass, 4 skipping, 0 fail — and I
+am deliberately not merging it yet, because a preview is building against it
+right now to prove v2 actually launches end to end. `preview.yml` rechecks PR
+eligibility about sixteen minutes in, immediately before publication, and a
+merge mid-build fails that recheck and tears the stage down. That is exactly how
+cloud#3436 died at 07:56Z. Ten more minutes and the answer is either a completed
+proof or a new fact; merging now trades that for nothing.
