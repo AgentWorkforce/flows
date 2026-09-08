@@ -3728,3 +3728,27 @@ record**, not from the artifact listing — that is what keeps the tarball
 
 Next: when the build lands, re-run the v2 proof. v1 is the cheaper canary — if
 it stops reporting the 530 the repoint worked.
+
+### 2026-09-08 tick — preview still building; disk scare was a false alarm
+
+Drain: no pending runs. Preview redeploy 34234667816 still `in_progress`
+(`deploy-preview`), so the proof stays blocked. Quiet tick.
+
+Disk read 4.4Gi free, down from 9.8Gi in ~35 minutes, which looked like the
+run-up to the zero-disk incident earlier today. Traced it: 22G sits under one
+scratchpad session `fe8515ad…` — NOT this session — holding six lane checkouts
+(relaysmoke 5.0G, ensure 4.3G, relaybase 2.6G, rcdeep 1.1G, sgreg 1.0G,
+gardencli 909M). All six are `dirty=0 unpushed=0`, so nominally reclaimable.
+
+**I did not delete any of them, and that was right.** `lsof` showed live
+`codex`, `agent-relay`, `node` and `Python` processes inside that tree with
+files written in the last two hours. Clean-and-pushed means no *committed* work
+would be lost; it does not mean the lane is idle or that the checkout is not
+about to be used. This is the same shape as the worktree I moved out from under
+a live lane earlier today.
+
+Then disk recovered on its own to 14Gi free with no action taken. The trough was
+transient build space being held and released, not a leak. Acting on the single
+sample would have destroyed a live lane's 22G for no reason.
+
+Rule worth keeping: one disk sample is not a trend, in either direction.
