@@ -16701,3 +16701,50 @@ consumer on its workflow-launch queue. cloud#3442's defect stays fixed — the
 ~166s terminal `v2JobId` failure has not recurred across four runs on a stage
 carrying it — and the tuple cannot assert on a stage where nothing launches at
 all.
+
+## 2026-09-08 ~23:35Z — the CF launch path is scaffolding behind a flag nobody implemented
+
+Khaliq's aside — "we're deprecating AWS in favor of only using Cloudflare" —
+reframed the whole thing, and then two more reads changed it again. Recording
+the sequence because I was about to write the wrong change twice.
+
+**Confirmed the producer split empirically**, not from source. The deployed
+preview worker's own health endpoint reports its bindings:
+
+    queue/launch-related: ['CloudTeamLaunchN1Enabled','GithubCloneQueue','WorkflowLaunchQueue']
+
+`WorkflowLaunchQueue` is the SQS one. There is **no** CF launch queue binding on
+the running worker. The only producer to the CF queue anywhere is
+`infra/stuck-run-reaper.ts:49`. So: reaper on Cloudflare, first-launch path on
+AWS.
+
+**I was one command from writing the migration myself.** I had the pattern
+picked (`readWebhookQueueBinding` in
+`integration-watch-delivery-queue.ts`, `getCloudflareContext().env.WEBHOOK_QUEUE`,
+`queue.send`), and was about to bind `workflowLaunchCfQueue` into web-worker and
+switch `enqueueWorkflowLaunchJob`. Then line 27 of the infra file:
+
+    // DORMANT: nothing enqueues here until WORKFLOW_LAUNCH_VIA_CF_QUEUE flips on,
+
+The CF path is **deliberately** dormant. Queue, consumer worker, DLQ consumer
+and the internal step route all ship idle by design. Writing an unconditional
+switch would have bypassed a staged migration, not completed one.
+
+**And then the part that is actually actionable.**
+`WORKFLOW_LAUNCH_VIA_CF_QUEUE` appears in exactly five places —
+`infra/stuck-run-reaper.ts`, `infra/workflow-launch-cf-queue.ts`,
+`sst.config.ts`, the internal step route, and the consumer — and **all five are
+comments**. No code reads it. The flag is documented as the thing that will flip
+the producer and does not exist.
+
+So the CF half is built and deployed idle, the SQS half still carries every
+first launch, and the switch between them was specified in prose and never
+implemented. On a preview stage the SQS subscriber ends the deploy deleted,
+which is why nothing launches there at all — v1 or v2.
+
+**What I would write, and did not write tonight:** implement the flag those five
+comments describe — bind `workflowLaunchCfQueue` to the web worker, and in
+`enqueueWorkflowLaunchJob` prefer the CF binding when the flag is on, keeping
+the SQS/bridge path otherwise. That is a launch-path change on a migration
+someone is actively staging, and it wants its owner's judgement about ordering
+rather than mine at 23:35.
