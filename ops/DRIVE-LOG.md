@@ -14630,3 +14630,49 @@ The brief now names one item in scope with a check that passes
 
 Six PR threads cleared tonight across #229, #230, #232, #226 — two P1s, four
 P2s, one P3. None needed capacity. Still no merges: signoff needs the swarm.
+
+## 2026-09-08 ~04:10Z — NEEDS_HUMAN was sending Khaliq to do a solved thing
+
+Cleared #234's thread (b2c47c5). **Four findings left, all on #227 and #231.**
+
+This one mattered more than its P2 label. `ops/NEEDS_HUMAN.md` is the file
+Khaliq reads to learn what only he can do, and its header still said the block
+was **storing the `CLOUD_API_KEY` secret**. That was true on 09-07. It has been
+false since 21:50Z that evening. A human acting on it would have gone and
+stored a secret that is already stored, while the actual ask went unread.
+
+cubic's finding was that "COMPLETE" was unverified, and it raised a specific
+risk: the `workflow-invoke` credential might not cover the prepare endpoint, so
+the gate would stay broken even after the secret landed. Tonight I can answer
+that with evidence instead of argument, and it went the other way — the
+credential works. Runs 34164547936 and three others minted and installed it;
+flows run 34168392594 then reached `agent-relay cloud run`, got run
+`04da7e48` and sandbox `b5f3b344`, and executed about five minutes. No
+device-flow fallback.
+
+What it failed on instead is the thing the file should have been saying:
+
+    Step "lens-maintainability" failed after 2 retries:
+    Total CPU limit exceeded. Maximum allowed: 250.
+
+Header rewritten to name the current block and the current ask (the orphan
+sweep with `dry_run=false`), with the superseded assessment kept below a marker
+rather than deleted.
+
+I also declined to replace one overclaim with another. Launch and
+authentication are proven; the verdict path is not, and no swarm has completed
+end to end — so requirement 9 and the Definition of done's "first successful
+run" are still outstanding, and the file now says so. AGENTS.md is right that
+unverified work is unfinished, and the temptation here was to bank the good
+news and quietly keep the COMPLETE.
+
+**Third stale directive tonight**, after my own eight-hour inbox and #226's
+NEXT.md — plus this tick brief, still aimed at #134 and #139 four days after
+they merged. Four instruments, all confidently wrong in the same way. The
+pattern is not carelessness about writing; it is that nothing re-reads a
+directive against reality once it is written.
+
+**Also checked rather than assumed:** #227 and #231's worktrees are clean and
+idle — 09-07 13:41 and 22:35, fourteen and five hours cold, zero dirty files.
+I had recorded them as live and off-limits last tick. They are available; the
+hazard was never the registration, it was uncommitted work, and there is none.
