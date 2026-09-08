@@ -228,7 +228,9 @@ export async function main(argv: readonly string[], deps: MainDeps): Promise<num
     const unknown = agents.map((a) => a.cli).filter((cli) => !isHeadlessCli(cli));
     if (unknown.length > 0) throw new Refused(`no headless adapter for cli: ${unknown.join(", ")}`);
     const targets = agents.filter((a) => isHeadlessCli(a.cli)).map((a) => ({ cli: a.cli, model: a.model })) as PreflightTarget[];
-    const findings = await preflightHeadless(targets, deps.binaries);
+    const findings = await preflightHeadless(targets, deps.binaries, (label, timeoutMs) => {
+      deps.stderr(`research: checking ${label} (timeout ${timeoutMs / 1000}s)`);
+    });
     if (findings.length > 0) {
       throw new Refused(findings.map((f) => `[${f.kind}] ${f.message}`).join("\n"));
     }

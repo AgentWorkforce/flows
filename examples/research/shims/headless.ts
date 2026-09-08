@@ -383,7 +383,11 @@ function probe(bin: string, args: string[], timeout: number): Promise<ProbeResul
   });
 }
 
-export async function preflightHeadless(targets: readonly PreflightTarget[], binaries?: HeadlessBinaries): Promise<PreflightFinding[]> {
+export async function preflightHeadless(
+  targets: readonly PreflightTarget[],
+  binaries?: HeadlessBinaries,
+  onProbe?: (label: string, timeoutMs: number) => void,
+): Promise<PreflightFinding[]> {
   const findings: PreflightFinding[] = [];
   const seen = new Set<string>();
   const authChecked = new Set<HeadlessCli>();
@@ -409,6 +413,7 @@ export async function preflightHeadless(targets: readonly PreflightTarget[], bin
     if (auth && !authChecked.has(cli)) {
       authChecked.add(cli);
       const label = `${cli} ${auth.join(" ")}`;
+      onProbe?.(label, 10_000);
       const result = await probe(bin, auth, 10_000);
       const early = classify(label, result);
       if (early) { findings.push(early); continue; }
@@ -421,6 +426,7 @@ export async function preflightHeadless(targets: readonly PreflightTarget[], bin
     // 2. live round-trip with the declared model
     const args = roundTripArgs(cli, model);
     const label = `${cli} round-trip${model ? ` with model ${model}` : ""}`;
+    onProbe?.(label, 90_000);
     const result = await probe(bin, args, 90_000);
     const early = classify(label, result);
     if (early) { findings.push(early); continue; }
