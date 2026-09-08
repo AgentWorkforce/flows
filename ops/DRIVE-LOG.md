@@ -4138,3 +4138,39 @@ Nothing to do.
 
 0 pending of 1807, 11 `running` unchanged, secret still absent, disk 3.2Gi.
 Nothing to do.
+
+### 2026-09-08 — disk is at 99%; lane still blocked
+
+Drain: 0 pending of 1809, 11 `running` unchanged. Secret still absent. Lane
+unchanged.
+
+**Disk is the live risk.** `/System/Volumes/Data`: 189Gi used, **3.6Gi free,
+99% full**.
+
+Correcting my own overstatement from the status report: I said every disk figure
+I had reported all night was the wrong number. That was too strong. Free space is
+shared across the APFS container, so `df /` and `df /System/Volumes/Data` report
+the *same* free figure — the per-tick "3.2Gi free" readings were accurate, and
+the decline was real and flagged. What I misread was the **used** column: `df /`
+shows the System volume (12.6 GB), which I took for whole-machine usage. The new
+fact is the 99% fill level and where the bulk sits, not that the earlier numbers
+were wrong.
+
+Reclaimed what is actually mine: 299M of run-listing dumps in `/tmp` — I had
+been writing a 38 MB `runs*.json` every tick and never deleting them. That is my
+own footprint and it is now capped. `pr134-fix` is 4.5M, clean, fully pushed
+(`2c4199f` on both sides), so it stays.
+
+Everything else large belongs to Khaliq or to live lanes and I will not delete it
+unattended:
+
+```
+22G  scratchpad session fe8515ad (LIVE codex/agent-relay processes inside)
+20G  ~/Projects        15G  ~/AgentWorkforce   14G  ~/Library
+8.0G ~/.local          7.1G ~/.agentworkforce  7.0G ~/.colima
+3.4G ~/.codex          3.0G ~/.hermes          2.5G ~/.rustup
+```
+
+`~/.colima` (a rebuildable VM disk image) is the obvious 7G candidate and
+`~/.rustup`/`~/.codex` are caches, but colima may hold live container state and
+the decision is Khaliq's. Asked; awaiting an answer.
