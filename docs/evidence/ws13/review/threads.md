@@ -1,6 +1,6 @@
-# Disposition of the 29 original review threads
+# Disposition of 31 review threads
 
-Code fixes: `e3f756c`. Links point to each original review comment. Declines are explicit; this ledger is not independent approval.
+Initial 29-thread code fixes: `e3f756c`. The two follow-up findings are covered by [the additional captured verification](last-two-threads.txt). Links point to each original review comment. Declines are explicit; this ledger is not independent approval.
 
 | # | Thread | Disposition |
 |---|---|---|
@@ -33,3 +33,5 @@ Code fixes: `e3f756c`. Links point to each original review comment. Declines are
 | 27 | [docs/evidence/ws13/followup/run-gallery.py](https://github.com/AgentWorkforce/flows/pull/247#discussion_r3961433523) | Fixed |
 | 28 | [docs/evidence/ws13/followup/default-budget/reports/claude.md](https://github.com/AgentWorkforce/flows/pull/247#discussion_r3961433529) | Fixed |
 | 29 | [docs/evidence/ws13/followup/default-budget/reports/grok.md](https://github.com/AgentWorkforce/flows/pull/247#discussion_r3961433543) | Fixed |
+| 30 | [worker-lease.ts](https://github.com/AgentWorkforce/flows/pull/247#discussion_r3961970551) | Fixed: a late heartbeat cannot revive an expired lease |
+| 31 | [record.py](https://github.com/AgentWorkforce/flows/pull/247#discussion_r3961970578) | Fixed: normalize only actual newline boundaries |

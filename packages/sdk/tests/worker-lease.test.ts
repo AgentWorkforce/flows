@@ -117,3 +117,35 @@ it('refuses completion past the deadline even before the expiry timer runs', asy
   expect(client.stepComplete).not.toHaveBeenCalled();
   expect(String(errors[0])).toContain('lease expired before completion');
 });
+
+it('does not revive ownership when the initial heartbeat response is handled late', async () => {
+  const { client, worker, errors, dispatch } = setup();
+  client.stepHeartbeat.mockImplementationOnce(async () => {
+    vi.setSystemTime(Date.now() + 30_001); // leave timer callbacks queued
+    return { lease_deadline_ms: Date.now() + 30_000 };
+  });
+  await worker.attach();
+  client.emit('step.dispatch', dispatch);
+  await worker.close();
+  expect(runAgentCli).not.toHaveBeenCalled();
+  expect(client.stepComplete).not.toHaveBeenCalled();
+  expect(String(errors[0])).toContain('lease expired before renewal');
+});
+
+it('aborts the CLI when a later heartbeat response would revive an expired lease', async () => {
+  const { client, worker, errors, dispatch } = setup();
+  client.stepHeartbeat.mockResolvedValueOnce({ lease_deadline_ms: Date.now() + 30_000 })
+    .mockImplementationOnce(async () => {
+      vi.setSystemTime(Date.now() + 20_001); // renewal starts at t=10s
+      return { lease_deadline_ms: Date.now() + 30_000 };
+    });
+  const signals = runningCli(60_000);
+  await worker.attach();
+  client.emit('step.dispatch', dispatch);
+  await vi.advanceTimersByTimeAsync(10_000);
+  await worker.close();
+  expect(client.stepHeartbeat).toHaveBeenCalledTimes(2);
+  expect(signals[0]?.aborted).toBe(true);
+  expect(client.stepComplete).not.toHaveBeenCalled();
+  expect(String(errors[0])).toContain('lease expired before renewal');
+});

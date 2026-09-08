@@ -31,6 +31,11 @@ export async function withWorkerLease<T>(
       dispatch.run_id, dispatch.step_id, dispatch.attempt, dispatch.lease_id,
     ), controller.signal);
     controller.signal.throwIfAborted();
+    // A response handled after local expiry cannot revive ownership, even
+    // if its future deadline was issued before this event loop stalled.
+    if (Date.now() >= latestDeadline) {
+      throw new Error(`Agent lease expired before renewal for ${dispatch.run_id}/${dispatch.step_id}.`);
+    }
     const remaining = armExpiry(result.lease_deadline_ms);
     if (!stopped) {
       renewalTimer = setTimeout(() => {

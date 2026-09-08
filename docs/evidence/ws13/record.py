@@ -65,5 +65,5 @@ with open(prefix + '.cast', 'w') as cast, open(prefix + '.txt', 'w') as transcri
     print(ending)
 # Normalize only the readable transcript; the cast retains terminal bytes.
 path = Path(prefix + '.txt')
-path.write_text('\n'.join(line.rstrip() for line in path.read_text().splitlines()) + '\n')
+path.write_text('\n'.join(line.rstrip() for line in path.read_text().removesuffix('\n').split('\n')) + '\n')
 sys.exit(code if code >= 0 else 128 - code)

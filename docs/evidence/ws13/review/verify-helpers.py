@@ -11,7 +11,7 @@ with tempfile.TemporaryDirectory(prefix='ws13-helper-check-') as directory:
     root = Path(directory)
     prefix = root / 'terminal'
     argv = [sys.executable, str(base / 'record.py'), str(prefix), directory,
-            sys.executable, '-c', "import os; os.write(1, b'trailing   \\n\\xe2\\x82')"]
+            sys.executable, '-c', "import os; os.write(1, b'trailing   \\nvertical\\x0btab form\\x0cfeed\\n\\xe2\\x82')"]
     result = subprocess.run(argv, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
     transcript = prefix.with_suffix('.txt').read_text()
@@ -20,8 +20,9 @@ with tempfile.TemporaryDirectory(prefix='ws13-helper-check-') as directory:
     assert '\ufffd' in terminal and '\ufffd' in transcript
     assert 'trailing   \r\n' in terminal
     assert '\ntrailing\n' in transcript
-    assert all(line == line.rstrip() for line in transcript.splitlines())
-    print('PASS: EOF UTF-8 replacement is captured in cast and text; text trims trailing spaces; cast preserves them.')
+    assert '\nvertical\x0btab form\x0cfeed\n' in transcript
+    assert all(line == line.rstrip() for line in transcript.removesuffix('\n').split('\n'))
+    print('PASS: EOF UTF-8 replacement is captured in cast and text; text trims trailing spaces; cast preserves them; embedded VT/FF remain on the same line.')
     for name in ['cold-clone.sh', 'cold-start.sh']:
         result = subprocess.run(['bash', str(base / name)], text=True, capture_output=True)
         assert result.returncode != 0 and 'Usage:' in result.stderr, result

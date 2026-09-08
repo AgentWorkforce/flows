@@ -1,6 +1,6 @@
 # WS-13 review corrections
 
-The original 29 threads are tracked individually in [the response ledger](threads.md).
+The original 29 threads and two follow-up threads are tracked individually in [the response ledger](threads.md).
 The SDK/code fixes are in `e3f756c`; no kernel or judging gate was changed.
 
 ## Corrected gallery: 1 pass, 2 blocked
@@ -52,18 +52,36 @@ repository test suite is green. Timing remains accepted by Khaliq: 49.975s for
 the cold deterministic loop, 132.637s for the existing-host real Claude command.
 No new timing benchmark was run.
 
+## Two follow-up findings
+
+A heartbeat response handled after the prior deadline is now rejected before it
+can replace the deadline snapshot. Initial and periodic late-response tests both
+leave timer callbacks queued; no expired lease can spawn/complete work. The
+recorder now splits only on LF, preserving embedded vertical-tab/form-feed bytes.
+[Seven lease tests, recorder checks and SDK build passed](last-two-threads.txt).
+The gallery captures above identify the earlier `e3f756c` candidate; these final
+lease/recorder changes do not implement either missing gallery budget capability.
+No new gallery or cold-timing execution is claimed for this follow-up.
+
 ## External handoffs
 
-**Review-swarm/Cloud relayfile owner:** the failed review job
-[34267938676](https://github.com/AgentWorkforce/flows/actions/runs/34267938676)
-returned `relayfile ACL GET /.relayfile.acl failed with status 429`, correlation
-`499e3981-c303-48e3-89be-595ac66ee3c4`. [Captured failure](cloud-failure.txt).
-All three fresh review transcripts are missing; this is **not review signoff**.
-The first retry at `14cb174` failed sooner: `gh pr diff` refused two literal
-ANSI escape bytes in this newly captured Cloud log. That was an evidence-format
-mistake in this PR. The log now encodes ESC as visible `\u001b` text, preserving
-the captured content without terminal controls. [Failed preparation](prepare-failure.txt).
-The gate is unchanged. See the PR for the retry status at the current head.
+**Review-swarm / Cloud + Relaycast service owner: INFRA-FAILED.** Per the
+user's ruling, this check is infrastructure-owned and is not being repaired in
+this lane. At `1aad66a`, preparation and launch passed, then Cloud run
+`7202379b-3bcb-4706-b6e3-a7e59495c4e2` failed during Relaycast workspace-key repair
+with HTTP 503, database temporarily overloaded. Post-verdict then reported:
+
+> No changes to sync — the workflow did not modify any files.
+
+No fresh maintainability, history or structure transcripts were produced. This
+is not a verdict on the PR code and **not independent review signoff**.
+[Exact command and captured failure](infra-final.txt),
+[job](https://github.com/AgentWorkforce/flows/actions/runs/34274491229/job/102224017363).
+The earlier [ACL HTTP 429](cloud-failure.txt) and [ANSI preparation failure](prepare-failure.txt)
+remain captured. The latter was fixed in this PR by visibly encoding ESC bytes;
+no judging gate was edited. One retry had already been queued before the user
+ruled this out of scope; no further manual retries or infrastructure work follow.
+The PR carries the current handoff; remain out of draft.
 
 **Release-gate owner:** register and publish `create-flow`; publishing remains
 outside this lane. Route both owner assignments through session-thread-rollout.
