@@ -322,7 +322,18 @@ jobs:
         run: |
           npm install --prefix packages/surface --package-lock-only --ignore-scripts
           npm install --prefix packages/sdk --package-lock-only --ignore-scripts --save-exact "@relayflows/surface@$NEW_VERSION"
-          npm install --prefix packages/relayflows --package-lock-only --ignore-scripts --save-exact "@relayflows/sdk@$NEW_VERSION"
+          # No explicit --save-exact target here, unlike the SDK line above.
+          # package.json (restored from the just-published tarball) already
+          # carries the exact new-version pin for every dependency, including
+          # both runtime-* optionalDependencies — so a bare install is enough
+          # to record them, and it has to be bare: a targeted `install pkg@v`
+          # only reconciles that one named package and, found the hard way
+          # against this exact command on a real release run, silently drops
+          # OTHER already-resolved entries rather than refreshing them —
+          # emptying node_modules/@relayflows/runtime-linux-x64 out of the
+          # lockfile entirely and leaving `npm ci` downstream refusing with
+          # "Missing ... from lock file" for both runtime packages at once.
+          npm install --prefix packages/relayflows --package-lock-only --ignore-scripts
           node --input-type=module - <<'NODE'
           import assert from 'node:assert/strict';
           import { readFileSync } from 'node:fs';
