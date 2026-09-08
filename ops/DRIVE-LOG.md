@@ -15489,3 +15489,47 @@ one, which fits ten silent hours exactly.
 
 Not starting the same work in parallel — two workers on one task is the failure
 this repo keeps relearning. Escalating the choice to Khaliq instead.
+
+## 2026-09-08 ~11:30Z — took the schema gap myself, and it is not what it looked like
+
+Codex lane still idle: alive 10h05m, tree clean, last commit 09-07 23:47Z, the
+brief still unread. Khaliq said ASAP and the standing rule is to do the work
+directly in this session, so I took it on a separate branch.
+
+**The gap is a fork between two runtimes, not a stale file.** That is the whole
+finding, and I nearly shipped the opposite.
+
+The local SDK refuses the 1.0 schema with five errors. Cloud accepts it: on
+09-07 the review gate ran `agent-relay cloud run workflows/review-swarm.yaml`
+against the unmodified 1.0 file, got run 04da7e48 and sandbox b5f3b344, and
+failed later on Daytona quota — not on schema. Both facts were already in this
+log; nobody had put them next to each other.
+
+**I had all seven files migrated and compiling before I checked who runs them.**
+Three are live cloud consumers: `review-swarm.yaml` on every PR,
+`watchdog.yaml` as the active `flows-watchdog` schedule (cron `0 8 * * *`), and
+`drive.yaml` registered through `agent-relay cloud schedule`. Committing that
+migration would have made them parse locally and possibly unrunnable in cloud —
+taking out the review gate and the watchdog together, while the swarm is
+already down. I reverted all seven. The PR's diff touches nothing under
+`workflows/`.
+
+**Two things the SDK told me that reading would not have.** Migrating past
+`swarm`/`workflows`/`version` produced a *new* error —
+`spec.agents.<name>.model: expected a non-empty string`. 0.1.0 requires a model
+in a named agent declaration; the legacy schema never carried one. I probed
+three shapes against the real compiler rather than picking a default: an agent
+step with `cli` and no agents map compiles; an agents map with `cli` and no
+`model` is refused. So the migration carries the agent's `cli` onto the step,
+which is exactly the information the legacy file held, and invents nothing.
+
+**Shipped as #238, migrating nothing.** The migrator refuses rather than
+guesses, records every loss as a comment in its output, and refuses a
+multi-workflow file rather than deciding how to split it. All seven convert and
+compile.
+
+The question that actually gates this, which I could not answer from here
+without spending a cloud run against a frozen database: **does cloud accept
+0.1.0?** If yes, the migration is mechanical and safe. If no, these files cannot
+converge until one runtime moves, and the local drive loop needs its own
+purpose-built flows — which is what drive-local.yaml already is.
