@@ -16251,3 +16251,43 @@ from the last lane: this one is observable.
 It has the three findings I said I would stop iterating on myself — unenforced
 scope, verification that ignores the selected package, and the `indexOf` skip
 bug. Told to test rather than read, to push and open a PR, and not to merge.
+
+## 2026-09-08 ~18:45Z — found it: the stuck-run reaper re-enqueues every v2 run as v1
+
+The v2 launch defect has a producer, and it is not the one I suspected twice.
+
+`packages/core/src/sync/stuck-run-reaper-core.ts:290`:
+
+    await input.enqueue({ jobId: job.job_id, runId: job.run_id });
+
+Unconditional v1 shape. The whole file contains **zero** occurrences of
+`relayflowVersion`, `v2JobId` or `consumerEpoch` — it is simply unaware v2
+exists. So any v2 run the reaper reconciles is re-enqueued in the v1 shape, and
+the v2 consumer rejects it terminally with exactly the observed error:
+
+    Relayflow v2 launch received a payload carrying no v2JobId
+    (payload keys: jobId,runId)
+
+**This survives the eliminations, which is why I believe it.** The route is
+correct — `relayflowVersion` at the enqueue site is the same binding written
+into the run record, with no shadowing between them, so a record saying v2
+guarantees the route sent the v2 shape. The bridge sender is a faithful
+`JSON.stringify({ job })`. The bridge receiver, the launch worker's
+`parsePayload` and the DLQ worker all *preserve or refuse* — each checks the
+consumer epoch and throws rather than degrading. None of them can turn a v2
+message into a v1 one. The reaper can, and does, by construction.
+
+It also explains the timing I misread earlier. Both proof runs sat `pending` for
+about 166 seconds before failing. I called that a provisioning retry and built a
+case against `launch-worker.ts:371`; my own test then showed
+`enqueueWorkflowLaunchJob` was never called. A reaper sweep fits the same window
+without needing the retry path at all.
+
+**The fix looks tractable rather than architectural.** The reaper already
+queries `FROM workflow_runs wr`, which is the table carrying the run's
+`relayflowVersion` — the data is in the query's reach, it is simply not
+selected or used. Two call sites need it (line 290 and the queued-reconciliation
+path near 585).
+
+Not writing that fix at 18:45 unattended on a cloud launch path. Recording it
+cold, with the eliminations, so it can be written deliberately.
