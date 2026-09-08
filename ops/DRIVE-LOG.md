@@ -3626,3 +3626,33 @@ CF path. Holding it was right. Not merging.
 **Open control experiment.** Whether this failure is #3446's regression or a
 pre-existing v2 defect is *unresolved* — it needs the same workflow run on a
 non-CF stage (pr-3442), which needs one more device login.
+
+### 2026-09-08 tick — v1's true error found; masking hypothesis NOT confirmed
+
+Drain check: the v1 control run `c1783b4d` was not stuck — it failed at +141s.
+That corrects last tick's "v1 never processes on preview at all", which was
+based on watching only 120s.
+
+**v1 fails with a different, more informative error:**
+`Relaycast workspace key repair failed: 530 unknown`
+(`workflow_launch_failed`, phase `launch`). 530 is an origin-unreachable
+failure, i.e. a broken stage dependency, not a code defect and not
+generation-specific.
+
+That suggested v2's first attempt fails the same way after claiming, with the
+retry masking it. **I tested that and it did not hold up.** Run `5b82478b`
+polled every 2s: `pending` at 2/4/6s, `failed` at 8s. No `launching` state was
+ever observed. If an attempt had claimed the run, a `launching` window should
+appear — unless it is under ~2s, which I cannot exclude at this granularity.
+
+So the masking story stays UNCONFIRMED, and the timings do not fit it well
+either: v1 takes 141s to reach its Relaycast failure while v2 fails in 8–16s,
+which points at v2 failing at an earlier and different place, not at the same
+fault plus a retry.
+
+Settling this needs the stage worker logs (two attempts for one `v2JobId`, and
+the first attempt's error). Not available from the REST surface I have.
+
+Still true and unchanged: the authority tuple populates correctly, three of the
+four v2 gates pass, #3446 stays unmerged, and #3442's only red check is
+`cleanup-preview` (a teardown job) with 20 checks passing.
