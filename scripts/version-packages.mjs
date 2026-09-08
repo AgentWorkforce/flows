@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
 // The SDK is the version anchor; no package independently computes a bump.
-const paths = ['surface', 'sdk', 'runtime-linux-x64', 'relayflows'].map((name) => `packages/${name}/package.json`);
+const paths = ['surface', 'sdk', 'runtime-linux-x64', 'runtime-darwin-arm64', 'relayflows'].map((name) => `packages/${name}/package.json`);
 if (process.env.CUSTOM_VERSION && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(process.env.CUSTOM_VERSION)) {
   throw new Error('custom_version must be a semantic version');
 }
