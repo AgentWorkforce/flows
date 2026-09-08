@@ -14756,3 +14756,45 @@ Remaining: #227's drive.rs source-pin finding — a declared local run that
 resumes after its worktree HEAD moves records a different pin for the same
 durable route. That one is a real design question, not a staleness check, so it
 gets its own tick rather than a hurried patch at the end of this one.
+
+## 2026-09-08 ~05:10Z — the last finding, and the one I did not close
+
+Investigated #227's `drive.rs:97` source-pin finding. **Replied and left the
+thread OPEN.** It is the only one of the thirteen I have not settled.
+
+What the code does, read from the code rather than its comments. `drive.rs:97`
+is `route_start`, which reuses an existing decision instead of recomputing one
+(`placement.rs:86` clones `state.routing.get(step_id)` when the step already has
+a route). The source pin is settled a line earlier in `resolve_agent_pins`,
+which prefers what the chain already carries:
+
+    let covered = surfaces.workspace.iter().all(...carried...) && ...;
+    let worker = if covered { Pins::default() } else { reserved_starting_pins()? };
+    // projection reads carried.workspace.iter().chain(worker.workspace.iter())
+
+When the declared surface is already in the chain the worker is never asked,
+and even when it is, `carried` wins the projection. Deterministic steps return
+before any of it.
+
+**But I cannot show the case the finding actually names** — a declared local
+run resuming after its worktree HEAD moves. `placement_pins` passes, including
+`default_worker_pins_the_declared_worktree_base_commit_and_refuses_missing_source`,
+but nothing in it advances HEAD between attempts and I found no test that does.
+
+So I stopped. Reading the branch is what makes me think it holds, and reading is
+what was wrong twice on this same PR tonight — cubic's `is_valid()` claim named
+a method that does not exist, and its lint-snapshot claim was fixed before it
+was filed, but both looked plausible until I ran something. Resolving this one
+on the same kind of confidence would be closing a thread because the code reads
+right to me, which is not evidence.
+
+What settles it is a regression test: start a step, move the worktree HEAD,
+force a second attempt, assert the same pin. That is the next increment, and it
+deserves a tick that starts with it rather than one that has already spent
+itself reading three files.
+
+**Night's final state.** Thirteen findings across seven PRs: twelve closed
+(seven real fixes across #229, #230, #232, #226, #234; five that did not hold at
+head), one open and honestly labelled. Two P1s fixed, both in gates I wrote.
+None of it needed capacity. Still zero merges — every PR wants a swarm signoff
+and the swarm wants Daytona CPU that only the `dry_run=false` sweep will free.
