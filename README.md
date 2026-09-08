@@ -32,7 +32,9 @@ npm start
 **Release status:** `create-flow` is not published yet. The commands above are
 the intended released entry point; use the [candidate artifact procedure](docs/evidence/ws13/README.md)
 to try this branch. A clean-machine first-agent run under 60 seconds has not
-been established.
+been established. The [clone + deterministic starter measurement](docs/evidence/ws13/cold-clone-direct.txt)
+completed in 49.975 seconds in a fresh Linux container with Node and Git
+provisioned before the timer; it does not measure an agent invocation.
 
 The agent starter requires Node 22.18+ and an installed, authenticated Claude
 CLI. Use `--cli codex` to select Codex, or `--template deterministic` for a
@@ -48,13 +50,17 @@ resumable as a whole; each lowered step has its own journal run.
 For SDK callers, the CLI is optional:
 
 ```ts
-import { createFlow, renderProgress } from '@relayflows/sdk';
+import { createFlow } from '@relayflows/sdk/create-flow';
+import { renderProgress } from '@relayflows/sdk/progress';
 
 await createFlow('./my-flow', { cli: 'claude' });
 // renderProgress(events) returns terminal lines; callers own event delivery.
 ```
 
 See the [example gallery and individual run results](examples/README.md).
+[Watch the captured agent run](docs/evidence/ws13/agent-run.cast)
+([text transcript](docs/evidence/ws13/agent-run.txt)).
+
 The larger examples currently refuse or time out; their intended budgets,
 artifact gates, workspace restrictions, and human approvals are preserved.
 

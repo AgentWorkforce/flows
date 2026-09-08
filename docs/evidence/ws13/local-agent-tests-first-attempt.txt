@@ -1,0 +1,79 @@
+$ cd packages/sdk && RELAYFLOWD_BIN=/tmp/ws13-consumer/hello/node_modules/@relayflows/runtime-darwin-arm64/bin/relayflowd node node_modules/vitest/vitest.mjs run tests/local-agent-live.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/packages/sdk
+
+ ❯ tests/local-agent-live.test.ts (4 tests | 3 failed) 118611ms
+   × built CLI local agent against a real daemon > dispatches through the wrapper and keeps --json stdout report-shaped 30739ms
+     → WAITING [worker_lease] Run "01M20JQAF8A3T7CN0MVJVTNMPC" step "agent-1" (agent) is running under a worker lease until 1788873548470.
+: expected null to be +0 // Object.is equality
+   × built CLI local agent against a real daemon > renders actual agent completion in text output 35168ms
+     → expected null to be +0 // Object.is equality
+   × built CLI local agent against a real daemon > returns a failed run when the agent process fails 34277ms
+     → expected null to be 1 // Object.is equality
+   ✓ built CLI local agent against a real daemon > refuses a workspace it cannot pin before invoking the agent 18385ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/local-agent-live.test.ts > built CLI local agent against a real daemon > dispatches through the wrapper and keeps --json stdout report-shaped
+AssertionError: WAITING [worker_lease] Run "01M20JQAF8A3T7CN0MVJVTNMPC" step "agent-1" (agent) is running under a worker lease until 1788873548470.
+: expected null to be +0 // Object.is equality
+
+- Expected: 
+0
+
++ Received: 
+null
+
+ ❯ tests/local-agent-live.test.ts:46:58
+     44|     const f = fixture();
+     45|     const result = f.invoke('--json');
+     46|     expect(result.status, result.stderr + result.stdout).toBe(0);
+       |                                                          ^
+     47|     expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, status…
+     48|     expect(readFileSync(f.marker, 'utf8')).toBe('hello');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/local-agent-live.test.ts > built CLI local agent against a real daemon > renders actual agent completion in text output
+AssertionError: expected null to be +0 // Object.is equality
+
+- Expected: 
+0
+
++ Received: 
+null
+
+ ❯ tests/local-agent-live.test.ts:53:58
+     51|   it('renders actual agent completion in text output', () => {
+     52|     const result = fixture().invoke();
+     53|     expect(result.status, result.stderr + result.stdout).toBe(0);
+       |                                                          ^
+     54|     expect(result.stderr).toContain('✓ agent-1 (agent) [agent: complet…
+     55|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/local-agent-live.test.ts > built CLI local agent against a real daemon > returns a failed run when the agent process fails
+AssertionError: expected null to be 1 // Object.is equality
+
+- Expected: 
+1
+
++ Received: 
+null
+
+ ❯ tests/local-agent-live.test.ts:58:58
+     56|   it('returns a failed run when the agent process fails', () => {
+     57|     const result = fixture(7).invoke();
+     58|     expect(result.status, result.stderr + result.stdout).toBe(1);
+       |                                                          ^
+     59|     expect(result.stderr).toContain('✗ agent-1');
+     60|     expect(result.stderr).not.toContain('[agent: completed]');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 1 passed (4)
+   Start at  15:18:04
+   Duration  129.86s (transform 1.30s, setup 0ms, collect 569ms, tests 118.61s, environment 0ms, prepare 2.13s)
+

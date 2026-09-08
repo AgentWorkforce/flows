@@ -1,0 +1,14 @@
+$ python3 - <<'PY'
+from pathlib import Path
+import hashlib, json
+for item in json.loads(Path('docs/evidence/ws13/artifacts.json').read_text()):
+    p = Path('/tmp/ws13-artifacts') / item['file']
+    actual = hashlib.sha256(p.read_bytes()).hexdigest()
+    assert actual == item['sha256'], p
+    print(f'{actual}  {p}')
+PY
+bcf04be7d69457fb45c09385b7f4394bad79a1e3eaf40c4595f4c814433b9e47  /tmp/ws13-artifacts/create-flow-2.0.8.tgz
+ae555a4aa2a65b15fe934286d158d2b5477ad7a1eba8fbf738889416475ec7c0  /tmp/ws13-artifacts/relayflows-2.0.8.tgz
+6e2d749b641abd66812c5e2633f37937b941854533b65993cb571ddfbb1c0744  /tmp/ws13-artifacts/relayflows-runtime-darwin-arm64-2.0.8.tgz
+fd5940895bed98279c1d8aa4510901c5466dada3d7492906cc67f47f3d0a7f34  /tmp/ws13-artifacts/relayflows-runtime-linux-x64-2.0.8.tgz
+6c1986cb526f7e348190be83b4665dd2094e5434bd8429b2bfab7e0cf077b0f6  /tmp/ws13-artifacts/relayflows-sdk-2.0.8.tgz

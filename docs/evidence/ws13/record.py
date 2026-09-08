@@ -42,7 +42,7 @@ with open(prefix + '.cast', 'w') as cast, open(prefix + '.txt', 'w') as transcri
             text = decoder.decode(data)
             cast.write(json.dumps([round(time.monotonic() - started, 6), 'o', text]) + '\n')
             cast.flush()
-            transcript.write(text)
+            transcript.write(text.replace('\r\n', '\n'))
             transcript.flush()
         if timed_out:
             time.sleep(0.2)

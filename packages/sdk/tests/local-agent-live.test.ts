@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -8,6 +8,14 @@ const roots: string[] = [];
 const sdk = resolve('.');
 const cli = join(sdk, 'dist/cli.js');
 const wrapperHelper = resolve('../../testdata/preflight/wrapper-session.mjs');
+// Ask the existing build wrapper for its target directory. A temp fixture's
+// cwd cannot discover the checkout, and test:prep's child-shell exports do not
+// survive into vitest. Do not select another worktree's most recent binary.
+const relayflowd = process.env['RELAYFLOWD_BIN'] ?? join(JSON.parse(execFileSync('sh', [
+  resolve('../../ops/cargo.sh'), 'metadata', '--format-version=1', '--no-deps', '--locked', '--offline',
+], { cwd: resolve('../../kernel'), encoding: 'utf8',
+  env: { ...process.env, RELAYFLOWS_NO_TOOLCHAIN_INSTALL: '1' },
+})).target_directory, 'debug', 'relayflowd');
 afterEach(() => {
   for (const root of roots.splice(0)) {
     const connection = join(root, 'data/connection.json');
@@ -34,9 +42,12 @@ function fixture(exitCode = 0, workspace?: string) {
   writeFileSync(join(root, 'flows.json'), JSON.stringify({ cli: wrapper }));
   writeFileSync(join(root, 'package.json'), '{"type":"module"}');
   writeFileSync(join(root, 'hello.flow.ts'), `import { flow } from '@relayflows/surface';\nexport default flow('hello', async f => { await f.agent('greeter', ${JSON.stringify({ task: 'hello', ...(workspace ? { workspace } : {}) })}); f.done('success'); });\n`);
+  // Bound a stuck fixture process, allowing startup/preflight before the
+  // kernel's independently enforced worker lease. UX timing is measured by
+  // the separate empty-cache cold-start transcript, not this cleanup ceiling.
   return { root, marker, invoke: (...flags: string[]) => spawnSync(process.execPath,
     [cli, 'run', 'hello.flow.ts', '--input', '{}', '--local-agent', '--data-dir', join(root, 'data'), ...flags],
-    { cwd: root, encoding: 'utf8', timeout: 30000 }) };
+    { cwd: root, encoding: 'utf8', timeout: 90000, env: { ...process.env, RELAYFLOWD_BIN: relayflowd } }) };
 }
 
 describe('built CLI local agent against a real daemon', () => {

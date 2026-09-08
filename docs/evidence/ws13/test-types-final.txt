@@ -1,0 +1,3 @@
+$ cd packages/sdk
+$ node node_modules/typescript/bin/tsc -p tsconfig.tests.json
+EXIT_CODE=0

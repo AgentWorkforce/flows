@@ -1,0 +1,22 @@
+[
+  {
+    "file": "create-flow-2.0.8.tgz",
+    "sha256": "bcf04be7d69457fb45c09385b7f4394bad79a1e3eaf40c4595f4c814433b9e47"
+  },
+  {
+    "file": "relayflows-2.0.8.tgz",
+    "sha256": "ae555a4aa2a65b15fe934286d158d2b5477ad7a1eba8fbf738889416475ec7c0"
+  },
+  {
+    "file": "relayflows-runtime-darwin-arm64-2.0.8.tgz",
+    "sha256": "6e2d749b641abd66812c5e2633f37937b941854533b65993cb571ddfbb1c0744"
+  },
+  {
+    "file": "relayflows-runtime-linux-x64-2.0.8.tgz",
+    "sha256": "fd5940895bed98279c1d8aa4510901c5466dada3d7492906cc67f47f3d0a7f34"
+  },
+  {
+    "file": "relayflows-sdk-2.0.8.tgz",
+    "sha256": "6c1986cb526f7e348190be83b4665dd2094e5434bd8429b2bfab7e0cf077b0f6"
+  }
+]
