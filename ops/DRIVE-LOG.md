@@ -15008,3 +15008,52 @@ this queue, and nothing I found tracks the drain rate itself.
 
 Not touching data: D1 deletion is unrecoverable, Time Travel dies with the
 database, and this is production for the whole fleet.
+
+## 2026-09-08 ~07:05Z — correcting the drain-rate number I published 20 minutes ago
+
+I was about to file this as an issue on relayfile-cloud. Checked the arithmetic
+first, and it was wrong. **Retracting the "3 rows/second, 4.3 days" figure from
+the 06:45Z entry above.**
+
+What I did: read `INLINE_CONTENT_DRAIN_BATCH_SIZE = 6` and
+`INLINE_CONTENT_DRAIN_COALESCE_MS = 2_000`, multiplied, and called it a rate.
+What the code does:
+
+    if (inlineContentDrain.hasPending) {
+      await this.armInlineContentDrain(
+        inlineContentDrain.retryAfterMs ??
+          (inlineContentDrain.hadFailure ? INLINE_CONTENT_DRAIN_RETRY_MS : 1),
+      );
+    }
+
+**On success the drain re-arms at 1 ms**, not 2,000. The 2-second constant is
+the initial debounce in `scheduleInlineContentFlush`, armed once per write
+burst, not a cadence between passes. A succeeding drain loops as fast as the
+alarm can be scheduled — bounded by Durable Object alarm latency and CPU
+budget, nowhere near three rows a second. My figure was off by orders of
+magnitude and in the wrong direction: the drain is not configured too slow.
+
+So the rate is **failure-dominated**. `hadFailure` re-arms at
+`INLINE_CONTENT_DRAIN_RETRY_MS = 5_000`, and the ack-lease path can return an
+explicit `retryAfterMs` up to 120s. A drain that is failing spends its life in
+those branches.
+
+Which points somewhere worth stating carefully, because it is a hypothesis and
+not something I have observed: **the drain's own progress requires writes** —
+`DELETE FROM pending_inline_content`, and `UPDATE ... SET attempt_count` on the
+failure path — against a database that is at its hard size limit and rejecting
+writes. If a full D1 refuses those, every pass is a failure, every failure
+re-arms at 5s, and the table that must shrink cannot shrink. That would be a
+deadlock rather than a throttle, and it would explain 99.70% pending better
+than any batch size does.
+
+I have not confirmed it. What would: the `last_error` column on those rows,
+which the read-only storage-stats endpoint does not expose. That is the next
+question to put to whoever owns relayfile-cloud, and it is a better question
+than the issue I nearly filed.
+
+**Not filing the issue.** An issue asserting a wrong rate would have sent
+someone to raise a batch size that is not the problem — and it would have
+carried my name and a confident number. Twice tonight a plausible reading
+survived until something was run; this is the third, and the only reason I
+caught it is that I went back to the code before publishing rather than after.
