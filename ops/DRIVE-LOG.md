@@ -4383,3 +4383,43 @@ resource output rather than deriving it from the infra source, then re-tail.
 The naming derivation is the suspect — the public hostname uses
 `publicStageLabel` (`preview-pr-3446`) while `workerScriptName` uses
 `normalizedStage` (`pr-3446`), so the two do not have to agree.
+
+### 2026-09-08 — ROOT CAUSE: RelayAuth D1 schema is missing `key_prefix`
+
+```
+D1_ERROR: no such column: key_prefix at offset 66: SQLITE_ERROR
+```
+
+Every `POST /v1/identities` and `GET /v1/identities?type=agent` on
+`relayauth-api-pr-3446` fails with that, which is the 500 cloud-web reports as
+`RelayAuth request failed (500) /v1/identities`. Not auth, not bindings, not
+config — the preview's RelayAuth D1 schema does not match the code querying it.
+
+**Two of my own conclusions were wrong and are corrected here.**
+
+1. Last tick I said the tail was pointed at the wrong worker. It was not. The
+   deploy's SST output states `apiScriptName:relayauth-api-pr-3446` — the name I
+   derived was correct. The actual fault was `--search`: wrangler drops events
+   that produce no matching console output, so "this worker logs nothing
+   matching" is indistinguishable from "this worker receives no traffic".
+   cloud-web matched only because it logs verbosely. Added an `ALL` mode that
+   omits the flag (`499d933`), and the logs appeared immediately.
+
+   The negative control was still right about one thing and wrong about another:
+   it correctly proved traffic reached a live worker, but I let it push me to
+   the wrong culprit. Proving presence tells you the instrument is not blind; it
+   does not tell you which knob is lying.
+
+2. Earlier I listed "database never migrated" as ruled out because the D1
+   migration step was green. That was too strong. The step ran and passed; the
+   resulting schema still lacks a column the code needs. **A green migration
+   step is not evidence that schema and code agree** — the same shape as the
+   gate that passed against a stale `node_modules` tree.
+
+This is a real defect, not a preview-only quirk: whatever ships `key_prefix` is
+in the RelayAuth code deployed to this stage but not in the migrations applied
+to it. Worth checking whether dev and production are on the same footing.
+
+Not fixing it unattended — it is another repo's schema, and the memory on D1
+deletion being unrecoverable argues for care. Handing it to Khaliq with the
+exact error.
