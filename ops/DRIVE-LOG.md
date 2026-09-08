@@ -14112,3 +14112,30 @@ The agent also recorded that it accepted the CLOUD_API_KEY 401 as a supplied
 operational fact and excluded it from code-quality judgement. That is correct:
 a broken credential is not evidence about a diff, and it is why its verdicts
 are about content rather than CI colour.
+
+## 2026-09-08 — I let the chief inbox go stale for 8 hours
+
+The brief says append to `.chief-inbox/from-relayflow-lead-0903.md` AND
+`ops/DRIVE-LOG.md` EVERY tick. I kept this file current and last wrote the
+inbox at 15:47Z. It is now 00:05Z.
+
+**The cost was not just a missing file.** The inbox's final entry read: "Still
+blocked on the secret: every open flows PR is review=FAILURE... One credential
+clears all six." That has been wrong for hours — the credential was root-caused
+and fixed, the swarm now launches and runs, and the blocker moved to a Daytona
+CPU quota. Anyone reading the inbox for a handoff would have acted on a
+superseded picture and chased a solved problem.
+
+A stale status file is worse than an absent one: absence prompts a question,
+staleness answers it wrongly with full confidence. That is the same shape as
+the comment claiming "the LAST Blockers heading" earlier tonight, and as
+`gh secret set` reporting success for a write that stored "-". Three times
+today the failure was an authoritative-looking signal that had stopped tracking
+reality.
+
+Caught up at 94d82f0 with the credential root cause, the current CPU-quota
+blocker, the one action needing Khaliq (`dry_run=false`), and #3270's state.
+
+Going forward this tick's checklist is: work, DRIVE-LOG, INBOX, push. The rule
+was explicit and I half-followed it for eight hours because the drive log felt
+like "the log".
