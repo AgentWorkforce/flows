@@ -4303,3 +4303,48 @@ why I asked for `wrangler tail` rather than continuing to guess.
 Unchanged and worth repeating: the Relaycast blocker IS fixed and proven, and
 cloud#3457 should merge on its own merits — it stops seeding the production
 Relaycast bearer into every ephemeral preview.
+
+### 2026-09-08 — got preview worker logs without new credentials; retry loop confirmed
+
+I had escalated for `wrangler tail` access. It turned out CI already had it:
+`preview.yml`'s `diagnose-preview` job runs `wrangler tail`, but hardcoded to a
+15s window and `--search "fleet-node-sandbox-ensure"`, so it could answer exactly
+one question. Parametrized both (branch `diag/preview-tail-search`, commit
+`626883c`; defaults preserved when the inputs are empty) and dispatched it from
+the branch ref — no merge.
+
+First attempt missed: 150s window closed at 19:45:12, the run failed at
+19:45:41. **29 seconds short.** The launch takes ~168s from creation to failure.
+Second attempt at 280s, firing the run as soon as the tail went live, caught it.
+
+Captured from `cloud-web-worker-pr-3446`:
+
+```
+POST /cloud/api/v1/internal/workflow-launch/step - Ok
+(info) [boot] resource binding check passed   ... 'WebRelayauthApiKey',
+                                                  'RelayauthDelegationSigningKeyPem',
+                                                  'RelayauthUrl'
+(warn)  [workflow-launch] launch job failed retryably
+        RelayAuth request failed (500) /v1/identities
+(error) [workflow-launch] internal step failed; consumer will retry
+(warn)  ... retryably ...        (repeats)
+(error) relayflow.launch.failed
+(error) [workflow-launch] launch job failed terminally
+```
+
+**Confirmed:** the consumer really does retry on a non-2xx from the internal
+step — that was the first half of the masking hypothesis and it is no longer
+inference. **Still not confirmed:** the second half, that a claimed v2 run is
+left stranded at `launching` so the retry reports
+`relayflow_v2_launch_cancelled` over the true error. This run was v1, which has
+no run-level claim to strand, so it reports the real error throughout. The
+hypothesis is better supported but not proven.
+
+**Also ruled out:** missing bindings. The boot check passes and explicitly lists
+`RelayauthUrl`, `WebRelayauthApiKey` and `RelayauthDelegationSigningKeyPem`.
+
+**What these logs cannot show:** why RelayAuth returns 500. That is inside
+RelayAuth's own Worker; `cloud-web` only sees the response. The tail step's
+worker name is still hardcoded to `cloud-web-worker-pr-${pr_number}`, so the next
+step is to parametrize that too and tail the preview's RelayAuth worker while
+reproducing.
