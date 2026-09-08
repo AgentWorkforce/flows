@@ -15959,3 +15959,48 @@ building directly on the drain finding from 06:45Z.
 
 The v2-retry tests are written and safe in their own worktree; they still need
 a working `@cloud/core` resolution to run.
+
+## 2026-09-08 ~16:00Z — the tests ran and disproved my own hypothesis
+
+Got the harness working (worktree-local `node_modules` with `@cloud/*` pointed
+at this worktree, plus a `@cloud/core` build — the export maps to `dist/`, and
+the main clone's `dist` predates the v2 files). Baseline test passes, so the
+harness is real.
+
+**Both new tests came back wrong, and the reason matters more than either.**
+
+    × re-enqueues a v2 provisioning retry in the v2 payload shape
+      AssertionError: expected "vi.fn()" to be called with arguments: [...]
+      Number of calls: 0
+
+`enqueueWorkflowLaunchJob` was **never called**. The worker never reached the
+retry re-enqueue at all.
+
+Because my tests use the file's default `record()`, which is
+`{"jobId":"job-1","runId":"run-1"}` — the **v1 shape**. Paired with a v2
+envelope, the worker throws terminal at :231 with exactly the production error,
+long before any retry logic runs.
+
+**So my retry hypothesis is dead.** The ~166s I read as a provisioning-retry
+interval was queue latency before the worker picked the message up, not a
+re-enqueue. The failure happens on the **first** message. `launch-worker.ts:371`
+and its `envelope?.relayflowVersion` are not implicated — I spent a tick
+building a case for a line that never executes on this path.
+
+**And test 2 passed vacuously**, which is the part I should be hardest on. It
+asserted `not.toHaveBeenCalledWith({jobId, runId})` and went green because the
+function was never called at all. A "not called with X" assertion cannot
+distinguish "called with something else" from "never called". I have spent this
+whole night catching vacuous passes in other people's gates — single-member
+aggregates that cannot fail, an empty test run reported as success — and then
+wrote one.
+
+**Where this actually leaves the investigation.** The production POST enqueued a
+v1-shaped payload for a run the store records as `relayflowVersion: "v2"`.
+`route.ts:1634` selects the shape on `relayflowVersion === "v2"` and looks
+correct, so either that variable is not "v2" at that point, or the message the
+worker consumed was not the one that route produced. That is the next thing to
+establish, and it is a producer-side question now, not a worker-side one.
+
+Both tests need their setup corrected to enqueue a v2-shaped record before they
+assert anything. Leaving them uncommitted rather than pushing a vacuous test.
