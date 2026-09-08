@@ -3567,3 +3567,62 @@ Run `npm audit` for details.
 
 CLEAN_ACCEPTANCE built_cli=executable
 ```
+
+## 2026-09-08 — v2 launch on the CF-routed stage fails deterministically at the run claim
+
+Device login for `preview-pr-3446` authorized; token scoped to that stage
+(whoami 200). Ran the #3270 proof. It did not assert.
+
+Three v2 runs, identical outcome — not a race:
+
+| run | id | result |
+|---|---|---|
+| 1 | a10e7ae2 | failed — `relayflow_v2_launch_cancelled` |
+| 2 | af62ef58 | failed — `relayflow_v2_launch_cancelled` |
+| 3 | 87aa63fb | failed — `relayflow_v2_launch_cancelled` |
+
+`Relayflow v2 launch was cancelled before credentials`
+(`launch-worker.ts:250`), 16.4s after creation, `sandboxId` null.
+
+**What passed.** Three of the four v2 gates cleared before the failure: the
+payload carried `v2JobId` (so the producer shape from #3442/#3446 is correct),
+`consumerEpoch` matched, and the envelope authority equalled the row authority.
+The authority tuple is fully populated — artifact
+`054ef2e4…`, sourceCommit `a0d42ffb`, epoch `relayflow-v2-2026-09-02.1`,
+run-scoped Relayfile mount. That part of #3270 is real for the first time.
+
+**What failed.** Only `claimV2Launch(runId)` (`workflows.ts:238`), which updates
+`workflow_runs` `pending → launching` and returns null unless the row is still
+`pending`. Runs are created `pending` (route.ts:1459/1570) and
+`claimWorkflowLaunchJob` touches only `workflow_launch_jobs`, so nothing on the
+happy path pre-moves it.
+
+**Hypotheses eliminated, with the evidence:**
+
+- *Dual producers (CF + SQS).* `durable-launch-queue.ts:49` returns after the CF
+  send; CF replaces SQS for v2 rather than supplementing it.
+- *The route's error-path re-enqueue (route.ts:1698).* All three POSTs returned
+  200 with a `launchJobId` — the success path at line 1650. No retry fired.
+- *A redelivery race.* 3/3 identical rules out a race.
+
+**Leading hypothesis — NOT yet observed, stated as such.** The consumer calls
+`message.retry()` on any non-2xx from the internal step route
+(`launch-queue-consumer.ts:108`), while `releaseV2Launch` is called on exactly
+one narrow branch (`launch-worker.ts:366`): provisioning-pending or a retryable
+post-create transport failure, and not exhausted. So a first attempt that claims
+the run and then fails any *other* way leaves the row at `launching` forever;
+the redelivery finds it non-`pending` and reports
+`relayflow_v2_launch_cancelled` — **masking the original fault**. That would
+make the error we see a symptom, and the real first-attempt failure invisible.
+
+Confirming evidence needed: stage worker logs showing two attempts for one
+`v2JobId` and the first attempt's actual error. I have not read them, so the
+mechanism above stays a hypothesis.
+
+**Consequence for the merge question.** #3446 is CLEAN and mergeable, but the
+preview it was held for now shows v2 launches failing deterministically on the
+CF path. Holding it was right. Not merging.
+
+**Open control experiment.** Whether this failure is #3446's regression or a
+pre-existing v2 defect is *unresolved* — it needs the same workflow run on a
+non-CF stage (pr-3442), which needs one more device login.
