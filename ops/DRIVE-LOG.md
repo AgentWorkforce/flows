@@ -4652,3 +4652,36 @@ masking fix and the schema fix stay independently reviewable.
 
 I corrected my own error in that brief explicitly: my first brief told it not to
 touch the schema because I had misattributed the defect to relayauth.
+
+### 2026-09-08 — relayauth lane retired; its artifacts preserved first
+
+Drain: nothing pending. cloud lane still working (dirty 1 -> 2, no second PR
+yet, so the schema task has not visibly started).
+
+The relayauth lane's objective was complete — it had answered every question in
+its brief and correctly concluded that no OSS migration should be written.
+Leaving it alive would have been a lane outliving its objective, which is a
+pattern that has cost seats before.
+
+Retired it, but preserved its output first, which mattered more than it looks:
+its work was **untracked** in the worktree, so removing the worktree would have
+destroyed it.
+
+- `ops/keyprefix-findings.md` (203 lines) -> already copied to
+  `chief/.chief-inbox/evidence-keyprefix-relayauth-0908.md`
+- `ops/verify-keyprefix-skew.py` (99 lines, the in-memory SQLite harness) ->
+  copied into the **cloud lane's own worktree** at `ops/verify-keyprefix-skew.py`
+  and to `chief/.chief-inbox/evidence-keyprefix-harness-0908.py`
+
+I had written `BRIEF-2-schema.md` telling the cloud lane to reuse the harness
+"in the relayauth worktree". Releasing that worktree would have broken the path
+in an instruction I had just issued, so I updated the brief to point at its own
+local copy before removing anything. Asserted the edit landed.
+
+`agent-relay node agent release` printed a timeout, but the agent is gone from
+the listing and pid 9728 is dead — the same lagging-read shape as the spawn
+earlier, so I checked the process rather than believing the message. Worktree
+removed with nothing holding it open.
+
+Disk unchanged at 6.9Gi; the relayauth worktree was small. The reclaim was about
+not leaving a finished lane running, not about space.
