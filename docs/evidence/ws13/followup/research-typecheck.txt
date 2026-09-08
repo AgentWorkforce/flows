@@ -1,0 +1,8 @@
+$ export PATH=/tmp/ws13-toolchain:$PATH
+$ npm --prefix examples/research run typecheck
+
+> typecheck
+> ../../packages/sdk/node_modules/.bin/tsc -p tsconfig.json
+
+
+EXIT_CODE=0

@@ -1,10 +1,24 @@
 # WS-13 local development evidence
 
-**Acceptance is incomplete.** This branch implements SDK scaffolding, terminal
-progress, an opt-in local agent worker, and the npm launcher fix. It does not
-establish a clean-machine first-agent run under 60 seconds or a green gallery.
+**Timing is accepted by Khaliq's ruling, not a blocker.** The measured cold
+deterministic loop is 49.975s; the existing-host real Claude command is
+132.637s. Its agent step is 28.95s including the provider round trip; the
+remaining startup/preflight time was not separately measured, so the evidence
+does not attribute most of the total to the provider.
 
-## Captured results
+**Named handoffs:** the release-gate owner must register `create-flow` in
+versioning/packaging/publishing. The review-swarm/CI owner must restore fresh
+maintainability, history and structure transcripts; all three are missing and
+there is no independent review signoff. Neither handoff is a reason to keep
+the PR in draft once the gallery results are reported. No publishing work or
+Cloud run-publication API is part of this follow-up.
+
+The [current three-entry gallery](../../../examples/README.md) supersedes the
+initial invocation results below. Research now reports each provider probe
+and timeout on stderr. [Research regression tests](followup/research-tests.txt)
+and [typecheck](followup/research-typecheck.txt) contain the commands/output.
+
+## Initial captured results
 
 | Check | Result | Evidence |
 |---|---|---|
@@ -21,12 +35,11 @@ establish a clean-machine first-agent run under 60 seconds or a green gallery.
 | Linux container test runner | esbuild Go runtime crashed under amd64 emulation before collecting tests | [Command, script and full output](container-tests.txt) |
 | Research typecheck after correcting its compiler path | No type errors reported | [Command and output](research-typecheck.txt) |
 
-All four existing gallery entries were invoked separately. See the
-[gallery table](../../../examples/README.md) for individual timings and literal
-commands. Three refuse the unsupported `budget` header. Research reached the
-outer 150-second verification limit without captured output; this does not
-identify whether its preflight or execution was responsible. No gallery flow
-was weakened or represented as successful.
+The [gallery table](../../../examples/README.md) reports the three requested
+entries individually. Unsupported budget headers remain a capability-owner
+handoff. The initial research attempt reached an outer 150-second limit with
+no captured output; the follow-up now exposes preflight progress and captures
+the shim's own failure or success result. No gallery declaration was weakened.
 
 The recording uses the initial packed implementation plus the npm bin fix.
 Its agent step invokes the real installed Claude CLI. The host already had
@@ -115,6 +128,6 @@ and publishing, and to `scripts/pack-release.mjs`, which currently refuses that
 package name. That script also requires the legacy runtime executable.
 Those gates were not edited. No package was published and no merge is allowed.
 
-Veto tools were not exposed in this session. Several status DMs encountered server/overload errors. A later status to
-`session-thread-rollout` received queue receipt `223075216797716480`; reading
-was not confirmed. A coordination reply to WS-14 timed out.
+Veto tools were not exposed. Relay queue receipts did not establish delivery;
+the coordinator confirmed the original handoff never arrived. The PR and this
+evidence directory are the durable handoff.

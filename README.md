@@ -31,10 +31,13 @@ npm start
 
 **Release status:** `create-flow` is not published yet. The commands above are
 the intended released entry point; use the [candidate artifact procedure](docs/evidence/ws13/README.md)
-to try this branch. A clean-machine first-agent run under 60 seconds has not
-been established. The [clone + deterministic starter measurement](docs/evidence/ws13/cold-clone-direct.txt)
-completed in 49.975 seconds in a fresh Linux container with Node and Git
-provisioned before the timer; it does not measure an agent invocation.
+to try this branch. The [clone + deterministic starter measurement](docs/evidence/ws13/cold-clone-direct.txt)
+completed in **49.975 seconds** in a fresh Linux container with Node and Git
+provisioned before the timer. The [real Claude command](docs/evidence/ws13/agent-run.txt)
+completed in **132.637 seconds** on an authenticated development host; its
+agent step took 28.95 seconds, including the provider round trip. The total
+also includes CLI startup and preflight, whose costs were not separately
+measured.
 
 The agent starter requires Node 22.18+ and an installed, authenticated Claude
 CLI. Use `--cli codex` to select Codex, or `--template deterministic` for a
@@ -61,8 +64,8 @@ See the [example gallery and individual run results](examples/README.md).
 [Watch the captured agent run](docs/evidence/ws13/agent-run.cast)
 ([text transcript](docs/evidence/ws13/agent-run.txt)).
 
-The larger examples currently refuse or time out; their intended budgets,
-artifact gates, workspace restrictions, and human approvals are preserved.
+The gallery reports each requested example as PASS or BLOCKED, with its
+command, output, timing, and any capability or provider requirement still missing.
 
 Give your agent a skill to write a flow:
 

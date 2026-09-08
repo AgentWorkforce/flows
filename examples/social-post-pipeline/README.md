@@ -32,13 +32,7 @@ part isn't the agents — it's what each `.gate()` checks:
 - The human gate (`f.human`) is the last word. Everything upstream can pass
   every gate and the flow still won't publish without a yes.
 
-## Status: refused before execution
-
-WS-13 invoked this example with the packed CLI and `--local-agent`. It
-refused the unsupported `budget` header before entering the body. See the
-[gallery](../README.md) for the exact command, output, and elapsed time.
-The remaining limitations below describe what still needs to land after that
-first refusal is resolved.
+## Status: typechecks, does not run yet
 
 ```sh
 cd packages/surface && npm run typecheck:examples

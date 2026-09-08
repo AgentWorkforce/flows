@@ -1,30 +1,31 @@
-# Example gallery
+# Example gallery status
 
-These four examples describe larger flows. **None has a green end-to-end
-result in the WS-13 verification run.** The table records time until refusal
-or the verification timeout, not time to successful completion.
+The three entries below are the requested WS-13 gallery scope. They are
+advanced examples, not a promise that every surface feature is executable.
+For a working local starting point, use the [small agent starter](../README.md)
+([recorded run](../docs/evidence/ws13/agent-run.txt)).
 
-| Example | What it demonstrates | Observed result | Time |
+| Example | Status | Observed result | Elapsed |
 |---|---|---|---:|
-| [dependency-upgrade-bot](dependency-upgrade-bot/) | Upgrade → independent verification → PR | Refused: unsupported `budget` header, exit 2 | [6.596s](../docs/evidence/ws13/gallery-dependency-upgrade-bot.txt) |
-| [pr-review-pipeline](pr-review-pipeline/) | Three review lenses → consensus | Refused: unsupported `budget` header, exit 2 | [4.990s](../docs/evidence/ws13/gallery-pr-review-pipeline.txt) |
-| [social-post-pipeline](social-post-pipeline/) | Research → draft → fact-check → graphic → human approval | Refused: unsupported `budget` header, exit 2 | [6.698s](../docs/evidence/ws13/gallery-social-post-pipeline.txt) |
-| [research](research/) | Claude/Codex/Grok fan-out → synthesis via existing shims | Verification timed out with no output captured | [150.067s](../docs/evidence/ws13/gallery-research.txt) |
+| [dependency-upgrade-bot](dependency-upgrade-bot/) | **BLOCKED** | SDK refuses unsupported `budget` header before entering the body; exit 2 | [1.224s](../docs/evidence/ws13/followup/gallery-dependency-upgrade-bot.txt) |
+| [pr-review-pipeline](pr-review-pipeline/) | **BLOCKED** | SDK refuses unsupported `budget` header before entering the body; exit 2 | [0.252s](../docs/evidence/ws13/followup/gallery-pr-review-pipeline.txt) |
+| [research](research/) | **RETRY IN PROGRESS** | Preflight passed; first run failed at the supplied 3-minute step limit. Retrying with the documented default budget | [217.375s for the first attempt](../docs/evidence/ws13/followup/gallery-research.txt) |
 
-The first three were invoked individually with the packed candidate CLI,
-`--local-agent`, explicit inputs, and separate local daemon directories.
-Research was invoked through its documented shim with a one-minute per-step
-bound and a 150-second outer verification bound; the latter does not establish
-whether preflight or execution was responsible. Exact commands and captured
-output are linked in the table. These are runs on an existing development
-host, not a clean machine.
+Each link contains the literal command, captured output, exit code and timing.
+These are individual runs from a separate clone on an authenticated macOS
+host, against the packed candidate CLI. Research uses its documented source
+shim. These timings are not clean-machine measurements.
 
-Removing the unsupported headers or weakening the examples' artifact gates
-would change what they promise. Further runtime work is required before these
-can be advertised as runnable. Social-post-pipeline additionally depends on
-`f.human`; workspace permission annotations and postfix gates also remain
-unsupported by the authored executor.
+**Dependency-upgrade-bot and pr-review-pipeline need the SDK/kernel capability
+owner.** Their authored budgets are currently rejected. Their postfix artifact
+gates and workspace permission declarations also require runtime support.
+Removing those requirements would weaken what the examples promise; this
+branch leaves them intact. The local agent worker handles stream-only steps
+and cannot supply workspace isolation.
 
-The research example's `npm run typecheck` command now uses the actual
-`packages/sdk` compiler path. Its shim tests and typecheck are separate from
-an end-to-end run.
+**Research now prints provider preflight activity.** Each CLI/model probe names
+its timeout on stderr, while stdout remains the final structured result. All
+four model probes passed in the first follow-up run; the three-minute limit
+then expired during research. That failure is not evidence of missing provider
+authentication or an unsupported model. The earlier outer timeout is retained
+in the [historical evidence](../docs/evidence/ws13/gallery-research.txt).

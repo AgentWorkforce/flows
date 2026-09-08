@@ -1,5 +1,12 @@
 # dependency-upgrade-bot
 
+**BLOCKED — not runnable on the current authored executor.** The candidate
+CLI refuses the `budget` header before any step runs (exit 2, 1.224s).
+[Exact command and captured output](../../docs/evidence/ws13/followup/gallery-dependency-upgrade-bot.txt).
+The SDK/kernel capability owner must supply budget-header support, postfix
+artifact gates, and the declared workspace behavior before this example can
+be advertised as working. Its existing requirements remain intact.
+
 **Like I'm 5:** A checklist notices a library is out of date. A robot tries
 upgrading it, but only in its own sandboxed corner where it can't break
 anything real. A *second*, completely separate robot — in its own sandbox
@@ -46,8 +53,8 @@ first refusal is resolved.
 cd packages/surface && npm run typecheck:examples
 ```
 
-- `f.agent(...)` builds a real step but parks without a worker attached,
-  same as every other example in this repo today.
+- `--local-agent` attaches a stream-only worker; it cannot provide the
+  workspace revision pins and isolation declared by this example.
 - **The sandbox isolation is declared, not enforced.** RFC-0001 Appendix A
   rule 1 (workspace-scoped permissions) is gate-8 kernel work; today nothing
   stops the `upgrader` step from reading `sandbox/verify/` if the underlying

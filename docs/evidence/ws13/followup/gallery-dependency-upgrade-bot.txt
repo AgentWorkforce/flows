@@ -1,0 +1,12 @@
+$ cd /private/tmp/ws13-gallery-followup
+$ /tmp/ws13-toolchain/node /private/tmp/ws13-gallery-followup/node_modules/relayflows/bin/flows.js run examples/dependency-upgrade-bot/dependency-upgrade-bot.flow.ts --local-agent --input '{}' --data-dir /tmp/ws13-followup-upgrade-daemon
+OUTER_TIMEOUT_SECONDS=120
+(node:57800) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///private/tmp/ws13-gallery-followup/examples/dependency-upgrade-bot/dependency-upgrade-bot.flow.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /private/tmp/ws13-gallery-followup/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+REFUSED [invalid_spec] unsupported_header: flow "dependency-upgrade-bot" uses unsupported header fields: budget
+
+EXIT_CODE=2
+ELAPSED_SECONDS=1.224
+TIMED_OUT=False
