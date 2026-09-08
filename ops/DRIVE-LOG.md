@@ -16408,3 +16408,36 @@ Not claiming end-to-end yet. The live proof re-run against the preview is the
 next increment, and I said so in the PR rather than implying more than I have —
 two earlier hypotheses about this defect were wrong, and this is the first with
 a reproduction.
+
+## 2026-09-08 ~20:10Z — the fix changed the behaviour; the proof did not complete
+
+Built a preview from cloud#3442 (the reaper fix) and ran the v2 proof against
+it. Preview run 34213818763 succeeded, #3442 stayed open, admission live.
+
+**The defect is gone from the observable window.** The POST was accepted —
+`{"runId":"40719463-7f0b-49ac-98f2-704606b9662d","status":"pending"}` — and the
+run then sat `pending` for **296 seconds with `error: none`**. Both earlier runs
+on the unfixed stage failed terminally at about 166 seconds with
+`payload carrying no v2JobId (payload keys: jobId,runId)`. Same flow, same
+quad, same procedure; the terminal failure did not happen.
+
+**That is a signal, not the proof, and I am not going to call it the proof.**
+The authority tuple never asserted: `completionReason` stayed null,
+`sandboxId` stayed null, and the run never left `pending`. What I have is the
+absence of a specific failure, which is weaker than a success.
+
+**Then I lost the ability to watch it.** Polls started returning
+`{"error":"Unauthorized"}`. My first read was an expired token — wrong: the
+access token is valid until 2026-09-09T10:33Z and the *same* token still
+returns HTTP 200 against production. Both preview stages now 401 on
+`/cloud/api/v1/workflows/runs` while still serving 200 on `/`, so the stages
+are up and their API is rejecting a credential production accepts. A
+preview-cleanup run completed at 10:20:08, which is about when my polls began
+failing, but its title is another PR's stage — so I can name the correlation
+and not the cause.
+
+**Where that leaves the demo blocker.** cloud#3442 has a root cause, a
+red-then-green unit test with the production key list reproduced, and a live
+run that no longer exhibits the failure. It does not yet have a completed
+end-to-end proof, and the thing now blocking that is preview API auth rather
+than the launch path.
