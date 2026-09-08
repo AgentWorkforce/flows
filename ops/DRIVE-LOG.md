@@ -4718,3 +4718,35 @@ Two lessons worth keeping, both about false signals:
 - A queued DM to a busy lane can sit unread indefinitely. The file brief plus a
   drive-mode nudge is what actually moved it; the DM alone did nothing for the
   better part of an hour.
+
+### 2026-09-09 — the nudge worked: cloud#3461 opened, both hard requirements met
+
+Drain: nothing pending. Disk 7.7Gi.
+
+The drive-mode nudge did move the lane. It has now opened **cloud#3461**,
+"fix(relayauth): support canonical and historical API-key schemas", +468/-143 on
+a **separate branch** `dig/relayauth-api-key-schema-0909` — which was the point
+of asking, so the masking fix (#3459) and the schema fix stay independently
+reviewable.
+
+Both hard requirements in the brief were actually met, verified rather than
+assumed:
+
+1. **The regex fake is gone.** The new
+   `packages/relayauth/src/storage/cloudflare/__tests__/d1-test-database.ts`
+   imports `DatabaseSync` from `node:sqlite` and builds a real in-memory
+   database (`new DatabaseSync(":memory:")`) as a D1 stand-in. That is the
+   change with the longest reach here — cloud's affinity test previously used a
+   regex-based fake database and *could not* catch a missing column, which is
+   why CI never caught this class of bug.
+2. It carried the harness forward: `ops/verify-keyprefix-skew.py` is in the PR.
+
+Files: the adapter, the affinity test, the new SQLite test database, the harness,
+and a findings doc.
+
+CI: `mergeStateStatus` reads UNSTABLE, but that is **one pending check** (root
+Vitest) against 18 passing and nothing failing. UNSTABLE is not a failure signal
+here — worth stating plainly, because reading it as one would misreport the PR.
+
+Not merging either PR: both need an independent signoff at the exact head, I am
+not independent of work I commissioned, and a cloud merge push-deploys.
