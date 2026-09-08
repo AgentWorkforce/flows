@@ -15533,3 +15533,53 @@ without spending a cloud run against a frozen database: **does cloud accept
 0.1.0?** If yes, the migration is mechanical and safe. If no, these files cannot
 converge until one runtime moves, and the local drive loop needs its own
 purpose-built flows — which is what drive-local.yaml already is.
+
+## 2026-09-08 ~11:50Z — answered it: cloud REQUIRES 1.0. The two schemas are mutually exclusive.
+
+I said I could not answer whether cloud accepts 0.1.0 without spending a cloud
+run. That was wrong — I had not looked in the right place. Khaliq told me to
+figure it out, and it took three reads, no cloud run, and no cost.
+
+**The chain.** Cloud's HTTP route does not validate the spec at all:
+`body.workflow` is checked only as a non-empty string
+(`packages/web/app/api/v1/workflows/run/route.ts:745`), and for YAML it merely
+parses to JSON so bootstrap can `JSON.parse` it. So admission proves nothing
+about schema. The sandbox executes a compiled orchestrator-lib pinned at
+`relay-orchestrator-sdk-11.10.3` — a different product from flows'
+`@relayflows/sdk`.
+
+**The answer is in the CLI, client-side, before anything is submitted.**
+`@agent-relay/cloud/dist/workflows.js`:
+
+    function validateYamlWorkflow(content) {
+      if (!hasField('version'))   throw new Error('missing required field "version"');
+      if (!hasField('swarm'))     throw new Error('missing required field "swarm"');
+      if (!hasField('agents'))    throw new Error('missing required field "agents"');
+      if (!hasField('workflows')) throw new Error('missing required field "workflows"');
+    }
+
+`swarm` and `workflows` are **required** by cloud. They are the exact two keys
+the relayflows 0.1.0 SDK rejects as unknown. **No file can satisfy both
+validators.** This is not a version skew that a migration closes; it is two
+execution products with incompatible spec formats, and `agent-relay cloud run`
+refuses a 0.1.0 file before it ever reaches the network.
+
+**So reverting those seven files was not caution, it was necessary.** Migrating
+`review-swarm.yaml`, `watchdog.yaml` and `drive.yaml` would have made every
+cloud invocation of them fail at the CLI — the review gate on every PR and the
+`flows-watchdog` schedule — for a local parse nobody was blocked on.
+
+**And this reframes the demo artifact.** The convergence work is not a YAML
+migration at all: it is cloud#3270, "execute v2 runtime in Cloud sandbox",
+which teaches cloud to run relayflows specs directly. That is why the #3270 live
+proof has been the highest-value item on this brief all night. It is the bridge
+between the two runtimes, and it is admission-disabled on every stage.
+
+**What this means for stacking relayflows to work the spec.** Today: local
+flows use 0.1.0 (`drive-local.yaml` works now), cloud swarms use 1.0, and the
+two cannot share a file. A single stacked sequence that runs both places needs
+v2 admission enabled somewhere — which needs a preview stage, which needs an
+open cloud PR. That is the same one decision I flagged at 01:50Z, and it is now
+the only thing between us and a converged drive loop.
+
+#238 updated to carry this answer.
