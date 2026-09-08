@@ -55,7 +55,49 @@ jobs:
         run: |
           test -n "$CLOUD_API_URL"
           test -n "$CLOUD_API_KEY"
-          echo "CLOUD_API_URL and CLOUD_API_KEY present; interactive login is unreachable from here."
+          # Presence is not validity. This step was named "Validate cloud
+          # authentication" while only asserting the variables were non-empty, so on
+          # 2026-09-07 it passed on every run while `agent-relay cloud run` failed
+          # immediately after with `Workflow prepare failed: 401 Unauthorized` --
+          # six PRs, repeatedly, behind a green check.
+          #
+          # Actually exercise the credential against the same host the CLI will use.
+          # /api/v1/workflows/runs requires a RESOLVED WORKSPACE and returns 401 for
+          # a fabricated or absent token (verified against production), so 200 here
+          # means the credential can genuinely act, not merely that a string was set.
+          #
+          # Also print a NON-REVERSIBLE fingerprint of the key. When this check
+          # passes and the launch still 401s, the fingerprint answers whether CI is
+          # even using the credential the mint installed -- otherwise unanswerable
+          # from outside, because the value is masked everywhere it appears.
+          fp="$(printf '%s' "$CLOUD_API_KEY" | shasum -a 256 | cut -c1-12)"
+          echo "CLOUD_API_KEY fingerprint (sha256, first 12): $fp"
+          # Bound the request and keep the three outcomes apart. Unbounded, an
+          # unreachable Cloud leaves curl waiting until the 75-minute job
+          # timeout; the `|| echo 000` then produced a non-200 and the one
+          # error message told a maintainer to re-mint a credential that was
+          # never the problem. A transport failure, an auth rejection and an
+          # unhealthy Cloud are three different diagnoses and must not share a
+          # sentence.
+          if ! status="$(curl --connect-timeout 10 --max-time 30 \
+            -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $CLOUD_API_KEY" \
+            "${CLOUD_API_URL%/}/api/v1/workflows/runs")"; then
+            echo "::error::could not reach $CLOUD_API_URL to validate CLOUD_API_KEY (curl transport failure or timeout). This is not a credential verdict — re-run once Cloud is reachable." >&2
+            exit 1
+          fi
+          case "$status" in
+            200) ;;
+            401|403)
+              echo "::error::CLOUD_API_KEY is set but rejected by $CLOUD_API_URL (HTTP $status). Re-mint the credential; do not re-run this job." >&2
+              exit 1
+              ;;
+            *)
+              echo "::error::$CLOUD_API_URL returned HTTP $status while validating CLOUD_API_KEY. That is not an authentication verdict — treat it as Cloud being unhealthy rather than the credential being bad." >&2
+              exit 1
+              ;;
+          esac
+          echo "CLOUD_API_KEY authenticates against $CLOUD_API_URL; interactive login is unreachable from here."
 
       # `agent-relay cloud run` launches the swarm, but nothing installed the
       # CLI, so this job failed at `Launch cloud swarm` with
