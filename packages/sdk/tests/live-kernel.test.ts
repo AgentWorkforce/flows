@@ -399,10 +399,22 @@ process.stdin.on('end', () => {
     // full live round trip still works end-to-end once a flow actually
     // populates that map and selects from it by name — not just the
     // no-header case the sibling test above covers.
+    //
+    // kjgbot (PR #245 review) and cubic both flagged the prior version of
+    // this test: it gave "reviewer" and "fixer" the IDENTICAL cli and model,
+    // and the stub echoed only the instruction, never which cli/model it
+    // actually received. A negative control that made every f.agent(name)
+    // resolve to the SAME first-declared entry still passed it. Each named
+    // agent below now has its own distinct stub binary and model, and each
+    // stub echoes back its own label plus the model it was actually given —
+    // so an assertion can only pass if the right declaration (or override)
+    // was genuinely selected.
     const directory = temporaryDirectory('flows-live-named-agents-');
     const dataDir = join(directory, 'data');
-    const cli = join(directory, 'agent-cli');
-    writeFileSync(cli, `#!/usr/bin/env node
+
+    function stubCli(label: string): string {
+      const cli = join(directory, `${label}-cli`);
+      writeFileSync(cli, `#!/usr/bin/env node
 if (process.argv[2] === 'auth' && process.argv[3] === 'status') process.exit(0);
 if (process.argv[2] !== '--relayflows-adapter-v1') process.exit(9);
 process.stdout.write('relayflows-agent-cli-v1\\n');
@@ -413,20 +425,23 @@ process.stdin.on('end', () => {
   if (input.trim() === '') process.exit(0);
   const request = JSON.parse(input);
   process.stdout.write('relayflows-agent-cli-v1-execute\\n');
-  process.stdout.write('handled: ' + request.instruction);
+  process.stdout.write(JSON.stringify({ cli: ${JSON.stringify(label)}, model: request.model, task: request.instruction }));
 });
 `);
-    chmodSync(cli, 0o755);
+      chmodSync(cli, 0o755);
+      return cli;
+    }
+    const reviewerCli = stubCli('reviewer');
+    const fixerCli = stubCli('fixer');
     // No project-level `cli` declared — both steps must resolve purely
     // through the header's named declarations, proving `cli`/`agent` reached
     // the submitted spec rather than silently falling back to a project
-    // default. `models` allowlists the declared model so preflight's
+    // default. `models` allowlists both declared models so preflight's
     // model-registry check (preflight.ts's unknownModelDiagnostics) doesn't
     // refuse first; the custom-wrapper model-scoped probe (cli-adapter.ts's
     // modelReadinessProbe, "relayflows-wrapper-v1" branch) just re-invokes
-    // the same `auth status` the stub CLI above already answers, with the
-    // model passed as an env var the stub ignores — no extra stub behavior needed.
-    writeFileSync(join(directory, 'flows.json'), JSON.stringify({ models: ['stub-model'] }));
+    // the same `auth status` the stub CLIs above already answer.
+    writeFileSync(join(directory, 'flows.json'), JSON.stringify({ models: ['model-a', 'model-b'] }));
     await startDaemon(dataDir);
 
     const client = await connectClient(dataDir);
@@ -442,15 +457,21 @@ process.stdin.on('end', () => {
 
     const runClient = await connectClient(dataDir);
     await runClient.hello('live-sdk-named-agents-run');
-    const captured: Record<string, { summary: string; artifacts: string[] }> = {};
+    const captured: Record<string, { cli: string; model: string; task: string }> = {};
     const handle = flow('named-agents', {
       agents: {
-        reviewer: { cli, model: 'stub-model' },
-        fixer: { cli, model: 'stub-model' },
+        reviewer: { cli: reviewerCli, model: 'model-a' },
+        fixer: { cli: fixerCli, model: 'model-b' },
       },
     }, async (f) => {
-      captured['reviewer'] = await f.agent('reviewer', { task: 'review the diff' });
-      captured['fixer'] = await f.agent('fixer', { task: 'fix what reviewer found' });
+      captured['reviewer'] = JSON.parse((await f.agent('reviewer', { task: 'review the diff' })).summary);
+      captured['fixer'] = JSON.parse((await f.agent('fixer', { task: 'fix what reviewer found' })).summary);
+      // Step-level cli/model must win over the named declaration's own —
+      // selecting "reviewer" but overriding onto fixer's cli/model proves
+      // the override is genuinely applied, not just tolerated as a no-op.
+      captured['override'] = JSON.parse((await f.agent('reviewer', {
+        task: 'override', cli: fixerCli, model: 'model-b',
+      })).summary);
       f.done('success');
     });
 
@@ -464,8 +485,9 @@ process.stdin.on('end', () => {
     }
 
     expect(result.completionReason).toBe('success');
-    expect(captured['reviewer']?.summary).toBe('handled: review the diff');
-    expect(captured['fixer']?.summary).toBe('handled: fix what reviewer found');
+    expect(captured['reviewer']).toEqual({ cli: 'reviewer', model: 'model-a', task: 'review the diff' });
+    expect(captured['fixer']).toEqual({ cli: 'fixer', model: 'model-b', task: 'fix what reviewer found' });
+    expect(captured['override']).toEqual({ cli: 'fixer', model: 'model-b', task: 'override' });
   });
 
   it("f.agent's default flowPath anchors on cwd, not cwd's parent", async () => {

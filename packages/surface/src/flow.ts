@@ -154,10 +154,13 @@ function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
     ? undefined
     : Object.freeze(
         Object.fromEntries(
-          Object.entries(header.agents).map(([name, declaration]) => [
-            name,
-            Object.freeze({ ...declaration }),
-          ]),
+          ownDataEntries(header.agents, "header.agents").map(([name, declaration]) => {
+            // Validated by assertFlowHeader's own ownDataEntries pass before
+            // this ever runs: exactly {cli, model}, both non-empty trimmed
+            // strings, read as data properties (never through a getter).
+            const record = declaration as NamedAgentDeclaration;
+            return [name, Object.freeze({ cli: record.cli, model: record.model })];
+          }),
         ),
       );
   return Object.freeze({
@@ -206,14 +209,45 @@ function assertFlowHeader(value: unknown, flowName: string): asserts value is Fl
 
   if (value.agents !== undefined) {
     assertHeaderObject(value.agents, `${at}.agents`);
-    for (const [name, declaration] of Object.entries(value.agents)) {
+    for (const [name, declaration] of ownDataEntries(value.agents, `${at}.agents`)) {
+      if (name !== name.trim() || name.length === 0) {
+        throw new TypeError(`${at}.agents: agent name ${JSON.stringify(name)} must be a non-empty, trimmed string`);
+      }
       const declarationAt = `${at}.agents.${name}`;
       assertHeaderObject(declaration, declarationAt);
       assertKnownKeys(declaration, ["cli", "model"], declarationAt);
-      assertRequiredString(declaration, "cli", declarationAt);
-      assertRequiredString(declaration, "model", declarationAt);
+      assertRequiredTrimmedString(declaration, "cli", declarationAt);
+      assertRequiredTrimmedString(declaration, "model", declarationAt);
     }
   }
+}
+
+/**
+ * Reads every own property of `value` via its descriptor rather than
+ * `Object.entries`/property access, so an accessor (getter) property is
+ * REJECTED — never invoked — instead of being enumerated as if it were
+ * ordinary data. `Object.entries` would call the getter, and a stateful
+ * getter can legally answer validation with one value and a second,
+ * unvalidated read (e.g. during freezing) with a different one — the closed
+ * declaration contract must not depend on a property being well-behaved
+ * across two separate reads.
+ */
+function ownDataEntries(
+  value: Record<string, unknown>,
+  at: string,
+): [string, unknown][] {
+  const entries: [string, unknown][] = [];
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string") {
+      throw new TypeError(`${at}: unknown field ${JSON.stringify(String(key))}`);
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !("value" in descriptor)) {
+      throw new TypeError(`${at}.${key}: expected a data property`);
+    }
+    entries.push([key, descriptor.value]);
+  }
+  return entries;
 }
 
 function assertHeaderObject(
@@ -256,13 +290,24 @@ function assertOptionalString(
   }
 }
 
-function assertRequiredString(
+/**
+ * Requires a trimmed, non-empty string — not merely non-empty-after-trim.
+ * The SDK's own project-config schema only accepts already-trimmed model/cli
+ * strings (`readProjectConfig`, cli/check.ts); accepting untrimmed values
+ * here would let a flow author declare " claude " and have it validate at
+ * authoring time but fail later at f.agent preflight, moving a defect from
+ * authoring to execution instead of catching it up front.
+ */
+function assertRequiredTrimmedString(
   value: Record<string, unknown>,
   key: string,
   at: string,
 ): void {
-  if (typeof value[key] !== "string" || value[key].trim().length === 0) {
+  if (typeof value[key] !== "string" || value[key].length === 0) {
     throw new TypeError(`${at}.${key}: expected a non-empty string`);
+  }
+  if (value[key] !== value[key].trim()) {
+    throw new TypeError(`${at}.${key}: must not have leading or trailing whitespace`);
   }
 }
 

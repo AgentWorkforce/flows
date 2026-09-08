@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:net';
 import { flow, type Ctx, type FlowHeader } from '@relayflows/surface';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { JournalClient } from '../src/journal-client.js';
 import {
@@ -192,8 +192,17 @@ describe('authored flow journal executor', () => {
   });
 
   describe('named agent declarations', () => {
+    const namedAgentDirectories: string[] = [];
+
+    afterEach(() => {
+      for (const directory of namedAgentDirectories.splice(0)) {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    });
+
     function namedAgentFixture(models: string[]): { directory: string; flowPath: string } {
       const directory = mkdtempSync(join(tmpdir(), 'authored-named-agent-'));
+      namedAgentDirectories.push(directory);
       writeFileSync(join(directory, 'flows.json'), JSON.stringify({ models }));
       return { directory, flowPath: join(directory, 'flow.ts') };
     }
@@ -284,6 +293,38 @@ describe('authored flow journal executor', () => {
           'Named agent "reviewer" declares model "unlisted-model"',
         ),
       });
+    });
+
+    it('refuses an unregistered model on a declared-but-never-selected named agent before the body runs', async () => {
+      // kjgbot (PR #245 review): a flow could declare `agents: { unused: {
+      // model: <not in registry> } }`, never call f.agent('unused', ...),
+      // and still complete successfully with real f.run effects already
+      // journaled — the invalid declaration was only checked lazily, inside
+      // lowerAgent, so an unselected one was never checked at all. The
+      // declarative dialect's own preflight (preflight.ts's
+      // unknownModelDiagnostics) checks every declared agent's model
+      // regardless of use, before any step submits. This proves the marker
+      // file below is never created: the flow must refuse before its body
+      // — and the f.run inside it — ever starts.
+      const { directory, flowPath } = namedAgentFixture(['some-other-model']);
+      const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+      const marker = join(directory, 'marker.txt');
+
+      await expect(executeAuthoredFlow(flow(
+        'named-agent-unused-model-unknown',
+        { agents: { unused: { cli: join(directory, 'irrelevant-cli'), model: 'unlisted-model' } } },
+        async (f) => {
+          await f.run(`printf effect > '${marker}'`);
+          f.done('success');
+        },
+      ), disconnectedJournal, undefined, { flowPath })).rejects.toMatchObject({
+        code: 'agent_cli_unresolved',
+        refusalKind: 'model_unknown',
+        message: expect.stringContaining(
+          'Named agent "unused" declares model "unlisted-model"',
+        ),
+      });
+      expect(existsSync(marker)).toBe(false);
     });
   });
 

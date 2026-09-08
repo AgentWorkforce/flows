@@ -13,17 +13,21 @@ reliable results.
 import { flow } from "@relayflows/surface";
 
 export default flow("fix-failing-tests", async (f) => {
-  const result = await f.run("npm test 2>&1; echo EXIT:$?");
-  if (result.includes("EXIT:0")) {
+  const before = await f.run("npm test 2>&1; echo EXIT:$?");
+  if (before.trim().endsWith("EXIT:0")) {
     f.done("success"); // already green, nothing to fix
     return;
   }
 
   await f.agent("fixer", {
-    task: `The test suite is failing. Diagnose and fix it:\n${result}`,
+    task: `The test suite is failing. Diagnose and fix it:\n${before}`,
     workspace: "src",
   });
 
+  const after = await f.run("npm test 2>&1; echo EXIT:$?");
+  if (!after.trim().endsWith("EXIT:0")) {
+    throw new Error(`fixer did not get the suite green:\n${after}`);
+  }
   f.done("success");
 });
 ```

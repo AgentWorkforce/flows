@@ -146,6 +146,39 @@ export async function executeAuthoredFlow<Input = undefined>(
       `flow "${definition.name}" uses unsupported header fields: ${unsupportedHeaderFields.join(', ')}`,
     );
   }
+  // Every declared named agent's model must be checked BEFORE the body runs,
+  // not lazily the first time a matching `f.agent` call happens to be
+  // reached: the declarative dialect's own preflight (preflight.ts's
+  // unknownModelDiagnostics) checks every entry in `flow.agents`, used or
+  // not, before any step submits — an unregistered model on a header entry
+  // the body never selects must refuse the same way, not silently pass. This
+  // is header data available before the body starts (no need to predict
+  // arbitrary TS control flow): a placeholder no-op deterministic step
+  // carries the declared `agents` map through the same real preflight
+  // `lowerAgent` uses, without probing any CLI (deterministic steps are
+  // never CLI-resolved) and without journaling anything on success.
+  if (definition.header.agents !== undefined && Object.keys(definition.header.agents).length > 0) {
+    const { report } = checkAuthoredFlow({
+      version: SPEC_SCHEMA_VERSION,
+      name: `${definition.name}/declared-agents`,
+      agents: { ...definition.header.agents },
+      steps: [{ id: 'declared-agents', type: 'deterministic', command: ':' }],
+    }, flowPath);
+    if (!report.ok) {
+      const refusal = report.diagnostics.find(
+        (diagnostic): diagnostic is PreflightDiagnostic & { severity: 'refusal' } =>
+          diagnostic.severity === 'refusal',
+      );
+      throw new AuthoredFlowExecutionError(
+        'agent_cli_unresolved',
+        refusal?.message
+          ?? `flow "${definition.name}" declares an invalid named agent`,
+        undefined,
+        undefined,
+        refusal?.kind ?? 'invalid_spec',
+      );
+    }
+  }
 
   const journalSteps: AuthoredFlowJournalStep[] = [];
   const authoredSteps: AuthoredFlowOperation<unknown>[] = [];

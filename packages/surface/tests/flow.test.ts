@@ -65,6 +65,59 @@ describe("flow", () => {
     expect(Object.isFrozen(frozenAgents?.reviewer)).toBe(true);
   });
 
+  it("rejects an accessor property on the agents map instead of invoking it", () => {
+    // A getter can legally answer validation with one value and a second,
+    // separate read (freezing) with a different one — reads must go through
+    // property descriptors, which reject accessors outright, rather than
+    // trusting a stateful getter to answer the same way twice.
+    let reads = 0;
+    const agents: Record<string, unknown> = {};
+    Object.defineProperty(agents, "reviewer", {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return reads === 1
+          ? { cli: "checked-cli", model: "model-a" }
+          : { cli: 42, model: "model-b", permissions: "write-all" };
+      },
+    });
+
+    expect(() => flow(
+      "getter-map",
+      { agents } as unknown as FlowHeader,
+      async (f) => f.done("success"),
+    )).toThrow("header.agents.reviewer: expected a data property");
+    expect(reads).toBe(0);
+  });
+
+  it("requires named agent declaration values and names to be trimmed", () => {
+    const trimCases: { value: unknown; message: string }[] = [
+      {
+        value: { agents: { reviewer: { cli: " claude", model: "m" } } },
+        message: "header.agents.reviewer.cli: must not have leading or trailing whitespace",
+      },
+      {
+        value: { agents: { reviewer: { cli: "claude ", model: "m" } } },
+        message: "header.agents.reviewer.cli: must not have leading or trailing whitespace",
+      },
+      {
+        value: { agents: { reviewer: { cli: "claude", model: " m" } } },
+        message: "header.agents.reviewer.model: must not have leading or trailing whitespace",
+      },
+      {
+        value: { agents: { " reviewer": { cli: "claude", model: "m" } } },
+        message: 'header.agents: agent name " reviewer" must be a non-empty, trimmed string',
+      },
+    ];
+    for (const trimCase of trimCases) {
+      expect(() => flow(
+        "untrimmed-agent",
+        trimCase.value as FlowHeader,
+        async () => undefined,
+      )).toThrow(trimCase.message);
+    }
+  });
+
   it("validates raw header keys and nested values before cloning", () => {
     const invalidHeaders: { value: unknown; message: string }[] = [
       {
