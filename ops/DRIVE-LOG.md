@@ -14436,3 +14436,36 @@ Capacity sample five, recorded and not interpreted: unchanged in shape,
 Nothing else is actionable without Khaliq. The one open question stands from
 01:50Z: whether to open a cloud PR purely to host a preview stage for the
 #3270 proof. Artifact quad is recovered and waiting.
+
+## 2026-09-08 ~02:30Z — cubic "pass" carried a real finding on my own PR
+
+Checked #235's review threads rather than trusting its check status, and found
+one unresolved cubic P3 sitting behind a green `pass`. That is the rule I
+already know — a passing check means mergeable, not reviewed — and it held
+again on a PR I had written forty minutes earlier.
+
+**The finding, and it is correct.** My `$reason` goes to stderr and the step
+summary unescaped, and it comes from the swarm's status response, which carries
+agent output, which can carry content from the PR under review. Two vectors:
+a line starting with `::` is parsed by Actions as a workflow command
+(`::error::`, `::add-mask::`), and a line of three backticks closes the fenced
+block early so the remainder renders as markup. I had reached for a fence
+without asking what the string could contain — the same class of oversight as
+trusting a code comment, except here I wrote the comment.
+
+**Fix (99ee410):** indent every line by four spaces and drop the fence. One
+transform closes both vectors, because Actions only parses a command at the
+start of a line and an indented block is a Markdown code block with nothing to
+break. Cheaper than escaping backticks and stripping `::` separately, and there
+is no second rule to keep in sync.
+
+Verified against a payload carrying both vectors — an `::error::` line and a
+bare triple-backtick line: no output line begins with `::` or a fence, and the
+real quota text still renders intact. Mutation asserted first: 12 insertions,
+4 deletions, `safe_reason` present three times, zero fences left, YAML parses.
+
+Replied on the thread with the reasoning and resolved it.
+
+Still not merging #235 — signoff needs the swarm, the swarm needs capacity.
+Everything else unchanged; the open question for Khaliq is still whether to
+open a cloud PR to host a preview stage for the #3270 proof.
