@@ -1,0 +1,24 @@
+{
+  "name": "relayflows",
+  "version": "2.0.1",
+  "description": "Relayflow v2 CLI. Installs the `flows` command — a thin wrapper around @relayflows/sdk, published under the unscoped name for `npm install -g relayflows`.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AgentWorkforce/flows.git",
+    "directory": "packages/relayflows"
+  },
+  "files": [
+    "bin"
+  ],
+  "bin": {
+    "flows": "./bin/flows.js"
+  },
+  "dependencies": {
+    "@relayflows/sdk": "2.0.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

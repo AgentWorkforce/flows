@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -11,7 +11,7 @@ const read = (path) => JSON.parse(readFileSync(path, 'utf8'));
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'flows-publish-test-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  for (const name of ['surface', 'sdk', 'runtime-linux-x64']) {
+  for (const name of ['surface', 'sdk', 'runtime-linux-x64', 'relayflows']) {
     mkdirSync(join(root, 'packages', name), { recursive: true });
     const path = join(root, 'packages', name, 'package.json');
     cpSync(`packages/${name}/package.json`, path);
@@ -47,7 +47,7 @@ test('one SDK anchor rewrites all internal dependency types and preserves extern
   writeFileSync(path, JSON.stringify(pkg));
   const result = version(root, { CUSTOM_VERSION: '3.0.0-rc.2' });
   assert.equal(result.status, 0, result.stderr);
-  for (const name of ['sdk', 'surface', 'runtime-linux-x64']) {
+  for (const name of ['sdk', 'surface', 'runtime-linux-x64', 'relayflows']) {
     assert.equal(read(join(root, 'packages', name, 'package.json')).version, '3.0.0-rc.2');
   }
   const updated = read(path);
@@ -56,6 +56,8 @@ test('one SDK anchor rewrites all internal dependency types and preserves extern
   }
   assert.equal(updated.optionalDependencies['@relayflows/runtime-linux-x64'], '3.0.0-rc.2');
   assert.equal(updated.dependencies.yaml, pkg.dependencies.yaml);
+  const relayflows = read(join(root, 'packages/relayflows/package.json'));
+  assert.equal(relayflows.dependencies['@relayflows/sdk'], '3.0.0-rc.2');
 });
 
 test('prerelease bumps use the SDK anchor and output the resolved version', (t) => {
@@ -99,6 +101,34 @@ test('actual npm tarballs reject missing dist and local dependencies, then accep
   const built = run();
   assert.equal(built.status, 0, built.stderr);
   assert.match(built.stdout, /PACK_OK @relayflows\/surface@2.0.0/);
+});
+
+test('relayflows tarball publishes unscoped and rejects a missing bin', (t) => {
+  const root = fixture(t);
+  // fixture() pins every package to '2.0.0' independently; align relayflows's
+  // committed dependency pin the way version-packages.mjs would for a real
+  // release, so this test exercises the bin/executable checks, not the
+  // (separately real) local-dependency-drift assertion.
+  const path = join(root, 'packages/relayflows/package.json');
+  const pkg = read(path);
+  pkg.dependencies['@relayflows/sdk'] = '2.0.0';
+  writeFileSync(path, JSON.stringify(pkg));
+  const run = () => spawnSync(process.execPath, [packScript, 'relayflows'], { cwd: root, encoding: 'utf8' });
+  const missing = run();
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /missing package\/bin\/flows.js/);
+  const bin = join(root, 'packages/relayflows/bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'flows.js'), '#!/usr/bin/env node\n');
+  const built = run();
+  // Not yet executable: same failure pack-release.mjs gives for surface/sdk/runtime.
+  assert.notEqual(built.status, 0);
+  assert.match(built.stderr, /non-executable \.\/bin\/flows\.js/);
+  execFileSync('chmod', ['+x', join(bin, 'flows.js')]);
+  const executable = run();
+  assert.equal(executable.status, 0, executable.stderr);
+  // Unscoped — not `@relayflows/relayflows`, unlike every other release package.
+  assert.match(executable.stdout, /PACK_OK relayflows@2.0.0/);
 });
 
 test('runtime tarball refuses an unstaged binary package', (t) => {

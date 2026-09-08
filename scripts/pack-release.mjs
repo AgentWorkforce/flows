@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const [name, output = 'dist/publish'] = process.argv.slice(2);
-assert(['surface', 'sdk', 'runtime-linux-x64'].includes(name), 'unknown release package');
+assert(['surface', 'sdk', 'runtime-linux-x64', 'relayflows'].includes(name), 'unknown release package');
+// Every release package is scoped (@relayflows/<name>) except the CLI alias,
+// which is published unscoped so `npm install -g relayflows` names it directly.
+const expectedName = name === 'relayflows' ? 'relayflows' : `@relayflows/${name}`;
 const directory = resolve(`packages/${name}`);
 const destination = resolve(output);
 mkdirSync(destination, { recursive: true });
@@ -18,7 +21,7 @@ try {
   execFileSync('tar', ['-xzf', archive, '-C', unpacked]);
   const root = join(unpacked, 'package');
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  assert.equal(pkg.name, `@relayflows/${name}`);
+  assert.equal(pkg.name, expectedName);
   const expected = JSON.parse(readFileSync('packages/sdk/package.json', 'utf8')).version;
   assert.equal(pkg.version, expected, 'package version differs from SDK anchor');
   for (const type of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
@@ -29,7 +32,9 @@ try {
   }
   const required = name === 'runtime-linux-x64'
     ? ['bin/relayflowd', 'bin/flows']
-    : ['dist/index.js', 'dist/index.d.ts'];
+    : name === 'relayflows'
+      ? ['bin/flows.js']
+      : ['dist/index.js', 'dist/index.d.ts'];
   if (name === 'surface') required.push('dist/runtime.js', 'dist/runtime.d.ts');
   if (name === 'sdk') required.push('dist/cli.js');
   for (const file of required) {
