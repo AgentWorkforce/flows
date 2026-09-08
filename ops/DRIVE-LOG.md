@@ -15744,3 +15744,41 @@ Recorded as `kernel/GATE5-MEMORY-CONTRACT.md` on the flows#240 branch, with
 what #221 already landed (the seam and itemized accounting — the hard part)
 separated from what is still `FixedMemoryProvider` returning a literal
 `{"text":"fixed memory pack"}` with synthetic 7 tokens.
+
+## 2026-09-08 ~13:35Z — proof readiness confirmed; preview into D1 migrations
+
+**Preview 34200328839 advanced** past the OpenNext-CF build into `Run
+Cloudflare D1 migrations`. Still no proof to run, but it is moving.
+
+**Cleared the one thing that could have blocked the proof at the moment it
+became runnable.** The brief's procedure needs an *authenticated* POST to
+`/api/v1/workflows/run` with `relayflowVersion: "v2"`, and Khaliq's standing
+constraint is that I create, rotate and print no secret value. Those could have
+been in tension — a proof I could not authenticate would have been discovered
+at exactly the wrong moment.
+
+They are not. `agent-relay cloud whoami` reports `Subject type: cli`, and the
+proof doc records that the route accepts session auth, `cli:auth`, the existing
+delegation, or `workflow:invoke:write`. So the credential I already hold is one
+of the four accepted.
+
+Verified end to end rather than assumed, and without echoing anything: read
+`accessToken` out of `~/.agentworkforce/relay/cloud-auth.json` into a shell
+variable, called `GET /api/v1/workflows/runs`, got **HTTP 200**. That is the
+same route #232's auth gate probes, and 200 there means the credential can
+genuinely act rather than merely exist. The value was never printed, logged, or
+passed anywhere but the Authorization header.
+
+Also retrieved the proof procedure itself — `ops/reviews/20260902-1740-pr3270-proof.md`,
+287 lines, with the exact `curl` invocations and the jq assertion
+(`.relayflowVersion == "v2" and .status == "completed" and
+.result.completionReason == "success" and .result.completedSteps == 2`), plus
+the journal path shape
+`.agent-relay/relayflow-v2/states/<stateKey>/journal/runs/<engineRunId>.sqlite3`.
+Nothing to compose when the stage lands; only the preview URL is missing.
+
+**Stale background task closed out.** A `find` I backgrounded two hours ago to
+locate the orchestrator package finally returned. It adds nothing — the schema
+question it was meant to answer was settled conclusively at 11:50Z from
+`@agent-relay/cloud/dist/workflows.js`, and its output does not contradict that.
+Noting it so the notification is not mistaken later for an open thread.
