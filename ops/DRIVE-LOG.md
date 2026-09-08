@@ -3964,3 +3964,31 @@ constraint puts off-limits to me.
 
 Status of the demo: unchanged and now fully explained. v2 has never completed;
 the launch cannot mint a Relaycast workspace key from any reachable gateway.
+
+### 2026-09-08 — corrected my own misattribution on cloud#3446
+
+All four brief items are done or blocked, so the real work this tick was fixing
+evidence I had left wrong on a PR.
+
+My earlier #3446 comment reported v2 launches failing deterministically and said
+I was holding the merge **because of the PR**. That was a misattribution. The
+failure is environmental — v1 dies at the same call, before credentials and
+before any sandbox — and it predates the branch. Leaving that comment standing
+would have let a reviewer read an infra fault as a regression in this PR, which
+is the expensive kind of wrong.
+
+Posted a correction (issuecomment-5587574678) carrying the full chain:
+530 (no origin) -> 404 (empty per-preview gateway) -> 401 (dev-cast expects
+`_DEV`, cloud seeds the un-suffixed secret). No gateway satisfies both
+conditions, so **no preview stage can currently launch either generation**.
+
+Kept two caveats explicitly rather than declaring the PR clean:
+
+- the masking defect is real and worth fixing separately, and is still
+  UNCONFIRMED — I polled at 2s and never saw `launching`;
+- this PR's "v1 keeps SQS" half remains unproven on preview, because the
+  environmental fault stops v1 before that path matters.
+
+I did not merge it and did not recommend merging it — only withdrew the reason I
+had given for holding it. That call belongs to a reviewer who can verify the
+v1/SQS half.
