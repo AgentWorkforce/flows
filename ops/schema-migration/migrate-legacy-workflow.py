@@ -33,6 +33,13 @@ def migrate(path):
     raw = yaml.safe_load(open(path))
     problems, notes = [], []
 
+    # Refuse a schema this tool was not written for. Without this, a 0.2.0 file
+    # would be silently restamped as 0.1.0 and "migrated" by guesswork.
+    src_version = str(raw.get('version'))
+    if src_version != '1.0':
+        problems.append(f"source version is {src_version!r}, expected '1.0'; "
+                        "this tool migrates the 1.0 schema only")
+
     unknown_top = set(raw) - FLOW - DROPPED_TOP - {'workflows'}
     if unknown_top:
         problems.append(f"unhandled top-level keys: {sorted(unknown_top)}")
@@ -105,9 +112,18 @@ def migrate(path):
 
     if problems:
         return None, problems, notes
-    return {'version': '0.1.0', 'name': raw.get('name'),
-            'description': raw.get('description'),
-            'steps': steps}, [], notes
+    # Carry every 0.1.0 field the source actually set. `cli`, `triggers` and
+    # `budget` pass the unknown-key check above because they ARE valid 0.1.0
+    # fields; emitting a fixed dict dropped them silently, which is the exact
+    # failure this script's docstring refuses to commit. Absent optionals are
+    # omitted rather than written as null, because an explicit null is not a
+    # valid value for them.
+    out = {'version': '0.1.0'}
+    for key in ('name', 'description', 'cli', 'triggers', 'budget'):
+        if raw.get(key) is not None:
+            out[key] = raw[key]
+    out['steps'] = steps
+    return out, [], notes
 
 
 if __name__ == '__main__':

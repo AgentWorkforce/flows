@@ -9,13 +9,14 @@ different schema versions.**
 
 The local SDK refuses the 1.0 schema outright:
 
+Literal, captured 2026-09-08. The script emits one JSON diagnostic on stderr
+and exits 2; earlier revisions of this file reformatted it into a readable
+list, which made a paraphrase look like a transcript.
+
 ```
-$ node scripts/run-local-workflow.mjs workflows/drive.yaml     # rc=2
-spec: unknown key "swarm" (expected one of version|name|description|cli|agents|triggers|steps|budget)
-spec: unknown key "workflows"
-spec.version: unsupported version "1.0" (expected "0.1.0")
-spec.agents: expected a map of named { cli, model } declarations
-spec.steps: expected a non-empty array
+$ node scripts/run-local-workflow.mjs workflows/drive.yaml; echo "rc=$?"
+{"severity":"refusal","kind":"invalid_spec","message":"Relayflow spec is invalid: spec: unknown key \"swarm\" (expected one of version | name | description | cli | agents | triggers | steps | budget); spec: unknown key \"workflows\" (expected one of version | name | description | cli | agents | triggers | steps | budget); spec.version: unsupported version \"1.0\" (expected \"0.1.0\"); spec.agents: expected a map of named { cli, model } declarations; spec.steps: expected a non-empty array","errors":["spec: unknown key \"swarm\" (expected one of version | name | description | cli | agents | triggers | steps | budget)","spec: unknown key \"workflows\" (expected one of version | name | description | cli | agents | triggers | steps | budget)","spec.version: unsupported version \"1.0\" (expected \"0.1.0\")","spec.agents: expected a map of named { cli, model } declarations","spec.steps: expected a non-empty array"]}
+rc=2
 ```
 
 Cloud accepts it. On 2026-09-07 the review gate ran
