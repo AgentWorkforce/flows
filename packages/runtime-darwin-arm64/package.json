@@ -1,6 +1,6 @@
 {
   "name": "@relayflows/runtime-darwin-arm64",
-  "version": "2.0.1",
+  "version": "2.0.6",
   "description": "Relayflow v2 runtime for darwin-arm64: the relayflowd kernel and the flows CLI, as prebuilt binaries",
   "license": "Apache-2.0",
   "repository": {
