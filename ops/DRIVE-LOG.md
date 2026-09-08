@@ -14222,3 +14222,62 @@ have not.
 Next tick, if capacity is back: open a PR on main, dispatch preview.yml with
 the recovered quad, run the proof from
 `ops/reviews/20260902-1740-pr3270-proof.md`.
+
+## 2026-09-08 ~00:50Z — the brief itself has outlived its objectives
+
+Ran all four items. Three are finished and one is blocked; nothing here needs
+code from me tonight.
+
+**1/ drain.** No stuck runs. Cron schedules only.
+
+**2/ #3270 live proof.** Unchanged from 00:30Z: needs an open PR on main plus
+Daytona capacity, and the CPU cap has not moved.
+
+**3/ #134 — the allSettled P0.** The brief points me at branch
+`repair/pr134-0903`, head `311b18c`. **#134 merged 2026-09-04T08:42Z**, four
+days ago, as e9321d22.
+
+I nearly reported the opposite. My first two checks both said the fix was
+missing, and both were wrong:
+
+- `git cat-file -e origin/main:sdk/src/authored-flow-lifecycle.ts` → absent.
+  The tree was reorganized; it lives at `packages/sdk/...` now. I was testing a
+  path, not a fact.
+- `git grep -l "nativePromiseAllSettled\|observeCombinator" origin/main` → zero
+  hits, which I read as "the interception is not on main". It was on main, in a
+  refactored form the branch's identifiers don't appear in. A grep for the old
+  implementation's names cannot answer whether the *behaviour* landed.
+
+What main actually has is better than the brief specifies. All four intrinsics
+are intercepted through a frozen `nativeCombinators` map, and the test table
+carries **seven** multi-member rows, not the five asked for, varying both the
+resolver and the declaration order:
+
+    'allSettled resolved by an unrelated member'
+    'allSettled with the step declared second'
+    'all resolved by an unrelated member'
+    'race resolved by an unrelated member'
+    'any resolved by an unrelated member'
+    'allSettled resolved by the step itself'
+    'race resolved by the step itself'
+
+with the brief's own reasoning written into the file at line 236: a
+single-member aggregate is always resolved by its only member and therefore
+cannot fail. The code comment claims the interception is disclosed to authors
+in `docs/SURFACE.md`; I checked rather than trusted it, and it is — line 238
+names all three, 263 gives the why. Item closed.
+
+`repair/pr134-0903` still exists at 7dc9e9e with **no open PR**, written
+against the pre-reorg `sdk/` layout. It is superseded, not stranded. Left in
+place; deleting someone's branch is not mine to do unattended.
+
+**4/ #139.** Also merged, 2026-09-04T09:42Z.
+
+**So the standing brief has been driving me at work that finished on 09-04.**
+Items 3 and 4 have been dead for four days and item 2's blocker is not
+something a tick can clear. This is the same failure I logged about lanes —
+liveness is not objective — except the stale thing is the instruction sheet.
+
+The real backlog is the seven open PRs: #234, #232, #231, #230, #229, #227,
+#226. A brief pointed at those would have work in it. This one does not, and I
+am not going to manufacture some.
