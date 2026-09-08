@@ -18,6 +18,10 @@
   "dependencies": {
     "@relayflows/sdk": "2.0.1"
   },
+  "optionalDependencies": {
+    "@relayflows/runtime-linux-x64": "2.0.1",
+    "@relayflows/runtime-darwin-arm64": "2.0.1"
+  },
   "engines": {
     "node": ">=20"
   }

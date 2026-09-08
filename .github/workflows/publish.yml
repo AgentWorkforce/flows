@@ -9,7 +9,7 @@ on:
         description: Package to publish (single-package selections are dry-run only)
         required: true
         type: choice
-        options: [all, surface, sdk, runtime-linux-x64, relayflows]
+        options: [all, surface, sdk, runtime-linux-x64, runtime-darwin-arm64, relayflows]
         default: all
       version:
         description: Version bump type
@@ -150,9 +150,93 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # A native macOS job, not a cross-compile from the linux `build` job above.
+  # relayflowd's release build has no cross-compile setup (no osxcross, no
+  # macOS SDK on the linux runner), and macos-14 runners are Apple Silicon, so
+  # `cargo build --release` already targets aarch64-apple-darwin natively —
+  # the same reason no `--target` flag is needed below.
+  #
+  # This job independently re-derives `new_version` by re-running
+  # version-packages.mjs with the same workflow inputs against the same
+  # commit as the `build` job. `npm version <bump>` is a pure function of the
+  # committed version and the bump type, so both jobs compute the identical
+  # version without either depending on the other's output — the alternative
+  # (pass new_version as a job output) would force this job to wait on `build`
+  # for no reason; they can run in parallel instead.
+  build-darwin-arm64:
+    name: Build & pack darwin-arm64 runtime
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: Validate release mode
+        env:
+          PACKAGE: ${{ inputs.package }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [[ "$DRY_RUN" != true && ( "$PACKAGE" != all || "$REF_TYPE" != branch ) ]]; then
+            echo 'Real releases require package=all and a branch: all versions and internal dependencies advance together.' >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: |
+          npm install --prefix packages/surface --ignore-scripts
+          npm ci --prefix packages/sdk --ignore-scripts
+      - name: Version all packages
+        env:
+          CUSTOM_VERSION: ${{ inputs.custom_version }}
+          VERSION_TYPE: ${{ inputs.version }}
+          PREID: ${{ inputs.preid }}
+        run: node scripts/version-packages.mjs
+      - name: Build surface
+        working-directory: packages/surface
+        run: ./node_modules/.bin/tsc
+      - name: Pack and assert surface
+        id: surface
+        run: node scripts/pack-release.mjs surface
+      # Only the SDK's module graph is needed here (bun bundles cli-executable.ts
+      # straight from source) — not a tsc build, which is the SDK's own
+      # publishable dist and unrelated to the standalone bun binary below.
+      - name: Install SDK against packed surface
+        env:
+          SURFACE_TARBALL: ${{ steps.surface.outputs.tarball }}
+        working-directory: packages/sdk
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts "$SURFACE_TARBALL"
+          test ! -L node_modules/@relayflows/surface
+      - name: Build relayflowd
+        working-directory: kernel
+        run: cargo build --locked --release -p relayflowd
+      - name: Build and execute runtime binaries
+        run: |
+          mkdir -p packages/runtime-darwin-arm64/bin
+          cp kernel/target/release/relayflowd packages/runtime-darwin-arm64/bin/relayflowd
+          bun build packages/sdk/src/cli-executable.ts --compile --target=bun-darwin-arm64 \
+            --outfile=packages/runtime-darwin-arm64/bin/flows
+          chmod +x packages/runtime-darwin-arm64/bin/relayflowd packages/runtime-darwin-arm64/bin/flows
+          packages/runtime-darwin-arm64/bin/relayflowd --help
+          packages/runtime-darwin-arm64/bin/flows check --json testdata/hello-deterministic.flow.yaml
+      - name: Pack and assert runtime (executes both unpacked binaries)
+        run: node scripts/pack-release.mjs runtime-darwin-arm64
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output-darwin-arm64
+          path: dist/publish/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
   publish-packages:
     name: Publish packages in dependency order
-    needs: build
+    needs: [build, build-darwin-arm64]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -171,13 +255,17 @@ jobs:
         with:
           name: build-output
           path: dist/build-output
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-output-darwin-arm64
+          path: dist/build-output
       # relayflows is the one unscoped package, so `npm pack` names its tarball
       # `relayflows-<version>.tgz`, not `relayflows-relayflows-<version>.tgz`.
       - name: Restore built packages
         env:
           NEW_VERSION: ${{ needs.build.outputs.new_version }}
         run: |
-          for package in surface sdk runtime-linux-x64 relayflows; do
+          for package in surface sdk runtime-linux-x64 runtime-darwin-arm64 relayflows; do
             if [[ "$package" == relayflows ]]; then
               tarball="relayflows-${NEW_VERSION}.tgz"
             else
@@ -187,11 +275,16 @@ jobs:
           done
       # Repack and check EVERYTHING before the first publish. Tar archives
       # preserve executable bits across Actions artifact upload/download.
+      # runtime-darwin-arm64's own execution smoke does not re-run here — this
+      # runner is linux, so pack-release.mjs asserts its shape only, per the
+      # foreign-host skip described where that check lives. It already ran for
+      # real on the macos-14 runner that built it.
       - name: Pack and assert all release tarballs
         run: |
           node scripts/pack-release.mjs surface
           node scripts/pack-release.mjs sdk
           node scripts/pack-release.mjs runtime-linux-x64
+          node scripts/pack-release.mjs runtime-darwin-arm64
           node scripts/pack-release.mjs relayflows
       - name: Publish to NPM (surface before SDK, relayflows last)
         env:
@@ -200,7 +293,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
           NPM_TAG: ${{ inputs.tag }}
         run: |
-          for package in surface sdk runtime-linux-x64 relayflows; do
+          for package in surface sdk runtime-linux-x64 runtime-darwin-arm64 relayflows; do
             if [[ "$PACKAGE" != all && "$PACKAGE" != "$package" ]]; then continue; fi
             if [[ "$package" == relayflows ]]; then
               tarball="relayflows-${NEW_VERSION}.tgz"
@@ -233,6 +326,13 @@ jobs:
           };
           check('packages/sdk/package-lock.json', 'node_modules/@relayflows/surface');
           check('packages/relayflows/package-lock.json', 'node_modules/@relayflows/sdk');
+          // Optional dependencies still resolve to real registry entries in
+          // the lockfile regardless of this runner's own os/cpu — npm records
+          // every platform variant so `npm ci` elsewhere can pick the right
+          // one. Only the resolution differs from a required dependency; the
+          // same freshness guarantee must hold.
+          check('packages/relayflows/package-lock.json', 'node_modules/@relayflows/runtime-linux-x64');
+          check('packages/relayflows/package-lock.json', 'node_modules/@relayflows/runtime-darwin-arm64');
           NODE
           npm ci --prefix packages/surface --dry-run --ignore-scripts
           npm ci --prefix packages/sdk --dry-run --ignore-scripts
@@ -248,6 +348,7 @@ jobs:
           git add packages/surface/package.json packages/surface/package-lock.json \
             packages/sdk/package.json packages/sdk/package-lock.json \
             packages/runtime-linux-x64/package.json \
+            packages/runtime-darwin-arm64/package.json \
             packages/relayflows/package.json packages/relayflows/package-lock.json
           if ! git diff --staged --quiet; then
             git commit -m "chore(release): v${NEW_VERSION}"

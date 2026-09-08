@@ -11,7 +11,7 @@ const read = (path) => JSON.parse(readFileSync(path, 'utf8'));
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'flows-publish-test-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  for (const name of ['surface', 'sdk', 'runtime-linux-x64', 'relayflows']) {
+  for (const name of ['surface', 'sdk', 'runtime-linux-x64', 'runtime-darwin-arm64', 'relayflows']) {
     mkdirSync(join(root, 'packages', name), { recursive: true });
     const path = join(root, 'packages', name, 'package.json');
     cpSync(`packages/${name}/package.json`, path);
@@ -47,7 +47,7 @@ test('one SDK anchor rewrites all internal dependency types and preserves extern
   writeFileSync(path, JSON.stringify(pkg));
   const result = version(root, { CUSTOM_VERSION: '3.0.0-rc.2' });
   assert.equal(result.status, 0, result.stderr);
-  for (const name of ['sdk', 'surface', 'runtime-linux-x64', 'relayflows']) {
+  for (const name of ['sdk', 'surface', 'runtime-linux-x64', 'runtime-darwin-arm64', 'relayflows']) {
     assert.equal(read(join(root, 'packages', name, 'package.json')).version, '3.0.0-rc.2');
   }
   const updated = read(path);
@@ -58,6 +58,10 @@ test('one SDK anchor rewrites all internal dependency types and preserves extern
   assert.equal(updated.dependencies.yaml, pkg.dependencies.yaml);
   const relayflows = read(join(root, 'packages/relayflows/package.json'));
   assert.equal(relayflows.dependencies['@relayflows/sdk'], '3.0.0-rc.2');
+  // relayflows' real optionalDependencies (not the synthetic sdk one set up
+  // above) — both per-platform runtime packages must move together with it.
+  assert.equal(relayflows.optionalDependencies['@relayflows/runtime-linux-x64'], '3.0.0-rc.2');
+  assert.equal(relayflows.optionalDependencies['@relayflows/runtime-darwin-arm64'], '3.0.0-rc.2');
 });
 
 test('prerelease bumps use the SDK anchor and output the resolved version', (t) => {
@@ -112,6 +116,9 @@ test('relayflows tarball publishes unscoped and rejects a missing bin', (t) => {
   const path = join(root, 'packages/relayflows/package.json');
   const pkg = read(path);
   pkg.dependencies['@relayflows/sdk'] = '2.0.0';
+  for (const name of Object.keys(pkg.optionalDependencies || {})) {
+    pkg.optionalDependencies[name] = '2.0.0';
+  }
   writeFileSync(path, JSON.stringify(pkg));
   const run = () => spawnSync(process.execPath, [packScript, 'relayflows'], { cwd: root, encoding: 'utf8' });
   const missing = run();
@@ -133,9 +140,34 @@ test('relayflows tarball publishes unscoped and rejects a missing bin', (t) => {
 
 test('runtime tarball refuses an unstaged binary package', (t) => {
   const root = fixture(t);
-  const result = spawnSync(process.execPath, [packScript, 'runtime-linux-x64'], {
+  for (const name of ['runtime-linux-x64', 'runtime-darwin-arm64']) {
+    const result = spawnSync(process.execPath, [packScript, name], {
+      cwd: root, encoding: 'utf8',
+    });
+    assert.notEqual(result.status, 0, name);
+    assert.match(result.stderr, /missing package\/bin\/relayflowd/, name);
+  }
+});
+
+test('a runtime tarball packs and asserts shape, running the real smoke only on a matching host', (t) => {
+  const root = fixture(t);
+  const bin = join(root, 'packages/runtime-darwin-arm64/bin');
+  mkdirSync(bin);
+  // Not a real Mach-O binary, but scriptable enough to behave correctly IF
+  // this test happens to run on an actual darwin-arm64 host (pack-release.mjs
+  // only skips execution on a *foreign* host — same-host still runs it for
+  // real, which this repo's own dev machines can be).
+  const stub = ['#!/bin/sh', 'if [ "$1" = "--help" ]; then exit 0; fi',
+    'if [ "$1" = "check" ]; then echo \'{"ok":true,"path":"testdata/hello-deterministic.flow.yaml"}\'; exit 0; fi',
+    'exit 1', ''].join('\n');
+  writeFileSync(join(bin, 'relayflowd'), stub);
+  writeFileSync(join(bin, 'flows'), stub);
+  execFileSync('chmod', ['+x', join(bin, 'relayflowd'), join(bin, 'flows')]);
+  const result = spawnSync(process.execPath, [packScript, 'runtime-darwin-arm64'], {
     cwd: root, encoding: 'utf8',
   });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /missing package\/bin\/relayflowd/);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /PACK_OK @relayflows\/runtime-darwin-arm64@2\.0\.0/);
+  const isMatchingHost = process.platform === 'darwin' && process.arch === 'arm64';
+  assert.equal(result.stdout.includes('Skipping runtime-darwin-arm64 execution smoke'), !isMatchingHost);
 });

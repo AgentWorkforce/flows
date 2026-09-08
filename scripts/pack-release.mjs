@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const [name, output = 'dist/publish'] = process.argv.slice(2);
-assert(['surface', 'sdk', 'runtime-linux-x64', 'relayflows'].includes(name), 'unknown release package');
+const runtimeMatch = /^runtime-([a-z0-9]+)-([a-z0-9]+)$/.exec(name ?? '');
+assert(
+  ['surface', 'sdk', 'relayflows'].includes(name) || runtimeMatch !== null,
+  'unknown release package',
+);
 // Every release package is scoped (@relayflows/<name>) except the CLI alias,
 // which is published unscoped so `npm install -g relayflows` names it directly.
 const expectedName = name === 'relayflows' ? 'relayflows' : `@relayflows/${name}`;
@@ -30,7 +34,7 @@ try {
       if (dependency.startsWith('@relayflows/')) assert.equal(version, expected);
     }
   }
-  const required = name === 'runtime-linux-x64'
+  const required = runtimeMatch !== null
     ? ['bin/relayflowd', 'bin/flows']
     : name === 'relayflows'
       ? ['bin/flows.js']
@@ -45,15 +49,22 @@ try {
   for (const file of Object.values(pkg.bin || {})) {
     assert(statSync(join(root, file)).mode & 0o111, `non-executable ${file}`);
   }
-  if (name === 'runtime-linux-x64') {
-    assert.equal(process.platform, 'linux', 'runtime smoke requires Linux');
-    assert.equal(process.arch, 'x64', 'runtime smoke requires x64');
-    execFileSync(join(root, 'bin/relayflowd'), ['--help'], { stdio: 'inherit' });
-    const report = JSON.parse(execFileSync(join(root, 'bin/flows'), [
-      'check', '--json', 'testdata/hello-deterministic.flow.yaml',
-    ], { encoding: 'utf8' }));
-    assert.equal(report.ok, true);
-    assert.equal(report.path, 'testdata/hello-deterministic.flow.yaml');
+  if (runtimeMatch !== null) {
+    const [, platform, arch] = runtimeMatch;
+    // A cross-arch repack (e.g. re-verifying runtime-darwin-arm64's tarball
+    // from the linux publish job) can only assert shape, above — a foreign
+    // binary cannot be executed here. Only the matching host actually runs
+    // it, which is also where CI originally built and smoke-tested it.
+    if (process.platform === platform && process.arch === arch) {
+      execFileSync(join(root, 'bin/relayflowd'), ['--help'], { stdio: 'inherit' });
+      const report = JSON.parse(execFileSync(join(root, 'bin/flows'), [
+        'check', '--json', 'testdata/hello-deterministic.flow.yaml',
+      ], { encoding: 'utf8' }));
+      assert.equal(report.ok, true);
+      assert.equal(report.path, 'testdata/hello-deterministic.flow.yaml');
+    } else {
+      console.log(`Skipping ${name} execution smoke: built for ${platform}-${arch}, running on ${process.platform}-${process.arch}`);
+    }
   }
   console.log(`PACK_OK ${pkg.name}@${pkg.version}: ${required.map((file) => `package/${file}`).join(', ')}`);
   if (process.env.GITHUB_OUTPUT) {
