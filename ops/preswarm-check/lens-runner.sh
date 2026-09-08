@@ -280,7 +280,16 @@ blockers_are_listed() {
 # here argued absence should "keep its previous behaviour instead of newly
 # failing". That was protecting a case the prompt already forbids.
 blockers_section_present() {
-  printf '%s\n' "$OUTPUT" | grep -qE '^#+[[:space:]]*Blockers[[:space:]]*$'
+  # Exactly `### Blockers`, the level the prompt specifies -- not `^#+`. A
+  # review headed `# Blockers` or `#### Blockers` has not followed the output
+  # contract, and accepting it here would let the missing-section guard admit
+  # an invalid section as a valid one (flows#229, cubic P2).
+  #
+  # Deliberately stricter than blockers_are_listed and blockers_say_none, which
+  # keep matching `^#+`: this decides whether a section COUNTS, so it fails
+  # closed on a wrong level, while those two only DETECT blockers, where being
+  # permissive also fails closed.
+  printf '%s\n' "$OUTPUT" | grep -qE '^###[[:space:]]*Blockers[[:space:]]*$'
 }
 
 blockers_say_none() {
