@@ -37,8 +37,12 @@ def migrate(path):
     # would be silently restamped as 0.1.0 and "migrated" by guesswork.
     src_version = str(raw.get('version'))
     if src_version != '1.0':
-        problems.append(f"source version is {src_version!r}, expected '1.0'; "
-                        "this tool migrates the 1.0 schema only")
+        # Return, do not accumulate. Continuing into the legacy loops with a
+        # schema this tool does not understand means `a.get(...)` raises on a
+        # 0.1.0-style agents MAP and the caller sees a traceback instead of the
+        # clean refusal this script promises.
+        return None, [f"source version is {src_version!r}, expected '1.0'; "
+                      "this tool migrates the 1.0 schema only"], notes
 
     unknown_top = set(raw) - FLOW - DROPPED_TOP - {'workflows'}
     if unknown_top:
@@ -120,8 +124,18 @@ def migrate(path):
     # valid value for them.
     out = {'version': '0.1.0'}
     for key in ('name', 'description', 'cli', 'triggers', 'budget'):
-        if raw.get(key) is not None:
-            out[key] = raw[key]
+        # An absent key and a key explicitly set to null are different facts.
+        # Treating null as absent would silently drop a field the author wrote
+        # down, which is the exact failure this script refuses elsewhere.
+        if key not in raw:
+            continue
+        if raw[key] is None:
+            problems.append(f"{key} is explicitly null; remove the key or give "
+                            "it a value -- this tool will not guess which you meant")
+            continue
+        out[key] = raw[key]
+    if problems:
+        return None, problems, notes
     out['steps'] = steps
     return out, [], notes
 
