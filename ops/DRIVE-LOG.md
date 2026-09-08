@@ -15094,3 +15094,40 @@ deletion is unrecoverable, that Time Travel dies with the database, and that
 names lie in both directions about which database serves production.
 
 Every open PR in the lane is waiting behind this one fact.
+
+## 2026-09-08 ~07:55Z — #226 rebased; all eight PRs now blocked on one thing only
+
+Khaliq asked which PRs need his review and I offered to rebase the one that was
+DIRTY. Done: #226 is now `UNSTABLE` at 52ba4ca, the same state as the other
+seven — every open flows PR is failing exactly one check, `review`, the swarm.
+Nothing else is red anywhere: CodeRabbit, cubic, `linux-x64-artifact` and
+`packed-consumer` all pass.
+
+**The conflict was one file, and it was a content decision rather than a
+mechanical one.** README.md: main had grown a Use Cases list; the branch
+carried `Private while we build. YC 2026-09-15 runs on this base.` plus the
+Cloud review swarm secrets section. I kept main's bullets and the swarm
+section, and dropped the privacy line — flows is public now, so that sentence
+is false, and a rebase that mechanically preserved "ours" would have
+reintroduced it.
+
+**Checked for the silent-merge trap before pushing**, because the rebase
+replays `dffc5b5` first and my later fixes second, so the conflict hunk I
+resolved still contained text I had already deleted in `731d817`. If the
+replay had dropped that commit's edits nothing would have complained:
+
+    README CLOUD_API_ACCESS_TOKEN_EXPIRES_AT   0   (my fix survived)
+    ops/NEXT.md open items ❌                   0   (corrections survived)
+    NEXT.md "already satisfied"                 2
+    workflow RELAY_WORKSPACE_KEY                4
+    main's use-case bullets                     3   (upstream survived)
+    yaml parses
+
+Pushed with `--force-with-lease=cloud/run-a7041b3d:731d817` rather than a bare
+force, so a concurrent push would have been refused instead of overwritten.
+
+**State for Khaliq, ranked as I gave it:** #235, #229, #232, #230, #227, #234,
+#226. I authored five of the seven and also cleared their review findings, so
+my signoff is not independent — #229, #230 and #232 are the ones where I both
+wrote the gate and fixed the fail-open in it, and those want an outside eye
+most.
