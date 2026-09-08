@@ -1,6 +1,47 @@
-# NEEDS_HUMAN — gate 3 implementation complete, blocked on secret storage
+# NEEDS_HUMAN — gate 3 launches; the block moved to Daytona capacity
 
-## Assessment (2026-09-07, run bc76617d)
+## Status (2026-09-08 ~04:00Z) — supersedes the 2026-09-07 assessment below
+
+**The secret is stored and it works. Do not act on the old ask.**
+
+`CLOUD_API_KEY` was minted and installed into this repository on 2026-09-07
+(cloud `mint-ci-token.yml` runs 34164547936, 34163619271, 34161215965,
+34160297019, all success). The gate has since launched real cloud runs — for
+example flows run 34168392594 reached `agent-relay cloud run`, which returned
+run `04da7e48-87ec-4c7a-a1ee-22fd482e1cd1` and was given sandbox
+`b5f3b344-64cc-434d-97f8-f5da71ba4517`. It executed for roughly five minutes.
+
+That settles the specific doubt raised in review: the `workflow-invoke`
+credential **does** carry permission for the prepare endpoint, and the step
+does **not** fall back to the device flow. Storing the secret cleared the block
+it was supposed to clear.
+
+**The current block is Daytona CPU quota, and it is a different ask.** The run
+above failed with, verbatim from its `result.error`:
+
+    Step "lens-maintainability" failed after 2 retries:
+    Total CPU limit exceeded. Maximum allowed: 250.
+
+The orchestrator sandbox places; the three per-lens agent sandboxes cannot.
+Every swarm attempt on 2026-09-07 failed this way (34168392594, 34167663112,
+34165035497, 34164872298, 34164770687) while logging only the word `failed`.
+
+**What a human is needed for now:** run cloud's `daytona-sweep-orphans.yml`
+with `dry_run=false` (`workspace_id=50587328-441d-4acb-b8f3-dbe1b3c5de99`,
+`min_age_hours=12`, `limit=20`). Dry runs report 79 eligible orphans, oldest
+41.6h, ~40 CPU reclaimed per invocation. It is destructive, so no agent has run
+it.
+
+**What remains unverified.** The launch and authentication path is proven; the
+verdict path is not. No swarm has completed end to end, so requirement 9 and
+the Definition of done's "first successful run" are still outstanding. Calling
+gate 3 COMPLETE was premature — AGENTS.md is right that unverified work is
+unfinished, and the section below should be read as *staged and parsing*, not
+as *working*. It becomes complete when a swarm returns a verdict.
+
+---
+
+## Assessment (2026-09-07, run bc76617d) — SUPERSEDED, kept for history
 
 Gate 3 (cloud review-swarm redesign) implementation is **COMPLETE**. All 9 architectural requirements from the TARGET scope are satisfied. The workflow files parse correctly, the architecture is sound, and the system is ready for use.
 
