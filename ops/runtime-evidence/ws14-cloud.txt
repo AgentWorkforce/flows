@@ -1,0 +1,177 @@
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.8 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+exit: 0
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ npm run build
+
+> @relayflows/sdk@2.0.8 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+exit: 0
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.8 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+exit: 0
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ ./node_modules/.bin/vitest run tests/cloud-run.test.ts tests/cli.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+
+ ❯ tests/cloud-run.test.ts (22 tests | 1 failed) 28776ms
+   ✓ hosted v2 submission > uses the actual Cloud route and v2 dialect, returning acceptance rather than completion 916ms
+   × hosted v2 submission > accepts compiled kernel JSON using the existing compiler conversion 10307ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   ✓ hosted v2 submission > refuses unsafe origins and Relay keys without sending credentials 687ms
+   ✓ hosted v2 submission > bounds a stalled HTTP request without retrying submission 309ms
+   ✓ hosted v2 submission > refuses malformed acceptance {"runId":"../elsewhere","status":"pending"} 658ms
+   ✓ hosted v2 submission > refuses malformed acceptance {"runId":"run-1","status":"completed"} 394ms
+   ✓ hosted observation > continues across hours of elapsed time and returns the server terminal status 3256ms
+   ✓ hosted observation > abort ends observation without submitting a cancellation 6089ms
+   ✓ hosted observation > refuses mismatched or unknown run records {"runId":"other","relayflowVersion":"v2","status":"completed"} 1859ms
+   ✓ hosted observation > refuses mismatched or unknown run records {"runId":"run-1","relayflowVersion":"v1","status":"completed"} 3105ms
+   ✓ hosted observation > refuses mismatched or unknown run records {"runId":"run-1","relayflowVersion":"v2","status":"unknown"} 579ms
+ ❯ tests/cli.test.ts (63 tests | 3 failed) 84307ms
+   × flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 22351ms
+     → expected false to be true // Object.is equality
+   ✓ flows check CLI > refuses an unknown unused named-agent declaration before compilation erases it 469ms
+   ✓ flows check CLI > uses the raw Claude adapter model flag instead of accepting auth status as model proof 7144ms
+   ✓ flows check CLI > uses Codex login status and reports a rejected model as unavailable, not unauthenticated 1986ms
+   ✓ flows check CLI > checks the same named-agent contract from declarative JSON 3159ms
+   ✓ flows check CLI > refuses a typo model before probing or contacting relayflowd 1016ms
+   ✓ flows check CLI > distinguishes an allowlisted but inaccessible model from broken auth 3068ms
+   ✓ flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 669ms
+   ✓ flows check CLI > refuses cli-unauthenticated.flow.yaml with typed kind cli_unauthenticated and exit 2 331ms
+   ✓ flows check CLI > passes relocated ladder flow hello-llm when no fault is induced 541ms
+   ✓ flows check CLI > passes relocated ladder flow hello-agent when no fault is induced 329ms
+   ✓ flows check CLI > refuses ladder flow hello-llm with cli_missing under an induced fault 1599ms
+   ✓ flows check CLI > refuses ladder flow hello-llm with cli_unauthenticated under an induced fault 580ms
+   ✓ flows check CLI > refuses ladder flow hello-agent with cli_unauthenticated under an induced fault 637ms
+   ✓ flows check CLI > refuses ladder flow hello-agent with no_executor under an induced fault 1033ms
+   ✓ flows check CLI > pins the complete JSON report for a pass and a refusal 410ms
+   ✓ flows check CLI > checks the compiled kernel-dialect canonical spec as well as YAML 4215ms
+   ✓ flows check CLI > recognizes kernel dialect from recovery_mode alone 715ms
+   ✓ flows check CLI > recognizes kernel dialect from permissions.file_globs alone 699ms
+   ✓ flows check CLI > rejects type-specific unknown fields in compiled specs instead of dropping them 540ms
+   ✓ flows check CLI > loads the final CLI resolution source from the nearest flows.json 438ms
+   ✓ flows check CLI > resolves a project CLI path relative to the flows.json that declares it 2125ms
+   ✓ flows check CLI > maps every input refusal path to its declared kind without raw exceptions 651ms
+   ✓ flows run/resume CLI over the journal protocol > parses run options, submits the kernel dialect, and exits 0 on success 644ms
+   ✓ flows run/resume CLI over the journal protocol > exits 1 and emits the declared completionReason for a failed run 403ms
+   × flows run/resume CLI over the journal protocol > exits 3 and names the parked llm step 6473ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   ✓ flows run/resume CLI over the journal protocol > reports a needs_human agent step as parked for human recovery 1412ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 1493ms
+   × flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 14313ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   ✓ flows run/resume CLI over the journal protocol > allows a caller to cancel a worker-lease wait 2288ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/cli.test.ts > flows check CLI > binds a checked relative wrapper to the flow directory for worker execution
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/cli.test.ts:177:31
+    175| 
+    176|     const checked = checkFlow(path);
+    177|     expect(checked.report.ok).toBe(true);
+       |                               ^
+    178|     expect(checked.flow?.steps[0]).toHaveProperty('cli', wrapper);
+    179|     const result = await runAgentCli(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/cli.test.ts > flows run/resume CLI over the journal protocol > exits 3 and names the parked llm step
+ FAIL  tests/cli.test.ts > flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for
+ FAIL  tests/cloud-run.test.ts > hosted v2 submission > accepts compiled kernel JSON using the existing compiler conversion
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ Test Files  2 failed (2)
+      Tests  4 failed | 81 passed (85)
+   Start at  15:28:05
+   Duration  127.51s (transform 24.97s, setup 0ms, collect 78.51s, tests 113.08s, environment 1ms, prepare 1.79s)
+
+
+exit: 1
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ ./node_modules/.bin/vitest run tests/cloud-run.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+
+ ✓ tests/cloud-run.test.ts (22 tests) 909ms
+
+ Test Files  1 passed (1)
+      Tests  22 passed (22)
+   Start at  15:31:39
+   Duration  11.36s (transform 2.69s, setup 0ms, collect 8.47s, tests 909ms, environment 0ms, prepare 491ms)
+
+
+exit: 0
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ ./node_modules/.bin/vitest run tests/cli.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+
+ ❯ tests/cli.test.ts (63 tests | 1 failed) 23694ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 606ms
+   ✓ flows check CLI > uses the raw Claude adapter model flag instead of accepting auth status as model proof 313ms
+   ✓ flows check CLI > uses Codex login status and reports a rejected model as unavailable, not unauthenticated 853ms
+   ✓ flows check CLI > checks the same named-agent contract from declarative JSON 416ms
+   ✓ flows check CLI > distinguishes an allowlisted but inaccessible model from broken auth 628ms
+   ✓ flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 1676ms
+   ✓ flows check CLI > passes relocated ladder flow hello-deterministic when no fault is induced 398ms
+   ✓ flows check CLI > passes relocated ladder flow hello-llm when no fault is induced 715ms
+   ✓ flows check CLI > passes relocated ladder flow hello-agent when no fault is induced 525ms
+   ✓ flows check CLI > refuses ladder flow hello-llm with cli_missing under an induced fault 326ms
+   ✓ flows check CLI > refuses ladder flow hello-agent with cli_unauthenticated under an induced fault 711ms
+   ✓ flows check CLI > resolves a project CLI path relative to the flows.json that declares it 932ms
+   ✓ flows check CLI > maps every input refusal path to its declared kind without raw exceptions 313ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 498ms
+   ✓ flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 2365ms
+   × flows run/resume CLI over the journal protocol > allows a caller to cancel a worker-lease wait 5521ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   ✓ flows run/resume CLI over the journal protocol > resumes a parked run from snapshot step types without reading journal sequence one 1859ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/cli.test.ts > flows run/resume CLI over the journal protocol > allows a caller to cancel a worker-lease wait
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 62 passed (63)
+   Start at  15:32:00
+   Duration  35.92s (transform 4.33s, setup 0ms, collect 7.39s, tests 23.69s, environment 0ms, prepare 784ms)
+
+
+exit: 1
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ ./node_modules/.bin/vitest run tests/cli.test.ts --maxWorkers=1 --minWorkers=1
