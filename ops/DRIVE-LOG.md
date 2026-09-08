@@ -14928,3 +14928,43 @@ run by hand. That PR is worth more than I thought when I opened it.
 — so the poll hit an error path early and the eventual verdict came from
 elsewhere. Not chasing it this tick, but it means `status_error` and `failed`
 are being conflated somewhere in the wait loop.
+
+## 2026-09-08 ~06:25Z — the relayfile DB is at D1's hard cap; the prior fix was a different database
+
+Khaliq asked whether there is a lane and whether we already fixed this. Checked
+rather than answered from memory, and the answer is "yes to a lane, no to the
+fix, and the thing you are remembering is a different database".
+
+**There is a lane, opened yesterday for this exact incident.** The workflow I
+just used says so in its own header: "Added for the 2026-09-07 rw_7ccfea89
+incident so the endpoint added in relayfile-cloud#195 can actually be queried".
+`rw_7ccfea89` is the same relayWorkspaceId the swarm run failed under. Landed
+so far: relayfile-cloud#195 (read-only storage-stats endpoint), cloud#3420 (the
+dispatch workflow), cloud#3425 (two P1s on it). **All diagnostics. No fix.**
+
+**What we did fix was #2917, "RCA: RelayAuth D1 exhaustion", closed 2026-08-03
+— RelayAuth's database, not Relayfile's.** Two different databases, two
+different exhaustion events a month apart. Worth being explicit because my own
+notes already warn that names lie in both directions here.
+
+**The numbers, from the read-only endpoint just now:**
+
+    "databaseSizeBytes": 10737418240,   // 10 GiB exactly — D1's hard maximum
+    "databaseSizeMB": 10240
+
+    files                       approxContentBytes 30,438,868,804  (~30.4 GB)
+    pending_inline_content      approxContentBytes  7,230,552,693  (~7.2 GB)
+    provider_generation_files   approxContentBytes    969,700,999  (~1.0 GB)
+
+Sitting exactly at the cap, not near it. `pending_inline_content` at 7.2 GB is
+the one I would look at first: "pending" names a queue, and a queue holding
+gigabytes is one that stopped draining rather than one that is merely large.
+
+I did not run the `include_dbstat` probe. It is opt-in for real per-table byte
+accounting, and running a heavier scan against a database already at its size
+limit is not something to do unattended at 06:00 on a shared production
+workspace.
+
+Not touching the data. My own notes say D1 deletion is unrecoverable, Time
+Travel dies with the database, and export comes first — and this is production
+for the whole fleet, not just this lane.
