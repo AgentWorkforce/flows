@@ -16882,3 +16882,38 @@ eligibility about sixteen minutes in, immediately before publication, and a
 merge mid-build fails that recheck and tears the stage down. That is exactly how
 cloud#3436 died at 07:56Z. Ten more minutes and the answer is either a completed
 proof or a new fact; merging now trades that for nothing.
+
+## 2026-09-09 ~01:20Z — #3446 verified live on a stage; the proof needs one click
+
+Preview for #3446 completed successfully and #3446 stayed open throughout —
+holding the merge was the right call.
+
+**The PR's effect is confirmed on the running worker, without needing auth.**
+The stage's own health endpoint reports its bindings:
+
+    pr-3446: ['CloudTeamLaunchN1Enabled', 'WorkflowLaunchQueue',
+              'WORKFLOW_LAUNCH_CF_QUEUE', 'WORKFLOW_LAUNCH_VIA_CF_QUEUE']
+
+Both new bindings are there — the CF queue producer and the flag — alongside the
+SQS queue that still carries v1. Compare the pr-3442 stage earlier tonight,
+which had only `WorkflowLaunchQueue`. That is independent confirmation from the
+deployed artifact rather than from the diff, and it is the specific thing that
+was missing when nothing would launch: the producer had no CF binding at all.
+
+**What is left is a login, not a fix.** The stored token is scoped to
+`preview-pr-3442`, so pr-3446 returns 401 on whoami and workflows/runs. Each
+preview runs its own RelayAuth; a token minted against one stage means nothing
+to another. Device flow started and waiting:
+
+    https://preview-pr-3446.agentrelay.com/cloud/device?user_code=RHMR-X5G7
+
+Codes lapse in roughly ten to fifteen minutes. If it expires before Khaliq is
+back I start another rather than leaving a dead code in the log.
+
+**Also this tick:** #3442 is green again after CI caught a CTE scope error and a
+backtick inside a template literal, both mine.
+
+The full sequence when the login lands: v2 POST, completionReason, export, the
+literal journal SQLite, the authority tuple, then the omitted-selector v1 sanity
+run. Nothing to compose — the stage is the only thing that was missing, and now
+it has the routing.
