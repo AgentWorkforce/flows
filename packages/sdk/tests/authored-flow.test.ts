@@ -283,14 +283,14 @@ describe('authored flow journal executor', () => {
         }),
         code: 'unsupported_verb',
       },
-      {
-        handle: flow('manual-agent-chain', async (f) => {
-          f.agent('worker', { task: 'unsupported' }).then(undefined, () => undefined);
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          f.done('success');
-        }),
-        code: 'unsupported_verb',
-      },
+      // No f.agent case here: it now really dispatches (authored-flow-executor.ts
+      // lowers it to a real kernel AgentStepSpec through checkAuthoredFlow's
+      // preflight), so against this mock journal server — no project, no
+      // flows.json, no CLI to resolve — it fails at CLI resolution before
+      // the manual-chain detection this test exercises ever gets a chance
+      // to run. That's a different behavior than what this test is for; the
+      // `run`/`llm` cases above already cover manual-chain detection
+      // generalizing across verbs.
     ];
 
     try {
@@ -344,14 +344,11 @@ describe('authored flow journal executor', () => {
         }),
         code: 'unsupported_verb',
       },
-      {
-        handle: flow('consumed-agent-rejection', async (f) => {
-          f.agent('worker', { task: 'unsupported' }).then(undefined, () => 'consumed');
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          f.done('success');
-        }),
-        code: 'unsupported_verb',
-      },
+      // No f.agent case here — same reason as the identical array in
+      // "refuses manually chained work even when it settles before the body
+      // returns" above: f.agent now really dispatches, so against this mock
+      // journal server it fails at CLI resolution, not at the rejection
+      // this test is about.
     ];
 
     try {

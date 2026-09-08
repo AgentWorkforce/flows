@@ -16,11 +16,13 @@ import { dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { flow } from '@relayflows/surface';
 import { compileYaml, toKernelSpec } from '../src/compile.js';
 import { checkFlow } from '../src/cli/check.js';
 import { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 import { AgentWorker } from '../src/worker.js';
+import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { resolveSpecCliPaths } from '../src/cli/hn-monitor.js';
 import { emitDueTicks, type TickCursor } from '../src/tick-source.js';
 
@@ -311,6 +313,75 @@ steps:
       state: 'done',
     });
     await worker.close();
+  });
+
+  it('f.agent lowers to a real agent step and dispatches through a live worker', async () => {
+    // The authored-TS-flow half of the same round trip the previous test
+    // proves for a declarative YAML spec: executeAuthoredFlow's f.agent
+    // lowering (authored-flow-executor.ts) must submit a real kernel
+    // AgentStepSpec, get it dispatched to a real attached worker, and map
+    // the worker's real completion back into a surface AgentResult.
+    const directory = temporaryDirectory('flows-live-authored-agent-');
+    const dataDir = join(directory, 'data');
+    const cli = join(directory, 'agent-cli');
+    writeFileSync(cli, `#!/usr/bin/env node
+// checkAuthoredFlow's preflight probes "<cli> auth status" for real before
+// ever dispatching a step — this stub must answer it like a genuine adapter
+// would, the same as the declarative-YAML sibling test's CLI is spared from
+// needing to because that test calls client.runStart directly, bypassing
+// preflight entirely.
+if (process.argv[2] === 'auth' && process.argv[3] === 'status') process.exit(0);
+if (process.argv[2] !== '--relayflows-adapter-v1') process.exit(9);
+process.stdout.write('relayflows-agent-cli-v1\\n');
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => { input += chunk; });
+process.stdin.on('end', () => {
+  if (input.trim() === '') process.exit(0);
+  const request = JSON.parse(input);
+  process.stdout.write('relayflows-agent-cli-v1-execute\\n');
+  process.stdout.write('handled: ' + request.instruction);
+});
+`);
+    chmodSync(cli, 0o755);
+    // f.agent has no way to declare a CLI itself (AgentOptions is
+    // {task, workspace} only) — it resolves one exactly the way a bare
+    // `type: agent` YAML step with no explicit `cli` does: the nearest
+    // flows.json's project default, found searching upward from the flow's
+    // own path (checkAuthoredFlow, cli/check.ts).
+    writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli }));
+    await startDaemon(dataDir);
+
+    const client = await connectClient(dataDir);
+    await client.hello('live-sdk-authored-agent-worker');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-sdk-authored-agent-worker',
+      pins: {
+        workspace: [{ surface: 'repo', revision_id: 'rev-a' }],
+        streams: [],
+      },
+    });
+    await worker.attach();
+
+    const runClient = await connectClient(dataDir);
+    await runClient.hello('live-sdk-authored-agent-run');
+    let capturedResult: { summary: string; artifacts: string[] } | undefined;
+    const handle = flow('authored-agent', async (f) => {
+      capturedResult = await f.agent('worker', {
+        task: 'Perform the declared work.',
+      });
+      f.done('success');
+    });
+
+    const result = await executeAuthoredFlow(handle, runClient, undefined, {
+      flowPath: join(directory, 'authored-agent.flow.ts'),
+    });
+    await worker.close();
+    await runClient.close();
+
+    expect(result.completionReason).toBe('success');
+    expect(capturedResult?.summary).toBe('handled: Perform the declared work.');
+    expect(capturedResult?.artifacts).toEqual([]);
   });
 
   it('can always get a parked run to a late-attaching worker', async () => {

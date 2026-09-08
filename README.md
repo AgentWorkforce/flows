@@ -41,12 +41,32 @@ can run autonomously over days and weeks. Every agent session is observable and 
 
 # Get Started
 
-Installation:
-```
+Install the CLI, then the authoring package in your own project:
+```sh
 npm install -g relayflows
+mkdir my-flow && cd my-flow && npm install @relayflows/surface
 ```
 
-Give your agent a skill to write a flow:
+Write a flow — save this as `hello.flow.ts`:
+```ts
+import { flow } from "@relayflows/surface";
+
+export default flow("hello", async (f) => {
+  await f.run('echo "hello from a relayflow"');
+  f.done("success");
+});
 ```
+
+Run it:
+```sh
+flows run hello.flow.ts --input '{}'
+```
+
+That's the whole loop — `flows run` spins up the local kernel itself on first use, no separate daemon step. You should see a completed run report.
+
+`f.run` and `f.agent` both actually dispatch today. `f.agent` runs a real coding-agent CLI the same way a declarative `type: agent` step does — it needs a `flows.json` in your project declaring which CLI to use (see `docs/SURFACE.md` §5 and `packages/sdk/src/cli/check.ts`'s `readProjectConfig`); without one, `flows run` refuses with a clear `agent_cli_unresolved` diagnostic rather than hanging. `f.llm`, `f.human`, `f.dispatch`, and `f.cloud` are still `docs/SURFACE.md`'s design surface, not yet runnable — see [`examples/`](examples/) for what the full shape looks like, and each example's own README for exactly what runs today versus what's still landing.
+
+Give your agent a skill to write a flow:
+```sh
 npx skills add https://github.com/agentworkforce/skills --skill writing-relayflows
 ```

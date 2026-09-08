@@ -1,6 +1,7 @@
 import {
   COMPLETION_REASONS,
   RUN_COMPLETION_REASONS,
+  type AgentOptions,
   type AgentResult,
   type CloudHelper,
   type CompletionReason as SurfaceCompletionReason,
@@ -11,6 +12,9 @@ import {
 import type { FlowHandle } from '@relayflows/surface/runtime';
 import { compileSpec, toKernelSpec } from './compile.js';
 import { getAuthoredFlowDefinition } from './authored-flow.js';
+import type { GetFlowDefinition } from './authored-flow-loader.js';
+import { checkAuthoredFlow } from './cli/check.js';
+import type { PreflightDiagnostic } from './preflight.js';
 import {
   AuthoredFlowExecutionError,
   type AuthoredFlowExecutionErrorCode,
@@ -27,7 +31,7 @@ import type {
   RunCompletionReason as ProtocolRunCompletionReason,
   RunOutcome,
 } from './protocol.js';
-import { SPEC_SCHEMA_VERSION } from './spec.js';
+import { SPEC_SCHEMA_VERSION, type FlowSpec } from './spec.js';
 
 type Assert<T extends true> = T;
 type Equal<A, B> = [A] extends [B]
@@ -79,12 +83,34 @@ type JournalStepUsesStepCompletionReason = Assert<
  * `JournalClient`; values are read back from `step.completed` journal entries.
  * Unsupported headers, verbs, gates, or completion lowering fail closed.
  */
+export interface ExecuteAuthoredFlowOptions {
+  /**
+   * Defaults to this package's own static import — correct for every
+   * existing (internal, single-instance) caller. A flow loaded from an
+   * external path via `loadAuthoredFlow` must pass ITS resolved
+   * `getDefinition` instead; see authored-flow-loader.ts's comment on why.
+   */
+  readonly getDefinition?: GetFlowDefinition;
+  /**
+   * The flow file's own path, or a directory to search upward from — passed
+   * straight to `checkAuthoredFlow` (cli/check.ts) so `f.agent` resolves a
+   * CLI the same way a declarative `type: agent` step does: nearest
+   * `flows.json`, real auth/model probing, canonicalized path. Defaults to
+   * `process.cwd()`, matching what running `flows check` from a terminal
+   * would search from.
+   */
+  readonly flowPath?: string;
+}
+
 export async function executeAuthoredFlow<Input = undefined>(
   handle: FlowHandle,
   journal: JournalClient,
   input?: Input,
+  options: ExecuteAuthoredFlowOptions = {},
 ): Promise<AuthoredFlowExecutionResult> {
-  const definition = getAuthoredFlowDefinition<Input>(handle);
+  const getDefinition = options.getDefinition ?? getAuthoredFlowDefinition;
+  const flowPath = options.flowPath ?? process.cwd();
+  const definition = getDefinition<Input>(handle);
   const headerFields = Object.keys(definition.header);
   if (headerFields.length > 0) {
     throw new AuthoredFlowExecutionError(
@@ -112,6 +138,59 @@ export async function executeAuthoredFlow<Input = undefined>(
     return readSuccessfulOutput(journal, outcome, id, journalSteps);
   };
 
+  // `name` (the first f.agent argument, e.g. "fixer") is not wired to the
+  // kernel's `agent` field: that field selects a NAMED declaration from
+  // `FlowSpec.agents`, and this executor refuses every non-empty header
+  // (see the top of this function) — an authored flow has no way to declare
+  // one today. `name` is kept only for step-id readability; CLI selection
+  // goes through the project's flows.json default below, same as it does
+  // for a bare `type: agent` YAML step with no explicit `cli`.
+  //
+  // `options.workspace` is passed through as a single opaque surface
+  // identifier. The `"path/glob: readwrite"` permission-annotation shorthand
+  // shown in docs/SURFACE.md and the examples is not implemented by any
+  // parser anywhere in this package today — grepped for it before writing
+  // this, found nothing — so this does not attempt to parse one out of the
+  // string. A workspace string is declared, not yet permissioned.
+  const lowerAgent = async (
+    id: string,
+    options: AgentOptions,
+  ): Promise<AgentResult> => {
+    const authoring: FlowSpec = {
+      version: SPEC_SCHEMA_VERSION,
+      name: `${definition.name}/${id}`,
+      steps: [{
+        id,
+        type: 'agent',
+        instruction: options.task,
+        ...(options.workspace === undefined ? {} : {
+          surfaces: { workspace: [{ surface: options.workspace }] },
+        }),
+      }],
+    };
+    // The kernel never resolves a `cli` on its own — every declarative
+    // `flows run`/`flows check` binds it first via this exact function
+    // (cli/check.ts), searching for the nearest flows.json from `flowPath`
+    // and real-probing auth/model readiness. An authored agent step gets
+    // nothing for free just because it was declared in TS instead of YAML.
+    const { report, flow: resolved } = checkAuthoredFlow(authoring, flowPath);
+    if (!report.ok || resolved === undefined) {
+      const refusal = report.diagnostics.find(
+        (diagnostic): diagnostic is PreflightDiagnostic & { severity: 'refusal' } =>
+          diagnostic.severity === 'refusal',
+      );
+      throw new AuthoredFlowExecutionError(
+        'agent_cli_unresolved',
+        refusal?.message
+          ?? `flow "${definition.name}" step "${id}": no CLI could be resolved for f.agent `
+            + `(searched for flows.json from "${flowPath}")`,
+      );
+    }
+    const spec = toKernelSpec(resolved);
+    const outcome = await journal.runStart(spec);
+    return readSuccessfulAgentOutput(journal, outcome, id, journalSteps);
+  };
+
   const context: Ctx = {
     run(command) {
       assertOperationAllowed('run', definition.name, requestedCompletion);
@@ -134,13 +213,15 @@ export async function executeAuthoredFlow<Input = undefined>(
         lifecycle,
       ));
     },
-    agent() {
+    agent(name, options) {
       assertOperationAllowed('agent', definition.name, requestedCompletion);
+      void name; // step-id readability only — see the comment on lowerAgent.
       const id = `agent-${nextStep++}`;
-      return trackStep(authoredSteps, unsupportedStep<AgentResult>(
+      return trackStep(authoredSteps, new AuthoredFlowOperation(
         id,
         'agent',
         () => assertOperationAllowed('agent', definition.name, requestedCompletion),
+        () => lowerAgent(id, options),
         lifecycle,
       ));
     },
@@ -286,17 +367,19 @@ function unsupportedCloud(assertOpen: () => void): CloudHelper {
   }) as CloudHelper;
 }
 
-async function readSuccessfulOutput(
+/**
+ * Shared by every `f.*` verb that lowers to one kernel step run in isolation:
+ * find its `step.completed` entry, record it, and refuse anything but a
+ * clean success before handing the raw `output` back for verb-specific
+ * extraction (a plain string for `f.run`, an `AgentResult` for `f.agent`).
+ */
+async function readCompletedStepOutput(
   journal: JournalClient,
   outcome: RunOutcome,
   stepId: string,
   journalSteps: AuthoredFlowJournalStep[],
-): Promise<string> {
-  const entries = (await journal.journalRead(outcome.run_id, 1)).entries;
-  const completed = entries.find((entry) => isStepCompleted(entry, stepId));
-  if (!isStepCompleted(completed, stepId)) {
-    throw protocolViolation(outcome.run_id, `journal has no step.completed for "${stepId}"`);
-  }
+): Promise<unknown> {
+  const { entry: completed, polled } = await waitForStepCompleted(journal, outcome.run_id, stepId);
 
   const reason = completed.payload.completionReason;
   journalSteps.push(Object.freeze({ id: stepId, runId: outcome.run_id, completionReason: reason }));
@@ -308,18 +391,73 @@ async function readSuccessfulOutput(
       outcome.run_id,
     );
   }
-  if (outcome.status !== 'completed' || outcome.completion_reason !== 'success') {
+  // `outcome` is `runStart`'s IMMEDIATE response. When the completed entry
+  // was already there on the first read (`!polled`) — true for every
+  // deterministic step, since the kernel drives those to completion inline
+  // — `outcome` was already accurate and this repo's test suite (including a
+  // mock journal server with no `run.get` handler) already depends on that.
+  // Only when waitForStepCompleted genuinely had to poll (an agent step,
+  // dispatched to an external worker asynchronously) is `outcome` provably
+  // stale, and only then is it worth the extra round trip to re-check.
+  if (polled) {
+    const current = await journal.runGet(outcome.run_id);
+    if (current.status !== 'completed') {
+      throw protocolViolation(
+        outcome.run_id,
+        `successful step entry conflicts with current run status "${current.status}"`,
+      );
+    }
+  } else if (outcome.status !== 'completed' || outcome.completion_reason !== 'success') {
     throw protocolViolation(
       outcome.run_id,
       `successful step entry conflicts with run outcome ${outcome.status}/${String(outcome.completion_reason)}`,
     );
   }
+  return completed.payload.output;
+}
 
-  const output = completed.payload.output;
+async function readSuccessfulOutput(
+  journal: JournalClient,
+  outcome: RunOutcome,
+  stepId: string,
+  journalSteps: AuthoredFlowJournalStep[],
+): Promise<string> {
+  const output = await readCompletedStepOutput(journal, outcome, stepId, journalSteps);
   if (!isRecord(output) || typeof output['stdout_tail'] !== 'string') {
     throw protocolViolation(outcome.run_id, `step "${stepId}" has no string stdout_tail`);
   }
   return output['stdout_tail'];
+}
+
+/**
+ * The kernel journals an agent step's raw `CliResult` shape
+ * (`exit_code`/`stdout_tail`/`stderr_tail`) — same as a deterministic step —
+ * UNLESS the CLI's stdout parsed as JSON, in which case `output` is that
+ * parsed object directly (worker.ts: `parseJsonOutput(result.stdout_tail) ??
+ * result`). Neither shape carries a real `artifacts` list today: nothing in
+ * the kernel or worker enumerates files an agent wrote, and `f.agent`'s
+ * `AgentOptions` has no `output` schema parameter for a CLI to target either
+ * (unlike the declarative `AgentStepSpec.output` field). `artifacts` is
+ * therefore always empty here — honest about what data exists, not a
+ * placeholder for something not yet wired.
+ */
+async function readSuccessfulAgentOutput(
+  journal: JournalClient,
+  outcome: RunOutcome,
+  stepId: string,
+  journalSteps: AuthoredFlowJournalStep[],
+): Promise<AgentResult> {
+  const output = await readCompletedStepOutput(journal, outcome, stepId, journalSteps);
+  if (!isRecord(output)) {
+    throw protocolViolation(outcome.run_id, `step "${stepId}" produced a non-object output`);
+  }
+  if (typeof output['stdout_tail'] === 'string') {
+    return { summary: output['stdout_tail'], artifacts: [] };
+  }
+  // The CLI's stdout parsed as JSON, so `output` is that value, not a
+  // CliResult. Fall back to a stable, inspectable summary rather than
+  // refusing a run whose agent step genuinely succeeded.
+  return { summary: JSON.stringify(output), artifacts: [] };
 }
 
 interface StepCompletedEntry {
@@ -339,6 +477,43 @@ function isStepCompleted(value: unknown, stepId: string): value is StepCompleted
   return isRecord(payload)
     && isSurfaceCompletionReason(payload['completionReason'])
     && 'output' in payload;
+}
+
+/**
+ * Polls until `stepId`'s `step.completed` journal entry appears. A
+ * deterministic step is typically already there on the first read (the
+ * kernel drives it inline); an agent step depends on an externally attached
+ * worker actually running a real CLI process, which can take real wall-clock
+ * time — a single immediate read raced this and lost the first time this was
+ * tried against a live worker.
+ */
+interface StepCompletedWait {
+  readonly entry: StepCompletedEntry;
+  /** False iff the entry was already there on the very first read. */
+  readonly polled: boolean;
+}
+
+async function waitForStepCompleted(
+  journal: JournalClient,
+  runId: string,
+  stepId: string,
+  timeoutMs = 30_000,
+): Promise<StepCompletedWait> {
+  const deadline = Date.now() + timeoutMs;
+  let polled = false;
+  while (true) {
+    const entries = (await journal.journalRead(runId, 1)).entries;
+    const completed = entries.find((entry) => isStepCompleted(entry, stepId));
+    if (isStepCompleted(completed, stepId)) return { entry: completed, polled };
+    if (Date.now() >= deadline) {
+      throw protocolViolation(
+        runId,
+        `journal has no step.completed for "${stepId}" after ${timeoutMs}ms`,
+      );
+    }
+    polled = true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
 function isSurfaceCompletionReason(value: unknown): value is ProtocolCompletionReason {

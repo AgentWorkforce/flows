@@ -44,8 +44,8 @@ export async function runDirectFlow(
   if (connected !== undefined) return connected;
 
   try {
-    const handle = await loadAuthoredFlow(path);
-    const result = await executeAuthoredFlow(handle, client, input);
+    const { handle, getDefinition } = await loadAuthoredFlow(path);
+    const result = await executeAuthoredFlow(handle, client, input, { getDefinition, flowPath: path });
     const terminal = result.journalSteps.at(-1);
     if (terminal === undefined) {
       return protocolFailure('run', base, socketPath, new Error(

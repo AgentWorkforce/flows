@@ -4,6 +4,7 @@ import type {
 } from './protocol.js';
 
 export type AuthoredFlowExecutionErrorCode =
+  | 'agent_cli_unresolved'
   | 'duplicate_completion'
   | 'journal_protocol_violation'
   | 'missing_completion'
