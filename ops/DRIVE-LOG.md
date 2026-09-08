@@ -4685,3 +4685,36 @@ removed with nothing holding it open.
 
 Disk unchanged at 6.9Gi; the relayauth worktree was small. The reclaim was about
 not leaving a finished lane running, not about space.
+
+### 2026-09-09 — the cloud lane was parked, not working. I had been misreading my own writes as its progress.
+
+Drain: 0 pending of 1867. Disk 7.7Gi.
+
+**Correction to my last two ticks.** I reported "cloud lane still working
+(dirty 1 -> 2 -> 3)" and treated the rising dirty count as evidence of activity.
+It was not. All three files were **mine**: `BRIEF.md`, `BRIEF-2-schema.md` and
+the `verify-keyprefix-skew.py` harness I copied in. I had been reading my own
+writes as the lane's progress.
+
+Checked properly: excluding my drops, **zero** files were written in the worktree
+in 40 minutes. The lane was alive (pid 15510) but parked — #3459 finished, and
+the follow-up DM still sitting `queued_unconfirmed / readConfirmed:false` exactly
+as the receipt warned.
+
+Nudged it once with a drive-mode attach, using the timing that works: settle 3s,
+type with no newline, pause 2s, submit with `\r`, stay attached 8s. Exit 124 is
+the success shape there. Verified by transcript marker rather than exit code —
+the lane came back with:
+
+> "I'm checking the supplied migration evidence and SQLite harness, then I'll
+> put the schema fix on a separate branch and PR."
+
+That is the instruction, including the separate-branch requirement, so the
+handoff is now genuinely picked up rather than merely sent.
+
+Two lessons worth keeping, both about false signals:
+- A dirty-file count is not a progress signal when I am also writing into that
+  worktree. Exclude my own paths before drawing a conclusion.
+- A queued DM to a busy lane can sit unread indefinitely. The file brief plus a
+  drive-mode nudge is what actually moved it; the DM alone did nothing for the
+  better part of an hour.
