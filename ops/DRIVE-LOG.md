@@ -16126,3 +16126,47 @@ I set out to make.
 The loop is now safe to run on what it selects. I have not run the agent step —
 that is a live `claude` spawn making real edits, and the first one should happen
 where Khaliq can watch it rather than at 07:20 on a tick.
+
+## 2026-09-08 ~17:45Z — the loop I called "safe to run" could never run
+
+Nine findings arrived across my three PRs. #242's three P1s are the ones that
+matter, and the first of them corrects something I told Khaliq.
+
+**The flow had never been runnable.** I had only ever compiled it. Compiling
+proves the spec is legal; it says nothing about whether the runner accepts it.
+Ran the launcher and got, literally:
+
+    LOCAL_AGENT_PINS_REQUIRED: declare a stream; the kernel refuses workers
+    with no pins.
+    exit=1
+
+The refusal fires before a run is created, so every invocation failed
+immediately. I had reported the loop as "safe to run on what it selects" on the
+strength of a clean compile and a working selector. Two of three parts working
+is not the thing working.
+
+**Two more, both confirmed the same way:**
+
+- `build-sdk` was dead code. `run-local-workflow.mjs:17` asserts
+  `packages/sdk/dist/cli.js` during preflight, *before* submitting anything, so
+  a build step inside the flow can never serve the cold checkout it was written
+  for. It could only help a checkout that did not need it. Deleted; the
+  prerequisite is now stated where an operator sees it.
+- The output gate demanded `DONE` and the instruction never asked for it. A
+  correct implementation would have been recorded as a failure. A gate whose
+  contract is not stated to the thing being gated is a trap, not a gate.
+
+Fixed in 52db46c, and verified by re-running: the pin refusal is gone.
+Execution now stops on environment rather than on the flow — a built
+`relayflowd`, and a working directory short enough for a unix socket
+(`LOCAL_SOCKET_PATH_TOO_LONG` from this scratchpad, which is genuinely too deep).
+
+Three threads answered and resolved. **Six findings still open**, and two of
+them are the substantive ones I have not touched: scope is only prompt text
+with no enforcement, and `verify` still runs the SDK suite rather than the
+selected package's definition of done — which is the original hardcoding moved
+one step down the flow. Also a real bug in my skip loop: `indexOf(title)` can
+match a mention of a later title inside an earlier body and cut the wrong place.
+
+The pattern across all of tonight's self-inflicted findings is the same one:
+I verify the part I just wrote and not the part it depends on.
