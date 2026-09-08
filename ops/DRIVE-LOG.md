@@ -14676,3 +14676,43 @@ directive against reality once it is written.
 idle — 09-07 13:41 and 22:35, fourteen and five hours cold, zero dirty files.
 I had recorded them as live and off-limits last tick. They are available; the
 hazard was never the registration, it was uncommitted work, and there is none.
+
+## 2026-09-08 ~04:30Z — #231's finding was wrong, and so was my check of it
+
+Cleared #231's thread with **no code change**. Three findings left, all on #227.
+
+cubic said `ops/runtime-evidence/drive-verify.txt` claims
+`tests/cli.test.ts (63 tests)` while the file registers 56 — 31 bare `it(` plus
+seven `it.each` tables expanding to 25 — and therefore the transcript is not
+reproducible.
+
+I did what the finding asked and re-ran the verify step at the current head:
+
+    ✓ tests/spec-parity.test.ts (28 tests) 152ms
+    ✓ tests/cli.test.ts (63 tests) 1925ms
+    Test Files  2 passed (2)
+         Tests  91 passed (91)
+
+63 and 91, matching the committed evidence line for line. The transcript is
+fine; the static count is what is wrong.
+
+**And my own count was wrong in a different direction.** I wrote a parser to
+find which table cubic had undercounted, and it reported five tables totalling
+20 — giving 51. So: 51, 56, 63, three independent static counts, and only one
+of them came from running the file. `it.each` arity is not reliably readable
+from source, and both parses missed blocks in different ways.
+
+The premise is therefore inverted. The transcript is the trustworthy artifact
+and the count derived from the source is the unreliable one. I nearly "fixed"
+a correct evidence file to match a wrong number — which would have been
+falsifying evidence to satisfy a reviewer, the exact failure the finding was
+trying to prevent.
+
+Third finding tonight whose premise did not survive checking, after #230's P1
+("never inspects the snapshot payload" — it does) and #234's device-flow risk
+(the credential works). Cubic is a good reviewer and roughly two thirds of its
+findings tonight were real. Taking the other third on trust would have made
+three files worse.
+
+Also incidental: the full SDK suite runs green here — 33 files, 684 passed, 3
+skipped, 53s — including live-kernel tests that kill a real daemon.
