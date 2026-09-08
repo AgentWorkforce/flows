@@ -16794,3 +16794,54 @@ two, submit with a carriage return, stay attached eight. It landed — the
 reviewer is running `gh pr view 245`, fetching `pull/245/head`, and reading
 `docs/SURFACE.md`. Verified by transcript marker rather than by exit code, which
 is the only verification that means anything for this path.
+
+## 2026-09-09 ~00:25Z — shadowed the v2-CF lane's first commit; the red is real
+
+Took the shadow role myself since that lane would not spawn. First commit on
+`feat/v2-launch-via-cf-queue`: `b5035cdfc feat(workflows): launch v2 through
+Cloudflare queue` — 11 files, including `infra/web-worker.ts` (+13), the
+producer, and a new 158-line `durable-launch-queue.test.ts`.
+
+**Verified the red independently, which is the whole point of shadowing.**
+Checked out the parent in my own worktree, copied only the new test file onto
+it, and ran it. All five new cases fail there, and for the right reasons rather
+than by accident:
+
+    × routes v2 to CF and only v1 to the SQS bridge with the flag on
+      AssertionError: expected [] to deeply equal [ [ { …(3) } ] ]
+    × enqueues v2 without any SQS bridge configuration
+      WorkflowLaunchQueueBridgeError: QUEUE_BRIDGE_URL or QUEUE_BRIDGE_HMAC_SECRET missing
+    × preserves provisioning retry delay on the CF queue
+      Error: delayed bridge enqueue is not supported
+
+Nothing sent to CF, falls through to the SQS bridge, delayed enqueue
+unsupported — exactly the shape of a missing feature. Then at the commit:
+**18 passed**. A red-then-green I have seen red myself.
+
+**The coverage answers the traps I named in the shadow brief**, which I did not
+expect on a first commit: `routes v2 to CF and only v1 to the SQS bridge`
+guards the fix-that-sends-everything-to-CF failure; `does not enable CF from
+process.env when the Worker flag is absent` guards reading the flag from the
+wrong place; `preserves direct SQS payloads and delays on Lambda/local even with
+the flag on` keeps non-Worker runtimes intact; and `propagates CF send errors
+without duplicate enqueue through SQS` covers double-enqueue on failure.
+
+**One finding the tests cannot catch, and it is a deployment decision rather
+than a defect.** The flag ships defaulted ON:
+
+    "default": "true"          (.github/scripts/fast-path-mirrored-vars.json)
+    ${{ vars.WORKFLOW_LAUNCH_VIA_CF_QUEUE || 'true' }}   (three deploy workflows)
+
+So merging changes v2 launch routing on every stage including production
+immediately, rather than landing dormant and being enabled deliberately. That
+may be exactly what Khaliq meant by "launch v2 with cloudflare right away so
+there is actually NO migration" — but it should be an explicit choice in the PR
+body, not a default a reviewer discovers in a mirrored-vars JSON. Raising it
+when the PR opens.
+
+Smaller: the workflow edits are justified — the flag has to reach every deploy
+path — but the commit message is one line and does not say so, which my brief
+asked for.
+
+**Disk: 9.9Gi free, down from 16Gi.** The lane's worktree is 4.3G. Not urgent,
+worth watching given disk hit zero once today.
