@@ -15817,3 +15817,54 @@ documents and the reason it must stay open.
 
 New preview run 34202221395 is building against #3438 with the same recovered quad.
 **#3438 must stay open for roughly sixteen minutes.**
+
+## 2026-09-08 ~14:40Z — the #3270 proof RAN. v2 admission works. The launch has a real defect.
+
+Preview run 34202221395 **completed successfully** against cloud#3438, which
+stayed open the whole build. Stage: `https://preview-pr-3438.agentrelay.com`.
+
+**Two things the brief's procedure got wrong that cost minutes, both now known.**
+The API is under `/cloud`, not the bare host — `/api/v1/workflows/runs` returns
+404 and `/cloud/api/v1/workflows/runs` returns 200. And the doc's
+`agent-relay cloud login --api-url` step is unnecessary: the existing prod
+`accessToken` authenticates against the preview stage directly, which matters
+because an interactive login is not available to an unattended session.
+
+**v2 admission is live.** The POST was accepted:
+
+    {"runId":"687662c8-376d-438b-b82a-c3090e23203a","status":"pending",
+     "launchJobId":"49eb7747-a878-43a2-94af-a2580f61637b"}
+
+No `relayflow_v2_admission_disabled`. That 503 has blocked this proof all night
+and it is gone — the two-phase preview deploy did what it claims.
+
+**Then the run failed, with a precise and previously unseen error:**
+
+    Relayflow v2 launch received a payload carrying no v2JobId
+    (payload keys: jobId,runId)
+
+Status `failed`, `sandboxId: null`, `result` entirely null — so it died before
+placement, in the launch queue, not in the executor. The assertion the proof
+requires (`relayflowVersion=="v2" and status=="completed" and
+result.completionReason=="success" and result.completedSteps==2`) is not
+satisfied, and I am not going to describe this as a passing proof.
+
+**This is progress, not a setback.** All night the answer was "v2 is admission
+disabled everywhere, so the proof cannot run". It ran. The blocker moved from a
+config gate to a specific payload mismatch on a named code path, which is a
+much better place to be with seven days to the demo.
+
+**One candidate cause checked and eliminated.** `workflow-launch-queue-bridge.ts:190`
+does `jobId: "v2JobId" in job ? job.v2JobId : job.jobId`, which reads exactly
+like the flattening that would cause this. It is inside `logFieldsForJob` and
+only shapes a log line; it does not touch the enqueued payload. Recording that
+so the next reader does not re-chase it.
+
+The route itself looks correct — `route.ts:1634` sends
+`{ v2JobId: job.id, runId, consumerEpoch }` when `relayflowVersion === "v2"`,
+and the run record does say `relayflowVersion: "v2"`. So something between that
+enqueue and the consumer is delivering the v1 shape. I have not found it, and
+guessing at 07:00 on a cloud launch path is how a wrong fix gets shipped.
+
+Next: trace the enqueue-to-consumer path with fresh attention. The preview
+stage and #3438 must stay up for that — **do not merge cloud#3438 yet.**
