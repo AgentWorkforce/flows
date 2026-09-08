@@ -127,6 +127,24 @@ jobs:
             sleep 15
           done
           echo "swarm_status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" != completed ]; then
+            # The status word alone does not say why the swarm failed, and the
+            # reason never reaches this log: it sits in the run payload we just
+            # fetched. A quota rejection reads here as a bare "failed", which
+            # sent one reader inferring for days before querying the run by
+            # hand. Print what we already have.
+            reason=$(jq -r '.result.error // .error // empty' <<<"${response:-}" 2>/dev/null)
+            if [ -n "$reason" ]; then
+              echo "swarm failure reason: $reason" >&2
+              {
+                echo "### Swarm failure reason"
+                echo
+                echo '```'
+                echo "$reason"
+                echo '```'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
           exit 0
 
       - name: Post verdict and transcripts
