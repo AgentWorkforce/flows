@@ -14593,3 +14593,40 @@ Two small things worth keeping:
   zsh, so every arm silently produced an empty result. Re-ran under bash, which
   is what the workflow actually uses. An empty result read as a pass would have
   been a fabricated verification.
+
+## 2026-09-08 ~03:50Z — #226's brief was pointing an agent at work already done
+
+Cleared all three threads on #226 (731d817). **Five findings left across three
+PRs**, and the two remaining branches (#227, #231) are held by live worktrees,
+so those are not mine to touch.
+
+All three findings were the same shape, and it is the shape that has been
+biting me all night: **a directive whose facts stopped being true.**
+
+- NEXT.md #3 marked `RELAY_WORKSPACE_KEY` validation incomplete. It is at
+  `review-swarm.yml:58`, next to the two it said were done.
+- NEXT.md claimed README documents `CLOUD_API_ACCESS_TOKEN` /
+  `CLOUD_API_REFRESH_TOKEN`. The table names neither; it documents
+  `RELAY_WORKSPACE_KEY` and `CLOUD_API_KEY` correctly.
+- The one real residual: the sentence under that table still offered
+  `CLOUD_API_ACCESS_TOKEN_EXPIRES_AT` as an overridable non-secret, and the
+  workflow reads that variable in zero places.
+
+I verified each claim against the branch before editing rather than taking
+cubic's word for it — two of tonight's findings had inaccurate premises, so
+the check is not ceremony.
+
+What makes this worse than ordinary staleness: `ops/NEXT.md` **is the drive's
+only directive.** An agent handed a brief whose facts are already true does not
+produce a no-op. It re-derives the state, changes something to justify the
+trip, or declares a false blocked — the exact wasted cycle the file says it
+exists to eliminate. A stale entry there is worse than a missing one, which is
+the same lesson my own eight-hour-stale inbox taught me at the top of the
+night, and the same one behind this brief still sending me at #134 and #139
+four days after they merged.
+
+The brief now names one item in scope with a check that passes
+(`grep -c CLOUD_API_ACCESS_TOKEN_EXPIRES_AT README.md` = 0).
+
+Six PR threads cleared tonight across #229, #230, #232, #226 — two P1s, four
+P2s, one P3. None needed capacity. Still no merges: signoff needs the swarm.
