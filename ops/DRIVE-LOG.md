@@ -15363,3 +15363,49 @@ after that grant, which is defensible but the doc now contradicts the repo.
 And its stated setup gap ("no built SDK or local daemon") is exactly the
 `LOCAL_SDK_MISSING` I hit at 09:45Z; the lane had already documented my failure
 before I made it.
+
+## 2026-09-08 ~10:25Z — I moved a live agent's worktree, and the scoreboard is stale on gate 7
+
+**First, a mistake of mine to own.** At 08:26Z I checked
+`flows-runtime-0907-wt` out to detached `origin/main` to run the SDK suite,
+because it already had `node_modules`. I checked it was clean and that its PR
+had merged, and concluded nothing was at risk. I never checked whether a
+*process* was using it. `lsof` says two codex processes hold handles there,
+pid 58346 up 9h57m. The agent is alive; I moved its checkout out from under it.
+
+Nothing was lost — the tree was clean and its branch had merged — but the check
+I ran answered "is there uncommitted work", not "is someone working here". That
+is precisely the distinction the one-worker-one-directory rule exists for, and I
+had that rule in front of me twice tonight and applied it only to the first
+question. Restored: the worktree is back on `runtime/flows-restore-0907` @
+521e07c, clean.
+
+**Is it still working?** Its last commit was 2026-09-07 23:47Z, ten hours ago.
+The process is alive but has produced nothing since. Alive is not working — the
+same distinction that cost this lane five seats on already-merged targets.
+
+**Where the PR went:** #231, merged 06:13Z as c9bf155.
+
+**Progress, from `ops/SCOREBOARD.md` rather than estimate:**
+
+    gate 1 relayflow can run        GREEN
+    gate 2 proactive agent          AMBER  (dedupe done; wake-context contract missing)
+    gate 3 Software Garden          AMBER  (backlog picker only)
+    gate 4 chief / harness          RED    not started
+    gate 5 memory                   RED
+    gate 6 integrations             RED    blocked on 2-4
+    gate 7 sandbox routing          RED    "regression suite needs darwin-arm64 placement"
+    gate 8 identity + credentials   RED
+    gate 9 self-improving           RED
+
+One green, two amber, six red. Any percentage from that is a guess, and the
+scoreboard's own note on gate 2 is why: its bar is hn-monitor running **in
+production** on real events, not a passing suite. The remaining gates are the
+expensive ones.
+
+**Gate 7's row is now stale, and I made it stale.** It says RED because the
+regression suite needs darwin-arm64 placement. #227 merged tonight with the full
+kernel suite green on darwin arm64, including `placement_routing`,
+`placement_pins` and three `crash_resume::placement` cases. I merged the work and
+did not update the row that tracks it — the same staleness I spent four ticks
+correcting in other people's files.
