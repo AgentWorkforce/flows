@@ -3869,3 +3869,45 @@ lockfiles named after the worktree directory.
 commits across 74 and opening the PR is the next real step, but it is a bigger
 unit than a tick and the merge rules require an independent signoff at the exact
 head, so I did not start it unattended.
+
+### 2026-09-08 — #139 also merged; real drain data; v2 has NEVER completed
+
+**Item 4 is stale too. #139 is MERGED** (2026-09-04, commit `f1314b17`, head
+`feat/v2-gate-contract`). Nothing to rebase, no signoff to commission. With #134
+merged as well, **half the standing brief's four items no longer exist** — worth
+correcting in the brief, or every future tick re-derives this.
+
+**The drain check was nearly vacuous and I caught it.** `/api/v1/workflows/runs`
+returns 200 with a **38 MB** body; piping that through `jq` in a shell variable
+produced empty output, which reads exactly like "no pending runs". Re-ran it
+against a file. Never trust an empty result from an instrument that has not been
+shown able to express presence.
+
+Real numbers, 1779 runs:
+
+| status | count |
+|---|---|
+| failed | 1300 |
+| completed | 420 |
+| cancelled | 48 |
+| running | 11 |
+| **pending/launching** | **0** |
+
+So nothing is stuck pending — the queue is not down now.
+
+**Correction to what I told Khaliq earlier.** I said "no relayflow has reached
+compute". That was true of *my* runs only. This stage has 420 completed runs.
+The accurate statement is narrower and worse:
+
+**No v2 run has ever completed. Ever.** There are exactly 5 v2 runs in the
+entire history — all 5 are mine from today, all failed. All 420 completions are
+v1. The demo artifact has never once worked end to end, so nothing regressed;
+it has simply never been proven.
+
+**Second finding: 11 runs are wedged in `running`.** Oldest created
+`2026-05-29T22:01:09Z` — over three months — each holding a `sandboxId`. Per the
+brief I noted them and did not touch them; cancelling runs is a destructive,
+outward-facing mutation and Khaliq's call. But this is squarely the
+stuck-run-reaper's job, which is the component #3442 modifies, so it is worth
+looking at while that PR is open: either the reaper never sees these, or it
+skips the `running` state.
