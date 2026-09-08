@@ -1,0 +1,7 @@
+$ npm --userconfig /tmp/empty-npmrc run build --prefix packages/sdk
+
+> @relayflows/sdk@2.0.1 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+exit_code=0

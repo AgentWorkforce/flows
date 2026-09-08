@@ -1,0 +1,28 @@
+# A bounded, deterministic drive tick: execute backlog F8b on this checkout.
+# Run: node scripts/run-local-workflow.mjs workflows/drive-local.yaml
+# Selection, mutation, existing tests, and the resulting diff are journaled.
+# Delivery is a branch/PR by the operator; this flow never merges or switches branches.
+version: '0.1.0'
+name: drive-local-f8b
+description: Correct the retry validator name to describe the authoring restriction (BACKLOG F8b).
+steps:
+  - id: select-package
+    type: deterministic
+    command: node ops/local-work-package.mjs select
+  - id: implement-package
+    type: deterministic
+    dependsOn: [select-package]
+    command: node ops/local-work-package.mjs apply
+  - id: verify-package
+    type: deterministic
+    dependsOn: [implement-package]
+    timeoutMs: 120000
+    command: |
+      set -eu
+      npm_config_cache="$PWD/.relayflow/npm-cache" npm --userconfig /tmp/empty-npmrc run build --prefix packages/sdk
+      cd packages/sdk
+      node node_modules/vitest/vitest.mjs run tests/spec-parity.test.ts tests/cli.test.ts
+  - id: report-package
+    type: deterministic
+    dependsOn: [verify-package]
+    command: node ops/local-work-package.mjs report

@@ -1,0 +1,47 @@
+✔ local launcher journals deterministic effects and reads more than one journal page (540.837792ms)
+✖ a failed command fails the run and prevents dependent effects (127.706375ms)
+✖ the SDK worker completes an agent step through the local journal protocol (509.003125ms)
+✔ missing daemon is refused before a data directory or run is created (60.591541ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 2
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1277.121583
+
+✖ failing tests:
+
+test at scripts/run-local-workflow.test.mjs:37:1
+✖ a failed command fails the run and prevents dependent effects (127.706375ms)
+  TypeError: Cannot read properties of null (reading 'exit_code')
+      at TestContext.<anonymous> (file:///Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/scripts/run-local-workflow.test.mjs:47:98)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+
+test at scripts/run-local-workflow.test.mjs:50:1
+✖ the SDK worker completes an agent step through the local journal protocol (509.003125ms)
+  AssertionError [ERR_ASSERTION]: bad_request: an agent worker must attach with the pins of the surfaces it holds
+  
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (file:///Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/scripts/run-local-workflow.test.mjs:61:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

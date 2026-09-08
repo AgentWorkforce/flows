@@ -1,0 +1,24 @@
+$ pwd
+/Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt
+exit=0
+$ uname -sm
+Darwin arm64
+exit=0
+$ df -h .
+Filesystem      Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s5   228Gi   174Gi    21Gi    90%    4.2M  221M    2%   /System/Volumes/Data
+exit=0
+$ git branch --show-current
+runtime/flows-restore-0907
+exit=0
+$ git rev-parse HEAD
+460c0f7723da0c0fe8d5fffb87f60c058996ca3e
+exit=0
+$ node --version
+v26.7.0
+exit=0
+$ sh -c 'command -v flows; command -v relayflows'
+exit=1
+$ sh -c 'ls "$HOME"/.relayflows-toolchain/target/*/debug/relayflowd'
+ls: /Users/khaliqgant/.relayflows-toolchain/target/*/debug/relayflowd: No such file or directory
+exit=1

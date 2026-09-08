@@ -1,0 +1,22 @@
+diff --git a/packages/sdk/src/compile.ts b/packages/sdk/src/compile.ts
+index 87f1f24..8cd088d 100644
+--- a/packages/sdk/src/compile.ts
++++ b/packages/sdk/src/compile.ts
+@@ -368,7 +368,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
+         ? ['instruction', 'cli', 'model', 'recovery_mode', 'surfaces', 'permissions'] as const
+         : [];
+   assertKernelKeys(step, [...commonKeys, ...typeKeys], at);
+-  if (step['retry'] !== undefined) validateKernelRetry(step['retry'], `${at}.retry`);
++  if (step['retry'] !== undefined) validateAuthoringRetryDefaults(step['retry'], `${at}.retry`);
+   const dependsOn = step['depends_on'];
+   const common = {
+     id: step['id'],
+@@ -404,7 +404,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
+   return common;
+ }
+ 
+-function validateKernelRetry(value: unknown, at: string): void {
++function validateAuthoringRetryDefaults(value: unknown, at: string): void {
+   const retry = requireKernelObject(value, [
+     'initial_backoff_ms', 'max_backoff_ms', 'multiplier', 'jitter_percent',
+   ], at);

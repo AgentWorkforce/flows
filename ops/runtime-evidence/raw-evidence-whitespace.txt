@@ -1,0 +1,12 @@
+ops/runtime-evidence/build-sdk.txt:4: new blank line at EOF.
+ops/runtime-evidence/crash-resume.txt:59: new blank line at EOF.
+ops/runtime-evidence/drive-verify.txt:17: new blank line at EOF.
+ops/runtime-evidence/f8b.diff:17: trailing whitespace.
++ 
+ops/runtime-evidence/launcher-tests-second.txt:30: trailing whitespace.
++  
+ops/runtime-evidence/launcher-tests-second.txt:31: trailing whitespace.
++  
+ops/runtime-evidence/launcher-tests-second.txt:33: trailing whitespace.
++  
+ops/runtime-evidence/workflow-checks.txt:32: new blank line at EOF.
