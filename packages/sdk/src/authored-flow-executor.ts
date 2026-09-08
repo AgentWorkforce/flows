@@ -230,6 +230,9 @@ export async function executeAuthoredFlow<Input = undefined>(
         refusal?.message
           ?? `flow "${definition.name}" step "${id}": no CLI could be resolved for f.agent `
             + `(searched for flows.json from "${flowPath}")`,
+        undefined,
+        undefined,
+        refusal?.kind ?? 'invalid_spec',
       );
     }
     const spec = toKernelSpec(resolved);

@@ -212,6 +212,10 @@ describe('authored flow journal executor', () => {
         },
       ), disconnectedJournal, undefined, { flowPath })).rejects.toMatchObject({
         code: 'agent_cli_unresolved',
+        // The specific preflight refusal kind must survive the wrap into one
+        // AuthoredFlowExecutionError code, or a caller (direct-run.ts's CLI
+        // report) can't tell a missing CLI apart from a bad model.
+        refusalKind: 'cli_missing',
         message: expect.stringContaining(
           `declares CLI "${absentCli}", but it does not resolve as an executable`,
         ),
@@ -233,6 +237,7 @@ describe('authored flow journal executor', () => {
         },
       ), disconnectedJournal, undefined, { flowPath })).rejects.toMatchObject({
         code: 'agent_cli_unresolved',
+        refusalKind: 'cli_missing',
         message: expect.stringContaining(`declares CLI "${stepCli}"`),
       });
     });
@@ -256,6 +261,7 @@ describe('authored flow journal executor', () => {
         },
       ), disconnectedJournal, undefined, { flowPath })).rejects.toMatchObject({
         code: 'agent_cli_unresolved',
+        refusalKind: 'cli_unresolved',
         message: expect.not.stringContaining('unknown named agent'),
       });
     });
@@ -273,6 +279,7 @@ describe('authored flow journal executor', () => {
         },
       ), disconnectedJournal, undefined, { flowPath })).rejects.toMatchObject({
         code: 'agent_cli_unresolved',
+        refusalKind: 'model_unknown',
         message: expect.stringContaining(
           'Named agent "reviewer" declares model "unlisted-model"',
         ),

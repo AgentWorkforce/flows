@@ -20,6 +20,9 @@ const BUILT_CLI = join(ROOT, 'packages', 'sdk', 'dist', 'cli.js');
 const FLOW = join(ROOT, 'packages', 'sdk', 'tests', 'fixtures', 'direct-input.flow.ts');
 const CONTROL_FLOW = join(ROOT, 'packages', 'sdk', 'tests', 'fixtures', 'direct-output-control.flow.ts');
 const SIDE_EFFECT_FLOW = join(ROOT, 'packages', 'sdk', 'tests', 'fixtures', 'pre-journal-side-effect.flow.ts');
+const BAD_MODEL_FLOW = join(
+  ROOT, 'packages', 'sdk', 'tests', 'fixtures', 'named-agent-bad-model', 'bad-model.flow.ts',
+);
 const TOOLCHAIN_TARGET = process.env['CARGO_TARGET_DIR']
   ?? join(process.env['RELAYFLOWS_TOOLCHAIN_HOME'] ?? join(homedir(), '.relayflows-toolchain'), 'target');
 const RELAYFLOWD = resolve(process.env['RELAYFLOWD_BIN'] ?? locateRelayflowd());
@@ -101,6 +104,28 @@ describe('direct .flow.ts input through the built CLI and live runtime', () => {
     const missingInputValue = invokeCli(['run', FLOW, '--input', '--json']);
     expect(missingInputValue.status, missingInputValue.stderr).toBe(2);
     expect(missingInputValue.stderr).toContain('REFUSED [invalid_invocation]');
+  });
+
+  it('surfaces the specific preflight refusal kind for an unresolved f.agent, not a generic invalid_spec', async () => {
+    // authored-flow-executor.ts's lowerAgent wraps every checkAuthoredFlow
+    // refusal as one AuthoredFlowExecutionError code (agent_cli_unresolved)
+    // so f.agent has one throw site regardless of which preflight predicate
+    // failed — but direct-run.ts used to then hardcode `kind: 'invalid_spec'`
+    // in the CLI's JSON/text report for all of them, losing the closed
+    // refusal taxonomy (cli_missing, model_unknown, ...) that `flows check`
+    // preserves for the declarative dialect. This proves the propagated
+    // AuthoredFlowExecutionError.refusalKind reaches the actual CLI output.
+    const directory = temporaryDirectory();
+    const dataDir = join(directory, 'data');
+    await startDaemon(dataDir);
+
+    const result = invokeCli([
+      'run', BAD_MODEL_FLOW, '--input', '{}', '--data-dir', dataDir,
+    ]);
+    expect(result.status, result.stderr).toBe(2);
+    expect(result.stderr).toContain('REFUSED [model_unknown]');
+    expect(result.stderr).not.toContain('REFUSED [invalid_spec]');
+    expect(result.stderr).toContain('declares model "unlisted-model"');
   });
 
   // `--no-spawn` keeps this case about the property it names. `flows run` now
