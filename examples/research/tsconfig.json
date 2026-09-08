@@ -1,5 +1,5 @@
 {
-  "//": "OPT-IN typecheck for the research flow. Not part of `npm test`. Run: cd sdk && ./node_modules/.bin/tsc -p ../examples/research/tsconfig.json (not npx: without node_modules, npx fetches an unrelated tsc and passes vacuously)",
+  "//": "OPT-IN typecheck for the research flow. Not part of `npm test`. Run: npm --prefix examples/research run typecheck (not npx: without node_modules, npx fetches an unrelated tsc and passes vacuously)",
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",

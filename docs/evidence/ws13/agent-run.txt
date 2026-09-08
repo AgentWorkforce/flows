@@ -1,0 +1,9 @@
+$ cd /tmp/ws13-consumer/hello
+$ npx --no-install flows run hello.flow.ts --local-agent --input '{}'
+dyld[9200]: Library not loaded: /opt/homebrew/opt/ada-url/lib/libada.3.dylib
+  Referenced from: <87FBC746-7D47-3FD8-B0A3-97018CBF954B> /opt/homebrew/Cellar/node/26.5.0/bin/node
+  Reason: tried: '/opt/homebrew/opt/ada-url/lib/libada.3.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/opt/homebrew/opt/ada-url/lib/libada.3.dylib' (no such file), '/opt/homebrew/opt/ada-url/lib/libada.3.dylib' (no such file), '/opt/homebrew/Cellar/ada-url/4.0.0/lib/libada.3.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/opt/homebrew/Cellar/ada-url/4.0.0/lib/libada.3.dylib' (no such file), '/opt/homebrew/Cellar/ada-url/4.0.0/lib/libada.3.dylib' (no such file)
+
+EXIT_CODE=-6
+ELAPSED_SECONDS=0.053
+TIMED_OUT=False

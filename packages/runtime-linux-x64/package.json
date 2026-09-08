@@ -1,7 +1,7 @@
 {
   "name": "@relayflows/runtime-linux-x64",
   "version": "2.0.8",
-  "description": "Relayflow v2 runtime for linux-x64: the relayflowd kernel and the flows CLI, as prebuilt binaries",
+  "description": "Relayflow kernel for linux-x64: the prebuilt relayflowd daemon",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -18,8 +18,7 @@
     "bin/"
   ],
   "bin": {
-    "relayflowd": "./bin/relayflowd",
-    "flows": "./bin/flows"
+    "relayflowd": "./bin/relayflowd"
   },
   "engines": {
     "node": ">=20"

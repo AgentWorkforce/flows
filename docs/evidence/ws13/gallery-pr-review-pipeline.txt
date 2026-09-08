@@ -1,0 +1,6 @@
+$ cd /tmp/ws13-gallery
+$ node /tmp/ws13-consumer/hello/node_modules/relayflows/bin/flows.js run examples/pr-review-pipeline/pr-review-pipeline.flow.ts --local-agent --input '{"diffRange": "origin/main...HEAD"}' --data-dir /tmp/ws13-gallery-pr-re
+REFUSED [invalid_spec] unsupported_header: flow "pr-review-pipeline" uses unsupported header fields: budget
+
+EXIT_CODE=2
+ELAPSED_SECONDS=4.990

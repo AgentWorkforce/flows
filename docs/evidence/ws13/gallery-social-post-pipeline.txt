@@ -1,0 +1,6 @@
+$ cd /tmp/ws13-gallery
+$ node /tmp/ws13-consumer/hello/node_modules/relayflows/bin/flows.js run examples/social-post-pipeline/social-post-pipeline.flow.ts --local-agent --input '{"brand": "Relayflows", "topic": "durable steps", "approver": "local-reviewer"}' --data-dir /tmp/ws13-gallery-socia
+REFUSED [invalid_spec] unsupported_header: flow "social-post-pipeline" uses unsupported header fields: budget
+
+EXIT_CODE=2
+ELAPSED_SECONDS=6.698

@@ -1,0 +1,14 @@
+$ cd /tmp/ws13-consumer/hello
+$ npx --no-install flows run hello.flow.ts --local-agent --input '{}'
+npm notice run npx
+npm notice run 'flows' run hello.flow.ts --local-agent --input {}
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 0.21s completionReason: success
+Hello from Relayflows
+○ agent-2 (agent) [agent: preparing] 0.00s
+✗ agent-2 (agent) [agent: failed] 10.18s
+REFUSED [invalid_spec] agent_cli_unresolved: Could not verify CLI "claude" for step "agent-2": the probe timed out after 10000ms.
+
+EXIT_CODE=2
+ELAPSED_SECONDS=18.174
+TIMED_OUT=False
