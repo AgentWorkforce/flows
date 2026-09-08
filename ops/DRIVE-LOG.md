@@ -16471,3 +16471,41 @@ where two runs on unfixed stages failed terminally at ~166 seconds with
 `payload carrying no v2JobId`. That is the absence of the specific failure
 cloud#3442 targets. It is not the authority tuple, and I am still not calling it
 the proof.
+
+## 2026-09-08 ~21:00Z — my earlier proof access was luck, and the doc said so
+
+Redeployed #3442's preview. It came up healthy —
+`{"status":"ok","bindingsOk":true,"deploymentSha":"a552f3910..."}`, which is the
+reaper fix commit, so **the fix is live on that stage**. And the API still
+returns 401.
+
+**Isolated it properly this time.** `/cloud/api/v1/auth/whoami` returns 401 with
+my token, and whoami is the one route that passes
+`allowMissingWorkspace: true`. So this is not workspace resolution failing —
+the **token itself is not being validated**. My token is a prod-minted `cli`
+session; the stage runs its own per-PR RelayAuth at
+`preview-pr-3442-api.relayauth.dev`, which has never heard of that identity.
+A garbage token and my token get byte-identical responses, which is consistent.
+
+**So the earlier success was luck, and the procedure I was following told me so.**
+`ops/reviews/20260902-1740-pr3270-proof.md` line 87 is
+`agent-relay cloud login --api-url "$WEB_URL"` — log in *against the preview*. I
+skipped it at 13:35Z because my existing token happened to return 200, and I
+wrote that down as a convenience: "the doc's login step is unnecessary". It was
+not unnecessary. It worked once, I generalized from one success, and every later
+run was built on that.
+
+That is the same shape as tonight's other misreads — one observation treated as
+a property — except this one I recorded as a *correction to the documentation*,
+which is worse than merely believing it.
+
+**The blocker is now precise and it is not technical.** The documented path
+needs a login against the preview stage. `agent-relay cloud login` offers
+`--device` for headless hosts, which is still a human authorizing in a browser.
+There is no non-interactive flag. So completing the proof needs Khaliq to run
+one command, or a preview-scoped credential minted for this purpose.
+
+**What is established without it:** cloud#3442 is deployed on a live stage
+(`deploymentSha a552f391`), carries a red-then-green unit test reproducing the
+production key list, and on the previous stage a v2 run sat `pending` 296s with
+no error where unfixed stages failed terminally at ~166s.
