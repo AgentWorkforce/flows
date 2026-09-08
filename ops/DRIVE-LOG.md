@@ -16441,3 +16441,33 @@ red-then-green unit test with the production key list reproduced, and a live
 run that no longer exhibits the failure. It does not yet have a completed
 end-to-end proof, and the thing now blocking that is preview API auth rather
 than the launch path.
+
+## 2026-09-08 ~20:30Z — preview auth is the blocker, not the launch path
+
+The run from last tick is unreachable and the proof cannot be completed on that
+stage.
+
+**What is actually broken.** Both preview stages return HTTP 401 on
+`/cloud/api/v1/workflows/runs` while production returns 200 to the *same*
+token, which is valid until 2026-09-09T10:33Z. The stages serve 200 on `/`, so
+they are up. And the decisive detail: an authenticated request and an
+unauthenticated one return byte-identical `{"error":"Unauthorized"}` — the
+stage is not distinguishing them, which points at its auth backend rather than
+my credential.
+
+I checked whether the preview RelayAuth was gone. It is not: both
+`preview-pr-344{2,8}-api.relayauth.dev` answer 401 on root, which is an API
+requiring auth rather than a dead service. So I can say the stage rejects a
+credential it accepted forty minutes earlier, and I cannot say why.
+
+**Not debugging shared preview auth.** It is not this lane's, the previous stage
+is disposable, and any retry needs a new run anyway since run
+40719463-7f0b-49ac-98f2-704606b9662d lives on the stage I can no longer query.
+Dispatched a fresh preview for #3442 instead — a redeploy re-seeds the stage.
+
+**What still stands from the last attempt**, and it is the part worth keeping:
+on the fixed stage the run sat `pending` for 296 seconds with `error: none`,
+where two runs on unfixed stages failed terminally at ~166 seconds with
+`payload carrying no v2JobId`. That is the absence of the specific failure
+cloud#3442 targets. It is not the authority tuple, and I am still not calling it
+the proof.
