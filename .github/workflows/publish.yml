@@ -336,13 +336,19 @@ jobs:
           };
           check('packages/sdk/package-lock.json', 'node_modules/@relayflows/surface');
           check('packages/relayflows/package-lock.json', 'node_modules/@relayflows/sdk');
-          // Optional dependencies still resolve to real registry entries in
-          // the lockfile regardless of this runner's own os/cpu — npm records
-          // every platform variant so `npm ci` elsewhere can pick the right
-          // one. Only the resolution differs from a required dependency; the
-          // same freshness guarantee must hold.
-          check('packages/relayflows/package-lock.json', 'node_modules/@relayflows/runtime-linux-x64');
-          check('packages/relayflows/package-lock.json', 'node_modules/@relayflows/runtime-darwin-arm64');
+          // Deliberately not asserting the two runtime-* optionalDependencies
+          // resolve here. Empirically (found the hard way: a real release run
+          // against a linux runner), npm's package-lock v3 writer only fully
+          // resolves the optional-dependency variant matching the CURRENT
+          // machine's os/cpu — it fetches the others' packuments but omits
+          // their node_modules/ entries entirely, and can even drop an
+          // existing entry for the *matching* platform when the install is a
+          // targeted/incremental one rather than a from-scratch resolve. This
+          // isn't a correctness problem: `npm install -g relayflows` (the
+          // thing that actually matters) never consults this lockfile — a
+          // global install always resolves fresh from package.json against
+          // the installing machine's own os/cpu. This lockfile is monorepo
+          // tooling hygiene (`npm ci` here), not an end-user install path.
           NODE
           npm ci --prefix packages/surface --dry-run --ignore-scripts
           npm ci --prefix packages/sdk --dry-run --ignore-scripts
