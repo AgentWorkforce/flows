@@ -10,7 +10,7 @@ export interface CloudConnectionOptions {
 
 export class CloudFlowError extends Error {
   constructor(
-    readonly code: 'configuration' | 'unsupported_source' | 'invalid_response' | 'http_error',
+    readonly code: 'configuration' | 'unsupported_source' | 'invalid_input' | 'invalid_response' | 'http_error' | 'transport_error' | 'transient_error',
     message: string,
     readonly status?: number,
   ) {
@@ -32,10 +32,9 @@ export function cloudConnection(options: CloudConnectionOptions): { baseUrl: str
   } catch {
     throw new CloudFlowError('configuration', 'FLOWS_CLOUD_URL must be an absolute Cloud application base URL.');
   }
-  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-  if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback))
+  if (url.protocol !== 'https:'
     || url.username || url.password || url.search || url.hash || !/^\/[A-Za-z0-9/_-]*$/u.test(url.pathname)) {
-    throw new CloudFlowError('configuration', 'Cloud URL must use HTTPS and a plain base path (HTTP is allowed only on loopback).');
+    throw new CloudFlowError('configuration', 'Cloud URL must use HTTPS and a plain base path.');
   }
   return { baseUrl: `${url.origin}${url.pathname.replace(/\/+$/u, '')}`, token };
 }
@@ -51,25 +50,34 @@ export async function cloudRequest(
     throw new CloudFlowError('configuration', 'requestTimeoutMs must be a positive 32-bit integer.');
   }
   const deadline = AbortSignal.timeout(timeout);
-  const response = await fetch(`${baseUrl}${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    signal: options.signal ? AbortSignal.any([options.signal, deadline]) : deadline,
-    // A redirect must never carry the credential to a different origin.
-    redirect: 'error',
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: options.signal ? AbortSignal.any([options.signal, deadline]) : deadline,
+      // A redirect must never carry the credential to a different origin.
+      redirect: 'error',
+    });
+  } catch (error) {
+    options.signal?.throwIfAborted();
+    throw transportError(error);
+  }
   if (!response.ok) {
     // Do not echo server response bodies: they may contain credentials or source.
     throw new CloudFlowError('http_error', `Cloud request failed with HTTP ${response.status}.`, response.status);
   }
   try {
     return await response.json();
-  } catch {
+  } catch (error) {
+    options.signal?.throwIfAborted();
+    if (!(error instanceof SyntaxError)) throw transportError(error);
     throw new CloudFlowError('invalid_response', 'Cloud returned a non-JSON response.');
   }
 }
 
+// Defensive path-segment constraint; accepting a new server ID format needs an SDK change.
 export function cloudRunId(value: unknown): string {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/u.test(value)) {
     throw new CloudFlowError('invalid_response', 'Cloud run ID must contain only letters, digits, underscores, or hyphens.');
@@ -79,4 +87,14 @@ export function cloudRunId(value: unknown): string {
 
 export function isCloudRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function transportError(error: unknown): CloudFlowError {
+  const cause = error instanceof Error ? error.cause : undefined;
+  const code = isCloudRecord(cause) ? cause.code : undefined;
+  const transient = (error instanceof Error && error.name === 'TimeoutError')
+    || ['ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ETIMEDOUT',
+      'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET'].includes(String(code));
+  return new CloudFlowError(transient ? 'transient_error' : 'transport_error',
+    transient ? 'Cloud transport temporarily unavailable.' : 'Cloud transport failed; check TLS and the configured URL (redirects are refused).');
 }

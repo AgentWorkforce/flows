@@ -7,13 +7,13 @@
 - **Cancelled, not deferred:** the landing page. No page will be built or deployed, and there is no target to wait for. Proposed deterministic gates + session replay + BYO CLI harness copy remains only as documentation in `docs/CLOUD.md`.
 - **Live hosted proof: BLOCKED-ON-CREDENTIAL.** Exact captured result: `Authenticated Cloud-base-path read HTTP: 401`. No hosted success is claimed. This credential block does not hold review readiness under Khaliq’s ruling.
 
-The client reuses the existing compiler, preserves the production `/cloud` base path, validates IDs/statuses, rejects credential-bearing redirects and Relay workspace/observer keys, and bounds individual HTTP requests without imposing a run deadline. Submission is not automatically retried because the API has no client idempotency guarantee.
+The client reuses the existing compiler, preserves the production `/cloud` base path, validates IDs/statuses and terminal completion reasons, retries transient GET observation failures with capped backoff, rejects credential-bearing redirects and Relay workspace/observer keys, and bounds individual HTTP requests without imposing a run deadline. Submission is not automatically retried because the API has no client idempotency guarantee.
 
 Cloud’s current v2 bootstrap rejects authored TypeScript; the SDK refuses `.flow.ts` before HTTP. Cloud retains its separate one-hour execution deadline. No authored-flow executor, kernel, verifier, or gate changes are included.
 
-Validation: the final rerun passes **63/63 CLI + 22/22 cloud tests (85/85)**. The earlier 62/63 wrapper-preflight failure is retained in the original transcript. It did not reproduce on either the pre-change revision `f0a3b3b` (full CLI 63/63) or WS-14 (full CLI 63/63), so its cause is unconfirmed; it is not established as a pre-existing defect or a cloud regression. The wrapper test, preflight implementation, and worker implementation are byte-for-byte unchanged against that revision. No tests, gates, or timeout limits were changed.
+Historical validation at `c515d06` (before the review fixes): the rerun passed **63/63 CLI + 22/22 cloud tests (85/85)**. The earlier 62/63 wrapper-preflight failure is retained in the original transcript. It did not reproduce on either the pre-change revision `f0a3b3b` (full CLI 63/63) or WS-14 (full CLI 63/63), so its cause is unconfirmed; it is not established as a pre-existing defect or a cloud regression. The wrapper test, preflight implementation, and worker implementation are byte-for-byte unchanged against that revision. No pre-existing tests, gates, or timeout limits were changed; this PR adds cloud regression tests.
 
-Final rerun from `packages/sdk` (literal command and output; full baseline/current transcript linked below):
+Historical rerun from `packages/sdk` (literal command and output; full baseline/current transcript linked below):
 
 ```text
 $ node node_modules/vitest/vitest.mjs run tests/cli.test.ts tests/cloud-run.test.ts --maxWorkers=1 --minWorkers=1
@@ -34,6 +34,6 @@ EXIT CODE: 0
 
 Prior SDK/type/test typechecks, build, and rebuilt-package CLI/SDK contract check passed; their literal commands/output are in the evidence below. The package check uses a local HTTP server, not hosted execution. Its six-minute dependency installation does not establish fresh-machine timing acceptance.
 
-Commands and literal captured output are committed in [ws14-cloud.txt](ops/runtime-evidence/ws14-cloud.txt); the credential probe and HTTP 401 are in [ws14-cloud-auth.txt](ops/runtime-evidence/ws14-cloud-auth.txt). The baseline comparison is captured in [ws14-wrapper-baseline.txt](ops/runtime-evidence/ws14-wrapper-baseline.txt). Raw test-output whitespace is retained verbatim.
+Commands and literal captured output are committed in [ws14-cloud.txt](../runtime-evidence/ws14-cloud.txt); the credential probe and HTTP 401 are in [ws14-cloud-auth.txt](../runtime-evidence/ws14-cloud-auth.txt). The baseline comparison is captured in [ws14-wrapper-baseline.txt](../runtime-evidence/ws14-wrapper-baseline.txt). Raw test-output whitespace is retained verbatim.
 
-Three independent working-tree reviews covered Cloud contract correctness, security, and maintainability/architecture; their findings were addressed. These are not exact-head merge approval. Veto tools were not exposed in this session. Work is isolated on `feat/flows-run-in-cloud`; shared SDK entry-point changes are additive. **Ready for review; do not merge.**
+Work is isolated on `feat/flows-run-in-cloud`; shared SDK entry-point changes integrate cloud mode with the central parser. **Ready for review; do not merge.**

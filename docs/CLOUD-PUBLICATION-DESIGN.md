@@ -52,6 +52,9 @@ Paths are relative to the Cloud application base URL, currently
 | `GET /api/v1/published-flow-runs/:publicId` | Read the permitted public projection | Anonymous for public/unlisted; otherwise indistinguishable 404 |
 | `GET /api/v1/published-flow-runs?cursor=…` | Page through public gallery records | Anonymous; returns public records only |
 
+All owner publication and preview responses require `Cache-Control: no-store`;
+principal-dependent data must never enter shared caches.
+
 Example write body:
 
 ```json
@@ -111,10 +114,12 @@ contract exists. No existing Cloud submission idempotency is assumed.
 Visibility must be explicit in the SDK call. New records default to private in
 storage until snapshot persistence and the requested transition commit. A
 private transition/revocation immediately disables origin reads, replay reads,
-and discovery. Serve through a visibility-checking endpoint with `no-store`
-initially; do not expose a public bucket URL or long-lived signed download that
+and discovery. Serve publication and replay through visibility-checking endpoints with
+permanent `Cache-Control: no-store`; do not expose a public bucket URL or long-lived signed download that
 would bypass revocation. Unlisting removes discovery but leaves the link
-readable. A previously downloaded public copy cannot be recalled.
+readable. If caching is introduced later, cache purge and revalidation must complete
+before revocation reports success. A previously downloaded public copy cannot
+be recalled; that exception does not include responses held in shared caches.
 
 ## Published record
 
@@ -171,8 +176,9 @@ was published unless that snapshot exists and can be read under these rules.
 
 The gallery's headline is **Deterministic gates + session replay + BYO CLI
 harness**. Each entry presents an actual public example run: its explicitly
-published title, gate result, terminal outcome, supported CLI harness when the
-author explicitly publishes it, and a replay link only when replay is published.
+published title, gate result, terminal outcome, and a replay link only when
+replay is published. Harness metadata is excluded until a versioned, sanitized,
+explicit-opt-in projection and API are defined; the current schema has none.
 The run detail leads with evidence and distinguishes verification from agent
 output. Labels describe the observed run rather than promising that every
 example or authored verb works in Cloud.

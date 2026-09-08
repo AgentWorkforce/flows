@@ -13,13 +13,17 @@ const accepted = await runInCloud({ path: './flow.yaml' }, {
 });
 console.log(accepted.runId); // accepted, not completed
 const finished = await waitForCloudFlowRun(accepted.runId);
-console.log(finished.status, finished.result);
+console.log(finished.status, 'completionReason' in finished ? finished.completionReason : undefined);
 ```
 
 A `FlowSpec` object can replace `{ path }`. File reads, submission, and observation
 are async. The receipt's `specHash` is calculated with the existing compiler and
 kernel dialect; it is a local identity for correlation, not a server attestation.
 The API pins the hosted runtime artifact. This SDK adds no bundle registry.
+RFC-0001 decision #14's sealed flow bundle/digest admission is not implemented by
+the current Cloud endpoint. Khaliq explicitly scoped this lane to its existing
+declarative admission contract. This incremental client does not satisfy or
+claim to close the immutable-bundle gate; `specHash` never attests server execution.
 
 Configure `FLOWS_CLOUD_TOKEN` with a Cloud API token authorized for
 `workflow:invoke:write` and `workflow:runs:read`. The default base URL is
@@ -35,16 +39,36 @@ flows run --cloud --wait --json examples/cloud-gates/cloud-gates.flow.yaml
 ```
 
 Without `--wait`, exit 0 means the server accepted the run. With `--wait`, it
-means Cloud reported `completed`; failure/cancellation returns 1. Credentials
-and unsupported source formats are refusals (exit 2). SIGINT/SIGTERM stops
+means Cloud reported `completed` with a validated `success` completion reason.
+Failed/cancelled runs and observation/transport failures return 1. Local input,
+configuration, unsupported format, and pre-admission HTTP 401/403 refusals return 2.
+After admission, an observation HTTP 401/403 returns 1 and retains the run ID. SIGINT/SIGTERM stops
 observation and preserves the run ID in the error report; it does not cancel
 the hosted run. SDK callers can use `AbortSignal` for the same behavior.
-Each HTTP request has a separate 30-second transport timeout, configurable via
-`requestTimeoutMs`; this does not limit the hosted run's execution duration.
+An interruption before the admission receipt reports `admission_unknown`: the
+server may have started the non-idempotent run. Do not resubmit blindly.
 
-Submission is never automatically retried: a lost HTTP response may follow a
+| Boundary | Limit | Control |
+| --- | --- | --- |
+| Individual HTTP request (including response body) | 30 seconds by default | `requestTimeoutMs` |
+| SDK observation | No overall execution deadline | Caller `AbortSignal` stops observation |
+| Cloud v2 execution | Existing one-hour runtime deadline | Backend; not changed by SDK options |
+
+Safe GET observation retries transient connection errors, timeouts, HTTP 408,
+429, 500, 502, 503, and 504 with exponential backoff capped at 30 seconds. Abort,
+authentication, TLS/redirect errors, and invalid responses stop observation.
+Only HTTPS endpoints are accepted, including local deployments.
+
+The SDK makes one submission fetch call and adds no application-level POST retry: a lost HTTP response may follow a
 successful admission, and retrying without server idempotency could run twice.
 The receipt's `apiUrl` requires authentication and is **not a public share URL**.
+Terminal observation validates `result.completionReason` against the existing
+run protocol vocabulary and checks consistency with Cloud status; the SDK exposes
+that reason, not the opaque server payload. Missing/inconsistent reasons fail
+closed as `invalid_response`. Cloud can record provisioning failures or
+cancellation without a journal report; those records cannot supply an attested
+execution outcome through this API. Step-level journal evidence is not exposed
+by this endpoint and is not synthesized by the SDK.
 
 ## Current limits and scope
 
@@ -68,7 +92,7 @@ The receipt's `apiUrl` requires authentication and is **not a public share URL**
 - Live proof: **BLOCKED-ON-CREDENTIAL**. The captured error is
   `Authenticated Cloud-base-path read HTTP: 401`. No hosted run is claimed, and
   this lane is not pursuing another credential. The package proof uses a local
-  HTTP contract server and is labeled accordingly.
+  HTTPSS contract server and is labeled accordingly.
 
 `node scripts/cloud-package-proof.mjs` installs the packed SDK in a fresh
 temporary npm project and exercises both its exported function and installed

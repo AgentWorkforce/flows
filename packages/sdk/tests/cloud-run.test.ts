@@ -1,4 +1,3 @@
-import { createServer, type Server } from 'node:http';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,36 +13,26 @@ const flow: FlowSpec = {
   version: '0.1.0', name: 'cloud-proof',
   steps: [{ id: 'gate', type: 'deterministic', command: 'printf verified' }],
 };
-const servers: Server[] = [];
 const dirs: string[] = [];
 afterEach(async () => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
-  for (const server of servers.splice(0)) {
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  }
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true });
 });
 
 async function cloud(handler: (path: string, body: unknown, auth: string | undefined) => unknown, status = 200) {
-  const server = createServer(async (req, res) => {
-    const parts: Buffer[] = [];
-    for await (const part of req) parts.push(Buffer.from(part));
-    const body = Buffer.concat(parts).toString();
-    const response = handler(req.url!, body ? JSON.parse(body) : undefined, req.headers.authorization);
-    res.writeHead(status, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(response));
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    init?.signal?.throwIfAborted();
+    const response = handler(new URL(String(input)).pathname,
+      init?.body ? JSON.parse(String(init.body)) : undefined,
+      new Headers(init?.headers).get('authorization') ?? undefined);
+    return new Response(JSON.stringify(response), { status, headers: { 'content-type': 'application/json' } });
   });
-  servers.push(server);
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  if (address === null || typeof address === 'string') throw new Error('missing address');
-  return { apiUrl: `http://127.0.0.1:${address.port}`, token: 'test-scoped-cloud-token' };
+  return { apiUrl: 'https://cloud-contract.example', token: 'test-scoped-cloud-token' };
 }
 
 describe('hosted v2 submission', () => {
-  it('uses the actual Cloud route and v2 dialect, returning acceptance rather than completion', async () => {
+  it('uses the Cloud API contract route and v2 dialect, returning acceptance rather than completion', async () => {
     const requests: unknown[] = [];
     const options = await cloud((path, body, auth) => {
       requests.push({ path, body, auth });
@@ -81,7 +70,7 @@ describe('hosted v2 submission', () => {
 
   it('refuses unsafe origins and Relay keys without sending credentials', async () => {
     const fetch = vi.spyOn(globalThis, 'fetch');
-    for (const apiUrl of ['http://remote.example', 'https://user:pass@example.com', 'https://example.com/%2Fother', 'https://example.com?token=x']) {
+    for (const apiUrl of ['http://remote.example', 'http://127.0.0.1', 'http://localhost', 'http://[::1]', 'https://user:pass@example.com', 'https://example.com/%2Fother', 'https://example.com?token=x']) {
       await expect(runInCloud(flow, { apiUrl, token: 'test-token' })).rejects.toMatchObject({ code: 'configuration' });
     }
     for (const token of ['', 'rk_live_secret', 'ot_live_secret', ' rk_live_secret', 'ot_live_secret ', 'token\nheader']) {
@@ -108,16 +97,12 @@ describe('hosted v2 submission', () => {
   });
 
   it('bounds a stalled HTTP request without retrying submission', async () => {
-    let calls = 0;
-    const server = createServer(() => { calls++; });
-    servers.push(server);
-    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-    const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('missing address');
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) =>
+      new Promise((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason), { once: true })));
     await expect(runInCloud(flow, {
-      apiUrl: `http://127.0.0.1:${address.port}`, token: 'test-token', requestTimeoutMs: 100,
-    })).rejects.toMatchObject({ name: 'TimeoutError' });
-    expect(calls).toBe(1);
+      token: 'test-token', requestTimeoutMs: 20,
+    })).rejects.toMatchObject({ code: 'transient_error' });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -130,15 +115,13 @@ describe('hosted v2 submission', () => {
 });
 
 describe('hosted observation', () => {
-  it('continues across hours of elapsed time and returns the server terminal status', async () => {
+  it('polls running records until a validated terminal reason arrives', async () => {
     let calls = 0;
-    const now = vi.spyOn(Date, 'now');
     const options = await cloud(() => {
       calls++;
-      now.mockReturnValue(calls * 3_600_000);
-      return { runId: 'long-run', relayflowVersion: 'v2', status: calls < 3 ? 'running' : 'failed' };
+      return { runId: 'long-run', relayflowVersion: 'v2', status: calls < 3 ? 'running' : 'failed', result: { completionReason: 'step_failed' } };
     });
-    expect(await waitForCloudFlowRun('long-run', { ...options, pollIntervalMs: 1 })).toEqual({ runId: 'long-run', status: 'failed' });
+    expect(await waitForCloudFlowRun('long-run', { ...options, pollIntervalMs: 1 })).toEqual({ runId: 'long-run', status: 'failed', completionReason: 'step_failed' });
     expect(calls).toBe(3);
   });
 
@@ -190,5 +173,118 @@ describe('thin cloud CLI', () => {
     const fetch = vi.spyOn(globalThis, 'fetch');
     expect(await runCli(args, { stdout: () => {}, stderr: () => {} })).toBe(2);
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('review regressions', () => {
+  async function cliFile() {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-review-'));
+    dirs.push(dir);
+    const path = join(dir, 'flow.yaml');
+    await writeFile(path, JSON.stringify(flow));
+    vi.stubEnv('FLOWS_CLOUD_TOKEN', 'test-token');
+    vi.stubEnv('FLOWS_CLOUD_URL', 'https://cloud-contract.example');
+    return path;
+  }
+
+  it.each([401, 403])('refuses HTTP %i credentials with exit 2 before admission', async (status) => {
+    await cloud(() => ({}), status);
+    const path = await cliFile();
+    const output: string[] = [];
+    expect(await runCli(['run', '--cloud', '--json', path], { stdout: s => output.push(s), stderr: s => output.push(s) })).toBe(2);
+    expect(JSON.parse(output[0]!)).toMatchObject({ code: 'http_error' });
+  });
+
+  it.each(['missing', 'yaml', 'schema'])('refuses %s input with exit 2 before HTTP', async (kind) => {
+    const path = await cliFile();
+    if (kind === 'missing') await rm(path);
+    else await writeFile(path, kind === 'yaml' ? '[bad: yaml' : '{"steps":[]}');
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    const output: string[] = [];
+    expect(await runCli(['run', '--cloud', '--json', path], { stdout: s => output.push(s), stderr: s => output.push(s) })).toBe(2);
+    expect(JSON.parse(output[0]!)).toMatchObject({ code: 'invalid_input' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('reports unknown admission when interrupted before the POST receipt', async () => {
+    const path = await cliFile();
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      process.emit('SIGINT');
+      init!.signal!.throwIfAborted();
+      throw new Error('unexpected');
+    });
+    const output: string[] = [];
+    expect(await runCli(['run', '--cloud', '--json', path], { stdout: s => output.push(s), stderr: s => output.push(s) })).toBe(1);
+    expect(JSON.parse(output[0]!)).toMatchObject({ code: 'admission_unknown', message: expect.stringContaining('Do not resubmit blindly') });
+    expect(JSON.parse(output[0]!)).not.toHaveProperty('runId');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves admitted run ID when observation is interrupted', async () => {
+    const path = await cliFile();
+    await cloud((url) => {
+      if (url.endsWith('/run')) return { runId: 'retained', status: 'pending' };
+      process.emit('SIGTERM');
+      return { runId: 'retained', status: 'running', relayflowVersion: 'v2' };
+    });
+    const output: string[] = [];
+    expect(await runCli(['run', '--cloud', '--wait', '--json', path], { stdout: s => output.push(s), stderr: s => output.push(s) })).toBe(1);
+    expect(JSON.parse(output[0]!)).toMatchObject({ code: 'observation_aborted', runId: 'retained' });
+  });
+
+  it('emits separate acceptance lines and validated completion reason', async () => {
+    const path = await cliFile();
+    await cloud(url => url.endsWith('/run') ? { runId: 'done', status: 'pending' }
+      : { runId: 'done', relayflowVersion: 'v2', status: 'completed', result: { ok: true, status: 'completed', completionReason: 'success' } });
+    const output: string[] = [];
+    expect(await runCli(['run', '--cloud', '--wait', path], { stdout: s => output.push(s), stderr: s => output.push(s) })).toBe(0);
+    expect(output).toEqual(['ACCEPTED done (pending)', 'https://cloud-contract.example/api/v1/workflows/runs/done', 'COMPLETED done completionReason: success']);
+  });
+
+  it.each([503, 429, 'timeout', 'reset', 'body-timeout'])('retries safe observation after %s', async (failure) => {
+    let calls = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      expect(init?.method).toBe('GET');
+      if (++calls === 1) {
+        if (failure === 'timeout') throw new DOMException('timeout', 'TimeoutError');
+        if (failure === 'reset') throw new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } });
+        if (failure === 'body-timeout') return new Response(new ReadableStream({ start(c) { c.error(new DOMException('timeout', 'TimeoutError')); } }));
+        return new Response('{}', { status: failure });
+      }
+      return Response.json({ runId: 'retry', relayflowVersion: 'v2', status: 'completed', result: { ok: true, status: 'completed', completionReason: 'success' } });
+    });
+    expect(await waitForCloudFlowRun('retry', { token: 'test-token', pollIntervalMs: 1 })).toMatchObject({ status: 'completed', completionReason: 'success' });
+    expect(calls).toBe(2);
+  });
+
+  it.each([401, 403, 'invalid', 'tls', 'redirect'])('does not retry permanent observation failure %s', async (failure) => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      expect(init?.redirect).toBe('error');
+      if (failure === 'tls') throw new TypeError('fetch failed', { cause: { code: 'CERT_HAS_EXPIRED' } });
+      if (failure === 'redirect') throw new TypeError('fetch failed', { cause: new Error('unexpected redirect') });
+      return new Response('{}', { status: typeof failure === 'number' ? failure : 200 });
+    });
+    await expect(waitForCloudFlowRun('retry', { token: 'test-token', pollIntervalMs: 1 })).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows abort during transient retry backoff without another GET', async () => {
+    const controller = new AbortController();
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      setTimeout(() => controller.abort(), 5);
+      return new Response('{}', { status: 503 });
+    });
+    await expect(waitForCloudFlowRun('retry', { token: 'test-token', signal: controller.signal, pollIntervalMs: 100 })).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { status: 'completed' },
+    { status: 'failed', result: { completionReason: 'unknown' } },
+    { status: 'completed', result: { completionReason: 'step_failed' } },
+    { status: 'cancelled', result: { completionReason: 'success' } },
+  ])('refuses terminal records without consistent protocol evidence %j', async (record) => {
+    const options = await cloud(() => ({ runId: 'terminal', relayflowVersion: 'v2', ...record }));
+    await expect(getCloudFlowRun('terminal', options)).rejects.toMatchObject({ code: 'invalid_response' });
   });
 });
