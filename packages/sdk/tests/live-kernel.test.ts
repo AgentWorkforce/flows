@@ -392,6 +392,82 @@ process.stdin.on('end', () => {
     expect(capturedResult?.artifacts).toEqual([]);
   });
 
+  it('dispatches two distinct named agents declared in the flow header', async () => {
+    // The header-declared `agents` map (packages/surface/src/flow.ts) is new
+    // authoring surface for a resolution path (FlowSpec.agents / step.agent)
+    // that already existed for the declarative YAML dialect. This proves the
+    // full live round trip still works end-to-end once a flow actually
+    // populates that map and selects from it by name — not just the
+    // no-header case the sibling test above covers.
+    const directory = temporaryDirectory('flows-live-named-agents-');
+    const dataDir = join(directory, 'data');
+    const cli = join(directory, 'agent-cli');
+    writeFileSync(cli, `#!/usr/bin/env node
+if (process.argv[2] === 'auth' && process.argv[3] === 'status') process.exit(0);
+if (process.argv[2] !== '--relayflows-adapter-v1') process.exit(9);
+process.stdout.write('relayflows-agent-cli-v1\\n');
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => { input += chunk; });
+process.stdin.on('end', () => {
+  if (input.trim() === '') process.exit(0);
+  const request = JSON.parse(input);
+  process.stdout.write('relayflows-agent-cli-v1-execute\\n');
+  process.stdout.write('handled: ' + request.instruction);
+});
+`);
+    chmodSync(cli, 0o755);
+    // No project-level `cli` declared — both steps must resolve purely
+    // through the header's named declarations, proving `cli`/`agent` reached
+    // the submitted spec rather than silently falling back to a project
+    // default. `models` allowlists the declared model so preflight's
+    // model-registry check (preflight.ts's unknownModelDiagnostics) doesn't
+    // refuse first; the custom-wrapper model-scoped probe (cli-adapter.ts's
+    // modelReadinessProbe, "relayflows-wrapper-v1" branch) just re-invokes
+    // the same `auth status` the stub CLI above already answers, with the
+    // model passed as an env var the stub ignores — no extra stub behavior needed.
+    writeFileSync(join(directory, 'flows.json'), JSON.stringify({ models: ['stub-model'] }));
+    await startDaemon(dataDir);
+
+    const client = await connectClient(dataDir);
+    await client.hello('live-sdk-named-agents-worker');
+    const worker = new AgentWorker(client, {
+      workerId: 'live-sdk-named-agents-worker',
+      pins: {
+        workspace: [{ surface: 'repo', revision_id: 'rev-a' }],
+        streams: [],
+      },
+    });
+    await worker.attach();
+
+    const runClient = await connectClient(dataDir);
+    await runClient.hello('live-sdk-named-agents-run');
+    const captured: Record<string, { summary: string; artifacts: string[] }> = {};
+    const handle = flow('named-agents', {
+      agents: {
+        reviewer: { cli, model: 'stub-model' },
+        fixer: { cli, model: 'stub-model' },
+      },
+    }, async (f) => {
+      captured['reviewer'] = await f.agent('reviewer', { task: 'review the diff' });
+      captured['fixer'] = await f.agent('fixer', { task: 'fix what reviewer found' });
+      f.done('success');
+    });
+
+    let result: Awaited<ReturnType<typeof executeAuthoredFlow>>;
+    try {
+      result = await executeAuthoredFlow(handle, runClient, undefined, {
+        flowPath: join(directory, 'named-agents.flow.ts'),
+      });
+    } finally {
+      await worker.close();
+    }
+
+    expect(result.completionReason).toBe('success');
+    expect(captured['reviewer']?.summary).toBe('handled: review the diff');
+    expect(captured['fixer']?.summary).toBe('handled: fix what reviewer found');
+  });
+
   it("f.agent's default flowPath anchors on cwd, not cwd's parent", async () => {
     // checkAuthoredFlow (cli/check.ts) always does dirname() on the path it's
     // given, matching flows check's real contract: a FILE path in, its

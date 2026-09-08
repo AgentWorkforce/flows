@@ -40,6 +40,31 @@ describe("flow", () => {
     expect(Object.isFrozen(getFlowDefinition(definition).header.tools?.mcp)).toBe(true);
   });
 
+  it("accepts named agent declarations and freezes them deeply", () => {
+    const header = {
+      agents: {
+        reviewer: { cli: "claude", model: "claude-sonnet-4-6" },
+        fixer: { cli: "codex", model: "gpt-5-codex" },
+      },
+    };
+    const definition = flow(
+      "multi-agent",
+      header,
+      async () => undefined,
+    );
+
+    header.agents.reviewer.model = "mutated-after-definition";
+    expect(getFlowDefinition(definition).header).toEqual({
+      agents: {
+        reviewer: { cli: "claude", model: "claude-sonnet-4-6" },
+        fixer: { cli: "codex", model: "gpt-5-codex" },
+      },
+    });
+    const frozenAgents = getFlowDefinition(definition).header.agents;
+    expect(Object.isFrozen(frozenAgents)).toBe(true);
+    expect(Object.isFrozen(frozenAgents?.reviewer)).toBe(true);
+  });
+
   it("validates raw header keys and nested values before cloning", () => {
     const invalidHeaders: { value: unknown; message: string }[] = [
       {
@@ -85,6 +110,30 @@ describe("flow", () => {
       {
         value: { tools: { mcp: "github" } },
         message: "header.tools.mcp: expected an array of strings",
+      },
+      {
+        value: { agents: { reviewer: { cli: "claude" } } },
+        message: "header.agents.reviewer.model: expected a non-empty string",
+      },
+      {
+        value: { agents: { reviewer: { model: "claude-sonnet-4-6" } } },
+        message: "header.agents.reviewer.cli: expected a non-empty string",
+      },
+      {
+        value: { agents: { reviewer: { cli: "claude", model: "" } } },
+        message: "header.agents.reviewer.model: expected a non-empty string",
+      },
+      {
+        value: { agents: { reviewer: { cli: "claude", model: "m", typo: true } } },
+        message: 'header.agents.reviewer: unknown field "typo"',
+      },
+      {
+        value: { agents: { reviewer: "claude" } },
+        message: "header.agents.reviewer: expected an object",
+      },
+      {
+        value: { agents: "reviewer" },
+        message: "header.agents: expected an object",
       },
       {
         value: Object.create({ identity: "inherited" }),

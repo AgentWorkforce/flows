@@ -1,4 +1,6 @@
-import { rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Server } from 'node:net';
 import { flow, type Ctx, type FlowHeader } from '@relayflows/surface';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -187,6 +189,95 @@ describe('authored flow journal executor', () => {
     ), disconnectedJournal))()).rejects.toThrow(
       'flow "invalid-nested-header" header.tools: unknown field "typo"',
     );
+  });
+
+  describe('named agent declarations', () => {
+    function namedAgentFixture(models: string[]): { directory: string; flowPath: string } {
+      const directory = mkdtempSync(join(tmpdir(), 'authored-named-agent-'));
+      writeFileSync(join(directory, 'flows.json'), JSON.stringify({ models }));
+      return { directory, flowPath: join(directory, 'flow.ts') };
+    }
+
+    it('resolves a named declaration\'s CLI, refusing before contacting the journal if it is missing', async () => {
+      const { directory, flowPath } = namedAgentFixture(['known-model']);
+      const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+      const absentCli = join(directory, 'nonexistent-cli');
+
+      await expect(executeAuthoredFlow(flow(
+        'named-agent-cli-missing',
+        { agents: { reviewer: { cli: absentCli, model: 'known-model' } } },
+        async (f) => {
+          await f.agent('reviewer', { task: 'review this' });
+          f.done('success');
+        },
+      ), disconnectedJournal, undefined, { flowPath })).rejects.toMatchObject({
+        code: 'agent_cli_unresolved',
+        message: expect.stringContaining(
+          `declares CLI "${absentCli}", but it does not resolve as an executable`,
+        ),
+      });
+    });
+
+    it('lets a step-level cli override win over the named declaration', async () => {
+      const { directory, flowPath } = namedAgentFixture(['known-model']);
+      const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+      const namedCli = join(directory, 'named-absent-cli');
+      const stepCli = join(directory, 'step-absent-cli');
+
+      await expect(executeAuthoredFlow(flow(
+        'named-agent-step-override',
+        { agents: { reviewer: { cli: namedCli, model: 'known-model' } } },
+        async (f) => {
+          await f.agent('reviewer', { task: 'review this', cli: stepCli });
+          f.done('success');
+        },
+      ), disconnectedJournal, undefined, { flowPath })).rejects.toMatchObject({
+        code: 'agent_cli_unresolved',
+        message: expect.stringContaining(`declares CLI "${stepCli}"`),
+      });
+    });
+
+    it('does not treat an unrelated f.agent name as a named-agent selector', async () => {
+      // "reviewer" is declared, but this step names "someone-else" — compile.ts's
+      // resolveNamedAgent throws "unknown named agent" for any step.agent that
+      // doesn't resolve, so if lowerAgent set `agent` unconditionally from
+      // `name`, this would refuse with that error instead of falling through
+      // to the (missing) flows.json project default like every undecorated
+      // f.agent call does today.
+      const { flowPath } = namedAgentFixture(['known-model']);
+      const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+
+      await expect(executeAuthoredFlow(flow(
+        'named-agent-name-not-selector',
+        { agents: { reviewer: { cli: 'claude', model: 'known-model' } } },
+        async (f) => {
+          await f.agent('someone-else', { task: 'x' });
+          f.done('success');
+        },
+      ), disconnectedJournal, undefined, { flowPath })).rejects.toMatchObject({
+        code: 'agent_cli_unresolved',
+        message: expect.not.stringContaining('unknown named agent'),
+      });
+    });
+
+    it('refuses a named declaration whose model is not in the project registry', async () => {
+      const { directory, flowPath } = namedAgentFixture(['some-other-model']);
+      const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+
+      await expect(executeAuthoredFlow(flow(
+        'named-agent-model-unknown',
+        { agents: { reviewer: { cli: join(directory, 'irrelevant-cli'), model: 'unlisted-model' } } },
+        async (f) => {
+          await f.agent('reviewer', { task: 'review this' });
+          f.done('success');
+        },
+      ), disconnectedJournal, undefined, { flowPath })).rejects.toMatchObject({
+        code: 'agent_cli_unresolved',
+        message: expect.stringContaining(
+          'Named agent "reviewer" declares model "unlisted-model"',
+        ),
+      });
+    });
   });
 
   it('refuses every unawaited thenable-producing verb before terminal success', async () => {

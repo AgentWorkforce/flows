@@ -188,11 +188,19 @@ No process runs between events: the handler wakes, executes to its next await, p
 
    **Project-config discovery:** starting in the flow file's directory, `flows check` walks parent directories through the filesystem root and selects the first readable `flows.json`. That nearest file is the whole project config; it is not merged with outer files. Its schema is `{ "cli"?: <non-empty string>, "executors"?: <non-empty string>[], "models"?: <trimmed model string>[] }`; unknown keys, malformed model entries, and duplicates fail closed as `config_invalid`. A nearer config therefore defines a self-contained nested project boundary and prevents accidental inheritance of outer credentials, executors, or model approvals. The selected path is printed with project-level resolutions and named in refusals; if it declares no `cli` or models, outer configs remain shadowed. At gate 1, a trigger executor is considered registered only when its name is present in this author-written `executors` array; `flows check` does not yet contact a registry, broker, or RelayCron, and absence is `no_executor`.
 
-   Implementation status for issue #132: this named-agent contract currently
-   ships in the canonical declarative YAML/JSON compiler. Matching
-   `FlowHeader.agents` TypeScript types depend on the separately reviewed,
-   unmerged `@relayflows/surface` package in PR #134 and are a follow-on after
-   that package lands; this compiler slice does not duplicate that package.
+   Implementation status for issue #132: this named-agent contract ships for
+   both dialects. `@relayflows/surface`'s `FlowHeader.agents` (a
+   `Record<string, { cli, model }>`) declares the same named-agent map in
+   TypeScript; `authored-flow-executor.ts`'s `f.agent(name, options)` selects
+   a declared entry by matching `name` against it (falling through to the
+   flow/project CLI default when `name` matches nothing, so existing calls
+   that use `name` only for step-id readability are unaffected), and
+   `options.cli`/`options.model` are step-level overrides with the same
+   highest-priority resolution as the declarative dialect's inline
+   `cli`/`model` step fields. Both dialects share the same underlying
+   `FlowSpec.agents` / preflight resolution (`packages/sdk/src/preflight.ts`,
+   `compile.ts`) — this is one contract compiled from two front ends, not two
+   separate implementations.
 7. **Two dialects, one journal.** Declarative YAML — data, fully preflightable, sage's compile target, gate 9's self-authoring output. Imperative TS — journal-memoized function, maximum ergonomics. YAML is canonical; TS is the power tool. TS preflights its declared surface (agents, helpers, tools, identity), not arbitrary control flow — declared honestly per covenant 2.
 
 ### Structured output declarations

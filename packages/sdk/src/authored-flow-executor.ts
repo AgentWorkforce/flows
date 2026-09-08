@@ -134,11 +134,16 @@ export async function executeAuthoredFlow<Input = undefined>(
     ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
   };
   const definition = getDefinition<Input>(handle);
-  const headerFields = Object.keys(definition.header);
-  if (headerFields.length > 0) {
+  // `agents` is the one header field this executor lowers today (into
+  // `FlowSpec.agents`, resolved by `lowerAgent` below exactly like the
+  // declarative dialect's `agents:` map). Every other header field remains
+  // unimplemented and refuses closed rather than being silently ignored.
+  const unsupportedHeaderFields = Object.keys(definition.header)
+    .filter((field) => field !== 'agents');
+  if (unsupportedHeaderFields.length > 0) {
     throw new AuthoredFlowExecutionError(
       'unsupported_header',
-      `flow "${definition.name}" uses unsupported header fields: ${headerFields.join(', ')}`,
+      `flow "${definition.name}" uses unsupported header fields: ${unsupportedHeaderFields.join(', ')}`,
     );
   }
 
@@ -161,15 +166,22 @@ export async function executeAuthoredFlow<Input = undefined>(
     return readSuccessfulOutput(journal, outcome, id, journalSteps);
   };
 
-  // `name` (the first f.agent argument, e.g. "fixer") is not wired to the
-  // kernel's `agent` field: that field selects a NAMED declaration from
-  // `FlowSpec.agents`, and this executor refuses every non-empty header
-  // (see the top of this function) — an authored flow has no way to declare
-  // one today. `name` is kept only for step-id readability; CLI selection
-  // goes through the project's flows.json default below, same as it does
-  // for a bare `type: agent` YAML step with no explicit `cli`.
+  // `name` (the first f.agent argument, e.g. "fixer") selects a NAMED
+  // declaration from the flow header's `agents` map, exactly like the
+  // declarative dialect's `agent: fixer` step field selects from a top-level
+  // `agents:` map — but ONLY when `name` actually matches a declared entry.
+  // `compile.ts`'s `resolveNamedAgent` throws `unknown named agent` for any
+  // `step.agent` that doesn't resolve, so setting it unconditionally would
+  // break every call that uses `name` purely for step-id readability (the
+  // common case, and every pre-existing `f.agent` caller). When there's no
+  // match, `agent` stays unset and CLI selection falls through to the
+  // project's flows.json default below, same as a bare `type: agent` YAML
+  // step with no explicit `cli`/`agent`. `options.cli`/`options.model`
+  // always pass through as step-level overrides, which win over any named
+  // declaration independent of whether `name` matched one.
   const lowerAgent = async (
     id: string,
+    name: string,
     options: AgentOptions,
   ): Promise<AgentResult> => {
     if (options.workspace !== undefined && WORKSPACE_PERMISSION_ANNOTATION.test(options.workspace)) {
@@ -184,13 +196,19 @@ export async function executeAuthoredFlow<Input = undefined>(
           + 'if you do not need enforcement, or use the declarative spec\'s `permissions` field, which is real.',
       );
     }
+    const namedAgents = definition.header.agents;
+    const matchesNamedAgent = namedAgents !== undefined && Object.hasOwn(namedAgents, name);
     const authoring: FlowSpec = {
       version: SPEC_SCHEMA_VERSION,
       name: `${definition.name}/${id}`,
+      ...(namedAgents === undefined ? {} : { agents: { ...namedAgents } }),
       steps: [{
         id,
         type: 'agent',
         instruction: options.task,
+        ...(matchesNamedAgent ? { agent: name } : {}),
+        ...(options.cli === undefined ? {} : { cli: options.cli }),
+        ...(options.model === undefined ? {} : { model: options.model }),
         ...(options.workspace === undefined ? {} : {
           surfaces: { workspace: [{ surface: options.workspace }] },
         }),
@@ -276,13 +294,12 @@ export async function executeAuthoredFlow<Input = undefined>(
     },
     agent(name, options) {
       assertOperationAllowed('agent', definition.name, requestedCompletion);
-      void name; // step-id readability only — see the comment on lowerAgent.
       const id = `agent-${nextStep++}`;
       return trackStep(authoredSteps, new AuthoredFlowOperation(
         id,
         'agent',
         () => assertOperationAllowed('agent', definition.name, requestedCompletion),
-        () => lowerAgent(id, options),
+        () => lowerAgent(id, name, options),
         lifecycle,
       ));
     },

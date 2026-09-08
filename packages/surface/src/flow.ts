@@ -1,5 +1,16 @@
 import type { Ctx } from "./context.js";
 
+/**
+ * A reusable agent CLI/model pair, selectable by name from `f.agent(name, ...)`.
+ * Both fields are required so selecting a named agent can never inherit a
+ * host model — mirrors the kernel-spec dialect's `NamedAgentSpec`
+ * (`packages/sdk/src/spec.ts`), which this compiles into.
+ */
+export interface NamedAgentDeclaration {
+  cli: string;
+  model: string;
+}
+
 /** Optional escalation header; the empty header is the common case. */
 export interface FlowHeader {
   identity?: string;
@@ -7,6 +18,7 @@ export interface FlowHeader {
   budget?: string;
   tools?: { relayfile?: string[]; mcp?: string[] };
   workspace?: string;
+  agents?: Record<string, NamedAgentDeclaration>;
 }
 
 export type FlowBody<Input = unknown> = (f: Ctx, input: Input) => Promise<void>;
@@ -20,6 +32,7 @@ export interface ReadonlyFlowHeader {
     mcp?: readonly string[];
   }>;
   readonly workspace?: string;
+  readonly agents?: Readonly<Record<string, Readonly<NamedAgentDeclaration>>>;
 }
 
 /** Immutable definition retained for the SDK's journal-backed runtime. */
@@ -119,6 +132,7 @@ function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
     "budget",
     "tools",
     "workspace",
+    "agents",
   ].includes(field));
   if (unknownFields.length > 0) {
     throw new TypeError(`flow header has unknown fields: ${unknownFields.join(", ")}`);
@@ -136,12 +150,23 @@ function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
           ? {}
           : { mcp: Object.freeze([...header.tools.mcp]) }),
       });
+  const agents = header.agents === undefined
+    ? undefined
+    : Object.freeze(
+        Object.fromEntries(
+          Object.entries(header.agents).map(([name, declaration]) => [
+            name,
+            Object.freeze({ ...declaration }),
+          ]),
+        ),
+      );
   return Object.freeze({
     ...(header.identity === undefined ? {} : { identity: header.identity }),
     ...(memory === undefined ? {} : { memory }),
     ...(header.budget === undefined ? {} : { budget: header.budget }),
     ...(tools === undefined ? {} : { tools }),
     ...(header.workspace === undefined ? {} : { workspace: header.workspace }),
+    ...(agents === undefined ? {} : { agents }),
   });
 }
 
@@ -150,7 +175,7 @@ function assertFlowHeader(value: unknown, flowName: string): asserts value is Fl
   assertHeaderObject(value, at);
   assertKnownKeys(
     value,
-    ["identity", "memory", "budget", "tools", "workspace"],
+    ["identity", "memory", "budget", "tools", "workspace", "agents"],
     at,
   );
   assertOptionalString(value, "identity", at);
@@ -177,6 +202,17 @@ function assertFlowHeader(value: unknown, flowName: string): asserts value is Fl
     );
     assertOptionalStringArray(value.tools, "relayfile", `${at}.tools`);
     assertOptionalStringArray(value.tools, "mcp", `${at}.tools`);
+  }
+
+  if (value.agents !== undefined) {
+    assertHeaderObject(value.agents, `${at}.agents`);
+    for (const [name, declaration] of Object.entries(value.agents)) {
+      const declarationAt = `${at}.agents.${name}`;
+      assertHeaderObject(declaration, declarationAt);
+      assertKnownKeys(declaration, ["cli", "model"], declarationAt);
+      assertRequiredString(declaration, "cli", declarationAt);
+      assertRequiredString(declaration, "model", declarationAt);
+    }
   }
 }
 
@@ -217,6 +253,16 @@ function assertOptionalString(
 ): void {
   if (value[key] !== undefined && typeof value[key] !== "string") {
     throw new TypeError(`${at}.${key}: expected a string`);
+  }
+}
+
+function assertRequiredString(
+  value: Record<string, unknown>,
+  key: string,
+  at: string,
+): void {
+  if (typeof value[key] !== "string" || value[key].trim().length === 0) {
+    throw new TypeError(`${at}.${key}: expected a non-empty string`);
   }
 }
 
