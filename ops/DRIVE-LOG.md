@@ -16509,3 +16509,38 @@ one command, or a preview-scoped credential minted for this purpose.
 (`deploymentSha a552f391`), carries a red-then-green unit test reproducing the
 production key list, and on the previous stage a v2 run sat `pending` 296s with
 no error where unfixed stages failed terminally at ~166s.
+
+## 2026-09-08 ~21:20Z — reviewed the lane's work by running it
+
+Item 2 still blocked on the preview login (401 on whoami confirmed again).
+Items 3 and 4 merged on 09-04. So the real work was reviewing flows#244, which
+the hardening lane delivered: +1099/-112 across 9 files, two commits.
+
+**All three delegated findings are genuinely fixed, and the scope design is
+better than what I specified.** I asked for a diff gate. What landed also
+guards the gate itself:
+
+    git diff --exit-code HEAD -- ops/local-work-package.mjs \
+      ops/local-work-verification.mjs ops/BACKLOG.md \
+      workflows/drive-local.yaml packages/sdk/src/backlog-picker.ts
+
+run **before** the verifier executes. An agent that edits the gate to pass is
+caught by the diff guard first. That is decision 6 implemented rather than
+asserted, and I did not ask for it.
+
+Tested rather than read. A real out-of-scope edit produces
+`AssertionError: OUT_OF_SCOPE: README.md`, rc=1. Verification is executable —
+`PACKAGE_VERIFIED: 1 check(s)` — and `INVALID_EXECUTABLE_CHECK` guards the
+degenerate empty-check case, which is the right instinct: a check list that can
+be empty is a gate that cannot fail. The `indexOf` bug is gone, replaced by a
+line-structural advance.
+
+**And I nearly filed a wrong finding.** The first thing I saw from `scope` was a
+Node stack trace ending in `diff: 'simple'`, and I started writing it up as a
+gate that fails opaquely — the exact class I have fixed three times tonight.
+Reading the whole output instead of its tail showed the assertion message names
+both the reason and the offending file. It is a presentation nit, not a missing
+diagnosis, and I filed it as such.
+
+Reviewed on the PR, not merged. Same rule as everything else: the signoff has to
+be someone other than me.
