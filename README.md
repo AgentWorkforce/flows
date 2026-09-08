@@ -13,16 +13,16 @@ reliable results.
 import { flow } from "@relayflows/surface";
 
 export default flow("fix-failing-tests", async (f) => {
-  const result = await f
-    .run("npm test 2>&1; echo EXIT:$?")
-    .gate((out) => !out.includes("EXIT:0"), "tests are already green, nothing to fix");
+  const result = await f.run("npm test 2>&1; echo EXIT:$?");
+  if (result.includes("EXIT:0")) {
+    f.done("success"); // already green, nothing to fix
+    return;
+  }
 
-  const fix = await f
-    .agent("fixer", {
-      task: `The test suite is failing. Diagnose and fix it:\n${result}`,
-      workspace: "src/**: readwrite",
-    })
-    .gate((r) => r.artifacts.length > 0, "the agent must actually change something");
+  await f.agent("fixer", {
+    task: `The test suite is failing. Diagnose and fix it:\n${result}`,
+    workspace: "src",
+  });
 
   f.done("success");
 });
@@ -47,26 +47,45 @@ npm install -g relayflows
 mkdir my-flow && cd my-flow && npm install @relayflows/surface
 ```
 
-Write a flow — save this as `hello.flow.ts`:
+Write a flow — save this as `explain-env.flow.ts`. It runs a deterministic step, then hands the result to a real coding agent:
 ```ts
 import { flow } from "@relayflows/surface";
 
-export default flow("hello", async (f) => {
-  await f.run('echo "hello from a relayflow"');
+export default flow("explain-env", async (f) => {
+  const versions = await f.run("node --version && npm --version");
+
+  const result = await f.agent("explainer", {
+    task: `Given this Node/npm version output, write one sentence noting anything\n`
+      + `worth flagging (EOL, mismatch, etc):\n${versions}`,
+    workspace: "src",
+  });
+
+  console.log(result.summary);
   f.done("success");
 });
 ```
 
+Tell `flows` which agent CLI to dispatch to by adding a `flows.json` next to it:
+```json
+{ "cli": "claude" }
+```
+
 Run it:
 ```sh
-flows run hello.flow.ts --input '{}'
+flows run explain-env.flow.ts --input '{}'
 ```
 
-That's the whole loop — `flows run` spins up the local kernel itself on first use, no separate daemon step. You should see a completed run report.
+The `f.run` step always executes locally. The `f.agent` step needs a *worker* attached to run the agent — without one, `flows run` parks the run cleanly (`agent_parked`, exit code 3) instead of hanging, so you always get a clear diagnostic rather than a silent stall. Locally, workers are attached by the same process that's driving your agent session; in the cloud (below), a worker is always attached for you.
 
-`f.run` and `f.agent` both actually dispatch today. `f.agent` runs a real coding-agent CLI the same way a declarative `type: agent` step does — it needs a `flows.json` in your project declaring which CLI to use (see `docs/SURFACE.md` §5 and `packages/sdk/src/cli/check.ts`'s `readProjectConfig`); without one, `flows run` refuses with a clear `agent_cli_unresolved` diagnostic rather than hanging. `f.llm`, `f.human`, `f.dispatch`, and `f.cloud` are still `docs/SURFACE.md`'s design surface, not yet runnable — see [`examples/`](examples/) for what the full shape looks like, and each example's own README for exactly what runs today versus what's still landing.
+`f.llm`, `f.human`, and `f.dispatch` are still design surface, not yet runnable — see [`examples/`](examples/) for the full shape and each example's own README for what runs today.
 
-Give your agent a skill to write a flow:
+## Running in the cloud
+
+The same flow file runs unmodified on Agent Relay's hosted infrastructure via `agent-relay`, with a worker already attached:
 ```sh
-npx skills add https://github.com/agentworkforce/skills --skill writing-relayflows
+agent-relay cloud run explain-env.flow.ts --file-type ts --relayflow-version v2 --sync-code
 ```
+
+`agent-relay cloud schedule` can run a flow like this on a recurring schedule, turning it into a standing automation — a nightly dependency check, a daily digest, a recurring review pass — with the same observable, resumable run history you get locally.
+
+Both paths are real and reachable today, but rolling out gradually: `--relayflow-version v2` admission for `cloud run` is being enabled account-by-account (a 503 `relayflow_v2_admission_disabled` means yours isn't flipped on yet), and `cloud schedule` currently only accepts `v1` for recurring runs — `v2` scheduling is on the way.
