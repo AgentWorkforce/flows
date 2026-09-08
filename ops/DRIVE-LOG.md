@@ -4750,3 +4750,36 @@ here — worth stating plainly, because reading it as one would misreport the PR
 
 Not merging either PR: both need an independent signoff at the exact head, I am
 not independent of work I commissioned, and a cloud merge push-deploys.
+
+### 2026-09-09 — built a test-only branch carrying both fixes; stage deploying
+
+Drain: 0 pending of 1873. #3461 CLEAN, #3459 UNKNOWN (GitHub computing, nothing
+failing). Disk 7.7Gi.
+
+Neither PR can merge — both need an independent signoff I cannot give, and a
+cloud merge push-deploys. But the fixes can still be **proven** without merging,
+using the branch-ref deploy that already worked for #3457.
+
+One trap first: #3461 branches from main, which does **not** carry #3457's
+Relaycast `_DEV` seeding. Deploying from #3461 alone would have fixed RelayAuth
+and immediately reintroduced the Relaycast 401 — and I would probably have read
+that as "the schema fix did not work".
+
+So I built a **test-only** branch `test/combined-proof-0909` from
+`dig/relayauth-api-key-schema-0909` merged with
+`fix/preview-relaycast-dev-secret`. Clean merge, zero conflicts. Asserted both
+fixes are actually present rather than assuming the merge did what I wanted:
+
+```
+RELAYCAST_INTERNAL_SECRET_DEV in preview.yml : 2 occurrences
+d1-test-database.ts present                  : yes
+api-keys.ts adapter                          : +87/-20 vs main
+```
+
+Deployed the pr-3446 stage from that ref — run **34287226203**. This branch
+exists only to prove the pair works together; it is not a merge path and nothing
+lands on main from it.
+
+If the v1 canary comes back without the 500, the whole chain — Relaycast secret,
+schema adapter — is verified end to end, and the #3270 v2 proof becomes runnable
+for the first time tonight.
