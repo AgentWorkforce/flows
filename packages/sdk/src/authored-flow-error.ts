@@ -5,6 +5,7 @@ import type {
 
 export type AuthoredFlowExecutionErrorCode =
   | 'agent_cli_unresolved'
+  | 'agent_parked'
   | 'duplicate_completion'
   | 'journal_protocol_violation'
   | 'missing_completion'
@@ -16,6 +17,7 @@ export type AuthoredFlowExecutionErrorCode =
   | 'unsupported_header'
   | 'unsettled_derived_work'
   | 'unsupported_promise_lifecycle'
+  | 'unsupported_workspace_permission'
   | 'unawaited_step'
   | 'unsupported_verb';
 

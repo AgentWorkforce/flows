@@ -146,6 +146,29 @@ describe('authored flow journal executor', () => {
     }), disconnectedJournal)).rejects.toMatchObject({ code: 'unsupported_gate' });
   });
 
+  it('refuses a workspace permission annotation f.agent cannot enforce, before contacting the journal', async () => {
+    const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+
+    for (const workspace of ['src/**: readonly', 'src/**: readwrite', 'src/**:readonly']) {
+      await expect(executeAuthoredFlow(flow('workspace-permission-not-enforced', async (f) => {
+        await f.agent('worker', { task: 'must not dispatch', workspace });
+        f.done('success');
+      }), disconnectedJournal)).rejects.toMatchObject({
+        code: 'unsupported_workspace_permission',
+      });
+    }
+
+    // A bare surface name (no permission annotation) is unaffected — this
+    // suite's other f.agent cases already exercise the resolved path; this
+    // one only needs to prove the annotation check does not over-match.
+    await expect(executeAuthoredFlow(flow('workspace-bare-surface', async (f) => {
+      await f.agent('worker', { task: 'x', workspace: 'repo' });
+      f.done('success');
+    }), disconnectedJournal)).rejects.not.toMatchObject({
+      code: 'unsupported_workspace_permission',
+    });
+  });
+
   it('rejects invalid raw headers before the executor can contact the journal', async () => {
     const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
 
