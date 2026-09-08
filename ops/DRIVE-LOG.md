@@ -14407,3 +14407,32 @@ non-open PR and prod has v2 admission off. Opening a PR on cloud purely as a
 preview vehicle is a call I should not make unattended. Say the word and it
 goes up with the recovered artifact quad. The `dry_run=false` sweep is still
 wanted for the swarms, but it is no longer what stands between us and the demo.
+
+## 2026-09-08 ~02:10Z — closed a hole in my own verification; otherwise quiet
+
+Two checks, both aimed at claims I had made without fully testing.
+
+**Is there a stage other than preview that admits v2?** I had ruled out prod
+from memory of a 503, and I had listed the production environment's variables
+once — but only looked at the first ten, which are alphabetically A through L.
+`RELAYFLOW_V2_ADMISSION_EPOCH` would sort after that, so I had never actually
+seen the part of the list that would have contradicted me. Checked properly:
+production carries 17 variables and none of them is the admission epoch. Dev
+has 23 and none either. The conclusion survives — preview is the only stage
+that admits v2, and it enables itself — but I had been asserting it on a
+listing that could not have shown me otherwise.
+
+**#235's own review failed the same way.** Run 34176721982, 5m30s, and the log
+says exactly `Review swarm did not complete successfully: failed`. Its cloud
+run 3bfbba35 carries the same `Total CPU limit exceeded. Maximum allowed: 250`.
+That is the sixth instance. The PR that surfaces the reason was blocked by the
+unsurfaced reason, and cannot fix its own diagnosis: the gate runs
+`.github/workflows/review-swarm.yml` from the base ref, so the change only
+takes effect once merged. cubic passed, CodeRabbit skipped as OSS-manual.
+
+Capacity sample five, recorded and not interpreted: unchanged in shape,
+`managedInWorkspace` still 104.
+
+Nothing else is actionable without Khaliq. The one open question stands from
+01:50Z: whether to open a cloud PR purely to host a preview stage for the
+#3270 proof. Artifact quad is recovered and waiting.
