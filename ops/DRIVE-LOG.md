@@ -3788,3 +3788,46 @@ Prod `cast.agentrelay.com` remains excluded.
 Note the cost shape: each attempt is a ~17 min deploy, so the candidate order
 matters. If 404 persists on dev-cast, the workspace itself does not exist on any
 gateway and the fix moves to workspace provisioning, not URL selection.
+
+### 2026-09-08 — Relaycast triangulated: no gateway satisfies both conditions. BLOCKED on a secret.
+
+Preview 34236980774 (`relaycast_url=https://dev-cast.agentrelay.com`) completed
+success. v1 canary `1ee31668`:
+
+```
+Relaycast workspace key repair failed: 401 Invalid internal token
+```
+
+Three targets, three distinct errors — the blocker is now fully characterized:
+
+| gateway | result | means |
+|---|---|---|
+| `preview-pr-3446-cast.agentrelay.com` (default) | 530 | host has no origin at all |
+| `preview-pr-3446-gateway.relaycast.dev` | 404 Workspace not found | shares the stage secret, but its DB has no workspace record |
+| `dev-cast.agentrelay.com` | 401 Invalid internal token | knows the workspace, but rejects the stage's internal token |
+
+**The two requirements are split across two gateways and no single target
+satisfies both.** The preview stage authenticates with its own
+`Resource.RelaycastInternalSecret` (`relay-workspace.ts:136`); dev-cast is
+deployed by the relaycast-cloud repo with a different one. The 401 is direct
+evidence the token was rejected, not an inference.
+
+**This is where I stop.** Every remaining path needs secret material:
+
+- give the preview stage dev-cast's internal secret, or
+- provision workspace `50587328-441d-4acb-b8f3-dbe1b3c5de99` on the preview's
+  own gateway, or
+- deploy the preview gateway with the shared secret.
+
+Khaliq's standing constraint is "do NOT create, rotate or print any secret
+value", so I will not attempt any of them. Prod `cast.agentrelay.com` stays
+excluded regardless — a preview must not mint keys against prod Relaycast.
+
+Worth stating plainly: the repoint Khaliq authorized **did** work. It moved the
+failure from an unreachable host to a live gateway twice over. It cannot finish
+the job because the stage lacks credentials for the only gateway that holds the
+workspace. That is a provisioning gap in preview stages, not a v2 defect and
+not a #3446 regression.
+
+Unchanged: authority tuple populates, 3 of 4 v2 gates pass, no relayflow has yet
+reached compute (`sandboxId` null on all nine runs), #3446 held unmerged.
