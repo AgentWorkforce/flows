@@ -1,0 +1,66 @@
+# Restack-verify — the deterministic gate that runs after merging the base
+# branch into a long-lived feature branch.
+#
+# Provenance: on 2026-09-07 this exact sequence was hand-driven EIGHT times
+# against cloud#3270 across a single evening. Every step below is a check that
+# was typed out by hand, repeatedly, and three of the defects found that night
+# were introduced BY a restack and existed in neither parent:
+#
+#   - a renumbered migration whose cumulative snapshot still described its old
+#     position (87 tables where the base had 90)
+#   - a policy file whose emptied exemption list was silently re-populated from
+#     the stale side of the merge
+#   - a test from the base branch meeting a guard from the feature branch, so
+#     that neither side was wrong and the combination was
+#
+# None of those produce a conflict marker. That is the point of this flow: a
+# clean `git merge` is not evidence, and the checks that catch these are
+# mechanical, so a human should not be running them from memory eight times.
+#
+# Usage from a repo checkout, after merging your base branch:
+#
+#   flows run workflows/restack-verify.yaml
+#
+# Exit 0 = these structural checks passed or were inapplicable.
+# Table loss fails pending semantic schema verification; this does not prove
+# SQL/schema equivalence or run the target repo test suites.
+# Non-zero = one named check failed.
+#
+# Gate: exit_code == 0 is implicit for deterministic steps; each runner exits
+# non-zero on its own failure. No output_contains gate is layered on top —
+# a substring match on a diff-derived body is fail-open, per the reasoning
+# already recorded in workflows/preswarm-check.yaml.
+
+version: '0.1.0'
+name: restack-verify
+description: >
+  Verify a just-merged base branch did not silently break the feature branch:
+  no leftover conflict markers, migration journal still coherent, worker env
+  bindings still accounted for. Run the target repo test suites separately.
+
+steps:
+  - id: no-conflict-markers
+    type: deterministic
+    dependsOn: []
+    timeoutMs: 120000
+    # Cheapest possible check, and it must run first: every later result is
+    # meaningless if a marker is sitting in a tracked file.
+    command: "sh ops/restack-verify/no-conflict-markers.sh"
+
+  - id: migration-journal
+    type: deterministic
+    dependsOn: [no-conflict-markers]
+    timeoutMs: 300000
+    # Checks duplicate tags, orphaned .sql files, snapshot lineage, and
+    # strictly increasing migration timestamps. Table loss blocks until semantic
+    # verification distinguishes an intentional drop from a stale snapshot.
+    command: "sh ops/restack-verify/migration-journal.sh"
+
+  - id: worker-bindings
+    type: deterministic
+    dependsOn: [no-conflict-markers]
+    timeoutMs: 300000
+    # Catches the class where the merge adds an env binding that the
+    # deploy-time config does not declare. Skips cleanly in repos that have no
+    # such gate rather than failing them.
+    command: "sh ops/restack-verify/worker-bindings.sh"

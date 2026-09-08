@@ -1,0 +1,34 @@
+# PR #230 local verification
+
+Run from this PR checkout. Temporary-fixture checks, not deployed workload or independent signoff.
+
+The follow-up retains table-loss refusal because coherent lineage cannot prove
+a removed table intentional. The diagnostic calls for semantic verification
+rather than asserting every drop is a stale snapshot. No bypass was added.
+
+```text
+$ python3 ops/restack-verify/test_checks.py
+test_bindings_inapplicable_skips (__main__.RestackChecks) ... ok
+test_bindings_missing_config_fails (__main__.RestackChecks) ... ok
+test_bindings_missing_script_fails (__main__.RestackChecks) ... ok
+test_bindings_passes_config_argument (__main__.RestackChecks) ... ok
+test_bindings_propagates_checker_failure (__main__.RestackChecks) ... ok
+test_broken_snapshot_chain_fails (__main__.RestackChecks) ... ok
+test_clean_tracked_file_ignores_untracked_markers (__main__.RestackChecks) ... ok
+test_empty_journal_passes (__main__.RestackChecks) ... ok
+test_equal_or_out_of_order_timestamps_fail (__main__.RestackChecks) ... ok
+test_git_error_fails (__main__.RestackChecks) ... ok
+test_lockfile_conflicts_fail (__main__.RestackChecks) ... ok
+test_missing_entries_fails (__main__.RestackChecks) ... ok
+test_missing_sql_fails (__main__.RestackChecks) ... ok
+test_orphan_sql_fails (__main__.RestackChecks) ... ok
+test_table_loss_requires_semantic_verification (__main__.RestackChecks) ... ok
+test_valid_lineage_passes (__main__.RestackChecks) ... ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 0.421s
+
+OK
+
+exit_code=0
+```
