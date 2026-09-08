@@ -4273,3 +4273,33 @@ logs, or a decision to stop chasing the demo and bank #3457.
 
 #3457 is worth merging on its own merits regardless: it stops every ephemeral
 preview being seeded with the production Relaycast bearer.
+
+### 2026-09-08 — narrowed the RelayAuth 500 by elimination; still blocked on logs
+
+Drain: nothing pending. Disk 11Gi. Spent the tick narrowing the new blocker with
+read-only checks rather than redeploying blind.
+
+Ruled out:
+
+- **Service down.** `preview-pr-3446-api.relayauth.dev/health` returns
+  `200 {"status":"ok"}`; other paths return a clean `401 missing_authorization`.
+  The Worker is up and routing.
+- **Database never migrated.** `run-cloudflare-d1-migrations/run.sh` explicitly
+  resolves `relayauthDatabaseId` and migrates it, and that step was green on the
+  preview build (34264478068).
+- **Wrong pinned database.** `infra/relayauth-primary-database.ts` returns the
+  promoted primary **only** for `stage === "production" | "prod"`, so a preview
+  stage gets its own SST-created D1 rather than inheriting a pinned one.
+
+So it is not a dead service, an unmigrated schema, or a mis-pinned database.
+A 500 on the authenticated `POST /v1/identities` with those three excluded needs
+the Worker's own logs to go further, and `/health` returning ok tells me only
+that the health path does not touch whatever is failing.
+
+Still blocked, still escalated. This is the second question tonight that ends at
+the same missing capability (the v2 masking hypothesis was the first), which is
+why I asked for `wrangler tail` rather than continuing to guess.
+
+Unchanged and worth repeating: the Relaycast blocker IS fixed and proven, and
+cloud#3457 should merge on its own merits — it stops seeding the production
+Relaycast bearer into every ephemeral preview.
