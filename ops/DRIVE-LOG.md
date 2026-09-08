@@ -3656,3 +3656,34 @@ the first attempt's error). Not available from the REST surface I have.
 Still true and unchanged: the authority tuple populates correctly, three of the
 four v2 gates pass, #3446 stays unmerged, and #3442's only red check is
 `cleanup-preview` (a teardown job) with 20 checks passing.
+
+### 2026-09-08 tick — proof blocked: preview stage's Relaycast origin is down
+
+Drain: no pending runs. All six settle `failed`; nothing to recover, nothing
+retry-spammed.
+
+Re-tested both generations for a transient fault. Both reproduce exactly:
+
+- v2 `66d2286a` -> `Relayflow v2 launch was cancelled before credentials`
+- v1 `0d5112bf` -> `Relaycast workspace key repair failed: 530 unknown`
+
+**Root blocker identified.** `relay-workspace.ts:245` fails the launch when the
+Relaycast workspace-key repair call returns non-2xx. The target comes from
+`RELAYCAST_URL` (see the message at line 97). 530 is Cloudflare's
+origin-unreachable status, so the stage's configured Relaycast origin is down.
+Every launch dies at workspace-key repair **before credentials, in both
+generations** — this is not a v2 defect and not a #3446 regression.
+
+One detail that makes it fail fast: line 246 retries only on `503`. A 530 exits
+the retry loop on the first attempt, which is why v1 surfaces the error rather
+than backing off.
+
+This also supersedes the timing argument I used last tick against the masking
+hypothesis. v2 failing in 8-16s vs v1 in 141s is consistent with both hitting
+the same dead origin at different points, so the masking question is still
+genuinely open — it is not evidence either way. It still needs worker logs.
+
+**Blocked.** The proof cannot run on this stage until the Relaycast origin is
+reachable, and repointing stage config is not something I will do unattended.
+Everything else in the lane is unchanged: authority tuple populates, 3 of 4 v2
+gates pass, #3446 held unmerged, #3442 red only on `cleanup-preview` teardown.
