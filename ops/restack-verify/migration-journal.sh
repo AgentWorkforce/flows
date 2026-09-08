@@ -42,13 +42,32 @@ whens = [e["when"] for e in entries]
 if any(a >= b for a, b in zip(whens, whens[1:])):
     problems.append("journal timestamps must be strictly increasing in entry order")
 
-# Validate lineage and flag lost tables for semantic review. A DROP TABLE may
-# be intentional, but lineage alone cannot distinguish it from a stale snapshot.
-# Fail closed on that ambiguity; database replay is needed to decide it.
+# Validate lineage, then compare snapshot payloads. Lineage alone cannot tell a
+# stale snapshot from an intentional drop, so the content comparison is what
+# gives this gate teeth: drizzle snapshots are cumulative, so anything present
+# in a predecessor and absent from its successor is either a deliberate removal
+# or a snapshot that was rebuilt from the wrong base. Columns are compared as
+# well as tables — the defect this gate was written for was a snapshot missing
+# a single jsonb column, which a table-name comparison alone would have passed.
+#
+# A removal that is deliberate is recorded once in ACK_PATH, one
+# `<snapshot file>:<table>` or `<snapshot file>:<table>.<column>` per line.
+# Without that escape hatch a single legitimate DROP TABLE — or a RENAME, which
+# drizzle snapshots as a drop plus a create — fails this gate on every future
+# run forever, and a permanently red gate gets deleted rather than fixed.
+ACK_PATH = "ops/restack-verify/intentional-drops.txt"
+acknowledged = set()
+if os.path.exists(ACK_PATH):
+    for raw in open(ACK_PATH):
+        line = raw.split("#", 1)[0].strip()
+        if line:
+            acknowledged.add(line)
+
 snaps = sorted(f for f in os.listdir(d) if f.endswith("_snapshot.json"))
 previous = "00000000-0000-0000-0000-000000000000"
 seen = set()
 previous_tables = None
+previous_columns = {}
 for name in snaps:
     snapshot = json.load(open(os.path.join(d, name)))
     ident = snapshot.get("id")
@@ -63,14 +82,29 @@ for name in snaps:
     if not isinstance(tables, dict):
         problems.append(f"{name}: tables must be an object")
         continue
+    columns = {}
+    for tname, tbody in tables.items():
+        cols = tbody.get("columns") if isinstance(tbody, dict) else None
+        columns[tname] = set(cols) if isinstance(cols, dict) else set()
+
     if previous_tables is not None:
-        lost = sorted(previous_tables - set(tables))
+        lost = [t for t in sorted(previous_tables - set(tables))
+                if f"{name}:{t}" not in acknowledged]
         if lost:
             problems.append(
                 f"{name}: removed tables require semantic schema verification "
                 f"(intentional drop or stale snapshot): {lost}"
             )
+        for tname in sorted(set(tables) & previous_tables):
+            lost_cols = [c for c in sorted(previous_columns.get(tname, set()) - columns[tname])
+                         if f"{name}:{tname}.{c}" not in acknowledged]
+            if lost_cols:
+                problems.append(
+                    f"{name}: table {tname} lost columns present in its predecessor "
+                    f"(intentional drop or stale snapshot): {lost_cols}"
+                )
     previous_tables = set(tables)
+    previous_columns = columns
 
 if problems:
     print("RESTACK_VERIFY migration-journal: FAILED")
