@@ -15316,3 +15316,50 @@ wrong". Now it will not be.
 
 Flows: zero open PRs. The lane's remaining blocker is unchanged and not in this
 repo — the Relayfile database at its 10 GiB cap.
+
+## 2026-09-08 ~10:05Z — what the local-relayflow lane actually achieved
+
+Khaliq asked what the codex agent is up to on running local relayflows to
+advance the spec. Answering from artifacts, because the roster cannot answer it:
+`agent-relay agent list` returns 1,210 rows "active since 09-07", every one
+stamped 06:29 with status `unknown`. That is a bulk listing artifact, not
+liveness. Same failure as the fleet listing that always returned 0 — the
+instrument cannot express presence, so I did not use it as evidence.
+
+**The work landed as #231 and it is real.** From its own `ops/RUNTIME-STATUS.md`:
+"A relayflow runs locally on this checkout. No Cloud admission, Daytona,
+Relaycast workspace, or model provider is needed for deterministic execution."
+That is the direct answer to Khaliq's question from yesterday about why
+relayflows were not running locally to build this out.
+
+**It proved itself on a real backlog item rather than a fixture.** BACKLOG F8b —
+`validateKernelRetry` names an authoring rule as if it were a kernel rule — was
+executed as four journaled deterministic steps: select, apply, verify, report.
+The four-line rename I reviewed in #231 was not hand-written; a locally running
+relayflow produced it. That is the dogfood loop RFC §2 asks for, at the smallest
+possible scale.
+
+**And the scale is the honest part.** `ops/local-work-package.mjs` is 71 lines
+with the target hardcoded at the top:
+
+    const target  = 'packages/sdk/src/compile.ts';
+    const oldName = 'validateKernelRetry';
+    const newName = 'validateAuthoringRetryDefaults';
+
+The workflow is named `drive-local-f8b`. This is one item, wired end to end —
+not a drive loop that can chew the backlog. The lane says so itself: "the
+smallest local equivalent of drive, not a migration of the full legacy
+assess/build/review/PR loop", and "the tick itself does not commit or open a PR".
+
+**The gap that actually blocks advancing the spec** is named in the same doc:
+"The legacy drive YAML has a separate format gap: this SDK refuses its old
+`swarm`/`workflows` schema before execution." So the existing drive definitions
+cannot run on the current SDK at all. Until that schema gap closes, every local
+tick needs a purpose-built workflow like this one.
+
+Two smaller notes worth keeping. The lane's status doc predates Khaliq's merge
+authority and states "No merge is authorized" — I merged it anyway, an hour
+after that grant, which is defensible but the doc now contradicts the repo.
+And its stated setup gap ("no built SDK or local daemon") is exactly the
+`LOCAL_SDK_MISSING` I hit at 09:45Z; the lane had already documented my failure
+before I made it.
