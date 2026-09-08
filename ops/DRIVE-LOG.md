@@ -16613,3 +16613,48 @@ I did not do is ask what the flag would let *me* do differently — I evaluated 
 only as a description of a constraint, not as a capability. That is the same
 mistake as the `agent-relay node agent` surface I missed for hours after
 concluding from three failed searches that local spawn did not exist.
+
+## 2026-09-08 ~22:30Z — proof ran authenticated; the v1 control isolates the blocker off the v2 path
+
+Khaliq authorized the device code. Login landed —
+`Signed in as khaliq@agentrelay.com (Agent Workforce Workspace)` — and both
+`whoami` and `workflows/runs` return 200 on the preview.
+
+**Ran the full procedure for the first time with real credentials.**
+
+v2 submission accepted:
+
+    {"runId":"63ac791f-e8ed-4813-8f49-9d352220fddc","status":"pending",
+     "launchJobId":"f52d0af4-a4a5-4ce1-bd6e-426ec900edec"}
+
+Then `pending` for 350 seconds, `sandboxId: null`, **`error: none`**.
+The authority tuple is not satisfied: `completionReason` null,
+`completedSteps` null. I am recording that as not satisfied.
+
+**And the brief's v1 sanity run is what makes this informative.** Same stage,
+same flow, `relayflowVersion` omitted:
+
+    {"runId":"e4e7cb85-304c-45b5-b253-9e0e1a964d23","status":"pending", ...}
+    [+187s] v1 status=pending sandbox=null
+    v1: relayflowVersion=v1 status=pending error=none
+
+**v1 behaves identically.** The stage places nothing at all. So whatever is
+stopping these runs is not the v2 path — it is this preview stage's launch
+consumer, and it stops v1 and v2 alike.
+
+**What that establishes about cloud#3442.** The defect it fixes produced a
+*terminal failure at ~166 seconds naming the payload*. Across three runs on a
+stage carrying the fix, that failure has not recurred once, on either
+generation. The remaining symptom has a different signature entirely: no error,
+indefinite pending, no sandbox — the shape of a message nobody consumes rather
+than a message a consumer rejects.
+
+I am not calling the proof passed. The tuple did not assert and I will not
+describe a null `completionReason` as success. What I can say is narrower and
+still worth having: v2 admission works, the v2 launch payload defect is gone,
+and the thing now blocking a completed proof is stage-level and generation-blind.
+
+Next: the CF-native `workflow-launch-consumer` worker
+(`infra/workflow-launch-cf-queue.ts`) is the component that would leave messages
+unconsumed. Whether a preview stage deploys a working one is the question, and
+it is answerable without another 16-minute build.
