@@ -127,6 +127,32 @@ jobs:
             sleep 15
           done
           echo "swarm_status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" != completed ]; then
+            # The status word alone does not say why the swarm failed, and the
+            # reason never reaches this log: it sits in the run payload we just
+            # fetched. A quota rejection reads here as a bare "failed", which
+            # sent one reader inferring for days before querying the run by
+            # hand. Print what we already have.
+            reason=$(jq -r '.result.error // .error // empty' <<<"${response:-}" 2>/dev/null)
+            if [ -n "$reason" ]; then
+              # The reason is not fully trusted. It can carry agent output,
+              # which can carry content from the PR under review. Two ways that
+              # bites: a line starting with `::` is parsed by Actions as a
+              # workflow command, and a line of three backticks would close a
+              # fenced block early and render the rest as markup.
+              # Indenting every line defeats both at once — Actions only parses
+              # a command at the start of a line, and an indented block is a
+              # Markdown code block with no fence to break.
+              safe_reason=$(printf '%s\n' "$reason" | sed 's/^/    /')
+              echo "swarm failure reason:" >&2
+              printf '%s\n' "$safe_reason" >&2
+              {
+                echo "### Swarm failure reason"
+                echo
+                printf '%s\n' "$safe_reason"
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
           exit 0
 
       - name: Post verdict and transcripts
