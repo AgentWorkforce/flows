@@ -4230,3 +4230,46 @@ Nothing to do.
 
 0 pending of 1817, 11 `running` unchanged, secret still absent, disk 11Gi free.
 Nothing to do.
+
+### 2026-09-08 — RELAYCAST BLOCKER FIXED AND PROVEN. New wall: RelayAuth 500.
+
+Khaliq set `RELAYCAST_INTERNAL_SECRET_DEV` on both repos. I ran the chain.
+
+1. Dispatched relaycast-cloud `deploy.yml` stage=dev (run **34264168624**) —
+   completed success, so the dev gateway now holds the new value.
+2. Opened **cloud#3457**: `preview.yml` seeds `RELAYCAST_INTERNAL_SECRET_DEV`
+   instead of the un-suffixed production bearer.
+3. Dispatched preview.yml **from the PR branch ref** (run **34264478068**,
+   `--ref fix/preview-relaycast-dev-secret`) rather than merging. This exercises
+   the fix while respecting the no-unattended-cloud-merge rule. Completed
+   success.
+
+**The Relaycast failure class is gone.** Every launch tonight died at
+`Relaycast workspace key repair failed` — 530, then 404, then 401. That error no
+longer appears. The launch now gets PAST workspace-key repair for the first time
+all night, which also confirms #3457's mechanism end to end.
+
+**New blocker, one stage further in:**
+
+```
+RelayAuth request failed (500) /v1/identities
+unable to verify whether RelayAuth identity creation committed
+```
+
+Deterministic — v1 runs `5a7e4dfa` and `93a86931`, identical. `causeChain` shows
+the 500 twice, so it is retried and fails both times. `sandboxId` still null, so
+still no compute and still no v2 proof.
+
+Raised at `packages/core/src/relayfile/client.ts:621`. The preview's RelayAuth
+(`preview-pr-3446-api.relayauth.dev`) is alive — an unauthenticated POST returns
+a clean `401 missing_authorization`, so the route exists and the service is up.
+The 500 is server-side on the authenticated call.
+
+**Escalated to Khaliq rather than chasing it blind.** I cannot read the
+RelayAuth Worker's logs from the REST surface, and that is now the second
+question tonight that died for want of worker logs (the v2 masking hypothesis
+was the first). Asked for `wrangler tail` / a CF token that can read Workers
+logs, or a decision to stop chasing the demo and bank #3457.
+
+#3457 is worth merging on its own merits regardless: it stops every ephemeral
+preview being seeded with the production Relaycast bearer.
