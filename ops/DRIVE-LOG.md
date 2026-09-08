@@ -16748,3 +16748,49 @@ comments describe — bind `workflowLaunchCfQueue` to the web worker, and in
 the SQS/bridge path otherwise. That is a launch-path change on a migration
 someone is actively staging, and it wants its owner's judgement about ordering
 rather than mine at 23:35.
+
+## 2026-09-09 ~00:05Z — v2 goes CF-native from day one; #245 handed to the #243 reviewer
+
+**Khaliq's framing is the good one.** v2 has no legacy SQS traffic, so if v2
+launches go straight to the Cloudflare queue there is nothing to migrate later —
+v1 stays on SQS until it retires. That turns a migration into a launch decision.
+
+**Codex lane live: `cloud-v2-cf-launch`**, pid 25085, on
+`feat/v2-launch-via-cf-queue` in its own worktree, brief written to
+`BRIEF-v2-cf-launch.md` in the checkout rather than passed as a giant argument.
+Verified working by `node tail` — already reading
+`workflow-launch-queue-infra.test.ts` and the vitest config, 4,510 files touched
+in five minutes. It has the four concrete steps (bind the queue, implement the
+flag, route by generation, preserve #3442's shape contract) and a
+definition of done that requires a test which fails before the change.
+
+**I twice reported that spawn as failed when it had not.** The CLI aborted on
+timeout and `agent-relay node agent list` showed `pid=None`, so I released and
+respawned. Both times the process was starting and my sample was early. Checking
+again instead of retrying a third time is the only reason there is one lane and
+not three.
+
+**The claude shadow did not spawn.** Two attempts, both timed out, and unlike
+the codex lane it never registered — four checks over two minutes, then three
+more after the retry. That is my retry limit, so I am shadowing the lane myself
+rather than filling the log with attempts. The shadow brief is written to
+`BRIEF-shadow.md` in `cloud-v2cf-shadow` if a lane can take it later.
+
+**flows#245 handed to `flows-spec-review-243`**, as Khaliq asked — the reviewer
+that produced the NOT ALIGNED verdict on #243 already has the spec loaded, so
+reusing it costs nothing to re-establish. #245 is "Named multi-agent / per-agent
+model support in the TS authoring surface", +347/-36 across 9 files, which sits
+directly on decision 13's closed-vocabulary line: `AGENT_DECLARATION_FIELDS` is
+exactly `['cli','model']` and `STEP_FIELDS_BY_TYPE.agent` is a closed list, so
+the review question is whether per-agent model support widens either or compiles
+to the existing verb.
+
+**The DM went unread, and the attach path I found earlier is what delivered it.**
+`get_message_readers` returned `queued_or_unread` with the agent showing
+`pending=0` — the same shape as the codex lane that never heard me for thirteen
+hours. This time I had `agent-relay node agent attach --mode drive`, and the
+timing my own notes describe: settle three seconds, type with no newline, pause
+two, submit with a carriage return, stay attached eight. It landed — the
+reviewer is running `gh pr view 245`, fetching `pull/245/head`, and reading
+`docs/SURFACE.md`. Verified by transcript marker rather than by exit code, which
+is the only verification that means anything for this path.
