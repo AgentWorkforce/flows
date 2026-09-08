@@ -18,7 +18,7 @@ Fixed in d1ef3ae: an interrupted POST before a receipt reports admission_unknown
 
 https://github.com/AgentWorkforce/flows/pull/246#discussion_r3961238607
 
-Fixed in d1ef3ae: safe GET observation retries known transient transport failures and HTTP 408/429/500/502/503/504 with exponential backoff capped at 30 seconds. Authorization, invalid responses, TLS/redirect failures, and caller abort are not retried. POST still has no application retry. Tests cover timeout, response-body timeout, connection reset, 503/429, permanent errors, and abort during backoff.
+Fixed in d1ef3ae: safe GET observation retries known transient transport failures and HTTP 408/429/500/502/503/504 with exponential backoff capped at 30 seconds. Authorization, invalid responses, TLS/redirect failures, and caller abort are not retried. POST still has no application retry. Tests cover timeout, response-body timeout (including Node AbortError at the request deadline), connection reset, 503/429, permanent errors, and abort during backoff.
 
 ## Thread 4
 
@@ -66,7 +66,7 @@ The earlier red transcript is preserved, not presented as green. The 85/85 rerun
 
 https://github.com/AgentWorkforce/flows/pull/246#discussion_r3961331148
 
-Fixed in d1ef3ae: safe GET observation retries known transient transport failures and HTTP 408/429/500/502/503/504 with exponential backoff capped at 30 seconds. Authorization, invalid responses, TLS/redirect failures, and caller abort are not retried. POST still has no application retry. Tests cover timeout, response-body timeout, connection reset, 503/429, permanent errors, and abort during backoff.
+Fixed in d1ef3ae: safe GET observation retries known transient transport failures and HTTP 408/429/500/502/503/504 with exponential backoff capped at 30 seconds. Authorization, invalid responses, TLS/redirect failures, and caller abort are not retried. POST still has no application retry. Tests cover timeout, response-body timeout (including Node AbortError at the request deadline), connection reset, 503/429, permanent errors, and abort during backoff.
 
 ## Thread 12
 

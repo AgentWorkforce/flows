@@ -13,7 +13,7 @@ Cloud’s current v2 bootstrap rejects authored TypeScript; the SDK refuses `.fl
 
 Review fixes in `d1ef3ae`: distinguish unknown admission from interrupted observation; retry only transient GET failures; classify local input and pre-admission HTTP 401/403 as exit 2; require HTTPS; validate terminal completion reasons; use the central CLI parser; correct design-only cache/schema notes and evidence claims.
 
-Current verification at `d1ef3ae`: **63 CLI + 45 cloud tests = 108 passed**, both typechecks passed, and the rebuilt packed CLI/SDK proof passed over local HTTPS with certificate verification enabled. This is contract/packaging evidence, not hosted execution. The earlier wrapper assertion did not reproduce on either baseline `f0a3b3b` (63/63) or current source (63/63); its cause remains unconfirmed. The old failures are retained, not relabeled as passing. No pre-existing tests, gates, or timeout limits were modified; the PR adds cloud regression tests.
+Current verification (including the response-body AbortError correction): **63 CLI + 46 cloud tests = 109 passed**, both typechecks and the build passed. The rebuilt packed CLI/SDK proof at `d1ef3ae` passed over local HTTPS with certificate verification enabled. This is contract/packaging evidence, not hosted execution. The earlier wrapper assertion did not reproduce on either baseline `f0a3b3b` (63/63) or current source (63/63); its cause remains unconfirmed. The old failures are retained, not relabeled as passing. No pre-existing tests, gates, or timeout limits were modified; the PR adds cloud regression tests.
 
 Captured current test command/output:
 
@@ -22,24 +22,27 @@ $ node node_modules/vitest/vitest.mjs run tests/cli.test.ts tests/cloud-run.test
 
  RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
 
- ✓ tests/cli.test.ts (63 tests) 8583ms
-   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 684ms
-   ✓ flows check CLI > uses the raw Claude adapter model flag instead of accepting auth status as model proof 367ms
-   ✓ flows check CLI > uses Codex login status and reports a rejected model as unavailable, not unauthenticated 668ms
-   ✓ flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 836ms
-   ✓ flows check CLI > passes relocated ladder flow hello-agent when no fault is induced 363ms
-   ✓ flows check CLI > refuses ladder flow hello-llm with cli_missing under an induced fault 398ms
-   ✓ flows check CLI > refuses ladder flow hello-llm with cli_unauthenticated under an induced fault 336ms
-   ✓ flows check CLI > checks the compiled kernel-dialect canonical spec as well as YAML 301ms
-   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 408ms
-   ✓ flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 481ms
- ✓ tests/cloud-run.test.ts (45 tests) 1106ms
-   ✓ hosted v2 submission > accepts compiled kernel JSON using the existing compiler conversion 377ms
+ ✓ tests/cli.test.ts (63 tests) 27538ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 544ms
+   ✓ flows check CLI > uses the raw Claude adapter model flag instead of accepting auth status as model proof 384ms
+   ✓ flows check CLI > uses Codex login status and reports a rejected model as unavailable, not unauthenticated 4264ms
+   ✓ flows check CLI > refuses a nonconforming custom wrapper without calling it an authentication failure 409ms
+   ✓ flows check CLI > accepts an exact allowlisted named-agent model and probes that model 2281ms
+   ✓ flows check CLI > checks the same named-agent contract from declarative JSON 7988ms
+   ✓ flows check CLI > distinguishes an allowlisted but inaccessible model from broken auth 342ms
+   ✓ flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 373ms
+   ✓ flows check CLI > refuses ladder flow hello-agent with cli_unresolved under an induced fault 330ms
+   ✓ flows check CLI > resolves a project CLI path relative to the flows.json that declares it 904ms
+   ✓ flows check CLI > maps every input refusal path to its declared kind without raw exceptions 1433ms
+   ✓ flows run/resume CLI over the journal protocol > parses run options, submits the kernel dialect, and exits 0 on success 2923ms
+   ✓ flows run/resume CLI over the journal protocol > exits 3 and names the parked llm step 850ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 1067ms
+ ✓ tests/cloud-run.test.ts (46 tests) 651ms
 
  Test Files  2 passed (2)
-      Tests  108 passed (108)
-   Start at  22:11:58
-   Duration  27.75s (transform 7.23s, setup 0ms, collect 13.29s, tests 9.69s, environment 1ms, prepare 1.38s)
+      Tests  109 passed (109)
+   Start at  22:16:05
+   Duration  43.24s (transform 1.33s, setup 0ms, collect 10.08s, tests 28.19s, environment 0ms, prepare 1.82s)
 
 EXIT CODE: 0
 ```

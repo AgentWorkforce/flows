@@ -101,3 +101,113 @@ $ "/Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node" "--input-
 {"runId":"contract-2","status":"pending","specHash":"1b001aa32a7bf5b0999e87e13c7e686abbbb2321c980069a7ca33930a915d213","apiUrl":"https://127.0.0.1:50572/api/v1/workflows/runs/contract-2"}
 PACKAGED_CLOUD_CONTRACT_OK: CLI + SDK dispatched v2; local HTTPS server only, no hosted run claimed.
 EXIT CODE: 0
+
+Response-body timeout follow-up, working tree based on be60200; exact tested diff follows.
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud
+$ git diff -- packages/sdk/src/cloud-http.ts packages/sdk/tests/cloud-run.test.ts
+diff --git a/packages/sdk/src/cloud-http.ts b/packages/sdk/src/cloud-http.ts
+index f5a2016..cb19ba0 100644
+--- a/packages/sdk/src/cloud-http.ts
++++ b/packages/sdk/src/cloud-http.ts
+@@ -62,7 +62,7 @@ export async function cloudRequest(
+     });
+   } catch (error) {
+     options.signal?.throwIfAborted();
+-    throw transportError(error);
++    throw transportError(deadline.aborted ? deadline.reason : error);
+   }
+   if (!response.ok) {
+     // Do not echo server response bodies: they may contain credentials or source.
+@@ -72,7 +72,7 @@ export async function cloudRequest(
+     return await response.json();
+   } catch (error) {
+     options.signal?.throwIfAborted();
+-    if (!(error instanceof SyntaxError)) throw transportError(error);
++    if (!(error instanceof SyntaxError)) throw transportError(deadline.aborted ? deadline.reason : error);
+     throw new CloudFlowError('invalid_response', 'Cloud returned a non-JSON response.');
+   }
+ }
+diff --git a/packages/sdk/tests/cloud-run.test.ts b/packages/sdk/tests/cloud-run.test.ts
+index 525d81d..66e0032 100644
+--- a/packages/sdk/tests/cloud-run.test.ts
++++ b/packages/sdk/tests/cloud-run.test.ts
+@@ -241,19 +241,22 @@ describe('review regressions', () => {
+     expect(output).toEqual(['ACCEPTED done (pending)', 'https://cloud-contract.example/api/v1/workflows/runs/done', 'COMPLETED done completionReason: success']);
+   });
+ 
+-  it.each([503, 429, 'timeout', 'reset', 'body-timeout'])('retries safe observation after %s', async (failure) => {
++  it.each([503, 429, 'timeout', 'reset', 'body-timeout', 'body-abort'])('retries safe observation after %s', async (failure) => {
+     let calls = 0;
+     vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+       expect(init?.method).toBe('GET');
+       if (++calls === 1) {
+         if (failure === 'timeout') throw new DOMException('timeout', 'TimeoutError');
+         if (failure === 'reset') throw new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } });
++        if (failure === 'body-abort') return new Response(new ReadableStream({ start(c) {
++          init!.signal!.addEventListener('abort', () => c.error(new DOMException('aborted body', 'AbortError')), { once: true });
++        } }));
+         if (failure === 'body-timeout') return new Response(new ReadableStream({ start(c) { c.error(new DOMException('timeout', 'TimeoutError')); } }));
+         return new Response('{}', { status: failure });
+       }
+       return Response.json({ runId: 'retry', relayflowVersion: 'v2', status: 'completed', result: { ok: true, status: 'completed', completionReason: 'success' } });
+     });
+-    expect(await waitForCloudFlowRun('retry', { token: 'test-token', pollIntervalMs: 1 })).toMatchObject({ status: 'completed', completionReason: 'success' });
++    expect(await waitForCloudFlowRun('retry', { token: 'test-token', pollIntervalMs: 1, requestTimeoutMs: 20 })).toMatchObject({ status: 'completed', completionReason: 'success' });
+     expect(calls).toBe(2);
+   });
+ 
+EXIT CODE: 0
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.8 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+EXIT CODE: 0
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.8 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+EXIT CODE: 0
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ node node_modules/vitest/vitest.mjs run tests/cli.test.ts tests/cloud-run.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+
+ ✓ tests/cli.test.ts (63 tests) 27538ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 544ms
+   ✓ flows check CLI > uses the raw Claude adapter model flag instead of accepting auth status as model proof 384ms
+   ✓ flows check CLI > uses Codex login status and reports a rejected model as unavailable, not unauthenticated 4264ms
+   ✓ flows check CLI > refuses a nonconforming custom wrapper without calling it an authentication failure 409ms
+   ✓ flows check CLI > accepts an exact allowlisted named-agent model and probes that model 2281ms
+   ✓ flows check CLI > checks the same named-agent contract from declarative JSON 7988ms
+   ✓ flows check CLI > distinguishes an allowlisted but inaccessible model from broken auth 342ms
+   ✓ flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 373ms
+   ✓ flows check CLI > refuses ladder flow hello-agent with cli_unresolved under an induced fault 330ms
+   ✓ flows check CLI > resolves a project CLI path relative to the flows.json that declares it 904ms
+   ✓ flows check CLI > maps every input refusal path to its declared kind without raw exceptions 1433ms
+   ✓ flows run/resume CLI over the journal protocol > parses run options, submits the kernel dialect, and exits 0 on success 2923ms
+   ✓ flows run/resume CLI over the journal protocol > exits 3 and names the parked llm step 850ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 1067ms
+ ✓ tests/cloud-run.test.ts (46 tests) 651ms
+
+ Test Files  2 passed (2)
+      Tests  109 passed (109)
+   Start at  22:16:05
+   Duration  43.24s (transform 1.33s, setup 0ms, collect 10.08s, tests 28.19s, environment 0ms, prepare 1.82s)
+
+EXIT CODE: 0
+
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ npm run build
+
+> @relayflows/sdk@2.0.8 build
+> tsc && node scripts/make-cli-executable.mjs
+
+EXIT CODE: 0

@@ -241,19 +241,22 @@ describe('review regressions', () => {
     expect(output).toEqual(['ACCEPTED done (pending)', 'https://cloud-contract.example/api/v1/workflows/runs/done', 'COMPLETED done completionReason: success']);
   });
 
-  it.each([503, 429, 'timeout', 'reset', 'body-timeout'])('retries safe observation after %s', async (failure) => {
+  it.each([503, 429, 'timeout', 'reset', 'body-timeout', 'body-abort'])('retries safe observation after %s', async (failure) => {
     let calls = 0;
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
       expect(init?.method).toBe('GET');
       if (++calls === 1) {
         if (failure === 'timeout') throw new DOMException('timeout', 'TimeoutError');
         if (failure === 'reset') throw new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } });
+        if (failure === 'body-abort') return new Response(new ReadableStream({ start(c) {
+          init!.signal!.addEventListener('abort', () => c.error(new DOMException('aborted body', 'AbortError')), { once: true });
+        } }));
         if (failure === 'body-timeout') return new Response(new ReadableStream({ start(c) { c.error(new DOMException('timeout', 'TimeoutError')); } }));
         return new Response('{}', { status: failure });
       }
       return Response.json({ runId: 'retry', relayflowVersion: 'v2', status: 'completed', result: { ok: true, status: 'completed', completionReason: 'success' } });
     });
-    expect(await waitForCloudFlowRun('retry', { token: 'test-token', pollIntervalMs: 1 })).toMatchObject({ status: 'completed', completionReason: 'success' });
+    expect(await waitForCloudFlowRun('retry', { token: 'test-token', pollIntervalMs: 1, requestTimeoutMs: 20 })).toMatchObject({ status: 'completed', completionReason: 'success' });
     expect(calls).toBe(2);
   });
 

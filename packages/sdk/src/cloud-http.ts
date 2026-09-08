@@ -62,7 +62,7 @@ export async function cloudRequest(
     });
   } catch (error) {
     options.signal?.throwIfAborted();
-    throw transportError(error);
+    throw transportError(deadline.aborted ? deadline.reason : error);
   }
   if (!response.ok) {
     // Do not echo server response bodies: they may contain credentials or source.
@@ -72,7 +72,7 @@ export async function cloudRequest(
     return await response.json();
   } catch (error) {
     options.signal?.throwIfAborted();
-    if (!(error instanceof SyntaxError)) throw transportError(error);
+    if (!(error instanceof SyntaxError)) throw transportError(deadline.aborted ? deadline.reason : error);
     throw new CloudFlowError('invalid_response', 'Cloud returned a non-JSON response.');
   }
 }
