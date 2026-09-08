@@ -14,7 +14,7 @@ The review-swarm implementation is 90% complete. Analysis of the 9 non-negotiabl
 
 1. ✅ Immutable gate — two checkout steps at `.github/workflows/review-swarm.yml:32-48` (pr-head + gate-files from main)
 2. ✅ Unified verdict logic — `swarm-verdict.sh` sourced by both `review-swarm.yaml:132` and `swarm-post.sh:8`
-3. ❌ **Auth secret validation incomplete** — workflow validates CLOUD_API_URL + CLOUD_API_KEY (line 54-58) but does NOT validate RELAY_WORKSPACE_KEY (requirement says "validates `RELAY_WORKSPACE_KEY` is set and non-empty")
+3. ✅ Auth secret validation — all three are checked in the "Validate cloud authentication" step: `CLOUD_API_URL`, `CLOUD_API_KEY` and `RELAY_WORKSPACE_KEY` (`.github/workflows/review-swarm.yml:56-58`)
 4. ✅ Sticky marker + transcripts — HTML anchors `<!-- swarm-lens: {lens} -->` in swarm-post.sh:34,39,44,47
 5. ✅ No author whitelist — grep confirms absent
 6. ✅ Cloud sandbox fetch on GHA runner — swarm-prepare.sh runs in step "Prepare review input" with GH_TOKEN
@@ -22,25 +22,39 @@ The review-swarm implementation is 90% complete. Analysis of the 9 non-negotiabl
 8. ✅ Wait step records status, post runs on always() — review-swarm.yml:106-130,132-137
 9. ✅ Transcript-to-run-id binding via freshness — swarm-prepare.sh:11 creates run-start marker; swarm-verdict.sh:33-34 rejects stale transcripts
 
-Additionally: README.md documents obsolete credentials (CLOUD_API_ACCESS_TOKEN/CLOUD_API_REFRESH_TOKEN) instead of CLOUD_API_KEY.
+Additionally: README.md's secrets table is already correct — it documents
+`RELAY_WORKSPACE_KEY` and `CLOUD_API_KEY`, and names neither
+`CLOUD_API_ACCESS_TOKEN` nor `CLOUD_API_REFRESH_TOKEN`. The one residual is the
+sentence after the table, which still tells admins they may override
+`CLOUD_API_ACCESS_TOKEN_EXPIRES_AT`; the workflow no longer reads that variable
+at all, so the override has no effect.
 
 ## Files in scope
 
-- `.github/workflows/review-swarm.yml` — add RELAY_WORKSPACE_KEY validation to preflight
-- `README.md` — update "Cloud review swarm" section to document correct secrets
+- `README.md` — drop `CLOUD_API_ACCESS_TOKEN_EXPIRES_AT` from the non-secret
+  sentence under the secrets table; it names a variable nothing reads.
+
+Nothing else. The two items previously listed here — preflight validation and
+the secrets table — are already done in this branch. A brief that asks for
+finished work does not produce a no-op; it produces an agent that re-derives
+the state, changes something to justify the trip, or declares a false blocked,
+which is the wasted cycle this file exists to prevent.
 
 ## Definition of done
 
-1. Preflight validation checks all three required secrets:
+1. ✅ Already satisfied — preflight checks all three required secrets:
 ```
 test -n "$CLOUD_API_URL"
 test -n "$CLOUD_API_KEY"
 test -n "$RELAY_WORKSPACE_KEY"
 ```
 
-2. README.md § "Cloud review swarm" documents the correct secrets table:
-   - `RELAY_WORKSPACE_KEY` (already exists in workflow)
-   - `CLOUD_API_KEY` (not `CLOUD_API_ACCESS_TOKEN`/`CLOUD_API_REFRESH_TOKEN`)
+2. ✅ Already satisfied — README's § "Cloud review swarm" secrets table names
+   `RELAY_WORKSPACE_KEY` and `CLOUD_API_KEY`. What remains is only to remove the
+   stale `CLOUD_API_ACCESS_TOKEN_EXPIRES_AT` mention below it:
+```
+grep -c CLOUD_API_ACCESS_TOKEN_EXPIRES_AT README.md   # must be 0
+```
 
 3. All files continue to parse:
 ```

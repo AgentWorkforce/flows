@@ -49,9 +49,8 @@ seconds and before submitting a run, when either is absent.
 | `RELAY_WORKSPACE_KEY` | Selects the messaging workspace the swarm runs in. | `agent-relay workspace key --reveal-secrets` |
 | `CLOUD_API_KEY` | The Cloud API key for workflow invocation. | Follow `AgentWorkforce/cloud` → `docs/runbooks/relay-ci-workflow-credential.md`, profile `workflow-invoke` |
 
-`CLOUD_API_URL` and `CLOUD_API_ACCESS_TOKEN_EXPIRES_AT` are not secret; the
-workflow defaults them and either can be overridden with a repository variable
-of the same name.
+`CLOUD_API_URL` is not secret; the workflow defaults it and it can be
+overridden with a repository variable of the same name.
 
 A workspace key alone cannot run the swarm. `agent-relay cloud run` authenticates
 to the Cloud API using `CLOUD_API_KEY`: the workspace key is read only by the
