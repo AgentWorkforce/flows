@@ -32,7 +32,7 @@ The recording uses the initial packed implementation plus the npm bin fix.
 Its agent step invokes the real installed Claude CLI. The host already had
 Node, provider authentication, and dependencies; this is **not** a cold-machine
 measurement. The recorded command does not include a clone or installation.
-Text transcripts normalize terminal CRLF to LF; the `.cast` files retain the
+Text transcripts normalize terminal CRLF to LF and trim trailing whitespace; the `.cast` files retain the
 captured terminal bytes and elapsed timestamps.
 
 The functional CLI fixture has a 90-second cleanup ceiling. Its original

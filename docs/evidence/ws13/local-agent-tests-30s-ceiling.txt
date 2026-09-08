@@ -17,10 +17,10 @@ $ RELAYFLOWD_BIN=/tmp/ws13-consumer/hello/node_modules/@relayflows/runtime-darwi
 AssertionError: WAITING [worker_lease] Run "01M20NWN9DGY8FEX5CCT77CBRW" step "agent-1" (agent) is running under a worker lease until 1788876869141.
 : expected null to be +0 // Object.is equality
 
-- Expected: 
+- Expected:
 0
 
-+ Received: 
++ Received:
 null
 
  ❯ tests/local-agent-live.test.ts:54:58
@@ -37,4 +37,3 @@ null
       Tests  1 failed | 3 passed (4)
    Start at  16:12:04
    Duration  156.08s (transform 27.33s, setup 0ms, collect 26.50s, tests 74.82s, environment 339ms, prepare 13.46s)
-

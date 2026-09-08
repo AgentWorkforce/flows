@@ -12,4 +12,3 @@ $ cd packages/sdk && RELAYFLOWD_BIN=/tmp/ws13-consumer/hello/node_modules/@relay
       Tests  4 passed (4)
    Start at  15:28:46
    Duration  88.57s (transform 13.19s, setup 0ms, collect 4.58s, tests 57.11s, environment 0ms, prepare 12.36s)
-

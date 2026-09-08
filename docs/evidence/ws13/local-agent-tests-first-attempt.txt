@@ -18,10 +18,10 @@ $ cd packages/sdk && RELAYFLOWD_BIN=/tmp/ws13-consumer/hello/node_modules/@relay
 AssertionError: WAITING [worker_lease] Run "01M20JQAF8A3T7CN0MVJVTNMPC" step "agent-1" (agent) is running under a worker lease until 1788873548470.
 : expected null to be +0 // Object.is equality
 
-- Expected: 
+- Expected:
 0
 
-+ Received: 
++ Received:
 null
 
  ❯ tests/local-agent-live.test.ts:46:58
@@ -37,10 +37,10 @@ null
  FAIL  tests/local-agent-live.test.ts > built CLI local agent against a real daemon > renders actual agent completion in text output
 AssertionError: expected null to be +0 // Object.is equality
 
-- Expected: 
+- Expected:
 0
 
-+ Received: 
++ Received:
 null
 
  ❯ tests/local-agent-live.test.ts:53:58
@@ -56,10 +56,10 @@ null
  FAIL  tests/local-agent-live.test.ts > built CLI local agent against a real daemon > returns a failed run when the agent process fails
 AssertionError: expected null to be 1 // Object.is equality
 
-- Expected: 
+- Expected:
 1
 
-+ Received: 
++ Received:
 null
 
  ❯ tests/local-agent-live.test.ts:58:58
@@ -76,4 +76,3 @@ null
       Tests  3 failed | 1 passed (4)
    Start at  15:18:04
    Duration  129.86s (transform 1.30s, setup 0ms, collect 569ms, tests 118.61s, environment 0ms, prepare 2.13s)
-
