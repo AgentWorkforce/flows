@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync,
+  closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync,
 } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -90,14 +90,29 @@ async function select() {
     // everything has been told nothing. Skip rather than widen what an
     // unattended tick may touch.
     const unbounded = scope.length === 1 && scope[0] === '.';
-    if (result.accepted && !unbounded) {
+
+    // A path that no longer exists is not scope either. Backlog entries outlive
+    // the tree they were written against -- this repo moved `sdk/` to
+    // `packages/sdk/`, so entries naming `sdk/src/protocol.ts` still read as
+    // precise while pointing at nothing. An agent handed four missing files
+    // will either invent work or widen scope to find something, and both are
+    // failures the flow's instruction explicitly forbids. Skipping here means a
+    // rotted entry can never silently become an agent's instruction, and the
+    // skip line names the missing paths so the entry can be repaired.
+    const missing = unbounded ? [] : scope.filter((path) => !existsSync(path));
+
+    if (result.accepted && !unbounded && missing.length === 0) {
       entry = candidateEntry;
       validation = result;
       break;
     }
     skipped.push({
       title: candidateEntry.title,
-      reason: result.accepted ? 'unbounded_scope' : result.reason,
+      reason: !result.accepted
+        ? result.reason
+        : unbounded
+          ? 'unbounded_scope'
+          : `stale_scope: ${missing.join(', ')}`,
     });
     const at = markdown.indexOf(candidateEntry.title);
     // Cut past this entry's title so the next exec finds the following bullet.
