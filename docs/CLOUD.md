@@ -58,12 +58,15 @@ The receipt's `apiUrl` requires authentication and is **not a public share URL**
   deadline; this SDK does not override or claim to fix it.
 - Cloud must provision and preflight agent workers; this client performs spec
   compilation only and cannot prove hosted credentials or worker availability.
-- No `publishFlowRun` endpoint exists in the inspected Cloud tree. Public
-  publication and a gallery of real run URLs require a server implementation
-  with authorization and a deliberate public projection of run data.
-- A real hosted run has not been demonstrated for this change. The available
-  proof credential returned HTTP 401. The package proof uses a local HTTP
-  contract server and is labeled accordingly.
+- `publishFlowRun` and the gallery are **design-only** under the revised WS-14
+  scope. No standalone app, site, route, or publication backend is being built.
+  The [publication and gallery design](CLOUD-PUBLICATION-DESIGN.md) specifies
+  proposed endpoints, token scopes, visibility tiers, and public records. Cloud
+  ownership has not been identified; the SDK does not export `publishFlowRun`.
+- Live proof: **BLOCKED-ON-CREDENTIAL**. The captured error is
+  `Authenticated Cloud-base-path read HTTP: 401`. No hosted run is claimed, and
+  this lane is not pursuing another credential. The package proof uses a local
+  HTTP contract server and is labeled accordingly.
 
 `node scripts/cloud-package-proof.mjs` installs the packed SDK in a fresh
 temporary npm project and exercises both its exported function and installed
