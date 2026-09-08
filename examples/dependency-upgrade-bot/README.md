@@ -34,7 +34,13 @@ npm outdated (deterministic, gated) → upgrade (agent, sandbox A) → verify wi
   checks that a real PR URL came back — not just that the `gh` command
   exited 0.
 
-## Status: typechecks, does not run yet
+## Status: refused before execution
+
+WS-13 invoked this example with the packed CLI and `--local-agent`. It
+refused the unsupported `budget` header before entering the body. See the
+[gallery](../README.md) for the exact command, output, and elapsed time.
+The remaining limitations below describe what still needs to land after that
+first refusal is resolved.
 
 ```sh
 cd packages/surface && npm run typecheck:examples

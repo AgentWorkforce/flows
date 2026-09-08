@@ -32,7 +32,13 @@ mechanism — My Senior Dev's multi-agent PR review — in two layers:
 Unlike the other two examples in this directory, this one never calls
 `f.human` — nothing here needs it to make sense as a demonstration.
 
-## Status: typechecks, does not run yet
+## Status: refused before execution
+
+WS-13 invoked this example with the packed CLI and `--local-agent`. It
+refused the unsupported `budget` header before entering the body. See the
+[gallery](../README.md) for the exact command, output, and elapsed time.
+The remaining limitations below describe what still needs to land after that
+first refusal is resolved.
 
 ```sh
 cd packages/surface && npm run typecheck:examples

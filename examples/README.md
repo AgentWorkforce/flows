@@ -1,18 +1,30 @@
-# examples — relayflows authored on the v2 surface
+# Example gallery
 
-Each example is a self-contained unit: the flow in the v2 dialect
-(`docs/SURFACE.md`), pure helpers, `shims/` that execute it on today's runtime
-with `REPLACE-WHEN: gate-N` headers, tests, and a README. Examples are the
-consumers that tell gate-1 SDK work what `@relayflows/surface` must export.
+These four examples describe larger flows. **None has a green end-to-end
+result in the WS-13 verification run.** The table records time until refusal
+or the verification timeout, not time to successful completion.
 
-| Example | What it shows |
-|---|---|
-| [`research/`](research/) | Fan-out to three model lanes (Claude, Codex, Grok), two subagents each, one synthesis; postfix gates on the workspace; dynamic input. First real run: `research/runs/2026-09-02-agent-memory/`. |
-| [`social-post-pipeline/`](social-post-pipeline/) | Research → draft → adversarial fact-check → graphic, gated on a human approval before anything publishes. Written directly against the real `@relayflows/surface` package. |
-| [`pr-review-pipeline/`](pr-review-pipeline/) | Security/correctness/performance reviewer agents fan out in parallel, gated on writing their findings, then a consensus agent reconciles disagreement between them. |
-| [`dependency-upgrade-bot/`](dependency-upgrade-bot/) | A deterministic check flags an outdated dependency; one agent upgrades it in a sandbox, a second, independent agent verifies the whole app with computer use in a separate sandbox before a PR opens. |
+| Example | What it demonstrates | Observed result | Time |
+|---|---|---|---:|
+| [dependency-upgrade-bot](dependency-upgrade-bot/) | Upgrade → independent verification → PR | Refused: unsupported `budget` header, exit 2 | [6.596s](../docs/evidence/ws13/gallery-dependency-upgrade-bot.txt) |
+| [pr-review-pipeline](pr-review-pipeline/) | Three review lenses → consensus | Refused: unsupported `budget` header, exit 2 | [4.990s](../docs/evidence/ws13/gallery-pr-review-pipeline.txt) |
+| [social-post-pipeline](social-post-pipeline/) | Research → draft → fact-check → graphic → human approval | Refused: unsupported `budget` header, exit 2 | [6.698s](../docs/evidence/ws13/gallery-social-post-pipeline.txt) |
+| [research](research/) | Claude/Codex/Grok fan-out → synthesis via existing shims | Verification timed out with no output captured | [150.067s](../docs/evidence/ws13/gallery-research.txt) |
 
-The last three are written directly against the real `@relayflows/surface`
-package (`npm --prefix packages/surface run typecheck:examples`) rather than
-against local shims — they typecheck today but don't run yet; each one's
-README says exactly what's real and what gate work it's waiting on.
+The first three were invoked individually with the packed candidate CLI,
+`--local-agent`, explicit inputs, and separate local daemon directories.
+Research was invoked through its documented shim with a one-minute per-step
+bound and a 150-second outer verification bound; the latter does not establish
+whether preflight or execution was responsible. Exact commands and captured
+output are linked in the table. These are runs on an existing development
+host, not a clean machine.
+
+Removing the unsupported headers or weakening the examples' artifact gates
+would change what they promise. Further runtime work is required before these
+can be advertised as runnable. Social-post-pipeline additionally depends on
+`f.human`; workspace permission annotations and postfix gates also remain
+unsupported by the authored executor.
+
+The research example's `npm run typecheck` command now uses the actual
+`packages/sdk` compiler path. Its shim tests and typecheck are separate from
+an end-to-end run.

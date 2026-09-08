@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { createFlow } from '@relayflows/sdk';
+import { createFlow } from '@relayflows/sdk/create-flow';
 
+const shellQuote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 const usage = 'Usage: create-flow <directory> [--name <name>] [--template agent|deterministic] [--cli <command>] [--no-install]';
 const args = process.argv.slice(2);
 try {
@@ -26,7 +27,7 @@ try {
     }
     if (!target) throw new Error(usage);
     const result = await createFlow(target, options);
-    console.log(`Created ${result.directory}\nNext: cd ${JSON.stringify(result.directory)}${result.installed ? '' : ' && npm install'} && npm start`);
+    console.log(`Created ${result.directory}\nNext: cd ${shellQuote(result.directory)}${result.installed ? '' : ' && npm install'} && npm start`);
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
