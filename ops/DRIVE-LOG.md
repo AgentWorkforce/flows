@@ -15917,3 +15917,45 @@ does not need the stage.
 
 Preview and cloud#3438 are still up and are the only v2 environment. **Do not
 merge cloud#3438.**
+
+## 2026-09-08 ~15:35Z — I had been dirtying Khaliq's cloud clone all night
+
+Went to run the v2-retry test in the real cloud checkout because the scratch
+worktree could not resolve `@cloud/core`. Checked its state first, found **212
+dirty files**, and stopped.
+
+**They were mine.** All night I have been reading files at origin/main with
+`git checkout -q origin/main -- .` in `~/Projects/AgentWorkforce/cloud`. That is
+not a read — it writes the working tree and stages every difference. HEAD sat at
+755c871b8 while origin/main advanced to 0132deae5, so the staged set was the
+entire 211-file gap between them.
+
+I did not notice because I never ran `git status` there; I only ever read the
+files I wanted afterwards.
+
+**Verified before touching anything, and the guard earned its place.** The first
+restore attempt aborted: one of the 47 added files differed from origin/main.
+That turned out to be `relayfile-storage-stats.yml`, which matches `001c5adc4`
+exactly — the commit I checked out from — while origin/main has since gained 32
+lines from cloud#3437 and #3439. So it was still my artifact, just from an
+earlier read. Had I skipped the check and force-removed on the first pass, I
+would have been right by luck rather than by evidence.
+
+Restored: `git checkout HEAD -- .`, then unstage-and-remove for the 47 additions
+that do not exist in HEAD, each verified recoverable from origin first. Final
+state `staged=0 unstaged=0 untracked=3`, HEAD and branch untouched, and the
+three untracked files (Linear/Slack/Factory integration data, none of mine)
+deliberately left alone.
+
+**This is the second time tonight I have written into a directory I did not
+own** — the first was checking out the codex lane's worktree to detached main at
+08:26Z. Both were clean-up-able. The pattern is that I treat someone else's
+checkout as a convenient place to read from, and `git checkout <ref> -- .` is
+not a read.
+
+Incidental but useful: cloud#3437 and #3439 add `pending_inline_content`
+diagnostic flags to the storage-stats workflow. The agent on the database is
+building directly on the drain finding from 06:45Z.
+
+The v2-retry tests are written and safe in their own worktree; they still need
+a working `@cloud/core` resolution to run.
