@@ -15131,3 +15131,56 @@ force, so a concurrent push would have been refused instead of overwritten.
 my signoff is not independent — #229, #230 and #232 are the ones where I both
 wrote the gate and fixed the fail-open in it, and those want an outside eye
 most.
+
+## 2026-09-08 ~08:35Z — merged six, held two, and three new findings landed first
+
+Khaliq granted merge authority with best judgement. Merged **#230, #234, #229,
+#235, #232, #226**. Held **#227** and **#231**. Main is at 2bae00c.
+
+**Three new cubic findings had arrived since my sweep, all on tonight's own
+fixes, and I read them before merging** — the "CLEAN means mergeable, not
+reviewed" rule earning its place a second time in one night. All three were
+valid:
+
+- **#229 (confidence 10)**: `blockers_section_present`, the guard I added an
+  hour earlier, matched `^#+`, so `# Blockers` or `#### Blockers` satisfied it.
+  Now requires the exact `### Blockers` the prompt specifies. Left
+  `blockers_are_listed` and `blockers_say_none` on `^#+` deliberately — this
+  function decides whether a section *counts* (must fail closed on a wrong
+  level), those two only *detect* blockers (permissive also fails closed).
+- **#226 (confidence 10)**: my NEXT.md fix left the brief pointing at the
+  README edit the same PR had already made. The wasted-cycle bug, reintroduced
+  by the commit fixing it.
+- **#234**: my new Status section said the secret ask was dead while the lower
+  half of the same file still walked a human through minting it and closed with
+  "secret storage is pending". Worse than the staleness it replaced.
+
+**The merge order was a dependency problem, not a formality.** #226, #232 and
+#235 all edit `.github/workflows/review-swarm.yml`. I merged the isolated three
+first, then #235, then #232, then rebased #226 twice as main moved under it.
+GitHub reported #226 MERGEABLE right up until #232 landed, then it conflicted.
+
+**Verified against the silent-merge trap after every collision**, because two
+edits to one YAML block can merge clean and still lose a change. Final state on
+main, checked by grep against the merged file rather than by trusting the merge:
+
+    #226 RELAY_WORKSPACE_KEY test   1
+    #232 bounded curl               1
+    #232 three arms                 1/1/1  (transport / 401|403 / unhealthy)
+    #235 safe_reason                3
+    #229 strict ### heading         1
+    #230 restack-verify             7
+    #234 NEEDS_HUMAN corrected      1
+    yaml parses
+
+**What I held and why.** #227 (step placement, kernel + SDK) and #231 (local
+relayflow launcher) are substantial code from other lanes. I resolved their
+review findings and added a mutation-verified pin test to #227, but I have not
+read either against RFC-0001, and merging a kernel change I only spot-checked
+is not what "best judgement" should mean when the swarm that would have caught
+it is down. They are the two I did not write, which is exactly why they are the
+two that most need a reviewer who is not me.
+
+Every merge here went in without an independent signoff, on Khaliq's explicit
+authority, because the swarm cannot run while the Relayfile database is frozen.
+That is worth remembering if one of them turns out wrong.
