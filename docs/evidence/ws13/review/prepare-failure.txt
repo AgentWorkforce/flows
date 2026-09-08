@@ -1,0 +1,31 @@
+# Rendering: literal ANSI ESC bytes are encoded as \u001b for a safe text diff.
+$ gh run view 34274116824 --log-failed
+review	Prepare review input on GitHub runner	﻿2026-09-08T20:20:46.2009627Z ##[group]Run ../gate-files/.github/workflows/scripts/swarm-prepare.sh \
+review	Prepare review input on GitHub runner	2026-09-08T20:20:46.2010102Z \u001b[36;1m../gate-files/.github/workflows/scripts/swarm-prepare.sh \\u001b[0m
+review	Prepare review input on GitHub runner	2026-09-08T20:20:46.2010393Z \u001b[36;1m  "247"\u001b[0m
+review	Prepare review input on GitHub runner	2026-09-08T20:20:46.2010601Z \u001b[36;1mmkdir -p .github/workflows/scripts\u001b[0m
+review	Prepare review input on GitHub runner	2026-09-08T20:20:46.2010912Z \u001b[36;1mcp ../gate-files/.github/workflows/scripts/swarm-verdict.sh \\u001b[0m
+review	Prepare review input on GitHub runner	2026-09-08T20:20:46.2011237Z \u001b[36;1m  .github/workflows/scripts/swarm-verdict.sh\u001b[0m
+review	Prepare review input on GitHub runner	2026-09-08T20:20:46.2011539Z \u001b[36;1mgit add -f .github/workflows/scripts/swarm-verdict.sh\u001b[0m
+review	Prepare review input on GitHub runner	2026-09-08T20:20:46.2043163Z shell: /usr/bin/bash -e {0}
+review	Prepare review input on GitHub runner	2026-09-08T20:20:46.2043380Z env:
+review	Prepare review input on GitHub runner	2026-09-08T20:20:46.2043599Z   CLOUD_API_URL: https://agentrelay.com/cloud
+review	Prepare review input on GitHub runner	2026-09-08T20:20:46.2044021Z   CLOUD_API_KEY: ***
+review	Prepare review input on GitHub runner	2026-09-08T20:20:46.2044271Z   RELAY_WORKSPACE_KEY: ***
+review	Prepare review input on GitHub runner	2026-09-08T20:20:46.2044521Z   RELAY_API_KEY: ***
+review	Prepare review input on GitHub runner	2026-09-08T20:20:46.2046374Z   GH_TOKEN: ***
+review	Prepare review input on GitHub runner	2026-09-08T20:20:46.2046556Z ##[endgroup]
+review	Prepare review input on GitHub runner	2026-09-08T20:20:47.4373935Z the diff contains terminal escape sequences; pass --allow-escape-sequences to output it anyway
+review	Prepare review input on GitHub runner	2026-09-08T20:20:47.4406557Z ##[error]Process completed with exit code 1.
+review	Enforce swarm result	﻿2026-09-08T20:20:47.4493262Z ##[group]Run echo "Review swarm did not complete successfully: " >&2
+review	Enforce swarm result	2026-09-08T20:20:47.4493651Z \u001b[36;1mecho "Review swarm did not complete successfully: " >&2\u001b[0m
+review	Enforce swarm result	2026-09-08T20:20:47.4493935Z \u001b[36;1mexit 1\u001b[0m
+review	Enforce swarm result	2026-09-08T20:20:47.4525582Z shell: /usr/bin/bash -e {0}
+review	Enforce swarm result	2026-09-08T20:20:47.4525791Z env:
+review	Enforce swarm result	2026-09-08T20:20:47.4526002Z   CLOUD_API_URL: https://agentrelay.com/cloud
+review	Enforce swarm result	2026-09-08T20:20:47.4526411Z   CLOUD_API_KEY: ***
+review	Enforce swarm result	2026-09-08T20:20:47.4526674Z   RELAY_WORKSPACE_KEY: ***
+review	Enforce swarm result	2026-09-08T20:20:47.4526928Z   RELAY_API_KEY: ***
+review	Enforce swarm result	2026-09-08T20:20:47.4527103Z ##[endgroup]
+review	Enforce swarm result	2026-09-08T20:20:47.4571247Z Review swarm did not complete successfully: 
+review	Enforce swarm result	2026-09-08T20:20:47.4573991Z ##[error]Process completed with exit code 1.

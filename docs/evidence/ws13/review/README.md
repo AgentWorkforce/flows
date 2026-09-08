@@ -59,6 +59,10 @@ No new timing benchmark was run.
 returned `relayfile ACL GET /.relayfile.acl failed with status 429`, correlation
 `499e3981-c303-48e3-89be-595ac66ee3c4`. [Captured failure](cloud-failure.txt).
 All three fresh review transcripts are missing; this is **not review signoff**.
+The first retry at `14cb174` failed sooner: `gh pr diff` refused two literal
+ANSI escape bytes in this newly captured Cloud log. That was an evidence-format
+mistake in this PR. The log now encodes ESC as visible `\u001b` text, preserving
+the captured content without terminal controls. [Failed preparation](prepare-failure.txt).
 The gate is unchanged. See the PR for the retry status at the current head.
 
 **Release-gate owner:** register and publish `create-flow`; publishing remains
