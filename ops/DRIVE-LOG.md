@@ -14359,3 +14359,51 @@ floor buys very little; the 79 are the pool.
 frees our own capacity, and it is still Khaliq's. But it is no longer the only
 path — if total keeps falling the account may clear on its own, and a single-run
 v2 proof is a smaller ask than a three-lens swarm regardless.
+
+## 2026-09-08 ~01:50Z — stopped trend-chasing; shipped the fix that would have saved the week
+
+**A fourth capacity sample, and I am done drawing trends from this metric.**
+
+    00:15Z  total 167   01:05Z  total 165
+    01:25Z  total 156   01:45Z  total 158
+
+It went down to 156 and back up to 158. Last tick I corrected "not draining" to
+"it is draining" on the strength of a single 9-unit drop. That correction was
+as premature as the claim it replaced. The honest reading is that this number
+oscillates around ~160 at roughly ±10, `managedInWorkspace` is pinned at 104
+across all four samples, and nothing is approaching the ~125 the 250-CPU cap
+allows. Three ticks, three trend claims, from noise. I am recording the samples
+from here on and not the story.
+
+**The inversion that actually matters.** The failed swarm run 04da7e48 *got* a
+sandbox — `b5f3b344-64cc-434d-97f8-f5da71ba4517` — and ran five minutes before
+its three lens agents were refused. A single run places at current occupancy.
+**#3270's proof is a single run.** So capacity was never the thing blocking the
+demo artifact; the missing preview vehicle is, and I declined to create that
+vehicle for three ticks *because* I believed capacity blocked it. The blocker
+I reported and the blocker that exists were different things.
+
+**Shipped: flows #235.** The gate polls `agent-relay cloud status --json`,
+reads `.status`, and throws the rest away, so a quota rejection reaches the log
+as the bare word `failed`. The reason was sitting in the payload the poll had
+already fetched. Five runs failed this way on 09-07 and I attributed them to a
+guess for days rather than pulling the run id out of the log and querying it by
+hand. The fix prints `.result.error` to stderr and the step summary.
+
+Verified behaviourally, not just syntactically — the expression run against the
+real 04da7e48 payload yields the quota text; a payload with no error yields an
+empty string rather than the literal `"null"`; an unset `$response` is safe.
+Mutation asserted before trusting any of it: 18 insertions, one occurrence, and
+the YAML still parses.
+
+**Not merging it.** The rule is an independent signoff at the exact head plus
+green CI, and the review swarm is precisely what cannot run — the failure this
+PR makes visible is the same one that blocks its own review. It waits for a
+human or for capacity.
+
+**For Khaliq, now one question rather than one command:** the #3270 proof needs
+an open cloud PR to host a preview stage, since `preview.yml` refuses any
+non-open PR and prod has v2 admission off. Opening a PR on cloud purely as a
+preview vehicle is a call I should not make unattended. Say the word and it
+goes up with the recovered artifact quad. The `dry_run=false` sweep is still
+wanted for the swarms, but it is no longer what stands between us and the demo.
