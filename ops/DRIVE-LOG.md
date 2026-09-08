@@ -4783,3 +4783,46 @@ lands on main from it.
 If the v1 canary comes back without the 500, the whole chain — Relaycast secret,
 schema adapter — is verified end to end, and the #3270 v2 proof becomes runnable
 for the first time tonight.
+
+### 2026-09-09 — both fixes deployed together; the RelayAuth 500 is UNCHANGED
+
+Ran the combined proof. Deploy **34287226203** from `test/combined-proof-0909`
+completed success. Then:
+
+```
+v1 canary d3d67463 -> failed, sandboxId null
+RelayAuth request failed (500) /v1/identities
+```
+
+Tailed `relayauth-api-pr-3446` while firing another launch. The error is
+**byte-identical to before the fix**:
+
+```
+D1_ERROR: no such column: key_prefix at offset 66: SQLITE_ERROR
+```
+
+Same column, same offset. Whatever emits that SQL is unchanged.
+
+This is inconsistent with #3461, whose adapter builds the SELECT from
+`PRAGMA table_info(api_keys)` (`api-keys.ts:62-76`) and cannot emit a hardcoded
+`key_prefix` against a canonical schema. So either the fix did not reach the
+running worker, or the failing SQL comes from code the fix does not cover.
+
+Checked, so the lane need not repeat it: `infra/relayauth.ts:107` confirms the
+worker's handler is `packages/relayauth/src/worker.ts`, so cloud's package is
+what runs there, and the deploy log shows `building function
+functionID=RelayauthApi` / `function built`.
+
+I looked for an SST "Updated ... Relayauth" line and found none — **and I am
+recording that as unknown, not as evidence.** My grep may simply not match SST's
+output format, and I have already been burned twice tonight by treating an empty
+result as a finding.
+
+Handed it back to `cloud-keyprefix-0908` as `BRIEF-3-fix-did-not-take.md` with
+both candidate explanations, the discriminator (log the resolved layout and
+built SQL, redeploy from a branch ref, see whether the code runs at all), and
+the exact diagnostics invocation. It owns the PR and has the context.
+
+The honest headline: the schema fix is **not yet proven to work**, and the demo
+proof remains blocked. Two real fixes exist (#3459, #3461) and one is verified
+(#3457's Relaycast secret) — but the launch still dies in the same place.
