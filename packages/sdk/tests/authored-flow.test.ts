@@ -146,6 +146,29 @@ describe('authored flow journal executor', () => {
     }), disconnectedJournal)).rejects.toMatchObject({ code: 'unsupported_gate' });
   });
 
+  it('refuses a workspace permission annotation f.agent cannot enforce, before contacting the journal', async () => {
+    const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+
+    for (const workspace of ['src/**: readonly', 'src/**: readwrite', 'src/**:readonly']) {
+      await expect(executeAuthoredFlow(flow('workspace-permission-not-enforced', async (f) => {
+        await f.agent('worker', { task: 'must not dispatch', workspace });
+        f.done('success');
+      }), disconnectedJournal)).rejects.toMatchObject({
+        code: 'unsupported_workspace_permission',
+      });
+    }
+
+    // A bare surface name (no permission annotation) is unaffected — this
+    // suite's other f.agent cases already exercise the resolved path; this
+    // one only needs to prove the annotation check does not over-match.
+    await expect(executeAuthoredFlow(flow('workspace-bare-surface', async (f) => {
+      await f.agent('worker', { task: 'x', workspace: 'repo' });
+      f.done('success');
+    }), disconnectedJournal)).rejects.not.toMatchObject({
+      code: 'unsupported_workspace_permission',
+    });
+  });
+
   it('rejects invalid raw headers before the executor can contact the journal', async () => {
     const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
 
@@ -283,14 +306,14 @@ describe('authored flow journal executor', () => {
         }),
         code: 'unsupported_verb',
       },
-      {
-        handle: flow('manual-agent-chain', async (f) => {
-          f.agent('worker', { task: 'unsupported' }).then(undefined, () => undefined);
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          f.done('success');
-        }),
-        code: 'unsupported_verb',
-      },
+      // No f.agent case here: it now really dispatches (authored-flow-executor.ts
+      // lowers it to a real kernel AgentStepSpec through checkAuthoredFlow's
+      // preflight), so against this mock journal server — no project, no
+      // flows.json, no CLI to resolve — it fails at CLI resolution before
+      // the manual-chain detection this test exercises ever gets a chance
+      // to run. That's a different behavior than what this test is for; the
+      // `run`/`llm` cases above already cover manual-chain detection
+      // generalizing across verbs.
     ];
 
     try {
@@ -344,14 +367,11 @@ describe('authored flow journal executor', () => {
         }),
         code: 'unsupported_verb',
       },
-      {
-        handle: flow('consumed-agent-rejection', async (f) => {
-          f.agent('worker', { task: 'unsupported' }).then(undefined, () => 'consumed');
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          f.done('success');
-        }),
-        code: 'unsupported_verb',
-      },
+      // No f.agent case here — same reason as the identical array in
+      // "refuses manually chained work even when it settles before the body
+      // returns" above: f.agent now really dispatches, so against this mock
+      // journal server it fails at CLI resolution, not at the rejection
+      // this test is about.
     ];
 
     try {

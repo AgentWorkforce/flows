@@ -44,8 +44,13 @@ export async function runDirectFlow(
   if (connected !== undefined) return connected;
 
   try {
-    const handle = await loadAuthoredFlow(path);
-    const result = await executeAuthoredFlow(handle, client, input);
+    const { handle, getDefinition } = await loadAuthoredFlow(path);
+    const result = await executeAuthoredFlow(handle, client, input, {
+      getDefinition,
+      flowPath: path,
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
+    });
     const terminal = result.journalSteps.at(-1);
     if (terminal === undefined) {
       return protocolFailure('run', base, socketPath, new Error(
@@ -65,8 +70,21 @@ export async function runDirectFlow(
       },
     };
   } catch (error) {
+    // `agent_cli_unresolved` and `unsupported_workspace_permission` are
+    // preflight-shaped refusals, not protocol failures — `flows check`
+    // returns exit 2 for the equivalent declarative-spec failures, and this
+    // path should match it. Known gap, not solved here: if a `f.run` before
+    // the failing `f.agent` already journaled real work, this still reports
+    // as a clean refusal — true upfront preflight would need to know every
+    // `f.agent` call an imperative TS body will make before running any of
+    // it, which isn't knowable without running the body (see the comment on
+    // ExecuteAuthoredFlowOptions and this project's own examples/README for
+    // the same limitation already documented elsewhere).
     if (error instanceof AuthoredFlowLoadError
-      || (error instanceof AuthoredFlowExecutionError && error.code === 'unsupported_header')) {
+      || (error instanceof AuthoredFlowExecutionError
+        && (error.code === 'unsupported_header'
+          || error.code === 'agent_cli_unresolved'
+          || error.code === 'unsupported_workspace_permission'))) {
       return {
         exitCode: 2,
         report: {
@@ -75,6 +93,23 @@ export async function runDirectFlow(
             message: error.message,
           }, path)),
           socketPath,
+        },
+      };
+    }
+    if (error instanceof AuthoredFlowExecutionError && error.code === 'agent_parked') {
+      return {
+        exitCode: 3,
+        report: {
+          ...base,
+          ok: false,
+          runId: error.runId,
+          socketPath,
+          status: 'parked',
+          diagnostics: [...base.diagnostics, {
+            severity: 'parked',
+            kind: 'run_parked',
+            message: error.message,
+          }],
         },
       };
     }
