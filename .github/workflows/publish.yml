@@ -363,7 +363,18 @@ jobs:
           NODE
           npm ci --prefix packages/surface --dry-run --ignore-scripts
           npm ci --prefix packages/sdk --dry-run --ignore-scripts
-          npm ci --prefix packages/relayflows --dry-run --ignore-scripts
+          # `npm ci` (unlike plain `npm install`) refuses outright — before
+          # even looking at --omit — if the lockfile is missing an entry for
+          # ANY package.json dependency, optional included. Confirmed on two
+          # separate real release runs that which of the two runtime-*
+          # optionalDependencies ends up resolved by the installs above is
+          # not reliably both from a single linux runner (one run dropped
+          # both, the next dropped only the one matching this runner's own
+          # platform) — an npm quirk with platform-gated optional deps in
+          # --package-lock-only mode, not something worth chasing further.
+          # `npm install --dry-run` verifies the same "is this installable"
+          # question without that all-or-nothing gate.
+          npm install --prefix packages/relayflows --dry-run --package-lock-only --ignore-scripts
       - name: Commit version bump and create tag
         if: ${{ !inputs.dry_run }}
         env:
