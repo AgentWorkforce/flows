@@ -4073,3 +4073,40 @@ a tick's work, and it needs an independent signoff before merge either way.
 
 Stopping rather than forcing it. Forcing a 12-commit replay through a directory
 relocation unattended is how a subtly wrong tree gets merged.
+
+### 2026-09-08 — 2 pending runs were NOT stuck; queue is healthy, blocker is unchanged
+
+Drain check found 2 `pending` v1 runs with `sandboxId: null` and `updatedAt`
+identical to `createdAt` — the exact signature the brief calls "launch queue
+DOWN". They were not stuck.
+
+They were 2.6 minutes old, and the previous pair took ~3.2 min
+(`15:53:46 -> 15:56:57`) to reach a terminal state. Waited; both resolved:
+
+```
+a896a7f6  failed  Relaycast workspace key repair failed: 401 Invalid internal token
+bf50634f  failed  Relaycast workspace key repair failed: 401 Invalid internal token
+```
+
+**The frozen-`updatedAt` signature only means "stuck" relative to how long this
+stage actually takes.** Without that age comparison it reads as an outage every
+time. The queue is fine; everything dies at the known Relaycast blocker.
+
+Second observation: something schedules **pairs of v1 runs roughly every 10
+minutes** on this stage, and every one is failing. To be clear about my own
+footprint — they were failing before my repoint too, with the 530; my change
+altered their error from 530 to 401, not their outcome. But this stage is not
+only mine, and the repoint is visible to whatever owns that schedule.
+
+Process note worth keeping: a `for R in $RIDS` loop returned nothing and read
+exactly like "no pending runs". zsh does not word-split unquoted variables by
+default, so both IDs arrived as one token. Used `while read -r` instead. That is
+the second time today an empty result was a broken instrument rather than an
+empty world.
+
+Disk 3.3Gi free and falling again. Not acting: the 22G still belongs to a live
+scratchpad session with running codex/agent-relay processes, and last time this
+trough recovered on its own. Flagging, not deleting.
+
+`RELAYCAST_INTERNAL_SECRET_DEV` still absent on `AgentWorkforce/cloud`, so the
+demo remains blocked exactly where it was.
