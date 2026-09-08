@@ -4576,3 +4576,39 @@ review while calling it a signoff would defeat the point of the rule.
 Also not merging regardless: a cloud merge push-deploys.
 
 relayauth lane still at 0 commits, 3 dirty files, alive. Disk 6.9Gi.
+
+### 2026-09-08 — root cause complete: cloud deleted its own api_keys migrations
+
+Drain: 0 pending of 1859, 11 running. Both lanes alive.
+
+The relayauth lane finished (findings complete, no writes in 20 min, still
+uncommitted). I copied its report to
+`chief/.chief-inbox/evidence-keyprefix-relayauth-0908.md` rather than leave
+203 lines of untracked work in an idle worktree.
+
+**The causal chain, end to end:**
+
+1. cloud's adapter `packages/relayauth/src/storage/cloudflare/api-keys.ts:42`
+   selects `key_prefix AS keyPrefix FROM api_keys`.
+2. cloud commit `2107034f8242...` (PR 319) deleted
+   `0003_tokens_session_and_timestamps.sql` **and** cloud's own copies of
+   `0001_local_bootstrap.sql` and `0002_api_keys.sql`.
+3. Migrations now come from `@relayauth/server`, whose set never creates
+   `key_prefix` — the lane verified this against the published 0.2.31 tarball,
+   SHA-512 checked against registry integrity metadata, all 282 files, both
+   spellings, zero matches.
+4. So the adapter and the applied schema have disagreed since that deletion.
+   Only a database created *after* it exposes the disagreement.
+
+`0003` was **not** deleted in the OSS repo — `--diff-filter=D` across all refs
+returns nothing there. The deletion is cloud's. My earlier note flagging the
+`0001, 0002, 0004…` gap as suspicious pointed at the right thing but the wrong
+repository.
+
+**Stage probes (GET-only, deliberately invalid api-key, nothing created or
+printed):** production and dev both return `401 invalid_api_key`; preview
+returns `500 internal_error`. The lane's caveat is the important part: that
+shows dev and production did not reproduce *at probe time*, not that their
+schemas are right. Their databases predate the deletion and carry the historical
+columns — **a freshly provisioned dev or production database would hit this.**
+That is the part worth acting on before someone reprovisions.
