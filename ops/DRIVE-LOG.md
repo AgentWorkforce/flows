@@ -14469,3 +14469,48 @@ Replied on the thread with the reasoning and resolved it.
 Still not merging #235 — signoff needs the swarm, the swarm needs capacity.
 Everything else unchanged; the open question for Khaliq is still whether to
 open a cloud PR to host a preview stage for the #3270 proof.
+
+## 2026-09-08 ~02:50Z — every open PR has unresolved findings; fixed the worst one
+
+Last tick's lesson generalized, so I swept all seven open PRs for unresolved
+review threads instead of reading their check status. **Thirteen findings
+across seven PRs, two of them P1, none of them visible from the checks.**
+
+    #226  P2 x2, P3      stale NEXT.md directives, obsolete credential names
+    #227  P2 x3          descriptor snapshot lint, blank fallback accepted, drive source drift
+    #229  P1             REVIEW_PASSED with no Blockers section clears the gate
+    #230  P1, P2         coherent snapshot metadata with stale table content passes
+    #231  P2             captured evidence claims 63 tests, file registers 56
+    #232  P2             auth probe can hang to the 75-minute deadline on a transient error
+    #234  P2             NEEDS_HUMAN declares a gate COMPLETE that is not
+
+None of this needs capacity. It has been sitting there while I reported the
+backlog as "blocked".
+
+**Fixed #229's P1 (747a61b).** A lens emitting `REVIEW_PASSED` with no
+`### Blockers` section cleared the gate, because `blockers_are_listed` returns
+false for an absent section and the PASSED arm read that as "no blockers".
+
+The part worth recording: **my own comment was defending the hole.** It argued
+an absent section should "keep its previous behaviour instead of newly failing"
+so as not to widen the blast radius. But the prompt in that same file requires
+the heading and says the first word under it must be `None` when there are
+none. I had written a careful-sounding justification for a case the file's own
+contract already forbids, and it read as deliberate scoping rather than as the
+gap it was. That is the second fail-open I have found in this gate today, both
+mine.
+
+Fixed with a separate `blockers_section_present` guard rather than by changing
+what `blockers_are_listed` returns. Collapsing them would make the log say
+"review listed blockers but emitted REVIEW_PASSED" about a review that listed
+nothing — the two failures need different fixes, so they get different
+messages. Verified all four cases including the trailing-second-section one.
+Replied and resolved.
+
+**A near miss on process.** `fix/lens-verdict-218` was already checked out at
+`flows-main-verify-wt`, and `git worktree add` refused. I nearly treated that
+as another agent holding the branch. It was my own worktree from 00:57, idle,
+with one untracked probe file — so I worked in the directory that already owned
+the branch rather than fighting it. Checking before assuming cost one command.
+
+Remaining: #230's P1, then the P2s. Still no merges — signoff needs the swarm.
