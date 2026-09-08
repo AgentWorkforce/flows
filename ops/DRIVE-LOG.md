@@ -4826,3 +4826,31 @@ the exact diagnostics invocation. It owns the PR and has the context.
 The honest headline: the schema fix is **not yet proven to work**, and the demo
 proof remains blocked. Two real fixes exist (#3459, #3461) and one is verified
 (#3457's Relaycast secret) — but the launch still dies in the same place.
+
+### 2026-09-09 — lane picked up BRIEF-3; investigating why its fix did not take
+
+Drain: 0 pending of 1881. Disk 6.8Gi.
+
+Nudged `cloud-keyprefix-0908` onto `BRIEF-3-fix-did-not-take.md` by drive-mode
+attach (the DM route did nothing for an hour earlier, so I did not bother with
+it again). Verified by transcript rather than exit code: the lane is reading the
+deploy and diagnostics runs — I could see it fetching
+`actions/runs/34289003976` — and it is on branch
+`dig/relayauth-api-key-schema-0909` at `59dc7a92b`.
+
+It had written no files in the last 15 minutes, so it is reading rather than
+editing. That is the right order for this question: the point is to find out
+whether its code ran at all, not to write more code.
+
+Nothing else to do this tick. The state is honest and unchanged:
+
+- **#3457 (Relaycast `_DEV` seeding) — proven.** It moved the failure past
+  workspace-key repair, which is why we can see the RelayAuth error at all.
+- **#3459 (masking) — real defect, tests written, CI green, unmerged.**
+- **#3461 (schema adapter) — correct in design, NOT proven to work.** The
+  deployed worker still emits the pre-fix SQL byte for byte.
+- The #3270 v2 proof remains blocked, and no v2 run has ever completed.
+
+I am deliberately not redeploying or re-running the canary again this tick.
+Repeating a measurement that has already returned the same answer twice adds
+nothing until someone establishes whether the new code is running.
