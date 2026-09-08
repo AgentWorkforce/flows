@@ -14968,3 +14968,43 @@ workspace.
 Not touching the data. My own notes say D1 deletion is unrecoverable, Time
 Travel dies with the database, and export comes first — and this is production
 for the whole fleet, not just this lane.
+
+## 2026-09-08 ~06:45Z — the drain is not broken, it is throttled below the inflow
+
+Khaliq said yes to digging into `pending_inline_content`. Read-only throughout;
+touched no data.
+
+**The shape of the backlog.** 1,104,119 pending rows against 1,107,434 rows in
+`files` — **99.70%**. Only 3,315 files have no pending row. That is not a queue
+with a backlog; that is a queue that has essentially never cleared.
+
+**A hypothesis I had to drop.** The drain is gated on an optional binding —
+`INLINE_CONTENT_ARCHIVE_QUEUE?: Queue` in env.ts, and
+`if (rows.length > 0 && this.bindings.INLINE_CONTENT_ARCHIVE_QUEUE)` in
+workspace.ts. That is exactly the shape of the factory
+`GITHUB_INSTALLATION_ID=''` failure, and I was ready to call it. It is wrong:
+the else branch flushes straight to R2 via `flushInlineContentToR2` and deletes
+the row, so a missing binding still drains. Checked before reporting.
+
+**What the code actually says:**
+
+    const INLINE_CONTENT_DRAIN_BATCH_SIZE = 6;
+    const INLINE_CONTENT_DRAIN_COALESCE_MS = 2_000;
+
+Six rows per two-second coalesce window. Three rows a second, 259,200 a day at
+a perfect rate. Clearing 1,104,119 rows takes **4.3 days of uninterrupted
+draining with zero new writes** — against a workspace that writes continuously.
+The drain has been running and losing.
+
+I am stating the arithmetic, not a measurement: I have not observed the alarm's
+real cadence in production, and retries plus the 120s ack lease can only make
+the effective rate lower, never higher.
+
+**Why this matters beyond tonight.** The fix is not "clear the table" — at this
+rate it refills. Either the batch size and cadence rise by orders of magnitude,
+or inline content stops landing in D1 first. Retention is already tracked in
+relayfile-cloud#179 (30-day revision retention), but that is revisions, not
+this queue, and nothing I found tracks the drain rate itself.
+
+Not touching data: D1 deletion is unrecoverable, Time Travel dies with the
+database, and this is production for the whole fleet.
