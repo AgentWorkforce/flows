@@ -260,17 +260,27 @@ LAST_VERDICT=$(printf '%s\n' "$OUTPUT" | grep -E '^REVIEW_(PASSED|FAILED)$' | ta
 # stays 1. Turning a failure into a pass on a substring would be exactly the
 # fail-open the classifier above refuses.
 # True when the LAST `### Blockers` section exists AND its first non-blank line
-# is something other than "None". Deliberately NOT the negation of
-# blockers_say_none: an ABSENT section returns false here, so a review that
-# omits the section keeps its previous behaviour instead of newly failing. This
-# closes the unambiguous fail-open without changing the blast radius for
-# reviews that never emitted the section at all.
+# is something other than "None". An ABSENT section returns false here, which is
+# why it cannot be the only guard: absence is handled separately by
+# blockers_section_present, so the two diagnoses stay distinguishable in the
+# log. Do not collapse them — "the lens contradicted itself" and "the lens
+# ignored the output contract" need different fixes.
 blockers_are_listed() {
   first="$(printf '%s\n' "$OUTPUT" \
     | awk '/^#+[[:space:]]*Blockers[[:space:]]*$/{f=1;buf="";next} f&&NF&&buf==""{buf=$0} END{print buf}')"
   [ -n "$first" ] || return 1
   printf '%s' "$first" | grep -qiE '^\**None\b' && return 1
   return 0
+}
+
+# The prompt does not treat `### Blockers` as optional: it requires the heading
+# and says the first word under it must be `None` when there are none. A review
+# that omits it entirely has not answered the question the gate asks, and
+# accepting it as a pass is a fail-open — flows#229, cubic P1. My earlier note
+# here argued absence should "keep its previous behaviour instead of newly
+# failing". That was protecting a case the prompt already forbids.
+blockers_section_present() {
+  printf '%s\n' "$OUTPUT" | grep -qE '^#+[[:space:]]*Blockers[[:space:]]*$'
 }
 
 blockers_say_none() {
@@ -294,6 +304,10 @@ case "$LAST_VERDICT" in
     ;;
   REVIEW_PASSED)
     if [ "$CLI_RC" -eq 0 ]; then
+      if ! blockers_section_present; then
+        echo "PRESWARM_${LENS}: CONTRADICTION — review emitted REVIEW_PASSED with no '### Blockers' section; the prompt requires one, so this review is malformed (NO_VERDICT, not a pass)" >&2
+        exit 1
+      fi
       if blockers_are_listed; then
         # A review that enumerates blockers and still emits REVIEW_PASSED is the
         # same defect as the REVIEW_FAILED arm above, in the direction that
