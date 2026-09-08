@@ -3911,3 +3911,56 @@ outward-facing mutation and Khaliq's call. But this is squarely the
 stuck-run-reaper's job, which is the component #3442 modifies, so it is worth
 looking at while that PR is open: either the reaper never sees these, or it
 skips the `running` state.
+
+### 2026-09-08 — the 401 is cross-repo secret drift. Precise fix known; needs a human.
+
+Items 1/3/4 are clean or merged, 2 blocked — so I spent the tick narrowing the
+blocker to something actionable rather than re-reporting it. Read-only
+throughout: **no secret value was created, rotated, printed or compared.** Only
+secret NAMES were listed.
+
+The chain:
+
+1. `relay-workspace.ts:136` authenticates with `Resource.RelaycastInternalSecret`.
+2. `infra/secrets.ts:172` declares it as a plain `sst.Secret` with no default, so
+   its value is per-SST-stage.
+3. `preview.yml:150` passes the repo-level `RELAYCAST_INTERNAL_SECRET`, seeded by
+   `.github/scripts/seed-sst-secrets.sh:130`:
+   `set_secret_or_generate RelaycastInternalSecret RELAYCAST_INTERNAL_SECRET`.
+
+`set_secret_or_**generate**` was the promising suspect — an unset repo secret
+would silently mint a random per-stage value, pass the resource check because the
+secret *exists*, and produce exactly `401 Invalid internal token`. That is the
+"unset deploy input silently disables a feature" shape.
+
+**It is not that.** `RELAYCAST_INTERNAL_SECRET` does exist on
+`AgentWorkforce/cloud`, so the generate branch was never taken.
+
+The actual cause is on the other side of the repo boundary.
+`AgentWorkforce/relaycast-cloud` (private) holds **two** secrets:
+
+```
+RELAYCAST_INTERNAL_SECRET
+RELAYCAST_INTERNAL_SECRET_DEV
+```
+
+`AgentWorkforce/cloud` holds only the un-suffixed one. So `dev-cast` validates
+against `_DEV` while the preview stage presents cloud's single value — a 401,
+deterministically. Nothing is misconfigured *within* either repo; the two repos
+simply disagree about which secret a non-prod gateway accepts.
+
+**Inference, flagged as such:** if cloud's single `RELAYCAST_INTERNAL_SECRET` is
+the value relaycast-cloud calls un-suffixed (i.e. prod's), then every preview
+stage is being seeded with the **production** Relaycast internal bearer. I cannot
+compare values and will not try, so this is a hypothesis from the naming — but if
+true it is a blast-radius issue worth fixing independently of the demo, and it
+also explains why prod `cast.agentrelay.com` was the one host that would likely
+have "worked".
+
+**The fix needs secret access, so I stop here.** Cloud would need a
+`RELAYCAST_INTERNAL_SECRET_DEV` of its own, with `preview.yml` seeding the dev
+value for non-prod stages. That is provisioning, which Khaliq's standing
+constraint puts off-limits to me.
+
+Status of the demo: unchanged and now fully explained. v2 has never completed;
+the launch cannot mint a Relaycast workspace key from any reachable gateway.
