@@ -4348,3 +4348,38 @@ RelayAuth's own Worker; `cloud-web` only sees the response. The tail step's
 worker name is still hardcoded to `cloud-web-worker-pr-${pr_number}`, so the next
 step is to parametrize that too and tail the preview's RelayAuth worker while
 reproducing.
+
+### 2026-09-08 — tailed the wrong worker; caught it with a negative control
+
+Parametrized the diagnostics tail's worker name too (`03ce5d3`) and pointed it at
+`relayauth-api-pr-3446`, derived from `infra/relayauth.ts:27`
+(`workerScriptName("relayauth-api")`) and `infra/edge.ts:18`
+(`base-${normalizedStage}`).
+
+Two runs against it captured **zero events** — once with `search=identities`,
+once with `search=/`.
+
+The tempting conclusion was "cloud-web never reaches RelayAuth". **It is wrong**,
+and a negative control caught it. On the third run I curled
+`https://preview-pr-3446-api.relayauth.dev/v1/identities` three times myself
+during the tail window:
+
+```
+my curls:        HTTP 401, 401, 401     (so a live worker answered)
+tail recorded:   zero events
+```
+
+Traffic provably reached *a* worker while the tail saw nothing, so
+**`relayauth-api-pr-3446` is not the script serving that hostname.** The tail
+was pointed at the wrong target the whole time; the silence said nothing about
+cloud-web's behaviour.
+
+This is the "prove the instrument can express presence" rule earning its place
+for the second time today. An empty log is not evidence of absence until the
+instrument has been shown able to record something.
+
+Next step is narrow: get the real script name from the preview deploy's own SST
+resource output rather than deriving it from the infra source, then re-tail.
+The naming derivation is the suspect — the public hostname uses
+`publicStageLabel` (`preview-pr-3446`) while `workerScriptName` uses
+`normalizedStage` (`pr-3446`), so the two do not have to agree.
