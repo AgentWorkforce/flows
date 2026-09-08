@@ -14307,3 +14307,55 @@ matter how the preview is dispatched, so there is nothing to pre-stage.
 Still one action, still Khaliq's: `daytona-sweep-orphans.yml` with
 `dry_run=false` (workspace 50587328-441d-4acb-b8f3-dbe1b3c5de99,
 min_age_hours=12, limit=20). ~40 CPU per run, repeatable.
+
+## 2026-09-08 ~01:30Z — the cap, finally with evidence instead of inference
+
+I have been asserting "blocked on the Daytona CPU cap" for several ticks
+without ever having read an error that says so. Tonight I chased an actual
+failed swarm to its source. Two things came back: the claim is true, and my
+description of it was wrong in two ways.
+
+**The literal evidence.** Review-swarm run 34168392594 (PR #229) failed at
+23:03Z. Its GitHub log says only `Review swarm did not complete successfully:
+failed` — no quota text anywhere, which is why I had never seen one. The reason
+lives one layer down, in the cloud run it launched
+(`04da7e48-87ec-4c7a-a1ee-22fd482e1cd1`), under `result.error`:
+
+    Step "lens-maintainability" failed: Step "lens-maintainability" failed
+    after 2 retries: Total CPU limit exceeded. Maximum allowed: 250.
+
+That is the string I should have had days ago. Every recent swarm attempt is
+failing this way: 34168392594, 34167663112, 34165035497, 34164872298,
+34164770687.
+
+**Correction 1 — the orchestrator is not what is blocked.** That run *got* a
+sandbox (`b5f3b344-64cc-434d-97f8-f5da71ba4517`) and ran for five minutes. It
+is the three per-lens agent sandboxes that cannot be placed. So "launches are
+blocked" was wrong; launches succeed and the fan-out starves. That distinction
+matters for the #3270 proof, which is a single run, not a three-way fan-out —
+it may well fit where a swarm does not.
+
+**Correction 2 — I called a trend off two samples.** Last tick I wrote that the
+pool "is not draining" and that waiting would not clear it. A third sample says
+otherwise:
+
+    00:15Z  totalOnAccount 167  managedInWorkspace 103
+    01:05Z  totalOnAccount 165  managedInWorkspace 104
+    01:25Z  totalOnAccount 156  managedInWorkspace 104
+
+Total fell 9 in the last twenty minutes. It is draining. What is *not* moving
+is `managedInWorkspace`, flat at 104 across all three — the decline is in
+sandboxes outside this workspace. Since the 250 CPU cap is account-wide and
+these are 2 CPU each, the account can fall back under the cap without our own
+104 changing at all. Two samples were not a trend and I should not have written
+one down as if it were.
+
+A non-destructive probe at a lower age floor, for whoever runs the sweep:
+`min_age_hours=1` reports `eligible 90` against `eligible 79` at 12h — only 11
+more sandboxes become eligible for a floor eleven hours lower. Dropping the
+floor buys very little; the 79 are the pool.
+
+**Unchanged:** the sweep with `dry_run=false` is still the one action that
+frees our own capacity, and it is still Khaliq's. But it is no longer the only
+path — if total keeps falling the account may clear on its own, and a single-run
+v2 proof is a smaller ask than a three-lens swarm regardless.
