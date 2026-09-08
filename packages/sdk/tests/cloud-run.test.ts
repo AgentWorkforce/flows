@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.js';
 import { runInCloud, getCloudFlowRun, waitForCloudFlowRun } from '../src/cloud-run.js';
+import { cloudConnection } from '../src/cloud-http.js';
+import { compileSpec, toKernelSpec } from '../src/compile.js';
+import { specHash } from '../src/canonical.js';
 import type { FlowSpec } from '../src/spec.js';
 
 const flow: FlowSpec = {
@@ -66,21 +69,54 @@ describe('hosted v2 submission', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('accepts compiled kernel JSON using the existing compiler conversion', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-spec-'));
+    dirs.push(dir);
+    const path = join(dir, 'spec.json');
+    const compiled = toKernelSpec(compileSpec(flow));
+    await writeFile(path, JSON.stringify(compiled));
+    const options = await cloud(() => ({ runId: 'compiled-run', status: 'pending' }));
+    expect((await runInCloud({ path }, options)).specHash).toBe(specHash(compiled));
+  });
+
   it('refuses unsafe origins and Relay keys without sending credentials', async () => {
     const fetch = vi.spyOn(globalThis, 'fetch');
-    for (const apiUrl of ['http://remote.example', 'https://user:pass@example.com', 'https://example.com/path', 'https://example.com?token=x']) {
+    for (const apiUrl of ['http://remote.example', 'https://user:pass@example.com', 'https://example.com/%2Fother', 'https://example.com?token=x']) {
       await expect(runInCloud(flow, { apiUrl, token: 'test-token' })).rejects.toMatchObject({ code: 'configuration' });
     }
-    for (const token of ['', 'rk_live_secret', 'ot_live_secret', 'token\nheader']) {
+    for (const token of ['', 'rk_live_secret', 'ot_live_secret', ' rk_live_secret', 'ot_live_secret ', 'token\nheader']) {
       await expect(runInCloud(flow, { token })).rejects.toMatchObject({ code: 'configuration' });
     }
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('preserves the production /cloud base path and normalized credentials', async () => {
+    vi.stubEnv('FLOWS_CLOUD_URL', undefined);
+    expect(cloudConnection({ token: ' test-token ' })).toEqual({ baseUrl: 'https://agentrelay.com/cloud', token: 'test-token' });
+    const paths: string[] = [];
+    const options = await cloud(path => { paths.push(path); return { runId: 'path-run', status: 'pending' }; });
+    const receipt = await runInCloud(flow, { ...options, apiUrl: `${options.apiUrl}/cloud/` });
+    expect(paths).toEqual(['/cloud/api/v1/workflows/run']);
+    expect(receipt.apiUrl).toBe(`${options.apiUrl}/cloud/api/v1/workflows/runs/path-run`);
   });
 
   it('does not retry failed submissions or echo response secrets', async () => {
     let calls = 0;
     const options = await cloud(() => { calls++; return { secret: 'never-print-this' }; }, 503);
     await expect(runInCloud(flow, options)).rejects.toMatchObject({ code: 'http_error', status: 503, message: 'Cloud request failed with HTTP 503.' });
+    expect(calls).toBe(1);
+  });
+
+  it('bounds a stalled HTTP request without retrying submission', async () => {
+    let calls = 0;
+    const server = createServer(() => { calls++; });
+    servers.push(server);
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing address');
+    await expect(runInCloud(flow, {
+      apiUrl: `http://127.0.0.1:${address.port}`, token: 'test-token', requestTimeoutMs: 100,
+    })).rejects.toMatchObject({ name: 'TimeoutError' });
     expect(calls).toBe(1);
   });
 
@@ -122,6 +158,7 @@ describe('hosted observation', () => {
     { runId: 'other', relayflowVersion: 'v2', status: 'completed' },
     { runId: 'run-1', relayflowVersion: 'v1', status: 'completed' },
     { runId: 'run-1', relayflowVersion: 'v2', status: 'unknown' },
+    { runId: 'run-1', relayflowVersion: 'v2', status: ['running'] },
   ])('refuses mismatched or unknown run records %j', async (response) => {
     const options = await cloud(() => response);
     await expect(getCloudFlowRun('run-1', options)).rejects.toMatchObject({ code: 'invalid_response' });

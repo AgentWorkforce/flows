@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { setTimeout } from 'node:timers/promises';
+import { parse as parseYaml } from 'yaml';
 import { canonicalize, specHash } from './canonical.js';
-import { compileSpec, compileYaml, toKernelSpec } from './compile.js';
+import { CompileError, compileSpec, kernelToAuthoring, toKernelSpec } from './compile.js';
 import type { FlowSpec } from './spec.js';
 import {
   CloudFlowError, cloudConnection, cloudRequest, cloudRunId, isCloudRecord,
@@ -35,14 +36,26 @@ export async function runInCloud(
   flow: CloudFlowSource,
   options: RunInCloudOptions = {},
 ): Promise<CloudRunReceipt> {
-  const { origin } = cloudConnection(options);
+  const { baseUrl } = cloudConnection(options);
   let spec: FlowSpec;
   if ('path' in flow) {
     if (!/\.(?:ya?ml|json)$/iu.test(flow.path)) {
       throw new CloudFlowError('unsupported_source',
         'Cloud v2 currently accepts declarative YAML or JSON specs; authored TypeScript flows are not supported by the hosted runtime.');
     }
-    spec = compileYaml(await readFile(flow.path, 'utf8'));
+    const parsed: unknown = parseYaml(await readFile(flow.path, 'utf8'));
+    try {
+      spec = compileSpec(parsed);
+    } catch (error) {
+      if (!(error instanceof CompileError)) throw error;
+      // Both dialects are strictly validated by the existing compiler. A
+      // compiled spec can be uploaded just as it can be run by the local CLI.
+      try {
+        spec = compileSpec(kernelToAuthoring(parsed));
+      } catch {
+        throw error;
+      }
+    }
   } else {
     spec = compileSpec(flow);
   }
@@ -59,7 +72,7 @@ export async function runInCloud(
     throw new CloudFlowError('invalid_response', 'Cloud did not return an accepted run.');
   }
   const runId = cloudRunId(result.runId);
-  return { runId, status: result.status, specHash: hash, apiUrl: `${origin}/api/v1/workflows/runs/${runId}` };
+  return { runId, status: result.status, specHash: hash, apiUrl: `${baseUrl}/api/v1/workflows/runs/${runId}` };
 }
 
 export async function getCloudFlowRun(
@@ -69,7 +82,8 @@ export async function getCloudFlowRun(
   cloudRunId(runId);
   const result = await cloudRequest(`/api/v1/workflows/runs/${runId}`, options);
   if (!isCloudRecord(result) || result.runId !== runId || result.relayflowVersion !== 'v2'
-    || !['pending', 'running', 'completed', 'failed', 'cancelled'].includes(String(result.status))) {
+    || typeof result.status !== 'string'
+    || !['pending', 'running', 'completed', 'failed', 'cancelled'].includes(result.status)) {
     throw new CloudFlowError('invalid_response', 'Cloud returned an invalid v2 run record.');
   }
   return {
