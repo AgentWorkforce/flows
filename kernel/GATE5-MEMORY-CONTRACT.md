@@ -6,7 +6,7 @@ so this records that contract rather than proposing a design that ignores it.
 
 ## What already exists on the flows side
 
-`#221` landed the seam, and it is the part that is hard to retrofit:
+`#220` landed the seam, and it is the part that is hard to retrofit (`kernel/MEMORY.md` is titled "Step memory, slice 1 (#220)"; #221 is a separate PR):
 `MemoryProvider`, `MemoryPack`, and a `memory.injected` journal entry carrying
 the consuming `step_id` and initial `attempt`. That is RFC decision 10 — memory
 tokens charged to the consuming step, itemized, no shared pools.
