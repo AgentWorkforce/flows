@@ -429,3 +429,52 @@ LIVE_KERNEL kill -9 pid=58369 run=01M206M7KTVASPSFP8S8529PP2 while step=two stat
    Duration  52.90s (transform 710ms, setup 0ms, collect 3.40s, tests 98.29s, environment 6ms, prepare 1.37s)
 
 EXIT_CODE=0
+
+=== Real backlog at implementation commit 6242049 ===
+$ node ops/local-work-package.mjs select
+SKIPPED [unbounded_scope] `timeoutMs` is enforced LATE, not never — a step ran 2.3x past its limit.
+SKIPPED [stale_scope: sdk/tests/live-kernel.test.ts, sdk/src/protocol.ts, sdk/src/journal-client.ts, sdk/src/cli/run.ts] GATES 2 AND 3 ARE BLOCKED ON A MISSING COMPONENT: there is no agent worker.
+SKIPPED [unbounded_scope] Half the drive runs complete but build nothing.
+SKIPPED [missing_scope] DONE (PR #45, merged): refuse an entry with unterminated backticks.
+SKIPPED [missing_scope] DONE (PR #42, merged): sharpen what the picker considers actionable.
+SKIPPED [unbounded_scope] Close the deterministic-command preflight gap (Codex P1).
+SKIPPED [unbounded_scope] Release pipeline (relay pattern, NOT crates.io):
+SKIPPED [missing_scope] Persist review transcripts:
+SKIPPED [missing_scope] Re-register cloud schedules from current drive.yaml
+SKIPPED [missing_definition_of_done] Customer harness is a named design partner
+SKIPPED [missing_scope] PR titles from the pr step
+SKIPPED [unbounded_scope] The PR-shepherd flow (Garden component, gate 3):
+SKIPPED [missing_executable_checks] Regression suite (`regressions/`, dormant):
+SKIPPED [unbounded_scope] `f.browser` helper (gate-6 family, plugin-shaped).
+SKIPPED [unbounded_scope] Computer use — deferred, behind heavier rails.
+SKIPPED [missing_definition_of_done] Upstream issues (2026-08-27):
+SKIPPED [unbounded_scope] Cloud sandbox runs die in `sync`: no git remote.
+SKIPPED [missing_executable_checks] Documented `steps: []` check/kernel asymmetry (P3, WP-4 review V3).
+SKIPPED [unbounded_scope] Scope the `flows check` CLI probe environment (gate 8; WP-7 F6).
+SKIPPED [unbounded_scope] F1
+SKIPPED [missing_scope] F2
+SKIPPED [unbounded_scope] F3
+SKIPPED [unbounded_scope] F5
+SKIPPED [unbounded_scope] F6
+SELECTED F8b
+  files in scope: packages/sdk/src/compile.ts
+  definition of done: 1 item(s)
+EXIT_CODE=0
+
+$ node ops/local-work-package.mjs scope
+SCOPE_OK: 0 changed path(s)
+EXIT_CODE=0
+
+$ node ops/local-work-package.mjs verify
+SCOPE_OK: 0 changed path(s)
+CHECK ["node","--input-type=module","-e","import assert from 'node:assert/strict'; import {readFileSync} from 'node:fs'; const source = readFileSync('packages/sdk/src/compile.ts', 'utf8'); assert(!source.includes('validateKernelRetry')); assert(source.includes('function validateAuthoringRetryDefaults(')); assert(source.includes('validateAuthoringRetryDefaults(step['));"]
+PACKAGE_VERIFIED: 1 check(s)
+SCOPE_OK: 0 changed path(s)
+EXIT_CODE=0
+
+$ node ops/local-work-package.mjs report
+REPORT F8b
+  (no working-tree changes)
+  DoD: F8b
+EXIT_CODE=0
+
