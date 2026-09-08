@@ -16043,3 +16043,50 @@ Shipped as flows#238-sibling PR on `feat/drive-local-general`.
 `files in scope: .` for that entry. Technically valid, useless as scope. That is
 the picker's extraction, not this flow's, and it wants a look before the loop
 runs unattended — an agent told its scope is "." has been told nothing.
+
+## 2026-09-08 ~17:00Z — the loop selects its own bounded work; it is not safe to run yet
+
+Picked up where I said I would: making the loop runnable rather than being it.
+
+**The `.` scope was not a picker bug.** Its own comment calls `['.']` "honest
+breadth" — emitted when an entry references code but names no path. That is a
+fair description of the entry. It is simply not usable as scope for an agent:
+"." is the whole repository, and an agent told its scope is everything has been
+told nothing. So the fix belonged in my flow, not the picker.
+
+**My first attempt was right and useless.** Refusing the tick outright when the
+selected entry is unbounded fails closed — but the current BACKLOG's *first*
+selectable entry is unbounded, so the loop would have refused on every run
+forever. A loop that never runs is not safer than one that runs on bounded work;
+it is just a loop that never runs.
+
+Selection now walks past entries it cannot bound, reporting each skip with a
+reason. "Next" stays the picker's definition: rather than write a second parser
+that could disagree with it about what an entry *is*, the rejected title is cut
+from the markdown and the picker is asked again.
+
+    SKIPPED [unbounded_scope] `timeoutMs` is enforced LATE, not never...
+    SELECTED GATES 2 AND 3 ARE BLOCKED ON A MISSING COMPONENT: there is no agent worker.
+      files in scope: sdk/tests/live-kernel.test.ts, sdk/src/protocol.ts,
+                      sdk/src/journal-client.ts, sdk/src/cli/run.ts
+
+**And I am not running it on that, which is the point of checking.** Those four
+paths do not exist. The repo moved `sdk/` to `packages/sdk/` and the entry
+predates it — `packages/sdk/src/protocol.ts` is present, `sdk/src/protocol.ts`
+is not. Handing an agent a scope of four missing files, unattended, is how a
+tick invents work to look busy, which is the exact behaviour the flow's own
+instruction forbids.
+
+So: selection is general and bounded, and the first thing it selected exposed
+that the backlog's paths are stale relative to the reorg. That is a real finding
+the loop produced on its first honest run, and it is a better outcome than a
+green tick would have been.
+
+Two ways forward, and the choice is Khaliq's rather than mine at 07:00: fix the
+stale paths in the BACKLOG entries so the loop can take them, or have `select`
+also verify that every declared path exists and skip entries whose scope has
+rotted. The second is more work but it makes the loop self-defending — a
+backlog entry that no longer matches the tree cannot silently become an agent's
+instruction.
+
+Pushed to flows#242.
