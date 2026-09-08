@@ -1,0 +1,16 @@
+$ cd packages/sdk
+$ export PATH=/tmp/ws13-toolchain:$PATH
+$ node node_modules/vitest/vitest.mjs run tests/worker-cli-abort.test.ts --reporter verbose
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/packages/sdk
+
+ ✓ tests/worker-cli-abort.test.ts > stops claude and its process group when lease ownership is lost 1500ms
+ ✓ tests/worker-cli-abort.test.ts > stops wrapper.mjs and its process group when lease ownership is lost 1352ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  21:05:35
+   Duration  7.60s (transform 1.23s, setup 0ms, collect 629ms, tests 2.85s, environment 1ms, prepare 1.76s)
+
+
+EXIT_CODE=0

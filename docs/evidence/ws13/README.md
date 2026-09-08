@@ -9,12 +9,16 @@ does not attribute most of the total to the provider.
 **Named handoffs:** the release-gate owner must register `create-flow` in
 versioning/packaging/publishing. The review-swarm/CI owner must restore fresh
 maintainability, history and structure transcripts; all three are missing and
-there is no independent review signoff. Neither handoff is a reason to keep
+there is no approving independent signoff. After the PR left draft, Codex
+and Cubic produced review findings; the lease-renewal P1 is addressed
+in this branch, with [captured verification](followup/README.md). Those findings do not replace the missing swarm transcripts. Neither handoff is a reason to keep
 the PR in draft once the gallery results are reported. No publishing work or
 Cloud run-publication API is part of this follow-up.
 
-The [current three-entry gallery](../../../examples/README.md) supersedes the
-initial invocation results below. Research now reports each provider probe
+The [current three-entry gallery](../../../examples/README.md) is **1 PASS,
+2 BLOCKED** and supersedes the initial invocation results below. Research
+completed with the default budget in [690.935s](followup/default-budget/gallery-research.txt);
+the SDK flows still refuse unsupported budget headers. Research now reports each provider probe
 and timeout on stderr. [Research regression tests](followup/research-tests.txt)
 and [typecheck](followup/research-typecheck.txt) contain the commands/output.
 
@@ -33,13 +37,18 @@ and [typecheck](followup/research-typecheck.txt) contain the commands/output.
 | Empty-cache install + deterministic run in fresh Debian Trixie container | Completed in 43.374s; deterministic template, no source clone or agent | [Command and output](cold-trixie.txt) |
 | Empty-cache install + deterministic run in fresh Debian Bookworm container | Refused: published Linux daemon requires GLIBC_2.39; 55.223s | [Command and output](cold-container.txt) |
 | Linux container test runner | esbuild Go runtime crashed under amd64 emulation before collecting tests | [Command, script and full output](container-tests.txt) |
-| Research typecheck after correcting its compiler path | No type errors reported | [Command and output](research-typecheck.txt) |
+| Research typecheck after correcting its compiler path | Superseded by the complete follow-up capture | [Command and output](followup/research-typecheck.txt) |
 
 The [gallery table](../../../examples/README.md) reports the three requested
 entries individually. Unsupported budget headers remain a capability-owner
 handoff. The initial research attempt reached an outer 150-second limit with
 no captured output; the follow-up now exposes preflight progress and captures
 the shim's own failure or success result. No gallery declaration was weakened.
+
+The cold-container transcripts include provisioning output followed by the
+inner command’s elapsed value; `record.py` was used for the separate PTY
+agent recordings, not to time the cold Docker commands. Node/image/Git
+provisioning is excluded from those cold command timings.
 
 The recording uses the initial packed implementation plus the npm bin fix.
 Its agent step invokes the real installed Claude CLI. The host already had
@@ -95,6 +104,9 @@ Serve all candidate tarballs locally:
 node docs/evidence/ws13/stage-registry.mjs /tmp/ws13-artifacts 48734
 ```
 
+The registry binds to loopback by default. For Docker access, explicitly
+add the bind host: `node docs/evidence/ws13/stage-registry.mjs /tmp/ws13-artifacts 48734 0.0.0.0`.
+
 In a separate terminal, point npm at that registry; dependencies outside this
 branch redirect to the public npm registry:
 
@@ -126,7 +138,8 @@ expanded into an unrelated refactor.
 The independent release-gate owner must add `create-flow` to package versioning
 and publishing, and to `scripts/pack-release.mjs`, which currently refuses that
 package name. That script also requires the legacy runtime executable.
-Those gates were not edited. No package was published and no merge is allowed.
+Those gates were not edited. No package was published and no merge is allowed. PR #247 is ready for review,
+not in draft; publishing and review are named handoffs.
 
 Veto tools were not exposed. Relay queue receipts did not establish delivery;
 the coordinator confirmed the original handoff never arrived. The PR and this

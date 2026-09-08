@@ -1,18 +1,23 @@
 """Capture each requested gallery invocation, including nonzero exits and timeouts.
-Usage: python3 run-gallery.py /absolute/gallery-clone /absolute/evidence-directory [research-default]
+Usage: python3 run-gallery.py /absolute/gallery-clone /absolute/evidence-directory [research-default|sdk-only]
 """
 from pathlib import Path
 import json
 import os
 import shlex
 import signal
+import shutil
 import subprocess
 import sys
 import time
 
 root, evidence = (Path(p).resolve() for p in sys.argv[1:3])
 evidence.mkdir(parents=True, exist_ok=True)
-node = '/tmp/ws13-toolchain/node'
+if any(evidence.glob('gallery-*.txt')):
+    raise SystemExit('Choose an empty evidence directory; existing captures will not be overwritten.')
+node = shutil.which('node')
+if node is None:
+    raise SystemExit('Node 22.18+ is required on PATH.')
 cli = str(root / 'node_modules/relayflows/bin/flows.js')
 cases = [
     ('dependency-upgrade-bot', 120, [node, cli, 'run',
@@ -27,7 +32,9 @@ cases = [
         'Compare durable step journals with deterministic replay. Keep every report under 200 words.',
         '--timeout-minutes', '3', '--runs-dir', '/tmp/ws13-research-followup-runs']),
 ]
-if sys.argv[3:] == ['research-default']:
+if sys.argv[3:] == ['sdk-only']:
+    cases = cases[:2]
+elif sys.argv[3:] == ['research-default']:
     command = cases[-1][2].copy()
     command[command.index('ws13-followup')] = 'ws13-default-budget'
     index = command.index('--timeout-minutes')
@@ -41,7 +48,7 @@ for name, timeout, command in cases:
         output.flush()
         started = time.monotonic()
         process = subprocess.Popen(command, cwd=root,
-            env={**os.environ, 'PATH': '/tmp/ws13-toolchain:' + os.environ['PATH']},
+            env=os.environ.copy(),
             stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
         timed_out = False
         try:

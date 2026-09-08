@@ -1,8 +1,8 @@
 # pr-review-pipeline
 
 **BLOCKED — not runnable on the current authored executor.** The candidate
-CLI refuses the `budget` header before any step runs (exit 2, 0.252s).
-[Exact command and captured output](../../docs/evidence/ws13/followup/gallery-pr-review-pipeline.txt).
+CLI refuses the `budget` header before any step runs (exit 2, 0.143s).
+[Exact command and captured output](../../docs/evidence/ws13/followup/final-sdk/gallery-pr-review-pipeline.txt).
 The SDK/kernel capability owner must supply budget-header support, postfix
 artifact gates, and the declared workspace behavior before this example can
 be advertised as working. Its existing requirements remain intact.

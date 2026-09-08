@@ -1,0 +1,52 @@
+$ cd /private/tmp/ws13-gallery-followup
+$ /tmp/ws13-toolchain/node --experimental-strip-types examples/research/shims/run.ts --slug ws13-default-budget --question 'Compare durable step journals with deterministic replay. Keep every report under 200 words.' --runs-dir /tmp/ws13-research-followup-runs
+OUTER_TIMEOUT_SECONDS=3900
+research: checking claude auth status (timeout 10s)
+research: checking claude round-trip with model sonnet (timeout 90s)
+research: checking codex login status (timeout 10s)
+research: checking codex round-trip with model gpt-5.6-sol (timeout 90s)
+research: checking grok round-trip with model grok-4.6 (timeout 90s)
+research: checking claude round-trip with model opus (timeout 90s)
+research: run dir /tmp/ws13-research-followup-runs/2026-09-08-ws13-default-budget
+{
+  "completionReason": "synthesized",
+  "synthesis": "/tmp/ws13-research-followup-runs/2026-09-08-ws13-default-budget/SYNTHESIS.md",
+  "reports": {
+    "claude": "/tmp/ws13-research-followup-runs/2026-09-08-ws13-default-budget/claude/report.md",
+    "codex": "/tmp/ws13-research-followup-runs/2026-09-08-ws13-default-budget/codex/report.md",
+    "grok": "/tmp/ws13-research-followup-runs/2026-09-08-ws13-default-budget/grok/report.md"
+  },
+  "usage": {
+    "claude": {
+      "inputTokens": 18,
+      "outputTokens": 3368,
+      "cacheReadInputTokens": 365609,
+      "cacheCreationInputTokens": 21412,
+      "costUsd": "1.197919"
+    },
+    "codex": {
+      "inputTokens": 948419,
+      "outputTokens": 3783,
+      "cacheReadInputTokens": 887936,
+      "cacheCreationInputTokens": 0
+    },
+    "grok": {
+      "inputTokens": 389652,
+      "outputTokens": 27334,
+      "cacheReadInputTokens": 1989888,
+      "cacheCreationInputTokens": 0,
+      "costUsd": "0.429503"
+    },
+    "synthesizer": {
+      "inputTokens": 22,
+      "outputTokens": 14809,
+      "cacheReadInputTokens": 428952,
+      "cacheCreationInputTokens": 48875,
+      "costUsd": "1.078458"
+    }
+  }
+}
+
+EXIT_CODE=0
+ELAPSED_SECONDS=690.935
+TIMED_OUT=False

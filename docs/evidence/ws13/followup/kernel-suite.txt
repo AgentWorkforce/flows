@@ -1,0 +1,70 @@
+$ cd packages/sdk
+$ export PATH=/tmp/ws13-toolchain:$PATH
+$ RELAYFLOWD_BIN=/tmp/ws13-consumer/hello/node_modules/@relayflows/runtime-darwin-arm64/bin/relayflowd node node_modules/vitest/vitest.mjs run tests/live-kernel.test.ts --reporter verbose
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/tmp/ws13-consumer/hello/node_modules/@relayflows/runtime-darwin-arm64/bin/relayflowd
+LIVE_KERNEL flows=/Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/packages/sdk/dist/cli.js
+
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 5240ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32610ms
+ × tests/live-kernel.test.ts > built flows CLI against live relayflowd > follows a live worker dispatch through flows run
+   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ × tests/live-kernel.test.ts > built flows CLI against live relayflowd > follows a live worker dispatch through flows run 5285ms
+   → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > cancels over the real socket and rejects the lease holder after closure
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > runs an agent CLI end to end through the SDK worker 867ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > f.agent lowers to a real agent step and dispatches through a live worker 598ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > f.agent's default flowPath anchors on cwd, not cwd's parent 487ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5716ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 4880ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo) 841ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields 727ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text 524ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite) 470ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin) 633ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker passes a declared model to an identified wrapper as RELAYFLOW_MODEL 857ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker refuses a nonconforming journal-submitted wrapper before exposing RELAYFLOW_MODEL 491ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker executes the raw claude adapter with its real model flag 567ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker executes the raw codex adapter with its real model flag 376ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model 408ms
+stdout | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER ready: claude -p --model claude-haiku-4-5-20251001 round-trip OK
+
+stdout | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER analysis: {"reasoning":"This story is directly relevant to AI agents and automation as it describes an autonomous agent system that performs self-directed software development tasks—specifically opening and reviewing pull requests without human intervention, which exemplifies the core capabilities of AI automation in development workflows.","relevance_score":10,"story_title":"Show HN: an agent that opens and reviews its own pull requests [wake-nonce-7f3a91c4]"}
+
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI 31101ms
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir
+ ✓ tests/live-kernel.test.ts > JournalClient wire conformance against live relayflowd > exercises every protocol-v0 verb with the real server
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=67665 run=01M216RS49MCJ1YNRZW811WATA while step=two state=Running
+
+ ✓ tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 378ms
+ ✓ tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant 397ms
+ ✓ tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > TWO ticks for ONE scheduled instant produce exactly ONE run
+ ✓ tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a poller RESTART re-emitting a slot does not re-run it
+ ✓ tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a MISSED interval is backfilled into its own run, not collapsed into the current one
+ ✓ tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick for a DIFFERENT schedule id does not wake this flow
+ ✓ tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > journals the declared silence budget, so a dead schedule is not silently zero
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > follows a live worker dispatch through flows run
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 29 passed (30)
+   Start at  21:07:16
+   Duration  100.83s (transform 1.35s, setup 0ms, collect 5.29s, tests 94.45s, environment 0ms, prepare 569ms)
+
+
+EXIT_CODE=1

@@ -345,6 +345,7 @@ process.exit(0);
     const completions: unknown[][] = [];
     const client = new EventEmitter() as EventEmitter & Record<string, unknown>;
     client.workerAttach = async (): Promise<unknown> => ({ ok: true });
+    client.stepHeartbeat = async () => ({ lease_deadline_ms: Date.now() + 30_000 });
     client.stepComplete = async (...args: unknown[]): Promise<unknown> => {
       completions.push(args);
       return { ok: true };
@@ -364,7 +365,7 @@ process.exit(0);
       attempt: 1,
       step_type: 'agent',
       spec: { cli: wrapper, instruction: 'instruction' },
-      lease_id: 'lease-leak',
+      lease_id: 'lease-leak', lease_deadline_ms: Date.now() + 30_000,
       idempotency_key: 'idem-leak',
       pins: {} as Pins,
     });
@@ -478,6 +479,7 @@ process.stdin.on('end', () => {
   const completions: unknown[][] = [];
   const client = new EventEmitter() as EventEmitter & Record<string, unknown>;
   client.workerAttach = async () => ({});
+  client.stepHeartbeat = async () => ({ lease_deadline_ms: Date.now() + 30_000 });
   client.stepComplete = async (...args: unknown[]) => { completions.push(args); return {}; };
   const worker = new AgentWorker(client as unknown as JournalClient, { workerId: 'memory', pins: { workspace: [], streams: [] } });
   const errors: unknown[] = [];
@@ -487,7 +489,7 @@ process.stdin.on('end', () => {
   client.emit('step.dispatch', {
     run_id: 'memory', step_id: 's', attempt: 2, step_type: 'agent',
     spec: { cli: wrapper, instruction: 'Use context' }, pins: { workspace: [], streams: [] },
-    lease_id: 'lease', idempotency_key: 'effect',
+    lease_id: 'lease', lease_deadline_ms: Date.now() + 30_000, idempotency_key: 'effect',
     memory: { request: { scope: 'agent', query: 'lessons', budget: {} }, pack,
       budget: { tokens_in: 7, tokens_out: 0, dollars: '0.002' }, provider: 'stub' },
   });

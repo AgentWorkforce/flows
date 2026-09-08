@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 const roots: string[] = [];
 const sdk = resolve('.');
-const cli = join(sdk, 'dist/cli.js');
+const cli = process.env['FLOWS_TEST_CLI'] ?? join(sdk, 'dist/cli.js');
 const wrapperHelper = resolve('../../testdata/preflight/wrapper-session.mjs');
 // Ask the existing build wrapper for its target directory. A temp fixture's
 // cwd cannot discover the checkout, and test:prep's child-shell exports do not
@@ -31,13 +31,13 @@ afterEach(() => {
   }
 });
 
-function fixture(exitCode = 0, workspace?: string) {
+function fixture(exitCode = 0, workspace?: string, delayMs = 0) {
   const root = mkdtempSync(join(tmpdir(), 'flows-local-agent-'));
   roots.push(root);
   symlinkSync(join(sdk, 'node_modules'), join(root, 'node_modules'));
   const marker = join(root, 'invoked');
   const wrapper = join(root, 'agent.mjs');
-  writeFileSync(wrapper, `#!/usr/bin/env node\nimport { receiveWrapperRequest } from ${JSON.stringify(wrapperHelper)};\nimport { writeFileSync } from 'node:fs';\nif (process.argv[2] === 'auth') process.exit(0);\nconst request = await receiveWrapperRequest();\nif (request) { writeFileSync(${JSON.stringify(marker)}, request.instruction); console.log('local-agent-ok'); process.exit(${exitCode}); }\n`);
+  writeFileSync(wrapper, `#!/usr/bin/env node\nimport { receiveWrapperRequest } from ${JSON.stringify(wrapperHelper)};\nimport { appendFileSync } from 'node:fs';\nif (process.argv[2] === 'auth') process.exit(0);\nconst request = await receiveWrapperRequest();\nif (request) { appendFileSync(${JSON.stringify(marker)}, request.instruction); await new Promise(resolve => setTimeout(resolve, ${delayMs})); console.log('local-agent-ok'); process.exit(${exitCode}); }\n`);
   chmodSync(wrapper, 0o755);
   writeFileSync(join(root, 'flows.json'), JSON.stringify({ cli: wrapper }));
   writeFileSync(join(root, 'package.json'), '{"type":"module"}');
@@ -59,6 +59,13 @@ describe('built CLI local agent against a real daemon', () => {
     expect(readFileSync(f.marker, 'utf8')).toBe('hello');
     expect(result.stderr).not.toContain('✓');
   });
+  it('runs beyond the initial 30-second lease without a second invocation', () => {
+    const f = fixture(0, undefined, 35_000);
+    const result = f.invoke('--json');
+    expect(result.status, result.stderr + result.stdout).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, completionReason: 'success' });
+    expect(readFileSync(f.marker, 'utf8')).toBe('hello');
+  }, 90_000);
   it('renders actual agent completion in text output', () => {
     const result = fixture().invoke();
     expect(result.status, result.stderr + result.stdout).toBe(0);

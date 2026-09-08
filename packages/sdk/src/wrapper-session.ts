@@ -48,7 +48,9 @@ export function runWrapperSession(
   model: string | undefined,
   env: NodeJS.ProcessEnv,
   overrides: Partial<WrapperSessionLimits> = {},
+  signal?: AbortSignal,
 ): Promise<WrapperSessionResult> {
+  if (signal?.aborted) return Promise.reject(signal.reason);
   const limits = sessionLimits(overrides);
   let request: string;
   try {
@@ -72,7 +74,7 @@ export function runWrapperSession(
     ));
   }
 
-  return executePinnedWrapper(cli, identity, request, env, limits);
+  return executePinnedWrapper(cli, identity, request, env, limits, signal);
 }
 
 function executePinnedWrapper(
@@ -81,11 +83,13 @@ function executePinnedWrapper(
   request: string,
   env: NodeJS.ProcessEnv,
   limits: WrapperSessionLimits,
+  signal?: AbortSignal,
 ): Promise<WrapperSessionResult> {
   return new Promise((resolve) => {
     const child = spawn(identity.executable, [WRAPPER_IDENTIFY_ARG], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
+      detached: signal !== undefined && process.platform !== 'win32',
     });
     const stdout: string[] = [];
     const stderr: Buffer[] = [];
@@ -108,8 +112,17 @@ function executePinnedWrapper(
       if (settled) return;
       settled = true;
       clearTimers();
+      signal?.removeEventListener('abort', onAbort);
       resolve(result);
     };
+    const onAbort = (): void => {
+      if (child.pid !== undefined && process.platform !== 'win32') {
+        try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+      } else child.kill('SIGKILL');
+      finish(failure('Agent execution aborted: lease ownership lost.'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) { onAbort(); return; }
     const terminate = (message: string): void => {
       if (protocolError !== undefined) return;
       protocolError = message;

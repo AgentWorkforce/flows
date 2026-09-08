@@ -1,5 +1,5 @@
 // Serve packed candidate packages locally; redirect other dependencies to npm.
-// Usage: node stage-registry.mjs /absolute/artifact-directory [port]
+// Usage: node stage-registry.mjs /absolute/artifact-directory [port] [bind-host; default 127.0.0.1]
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -17,10 +17,17 @@ for (const file of readdirSync(directory).filter(file => file.endsWith('.tgz')))
   tarballs.set(`/tarballs/${file}`, data);
 }
 createServer((req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+  let url, name;
+  try {
+    url = new URL(req.url, `http://${req.headers.host}`);
+    name = decodeURIComponent(url.pathname.slice(1));
+  } catch {
+    res.writeHead(400);
+    res.end('Bad request');
+    return;
+  }
   const tarball = tarballs.get(url.pathname);
   if (tarball) { res.end(tarball); return; }
-  const name = decodeURIComponent(url.pathname.slice(1));
   const candidate = packages.get(name);
   if (!candidate) {
     res.writeHead(302, { location: `https://registry.npmjs.org${req.url}` });
@@ -32,4 +39,4 @@ createServer((req, res) => {
   res.end(JSON.stringify({ name, 'dist-tags': { latest: manifest.version }, versions: {
     [manifest.version]: { ...manifest, dist: { tarball: `${url.origin}/tarballs/${file}`, integrity } },
   } }));
-}).listen(Number(process.argv[3] ?? 48731), '0.0.0.0', () => console.log('Candidate registry ready'));
+}).listen(Number(process.argv[3] ?? 48731), process.argv[4] ?? '127.0.0.1', () => console.log('Candidate registry ready'));

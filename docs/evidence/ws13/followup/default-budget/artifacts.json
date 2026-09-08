@@ -1,0 +1,30 @@
+[
+  {
+    "name": "claude",
+    "source": "/tmp/ws13-research-followup-runs/2026-09-08-ws13-default-budget/claude/report.md",
+    "file": "docs/evidence/ws13/followup/default-budget/reports/claude.md",
+    "bytes": 12957,
+    "sha256": "a6ecb1f63eed56aa6d1cc79b813c864950dc298fa5a2b5fb7c93d92cd7453f63"
+  },
+  {
+    "name": "codex",
+    "source": "/tmp/ws13-research-followup-runs/2026-09-08-ws13-default-budget/codex/report.md",
+    "file": "docs/evidence/ws13/followup/default-budget/reports/codex.md",
+    "bytes": 1694,
+    "sha256": "cf02a078e799d7a291f01f81633c5aee8d8dda7b2e672b2f626eee38331914e7"
+  },
+  {
+    "name": "grok",
+    "source": "/tmp/ws13-research-followup-runs/2026-09-08-ws13-default-budget/grok/report.md",
+    "file": "docs/evidence/ws13/followup/default-budget/reports/grok.md",
+    "bytes": 23777,
+    "sha256": "b733b7b6b0bb673dc5d8a2c4ba1b494d343585469f12fbdf507bdf733aa5d05e"
+  },
+  {
+    "name": "synthesis",
+    "source": "/tmp/ws13-research-followup-runs/2026-09-08-ws13-default-budget/SYNTHESIS.md",
+    "file": "docs/evidence/ws13/followup/default-budget/reports/synthesis.md",
+    "bytes": 24831,
+    "sha256": "ebf4fbfddf85693dcd0ac500d41333b7e987a3e8279e730643d1a0834fdba239"
+  }
+]

@@ -32,7 +32,9 @@ export async function runAgentCli(
   wakeContext: unknown,
   model?: string,
   wrapperLimits?: Partial<WrapperSessionLimits>,
+  signal?: AbortSignal,
 ): Promise<WorkerCliResult> {
+  signal?.throwIfAborted();
   const kind = cliAdapterKind(cli);
 
   if (kind === 'relayflows-wrapper-v1') {
@@ -43,6 +45,7 @@ export async function runAgentCli(
       model,
       wrapperEnvironment(process.env),
       wrapperLimits,
+      signal,
     );
   }
 
@@ -64,16 +67,20 @@ export async function runAgentCli(
   }
 
   if (invocation.modelEnv !== undefined) env[MODEL_ENV] = invocation.modelEnv;
-  return spawnInvocation(cli, invocation, env);
+  return spawnInvocation(cli, invocation, env, signal);
 }
 
 function spawnInvocation(
   cli: string,
   invocation: CliInvocation,
   env: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
 ): Promise<WorkerCliResult> {
   return new Promise((resolve) => {
-    const child = spawn(cli, invocation.args, { stdio: ['ignore', 'pipe', 'pipe'], env });
+    const child = spawn(cli, invocation.args, {
+      stdio: ['ignore', 'pipe', 'pipe'], env,
+      detached: signal !== undefined && process.platform !== 'win32',
+    });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let settled = false;
@@ -82,8 +89,17 @@ function spawnInvocation(
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       resolve(result);
     };
+    const onAbort = (): void => {
+      if (child.pid !== undefined && process.platform !== 'win32') {
+        try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+      } else child.kill('SIGKILL');
+      finish({ exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.' });
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
     child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
     child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
     child.once('error', (error) => finish({

@@ -3,6 +3,7 @@ import type { JournalClient } from './journal-client.js';
 import type { Pins, StepDispatchEvent } from './protocol.js';
 import type { KernelAgentStep } from './spec.js';
 import { runAgentCli } from './worker-cli.js';
+import { withWorkerLease } from './worker-lease.js';
 
 export { MODEL_ENV, WAKE_CONTEXT_ENV } from './worker-cli.js';
 
@@ -90,9 +91,10 @@ export class AgentWorker extends EventEmitter {
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
     const spec = dispatch.spec as Partial<KernelAgentStep>;
-    const result = typeof spec.cli === 'string' && typeof spec.instruction === 'string'
-      ? await runAgentCli(spec.cli, memoryInstruction(spec.instruction, dispatch.memory), dispatch.wake_context, spec.model)
-      : { exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' };
+    const result = await withWorkerLease(this.client, dispatch, signal =>
+      typeof spec.cli === 'string' && typeof spec.instruction === 'string'
+        ? runAgentCli(spec.cli, memoryInstruction(spec.instruction, dispatch.memory), dispatch.wake_context, spec.model, undefined, signal)
+        : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
 
     // Output shape: if the CLI's stdout parses as JSON, promote THAT

@@ -1,0 +1,31 @@
+$ cd packages/sdk
+$ export PATH=/tmp/ws13-toolchain:$PATH
+$ node node_modules/vitest/vitest.mjs run tests/worker-lease.test.ts tests/worker-cli.test.ts --reporter verbose
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/packages/sdk
+
+ ✓ tests/worker-lease.test.ts > worker lease ownership > renews the same attempt through a long subprocess and drains before completing once
+ ✓ tests/worker-lease.test.ts > worker lease ownership > aborts execution and never completes after a rejected heartbeat
+ ✓ tests/worker-lease.test.ts > worker lease ownership > expires locally when a renewal response never arrives, without stranding close
+ ✓ tests/worker-lease.test.ts > worker lease ownership > does not spawn a process for an already-expired dispatch
+ ✓ tests/worker-cli.test.ts > custom wrapper execution identity > passes an explicit safe environment at identification and execution 502ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution identity > refuses a wrapper symlink retarget before delivering private values 459ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution identity > bounds wrapper execution after acknowledgement 441ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution identity > bounds captured wrapper output 459ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution identity > refuses a duplicate execute protocol frame
+ ✓ tests/worker-cli.test.ts > custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 2036ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 1854ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3269ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11262ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution bounds are reader-owned > accepts an execute token and an over-8KiB payload flushed in one write 324ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 878ms
+ ✓ tests/worker-cli.test.ts > custom wrapper execution bounds are reader-owned > still bounds an un-terminated handshake buffer and names the bound 618ms
+ ✓ tests/worker-cli.test.ts > delivers the journaled memory pack to the real wrapper and excludes its charge from completion usage 395ms
+
+ Test Files  2 passed (2)
+      Tests  17 passed (17)
+   Start at  21:03:49
+   Duration  30.03s (transform 947ms, setup 0ms, collect 1.06s, tests 22.80s, environment 0ms, prepare 2.64s)
+
+
+EXIT_CODE=0

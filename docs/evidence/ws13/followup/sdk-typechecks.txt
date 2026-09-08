@@ -1,0 +1,4 @@
+$ cd packages/sdk
+$ export PATH=/tmp/ws13-toolchain:$PATH
+$ node node_modules/typescript/bin/tsc --noEmit && node node_modules/typescript/bin/tsc -p tsconfig.type-tests.json && node node_modules/typescript/bin/tsc -p tsconfig.tests.json
+EXIT_CODE=0

@@ -1,5 +1,13 @@
 # examples/research — a fan-out research relayflow, authored on flows v2
 
+**PASS — 690.935s with the documented default budget**, using authenticated
+Claude, Codex and Grok CLIs. The run produced three lane reports and a synthesis,
+with `completionReason: synthesized` and exit 0.
+[Command and full output](../../docs/evidence/ws13/followup/default-budget/gallery-research.txt),
+[generated reports](../../docs/evidence/ws13/followup/default-budget/reports/).
+An earlier verification attempt used a three-minute step limit and timed out;
+that shorter limit was not enough for this multi-agent research workload.
+
 Give it a research question. It fans the question out to three independent
 model lanes — **Claude** (sonnet), **Codex**, and **Grok** — each of which
 spawns **two subagents** (a *landscape* researcher over papers, frameworks,
