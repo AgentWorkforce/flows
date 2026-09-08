@@ -4110,3 +4110,10 @@ trough recovered on its own. Flagging, not deleting.
 
 `RELAYCAST_INTERNAL_SECRET_DEV` still absent on `AgentWorkforce/cloud`, so the
 demo remains blocked exactly where it was.
+
+### 2026-09-08 — quiet tick
+
+Drain 0 pending/launching of 1795; 11 `running` unchanged.
+`RELAYCAST_INTERNAL_SECRET_DEV` still absent on cloud, so the demo is blocked at
+the same point. #134 needs a landing decision, #139 merged. Disk 3.4Gi, steady
+since last tick. Nothing to do.
