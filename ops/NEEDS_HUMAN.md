@@ -39,6 +39,12 @@ gate 3 COMPLETE was premature — AGENTS.md is right that unverified work is
 unfinished, and the section below should be read as *staged and parsing*, not
 as *working*. It becomes complete when a swarm returns a verdict.
 
+**Everything below this line is the 2026-09-07 record and is superseded.**
+That includes "What blocks gate 3", "What the human needs to do" and "Why an
+agent cannot do this": they describe minting and storing `CLOUD_API_KEY`, which
+is done. Do not follow those steps. The only live ask is the orphan sweep named
+above.
+
 ---
 
 ## Assessment (2026-09-07, run bc76617d) — SUPERSEDED, kept for history
@@ -134,4 +140,7 @@ Gate 3 will be COMPLETE (not just blocked) when:
 2. The run ID from `Launch cloud swarm` appears in a PR comment
 3. Three lens transcripts are posted to the PR
 
-Currently: implementation is complete, secret storage is pending.
+Currently: secret storage is DONE (2026-09-07 21:50Z) and the launch path is
+proven — a run reaches `agent-relay cloud run` and is given a sandbox. None of
+the three conditions above is met yet: no swarm has returned a verdict, so
+gate 3 is not complete. What stops it now is Daytona CPU quota, not a secret.
