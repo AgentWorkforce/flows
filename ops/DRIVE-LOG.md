@@ -4497,3 +4497,46 @@ and production table definitions, so it does not certify their exact schema.
 That caveat matters — it means "dev and prod are fine" is untested, not proven.
 
 Disk fell 11Gi -> 6.0Gi as the two new lanes work. Watching, not acting.
+
+### 2026-09-08 — cloud lane opened #3459; the masking defect is REAL, my version of it was too broad
+
+`cloud-keyprefix-0908` opened **cloud#3459**, "preserve RelayAuth failures across
+launch retries": +320/-7 over 7 files, of which **three are test files** (191
+lines of tests). It settled the question with tests rather than argument, which
+is what the brief asked for.
+
+Named tests:
+
+```
+it("preserves the original v2 failure across queue redelivery and exhaustion")
+it("does not release a v2 run when this attempt never claimed it")
+```
+
+**The masking defect is confirmed real.** Ordinary v2 retries do mask the
+original failure — the thing I had carried all night as "unconfirmed, needs
+worker logs".
+
+**And my formulation of it was wrong.** I briefed the hypothesis as: any failure
+after a claim strands the run at `launching`. The lane's finding is explicit —
+*"the brief's broader hypothesis that every other failure strands the run is
+incorrect."* `claimV2Launch` only moves `pending -> launching` and
+`releaseV2Launch` only moves `launching -> pending`, so exhausted and terminal
+attempts still persist their original error. The real defect is narrower than
+what I described.
+
+The lane also kept a caveat I would have wanted: confirming the mechanism *"does
+not establish that every historical preview cancellation had this cause"*. So
+the v2 `cancelled before credentials` messages I saw earlier tonight are
+explained-in-principle, not attributed.
+
+It also recorded that it must not merge its own PR, which matches the standing
+rule. CI is green on the checks reported so far (Build, Duet regression gate,
+CodeRabbit, Devin Review all passing); `mergeStateStatus` reads UNKNOWN, which is
+GitHub still computing, not a conflict signal.
+
+Not merging: needs an independent signoff at the exact head, and it touches the
+launch path on cloud where a merge push-deploys.
+
+relayauth lane still working (0 commits, 3 dirty files) — its job is the schema
+side, which is now known to live in cloud's adapter rather than the OSS package.
+Disk 6.9Gi.
