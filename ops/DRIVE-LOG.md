@@ -16544,3 +16544,36 @@ diagnosis, and I filed it as such.
 
 Reviewed on the PR, not merged. Same rule as everything else: the signoff has to
 be someone other than me.
+
+## 2026-09-08 ~21:45Z — cleared the last four findings I owned
+
+Brief items 1-4 are blocked (preview login, whoami still 401) or merged on
+09-04. So: the four open findings on my own PRs, all valid, all mine.
+
+**#238, two P2s in the migrator.** The version guard recorded a mismatch and
+then *continued* into the legacy loops, so a future-version file carrying the
+0.1.0-style `agents` MAP reached `a.get(...)` and raised a traceback — the
+opposite of the clean refusal the script exists to give. It returns immediately
+now. And an explicitly null top-level field was treated as absent and silently
+dropped; an absent key and a key set to null are different facts, and dropping
+the second is the exact failure this script refuses everywhere else, committed
+by the script itself. Both verified with the precise shapes the reviewer named,
+and all seven legacy files still convert and compile.
+
+**#240, two P3s, both mine and both about saying something untrue.** The gate 7
+row named `RoutingDecision (profile, provider, fallbacks_attempted, workspace)`
+and then claimed two sentences later that the kernel "carries no provider
+names", while `placement.rs` declares `pub provider: String`. I meant it
+hardcodes no provider *identities* and contains no ranking. What I wrote
+contradicted the struct on its own row — and a scoreboard that contradicts
+itself is worse than one merely out of date, because the contradiction is what a
+reader trusts least. Also credited the memory seam to #221 when
+`kernel/MEMORY.md` is titled "Step memory, slice 1 (#220)".
+
+**Checked the fix rather than assuming it.** My grep after the attribution edit
+showed a remaining `#221`, and I nearly re-edited. It is inside the new sentence
+that says "#221 is a separate PR" — correct, not stale. Second time today a
+grep could not tell live text from prose about it.
+
+Zero unresolved findings across #238, #240, #242, #244. All four PRs wait on a
+signoff that is not me.
