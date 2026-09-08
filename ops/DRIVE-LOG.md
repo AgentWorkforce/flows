@@ -15712,3 +15712,35 @@ gate 2 row warns about.
 
 Next: run the #3270 proof the moment the preview is up; then the relayhistory
 provider (repo cloned at 3e7df69).
+
+## 2026-09-08 ~13:15Z — preview still building; read relayhistory's contract
+
+Preview run 34200328839 is still in `Build packages/web for Cloudflare Worker
+(OpenNext-CF)`, the long step. No work available there, so I moved to gate 5.
+
+**Read relayhistory at 3e7df69 rather than designing against an assumption.**
+RFC gate 5 says it is "consumed over its serialization contract, not
+rewritten", which makes the contract the specification.
+
+Retrieval is `ai-hist pack <query> [--project] [--tag] [--limit] [--tokens]
+[--json]`, emitting `{ query, entries }`. The budget is applied as
+`chars_budget = tokens * 4` (lib.rs:2369) — an approximation, not a tokenizer.
+A provider must not hand that number back as usage: decision 10's
+charge-to-the-consuming-step accounting is only checkable if the figure means
+something.
+
+**The find worth having in writing before anyone implements this.**
+`pack_entries` calls `std::process::exit(1)` when nothing matches — *after*
+printing `{"query": ..., "entries": []}`. Exit 1 means "no memory matched", not
+"the call failed". A provider treating nonzero as an error reports every
+cold-start step as a memory failure; one treating it as fatal fails closed on
+exactly the runs that have nothing to remember yet. That is a one-line bug that
+would have looked like relayhistory being broken.
+
+The trajectory side is `ai-hist push --install-service`, which fits gate 5's
+"without opt-in code" bar: a service the cell runs, not a call each flow makes.
+
+Recorded as `kernel/GATE5-MEMORY-CONTRACT.md` on the flows#240 branch, with
+what #221 already landed (the seam and itemized accounting — the hard part)
+separated from what is still `FixedMemoryProvider` returning a literal
+`{"text":"fixed memory pack"}` with synthetic 7 tokens.
