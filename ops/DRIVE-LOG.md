@@ -4218,3 +4218,10 @@ Instrument correction worth keeping: `df /` reports the *System* volume in its
 used column (12.6 GB), which is not where user files live. The right instrument
 is `df -h /System/Volumes/Data`. Free space happens to be shared, so the free
 column was right all along — only the used column misled.
+
+### 2026-09-08 — quiet tick
+
+2 `pending` runs, both 2.5 min old — in-flight, not stuck (prior pairs settle at
+~3.2 min). 11 `running` unchanged, 1815 total. Secret still absent, so the demo
+is blocked at the same point. Disk healthy at 11Gi free after the cleanup.
+Nothing to do.
