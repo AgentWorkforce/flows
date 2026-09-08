@@ -15868,3 +15868,52 @@ guessing at 07:00 on a cloud launch path is how a wrong fix gets shipped.
 
 Next: trace the enqueue-to-consumer path with fresh attention. The preview
 stage and #3438 must stay up for that — **do not merge cloud#3438 yet.**
+
+## 2026-09-08 ~15:00Z — v2 launch defect reproduced twice and localized
+
+Second v2 run on the preview stage, submitted to confirm rather than assume.
+Identical failure:
+
+    runId 3cb18b02-5e6f-4865-b0df-e3440a2dd082
+    error: Relayflow v2 launch received a payload carrying no v2JobId
+           (payload keys: jobId,runId)
+    createdAt 08:26:38.472Z -> updatedAt 08:29:24.770Z
+
+**Two reproductions, and the ~166 seconds is the finding.** A first-launch
+payload of the wrong shape would be rejected in seconds; this run sat `pending`
+for nearly three minutes before failing terminally. That is the shape of a
+*retry*, not an initial dispatch.
+
+**Which points at a specific line.** `launch-worker.ts:198` declares
+`let envelope: WorkflowLaunchEnvelope | null = null`. The retry re-enqueue at
+:371 then chooses the payload shape with
+
+    envelope?.relayflowVersion === "v2"
+      ? { v2JobId: claimed.id, runId: claimed.runId, consumerEpoch: ... }
+      : { jobId: claimed.id, runId: claimed.runId }
+
+When `envelope` is null the optional chain yields `undefined`, the comparison is
+false, and a **v2 run is re-enqueued in the v1 shape**. The v2 consumer at :231
+then rejects it terminally — with exactly the message and exactly the key list
+we see.
+
+**The code's own comment says this cannot happen.** At :224: "a v1-shaped
+payload for a v2 envelope means the message was produced or rewritten by
+something other than the code in this repository". That claim is contradicted by
+a producer twenty lines *below* it. A comment is a claim, not evidence — the
+same lesson as the `// agents write as the App` note that dropped 34 questions.
+
+**What is proven versus what is inferred, kept separate.** Proven: the failure
+reproduces, terminally, twice, with the v1 key list, after a delay consistent
+with a retry. Inferred: that the null envelope on the retry path is the specific
+mechanism. I have not observed `envelope` being null in that run — the launch
+job history is not exposed through the run API — so I am not going to ship a
+fix to a production launch path on a reading, at 08:30, unattended.
+
+What would close it: the preview stage's launch-worker logs for either run id,
+or a test that drives `launch-worker` through a provisioning retry with a null
+envelope and asserts the enqueued shape. The second is the better artifact and
+does not need the stage.
+
+Preview and cloud#3438 are still up and are the only v2 environment. **Do not
+merge cloud#3438.**
