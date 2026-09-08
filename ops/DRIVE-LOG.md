@@ -16917,3 +16917,35 @@ The full sequence when the login lands: v2 POST, completionReason, export, the
 literal journal SQLite, the authority tuple, then the omitted-selector v1 sanity
 run. Nothing to compose — the stage is the only thing that was missing, and now
 it has the routing.
+
+## 2026-09-09 ~01:40Z — quiet tick: proof blocked on a click, reclaimed 2Gi
+
+**The proof is blocked on authorization, not on anything technical.** The device
+login for pr-3446 still reads "Waiting for authorization..." and the stored token
+remains scoped to `preview-pr-3442`, so whoami on the new stage is 401. Nothing
+to work around — each preview runs its own RelayAuth by design.
+
+**Did the disk instead, because it was trending toward a known failure.** Free
+space went 16Gi at midnight to 8Gi by 01:40Z, and the brief opens by noting disk
+hit zero once today. Rather than wait for that, I cleaned up after myself.
+
+Checked every candidate for unpushed work before removing anything — the same
+check I ran before reclaiming the codex seat:
+
+    flows-main-check   dirty=0 unpushed=0  SAFE   (1.1G)
+    cloud-v2pub        dirty=0 unpushed=0  SAFE
+    cloud-elig         dirty=0 unpushed=0  SAFE
+    cli-probe, tsxhome, instcheck, flowscli  (not git worktrees) SAFE
+
+Reclaimed ~2Gi, 8Gi to 10Gi.
+
+**Deliberately did not touch the three big ones that are not mine to clean:**
+`cloud-v2cf-work` at 4.3G is the live v2-CF lane's checkout, `flows-spec243-wt`
+at 803M belongs to the reviewer that just posted on #245, and
+`flows-runtime-0907-wt` holds the drive-hardening lane. All three lanes verified
+still alive afterwards. Deleting a working lane's checkout to free space would
+be a worse outcome than running out of it.
+
+The remaining growth is those lanes doing their jobs, which is the right kind of
+disk use. If it gets tight again the honest move is to ask which lane to stop,
+not to quietly delete one.
