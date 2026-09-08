@@ -205,3 +205,7 @@ export {
   type TickPayload,
   type TickSchedule,
 } from './tick-source.js';
+
+export { createFlow, type CreateFlowOptions, type CreatedFlow } from './create-flow.js';
+
+export { renderProgress, type ProgressEvent } from './progress.js';

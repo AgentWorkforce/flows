@@ -1,3 +1,4 @@
+import { attachLocalAgent } from '../local-agent.js';
 import {
   AuthoredFlowExecutionError,
   executeAuthoredFlow,
@@ -43,11 +44,15 @@ export async function runDirectFlow(
   const connected = await connect(client, 'run', dataDir, base, options);
   if (connected !== undefined) return connected;
 
+  let localAgent: Awaited<ReturnType<typeof attachLocalAgent>> | undefined;
   try {
     const { handle, getDefinition } = await loadAuthoredFlow(path);
+    if (options.localAgent) localAgent = await attachLocalAgent(client);
     const result = await executeAuthoredFlow(handle, client, input, {
       getDefinition,
       flowPath: path,
+      onProgress: options.onProgress,
+      localAgentStream: localAgent?.stream,
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
       ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
     });
@@ -69,7 +74,8 @@ export async function runDirectFlow(
         completedSteps: result.journalSteps.length,
       },
     };
-  } catch (error) {
+  } catch (caught) {
+    const error = localAgent?.failure ?? caught;
     // `agent_cli_unresolved` and `unsupported_workspace_permission` are
     // preflight-shaped refusals, not protocol failures — `flows check`
     // returns exit 2 for the equivalent declarative-spec failures, and this
@@ -116,6 +122,6 @@ export async function runDirectFlow(
     const runId = error instanceof AuthoredFlowExecutionError ? error.runId : undefined;
     return protocolFailure('run', base, socketPath, error, runId);
   } finally {
-    client.close();
+    try { await localAgent?.close(); } finally { client.close(); }
   }
 }

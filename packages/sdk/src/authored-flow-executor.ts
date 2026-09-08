@@ -11,6 +11,7 @@ import {
 } from '@relayflows/surface';
 import type { FlowHandle } from '@relayflows/surface/runtime';
 import { join } from 'node:path';
+import { observeStep, type ProgressEvent } from './progress.js';
 import { compileSpec, toKernelSpec } from './compile.js';
 import { getAuthoredFlowDefinition } from './authored-flow.js';
 import type { GetFlowDefinition } from './authored-flow-loader.js';
@@ -117,6 +118,8 @@ export interface ExecuteAuthoredFlowOptions {
   /** Passed straight through to classifyOutcome (cli/run.ts) for f.agent's wait. */
   readonly signal?: RunLifecycleOptions['signal'];
   readonly onWait?: RunLifecycleOptions['onWait'];
+  readonly onProgress?: (event: ProgressEvent) => void;
+  readonly localAgentStream?: string;
 }
 
 export async function executeAuthoredFlow<Input = undefined>(
@@ -126,6 +129,8 @@ export async function executeAuthoredFlow<Input = undefined>(
   options: ExecuteAuthoredFlowOptions = {},
 ): Promise<AuthoredFlowExecutionResult> {
   const getDefinition = options.getDefinition ?? getAuthoredFlowDefinition;
+  const localAgentStream = options.localAgentStream;
+  const onProgress = options.onProgress;
   const flowPath = options.flowPath ?? join(process.cwd(), 'flow.ts');
   // Named separately from `options` because `lowerAgent` below has its own,
   // differently-typed `options: AgentOptions` parameter that shadows this one.
@@ -172,6 +177,10 @@ export async function executeAuthoredFlow<Input = undefined>(
     id: string,
     options: AgentOptions,
   ): Promise<AgentResult> => {
+    if (options.workspace !== undefined && localAgentStream !== undefined) {
+      throw new AuthoredFlowExecutionError('unsupported_workspace_permission',
+        'The local agent worker accepts stream-only steps. Remove workspace or attach a worker that holds its revision pins.');
+    }
     if (options.workspace !== undefined && WORKSPACE_PERMISSION_ANNOTATION.test(options.workspace)) {
       throw new AuthoredFlowExecutionError(
         'unsupported_workspace_permission',
@@ -191,6 +200,9 @@ export async function executeAuthoredFlow<Input = undefined>(
         id,
         type: 'agent',
         instruction: options.task,
+        ...(localAgentStream === undefined ? {} : {
+          surfaces: { streams: [{ stream: localAgentStream }] },
+        }),
         ...(options.workspace === undefined ? {} : {
           surfaces: { workspace: [{ surface: options.workspace }] },
         }),
@@ -260,7 +272,7 @@ export async function executeAuthoredFlow<Input = undefined>(
         id,
         'run',
         () => assertOperationAllowed('run', definition.name, requestedCompletion),
-        () => lowerDeterministic(id, command),
+        () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command), options.onProgress),
         lifecycle,
       ));
     },
@@ -282,7 +294,7 @@ export async function executeAuthoredFlow<Input = undefined>(
         id,
         'agent',
         () => assertOperationAllowed('agent', definition.name, requestedCompletion),
-        () => lowerAgent(id, options),
+        () => observeStep(id, 'agent', () => lowerAgent(id, options), onProgress),
         lifecycle,
       ));
     },

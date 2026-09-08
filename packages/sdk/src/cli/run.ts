@@ -1,4 +1,5 @@
 import { join, resolve } from 'node:path';
+import type { ProgressEvent } from '../progress.js';
 import { toKernelSpec } from '../compile.js';
 import { ensureDaemon, type EnsureDaemonOptions } from '../daemon-lifecycle.js';
 import { daemonRefusal } from './daemon-refusal.js';
@@ -59,6 +60,8 @@ export interface RunProgress {
 }
 
 export interface RunLifecycleOptions {
+  onProgress?: (event: ProgressEvent) => void;
+  localAgent?: boolean;
   signal?: AbortSignal;
   onWait?: (progress: RunProgress) => void;
   /**
