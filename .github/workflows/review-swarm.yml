@@ -55,7 +55,7 @@ jobs:
         run: |
           test -n "$CLOUD_API_URL"
           test -n "$CLOUD_API_KEY"
-            test -n "$RELAY_WORKSPACE_KEY"
+          test -n "$RELAY_WORKSPACE_KEY"
           # Presence is not validity. This step was named "Validate cloud
           # authentication" while only asserting the variables were non-empty, so on
           # 2026-09-07 it passed on every run while `agent-relay cloud run` failed
