@@ -87,6 +87,8 @@ work, then replay the session to understand how it got there.
 - **Bring your harness.** Keep your preferred coding-agent CLI and place the
   same explicit checks around its work.
 
-This copy is prepared for the landing owner; it is not a deployment claim.
+The [complete landing rewrite](LANDING-COPY.md) includes hero, feature sections,
+availability copy, and CTAs for the existing landing owner. It is not a
+deployment claim; the existing target is still unidentified.
 Cloud submission and public-gallery CTAs must not imply unsupported authored
 TypeScript execution or link to fabricated public runs.
