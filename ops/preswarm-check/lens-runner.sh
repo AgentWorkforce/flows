@@ -182,6 +182,20 @@ $(cat "$DIFF_FILE")
 Produce a concise review (200-500 words). Cite specific files and line ranges
 from the diff. Name blockers vs concerns vs notes.
 
+Structure the review with a section headed EXACTLY:
+
+  ### Blockers
+
+If there are no blockers, the first word under that heading must be `None`.
+
+Your final token is DERIVED from that section — it is not a separate judgement:
+  - `### Blockers` says None            -> you MUST end with REVIEW_PASSED
+  - `### Blockers` lists one or more    -> you MUST end with REVIEW_FAILED
+
+A token that disagrees with your own Blockers section is a defect in the review,
+not a stricter verdict. Concerns and notes are NOT blockers and must not change
+the token.
+
 END your output with EXACTLY ONE of these tokens on its own line:
   REVIEW_PASSED   — no blockers
   REVIEW_FAILED   — at least one blocker
@@ -239,13 +253,85 @@ printf '%s\n' "$OUTPUT"
 #   - LAST_VERDICT == "REVIEW_PASSED" AND CLI_RC != 0  → exit 1 (NO_VERDICT — a CLI that emitted PASSED then errored is untrustworthy)
 #   - LAST_VERDICT missing (no anchored line at all)   → exit 1 (NO_VERDICT)
 LAST_VERDICT=$(printf '%s\n' "$OUTPUT" | grep -E '^REVIEW_(PASSED|FAILED)$' | tail -1)
+
+# Does the review's own Blockers section say there are none? Read the first
+# non-blank line under the LAST `### Blockers` heading. This NEVER upgrades a
+# verdict — it only relabels REVIEW_FAILED as CONTRADICTION, and the exit code
+# stays 1. Turning a failure into a pass on a substring would be exactly the
+# fail-open the classifier above refuses.
+# True when the LAST `### Blockers` section exists AND its first non-blank line
+# is something other than "None". An ABSENT section returns false here, which is
+# why it cannot be the only guard: absence is handled separately by
+# blockers_section_present, so the two diagnoses stay distinguishable in the
+# log. Do not collapse them — "the lens contradicted itself" and "the lens
+# ignored the output contract" need different fixes.
+blockers_are_listed() {
+  first="$(printf '%s\n' "$OUTPUT" \
+    | awk '/^#+[[:space:]]*Blockers[[:space:]]*$/{f=1;buf="";next} f&&NF&&buf==""{buf=$0} END{print buf}')"
+  [ -n "$first" ] || return 1
+  printf '%s' "$first" | grep -qiE '^\**None\b' && return 1
+  return 0
+}
+
+# The prompt does not treat `### Blockers` as optional: it requires the heading
+# and says the first word under it must be `None` when there are none. A review
+# that omits it entirely has not answered the question the gate asks, and
+# accepting it as a pass is a fail-open — flows#229, cubic P1. My earlier note
+# here argued absence should "keep its previous behaviour instead of newly
+# failing". That was protecting a case the prompt already forbids.
+blockers_section_present() {
+  # Exactly `### Blockers`, the level the prompt specifies -- not `^#+`. A
+  # review headed `# Blockers` or `#### Blockers` has not followed the output
+  # contract, and accepting it here would let the missing-section guard admit
+  # an invalid section as a valid one (flows#229, cubic P2).
+  #
+  # Deliberately stricter than blockers_are_listed and blockers_say_none, which
+  # keep matching `^#+`: this decides whether a section COUNTS, so it fails
+  # closed on a wrong level, while those two only DETECT blockers, where being
+  # permissive also fails closed.
+  printf '%s\n' "$OUTPUT" | grep -qE '^###[[:space:]]*Blockers[[:space:]]*$'
+}
+
+blockers_say_none() {
+  printf '%s\n' "$OUTPUT" \
+    | awk '/^#+[[:space:]]*Blockers[[:space:]]*$/{f=1;buf="";next} f&&NF&&buf==""{buf=$0} END{print buf}' \
+    | grep -qiE '^\**None\b'
+}
+
 case "$LAST_VERDICT" in
   REVIEW_FAILED)
+    if blockers_say_none; then
+      # The lens found nothing blocking and still emitted REVIEW_FAILED. That is
+      # a broken review, not a stricter one, and a caller cannot appeal it: the
+      # exit code is authoritative by design. Say so plainly so the branch is not
+      # blamed for a gate defect. See flows#218.
+      echo "PRESWARM_${LENS}: CONTRADICTION — review says 'Blockers: None' but emitted REVIEW_FAILED; treating as NO_VERDICT (gate defect, not a finding)" >&2
+      exit 1
+    fi
     echo "PRESWARM_${LENS}: REVIEW_FAILED"
     exit 1
     ;;
   REVIEW_PASSED)
     if [ "$CLI_RC" -eq 0 ]; then
+      if ! blockers_section_present; then
+        echo "PRESWARM_${LENS}: CONTRADICTION — review emitted REVIEW_PASSED with no '### Blockers' section; the prompt requires one, so this review is malformed (NO_VERDICT, not a pass)" >&2
+        exit 1
+      fi
+      if blockers_are_listed; then
+        # A review that enumerates blockers and still emits REVIEW_PASSED is the
+        # same defect as the REVIEW_FAILED arm above, in the direction that
+        # actually matters. That arm relabels a contradiction which already
+        # fails CLOSED; this one would have let a review naming unauthorized
+        # writes exit 0.
+        #
+        # The comment above claims this classifier "NEVER upgrades a verdict",
+        # and it does not. That was the wrong safety property to reason about:
+        # one-directional safety left the fail-OPEN direction unguarded, which
+        # is the only direction a gate cannot afford to get wrong. Found by an
+        # independent spec review, not by the author.
+        echo "PRESWARM_${LENS}: CONTRADICTION — review listed blockers but emitted REVIEW_PASSED; treating as NO_VERDICT (gate defect, not a pass)" >&2
+        exit 1
+      fi
       echo "PRESWARM_${LENS}: REVIEW_PASSED"
       exit 0
     fi

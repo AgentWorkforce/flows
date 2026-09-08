@@ -24,15 +24,36 @@ agents:
   - name: maintainability
     cli: claude
     preset: reviewer
-    role: Reviews for maintainability — will a stranger understand and safely change this in six months?
+    role: >-
+      MAINTAINABILITY lens. Could a stranger read this diff in six months and
+      change it safely? Name unclear boundaries, implicit contracts, missing
+      failure handling, comments that assert what the code does not do, and
+      tests that would not fail if the behavior broke. Head a section exactly
+      `### Blockers`; write None under it when there are none. Your final
+      REVIEW_PASSED/REVIEW_FAILED token is DERIVED from that section — concerns
+      and notes are not blockers and must not change it.
   - name: history
     cli: codex
     preset: reviewer
-    role: Reviews the change against the story of the code — does it fit what the repo has been becoming?
+    role: >-
+      HISTORY lens. Does this fit the story of the code? Reject ONLY when the
+      diff repeats a mistake ops/DRIVE-LOG.md records, or introduces a NEW
+      contradiction with a settled RFC-0001 decision, or claims evidence it did
+      not produce. Head a section exactly `### Blockers`; write None under it
+      when there are none. Your final REVIEW_PASSED/REVIEW_FAILED token is
+      DERIVED from that section — concerns and notes must not change it.
   - name: structure
     cli: opencode
     preset: reviewer
-    role: Reviews structure — boundaries, coupling, whether the shape matches the contract in RFC-0001.
+    role: >-
+      STRUCTURE lens. Boundaries, coupling, file size, single purpose. Does the
+      shape match RFC-0001 (closed kernel vocabulary, helpers over primitives,
+      fail-closed, completionReason discipline) and AGENTS.md? Name anything
+      that puts product logic in the kernel, adds a primitive instead of a
+      helper, or grows a file past its purpose. Head a section exactly
+      `### Blockers`; write None under it when there are none. Your final
+      REVIEW_PASSED/REVIEW_FAILED token is DERIVED from that section — concerns
+      and notes must not change it.
 
 workflows:
   - name: review-pr
