@@ -6134,3 +6134,44 @@ it is not a cheap undo. Flagging rather than acting.
 Practical consequence: the spawned lane and any further builds are working
 against a full disk. If something fails oddly in the next hour, disk is the first
 thing to suspect.
+
+### 2026-09-09 — merges verified on main and deployed; no regression. The proof path changed.
+
+Drain: 0 pending of 2017. Disk 1.3Gi.
+
+All three fixes confirmed present on cloud `main` by content, not by trusting the
+merge result:
+
+```
+_DEV seeding in preview.yml        2 occurrences
+schema adapter canonical/legacy    8
+v2LaunchClaimed retry preservation 5
+```
+
+Deploys ran on merge (10:49Z success; a 10:48Z one cancelled by concurrency;
+another in progress). Since merging cloud push-deploys, the thing worth checking
+was **regression, not success** — both live stages answer the invalid-key probe
+healthily:
+
+```
+api.relayauth.dev       401 invalid_api_key
+dev-api.relayauth.dev   401 invalid_api_key
+```
+
+**The route to the #3270 proof has changed, and not for the better.** It used to
+be: preview stage + device click. But merging deleted the PR branches, so
+`preview-pr-3446` and `preview-pr-3461` are gone. Two consequences:
+
+1. **dev cannot admit v2.** Only `preview.yml` sets
+   `RELAYFLOW_V2_ADMISSION_EPOCH`; dev and prod have it at 0. So pointing the
+   proof at dev fails for a reason unrelated to the fixes.
+2. **A preview stage deploys its PR's head, not main.** Using some other open
+   cloud PR would give a stage without tonight's fixes.
+
+So the proof now needs a **fresh PR off current main** purely to obtain a preview
+stage carrying the fixes, and then a device login to it. That is one cheap PR and
+one click, but it is a different shape from what I told Khaliq earlier, and I
+would rather say so than quietly open a PR that exists only to make a stage.
+
+Recording it as the next decision rather than acting: opening a no-op PR to
+manufacture a demo environment is the kind of thing that should be deliberate.
