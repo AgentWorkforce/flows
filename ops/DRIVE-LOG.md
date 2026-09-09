@@ -6473,3 +6473,43 @@ CodeRabbit, Cursor Bugbot, packed-consumer.
 Remaining to actually close this out: run `drive-local` with the fix and watch
 `implement` complete. That is the proof that matters, and it is one run once the
 PR is reviewable.
+
+### 2026-09-09 — the lease fix works end to end; a new failure is now visible
+
+Tested #249 for real rather than reporting on its tests. Merged
+`lane/agent-lease-renewal-0909` into my own `fl244` worktree (clean, no
+conflicts), rebuilt the SDK, and ran the drive loop with the instrumented CLI.
+
+**The lease expiry is gone.** Every previous run ended with:
+
+```
+worker lease for step "implement" expired without completion
+```
+
+This run does not contain that line at all. The agent ran, exited 0, and its
+output ends with exactly `DONE`.
+
+That is the first end-to-end evidence the fix works — #249's own doc was careful
+to say its live fixture "does not call Claude or run the full drive workflow", so
+this closes the gap the lane honestly left open.
+
+**A new failure is now visible one layer deeper:**
+
+```
+LOCAL_DATA_DIR=/Users/khaliqgant/fl244/.relayflow/local-N6c3uH
+journal client: closed by caller
+```
+
+So the run still does not complete, but for a different reason — the journal
+client is closed while the launcher is still using it. That is progress of the
+useful kind: a blocker removed and the next one exposed, rather than the same
+symptom recurring.
+
+I have not diagnosed the new one. It appears after the agent settles, so the
+suspects are the launcher's `finally` (which calls `worker?.close()` then
+`client.close()`) and the journal read loop at
+`scripts/run-local-workflow.mjs:87-92`. Whether the heartbeat's close path
+interacts with it is exactly the kind of guess I should test rather than assert.
+
+Recording it for the lane rather than patching: #249 is theirs, and this is
+plausibly a consequence of the close semantics they just added.
