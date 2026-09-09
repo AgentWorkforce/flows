@@ -55,8 +55,9 @@ expect_eq "trailing blank lines do not hide the marker" \
 expect_eq "surrounding whitespace is trimmed" \
   PASSED "$(verdict_of '   REVIEW_PASSED   ')"
 
-# This is the bug PR #248 addresses, observed live on PR #240: a complete
-# review whose marker is followed by a sign-off line is discarded as UNCLEAR.
+# The fix is prompt-side: agents must not append a sign-off. This test pins
+# the parser's correct refusal of trailing text; it does not prove agents obey
+# the prompt in a live run (the failure observed on PR #240).
 expect_eq "a marker followed by a sign-off is UNCLEAR (PR #240 bug)" \
   UNCLEAR "$(verdict_of 'REVIEW_PASSED
 
@@ -87,16 +88,21 @@ expect_eq "no reviews directory yields MISSING" \
 expect_eq "an absent transcript yields MISSING" \
   "MISSING	" "$(swarm_lens_result "$work/ops/reviews" 246 structure "")"
 
-marker="$work/marker"; touch "$marker"
-sleep 1
+# Fixed timestamps exercise mtime-based freshness without a wall-clock race.
+# They do not test invalidation of reviews by a Git force-push.
+marker="$work/marker"; touch -t 202601010001 "$marker"
 old="$work/ops/reviews/20260101-0000-pr246-structure.md"
 printf 'REVIEW_PASSED\n' > "$old"
 touch -t 202601010000 "$old"          # older than the marker
 expect_eq "a transcript predating the run yields STALE" \
   STALE "$(swarm_lens_result "$work/ops/reviews" 246 structure "$marker" | cut -f1)"
+touch -r "$marker" "$old"
+expect_eq "a transcript with the marker's exact mtime yields STALE" \
+  STALE "$(swarm_lens_result "$work/ops/reviews" 246 structure "$marker" | cut -f1)"
 
 fresh="$work/ops/reviews/20260909-1200-pr246-structure.md"
 printf 'REVIEW_PASSED\n' > "$fresh"
+touch -t 202601010002 "$fresh"
 expect_eq "the newest fresh transcript wins" \
   PASSED "$(swarm_lens_result "$work/ops/reviews" 246 structure "$marker" | cut -f1)"
 
@@ -116,11 +122,16 @@ run_post() {
 # Stubs \`agent-relay cloud sync\`. Real CLI exits 1 and prints
 # "No changes to sync" when the workflow modified nothing -- the shape seen on
 # runs 34274491229 (#247) and 34331239850 (#248).
+# The exit status and message propagation matter here, not the CLI's complete
+# prose. The assertion below checks only the diagnostic substring.
 if [ "\$1" = cloud ] && [ "\$2" = sync ]; then
   if [ "$spec" = nochanges ]; then
     echo "No changes to sync — the workflow did not modify any files."
     exit 1
   fi
+  # swarm-post.sh creates its marker immediately before calling this stub.
+  # Cross a whole-second boundary so -nt also works on coarse timestamps.
+  sleep 1
   mkdir -p ops/reviews
   for pair in \$(echo "${spec#writes:}" | tr ',' ' '); do
     lens=\${pair%%=*}; v=\${pair##*=}
@@ -157,6 +168,10 @@ posted_a_rollup() { case "$post_log" in *"pr comment"*) return 0 ;; *) return 1 
 # gate even when the other two pass.
 run_post 'writes:maintainability=REVIEW_PASSED,history=REVIEW_PASSED,structure=REVIEW_FAILED'
 expect_eq "one lens REVIEW_FAILED fails the gate (exit 1)" 1 "$?"
+case "$post_log" in
+  *"- structure: FAILED"*) ok "the objection is reported as FAILED, not STALE" ;;
+  *) notok "the objection is reported as FAILED, not STALE" "structure: FAILED" "$post_log" ;;
+esac
 posted_a_rollup \
   && ok "a failing run still reports its verdict to the PR" \
   || notok "a failing run still reports its verdict to the PR" "a gh comment" "none"
@@ -188,9 +203,11 @@ esac
 # no comment from this run and the previous run's rollup stays visible. The
 # gate is still red -- `Enforce swarm result` is a separate step keyed on
 # swarm_status -- but a reader looking only at PR comments sees a stale verdict.
-posted_a_rollup \
-  && notok "KNOWN: an empty sync posts no comment" "no comment" "a comment" \
-  || ok "KNOWN: an empty sync posts no comment; the red check is the only signal"
+if posted_a_rollup; then
+  echo "  NOTE empty sync now posts a comment (PR #248 follow-up limitation resolved)"
+else
+  echo "  NOTE PR #248 limitation: empty sync posts no comment; not a passing assertion"
+fi
 
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"
