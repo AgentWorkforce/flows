@@ -6269,3 +6269,36 @@ correctly. Worth stating plainly: I interrupted a working agent on a false
 premise.
 
 Verdicts unchanged: #244 `UNCLEAR/FAILED/FAILED`, #248 all-MISSING (cloud path).
+
+### 2026-09-09 — my "immutable" gate was not immutable; sent the fix direction, did not collide
+
+Drain: 0 pending of 2031. Disk 5.0Gi.
+
+#244's history lens rejected **my** option-A fix, correctly:
+
+> **H1 — P1: the "immutable" gate repeats the self-certifying-gate incident.**
+> The snapshot scripts and SHA256SUMS remain together in the implementation
+> agent's writable checkout.
+
+That is exactly right and I should have seen it. I copied working-tree files into
+`.drive-gate/` **inside the checkout** and wrote `SHA256SUMS` beside them, so an
+agent can rewrite the snapshot *and* the sums that verify it. **Copying does not
+create a trust boundary** — I moved the files without moving the authority, and
+then called it immutable in the commit message.
+
+The correct shape, which I sent to the lane rather than implementing myself:
+take the gate from **git objects at a pinned commit** (`git show <sha>:path`, or
+`git archive <sha> | tar -x` into a temp dir) and execute that. Git objects are
+content-addressed and immune to working-tree edits, so **no SHA256SUMS file is
+needed — the ref is the integrity claim.** Pin the base SHA in the work package,
+which the diff guard already protects. Same for the picker: extract the SDK
+source at that ref and build it during `gate-snapshot`, before the agent runs.
+
+Told it to state honestly in the PR that a same-user agent can still write to a
+temp dir; the bar actually met is that the gate's **inputs** come from a pinned
+ref rather than from files the agent edits. Overclaiming that boundary is what
+got my version rejected.
+
+**Did not touch the branch myself.** The lane is on `lane/flows-244-0909` and
+committed 20 minutes ago; two workers on one branch is the anti-pattern that cost
+a lane its work earlier today. Guidance over collision.
