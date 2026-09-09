@@ -33,6 +33,7 @@ steps:
 
   # Gate code is already captured in the submitted spec. Before implementation,
   # validate the selected package against that baseline and the current tree.
+  # Retain the existing step ID for journal readers; no snapshot is written here.
   - id: gate-snapshot
     type: deterministic
     dependsOn: [select]

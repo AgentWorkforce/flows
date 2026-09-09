@@ -147,6 +147,10 @@ Its runtime behavior was not tested or inferred from a successful v2 check.
 ## Work package execution and delivery
 
 Scaffold commit: `89f2f1d31f262420c2c5f613efa3f50c70153bfa`.
+The command and receipts below describe that historical scaffold. The current
+local drive uses `node scripts/run-drive-local.mjs` to capture gate inputs before
+submission; see [DRIVE-LOCAL.md](DRIVE-LOCAL.md) for its remaining acceptance-input
+blocker.
 From a clean work branch at that commit, after the setup above:
 
 ```sh

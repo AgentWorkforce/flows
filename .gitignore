@@ -18,5 +18,5 @@ dist/
 .relayflowd/
 .relayflowd-*/
 
-# Immutable pre-implementation gate snapshot (drive-local).
+# Legacy drive-local snapshots; the preparing launcher no longer executes them.
 .drive-gate/
