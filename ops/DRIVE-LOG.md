@@ -5490,3 +5490,40 @@ Nothing else is actionable. State is unchanged and ready:
 - `proof-3270-pr3461.sh` written, guarded, syntax-checked.
 - #238's three code objections fixed and pushed; its gate is blocked on the cloud
   path, not on its code.
+
+### 2026-09-09 — fixed #240's structure P1; and caught a silently truncated drain check
+
+**My drain check was broken and I nearly reported its failure as "0 pending".**
+The runs endpoint body has grown to **43 MB**, and my `--max-time 30` was
+truncating the download mid-JSON, so `jq` threw a parse error and the counts came
+back empty. Raised the timeout to 120s; the real answer is 0 pending of 1975.
+Worth noting the shape: the instrument did not break, it outgrew its budget, and
+the symptom looked like an empty result rather than an error.
+
+Then did work that needs no device click. Read the **live** lens verdicts
+(`updated_at`, not `created_at`) for the other three flows PRs:
+
+```
+#240  maintainability UNCLEAR   history FAILED    structure FAILED
+#242  maintainability MISSING   history MISSING   structure MISSING
+#244  maintainability MISSING   history MISSING   structure MISSING
+```
+
+So #242 and #244 are all-MISSING — the cloud-path failure, nothing to fix in
+their code. **#240 has real findings**, so that is where the work was.
+
+Fixed its structure P1. #240 is documentation-only, but item 1 of
+`kernel/GATE5-MEMORY-CONTRACT.md` read "a `RelayhistoryMemoryProvider`
+implementing the existing `MemoryProvider` trait" — and that trait lives in
+`kernel/relayflowd/src/memory.rs`, so the wording pointed the implementation
+into the Rust kernel. That would violate RFC-0001 §4 and settled decision #13.
+
+The lens's framing is the right one: a structural defect in the contract, not a
+naming quibble. A contract that reads as an instruction to put `ai-hist` inside
+the kernel will eventually be followed by someone. The item now says where the
+adapter lives, keeps the kernel-side `MemoryProvider` an injected protocol seam,
+and prohibits an ai-hist dependency or subprocess in `relayflowd`.
+
+Committed `cb3ee52`, content asserted on the remote.
+
+#240 still has a history FAILED I have not read yet — next.
