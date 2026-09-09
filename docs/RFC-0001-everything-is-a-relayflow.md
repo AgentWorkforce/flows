@@ -243,3 +243,55 @@ The problem, from the charter: exactly-once for an *agent* step needs a definiti
 5. **Exactly-once means exactly-once *effects*, not exactly-once execution.** Attempts may run more than once. Declared external effects are deduped at the mount boundary by `(step id, idempotency key, surface path)`: two attempts writing the same writeback produce one provider call.
 6. **Completion pins the end state.** `step.completed` journals ending revision ids, stream offsets, and `completionReason`. The next step's starting state *is defined as* this ending state — the chain of pins is the run's filesystem history.
 7. **The crash-injection gate extends to agent steps.** Under `reset`: kill mid-edit, resume, and assert (a) the second attempt observed the pinned revision, (b) the provider observed exactly one effect, (c) the journal explains both attempts.
+
+### A.1 — the wake-time context contract (v1)
+
+Rules 1-7 pin what an agent step *starts on top of*. A woken run needs one more
+pin: what it starts *because of*. This closes gate 2's remaining specification
+gap — the behaviour is implemented, but nothing said what it guarantees, so
+nothing could be held to it.
+
+8. **`wake_context` is journaled once, at the moment of the match.** When a
+   subscription matches an event, the engine writes a `SubscriptionMatched`
+   entry carrying `wake_context`. Its v1 shape is:
+
+   - `triggering_event` — the event as received, verbatim;
+   - `epoch_summary.open_steps` — the step ids of the run's epoch.
+
+   The entry is the record. Nothing else may synthesize a `wake_context`.
+
+9. **A resumed run observes the same context, never a recomputed one.** Every
+   dispatch — first attempt, retry, or post-crash resume — resolves
+   `wake_context` by reading the journaled `SubscriptionMatched` entry. It is
+   never rebuilt from current state. This is what makes a woken agent step
+   replayable: the event that justified the wake cannot drift because the world
+   moved on while the run was down.
+
+   Concretely, an agent that woke on an event and crashed must, on resume, be
+   handed byte-identical `triggering_event` — not a re-fetch, not a fresher
+   copy of the same logical event.
+
+10. **Absent context and lost context are different failures.** A run that was
+    never woken by an event has no `wake_context`, and that is legitimate. A
+    woken run whose context cannot be read back is a **journal integrity
+    failure**, and the dispatch must fail rather than proceed with none.
+
+    This distinction is the one the current implementation does not yet honour:
+    `drive.rs` resolves the context with `journal.scan_from(..).ok()`, so a scan
+    error degrades silently to `None` and the step runs as though it had never
+    been woken. Under rule 9 that is a contract violation, not a fallback.
+
+11. **The gate.** Gate 2 is not green on a passing unit test. It requires, on a
+    real run: wake a flow on an event, kill it mid-step, resume, and assert
+    (a) the resumed dispatch carries a `wake_context` **equal** to the one in
+    the original `SubscriptionMatched` entry, (b) the engine consulted the
+    journal rather than the live event source, and (c) a run with no
+    `SubscriptionMatched` entry is dispatched with `wake_context: None` and is
+    distinguishable in the journal from a run whose context failed to load.
+
+**Known deviation, recorded rather than hidden.** `epoch_summary.open_steps` is
+currently populated from every step declared in the spec, not the steps open at
+wake time. For a freshly woken run those coincide. They do not coincide for a
+run woken again later, so either the field or its name is wrong. v1 of this
+contract specifies the *name's* meaning — steps open at the epoch — and marks
+the implementation as owing a fix.
