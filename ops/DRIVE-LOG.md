@@ -5778,3 +5778,36 @@ a pre-existing symlink inside a declared scope is never inspected (so Verify can
 write outside the checkout), and the SDK suite is run without rebuilding
 `packages/sdk/dist`, so built-CLI tests can exercise the pre-agent artifact —
 that second one is the stale-tree gate failure in another costume.
+
+### 2026-09-09 — #244: SDK rebuild before its suite (the stale-tree gate, again)
+
+Drain: 0 pending of 1997. Disk 7.6Gi.
+
+Fixed cubic's second P1 on #244. `workflows/drive-local.yaml` ran `vitest`
+immediately after `local-work-package.mjs verify` with no build between them.
+Tests and probes import `packages/sdk/dist/*` — `ops/probes/pr134-repair-0903/harness.mjs`
+does exactly that — so when the agent changes SDK TypeScript the suite exercises
+the **pre-agent artifact** and can pass code that was just changed.
+
+That is the same failure I have a standing note about: a gate that reads a built
+tree the change never reached, and reports green. It caught the migration gate
+earlier and it is here too.
+
+Now runs `tsc` and `make-cli-executable.mjs` between verify and the suite,
+invoked directly rather than via `npm run build` — matching the
+`node node_modules/vitest/vitest.mjs run` idiom two lines below, and avoiding
+npm, which hangs on this host because `~/.npmrc` is a Dropbox symlink.
+
+**Stated a verification gap rather than papering over it.** No local checkout
+currently has `packages/sdk/node_modules`, so I could not confirm on disk that
+`node_modules/typescript/bin/tsc` resolves. It is TypeScript's shipped entry
+point and mirrors the vitest line, but the first real loop run is what proves it.
+Recorded that in the commit message too. If the path is wrong the step fails
+loudly instead of silently testing stale code, so the change is still strictly
+better than the current behaviour.
+
+Also burned time on a `find` across the whole home directory looking for an
+installed `node_modules` — it timed out at 8 minutes. Too broad a search for a
+question that did not need answering that way.
+
+Five threads remain on #244.
