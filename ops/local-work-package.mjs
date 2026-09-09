@@ -213,7 +213,10 @@ function report() {
   // different commit would describe work this tick did not do.
   const head = git('rev-parse', 'HEAD');
   assert.equal(head, pkg.head, `HEAD_MOVED: selected at ${pkg.head}, now ${head}`);
-  const stat = git('diff', '--stat');
+  const stat = [
+    git('diff', 'HEAD', '--stat'),
+    git('ls-files', '--others', '--exclude-standard'),
+  ].filter(Boolean).join('\n');
   console.log(`REPORT ${pkg.title}`);
   console.log(stat || '  (no working-tree changes)');
   for (const item of pkg.definitionOfDone) console.log(`  DoD: ${item}`);

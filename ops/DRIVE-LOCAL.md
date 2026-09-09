@@ -11,7 +11,7 @@ Run on the branch that should receive the diff, from a clean checkout. The
 flow leaves delivery to the operator. It does not commit or merge.
 
 Selection uses the SDK backlog picker. A locally executable entry must name
-existing repository paths in backticks and declare at least one acceptance
+repository paths committed at HEAD in backticks and declare at least one acceptance
 command on an indented `Verify:` line. Each command is a JSON argv array,
 executed at the repository root with a two-minute bound. For example:
 
@@ -36,6 +36,8 @@ string-prefix siblings. Backlog, verifier and gate changes fail even when a
 package names a containing directory. Symlink changes are refused. Ignored
 build/runtime artifacts are excluded from this Git diff boundary; it is not an
 OS filesystem sandbox or protection against a process rewriting Git metadata.
+Pre-existing unresolved symlinks under directory scopes are refused: creating
+a file through a dangling symlink can write outside the checkout.
 
 Verification reconstructs the selected work from the unchanged backlog and
 compares its scope and commands to package.json. Each package check must pass
@@ -43,3 +45,14 @@ before the SDK regression suite runs. An unchanged implementation whose DoD
 is unmet fails. HEAD/branch changes fail, and out-of-scope changes produced by
 an acceptance command fail too. A failed scope or verification step prevents
 the dependent report step from running.
+
+The scope command runs again after the SDK build and suite, before reporting.
+Reports include tracked changes against HEAD and non-ignored untracked paths.
+
+Known trust-boundary blockers remain: ignored package metadata can be repinned
+after a commit, and `.drive-gate` scripts and their checksum manifest can be
+rewritten together. Neither is an independently owned baseline. Acceptance
+commands can also load mutable scripts from implementation scope. See
+`runtime-evidence/drive-threads-0909-decisions.md`; this flow is not ready for
+unattended use until ownership of that baseline and the acceptance inputs is
+settled and enforced.

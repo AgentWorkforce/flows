@@ -62,7 +62,9 @@ export function checkScope(pkg) {
           try {
             target = realpathSync(child);
           } catch (error) {
-            if (error.code === 'ENOENT') continue; // dangling: writes cannot escape through it
+            // O_CREAT follows dangling links too. Without a resolvable target
+            // we cannot prove containment, so refuse before running checks.
+            if (error.code === 'ENOENT') throw new Error(`SYMLINK_UNRESOLVED: ${child}`, { cause: error });
             throw error;
           }
           assert(target === root || target.startsWith(`${root}${sep}`),

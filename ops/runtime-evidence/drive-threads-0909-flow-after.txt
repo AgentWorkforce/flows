@@ -1,0 +1,14 @@
+$ node --test ops/drive-local-flow.test.mjs
+✔ drive-local journals failure and blocks reporting for outside edit (1786.44325ms)
+✔ drive-local journals failure and blocks reporting for verifier edit (946.490334ms)
+✔ drive-local journals failure and blocks reporting for unchanged package (1199.776667ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3977.453917
+
+EXIT_CODE=0

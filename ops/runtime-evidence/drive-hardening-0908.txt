@@ -1,6 +1,6 @@
 Drive-local hardening — captured commands and output
 
-The baseline local-package test was already failing: it invoked the removed apply command. The replacement retains interrupted-write coverage for package selection.
+The baseline local-package test failed during select with NO_BOUNDED_WORK (ops/local-work-package.mjs:123), before any apply command ran. The replacement retains interrupted-write coverage for package selection.
 
 The default npm test invocation encountered a broken mise Cargo shim. The subsequent command selects the installed Rust toolchain without changing repository build scripts.
 

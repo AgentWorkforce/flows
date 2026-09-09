@@ -1,0 +1,38 @@
+$ node --test ops/local-work-package.test.mjs ops/local-work-review.test.mjs
+✔ skip cursor passes a later title mentioned in an earlier body (592.25075ms)
+✔ selection skips missing checks and stale paths with reasons (605.41ms)
+✔ a non-SDK package fails unchanged and passes only after its check holds (909.826375ms)
+✔ multiple acceptance checks all execute and failures propagate (603.32375ms)
+✔ scope refuses an outside unstaged path (596.18475ms)
+✔ scope refuses an outside staged path (588.12325ms)
+✔ scope refuses an outside untracked path (566.958417ms)
+✔ scope refuses an outside staged reversal path (573.086334ms)
+✔ scope refuses an outside rename path (539.01ms)
+✔ scope refuses an outside deleted path (529.127208ms)
+✔ the submitted scope command refuses a changed ops/local-work-package.mjs before loading it (440.83575ms)
+✔ the submitted scope command refuses a changed ops/local-work-verification.mjs before loading it (416.019333ms)
+✔ the submitted scope command refuses a changed ops/BACKLOG.md before loading it (426.724833ms)
+✔ editing ignored package metadata cannot widen scope or replace checks (588.573417ms)
+✔ scope allows directory children but rejects a sibling with the same prefix (671.063833ms)
+✔ scope allows in-scope deletions and rejects symlink escapes (654.396083ms)
+✔ replacing a scoped file with a directory does not authorize its children (525.916125ms)
+✔ a check that writes outside scope fails verification (580.079417ms)
+✔ interrupted package write preserves the original and retry replaces it atomically (856.901417ms)
+✔ report includes an allowed unstaged change (604.990041ms)
+✔ report includes an allowed staged change (613.164375ms)
+✔ report includes an allowed untracked change (600.954375ms)
+✔ directory scope checks a pre-existing dangling escape symlink (525.141417ms)
+✔ directory scope checks a pre-existing existing internal symlink (578.75775ms)
+✔ selection skips untracked scope and accepts the next committed scope (449.340959ms)
+✔ reporting after SDK suite effects enforces scope for outside.txt (771.198042ms)
+✔ reporting after SDK suite effects enforces scope for src/value.txt (862.321625ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11308.214375
+
+EXIT_CODE=0

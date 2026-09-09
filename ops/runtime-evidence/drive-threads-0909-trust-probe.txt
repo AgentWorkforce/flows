@@ -1,0 +1,13 @@
+$ node ops/runtime-evidence/drive-threads-0909-trust-probe.mjs
+COMMITTED_OUTSIDE_AND_REPINNED_PACKAGE_SCOPE_EXIT=0
+.drive-gate/backlog-picker.js: OK
+.drive-gate/local-work-package.mjs: OK
+.drive-gate/local-work-verification.mjs: OK
+SCOPE_OK: 0 changed path(s)
+REWRITTEN_SNAPSHOT_AND_CHECKSUM_SCOPE_EXIT=0
+.drive-gate/local-work-package.mjs: OK
+.drive-gate/local-work-verification.mjs: OK
+.drive-gate/backlog-picker.js: OK
+IMPLEMENTATION=broken
+
+EXIT_CODE=0

@@ -1,0 +1,321 @@
+$ node --test ops/local-work-package.test.mjs
+✖ skip cursor passes a later title mentioned in an earlier body (189.542625ms)
+✖ selection skips missing checks and stale paths with reasons (173.940125ms)
+✖ a non-SDK package fails unchanged and passes only after its check holds (282.30425ms)
+✔ multiple acceptance checks all execute and failures propagate (273.12475ms)
+✖ scope refuses an outside unstaged path (161.20125ms)
+✖ scope refuses an outside staged path (163.438917ms)
+✖ scope refuses an outside untracked path (153.918833ms)
+✖ scope refuses an outside staged reversal path (165.684917ms)
+✖ scope refuses an outside rename path (163.418917ms)
+✖ scope refuses an outside deleted path (156.003625ms)
+✔ the submitted scope command refuses a changed ops/local-work-package.mjs before loading it (139.637792ms)
+✔ the submitted scope command refuses a changed ops/local-work-verification.mjs before loading it (137.1565ms)
+✔ the submitted scope command refuses a changed ops/BACKLOG.md before loading it (133.5985ms)
+✖ editing ignored package metadata cannot widen scope or replace checks (158.204ms)
+✖ scope allows directory children but rejects a sibling with the same prefix (153.890833ms)
+✖ scope allows in-scope deletions and rejects symlink escapes (151.434708ms)
+✖ replacing a scoped file with a directory does not authorize its children (153.157625ms)
+✔ a check that writes outside scope fails verification (316.586583ms)
+✔ interrupted package write preserves the original and retry replaces it atomically (256.604083ms)
+ℹ tests 19
+ℹ suites 0
+ℹ pass 6
+ℹ fail 13
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3530.785583
+
+✖ failing tests:
+
+test at ops/local-work-package.test.mjs:9:1
+✖ skip cursor passes a later title mentioned in an earlier body (189.542625ms)
+  AssertionError [ERR_ASSERTION]: shasum: .drive-gate/SHA256SUMS: No such file or directory
+  
+  
+  2 !== 0
+  
+      at pass (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:41:38)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-package.test.mjs:16:3)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.start (node:internal/test_runner/test:1257:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at ops/local-work-package.test.mjs:19:1
+✖ selection skips missing checks and stale paths with reasons (173.940125ms)
+  AssertionError [ERR_ASSERTION]: shasum: .drive-gate/SHA256SUMS: No such file or directory
+  
+  
+  2 !== 0
+  
+      at pass (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:41:38)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-package.test.mjs:26:3)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at ops/local-work-package.test.mjs:29:1
+✖ a non-SDK package fails unchanged and passes only after its check holds (282.30425ms)
+  AssertionError [ERR_ASSERTION]: shasum: .drive-gate/SHA256SUMS: No such file or directory
+  
+  
+  2 !== 0
+  
+      at pass (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:41:38)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-package.test.mjs:34:3)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at ops/local-work-package.test.mjs:46:3
+✖ scope refuses an outside unstaged path (161.20125ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /OUT_OF_SCOPE/. Input:
+  
+  'shasum: .drive-gate/SHA256SUMS: No such file or directory\n'
+  
+      at fail (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:44:23)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-package.test.mjs:56:5)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'shasum: .drive-gate/SHA256SUMS: No such file or directory\n',
+    expected: /OUT_OF_SCOPE/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at ops/local-work-package.test.mjs:46:3
+✖ scope refuses an outside staged path (163.438917ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /OUT_OF_SCOPE/. Input:
+  
+  'shasum: .drive-gate/SHA256SUMS: No such file or directory\n'
+  
+      at fail (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:44:23)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-package.test.mjs:56:5)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'shasum: .drive-gate/SHA256SUMS: No such file or directory\n',
+    expected: /OUT_OF_SCOPE/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at ops/local-work-package.test.mjs:46:3
+✖ scope refuses an outside untracked path (153.918833ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /OUT_OF_SCOPE/. Input:
+  
+  'shasum: .drive-gate/SHA256SUMS: No such file or directory\n'
+  
+      at fail (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:44:23)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-package.test.mjs:56:5)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'shasum: .drive-gate/SHA256SUMS: No such file or directory\n',
+    expected: /OUT_OF_SCOPE/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at ops/local-work-package.test.mjs:46:3
+✖ scope refuses an outside staged reversal path (165.684917ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /OUT_OF_SCOPE/. Input:
+  
+  'shasum: .drive-gate/SHA256SUMS: No such file or directory\n'
+  
+      at fail (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:44:23)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-package.test.mjs:56:5)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'shasum: .drive-gate/SHA256SUMS: No such file or directory\n',
+    expected: /OUT_OF_SCOPE/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at ops/local-work-package.test.mjs:46:3
+✖ scope refuses an outside rename path (163.418917ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /OUT_OF_SCOPE/. Input:
+  
+  'shasum: .drive-gate/SHA256SUMS: No such file or directory\n'
+  
+      at fail (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:44:23)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-package.test.mjs:56:5)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'shasum: .drive-gate/SHA256SUMS: No such file or directory\n',
+    expected: /OUT_OF_SCOPE/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at ops/local-work-package.test.mjs:46:3
+✖ scope refuses an outside deleted path (156.003625ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /OUT_OF_SCOPE/. Input:
+  
+  'shasum: .drive-gate/SHA256SUMS: No such file or directory\n'
+  
+      at fail (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:44:23)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-package.test.mjs:56:5)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'shasum: .drive-gate/SHA256SUMS: No such file or directory\n',
+    expected: /OUT_OF_SCOPE/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at ops/local-work-package.test.mjs:69:1
+✖ editing ignored package metadata cannot widen scope or replace checks (158.204ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /PACKAGE_CHANGED/. Input:
+  
+  'shasum: .drive-gate/SHA256SUMS: No such file or directory\n'
+  
+      at fail (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:44:23)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-package.test.mjs:75:5)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'shasum: .drive-gate/SHA256SUMS: No such file or directory\n',
+    expected: /PACKAGE_CHANGED/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at ops/local-work-package.test.mjs:79:1
+✖ scope allows directory children but rejects a sibling with the same prefix (153.890833ms)
+  AssertionError [ERR_ASSERTION]: shasum: .drive-gate/SHA256SUMS: No such file or directory
+  
+  
+  2 !== 0
+  
+      at pass (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:41:38)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-package.test.mjs:83:3)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at ops/local-work-package.test.mjs:88:1
+✖ scope allows in-scope deletions and rejects symlink escapes (151.434708ms)
+  AssertionError [ERR_ASSERTION]: shasum: .drive-gate/SHA256SUMS: No such file or directory
+  
+  
+  2 !== 0
+  
+      at pass (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:41:38)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-package.test.mjs:92:3)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at ops/local-work-package.test.mjs:97:1
+✖ replacing a scoped file with a directory does not authorize its children (153.157625ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /OUT_OF_SCOPE/. Input:
+  
+  'shasum: .drive-gate/SHA256SUMS: No such file or directory\n'
+  
+      at fail (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:44:23)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-package.test.mjs:102:3)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'shasum: .drive-gate/SHA256SUMS: No such file or directory\n',
+    expected: /OUT_OF_SCOPE/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+EXIT_CODE=1
