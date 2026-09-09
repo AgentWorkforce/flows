@@ -8059,3 +8059,48 @@ were never intended.
 
 This also retires my earlier framing that "the review swarm is unreliable." It is
 not flaky — it is two runners whose results are indistinguishable by anchor.
+
+### 2026-09-09 — the review gate is unpassable: structure never returns a verdict
+
+Disk 5.5Gi. Drain: 1 pending, created 21:21, normal window.
+
+Now that #254 let me read verdicts **per runner**, the picture resolves into
+something bigger than any individual PR.
+
+**The `structure` lens has produced a real verdict exactly once** — `REVIEW_FAILED`
+on #248. On every other PR it is `MISSING` from **both** runners:
+
+```
+#238 MISSING/MISSING   #240 UNCLEAR/MISSING   #242 MISSING/MISSING
+#244 MISSING/MISSING   #250 MISSING/MISSING   #251 MISSING/MISSING   #252 MISSING/MISSING
+```
+
+The local runner's comment is a 62-byte stub — header, anchor, no transcript —
+byte-identical everywhere.
+
+Because the aggregate needs all three lenses and `swarm-post.sh` gates on
+`[ "$overall" = PASSED ]`, **the `review` check cannot go green for any PR.**
+
+**Killed my own first hypothesis before publishing it.** I suspected #248 — which
+tightened the marker contract and merged at 12:18Z — until I checked timestamps:
+structure comments from **09-08**, a day earlier, are already MISSING. Both sides
+of the merge look identical. `MISSING` also means *no transcript at all*, which
+#248's contract cannot produce; it governs where a marker sits, not whether a
+transcript exists.
+
+**This reframes the whole day.** I have been treating `review: FAILURE` as a
+per-PR signal and chasing each one. Some findings were real and worth fixing. But
+the check was going to be red regardless — #250 and #252 both had *both*
+substantive lenses passing at the exact head and were still aggregate-FAILED on
+structure alone. I merged both with `--admin`.
+
+That is the corrosive part, and worth stating plainly: a gate that can never pass
+trains everyone to override it, and then a genuine FAILED verdict is
+indistinguishable from the permanent noise. On #251 the two runners disagreed
+substantively and the *correct* verdict was the one easiest to dismiss.
+
+Filed **flows#255**. Deliberately did not attempt a fix — I do not know whether
+it is a prompt, a transcript-naming or a runner problem, and guessing would waste
+the finding. Proposed instead: diagnose why only this lens produces no
+transcript, and meanwhile make the aggregate distinguish "missing" from "failed"
+so real failures stay visible.
