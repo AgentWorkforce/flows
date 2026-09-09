@@ -6513,3 +6513,26 @@ interacts with it is exactly the kind of guess I should test rather than assert.
 
 Recording it for the lane rather than patching: #249 is theirs, and this is
 plausibly a consequence of the close semantics they just added.
+
+### 2026-09-09 — three lanes running; journal-close lane is reproducing first
+
+Drain: 2 pending of 2047 — the usual scheduled pair. Disk 3.8Gi.
+
+`journal-close-0909` (pid 24412) is set up and working: 881 file writes in 15
+minutes, and its two commits are the **merge of #249**, which is exactly what the
+brief told it to do before touching anything — bring in the lease fix so the
+journal failure is reproducible at all. No fix commits yet, which is correct at
+this stage rather than a lack of progress.
+
+`lease-renewal-0909` holds #249 (open, reviewed by me, `review` the only failing
+check). `flows-threads-0909` sits at 15 commits on the #244 work.
+
+Both of those show 0 writes in the last 15 minutes. **I am not reading that as
+stalled** — the same signal was wrong twice tonight, and attaching once showed an
+agent mid-turn at "Working (52m)". A quiet directory is not a liveness signal;
+only a positive probe is.
+
+Nothing needing intervention. The chain is now: #249 removes the lease expiry
+(verified end to end by me), `journal-close-0909` is on the next blocker, and
+after that the drive loop should complete a run for the first time — which is the
+thing that would make "relayflows running" true rather than aspirational.
