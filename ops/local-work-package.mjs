@@ -142,11 +142,22 @@ async function choose(markdown, { pathExists = existsSync, log = true } = {}) {
 }
 
 async function select() {
+  // Restored guard. The generalization recorded the branch but stopped asserting
+  // it, so the loop would happily select work while sitting on `main` and let
+  // the agent edit the protected branch. `--show-current` prints nothing on a
+  // detached HEAD, which is equally not a work branch.
+  const branch = git('branch', '--show-current');
+  assert(
+    branch && branch !== 'main',
+    branch
+      ? `LOCAL_DRIVE_REFUSED: on '${branch}'; use a work branch, not main`
+      : 'LOCAL_DRIVE_REFUSED: detached HEAD is not a work branch; check out one',
+  );
   const markdown = read(backlogPath);
   const work = await choose(markdown);
   const pkg = {
     selectedAt: new Date().toISOString(),
-    branch: git('branch', '--show-current'),
+    branch,
     head: git('rev-parse', 'HEAD'),
     backlogSha256: hash(markdown),
     ...work,
