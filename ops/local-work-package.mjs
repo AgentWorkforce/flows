@@ -160,12 +160,22 @@ async function select() {
       ? `LOCAL_DRIVE_REFUSED: on '${branch}'; use a work branch, not main`
       : 'LOCAL_DRIVE_REFUSED: detached HEAD is not a work branch; check out one',
   );
+  const head = git('rev-parse', 'HEAD');
   const markdown = read(backlogPath);
-  const work = await choose(markdown);
+  // Selection and the gate must share one baseline. `existsSync` accepts a path
+  // that exists only in the working tree, which selection then persists and
+  // checkScope immediately rejects -- its `git cat-file` lookup consults the
+  // selected commit, so an untracked path aborts the run on a package selection
+  // had already blessed. Committed-at-HEAD is the honest rule for both: scope is
+  // a claim about reviewable content, and an untracked path is not yet that.
+  const work = await choose(markdown, {
+    pathExists: path => spawnSync('git', ['cat-file', '-e', `${head}:${path.replace(/\/$/, '')}`],
+      { stdio: 'ignore' }).status === 0,
+  });
   const pkg = {
     selectedAt: new Date().toISOString(),
     branch,
-    head: git('rev-parse', 'HEAD'),
+    head,
     backlogSha256: hash(markdown),
     ...work,
   };
