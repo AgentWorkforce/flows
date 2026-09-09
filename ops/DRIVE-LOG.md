@@ -7884,3 +7884,51 @@ with the `~/.npmrc` trap. Landing a test I cannot execute is the exact failure I
 have been correcting all day, so I shipped the verified analysis and a complete
 specification instead. Everything asserted is checked: the atomic-write
 implementation, the SIGKILL target, and the `SDK_NOT_BUILT` behaviour.
+
+### 2026-09-09 — wrote and mutation-verified #242's replacement test (cd517fd)
+
+Khaliq said "do it", so I built the environment and wrote the test I had refused
+to ship unverified last tick.
+
+**Getting there took correcting a wrong assumption about the repo.** My first
+install failed: `no such file or directory, open 'flows-lead/package.json'` —
+there is **no root `package.json`** in this repo, only a root lockfile and seven
+package manifests. Installing in `packages/sdk` directly worked and cost only
+55M. Built the PR branch's SDK in a worktree with the deps symlinked.
+
+**Running the test found a second breakage neither I nor the lens predicted.**
+We both said `apply` exits 2. True, but the test never reaches it:
+
+```
+SKIPPED [stale_scope: packages/sdk/src/compile.ts] F8b
+AssertionError: NO_BOUNDED_WORK: 1 entr(y|ies) considered, none named files this loop can scope.
+```
+
+Two independent earlier failures: the fixture's BACKLOG entry names no backticked
+path, and the path it does name **does not exist at HEAD**, so the picker rejects
+it as `stale_scope`. Neither is visible by reading the diff. My own first fixture
+hit the same `stale_scope` guard — the picker requires the scoped file to exist.
+
+**The test now asserts three things**, following `writeAtomically` to where it
+actually lives rather than deleting coverage with the verb: a killed package
+write leaves no partial package (the old assertion, retargeted at
+`package.json.*.tmp`); re-selecting an unchanged backlog produces the same
+package (replaces `PACKAGE_ALREADY_APPLIED`, keyed on `backlogSha256`); and
+`report` refuses once HEAD moved (`HEAD_MOVED` had **no** coverage at all).
+
+**Mutation-verified, which is the part that makes it worth anything.** Making
+`writeAtomically` write the destination directly fails **exactly** the atomicity
+test and no other; restoring gives 3/3. A green suite I had not tried to break
+would have proved nothing.
+
+Also corrected one of my own assertions mid-flight: I asserted the package title
+would be the full entry line; it is `F8b`. Fixed to observed behaviour rather
+than bending the fixture to my guess.
+
+Pushed to `feat/drive-local-general` as `cd517fd`; verified the remote branch
+carries the test (GitHub's PR head field lagged, the branch did not).
+
+**Left for reviewers, not decided by me:** the test now requires a built SDK,
+because `sdkEntry` resolves relative to the script's URL. Whether `ops/*.test.mjs`
+should depend on a build is a real CI call. The history lens's B1 (build ordering
+in `drive-local.yaml`) is untouched and still live.
