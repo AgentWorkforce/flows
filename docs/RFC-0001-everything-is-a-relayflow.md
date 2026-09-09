@@ -367,9 +367,26 @@ is currently wrong; it blocks nothing.
 
   1. **The engine never rolls.** `rollover()` exists in `relayflowd-journal` and
      is covered by its own tests, but nothing in `relayflowd` calls it, so a run
-     has exactly one segment in practice.
+     has exactly one segment in practice. The test that covers it is named
+     `rollover_is_atomic_scaffolding_for_epoch_resume` — scaffolding is the
+     author's own word for it.
   2. **Closed segments are never pruned.** Nothing archives them out of the
      file, so even after a roll the older entries remain readable.
+
+  **D2 is therefore not implementable in isolation, and this contract should say
+  so rather than imply a fix is available.** `rollover()` takes a fully-formed
+  `EpochSummaryPayload` from its caller, and **every construction of that payload
+  in the kernel is inside a test** — no production code decides what an epoch
+  summary contains. There is no site at which to add the carry-forward.
+
+  Closing D2 therefore depends on epoch rollover being built in the engine
+  first: something must own the decision of what survives a segment boundary,
+  and `wake_context` then joins the list beside open waits, stream offsets and
+  pinned revisions. Adding the field to `EpochSummaryPayload` ahead of that
+  producer would be a field nothing populates — the appearance of a fix, not one.
+
+  The sequencing that follows: **engine-side epoch rollover -> D2 -> gate 2.**
+  D2 is not the next action on that chain; rollover is.
 
   This means the implementation currently satisfies rule 9 *by violating
   decision #8* — it resolves across segment boundaries rather than from the
