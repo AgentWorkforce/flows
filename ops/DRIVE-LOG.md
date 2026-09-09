@@ -7840,3 +7840,47 @@ the diff. Posted the evidence and the three options rather than guessing.
 blockers were stale artifacts of an older commit; here they are live and precise.
 Running the check is what distinguished them — neither the verdict's freshness
 arithmetic nor its confidence would have.
+
+### 2026-09-09 — made the #242 scope call; found a third issue neither lens caught
+
+Disk 5.8Gi. Khaliq asked me to be proactive, so I stopped deferring the decision
+I had flagged and resolved it on evidence.
+
+**The call: `apply` is correctly obsolete (path 2).** What settled it was reading
+the new implementation rather than the diff summary — **`writeAtomically`
+already exists** in the new script (lines 41-48): temp file, `fsync` the
+replacement, `rename`, then `fsync` the directory. So the atomicity guarantee the
+old test protected did **not** vanish with `apply`; it moved from the target-file
+write to the work-package write, and it is *more* careful than before — the old
+path never fsynced the directory.
+
+That collapses the three options into one. `apply` was the scripted stand-in for
+an agent making the edit; the new flow has the agent implement and `report` show
+the diff, so there is nothing to apply. The guarantee needs **re-pointing, not
+rehoming**, and I specified exactly what the replacement test must assert:
+atomicity via the same SIGKILL technique aimed at `package.json.*.tmp`,
+idempotent re-select against an unchanged `backlogSha256`, and the `HEAD_MOVED`
+guard in `report`, which has no coverage at all.
+
+**Third finding, missed by both lenses: this PR makes the test unable to run
+standalone.** `sdkEntry` resolves relative to the *script's own URL*, so
+`local-work-package.mjs` imports `packages/sdk/dist/backlog-picker.js` even when
+driven from a temp fixture. The old test was self-contained — a regex over a
+fixture `BACKLOG.md`, no build. Verified by running `select` with the dist
+absent:
+
+```
+Error: SDK_NOT_BUILT: .../packages/sdk/dist/backlog-picker.js is not importable
+```
+
+Clean, well-worded failure — but it means the test now **requires a built SDK**,
+a testability regression worth being deliberate about. It also compounds the
+history lens's B1: if the build ordering in `drive-local.yaml` is wrong, this
+test can silently exercise a stale `dist`.
+
+**Did not write the test, and said so on the PR.** Building the SDK here needs a
+full `npm install` (no `node_modules`, build is `tsc`), at 5.8Gi free on a host
+with the `~/.npmrc` trap. Landing a test I cannot execute is the exact failure I
+have been correcting all day, so I shipped the verified analysis and a complete
+specification instead. Everything asserted is checked: the atomic-write
+implementation, the SIGKILL target, and the `SDK_NOT_BUILT` behaviour.
