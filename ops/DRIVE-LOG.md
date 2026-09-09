@@ -5624,3 +5624,36 @@ triggers one on every push. So #240's verdict cannot refresh, and the
 `history FAILED / structure FAILED` shown is genuinely older than the fixes for
 both. Why one branch triggers and the other does not is the next thing to find
 out.
+
+### 2026-09-09 — #240 was CLOSED. That is why the swarm stopped firing.
+
+Drain: 2 pending of 1987 (in-flight). Disk 5.6Gi.
+
+Chased why the swarm re-ran on one branch and not the other, and the answer is
+not subtle: **PR #240 was closed.** A closed PR emits no `synchronize`, so
+`pull_request: [opened, synchronize, reopened, ready_for_review]` never fired.
+Its PR head was frozen at `cb3ee52` while the branch had moved to `3564fcb`.
+
+So my last two commits — the history fixes and the structure fixes — sat on the
+branch with **no possibility of review**, and the `history FAILED / structure
+FAILED` verdict I kept re-reading was pinned to a head that predated both.
+
+Closed by `kjgbot` at `07:25:38Z`, **23 seconds after** the `cb3ee52` push. I
+issued no close command, there is no workflow in `.github/workflows/` that closes
+PRs, and no comment explains it. **I could not establish the cause and I am not
+going to pretend otherwise.**
+
+Reopened it. The PR head immediately advanced to `3564fcb`, so the next swarm run
+evaluates the fixed state for the first time. Left a comment on the PR stating
+that I could not determine why it closed and asking for it to be re-closed with a
+reason if the close was deliberate — I would rather be corrected once than
+quietly fight an automation every tick.
+
+Two things this explains retroactively:
+
+- Why #240's verdict never moved after two pushes of real fixes.
+- Why I was tempted, twice, to read a stale verdict as a result on my work. The
+  verdict was not stale by accident; the PR could not receive a new one.
+
+#238 (OPEN, head `bcafd42`), #242 (OPEN, `52db46c`) and #244 (OPEN, `4aeb091`)
+are all open, so this was specific to #240 rather than a repo-wide condition.
