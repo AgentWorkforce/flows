@@ -7636,3 +7636,39 @@ dispatcher rather than a real run. So the honest remaining work is:
 Sixth time today I nearly asserted something without checking; this one I caught
 before pushing, by reading the test list instead of just the pass count. The
 4-test green would have looked like my test earning its place.
+
+### 2026-09-09 — checked D2 before writing it; it is blocked on unbuilt rollover
+
+Disk 5.7Gi (98%). Drain clean: 0 pending of 1956. Completions still 423.
+
+**Applied today's lesson before starting: swept for existing work first.** Two
+branches touch this area and neither does D2 —
+`origin/feat/gate2-wake-context` is 62 lines of tests in `event_wake.rs`, 5 days
+stale, its head commit *withdrawing* a racing-delivery test; and
+`origin/handH/wake-context-in-dispatch` is the SDK env-var exposure already
+merged as #125. So D2 genuinely was not done.
+
+**Then checked whether it was implementable, and it is not.** `rollover()` takes
+a fully-formed `EpochSummaryPayload` **from its caller**, and every construction
+of that payload in the kernel is inside a test module —
+`relayflowd-journal/src/lib.rs:489` and `relayflowd-core/src/journal.rs:128`.
+No production code decides what an epoch summary contains, so **there is no site
+at which to add the carry-forward.** The covering test is named
+`rollover_is_atomic_scaffolding_for_epoch_resume`; scaffolding is the author's
+own word.
+
+Adding `wake_context` to the payload ahead of a producer would be a field nothing
+populates — the appearance of a fix rather than one. I did not write it.
+
+Recorded in the contract instead, with the sequencing that actually holds:
+**engine-side epoch rollover -> D2 -> gate 2.** D2 is not the next action on that
+chain; rollover is.
+
+**Net position on gate 2 after today.** Rule 9's behavioural half is pinned by an
+existing test. **D1** is in flight as #252. **D2** is blocked behind unbuilt
+epoch rollover. **Rule 11's run-level bar** needs a real run rather than a stub
+dispatcher. So the spec work is done unless review says otherwise, and the
+remaining gate-2 debt is *engine* work, not contract work.
+
+That is the first tick today where checking first changed the action rather than
+just correcting a claim afterwards.
