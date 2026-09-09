@@ -8150,3 +8150,59 @@ the three-families property); start ollama (but an 8B quantised model reviewing
 kernel boundaries is a weaker reviewer than the other two); or repoint structure
 at claude/codex (unblocks now, sacrifices the independent-harness property the
 workflow argues for — stopgap only).
+
+### 2026-09-09 — the cloud runner has a DIFFERENT cause; it is cloud#3493
+
+Disk 5.4Gi. Drain: 2 pending, newest 21:52, normal window.
+
+Last tick I diagnosed the local structure lens and **explicitly refused to claim
+the cloud one shared the cause**. Inspected it this tick with prod access. Good
+call — the causes are unrelated.
+
+**The cloud runner has credentials.** First line that kills the local
+explanation:
+
+```
+[bootstrap] Mounted credentials for opencode at /home/daytona/.local/share/opencode/auth.json
+```
+
+So the unauthenticated-opencode chain is local-only.
+
+**What actually kills it in the cloud is cloud#3493.** From run `6b96a56f`:
+
+```
+[lens-structure] Repair agent "structure" failed:
+    mcp-args --register failed: registration for 'structure' was rate-limited;
+    retry after 60s: Workspace write capacity is busy (code: workspace_busy)
+```
+
+All three attempts spent on `workspace_busy`; the review never runs. Not unique
+to structure either — `lens-history` hits it in the same run and
+`lens-maintainability` logs transient registration retries.
+
+**What is genuinely new:** the load is **self-inflicted by design**. All three
+lenses start in the same second:
+
+```
+[workflow 00:16] [lens-maintainability] Started
+[workflow 00:16] [lens-history] Started
+[workflow 00:16] [lens-structure] Started
+```
+
+Three agents registering concurrently against one workspace is the normal shape
+of a fan-out workflow, not bad luck. That makes ignoring the `retry after 60s`
+hint far more costly than my earlier report implied.
+
+**Stated as hypothesis, not mechanism:** structure losing *consistently* while
+the other two usually recover is a pattern I have observed, not something I have
+proven. One run cannot settle whether opencode starts slower or the ordering is
+incidental.
+
+**So the gate has two independent failure modes producing identical MISSING** —
+local: unauthenticated opencode over a dead ollama; cloud: rate-limited
+registration exhausting retries. Fixing either alone leaves the gate red on the
+other path, and the fixes are unrelated.
+
+Posted both to flows#255 and linked it from cloud#3493, noting the second is not
+a flows bug at all — it is the same platform fault that has held production
+completions at 423 all day.
