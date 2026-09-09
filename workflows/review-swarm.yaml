@@ -19,6 +19,13 @@ swarm:
   maxConcurrency: 3
 
 agents:
+  # Transcript contract: .github/workflows/scripts/swarm-verdict.sh,
+  # swarm_transcript_verdict(): last non-empty line, surrounding whitespace
+  # trimmed, exact REVIEW_PASSED/REVIEW_FAILED match. The aggregate uses this
+  # parser; changing the prompt must preserve that contract.
+  # Step liveness checks observe the agent's chat output. The aggregate opens
+  # its persisted transcript file and applies the binding parser there; chat
+  # output containing REVIEW_ cannot make a malformed transcript pass.
   # Deliberately three different model families: a shared blind spot in one
   # harness must not become the whole team's blind spot.
   - name: maintainability
@@ -84,7 +91,15 @@ workflows:
           Read AGENTS.md and docs/RFC-0001-everything-is-a-relayflow.md first.
           Write your complete review to
           ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target/pr-number)-maintainability.md
-          and `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
+          and `git add` it. The LAST NON-EMPTY LINE OF THE TRANSCRIPT FILE must be exactly REVIEW_PASSED or REVIEW_FAILED, with nothing after it -- no sign-off, no timestamp, no closing sentence. swarm-verdict.sh reads only that final line; a marker followed by any trailing text is read as UNCLEAR and your entire review is discarded.
+        # LIVENESS CHECK ONLY -- deliberately weaker than the contract above.
+        # It asks "did this lens emit a verdict at all", nothing more. The
+        # binding check is the aggregate step, which reads the LAST NON-EMPTY
+        # LINE of the transcript file; a marker that is merely present but not
+        # last is UNCLEAR and fails the run. The kernel offers only
+        # exit_code / output_contains / json_schema, none of which can express
+        # "last line of this file equals this string", so passing here is not
+        # evidence the contract was met.
         verification:
           type: output_contains
           value: "REVIEW_"
@@ -105,7 +120,15 @@ workflows:
           Does the commit message tell the truth about the diff?
           Write your complete review to
           ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target/pr-number)-history.md and
-          `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
+          `git add` it. The LAST NON-EMPTY LINE OF THE TRANSCRIPT FILE must be exactly REVIEW_PASSED or REVIEW_FAILED, with nothing after it -- no sign-off, no timestamp, no closing sentence. swarm-verdict.sh reads only that final line; a marker followed by any trailing text is read as UNCLEAR and your entire review is discarded.
+        # LIVENESS CHECK ONLY -- deliberately weaker than the contract above.
+        # It asks "did this lens emit a verdict at all", nothing more. The
+        # binding check is the aggregate step, which reads the LAST NON-EMPTY
+        # LINE of the transcript file; a marker that is merely present but not
+        # last is UNCLEAR and fails the run. The kernel offers only
+        # exit_code / output_contains / json_schema, none of which can express
+        # "last line of this file equals this string", so passing here is not
+        # evidence the contract was met.
         verification:
           type: output_contains
           value: "REVIEW_"
@@ -125,7 +148,15 @@ workflows:
           a primitive instead of a helper, or grows a file past its purpose.
           Write your complete review to
           ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target/pr-number)-structure.md and
-          `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
+          `git add` it. The LAST NON-EMPTY LINE OF THE TRANSCRIPT FILE must be exactly REVIEW_PASSED or REVIEW_FAILED, with nothing after it -- no sign-off, no timestamp, no closing sentence. swarm-verdict.sh reads only that final line; a marker followed by any trailing text is read as UNCLEAR and your entire review is discarded.
+        # LIVENESS CHECK ONLY -- deliberately weaker than the contract above.
+        # It asks "did this lens emit a verdict at all", nothing more. The
+        # binding check is the aggregate step, which reads the LAST NON-EMPTY
+        # LINE of the transcript file; a marker that is merely present but not
+        # last is UNCLEAR and fails the run. The kernel offers only
+        # exit_code / output_contains / json_schema, none of which can express
+        # "last line of this file equals this string", so passing here is not
+        # evidence the contract was met.
         verification:
           type: output_contains
           value: "REVIEW_"

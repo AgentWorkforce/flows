@@ -1,0 +1,4 @@
+$ python3 ops/runtime-evidence/swarm-threads-0909-comparator-probe.py
+DELEGATION_OK
+PLAIN=NOT_NEWER NEGATED=STALE STAT_CALLS=4
+EXIT_CODE=0

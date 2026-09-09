@@ -1,0 +1,33 @@
+SUPERSEDED: this comparator did not intercept the negated production check.
+This is not evidence of simulated coarse timestamps; see corrected-* captures.
+
+$ BASH_ENV=/tmp/flows-coarse-mtime.bash bash .github/workflows/scripts/swarm-gate.test.sh
+== verdict extraction ==
+  ok   a bare REVIEW_FAILED is FAILED
+  ok   a bare REVIEW_PASSED is PASSED
+  ok   trailing blank lines do not hide the marker
+  ok   surrounding whitespace is trimmed
+  ok   a marker followed by a sign-off is UNCLEAR (PR #240 bug)
+  ok   REVIEW_FAILED is never upgraded by surrounding prose
+  ok   an empty transcript is UNCLEAR, not PASSED
+  ok   a transcript merely containing the word is UNCLEAR
+== lens selection ==
+  ok   no reviews directory yields MISSING
+  ok   an absent transcript yields MISSING
+  ok   a transcript predating the run yields STALE
+  ok   the newest fresh transcript wins
+== swarm-post.sh end to end ==
+  ok   one lens REVIEW_FAILED fails the gate (exit 1)
+  ok   a failing run still reports its verdict to the PR
+  FAIL three clean passes pass the gate (exit 0)
+     expected: 0
+     actual:   1
+  ok   an UNCLEAR lens fails the gate
+  ok   a lens with no transcript at all fails the gate
+  ok   an empty sync fails the gate (exit 1)
+  ok   the empty-sync reason reaches the step log
+  ok   KNOWN: an empty sync posts no comment; the red check is the only signal
+
+19 passed, 1 failed
+
+EXIT_CODE=1
