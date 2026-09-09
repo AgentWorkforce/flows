@@ -7178,3 +7178,48 @@ discarding the work.
 Nothing else actionable: the cloud chain (#3497 -> rebuild -> qualify v0.10.56 ->
 promote pins -> #3466) is blocked on five secrets only Khaliq can provision, and
 items 2-4 remain blocked or stale.
+
+### 2026-09-09 — followed a failure to its end and found a second back-pressure gap
+
+Disk 7.0Gi. Drain: 1 pending (`4c50dc01`) with a sandbox and `updatedAt` moving —
+progressing, left alone. Lanes both on live targets (#250, #244). Completions
+still frozen at **423**.
+
+**Followed last tick's pending run to its conclusion** instead of just noting it
+failed. `acc03fea` was `pr-proof.ts`, and reading the *full* 4209-char failure —
+not the truncated head — changed what it meant.
+
+It got a long way: `prove-base` succeeded in 43s, `gate-base` emitted
+`PR_PROOF_BASE_VALID ... outcome=bug`. Then:
+
+```
+[executor] verify-head relaycast registration attempt 1 failed transiently; retrying
+[executor] verify-head relaycast registration attempt 2 failed transiently; retrying
+  x verify-head FAILED: mcp-args --register failed: registration for
+    'head-verifier' was rate-limited; retry after 60s: Workspace write capacity
+    is busy (code: workspace_busy; attempts: 1)
+  o gate-red-green — skipped
+```
+
+**This is a different fault from #3471's.** That one classified HTTP **503 +
+`database_overloaded`** as retryable. This is **rate limiting with
+`workspace_busy`**, carrying an explicit **`retry after 60s`** hint. The executor
+retried twice, exhausted its budget, and failed the step anyway.
+
+**Stated the limit of what I know.** The obvious hypothesis is that the retries
+fire far faster than the 60s recovery window, so a bounded budget is spent in
+seconds — but the log has no timestamps between attempts, so I did **not** claim
+it. Said in the comment that executor-side retry timing would settle it, and
+that if the hint is ignored the fix is to honour `Retry-After`, not to raise the
+attempt count: three fast attempts against a 60s window is the same as one.
+
+**Confirms #3471 works** where it applies — `prove-base` shows the same
+"registration attempt 1 failed transiently; retrying" and *succeeds*. So this is
+a coverage gap, not a regression.
+
+**Worth noting the cost shape:** this run reached `verify-head` with a valid base
+arm and lost the red/green verdict one step from the end. This failure mode
+discards work that had already succeeded, rather than merely wasting a slot.
+
+Posted to #3493 as a second distinct gap rather than opening another issue —
+noted there that it may warrant its own, and left that judgement to the owner.
