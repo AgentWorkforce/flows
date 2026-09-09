@@ -1,7 +1,5 @@
-SUPERSEDED: this comparator did not intercept the negated production check.
-This is not evidence of simulated coarse timestamps; see corrected-* captures.
-
-$ BASH_ENV=/tmp/flows-coarse-mtime.bash bash .github/workflows/scripts/swarm-gate.test.sh
+$ python3 ops/runtime-evidence/swarm-threads-0909-baseline-probe.py
+BASELINE_ATTEMPT=1
 == verdict extraction ==
   ok   a bare REVIEW_FAILED is FAILED
   ok   a bare REVIEW_PASSED is PASSED
@@ -29,5 +27,4 @@ $ BASH_ENV=/tmp/flows-coarse-mtime.bash bash .github/workflows/scripts/swarm-gat
   ok   KNOWN: an empty sync posts no comment; the red check is the only signal
 
 19 passed, 1 failed
-
 EXIT_CODE=1

@@ -1,7 +1,5 @@
-SUPERSEDED: this comparator did not intercept the negated production check.
-This is not evidence of simulated coarse timestamps; see corrected-* captures.
-
-$ BASH_ENV=/tmp/flows-coarse-mtime.bash bash .github/workflows/scripts/swarm-gate.test.sh
+$ python3 ops/runtime-evidence/swarm-threads-0909-baseline-probe.py
+Initial single-attempt invocation (before adding the bounded retry loop):
 == verdict extraction ==
   ok   a bare REVIEW_FAILED is FAILED
   ok   a bare REVIEW_PASSED is PASSED
@@ -19,15 +17,12 @@ $ BASH_ENV=/tmp/flows-coarse-mtime.bash bash .github/workflows/scripts/swarm-gat
 == swarm-post.sh end to end ==
   ok   one lens REVIEW_FAILED fails the gate (exit 1)
   ok   a failing run still reports its verdict to the PR
-  FAIL three clean passes pass the gate (exit 0)
-     expected: 0
-     actual:   1
+  ok   three clean passes pass the gate (exit 0)
   ok   an UNCLEAR lens fails the gate
   ok   a lens with no transcript at all fails the gate
   ok   an empty sync fails the gate (exit 1)
   ok   the empty-sync reason reaches the step log
   ok   KNOWN: an empty sync posts no comment; the red check is the only signal
 
-19 passed, 1 failed
-
-EXIT_CODE=1
+20 passed, 0 failed
+EXIT_CODE=0

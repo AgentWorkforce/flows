@@ -1,3 +1,6 @@
+SUPERSEDED: this comparator did not intercept the negated production check.
+This is not evidence of simulated coarse timestamps; see corrected-* captures.
+
 $ BASH_ENV="$PWD/ops/runtime-evidence/swarm-threads-0909-coarse.bash" bash .github/workflows/scripts/swarm-gate.test.sh
 == verdict extraction ==
   ok   a bare REVIEW_FAILED is FAILED
