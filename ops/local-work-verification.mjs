@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { lstatSync, realpathSync } from 'node:fs';
+import { lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 
 // An explicit argv contract avoids treating prose or arbitrary backticked
@@ -36,6 +36,43 @@ export function checkScope(pkg) {
       { encoding: 'utf8' }).trim();
     return { path: normalized, directory: kind === 'tree' };
   });
+  // A declared DIRECTORY scope is an authorization to write anywhere beneath it,
+  // so its descendants have to be sound before any check runs -- not just the
+  // paths that happen to be touched. A pre-existing symlink inside such a scope
+  // is never "touched", so the per-path walk below never sees it, and a Verify
+  // command can write straight through it to somewhere outside the checkout.
+  // Symlinks that stay inside the root are left alone: workspace layouts use
+  // them legitimately, and the threat is escape, not indirection.
+  for (const scope of scopes.filter(s => s.directory)) {
+    const stack = [scope.path];
+    while (stack.length) {
+      const dir = stack.pop();
+      let entries;
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch (error) {
+        if (error.code === 'ENOENT' || error.code === 'ENOTDIR') continue;
+        throw error;
+      }
+      for (const entry of entries) {
+        if (entry.name === '.git') continue;
+        const child = `${dir}/${entry.name}`;
+        if (entry.isSymbolicLink()) {
+          let target;
+          try {
+            target = realpathSync(child);
+          } catch (error) {
+            if (error.code === 'ENOENT') continue; // dangling: writes cannot escape through it
+            throw error;
+          }
+          assert(target === root || target.startsWith(`${root}${sep}`),
+            `SYMLINK_ESCAPES_SCOPE: ${child} -> ${target}`);
+        } else if (entry.isDirectory()) {
+          stack.push(child);
+        }
+      }
+    }
+  }
   // Check index and working tree separately: a staged edit followed by an
   // unstaged reversal must not disappear. --no-renames exposes both endpoints.
   const touched = new Set([
