@@ -153,6 +153,16 @@ if __name__ == '__main__':
               "# Deliberate losses, recorded so they are not rediscovered as bugs:"]
     header += [f"#   - {n}" for n in notes] or ["#   (none)"]
     out = "\n".join(header) + "\n" + yaml.safe_dump(spec, sort_keys=False, width=100)
-    dest = sys.argv[2] if len(sys.argv) > 2 else src
+    # No implicit in-place rewrite. Defaulting dest to src meant that running
+    # this with a single argument silently destroyed the input -- the exact
+    # "guessing on the author's behalf" this tool exists to refuse. An
+    # in-place migration is still available, but only when asked for by name.
+    if len(sys.argv) > 2:
+        dest = sys.argv[2]
+    else:
+        sys.stderr.write(
+            f"refusing to migrate {src} in place: pass an explicit destination, "
+            f"or '{src}' again if you really mean to overwrite it\n")
+        return 2
     open(dest, 'w').write(out)
     print(f"MIGRATED {src} -> {dest} ({len(spec['steps'])} steps, {len(notes)} recorded losses)")
