@@ -5430,3 +5430,27 @@ on their merit — but they were never what was blocking the gate at this moment
 
 Next: the #3270 proof on `preview-pr-3461` is the unblock for both problems, and
 it is waiting on a device click. Started one; not yet authorized.
+
+### 2026-09-09 — fresh device code issued; still the only blocker
+
+Drain: 2 pending, both 2.4 min old — in-flight, not stuck. 1969 total.
+Disk 5.5Gi.
+
+The `72XZ-CXWK` code was ~40 minutes old and never authorized, so it had lapsed.
+Replaced it rather than leave a dead code standing in the log:
+
+    https://preview-pr-3461.agentrelay.com/cloud/device?user_code=H4MJ-RJ49
+
+Nothing else is actionable this tick. Everything downstream of that click is
+already done and verified:
+
+- `preview-pr-3461` carries both proven fixes, `DEPLOY_VERSION` matched to
+  #3461's head, and all four v2 admission steps green.
+- `proof-3270-pr3461.sh` is written, syntax-checked, and refuses to run unless
+  the token is actually scoped to pr-3461.
+- The #238 code objections (H1 model loss, two structure P1s) are fixed and
+  pushed with content asserted on the remote.
+
+And the reason this one click matters more than it looks: the flows review gate
+dispatches its lenses as cloud runs, so the four flows PRs and the #3270 demo are
+blocked behind the same cloud launch path. One proof unblocks both lanes.
