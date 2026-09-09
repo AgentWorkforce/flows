@@ -6434,3 +6434,42 @@ is not one.
 
 Nothing else actionable. #3270 still needs the fresh-PR-plus-device-click
 decision, which is Khaliq's.
+
+### 2026-09-09 — the lease lane shipped flows#249, and it is a good fix
+
+Drain: 0 pending of 2043. Disk 4.8Gi.
+
+`lease-renewal-0909` opened **flows#249** — "renew agent leases while CLI steps
+execute", +716/-7 across `worker-heartbeat.ts`, `worker.ts`, two test files and an
+evidence doc.
+
+Reviewed it against the four things I asked for, and it met all of them:
+
+- **10s renewal inside the 30s lease** (`HEARTBEAT_INTERVAL_MS = 10_000`).
+- **Stops on settle AND on close** — there is an explicit test,
+  *"stops renewing at close even while the CLI is still running"*. That was the
+  requirement I flagged as worse-than-the-bug if missed, because a heartbeat
+  outliving its step keeps a dead attempt alive.
+- **A renewal failure does not swallow the result** —
+  *"surfaces a renewal failure and still submits the CLI result"*, and an
+  `AggregateError` when completion also fails.
+- **Tested**, including cases I did not ask for: no overlapping renewals,
+  completion waits for a pending renewal, a second dispatch keeps renewing.
+
+**It did not raise the constant.** `LEASE_DURATION_MS` is untouched — the diff
+against `kernel/` is empty. That was the explicit trap in the brief and it
+avoided it.
+
+Its evidence doc is honest about scope in a way worth noting: the live fixture is
+a real 34-second subprocess against the prebuilt kernel, but it *"does not call
+Claude or run the full drive workflow"*, and the 600,000ms case uses a simulated
+clock. So the unit-level fix is proven; **the end-to-end claim — that the drive
+loop now completes an agent step — is not yet made, and the lane says so rather
+than implying otherwise.**
+
+CI: `review` fails (the swarm), everything else passes — linux-x64-artifact,
+CodeRabbit, Cursor Bugbot, packed-consumer.
+
+Remaining to actually close this out: run `drive-local` with the fix and watch
+`implement` complete. That is the proof that matters, and it is one run once the
+PR is reviewable.
