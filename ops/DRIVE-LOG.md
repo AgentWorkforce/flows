@@ -8104,3 +8104,49 @@ it is a prompt, a transcript-naming or a runner problem, and guessing would wast
 the finding. Proposed instead: diagnose why only this lens produces no
 transcript, and meanwhile make the aggregate distinguish "missing" from "failed"
 so real failures stay visible.
+
+### 2026-09-09 — root-caused the dead structure lens: opencode has no credentials
+
+Disk 5.5Gi. Drain: 1 pending, created 21:38, normal window.
+
+Last tick I filed #255 and said I would not guess at the cause. This tick I
+diagnosed it instead, checking each link before assuming the next.
+
+**The three lenses deliberately use three different CLIs** — the workflow says
+so: *"Deliberately three different model families: a shared blind spot in one
+harness must not become the whole team's blind spot."*
+
+```
+maintainability   cli: claude      -> produces transcripts
+history           cli: codex       -> produces transcripts
+structure         cli: opencode    -> never produces one
+```
+
+Structure is the only lens on `opencode` **and** the only lens always MISSING.
+That correlation is what #255 was missing.
+
+**Then the chain, each step verified:**
+
+1. My first hypothesis — missing binary — was **wrong**. `opencode` is installed
+   at `/opt/homebrew/bin/opencode`, version 1.14.22, and runs.
+2. `opencode providers list` → **`0 credentials`**.
+3. So it falls back to a local model: `opencode run` announces
+   `> build · qwen3:8b-q4_K_M`.
+4. That backend is down — `curl 127.0.0.1:11434` refuses, no ollama process.
+5. A minimal probe (`opencode run "reply with exactly: OK"`) printed the model
+   header and **nothing else**.
+
+No output → no transcript → the gate correctly reports MISSING. The gate is not
+flaky and the contract is not wrong; one of three required lenses is wired to an
+unauthenticated CLI whose fallback server is not running.
+
+**Stated the scope limit rather than overclaiming.** This diagnoses the **local**
+runner. The cloud runner also reports structure MISSING everywhere, but its
+environment is not this machine and I cannot inspect it from here. Plausibly the
+same cause; verified for exactly one.
+
+Posted to #255 with three fixes ranked: authenticate opencode (smallest, keeps
+the three-families property); start ollama (but an 8B quantised model reviewing
+kernel boundaries is a weaker reviewer than the other two); or repoint structure
+at claude/codex (unblocks now, sacrifices the independent-harness property the
+workflow argues for — stopgap only).
