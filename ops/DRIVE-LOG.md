@@ -6209,3 +6209,28 @@ Notable: `b8c771c` is a test proving the gate can still fail before it judges
 anything. That is the lane guarding against the exact class of defect the
 maintainability lens caught in my own #248 change — the verification being weaker
 than the contract it claims to enforce.
+
+### 2026-09-09 — preserved 12 unpushed lane commits; #248 regressed for cloud reasons
+
+Drain: 2 pending of 2027, in-flight. Disk 1.7Gi.
+
+The lane had grown to **12 commits with none pushed** — my nudge last tick had
+not taken effect. Rather than nudge again and hope, I pushed its branch myself to
+`refs/heads/lane/flows-248-0909`. Pushing mutates no files in its worktree, so it
+does not violate one-worker-one-directory; it just means a process death no
+longer destroys the work.
+
+Worth noting what the branch actually contains: my five #244 commits plus its own
+`34349b2 fix(drive-local): address report and scope review findings`. So despite
+the branch name the lane has moved onto **#244's** findings. Confusing, but the
+work is real and now durable.
+
+**#248 regressed from `H PASSED / S PASSED` to all-MISSING** at 11:53. That is
+not a code regression — MISSING means the swarm produced no transcripts at all,
+which is the cloud-run path failing, the same condition that has kept #238 at
+all-MISSING all night. Recording it so nobody reads it as the lane breaking
+something.
+
+That distinction matters and I nearly lost it myself earlier: FAILED is a
+verdict, MISSING is an absent verdict, UNCLEAR is an unreadable one. Only the
+first is about the code.
