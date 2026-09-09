@@ -7145,3 +7145,36 @@ which is why closing rather than rebasing is safe — the proven behaviour is wh
 
 **`lease-renewal-0909` should stand down** — its objective no longer exists.
 Third instance today of a lane outliving its target.
+
+### 2026-09-09 — ran the objective sweep I recommended; it caught the stale lane
+
+Disk 7.0Gi. Drain: 1 pending, `acc03fea`, created 17:03:35Z — **2.5 minutes old
+with `updatedAt` already moving** (17:05:58Z). Young and progressing, not stuck.
+Noted and left alone rather than retry-spamming, per the brief.
+
+**Turned last tick's recommendation into an actual check.** Instead of asking
+"is the lane alive", ask "is its target still real":
+
+```
+journal-close-0909  ALIVE  target #250 = OPEN/UNSTABLE
+lease-renewal-0909  ALIVE  target #249 = CLOSED/DIRTY     <-- objective gone
+flows-threads-0909  ALIVE  target #244 = OPEN/UNSTABLE
+```
+
+One line of output answers a question liveness cannot. Worth keeping as the
+standard lane check.
+
+**Stood down `lease-renewal-0909`** (pid 91160, up 4h02m). Re-verified
+immediately before killing rather than trusting last tick's reading: 0
+tracked-modified files, **0 unpushed commits**, 0 writes in 60 minutes, only my
+own untracked `BRIEF.md`. SIGTERM was enough; confirmed stopped. Two lanes
+remain, both on live targets.
+
+Kept the `~/fl-lease` worktree and the branch — the evidence doc and the two
+heartbeat tests were written against the live failure and are worth harvesting
+into the `worker-lease` tests. Standing down the process is not the same as
+discarding the work.
+
+Nothing else actionable: the cloud chain (#3497 -> rebuild -> qualify v0.10.56 ->
+promote pins -> #3466) is blocked on five secrets only Khaliq can provision, and
+items 2-4 remain blocked or stale.
