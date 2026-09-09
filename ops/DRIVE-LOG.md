@@ -5701,3 +5701,39 @@ REVIEW_FAILED still fails the gate.
 
 Not merging it. It is a shared gate touching every PR's review, and I am the
 author.
+
+### 2026-09-09 — #242: fixed cubic's P2, reproduced first
+
+Drain: 2 pending of 1993 (in-flight). Disk 5.6Gi.
+
+Read #242's three unresolved threads — the ones I had never opened. cubic raised
+two P1s and a P2. Took the P2 because it is a concrete correctness bug.
+
+`ops/local-work-package.mjs:119` advanced the backlog cursor with
+`markdown.indexOf(entry.title)`. That finds the FIRST occurrence of the text
+anywhere in the buffer, and the loop cuts just past the *title*, so a skipped
+entry's body stays behind. If that body mentions a later entry's title, the next
+iteration matches the mention instead of the real bullet.
+
+**My first reproduction attempt failed** — I sliced from the original markdown
+rather than simulating the loop, and both approaches agreed. That would have let
+me "verify" a fix against a case that never exercised the bug. Simulated the
+actual loop instead:
+
+```
+naive (old code): ["Alpha","Beta","Beta","Gamma"]   <- Beta considered twice
+positional (fix): ["Alpha","Beta","Gamma"]
+```
+
+The picker already had the answer and discarded it: `ENTRY.exec` returns
+`match.index`. `selectBacklogEntry` now reports `index`/`endIndex` for the bullet
+it actually selected, and the caller slices by position. The interface comment
+states why, so a future reader does not reintroduce a text search.
+
+Committed `a462407`, content asserted on the remote.
+
+Still open on #242, and both are design-level rather than one-line fixes:
+- **P1** — the files-in-scope rule is prompt text only; the local agent has no
+  enforceable workspace or file-glob boundary, so it can edit its own verifier.
+- **P1** — after selection became generic, verification still runs only the SDK
+  suite and never the selected package's own definition of done.
