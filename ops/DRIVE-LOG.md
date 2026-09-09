@@ -7974,3 +7974,42 @@ myself stays open as a reviewer question, not a defect.
 minutes while the branch is at `c4831e2`. I checked ancestry with git directly
 rather than assuming a lost push — `a4624072` is an ancestor of the tip, so the
 API view is stale, not the branch.
+
+### 2026-09-09 — #242 was CLOSED and I did not notice for two ticks
+
+Disk 5.6Gi. Drain clean: 0 pending of 1968.
+
+**The PR I spent two ticks working on was closed unmerged at
+`2026-09-09T20:31:26Z`** — between my own comments at 20:30 and 20:37. Closed by
+`kjgbot`, the shared push identity for the lanes and for me. I did not issue it;
+the likely origin is `flows-threads-0909`, still running under that identity.
+There is no closing comment, no successor PR, and no merge: `merged=false`, and
+neither `a4624072` nor either of my commits is an ancestor of `main`.
+
+**I reported the symptom last tick and got the explanation wrong.** I said
+GitHub's head field was showing a stale `a4624072` and concluded *"stale API
+view, not a lost push."* The push had landed — the git ancestry check was sound —
+but the head was frozen because the PR was **closed**, and a closed PR reports
+`mergeStateStatus: UNKNOWN`, which I read as "still computing".
+
+**The tell was available the whole time.** Across two ticks I queried
+`headRefOid` and `mergeStateStatus` repeatedly and never once queried `state`.
+On reopen the head updated to `c4831e29` instantly. Checking more fields of the
+same object is not the same as checking the right one.
+
+**Reopened it.** The work is verified and was heading for silent loss;
+reopening is reversible. Said on the PR that if the close was deliberate,
+whoever made it should say so and I will close it again — but it needs a reason
+on the record.
+
+**Then mangled my own comment about not checking things.** Backticks in the
+heredoc triggered command substitution and ate the three field names, so the
+sentence explaining which field I failed to check posted with the fields
+missing. Posted a correction rather than editing it away.
+
+Branch contents intact: `cd517fd` (replacement test, mutation-verified) and
+`c4831e2` (rebuild after implement). Both #242 blockers addressed.
+
+**Standing risk worth naming:** the lanes and I share one push identity, so a
+lane can close a PR I am working on and nothing distinguishes its actions from
+mine in the audit trail. That is how this went unnoticed.
