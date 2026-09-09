@@ -6418,3 +6418,19 @@ file and line so the fix is targeted.
 Method note worth keeping: a transparent PATH shim around the CLI gave the whole
 answer in two runs, after I had spent several ticks reasoning about causes from
 the outside. When a subprocess is the suspect, instrument the subprocess.
+
+### 2026-09-09 — quiet tick; both lanes working
+
+Drain: 0 pending of 2039. Disk 4.9Gi.
+
+`lease-renewal-0909` is set up and active — SDK deps installed, 840 files written
+in the last 15 minutes. No commits yet, which is expected: the brief tells it to
+reproduce the >30s lease expiry before touching the fix.
+
+`flows-threads-0909` shows 0 file writes in 15 minutes. **Not treating that as a
+stall** — earlier tonight the same reading was wrong, and attaching showed it
+mid-turn at "Working (52m)". Liveness needs a positive signal; a quiet directory
+is not one.
+
+Nothing else actionable. #3270 still needs the fresh-PR-plus-device-click
+decision, which is Khaliq's.
