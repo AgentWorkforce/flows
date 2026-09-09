@@ -7094,3 +7094,54 @@ Also caught a small reporting habit: an unconditional `echo` I appended to a
 check printed "(empty check list = all green)" when the list was not empty. Same
 shape as the earlier lsof echo. Stop appending conclusions to commands that have
 not been tested for them.
+
+### 2026-09-09 — #249 closed as superseded; a semantic conflict, not textual drift
+
+Drain clear: 0 pending of 1918. Disk 7.1Gi. Prod `running` 13 -> 15 (zombies
+still accruing; #3466 unchanged, chain still waits on secrets).
+
+Went at the flows PRs since the cloud chain is blocked on Khaliq. **#249 was
+`DIRTY`** — the only one — so I took it.
+
+**Caught a vacuous instrument first.** My conflict probe was
+`git merge-tree <base> <a> <b> | grep -c "CONFLICT" || echo 0`, which printed
+`0` twice: `grep -c` found nothing *and* exited non-zero, firing the `|| echo 0`.
+Both zeros were artifacts of the wrong merge-tree form. Redone with
+`--write-tree`: a real conflict in `packages/sdk/src/worker.ts`.
+
+**Checked the lane before touching its branch.** `lease-renewal-0909` is alive
+but had 0 uncommitted changes, no writes in 30 minutes, and its last commit was
+4 hours old. Rebased in a *separate* worktree rather than `~/fl-lease`, so there
+was no way to destroy work in the lane's directory.
+
+**The conflict was semantic, and that changed the answer.** `main` now imports
+`withWorkerLease`; the branch imports `startWorkerHeartbeat`. Two different
+solutions to the same problem meeting in the same function. Timeline:
+
+```
+#249 branch commit                       2026-09-09 15:14:28 +0200
+#247 lands worker-lease.ts on main       2026-09-09 16:37:13 +0200  (+83 min)
+main wires it at worker.ts:94
+```
+
+So #249 was superseded while it sat unmerged. Resolving the conflict
+mechanically would have either reverted #247's work or duplicated it.
+
+**`withWorkerLease` is strictly better** than the heartbeat: renews at
+`remaining/3` instead of a fixed interval, aborts the CLI via `AbortSignal` on
+renewal failure, refuses a renewal response that lands after local expiry,
+drains in-flight renewals before `step.complete`, and re-checks the wall clock
+before completing.
+
+**Closed #249** with that evidence. Kept the branch — its evidence doc and two
+heartbeat test files were written against the live failure and may be worth
+harvesting into the `worker-lease` tests.
+
+The original diagnosis still stands and is worth keeping: 30s
+`LEASE_DURATION_MS`, ~34s CLI steps, `renew_lease` present in the kernel and
+never called by `AgentWorker`. I verified that repair end-to-end at the time,
+which is why closing rather than rebasing is safe — the proven behaviour is what
+`withWorkerLease` now provides.
+
+**`lease-renewal-0909` should stand down** — its objective no longer exists.
+Third instance today of a lane outliving its target.
