@@ -1,0 +1,32 @@
+$ cd packages/sdk
+$ node node_modules/vitest/vitest.mjs run tests/journal-client-completion.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/fl-jc/packages/sdk
+
+ ❯ tests/journal-client-completion.test.ts (4 tests | 1 failed) 19ms
+   × waits for step.complete to drive downstream work beyond the request timeout 16ms
+     → promise rejected "Error: journal client: step.complete time…" instead of resolving
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/journal-client-completion.test.ts > waits for step.complete to drive downstream work beyond the request timeout
+AssertionError: promise rejected "Error: journal client: step.complete time…" instead of resolving
+ ❯ tests/journal-client-completion.test.ts:17:74
+     15|   try {
+     16|     await client.connect();
+     17|     await expect(client.stepComplete('run', 'agent', 1, 'key', 'succes…
+       |                                                                          ^
+     18|       .resolves.toEqual({ status: 'completed' });
+     19|     await expect(client.hello('timeout-proof')).rejects.toThrow('hello…
+
+Caused by: Error: journal client: step.complete timed out after 10ms
+ ❯ Timeout._onTimeout src/journal-client.ts:171:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  15:42:59
+   Duration  320ms (transform 68ms, setup 0ms, collect 134ms, tests 19ms, environment 0ms, prepare 43ms)
+
+EXIT_CODE=1

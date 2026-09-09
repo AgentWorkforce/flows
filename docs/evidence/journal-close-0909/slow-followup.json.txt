@@ -1,0 +1,40 @@
+{
+  "version": "0.1.0",
+  "name": "journal-close-repro",
+  "steps": [
+    {
+      "id": "implement",
+      "type": "agent",
+      "cli": "/Users/khaliqgant/fl-jc/.relayflow/journal-close-evidence/agent.mjs",
+      "instruction": "Print DONE",
+      "surfaces": {
+        "streams": [
+          {
+            "stream": "proof"
+          }
+        ]
+      },
+      "verification": {
+        "type": "output_contains",
+        "value": "DONE"
+      }
+    },
+    {
+      "id": "verify",
+      "type": "deterministic",
+      "dependsOn": [
+        "implement"
+      ],
+      "command": "sleep 35; printf VERIFIED",
+      "timeoutMs": 60000
+    },
+    {
+      "id": "report",
+      "type": "deterministic",
+      "dependsOn": [
+        "verify"
+      ],
+      "command": "printf REPORTED"
+    }
+  ]
+}

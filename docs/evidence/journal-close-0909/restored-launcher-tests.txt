@@ -1,0 +1,16 @@
+$ RELAYFLOWD_BIN=/Users/khaliqgant/.relayflows-toolchain/target/3497393500/debug/relayflowd node --test scripts/run-local-workflow.test.mjs
+✔ local launcher journals deterministic effects and reads more than one journal page (598.063125ms)
+✔ a failed command fails the run and prevents dependent effects (129.678709ms)
+✔ the SDK worker completes an agent step through the local journal protocol (455.563125ms)
+✔ missing daemon is refused before a data directory or run is created (59.79425ms)
+✔ an agent followed by work over 30 seconds reaches report and exports its journal (32526.582708ms)
+✔ a rejected worker completion preserves the protocol error and cannot report success (272.272875ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 34083.575791
+EXIT_CODE=0

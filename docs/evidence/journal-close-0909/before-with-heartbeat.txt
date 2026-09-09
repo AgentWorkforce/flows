@@ -1,0 +1,23 @@
+$ RELAYFLOWD_BIN=/Users/khaliqgant/.relayflows-toolchain/target/3497393500/debug/relayflowd node --import ./.relayflow/journal-close-evidence/trace.mjs scripts/run-local-workflow.mjs .relayflow/journal-close-evidence/slow-followup.json
+{"severity":"warning","kind":"unprovable_effects","stepId":"verify","message":"Step \"verify\" command \"sleep\" resolves, but its effects cannot be proven before execution."}
+{"severity":"warning","kind":"unprovable_effects","stepId":"report","message":"Step \"report\" command \"printf\" resolves, but its effects cannot be proven before execution."}
+LOCAL_DATA_DIR=/Users/khaliqgant/fl-jc/.relayflow/local-ut1zx5
+Error: CLIENT_CLOSE
+    at JournalClient.close (file:///Users/khaliqgant/fl-jc/.relayflow/journal-close-evidence/trace.mjs:6:60)
+    at main (file:///Users/khaliqgant/fl-jc/scripts/run-local-workflow.mjs:68:22)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+WORKER_ERROR Error: journal client: step.complete timed out after 30000ms
+    at Timeout._onTimeout (file:///Users/khaliqgant/fl-jc/packages/sdk/dist/journal-client.js:131:24)
+    at listOnTimeout (node:internal/timers:685:17)
+    at process.processTimers (node:internal/timers:618:7)
+Error: CLIENT_CLOSE
+    at JournalClient.close (file:///Users/khaliqgant/fl-jc/.relayflow/journal-close-evidence/trace.mjs:6:60)
+    at AgentWorker.<anonymous> (file:///Users/khaliqgant/fl-jc/scripts/run-local-workflow.mjs:79:65)
+    at AgentWorker.emit (node:events:514:20)
+    at AgentWorker.emit (file:///Users/khaliqgant/fl-jc/.relayflow/journal-close-evidence/trace.mjs:4:132)
+    at file:///Users/khaliqgant/fl-jc/packages/sdk/dist/worker.js:78:18
+Error: CLIENT_CLOSE
+    at JournalClient.close (file:///Users/khaliqgant/fl-jc/.relayflow/journal-close-evidence/trace.mjs:6:60)
+    at main (file:///Users/khaliqgant/fl-jc/scripts/run-local-workflow.mjs:101:12)
+journal client: closed by caller
+EXIT_CODE=1

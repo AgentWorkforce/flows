@@ -14,11 +14,11 @@ after(() => {
   rmSync(fixtures, { recursive: true, force: true });
 });
 
-function run(name, steps, env = {}) {
+function run(name, steps, env = {}, timeout = 15000) {
   const path = join(fixtures, `${name}.json`);
   writeFileSync(path, JSON.stringify({ version: '0.1.0', name, steps }));
   const result = spawnSync(process.execPath, ['scripts/run-local-workflow.mjs', path], {
-    cwd: root, encoding: 'utf8', timeout: 15000, env: { ...process.env, ...env },
+    cwd: root, encoding: 'utf8', timeout, env: { ...process.env, ...env },
   });
   const dataDir = result.stdout.match(/^LOCAL_DATA_DIR=(.+)$/m)?.[1];
   if (dataDir) dataDirectories.add(dataDir);
@@ -81,4 +81,56 @@ test('missing daemon is refused before a data directory or run is created', () =
   assert.equal(result.status, 1);
   assert.match(result.stderr, /LOCAL_DAEMON_MISSING/);
   assert.equal(result.dataDir, undefined);
+});
+
+function agentStep() {
+  const cli = join(fixtures, 'completion-agent');
+  const wrapper = join(root, 'testdata/preflight/wrapper-session.mjs');
+  writeFileSync(cli, `#!/usr/bin/env node\nimport { receiveWrapperRequest } from ${JSON.stringify(wrapper)};\nif (await receiveWrapperRequest()) console.log('DONE');\n`, { mode: 0o755 });
+  return {
+    id: 'implement', type: 'agent', cli, instruction: 'Print DONE',
+    surfaces: { streams: [{ stream: 'completion-proof' }] },
+    verification: { type: 'output_contains', value: 'DONE' },
+  };
+}
+
+test('an agent followed by work over 30 seconds reaches report and exports its journal', () => {
+  // Exceed the real protocol timeout: both step.complete and a status read
+  // queued behind it used to fail even though the agent had already succeeded.
+  const result = run('slow-completion', [
+    agentStep(),
+    { id: 'verify', type: 'deterministic', dependsOn: ['implement'],
+      command: 'sleep 32; printf VERIFIED', timeoutMs: 45000 },
+    { id: 'report', type: 'deterministic', dependsOn: ['verify'], command: 'printf REPORTED' },
+  ], {}, 55000);
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stderr, /closed by caller|timed out|lease.*expired/);
+  const journal = readFileSync(join(result.dataDir, 'journal.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  const completions = journal.filter(entry => entry.entry_type === 'step.completed');
+  assert.deepEqual(completions.map(entry => entry.step_id), ['implement', 'verify', 'report']);
+  assert(completions.every(entry => entry.payload.completionReason === 'success'));
+  assert.equal(completions.at(-1).payload.output.stdout_tail, 'REPORTED');
+  assert.equal(journal.at(-1).entry_type, 'run.completed');
+  assert.equal(journal.at(-1).payload.completionReason, 'success');
+  assert.equal(result.records.at(-1).completedSteps, 3);
+});
+
+test('a rejected worker completion preserves the protocol error and cannot report success', () => {
+  const preload = join(fixtures, 'reject-completion.mjs');
+  const clientPath = join(root, 'packages/sdk/dist/journal-client.js');
+  // Submit a wrong idempotency key to the real daemon, producing a protocol
+  // rejection while the launcher's control connection is waiting on the run.
+  writeFileSync(preload, `import { JournalClient } from ${JSON.stringify(clientPath)};
+const complete = JournalClient.prototype.stepComplete;
+JournalClient.prototype.stepComplete = function(run, step, attempt, key, ...rest) {
+  return complete.call(this, run, step, attempt, key + '-invalid', ...rest);
+};
+`);
+  const result = run('rejected-completion', [agentStep()], {
+    NODE_OPTIONS: `--import=${preload}`,
+  });
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /completion does not match its active lease/);
+  assert.doesNotMatch(result.stderr, /closed by caller/);
+  assert(!result.records.some(record => record.ok === true));
 });

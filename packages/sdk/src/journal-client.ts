@@ -341,7 +341,11 @@ export class JournalClient extends EventEmitter {
     });
   }
 
-  /** Complete a dispatched step — also the out-of-band path. */
+  /**
+   * Complete a dispatched step — also the out-of-band path. Like runStart
+   * and runResume, this drives downstream steps before replying, so their
+   * execution bounds apply rather than the bounded protocol-request timeout.
+   */
   stepComplete(
     runId: string,
     stepId: string,
@@ -364,7 +368,7 @@ export class JournalClient extends EventEmitter {
       idempotency_key: idempotencyKey,
       completionReason,
       ...extra,
-    });
+    }, null);
   }
 
   /** Satisfy `wait.event`; a human response arrives here too. */

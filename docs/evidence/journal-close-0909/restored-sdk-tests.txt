@@ -1,0 +1,15 @@
+$ cd packages/sdk
+node node_modules/vitest/vitest.mjs run tests/journal-client.test.ts tests/journal-client-completion.test.ts tests/worker-heartbeat.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/fl-jc/packages/sdk
+
+ ✓ tests/worker-heartbeat.test.ts (11 tests) 13ms
+ ✓ tests/journal-client.test.ts (14 tests) 66ms
+ ✓ tests/journal-client-completion.test.ts (4 tests) 99ms
+
+ Test Files  3 passed (3)
+      Tests  29 passed (29)
+   Start at  15:43:23
+   Duration  377ms (transform 122ms, setup 0ms, collect 286ms, tests 179ms, environment 0ms, prepare 110ms)
+
+EXIT_CODE=0
