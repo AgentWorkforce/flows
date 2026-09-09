@@ -30,7 +30,8 @@ export function fixture(t, backlog = entry()) {
   put('src/value.txt', 'broken');
   put('outside.txt', 'original');
   put('ops/BACKLOG.md', backlog);
-  for (const path of ['ops/local-work-package.mjs', 'ops/local-work-verification.mjs', 'workflows/drive-local.yaml']) {
+  for (const path of ['ops/local-work-package.mjs', 'ops/local-work-verification.mjs',
+    'ops/local-work-snapshot.mjs', 'packages/sdk/src/backlog-picker.ts', 'workflows/drive-local.yaml']) {
     put(path, readFileSync(path));
   }
   put('packages/sdk/dist/backlog-picker.js', readFileSync('packages/sdk/dist/backlog-picker.js'));
@@ -38,17 +39,24 @@ export function fixture(t, backlog = entry()) {
   git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
     '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture');
   let captured = prepareLocalDrive(flow, { root });
+  t.after(() => captured.dispose());
   const step = id => spawnSync('sh', ['-c', captured.flow.steps.find(s => s.id === id).command],
     { cwd: root, encoding: 'utf8', timeout: 10000 });
   const run = (operation, extra = []) => {
-    if (operation === 'select') captured = prepareLocalDrive(flow, { root });
-    const command = captured.commands[operation].replace('--input-type=module',
-      `${extra.map(shellQuote).join(' ')} --input-type=module`);
+    if (operation === 'select') {
+      captured.dispose();
+      captured = prepareLocalDrive(flow, { root });
+      const snapshot = step('gate-snapshot');
+      if (snapshot.status !== 0) return snapshot;
+    }
+    const command = captured.commands[operation].replace(`${shellQuote(process.execPath)} `,
+      `${shellQuote(process.execPath)} ${extra.map(shellQuote).join(' ')} `);
     const result = spawnSync('sh', ['-c', command], { cwd: root, encoding: 'utf8', timeout: 5000 });
     return result;
   };
   const scope = () => step('scope');
-  return { root, put, git, run, scope, step, get preparedFlow() { return captured.flow; } };
+  return { root, put, git, run, scope, step, get preparedFlow() { return captured.flow; },
+    get gateDirectory() { return captured.directory; } };
 }
 export const pass = result => assert.equal(result.status, 0, result.stderr + result.stdout);
 export const fail = (result, pattern) => {

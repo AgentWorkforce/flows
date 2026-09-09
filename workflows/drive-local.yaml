@@ -14,8 +14,9 @@
 # changes and most backlog entries are not mechanical.
 #
 # Run: node scripts/run-drive-local.mjs
-# The preparing launcher embeds gate code and baseline pins into the submitted
-# spec. Running this template directly fails before any implementation step.
+# The preparing launcher pins the Git ref in submitted commands. gate-snapshot
+# extracts gate inputs from that ref and builds the picker outside the checkout.
+# Running this template directly fails before any implementation step.
 # Delivery stays with the operator: this flow never commits, never switches
 # branches and never merges. It leaves a working tree and a report.
 version: '0.1.0'
@@ -26,24 +27,28 @@ description: >-
   scope enforcement, verification and reporting are journaled steps.
 steps:
   # The preparing launcher builds the SDK before capture and submission.
+  - id: gate-snapshot
+    type: deterministic
+    timeoutMs: 300000
+    command: node ops/local-work-snapshot.mjs
+
+  # Selection uses the picker built from Git and records that ref as pkg.head.
   - id: select
     type: deterministic
+    dependsOn: [gate-snapshot]
     timeoutMs: 120000
     command: node ops/local-work-package.mjs select
 
-  # Gate code is already captured in the submitted spec. Before implementation,
-  # validate the selected package against that baseline and the current tree.
-  # Retain the existing step ID for journal readers; no snapshot is written here.
-  - id: gate-snapshot
+  - id: initial-scope
     type: deterministic
     dependsOn: [select]
-    timeoutMs: 300000
+    timeoutMs: 120000
     command: &scope-check node ops/local-work-package.mjs scope
 
   - id: implement
     type: agent
     cli: claude
-    dependsOn: [gate-snapshot]
+    dependsOn: [initial-scope]
     # Required, not decorative: the launcher refuses an agent step with no pins
     # (`LOCAL_AGENT_PINS_REQUIRED: declare a stream; the kernel refuses workers
     # with no pins`) and the run is never created. Verified by running it.
@@ -81,8 +86,8 @@ steps:
     type: deterministic
     dependsOn: [implement]
     timeoutMs: 120000
-    # The launcher substitutes the captured command. protectedPaths has one
-    # owner in that captured verifier; no mutable pre-load helper is executed.
+    # The launcher substitutes the command for the Git-extracted helper.
+    # protectedPaths has one owner in the verifier extracted from the same ref.
     command: *scope-check
 
   - id: verify

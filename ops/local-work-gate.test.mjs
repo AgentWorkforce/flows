@@ -18,7 +18,7 @@ test('committing outside scope and repinning metadata cannot replace the submitt
   for (const operation of ['scope', 'verify', 'report']) fail(f.run(operation), /HEAD_MOVED/);
 });
 
-test('forged snapshot, checksum and compiled picker cannot replace the submitted judge', t => {
+test('forged legacy checkout snapshot and compiled picker cannot replace the Git-extracted judge', t => {
   const f = fixture(t);
   pass(f.run('select'));
   for (const path of ['.drive-gate/local-work-package.mjs', '.drive-gate/local-work-verification.mjs',

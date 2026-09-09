@@ -1,17 +1,32 @@
-# PR #244: gate ownership and remaining acceptance-input decision
+# PR #244: pinned Git gate inputs and remaining acceptance-input decision
 
-The launcher now captures the gate and baseline in the submitted spec. The
-existing daemon journals the command bytes before any implementation worker
-runs. HEAD, branch and backlog hash no longer come from agent-writable package
-metadata; the judge no longer comes from `.drive-gate` plus a writable checksum.
-The kernel and journal protocol are unchanged. The launcher starts from a
-trusted checkout; this is not an OS sandbox against arbitrary process or
-journal-storage tampering.
+The user clarified the H1 design: copying working-tree bytes does not create a
+trust boundary. The earlier command embedding at `4d88ac2` is superseded because
+it also took its helper and compiled-picker inputs from the working tree.
 
-The contract and its owners are summarized in `../DRIVE-LOCAL.md`.
-`local-work-verification.mjs` owns the protected-path policy once; YAML no longer
-duplicates it. Test fixtures use the same preparing function as the launcher and
-no longer symlink host node_modules or run a separate snapshot compiler.
+The launcher now pins HEAD before submission. `gate-snapshot` extracts the
+package helper, verifier and picker TypeScript source from that commit with
+`git --no-replace-objects show`, and builds the picker in a temporary directory
+outside the checkout before selection and implementation. The snapshot script
+itself is loaded from the same ref. The package records it as `head`; checks
+compare it to the submitted pin so repinning metadata cannot hide a moved HEAD.
+No SHA256SUMS or adjacent ref file is used as authority.
+
+The installed TypeScript compiler and local launcher remain trusted tools. A
+same-user agent can still write to the extracted temp files. The claim is about
+the origin of gate inputs, not same-user filesystem isolation or runtime-file
+immutability. The kernel and journal protocol are unchanged.
+
+The contract is summarized in `../DRIVE-LOCAL.md`. The fixture uses the same
+preparer and actual snapshot step, commits source into its disposable Git repo,
+and invokes the installed compiler without symlinking host node_modules.
+
+`drive-threads-0909-git-input-before.txt` captures two failures before this fix:
+a substituted working-tree helper or ignored compiled picker returned success
+without selecting any package. The current regression tests also assert that
+extracted bytes match Git, dirty TypeScript is ignored as input, committed
+invalid TypeScript fails the snapshot build, and fixed implementation passes.
+The combined captured run is `drive-threads-0909-git-input-after.txt`.
 
 **Remaining decision: how are acceptance-check inputs declared?** Immutable
 argv alone does not freeze a script or its imports. A command such as

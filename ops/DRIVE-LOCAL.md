@@ -8,10 +8,23 @@ node scripts/run-drive-local.mjs
 
 Run on the branch that should receive the diff, from a clean checkout. The
 flow leaves delivery to the operator. It does not commit or merge. The wrapper
-builds the SDK, captures the original HEAD, branch, backlog hash and gate code,
-then submits the prepared commands through the existing local launcher. The
-daemon journals those commands before implementation starts. Running the YAML
-template directly refuses selection because these captured inputs are missing.
+builds the SDK for the local launcher, pins the original HEAD and branch, and
+submits commands through the existing local launcher. The daemon journals those
+pins before implementation starts. Running the YAML template directly refuses
+the snapshot step because its pinned inputs are missing.
+
+`gate-snapshot` runs first. It extracts the package helper, verifier and SDK
+picker source with `git --no-replace-objects show <head>:<path>`, then compiles
+that picker in a temporary directory outside the checkout. Its own extraction
+script also comes from that Git ref. Neither working-tree helper files nor
+ignored SDK dist supply gate inputs. The installed TypeScript compiler is a
+trusted toolchain dependency; no compiler package is copied into the temp dir.
+
+Selection records the same ref in the work package as `head`. Subsequent checks
+compare that field to the submitted pin, so changing package metadata cannot
+repin it after a commit. The ref supplies the gate-input integrity claim; there
+is no SHA256SUMS file beside the scripts. The launcher removes the temporary
+directory when its run returns.
 
 Selection uses the SDK backlog picker. A locally executable entry must name
 repository paths committed at HEAD in backticks and declare at least one acceptance
@@ -31,7 +44,7 @@ reasons. The old F8b entry now carries a source assertion for its declared
 rename. That assertion also allows an already-completed package to pass
 without manufacturing another edit.
 
-The submitted scope step executes the captured helper code and refuses changes
+The submitted scope step executes the helpers extracted from Git and refuses changes
 to its checkout sources and backlog. It checks the working tree and
 index against the selected HEAD, including untracked non-ignored files and
 both sides of renames. Scope uses exact paths or directory descendants, never
@@ -57,11 +70,17 @@ The execution contract has one owner for each kind of data:
 
 | Input or policy | Owner and validation |
 | --- | --- |
-| Gate code, compiled picker, HEAD, branch, backlog hash | Preparing launcher captures bytes into submitted commands; daemon executes its journaled spec. No checkout snapshot or writable checksum is consulted. |
-| Package metadata | Private atomic JSON artifact for the agent; scope, verify and report reconstruct its fields from the captured picker and pinned backlog. It cannot redefine the original HEAD. |
-| Allowed paths and protected paths | Captured `local-work-verification.mjs`; index and working tree checked separately against the original HEAD, including non-ignored untracked files. |
+| Gate inputs | Package helper, verifier, extraction script and picker source come from the pinned Git commit, with replacement objects disabled. The picker is built during `gate-snapshot` before selection or implementation. |
+| HEAD, branch, backlog hash | Preparing launcher pins the original commit/branch and the hash of its committed backlog in submitted commands. The package records the commit as `head`; no adjacent ref or checksum file is authority. |
+| Package metadata | Private atomic JSON artifact for the agent; scope, verify and report reconstruct its fields from the picker built from the pinned ref and the pinned backlog. It cannot redefine the original HEAD. |
+| Allowed paths and protected paths | `local-work-verification.mjs` extracted from the pinned ref; index and working tree checked separately against the original HEAD, including non-ignored untracked files. |
 | Acceptance argv | Parsed from the pinned backlog; every command must succeed, with scope rechecked after execution. |
 | Acceptance scripts and dependencies | **Open blocker:** arbitrary argv can load mutable source from implementation scope. |
+
+**A same-user agent can still write to the temporary execution directory.**
+This meets the narrower bar that gate inputs come from a pinned Git ref rather
+than files implementation edits. It does not make extracted runtime files
+immutable, isolate processes, or prevent arbitrary Git-storage tampering.
 
 The remaining acceptance-input decision is documented in
 `runtime-evidence/drive-threads-0909-decisions.md`. This flow is not ready for

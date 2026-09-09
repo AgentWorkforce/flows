@@ -62,10 +62,10 @@ async function loadPicker() {
   try {
     return await import(sdkEntry.href);
   } catch (cause) {
-    // Say which build is missing rather than surfacing a bare module error.
-    // Building the SDK is a launcher prerequisite, not a step in this flow.
+    // This is the picker built from Git by gate-snapshot, not SDK dist in the
+    // implementation checkout. Missing artifacts must never trigger a fallback.
     throw new Error(
-      `SDK_NOT_BUILT: ${sdkEntry.pathname} is not importable — run the build step first`,
+      `GATE_PICKER_UNAVAILABLE: ${sdkEntry.pathname}; rerun through scripts/run-drive-local.mjs`,
       { cause },
     );
   }
