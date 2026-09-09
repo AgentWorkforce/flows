@@ -6998,3 +6998,42 @@ to production is the exact thing this PR exists to prevent. Correct order:
 
 Worktree `cloud-smokegate-wt` created off `origin/main` rather than working in
 `AgentWorkforce/cloud`, which has a live claude session in it.
+
+### 2026-09-09 — zombies accumulating ~2/30min; cancelled two; #3497 CI nearly green
+
+Drain clear: 0 pending of 1913. Disk 7.2Gi. Prod `running` climbed 13 -> 14.
+
+**Confirmed rather than assumed.** Pulled logs on the newest run instead of
+pattern-matching the frozen-`updatedAt` signature. It is the same #3466 chain:
+
+```
+websocket dial -> 403 => polling
+http 410 cursor_expired -> notify-flush failed -> [assess-1] repair -> repeat
+```
+
+So zombies are accumulating at roughly **2 per 30 minutes**, each looping and
+provisioning a fresh Daytona sandbox per iteration. Cancelled both
+(`4a43cc23`, `8d491b02`) to stop the burn, as with `6a233c00` last tick.
+
+**Incidental good news:** the same logs show
+`relaycast registration attempt 1 failed transiently; retrying` — so **#3471's
+retry fix is deployed and working**. That is the mcp-args call site. It does not
+help the workspace-key-repair call site, which is what #3493 is about; the two
+findings remain consistent.
+
+**Something is resubmitting `flows-drive-cloud` and I could not identify it.**
+7 runs today at ~10-15 minute intervals (15:35:37, 15:35:39, 15:46:02, 15:56:14,
+16:11:48, ...), every one wedging on #3466. It is **not** a Cloud schedule — the
+schedules list holds only `flows-watchdog` (0 8 * * * Berlin) and
+`verify-features.ts` (0 3 * * * UTC) — and `ps` shows no local process
+submitting. Today's totals by workflow: 71 unnamed, 29 `flows-review-swarm`,
+7 `flows-drive-cloud`, 2 `rungraph-demo`, 1 `flows-watchdog`.
+
+Cancelling is whack-a-mole while the submitter keeps firing, so this needs an
+owner rather than more cancels from me. Flagged for Khaliq; did not chase it
+further this tick.
+
+**#3497:** every check SUCCESS or SKIPPED except `Registered Tests (root Vitest)`
+still IN_PROGRESS. `UNSTABLE` here is genuinely "not finished", not a hidden
+failure — something is actually pending. Not green yet; will confirm next tick
+rather than claim it.
