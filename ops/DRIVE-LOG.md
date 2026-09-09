@@ -5019,3 +5019,14 @@ Everything else is staged: the stage is v2-capable, both fixes are deployed and
 verified there, and `proof-3270-pr3461.sh` runs the whole sequence in one go.
 
 Nothing to do.
+
+### 2026-09-09 — quiet tick
+
+2 `pending` runs, both 2.2 min old with `updatedAt == createdAt` — that is the
+brief's "queue down" signature, but they are in-flight, not stuck (prior pairs
+settle at ~3.2 min). No drain action.
+
+1899 total. #3457 UNKNOWN (computing), #3459 CLEAN, #3461 CLEAN. Token still
+scoped to pr-3446, so the proof still waits on a device click. Disk 6.3Gi.
+
+Nothing to do.
