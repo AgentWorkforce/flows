@@ -6863,3 +6863,49 @@ telemetry, or whether queue timeouts disappear once 503s are retried. Posted to
 #3493 with that caveat attached.
 
 Item 2 still blocked (needs a live #3270 preview); items 3-4 stale.
+
+### 2026-09-09 — watched a zombie form live; it is #3466, and it leaks sandboxes
+
+Disk 7.7Gi. Prod drain 0 pending of 1910, but `running` went 12 -> 13, so I aged
+them: 11 corpses plus **one genuinely live run** updating 68s prior. Followed it.
+
+`6a233c00`, `flows-drive-cloud` v1, created 15:35:39Z. Status stayed `running`
+with `updatedAt` **frozen at 15:40:39Z for over ten minutes**. Pulled its logs
+and got a clean repeating chain:
+
+```
+websocket dial -> 403          => falls back to polling sync
+poll cursor    -> http 410 cursor_expired "perform a full resync"
+mount sync cycle failed -> notify-flush failed -> [assess-1] failed
+-> repair -> same 410 -> [assess-1] again -> ...
+```
+
+**This is #3466** (open): Cloud snapshots pin `relayfile-mount v0.10.55`, which
+predates the `410 cursor_expired` / `full_resync` client contract; fixed in
+v0.10.56. Did **not** file a duplicate — added live evidence instead.
+
+**Three things I could add that were not in that issue:**
+
+1. It hits an **ordinary production RelayFlow**, not just the Relay PR-proof
+   path the issue documents.
+2. The issue cites SDK `11.10.3`; my sandboxes are **11.10.4** and fail
+   identically — so a newer SDK does not carry the fix, consistent with the pin
+   living in the snapshot definitions.
+3. **The run never terminates.** It loops, provisioning a *fresh Daytona sandbox
+   every iteration* — three in the captured window. So this is a silent sandbox
+   leak, and because it never reaches a terminal state it is invisible to any
+   check that counts failures. That is almost certainly where the **13 stuck
+   `running` rows** come from (oldest 2026-05-29, 102 days). I had been calling
+   those "stale records"; watching one form suggests they are the residue of
+   exactly this loop.
+
+Also flagged the `403` on the WebSocket handshake that precedes every cycle — the
+mount only reaches the expiring-cursor polling path because the WS upgrade is
+refused. Possibly a second defect hiding behind this one; I did not claim it is.
+
+**Cancelled the run** (`status: cancelled`, 15:51:49Z) to stop the sandbox burn.
+It was my own `flows-drive-cloud` workflow and could not succeed.
+
+Net: the prod picture is now three distinct faults — #3493 Relaycast 503
+back-pressure (50% of failures), #3466 cursor_expired loop (wedges + leaks), and
+queue-claim starvation which may be downstream of the first.
