@@ -17,3 +17,8 @@ dist/
 .relayflow/
 .relayflowd/
 .relayflowd-*/
+
+# Python bytecode: the schema-migration scripts generate this at runtime and
+# an untracked .pyc breaks the review swarm patch application.
+__pycache__/
+*.pyc
