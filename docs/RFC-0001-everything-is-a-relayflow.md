@@ -353,11 +353,29 @@ three places, and **gate 2 cannot go green until all three are closed** — rule
   Rules 10 and 10a require it to fail instead, split by cause. *(Today this is
   the `.ok()` on the scan in `drive.rs`; the deviation is the behaviour, and the
   call site is a pointer that will move.)*
-- **D2 — no carry-forward exists.** Nothing implements rule 9a: segment close
-  does not copy `wake_context` into the new epoch summary, so a run that rolls
-  an epoch while open on its wake loses it. Today this is masked because
-  `drive.rs` scans from sequence 1 of a single segment; it becomes live the
-  moment segmentation does.
+- **D2 — no carry-forward exists.** Nothing implements rule 9a:
+  `EpochSummaryPayload` has no `wake_context` field, so segment close cannot copy
+  it into the new epoch summary.
+
+  Why it is not currently observable is worth stating precisely, because the
+  obvious explanation is wrong. It is **not** that resolution reads a single
+  segment — `scan_from` is `SELECT ... FROM entries WHERE seq >= ?1` with **no
+  segment filter**, so it reads across every segment in the journal file. Two
+  other facts hide it:
+
+  1. **The engine never rolls.** `rollover()` exists in `relayflowd-journal` and
+     is covered by its own tests, but nothing in `relayflowd` calls it, so a run
+     has exactly one segment in practice.
+  2. **Closed segments are never pruned.** Nothing archives them out of the
+     file, so even after a roll the older entries remain readable.
+
+  This means the implementation currently satisfies rule 9 *by violating
+  decision #8* — it resolves across segment boundaries rather than from the
+  current segment. That is invisible while there is only ever one segment. D2
+  becomes a live data-loss bug the moment either the engine begins rolling
+  epochs **or** archival starts removing closed segments from the file, and the
+  cross-segment read becomes a correctness violation as soon as the first of
+  those lands.
 - **D3 — `open_steps` is misnamed or miscomputed.** It is populated from every
   step declared in the spec, not the steps open at wake time. For a freshly
   woken run those coincide; for a run woken again later they do not. This
