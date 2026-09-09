@@ -5233,3 +5233,39 @@ To merge #238 three things must happen, none of which is a button:
 
 I have not touched #240/#242/#244 individually. Given #238's causes turned out to
 be PR-specific, I should stop assuming they share one.
+
+### 2026-09-09 — fixed the history H1 blocker on #238
+
+Drain: 2 pending of 1959 (in-flight). Disk 5.9Gi.
+
+Fixed the H1 field-loss the history lens flagged. `AGENT_DECL` accepts `model`
+and stored it, but lowering an agent reference copied only `cli` — so a 1.0 file
+whose agent declared a model migrated cleanly while discarding it, and the loss
+note claimed the legacy file "never had" a model exactly when it did.
+
+It is not cosmetic: PR #136's `resolveNamedAgent` carries `declaration.model` so
+a named selection cannot inherit the host's model. Dropping it lets a migrated
+run pick a different model, with different behaviour and cost.
+
+Made it refuse rather than guess, matching the script's own doctrine, and made
+the no-model note truthful.
+
+**Caught myself mid-verification again.** My first check grepped **stdout** for
+the corrected note and reported `0 occurrences` — which looked like the fix had
+not worked. The notes go into the migrated file's header, not stdout. I was
+checking the wrong stream. Re-ran against the output file:
+
+```
+#   - step check: agent reference 'watchdog' became cli 'claude' - this
+#     declaration carried no model, so nothing was lost
+'never had' occurrences: 0    'nothing was lost': 1
+```
+
+and the same file with `model: opus-4` added is now REFUSED, naming the agent.
+
+That is twice in two ticks that my first verification pointed at the wrong
+place. The fix was fine both times; the check was not. Worth remembering that a
+failed check needs the same scrutiny as a failed build.
+
+#238 blockers remaining: the structure lens has still never run, and the post
+step still exits 1 silently so no verdict gets recorded.
