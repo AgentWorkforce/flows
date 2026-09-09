@@ -91,6 +91,12 @@ steps:
       set -eu
       node ops/local-work-package.mjs verify
       cd packages/sdk
+      # Rebuild before the suite. Tests and probes import packages/sdk/dist/*,
+      # so running vitest against a stale dist exercises the PRE-agent artifact
+      # and can pass code the agent just changed. Invoked directly rather than
+      # via `npm run build` because npm hangs on this host's ~/.npmrc.
+      node node_modules/typescript/bin/tsc
+      node scripts/make-cli-executable.mjs
       node node_modules/vitest/vitest.mjs run
 
   - id: report
