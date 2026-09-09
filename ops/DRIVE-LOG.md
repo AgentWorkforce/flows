@@ -5298,3 +5298,52 @@ nothing was lost"; the same file with a model added is REFUSED.
 Rule I am taking from this: a push is not confirmed by the command exiting, and
 a SHA match is not confirmation the content arrived — check the content on the
 remote.
+
+### 2026-09-09 — I was reading the wrong comment for two ticks. Live verdict differs.
+
+Drain: 2 pending of 1961 (in-flight). Disk 5.9Gi.
+
+Read `swarm-post.sh` in full and two of my standing claims collapse.
+
+**1. "The post step exits 1 silently, so no verdict is ever recorded."** Wrong.
+Line 53 is `[ "$overall" = PASSED ]` — the script's last command under `set -e`.
+The step exits 1 **by design** whenever the swarm verdict is not PASSED. It is
+the gate failing closed, and it posts every comment first. There is no silent
+bug; I invented one.
+
+**2. "The verdict is stale (07:05Z)."** Wrong, and worse. `upsert_comment`
+PATCHes an existing comment by anchor rather than posting a new one, so
+`created_at` never moves. I read `created_at` as a freshness signal:
+
+```
+<!-- review-swarm -->   created 2026-09-08T06:54:09Z   updated 2026-09-09T05:40:21Z
+🎯 review-swarm: ...    created 2026-09-08T07:05:20Z   updated 2026-09-08T07:05:20Z
+```
+
+The comment I kept quoting (`🎯 ... M:fail H:fail S:missing`) is a **different,
+older mechanism** and genuinely frozen. The live gate comment is the
+`<!-- review-swarm -->` one, updated 05:40 today.
+
+**The live verdict, which I had never actually read:**
+
+```
+## Review swarm: FAILED
+- maintainability: UNCLEAR
+- history: FAILED
+- structure: FAILED
+```
+
+That changes the work. `maintainability: UNCLEAR` is not a review objection at
+all — per `swarm-verdict.sh`, UNCLEAR means the transcript's last non-empty line
+was neither `REVIEW_PASSED` nor `REVIEW_FAILED`, i.e. the lens did not emit a
+verdict marker. And `structure: FAILED` means the structure lens **did** run and
+rejected, which contradicts my "it has never run" of two ticks ago — the four
+`*-pr238-structure.md` transcripts in the run patch confirm it.
+
+So the real remaining work on #238 is: read the structure lens's actual
+objection, re-check history after my H1 fix, and find why maintainability emits
+no verdict marker. None of that is what I said it was an hour ago.
+
+Rule earned the hard way: for an upserted comment, `created_at` is meaningless —
+check `updated_at`, and make sure you are reading the anchor the current tooling
+writes, not a lookalike from a retired one.
