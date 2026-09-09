@@ -1,5 +1,12 @@
 # pr-review-pipeline
 
+**BLOCKED — not runnable on the current authored executor.** The candidate
+CLI refuses the `budget` header before any step runs (exit 2, 3.539s).
+[Exact command and captured output](../../docs/evidence/ws13/review/gallery/gallery-pr-review-pipeline.txt).
+The SDK/kernel capability owner must supply budget-header support, postfix
+artifact gates, and the declared workspace behavior before this example can
+be advertised as working. Its existing requirements remain intact.
+
 **Like I'm 5:** Instead of one reviewer reading your whole pull request,
 three little reviewers each look for one thing — one only checks for
 security holes, one only checks for logic bugs, one only checks for slow
@@ -29,16 +36,18 @@ mechanism — My Senior Dev's multi-agent PR review — in two layers:
   `looksLikeFalsePositiveDispute`) rather than just concatenating three
   reports into one.
 
-Unlike the other two examples in this directory, this one never calls
-`f.human` — nothing here needs it to make sense as a demonstration.
+## Status: refused before execution
 
-## Status: typechecks, does not run yet
+WS-13 invoked this example with the packed CLI and `--local-agent`. It
+refused the unsupported `budget` header before entering the body. See the
+[gallery](../README.md) for the exact command, output, and elapsed time.
+The remaining limitations below describe what still needs to land after that
+first refusal is resolved.
 
 ```sh
 cd packages/surface && npm run typecheck:examples
 ```
 
-`f.agent(...)` builds a real step but parks without a worker attached, same
-as every other example in this repo today. Everything else in this flow —
-the fan-out, the gates, the reconciliation step — is otherwise ordinary use
-of the shipped `@relayflows/surface` contract.
+`--local-agent` attaches a stream-only worker. Budget headers, postfix gates
+and workspace permission annotations are still refused by the authored
+executor, even though the surface package can represent their types.

@@ -1,0 +1,8 @@
+$ cd /private/tmp/ws13-gallery-followup
+$ /tmp/ws13-toolchain/node /private/tmp/ws13-gallery-followup/node_modules/relayflows/bin/flows.js run examples/pr-review-pipeline/pr-review-pipeline.flow.ts --local-agent --input '{"diffRange":"origin/main...HEAD"}' --data-dir /tmp/ws13-followup-review-daemon
+OUTER_TIMEOUT_SECONDS=120
+REFUSED [invalid_invocation] Usage: flows check [--json] <flow.yaml|spec.json> flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json> flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file> flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json> flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id> flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>
+
+EXIT_CODE=2
+ELAPSED_SECONDS=0.143
+TIMED_OUT=False

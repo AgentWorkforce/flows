@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { renderProgress, type ProgressEvent } from './progress.js';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
@@ -31,7 +32,7 @@ type CliExitCode = 0 | 1 | 2 | 3;
 type ParsedArgs =
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean }
   | { command: 'check'; json: boolean; value: string }
-  | { command: 'run'; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; value: string }
+  | { command: 'run'; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; value: string }
   | { command: 'resume'; dataDir: string; json: boolean; spawn: boolean; value: string }
   | { command: 'hn-monitor'; sub: 'start'; dataDir: string; specPath: string; pollIntervalMs: number | undefined }
   | { command: 'tick'; sub: 'start'; dataDir: string; specPath: string; scheduleId: string;
@@ -44,7 +45,7 @@ const USAGE = [
   'flows check [--json] <flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
-  'flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>',
+  'flows run [--json] [--no-spawn] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>',
   'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
@@ -135,8 +136,21 @@ export async function runCli(
   // single `connect()` seam immediately before journal-client.ts is used --
   // not here. Hoisting it above the dispatch would start a daemon as a side
   // effect of an invocation that is about to be refused for bad input.
+  const startedSteps = new Map<string, number>();
+  const showProgress = (event: ProgressEvent): void => {
+    if (event.type === 'step.started') startedSteps.set(event.stepId, performance.now());
+    if (!parsed.json) for (const line of renderProgress([event])) io.stderr(line);
+  };
   const lifecycle = {
-    onWait: (progress: RunProgress) => emitWait(progress, io),
+    localAgent: parsed.command === 'run' && parsed.localAgent,
+    onProgress: showProgress,
+    onWait: (progress: RunProgress) => {
+      emitWait(progress, io);
+      const now = performance.now();
+      if (!startedSteps.has(progress.stepId)) startedSteps.set(progress.stepId, now);
+      showProgress({ type: 'step.running', stepId: progress.stepId, stepType: progress.stepType,
+        elapsedMs: now - startedSteps.get(progress.stepId)! });
+    },
     daemon: { spawn: parsed.spawn && spawnAllowedByEnv() },
   };
   const execution = parsed.command === 'run'
@@ -167,6 +181,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let json = false;
   let cloud = false;
   let wait = false;
+  let localAgent = false;
   let dataDir = DEFAULT_DATA_DIR;
   let sawDataDir = false;
   let spawn = true;
@@ -179,6 +194,11 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       if (command !== 'run' || (argument === '--cloud' ? cloud : wait)) return undefined;
       if (argument === '--cloud') cloud = true;
       else wait = true;
+      continue;
+    }
+    if (argument === '--local-agent') {
+      if (command !== 'run' || localAgent) return undefined;
+      localAgent = true;
       continue;
     }
     if (argument === '--json') {
@@ -215,16 +235,20 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (positionals.length !== 1) return undefined;
 
   if (cloud) {
-    if (sawInput || sawDataDir || !spawn) return undefined;
+    // `--cloud` submits the spec to Cloud, so every flag that only describes a
+    // local run -- an inline input, a data dir, a suppressed daemon, a local
+    // agent -- describes nothing there and is refused rather than ignored.
+    if (sawInput || sawDataDir || !spawn || localAgent) return undefined;
     return { command: 'cloud-run', value: positionals[0]!, json, wait };
   }
   if (wait) return undefined;
 
+  if (localAgent && !isAuthoredFlowPath(positionals[0]!)) return undefined;
   if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!)) return undefined;
   return command === 'check'
     ? { command, json, value: positionals[0]! }
     : command === 'run'
-      ? { command, dataDir, input, json, spawn, value: positionals[0]! }
+      ? { command, localAgent, dataDir, input, json, spawn, value: positionals[0]! }
       : { command, dataDir, json, spawn, value: positionals[0]! };
 }
 

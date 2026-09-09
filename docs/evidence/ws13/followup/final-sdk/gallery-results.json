@@ -1,0 +1,14 @@
+[
+  {
+    "example": "dependency-upgrade-bot",
+    "exitCode": 2,
+    "elapsedSeconds": 0.138,
+    "timedOut": false
+  },
+  {
+    "example": "pr-review-pipeline",
+    "exitCode": 2,
+    "elapsedSeconds": 0.143,
+    "timedOut": false
+  }
+]

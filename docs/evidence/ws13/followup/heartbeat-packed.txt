@@ -1,0 +1,15 @@
+$ cd packages/sdk
+$ export PATH=/tmp/ws13-toolchain:$PATH
+$ FLOWS_TEST_CLI=/tmp/ws13-gallery-followup/node_modules/@relayflows/sdk/dist/cli.js RELAYFLOWD_BIN=/tmp/ws13-gallery-followup/node_modules/@relayflows/runtime-darwin-arm64/bin/relayflowd node node_modules/vitest/vitest.mjs run tests/local-agent-live.test.ts -t 'runs beyond the initial 30-second lease' --reporter verbose
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/packages/sdk
+
+ ✓ tests/local-agent-live.test.ts > built CLI local agent against a real daemon > runs beyond the initial 30-second lease without a second invocation 36467ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 4 skipped (5)
+   Start at  21:10:58
+   Duration  37.21s (transform 28ms, setup 0ms, collect 21ms, tests 36.47s, environment 0ms, prepare 80ms)
+
+
+EXIT_CODE=0

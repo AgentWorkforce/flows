@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { childStop, ownsProcessGroup } from './child-stop.js';
 import {
   agentExecution,
   cliAdapterKind,
@@ -32,7 +33,12 @@ export async function runAgentCli(
   wakeContext: unknown,
   model?: string,
   wrapperLimits?: Partial<WrapperSessionLimits>,
+  signal?: AbortSignal,
 ): Promise<WorkerCliResult> {
+  signal?.throwIfAborted();
+  if (signal !== undefined && process.platform === 'win32') {
+    throw new Error('Lease-bound agent execution requires macOS or Linux process-group cancellation; Windows is unsupported.');
+  }
   const kind = cliAdapterKind(cli);
 
   if (kind === 'relayflows-wrapper-v1') {
@@ -43,6 +49,7 @@ export async function runAgentCli(
       model,
       wrapperEnvironment(process.env),
       wrapperLimits,
+      signal,
     );
   }
 
@@ -64,16 +71,22 @@ export async function runAgentCli(
   }
 
   if (invocation.modelEnv !== undefined) env[MODEL_ENV] = invocation.modelEnv;
-  return spawnInvocation(cli, invocation, env);
+  return spawnInvocation(cli, invocation, env, signal);
 }
 
 function spawnInvocation(
   cli: string,
   invocation: CliInvocation,
   env: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
 ): Promise<WorkerCliResult> {
   return new Promise((resolve) => {
-    const child = spawn(cli, invocation.args, { stdio: ['ignore', 'pipe', 'pipe'], env });
+    const ownsGroup = ownsProcessGroup(signal);
+    const child = spawn(cli, invocation.args, {
+      stdio: ['ignore', 'pipe', 'pipe'], env,
+      detached: ownsGroup,
+    });
+    const stop = childStop(child, ownsGroup);
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let settled = false;
@@ -82,23 +95,45 @@ function spawnInvocation(
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       resolve(result);
     };
+    const onAbort = (): void => {
+      stop.kill();
+      finish({ exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.' });
+    };
+    /**
+     * Same invariant as `wrapper-session.ts`: `'close'` and `'error'` are
+     * evidence about the DIRECT CHILD, so they may not settle over a pending
+     * escalation, and only `maySettleOnChildExit` may drop one. This settle
+     * carries no deadline of its own because it needs none — the timeout below
+     * settles on the spot and lets its escalation outlive that, so refusing
+     * here can only defer to a `'close'` we are still going to get.
+     */
+    const finishOnChildExit = (result: WorkerCliResult): void => {
+      if (!stop.maySettleOnChildExit()) return;
+      finish(result);
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
     child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
     child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
-    child.once('error', (error) => finish({
+    child.once('error', (error) => finishOnChildExit({
       exit_code: null,
       stdout_tail: Buffer.concat(stdout).toString('utf8'),
       stderr_tail: error.message,
     }));
-    child.once('close', (code) => finish({
+    child.once('close', (code) => finishOnChildExit({
       exit_code: code,
       stdout_tail: Buffer.concat(stdout).toString('utf8'),
       stderr_tail: Buffer.concat(stderr).toString('utf8'),
     }));
     if (invocation.timeoutMs > 0) {
       timer = setTimeout(() => {
-        child.kill('SIGTERM');
+        // The stop outlives this settle on purpose: `finish` resolves the step,
+        // but only the forced group kill releases the pipes a leaked descendant
+        // is holding, and until they are released `flows run` cannot exit.
+        stop.terminate();
         finish({
           exit_code: null,
           stdout_tail: Buffer.concat(stdout).toString('utf8'),

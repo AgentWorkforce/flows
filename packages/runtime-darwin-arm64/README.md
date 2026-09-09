@@ -1,20 +1,13 @@
 # @relayflows/runtime-darwin-arm64
 
-Prebuilt Relayflow v2 runtime for `darwin-arm64` (Apple Silicon):
+Prebuilt `relayflowd` kernel daemon for `darwin-arm64`. Install `relayflows` to get
+the `flows` command backed by `@relayflows/sdk`; this package exports only
+`relayflowd`, so it cannot replace the SDK CLI during npm's bin linking.
 
-- `bin/relayflowd` — the kernel daemon (Rust, `cargo build --release -p relayflowd`, target `aarch64-apple-darwin`)
-- `bin/flows` — the standalone CLI (`bun build --target=bun-darwin-arm64`)
+The daemon is built from the release commit and published with npm provenance.
+The package declares `os`/`cpu` and is an optional dependency of `relayflows`.
+Unsupported platforms need a locally built daemon via `RELAYFLOWD_BIN`.
 
-Built natively on a `macos-14` GitHub Actions runner from the same commit and
-tag as every other release package, and published with npm provenance.
-
-This package is platform-specific by design. It declares `os`/`cpu`, so npm
-refuses to install it anywhere else rather than yielding a binary that cannot
-run. `@relayflows/sdk`'s `relayflowd-path.ts` resolves it as an optional
-dependency of the `relayflows` CLI package — installing `relayflows` on an
-Apple Silicon Mac pulls this in automatically; every other platform's npm
-skips it.
-
-Intel Macs (`darwin-x64`) are not covered by this package and fall through to
-`relayflowd-path.ts`'s later resolution steps (a source checkout or `PATH`)
-until a `@relayflows/runtime-darwin-x64` package exists.
+The tarball also retains the legacy `bin/flows` executable required by the
+existing release gate. It is not registered as an npm command. Removing it
+from the archive requires a separate change by the release-gate owner.

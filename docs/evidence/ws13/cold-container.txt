@@ -1,0 +1,16 @@
+Environment: fresh linux/amd64 node:22-bookworm container, empty npm cache, candidate registry on the host. No provider credentials.
+$ bash cold-start.sh http://host.docker.internal:48733
+v22.23.2
+
+added 14 packages in 19s
+Created /tmp/hello
+Next: cd '/tmp/hello' && npm start
+npm notice
+npm notice New major version of npm available! 10.9.8 -> 12.0.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+npm notice To update run: npm install -g npm@12.0.2
+npm notice
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/tmp/hello/.relayflowd/relayflowd.log":
+/tmp/hello/node_modules/@relayflows/runtime-linux-x64/bin/relayflowd: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found (required by /tmp/hello/node_modules/@relayflows/runtime-linux-x64/bin/relayflowd)
+EXIT_CODE=2
+ELAPSED_SECONDS=55.223

@@ -1,0 +1,176 @@
+$ export PATH=/tmp/ws13-toolchain:$PATH
+$ node --experimental-strip-types --test examples/research/tests/*.test.ts
+TAP version 13
+# Subtest: claude: artifacts are the top-level files the agent wrote, minus the shim's own files; usage, session, trajectory recorded
+ok 1 - claude: artifacts are the top-level files the agent wrote, minus the shim's own files; usage, session, trajectory recorded
+  ---
+  duration_ms: 356.488667
+  type: 'test'
+  ...
+# Subtest: codex: artifacts are the top-level files the agent wrote, minus the shim's own files; usage, session, trajectory recorded
+ok 2 - codex: artifacts are the top-level files the agent wrote, minus the shim's own files; usage, session, trajectory recorded
+  ---
+  duration_ms: 195.035083
+  type: 'test'
+  ...
+# Subtest: grok: artifacts are the top-level files the agent wrote, minus the shim's own files; usage, session, trajectory recorded
+ok 3 - grok: artifacts are the top-level files the agent wrote, minus the shim's own files; usage, session, trajectory recorded
+  ---
+  duration_ms: 160.548291
+  type: 'test'
+  ...
+# Subtest: the task never travels on argv: the stub dumps its argv and the brief text is not in it
+ok 4 - the task never travels on argv: the stub dumps its argv and the brief text is not in it
+  ---
+  duration_ms: 218.826542
+  type: 'test'
+  ...
+# Subtest: no declared model: RELAYFLOW_MODEL is ABSENT in the child even if the host has it set
+ok 5 - no declared model: RELAYFLOW_MODEL is ABSENT in the child even if the host has it set
+  ---
+  duration_ms: 163.477541
+  type: 'test'
+  ...
+# Subtest: a stray top-level file written by the agent IS an artifact, so the gate can see undeclared writes inside the workspace
+ok 6 - a stray top-level file written by the agent IS an artifact, so the gate can see undeclared writes inside the workspace
+  ---
+  duration_ms: 286.867917
+  type: 'test'
+  ...
+# Subtest: non-zero exit, empty final message, and missing usage are each worker_error, never an empty success
+ok 7 - non-zero exit, empty final message, and missing usage are each worker_error, never an empty success
+  ---
+  duration_ms: 297.109208
+  type: 'test'
+  ...
+# Subtest: a CLI that outlives its timeout is killed and reported as timeout
+ok 8 - a CLI that outlives its timeout is killed and reported as timeout
+  ---
+  duration_ms: 572.231708
+  type: 'test'
+  ...
+# Subtest: preflight is per (cli, model): auth failure is cli_unauthenticated; an unresolvable declared model is model_unavailable; a silent round-trip is not ready; a missing binary is cli_missing
+ok 9 - preflight is per (cli, model): auth failure is cli_unauthenticated; an unresolvable declared model is model_unavailable; a silent round-trip is not ready; a missing binary is cli_missing
+  ---
+  duration_ms: 1112.544625
+  type: 'test'
+  ...
+# Subtest: workspace dir must be absolute and normalized
+ok 10 - workspace dir must be absolute and normalized
+  ---
+  duration_ms: 0.793625
+  type: 'test'
+  ...
+# Subtest: when one lane fails, the still-running sibling lanes are killed instead of spending until their timeout
+ok 11 - when one lane fails, the still-running sibling lanes are killed instead of spending until their timeout
+  ---
+  duration_ms: 543.095709
+  type: 'test'
+  ...
+# Subtest: main(): every refusal is exit 2 and happens before anything is created; a fake run is exit 0
+ok 12 - main(): every refusal is exit 2 and happens before anything is created; a fake run is exit 0
+  ---
+  duration_ms: 290.977917
+  type: 'test'
+  ...
+# Subtest: a lane that has not spawned yet when a sibling fails is aborted, never started
+ok 13 - a lane that has not spawned yet when a sibling fails is aborted, never started
+  ---
+  duration_ms: 39.001584
+  type: 'test'
+  ...
+# Subtest: a same-size rewrite of an existing file IS an artifact (content, not size or mtime, decides)
+ok 14 - a same-size rewrite of an existing file IS an artifact (content, not size or mtime, decides)
+  ---
+  duration_ms: 164.3295
+  type: 'test'
+  ...
+# Subtest: SIGINT to the entry point stops every live agent (exit 130), instead of orphaning permission-bypassed CLIs
+ok 15 - SIGINT to the entry point stops every live agent (exit 130), instead of orphaning permission-bypassed CLIs
+  ---
+  duration_ms: 730.086333
+  type: 'test'
+  ...
+# Subtest: preflight: a probe terminated by a signal is probe_failed, not cli_unauthenticated
+ok 16 - preflight: a probe terminated by a signal is probe_failed, not cli_unauthenticated
+  ---
+  duration_ms: 277.96675
+  type: 'test'
+  ...
+# Subtest: a symlinked entrypoint still runs main (realpath comparison), exit 2 on a bad argument
+ok 17 - a symlinked entrypoint still runs main (realpath comparison), exit 2 on a bad argument
+  ---
+  duration_ms: 102.591459
+  type: 'test'
+  ...
+# Subtest: three lanes are dispatched concurrently, then one synthesis
+ok 18 - three lanes are dispatched concurrently, then one synthesis
+  ---
+  duration_ms: 1.616792
+  type: 'test'
+  ...
+# Subtest: a lane that writes no report fails its gate and synthesis never runs
+ok 19 - a lane that writes no report fails its gate and synthesis never runs
+  ---
+  duration_ms: 0.727875
+  type: 'test'
+  ...
+# Subtest: the header pins every agent's CLI and model exactly; a changed or dropped model fails here
+ok 20 - the header pins every agent's CLI and model exactly; a changed or dropped model fails here
+  ---
+  duration_ms: 0.141
+  type: 'test'
+  ...
+# Subtest: every failure class reports a completionReason from COMPLETION_REASONS, and the set is exactly the documented one
+ok 21 - every failure class reports a completionReason from COMPLETION_REASONS, and the set is exactly the documented one
+  ---
+  duration_ms: 0.138917
+  type: 'test'
+  ...
+# Subtest: headless invocations use structured output and never put the task on argv
+ok 22 - headless invocations use structured output and never put the task on argv
+  ---
+  duration_ms: 0.1995
+  type: 'test'
+  ...
+# Subtest: parseHeadless reads final text, usage, session and subagents from each CLI's verified shape
+ok 23 - parseHeadless reads final text, usage, session and subagents from each CLI's verified shape
+  ---
+  duration_ms: 0.450667
+  type: 'test'
+  ...
+# Subtest: a CLI that exits without a readable, non-empty final message and a usage record is unreadable, not an empty success
+ok 24 - a CLI that exits without a readable, non-empty final message and a usage record is unreadable, not an empty success
+  ---
+  duration_ms: 0.256125
+  type: 'test'
+  ...
+# Subtest: usage counters must be finite numbers: missing or string-valued input/output tokens are a parse error, absent cache counters are 0
+ok 25 - usage counters must be finite numbers: missing or string-valued input/output tokens are a parse error, absent cache counters are 0
+  ---
+  duration_ms: 0.257959
+  type: 'test'
+  ...
+# Subtest: a gate registered after the step was awaited throws instead of silently never running
+ok 26 - a gate registered after the step was awaited throws instead of silently never running
+  ---
+  duration_ms: 0.322417
+  type: 'test'
+  ...
+# Subtest: a lane that reports no usage fails its budget gate
+ok 27 - a lane that reports no usage fails its budget gate
+  ---
+  duration_ms: 0.438083
+  type: 'test'
+  ...
+1..27
+# tests 27
+# suites 0
+# pass 27
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5695.376209
+
+EXIT_CODE=0

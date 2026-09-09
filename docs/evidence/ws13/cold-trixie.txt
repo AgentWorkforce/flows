@@ -1,0 +1,39 @@
+Environment: fresh linux/amd64 node:22-trixie-slim container, empty npm cache, candidate registry on the host. No provider credentials; no source clone included.
+$ bash cold-start.sh http://host.docker.internal:48733
+Unable to find image 'node:22-trixie-slim' locally
+22-trixie-slim: Pulling from library/node
+16938f2846b3: Pulling fs layer
+6310eb16bf42: Pulling fs layer
+ef24898c32a4: Pulling fs layer
+0a2cf2a45a8d: Pulling fs layer
+6be37a3ab578: Pulling fs layer
+16938f2846b3: Download complete
+6be37a3ab578: Download complete
+ef24898c32a4: Download complete
+bc985e67f78c: Download complete
+6310eb16bf42: Download complete
+9f6222264bca: Download complete
+0a2cf2a45a8d: Download complete
+ef24898c32a4: Pull complete
+6310eb16bf42: Pull complete
+0a2cf2a45a8d: Pull complete
+16938f2846b3: Pull complete
+6be37a3ab578: Pull complete
+Digest: sha256:7b8a0c89c54499bee567618f96578e1a12a800f062fbdbfd1fb6a443fa6f6284
+Status: Image is up to date for node:22-trixie-slim
+v22.23.2
+
+added 14 packages in 16s
+Created /tmp/hello
+Next: cd '/tmp/hello' && npm start
+npm notice
+npm notice New major version of npm available! 10.9.8 -> 12.0.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+npm notice To update run: npm install -g npm@12.0.2
+npm notice
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 0.34s completionReason: success
+Hello from Relayflows
+RUN 01M20KZR4QNKTHWD8M65AD0PS3 completed (2 steps) completionReason: success
+EXIT_CODE=0
+ELAPSED_SECONDS=43.374

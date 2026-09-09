@@ -1,5 +1,13 @@
 # examples/research — a fan-out research relayflow, authored on flows v2
 
+**PASS — 690.935s with the documented default budget**, using authenticated
+Claude, Codex and Grok CLIs. The run produced three lane reports and a synthesis,
+with `completionReason: synthesized` and exit 0.
+[Command and full output](../../docs/evidence/ws13/followup/default-budget/gallery-research.txt),
+[generated reports](../../docs/evidence/ws13/followup/default-budget/reports/).
+An earlier verification attempt used a three-minute step limit and timed out;
+that shorter limit was not enough for this multi-agent research workload.
+
 Give it a research question. It fans the question out to three independent
 model lanes — **Claude** (sonnet), **Codex**, and **Grok** — each of which
 spawns **two subagents** (a *landscape* researcher over papers, frameworks,
@@ -42,7 +50,7 @@ node --experimental-strip-types examples/research/shims/run.ts \
 
 Requires `claude`, `codex`, and `grok` on `PATH`, each authenticated. The
 entry point preflights every declared (CLI, model) pair before creating
-anything: a cheap auth probe where one exists (`claude auth status`,
+anything, printing each check and its timeout to stderr: a cheap auth probe where one exists (`claude auth status`,
 `codex login status`), then a live one-line round-trip with the declared
 model flag that must answer exactly `OK` (trimmed; "NOT OK" and "OK." fail). An authenticated CLI that cannot resolve a
 declared model (`opus` on a host that does not know the alias) is refused as
@@ -79,8 +87,8 @@ npm --prefix examples/research test          # node --experimental-strip-types -
 npm --prefix examples/research run typecheck # sdk's ./node_modules/.bin/tsc, not npx (npx would fetch an unrelated tsc and "pass")
 ```
 
-**These are not run by any gate.** This repository has no CI workflows and
-`sdk`'s `npm test` is scoped to `sdk/`. The Safety properties below cite these
+**These are not run by the current CI workflows.** The SDK's `npm test` is
+scoped to `packages/sdk/`. The Safety properties below cite these
 tests as evidence; that evidence exists only when someone runs the two
 commands. Wiring `examples/*` into a runner is a follow-up.
 

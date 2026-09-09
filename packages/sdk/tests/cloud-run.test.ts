@@ -169,6 +169,9 @@ describe('thin cloud CLI', () => {
     ['check', '--cloud', 'flow.yaml'], ['run', '--cloud', '--no-spawn', 'flow.yaml'],
     ['run', '--cloud', '--cloud', 'flow.yaml'], ['run', '--cloud', '--input', '{}', 'flow.yaml'],
     ['run', '--cloud', '--data-dir', 'x', 'flow.yaml'],
+    // `--local-agent` describes a local wrapper process, so it says nothing
+    // about a run Cloud executes: refused rather than silently dropped.
+    ['run', '--cloud', '--local-agent', 'flow.yaml'],
   ])('refuses incompatible argv %j', async (...args) => {
     const fetch = vi.spyOn(globalThis, 'fetch');
     expect(await runCli(args, { stdout: () => {}, stderr: () => {} })).toBe(2);

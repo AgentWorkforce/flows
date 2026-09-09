@@ -1,0 +1,19 @@
+$ cd packages/sdk
+$ export PATH=/tmp/ws13-toolchain:$PATH
+$ RELAYFLOWD_BIN=/tmp/ws13-consumer/hello/node_modules/@relayflows/runtime-darwin-arm64/bin/relayflowd node node_modules/vitest/vitest.mjs run tests/live-kernel.test.ts -t 'follows a live worker dispatch through flows run' --reporter verbose
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/tmp/ws13-consumer/hello/node_modules/@relayflows/runtime-darwin-arm64/bin/relayflowd
+LIVE_KERNEL flows=/Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/packages/sdk/dist/cli.js
+
+ ✓ tests/live-kernel.test.ts > built flows CLI against live relayflowd > follows a live worker dispatch through flows run 655ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 29 skipped (30)
+   Start at  21:10:35
+   Duration  1.99s (transform 398ms, setup 0ms, collect 826ms, tests 657ms, environment 0ms, prepare 90ms)
+
+
+EXIT_CODE=0

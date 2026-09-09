@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { FORCE_KILL_DELAY_MS, childStop, ownsProcessGroup } from './child-stop.js';
 import {
   WRAPPER_EXECUTE_TOKEN,
   WRAPPER_IDENTIFY_ARG,
@@ -28,7 +29,6 @@ const DEFAULT_LIMITS: WrapperSessionLimits = {
   maxOutputBytes: 1_048_576,
 };
 const HANDSHAKE_OUTPUT_LIMIT = 8_192;
-const FORCE_KILL_DELAY_MS = 1_000;
 /**
  * Grace after `SIGKILL` before the reader settles on its own. Node emits
  * `'close'` only once every inherited stdio pipe is closed, which any
@@ -48,7 +48,12 @@ export function runWrapperSession(
   model: string | undefined,
   env: NodeJS.ProcessEnv,
   overrides: Partial<WrapperSessionLimits> = {},
+  signal?: AbortSignal,
 ): Promise<WrapperSessionResult> {
+  if (signal?.aborted) return Promise.reject(signal.reason);
+  if (signal !== undefined && process.platform === 'win32') {
+    return Promise.reject(new Error('Lease-bound wrapper execution requires macOS or Linux process-group cancellation; Windows is unsupported.'));
+  }
   const limits = sessionLimits(overrides);
   let request: string;
   try {
@@ -72,7 +77,7 @@ export function runWrapperSession(
     ));
   }
 
-  return executePinnedWrapper(cli, identity, request, env, limits);
+  return executePinnedWrapper(cli, identity, request, env, limits, signal);
 }
 
 function executePinnedWrapper(
@@ -81,12 +86,16 @@ function executePinnedWrapper(
   request: string,
   env: NodeJS.ProcessEnv,
   limits: WrapperSessionLimits,
+  signal?: AbortSignal,
 ): Promise<WrapperSessionResult> {
   return new Promise((resolve) => {
+    const ownsGroup = ownsProcessGroup(signal);
     const child = spawn(identity.executable, [WRAPPER_IDENTIFY_ARG], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
+      detached: ownsGroup,
     });
+    const stop = childStop(child, ownsGroup);
     const stdout: string[] = [];
     const stderr: Buffer[] = [];
     let handshakePending = '';
@@ -96,27 +105,53 @@ function executePinnedWrapper(
     let protocolError: string | undefined;
     let settled = false;
     let lifecycleTimer: NodeJS.Timeout | undefined;
-    let killTimer: NodeJS.Timeout | undefined;
     let settleTimer: NodeJS.Timeout | undefined;
 
-    const clearTimers = (): void => {
-      if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
-      if (killTimer !== undefined) clearTimeout(killTimer);
-      if (settleTimer !== undefined) clearTimeout(settleTimer);
-    };
     const finish = (result: WrapperSessionResult): void => {
       if (settled) return;
       settled = true;
-      clearTimers();
+      if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
+      if (settleTimer !== undefined) clearTimeout(settleTimer);
+      signal?.removeEventListener('abort', onAbort);
       resolve(result);
     };
+    /**
+     * INVARIANT: a session may not settle until either the process group is
+     * confirmed dead or the escalation has actually run.
+     *
+     * `'close'` and `'error'` are evidence about the DIRECT CHILD and nothing
+     * more. A descendant that ignores `SIGTERM` and inherited none of the
+     * wrapper's stdio emits exactly those events while it is still running, so
+     * neither may drop a pending escalation and neither may settle ahead of
+     * one. Every child-level settle therefore goes through
+     * `maySettleOnChildExit`, which is the one place that asks the GROUP.
+     *
+     * When it says no, `terminate`'s own deadline settles instead, with a
+     * byte-identical `failure(protocolError)` result. That deadline is armed
+     * whenever an escalation is — both come from the single `terminate` below —
+     * so refusing here can defer a settle but can never strand one.
+     */
+    const finishOnChildExit = (result: WrapperSessionResult): void => {
+      // Asked before `finish`, and asked even once we have already settled:
+      // this is also the only place a pointless escalation is refunded, and a
+      // session that settled on `terminate`'s deadline still owes that refund.
+      if (!stop.maySettleOnChildExit()) return;
+      finish(result);
+    };
+    const onAbort = (): void => {
+      stop.kill();
+      finish(failure('Agent execution aborted: lease ownership lost.'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) { onAbort(); return; }
     const terminate = (message: string): void => {
       if (protocolError !== undefined) return;
       protocolError = message;
       if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
-      child.kill('SIGTERM');
-      killTimer = setTimeout(() => child.kill('SIGKILL'), FORCE_KILL_DELAY_MS);
-      killTimer.unref();
+      // Same reach as an abort, only gentler first: this stop must find the
+      // whole group, or a descendant outlives the session still holding the
+      // stdio it inherited.
+      stop.terminate();
       // The reader owns the bound. `'close'` is emitted only after every
       // inherited stdio pipe closes, so a wrapper that leaves a descendant
       // holding one withholds it forever and strands the step with no
@@ -241,7 +276,7 @@ function executePinnedWrapper(
     child.stdin.on('error', () => {
       // A child that closes stdin before acknowledgement is classified on close.
     });
-    child.once('error', (error) => finish(failure(error.message)));
+    child.once('error', (error) => finishOnChildExit(failure(error.message)));
     child.once('close', (code) => {
       if (protocolError === undefined && phase === 'execute' && executionPending.length > 0) {
         if (normalizeLine(executionPending) === WRAPPER_EXECUTE_TOKEN) {
@@ -251,13 +286,13 @@ function executePinnedWrapper(
         }
       }
       if (protocolError !== undefined || phase !== 'execute') {
-        finish(failure(
+        finishOnChildExit(failure(
           protocolError
             ?? `CLI ${JSON.stringify(cli)} exited before completing the ${WRAPPER_IDENTIFY_TOKEN} same-process handshake.`,
         ));
         return;
       }
-      finish({
+      finishOnChildExit({
         exit_code: code,
         stdout_tail: stdout.join(''),
         stderr_tail: Buffer.concat(stderr).toString('utf8'),

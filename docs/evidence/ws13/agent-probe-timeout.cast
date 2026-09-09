@@ -1,0 +1,10 @@
+{"version": 2, "width": 120, "height": 30, "timestamp": 1788873089, "title": "Relayflows local development", "command": "npx --no-install flows run hello.flow.ts --local-agent --input '{}'", "env": {"TERM": "xterm-256color"}}
+[5.045106, "o", "npm notice run npx\r\n"]
+[5.045358, "o", "npm notice run 'flows' run hello.flow.ts --local-agent --input {}\r\n"]
+[7.742345, "o", "\u25cb run-1 (deterministic) 0.00s\r\n"]
+[7.953248, "o", "\u2713 run-1 (deterministic) 0.21s completionReason: success\r\n"]
+[7.955388, "o", "Hello from Relayflows\r\n"]
+[7.955632, "o", "\u25cb agent-2 (agent) [agent: preparing] 0.00s\r\n"]
+[18.136722, "o", "\u2717 agent-2 (agent) [agent: failed] 10.18s\r\n"]
+[18.16956, "o", "REFUSED [invalid_spec] agent_cli_unresolved: Could not verify CLI \"claude\" for step \"agent-2\": the probe timed out after 10000ms.\r\n"]
+[18.173621, "o", "\r\nEXIT_CODE=2\r\nELAPSED_SECONDS=18.174\r\nTIMED_OUT=False\r\n"]

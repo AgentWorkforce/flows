@@ -1,0 +1,521 @@
+$ docker run --rm --platform linux/amd64 -v /tmp/ws13-artifacts:/artifacts:ro -v /tmp/ws13-container-checks.sh:/verify.sh:ro node:22-bookworm bash /verify.sh
+
+Contents of /verify.sh:
+set -eu
+node --version
+mkdir -p /work /runtime
+tar -xf /artifacts/source.tar -C /work
+tar -xzf /artifacts/relayflows-runtime-linux-x64-2.0.8.tgz -C /runtime package/bin/relayflowd
+cd /work
+npm --prefix packages/sdk ci --ignore-scripts --no-audit --no-fund
+npm --prefix packages/sdk run build
+cd packages/sdk
+RELAYFLOWD_BIN=/runtime/package/bin/relayflowd node node_modules/vitest/vitest.mjs run tests/local-dev-ux.test.ts tests/local-agent-live.test.ts tests/cli.test.ts tests/authored-flow.test.ts tests/authored-flow-lifecycle-executor.test.ts
+
+Captured output:
+v22.23.2
+
+added 59 packages in 21s
+npm notice
+npm notice New major version of npm available! 10.9.8 -> 12.0.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+npm notice To update run: npm install -g npm@12.0.2
+npm notice
+
+> @relayflows/sdk@2.0.8 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+ RUN  v2.1.9 /work/packages/sdk
+
+runtime: lfstack.push invalid packing: node=0xffff59972a80 cnt=0x1 packed=0xffff59972a800001 -> node=0xffffffff59972a80
+fatal error: lfstack.push
+
+runtime stack:
+runtime.throw({0x9c2507?, 0x520000c000380350?})
+	runtime/panic.go:1047 +0x5d fp=0xffff815ffb28 sp=0xffff815ffaf8 pc=0x4357dd
+runtime.(*lfstack).push(0x2?, 0xffff815ffbd8?)
+	runtime/lfstack.go:29 +0x125 fp=0xffff815ffb68 sp=0xffff815ffb28 pc=0x40b4c5
+runtime.(*spanSetBlockAlloc).free(...)
+	runtime/mspanset.go:322
+runtime.(*spanSet).reset(0xd6bed0)
+	runtime/mspanset.go:264 +0x87 fp=0xffff815ffb98 sp=0xffff815ffb68 pc=0x42f747
+runtime.finishsweep_m()
+	runtime/mgcsweep.go:260 +0x9c fp=0xffff815ffbd8 sp=0xffff815ffb98 pc=0x42377c
+runtime.gcStart.func1()
+	runtime/mgc.go:668 +0x17 fp=0xffff815ffbe8 sp=0xffff815ffbd8 pc=0x463397
+runtime.systemstack()
+	runtime/asm_amd64.s:496 +0x49 fp=0xffff815ffbf0 sp=0xffff815ffbe8 pc=0x467dc9
+
+goroutine 81 [running]:
+runtime.systemstack_switch()
+	runtime/asm_amd64.s:463 fp=0xc00021c690 sp=0xc00021c688 pc=0x467d60
+runtime.gcStart({0xc000302000?, 0xc00?, 0xc00?})
+	runtime/mgc.go:667 +0x319 fp=0xc00021c718 sp=0xc00021c690 pc=0x4191b9
+runtime.mallocgc(0xc00, 0x9a40c0, 0x1)
+	runtime/malloc.go:1172 +0x777 fp=0xc00021c780 sp=0xc00021c718 pc=0x40d377
+runtime.growslice(0xc000294000, 0x40d20a?, 0xc00057425f?, 0xb?, 0x9a40c0)
+	runtime/slice.go:274 +0x4e9 fp=0xc00021c7e0 sp=0xc00021c780 pc=0x44db09
+github.com/evanw/esbuild/internal/js_parser.(*parser).newSymbol(...)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:1228
+github.com/evanw/esbuild/internal/js_parser.(*parser).declareSymbol(0xc000222000, 0x15, {0x0?}, {0xc00057425f, 0xb})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:1368 +0x105 fp=0xc00021c8a0 sp=0xc00021c7e0 pc=0x6fed05
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseStmt(0xc000222000, {0x0, 0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, ...})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:7827 +0x80b6 fp=0xc00021d588 sp=0xc00021c8a0 pc=0x72fc76
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseStmtsUpTo(0xc000222000, 0x0, {0x0, 0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, ...})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:8151 +0xe5 fp=0xc00021d6d0 sp=0xc00021d588 pc=0x730a25
+github.com/evanw/esbuild/internal/js_parser.Parse({_, _, _, _, _, _}, {{0xc0003be98d, 0x24}, {0xc00032e170, 0x8}, ...}, ...)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:17024 +0x386 fp=0xc00021e3b0 sp=0xc00021d6d0 pc=0x7707c6
+github.com/evanw/esbuild/internal/cache.(*JSCache).Parse(_, {_, _, _, _, _, _}, {{0xc0003be98d, 0x24}, {0xc00032e170, ...}, ...}, ...)
+	github.com/evanw/esbuild/internal/cache/cache_ast.go:170 +0x29e fp=0xc00021eb80 sp=0xc00021e3b0 pc=0x7c859e
+github.com/evanw/esbuild/internal/bundler.parseFile({{0xab5770, 0xc000398270}, {0xc0000d4070, 0xc000388060, 0xc000388078, 0xc000320000, 0x6, 0xc000398090}, 0xc000110900, 0xc0001800c0, ...})
+	github.com/evanw/esbuild/internal/bundler/bundler.go:261 +0x1485 fp=0xc000221b30 sp=0xc00021eb80 pc=0x805565
+github.com/evanw/esbuild/internal/bundler.(*scanner).maybeParseFile.func1()
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1494 +0x45 fp=0xc000221fe0 sp=0xc000221b30 pc=0x810c45
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc000221fe8 sp=0xc000221fe0 pc=0x469e41
+created by github.com/evanw/esbuild/internal/bundler.(*scanner).maybeParseFile
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1494 +0xaeb
+
+goroutine 1 [syscall]:
+syscall.Syscall(0xd737c0?, 0x1?, 0x800000?, 0x7ffff800000?)
+	syscall/syscall_linux.go:69 +0x27 fp=0xc00017bbe8 sp=0xc00017bb78 pc=0x49c8c7
+syscall.read(0xc000108000?, {0xc00017bda8?, 0xc000?, 0xc00017bca8?})
+	syscall/zsyscall_linux_amd64.go:711 +0x45 fp=0xc00017bc28 sp=0xc00017bbe8 pc=0x49b025
+syscall.Read(...)
+	syscall/syscall_unix.go:178
+internal/poll.ignoringEINTRIO(...)
+	internal/poll/fd_unix.go:794
+internal/poll.(*FD).Read(0xc000108000?, {0xc00017bda8?, 0x4000?, 0x4000?})
+	internal/poll/fd_unix.go:163 +0x2ce fp=0xc00017bcc0 sp=0xc00017bc28 pc=0x4b1c8e
+os.(*File).read(...)
+	os/file_posix.go:31
+os.(*File).Read(0xc000012010, {0xc00017bda8?, 0x4000?, 0x4000?})
+	os/file.go:118 +0x5e fp=0xc00017bd18 sp=0xc00017bcc0 pc=0x4b645e
+main.runService(0x1)
+	github.com/evanw/esbuild/cmd/esbuild/service.go:134 +0x38f fp=0xc00017fe38 sp=0xc00017bd18 pc=0x8ede4f
+main.main()
+	github.com/evanw/esbuild/cmd/esbuild/main.go:241 +0xa29 fp=0xc00017ff80 sp=0xc00017fe38 pc=0x8ec449
+runtime.main()
+	runtime/proc.go:250 +0x207 fp=0xc00017ffe0 sp=0xc00017ff80 pc=0x438107
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc00017ffe8 sp=0xc00017ffe0 pc=0x469e41
+
+goroutine 2 [force gc (idle)]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0x0?)
+	runtime/proc.go:381 +0xd6 fp=0xc000050fb0 sp=0xc000050f90 pc=0x438536
+runtime.goparkunlock(...)
+	runtime/proc.go:387
+runtime.forcegchelper()
+	runtime/proc.go:305 +0xb0 fp=0xc000050fe0 sp=0xc000050fb0 pc=0x438370
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc000050fe8 sp=0xc000050fe0 pc=0x469e41
+created by runtime.init.6
+	runtime/proc.go:293 +0x25
+
+goroutine 17 [runnable]:
+runtime.goschedIfBusy()
+	runtime/proc.go:344 +0x30 fp=0xc00004c780 sp=0xc00004c768 pc=0x438430
+runtime.bgsweep(0x0?)
+	runtime/mgcsweep.go:308 +0x15d fp=0xc00004c7c8 sp=0xc00004c780 pc=0x42395d
+runtime.gcenable.func1()
+	runtime/mgc.go:178 +0x26 fp=0xc00004c7e0 sp=0xc00004c7c8 pc=0x418bc6
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc00004c7e8 sp=0xc00004c7e0 pc=0x469e41
+created by runtime.gcenable
+	runtime/mgc.go:178 +0x6b
+
+goroutine 18 [runnable]:
+runtime.(*scavengerState).run(0xd439c0)
+	runtime/mgcscavenge.go:551 +0x1a5 fp=0xc00004cfa0 sp=0xc00004cf98 pc=0x421d25
+runtime.bgscavenge(0x0?)
+	runtime/mgcscavenge.go:631 +0x51 fp=0xc00004cfc8 sp=0xc00004cfa0 pc=0x421d91
+runtime.gcenable.func2()
+	runtime/mgc.go:179 +0x26 fp=0xc00004cfe0 sp=0xc00004cfc8 pc=0x418b66
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc00004cfe8 sp=0xc00004cfe0 pc=0x469e41
+created by runtime.gcenable
+	runtime/mgc.go:179 +0xaa
+
+goroutine 3 [finalizer wait]:
+runtime.gopark(0x4388b2?, 0xffff89711b88?, 0x0?, 0x0?, 0xc000050770?)
+	runtime/proc.go:381 +0xd6 fp=0xc000050628 sp=0xc000050608 pc=0x438536
+runtime.runfinq()
+	runtime/mfinal.go:193 +0x107 fp=0xc0000507e0 sp=0xc000050628 pc=0x417c07
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc0000507e8 sp=0xc0000507e0 pc=0x469e41
+created by runtime.createfing
+	runtime/mfinal.go:163 +0x45
+
+goroutine 4 [chan receive]:
+runtime.gopark(0xc0003be940?, 0x0?, 0x0?, 0x0?, 0x0?)
+	runtime/proc.go:381 +0xd6 fp=0xc0000516c8 sp=0xc0000516a8 pc=0x438536
+runtime.chanrecv(0xc0000780c0, 0xc0000517b8, 0x1)
+	runtime/chan.go:583 +0x49d fp=0xc000051758 sp=0xc0000516c8 pc=0x4067bd
+runtime.chanrecv2(0xc000012018?, 0xc0003be940?)
+	runtime/chan.go:447 +0x18 fp=0xc000051780 sp=0xc000051758 pc=0x4062f8
+main.runService.func1()
+	github.com/evanw/esbuild/cmd/esbuild/service.go:98 +0x4a fp=0xc0000517e0 sp=0xc000051780 pc=0x8ee32a
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc0000517e8 sp=0xc0000517e0 pc=0x469e41
+created by main.runService
+	github.com/evanw/esbuild/cmd/esbuild/service.go:97 +0x1e5
+
+goroutine 5 [sleep]:
+runtime.gopark(0xcb9c7a9d9a?, 0x94bc00?, 0xd0?, 0xb1?, 0xc0003be940?)
+	runtime/proc.go:381 +0xd6 fp=0xc0003d6760 sp=0xc0003d6740 pc=0x438536
+time.Sleep(0x3b9aca00)
+	runtime/time.go:195 +0x135 fp=0xc0003d67a0 sp=0xc0003d6760 pc=0x466df5
+main.runService.func3()
+	github.com/evanw/esbuild/cmd/esbuild/service.go:124 +0x45 fp=0xc0003d67e0 sp=0xc0003d67a0 pc=0x8ee1e5
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc0003d67e8 sp=0xc0003d67e0 pc=0x469e41
+created by main.runService
+	github.com/evanw/esbuild/cmd/esbuild/service.go:122 +0x31c
+
+goroutine 44 [GC worker (idle)]:
+runtime.gopark(0xc0003d4fa0?, 0x1?, 0x98?, 0xc2?, 0xc0003d4f90?)
+	runtime/proc.go:381 +0xd6 fp=0xc0003d4f50 sp=0xc0003d4f30 pc=0x438536
+runtime.gcBgMarkWorker()
+	runtime/mgc.go:1275 +0xf1 fp=0xc0003d4fe0 sp=0xc0003d4f50 pc=0x41a7f1
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc0003d4fe8 sp=0xc0003d4fe0 pc=0x469e41
+created by runtime.gcBgMarkStartWorkers
+	runtime/mgc.go:1199 +0x25
+
+goroutine 67 [runnable]:
+runtime.asyncPreempt2()
+	runtime/preempt.go:307 +0x3f fp=0xc000696060 sp=0xc000696040 pc=0x436c3f
+runtime.asyncPreempt()
+	runtime/preempt_amd64.s:53 +0xdb fp=0xc0006961e8 sp=0xc000696060 pc=0x46b47b
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseParenExpr(0xc000170a80, {0x0?}, 0x1, {{{0x6966b8?}, 0xc0?}, 0xa?})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:3114 +0x11cb fp=0xc000696640 sp=0xc0006961e8 pc=0x70d42b
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseAsyncPrefixExpr(0xc000170a80, {{0x59ec20?}, 0xc0?}, 0x1, 0x68?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:2915 +0x815 fp=0xc0006967f8 sp=0xc000696640 pc=0x70b775
+github.com/evanw/esbuild/internal/js_parser.(*parser).parsePrefix(0xc000170a80, 0x1, 0xc000697348, 0xd8?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:3424 +0x1b7d fp=0xc000696f60 sp=0xc0006967f8 pc=0x71095d
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseExprCommon(0xc000170a80, 0x1, 0x1?, 0x98?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4043 +0x3b fp=0xc000696fb8 sp=0xc000696f60 pc=0x713d3b
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseExprOrBindings(0xc0001710b8?, 0x1?, 0xc0006971b8?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4030 +0x1b fp=0xc000696fe8 sp=0xc000696fb8 pc=0x713bfb
+github.com/evanw/esbuild/internal/js_parser.(*parser).parsePrefix(0xc000170a80, 0x1, 0xc000697b38, 0xc8?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:3697 +0x3a51 fp=0xc000697750 sp=0xc000696fe8 pc=0x712831
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseExprCommon(0xc000170a80, 0x1, 0x0?, 0x0?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4043 +0x3b fp=0xc0006977a8 sp=0xc000697750 pc=0x713d3b
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseExprOrBindings(0xc0001710b8?, 0x38?, 0x3ff0000000000001?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4030 +0x1b fp=0xc0006977d8 sp=0xc0006977a8 pc=0x713bfb
+github.com/evanw/esbuild/internal/js_parser.(*parser).parsePrefix(0xc000170a80, 0x1, 0x0, 0x48?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:3697 +0x3a51 fp=0xc000697f40 sp=0xc0006977d8 pc=0x712831
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseExprCommon(0xc000170a80, 0x1, 0x1?, 0x48?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4043 +0x3b fp=0xc000697f98 sp=0xc000697f40 pc=0x713d3b
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseExpr(...)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4034
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseCallArgs(0xc000170a80)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4915 +0x14c fp=0xc000698058 sp=0xc000697f98 pc=0x719acc
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseSuffix(0xc000170a80, {{0xaaf6e0?, 0xc00059f490?}, {0x590440?}}, 0x0, 0x0, 0x0)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4318 +0x20cd fp=0xc000698458 sp=0xc000698058 pc=0x715f4d
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseExprCommon(0xc000170a80, 0x0, 0xc000596910?, 0x1?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4070 +0x127 fp=0xc0006984b0 sp=0xc000698458 pc=0x713e27
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseExprOrLetOrUsingStmt(0xc000170a80?, {0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, ...})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4813 +0xa17 fp=0xc0006985a8 sp=0xc0006984b0 pc=0x719917
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseStmt(0xc000170a80, {0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, ...})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:7917 +0x66b6 fp=0xc000699290 sp=0xc0006985a8 pc=0x72e276
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseStmtsUpTo(0xc000170a80, 0x12, {0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, ...})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:8151 +0xe5 fp=0xc0006993d8 sp=0xc000699290 pc=0x730a25
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseFnBody(0xc000170a80, {0x0, 0x0, {{0x0}, 0x0}, {0x21f}, 0x0, 0x0, 0x0, 0x0, ...})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:8110 +0x17b fp=0xc0006994b8 sp=0xc0006993d8 pc=0x7305fb
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseArrowBody(0xc000170a80, {0xd728e0, 0x0, 0x0}, {0x0, 0x0, {{0x0}, 0x0}, {0x21f}, 0x0, ...})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:2809 +0x1aa fp=0xc000699678 sp=0xc0006994b8 pc=0x70a7ca
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseParenExpr(0xc000170a80, {0x0?}, 0x1, {{{0x0?}, 0x0?}, 0x0?})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:3140 +0x14a5 fp=0xc000699ad0 sp=0xc000699678 pc=0x70d705
+github.com/evanw/esbuild/internal/js_parser.(*parser).parsePrefix(0xc000170a80, 0x1, 0x0, 0x1?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:3369 +0x1305 fp=0xc00069a238 sp=0xc000699ad0 pc=0x7100e5
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseExprCommon(0xc000170a80, 0x1, 0x0?, 0x0?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4043 +0x3b fp=0xc00069a290 sp=0xc00069a238 pc=0x713d3b
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseExpr(...)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4034
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseCallArgs(0xc000170a80)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4915 +0x14c fp=0xc00069a350 sp=0xc00069a290 pc=0x719acc
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseSuffix(0xc000170a80, {{0xaaf6e0?, 0xc00059e560?}, {0x412f65?}}, 0x0, 0x0, 0x0)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4318 +0x20cd fp=0xc00069a750 sp=0xc00069a350 pc=0x715f4d
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseExprCommon(0xc000170a80, 0x0, 0x20?, 0x0?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4070 +0x127 fp=0xc00069a7a8 sp=0xc00069a750 pc=0x713e27
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseExprOrLetOrUsingStmt(0xd?, {0x0, 0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, ...})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4813 +0xa17 fp=0xc00069a8a0 sp=0xc00069a7a8 pc=0x719917
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseStmt(0xc000170a80, {0x0, 0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, ...})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:7917 +0x66b6 fp=0xc00069b588 sp=0xc00069a8a0 pc=0x72e276
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseStmtsUpTo(0xc000170a80, 0x0, {0x0, 0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, ...})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:8151 +0xe5 fp=0xc00069b6d0 sp=0xc00069b588 pc=0x730a25
+github.com/evanw/esbuild/internal/js_parser.Parse({_, _, _, _, _, _}, {{0xc0003b205d, 0x41}, {0xc0005aa060, 0x25}, ...}, ...)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:17024 +0x386 fp=0xc00069c3b0 sp=0xc00069b6d0 pc=0x7707c6
+github.com/evanw/esbuild/internal/cache.(*JSCache).Parse(_, {_, _, _, _, _, _}, {{0xc0003b205d, 0x41}, {0xc0005aa060, ...}, ...}, ...)
+	github.com/evanw/esbuild/internal/cache/cache_ast.go:170 +0x29e fp=0xc00069cb80 sp=0xc00069c3b0 pc=0x7c859e
+github.com/evanw/esbuild/internal/bundler.parseFile({{0xab5770, 0xc00058e7b0}, {0xc00060a000, 0xc00019cf00, 0xc00019cf18, 0xc0001b2320, 0x6, 0xc00019b380}, 0xc0000e4900, 0xc000180240, ...})
+	github.com/evanw/esbuild/internal/bundler/bundler.go:261 +0x1485 fp=0xc00069fb30 sp=0xc00069cb80 pc=0x805565
+github.com/evanw/esbuild/internal/bundler.(*scanner).maybeParseFile.func1()
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1494 +0x45 fp=0xc00069ffe0 sp=0xc00069fb30 pc=0x810c45
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc00069ffe8 sp=0xc00069ffe0 pc=0x469e41
+created by github.com/evanw/esbuild/internal/bundler.(*scanner).maybeParseFile
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1494 +0xaeb
+
+goroutine 65 [GC worker (idle)]:
+runtime.gopark(0x0?, 0xc000332240?, 0x0?, 0xf0?, 0x0?)
+	runtime/proc.go:381 +0xd6 fp=0xc0003d8750 sp=0xc0003d8730 pc=0x438536
+runtime.gcBgMarkWorker()
+	runtime/mgc.go:1275 +0xf1 fp=0xc0003d87e0 sp=0xc0003d8750 pc=0x41a7f1
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc0003d87e8 sp=0xc0003d87e0 pc=0x469e41
+created by runtime.gcBgMarkStartWorkers
+	runtime/mgc.go:1199 +0x25
+
+goroutine 9 [GC worker (idle)]:
+runtime.gopark(0xc00004d7a0?, 0x1?, 0x38?, 0x82?, 0xc00004d790?)
+	runtime/proc.go:381 +0xd6 fp=0xc00004d750 sp=0xc00004d730 pc=0x438536
+runtime.gcBgMarkWorker()
+	runtime/mgc.go:1275 +0xf1 fp=0xc00004d7e0 sp=0xc00004d750 pc=0x41a7f1
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc00004d7e8 sp=0xc00004d7e0 pc=0x469e41
+created by runtime.gcBgMarkStartWorkers
+	runtime/mgc.go:1199 +0x25
+
+goroutine 66 [runnable]:
+runtime.asyncPreempt2()
+	runtime/preempt.go:307 +0x3f fp=0xc0002d9560 sp=0xc0002d9540 pc=0x436c3f
+runtime.asyncPreempt()
+	runtime/preempt_amd64.s:53 +0xdb fp=0xc0002d96e8 sp=0xc0002d9560 pc=0x46b47b
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseParenExpr(0xc00045c000, {0x0?}, 0x1, {{{0x0?}, 0x0?}, 0x41?})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:3118 +0x12c6 fp=0xc0002d9b40 sp=0xc0002d96e8 pc=0x70d526
+github.com/evanw/esbuild/internal/js_parser.(*parser).parsePrefix(0xc00045c000, 0x1, 0x0, 0x0?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:3369 +0x1305 fp=0xc0002da2a8 sp=0xc0002d9b40 pc=0x7100e5
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseExprCommon(0xc00045c000, 0x1, 0x100?, 0x40?)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4043 +0x3b fp=0xc0002da300 sp=0xc0002da2a8 pc=0x713d3b
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseExpr(...)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:4034
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseAndDeclareDecls(0xc00045c000, 0x1, {0x0, 0x1, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, ...})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:5397 +0x30b fp=0xc0002da3f0 sp=0xc0002da300 pc=0x71db8b
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseStmt(0xc00045c000, {0x0, 0x1, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, ...})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:7243 +0x3910 fp=0xc0002db0d8 sp=0xc0002da3f0 pc=0x72b4d0
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseStmt(0xc00045c000, {0x0, 0x1, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, ...})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:6872 +0x6450 fp=0xc0002dbdc0 sp=0xc0002db0d8 pc=0x72e010
+github.com/evanw/esbuild/internal/js_parser.(*parser).parseStmtsUpTo(0xc00045c000, 0x0, {0x0, 0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, ...})
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:8151 +0xe5 fp=0xc0002dbf08 sp=0xc0002dbdc0 pc=0x730a25
+github.com/evanw/esbuild/internal/js_parser.Parse({_, _, _, _, _, _}, {{0x9bfb16, 0x9}, {0x9befac, 0x7}, ...}, ...)
+	github.com/evanw/esbuild/internal/js_parser/js_parser.go:17024 +0x386 fp=0xc0002dcbe8 sp=0xc0002dbf08 pc=0x7707c6
+github.com/evanw/esbuild/internal/bundler.(*runtimeCache).parseRuntime(_, _)
+	github.com/evanw/esbuild/internal/bundler/bundler.go:3168 +0x33e fp=0xc0002dd6a0 sp=0xc0002dcbe8 pc=0x82239e
+github.com/evanw/esbuild/internal/bundler.ScanBundle.func2()
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1301 +0x88 fp=0xc0002ddfe0 sp=0xc0002dd6a0 pc=0x80fb68
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc0002ddfe8 sp=0xc0002ddfe0 pc=0x469e41
+created by github.com/evanw/esbuild/internal/bundler.ScanBundle
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1300 +0x93b
+
+goroutine 42 [GC worker (idle)]:
+runtime.gopark(0xc0003d47a0?, 0x1?, 0xb8?, 0xc3?, 0xc0003d4790?)
+	runtime/proc.go:381 +0xd6 fp=0xc0003d4750 sp=0xc0003d4730 pc=0x438536
+runtime.gcBgMarkWorker()
+	runtime/mgc.go:1275 +0xf1 fp=0xc0003d47e0 sp=0xc0003d4750 pc=0x41a7f1
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc0003d47e8 sp=0xc0003d47e0 pc=0x469e41
+created by runtime.gcBgMarkStartWorkers
+	runtime/mgc.go:1199 +0x25
+
+goroutine 27 [runnable]:
+github.com/evanw/esbuild/internal/bundler.(*Bundle).computeDataForSourceMapsInParallel.func4()
+	github.com/evanw/esbuild/internal/bundler/bundler.go:3038 fp=0xc000255fe0 sp=0xc000255fd8 pc=0x820dc0
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc000255fe8 sp=0xc000255fe0 pc=0x469e41
+created by github.com/evanw/esbuild/internal/bundler.(*Bundle).computeDataForSourceMapsInParallel
+	github.com/evanw/esbuild/internal/bundler/bundler.go:3038 +0x227
+
+goroutine 43 [GC worker (idle)]:
+runtime.gopark(0xc0003d57a0?, 0x1?, 0x58?, 0xc3?, 0xc0003d5790?)
+	runtime/proc.go:381 +0xd6 fp=0xc0003d5750 sp=0xc0003d5730 pc=0x438536
+runtime.gcBgMarkWorker()
+	runtime/mgc.go:1275 +0xf1 fp=0xc0003d57e0 sp=0xc0003d5750 pc=0x41a7f1
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc0003d57e8 sp=0xc0003d57e0 pc=0x469e41
+created by runtime.gcBgMarkStartWorkers
+	runtime/mgc.go:1199 +0x25
+
+goroutine 58 [semacquire]:
+runtime.gopark(0xc0004cc480?, 0x18?, 0x80?, 0xa1?, 0xffff80c39aa8?)
+	runtime/proc.go:381 +0xd6 fp=0xc0000eb1c8 sp=0xc0000eb1a8 pc=0x438536
+runtime.goparkunlock(...)
+	runtime/proc.go:387
+runtime.semacquire1(0xc0004c3148, 0x18?, 0x1, 0x0, 0xb1?)
+	runtime/sema.go:160 +0x20f fp=0xc0000eb230 sp=0xc0000eb1c8 pc=0x449a6f
+sync.runtime_Semacquire(0xc0004cc4c8?)
+	runtime/sema.go:62 +0x27 fp=0xc0000eb268 sp=0xc0000eb230 pc=0x465f67
+sync.(*WaitGroup).Wait(0xd728e0?)
+	sync/waitgroup.go:116 +0x4b fp=0xc0000eb290 sp=0xc0000eb268 pc=0x48268b
+github.com/evanw/esbuild/internal/graph.CloneLinkerGraph({0xc0004d8000, 0x2, 0x2}, {0xc0004c30f8, 0x2, 0x2}, {0xc0000a81b0?, 0x1?, 0x1?}, 0x0)
+	github.com/evanw/esbuild/internal/graph/graph.go:255 +0x40c fp=0xc0000eb4a0 sp=0xc0000eb290 pc=0x80102c
+github.com/evanw/esbuild/internal/linker.Link(0xc00023f400, 0x0, {0xc0005926e0, 0xc0004cc468, 0xc0000a8108, 0xc000098040, 0x6, 0xc0000a2360}, {0xab5770, 0xc0000a2540}, ...)
+	github.com/evanw/esbuild/internal/linker/linker.go:253 +0x465 fp=0xc0000eb948 sp=0xc0000eb4a0 pc=0x867ee5
+github.com/evanw/esbuild/internal/bundler.(*Bundle).Compile(0xc000080400, {0xc0000d4000, 0xc0000a80f0, 0xc0000a8108, 0xc000098040, 0x6, 0xc0000a2360}, 0x0, 0x0, 0xa05b10)
+	github.com/evanw/esbuild/internal/bundler/bundler.go:2849 +0x936 fp=0xc0000ec0c8 sp=0xc0000eb948 pc=0x81ec56
+github.com/evanw/esbuild/pkg/api.transformImpl({_, _}, {0x0, 0x0, 0x0, 0xc0000a2300, 0x3, {0x0, 0x0}, 0x0, ...})
+	github.com/evanw/esbuild/pkg/api/api_impl.go:1763 +0x1445 fp=0xc0000ed8c0 sp=0xc0000ec0c8 pc=0x8ba705
+github.com/evanw/esbuild/pkg/api.Transform(...)
+	github.com/evanw/esbuild/pkg/api/api.go:465
+main.(*serviceType).handleTransformRequest(0xc000176060?, 0x1?, 0xc00019b230?)
+	github.com/evanw/esbuild/cmd/esbuild/service.go:1167 +0x358 fp=0xc0000edf78 sp=0xc0000ed8c0 pc=0x8f8838
+main.(*serviceType).handleIncomingPacket.func3()
+	github.com/evanw/esbuild/cmd/esbuild/service.go:242 +0x68 fp=0xc0000edfe0 sp=0xc0000edf78 pc=0x8f25a8
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc0000edfe8 sp=0xc0000edfe0 pc=0x469e41
+created by main.(*serviceType).handleIncomingPacket
+	github.com/evanw/esbuild/cmd/esbuild/service.go:240 +0x16ec
+
+goroutine 10 [GC worker (idle)]:
+runtime.gopark(0xcbadc31da4?, 0x0?, 0x0?, 0x0?, 0x0?)
+	runtime/proc.go:381 +0xd6 fp=0xc000052f50 sp=0xc000052f30 pc=0x438536
+runtime.gcBgMarkWorker()
+	runtime/mgc.go:1275 +0xf1 fp=0xc000052fe0 sp=0xc000052f50 pc=0x41a7f1
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc000052fe8 sp=0xc000052fe0 pc=0x469e41
+created by runtime.gcBgMarkStartWorkers
+	runtime/mgc.go:1199 +0x25
+
+goroutine 45 [GC worker (idle)]:
+runtime.gopark(0xcbadac01f3?, 0x1?, 0x28?, 0x3d?, 0xc0003b02e3?)
+	runtime/proc.go:381 +0xd6 fp=0xc0003d8f50 sp=0xc0003d8f30 pc=0x438536
+runtime.gcBgMarkWorker()
+	runtime/mgc.go:1275 +0xf1 fp=0xc0003d8fe0 sp=0xc0003d8f50 pc=0x41a7f1
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc0003d8fe8 sp=0xc0003d8fe0 pc=0x469e41
+created by runtime.gcBgMarkStartWorkers
+	runtime/mgc.go:1199 +0x25
+
+goroutine 26 [GC worker (idle)]:
+runtime.gopark(0xa05f10?, 0xc0003a0b40?, 0x1a?, 0x14?, 0x0?)
+	runtime/proc.go:381 +0xd6 fp=0xc0003d5f50 sp=0xc0003d5f30 pc=0x438536
+runtime.gcBgMarkWorker()
+	runtime/mgc.go:1275 +0xf1 fp=0xc0003d5fe0 sp=0xc0003d5f50 pc=0x41a7f1
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc0003d5fe8 sp=0xc0003d5fe0 pc=0x469e41
+created by runtime.gcBgMarkStartWorkers
+	runtime/mgc.go:1199 +0x25
+
+goroutine 46 [chan receive]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0xc0001034b0?)
+	runtime/proc.go:381 +0xd6 fp=0xc000103430 sp=0xc000103410 pc=0x438536
+runtime.chanrecv(0xc0001fe060, 0xc0001038c8, 0x1)
+	runtime/chan.go:583 +0x49d fp=0xc0001034c0 sp=0xc000103430 pc=0x4067bd
+runtime.chanrecv1(0x0?, 0x11?)
+	runtime/chan.go:442 +0x18 fp=0xc0001034e8 sp=0xc0001034c0 pc=0x4062b8
+github.com/evanw/esbuild/internal/bundler.(*scanner).scanAllDependencies(0xc0000e4d80)
+	github.com/evanw/esbuild/internal/bundler/bundler.go:2024 +0x239 fp=0xc000103a08 sp=0xc0001034e8 pc=0x815d59
+github.com/evanw/esbuild/internal/bundler.ScanBundle(_, {_, _, _, _, _, _}, {_, _}, 0xc000180240, ...)
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1371 +0xb36 fp=0xc0001040c8 sp=0xc000103a08 pc=0x80f396
+github.com/evanw/esbuild/pkg/api.transformImpl({_, _}, {0x0, 0x0, 0x0, 0xc00019b320, 0x3, {0x0, 0x0}, 0x0, ...})
+	github.com/evanw/esbuild/pkg/api/api_impl.go:1758 +0x1365 fp=0xc0001058c0 sp=0xc0001040c8 pc=0x8ba625
+github.com/evanw/esbuild/pkg/api.Transform(...)
+	github.com/evanw/esbuild/pkg/api/api.go:465
+main.(*serviceType).handleTransformRequest(0xc000176060?, 0x2?, 0xc000398cc0?)
+	github.com/evanw/esbuild/cmd/esbuild/service.go:1167 +0x358 fp=0xc000105f78 sp=0xc0001058c0 pc=0x8f8838
+main.(*serviceType).handleIncomingPacket.func3()
+	github.com/evanw/esbuild/cmd/esbuild/service.go:242 +0x68 fp=0xc000105fe0 sp=0xc000105f78 pc=0x8f25a8
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc000105fe8 sp=0xc000105fe0 pc=0x469e41
+created by main.(*serviceType).handleIncomingPacket
+	github.com/evanw/esbuild/cmd/esbuild/service.go:240 +0x16ec
+
+goroutine 47 [chan receive]:
+runtime.gopark(0x0?, 0x0?, 0x0?, 0x0?, 0xc00018f4b0?)
+	runtime/proc.go:381 +0xd6 fp=0xc00018f430 sp=0xc00018f410 pc=0x438536
+runtime.chanrecv(0xc0003bc000, 0xc00018f8c8, 0x1)
+	runtime/chan.go:583 +0x49d fp=0xc00018f4c0 sp=0xc00018f430 pc=0x4067bd
+runtime.chanrecv1(0x0?, 0x11?)
+	runtime/chan.go:442 +0x18 fp=0xc00018f4e8 sp=0xc00018f4c0 pc=0x4062b8
+github.com/evanw/esbuild/internal/bundler.(*scanner).scanAllDependencies(0xc000110d80)
+	github.com/evanw/esbuild/internal/bundler/bundler.go:2024 +0x239 fp=0xc00018fa08 sp=0xc00018f4e8 pc=0x815d59
+github.com/evanw/esbuild/internal/bundler.ScanBundle(_, {_, _, _, _, _, _}, {_, _}, 0xc0001800c0, ...)
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1371 +0xb36 fp=0xc0001900c8 sp=0xc00018fa08 pc=0x80f396
+github.com/evanw/esbuild/pkg/api.transformImpl({_, _}, {0x0, 0x0, 0x0, 0xc000398030, 0x3, {0x0, 0x0}, 0x0, ...})
+	github.com/evanw/esbuild/pkg/api/api_impl.go:1758 +0x1365 fp=0xc0001918c0 sp=0xc0001900c8 pc=0x8ba625
+github.com/evanw/esbuild/pkg/api.Transform(...)
+	github.com/evanw/esbuild/pkg/api/api.go:465
+main.(*serviceType).handleTransformRequest(0xc000176060?, 0x3?, 0xc000398d20?)
+	github.com/evanw/esbuild/cmd/esbuild/service.go:1167 +0x358 fp=0xc000191f78 sp=0xc0001918c0 pc=0x8f8838
+main.(*serviceType).handleIncomingPacket.func3()
+	github.com/evanw/esbuild/cmd/esbuild/service.go:242 +0x68 fp=0xc000191fe0 sp=0xc000191f78 pc=0x8f25a8
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc000191fe8 sp=0xc000191fe0 pc=0x469e41
+created by main.(*serviceType).handleIncomingPacket
+	github.com/evanw/esbuild/cmd/esbuild/service.go:240 +0x16ec
+
+goroutine 28 [runnable]:
+github.com/evanw/esbuild/internal/graph.CloneLinkerGraph.func2()
+	github.com/evanw/esbuild/internal/graph/graph.go:153 fp=0xc0003d6fe0 sp=0xc0003d6fd8 pc=0x801860
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc0003d6fe8 sp=0xc0003d6fe0 pc=0x469e41
+created by github.com/evanw/esbuild/internal/graph.CloneLinkerGraph
+	github.com/evanw/esbuild/internal/graph/graph.go:153 +0x235
+
+goroutine 29 [runnable]:
+runtime.gcTrigger.test({0x0?, 0x0?, 0x0?})
+	runtime/mgc.go:547 +0xfb fp=0xc0000c5c20 sp=0xc0000c5c18 pc=0x418e7b
+runtime.mallocgc(0x1fe0, 0x9a40c0, 0x1)
+	runtime/malloc.go:1171 +0x768 fp=0xc0000c5c88 sp=0xc0000c5c20 pc=0x40d368
+runtime.growslice(0xd728e0, 0x0?, 0x0?, 0x0?, 0x9a40c0)
+	runtime/slice.go:274 +0x4e9 fp=0xc0000c5ce8 sp=0xc0000c5c88 pc=0x44db09
+github.com/evanw/esbuild/internal/graph.CloneLinkerGraph.func1(0x1)
+	github.com/evanw/esbuild/internal/graph/graph.go:167 +0x2bc fp=0xc0000c5fc8 sp=0xc0000c5ce8 pc=0x801b7c
+github.com/evanw/esbuild/internal/graph.CloneLinkerGraph.func2()
+	github.com/evanw/esbuild/internal/graph/graph.go:253 +0x29 fp=0xc0000c5fe0 sp=0xc0000c5fc8 pc=0x801889
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc0000c5fe8 sp=0xc0000c5fe0 pc=0x469e41
+created by github.com/evanw/esbuild/internal/graph.CloneLinkerGraph
+	github.com/evanw/esbuild/internal/graph/graph.go:153 +0x235
+
+goroutine 48 [runnable]:
+github.com/evanw/esbuild/internal/bundler.ScanBundle.func2()
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1300 fp=0xc0003d9fe0 sp=0xc0003d9fd8 pc=0x80fae0
+runtime.goexit()
+	runtime/asm_amd64.s:1598 +0x1 fp=0xc0003d9fe8 sp=0xc0003d9fe0 pc=0x469e41
+created by github.com/evanw/esbuild/internal/bundler.ScanBundle
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1300 +0x93b
+ ❯ tests/authored-flow.test.ts (0 test)
+ ❯ tests/authored-flow-lifecycle-executor.test.ts (0 test)
+ ❯ tests/cli.test.ts (0 test)
+ ❯ tests/local-dev-ux.test.ts (0 test)
+ ❯ tests/local-agent-live.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-flow-lifecycle-executor.test.ts [ tests/authored-flow-lifecycle-executor.test.ts ]
+ FAIL  tests/authored-flow.test.ts [ tests/authored-flow.test.ts ]
+ FAIL  tests/cli.test.ts [ tests/cli.test.ts ]
+Error: The service was stopped
+  Plugin: vite:esbuild
+  File: /work/packages/sdk/tests/authored-flow-lifecycle-executor.test.ts
+ ❯ node_modules/esbuild/lib/main.js:737:38
+ ❯ responseCallbacks.<computed> node_modules/esbuild/lib/main.js:622:9
+ ❯ Socket.afterClose node_modules/esbuild/lib/main.js:613:28
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  tests/local-agent-live.test.ts [ tests/local-agent-live.test.ts ]
+ FAIL  tests/local-dev-ux.test.ts [ tests/local-dev-ux.test.ts ]
+Error: The service is no longer running
+  Plugin: vite:esbuild
+  File: /work/packages/sdk/tests/local-agent-live.test.ts
+ ❯ node_modules/esbuild/lib/main.js:737:38
+ ❯ sendRequest node_modules/esbuild/lib/main.js:618:36
+ ❯ start node_modules/esbuild/lib/main.js:736:9
+ ❯ Object.transform2 [as transform] node_modules/esbuild/lib/main.js:797:5
+ ❯ node_modules/esbuild/lib/main.js:2040:77
+ ❯ Object.transform node_modules/esbuild/lib/main.js:2040:36
+ ❯ transform node_modules/esbuild/lib/main.js:1875:62
+ ❯ transformWithEsbuild node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:19232:26
+ ❯ TransformPluginContext.transform node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:19297:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ Test Files  5 failed (5)
+      Tests  no tests
+   Start at  13:31:27
+   Duration  7.95s (transform 609ms, setup 0ms, collect 0ms, tests 0ms, environment 30ms, prepare 8.96s)

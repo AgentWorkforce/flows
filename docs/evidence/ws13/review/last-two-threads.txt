@@ -1,0 +1,31 @@
+$ node node_modules/vitest/vitest.mjs run tests/worker-lease.test.ts --reporter=verbose --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/packages/sdk
+
+ ✓ tests/worker-lease.test.ts > worker lease ownership > renews the same attempt through a long subprocess and drains before completing once
+ ✓ tests/worker-lease.test.ts > worker lease ownership > aborts execution and never completes after a rejected heartbeat
+ ✓ tests/worker-lease.test.ts > worker lease ownership > expires locally when a renewal response never arrives, without stranding close
+ ✓ tests/worker-lease.test.ts > worker lease ownership > does not spawn a process for an already-expired dispatch
+ ✓ tests/worker-lease.test.ts > refuses completion past the deadline even before the expiry timer runs
+ ✓ tests/worker-lease.test.ts > does not revive ownership when the initial heartbeat response is handled late
+ ✓ tests/worker-lease.test.ts > aborts the CLI when a later heartbeat response would revive an expired lease
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  22:32:44
+   Duration  187ms (transform 49ms, setup 0ms, collect 47ms, tests 6ms, environment 0ms, prepare 38ms)
+
+EXIT_CODE=0
+$ python3 docs/evidence/ws13/review/verify-helpers.py
+PASS: EOF UTF-8 replacement is captured in cast and text; text trims trailing spaces; cast preserves them; embedded VT/FF remain on the same line.
+PASS: cold-clone.sh without registry refuses with usage: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/docs/evidence/ws13/cold-clone.sh: line 3: 1: Usage: cold-clone.sh CANDIDATE_REGISTRY_URL
+PASS: cold-start.sh without registry refuses with usage: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/docs/evidence/ws13/cold-start.sh: line 4: 1: Usage: cold-start.sh CANDIDATE_REGISTRY_URL
+PASS: older Node refuses before any gallery command: Node 22.18+ is required on PATH; found 20.19.0 at /var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/ws13-helper-check-sc5m2_yh/node.
+PASS: existing gallery capture preserved; overwrite refused.
+EXIT_CODE=0
+$ npm --prefix packages/sdk run build
+
+> @relayflows/sdk@2.0.8 build
+> tsc && node scripts/make-cli-executable.mjs
+
+EXIT_CODE=0

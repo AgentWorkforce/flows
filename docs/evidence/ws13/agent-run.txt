@@ -1,0 +1,16 @@
+$ cd /tmp/ws13-consumer/hello
+$ npx --no-install flows run hello.flow.ts --local-agent --input '{}'
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 1.02s completionReason: success
+Hello from Relayflows
+○ agent-2 (agent) [agent: preparing] 0.00s
+WAITING [worker_lease] Run "01M20JY3TM2STS5QE7HTM5QKKW" step "agent-2" (agent) is running under a worker lease until 1788873770124.
+↻ agent-2 (agent) [agent: running] 12.51s
+✓ agent-2 (agent) [agent: completed] 28.95s completionReason: success
+Hello! How can I help you today?
+
+RUN 01M20JYM4T9FNGNFX4NQCK34JK completed (3 steps) completionReason: success
+
+EXIT_CODE=0
+ELAPSED_SECONDS=132.637
+TIMED_OUT=False

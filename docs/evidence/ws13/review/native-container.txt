@@ -1,0 +1,39 @@
+$ docker run --rm --platform linux/arm64 -v /tmp/ws13-native-check:/sdk -w /sdk node:22-trixie-slim sh -c 'node -p process.arch; npm ci --ignore-scripts --no-audit --no-fund && node node_modules/vitest/vitest.mjs run tests/local-dev-ux.test.ts tests/worker-lease.test.ts tests/worker-platform.test.ts tests/cli-progress-wait.test.ts tests/direct-run-failure.test.ts --reporter=verbose --maxWorkers=1 --minWorkers=1'
+arm64
+
+added 58 packages in 3s
+npm notice
+npm notice New major version of npm available! 10.9.8 -> 12.0.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+npm notice To update run: npm install -g npm@12.0.2
+npm notice
+
+ RUN  v2.1.9 /sdk
+
+ ✓ tests/worker-lease.test.ts > worker lease ownership > renews the same attempt through a long subprocess and drains before completing once
+ ✓ tests/worker-lease.test.ts > worker lease ownership > aborts execution and never completes after a rejected heartbeat
+ ✓ tests/worker-lease.test.ts > worker lease ownership > expires locally when a renewal response never arrives, without stranding close
+ ✓ tests/worker-lease.test.ts > worker lease ownership > does not spawn a process for an already-expired dispatch
+ ✓ tests/worker-lease.test.ts > refuses completion past the deadline even before the expiry timer runs
+ ✓ tests/local-dev-ux.test.ts > SDK project scaffolder > emits an agent starter, local-worker command and the chosen CLI
+ ✓ tests/local-dev-ux.test.ts > SDK project scaffolder > offers a credential-free deterministic starter
+ ✓ tests/local-dev-ux.test.ts > SDK project scaffolder > refuses an existing project without changing any files
+ ✓ tests/local-dev-ux.test.ts > SDK project scaffolder > validates names and template before writing
+ ✓ tests/local-dev-ux.test.ts > progress is an observation of execution > does not report completion before the journal operation resolves
+ ✓ tests/local-dev-ux.test.ts > progress is an observation of execution > propagates a journal failure without inventing a successful completion
+ ✓ tests/local-dev-ux.test.ts > progress is an observation of execution > renders time and strips terminal controls from step names
+ ✓ tests/local-dev-ux.test.ts > observer exceptions neither fail committed work nor mask the journal error
+ ✓ tests/direct-run-failure.test.ts > preserves authored agent_cli_unresolved classification despite a worker failure
+ ✓ tests/direct-run-failure.test.ts > preserves authored agent_parked classification despite a worker failure
+ ✓ tests/direct-run-failure.test.ts > preserves authored step_failed classification despite a worker failure
+ ✓ tests/direct-run-failure.test.ts > uses the worker cause when the authored executor only saw a generic disconnect
+ ✓ tests/cli-progress-wait.test.ts > run starts the wait clock on its first observed lease
+ ✓ tests/cli-progress-wait.test.ts > resume starts the wait clock on its first observed lease
+ ✓ tests/worker-platform.test.ts > fails closed before spawning a lease-bound process on Windows
+
+ Test Files  5 passed (5)
+      Tests  20 passed (20)
+   Start at  20:13:32
+   Duration  2.43s (transform 499ms, setup 0ms, collect 1.28s, tests 41ms, environment 1ms, prepare 514ms)
+
+EXIT_CODE=0

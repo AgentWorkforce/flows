@@ -1,0 +1,17 @@
+$ cd packages/sdk && node node_modules/vitest/vitest.mjs run tests/local-dev-ux.test.ts tests/cli.test.ts tests/authored-flow.test.ts tests/authored-flow-lifecycle-executor.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/packages/sdk
+
+ ✓ tests/local-dev-ux.test.ts (7 tests) 72ms
+ ✓ tests/authored-flow-lifecycle-executor.test.ts (27 tests) 567ms
+ ✓ tests/authored-flow.test.ts (24 tests) 672ms
+ ✓ tests/cli.test.ts (63 tests) 4134ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 480ms
+   ✓ flows check CLI > uses Codex login status and reports a rejected model as unavailable, not unauthenticated 308ms
+   ✓ flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 540ms
+   ✓ flows check CLI > refuses cli-unauthenticated.flow.yaml with typed kind cli_unauthenticated and exit 2 396ms
+
+ Test Files  4 passed (4)
+      Tests  121 passed (121)
+   Start at  15:07:12
+   Duration  9.89s (transform 1.48s, setup 0ms, collect 12.60s, tests 5.45s, environment 4ms, prepare 2.63s)

@@ -1,0 +1,14 @@
+$ cd packages/sdk
+$ RELAYFLOWD_BIN=/tmp/ws13-consumer/hello/node_modules/@relayflows/runtime-darwin-arm64/bin/relayflowd node node_modules/vitest/vitest.mjs run tests/local-agent-live.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/packages/sdk
+
+ ✓ tests/local-agent-live.test.ts (4 tests) 42350ms
+   ✓ built CLI local agent against a real daemon > dispatches through the wrapper and keeps --json stdout report-shaped 31085ms
+   ✓ built CLI local agent against a real daemon > renders actual agent completion in text output 9612ms
+   ✓ built CLI local agent against a real daemon > returns a failed run when the agent process fails 946ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  16:22:23
+   Duration  60.26s (transform 1.86s, setup 0ms, collect 2.35s, tests 42.35s, environment 1ms, prepare 1.99s)

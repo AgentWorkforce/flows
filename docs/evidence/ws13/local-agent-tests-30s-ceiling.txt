@@ -1,0 +1,39 @@
+$ cd packages/sdk
+$ RELAYFLOWD_BIN=/tmp/ws13-consumer/hello/node_modules/@relayflows/runtime-darwin-arm64/bin/relayflowd node node_modules/vitest/vitest.mjs run tests/local-agent-live.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws13-flows-local/packages/sdk
+
+ ❯ tests/local-agent-live.test.ts (4 tests | 1 failed) 74821ms
+   × built CLI local agent against a real daemon > dispatches through the wrapper and keeps --json stdout report-shaped 30594ms
+     → WAITING [worker_lease] Run "01M20NWN9DGY8FEX5CCT77CBRW" step "agent-1" (agent) is running under a worker lease until 1788876869141.
+: expected null to be +0 // Object.is equality
+   ✓ built CLI local agent against a real daemon > renders actual agent completion in text output 19438ms
+   ✓ built CLI local agent against a real daemon > returns a failed run when the agent process fails 16028ms
+   ✓ built CLI local agent against a real daemon > refuses a workspace it cannot pin before invoking the agent 8649ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/local-agent-live.test.ts > built CLI local agent against a real daemon > dispatches through the wrapper and keeps --json stdout report-shaped
+AssertionError: WAITING [worker_lease] Run "01M20NWN9DGY8FEX5CCT77CBRW" step "agent-1" (agent) is running under a worker lease until 1788876869141.
+: expected null to be +0 // Object.is equality
+
+- Expected:
+0
+
++ Received:
+null
+
+ ❯ tests/local-agent-live.test.ts:54:58
+     52|     const f = fixture();
+     53|     const result = f.invoke('--json');
+     54|     expect(result.status, result.stderr + result.stdout).toBe(0);
+       |                                                          ^
+     55|     expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, status…
+     56|     expect(readFileSync(f.marker, 'utf8')).toBe('hello');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  16:12:04
+   Duration  156.08s (transform 27.33s, setup 0ms, collect 26.50s, tests 74.82s, environment 339ms, prepare 13.46s)

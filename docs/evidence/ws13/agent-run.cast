@@ -1,0 +1,10 @@
+{"version": 2, "width": 120, "height": 30, "timestamp": 1788873624, "title": "Relayflows local development", "command": "npx --no-install flows run hello.flow.ts --local-agent --input '{}'", "env": {"TERM": "xterm-256color"}}
+[101.678796, "o", "\u25cb run-1 (deterministic) 0.00s\r\n"]
+[102.701875, "o", "\u2713 run-1 (deterministic) 1.02s completionReason: success\r\n"]
+[102.705587, "o", "Hello from Relayflows\r\n"]
+[102.706328, "o", "\u25cb agent-2 (agent) [agent: preparing] 0.00s\r\n"]
+[115.218552, "o", "WAITING [worker_lease] Run \"01M20JY3TM2STS5QE7HTM5QKKW\" step \"agent-2\" (agent) is running under a worker lease until 1788873770124.\r\n\u21bb agent-2 (agent) [agent: running] 12.51s\r\n"]
+[131.671616, "o", "\u2713 agent-2 (agent) [agent: completed] 28.95s completionReason: success\r\n"]
+[131.702003, "o", "Hello! How can I help you today?\r\n\r\n"]
+[131.974035, "o", "RUN 01M20JYM4T9FNGNFX4NQCK34JK completed (3 steps) completionReason: success\r\n"]
+[132.636834, "o", "\r\nEXIT_CODE=0\r\nELAPSED_SECONDS=132.637\r\nTIMED_OUT=False\r\n"]

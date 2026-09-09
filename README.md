@@ -1,72 +1,74 @@
 # relay(Flows)
 
-**Step functions for coding agent workflows**
+**Turn a coding-agent task into steps you can inspect and verify.**
 
-Agent Relay is building infrastructure for autonomous agents. A relayflow is a readable step function
-that runs on the relay and produces a verifiable artifact or result that can be paused
-for human input and resumed from any step wherever needed. It is an agentic pipeline
-that can load in any model + harness along with deterministic gates to generate
-reliable results.
-
+A flow combines shell commands and coding agents with a journal that records
+what each step did and why it completed. Start with a small local flow; add
+verification as the task grows.
 
 ```ts
-import { flow } from "@relayflows/surface";
+import { flow } from '@relayflows/surface';
 
-export default flow("fix-failing-tests", async (f) => {
-  const result = await f
-    .run("npm test 2>&1; echo EXIT:$?")
-    .gate((out) => !out.includes("EXIT:0"), "tests are already green, nothing to fix");
-
-  const fix = await f
-    .agent("fixer", {
-      task: `The test suite is failing. Diagnose and fix it:\n${result}`,
-      workspace: "src/**: readwrite",
-    })
-    .gate((r) => r.artifacts.length > 0, "the agent must actually change something");
-
-  f.done("success");
+export default flow('hello', async (f) => {
+  const greeting = await f.run('echo "Hello from Relayflows"');
+  console.log(greeting.trim());
+  const answer = await f.agent('greeter', {
+    task: 'Reply with one short hello sentence. Do not use tools or modify files.',
+  });
+  console.log(answer.summary);
+  f.done('success');
 });
 ```
 
-# Use Cases
+The new scaffolder in this branch creates the flow, `flows.json`, and an npm
+project, then installs its dependencies:
 
-Flows can be run locally or in production on our hosted cloud. We're built entire 
-applications using flows that are stacked to run in a sequence with review gates that
-can run autonomously over days and weeks. Every agent session is observable and replayable.
-
-- Cloud pipeline to use agents to generate a social media post. The pipeline coordinates agents who do research, verify the post, check for authenticity, generate graphics, and gate on a human approval — [`examples/social-post-pipeline/`](examples/social-post-pipeline/)
-- Pull request review pipeline with different agents looking at the pull request from different angles (security, optimization etc) and agents communicate when needed to reach consensus — [`examples/pr-review-pipeline/`](examples/pr-review-pipeline/)
-- Dependency upgrade bot: deterministic check flags a dependency out of date which fires an agent who does the upgrade in a sandbox. This upgrade is gated on another agent verifying the entire application with computer use in another sandbox. If completely verified a pull request is opened up — [`examples/dependency-upgrade-bot/`](examples/dependency-upgrade-bot/)
-
-
-# Get Started
-
-Install the CLI, then the authoring package in your own project:
 ```sh
-npm install -g relayflows
-mkdir my-flow && cd my-flow && npm install @relayflows/surface
+npx create-flow@latest my-flow
+cd my-flow
+npm start
 ```
 
-Write a flow — save this as `hello.flow.ts`:
+**Release status:** `create-flow` is not published yet. The commands above are
+the intended released entry point; use the [candidate artifact procedure](docs/evidence/ws13/README.md)
+to try this branch. The [clone + deterministic starter measurement](docs/evidence/ws13/cold-clone-direct.txt)
+completed in **49.975 seconds** in a fresh Linux container with Node and Git
+provisioned before the timer. The [real Claude command](docs/evidence/ws13/agent-run.txt)
+completed in **132.637 seconds** on an authenticated development host; its
+agent step took 28.95 seconds, including the provider round trip. The total
+also includes CLI startup and preflight, whose costs were not separately
+measured.
+
+The agent starter requires Node 22.18+ and an installed, authenticated Claude
+CLI. Use `--cli codex` to select Codex, or `--template deterministic` for a
+starter that needs no model credentials. The generated command is
+`flows run my-flow.flow.ts --local-agent --input '{}'`.
+
+`--local-agent` attaches the existing SDK agent worker to the local daemon.
+It accepts stream-only agent steps and runs the chosen CLI with its existing
+local access. Workspace revision pins and isolation require a worker that
+provides those capabilities. Authored TypeScript bodies are not yet durably
+resumable as a whole; each lowered step has its own journal run.
+
+For SDK callers, the CLI is optional:
+
 ```ts
-import { flow } from "@relayflows/surface";
+import { createFlow } from '@relayflows/sdk/create-flow';
+import { renderProgress } from '@relayflows/sdk/progress';
 
-export default flow("hello", async (f) => {
-  await f.run('echo "hello from a relayflow"');
-  f.done("success");
-});
+await createFlow('./my-flow', { cli: 'claude' });
+// renderProgress(events) returns terminal lines; callers own event delivery.
 ```
 
-Run it:
-```sh
-flows run hello.flow.ts --input '{}'
-```
+See the [example gallery and individual run results](examples/README.md).
+[Watch the captured agent run](docs/evidence/ws13/agent-run.cast)
+([text transcript](docs/evidence/ws13/agent-run.txt)).
 
-That's the whole loop — `flows run` spins up the local kernel itself on first use, no separate daemon step. You should see a completed run report.
-
-`f.run` and `f.agent` both actually dispatch today. `f.agent` runs a real coding-agent CLI the same way a declarative `type: agent` step does — it needs a `flows.json` in your project declaring which CLI to use (see `docs/SURFACE.md` §5 and `packages/sdk/src/cli/check.ts`'s `readProjectConfig`); without one, `flows run` refuses with a clear `agent_cli_unresolved` diagnostic rather than hanging. `f.llm`, `f.human`, `f.dispatch`, and `f.cloud` are still `docs/SURFACE.md`'s design surface, not yet runnable — see [`examples/`](examples/) for what the full shape looks like, and each example's own README for exactly what runs today versus what's still landing.
+The gallery reports each requested example as PASS or BLOCKED, with its
+command, output, timing, and any capability or provider requirement still missing.
 
 Give your agent a skill to write a flow:
+
 ```sh
 npx skills add https://github.com/agentworkforce/skills --skill writing-relayflows
 ```
