@@ -5849,3 +5849,38 @@ Rebase completed clean (ahead=1, behind=0), semantics verified after the rebase
 rather than assumed, pushed with `--force-with-lease`, and content asserted on
 the remote. **#3459 went DIRTY -> UNSTABLE**, so the conflict is gone and CI is
 simply re-running.
+
+### 2026-09-09 — the gate rejected my gate fix, and it was right
+
+Drain: 0 pending of 2003. Disk 5.8Gi.
+
+flows#248 is the PR that fixes the verdict-marker rule, and two lenses failed it.
+Read the maintainability blocker. **M1 is correct and it is my error:**
+
+I strengthened the *instruction* to require the marker as the transcript's last
+line, and left the step's own verification as `output_contains: "REVIEW_"`. That
+matches a marker **anywhere**, and inspects the agent's **output** rather than
+the transcript file the contract is about. So a lens can pass its own step and
+still fail at aggregation — the check reads stronger than it is.
+
+I could not close the gap declaratively, and said so rather than inventing a
+fix. The kernel accepts only `exit_code`, `output_contains` and `json_schema`
+(`packages/sdk/src/compile.ts:584`); none can express "the last non-empty line of
+this file equals this string". Each verification block now states that it is a
+**liveness check only**, names the aggregate step as the binding one, and
+explains why a stricter declarative check is unavailable.
+
+M2 asked for literal evidence, which I had and had not cited — added the
+observed lines from #240 at `3564fcb`.
+
+M3 (prompt text duplicated three times) and M4 (coupling to the script name) I
+deliberately did **not** fix: the duplication is inherent to three independent
+agent prompts, and naming the script is what makes the rule checkable rather than
+arbitrary. Both deserve a follow-up that restructures the prompts, not a change
+smuggled into a fix for a different bug.
+
+Committed `066e2de`, three annotations asserted on the remote.
+
+Worth stating: the swarm has now caught a real defect in the change that fixes
+the swarm. I have spent several ticks calling this gate obstructive; it has been
+more careful than I have.
