@@ -448,23 +448,32 @@ fn parked_outcome(state: &RunState, status: RunStatus) -> RunOutcome {
 ///
 /// Silently substituting `None` for the second dispatches the step as though it
 /// had never been woken — the agent then runs without the event that justified
-/// waking it, and nothing in the journal says so. Rule 10a classifies that as a
-/// *transient* failure: the segment is unreadable right now (I/O, lock
-/// contention, a tail still being written), so the attempt fails and is retried
-/// under the step's ordinary budget rather than proceeding on a fabricated
-/// absence.
+/// waking it, and nothing in the journal says so.
 ///
-/// A clean scan that finds no `subscription.matched` entry still returns
-/// `Ok(None)`: that is rule 10's legitimate "never woken" case, and it is the
-/// only way `None` may now be produced.
+/// **What this change actually does, precisely.** The error propagates out of
+/// the dispatch closure into the existing `Err` arm, which releases the dispatch
+/// reservation and returns from `drive`. That is an abort *before* dispatch, not
+/// a recorded attempt failure: no `completion_actions` run, nothing is journaled
+/// for the attempt, and no retry is scheduled here. Recovery arrives later by
+/// the ordinary route — the lease expires and a subsequent drive abandons the
+/// attempt via `abandonment_actions(.., Crashed)`.
 ///
-/// Rule 10a's *permanent* branch — the run is open on a wake but the carry-
-/// forward never happened — is deliberately not implemented here. Detecting it
-/// requires the epoch-summary carry-forward of rule 9a, which does not exist
-/// yet (deviation D2). Until then a run whose match entry has been archived is
-/// indistinguishable from one that was never woken, so this reports the
+/// That is deliberately narrower than the eventual contract. The intended
+/// end state classifies the failure and journals it (transient → retry the
+/// attempt under its budget; permanent → park `needs_human`), and none of that
+/// classification exists yet. This function only stops the step from silently
+/// running as un-woken; it does not implement the classification.
+///
+/// A clean scan that finds no `subscription.matched` entry returns `Ok(None)` —
+/// the legitimate "never woken" case. Note this is *not* the only path to
+/// `None`: an entry present with no `wake_context` key also yields `None`, which
+/// is the same shape as never-woken and cannot currently be told apart.
+///
+/// The "carry-forward missing" case is likewise not detectable here: it needs an
+/// epoch-summary carry-forward that does not exist, so a run whose match entry
+/// is unreachable is indistinguishable from one never woken. This reports the
 /// conservative `Ok(None)` rather than inventing a distinction the journal
-/// cannot yet support.
+/// cannot support.
 fn resolve_wake_context(journal: &SqliteJournal) -> Result<Option<serde_json::Value>> {
     let entries = journal
         .scan_from(1, usize::MAX)
