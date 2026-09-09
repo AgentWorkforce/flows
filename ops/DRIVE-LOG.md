@@ -7361,3 +7361,48 @@ and it would have had me "re-apply" a change that had already landed.
 **Not requesting a merge.** Neither lens has reviewed the current head: kjgbot
 reviewed `924e8a81`, the cloud run returned MISSING, and my last two commits are
 unreviewed.
+
+### 2026-09-09 — D1 implemented: flows#252, the contract's first fix in code
+
+Disk 6.9Gi. Drain: 1 pending, 3 min old, normal window. Still no relayfile
+login, so the snapshot chain stays blocked.
+
+**Turned the contract into code.** #251 specified three binding deviations; this
+closes the first.
+
+The resume path resolved `wake_context` with `journal.scan_from(..).ok()`, which
+collapses "never woken" and "journal unreadable" into the same `None`. On the
+second, the step dispatches as though it had never been woken — the agent runs
+without the event that justified waking it, and **nothing in the journal records
+that anything went wrong**. It looks like a normal unwoken run forever after.
+
+`resolve_wake_context()` now propagates the scan error. The enclosing closure
+already returns `Result`, so a scan failure reaching the caller is
+**compiler-enforced**, not asserted by me. A clean scan finding no
+`subscription.matched` still returns `Ok(None)` — rule 10's legitimate case, and
+now the only way `None` is produced.
+
+**Scoped deliberately.** Rule 10a's *permanent* branch is not implemented, and I
+said so at the function and in the PR: distinguishing "open on a wake, carry-
+forward missing" from "never woken" requires rule 9a's epoch-summary carry-
+forward, which does not exist (D2). Implementing the distinction now would mean
+inventing a signal the journal cannot support. D2 and D3 stay open; gate 2 stays
+AMBER.
+
+```
+cargo check -p relayflowd   clean
+cargo test  -p relayflowd   113 passed, 0 failed
+```
+
+**Stated the limit of that evidence rather than letting it read as proof.** 113
+green shows I broke nothing; it does **not** show D1 is fixed. No test exercises
+a journal scan failure and I did not add one — faulting the scan needs an
+injection seam the journal does not expose. What is verified is the type change.
+A real regression test wants that seam and is larger than this change.
+
+Also flagged in the PR that the review swarm is not currently a trustworthy
+signoff, given it returned `history: PASS` on the #251 head where another run
+correctly returned FAILED.
+
+Worth noting the kernel suite only ran because I ran it: repo CI builds the
+kernel but does not run it, so those 113 are the only real signal here.
