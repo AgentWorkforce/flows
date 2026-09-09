@@ -6909,3 +6909,48 @@ It was my own `flows-drive-cloud` workflow and could not succeed.
 Net: the prod picture is now three distinct faults — #3493 Relaycast 503
 back-pressure (50% of failures), #3466 cursor_expired loop (wedges + leaks), and
 queue-claim starvation which may be downstream of the first.
+
+### 2026-09-09 — #3466 is a promotion, not a rebuild — but the artifact is unproven
+
+Drain clear: 0 pending of 1911 (`cancelled` 48 -> 49 is my cancel from last
+tick). Disk 7.6Gi. Three lanes alive. Items 2-4 blocked or stale.
+
+Went after the "cheapest win" I named last tick and found it is not as cheap as
+I said. Two corrections to my own reasoning.
+
+**1. The pins are snapshot NAMES, not version strings.** I assumed bumping
+`v0.10.55` -> `v0.10.56` was a text edit. It is not: these name a built artifact
+that must exist. Five sites on `origin/main`:
+
+```
+SNAPSHOT.md:19,21   infra/sandbox-snapshot.ts:13,27   infra/web-worker.ts:338,343
+packages/core/src/config/snapshot.ts:9,10   packages/web/wrangler.production.toml:142,143
+```
+
+**2. Sharper mechanism for why the SDK bump does not help.** Last tick I noted my
+sandboxes run SDK 11.10.4 while the pins say 11.10.3. The logs say why: every
+step sandbox is upgraded *in place* at runtime —
+`does not have the exact Agent Relay 11.10.4 broker; upgrading`. So the runtime
+upgrade covers `@agent-relay/sdk` and **not** `relayfile-mount`, which stays
+baked at whatever the snapshot shipped. The pin is load-bearing specifically for
+the mount binary, which is why no SDK release can fix it.
+
+**The good news, from #3495:** a v0.10.56 snapshot already exists and is ACTIVE
+(`...sdk-11.10.4-relayfile-v0.10.56-...-34320569038-1`). So the remaining work is
+**promotion, not a rebuild**.
+
+**Why I did not open the promotion PR.** #3495 says that snapshot was built green
+**without the convergence smoke ever running** — all `RELAYFILE_SMOKE_*` env was
+empty, both jobs printed "Skipping relayfile mount convergence probe" and passed.
+The artifact is unproven by the gate that exists to prove it. And
+`wrangler.production.toml` is one of the pin sites, so merging a promotion
+push-deploys that unproven image to prod — while prod already carries three
+faults. Not a change to propose unattended.
+
+Right ordering, posted to #3466: fix #3495 so the smoke cannot silently skip,
+re-run the rebuild so v0.10.56 is genuinely qualified, *then* promote. Promotion
+is the easy part and belongs last.
+
+This is the third time today that "the obvious cheap fix" turned out to rest on
+something unverified. Worth the pattern: check what the gate actually ran before
+trusting a green artifact.
