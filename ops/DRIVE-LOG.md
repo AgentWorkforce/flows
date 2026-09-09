@@ -7598,3 +7598,41 @@ single read and treating it as a finding.
 
 `cargo check` clean after both changes. **#252 should land after #251** — flagged
 as a sequencing decision rather than deciding it myself.
+
+### 2026-09-09 — wrote the rule-9 test, found a better one already existed, reverted mine
+
+Disk 5.8Gi. Drain clean: 0 pending of 1954. Completions still 423.
+
+My stated next step was the rule-9 enforcement test. I wrote one — re-open the
+journal after a simulated restart and assert the `wake_context` is identical —
+and it passed, 4 tests green.
+
+**Then I noticed a test in that run I had not written:**
+`a_resumed_run_dispatches_the_original_wake_context`. It already exists in
+`event_wake.rs`, and it is strictly better than mine. It installs a
+`CapturingDispatcher` that records `dispatch.wake_context` per dispatch, holds
+the step open with `NoWorker` so a resume dispatches again, and asserts the
+resumed dispatch carries the original context — **the full dispatch path**. Its
+doc comment even names the regression: *"A refactor that rebuilt the context at
+dispatch time would pass every one of them."*
+
+Mine read the same append-only entry twice, which is close to tautological, and
+its own scope note conceded it would not catch a dispatcher that resolved
+correctly then dropped the value — exactly what the existing test does catch.
+
+**Reverted mine.** Landing redundant, weaker coverage is negative value: more
+surface to maintain and false confidence about what is verified. Asserted the
+revert (`git status` clean, my test absent, the existing one intact) rather than
+assuming it.
+
+**This narrows gate 2 again, in my favour and not.** Rule 9's behavioural half is
+already pinned, and rule 11(a) is substantially satisfied today — on a stub
+dispatcher rather than a real run. So the honest remaining work is:
+
+- **D1** — in flight as #252
+- **D2** — the carry-forward, a journal-format change
+- **rule 11's run-level bar** — the existing test uses a fake dispatcher
+
+Sixth time today I nearly asserted something without checking; this one I caught
+before pushing, by reading the test list instead of just the pass count. The
+4-test green would have looked like my test earning its place.
