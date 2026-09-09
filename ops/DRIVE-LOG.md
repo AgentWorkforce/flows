@@ -7549,3 +7549,52 @@ earlier certainty.
 
 **Gate 2's real remaining debt is now just D1 (open as #252) and D2** — and D2 is
 a journal-format change, since `EpochSummaryPayload` has no `wake_context` field.
+
+### 2026-09-09 — the history lens caught a false behavioral claim in #252. It was right.
+
+Disk 5.8Gi. Drain clean: 0 pending of 1949. Completions still 423.
+
+**#252's review FAILED on a blocker that was entirely mine.** My commit and
+docstring both said the scan failure means "the attempt fails and is retried
+under the step's ordinary budget." **The diff does not do that.** Verified in the
+code before touching anything (`drive.rs:222-231`):
+
+```rust
+Err(error) => {
+    if let Some(dispatcher) = &self.dispatcher {
+        dispatcher.release_dispatch_reservation(&state.run_id, &step.id, attempt);
+    }
+    return Err(error);
+}
+```
+
+It releases the reservation and returns from `drive()`. No `completion_actions`,
+nothing journaled for the attempt, no retry scheduled. Recovery arrives later by
+the ordinary route — lease expiry, then `abandonment_actions(.., Crashed)` on a
+subsequent drive. That is a retry, but not the one I described, and calling it a
+budgeted retry made the change sound like it implements a classification it does
+not.
+
+The lens made this immediate to confirm by capturing a literal `git show` of the
+disproving lines. Worth copying that habit.
+
+Also correct, and also mine:
+
+- **"the only way `None` may now be produced"** — false. An entry present with no
+  `wake_context` key also yields `None`, indistinguishable from never-woken.
+- **C1** — the docstring cited `RFC-0001 Appendix A.1`, `rule 10`, `D2`, none of
+  which exist on `main`; they live in the still-open #251.
+
+**Then I made the same mistake inside the reply.** I told the PR I had removed
+the citations. I had not — lines 441 and 446 still had them; I checked only after
+asserting it. Removed for real in `67ba719` and corrected on the thread rather
+than quietly fixing.
+
+**Tally for the day, stated plainly: five unverified assertions.** D2's masking
+reason, D3 entirely, the deviations header, #252's retry claim, and #252's
+citation claim. The review swarm caught two; I caught three, all by going to
+implement something. The common cause is writing a confident description from a
+single read and treating it as a finding.
+
+`cargo check` clean after both changes. **#252 should land after #251** — flagged
+as a sequencing decision rather than deciding it myself.
