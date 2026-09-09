@@ -8247,3 +8247,48 @@ Opened **cloud#3507**. Stated three things it does *not* fix: the underlying
 capacity pressure, the local flows runner (unauthenticated opencode, a different
 cause), and the other `workspace_busy` call sites — I only touched
 `mcp-args --register` because that is the one I have a failing run for.
+
+### 2026-09-10 — the ACL 429 site needs nothing; it validates #3507's approach
+
+Disk 5.5Gi. Drain: 1 pending, created 22:23, normal window. **cloud#3507** is
+clean except `Registered Tests (root Vitest)` still IN_PROGRESS — not green yet,
+so nothing to merge.
+
+Took the open question I had left on #3507: I listed the relayfile ACL 429s as
+another `workspace_busy` call site and said it was untouched. **Checked it, and
+it needs nothing** — it is already handled, and better than the path I fixed.
+
+`packages/web/lib/relay-workspaces.ts` special-cases 429 to inspect the *body*
+rather than classify from headers:
+
+```ts
+retryableWorkspaceBusy =
+  body.code === "workspace_busy" &&
+  (body.reason === undefined || body.reason === "write_admission_limit");
+```
+
+with `retryAfterSeconds` read as a structured field and honoured through
+`cappedRetryAfterMs`.
+
+**This validates #3507's approach and explains why the two differ.** Relaycast's
+429 body carries the interval as a **structured field**. The ACL path can read it
+structurally because it holds the HTTP response; `mcp-args --register` surfaces
+only the rendered message, which is why #3507 parses `retry after 60s` out of
+text. Same intent, different transport fidelity — not a preference on my part,
+and worth saying so on the PR rather than leaving it looking like a shortcut.
+
+Two things recorded there:
+
+1. If the broker ever surfaces the JSON body, #3507 should switch to reading
+   `retryAfterSeconds` directly and the regex should go.
+2. The ACL path's reason allowlist is **more selective** than my classifier,
+   which treats any `workspace_busy` as retryable. Matching that selectivity
+   would need the diagnostic string to carry `reason`, which today it does not.
+
+So #3507's scope is now accurate rather than hedged: it fixes the one call site
+that had a real gap, and the site I had flagged as unfinished was already
+correct.
+
+This is the second time today that checking an assumed gap found working code —
+the first was D3. Worth the habit: "another call site probably needs this too" is
+a hypothesis, not a finding.
