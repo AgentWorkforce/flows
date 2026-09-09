@@ -6560,3 +6560,63 @@ Lanes: `journal-close-0909` active (7 writes in 10 min, still on the merge of
 not a stall signal, as established.
 
 Nothing else actionable.
+
+### 2026-09-09 — fixed the drain instrument, then found what it was tripping over
+
+Drain: **0 pending of 2053**. Disk 3.8Gi. Three lanes alive.
+
+**Fixed the instrument instead of raising the timeout a fourth time.** The body
+is JSON workflow source, so it compresses ~10x: `curl --compressed` took a
+successful call from 60-90s-and-timing-out to **~10s**. Rewrote the check as
+`ops/bin/drain.sh` so it survives the session, with the property the old one
+lacked: **every failure path exits non-zero with a reason**. A truncated or empty
+body can no longer be reported as "0 pending". It proved that immediately —
+pointed at an empty file it printed `decompressed_bytes=0` and refused, rather
+than reporting a clean drain.
+
+**Then the fixed instrument found a real defect, and it is on the demo path.**
+`GET /api/v1/workflows/runs` is unbounded — no limit, no filter, no pagination,
+all columns — and the Cloudflare Worker fronting it now throws **Error 1101
+("Worker threw exception")** on most requests:
+
+```
+attempt 1: http=500  4666 bytes   14.3s   <- CF 1101
+attempt 2: http=200  45,507,297 bytes  19.3s
+attempt 3: http=500  4666 bytes    6.9s   <- CF 1101
+/api/v1/workflows/schedules  http=200  1.9s   <- same Worker, same token
+```
+
+Roughly 3 successes in 11 attempts across the tick, and the last 4 were all 500.
+The cheap endpoint on the same Worker is fine, so this is route-specific, not the
+stage or the token.
+
+Payload: **45,978,014 bytes over 2053 runs, of which the `workflow` column is
+35,616,287 — 77.5%.** `listByWorkspaceIds` (`packages/web/lib/workflows.ts:356`)
+is a bare `select()` with no limit, and `workflow` holds the entire workflow
+source per run. It grows monotonically, so it degrades permanently.
+
+**Why this matters more than my check:** `dashboard-data.tsx:718` calls the same
+endpoint on every dashboard load. The dashboard run list is the thing that
+fails — and the dashboard is the demo surface.
+
+**Why I did not just fix it.** The obvious fix is dropping `workflow` from the
+list projection (-77.5%), but the dashboard derives each run's display name from
+that column client-side (`dashboard-data.tsx:420-458`,
+`dashboard-views.tsx:1598`). So it is an API + UI change, not a one-liner, and
+cloud push-deploys prod on merge. Filed **AgentWorkforce/cloud#3488** with the
+evidence and a suggested shape rather than rewriting the dashboard's data
+contract unattended.
+
+**Stated carefully:** the correlation is strong — the only route returning 46MB
+is the only route throwing 1101, while cheap routes on the same Worker succeed —
+but I have not instrumented the Worker, so "the size exhausts the isolate" is a
+hypothesis consistent with the intermittency, not a proven mechanism. Said so in
+the issue too.
+
+**Adjacent finding: the 11 `running` runs are zombies.** Same count as yesterday,
+and none has been updated since ~90s after creation — oldest two are from
+**2026-05-29, 102 days**. They are stale records, not live work, so the drain is
+genuinely clear. Listed in #3488 for whoever adds the status filter.
+
+Not spawning a lane on #3488 this tick: disk is at 3.8Gi/99%, and a cloud
+worktree plus install is ~1GB. Flagging it for Khaliq as the top item instead.
