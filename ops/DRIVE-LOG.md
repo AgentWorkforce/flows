@@ -6302,3 +6302,39 @@ got my version rejected.
 **Did not touch the branch myself.** The lane is on `lane/flows-244-0909` and
 committed 20 minutes ago; two workers on one branch is the anti-pattern that cost
 a lane its work earlier today. Guidance over collision.
+
+### 2026-09-09 — the loop's agent step still will not complete; nothing to attach, and I disproved my own theory
+
+Acted on "make the local loop run". **First finding corrects my own plan:** there
+is nothing to attach. The launcher builds its own worker —
+`new AgentWorker(client, { workerId: 'local-agent', capacity: 1, pins: ... })`
+at `scripts/run-local-workflow.mjs:73` — and calls `worker.attach()`. So my
+proposal to "attach an agent to the drive-local stream" was based on a wrong
+model of how this works. The worker was always there.
+
+The real symptom: the worker takes the `implement` step and its lease expires
+without completion, at ~90s, and **not** because of my timeout — I reran without
+one and got the same result at the same point.
+
+Ruled out, with evidence rather than assertion:
+
+- **`claude` missing** — no, it is at `/opt/homebrew/bin/claude`, v2.1.153.
+- **Nested invocation.** This was my leading theory: the step spawns `claude`
+  while I am myself running inside a Claude Code session, so recursion, TTY or
+  auth could plausibly hang it. **Disproved** — `claude -p "reply with exactly:
+  PROBE_OK"` returns `PROBE_OK`, exit 0, from this very shell. Good thing I
+  tested it instead of writing it up as the cause.
+
+What blocks going further: `worker-cli.js` spawns with
+`stdio: ['ignore','pipe','pipe']` and the worker surfaces no CLI stderr to the
+launcher, and the run aborts before any journal is written, so there is no
+recorded reason for the lease expiry. The kernel sqlite has only
+`runs`/`event_dedupe`/`subscriptions`/`sweep_claims` — the per-run journal never
+materialised.
+
+So the next step is instrumentation, not more guessing: capture the spawned
+CLI's stderr and exit code. That is a small change to the launcher or a wrapper
+on `claude`, and it is the only way to learn why the dispatch does not complete.
+
+Status of the ask: the local loop still does not run work. I can reach
+`implement` reliably and no further.
