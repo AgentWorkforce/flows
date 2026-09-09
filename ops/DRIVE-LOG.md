@@ -6769,3 +6769,51 @@ Something is deliberately returning a bodiless 500.
 fallback alongside it, a misconfigured preview would quietly point at production
 with no credential. Not the current bug; both fail open where they should fail
 closed. Posted to #3489.
+
+### 2026-09-09 — PROD ACCESS. #3489 is preview-specific; prod is dying of something else
+
+Khaliq authorized the prod device login. `ops/bin/stage.sh` now holds both
+stages; preview snapshot intact. Disk 8.0Gi.
+
+**The discriminating answer, and it inverts my framing.** The two stages have
+separate run tables (preview 2063 runs, prod 1903), so I could compare directly:
+
+| | preview-pr-3446 | production |
+|---|---|---|
+| RelayAuth 500 `/v1/identities` | 6/6 sampled | **0 of 30** |
+| dominant failure | RelayAuth 500 | `database is temporarily overloaded` 15/30 |
+| completed today | 0 | 1 |
+
+So **#3489 is preview-specific**, not platform-wide. Corrected the issue, and
+corrected my own "zero completed runs today" — that was the preview dataset;
+production has 1. Day counts from one stage do not describe the other, and I had
+been reporting preview numbers as if they were global.
+
+**Production is badly degraded for an unrelated reason.** 1 completed against 99
+failed today. Sampled the 30 most recent failures:
+
+```
+15  database is temporarily overloaded   <-- 50%
+ 6  Standalone TS workflow execution failed
+ 3  sandbox still provisioning
+ 3  lens-maintainability step failed
+ 2  429 rate limited
+ 1  queue deadline exceeded
+```
+
+**And the overload has an unprotected call site.** #3471 (closed today 13:15:53Z)
+taught the executor to retry Relaycast's explicit `503 database_overloaded` — but
+only at `mcp-args --register`. Of the 15 overload failures, **8 name "Relaycast
+workspace key repair"**, and **5 of those are after #3471 closed**, latest
+15:07:27. The 503 body even says "Retry after the interval in the Retry-After
+header" and nothing at that call site honours it.
+
+Filed **cloud#3493**. Stated the caveat explicitly: closed is not deployed, so
+"still failing after close" is a timeline observation, not proof of regression —
+if the fix has not shipped, the second call site is unprotected either way.
+
+**Where this leaves the objective.** Running v1 continuously on prod will not
+work while half of prod's launches die on Relaycast back-pressure. #3493 is now
+the highest-value fix for getting completions back, ahead of #3489 — because
+#3489 only blocks the preview stage, which is needed for the v2 proof but not
+for continuous driving.
