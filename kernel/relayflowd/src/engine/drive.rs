@@ -210,9 +210,7 @@ impl<C: Clock> Engine<C> {
                                     idempotency_key,
                                     pins,
                                     routing: started_state.routing.get(&step.id).context("dispatch has no journaled route")?.clone(),
-                                    wake_context: journal.scan_from(1, usize::MAX).ok().and_then(|entries| entries.into_iter()
-                                        .find(|entry| entry.entry_type == relayflowd_core::EntryType::SubscriptionMatched)
-                                        .and_then(|entry| entry.payload.get("wake_context").cloned())),
+                                    wake_context: resolve_wake_context(&journal)?,
                                     recovery,
                                     lease_deadline_ms,
                                 })
@@ -438,4 +436,41 @@ fn parked_outcome(state: &RunState, status: RunStatus) -> RunOutcome {
         completion_reason: None,
         completed_steps: state.completed_steps(),
     }
+}
+
+/// Resolve the `wake_context` a dispatch must carry, per RFC-0001 Appendix A.1.
+///
+/// The previous form was `journal.scan_from(..).ok().and_then(..)`, which
+/// collapsed two very different outcomes into `None`:
+///
+/// - the run was never woken by an event, which is legitimate (rule 10); and
+/// - the journal could not be read, which is a resolution failure.
+///
+/// Silently substituting `None` for the second dispatches the step as though it
+/// had never been woken — the agent then runs without the event that justified
+/// waking it, and nothing in the journal says so. Rule 10a classifies that as a
+/// *transient* failure: the segment is unreadable right now (I/O, lock
+/// contention, a tail still being written), so the attempt fails and is retried
+/// under the step's ordinary budget rather than proceeding on a fabricated
+/// absence.
+///
+/// A clean scan that finds no `subscription.matched` entry still returns
+/// `Ok(None)`: that is rule 10's legitimate "never woken" case, and it is the
+/// only way `None` may now be produced.
+///
+/// Rule 10a's *permanent* branch — the run is open on a wake but the carry-
+/// forward never happened — is deliberately not implemented here. Detecting it
+/// requires the epoch-summary carry-forward of rule 9a, which does not exist
+/// yet (deviation D2). Until then a run whose match entry has been archived is
+/// indistinguishable from one that was never woken, so this reports the
+/// conservative `Ok(None)` rather than inventing a distinction the journal
+/// cannot yet support.
+fn resolve_wake_context(journal: &SqliteJournal) -> Result<Option<serde_json::Value>> {
+    let entries = journal
+        .scan_from(1, usize::MAX)
+        .context("resolve wake_context: journal scan failed")?;
+    Ok(entries
+        .into_iter()
+        .find(|entry| entry.entry_type == relayflowd_core::EntryType::SubscriptionMatched)
+        .and_then(|entry| entry.payload.get("wake_context").cloned()))
 }
