@@ -84,7 +84,7 @@ workflows:
           Read AGENTS.md and docs/RFC-0001-everything-is-a-relayflow.md first.
           Write your complete review to
           ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target/pr-number)-maintainability.md
-          and `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
+          and `git add` it. The LAST NON-EMPTY LINE OF THE TRANSCRIPT FILE must be exactly REVIEW_PASSED or REVIEW_FAILED, with nothing after it -- no sign-off, no timestamp, no closing sentence. swarm-verdict.sh reads only that final line; a marker followed by any trailing text is read as UNCLEAR and your entire review is discarded.
         verification:
           type: output_contains
           value: "REVIEW_"
@@ -105,7 +105,7 @@ workflows:
           Does the commit message tell the truth about the diff?
           Write your complete review to
           ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target/pr-number)-history.md and
-          `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
+          `git add` it. The LAST NON-EMPTY LINE OF THE TRANSCRIPT FILE must be exactly REVIEW_PASSED or REVIEW_FAILED, with nothing after it -- no sign-off, no timestamp, no closing sentence. swarm-verdict.sh reads only that final line; a marker followed by any trailing text is read as UNCLEAR and your entire review is discarded.
         verification:
           type: output_contains
           value: "REVIEW_"
@@ -125,7 +125,7 @@ workflows:
           a primitive instead of a helper, or grows a file past its purpose.
           Write your complete review to
           ops/reviews/$(date +%Y%m%d-%H%M)-pr$(cat .review-target/pr-number)-structure.md and
-          `git add` it. End your output with REVIEW_PASSED or REVIEW_FAILED.
+          `git add` it. The LAST NON-EMPTY LINE OF THE TRANSCRIPT FILE must be exactly REVIEW_PASSED or REVIEW_FAILED, with nothing after it -- no sign-off, no timestamp, no closing sentence. swarm-verdict.sh reads only that final line; a marker followed by any trailing text is read as UNCLEAR and your entire review is discarded.
         verification:
           type: output_contains
           value: "REVIEW_"
