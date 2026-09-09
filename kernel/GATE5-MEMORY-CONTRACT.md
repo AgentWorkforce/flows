@@ -44,10 +44,19 @@ a call each flow makes.
 
 ## What gate 5 still needs, in order
 
-1. A `RelayhistoryMemoryProvider` implementing the existing `MemoryProvider`
-   trait over `ai-hist pack --json`, mapping a step's declared
-   `memory: { scope, query, budget }` onto the pack arguments, and reporting
-   honest usage rather than the char-budget approximation.
+1. A `RelayhistoryMemoryProvider` over `ai-hist pack --json`, mapping a step's
+   declared `memory: { scope, query, budget }` onto the pack arguments and
+   reporting honest usage rather than the char-budget approximation.
+
+   **It does not live in the kernel.** The adapter belongs at the
+   SDK/control-plane edge and reaches the kernel across the journal protocol
+   boundary. RFC-0001 §4 and settled decision #13 keep the Rust kernel small,
+   pure and closed-vocabulary, so `relayflowd` must not gain an `ai-hist`
+   dependency, a subprocess call, or any relayhistory-shaped vocabulary.
+   `MemoryProvider` in `kernel/relayflowd/src/memory.rs` stays an **injected
+   protocol seam** — the kernel declares the shape it will accept and never
+   learns who satisfies it. Reading item 1 as "implement this trait inside
+   relayflowd" is the failure mode this paragraph exists to prevent.
 2. Exit-1-means-empty handled explicitly, with a test that a step whose query
    matches nothing still runs and journals an empty pack.
 3. The push side wired as a service.
