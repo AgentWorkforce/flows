@@ -30,7 +30,14 @@ const backlogPath = 'ops/BACKLOG.md';
 // The picker's own module, not the package index: index.js re-exports
 // packageFromEntry and validateWorkPackage but NOT selectBacklogEntry or
 // renderWorkPackage, so importing the index gets you two of the four.
-const sdkEntry = new URL('../packages/sdk/dist/backlog-picker.js', import.meta.url);
+// The gate must not execute code the agent it judges can rewrite. The scope
+// guard protects packages/sdk/src/backlog-picker.ts, but this imports the BUILT
+// dist/backlog-picker.js -- an agent can leave the source untouched, rebuild
+// dist, and the guard still passes. DRIVE_GATE_PICKER pins an immutable
+// pre-implementation snapshot instead.
+const sdkEntry = process.env.DRIVE_GATE_PICKER
+  ? new URL(`file://${process.env.DRIVE_GATE_PICKER}`)
+  : new URL('../packages/sdk/dist/backlog-picker.js', import.meta.url);
 
 const read = (p) => readFileSync(p, 'utf8');
 const hash = (t) => createHash('sha256').update(t).digest('hex');

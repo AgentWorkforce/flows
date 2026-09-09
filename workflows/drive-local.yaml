@@ -33,10 +33,30 @@ steps:
     timeoutMs: 120000
     command: node ops/local-work-package.mjs select
 
+  # A: the gate runs from an immutable pre-implementation snapshot. Taken
+  # BEFORE the agent runs, into a directory the agent has no reason to touch and
+  # the scope guard refuses changes to. Without this the acceptance path imports
+  # packages/sdk/dist/backlog-picker.js -- a BUILT artifact the agent can rewrite
+  # while leaving the guarded source untouched.
+  - id: gate-snapshot
+    type: deterministic
+    dependsOn: [select]
+    timeoutMs: 300000
+    command: |
+      set -eu
+      rm -rf .drive-gate && mkdir -p .drive-gate
+      ( cd packages/sdk && node node_modules/typescript/bin/tsc )
+      cp packages/sdk/dist/backlog-picker.js .drive-gate/backlog-picker.js
+      cp ops/local-work-package.mjs .drive-gate/local-work-package.mjs
+      cp ops/local-work-verification.mjs .drive-gate/local-work-verification.mjs
+      shasum -a 256 .drive-gate/* > .drive-gate/SHA256SUMS
+      echo "GATE_SNAPSHOT_TAKEN"
+      cat .drive-gate/SHA256SUMS
+
   - id: implement
     type: agent
     cli: claude
-    dependsOn: [select]
+    dependsOn: [gate-snapshot]
     # Required, not decorative: the launcher refuses an agent step with no pins
     # (`LOCAL_AGENT_PINS_REQUIRED: declare a stream; the kernel refuses workers
     # with no pins`) and the run is never created. Verified by running it.
@@ -78,9 +98,13 @@ steps:
     # BEFORE executing it; an agent cannot bypass scope by editing the script.
     command: |
       set -eu
-      git diff --exit-code HEAD -- ops/local-work-package.mjs ops/local-work-verification.mjs ops/BACKLOG.md workflows/drive-local.yaml packages/sdk/src/backlog-picker.ts
-      git diff --cached --exit-code HEAD -- ops/local-work-package.mjs ops/local-work-verification.mjs ops/BACKLOG.md workflows/drive-local.yaml packages/sdk/src/backlog-picker.ts
-      node ops/local-work-package.mjs scope
+      git diff --exit-code HEAD -- ops/local-work-package.mjs ops/local-work-verification.mjs ops/BACKLOG.md workflows/drive-local.yaml packages/sdk/src/backlog-picker.ts packages/sdk/dist/backlog-picker.js
+      git diff --cached --exit-code HEAD -- ops/local-work-package.mjs ops/local-work-verification.mjs ops/BACKLOG.md workflows/drive-local.yaml packages/sdk/src/backlog-picker.ts packages/sdk/dist/backlog-picker.js
+      # The snapshot must be byte-identical to what was taken before the agent
+      # ran; otherwise the gate is judging with code the agent may have edited.
+      shasum -a 256 -c .drive-gate/SHA256SUMS
+      DRIVE_GATE_PICKER="$PWD/.drive-gate/backlog-picker.js" \
+        node .drive-gate/local-work-package.mjs scope
 
   - id: verify
     type: deterministic
@@ -89,7 +113,9 @@ steps:
     # The selected package's checks must pass before the regression suite.
     command: |
       set -eu
-      node ops/local-work-package.mjs verify
+      shasum -a 256 -c .drive-gate/SHA256SUMS
+      DRIVE_GATE_PICKER="$PWD/.drive-gate/backlog-picker.js" \
+        node .drive-gate/local-work-package.mjs verify
       cd packages/sdk
       # Rebuild before the suite. Tests and probes import packages/sdk/dist/*,
       # so running vitest against a stale dist exercises the PRE-agent artifact

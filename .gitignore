@@ -17,3 +17,6 @@ dist/
 .relayflow/
 .relayflowd/
 .relayflowd-*/
+
+# Immutable pre-implementation gate snapshot (drive-local).
+.drive-gate/
