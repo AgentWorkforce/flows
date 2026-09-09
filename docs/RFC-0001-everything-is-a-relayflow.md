@@ -344,9 +344,11 @@ nothing could be held to it.
     conformance test asserts on those two journal shapes, not on log text.
 
 **Known deviations. These are binding obligations, not notes.** This contract is
-normative from the moment it lands; the implementation currently violates it in
-three places, and **gate 2 cannot go green until all three are closed** — rule
-11's run-level bar cannot be satisfied while any of them stands.
+normative from the moment it lands. Two of the three items below are genuine
+implementation debt and **gate 2 cannot go green until D1 and D2 are closed** —
+rule 11's run-level bar cannot be satisfied while either stands. D3 is listed
+because the contract changes what a field's name obliges, not because the code
+is currently wrong; it blocks nothing.
 
 - **D1 — the reader fails open.** The resume path discards a journal scan error
   and substitutes `None`, so the step runs as though it had never been woken.
@@ -376,8 +378,18 @@ three places, and **gate 2 cannot go green until all three are closed** — rule
   epochs **or** archival starts removing closed segments from the file, and the
   cross-segment read becomes a correctness violation as soon as the first of
   those lands.
-- **D3 — `open_steps` is misnamed or miscomputed.** It is populated from every
-  step declared in the spec, not the steps open at wake time. For a freshly
-  woken run those coincide; for a run woken again later they do not. This
-  contract fixes the *name's* meaning — steps open at the epoch — and the
-  implementation owes the change.
+- **D3 — `open_steps` is a naming hazard, not a wrong value.** It is populated
+  from every step declared in the spec rather than from open-step state, which
+  reads like a bug and is not one *today*. The only site that writes
+  `wake_context` is the event-run creation path, which calls
+  `SqliteJournal::create` and appends `run.spawned` in the same function: the run
+  is brand new, so every declared step genuinely is open and the two sets
+  coincide by construction.
+
+  So the implementation owes **no** change here, and this contract should not
+  claim otherwise. What it owes is a guard against drift: the field is only
+  correct because of where it is computed, nothing enforces that, and the name
+  invites reuse from a context — a run woken again into a later epoch — where
+  the sets diverge silently. This contract therefore fixes the *name's* meaning
+  (steps open at the epoch) so that a future second producer is obliged to
+  compute open-step state rather than copy the spec's step list.
