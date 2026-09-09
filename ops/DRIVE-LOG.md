@@ -5005,3 +5005,17 @@ reclaim if disk tightens; at 6.4Gi it does not need to go yet.
 
 Nothing else actionable: the v2 proof is scripted and pre-flighted, and waits on
 a device click.
+
+### 2026-09-09 — quiet tick; proof waits on one device click
+
+0 pending of 1895, 11 `running` unchanged. Disk 6.4Gi.
+
+Re-probed the fixed stage: `preview-pr-3461-api` still returns **401** to the
+invalid-key probe, so #3461 is holding and not a one-off reading.
+
+Token is still scoped to `preview-pr-3446`, which is the wrong stage for the
+proof — that is the single remaining blocker, and it needs a human click.
+Everything else is staged: the stage is v2-capable, both fixes are deployed and
+verified there, and `proof-3270-pr3461.sh` runs the whole sequence in one go.
+
+Nothing to do.
