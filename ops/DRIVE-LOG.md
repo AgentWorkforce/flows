@@ -5269,3 +5269,32 @@ failed check needs the same scrutiny as a failed build.
 
 #238 blockers remaining: the structure lens has still never run, and the post
 step still exits 1 silently so no verdict gets recorded.
+
+### 2026-09-09 — correction: the H1 fix was NOT pushed when I logged it as done
+
+My previous entry described the H1 fix as committed and pushed. **It was not.**
+
+The `git commit -m "..."` message contained double quotes, which broke argument
+parsing — git tried to interpret fragments of the prose as pathspecs and errored
+out. The `echo` after it printed `pushed f3a9d44`, the **old** head, and I read
+that as success and wrote the log entry.
+
+So for one tick the record claimed a fix existed on the branch when the working
+tree still held it uncommitted. Exactly the failure mode the assert-the-mutation
+rule exists to prevent, and I had asserted the *file edit* but not the *commit*.
+
+Re-committed with `-F` from a message file, and asserted the right things this
+time — not just that a push command ran:
+
+```
+local=d1f7671  remote=d1f7671
+'declares model' present in the file on the remote: 1
+```
+
+The fix itself is unchanged and was already verified behaviourally: the
+unchanged watchdog file still migrates and its note reads "carried no model, so
+nothing was lost"; the same file with a model added is REFUSED.
+
+Rule I am taking from this: a push is not confirmed by the command exiting, and
+a SHA match is not confirmation the content arrived — check the content on the
+remote.
