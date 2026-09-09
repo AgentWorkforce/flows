@@ -8477,3 +8477,58 @@ enough confident guesses to know the difference.
 
 Did note one fact that narrows it: the repair step is constructed with
 `retries: 0`, so it cannot loop internally. Whatever repeats is above it.
+
+### 2026-09-10 — diagnosed #3508: nothing reconciles a run stuck in `running`
+
+Disk 5.2Gi. Drain clean: 0 pending of 2002.
+
+Finished the diagnosis I deliberately stopped short of last tick. Two of the
+three candidates are eliminated by reading code, not guessing.
+
+**Eliminated — the retry bound is correct.** `@relayflows/core@1.0.1`,
+`step-executor.ts:215`:
+
+```ts
+for (let attempt = 0; attempt <= maxRetries; attempt += 1) { ... }
+const failure = options.getFailureResult?.(...) ?? { status: 'failed' ... };
+return this.completeStep(step, state, { ...failure, status: 'failed' });
+```
+
+Properly bounded, and it returns `failed` after the loop. The repair step is
+also built with `retries: 0`, so it cannot loop internally. Both
+"miscounted bound" and "repair re-enters outside the budget" are out.
+
+**The real gap: the stuck-run reaper does not know `running` exists.**
+`stuck-run-reaper-core.ts` runs every minute, and its candidate query is
+
+```sql
+WHERE wr.status = 'pending'
+  AND wr.created_at < now - N minutes
+  AND (wlj.id IS NULL OR wlj.status = 'failed')
+```
+
+Status literals it matches: `pending` ×4, `queued` ×4, `launching` ×1,
+`failed` ×6. **The word `running` appears zero times in the file.**
+
+So it reconciles runs that never *left* the launch queue. A run that launched,
+started executing, and then lost its orchestrator has **no reconciler at all**.
+The name oversells the scope — it is a stuck-*launch* reaper.
+
+That explains both the 14 runs stuck in `running` (oldest **102 days**) and this
+issue's deadlock: no terminal state means `sync` is permanently unreachable.
+
+**Marked clearly what I did not prove:** *why* the orchestrator stops updating.
+#3466's `cursor_expired` is the visible precursor, but I have not traced a causal
+path from a broken mount to a missing status write. The verified part is narrower
+and sufficient: step-level retry is correct, and nothing reconciles `running`.
+
+Proposed extending the reaper with a second candidate set — `running` runs whose
+`updated_at` is stale — marked `failed` with a distinct error. That alone closes
+this without touching `@relayflows/core`.
+
+**Also caught and fixed my own mangled comment.** Two stray CJK characters got
+into the posted diagnosis ("`sync` is永远 unreachable") because my sanitiser
+matched a trailing space the text did not have — and it *told* me
+(`cleaned: False`) while I posted anyway. Verified the live comment, patched it
+via the API, and re-verified. Garbage characters in a technical diagnosis
+undermine the diagnosis.
