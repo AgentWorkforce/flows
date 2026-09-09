@@ -7672,3 +7672,42 @@ remaining gate-2 debt is *engine* work, not contract work.
 
 That is the first tick today where checking first changed the action rather than
 just correcting a claim afterwards.
+
+### 2026-09-09 — #252's substantive lenses now PASS; reclaimed 0.6Gi
+
+Drain: 1 pending, created 19:53, normal window. Completions still 423.
+
+**#252 improved materially at my exact head (`67ba719f`).** The 19:26 swarm run:
+
+```
+maintainability: PASSED
+history:         PASSED     <-- was FAILED with H1
+structure:       MISSING
+```
+
+So the corrections cleared both real blockers — the false retry claim and the
+overstated "only way `None`". The aggregate is still FAILED, but **only because
+`structure` produced no transcript**, which is the broken cloud path rather than
+a verdict on the code.
+
+Still not merging. The rule is a passing independent signoff at the exact head,
+and a MISSING lens is not a pass — it is an absent verdict, which is exactly the
+distinction I have been holding others to. No human review either.
+
+**#251** is all-MISSING at `dbde1ef` — no verdict at all.
+
+**Disk was the live risk at 98%, so I reclaimed what I had made.** Looked before
+deleting rather than clearing the whole tree:
+
+```
+target/3497393500   693M   last modified 13:05  (8h stale)
+target/debug        1.2G   last modified 21:24  (my build, minutes old)
+```
+
+Deleted the stale one only, kept the working cache. **5.6Gi -> 6.2Gi**, and
+verified the cache survived: an incremental `cargo check` finished in **2s**, so
+nothing was lost. Clearing both would have freed 0.6Gi more and cost a full
+rebuild on the next tick for no reason.
+
+Also confirmed no build was running before deleting, and that the `fl-d1` matches
+for that path are documentation files, not dependents.
