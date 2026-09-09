@@ -75,9 +75,21 @@ steps:
     dependsOn: [implement]
     timeoutMs: 900000
     # The suites, not the agent's own account of itself.
+    #
+    # Rebuild BEFORE vitest and AFTER `implement`. bin.test.ts:17 and
+    # live-kernel.test.ts:29 both resolve `BUILT_CLI = join(SDK, 'dist',
+    # 'cli.js')` and execute it, so without this the suites verify the artifact
+    # as it stood before the agent edited the source -- a green run proving the
+    # previous commit still works.
+    #
+    # This is not the build step removed above. That one ran before `select`,
+    # where the launcher's preflight has already asserted dist/cli.js exists;
+    # it could never serve the checkout it was meant for. This one exists
+    # because the agent has just changed the source.
     command: |
       set -eu
       cd packages/sdk
+      npm run build
       node node_modules/vitest/vitest.mjs run
 
   - id: report
