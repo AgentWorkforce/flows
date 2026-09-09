@@ -7460,3 +7460,49 @@ longer needs anything is using the already-provisioned session.
 
 Stopped there rather than spelunking further into workspace/token internals —
 that was becoming a rabbit hole, and the win was already banked.
+
+### 2026-09-09 — went to implement D2, found my own D2 text was wrong
+
+Disk **5.8Gi** (down 1.1Gi — my cargo build; the toolchain target is the growth).
+Drain: 3 pending, newest 1 min old, normal window.
+
+Backfilled last tick's `.chief-inbox` entry, which I had missed — only the flows
+log went out.
+
+**Starting D2 disproved my own published claim about D2.** I had written that it
+is masked because "`drive.rs` scans from sequence 1 of a single segment; it
+becomes live the moment segmentation does." Both halves are wrong:
+
+- `scan_from` is `SELECT ... FROM entries WHERE seq >= ?1` — **no segment
+  filter**. Resolution already reads across every segment in the file.
+- Segmentation is **not** pending: `rollover()` exists in `relayflowd-journal`
+  with its own tests (`lib.rs:487-508`, asserting `SegmentClosed` then
+  `EpochSummary`).
+
+What actually hides it, both verified:
+
+1. **The engine never rolls** — nothing in `relayflowd` calls `rollover()`, so a
+   run has one segment in practice.
+2. **Closed segments are never pruned** — no archival removes them from the file.
+
+**The corrected consequence is sharper than my original.** The implementation
+satisfies rule 9 *by violating decision #8*: it resolves across segment
+boundaries instead of from the current segment. Invisible while there is one
+segment. D2 becomes live data loss the moment the engine rolls **or** archival
+prunes, and the cross-segment read is a correctness violation as soon as either
+lands.
+
+That also sharpens H1: the reviewer flagged rule 9 as conflicting with decision
+#8, and it turns out the *implementation* already carries the same conflict,
+latent behind never rolling.
+
+Corrected in `bb4adbc` and explained on #251 rather than quietly amended.
+
+**Did not implement D2.** `EpochSummaryPayload` (`entry.rs:373-394`) has no
+`wake_context` field, so the carry-forward is a **journal-format change** — that
+belongs in its own PR with a format-version story, not slipped into a spec PR
+or bolted onto D1.
+
+Also parked the CI fixture: `relayfile-mount` is not installed locally, and
+computing `EXPECTED_TREE_SHA256` with a different mount version than the
+snapshot's risks a hash that never matches. Not worth guessing at.
