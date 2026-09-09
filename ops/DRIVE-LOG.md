@@ -5657,3 +5657,47 @@ Two things this explains retroactively:
 
 #238 (OPEN, head `bcafd42`), #242 (OPEN, `52db46c`) and #244 (OPEN, `4aeb091`)
 are all open, so this was specific to #240 rather than a repo-wide condition.
+
+### 2026-09-09 — my #240 fixes worked, and the real gate defect is a formatting rule
+
+Drain: 0 pending of 1989. Disk 5.8Gi.
+
+The reopen let the swarm evaluate `3564fcb`, the first run to see the fixed
+state. Result:
+
+```
+- maintainability: UNCLEAR
+- history: PASSED      <- was FAILED
+- structure: UNCLEAR   <- was FAILED
+```
+
+**History genuinely passed.** Structure moved FAILED -> UNCLEAR, meaning its
+objections are gone and something else is now wrong. Chased what.
+
+`swarm-verdict.sh` reads the **last non-empty line** of the transcript file.
+Checked all three:
+
+```
+history          REVIEW_PASSED                          -> PASSED
+structure        "structure-only review."               -> UNCLEAR
+maintainability  "**Review completed:** 2026-09-09 08:45" -> UNCLEAR
+```
+
+**Both UNCLEAR transcripts contain a marker — it simply is not the last line.**
+The lens prompts said "End your **output** with REVIEW_PASSED or REVIEW_FAILED",
+and the agent's output is not the transcript file it writes and `git add`s.
+history resolved that ambiguity one way; the other two resolved it the other way
+and had complete reviews discarded.
+
+So two of the four flows PRs' remaining blockers were never about their code.
+That reframes several ticks of mine: I have been treating UNCLEAR as "the lens
+found something", and it means "the gate could not read the answer".
+
+Opened **flows#248** against main fixing all three lens prompts to require the
+marker as the transcript's final non-empty line, with the consequence stated so
+the rule explains itself. Prompt text only — no change to `swarm-verdict.sh`,
+the contract, or any lens's judgement, and it loosens nothing: a real
+REVIEW_FAILED still fails the gate.
+
+Not merging it. It is a shared gate touching every PR's review, and I am the
+author.
