@@ -5167,3 +5167,28 @@ two-arg     exit=0  MIGRATED ... (1 steps, 4 recorded losses)
 Still outstanding before #238 could merge: the H1 `model` field-loss blocker,
 and the structure lens has never run. #240/#242/#244 have not been diagnosed
 individually — I assumed one shared cause and that assumption is now suspect.
+
+### 2026-09-09 — swarm re-running on the fixed head; verdict not in yet
+
+Drain: 0 pending of 1951. Disk 6.0Gi.
+
+The review swarm (run 34314388271) is re-running on #238 at my fixed head and is
+still `in_progress` after ~8 minutes — the earlier one took 14m30s, so that is
+normal, not a hang.
+
+**The verdict currently visible on the PR is stale.**
+`FAILED (M:fail H:fail S:missing)` is timestamped `2026-09-08T07:05:20Z`, which
+predates both of my pushes. It says nothing about whether the destructive-default
+fix cleared the maintainability blocker. I am recording that explicitly because
+reading that comment as current would be exactly the "verify against the deployed
+tag, not the stale artifact" error in a different costume.
+
+Also caught a small self-inflicted one: a jq expression of mine was mis-quoted
+and printed a parse error rather than a status. Harmless, but it is the second
+time tonight a shell quoting slip produced output that could be misread as a
+result rather than a broken instrument.
+
+Next tick: read the new aggregate comment. Expect maintainability to clear (the
+`dest` default is fixed and verified against a real 1.0 file), and expect
+**history H1 to still fail** — the `model` field-loss finding is untouched — plus
+the structure lens, which has never run at all.
