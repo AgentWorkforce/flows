@@ -5347,3 +5347,41 @@ no verdict marker. None of that is what I said it was an hour ago.
 Rule earned the hard way: for an upserted comment, `created_at` is meaningless —
 check `updated_at`, and make sure you are reading the anchor the current tooling
 writes, not a lookalike from a retired one.
+
+### 2026-09-09 — fixed both structure-lens P1 blockers on #238
+
+Drain: 0 pending of 1963. Disk 5.9Gi.
+
+Read the live structure lens comment (checking `updated_at` — 06:08:48Z today,
+fresher than the aggregate I read last tick). Two P1 blockers, both correct:
+
+1. **Malformed input escaped as a traceback.** `yaml.safe_load(open(path))`
+   assumed a mapping, so an empty document (`None`), a scalar document, invalid
+   YAML, or an unreadable file crashed *before* the promised `REFUSED` result was
+   printed. Same unchecked assumption at `agents` and `workflows[0].steps`. An
+   author could not distinguish an unsupported source from a bug in this tool —
+   the refusal boundary was not closed.
+2. **An empty workflow migrated successfully.** Only the workflow *count* was
+   checked, so missing or empty `steps` became `steps: []` and returned
+   `MIGRATED` — an artifact the SDK then refuses, per the refusal recorded in
+   that directory's own README.
+
+Both now return a diagnostic and write no output. Verified as a matrix rather
+than a single happy path:
+
+```
+valid watchdog.yaml   exit 0   MIGRATED (1 steps, 4 recorded losses)
+empty file            exit 1   is empty; there is nothing to migrate
+scalar document       exit 1   must contain a mapping at the top level, found str
+steps: []             exit 1   0.1.0 requires a non-empty steps array
+invalid YAML          exit 1   is not valid YAML: while parsing a block mapping
+```
+
+Committed `bcafd42`, and asserted the content on the remote this time — not just
+a SHA match — after last tick's commit silently failed on shell quoting.
+
+#238 lens state now: structure's two P1s fixed, history's H1 fixed. Untouched:
+`maintainability: UNCLEAR`, which is not an objection but a missing
+`REVIEW_PASSED`/`REVIEW_FAILED` marker on that lens's transcript. That is the
+next thing to look at, and it may be a lens-harness problem rather than anything
+about this PR's code.
