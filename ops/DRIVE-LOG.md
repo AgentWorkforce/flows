@@ -5118,3 +5118,52 @@ Nothing to do.
 
 2 `pending`, both 0.3 min old — just created, in-flight. 11 `running` unchanged,
 1945 total. Token still scoped to pr-3446. Disk 6.1Gi. Nothing to do.
+
+### 2026-09-09 — flows PRs: the swarm blockers are REAL. Fixed one; not merging.
+
+Khaliq asked me to diagnose the flows `review` failure and then merge. **I am not
+merging, and the reason matters more than the instruction.**
+
+Diagnosis: all four of my flows PRs fail one check, `review` — the 3-lens swarm.
+The verdict on #238 is `🎯 review-swarm: FAILED (M:fail H:fail S:missing)`.
+I expected staleness. **It is not staleness — the blockers are substantive:**
+
+- **Maintainability:** `migrate-legacy-workflow.py` had
+  `dest = sys.argv[2] if len(sys.argv) > 2 else src` followed by an
+  unconditional write. A single-argument run **silently overwrote the input**.
+  That is a data-loss default in a tool whose docstring claims it "refuses
+  rather than guesses".
+- **History (H1):** the converter accepts `model` in an agent declaration and
+  then drops it — the same field-loss class the PR claims to fix.
+- **Structure:** never ran (MISSING).
+
+Merging that would have shipped a script that destroys the file it is pointed
+at. The gate was right and I was wrong to assume it was bureaucratic.
+
+Fixed the destructive default: a single-argument run now refuses and exits 2;
+in-place is still possible by naming the path twice.
+
+**Two of my own errors on the way, both worth recording:**
+
+1. I claimed I had "committed compiled bytecode". **Wrong** — nothing tracks a
+   `.pyc` on main or any of the four branches. Python compiles it at runtime
+   during the review job and the untracked file pollutes the swarm's diff. The
+   real gap was that `.gitignore` never covered `__pycache__`, which I did fix.
+2. I ran `ast.parse` **before** writing the file, called it "syntax OK", and
+   pushed code containing `return` at module scope —
+   `SyntaxError: 'return' outside function`, so the script would not run at all.
+   That is precisely the failure the assert-the-mutation rule exists to catch,
+   and I inverted it. Fixed with `sys.exit(2)` and re-checked after writing.
+
+Then I nearly recorded a third false pass: my hand-made fixtures were rejected
+by the migrator's own validation, so exit=1 told me nothing about the refusal
+path. Used a real 1.0 file from the repo (`workflows/watchdog.yaml`) instead:
+
+```
+single-arg  exit=2  input unchanged  "refusing to migrate ... in place"
+two-arg     exit=0  MIGRATED ... (1 steps, 4 recorded losses)
+```
+
+Still outstanding before #238 could merge: the H1 `model` field-loss blocker,
+and the structure lens has never run. #240/#242/#244 have not been diagnosed
+individually — I assumed one shared cause and that assumption is now suspect.
