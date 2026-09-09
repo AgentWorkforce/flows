@@ -5465,3 +5465,28 @@ codes just leaves more dead ones. If it is still unauthorized next tick I will
 replace it.
 
 Nothing else to do.
+
+### 2026-09-09 — device code expired; deliberately NOT reissuing on a timer
+
+0 pending of 1971. Disk 5.7Gi.
+
+```
+Device login expired before it was approved. Run the command again to get a new code.
+```
+
+Two codes have now lapsed unapproved (`72XZ-CXWK`, `H4MJ-RJ49`). Codes live
+about ten to fifteen minutes and this tick fires every eighteen, so reissuing on
+each tick guarantees the code is dead before Khaliq ever sees it. That is not
+"keeping things moving", it is manufacturing activity.
+
+**Changing the approach:** I will issue a code when Khaliq is actually present —
+he can click it inside its window — rather than leaving a fresh corpse in the log
+every eighteen minutes. If he asks for the link, it is one command away.
+
+Nothing else is actionable. State is unchanged and ready:
+
+- `preview-pr-3461` carries both proven fixes, v2 admission green,
+  `DEPLOY_VERSION` matched to #3461's head.
+- `proof-3270-pr3461.sh` written, guarded, syntax-checked.
+- #238's three code objections fixed and pushed; its gate is blocked on the cloud
+  path, not on its code.
