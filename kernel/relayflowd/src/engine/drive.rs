@@ -210,9 +210,7 @@ impl<C: Clock> Engine<C> {
                                     idempotency_key,
                                     pins,
                                     routing: started_state.routing.get(&step.id).context("dispatch has no journaled route")?.clone(),
-                                    wake_context: journal.scan_from(1, usize::MAX).ok().and_then(|entries| entries.into_iter()
-                                        .find(|entry| entry.entry_type == relayflowd_core::EntryType::SubscriptionMatched)
-                                        .and_then(|entry| entry.payload.get("wake_context").cloned())),
+                                    wake_context: resolve_wake_context(&journal)?,
                                     recovery,
                                     lease_deadline_ms,
                                 })
@@ -438,4 +436,50 @@ fn parked_outcome(state: &RunState, status: RunStatus) -> RunOutcome {
         completion_reason: None,
         completed_steps: state.completed_steps(),
     }
+}
+
+/// Resolve the `wake_context` a dispatch must carry.
+///
+/// The previous form was `journal.scan_from(..).ok().and_then(..)`, which
+/// collapsed two very different outcomes into `None`:
+///
+/// - the run was never woken by an event, which is legitimate; and
+/// - the journal could not be read, which is a resolution failure.
+///
+/// Silently substituting `None` for the second dispatches the step as though it
+/// had never been woken — the agent then runs without the event that justified
+/// waking it, and nothing in the journal says so.
+///
+/// **What this change actually does, precisely.** The error propagates out of
+/// the dispatch closure into the existing `Err` arm, which releases the dispatch
+/// reservation and returns from `drive`. That is an abort *before* dispatch, not
+/// a recorded attempt failure: no `completion_actions` run, nothing is journaled
+/// for the attempt, and no retry is scheduled here. Recovery arrives later by
+/// the ordinary route — the lease expires and a subsequent drive abandons the
+/// attempt via `abandonment_actions(.., Crashed)`.
+///
+/// That is deliberately narrower than the eventual contract. The intended
+/// end state classifies the failure and journals it (transient → retry the
+/// attempt under its budget; permanent → park `needs_human`), and none of that
+/// classification exists yet. This function only stops the step from silently
+/// running as un-woken; it does not implement the classification.
+///
+/// A clean scan that finds no `subscription.matched` entry returns `Ok(None)` —
+/// the legitimate "never woken" case. Note this is *not* the only path to
+/// `None`: an entry present with no `wake_context` key also yields `None`, which
+/// is the same shape as never-woken and cannot currently be told apart.
+///
+/// The "carry-forward missing" case is likewise not detectable here: it needs an
+/// epoch-summary carry-forward that does not exist, so a run whose match entry
+/// is unreachable is indistinguishable from one never woken. This reports the
+/// conservative `Ok(None)` rather than inventing a distinction the journal
+/// cannot support.
+fn resolve_wake_context(journal: &SqliteJournal) -> Result<Option<serde_json::Value>> {
+    let entries = journal
+        .scan_from(1, usize::MAX)
+        .context("resolve wake_context: journal scan failed")?;
+    Ok(entries
+        .into_iter()
+        .find(|entry| entry.entry_type == relayflowd_core::EntryType::SubscriptionMatched)
+        .and_then(|entry| entry.payload.get("wake_context").cloned()))
 }
