@@ -6038,3 +6038,56 @@ gate snapshot (A), escaping symlinks refused (B), and now one baseline. Four of
 the eight threads were about the gate trusting something it should not — the
 lens was describing one defect from four angles, and I only saw that after
 fixing the fourth.
+
+### 2026-09-09 — merged the three cloud fixes; local loop now RUNS; gate snapshot proven
+
+**Merged, after checking they were genuinely clean** — 0 unresolved review
+threads and 0 changes-requested on each, not merely `CLEAN` status:
+cloud **#3457** (Relaycast `_DEV` bearer, also stops shipping the prod bearer to
+previews), **#3461** (API-key schema adapter), **#3459** (RelayAuth failures
+preserved across retries).
+
+Spawned `flows-threads-0909` (pid 8441) on #244 -> #242 -> #248 with the six
+traps that cost me time tonight written down.
+
+**Then chased "run v1 continuously" and unblocked it four layers deep.** Each
+failure looked terminal and was not:
+
+1. `npm ci` at the root — **no root lockfile exists**; lockfiles are per-package.
+2. `LOCAL_DAEMON_MISSING` — `RELAYFLOWD_BIN` overrides the path, but no built
+   daemon was on disk: the running `relayflowd` processes hold **unlinked
+   inodes** from builds whose files were deleted.
+3. `cargo is not a valid shim` — read as a missing toolchain. It is not: mise's
+   **shim** is broken over a working install at `~/.cargo/bin/cargo` with 1.94.0
+   and stable both present.
+4. `rustup could not choose a version` — no default toolchain. Used
+   `RUSTUP_TOOLCHAIN=stable` for the build rather than changing your global
+   config.
+
+Kernel built in **37.8s**. The loop then ran: daemon started, `LOCAL_DATA_DIR`
+created, and it reached `implement` before the worker lease expired — expected,
+since no agent is attached to the pinned stream.
+
+**Option A is now proven, not just written.** `.drive-gate/` was created by the
+real run with all three artifacts and recorded sums:
+
+```
+6dad1bd6...  .drive-gate/backlog-picker.js
+5e13c4bb...  .drive-gate/local-work-package.mjs
+825411b0...  .drive-gate/local-work-verification.mjs
+```
+
+That was my outstanding "not exercised end to end" caveat on the gate snapshot.
+
+**Also confirmed a guess I had flagged as unverified:**
+`node_modules/typescript/bin/tsc` exists, so the rebuild fix's path is right.
+
+**One waste to own:** I removed the scratchpad worktree to reclaim disk minutes
+after installing its dependencies — deleting exactly what the next step needed,
+then reinstalling. Disk pressure made me act before I had the whole sequence in
+view.
+
+**Disk is now the binding constraint: 1.3Gi free.** The kernel build cost ~1.9GB.
+A third constraint worth recording: the launcher refuses socket paths over 104
+bytes, so the loop cannot run from the deep scratchpad path at all — it needs a
+short worktree root like `~/fl244`.
