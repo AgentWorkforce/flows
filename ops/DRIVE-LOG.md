@@ -5967,3 +5967,38 @@ Committed `5261c2c`, snapshot step and picker pin asserted on the remote.
 path works. Stated that in the commit too. Failure mode if I got a path wrong is
 a loud gate failure, not silent trust of agent-written code — which is the right
 way round.
+
+### 2026-09-09 — option B: escaping symlinks in directory scopes now refused
+
+Drain: 0 pending of 2009. Disk 3.8Gi and falling — watching, not acting; the
+22G scratchpad session still belongs to a live lane.
+
+B implemented, completing the A+B Khaliq approved.
+
+The existing symlink walk ran **per touched path**, so it only ever saw paths the
+agent had already modified. A symlink present before the run is never touched,
+never inspected — and a declared directory scope authorizes writing anywhere
+beneath it, including straight through that link. That was cubic's P1.
+
+`checkScope` now walks the descendants of every directory scope before any check
+runs and refuses a symlink whose realpath leaves the checkout root.
+
+Two deliberate narrowings rather than a blanket ban:
+- symlinks that stay **inside** the root are allowed, because workspace layouts
+  use them legitimately and the threat is escape, not indirection;
+- dangling links are skipped, since a write cannot escape through a link with no
+  target.
+
+**Verified both directions**, which matters because "refuse everything" would
+also have passed the escape test:
+
+```
+pre-existing src/escape -> ../../outside   SYMLINK_ESCAPES_SCOPE (refused)
+benign src/inside -> a.txt only            SCOPE_OK: 0 changed path(s)
+```
+
+Committed `e0c5123`, asserted on the remote.
+
+A + B are now both in. Neither has been exercised by a real loop run — that is
+the remaining proof, and it is the same thing #242/#244 need before they can
+honestly claim the gate is sound.
