@@ -1,0 +1,10 @@
+version: "0.1.0"
+name: cloud-gates
+description: A declarative hosted smoke test with a deterministic output gate.
+steps:
+  - id: verify-output
+    type: deterministic
+    command: "printf 'cloud-gate-verified\\n'"
+    verification:
+      type: output_contains
+      value: cloud-gate-verified

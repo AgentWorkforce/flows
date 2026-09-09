@@ -1,0 +1,67 @@
+
+pre-change f0a3b3b
+cwd: /tmp/ws14-pre-cloud-baseline/packages/sdk
+$ node node_modules/vitest/vitest.mjs run tests/cli.test.ts -t 'binds a checked relative wrapper' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /private/tmp/ws14-pre-cloud-baseline/packages/sdk
+
+ ✓ tests/cli.test.ts (63 tests | 62 skipped) 541ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 540ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 62 skipped (63)
+   Start at  20:46:56
+   Duration  4.71s (transform 1.05s, setup 0ms, collect 2.79s, tests 541ms, environment 0ms, prepare 902ms)
+
+EXIT CODE: 0
+
+WS-14 c515d06
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ node node_modules/vitest/vitest.mjs run tests/cli.test.ts -t 'binds a checked relative wrapper' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+
+ ✓ tests/cli.test.ts (63 tests | 62 skipped) 281ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 62 skipped (63)
+   Start at  20:47:02
+   Duration  1.50s (transform 623ms, setup 0ms, collect 844ms, tests 281ms, environment 0ms, prepare 212ms)
+
+EXIT CODE: 0
+
+pre-change f0a3b3b full CLI
+cwd: /tmp/ws14-pre-cloud-baseline/packages/sdk
+$ node node_modules/vitest/vitest.mjs run tests/cli.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /private/tmp/ws14-pre-cloud-baseline/packages/sdk
+
+ ✓ tests/cli.test.ts (63 tests) 3382ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 359ms
+   ✓ flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 386ms
+
+ Test Files  1 passed (1)
+      Tests  63 passed (63)
+   Start at  20:47:43
+   Duration  5.11s (transform 635ms, setup 0ms, collect 1.35s, tests 3.38s, environment 0ms, prepare 111ms)
+
+EXIT CODE: 0
+
+WS-14 c515d06 full CLI and cloud
+cwd: /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+$ node node_modules/vitest/vitest.mjs run tests/cli.test.ts tests/cloud-run.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/.worktrees/ws14-flows-cloud/packages/sdk
+
+ ✓ tests/cli.test.ts (63 tests) 3439ms
+   ✓ flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 360ms
+ ✓ tests/cloud-run.test.ts (22 tests) 200ms
+
+ Test Files  2 passed (2)
+      Tests  85 passed (85)
+   Start at  20:47:48
+   Duration  5.01s (transform 539ms, setup 0ms, collect 906ms, tests 3.64s, environment 0ms, prepare 124ms)
+
+EXIT CODE: 0
+$ git diff --exit-code f0a3b3b c515d06 -- packages/sdk/tests/cli.test.ts packages/sdk/src/cli/check.ts packages/sdk/src/worker-cli.ts
+EXIT CODE: 0

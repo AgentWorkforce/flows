@@ -15,6 +15,7 @@ import {
   type RunReport,
 } from './cli/run.js';
 import { runDirectFlow } from './cli/direct-run.js';
+import { runCloudCli } from './cli/cloud-run.js';
 import { isAuthoredFlowPath } from './direct-input.js';
 import { runHnMonitor } from './cli/hn-monitor.js';
 import { runTickRunner } from './cli/tick-runner.js';
@@ -28,6 +29,7 @@ export interface CliIo {
 
 type CliExitCode = 0 | 1 | 2 | 3;
 type ParsedArgs =
+  | { command: 'cloud-run'; value: string; json: boolean; wait: boolean }
   | { command: 'check'; json: boolean; value: string }
   | { command: 'run'; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; value: string }
   | { command: 'resume'; dataDir: string; json: boolean; spawn: boolean; value: string }
@@ -41,6 +43,7 @@ const USAGE = [
   'Usage:',
   'flows check [--json] <flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>',
+  'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>',
@@ -72,6 +75,8 @@ export async function runCli(
     emitCheckReport(report, args.includes('--json'), io);
     return 2;
   }
+
+  if (parsed.command === 'cloud-run') return runCloudCli(parsed, io);
 
   if (parsed.command === 'check') {
     // Deliberately daemon-free (kernel/DAEMON-LIFECYCLE.md §4). `checkFlow` is
@@ -160,6 +165,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (command !== 'check' && command !== 'run' && command !== 'resume') return undefined;
 
   let json = false;
+  let cloud = false;
+  let wait = false;
   let dataDir = DEFAULT_DATA_DIR;
   let sawDataDir = false;
   let spawn = true;
@@ -168,6 +175,12 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   const positionals: string[] = [];
   for (let index = 1; index < args.length; index += 1) {
     const argument = args[index]!;
+    if (argument === '--cloud' || argument === '--wait') {
+      if (command !== 'run' || (argument === '--cloud' ? cloud : wait)) return undefined;
+      if (argument === '--cloud') cloud = true;
+      else wait = true;
+      continue;
+    }
     if (argument === '--json') {
       if (json) return undefined;
       json = true;
@@ -200,6 +213,12 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     positionals.push(argument);
   }
   if (positionals.length !== 1) return undefined;
+
+  if (cloud) {
+    if (sawInput || sawDataDir || !spawn) return undefined;
+    return { command: 'cloud-run', value: positionals[0]!, json, wait };
+  }
+  if (wait) return undefined;
 
   if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!)) return undefined;
   return command === 'check'
