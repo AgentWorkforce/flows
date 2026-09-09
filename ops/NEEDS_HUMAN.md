@@ -1,146 +1,66 @@
-# NEEDS_HUMAN — gate 3 launches; the block moved to Daytona capacity
+# NEEDS_HUMAN — TARGET.md asks for work already completed and merged
 
-## Status (2026-09-08 ~04:00Z) — supersedes the 2026-09-07 assessment below
+**Run ID:** 78782172-4dc5-4328-b004-0e98717ad471
+**Date:** 2026-09-09
 
-**The secret is stored and it works. Do not act on the old ask.**
+## The conflict
 
-`CLOUD_API_KEY` was minted and installed into this repository on 2026-09-07
-(cloud `mint-ci-token.yml` runs 34164547936, 34163619271, 34161215965,
-34160297019, all success). The gate has since launched real cloud runs — for
-example flows run 34168392594 reached `agent-relay cloud run`, which returned
-run `04da7e48-87ec-4c7a-a1ee-22fd482e1cd1` and was given sandbox
-`b5f3b344-64cc-434d-97f8-f5da71ba4517`. It executed for roughly five minutes.
+**ops/TARGET.md** (lines 1-5):
+- Pinned to gate 3
+- Scope: "Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK"
+- Asks to create `sdk/src/hn-monitor-runner.ts`
 
-That settles the specific doubt raised in review: the `workflow-invoke`
-credential **does** carry permission for the prepare endpoint, and the step
-does **not** fall back to the device flow. Storing the secret cleared the block
-it was supposed to clear.
+**Actual state** (per ops/STATE.md lines 46-47):
+- PR #120 (`201542a`, merged 2026-09-01 08:29 UTC) already delivered `flows hn-monitor start`
+- The runner exists as `packages/sdk/src/cli/hn-monitor.ts` (287 lines)
+- Tests exist in `packages/sdk/tests/cli-hn-monitor.test.ts` (16 tests, all passing)
+- All 5 findings from TARGET.md lines 9-22 are already addressed:
+  1. Fail-closed journal errors: hn-monitor.ts lines 252-266
+  2. Worker close() documented: worker.ts lines 23-30
+  3. Field declaration order: N/A (function-based, not class)
+  4. AbortSignal opt-in: hn-monitor.ts line 59
+  5. Test coverage: cli-hn-monitor.test.ts lines 102-175
 
-**The current block is Daytona CPU quota, and it is a different ask.** The run
-above failed with, verbatim from its `result.error`:
-
-    Step "lens-maintainability" failed after 2 retries:
-    Total CPU limit exceeded. Maximum allowed: 250.
-
-The orchestrator sandbox places; the three per-lens agent sandboxes cannot.
-Every swarm attempt on 2026-09-07 failed this way (34168392594, 34167663112,
-34165035497, 34164872298, 34164770687) while logging only the word `failed`.
-
-**What a human is needed for now:** run cloud's `daytona-sweep-orphans.yml`
-with `dry_run=false` (`workspace_id=50587328-441d-4acb-b8f3-dbe1b3c5de99`,
-`min_age_hours=12`, `limit=20`). Dry runs report 79 eligible orphans, oldest
-41.6h, ~40 CPU reclaimed per invocation. It is destructive, so no agent has run
-it.
-
-**What remains unverified.** The launch and authentication path is proven; the
-verdict path is not. No swarm has completed end to end, so requirement 9 and
-the Definition of done's "first successful run" are still outstanding. Calling
-gate 3 COMPLETE was premature — AGENTS.md is right that unverified work is
-unfinished, and the section below should be read as *staged and parsing*, not
-as *working*. It becomes complete when a swarm returns a verdict.
-
-**Everything below this line is the 2026-09-07 record and is superseded.**
-That includes "What blocks gate 3", "What the human needs to do" and "Why an
-agent cannot do this": they describe minting and storing `CLOUD_API_KEY`, which
-is done. Do not follow those steps. The only live ask is the orphan sweep named
-above.
-
----
-
-## Assessment (2026-09-07, run bc76617d) — SUPERSEDED, kept for history
-
-Gate 3 (cloud review-swarm redesign) implementation is **COMPLETE**. All 9 architectural requirements from the TARGET scope are satisfied. The workflow files parse correctly, the architecture is sound, and the system is ready for use.
-
-**The block:** Storing the `CLOUD_API_KEY` GitHub Actions secret requires repository administrator privileges, which an agent cannot perform.
-
-## Evidence the implementation is complete
-
-All TARGET.md requirements verified:
-
-### Files exist and parse:
+**Test evidence from this assess tick:**
 ```
-python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))"
-✓ workflows/review-swarm.yaml parses
-
-python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))"
-✓ .github/workflows/review-swarm.yml parses
-
-bash -n .github/workflows/scripts/swarm-prepare.sh
-✓ .github/workflows/scripts/swarm-prepare.sh
-
-bash -n .github/workflows/scripts/swarm-post.sh
-✓ .github/workflows/scripts/swarm-post.sh
-
-bash -n .github/workflows/scripts/swarm-verdict.sh
-✓ .github/workflows/scripts/swarm-verdict.sh
+✓ tests/cli-hn-monitor.test.ts (16 tests) 104ms
 ```
 
-### All 9 architectural requirements satisfied:
+SDK test suite: 892 passed, 3 failed (unrelated to hn-monitor: daemon spawning + Claude analyzer in live-kernel.test.ts).
 
-1. **Immutable gate** ✓ — Two checkout steps (.github/workflows/review-swarm.yml:32-48): pr-head from PR, gate-files from main. Swarm launches using gate-files path.
+## Why this is a blocker
 
-2. **Unified verdict logic** ✓ — swarm-verdict.sh is the single source of truth, sourced by both workflows/review-swarm.yaml:132 and swarm-post.sh:8. Zero duplication.
+TARGET.md describes sub-PR A of gate 2, but:
+1. That work is done (PR #120, merged 2026-09-01)
+2. Gate 2 is still AMBER with two remaining clauses (ops/STATE.md lines 60-73):
+   - Trigger plane liveness-checked (deterministic-id + stale_after sweep)
+   - The analyze-agent step actually executing (current runs end in worker_error)
+3. Gate 3 cannot begin until gate 2 is GREEN (sequencing rule: consumers 2→3→4)
 
-3. **Auth secret validation fail-fast** ✓ — Preflight step (.github/workflows/review-swarm.yml:54-58) validates CLOUD_API_URL and CLOUD_API_KEY before launch.
+A run cannot "redo" merged work. Substituting different work would violate the scoping rule ("stay inside the target or report blocked").
 
-4. **Sticky marker + sticky transcripts** ✓ — HTML anchors (`<!-- review-swarm -->` and `<!-- swarm-lens: <lens> -->`), upsert_comment function finds and PATCHes existing.
+## What the human needs to decide
 
-5. **Every PR gets reviewed** ✓ — No author whitelist. Trigger unconditional (line 4-5).
+**Option A:** Address the two remaining gate-2 AMBER clauses
+- Implement trigger plane liveness checking in relayflowd
+- Make the analyze-agent step execute (supply a step handler)
+- Requires kernel changes (out of scope per TARGET.md line 77)
 
-6. **Cloud sandbox has no gh auth** ✓ — swarm-prepare.sh fetches on GHA runner, stages into .review-target/, uses git add -f. .gitignore does NOT mask .review-target (verified).
+**Option B:** Flip gate 2 to GREEN based on existing evidence
+- ops/STATE.md lines 74-81: "AMBER → GREEN is Khaliq's read"
+- Evidence is in ops/reviews/20260901-1050-gate2-live-run.md
+- Then gate 3 work can begin
 
-7. **Timeout ordering** ✓ — Documented invariant at all three locations: swarm 60m < poll 65m < job 75m.
+**Option C:** Retarget this run to actual gate 3 work
+- ops/NEXT.md on this branch says gate 3 review-swarm is done
+- Clarify what gate 3 actually needs built (RFC-0001 §3: "the product chief runs as a relayflow")
 
-8. **Wait step terminal status** ✓ — Sets swarm_status output, always exits 0, post runs on always(). Enforce step checks status != completed.
+**Option D:** Acknowledge TARGET.md is stale and skip this run
+- The launcher wrote TARGET.md before PR #120 merged
+- Autodrive loop should detect "work already merged" and retarget
 
-9. **Transcript freshness** ✓ — .review-target/run-start marker, freshness check in swarm-verdict.sh:33, STALE verdict fails.
+## Recommendation
 
-### Additional requirements:
-- README.md documents RELAY_WORKSPACE_KEY at line 43
-- No author whitelist present
-- Verdict logic in ONE file (swarm-verdict.sh)
+**Option D.** The TARGET.md asks to build something that exists. A run pinned to completed work should report that truthfully, not silently substitute different work.
 
-## What blocks gate 3
-
-The workflow file ALREADY references the secret:
-```
-.github/workflows/review-swarm.yml:28:
-      CLOUD_API_KEY: ${{ secrets.CLOUD_API_KEY }}
-```
-
-But the secret VALUE must be stored in GitHub by a repository administrator.
-
-## What the human needs to do
-
-1. **Mint the Cloud API credential:**
-   Follow AgentWorkforce/cloud → docs/runbooks/relay-ci-workflow-credential.md
-   Profile: `workflow-invoke`
-   Scope: `workflow:invoke:read` and `workflow:invoke:write`
-
-2. **Store as GitHub Actions secret:**
-   Repository Settings → Secrets and variables → Actions → New repository secret
-   Name: `CLOUD_API_KEY`
-   Value: (the minted credential from step 1)
-
-3. **Verify it works:**
-   Open any PR (or push to an existing PR branch)
-   Check `.github/workflows/review-swarm.yml` runs
-   The `Launch cloud swarm` step should succeed (not fall back to device flow)
-
-## Why an agent cannot do this
-
-1. Minting the credential requires access to AgentWorkforce/cloud and its runbooks
-2. Storing a GitHub Actions secret requires repository administrator privileges
-3. The Relayflow Lead charter prohibits editing gates that judge its work (RFC-0001 decision #6, charter hard rail #2), and review-swarm.yml IS such a gate
-
-## Definition of done
-
-Gate 3 will be COMPLETE (not just blocked) when:
-1. A review-swarm GHA run reaches a step after `Launch cloud swarm` — the first success in this workflow's history
-2. The run ID from `Launch cloud swarm` appears in a PR comment
-3. Three lens transcripts are posted to the PR
-
-Currently: secret storage is DONE (2026-09-07 21:50Z) and the launch path is
-proven — a run reaches `agent-relay cloud run` and is given a sandbox. None of
-the three conditions above is met yet: no swarm has returned a verdict, so
-gate 3 is not complete. What stops it now is Daytona CPU quota, not a secret.
+The ops/TARGET.md was likely written before PR #120 merged (2026-09-01), and this run started 2026-09-09. The launcher should have detected the merge and either skipped this run or retargeted to the actual next gate-2 or gate-3 work.

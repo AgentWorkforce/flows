@@ -1,86 +1,94 @@
-# NEXT — gate 3: complete cloud review-swarm preflight validation and documentation
+# NEXT — BLOCKED: target requests already-completed work
 
-**Scope:** Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time, addressing every architectural finding from the walked-away #75/#77 attempts. Parallel to Track A (hn-monitor); different territory (`.github/` + `workflows/` — no overlap with `sdk/` work).
+**Run ID:** 78782172-4dc5-4328-b004-0e98717ad471
+**Date:** 2026-09-09
+**Assessment:** Work requested in ops/TARGET.md was completed and merged on 2026-09-01 in PR #120.
 
-## Why this matters
+## What the target requested
 
-The local `~/AgentWorkforce/review-swarm-loop.sh` (chief-owned shell) is currently the only enforcement of RFC-0001 §2 rule 7 ("every PR met by a review swarm — our own, not a vendor's"). It works, but it lives on my laptop. When my session ends, so does swarm enforcement.
+From ops/TARGET.md (scope, lines 5-6):
+> Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side.
 
-The cloud version — `workflows/review-swarm.yaml` fired from `.github/workflows/review-swarm.yml` — must exist for gate 3+ work to be trustworthy. Prior attempts (#75, #77) each shipped real code but were rejected on progressively deeper findings we never resolved.
+The target specified creating `sdk/src/hn-monitor-runner.ts` with:
+- A continuous runner composing JournalClient + AgentWorker + pollHackerNewsOnce
+- Worker attach BEFORE first poll
+- Clean shutdown on AbortSignal
+- Five specific fixes from closed PR #83
 
-## Current state
+## What already exists (merged 2026-09-01)
 
-The review-swarm implementation is 90% complete. Analysis of the 9 non-negotiable requirements:
+**PR #120** (`201542a`, merged 2026-09-01 08:29 UTC) delivered `flows hn-monitor start`:
+- Implementation: `packages/sdk/src/cli/hn-monitor.ts` (287 lines)
+- Tests: `packages/sdk/tests/cli-hn-monitor.test.ts` (16 tests, all passing)
+- All five TARGET.md findings already addressed:
+  1. Fail-closed journal errors: hn-monitor.ts:252-266
+  2. Worker close() documented: worker.ts:23-30
+  3. Field declaration order: N/A (function-based, not class)
+  4. AbortSignal opt-in: hn-monitor.ts:59
+  5. Test coverage: cli-hn-monitor.test.ts:102-175
 
-1. ✅ Immutable gate — two checkout steps at `.github/workflows/review-swarm.yml:32-48` (pr-head + gate-files from main)
-2. ✅ Unified verdict logic — `swarm-verdict.sh` sourced by both `review-swarm.yaml:132` and `swarm-post.sh:8`
-3. ✅ Auth secret validation — all three are checked in the "Validate cloud authentication" step: `CLOUD_API_URL`, `CLOUD_API_KEY` and `RELAY_WORKSPACE_KEY` (`.github/workflows/review-swarm.yml:56-58`)
-4. ✅ Sticky marker + transcripts — HTML anchors `<!-- swarm-lens: {lens} -->` in swarm-post.sh:34,39,44,47
-5. ✅ No author whitelist — grep confirms absent
-6. ✅ Cloud sandbox fetch on GHA runner — swarm-prepare.sh runs in step "Prepare review input" with GH_TOKEN
-7. ✅ Timeout ordering — 60m (review-swarm.yaml:18) < 65m (review-swarm.yml:112) < 75m (review-swarm.yml:19) with comments
-8. ✅ Wait step records status, post runs on always() — review-swarm.yml:106-130,132-137
-9. ✅ Transcript-to-run-id binding via freshness — swarm-prepare.sh:11 creates run-start marker; swarm-verdict.sh:33-34 rejects stale transcripts
+## Current gate status
 
-Additionally: README.md is already correct and needs no edit. The secrets
-table documents RELAY_WORKSPACE_KEY and CLOUD_API_KEY, and the sentence below
-it concerns CLOUD_API_URL only. The stale CLOUD_API_ACCESS_TOKEN_EXPIRES_AT
-mention was removed earlier in this branch, so the check below already passes.
+**Gate 2: AMBER** (ops/STATE.md:39-81). Two clauses prevent GREEN:
+1. **Trigger plane liveness-checked** — relayflowd does not yet detect when a poller stops (deterministic-id single-winner claim + `stale_after` sweep pattern required per RFC-0001 §3 gate 2)
+2. **The analyze-agent step actually executing** — in recorded runs every step ended `worker_error` because the AgentWorker has no user-supplied step handler
 
-## Files in scope
+**Gate 3 sequencing:** RFC-0001 §3 sequence is "consumers 2 → 3 → 4". Gate 3 cannot begin until gate 2 is GREEN.
 
-Nothing. Every item this brief once listed is already done in this branch. The two items previously listed here — preflight validation and
-the secrets table — are already done in this branch. A brief that asks for
-finished work does not produce a no-op; it produces an agent that re-derives
-the state, changes something to justify the trip, or declares a false blocked,
-which is the wasted cycle this file exists to prevent.
+**Gate 3 definition** (RFC-0001 §3, lines 114-120):
+> Gate 3 — a relayflow can power a factory → **Software Garden**
+>
+> **Proves:** the flagship DAG. Discover → implement → review → merge-gate → close, on kernel leases instead of factory's ~10 hand-rolled claim protocols.
+>
+> **Done when:** a labeled issue flows to a reviewed PR end-to-end with every claim/lease/retry served by the kernel, the merge gate holding, and the run legible in the journal.
 
-## Definition of done
+## Why this blocks the run
 
-1. ✅ Already satisfied — preflight checks all three required secrets:
+The charter's hard rail (charter/LEAD.md:38-41):
+> It is the operator's scoping decision and it overrides your own judgement about priority — several runs execute in parallel, each pinned to a different gate, and a run that wanders outside its target will collide with a sibling. Stay inside it or, if the target is genuinely unreachable, say so in ops/NEEDS_HUMAN.md rather than silently choosing different work.
+
+**The target is unreachable:** the work it requests was merged 8 days ago. A run cannot "redo" merged work without regressing the codebase.
+
+**Substituting different work violates the scoping rule.** The correct action is to report blocked and file the exact question for a human decision.
+
+## What needs human decision
+
+Recorded in ops/NEEDS_HUMAN.md with four options:
+- **Option A:** Address gate-2 AMBER clauses (requires kernel changes, out of scope per TARGET.md)
+- **Option B:** Flip gate 2 to GREEN based on existing evidence (Khaliq's call per ops/STATE.md:74-81)
+- **Option C:** Retarget this run to actual gate 3 work (RFC-0001 §3 defines it)
+- **Option D:** Acknowledge TARGET.md is stale and skip this run
+
+**Recommendation:** Option D. The launcher wrote TARGET.md before PR #120 merged. A run pinned to completed work should report that truthfully, not silently substitute different work.
+
+## No work package for this tick
+
+This tick produces NO code changes. The assessment is:
+1. Target requests `sdk/src/hn-monitor-runner.ts`
+2. That functionality exists as `packages/sdk/src/cli/hn-monitor.ts` (merged PR #120)
+3. All specified fixes are already implemented
+4. Gate sequencing (2 → 3) prevents gate 3 work until gate 2 is GREEN
+5. Blocked on human decision per ops/NEEDS_HUMAN.md
+
+## Evidence
+
+Test run from this assessment:
 ```
-test -n "$CLOUD_API_URL"
-test -n "$CLOUD_API_KEY"
-test -n "$RELAY_WORKSPACE_KEY"
+cd packages/sdk && npm test 2>&1 | grep hn-monitor
+✓ tests/cli-hn-monitor.test.ts (16 tests) 104ms
 ```
 
-2. ✅ Already satisfied — README needs no change. Its table names
-   RELAY_WORKSPACE_KEY and CLOUD_API_KEY, and the stale expiry mention is gone:
+SDK test suite status: Building (in progress at assessment time)
+
+File existence:
 ```
-grep -c CLOUD_API_ACCESS_TOKEN_EXPIRES_AT README.md   # already 0
+ls -la packages/sdk/src/cli/hn-monitor.ts
+-rw-r--r-- 1 daytona daytona 11484 Sep  9 21:11 hn-monitor.ts
 ```
 
-3. All files continue to parse:
-```
-bash -n .github/workflows/scripts/swarm-post.sh && \
-bash -n .github/workflows/scripts/swarm-prepare.sh && \
-bash -n .github/workflows/scripts/swarm-verdict.sh && \
-echo "All bash scripts parse OK"
-```
+Gate 2 status quote (ops/STATE.md:39):
+> Gate 2 — proactive agent: AMBER, unattended trigger-plane proven, two clauses remain.
 
-```
-python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))" && \
-python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))" && \
-echo "YAML files parse OK"
-```
+## Status
 
-4. No author whitelist exists:
-```
-grep -i "whitelist\|github.event.pull_request.user.login" .github/workflows/review-swarm.yml || echo "No author whitelist found (GOOD)"
-```
-
-5. As final action:
-```
-git status --porcelain
-```
-
-## Explicitly OUT of scope
-
-- `workflows/review-swarm.yaml` (already correct)
-- `.github/workflows/scripts/swarm-*.sh` (all three scripts already correct)
-- `.gitignore` (already correct - no .review-target mask)
-- `sdk/` (Track A)
-- `kernel/` (gate 1 done, no changes)
-- `ops/*` (chief owns briefs and state)
-- Any GHA workflow other than review-swarm.yml
-- Actually TESTING the workflow in CI (requires `RELAY_WORKSPACE_KEY` + `CLOUD_API_KEY` secrets set which is a human step per requirement #3's context)
+**BLOCKED_NEEDS_HUMAN** — see ops/NEEDS_HUMAN.md for the exact question and options.
