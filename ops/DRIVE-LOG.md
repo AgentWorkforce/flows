@@ -6338,3 +6338,44 @@ on `claude`, and it is the only way to learn why the dispatch does not complete.
 
 Status of the ask: the local loop still does not run work. I can reach
 `implement` reliably and no further.
+
+### 2026-09-09 — the loop's agent SUCCEEDS and the worker still fails the step
+
+Drain: 0 pending of 2035. Disk 5.0Gi.
+
+Instrumented the CLI with a transparent shim on PATH rather than editing source,
+and the picture is now complete — and it is not what I assumed at any point
+today.
+
+The worker invokes `claude` three times: `auth status --help`, `auth status`
+(both exit 0, `loggedIn: true`), then the real prompt. The real prompt ran for
+34 seconds and **exited 0**. Its output:
+
+```
+The package F8b is already implemented on this checkout.
+- packages/sdk/src/compile.ts contains no reference to validateKernelRetry (grep confirms 0 matches)
+- The authoring validator is already declared as function validateAuthoringRetryDefaults( at line 409
+...
+DONE
+```
+
+The last non-empty line is exactly `DONE`, which is what
+`verification: {type: output_contains, value: DONE}` requires. The agent even
+behaved the way the instruction asks — it reported "already done" with evidence
+rather than inventing an edit to look busy.
+
+**And the worker still let the lease expire without completion.**
+
+So the blocker is not auth, not a missing CLI, not nested invocation, not the
+agent's behaviour, and not the verification marker. Every one of those was a
+candidate I held at some point today; all are now excluded by evidence. What
+remains is the worker or lease handling itself: the step is dispatched, the CLI
+succeeds, and completion is never recorded.
+
+That is a real defect in the local loop and it is precisely why "relayflows
+running continuously" has not been true tonight. It is also good news of a sort:
+the agent side works, and the failure is in a narrow, identified place.
+
+Not filing a fix this tick — the lane owns `drive-local` work on #244 and I am
+not editing its branch. Recording the evidence so the fix can be targeted rather
+than guessed.
