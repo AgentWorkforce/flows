@@ -5811,3 +5811,41 @@ installed `node_modules` — it timed out at 8 minutes. Too broad a search for a
 question that did not need answering that way.
 
 Five threads remain on #244.
+
+### 2026-09-09 — rebased cloud#3459; a naive conflict resolution would have broken it twice
+
+Drain: 0 pending of 2001. Disk 7.6Gi.
+
+#3459 had gone DIRTY (1 ahead, 45 behind). Rebased onto main. Two conflicts,
+both in the launch path, and both traps:
+
+**`launch-worker.ts`** — main had reformatted the condition and kept
+`if (envelope?.relayflowVersion === "v2")`; my change replaces that with
+`v2LaunchClaimed` **and** swaps the order so the run is released *before* the job
+becomes claimable. Both are load-bearing: the guard means only the attempt that
+claimed the run may release it, and the order is what stops a redelivery
+claiming a still-`launching` run and reporting a cancel over the real error.
+Kept main's formatting, kept my semantics.
+
+My first splice then left main's inner-block tail behind, **duplicating the
+release calls**. The order assertion caught it — four calls where there should be
+two — and I removed the three leftover lines.
+
+**`launch-worker.test.ts`** — main added an admission-budget test, I added a
+release-ordering test, at the same spot. I assumed the conflict's "mine" side was
+self-contained, spliced both, and **dropped a closing brace and paren**.
+
+What caught it: running my crude brace counter against **main's untouched copy**
+as a control. Main came back 248/248 and 789/789 — balanced — which proved the
+counter was meaningful for this file, so my 282/281 and 904/903 was a real
+defect, not counter noise. Without that control I would have dismissed it as a
+false alarm from string literals.
+
+Rebuilt the resolution properly rather than patching the bad splice: took main's
+file and inserted my test block extracted from my own commit by paren depth.
+Result 257/257 and 811/811, both tests present, no markers.
+
+Rebase completed clean (ahead=1, behind=0), semantics verified after the rebase
+rather than assumed, pushed with `--force-with-lease`, and content asserted on
+the remote. **#3459 went DIRTY -> UNSTABLE**, so the conflict is gone and CI is
+simply re-running.
