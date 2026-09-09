@@ -24,6 +24,14 @@ const ENGINEERING_OUTCOME =
 export interface BacklogEntry {
   title: string;
   body: string;
+  /**
+   * Where the selected bullet actually starts and ends in the source markdown.
+   * A caller advancing past this entry must slice by position: searching for
+   * the title text finds the FIRST occurrence, which may be a mention inside an
+   * earlier entry's body rather than this bullet.
+   */
+  index: number;
+  endIndex: number;
 }
 
 export interface ValidatedWorkPackage {
@@ -51,7 +59,12 @@ export type WorkPackageValidation =
 export function selectBacklogEntry(markdown: string): BacklogEntry | null {
   const match = ENTRY.exec(markdown);
   if (!match) return null;
-  return { title: match[1] ?? '', body: (match[2] ?? '').trim() };
+  return {
+    title: match[1] ?? '',
+    body: (match[2] ?? '').trim(),
+    index: match.index,
+    endIndex: match.index + match[0].length,
+  };
 }
 
 /** Render the selected entry as a work package. */

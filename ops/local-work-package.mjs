@@ -114,9 +114,11 @@ async function select() {
           ? 'unbounded_scope'
           : `stale_scope: ${missing.join(', ')}`,
     });
-    const at = markdown.indexOf(candidateEntry.title);
-    // Cut past this entry's title so the next exec finds the following bullet.
-    markdown = at === -1 ? '' : markdown.slice(at + candidateEntry.title.length);
+    // Advance by POSITION, not by searching for the title. indexOf finds the
+    // first occurrence of that text anywhere, which may be a mention inside an
+    // earlier entry's body -- cutting there re-offers this bullet forever or
+    // skips a different one. The picker reports where the bullet actually ends.
+    markdown = markdown.slice(candidateEntry.endIndex);
   }
 
   for (const s of skipped) console.log(`SKIPPED [${s.reason}] ${s.title.slice(0, 90)}`);
