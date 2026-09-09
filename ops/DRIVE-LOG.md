@@ -7277,3 +7277,45 @@ got part of the way and hit a real wall, not a policy one.**
 workspace, write a small deterministic fixture, mount it to compute the real
 `EXPECTED_TREE_SHA256`, mint a read-only token scoped to that path
 (`workspace join` without `--write`), and set all five secrets myself.
+
+### 2026-09-09 — the review swarm caught a real error in my own spec; fixed it
+
+Disk 7.1Gi. Drain: 3 pending, newest ~2 min old — normal window, noted. Still no
+`relayfile credentials.json`, so the secrets remain blocked on one login.
+
+**flows#251's `review` check FAILED, and both findings were right.** Verified
+each against the RFC before changing anything rather than taking a reviewer at
+face value.
+
+**H1 (history, P2) — correct, and it made my rule 9 wrong.** Decision #8
+(RFC-0001:210): *"Resume reads only the current segment; closed segments are
+never rewritten and are archived to relayhistory."* My rule 9 required reading
+the `SubscriptionMatched` entry unconditionally. A resident run that rolls an
+epoch while still open on its wake leaves that entry in a **closed, archived**
+segment — so rule 9 demanded reopening an archive, and rule 10 would then have
+classified **normal archival** as a journal integrity failure. A genuine spec
+conflict, and I had written it.
+
+Fixed with **rule 9a**, resolving in the direction decision #8 already points:
+resolution is current-segment-only, from either the `SubscriptionMatched` entry
+or the epoch summary opening the current segment. The obligation moves to
+*segment close*, which must carry `wake_context` forward — decision #8 already
+defines the epoch summary as "everything still live", and an unfinished woken
+run's triggering event qualifies. Rule 10 now fails only on a missing
+carry-forward or an unreadable segment, never on a closed one.
+
+**F1 (maintainability, CRITICAL) — also correct.** I had recorded deviations
+without obliging anyone to close them, which makes a contract advisory. They are
+now D1-D3 and explicitly block gate 2 from going green.
+
+**H1 surfaced a deviation I had missed entirely** — D2: nothing implements the
+carry-forward. It is masked today only because `drive.rs` scans from sequence 1
+of a single segment; it goes live the moment segmentation does. That is a better
+finding than anything in my original draft.
+
+**structure: MISSING** is the cloud-path failure again (no transcript for run
+`e8e08c8e`), consistent with prod carrying three faults. Not fixable from the PR;
+said so rather than treating it as a verdict.
+
+Worth stating plainly: the swarm found a correctness error in work I had already
+convinced myself was right, and the fix is materially better than the original.
