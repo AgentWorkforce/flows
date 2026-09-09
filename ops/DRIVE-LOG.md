@@ -5593,3 +5593,34 @@ copy present.
 The pattern worth noting: my first fix addressed the sentence, the lens then
 pointed at the structure the sentence sat in. That is a better reviewer than I
 was being.
+
+### 2026-09-09 — nearly claimed v2 cloud runs work; they don't. And my logging fires a build every tick.
+
+Drain: 0 pending of 1983. Disk 5.6Gi.
+
+**Near-miss worth recording.** A run listing showed `Relayflow v2 Cloud run ...
+completed/success` repeatedly on `main`, and I was one step from reporting that
+v2 cloud runs already work — which would have contradicted the whole night and
+been wrong. The name was **truncated by my own `.name[0:22]` slice**. The
+workflow is `Relayflow v2 Cloud runtime **artifact**`
+(`.github/workflows/cloud-runtime-artifact.yml`) — it builds and publishes the v2
+tarball. It executes no workflow and proves nothing about v2 runs.
+
+That is the second time tonight my own output formatting nearly manufactured a
+false conclusion; the first was reading `created_at` on an upserted comment.
+
+**Real finding from the same listing:** that workflow triggers on **push to
+main**, and every DRIVE-LOG commit I make is a push to main. Six of the last
+eight runs in the repo are artifact builds fired by *my own logging cadence* —
+one roughly every eighteen minutes, all night. The brief tells me to log every
+tick, so I am not going to stop logging, but this is real CI load created by an
+observer, and worth someone deciding on deliberately rather than discovering in
+a bill.
+
+**Also: the swarm is not re-running on #240.** Branch head is `3564fcb`, newest
+swarm run is on `cb3ee52` — my last two pushes (`bb7c44b` 07:42Z, `3564fcb`
+07:58Z) triggered no Review swarm at all, while `fix/legacy-workflow-schema`
+triggers one on every push. So #240's verdict cannot refresh, and the
+`history FAILED / structure FAILED` shown is genuinely older than the fixes for
+both. Why one branch triggers and the other does not is the next thing to find
+out.
