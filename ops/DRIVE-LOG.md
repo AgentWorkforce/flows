@@ -6682,3 +6682,44 @@ blocked on Khaliq.
 Did not blame #3446 for the RelayAuth 500 — it touches the launch queue, which
 makes it a suspect, but the failure is in RelayAuth identity creation and I have
 no evidence connecting the two.
+
+### 2026-09-09 — corrected two claims in #3489; the 500 has an EMPTY body
+
+Drain clear: 0 pending of 2057. Disk 3.6Gi. Three lanes alive. Re-verified
+items 3 and 4 are stale — **#134 and #139 both merged 2026-09-04**, so the brief
+has been carrying two dead items for five days. Item 2 still needs a device
+click. So the live work is #3489.
+
+**Correction 1, and it moves the investigation.** In #3489 I wrote that the
+upstream body "is being swallowed by the client-side wrapper" and suggested
+surfacing it. **Wrong.** `packages/core/src/relayfile/client.ts:534-542` already
+reads it and appends `: ${detail}` when non-empty. Our error has **no** detail
+suffix — so RelayAuth returns a 500 with an **empty body**. Handled RelayAuth
+errors carry a JSON `{error, code}` body (the 401s prove it), so a bodiless 500
+is the signature of an unhandled exception escaping the route, not a handled
+error. That is a different place to look than what I told people.
+
+**Correction 2, process error, conclusion survives.** My "the 19 columns match"
+evidence came from `node_modules/@relayauth/server` = **0.2.29**, while
+package.json and the lockfile pin **0.2.31**. I compared against a version the
+repo does not use. Re-checked against the pinned tarball:
+`0001_local_bootstrap.sql` is **byte-identical** across the two, so the
+conclusion stands — not the #3461 class. But this is exactly the stale-tree trap:
+any local gate reading `node_modules` here is testing 0.2.29 and will not say so.
+
+0.2.31 adds `0010_token_lineage_agent_name.sql`, absent from my tree. It touches
+`token_lineages`, not `identities`, so it does not disturb the above. Flagged as
+adjacent that it is an unguarded `ALTER TABLE ... ADD COLUMN` with a backfill
+UPDATE reading `identities` — double application would fail — without claiming
+it is the cause, because I have not checked runner idempotency.
+
+**Best next check, recorded in the issue:** `packages/relayauth/src/worker.ts`
+warns that SST hashes only the handler source and does not diff `node_modules`,
+so a dep bump can leave the deployed worker on an older bundle. Its marker says
+`0.2.31`, matching the pin, but I could not verify what is actually deployed —
+RelayAuth has no unauthenticated version endpoint (unknown paths 401 because auth
+precedes routing). A stale bundle against a migrated D1 would produce exactly
+this failure shape.
+
+Posted both corrections as a comment on #3489 rather than editing the body, so
+the wrong reasoning stays visible.
