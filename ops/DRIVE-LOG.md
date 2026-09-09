@@ -8338,3 +8338,48 @@ to be my own environment, would have been the wrong call twice over.
 closing my PR, but a human pushing to my branch with no signal until a rejected
 push. Separate identities would have shown `Khaliq` on that commit before I spent
 the tick.
+
+### 2026-09-10 — a second transient status losing a proof one step from its verdict
+
+Disk 5.3Gi. Drain: 0 pending of 1993, but `running` climbed 13 -> 15.
+
+Aged the running set: three recent, and **two were actively updating** — the
+first genuinely progressing runs in a while. Followed them for five minutes.
+
+- `79b78692` — **failed** at 22:56:47
+- `b5918585` — still `running` with `updatedAt` frozen at 22:54:26 for 7+
+  minutes. The zombie pattern forming again.
+
+**The failure is a new status with a familiar shape:**
+
+```
+  ✓ gate-base — completed
+  ● verify-head — started
+  ✗ verify-head — FAILED: Request failed with status code 502
+  ○ gate-red-green — skipped
+[workflow] FAILED: Step "verify-head" failed after 0 retries: Request failed with status code 502
+```
+
+Not `workspace_busy` — a bare **502**. But identical in consequence to run
+`acc03fea` earlier: the proof completes `prove-base`, produces a valid base arm,
+reaches `verify-head`, and loses the red/green verdict to a transient error.
+
+**The scoping insight worth recording.** `retries: 0` on the proof workflow is
+deliberate — #3471's own description says *"the proof workflow intentionally uses
+fail-fast agents and retries: 0; changing proof semantics would hide product
+flakiness."* That is correct, and it means the workflow layer will **never**
+absorb these. Every transient status therefore has to be absorbed *below* the
+step boundary or it discards work that already succeeded. #3471 did that for 503
+at `mcp-args --register`; #3507 extends it to 429 at the same site. A 502 from
+whatever `verify-head` calls has no equivalent.
+
+**Said plainly what I am not claiming:** I do not know which call produced the
+502, and `Request failed with status code 502` reads like a generic HTTP client
+message rather than a Relaycast diagnostic. It may be an unrelated dependency. I
+filed it on #3493 for the *consequence*, not because I have tied it to the same
+server.
+
+Also corrected a read error of my own mid-tick: I fetched `failure.message` and
+got length 0, then nearly reported the failure as empty. `failure` is **null** on
+this run; the text is in `error`. My first script had fallen through to it and my
+second had not.
