@@ -6817,3 +6817,49 @@ work while half of prod's launches die on Relaycast back-pressure. #3493 is now
 the highest-value fix for getting completions back, ahead of #3489 — because
 #3489 only blocks the preview stage, which is needed for the v2 proof but not
 for continuous driving.
+
+### 2026-09-09 — followed two prod launches live; nearly filed a duplicate off a stale checkout
+
+Disk 7.8Gi. Prod drain found 2 pending; followed both to terminal rather than
+calling them stuck on one observation.
+
+```
+ab576979  created 15:20:00Z  sandbox seen 15:25:17Z  failed 15:26:24Z
+af8cb94f  created ~15:19Z    sandbox seen 15:24:29Z  failed 15:25:39Z
+both: code=workflow_launch_queue_timeout  phase=queue
+```
+
+**Caught myself about to file a duplicate.** My first read blamed the launch
+deadline: my checkout showed `DEFAULT_WORKFLOW_PRESTART_TIMEOUT_MS = MAX_ = 5m`
+computed from `createdAt`, which would mean provisioning could never fit the
+budget. I went to check for an existing issue and found **#3463**, closed at
+03:54 today, describing exactly that. Before writing "closed but still
+happening", I checked `origin/main` — and **my checkout was stale**. Local main
+was `33cef2645`; origin is `4ce0edc02`, and those constants no longer exist:
+
+```
+WORKFLOW_LAUNCH_QUEUE_TIMEOUT_MS   = 5m
+DEFAULT_WORKFLOW_LAUNCH_TIMEOUT_MS = 5m
+MIN_WORKFLOW_LAUNCH_TIMEOUT_MS     = 30s
+MAX_WORKFLOW_LAUNCH_TIMEOUT_MS     = 55m
+```
+
+587 insertions, with `queueDeadlineAt` and `bootstrapDeadlineAt` split apart —
+#3463's acceptance criteria, landed. And the message my runs failed with is that
+new code's wording, so it is deployed and behaving as designed. That is the
+second time today a stale local tree nearly produced a wrong published claim
+(the first was node_modules 0.2.29 vs the pinned 0.2.31). **Read origin/main, not
+the working copy, before asserting what the code does.**
+
+**What the runs actually show.** `resolveWorkflowLaunchQueueDeadlineAt` is
+`createdAt + 5m`, checked when a worker *claims* the job. So these sat unclaimed
+for over five minutes: launch-worker throughput, not budget sizing.
+
+**Hypothesis, recorded as one.** If workers are occupied failing over Relaycast
+503s (#3493), throughput drops and queued jobs age out — making queue timeouts a
+secondary symptom of the same back-pressure. I cannot see worker concurrency or
+claim latency, so this is unverified; what would settle it is claim-latency
+telemetry, or whether queue timeouts disappear once 503s are retried. Posted to
+#3493 with that caveat attached.
+
+Item 2 still blocked (needs a live #3270 preview); items 3-4 stale.
