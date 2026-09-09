@@ -5928,3 +5928,42 @@ local loop's acceptance checks are writable by the agent they judge, and the
 workspace contract is prompt text rather than a declared surface. That is the
 design question I have twice said needs Khaliq's call, and two independent lenses
 have now raised it unprompted.
+
+### 2026-09-09 — option A implemented: the gate runs from a pre-agent snapshot
+
+Khaliq approved A + B. This tick is A; B (mechanical scope enforcement with
+symlink resolution) is next.
+
+**The hole was narrower and nastier than "the gate is writable".** The scope
+guard protects `packages/sdk/src/backlog-picker.ts`, but the acceptance path
+imports the **built** `packages/sdk/dist/backlog-picker.js`. An agent could leave
+the guarded source untouched, rebuild dist, and the guard would still pass while
+the gate executed the agent's own code. And the rebuild step I added earlier in
+this same PR makes dist routinely regenerated — so I had made it easier, not
+theoretical.
+
+New `gate-snapshot` step runs before the agent: builds the SDK, copies the picker
+and both acceptance scripts into `.drive-gate/`, records `SHA256SUMS`. `scope`
+and `verify` check those sums and execute **from the snapshot**, with
+`DRIVE_GATE_PICKER` pinning the snapshotted picker so the acceptance path cannot
+reach the live dist. Diff guards extended to the built artifact; `.drive-gate/`
+gitignored.
+
+**Two of my own errors caught during the change, both by checking rather than
+assuming:**
+
+1. My first anchor failed because I copied a source line **including the two
+   spaces my own terminal formatting had added**. Same class as reading a
+   truncated workflow name earlier — my display is not the artifact.
+2. **The important one.** My edit left `implement` still `dependsOn: [select]`,
+   so the agent could have run **concurrently with the snapshot** — voiding the
+   entire fix while the diff looked right. Caught by dumping the dependency map
+   and asserting `implement -> gate-snapshot` explicitly rather than trusting the
+   replacement had matched.
+
+Committed `5261c2c`, snapshot step and picker pin asserted on the remote.
+
+**Not exercised end to end.** The loop needs a real run to prove the snapshot
+path works. Stated that in the commit too. Failure mode if I got a path wrong is
+a loud gate failure, not silent trust of agent-written code — which is the right
+way round.
