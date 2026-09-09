@@ -5559,3 +5559,37 @@ attribution present = 1, stale `205 passed` count remaining = 0.
 Worth stating plainly: three of the four blockers I have fixed across #238 and
 #240 tonight were defects I introduced, and two of them were introduced by
 commits that claimed to be corrections. The lenses are catching things I did not.
+
+### 2026-09-09 — #240's remaining structure blockers fixed; the lens moved on, and it was right to
+
+Drain: 0 pending of 1981. Disk 5.6Gi.
+
+First, a timing check that stopped me misreading a verdict: #240's swarm verdict
+was updated `07:48:40Z` and still said `history FAILED / structure FAILED`. My
+history fix `bb7c44b` landed at `07:42Z`, but the swarm run was on `cb3ee52`
+(`07:25Z`). So the history FAILED is simply older than the fix — not evidence the
+fix failed. No run has been triggered for `bb7c44b` yet.
+
+The structure verdict *did* include my earlier fix, and the lens had **moved to
+different findings** — which is the useful part:
+
+- **P1, and sharper than what I fixed.** I had added a paragraph saying the
+  adapter must not live in `relayflowd`. Directionally right, but the FILE still
+  sat at `kernel/GATE5-MEMORY-CONTRACT.md`. A document under `kernel/` reads as
+  kernel design authority regardless of its text, and this one specifies
+  `ai-hist` CLI syntax, JSON output, exit-code behaviour and provider traps.
+  Moved it to `docs/` with an explicit ownership header, so **location and text
+  now agree** rather than contradicting each other.
+- **P2.** The gate-7 scoreboard cell had become a second design report — Rust
+  symbols, test names, crash behaviour, a mutation claim, commit hashes, suite
+  counts, all in one table cell. Reduced **1420 chars to 382**: gate state, what
+  is journaled, why it is not GREEN. The narrative and mutation transcript belong
+  in the PR #227 review artifacts, which AGENTS.md already requires to carry the
+  literal transcript.
+
+Committed `3564fcb`; asserted on the remote by content — kernel copy gone, docs
+copy present.
+
+The pattern worth noting: my first fix addressed the sentence, the lens then
+pointed at the structure the sentence sat in. That is a better reviewer than I
+was being.
