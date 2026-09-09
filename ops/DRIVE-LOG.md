@@ -6620,3 +6620,65 @@ genuinely clear. Listed in #3488 for whoever adds the status filter.
 
 Not spawning a lane on #3488 this tick: disk is at 3.8Gi/99%, and a cloud
 worktree plus install is ~1GB. Flagging it for Khaliq as the top item instead.
+
+### 2026-09-09 — the queue is not down; it is failing. Zero completed runs today.
+
+Disk 3.7Gi. Three lanes alive.
+
+**Drain found 2 pending, and following them was the whole tick.** Both had
+`sandboxId: null` and `updatedAt == createdAt` — the exact signature the brief
+calls "launch queue DOWN". They were **78 and 84 seconds old**, so that signature
+did not yet discriminate anything. Polled them instead of calling it: both moved
+`pending -> failed` within ~3 minutes. **The queue is not down. It is
+processing, and everything it processes fails.**
+
+**Nothing has completed today.** Completions have been collapsing for a week:
+
+```
+day          failed  completed
+2026-08-29      13         49
+2026-09-05     147          3
+2026-09-07     268          9
+2026-09-08     316          4
+2026-09-09     160          0     <-- zero
+```
+
+That is the real state of "run v1 relayflows continuously to power through gates
+2-9": it has been producing nothing for at least a day.
+
+**It is a succession of blockers, not one.** Sampling 3 failures/day:
+
+```
+09-04  Bootstrap hard timeout / Could not load credentials
+09-05  Total CPU limit exceeded / sandbox_router_no_provider
+09-06  Relaycast key repair 503 database overloaded / relayfile ACL 429
+09-07  relayfile ACL 429 / CPU limit
+09-08  RelayAuth 500 /v1/identities   3/3
+09-09  RelayAuth 500 /v1/identities   3/3
+```
+
+So the current single blocker is uniform and identifiable. Filed
+**AgentWorkforce/cloud#3489**.
+
+**What I ruled out before filing.** I expected the #3461 class — Cloud SQL
+expecting columns the OSS `@relayauth/server` migrations do not create. It is
+**not** that: `IDENTITY_PROJECTION_UPSERT_SQL` (identities.ts:107) writes 19
+columns and OSS `0001_local_bootstrap.sql:12-32` creates exactly those 19. They
+match. Also confirmed RelayAuth itself is healthy on all three stages (200
+/health, clean 401 unauthenticated), so the fault is on the authenticated write
+path only. Said in the issue that I could not reproduce the 500 directly, because
+that needs a RelayAuth-scoped credential I am not minting.
+
+**A setup fact I had not noticed and should have.** My CLI is pinned to
+`preview-pr-3446` — an *open PR's* preview stage ("launch v2 through Cloudflare
+while v1 keeps SQS"), which rewrites the launch queue path. For the v2 proof a
+preview is required (only preview.yml sets `RELAYFLOW_V2_ADMISSION_EPOCH`), but
+**v1 continuous driving has no reason to target a transient PR preview** and
+should run against dev. I could not test dev to isolate this: the token is
+stage-scoped and returns 401 against dev and prod, and re-login needs a device
+click. So "is this preview-specific or global?" is the open question, and it is
+blocked on Khaliq.
+
+Did not blame #3446 for the RelayAuth 500 — it touches the launch queue, which
+makes it a suspect, but the failure is in RelayAuth identity creation and I have
+no evidence connecting the two.
