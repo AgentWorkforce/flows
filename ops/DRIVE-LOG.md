@@ -7798,3 +7798,45 @@ Posted the reproduction on #238 and asked for a re-review at `bcafd421`. Did
 reproduce, and flagged a question neither covers: those keys are now *passed
 through* into the 0.1.0 output, and whether the SDK accepts top-level
 `cli`/`budget`/`triggers` is a different question from whether they are lost.
+
+### 2026-09-09 — #242's blocker DOES reproduce; opposite result to #238
+
+Disk 5.8Gi. Drain: 1 pending, created 20:23, normal window.
+
+Applied the same treatment to #242 as to #238 — check whether the blockers
+survive at the head rather than trusting either the verdict or my instinct. This
+time the answer is the opposite: **#242's maintainability blocker is live.**
+
+At head `a462407` the dispatch is:
+
+```js
+if (command === 'select') await select();
+else if (command === 'report') report();
+else { console.error('usage: local-work-package.mjs <select|report>'); process.exit(2); }
+```
+
+and `ops/local-work-package.test.mjs` calls `run('apply', ..)` at lines 42, 45,
+49. The PR's file list closes it: it changes `local-work-package.mjs` (150+/56-)
+and **does not touch the test**. Every apply case exits 2.
+
+**Why deleting the test would be the wrong repair.** Those three calls are a
+crash-injection and idempotency suite: SIGKILL mid-write then assert the target
+is byte-identical (atomic write); a clean apply produces exactly the expected
+rename; a second apply exits 0 with `PACKAGE_ALREADY_APPLIED` and no change
+(idempotent replay). That is real coverage, and the lens was right that losing it
+silently is the worse outcome.
+
+**Did not pick a fix, deliberately.** The old `apply` and its test are both bound
+to one hardcoded backlog item (`validateKernelRetry` -> `validateAuthoringRetryDefaults`,
+matched by a literal `F8b` regex). This PR exists to pick *any* item, so a test
+asserting one specific rename cannot survive generalisation unchanged. That
+leaves three non-equivalent paths — generalise `apply` and rewrite the test
+against a synthetic entry; drop `apply` and rehome the two guarantees explicitly;
+or split the picker from the apply change. Which one is right is a scope decision
+about what `drive-local` is for, and the author's intent is not recoverable from
+the diff. Posted the evidence and the three options rather than guessing.
+
+**Worth contrasting with #238.** Same method, opposite outcome: there the
+blockers were stale artifacts of an older commit; here they are live and precise.
+Running the check is what distinguished them — neither the verdict's freshness
+arithmetic nor its confidence would have.
