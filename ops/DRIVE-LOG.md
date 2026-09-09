@@ -7711,3 +7711,54 @@ rebuild on the next tick for no reason.
 
 Also confirmed no build was running before deleting, and that the `fl-d1` matches
 for that path are documentation files, not dependents.
+
+### 2026-09-09 — merged #250 and #252; held back #251, #240, #238, #242, #244
+
+Khaliq authorized merging the flows PRs "if good to go", so the work was deciding
+which actually were. Five of seven were not.
+
+**Caught a timezone error in my own freshness check.** Head commit times are
+`+02:00`; swarm verdicts are UTC. Comparing them raw made every verdict look
+STALE, including #252's. Corrected: #252's head is 19:07 UTC and its verdict
+19:26 UTC — **fresh by 19 minutes**. I also had to re-sort the swarm comments by
+`updated_at` rather than list position, because they are upserted, so
+`created_at` order does not track the newest verdict.
+
+Verdicts at each current head, after both corrections:
+
+```
+#238  M:fail  H:fail  S:missing     -> no
+#240  M:UNCLEAR H:pass S:UNCLEAR    -> no; UNCLEAR is an unreadable verdict, not a pass
+#242  M:fail  H:fail  S:missing     -> no
+#244  M:pass  H:fail  S:missing     -> no
+#250  M:pass  H:pass  S:missing     -> MERGE
+#251  all MISSING                   -> no; no verdict at all
+#252  M:pass  H:pass  S:missing     -> MERGE
+```
+
+**Merged #250 and #252.** Both had fresh maintainability and history passes at
+the exact head, clean non-review CI, and Khaliq's authorization as the human
+signoff. `structure: MISSING` on both is the broken cloud transcript path, not a
+finding.
+
+**Read #250 before merging it** rather than trusting the lenses alone, since it
+is the journal-close lane's work and not mine. The fix is small and right:
+`stepComplete` now passes `null` for the timeout, matching `runStart` and
+`runResume`, so downstream step execution bounds apply instead of the short
+protocol-request timeout — that is the `CLIENT_CLOSE` cause. Its test proves the
+change is *targeted* (bounded requests still time out) and that rejection,
+disconnect and caller-close still reject, so it cannot hang forever. The lane
+committed mutation evidence too.
+
+**Held back #251 — my own spec PR — because it has no verdict at all** at
+`dbde1ef`. It has been revised heavily today, including three corrections I made
+to my own claims. Merging spec text that no reviewer has seen in its current form
+would be exactly the "green because nobody looked" failure I have been calling
+out. Khaliq's authorization was conditional on the PRs being good to go, and this
+one is not yet demonstrably so.
+
+**Asserted the merges landed the actual code**, not just that GitHub reported
+success: `resolve_wake_context` is present on `origin/main`, and so is #250's
+journal-client comment. Both 1/1.
+
+Gate-2 status: **D1 is now on main.**
