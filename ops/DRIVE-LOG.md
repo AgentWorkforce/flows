@@ -8383,3 +8383,54 @@ Also corrected a read error of my own mid-tick: I fetched `failure.message` and
 got length 0, then nearly reported the failure as empty. `failure` is **null** on
 this run; the text is in `error`. My first script had fallen through to it and my
 second had not.
+
+### 2026-09-10 — the brief's recovery path is unreachable for the runs that need it
+
+Disk 5.3Gi. Drain: 1 pending, created 23:04, normal window.
+
+Followed `b5918585` from last tick. It confirmed #3466 — same `410
+cursor_expired` -> notify-flush -> repair loop — but with a detail the earlier
+zombies lacked:
+
+```
+[executor] propagated 734 files from step "assess-1"
+```
+
+The earlier one propagated **0**. This run did real work before wedging.
+
+**So for the first time all night, item 1's `agent-relay cloud sync <runId>`
+instruction actually applied. It does not work.**
+
+```
+$ agent-relay cloud sync b5918585... --dry-run
+Run is still running. Wait for completion before syncing.
+```
+
+Sensible in isolation — except this run is in a repair loop and **will never
+complete**, so "wait for completion" is not advice that can be taken.
+
+**Cancelling does not unlock it either.** Tested rather than assumed:
+
+```
+$ agent-relay cloud cancel b5918585...   -> Status: cancelled
+$ agent-relay cloud sync b5918585... --dry-run
+Patch download failed: 409 : Run is still in progress. Patch is available after completion.
+```
+
+`cancelled` counts as neither running nor completed for the patch endpoint.
+
+**That leaves a forced choice with no good branch:** leave the run looping and
+leaking a Daytona sandbox per iteration with the work still unreachable, or
+cancel it and foreclose recovery permanently. Neither recovers the 734 files.
+
+**Sequenced it deliberately** — dry-ran *before* cancelling, so this is not a
+case of destroying a recoverable state. It was already unreachable.
+
+Filed **cloud#3508** with three possible fixes, and flagged that the third is
+independently correct regardless: a step logging `retry 3/3` while the run
+reports `running` forever is its own defect, and fixing it would make sync
+reachable through the existing path.
+
+This also explains why the standing brief's recovery instruction has never once
+been actionable tonight — it is not that runs had no work worth recovering, it is
+that the runs which wedge are precisely the ones sync cannot reach.
