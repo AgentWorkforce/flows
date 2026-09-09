@@ -46,6 +46,34 @@ jobs:
             .github/workflows/scripts/swarm-post.sh
             .github/workflows/scripts/swarm-prepare.sh
             .github/workflows/scripts/swarm-verdict.sh
+            .github/workflows/scripts/swarm-gate.test.sh
+
+      # The gate decides whether code merges, so before it judges anything it
+      # proves it can still say no. `swarm-verdict.sh` is a handful of lines of
+      # shell; the failure that matters is not this gate going red -- a red gate
+      # announces itself -- but this gate quietly losing the ability to go red,
+      # which announces nothing and surfaces only after something broken has
+      # merged behind a green check. That is not hypothetical here: on
+      # 2026-09-09 a release shipped past a smoke test that could not fail.
+      #
+      # The suite asserts both directions. A genuine REVIEW_FAILED must fail the
+      # gate, and three clean passes must pass it -- without that second half
+      # every assertion would be satisfiable by an unconditional `exit 1`, and
+      # an always-red gate is as useless as an always-green one. It is hermetic
+      # (agent-relay and gh are stubbed) and runs offline in about a second, so
+      # it costs nothing to run ahead of a 20-minute cloud swarm.
+      #
+      # It runs the copy from main, alongside the scripts it tests, so a pull
+      # request cannot weaken the gate by editing the test that guards it. The
+      # guard is skipped only while the file has not yet reached main.
+      - name: Self-test the gate's verdict logic
+        run: |
+          test_script=gate-files/.github/workflows/scripts/swarm-gate.test.sh
+          if [ ! -f "$test_script" ]; then
+            echo "::notice::swarm-gate.test.sh is not on main yet; skipping the gate self-test. This skip disappears once it lands."
+            exit 0
+          fi
+          bash "$test_script"
 
       # Fail here, in seconds, rather than in `Launch cloud swarm` ten minutes
       # later. WorkflowApiKeyClient.fromEnv requires CLOUD_API_URL and
