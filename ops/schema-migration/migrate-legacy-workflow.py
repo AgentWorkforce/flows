@@ -97,14 +97,28 @@ def migrate(path):
                 # information the legacy file actually held. Verified against
                 # the SDK: an agent step with `cli` and no agents map compiles;
                 # an agents map with `cli` and no `model` is refused.
-                cli = (agents.get(v) or {}).get('cli')
+                decl = agents.get(v) or {}
+                cli = decl.get('cli')
+                model = decl.get('model')
                 if not cli:
                     problems.append(f"step {out['id']}: agent '{v}' has no cli to carry")
+                elif model:
+                    # AGENT_DECL accepts `model`, so a legacy file can declare one.
+                    # Carrying only `cli` would drop it silently and let the run
+                    # inherit the host's model instead -- different behaviour and
+                    # cost than the author wrote down. That is the same
+                    # accepted-then-dropped failure this script repairs for
+                    # top-level `cli`, `triggers` and `budget`, so refuse instead
+                    # of guessing which model the author would have accepted.
+                    problems.append(
+                        f"step {out['id']}: agent '{v}' declares model '{model}', "
+                        "which a lowered step cannot carry; migrate this agent by "
+                        "hand rather than let the run pick a different model")
                 else:
                     out['cli'] = cli
-                notes.append(f"step {out['id']}: agent reference '{v}' became cli "
-                             f"'{cli}' - 0.1.0 named declarations require a model "
-                             "the legacy file never had")
+                    notes.append(f"step {out['id']}: agent reference '{v}' became cli "
+                                 f"'{cli}' - this declaration carried no model, so "
+                                 "nothing was lost")
             elif k in allowed:
                 out[k] = v
             elif (t, k) in DROPPED_STEP:
