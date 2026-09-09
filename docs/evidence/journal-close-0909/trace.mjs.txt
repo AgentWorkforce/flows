@@ -1,0 +1,6 @@
+import { JournalClient } from "../../packages/sdk/dist/journal-client.js";
+import { AgentWorker } from "../../packages/sdk/dist/worker.js";
+const emit = AgentWorker.prototype.emit;
+AgentWorker.prototype.emit = function(event, ...args) { if (event === "error") console.error("WORKER_ERROR", ...args); return emit.call(this, event, ...args); };
+const close = JournalClient.prototype.close;
+JournalClient.prototype.close = function() { console.error(new Error("CLIENT_CLOSE").stack); return close.call(this); };

@@ -57,6 +57,7 @@ async function main() {
   // Keep rejections observed even if startup fails before shutdown awaits it.
   exited.catch(() => {});
   const client = new JournalClient(socket);
+  let workerClient;
   let worker;
   let workerError;
   try {
@@ -70,17 +71,26 @@ async function main() {
     if (!connected) throw new Error('LOCAL_DAEMON_START_TIMEOUT: no socket after 5 seconds');
     await client.hello('local-workflow');
     if (spec.steps.some(step => step.type === 'agent')) {
-      worker = new AgentWorker(client, {
+      // The daemon serves requests serially per connection. step.complete
+      // drives downstream commands before replying; status reads must not
+      // queue behind that potentially long execution.
+      workerClient = new JournalClient(socket);
+      await workerClient.connect();
+      await workerClient.hello('local-workflow-worker');
+      worker = new AgentWorker(workerClient, {
         workerId: 'local-agent', capacity: 1,
         // Every run uses a fresh cell: its declared streams start at offset 0.
         // No worktree revision or recovery ability is claimed by these pins.
         pins: { workspace: [], streams: [...streams].map(stream => ({ stream, read_offset: 0 })) },
       });
-      worker.on('error', error => { workerError = error; client.close(); });
+      worker.on('error', error => { workerError ??= error; client.close(); });
       await worker.attach();
     }
     const outcome = await client.runStart(spec);
     const execution = await classifyOutcome(client, 'run', outcome, checked.report, socket, {});
+    // A terminal snapshot can precede the completion acknowledgement. Drain
+    // it before publishing success, while both connections are still open.
+    await worker?.close();
     if (workerError) throw workerError;
     const entries = [];
     let from = 0;
@@ -96,8 +106,13 @@ async function main() {
     console.log(`LOCAL_JOURNAL=${journalPath}`);
     console.log(JSON.stringify(execution.report));
     return execution.exitCode;
+  } catch (error) {
+    // Closing the control client interrupts a pending request on worker
+    // failure. Keep the cause instead of reporting "closed by caller".
+    throw workerError ?? error;
   } finally {
     await worker?.close();
+    workerClient?.close();
     client.close();
     daemon.kill('SIGTERM');
     const forced = setTimeout(() => daemon.kill('SIGKILL'), 1000);

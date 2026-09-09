@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+import { receiveWrapperRequest } from "/Users/khaliqgant/fl-jc/testdata/preflight/wrapper-session.mjs";
+const request = await receiveWrapperRequest();
+if (request) console.log("DONE");

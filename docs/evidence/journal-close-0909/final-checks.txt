@@ -1,0 +1,40 @@
+$ cd /Users/khaliqgant/fl-jc
+$ node packages/sdk/node_modules/typescript/bin/tsc -p packages/sdk/tsconfig.json
+EXIT_CODE=0
+$ cd /Users/khaliqgant/fl-jc
+$ node packages/sdk/node_modules/typescript/bin/tsc -p packages/sdk/tsconfig.tests.json
+EXIT_CODE=0
+$ cd /Users/khaliqgant/fl-jc/packages/sdk
+$ node node_modules/vitest/vitest.mjs run tests/journal-client.test.ts tests/journal-client-completion.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/fl-jc/packages/sdk
+
+ ✓ tests/journal-client.test.ts (14 tests) 68ms
+ ✓ tests/journal-client-completion.test.ts (4 tests) 100ms
+
+ Test Files  2 passed (2)
+      Tests  18 passed (18)
+   Start at  15:45:27
+   Duration  386ms (transform 71ms, setup 0ms, collect 249ms, tests 169ms, environment 0ms, prepare 60ms)
+
+EXIT_CODE=0
+$ cd /Users/khaliqgant/fl-jc
+$ RELAYFLOWD_BIN=/Users/khaliqgant/.relayflows-toolchain/target/3497393500/debug/relayflowd node --test scripts/run-local-workflow.test.mjs
+✔ local launcher journals deterministic effects and reads more than one journal page (595.981333ms)
+✔ a failed command fails the run and prevents dependent effects (131.295334ms)
+✔ the SDK worker completes an agent step through the local journal protocol (576.225625ms)
+✔ missing daemon is refused before a data directory or run is created (59.985167ms)
+✔ an agent followed by work over 30 seconds reaches report and exports its journal (32630.053292ms)
+✔ a rejected worker completion preserves the protocol error and cannot report success (239.415167ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 34273.203333
+EXIT_CODE=0
+$ cd /Users/khaliqgant/fl-jc
+$ git diff --check dd3880b -- packages/sdk/src/journal-client.ts packages/sdk/tests/journal-client-completion.test.ts scripts/run-local-workflow.mjs scripts/run-local-workflow.test.mjs docs/journal-close-0909-evidence.md
+EXIT_CODE=0
