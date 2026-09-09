@@ -4967,3 +4967,41 @@ when he is back, or on request.
 Honest position: two of the three blockers are cleared and independently
 verified. The v2 proof itself has still never run to completion, and I am not
 going to imply otherwise until that tuple asserts.
+
+### 2026-09-09 — both PRs CLEAN; cloud lane retired (partially — read the caveat)
+
+Drain: nothing pending. Disk 6.4Gi.
+
+Both PRs are now fully green: **#3459 CLEAN** (was UNKNOWN) and **#3461 CLEAN**
+(was UNSTABLE — that had been one pending check, as I said at the time, not a
+failure).
+
+The cloud lane was idle: no writes in 25 minutes, 0 uncommitted files, 0
+unpushed commits. Objectives complete and work fully on the remote, so I retired
+the seat rather than leave a finished lane running.
+
+**The release only partly succeeded, and this needs stating plainly:**
+
+```
+worker process was released, but its Relaycast identity could not be released
+(failed to release agent 'cloud-keyprefix-0908': Max retries exceeded);
+the seat may still be held and re-registration may rotate a live token
+```
+
+So: the process is dead (pid 15510 gone) and the agent is out of the listing,
+but its Relaycast identity was **not** released. Two consequences I am recording
+rather than discovering later:
+
+1. The seat may still be counted as held. A future roster check that says
+   "cloud-keyprefix-0908 exists" is explained by this, not by a live worker.
+2. **Do not respawn under that same name.** The warning says re-registration may
+   rotate a live token, and rotating credentials is outside what I am allowed to
+   do. If cloud work is needed again, use a fresh name.
+
+Kept the 4.3G worktree deliberately. Everything in it is pushed, so it is
+disposable, but rebuilding a cloud checkout costs an npm install and this
+machine's `.npmrc` makes that slow and failure-prone. It is the first thing to
+reclaim if disk tightens; at 6.4Gi it does not need to go yet.
+
+Nothing else actionable: the v2 proof is scripted and pre-flighted, and waits on
+a device click.
