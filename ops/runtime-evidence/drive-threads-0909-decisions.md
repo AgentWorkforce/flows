@@ -1,43 +1,46 @@
-# PR #244: remaining trust-boundary decisions
+# PR #244: gate ownership and remaining acceptance-input decision
 
-The reporting, post-suite scope, dangling-link, fixture dependency, and evidence
-narrative fixes do not close the following blockers. No swarm pass is claimed.
+The launcher now captures the gate and baseline in the submitted spec. The
+existing daemon journals the command bytes before any implementation worker
+runs. HEAD, branch and backlog hash no longer come from agent-writable package
+metadata; the judge no longer comes from `.drive-gate` plus a writable checksum.
+The kernel and journal protocol are unchanged. The launcher starts from a
+trusted checkout; this is not an OS sandbox against arbitrary process or
+journal-storage tampering.
 
-1. **Who owns the selected baseline and gate manifest?** Both the selected HEAD
-   in ignored package.json and the snapshot's SHA256SUMS live in the agent's
-   writable checkout. Pinning one writable file with another is insufficient.
-   The local launcher currently submits a static spec and runs the agent in the
-   same filesystem. A trusted pre-submission launcher baseline embedded in the
-   submitted commands, or a separately owned gate execution surface, is needed.
-   This crosses the current flow/helper scope into launcher ownership. Recommend
-   the launcher capture the original branch, HEAD, package and gate inputs
-   before submission, then execute checks from that independently owned state.
-   The human must choose that ownership boundary before this flow claims it.
-2. **How are acceptance-check inputs declared?** Immutable argv alone does not
-   freeze a script or its imports. A command such as `node src/check.mjs` can
-   execute an agent-edited judge. Inferring its transitive inputs from arbitrary
-   argv is not reliable. Choose a declared immutable gate-input contract or an
-   independently preserved acceptance workspace that tests the changed source.
-   Do not silently narrow the existing arbitrary-argv authoring contract.
+The contract and its owners are summarized in `../DRIVE-LOCAL.md`.
+`local-work-verification.mjs` owns the protected-path policy once; YAML no longer
+duplicates it. Test fixtures use the same preparing function as the launcher and
+no longer symlink host node_modules or run a separate snapshot compiler.
 
-Reproduce the first two bypasses from the repository root:
+**Remaining decision: how are acceptance-check inputs declared?** Immutable
+argv alone does not freeze a script or its imports. A command such as
+`node src/check.mjs` can execute an agent-edited judge. Inferring its transitive
+inputs from arbitrary argv is not reliable. Choose a declared immutable
+acceptance-input contract or an independently preserved acceptance workspace
+that tests the changed source. Do not silently narrow the existing arbitrary
+argv authoring contract. The flow remains blocked for unattended use; no swarm
+pass is claimed.
 
-```sh
-node ops/runtime-evidence/drive-threads-0909-trust-probe.mjs
-```
+`drive-threads-0909-acceptance-input-probe.mjs` reproduces this remaining bypass:
+an unchanged broken value fails its original check, but replacing an allowed
+check script with a no-op makes verification exit zero. The adjacent capture
+records the literal command and output. A zero probe exit means the known
+bypass was reproduced, not that this boundary is safe.
 
-The complete probe and captured output are adjacent files. Both scope commands
-exit zero, including after committing an out-of-scope change and repinning the
-metadata, and after rewriting the snapshot plus its checksum manifest. This is
-failure evidence, not a passing security test.
+## Captured evidence lifecycle
 
-The old package tests also lacked the snapshot required by the current flow.
-`drive-threads-0909-baseline.txt` captures those failures. The fixture now runs
-the submitted snapshot step with the real TypeScript compiler over the actual
-picker source before exercising the submitted scope command.
-
-`drive-threads-0909-review-before.txt` and
-`drive-threads-0909-post-suite-before.txt` capture regression failures before
-their corresponding fixes. `drive-threads-0909-after.txt` captures the package
-and review test run after those fixes. These are before/after reproductions;
-no mutation-verification claim is made.
+- At commit `34349b2`, `drive-threads-0909-trust-probe.mjs` produced the adjacent
+  `drive-threads-0909-trust-probe.txt`: repinning HEAD and rewriting a snapshot
+  plus manifest were both accepted. That file is historical failure evidence.
+  To reproduce those exact bytes, use that commit's probe and fixture together.
+- The updated probe now asserts HEAD repinning is refused and a forged legacy
+  snapshot cannot bless broken implementation. It then fixes the value and
+  verifies the good case. `drive-threads-0909-owned-trust-after.txt` captures it.
+- `drive-threads-0909-owned-gate-after.txt` captures the combined package, review,
+  gate and real-daemon journal tests. The daemon cases assert failed completion
+  reasons and that reporting never starts after a bypass attempt.
+- Earlier `baseline`, `review-before`, `post-suite-before` and `after` captures
+  retain their historical meaning. The old fixture compiled a snapshot, which
+  is superseded by the preparing launcher. These are before/after reproductions;
+  none is labeled mutation verification.

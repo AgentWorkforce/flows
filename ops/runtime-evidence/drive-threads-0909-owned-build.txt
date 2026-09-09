@@ -1,0 +1,6 @@
+$ node --check scripts/run-drive-local.mjs
+EXIT_CODE=0
+$ node --check ops/local-work-gate.mjs
+EXIT_CODE=0
+$ cd packages/sdk && node node_modules/typescript/bin/tsc
+EXIT_CODE=0

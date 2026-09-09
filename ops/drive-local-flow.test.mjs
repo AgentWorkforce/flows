@@ -3,28 +3,44 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
-import { fixture, flow } from './local-work-test-fixture.mjs';
+import { fixture, packagePath } from './local-work-test-fixture.mjs';
 
 const quote = text => "'" + text.replaceAll("'", "'\\''") + "'";
-for (const scenario of ['outside edit', 'verifier edit', 'unchanged package']) {
+for (const scenario of ['outside edit', 'verifier edit', 'unchanged package', 'HEAD repin', 'forged snapshot']) {
   test(`drive-local journals failure and blocks reporting for ${scenario}`, t => {
     const f = fixture(t);
     const wrapper = resolve('testdata/preflight/wrapper-session.mjs');
     const cli = join(f.root, '.relayflow/agent.mjs');
     f.put('.relayflow/agent.mjs', `#!/usr/bin/env node
 import { receiveWrapperRequest } from ${JSON.stringify(wrapper)};
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 const request = await receiveWrapperRequest();
 if (request) {
   ${scenario === 'outside edit' ? `writeFileSync(${JSON.stringify(join(f.root, 'outside.txt'))}, 'changed');` : ''}
   ${scenario === 'verifier edit' ? `writeFileSync(${JSON.stringify(join(f.root, 'ops/local-work-package.mjs'))}, 'process.exit(0)');` : ''}
+  ${scenario === 'HEAD repin' ? `
+  const git = (...args) => execFileSync('git', args, {cwd: ${JSON.stringify(f.root)}, encoding: 'utf8'}).trim();
+  writeFileSync(${JSON.stringify(join(f.root, 'outside.txt'))}, 'changed');
+  git('add', 'outside.txt');
+  git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'outside');
+  const path = ${JSON.stringify(join(f.root, packagePath))};
+  const pkg = JSON.parse(readFileSync(path, 'utf8'));
+  pkg.head = git('rev-parse', 'HEAD');
+  writeFileSync(path, JSON.stringify(pkg));` : ''}
+  ${scenario === 'forged snapshot' ? `
+  const directory = ${JSON.stringify(join(f.root, '.drive-gate'))};
+  mkdirSync(directory, {recursive: true});
+  writeFileSync(directory + '/local-work-package.mjs', 'process.exit(0);');
+  const sums = execFileSync('shasum', ['-a', '256', '.drive-gate/local-work-package.mjs'], {cwd: ${JSON.stringify(f.root)}});
+  writeFileSync(directory + '/SHA256SUMS', sums);` : ''}
   console.log('DONE');
 }
 `);
     // A scripted worker controls the edit while using the real worker protocol,
     // stream pin, submitted flow commands, daemon and journal.
     chmodSync(cli, 0o755);
-    const spec = structuredClone(flow);
+    const spec = structuredClone(f.preparedFlow);
     for (const step of spec.steps) {
       if (step.type === 'agent') step.cli = cli;
       else step.command = `cd ${quote(f.root)}\n${step.command}`;
@@ -40,7 +56,7 @@ if (request) {
     assert(dataDir, result.stderr);
     t.after(() => rmSync(dataDir, { recursive: true, force: true }));
     const journal = readFileSync(join(dataDir, 'journal.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
-    const failedStep = scenario === 'unchanged package' ? 'verify' : 'scope';
+    const failedStep = ['unchanged package', 'forged snapshot'].includes(scenario) ? 'verify' : 'scope';
     const completion = journal.find(e => e.entry_type === 'step.completed' && e.step_id === failedStep);
     assert.equal(completion?.payload.verification.verdict, 'fail', JSON.stringify(journal));
     assert.equal(completion.payload.completionReason, 'retries_exhausted');

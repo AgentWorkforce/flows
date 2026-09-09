@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
-import { entry, fixture, packagePath, pass } from '../local-work-test-fixture.mjs';
+import { fixture, packagePath, pass, fail } from '../local-work-test-fixture.mjs';
 const cleanup = [];
 const t = { after: fn => cleanup.push(fn) };
 try {
@@ -16,13 +16,20 @@ try {
   const repinned = f.scope();
   console.log('COMMITTED_OUTSIDE_AND_REPINNED_PACKAGE_SCOPE_EXIT=' + repinned.status);
   process.stdout.write(repinned.stdout + repinned.stderr);
+  fail(repinned, /HEAD_MOVED/);
 
   const g = fixture(t);
   pass(g.run('select'));
-  g.put('.drive-gate/local-work-package.mjs', 'process.exit(0);\n');
+  for (const path of ['.drive-gate/local-work-package.mjs', '.drive-gate/local-work-verification.mjs',
+    '.drive-gate/backlog-picker.js']) g.put(path, 'process.exit(0);\n');
   pass(spawnSync('sh', ['-c', 'shasum -a 256 .drive-gate/*.mjs .drive-gate/*.js > .drive-gate/SHA256SUMS'], {cwd:g.root, encoding:'utf8'}));
-  const forged = g.scope();
-  console.log('REWRITTEN_SNAPSHOT_AND_CHECKSUM_SCOPE_EXIT=' + forged.status);
+  const forged = g.run('verify');
+  console.log('REWRITTEN_SNAPSHOT_AND_CHECKSUM_VERIFY_EXIT=' + forged.status);
   process.stdout.write(forged.stdout + forged.stderr);
+  fail(forged, /PACKAGE_CHECK_FAILED/);
   console.log('IMPLEMENTATION=' + readFileSync(join(g.root, 'src/value.txt'), 'utf8'));
+  g.put('src/value.txt', 'fixed');
+  const repaired = g.run('verify');
+  pass(repaired);
+  console.log('REPAIRED_IMPLEMENTATION_VERIFY_EXIT=' + repaired.status);
 } finally { for (const fn of cleanup) fn(); }

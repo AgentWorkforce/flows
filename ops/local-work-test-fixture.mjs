@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawnSync, execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
+import { prepareLocalDrive, shellQuote } from './local-work-gate.mjs';
 
 // Resolve the SDK's declared YAML dependency through its public package entry,
 // allowing Node to find either a local install or a hoisted dependency.
@@ -33,27 +34,21 @@ export function fixture(t, backlog = entry()) {
     put(path, readFileSync(path));
   }
   put('packages/sdk/dist/backlog-picker.js', readFileSync('packages/sdk/dist/backlog-picker.js'));
-  put('packages/sdk/src/backlog-picker.ts', readFileSync('packages/sdk/src/backlog-picker.ts'));
-  put('packages/sdk/package.json', '{"type":"module"}\n');
-  put('packages/sdk/tsconfig.json', JSON.stringify({
-    compilerOptions: { target: 'ES2022', module: 'NodeNext', outDir: 'dist', skipLibCheck: true },
-    include: ['src/backlog-picker.ts'],
-  }));
-  symlinkSync(resolve('packages/sdk/node_modules'), join(root, 'packages/sdk/node_modules'));
   git('add', '.');
   git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
     '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture');
-  const step = id => spawnSync('sh', ['-c', flow.steps.find(s => s.id === id).command],
+  let captured = prepareLocalDrive(flow, { root });
+  const step = id => spawnSync('sh', ['-c', captured.flow.steps.find(s => s.id === id).command],
     { cwd: root, encoding: 'utf8', timeout: 10000 });
   const run = (operation, extra = []) => {
-    const result = spawnSync(process.execPath,
-      [...extra, 'ops/local-work-package.mjs', operation], { cwd: root, encoding: 'utf8', timeout: 5000 });
-    if (operation === 'select' && result.status === 0) pass(step('gate-snapshot'));
+    if (operation === 'select') captured = prepareLocalDrive(flow, { root });
+    const command = captured.commands[operation].replace('--input-type=module',
+      `${extra.map(shellQuote).join(' ')} --input-type=module`);
+    const result = spawnSync('sh', ['-c', command], { cwd: root, encoding: 'utf8', timeout: 5000 });
     return result;
   };
-  const scope = () => spawnSync('sh', ['-c', flow.steps.find(s => s.id === 'scope').command],
-    { cwd: root, encoding: 'utf8', timeout: 5000 });
-  return { root, put, git, run, scope, step };
+  const scope = () => step('scope');
+  return { root, put, git, run, scope, step, get preparedFlow() { return captured.flow; } };
 }
 export const pass = result => assert.equal(result.status, 0, result.stderr + result.stdout);
 export const fail = (result, pattern) => {

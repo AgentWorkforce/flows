@@ -1,0 +1,41 @@
+$ node ops/runtime-evidence/drive-threads-0909-trust-probe.mjs
+COMMITTED_OUTSIDE_AND_REPINNED_PACKAGE_SCOPE_EXIT=1
+HEAD_MOVED
++ actual - expected
+
++ '706ca9e0bcf4182e1c5e40b0646de396f8f55b86'
+- '281522931b9fe9fe8fbbde78ca27ce7da0018ff7'
+
+REWRITTEN_SNAPSHOT_AND_CHECKSUM_VERIFY_EXIT=1
+SCOPE_OK: 0 changed path(s)
+CHECK ["node","-e","require('node:assert/strict').equal(require('node:fs').readFileSync('src/value.txt','utf8'),'fixed')"]
+node:internal/assert/utils:146
+  throw error;
+  ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+'broken' !== 'fixed'
+
+    at [eval]:1:31
+    at runScriptInThisContext (node:internal/vm:219:10)
+    at node:internal/process/execution:483:12
+    at [eval]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:481:60)
+    at evalFunction (node:internal/process/execution:315:30)
+    at evalTypeScript (node:internal/process/execution:327:3)
+    at node:internal/main/eval_string:71:3 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 'broken',
+  expected: 'fixed',
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v26.7.0
+PACKAGE_CHECK_FAILED: ["node","-e","require('node:assert/strict').equal(require('node:fs').readFileSync('src/value.txt','utf8'),'fixed')"] (1)
+IMPLEMENTATION=broken
+REPAIRED_IMPLEMENTATION_VERIFY_EXIT=0
+
+EXIT_CODE=0

@@ -1,0 +1,10 @@
+$ node ops/runtime-evidence/drive-threads-0909-acceptance-input-probe.mjs
+ORIGINAL_CHECK_WITH_BROKEN_IMPLEMENTATION_EXIT=1
+EDITED_ACCEPTANCE_SCRIPT_EXIT=0
+SCOPE_OK: 1 changed path(s)
+CHECK ["node","src/check.mjs"]
+PACKAGE_VERIFIED: 1 check(s)
+SCOPE_OK: 1 changed path(s)
+IMPLEMENTATION=broken
+
+EXIT_CODE=0

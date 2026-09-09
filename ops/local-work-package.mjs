@@ -20,35 +20,37 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync,
+  closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync,
 } from 'node:fs';
 import { dirname } from 'node:path';
 import { checkScope, runChecks, verificationCommands } from './local-work-verification.mjs';
 
 const packagePath = '.relayflow/drive-local/package.json';
 const backlogPath = 'ops/BACKLOG.md';
-// The picker's own module, not the package index: index.js re-exports
-// packageFromEntry and validateWorkPackage but NOT selectBacklogEntry or
-// renderWorkPackage, so importing the index gets you two of the four.
-// The gate must not execute code the agent it judges can rewrite. The scope
-// guard protects packages/sdk/src/backlog-picker.ts, but this imports the BUILT
-// dist/backlog-picker.js -- an agent can leave the source untouched, rebuild
-// dist, and the guard still passes. DRIVE_GATE_PICKER pins an immutable
-// pre-implementation snapshot instead.
-const sdkEntry = process.env.DRIVE_GATE_PICKER
-  ? new URL(`file://${process.env.DRIVE_GATE_PICKER}`)
-  : new URL('../packages/sdk/dist/backlog-picker.js', import.meta.url);
+// Both values are embedded by the preparing launcher into the submitted command.
+// There is no fallback to an ignored artifact that implementation can replace.
+assert(process.env.DRIVE_GATE_PICKER && process.env.DRIVE_GATE_BASELINE,
+  'LOCAL_DRIVE_NOT_PREPARED: run node scripts/run-drive-local.mjs');
+const sdkEntry = new URL(process.env.DRIVE_GATE_PICKER);
+const baseline = JSON.parse(process.env.DRIVE_GATE_BASELINE);
 
 const read = (p) => readFileSync(p, 'utf8');
 const hash = (t) => createHash('sha256').update(t).digest('hex');
 const git = (...a) => execFileSync('git', a, { encoding: 'utf8' }).trim();
 
-// A killed writer leaves the destination wholly old or wholly new. Flush the
-// replacement before rename and the containing directory before reporting it.
+function assertBaseline() {
+  assert.equal(git('rev-parse', 'HEAD'), baseline.head, 'HEAD_MOVED');
+  assert.equal(git('branch', '--show-current'), baseline.branch, 'BRANCH_MOVED');
+  assert.equal(hash(read(backlogPath)), baseline.backlogSha256, 'BACKLOG_CHANGED');
+}
+
+// Only package metadata is written, always private (0600), never executable
+// source. Rename prevents partial JSON; file and directory fsync are required
+// before success. A directory fsync failure propagates even after rename.
 function writeAtomically(path, contents) {
   const temporary = `${path}.${randomUUID()}.tmp`;
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(temporary, contents, { mode: 0o600 });
+  writeFileSync(temporary, contents, { flag: 'wx', mode: 0o600 });
   const handle = openSync(temporary, 'r');
   try { fsyncSync(handle); } finally { closeSync(handle); }
   renameSync(temporary, path);
@@ -69,7 +71,7 @@ async function loadPicker() {
   }
 }
 
-async function choose(markdown, { pathExists = existsSync, log = true } = {}) {
+async function choose(markdown, { pathExists, log = true }) {
   const { selectBacklogEntry, packageFromEntry, validateWorkPackage, renderWorkPackage } =
     await loadPicker();
   const skipped = [];
@@ -149,6 +151,7 @@ async function choose(markdown, { pathExists = existsSync, log = true } = {}) {
 }
 
 async function select() {
+  assertBaseline();
   // Restored guard. The generalization recorded the branch but stopped asserting
   // it, so the loop would happily select work while sitting on `main` and let
   // the agent edit the protected branch. `--show-current` prints nothing on a
@@ -186,9 +189,10 @@ async function select() {
 }
 
 async function verifiedPackage() {
+  assertBaseline();
   const pkg = JSON.parse(read(packagePath));
-  assert.equal(git('rev-parse', 'HEAD'), pkg.head, 'HEAD_MOVED');
-  assert.equal(git('branch', '--show-current'), pkg.branch, 'BRANCH_MOVED');
+  assert.equal(pkg.head, baseline.head, 'PACKAGE_CHANGED: head');
+  assert.equal(pkg.branch, baseline.branch, 'PACKAGE_CHANGED: branch');
   const markdown = read(backlogPath);
   assert.equal(hash(markdown), pkg.backlogSha256, 'BACKLOG_CHANGED');
   // Reconstruct from the unchanged backlog, so editing ignored package.json
@@ -207,8 +211,8 @@ async function verifiedPackage() {
   return pkg;
 }
 
-function report() {
-  const pkg = JSON.parse(read(packagePath));
+async function report() {
+  const pkg = await verifiedPackage();
   // The package pins the HEAD it was selected against. Reporting a diff from a
   // different commit would describe work this tick did not do.
   const head = git('rev-parse', 'HEAD');
@@ -222,16 +226,20 @@ function report() {
   for (const item of pkg.definitionOfDone) console.log(`  DoD: ${item}`);
 }
 
-const command = process.argv[2];
-if (command === 'select') await select();
-else if (command === 'report') report();
-else if (command === 'scope') await verifiedPackage();
-else if (command === 'verify') {
-  const pkg = await verifiedPackage();
-  runChecks(pkg);
-  await verifiedPackage();
-}
-else {
-  console.error('usage: local-work-package.mjs <select|scope|verify|report>');
-  process.exit(2);
+try {
+  const command = process.argv[2];
+  if (command === 'select') await select();
+  else if (command === 'report') await report();
+  else if (command === 'scope') await verifiedPackage();
+  else if (command === 'verify') {
+    const pkg = await verifiedPackage();
+    runChecks(pkg);
+    await verifiedPackage();
+  } else {
+    console.error('usage: local-work-package.mjs <select|scope|verify|report>');
+    process.exitCode = 2;
+  }
+} catch (error) {
+  console.error(error.message);
+  process.exitCode = 1;
 }

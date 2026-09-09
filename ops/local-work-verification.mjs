@@ -20,6 +20,7 @@ export function verificationCommands(body) {
 
 const protectedPaths = [
   'ops/BACKLOG.md', 'ops/local-work-package.mjs', 'ops/local-work-verification.mjs',
+  'ops/local-work-gate.mjs', 'scripts/run-drive-local.mjs',
   'workflows/drive-local.yaml', 'workflows/gates', 'packages/sdk/src/backlog-picker.ts',
 ];
 const within = (path, scope) => path === scope || path.startsWith(`${scope}/`);

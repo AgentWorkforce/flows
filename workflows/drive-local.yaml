@@ -13,7 +13,9 @@
 # deterministic rewrite, because a deterministic step can only make mechanical
 # changes and most backlog entries are not mechanical.
 #
-# Run: node scripts/run-local-workflow.mjs workflows/drive-local.yaml
+# Run: node scripts/run-drive-local.mjs
+# The preparing launcher embeds gate code and baseline pins into the submitted
+# spec. Running this template directly fails before any implementation step.
 # Delivery stays with the operator: this flow never commits, never switches
 # branches and never merges. It leaves a working tree and a report.
 version: '0.1.0'
@@ -23,35 +25,19 @@ description: >-
   against its own definition of done, and report. Selection, implementation,
   scope enforcement, verification and reporting are journaled steps.
 steps:
-  # No build-sdk step. The launcher asserts `packages/sdk/dist/cli.js` exists
-  # during preflight, before it submits anything, so a build step inside the
-  # flow can never run on the cold checkout it was meant to serve. Building the
-  # SDK is a prerequisite of invoking this flow, not part of it:
-  #     npm --prefix packages/sdk run build
+  # The preparing launcher builds the SDK before capture and submission.
   - id: select
     type: deterministic
     timeoutMs: 120000
     command: node ops/local-work-package.mjs select
 
-  # A: the gate runs from an immutable pre-implementation snapshot. Taken
-  # BEFORE the agent runs, into a directory the agent has no reason to touch and
-  # the scope guard refuses changes to. Without this the acceptance path imports
-  # packages/sdk/dist/backlog-picker.js -- a BUILT artifact the agent can rewrite
-  # while leaving the guarded source untouched.
+  # Gate code is already captured in the submitted spec. Before implementation,
+  # validate the selected package against that baseline and the current tree.
   - id: gate-snapshot
     type: deterministic
     dependsOn: [select]
     timeoutMs: 300000
-    command: |
-      set -eu
-      rm -rf .drive-gate && mkdir -p .drive-gate
-      ( cd packages/sdk && node node_modules/typescript/bin/tsc )
-      cp packages/sdk/dist/backlog-picker.js .drive-gate/backlog-picker.js
-      cp ops/local-work-package.mjs .drive-gate/local-work-package.mjs
-      cp ops/local-work-verification.mjs .drive-gate/local-work-verification.mjs
-      shasum -a 256 .drive-gate/* > .drive-gate/SHA256SUMS
-      echo "GATE_SNAPSHOT_TAKEN"
-      cat .drive-gate/SHA256SUMS
+    command: &scope-check node ops/local-work-package.mjs scope
 
   - id: implement
     type: agent
@@ -94,17 +80,9 @@ steps:
     type: deterministic
     dependsOn: [implement]
     timeoutMs: 120000
-    # This preamble is captured in the submitted spec. Check the verifier
-    # BEFORE executing it; an agent cannot bypass scope by editing the script.
-    command: &scope-check |
-      set -eu
-      git diff --exit-code HEAD -- ops/local-work-package.mjs ops/local-work-verification.mjs ops/BACKLOG.md workflows/drive-local.yaml packages/sdk/src/backlog-picker.ts packages/sdk/dist/backlog-picker.js
-      git diff --cached --exit-code HEAD -- ops/local-work-package.mjs ops/local-work-verification.mjs ops/BACKLOG.md workflows/drive-local.yaml packages/sdk/src/backlog-picker.ts packages/sdk/dist/backlog-picker.js
-      # The snapshot must be byte-identical to what was taken before the agent
-      # ran; otherwise the gate is judging with code the agent may have edited.
-      shasum -a 256 -c .drive-gate/SHA256SUMS
-      DRIVE_GATE_PICKER="$PWD/.drive-gate/backlog-picker.js" \
-        node .drive-gate/local-work-package.mjs scope
+    # The launcher substitutes the captured command. protectedPaths has one
+    # owner in that captured verifier; no mutable pre-load helper is executed.
+    command: *scope-check
 
   - id: verify
     type: deterministic
@@ -113,9 +91,7 @@ steps:
     # The selected package's checks must pass before the regression suite.
     command: |
       set -eu
-      shasum -a 256 -c .drive-gate/SHA256SUMS
-      DRIVE_GATE_PICKER="$PWD/.drive-gate/backlog-picker.js" \
-        node .drive-gate/local-work-package.mjs verify
+      node ops/local-work-package.mjs verify
       cd packages/sdk
       # Rebuild before the suite. Tests and probes import packages/sdk/dist/*,
       # so running vitest against a stale dist exercises the PRE-agent artifact
