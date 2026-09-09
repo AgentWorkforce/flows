@@ -6536,3 +6536,27 @@ Nothing needing intervention. The chain is now: #249 removes the lease expiry
 (verified end to end by me), `journal-close-0909` is on the next blocker, and
 after that the drive loop should complete a run for the first time — which is the
 thing that would make "relayflows running" true rather than aspirational.
+
+### 2026-09-09 — quiet tick; the drain check keeps outgrowing its timeout
+
+Drain: 0 pending of 2049. Disk 3.8Gi.
+
+**Caught my own instrument failing silently again.** The first drain attempt this
+tick printed nothing at all — the JSON parse threw and `2>/dev/null` swallowed
+it, which reads exactly like "no pending runs". Re-ran with errors visible: the
+response body is now **45 MB** and my 60s timeout was truncating it mid-JSON.
+
+That is the third time tonight this same check has outgrown its budget: 30s, then
+60s, now 90s. The run list grows by ~4 runs a tick and every run carries its full
+workflow payload, so the ceiling keeps rising. Worth fixing properly rather than
+raising the number again — either a filtered/paged query if the endpoint supports
+one, or stop fetching the whole history to answer "is anything pending".
+
+Recording the pattern because the failure mode is dangerous: a truncated download
+produces an *empty* result, not an error, and empty reads as "all clear".
+
+Lanes: `journal-close-0909` active (7 writes in 10 min, still on the merge of
+#249 as briefed). `lease-renewal-0909` and `flows-threads-0909` show no writes —
+not a stall signal, as established.
+
+Nothing else actionable.
