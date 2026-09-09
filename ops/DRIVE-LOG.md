@@ -8292,3 +8292,49 @@ correct.
 This is the second time today that checking an assumed gap found working code —
 the first was D3. Worth the habit: "another call site probably needs this too" is
 a hypothesis, not a finding.
+
+### 2026-09-10 — wrote a test for #3507, found Khaliq had already written a better one, dropped mine
+
+Disk 5.4Gi. Drain clean: 0 pending of 1990.
+
+Set out to close a real gap: `classifyMcpArgsRegistrationFailure` had **no test**
+— #3471 shipped the 503 classification bare and my 429 addition inherited that.
+Wrote seven cases against the literal diagnostic, registered them in
+`packages/core`'s explicit test list (an unregistered file silently never runs),
+and mutation-verified: restoring the clamp-the-base bug failed exactly the
+ceiling case.
+
+**Then the push was rejected.** My `echo` printed "pushed" unconditionally again
+— the fast-forward hint is what actually told me. Checked the remote:
+**Khaliq had pushed `0a22267e6` to my branch**, doing the same work.
+
+**His is a strict superset of mine, and better.** 220 lines driving
+`SandboxedStepExecutor` with a stubbed `executeRuntimeCommand`, so it exercises
+the **real retry loop** rather than a pure predicate:
+
+```
+retries 429 workspace_busy and then succeeds        <- loop behaviour, mine had none
+repeated workspace_busy exhausts retries and preserves the diagnostic
+only the workspace_busy 429 variant is newly retryable
+rate-limit delay honors the hint, falls back, and caps total delay
+```
+
+That last one covers the pathological `99999s` clamp — the bug I found. Every
+case of mine is subsumed.
+
+**Dropped mine entirely** rather than force-push over his work or land redundant
+coverage. Reset the branch to his commit. Second time today that landing my own
+version would have been negative value.
+
+**Also retracted my own justification for extracting the predicate into a
+separate module.** I argued importing `executor.ts` drags in the Daytona runtime
+and fails — but that is **my symlinked `node_modules`** resolving against another
+worktree's stale `daytona-runner/dist`, not a property of the code. His test hits
+the identical wall here, so I cannot run either locally; CI will. Refactoring
+`executor.ts` under someone actively working in it, on a premise that turned out
+to be my own environment, would have been the wrong call twice over.
+
+**The shared-identity hazard bit again**, differently this time: not a lane
+closing my PR, but a human pushing to my branch with no signal until a rejected
+push. Separate identities would have shown `Khaliq` on that commit before I spent
+the tick.
