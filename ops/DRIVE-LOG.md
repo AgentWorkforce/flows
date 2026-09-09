@@ -5527,3 +5527,35 @@ and prohibits an ai-hist dependency or subprocess in `relayflowd`.
 Committed `cb3ee52`, content asserted on the remote.
 
 #240 still has a history FAILED I have not read yet — next.
+
+### 2026-09-09 — fixed both #240 history blockers; H1 was my own reversed correction
+
+Drain: 2 pending, 1.7 min old — in-flight. 1979 total. Disk 5.6Gi.
+
+Read #240's history lens. Both blockers are mine, and the first is the
+embarrassing kind.
+
+**H1 — I reversed an attribution while announcing I was fixing one.**
+`GATE5-MEMORY-CONTRACT.md:9` read "#220 landed the seam ... #221 is a separate
+PR". **#220 is the issue; PR #221 implemented and closed it.** Earlier tonight I
+logged that I had "corrected a #221 -> #220 attribution error" in this PR. I had
+it backwards, and the commit that claimed to correct the record is what
+introduced the error. Now reads "PR #221 (issue #220) landed the seam", and
+explains that `kernel/MEMORY.md` carries #220 in its title because it names the
+issue.
+
+**H2 — unsupported verification claims, a class I have a standing note about.**
+`SCOREBOARD.md:14` asserted "full kernel suite 205 passed / 0 failed" and called
+a case "mutation-verified" with no commands and no transcript. That is exactly
+what AGENTS.md rules 1-2 prohibit — evidence is captured, not narrated — and it
+is the same lesson as my own note that a STATE block should name PRs, not
+derived counts, because counts drift while transcripts do not. The row now cites
+the run instead of restating a number, and says how the mutation check was
+actually performed.
+
+Committed `bb7c44b`; asserted on the remote by content, not SHA:
+attribution present = 1, stale `205 passed` count remaining = 0.
+
+Worth stating plainly: three of the four blockers I have fixed across #238 and
+#240 tonight were defects I introduced, and two of them were introduced by
+commits that claimed to be corrections. The lenses are catching things I did not.
