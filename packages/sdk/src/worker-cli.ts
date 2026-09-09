@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { childStop, ownsProcessGroup } from './child-stop.js';
 import {
   agentExecution,
   cliAdapterKind,
@@ -80,10 +81,12 @@ function spawnInvocation(
   signal?: AbortSignal,
 ): Promise<WorkerCliResult> {
   return new Promise((resolve) => {
+    const ownsGroup = ownsProcessGroup(signal);
     const child = spawn(cli, invocation.args, {
       stdio: ['ignore', 'pipe', 'pipe'], env,
-      detached: signal !== undefined && process.platform !== 'win32',
+      detached: ownsGroup,
     });
+    const stop = childStop(child, ownsGroup);
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let settled = false;
@@ -96,9 +99,7 @@ function spawnInvocation(
       resolve(result);
     };
     const onAbort = (): void => {
-      if (child.pid !== undefined && process.platform !== 'win32') {
-        try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
-      } else child.kill('SIGKILL');
+      stop.kill();
       finish({ exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.' });
     };
     signal?.addEventListener('abort', onAbort, { once: true });
@@ -117,7 +118,10 @@ function spawnInvocation(
     }));
     if (invocation.timeoutMs > 0) {
       timer = setTimeout(() => {
-        child.kill('SIGTERM');
+        // The stop outlives this settle on purpose: `finish` resolves the step,
+        // but only the forced group kill releases the pipes a leaked descendant
+        // is holding, and until they are released `flows run` cannot exit.
+        stop.terminate();
         finish({
           exit_code: null,
           stdout_tail: Buffer.concat(stdout).toString('utf8'),

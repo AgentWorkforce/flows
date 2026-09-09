@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { FORCE_KILL_DELAY_MS, childStop, ownsProcessGroup } from './child-stop.js';
 import {
   WRAPPER_EXECUTE_TOKEN,
   WRAPPER_IDENTIFY_ARG,
@@ -28,7 +29,6 @@ const DEFAULT_LIMITS: WrapperSessionLimits = {
   maxOutputBytes: 1_048_576,
 };
 const HANDSHAKE_OUTPUT_LIMIT = 8_192;
-const FORCE_KILL_DELAY_MS = 1_000;
 /**
  * Grace after `SIGKILL` before the reader settles on its own. Node emits
  * `'close'` only once every inherited stdio pipe is closed, which any
@@ -89,11 +89,13 @@ function executePinnedWrapper(
   signal?: AbortSignal,
 ): Promise<WrapperSessionResult> {
   return new Promise((resolve) => {
+    const ownsGroup = ownsProcessGroup(signal);
     const child = spawn(identity.executable, [WRAPPER_IDENTIFY_ARG], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
-      detached: signal !== undefined && process.platform !== 'win32',
+      detached: ownsGroup,
     });
+    const stop = childStop(child, ownsGroup);
     const stdout: string[] = [];
     const stderr: Buffer[] = [];
     let handshakePending = '';
@@ -103,13 +105,16 @@ function executePinnedWrapper(
     let protocolError: string | undefined;
     let settled = false;
     let lifecycleTimer: NodeJS.Timeout | undefined;
-    let killTimer: NodeJS.Timeout | undefined;
     let settleTimer: NodeJS.Timeout | undefined;
 
     const clearTimers = (): void => {
       if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
-      if (killTimer !== undefined) clearTimeout(killTimer);
       if (settleTimer !== undefined) clearTimeout(settleTimer);
+      // Only reachable once the child has actually closed, or once the forced
+      // kill has already fired: `terminate` settles on its own deadline, never
+      // on `'close'`. Dropping the escalation here therefore cannot spare a
+      // surviving descendant.
+      stop.cancel();
     };
     const finish = (result: WrapperSessionResult): void => {
       if (settled) return;
@@ -119,9 +124,7 @@ function executePinnedWrapper(
       resolve(result);
     };
     const onAbort = (): void => {
-      if (child.pid !== undefined && process.platform !== 'win32') {
-        try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
-      } else child.kill('SIGKILL');
+      stop.kill();
       finish(failure('Agent execution aborted: lease ownership lost.'));
     };
     signal?.addEventListener('abort', onAbort, { once: true });
@@ -130,9 +133,10 @@ function executePinnedWrapper(
       if (protocolError !== undefined) return;
       protocolError = message;
       if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
-      child.kill('SIGTERM');
-      killTimer = setTimeout(() => child.kill('SIGKILL'), FORCE_KILL_DELAY_MS);
-      killTimer.unref();
+      // Same reach as an abort, only gentler first: this stop must find the
+      // whole group, or a descendant outlives the session still holding the
+      // stdio it inherited.
+      stop.terminate();
       // The reader owns the bound. `'close'` is emitted only after every
       // inherited stdio pipe closes, so a wrapper that leaves a descendant
       // holding one withholds it forever and strands the step with no
