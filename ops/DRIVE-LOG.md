@@ -5192,3 +5192,44 @@ Next tick: read the new aggregate comment. Expect maintainability to clear (the
 `dest` default is fixed and verified against a real 1.0 file), and expect
 **history H1 to still fail** — the `model` field-loss finding is untouched — plus
 the structure lens, which has never run at all.
+
+### 2026-09-09 — mapped the swarm gate precisely; it is not stale, it is genuinely failing
+
+Drain: 0 pending of 1955. Disk 6.0Gi.
+
+Swarm run 34314388271 completed **failure** and posted **no new verdict** — the
+comment on the PR is still the 07:05Z one. So the gate cannot pass on lens
+results alone: the "Post verdict and transcripts" step exits 1 after reporting
+`Patch applied successfully`, with no error message of its own.
+
+Read the immutable gate scripts from main to stop guessing. `swarm-verdict.sh`
+defines the contract exactly:
+
+- a transcript must be named `????????-????-pr<N>-<lens>.md`;
+- its **last non-empty line** must be literally `REVIEW_PASSED` or
+  `REVIEW_FAILED` — anything else is `UNCLEAR`;
+- if it is not newer than the freshness marker it is `STALE`;
+- if no transcript exists at all it is `MISSING`, deliberately fail-closed.
+
+Against that contract, what actually happened on my head is informative:
+
+- The swarm **did** generate fresh transcripts —
+  `ops/reviews/20260909-0536-pr238-history.md` (455 lines) and
+  `20260909-0537-pr238-maintainability.md` (224 lines), 40 files / 2435
+  insertions in the applied patch.
+- So `M:fail H:fail` is **not** staleness. Those transcripts end in
+  `REVIEW_FAILED` because the lenses genuinely object.
+- `S:missing` means **no `*-pr238-structure.md` has ever been produced**. The
+  structure lens has not run once, and MISSING is fail-closed by design.
+
+This corrects the framing I carried for two ticks. I kept describing the gate as
+possibly bureaucratic; it is a well-built fail-closed contract and it is telling
+the truth.
+
+To merge #238 three things must happen, none of which is a button:
+1. the history H1 `model` field-loss finding fixed;
+2. the structure lens actually run and emit a transcript;
+3. the post step's silent exit 1 resolved, or no verdict is ever recorded.
+
+I have not touched #240/#242/#244 individually. Given #238's causes turned out to
+be PR-specific, I should stop assuming they share one.
