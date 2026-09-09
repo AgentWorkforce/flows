@@ -7406,3 +7406,57 @@ correctly returned FAILED.
 
 Worth noting the kernel suite only ran because I ran it: repo CI builds the
 kernel but does not run it, so those 113 are the only real signal here.
+
+### 2026-09-09 — the "needs a human login" blocker was a PATH bug all along
+
+Khaliq asked why he couldn't just do a device login. Chasing that answer
+dismantled my own blocker.
+
+`relayfile login` **delegates to `agent-relay cloud login`**, and I was already
+authenticated to prod — it prints `Already logged in to
+https://agentrelay.com/cloud`. So the browser step I had been asking for was
+never the missing piece.
+
+The provisioning path (`--provision-messaging-only`) failed 3/3 with:
+
+```
+bootstrap delegated relayfile credentials:
+agent-relay workspace active --json --reveal-secrets timed out;
+run 'agent-relay cloud login' and try again
+```
+
+Run standalone that command takes **2s, exit 0, 622 bytes of valid JSON**. So the
+timeout was not the command being slow. There are **four** `agent-relay`
+binaries on this machine, and they are not equally fast:
+
+```
+/opt/homebrew/bin/agent-relay   -> 20s
+mise shim                       ->  2s
+```
+
+PATH prefers homebrew, whose 20s blows the bootstrap's internal budget. Putting
+the fast one first fixed it on the first try:
+
+```
+PATH=/tmp/fastbin:$PATH relayfile login --provision-messaging-only
+  Already logged in to https://agentrelay.com/cloud
+  Relayfile now uses the active agent-relay cloud session and workspace default.
+```
+
+**I had been reporting "blocked on Khaliq to run relayfile login" for several
+ticks. That was wrong** — the login was never missing, and the error message
+actively pointed the wrong way by recommending a re-auth the bootstrap had just
+verified. Filed as **AgentWorkforce/relayfile#485**, with the fix ranked as
+"name the resolved binary and elapsed time in the error" over "raise the budget".
+
+Also corrected a smaller assumption: `credentials.json` was never the right
+marker. Relayfile now delegates to the cloud session rather than writing that
+file, so its absence proved nothing.
+
+**Remaining gap is narrower and different.** `relayfile workspace create` still
+requires `--api-key` (a self-hosted credential), which the delegated session does
+not supply. So a *dedicated* `ci-smoke` workspace still needs an API key. What no
+longer needs anything is using the already-provisioned session.
+
+Stopped there rather than spelunking further into workspace/token internals —
+that was becoming a rabbit hole, and the win was already banked.
