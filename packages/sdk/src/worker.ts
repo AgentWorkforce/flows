@@ -2,7 +2,8 @@ import { EventEmitter } from 'node:events';
 import type { JournalClient } from './journal-client.js';
 import type { Pins, StepDispatchEvent } from './protocol.js';
 import type { KernelAgentStep } from './spec.js';
-import { runAgentCli } from './worker-cli.js';
+import { runAgentCli, type WorkerCliResult } from './worker-cli.js';
+import { startWorkerHeartbeat } from './worker-heartbeat.js';
 
 export { MODEL_ENV, WAKE_CONTEXT_ENV } from './worker-cli.js';
 
@@ -32,6 +33,7 @@ export class AgentWorker extends EventEmitter {
   private attached = false;
   private closing = false;
   private readonly inFlight: Set<Promise<void>> = new Set();
+  private readonly heartbeats = new Set<ReturnType<typeof startWorkerHeartbeat>>();
 
   constructor(
     private readonly client: JournalClient,
@@ -61,6 +63,8 @@ export class AgentWorker extends EventEmitter {
   /**
    * Async, drain-aware shutdown. Awaits every dispatch in-flight; ignores
    * dispatches that arrive after close() begins. Idempotent.
+   * Stops lease renewal immediately; draining a long CLI after close may
+   * therefore report a lease conflict through the worker's error event.
    *
    * A prior synchronous close() did NOT drain, so a caller shutting
    * mid-dispatch could silently lose an in-flight step's stepComplete
@@ -71,6 +75,7 @@ export class AgentWorker extends EventEmitter {
     if (this.closing) return;
     this.closing = true;
     this.client.off('step.dispatch', this.onDispatch);
+    for (const heartbeat of this.heartbeats) void heartbeat.stop();
     const pending = Array.from(this.inFlight);
     if (pending.length > 0) {
       await Promise.allSettled(pending);
@@ -89,11 +94,34 @@ export class AgentWorker extends EventEmitter {
   };
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
-    const spec = dispatch.spec as Partial<KernelAgentStep>;
-    const result = typeof spec.cli === 'string' && typeof spec.instruction === 'string'
-      ? await runAgentCli(spec.cli, memoryInstruction(spec.instruction, dispatch.memory), dispatch.wake_context, spec.model)
-      : { exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' };
-    const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
+    const heartbeat = startWorkerHeartbeat(this.client, dispatch);
+    this.heartbeats.add(heartbeat);
+    const errors = heartbeat.errors;
+    let result: WorkerCliResult | undefined;
+    try {
+      const spec = dispatch.spec as Partial<KernelAgentStep>;
+      result = typeof spec.cli === 'string' && typeof spec.instruction === 'string'
+        ? await runAgentCli(spec.cli, memoryInstruction(spec.instruction, dispatch.memory), dispatch.wake_context, spec.model)
+        : { exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' };
+    } catch (error) {
+      errors.push(error);
+    } finally {
+      await heartbeat.stop();
+      this.heartbeats.delete(heartbeat);
+    }
+    if (result !== undefined) {
+      try {
+        await this.complete(dispatch, result, errors.length > 0);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, `agent step ${dispatch.step_id} failed`);
+  }
+
+  private async complete(dispatch: StepDispatchEvent, result: WorkerCliResult, renewalFailed: boolean): Promise<void> {
+    const completionReason = result.exit_code === 0 && !renewalFailed ? 'success' : 'worker_error';
 
     // Output shape: if the CLI's stdout parses as JSON, promote THAT
     // as the step's `output` value so `json_schema` verification
@@ -106,7 +134,7 @@ export class AgentWorker extends EventEmitter {
     //
     // Implicit contract: CLIs signal errors via non-zero exit, not by
     // emitting an error JSON with exit 0. `completionReason` is
-    // derived from exit code, so a CLI that exits 0 while emitting
+    // derived from exit code (unless renewal failed), so a CLI that exits 0 while emitting
     // `{"error":...}` will report success with an error payload.
     const output = parseJsonOutput(result.stdout_tail) ?? result;
 
