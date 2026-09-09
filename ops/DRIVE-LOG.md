@@ -6954,3 +6954,47 @@ is the easy part and belongs last.
 This is the third time today that "the obvious cheap fix" turned out to rest on
 something unverified. Worth the pattern: check what the gate actually ran before
 trusting a green artifact.
+
+### 2026-09-09 — opened cloud#3497: made the snapshot smoke gate fail closed
+
+Drain clear: 0 pending of 1912. Disk 7.6Gi. Three lanes alive. Items 2-4 still
+blocked or stale, so I went at the root of the #3466 chain.
+
+**The gate already had the mechanism; one call site just did not use it.**
+`smoke-sandbox-image.mjs` supports `--require-mount-probe`, which turns an
+incomplete `RELAYFILE_SMOKE_*` env into a throw instead of a warning.
+`rebuild-snapshot.yml` has two smoke call sites:
+
+```
+741-742  promotion lane  --require-mount-probe   present
+220-221  rebuild lane    --require-mount-probe   MISSING
+```
+
+The rebuild lane wires every `RELAYFILE_SMOKE_*` value — and carries a comment
+warning that without the tree-sha "the promotable smokes silently skip the mount
+convergence probe" — but never passes the flag. So when the secrets are absent
+the env is empty strings, `hasMountProbeConfig` is false, the script warns and
+**exits 0**, and an unexercised snapshot goes ACTIVE looking green.
+
+That is precisely how #3495's v0.10.56 snapshot reached ACTIVE unqualified,
+which is why the deployed selector stayed on v0.10.55 and #3466 is still
+wedging production runs.
+
+Opened **cloud#3497**, two lines, bringing the rebuild lane to the same contract
+as the promotion lane. Asserted the mutation landed before trusting anything
+(6 insertions / 2 deletions, `grep` confirms both call sites, YAML re-parses),
+and `tests/smoke-sandbox-image.test.mjs:141` already covers the flag.
+
+**Stated the trade-off in the PR rather than burying it:** if those secrets are
+not set, this turns the rebuild workflow red instead of green. That is the
+intent — a gate that cannot run must not report success — but it is a behavior
+change someone should expect. I cannot set the secrets and said so; if they are
+missing, the red run is the accurate signal and the fix is to add them, not to
+revert.
+
+**Deliberately did not touch the snapshot pins.** Promoting an unqualified image
+to production is the exact thing this PR exists to prevent. Correct order:
+#3497 lands -> rebuild re-runs and genuinely qualifies v0.10.56 -> pins promoted.
+
+Worktree `cloud-smokegate-wt` created off `origin/main` rather than working in
+`AgentWorkforce/cloud`, which has a live claude session in it.
