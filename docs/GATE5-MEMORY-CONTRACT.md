@@ -1,3 +1,14 @@
+<!-- Edge-owned. Deliberately NOT under kernel/. -->
+
+> **Ownership.** This contract describes a `relayhistory` / `ai-hist` integration:
+> provider CLI syntax, JSON output, exit-code behaviour and provider-specific
+> traps. That is SDK/control-plane knowledge, not kernel design authority.
+> RFC-0001 §4 and settled decision #13 keep the Rust kernel provider-neutral and
+> closed-vocabulary, so this file lives under `docs/` — it previously sat under
+> `kernel/`, where its location signalled kernel ownership regardless of what the
+> text said, and a future implementer could reasonably have grown the kernel
+> around `ai-hist` on that signal alone.
+
 # Gate 5 — what a relayhistory-backed MemoryProvider has to do
 
 Read of `AgentWorkforce/relayhistory` at `3e7df69`, 2026-09-08. RFC-0001 gate 5
