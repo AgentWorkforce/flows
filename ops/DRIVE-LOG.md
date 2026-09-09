@@ -6234,3 +6234,38 @@ something.
 That distinction matters and I nearly lost it myself earlier: FAILED is a
 verdict, MISSING is an absent verdict, UNCLEAR is an unreadable one. Only the
 first is about the code.
+
+### 2026-09-09 — correction: the lane WAS pushing to the PR branches all along
+
+Drain: 2 pending of 2029, 0.2 min old — just created, in-flight. Disk 2.1Gi.
+
+**I got the last two ticks wrong.** I reported "12 unpushed commits at risk" and
+pushed the lane's branch to preserve them. The premise was false: the lane pushes
+its work to the **PR branches**, and `lane/flows-248-0909` was only a local
+working ref. Confirmed:
+
+```
+drive-hardening-0908 (#244)                c3345ed   last commit 2 minutes ago
+fix/swarm-verdict-marker-last-line (#248)  9258719   last commit 18 minutes ago
+34349b2, c3345ed                           both ancestors of origin/drive-hardening-0908
+```
+
+Its newest work is on the #244 branch:
+
+```
+c3345ed Clarify historical drive snapshot and launcher documentation
+4d88ac2 Capture local drive gates and baseline in submitted commands
+34349b2 fix(drive-local): address report and scope review findings
+```
+
+What I did wrong: I compared HEAD against `origin/main` and against its own lane
+ref, and concluded "unpushed" without checking whether those commits had reached
+the branch the PR actually tracks. `origin/main..HEAD` counts everything not yet
+merged — which is most of an active PR by definition. That is not a risk signal.
+
+The preservation push was harmless (it created a backup ref) but the reasoning
+was wrong, and I nudged the lane twice about something it was already doing
+correctly. Worth stating plainly: I interrupted a working agent on a false
+premise.
+
+Verdicts unchanged: #244 `UNCLEAR/FAILED/FAILED`, #248 all-MISSING (cloud path).
