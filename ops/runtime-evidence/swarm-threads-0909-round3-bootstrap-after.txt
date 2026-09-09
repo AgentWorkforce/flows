@@ -1,0 +1,11 @@
+$ node ops/runtime-evidence/swarm-threads-0909-bootstrap-probe.mjs
+introducing PR without test: exit=0, expected=0
+::notice::PR #248 bootstrap: self-test is not on main yet.
+later PR without test: exit=1, expected=1
+::error::main-owned swarm-gate.test.sh is missing
+present passing test: exit=0, expected=0
+SELF_TEST_RAN
+present failing test: exit=7, expected=7
+SELF_TEST_RAN
+
+EXIT_CODE=0

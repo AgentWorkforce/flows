@@ -35,3 +35,30 @@ annotations are preserved.
 The CI review and its self-test come from the immutable main checkout. These
 changes remain candidates for human review; they do not replace the gate that
 judges this PR, and a local test pass is not a swarm signoff.
+
+## Evidence lifecycle for this batch
+
+These files are historical command captures and narrowly scoped reproduction
+probes, not shared runtime helpers or automatically discovered test fixtures.
+Keep superseded captures for the audit trail; their headers withdraw the claims
+they cannot support. Do not regenerate an old capture in place. A later repair
+gets a new descriptive suffix and its literal command/output, while its note
+identifies what it supersedes. This convention applies to this review batch,
+not a new policy for unrelated evidence directories.
+
+All names below start with `swarm-threads-0909-` (review task and capture date):
+
+| Suffix | Meaning |
+| --- | --- |
+| `before.txt`, `after.txt` | Native self-test before/after the first repair |
+| `coarse-before.txt`, `coarse-after.txt` | Superseded first comparator captures; retained only for audit |
+| `comparator-before.txt`, `comparator-after.txt` | Probe exposing the missing negated interception, then its repair |
+| `corrected-before-initial.txt` | Original self-test happened to pass with the corrected comparator |
+| `corrected-before.txt` | Bounded retry captured the timing failure; passing attempts are never hidden |
+| `corrected-after.txt` | Fixed self-test under the corrected comparator |
+| `round3-*.txt` | Follow-up captures for documentation, bootstrap refusal, and fixture repairs |
+
+Run the native shell suite for current regression checks. Use the macOS-only
+comparator/probes only to investigate the specific historical timestamp issue.
+The baseline probe requires the original `066e2de` Git objects and intentionally
+reads those old scripts into a temporary fixture. Its output is timing-dependent.

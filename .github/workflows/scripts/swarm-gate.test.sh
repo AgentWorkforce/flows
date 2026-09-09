@@ -130,8 +130,9 @@ if [ "\$1" = cloud ] && [ "\$2" = sync ]; then
     exit 1
   fi
   # swarm-post.sh creates its marker immediately before calling this stub.
-  # Cross a whole-second boundary so -nt also works on coarse timestamps.
-  sleep 1
+  # Two seconds provide margin beyond the whole-second precision modeled by
+  # the comparator fixture. This is not a claim about arbitrary clock changes.
+  sleep 2
   mkdir -p ops/reviews
   for pair in \$(echo "${spec#writes:}" | tr ',' ' '); do
     lens=\${pair%%=*}; v=\${pair##*=}
@@ -198,16 +199,13 @@ case "$post_out" in
   *) notok "the empty-sync reason reaches the step log" "the CLI message" "$post_out" ;;
 esac
 
-# Documents a real limitation rather than asserting it is good. `set -e` kills
+# TODO (PR #248): give empty syncs a current failure comment. `set -e` kills
 # swarm-post.sh at `agent-relay cloud sync`, so when the swarm dies the PR gets
 # no comment from this run and the previous run's rollup stays visible. The
 # gate is still red -- `Enforce swarm result` is a separate step keyed on
 # swarm_status -- but a reader looking only at PR comments sees a stale verdict.
-if posted_a_rollup; then
-  echo "  NOTE empty sync now posts a comment (PR #248 follow-up limitation resolved)"
-else
-  echo "  NOTE PR #248 limitation: empty sync posts no comment; not a passing assertion"
-fi
+# This is deliberately outside pass/fail accounting. When the posting path is
+# repaired, add a positive assertion for the new contract; never require the bug.
 
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"

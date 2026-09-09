@@ -67,11 +67,19 @@ jobs:
       # request cannot weaken the gate by editing the test that guards it. The
       # guard is skipped only while the file has not yet reached main.
       - name: Self-test the gate's verdict logic
+        env:
+          REVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           test_script=gate-files/.github/workflows/scripts/swarm-gate.test.sh
           if [ ! -f "$test_script" ]; then
-            echo "::notice::swarm-gate.test.sh is not on main yet; skipping the gate self-test. This skip disappears once it lands."
-            exit 0
+            # Only the introducing PR may bootstrap before its test is on main.
+            # Later deletion, bad paths or incomplete checkouts must fail closed.
+            if [ "$REVIEW_PR_NUMBER" = 248 ]; then
+              echo "::notice::PR #248 bootstrap: self-test is not on main yet."
+              exit 0
+            fi
+            echo "::error::main-owned swarm-gate.test.sh is missing" >&2
+            exit 1
           fi
           bash "$test_script"
 

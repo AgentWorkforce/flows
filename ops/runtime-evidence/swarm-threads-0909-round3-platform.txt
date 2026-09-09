@@ -1,0 +1,3 @@
+$ bash -c 'uname(){ printf "%s\n" Linux; }; source "$1"' probe ops/runtime-evidence/swarm-threads-0909-coarse.bash
+COARSE_FIXTURE_REQUIRES_MACOS: use the native suite on other hosts
+EXIT_CODE=2

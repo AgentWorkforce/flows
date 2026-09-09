@@ -1,5 +1,10 @@
 import os, subprocess, tempfile
 from pathlib import Path
+# Native macOS Bash can already compare at whole-second precision, so checking
+# outcomes alone missed the original wrapper's failure to intercept negated -nt.
+# Two expressions, two operands each: four stat calls prove both routes used
+# this frozen reproduction fixture. Outcomes are asserted separately below.
+# If the fixture is redesigned to cache stats, adapt this interception probe too.
 with tempfile.TemporaryDirectory() as directory:
     marker=Path(directory)/'marker'; newer=Path(directory)/'newer'
     marker.touch(); newer.touch()
@@ -8,6 +13,9 @@ with tempfile.TemporaryDirectory() as directory:
     script='''trace=$4
 stat() { printf "stat\\n" >> "$trace"; command stat "$@"; }
 source "$1"
+[ yes = yes ] || exit 1
+[ ! -e "$4.missing" ] || exit 1
+printf 'DELEGATION_OK\\n'
 if [ "$3" -nt "$2" ]; then plain=NEWER; else plain=NOT_NEWER; fi
 if [ ! "$3" -nt "$2" ]; then negated=STALE; else negated=FRESH; fi
 calls=$(wc -l < "$trace")

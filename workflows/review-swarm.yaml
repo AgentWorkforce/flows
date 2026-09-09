@@ -23,6 +23,9 @@ agents:
   # swarm_transcript_verdict(): last non-empty line, surrounding whitespace
   # trimmed, exact REVIEW_PASSED/REVIEW_FAILED match. The aggregate uses this
   # parser; changing the prompt must preserve that contract.
+  # Step liveness checks observe the agent's chat output. The aggregate opens
+  # its persisted transcript file and applies the binding parser there; chat
+  # output containing REVIEW_ cannot make a malformed transcript pass.
   # Deliberately three different model families: a shared blind spot in one
   # harness must not become the whole team's blind spot.
   - name: maintainability
