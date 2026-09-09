@@ -30,8 +30,23 @@ DROPPED_STEP = {('agent', 'timeoutMs')}  # 0.1.0 bounds deterministic steps only
 
 
 def migrate(path):
-    raw = yaml.safe_load(open(path))
+    # The refusal boundary has to be closed. Letting a parser error or an
+    # unexpected root type escape as a traceback means an author cannot tell an
+    # unsupported source from a bug in this tool, and no REFUSED result is ever
+    # printed -- the opposite of the fail-closed promise in the docstring.
     problems, notes = [], []
+    try:
+        with open(path) as handle:
+            raw = yaml.safe_load(handle)
+    except OSError as exc:
+        return None, [f"cannot read {path}: {exc}"], notes
+    except yaml.YAMLError as exc:
+        return None, [f"{path} is not valid YAML: {exc}"], notes
+    if raw is None:
+        return None, [f"{path} is empty; there is nothing to migrate"], notes
+    if not isinstance(raw, dict):
+        return None, [f"{path} must contain a mapping at the top level, "
+                      f"found {type(raw).__name__}"], notes
 
     # Refuse a schema this tool was not written for. Without this, a 0.2.0 file
     # would be silently restamped as 0.1.0 and "migrated" by guesswork.
@@ -49,6 +64,10 @@ def migrate(path):
         problems.append(f"unhandled top-level keys: {sorted(unknown_top)}")
 
     workflows = raw.get('workflows') or []
+    if not isinstance(workflows, list):
+        return None, ["'workflows' must be a list"], notes
+    if len(workflows) == 1 and not isinstance(workflows[0], dict):
+        return None, ["the workflow entry must be a mapping"], notes
     if len(workflows) != 1:
         problems.append(f"expected exactly one workflow, found {len(workflows)}; "
                         "a multi-workflow file must be split by hand, not guessed")
@@ -59,7 +78,14 @@ def migrate(path):
                      "pattern/channel/timeout slot")
 
     agents, roles = {}, {}
-    for a in raw.get('agents') or []:
+    declared_agents = raw.get('agents') or []
+    if not isinstance(declared_agents, list):
+        return None, ["'agents' must be a list"], notes
+    for a in declared_agents:
+        if not isinstance(a, dict):
+            problems.append(f"agent entry must be a mapping, found "
+                            f"{type(a).__name__}")
+            continue
         name = a.get('name')
         if not name:
             problems.append(f"agent declaration without a name: {a}")
@@ -75,8 +101,22 @@ def migrate(path):
                          "presets are persona surface (RFC decision 9)")
         agents[name] = decl
 
+    # The 0.1.0 target requires a non-empty `steps` array -- the SDK refusal is
+    # recorded in this directory's README. Emitting `steps: []` produced a
+    # cheerful MIGRATED line and an artifact the SDK then rejects, which is the
+    # same guessing this tool refuses everywhere else.
+    raw_steps = (workflows[0].get('steps') if workflows else None)
+    if workflows and not isinstance(raw_steps, list):
+        problems.append("workflow 'steps' must be a list; 0.1.0 requires a "
+                        "non-empty steps array")
+        raw_steps = []
+    elif workflows and not raw_steps:
+        problems.append("workflow has no steps; 0.1.0 requires a non-empty "
+                        "steps array, and an empty migration would be refused "
+                        "by the SDK rather than run")
+        raw_steps = []
     steps = []
-    for s in (workflows[0].get('steps') if workflows else []) or []:
+    for s in raw_steps or []:
         t = s.get('type')
         out = {'id': s.get('name'), 'type': t}
         if not out['id']:
