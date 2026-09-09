@@ -5884,3 +5884,47 @@ Committed `066e2de`, three annotations asserted on the remote.
 Worth stating: the swarm has now caught a real defect in the change that fixes
 the swarm. I have spent several ticks calling this gate obstructive; it has been
 more careful than I have.
+
+### 2026-09-09 — #248's history failure is a broken sandbox, not a finding. The others are real.
+
+Drain: 0 pending of 2005. Disk 5.8Gi.
+
+Read #248's history blocker. It is not a product objection, and the lens says so
+in its own words:
+
+> `.git` points to `/home/daytona/.project-git`, which is absent. Consequently I
+> cannot inspect the last 40 commits, prove that no deliberately removed
+> behavior is reintroduced, or stage this report. **Do not interpret the final
+> failure marker as a product-code finding.**
+
+Its actual assessment is that the change *fits* the documented history. So
+`history: FAILED` on #248 is a **broken review sandbox** — the lens could not do
+its job and failed closed, correctly.
+
+**I then over-generalised and caught it.** Seeing the same `project-git` markers
+on #242 and #244, I was ready to write off all three history failures as
+environmental. Checked instead:
+
+- **#244** hit the same git error, then says *"Retry attempt 3: ... I
+  independently re-read the current code and history"* and raises a genuine
+  blocker — **H1 P1: the acceptance gate again trusts code writable by the agent
+  it judges.** Real finding.
+- **#242** likewise carries a real **P1: the new editing agent bypasses the
+  workspace starting-state contract** (`drive-local.yaml:43-45` declares only a
+  stream while lines 49-56 instruct the agent to mutate the checkout, against
+  RFC-0001 Appendix A rules 1, 2, 4 and 6).
+
+So the presence of environment-failure markers is **not** evidence that the
+verdict is environmental. Two of the three recovered and reviewed properly. Had I
+trusted the marker count I would have dismissed two real P1s as infrastructure
+noise — the exact inverse of the mistake I made earlier tonight when I treated a
+gate as bureaucratic.
+
+Nothing to fix on #248's history: the sandbox needs its git metadata, which is
+not something this PR can carry. Flagging it rather than patching around it.
+
+#242 and #244's P1s are both about the same thing from different angles — the
+local loop's acceptance checks are writable by the agent they judge, and the
+workspace contract is prompt text rather than a declared surface. That is the
+design question I have twice said needs Khaliq's call, and two independent lenses
+have now raised it unprompted.
