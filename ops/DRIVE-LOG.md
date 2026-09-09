@@ -5737,3 +5737,44 @@ Still open on #242, and both are design-level rather than one-line fixes:
   enforceable workspace or file-glob boundary, so it can edit its own verifier.
 - **P1** — after selection became generic, verification still runs only the SDK
   suite and never the selected package's own definition of done.
+
+### 2026-09-09 — #244: restored the work-branch guard (a real regression)
+
+Drain: 0 pending of 1993. Disk 7.7Gi.
+
+Read #244's eight unresolved threads — the largest unread pile — and took the
+branch-protection P1 first because it is a safety regression rather than a
+polish item.
+
+`main` carries the guard:
+
+```js
+assert(branch && branch !== 'main', 'LOCAL_DRIVE_REFUSED: use a work branch');
+```
+
+When `select()` was generalized it kept **recording** the branch in the package
+and stopped **asserting** it. So the loop would select work while sitting on
+`main` and let the agent edit the protected branch. `--show-current` prints
+nothing on a detached HEAD, equally unguarded. Restored, running before anything
+is read, and naming which case it refused.
+
+**A testing artifact worth recording, because it nearly produced a false
+negative.** My first verification checked out `main` and ran the script — which
+swapped the script for **main's own copy**. I was testing main's code, not mine,
+and the run produced no refusal, which looks exactly like "the guard did not
+fire". Caught it, and verified properly instead:
+
+```
+main            refused: LOCAL_DRIVE_REFUSED: on main
+detached HEAD   refused: LOCAL_DRIVE_REFUSED: detached HEAD is not a work branch  (live)
+work branch     accepted
+```
+
+Committed `9249228`, guard asserted present on the remote. Put the warning in the
+commit message too, so the next person does not repeat the same false negative.
+
+Seven threads remain on #244, including two I would not fix without a decision:
+a pre-existing symlink inside a declared scope is never inspected (so Verify can
+write outside the checkout), and the SDK suite is run without rebuilding
+`packages/sdk/dist`, so built-CLI tests can exercise the pre-agent artifact —
+that second one is the stale-tree gate failure in another costume.
