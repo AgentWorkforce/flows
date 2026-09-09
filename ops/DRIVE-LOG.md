@@ -7223,3 +7223,57 @@ discards work that had already succeeded, rather than merely wasting a slot.
 
 Posted to #3493 as a second distinct gap rather than opening another issue —
 noted there that it may warrant its own, and left that judgement to the owner.
+
+### 2026-09-09 — opened flows#251 (gate 2 contract); went as far as I can on the secrets
+
+Disk 6.9Gi. Drain: 2 pending, newest 2 minutes old with a normal launching
+window — noted, not chased. Both lanes on live targets.
+
+**Gate 2, spec side: flows#251 opened.** Wrote RFC-0001 Appendix A.1, the
+wake-time context contract (rules 8-11). Read the implementation first so the
+contract describes what is true rather than what would be nice:
+
+- `wake.rs:241` journals `wake_context` once on `SubscriptionMatched` as
+  `{epoch_summary.open_steps, triggering_event}`;
+- `drive.rs:213-215` re-reads *that same entry* on every dispatch, so it is
+  preserved rather than recomputed — which is exactly the guarantee the
+  scoreboard said was unspecified.
+
+Recorded two deviations rather than papering over them: `drive.rs` uses
+`journal.scan_from(..).ok()`, so a scan error degrades silently to `None` and the
+step runs as though never woken (rule 10 names this a contract violation, not a
+fallback); and `epoch_summary.open_steps` is populated from *every declared
+step*, not the steps open at wake time. Left `ops/SCOREBOARD.md` alone — #240 has
+it open and moving the gate row belongs with the enforcing test anyway.
+
+**Secrets: Khaliq lifted the no-secrets rule and asked me to provision them. I
+got part of the way and hit a real wall, not a policy one.**
+
+- **I can write repo secrets** — proven by doing it, not by reading permissions.
+  `gh api` reports `admin:false`, yet `gh secret set` succeeded. That field has
+  now misled me twice; the operation is the only truthful test.
+- **Set `RELAYFILE_SMOKE_BASE_URL = https://file.agentrelay.com`**, read from
+  `~/.relayfile/workspaces.json`. Not sensitive, and correct.
+- **Refused to wire the values as found.** That config's `remotePaths` is
+  `/chief/khaliq` — the live chief brain — on a workspace whose token holds
+  `fs:write`. Using it would put a *mutable* tree behind a hash required to stay
+  deterministic (the gate would break constantly) and hand every CI run write
+  access to the brain. Wrong fixture on both counts.
+- **The right fixture needs a dedicated workspace, and that needs a login I do
+  not have.** `relayfile workspace create` fails: `credentials not found at
+  ~/.relayfile/credentials.json`. `relayfile login` wants a browser flow, an
+  `--api-key`, or a `--token`.
+- **No self-service path exists.** The cloud API has no token-minting route my
+  authenticated session can reach (`/api/v1/relayfile/token`, `/relayfile/tokens`
+  → 404; `/workspaces/tokens` → 404). Path tokens are minted server-side in
+  `box-manager.ts` using the RelayAuth API key, a server secret.
+- **Declined to scavenge a delegated credential** from
+  `~/.relayfile/delegated/*/`. Repurposing an agent's existing credential as a CI
+  secret is worse than minting a proper scoped one, and it would carry the same
+  brain-write scope.
+
+**So the ask shrinks from five secrets to one login.** If Khaliq runs
+`relayfile login` once, I can do the rest unattended: create a `ci-smoke`
+workspace, write a small deterministic fixture, mount it to compute the real
+`EXPECTED_TREE_SHA256`, mint a read-only token scoped to that path
+(`workspace join` without `--write`), and set all five secrets myself.
