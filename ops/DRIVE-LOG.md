@@ -7037,3 +7037,60 @@ further this tick.
 still IN_PROGRESS. `UNSTABLE` here is genuinely "not finished", not a hidden
 failure — something is actually pending. Not green yet; will confirm next tick
 rather than claim it.
+
+### 2026-09-09 — #3497 is green, and I found why the probe could never run
+
+Drain clear: 0 pending of 1915 (`cancelled` 49 -> 51 is my two cancels). Disk
+7.1Gi. **#3497 is CLEAN — every check green, zero review threads, CodeRabbit
+raised nothing.**
+
+**Not merging it.** Green CI is not a signoff, and the standing rule is merge
+only with a passing independent signoff at the exact head. `reviewDecision` is
+null and there are no reviews. Also worth remembering CLEAN means *mergeable*,
+not *reviewed*.
+
+**Then I checked the precondition I had flagged, and it is worse than "maybe
+missing".** Secret inventory (names only, no values):
+
+```
+repo-level (76 secrets)             RELAYFILE_SMOKE_* : 0
+environment dev            (20)                       : 0
+environment preview         (7)                       : 0
+environment production      (8)                       : 0
+environment posthog-sentinel-check (0)                : 0
+environment snapshot-qualification (0)                : 0
+```
+
+`hasMountProbeConfig` is not *sometimes* false — it is **structurally always
+false**. The convergence probe has never run in this lane. Noted the one scope I
+cannot read (org-level Actions secrets) rather than overclaiming.
+
+**The job wiring compounds it:**
+
+```
+ 43  rebuild-snapshot            <- the skipping lane; declares NO environment
+243  promote-snapshot            environment: production
+386  rebuild-snapshot-candidate  environment: snapshot-qualification  (has the flag)
+```
+
+The lane that skips cannot receive environment-scoped secrets at all, and the
+lane that *does* pass `--require-mount-probe` is bound to an environment holding
+**zero** secrets. The qualification path looks designed and never provisioned.
+
+**This changes what merging #3497 means, so I said so on the PR rather than
+letting someone discover it.** With the secrets absent it will fail the rebuild
+workflow *every* time, not occasionally — the honest signal, but a hard stop on
+snapshot rebuilds. So #3497 should land *with* provisioning, not before it.
+
+Working order posted to #3495: provision the five secrets where the job can see
+them (and give `rebuild-snapshot` an `environment:` if they are env-scoped) ->
+merge #3497 -> re-run rebuild so v0.10.56 is genuinely qualified -> promote the
+pins -> #3466 clears.
+
+I cannot create secrets, so step 1 needs Khaliq. Left the PR open rather than
+pushing a merge that would red the rebuild lane.
+
+Also caught a small reporting habit: an unconditional `echo` I appended to a
+check printed "(empty check list = all green)" when the list was not empty. Same
+shape as the earlier lsof echo. Stop appending conclusions to commands that have
+not been tested for them.
