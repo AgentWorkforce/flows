@@ -262,24 +262,39 @@ nothing could be held to it.
 
 9. **A resumed run observes the same context, never a recomputed one.** Every
    dispatch — first attempt, retry, or post-crash resume — resolves
-   `wake_context` by reading the journaled `SubscriptionMatched` entry. It is
-   never rebuilt from current state. This is what makes a woken agent step
-   replayable: the event that justified the wake cannot drift because the world
-   moved on while the run was down.
+   `wake_context` by *reading a journaled value*, never by rebuilding it from
+   current state. This is what makes a woken agent step replayable: the event
+   that justified the wake cannot drift because the world moved on while the run
+   was down.
 
    Concretely, an agent that woke on an event and crashed must, on resume, be
-   handed byte-identical `triggering_event` — not a re-fetch, not a fresher
+   handed a byte-identical `triggering_event` — not a re-fetch, not a fresher
    copy of the same logical event.
 
-10. **Absent context and lost context are different failures.** A run that was
-    never woken by an event has no `wake_context`, and that is legitimate. A
-    woken run whose context cannot be read back is a **journal integrity
-    failure**, and the dispatch must fail rather than proceed with none.
+9a. **Resolution is current-segment-only, per decision #8.** Resume reads only
+    the current journal segment, so the `SubscriptionMatched` entry is not
+    always reachable: a resident run that rolls into a new epoch while still
+    open on its wake leaves that entry in a closed, archived segment.
+    `wake_context` therefore resolves from **either** the `SubscriptionMatched`
+    entry when it lies in the current segment, **or** the epoch summary that
+    opens the current segment.
 
-    This distinction is the one the current implementation does not yet honour:
-    `drive.rs` resolves the context with `journal.scan_from(..).ok()`, so a scan
-    error degrades silently to `None` and the step runs as though it had never
-    been woken. Under rule 9 that is a contract violation, not a fallback.
+    This places an obligation on segment close, not on the reader: when a
+    segment closes while a run is still open on a wake, the new segment's epoch
+    summary **must carry `wake_context` forward unchanged**. Decision #8 already
+    defines the epoch summary as "everything still live"; an unfinished woken
+    run's triggering event is still live by that definition. Carrying it is what
+    makes rule 9 satisfiable without reopening archived segments.
+
+10. **Absent context and lost context are different failures.** A run that was
+    never woken by an event has no `wake_context`, and that is legitimate. So is
+    a woken run whose epoch summary legitimately carries none because the wake
+    is finished. A woken run **still open on its wake** whose context cannot be
+    resolved from the current segment is a **journal integrity failure**, and
+    the dispatch must fail rather than proceed with none.
+
+    Normal archival is never an integrity failure. The failure is a *missing
+    carry-forward* or an unreadable segment, not a closed one.
 
 11. **The gate.** Gate 2 is not green on a passing unit test. It requires, on a
     real run: wake a flow on an event, kill it mid-step, resume, and assert
@@ -289,9 +304,22 @@ nothing could be held to it.
     `SubscriptionMatched` entry is dispatched with `wake_context: None` and is
     distinguishable in the journal from a run whose context failed to load.
 
-**Known deviation, recorded rather than hidden.** `epoch_summary.open_steps` is
-currently populated from every step declared in the spec, not the steps open at
-wake time. For a freshly woken run those coincide. They do not coincide for a
-run woken again later, so either the field or its name is wrong. v1 of this
-contract specifies the *name's* meaning — steps open at the epoch — and marks
-the implementation as owing a fix.
+**Known deviations. These are binding obligations, not notes.** This contract is
+normative from the moment it lands; the implementation currently violates it in
+three places, and **gate 2 cannot go green until all three are closed** — rule
+11's run-level bar cannot be satisfied while any of them stands.
+
+- **D1 — the reader fails open.** `drive.rs` resolves the context with
+  `journal.scan_from(..).ok()`, so a scan error degrades silently to `None` and
+  the step runs as though it had never been woken. Rule 10 requires the dispatch
+  to fail instead.
+- **D2 — no carry-forward exists.** Nothing implements rule 9a: segment close
+  does not copy `wake_context` into the new epoch summary, so a run that rolls
+  an epoch while open on its wake loses it. Today this is masked because
+  `drive.rs` scans from sequence 1 of a single segment; it becomes live the
+  moment segmentation does.
+- **D3 — `open_steps` is misnamed or miscomputed.** It is populated from every
+  step declared in the spec, not the steps open at wake time. For a freshly
+  woken run those coincide; for a run woken again later they do not. This
+  contract fixes the *name's* meaning — steps open at the epoch — and the
+  implementation owes the change.
