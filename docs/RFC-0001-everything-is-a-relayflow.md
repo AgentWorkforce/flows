@@ -258,6 +258,11 @@ nothing could be held to it.
    - `triggering_event` — the event as received, verbatim;
    - `epoch_summary.open_steps` — the step ids of the run's epoch.
 
+   **v1 defines these fields as a minimum, not a closed set: readers must ignore
+   unknown keys and must not reject on their presence.** Additive fields are how
+   this reaches v2 without a flag day; a reader that rejects unknown keys makes
+   every future addition a breaking change.
+
    The entry is the record. Nothing else may synthesize a `wake_context`.
 
 9. **A resumed run observes the same context, never a recomputed one.** Every
@@ -268,8 +273,15 @@ nothing could be held to it.
    was down.
 
    Concretely, an agent that woke on an event and crashed must, on resume, be
-   handed a byte-identical `triggering_event` — not a re-fetch, not a fresher
-   copy of the same logical event.
+   handed a `triggering_event` **structurally equal** to the journaled one — not
+   a re-fetch, not a fresher copy of the same logical event.
+
+   Equality is structural, not textual: equal JSON values under the v1 shape,
+   compared independently of key order, whitespace and number formatting. Byte
+   equality would be the wrong bar — the value round-trips through
+   deserialization and re-serialization, so a re-encoded but identical value is
+   conformant, while a re-fetched newer event is not, even if it serialized to
+   the same length.
 
 9a. **Resolution is current-segment-only, per decision #8.** Resume reads only
     the current journal segment, so the `SubscriptionMatched` entry is not
@@ -296,23 +308,51 @@ nothing could be held to it.
     Normal archival is never an integrity failure. The failure is a *missing
     carry-forward* or an unreadable segment, not a closed one.
 
+10a. **"Fail" is two different failures, and they must not be conflated.**
+     Resolution failure splits by cause, because transient I/O and permanent
+     corruption deserve opposite handling:
+
+     - **Transient** (segment unreadable *right now*: I/O error, lock
+       contention, a truncated tail still being written) — **fail the attempt,
+       retryable**, under the step's ordinary retry budget. Journal
+       `wake_context_unresolved` with `reason: "transient"` and the underlying
+       error. A later attempt that resolves the context proceeds normally.
+     - **Permanent** (the run is open on a wake, the current segment is read
+       cleanly, and no `wake_context` is present — i.e. the carry-forward of
+       rule 9a never happened) — **fail the step and park as `needs_human`**,
+       not retryable. Journal `wake_context_unresolved` with
+       `reason: "absent"`. Retrying cannot invent a value that was never
+       written, so a retry budget would only delay the page.
+
+     Neither case may fall back to `wake_context: None`. Dispatching without
+     context is reserved for runs that were never woken (rule 10), and rule 11c
+     requires the two to stay distinguishable.
+
 11. **The gate.** Gate 2 is not green on a passing unit test. It requires, on a
     real run: wake a flow on an event, kill it mid-step, resume, and assert
-    (a) the resumed dispatch carries a `wake_context` **equal** to the one in
-    the original `SubscriptionMatched` entry, (b) the engine consulted the
+    (a) the resumed dispatch carries a `wake_context` structurally equal to the
+    one in the original `SubscriptionMatched` entry, (b) the engine consulted the
     journal rather than the live event source, and (c) a run with no
-    `SubscriptionMatched` entry is dispatched with `wake_context: None` and is
-    distinguishable in the journal from a run whose context failed to load.
+    `SubscriptionMatched` entry is dispatched with `wake_context: None`, while a
+    run whose context failed to resolve is **not dispatched at all** and instead
+    carries a `wake_context_unresolved` entry naming its `reason`.
+
+    (c) is testable because the distinction has a surface: *never woken* is the
+    **absence** of any `wake_context_unresolved` entry alongside a dispatch with
+    `wake_context: None`; *failed to load* is the **presence** of that entry with
+    `reason` of `transient` or `absent`, and no dispatch for that attempt. A
+    conformance test asserts on those two journal shapes, not on log text.
 
 **Known deviations. These are binding obligations, not notes.** This contract is
 normative from the moment it lands; the implementation currently violates it in
 three places, and **gate 2 cannot go green until all three are closed** — rule
 11's run-level bar cannot be satisfied while any of them stands.
 
-- **D1 — the reader fails open.** `drive.rs` resolves the context with
-  `journal.scan_from(..).ok()`, so a scan error degrades silently to `None` and
-  the step runs as though it had never been woken. Rule 10 requires the dispatch
-  to fail instead.
+- **D1 — the reader fails open.** The resume path discards a journal scan error
+  and substitutes `None`, so the step runs as though it had never been woken.
+  Rules 10 and 10a require it to fail instead, split by cause. *(Today this is
+  the `.ok()` on the scan in `drive.rs`; the deviation is the behaviour, and the
+  call site is a pointer that will move.)*
 - **D2 — no carry-forward exists.** Nothing implements rule 9a: segment close
   does not copy `wake_context` into the new epoch summary, so a run that rolls
   an epoch while open on its wake loses it. Today this is masked because
