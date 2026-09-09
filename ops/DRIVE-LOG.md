@@ -6002,3 +6002,39 @@ Committed `e0c5123`, asserted on the remote.
 A + B are now both in. Neither has been exercised by a real loop run — that is
 the remaining proof, and it is the same thing #242/#244 need before they can
 honestly claim the gate is sound.
+
+### 2026-09-09 — #244 P2: selection and the gate now share one baseline
+
+Drain: 2 pending of 2013 (in-flight). Disk 3.7Gi.
+
+Three existence rules were in play across one loop:
+
+```
+select()           pathExists = existsSync            working tree
+verifiedPackage()  git cat-file -e ${pkg.head}:path   committed at HEAD
+checkScope()       git cat-file -t ${pkg.head}:path   committed at HEAD
+```
+
+So selection blessed a path that existed only on disk, persisted it into the work
+package, and the gate then refused **the very package selection had produced**.
+The loop aborted on its own decision, two steps after making it.
+
+`select()` now uses the committed-at-HEAD rule, so an untracked path is refused
+during selection with the existing `stale_scope` reason rather than detonating
+later. Chose to tighten selection rather than relax the gate: scope is a claim
+about reviewable content, and an untracked path is not yet that.
+
+Demonstrated the divergence rather than asserting it:
+
+```
+ops/tracked.txt   existsSync=true  inHEAD=true
+untracked-dir     existsSync=true  inHEAD=false   <- accepted by select, refused by scope
+```
+
+Committed `315cf6f`, asserted on the remote.
+
+Running tally on #244: work-branch guard restored, SDK rebuilt before its suite,
+gate snapshot (A), escaping symlinks refused (B), and now one baseline. Four of
+the eight threads were about the gate trusting something it should not — the
+lens was describing one defect from four angles, and I only saw that after
+fixing the fourth.
