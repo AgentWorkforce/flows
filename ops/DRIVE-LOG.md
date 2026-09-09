@@ -7762,3 +7762,39 @@ success: `resolve_wake_context` is present on `origin/main`, and so is #250's
 journal-client comment. Both 1/1.
 
 Gate-2 status: **D1 is now on main.**
+
+### 2026-09-09 — stood down journal-close; #238's blockers are stale, proven by reproduction
+
+Disk 6.1Gi. Drain clean: 0 pending of 1961.
+
+**The objective sweep paid again.** `journal-close-0909` was ALIVE with target
+**#250 MERGED** — objective complete. Verified nothing unsaved first (0
+tracked-modified, 0 unpushed, no writes in 45m), then SIGTERM; confirmed stopped.
+One lane remains, `flows-threads-0909` on #244, which is still OPEN.
+
+**Then took #238, unclaimed with two fresh-looking blockers. Both are stale.**
+
+- **History:** "top-level `cli`/`budget`/`triggers` omitted without refusal or
+  loss notes." The lens ran its reproduction against `0510fae`, where that held.
+  I ran the same reproduction against head `bcafd421`: all three come out
+  **`preserved=True`**, `problems: []`, `notes: []`. The premise does not hold.
+- **Maintainability:** "`:126` defaults `dest` to `src`." At the head that logic
+  is at 210-220 and refuses an implicit in-place rewrite with `sys.exit(2)`.
+
+**And this exposed a flaw in the freshness test I built earlier today.** I was
+comparing the head's *commit* timestamp against the verdict timestamp. That is
+unsound — **commit date is not push date**, so a verdict can postdate a commit
+and still have reviewed an earlier revision. Here the arithmetic said "fresh"
+while the lens was demonstrably reading `0510fae`. It named the commit, which is
+what actually settled it.
+
+So the reliable freshness signal is not arithmetic: it is **the lens naming the
+SHA it reviewed and showing literal output**. Both lenses that gave me usable
+verdicts today did exactly that. I have been treating timestamp comparison as a
+gate; it is at best a hint.
+
+Posted the reproduction on #238 and asked for a re-review at `bcafd421`. Did
+**not** claim the PR is now correct — only that these two blockers no longer
+reproduce, and flagged a question neither covers: those keys are now *passed
+through* into the 0.1.0 output, and whether the SDK accepts top-level
+`cli`/`budget`/`triggers` is a different question from whether they are lost.
