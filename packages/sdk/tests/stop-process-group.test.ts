@@ -30,6 +30,7 @@ import { childStop } from '../src/child-stop.js';
  */
 const SDK = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BUILT_WORKER_CLI = join(SDK, 'dist', 'worker-cli.js');
+const BUILT_CHILD_STOP = join(SDK, 'dist', 'child-stop.js');
 const WRAPPER_HELPER = resolve(SDK, '..', '..', 'testdata', 'preflight', 'wrapper-session.mjs');
 const directories: string[] = [];
 
@@ -46,10 +47,31 @@ function makeDirectory(): string {
 }
 
 /**
- * A conforming wrapper that leaves a grandchild behind holding the stdio it
- * inherited, then does whatever `tail` asks for to trigger a stop.
+ * The two shapes a surviving grandchild can take, which are the two different
+ * ways a stop can be cut short:
+ *
+ * - `holds-stdio` keeps the pipes it inherited. `'close'` is emitted only once
+ *   every one of them is closed, so this grandchild withholds the event
+ *   forever and keeps `flows run`'s loop referenced by those handles. The
+ *   settle deadline is what bounds that.
+ * - `deaf-to-sigterm` ignores `SIGTERM` and inherits none of our stdio. So
+ *   `'close'` fires promptly on the DIRECT CHILD while the grandchild is still
+ *   running — a child-level event that says nothing whatever about the group.
+ *   Only the escalation reaches this one, and only if nothing cancelled it on
+ *   the strength of that event.
  */
-function writeLeakyWrapper(directory: string, name: string, tail: string): {
+type Survivor = 'holds-stdio' | 'deaf-to-sigterm';
+
+/**
+ * A conforming wrapper that leaves a grandchild of the given shape behind, then
+ * does whatever `tail` asks for to trigger a stop.
+ */
+function writeLeakyWrapper(
+  directory: string,
+  name: string,
+  tail: string,
+  survivor: Survivor = 'holds-stdio',
+): {
   wrapper: string;
   wrapperPid: string;
   grandchildPid: string;
@@ -57,14 +79,15 @@ function writeLeakyWrapper(directory: string, name: string, tail: string): {
   const wrapper = join(directory, name);
   const wrapperPid = join(directory, `${name}.wrapper-pid`);
   const grandchildPid = join(directory, `${name}.grandchild-pid`);
-  const grandchildSource = `require('node:fs').writeFileSync(${JSON.stringify(grandchildPid)}, String(process.pid)); setInterval(() => {}, 1000);`;
+  const deaf = survivor === 'deaf-to-sigterm';
+  const grandchildSource = `${deaf ? `process.on('SIGTERM', () => {}); ` : ''}require('node:fs').writeFileSync(${JSON.stringify(grandchildPid)}, String(process.pid)); setInterval(() => {}, 1000);`;
   writeFileSync(wrapper, `#!/usr/bin/env node
 import { existsSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { receiveWrapperRequest } from ${JSON.stringify(WRAPPER_HELPER)};
 await receiveWrapperRequest();
 writeFileSync(${JSON.stringify(wrapperPid)}, String(process.pid));
-spawn(process.execPath, ['-e', ${JSON.stringify(grandchildSource)}], { stdio: 'inherit' });
+spawn(process.execPath, ['-e', ${JSON.stringify(grandchildSource)}], { stdio: ${JSON.stringify(deaf ? 'ignore' : 'inherit')} });
 // Block until the grandchild has announced itself, so a stop that arrives on
 // the very next line still has a pid on disk to be judged against. A sync wait
 // is the point: the wrapper's own loop must not advance past this.
@@ -175,6 +198,100 @@ describe('every stop reaches the process group, not just the direct child', () =
     expect(run.exitedWithinMs).toBeLessThan(10_000);
     await expectReaped(leaky.wrapperPid);
     await expectReaped(leaky.grandchildPid);
+  }, 40_000);
+
+  /**
+   * The same two stops again, against the survivor that the unified group kill
+   * did NOT cover: one that ignores `SIGTERM` and holds none of our stdio, so
+   * `'close'` fires on the direct child while it is still alive. Every earlier
+   * defect of this family was a stop path settling over a live descendant; this
+   * is that path reading a child-level event as proof of a dead group. Nothing
+   * but the escalation reaches this grandchild, so if a settle is allowed to
+   * cancel the escalation, it survives the run.
+   */
+  it('kills a SIGTERM-deaf grandchild after a protocol terminate stop', async () => {
+    const directory = makeDirectory();
+    const leaky = writeLeakyWrapper(
+      directory,
+      'deaf-protocol-wrapper.mjs',
+      `process.stdout.write('relayflows-agent-cli-v1-execute\\n');\nsetInterval(() => {}, 1000);`,
+      'deaf-to-sigterm',
+    );
+
+    const run = await runUntilExit(directory, leaky.wrapper, 30_000);
+
+    expect(run.stderrTail).toMatch(/duplicate execute protocol frame/i);
+    expect(run.code).toBe(0);
+    expect(run.exitedWithinMs).toBeLessThan(10_000);
+    await expectReaped(leaky.wrapperPid);
+    await expectReaped(leaky.grandchildPid);
+  }, 40_000);
+
+  it('kills a SIGTERM-deaf grandchild after an execution-timeout stop', async () => {
+    const directory = makeDirectory();
+    const leaky = writeLeakyWrapper(
+      directory,
+      'deaf-timeout-wrapper.mjs',
+      'setInterval(() => {}, 1000);',
+      'deaf-to-sigterm',
+    );
+
+    const run = await runUntilExit(directory, leaky.wrapper, 400);
+
+    expect(run.stderrTail).toMatch(/execution timed out after 400ms/i);
+    expect(run.code).toBe(0);
+    expect(run.exitedWithinMs).toBeLessThan(10_000);
+    await expectReaped(leaky.wrapperPid);
+    await expectReaped(leaky.grandchildPid);
+  }, 40_000);
+
+  /**
+   * The other half of the invariant: not just that nothing CANCELS the
+   * escalation, but that the escalation actually RUNS. A survivor that ignores
+   * `SIGTERM` and holds none of our stdio leaves nothing of ours referencing
+   * the loop, so an unref'd escalation would be dropped by the drain in exactly
+   * the case it exists for. Nothing here settles a Promise or arms a deadline —
+   * the harness calls `terminate()` and is then left alone to die, and the only
+   * thing that can hold it open long enough to force the group is the
+   * escalation's own handle.
+   */
+  it('holds the loop open long enough for the escalation to run', async () => {
+    const directory = makeDirectory();
+    const grandchildPid = join(directory, 'unheld-grandchild-pid');
+    const grandchildSource = `process.on('SIGTERM', () => {}); require('node:fs').writeFileSync(${JSON.stringify(grandchildPid)}, String(process.pid)); setInterval(() => {}, 1000);`;
+    const childSource = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(grandchildSource)}], { stdio: 'ignore' }); setInterval(() => {}, 1000);`;
+    const harness = join(directory, 'escalation-harness.mjs');
+    writeFileSync(harness, `
+import { existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { childStop } from ${JSON.stringify(BUILT_CHILD_STOP)};
+// No stdio of ours for anything in the tree to hold, so the child process
+// handle is the only thing referencing this loop, and it goes on SIGTERM.
+const child = spawn(process.execPath, ['-e', ${JSON.stringify(childSource)}], {
+  stdio: 'ignore', detached: true,
+});
+for (let waited = 0; waited < 5_000 && !existsSync(${JSON.stringify(grandchildPid)}); waited += 10) {
+  await new Promise(wait => setTimeout(wait, 10));
+}
+childStop(child, true).terminate();
+`);
+    const started = Date.now();
+    const code = await new Promise<number | null>((resolveExit, rejectExit) => {
+      const process_ = spawn(globalThis.process.execPath, [harness], { stdio: 'inherit' });
+      const bound = setTimeout(() => {
+        process_.kill('SIGKILL');
+        rejectExit(new Error('the harness never exited after terminate()'));
+      }, 15_000);
+      process_.once('error', rejectExit);
+      process_.once('exit', exitCode => { clearTimeout(bound); resolveExit(exitCode); });
+    });
+
+    expect(code).toBe(0);
+    // It has to have waited for the escalation, and it has to have stopped
+    // waiting once that fired: a bound on both sides, not just the reap.
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1_000);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    await expectReaped(grandchildPid);
   }, 40_000);
 
   /**

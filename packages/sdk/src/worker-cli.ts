@@ -102,16 +102,28 @@ function spawnInvocation(
       stop.kill();
       finish({ exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.' });
     };
+    /**
+     * Same invariant as `wrapper-session.ts`: `'close'` and `'error'` are
+     * evidence about the DIRECT CHILD, so they may not settle over a pending
+     * escalation, and only `maySettleOnChildExit` may drop one. This settle
+     * carries no deadline of its own because it needs none — the timeout below
+     * settles on the spot and lets its escalation outlive that, so refusing
+     * here can only defer to a `'close'` we are still going to get.
+     */
+    const finishOnChildExit = (result: WorkerCliResult): void => {
+      if (!stop.maySettleOnChildExit()) return;
+      finish(result);
+    };
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) onAbort();
     child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
     child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
-    child.once('error', (error) => finish({
+    child.once('error', (error) => finishOnChildExit({
       exit_code: null,
       stdout_tail: Buffer.concat(stdout).toString('utf8'),
       stderr_tail: error.message,
     }));
-    child.once('close', (code) => finish({
+    child.once('close', (code) => finishOnChildExit({
       exit_code: code,
       stdout_tail: Buffer.concat(stdout).toString('utf8'),
       stderr_tail: Buffer.concat(stderr).toString('utf8'),
