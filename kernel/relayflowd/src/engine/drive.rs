@@ -438,12 +438,12 @@ fn parked_outcome(state: &RunState, status: RunStatus) -> RunOutcome {
     }
 }
 
-/// Resolve the `wake_context` a dispatch must carry, per RFC-0001 Appendix A.1.
+/// Resolve the `wake_context` a dispatch must carry.
 ///
 /// The previous form was `journal.scan_from(..).ok().and_then(..)`, which
 /// collapsed two very different outcomes into `None`:
 ///
-/// - the run was never woken by an event, which is legitimate (rule 10); and
+/// - the run was never woken by an event, which is legitimate; and
 /// - the journal could not be read, which is a resolution failure.
 ///
 /// Silently substituting `None` for the second dispatches the step as though it
