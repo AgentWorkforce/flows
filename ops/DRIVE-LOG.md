@@ -7506,3 +7506,46 @@ or bolted onto D1.
 Also parked the CI fixture: `relayfile-mount` is not installed locally, and
 computing `EXPECTED_TREE_SHA256` with a different mount version than the
 snapshot's risks a hash that never matches. Not worth guessing at.
+
+### 2026-09-09 — D3 was not a bug either; corrected, and named the pattern
+
+Disk 5.8Gi. Drain **clean: 0 pending of 1946**. Completions still 423.
+
+Went to implement D3 and, for the third time, found my own deviation note wrong.
+
+I had claimed `epoch_summary.open_steps` was "misnamed or miscomputed" and that
+the implementation owed a fix. It does not. The only site writing `wake_context`
+is the event-run creation path, and that same function calls
+`SqliteJournal::create` and appends `run.spawned` immediately before it — the run
+is **brand new**, so every declared step genuinely is open and the two sets
+coincide by construction. Confirmed sole producer: `wake.rs:241` is the only
+non-test write of `wake_context` or `epoch_summary` in the kernel.
+
+So the code is correct. What is real is a **drift hazard**: the field is correct
+only because of *where* it is computed, nothing enforces that, and the name
+invites reuse from a context where the sets diverge. The contract now fixes the
+name's meaning so a future second producer must compute open-step state rather
+than copy the spec's step list.
+
+Also corrected the section header, which asserted all three deviations block
+gate 2. Only **D1 and D2** are implementation debt; **D3 blocks nothing**.
+
+**Naming the pattern, because it has now happened three times.** I wrote the
+deviation list from reading the code once, then asserted each item as a finding.
+Every one I have since gone to implement turned out to be wrong in a material
+way:
+
+- **D2** — my stated reason it was masked was wrong on both counts (`scan_from`
+  has no segment filter; `rollover()` already exists). The real reason is that
+  the engine never rolls and closed segments are never pruned — which makes the
+  implementation violate decision #8 rather than merely lag it.
+- **D3** — not a defect at all; the value is correct by construction.
+- **the header** — overstated what blocks the gate.
+
+The review swarm caught one (H1); I caught three by *going to implement them*.
+Reading code once and writing a confident finding is not the same as verifying
+it. Said as much on #251 so a reviewer weights the current text rather than my
+earlier certainty.
+
+**Gate 2's real remaining debt is now just D1 (open as #252) and D2** — and D2 is
+a journal-format change, since `EpochSummaryPayload` has no `wake_context` field.
