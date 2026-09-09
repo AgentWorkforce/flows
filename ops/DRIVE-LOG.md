@@ -8206,3 +8206,44 @@ other path, and the fixes are unrelated.
 Posted both to flows#255 and linked it from cloud#3493, noting the second is not
 a flows bug at all — it is the same platform fault that has held production
 completions at 423 all day.
+
+### 2026-09-10 — cloud#3507: retry mcp-args registration on 429 workspace_busy
+
+Disk 5.8Gi. Drain: 3 pending, newest 22:04, normal window.
+
+Went after the highest-leverage item on the board — cloud#3493 now blocks both
+production completions and the flows review gate — and found the exact gap.
+
+`classifyMcpArgsRegistrationFailure` recognises Relaycast's **503
+database_overloaded** and transport errors. It does **not** recognise the **429
+`workspace_busy`** response, so that returns `null`, the retry loop breaks, and
+the step dies on the first collision.
+
+**Corrected an assumption while reading.** I had taken the log line
+`relaycast registration attempt 1 failed transiently; retrying` as proof that
+#3471's fix covered this. It does not: that retry came from a *different*
+earlier failure in the same step, and `workspace_busy` was terminal on the next
+attempt.
+
+**The fix honours the advertised interval rather than guessing.** The
+database-overload path hard-codes 8s/16s and says why — *"mcp-args preserves the
+status/code diagnostic but not the response header."* The rate-limit diagnostic
+carries `retry after 60s` **in the message text**, so it is parsed.
+
+**My own test caught a bug in my own fix.** I clamped the base then added
+jitter, so a `retry after 99999s` produced **91244ms against a 75000ms ceiling** —
+the clamp did nothing. Worse, my assertion had been written as
+`de >= MAX && de < MAX*1.25`, which *accepted* the overshoot. Fixed both: clamp
+the total, and assert `de <= MAX`.
+
+Verified against the **literal** error text from run `6b96a56f`: classifies as
+rate-limited, yields 60-75s, leaves 503/transport/unrelated unchanged, falls back
+with no hint, clamps the pathological case to exactly 75000.
+
+`tsc` on packages/core gives the **same 8 pre-existing errors** with and without
+the change — diffed the sorted sets — and none are in `executor.ts`.
+
+Opened **cloud#3507**. Stated three things it does *not* fix: the underlying
+capacity pressure, the local flows runner (unauthenticated opencode, a different
+cause), and the other `workspace_busy` call sites — I only touched
+`mcp-args --register` because that is the one I have a failing run for.
