@@ -6723,3 +6723,49 @@ this failure shape.
 
 Posted both corrections as a comment on #3489 rather than editing the body, so
 the wrong reasoning stays visible.
+
+### 2026-09-09 — prod login unauthorized; narrowed #3489 by disproving a theory
+
+Drain clear: 0 pending of 2063. Disk **8.0Gi** (was 3.5Gi). Three lanes alive.
+Completions still frozen at 420 — nothing new has finished.
+
+**Prod login was not authorized.** The device flow timed out unclicked, so the
+live session is still `preview-pr-3446` and the preview snapshot is intact —
+nothing was clobbered. `ops/bin/stage.sh` is in place and ready
+(`save`/`use`/`list`) for whenever the code is entered. Item 2 stays blocked;
+items 3 and 4 remain stale (#134/#139 merged 09-04).
+
+**Verified my own inference before building on it.** Last tick I asserted the
+RelayAuth 500 has an empty body. Checked whether anything downstream could have
+eaten a detail suffix: `MESSAGE_LIMIT = 1_500` with a `…` marker on truncation
+(our message is ~120 chars, no marker), and `redactSecrets` only *substitutes*
+placeholders, never deletes. So the empty body is real, not an artifact of the
+reporting path.
+
+**Then found a strong candidate and disproved it by probe.**
+`resolveRelayAuthApiKey()` (`packages/web/lib/relayfile.ts`) **fails open to
+`""`**, and the client does `headers.set('x-api-key', apiKey)` — so an unset
+resource sends an *empty* header, which is not the same as a *missing* one, and
+my earlier probe had only tested missing. That is the
+unset-input-silently-disables-a-feature shape, so it looked right. It is wrong:
+
+```
+POST /v1/identities  no header      -> 401 {"error":"Missing Authorization header"}
+POST /v1/identities  EMPTY x-api-key -> 401 {"error":"Missing Authorization header"}  71 bytes
+```
+
+Clean bodied 401 either way. **Not an auth-config problem.**
+
+**What that leaves.** Authentication is *succeeding* and something after it
+throws, returning 500 with no payload — so the fault is inside identity creation
+(D1 write path, `IdentityDO`, or the cutover gate), not the caller's
+credentials. And it is not a Worker-level throw either: those surface as 1101
+HTML (4666 bytes, confirmed on this same host in #3488), not an empty body.
+Something is deliberately returning a bodiless 500.
+
+**Latent hazard flagged while in there:** `resolveRelayAuthUrl()` falls back to
+`https://api.relayauth.dev` — **production**. A stage with an unset
+`RelayauthUrl` silently calls prod instead of failing closed. With the empty-key
+fallback alongside it, a misconfigured preview would quietly point at production
+with no credential. Not the current bug; both fail open where they should fail
+closed. Posted to #3489.
