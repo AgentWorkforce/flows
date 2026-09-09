@@ -8013,3 +8013,49 @@ Branch contents intact: `cd517fd` (replacement test, mutation-verified) and
 **Standing risk worth naming:** the lanes and I share one push identity, so a
 lane can close a PR I am working on and nothing distinguishes its actions from
 mine in the audit trail. That is how this went unnoticed.
+
+### 2026-09-09 — root cause of the unreliable swarm: two runners, one anchor namespace
+
+Disk 5.6Gi. Drain: 1 pending, created 21:02, normal window.
+
+**First, audited the field I had been neglecting.** After #242 was closed under
+me, I checked `state` on every PR I have touched: #238, #240, #242, #244, #251
+and cloud#3497 are **all open**, and #242 now reads `c4831e29` after the reopen.
+#242 was the only casualty.
+
+**Then chased #240's contradiction and found the cause of a whole day of
+confusion.** Two of my own scripts had returned opposite verdicts for the same
+PR and lens. The explanation is not a reader bug:
+
+**Every PR carries two comments per lens, from two different authors, on the
+identical anchor.** Verified across #240, #244, #251, #252 — universal:
+
+```
+history: ['github-actions[bot]', 'kjgbot']   maintainability: [same]   structure: [same]
+```
+
+`upsert_comment` keys on the anchor, and does not collide across authors, so the
+invariant it exists to provide — one comment per lens — is actually **one comment
+per lens per author**. That is nowhere stated.
+
+**Consequences, both observed today:**
+
+- **#240** — `github-actions[bot]`'s transcript ends `**Review completed:** ...`
+  (UNCLEAR by the marker contract); `kjgbot`'s ends `REVIEW_PASSED`. The
+  aggregate reads the non-conforming one, so #240 is blocked by a lens that also
+  produced a clean pass in a sibling comment.
+- **#251** — at the same head, `github-actions[bot]` reported history **FAILED**
+  with the real decision-#8 conflict, while `kjgbot` reported history **PASS**.
+  **The FAILED one was correct** — I verified and fixed that conflict. Sorting
+  the other way would have merged on a wrong PASS.
+
+Which verdict you get depends purely on whether you sort by `updated_at` or take
+list order. That is exactly the difference between my two scripts.
+
+Filed **flows#254** proposing the anchor identify the producer
+(`runner=cloud` / `runner=local`) so disagreement becomes visible instead of
+order-dependent, and noted that retiring one runner is the simpler fix if two
+were never intended.
+
+This also retires my earlier framing that "the review swarm is unreliable." It is
+not flaky — it is two runners whose results are indistinguishable by anchor.
