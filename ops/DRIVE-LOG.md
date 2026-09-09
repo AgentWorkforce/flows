@@ -7319,3 +7319,45 @@ said so rather than treating it as a verdict.
 
 Worth stating plainly: the swarm found a correctness error in work I had already
 convinced myself was right, and the fix is materially better than the original.
+
+### 2026-09-09 — addressed 5 more review blockers on #251; two swarms disagreed
+
+Disk 7.0Gi. Drain: 1 pending, ~2 min old, normal window. Still no
+`relayfile credentials.json` — secrets remain blocked on one login.
+
+**Two swarm runs, and they disagree on the same head.** `github-actions` posted
+all-MISSING for cloud run `112b715e`. `kjgbot` ran locally and produced real
+verdicts at `924e8a81`: maintainability **FAIL**, history **PASS**, structure
+MISSING. But the *earlier* run reported history **FAILED** at that same commit,
+with H1 — the decision #8 conflict I verified and fixed. So the PASS is the
+weaker verdict, not the FAIL being spurious. Recorded on the PR: a PASS from
+this gate is not conclusive.
+
+**All five maintainability findings still applied** — my H1 fix changed rules
+9/9a/10's resolution *path* but not rule 10's verb or rule 11, so nothing was
+stale. Fixed in `e3b3443`:
+
+- **B1** "must fail" was undefined. Rule 10a now splits by cause: *transient*
+  (unreadable now) fails the **attempt**, retryable; *permanent* (clean segment,
+  no carry-forward) fails the **step**, parks `needs_human`, not retryable —
+  retrying cannot invent a value never written. Both journal
+  `wake_context_unresolved` with a `reason`; neither may fall back to `None`.
+- **B2** gate 11c had no testable surface. Now a journal shape: never-woken is a
+  dispatch with `None` and **no** `wake_context_unresolved`; failed-to-load is
+  that entry with a reason and **no dispatch**.
+- **C2, the best catch.** "Byte-identical" overspecified what the code can hold —
+  the value round-trips through JSON, so key order, whitespace and number
+  formatting are not stable. Now structural equality under the v1 shape, which
+  still rejects a re-fetched newer event.
+- **C1** v1 is a minimum; readers ignore unknown keys. **C3** D1 states the
+  behaviour and demotes the `drive.rs` call site to a pointer.
+
+**Caught my own verification loop lying.** The post-edit check reported `0` for
+one of five patterns. Rather than accept it, I re-checked with `grep -F`: the
+edit *was* present and my loop's shell quoting was at fault. That is the inverse
+of the usual trap — an instrument reporting **absence** for something present —
+and it would have had me "re-apply" a change that had already landed.
+
+**Not requesting a merge.** Neither lens has reviewed the current head: kjgbot
+reviewed `924e8a81`, the cloud run returned MISSING, and my last two commits are
+unreviewed.
