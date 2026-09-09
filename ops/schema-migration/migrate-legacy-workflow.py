@@ -163,6 +163,6 @@ if __name__ == '__main__':
         sys.stderr.write(
             f"refusing to migrate {src} in place: pass an explicit destination, "
             f"or '{src}' again if you really mean to overwrite it\n")
-        return 2
+        sys.exit(2)
     open(dest, 'w').write(out)
     print(f"MIGRATED {src} -> {dest} ({len(spec['steps'])} steps, {len(notes)} recorded losses)")
