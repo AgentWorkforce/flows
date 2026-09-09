@@ -8434,3 +8434,46 @@ reachable through the existing path.
 This also explains why the standing brief's recovery instruction has never once
 been actionable tonight — it is not that runs had no work worth recovering, it is
 that the runs which wedge are precisely the ones sync cannot reach.
+
+### 2026-09-10 — traced the wedge to @relayflows/core v1.0.1; stopped before guessing
+
+Disk 5.2Gi. Drain clean: 0 pending of 1997.
+
+Went after #3508's fix (3) — the repair loop that never terminates — since I
+called it independently correct. Traced it across three repos.
+
+**It is not in cloud or flows.** The log line
+`asking "lead" to repair before retry 3/3` appears in neither repo's source; it
+ships in **`@relayflows/core`**, whose source is
+`AgentWorkforce/relayflows` (`packages/core`).
+
+**Read the deployed tag, not main.** Cloud installs `@relayflows/core@1.0.1` and
+there is a matching `v1.0.1` tag. They differ materially — the message is at
+`runner.ts:4096` in `v1.0.1` and `runner.ts:5735` on `main`. My local checkout
+was also **41 commits / 3 weeks stale**, so reading it would have repeated
+today's mistake twice over. Checked both before quoting anything.
+
+**Version gap worth someone confirming:** flows' own package is `relayflows`
+**v2.0.8**, while production executes `@relayflows/core` **v1.0.1**. Different
+packages, but that is a wide gap.
+
+**Where the bound lives** (`v1.0.1`, `runner.ts:3700`):
+
+```ts
+const maxRetries = step.retries ?? errorHandling?.maxRetries ?? (repairAgent ? repairRetries : 0);
+const result = await lifecycle.monitorStep(step, state, { maxRetries, ... });
+```
+
+So `lifecycle.monitorStep` owns termination. The step logs `retry 3/3` — it
+believes it is on its final attempt — and the run still cycles `assess-1`
+forever.
+
+**Stopped there deliberately.** I have not read `monitorStep`, so I cannot say
+whether the bound is miscounted, the repair step re-enters outside the budget, or
+termination happens and the *run* status is simply never updated. Those are three
+different bugs with three different fixes. Posting the trace on #3508 is worth
+more than picking one at the end of a shift — and I have spent today correcting
+enough confident guesses to know the difference.
+
+Did note one fact that narrows it: the repair step is constructed with
+`retries: 0`, so it cannot loop internally. Whatever repeats is above it.
