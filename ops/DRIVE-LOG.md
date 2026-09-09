@@ -6175,3 +6175,37 @@ would rather say so than quietly open a PR that exists only to make a stage.
 
 Recording it as the next decision rather than acting: opening a no-op PR to
 manufacture a demo environment is the kind of thing that should be deliberate.
+
+### 2026-09-09 — the lane is working and #248 is nearly through
+
+Drain: 0 pending of 2023. Disk recovered to 2.0Gi.
+
+`flows-threads-0909` (pid 8441) is on `lane/flows-248-0909` with 5 commits in its
+range, 3 of them its own:
+
+```
+f0e8e2a fix(review-evidence): exercise negated timestamp comparisons
+8d03df4 fix(review-swarm): make self-test freshness reliable
+b8c771c test(review-swarm): prove the gate can still fail before it judges anything
+```
+
+**#248 has moved from `M FAILED / H FAILED / S PASSED` to
+`M FAILED / H PASSED / S PASSED`** — two lenses cleared. Only maintainability
+remains.
+
+**I misread the lane as parked.** I saw zero file writes in 20 minutes and was
+ready to treat it as stalled. Attaching showed `Working (52m 08s)` — it is
+actively reasoning, using tools without writing into the paths my `find` filtered.
+That is the second time tonight I have inferred "stalled" from an absence; the
+first was reading my own file drops as its progress. Liveness needs a positive
+signal, not a quiet directory.
+
+One real risk found: its three commits are **not pushed** — `ls-remote
+refs/heads/lane/*` returns nothing — so if that process dies the work is gone.
+Nudged it to push before continuing. The message is queued for its next tool
+boundary, which is how drive-mode injection works while an agent is mid-turn.
+
+Notable: `b8c771c` is a test proving the gate can still fail before it judges
+anything. That is the lane guarding against the exact class of defect the
+maintainability lens caught in my own #248 change — the verification being weaker
+than the contract it claims to enforce.
