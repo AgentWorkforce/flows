@@ -6091,3 +6091,46 @@ view.
 A third constraint worth recording: the launcher refuses socket paths over 104
 bytes, so the loop cannot run from the deep scratchpad path at all — it needs a
 short worktree root like `~/fl244`.
+
+### 2026-09-09 — disk: nothing safe left for me to reclaim, and a correction
+
+Drain: 0 pending of 2017. Disk **1.3Gi free, Data volume 100%**.
+
+Went looking for orphaned cargo target dirs, computing the live set exactly
+rather than guessing: `ops/cargo.sh:50` keys each target dir on
+`cksum` of the worktree root, so I hashed all eight live worktrees and compared.
+
+**There are no orphans.** Exactly one target dir exists — `3497393500` — and it
+is `~/fl244`, the one I built this hour and still need. My standing note about
+20G of cargo targets is long stale; that reclaim avenue is empty.
+
+My own five finished worktrees (`flows-238`, `flows-240`, `flows-242`,
+`flows-gate`, `pr134-fix`) are all clean, fully pushed, and unused — and total
+**~30MB**. Removing them would be theatre, not progress, so I left them.
+
+**Correction to my last entry:** I said the kernel build cost ~1.9GB. It is
+**693M**. The rest of that drop was two npm installs plus the new lane's own
+dependency install. I attributed a 3-source cost to one source because the build
+was the thing I was watching.
+
+Where the space actually is now:
+
+```
+~/flows-threads-wt                756M   <- the lane I spawned, actively working
+~/.relayflows-toolchain/.../3497393500  693M   <- kernel build, needed
+~/fl244                            63M
+```
+
+Everything else large belongs to Khaliq or a live lane: the 22G scratchpad
+session with running codex processes, `~/.local` 8G (live mise node),
+`~/.local/share/ai-hist` 3.9G and `~/.hermes` 2.5G (data with auth), `~/.codex`
+3.4G, and two 3.8G `node_modules` in active cloud checkouts.
+
+**So I am not freeing more without a decision.** The clearest candidate remains
+`Projects/AgentWorkforce/cloud/node_modules` (3.8G, regenerable) — but it breaks
+anything mid-build and npm on this host needs the `--userconfig` workaround, so
+it is not a cheap undo. Flagging rather than acting.
+
+Practical consequence: the spawned lane and any further builds are working
+against a full disk. If something fails oddly in the next hour, disk is the first
+thing to suspect.
