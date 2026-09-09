@@ -6379,3 +6379,42 @@ the agent side works, and the failure is in a narrow, identified place.
 Not filing a fix this tick — the lane owns `drive-local` work on #244 and I am
 not editing its branch. Recording the evidence so the fix can be targeted rather
 than guessed.
+
+### 2026-09-09 — ROOT CAUSE: the agent lease is 30s and the worker never renews it
+
+Drain: 0 pending of 2037. Disk 5.0Gi.
+
+Finished the diagnosis. It is arithmetic:
+
+```
+LEASE_DURATION_MS = 30_000                 kernel/relayflowd-core/src/machine.rs:18
+observed agent CLI runtime                 34 seconds
+renewal in the SDK AgentWorker             none (grep: no renew/heartbeat/extend)
+renew_lease in the kernel                  EXISTS, kernel/relayflowd/src/server.rs:317-372
+```
+
+`AgentWorker.execute()` awaits `runAgentCli(...)` to completion and only then
+calls `stepComplete`. There is no heartbeat while the CLI runs, so any agent step
+taking longer than 30 seconds reports completion against a lease that already
+expired. The kernel is behaving correctly — it reclaimed an attempt whose worker
+looked dead.
+
+**This is why nothing runs.** Not auth, not the CLI, not the agent's behaviour,
+not the DONE marker — all of which I suspected and excluded today. A real agent
+step essentially never finishes in under 30 seconds, so the local drive loop
+cannot complete agent work at all. That is the blocker behind "power through
+gates 2-9 with v1 relayflows".
+
+The kernel already has the capability the worker needs: `renew_lease` is
+implemented and the server persists the extended deadline. The fix shape is a
+heartbeat in `AgentWorker` that renews while `runAgentCli` is in flight — not a
+kernel change and not a longer constant, since any fixed timeout just moves the
+cliff.
+
+Not patching it here: this is SDK/kernel code, deserves its own PR and tests, and
+the lane owns the drive-local surface on #244. Recorded with the exact constant,
+file and line so the fix is targeted.
+
+Method note worth keeping: a transparent PATH shim around the CLI gave the whole
+answer in two runs, after I had spent several ticks reasoning about causes from
+the outside. When a subprocess is the suspect, instrument the subprocess.
