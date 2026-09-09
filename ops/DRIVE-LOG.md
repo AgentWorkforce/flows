@@ -5385,3 +5385,48 @@ a SHA match — after last tick's commit silently failed on shell quoting.
 `REVIEW_PASSED`/`REVIEW_FAILED` marker on that lens's transcript. That is the
 next thing to look at, and it may be a lens-harness problem rather than anything
 about this PR's code.
+
+### 2026-09-09 — the flows gate and the cloud outage are the SAME problem
+
+Khaliq asked whether relayflows are running continuously and moving the spec.
+**They are not**, and chasing why connected two things I had been treating as
+separate lanes all night.
+
+Evidence for the direct answer first:
+
+- Cloud: **5 v2 runs in all history, 0 completed.** The last six runs are all v1,
+  all failing `RelayAuth request failed (500) /v1/identities`.
+- Local: three `relayflowd` daemons are alive, but their data dirs are
+  `/tmp/rf-local/data`, `atk-restart-*` and `pr139s4-ladder-*` — leftover serve
+  processes on temp paths, not a drive loop working the backlog. I am not
+  claiming they are doing work without evidence that they are.
+- What *is* continuous is a scheduler firing v1 pairs at the pr-3446 stage every
+  ~10 minutes, every one failing. A loop burning cycles, not progress.
+
+**The connection.** The flows review gate does not review locally — it dispatches
+its three lenses as **cloud workflow runs** (`agent-relay cloud run ...
+review-swarm.yaml --sync-code`). The newest verdict on #238:
+
+```
+## Review swarm: FAILED
+- maintainability: MISSING
+- history: MISSING
+- structure: MISSING
+Cloud run: a7b56289-5b2c-41e1-8875-f7267ba8e28e
+```
+
+All three MISSING, from one cloud run that produced no transcripts at all.
+Earlier runs *did* produce them (`20260909-0527/0530/0534/0537-pr238-*.md`), so
+this is a regression in the cloud path, not a property of these PRs.
+
+So **the four flows PRs cannot pass their gate while cloud launches are broken**
+— which is the same RelayAuth/schema failure I spent the night on. That is the
+shared cause I earlier said I should stop assuming; it turns out to exist, just
+not where I first looked.
+
+It also corrects my framing from two ticks ago: I fixed three real code
+objections on #238 (H1 model loss, and two structure P1s), and those fixes stand
+on their merit — but they were never what was blocking the gate at this moment.
+
+Next: the #3270 proof on `preview-pr-3461` is the unblock for both problems, and
+it is waiting on a device click. Started one; not yet authorized.
