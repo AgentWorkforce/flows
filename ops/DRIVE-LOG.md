@@ -7932,3 +7932,45 @@ carries the test (GitHub's PR head field lagged, the branch did not).
 because `sdkEntry` resolves relative to the script's URL. Whether `ops/*.test.mjs`
 should depend on a build is a real CI call. The history lens's B1 (build ordering
 in `drive-local.yaml`) is untouched and still live.
+
+### 2026-09-09 — fixed #242's B1; nearly published the opposite conclusion
+
+Disk 5.7Gi. Drain: 1 pending, created 20:40, normal window.
+
+**Nearly declared a valid finding invalid.** Checking the history lens's B1 —
+"the suites execute the compiled artifact" — my first probe was
+`grep -n "dist/" packages/sdk/tests/bin.test.ts tests/live-kernel.test.ts`. It
+returned **zero matches** and I was one step from replying that B1 did not hold.
+
+It holds. Both files assemble the path from separate arguments:
+
+```
+bin.test.ts:17          const BUILT_CLI = join(SDK, 'dist', 'cli.js');
+live-kernel.test.ts:29  const BUILT_CLI = join(SDK, 'dist', 'cli.js');
+```
+
+**My grep was the vacuous instrument, not the lens's claim.** A literal `dist/`
+search cannot see a path built by `join()`. Publishing "the lens is wrong" off
+that would have been the worst error of the day — dismissing a correct finding
+with a broken tool. What saved it was not trusting a zero.
+
+**The fix is deliberately not a revert.** #242 removed a build step and was right
+to: it ran before `select`, where the launcher's preflight has already asserted
+`dist/cli.js` exists, so it could never serve the cold checkout it was meant for.
+I left that comment in place. The build I added runs **after `implement`**, for
+the opposite reason — the agent has just changed the source, so the artifact
+under test is stale. Without it, `verify` proves the *previous* commit still
+works.
+
+Verified both halves run in that directory before committing: `npm run build`
+produces `dist/cli.js` (14977 bytes) and `node_modules/vitest/vitest.mjs` exists.
+Pushed as `c4831e2`.
+
+**#242's findings are now all addressed:** the maintainability blocker in
+`cd517fd` (mutation-verified), B1 in `c4831e2`. The SDK-build coupling I raised
+myself stays open as a reviewer question, not a defect.
+
+**Also worth flagging:** GitHub's PR head field has read `a4624072` for ~30
+minutes while the branch is at `c4831e2`. I checked ancestry with git directly
+rather than assuming a lost push — `a4624072` is an ancestor of the tip, so the
+API view is stale, not the branch.
