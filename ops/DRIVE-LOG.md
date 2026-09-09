@@ -5454,3 +5454,14 @@ already done and verified:
 And the reason this one click matters more than it looks: the flows review gate
 dispatches its lenses as cloud runs, so the four flows PRs and the #3270 demo are
 blocked behind the same cloud launch path. One proof unblocks both lanes.
+
+### 2026-09-09 — quiet tick; code H4MJ-RJ49 still unauthorized
+
+0 pending of 1969. Token still scoped to pr-3446. Disk 5.5Gi.
+
+Device code `H4MJ-RJ49` issued last tick, still `Waiting for authorization...`.
+It is roughly 18 minutes old, so within its window; not reissuing yet — churning
+codes just leaves more dead ones. If it is still unauthorized next tick I will
+replace it.
+
+Nothing else to do.
