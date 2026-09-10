@@ -9579,3 +9579,39 @@ Also inventoried worktrees while here: cloud has 16, flows has 12. Several look
 stale (cloud-pr3264-signoff4a/4b both detached at the same sha, two
 agent37-* from 08-28). Not touching them -- one nearly cost me a lane earlier
 tonight -- but worth a reclaim pass when someone is awake.
+
+### 2026-09-10 ~08:0xZ — the failures CONVERGED; my rotation claim is now false
+
+Queue pending=1, 14 running. Disk 4.5Gi.
+
+**#3510 is clean at 8ac7e7d92** -- zero failing, 17 success, 1 test still
+running. The build I broke last tick is fixed and verified green.
+
+All four cloud PRs: zero failing checks, still ZERO human reviews.
+
+**The important change: the gate failures have converged on ONE mode.**
+
+    09-10T04:49  #258  relayfile-mount cursor_expired
+    09-10T05:37  #259  relayfile-mount cursor_expired
+
+Consecutive, identical trace, nothing in between. Third occurrence overall
+(with #240 on 09-09). That makes my earlier claim -- "no mode repeats
+back-to-back, therefore no single fix exists" -- FALSE as of now. It was
+accurate for the 22-hour window I sampled and I generalised past it.
+
+The practical conclusion inverts: I said fixing any one mode would not unblock
+the gate. On current evidence, fixing relayfile#492 plausibly WOULD. A rotating
+fault and a persistent one call for opposite responses. Updated both #492 and
+#255 with the correction rather than leaving the old reading standing.
+
+**Named the deadlock explicitly on #255:** #258 and #259 are both gate repairs,
+and both are blocked by the gate they repair -- each failing on the mount
+fault, not on its own content. There is currently NO path where they land on
+their own signal. Either #492 gets fixed first, or a human merges past a check
+that is measurably reporting weather. I flagged it; I did not argue for the
+second.
+
+Shell lesson worth keeping: `set -- $var` inside a loop failed TWICE tonight
+because **zsh does not word-split unquoted parameters** the way bash does. Both
+times it produced an empty argument and a confusing downstream error rather
+than an obvious one.
