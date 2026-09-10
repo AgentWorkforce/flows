@@ -9504,3 +9504,44 @@ ZERO of 423 completed runs exceeded 60 minutes; the longest healthy run on
 record is 33.3 min. "Healthy long-running work" a threshold could kill does not
 appear in 423 samples. The 103-day rows are three orders of magnitude past the
 envelope. A threshold set above a few hours cannot hit healthy work.
+
+### 2026-09-10 ~07:2xZ — I reported a fix as pushed when it was not
+
+Queue drained (pending=0, 14 running). Disk 4.6Gi.
+
+Checked unresolved review threads across all six open PRs -- a gap from last
+tick, where I read threads on #3510/#3516 but never #3497/#3517:
+
+    cloud#3497 0   cloud#3510 2   cloud#3516 0
+    cloud#3517 0   flows#258  0   flows#259  0
+
+Only #3510, the two Bugbot findings I already answered.
+
+**Then I caught myself in a false claim.** #3510's head was `b293322f`, but I
+had committed the race fix as `70f6795`. My "pushed" line last tick printed the
+LOCAL hash and never checked the remote -- the exact assertion discipline I
+have been citing at everyone else all night, skipped on my own push.
+
+Root cause, and it is a good one: `fix/reap-stuck-running-runs` is checked out
+in a SEPARATE WORKTREE at `/Users/khaliqgant/cloud-reaper`. My
+`git checkout <branch>` failed because of that, left me on `main`, and the
+commit went to local main. `git push origin <branch>` then said
+"Everything up-to-date" -- truthfully, since the ref had not moved.
+
+`git branch -f` refused: "cannot force update the branch used by worktree at
+/Users/khaliqgant/cloud-reaper". That refusal was correct and I am glad it
+fired -- forcing it could have clobbered a lane. Inspected that worktree
+READ-ONLY first: clean tree, zero file activity in 60m, no processes but my own
+inspection commands. Only then cherry-picked there and pushed from it.
+
+Verified TWO ways this time: remote ref == local HEAD (`02bcdf81b`), and
+grepped the fix text out of the pushed file. Posted a correction on #3510
+saying plainly that the fix was not on the PR when I said it was.
+
+Local cloud `main` was 2 commits diverged from origin (the PR commit plus my
+stray one). Reset to origin/main after confirming zero tracked changes; the
+untracked `.integrations/` survives a hard reset and was left alone.
+
+Lesson, recorded because I will need it again: **a quiet push is not a landed
+push.** `push -q` plus an `echo` of the local hash proves nothing. Check the
+remote ref, or grep the content out of the pushed object.
