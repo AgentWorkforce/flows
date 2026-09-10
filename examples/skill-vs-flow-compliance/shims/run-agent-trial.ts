@@ -16,30 +16,25 @@
 // the evidence. --task/--model/--scenario let a second, harder scenario
 // (TASK-HARD.md, a cheaper model) reuse this same harness and scoring.
 //
-// --nudge-skill (requires the skill installed, i.e. not --no-skill) appends
-// SKILL_DISCOVERY_NUDGE below to the prompt. It names no rule and pastes no
-// SKILL.md text — it only tells the agent to check for and use whatever
-// project skills apply, the same standing instruction a real team's
-// CLAUDE.md commonly carries. This exists to separate two different
-// failures that "the skill didn't help" can mean: the agent read the skill
-// and chose not to follow all of it, vs the agent never found the skill at
-// all (confirmed as the latter for Haiku on the hard task — see README.md
-// Scenario 2: 0/3 `Skill` tool invocations). --nudge-skill forces discovery
-// so what gets measured is compliance, not discovery.
+// --nudge-skill requests that the agent look for applicable project skills.
+// This changes the initial prompt; it does not force discovery or establish
+// full skill compliance. See README.md for the measured final-state proxies.
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   headlessInvocation,
   parseHeadless,
   type HeadlessResult,
 } from "../../research/shims/headless.ts";
+import { sanitizeTranscript } from "./sanitize-transcript.ts";
 import { spawn } from "node:child_process";
 import {
   EXAMPLE_ROOT,
   commitLog,
   diffAgainstBaseline,
   materializeTrialRepo,
+  reserveEvidence,
   readTaskBrief,
   runChecks,
   writeJson,
@@ -47,12 +42,14 @@ import {
 } from "./trial-runtime.ts";
 
 function spawnCapture(argv: string[], cwd: string, stdin: string): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const [cmd, ...args] = argv;
     if (!cmd) throw new Error("empty argv");
     const child = spawn(cmd, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
     const out: Buffer[] = [];
     const err: Buffer[] = [];
+    child.once("error", reject);
+    child.stdin.on("error", reject);
     child.stdout.on("data", (c: Buffer) => out.push(c));
     child.stderr.on("data", (c: Buffer) => err.push(c));
     child.once("close", (code) => resolve({ code, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") }));
@@ -86,11 +83,13 @@ async function main(): Promise<number> {
     return 2;
   }
 
+  if (!/^[a-zA-Z0-9_-]+$/.test(trial) || (scenario && !/^[a-zA-Z0-9_-]+$/.test(scenario))) throw new Error("invalid run/trial or scenario name");
+
   const armBase = withSkill ? "agent-plus-skill" : "agent-no-skill";
   const arm = scenario ? `${armBase}-${scenario}` : armBase;
   const evidenceDir = join(EXAMPLE_ROOT, "runs", arm, `trial-${trial}`);
   const repoDir = join(evidenceDir, "repo");
-  await mkdir(evidenceDir, { recursive: true });
+  await reserveEvidence(evidenceDir);
   await materializeTrialRepo(repoDir, { withSkill });
 
   // This is the whole of arm A's setup: the skill sits in the repo as a real
@@ -108,7 +107,7 @@ async function main(): Promise<number> {
   // .txt, not .log: this repo's root .gitignore excludes *.log, and this
   // transcript is the evidence a claim in README.md cites, not a disposable
   // debug trace — it needs to actually be committed.
-  await writeFile(join(evidenceDir, "transcript.txt"), `${spawned.stdout}\n--- stderr ---\n${spawned.stderr}`, "utf8");
+  await writeFile(join(evidenceDir, "transcript.txt"), sanitizeTranscript(`${spawned.stdout}\n--- stderr ---\n${spawned.stderr}`), "utf8");
 
   let parsed: HeadlessResult | undefined;
   let workerError: string | undefined;
@@ -137,7 +136,8 @@ async function main(): Promise<number> {
     model: model ?? "default",
     nudgedSkillDiscovery: nudgeSkill,
     workerError,
-    finalMessage: parsed?.finalText,
+    finalMessage: parsed ? sanitizeTranscript(parsed.finalText) : undefined,
+    completionReason: workerError ? "worker_error" : allPass ? "success" : "gate_failed",
     usage: parsed?.usage,
     checks,
     allPass,

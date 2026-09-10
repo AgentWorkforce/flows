@@ -5,5 +5,8 @@
   "description": "The task repo both arms of the comparison work on. Copied fresh into an isolated git worktree per trial/run so neither arm ever touches the other's history.",
   "scripts": {
     "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=22.6.0"
   }
 }

@@ -10,8 +10,9 @@
 //
 // Writes runs/relayflow<-scenario>/run-<N>/{repo/,attempt-1-*.txt,attempt-2-*.txt,verdict.json}.
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { sanitizeTranscript } from "./sanitize-transcript.ts";
 import { spawn } from "node:child_process";
 import complianceFlow, {
   GateFailed,
@@ -26,18 +27,21 @@ import {
   commitLog,
   diffAgainstBaseline,
   materializeTrialRepo,
+  reserveEvidence,
   readTaskBrief,
   runCheck,
   writeJson,
 } from "./trial-runtime.ts";
 
 function spawnCapture(argv: string[], cwd: string, stdin: string): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const [cmd, ...args] = argv;
     if (!cmd) throw new Error("empty argv");
     const child = spawn(cmd, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
     const out: Buffer[] = [];
     const err: Buffer[] = [];
+    child.once("error", reject);
+    child.stdin.on("error", reject);
     child.stdout.on("data", (c: Buffer) => out.push(c));
     child.stderr.on("data", (c: Buffer) => err.push(c));
     child.once("close", (code) => resolve({ code, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") }));
@@ -78,10 +82,12 @@ async function main(): Promise<number> {
     return 2;
   }
 
+  if (!/^[a-zA-Z0-9_-]+$/.test(runId) || (scenario && !/^[a-zA-Z0-9_-]+$/.test(scenario))) throw new Error("invalid run/trial or scenario name");
+
   const armDir = scenario ? `relayflow-${scenario}` : "relayflow";
   const evidenceDir = join(EXAMPLE_ROOT, "runs", armDir, `run-${runId}`);
   const repoDir = join(evidenceDir, "repo");
-  await mkdir(evidenceDir, { recursive: true });
+  await reserveEvidence(evidenceDir);
   // withSkill: false — the flow never installs SKILL.md. It has no skill
   // to forget; the four rules live in the gate, not in the agent's context.
   await materializeTrialRepo(repoDir, { withSkill: false });
@@ -99,7 +105,7 @@ async function main(): Promise<number> {
         await writeFile(promptFile, options.task, "utf8");
         const { argv } = headlessInvocation("claude", { promptFile, cwd: repoDir, model });
         const spawned = await spawnCapture(argv, repoDir, options.task);
-        await writeFile(logFile, `${spawned.stdout}\n--- stderr ---\n${spawned.stderr}`, "utf8");
+        await writeFile(logFile, sanitizeTranscript(`${spawned.stdout}\n--- stderr ---\n${spawned.stderr}`), "utf8");
         if (spawned.code !== 0) throw new Error(`agent step "${name}" (${label}): claude exited ${spawned.code}`);
         const parsed = parseHeadless("claude", spawned.stdout);
         return { summary: parsed.finalText };
@@ -123,8 +129,8 @@ async function main(): Promise<number> {
     for (const c of result.checks) process.stdout.write(`  ${c.pass ? "PASS" : "FAIL"} ${c.name}: ${c.message}\n`);
     return 0;
   } catch (error) {
-    await writeFile(join(evidenceDir, "diff.patch"), await diffAgainstBaseline(repoDir), "utf8").catch(() => undefined);
-    await writeFile(join(evidenceDir, "commits.txt"), await commitLog(repoDir), "utf8").catch(() => undefined);
+    await writeFile(join(evidenceDir, "diff.patch"), await diffAgainstBaseline(repoDir), "utf8");
+    await writeFile(join(evidenceDir, "commits.txt"), await commitLog(repoDir), "utf8");
     if (error instanceof GateFailed) {
       await writeJson(join(evidenceDir, "verdict.json"), {
         runId,

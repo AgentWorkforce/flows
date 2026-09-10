@@ -9,7 +9,8 @@ BASE_REF="${2:-baseline}"
 
 cd "$REPO"
 
-added_lines=$(git diff "$BASE_REF"...HEAD | grep -E '^\+' | grep -Ev '^\+\+\+')
+diff=$(git diff "$BASE_REF"...HEAD)
+added_lines=$(printf '%s\n' "$diff" | sed -n '/^+++ /d; /^+/p')
 
 hit=$(printf '%s\n' "$added_lines" | grep -E \
   -e 'AKIA[0-9A-Z]{16}' \

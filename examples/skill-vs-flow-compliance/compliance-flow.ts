@@ -1,34 +1,9 @@
-// compliance-flow.ts — arm B, a v2 relayflow (docs/SURFACE.md dialect).
-//
-// One agent step does the task, given ONLY TASK.md's bare brief — no
-// mention of test-first, debug leftovers, secrets, or commit format. That
-// is the same brief arm A's agent gets (see ../shims/run-agent-trial.ts);
-// this flow never installs SKILL.md as a project skill either. Four
-// deterministic steps then gate on exactly the same checks/*.sh scripts
-// arm A is scored against after the fact — the SAME scripts, not a second
-// hand-written copy of the same four rules. The difference from arm A is
-// not the rules; it is where they live: here they are postfix gates a run
-// cannot complete without passing, not a skill the agent is trusted to
-// remember on its own.
-//
-// One bounded retry (RFC-0001 §1: "semantic retry — verification gates +
-// bounded iteration, because an agent's failure mode is wrong output, not
-// no output"): if any gate fails on the first pass, the agent gets exactly
-// one more turn with the failing gates' own messages as feedback, then the
-// same four gates run again. A second failure ends the run `gate_failed`,
-// naming every rule still broken — never a silent success, and never an
-// unbounded retry loop either.
-//
-// STATUS: written in the v2 dialect (docs/SURFACE.md), the same way
-// examples/research/research.flow.ts is: it declares the narrow slice of
-// the surface this task needs (an `agent` verb and a `check` verb, the
-// latter a named deterministic step rather than a raw `run` string) as
-// local types, and shims/run-flow.ts provides that slice on today's
-// runtime. Executed by shims/run-flow.ts, which implements postfix
-// `.gate()` in userland exactly the way examples/research/shims/run.ts
-// already does for its own context — the real authored executor throws
-// `unsupported_gate` today (packages/sdk/src/authored-flow-operation.ts),
-// so this is the same documented gap, not a second one.
+// Illustrative v2-style flow, executed by the local userland shim.
+// The initial prompt is shared across arms. Four deterministic final-state
+// checks run after the agent; their failure messages drive one repair turn.
+// These are proxies for parts of SKILL.md, not proof of test-first ordering.
+// A second failing check set throws GateFailed and never calls done(success).
+// This local contract does not demonstrate journal execution or durability.
 
 import { CHECK_NAMES, type CheckName } from "./shims/trial-runtime.ts";
 

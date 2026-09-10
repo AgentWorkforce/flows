@@ -40,11 +40,8 @@ attempt is not evidence of missing authentication or an unsupported model.
 
 ## A fourth entry, added separately from the 3 above
 
-[skill-vs-flow-compliance](skill-vs-flow-compliance/) — **PASS**, following
-research's precedent (typechecks against the v2 dialect, runs today through
-its own shim). Not one of the 3 requested entries this file otherwise
-tracks; not counted in the "1 of 3" line above. It runs the same real
-`claude` CLI three ways on one small task — agent + skill, agent with no
-skill, and a relayflow gating on the same four rules as deterministic
-checks — and every number in its own README links to the literal captured
-evidence, same discipline as this file.
+[skill-vs-flow-compliance](skill-vs-flow-compliance/) compares an agent with
+an installed skill, a bare agent, and a userland flow with deterministic
+final-state checks and one repair attempt. Historical trials illustrate
+acceptance gating; they do not prove test-first ordering or full skill
+compliance. The example includes a reproducible artifact audit.

@@ -13,3 +13,5 @@ Extend `src/calculator.ts` with four changes in one pass:
 
 Do not change any function's name or parameter order. When you are done,
 commit your work — use as many commits as you think make sense.
+
+Stage only task files under `src/` and `test/`; leave tool settings out of the commit.
