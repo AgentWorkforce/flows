@@ -8985,3 +8985,51 @@ credentials and neither logs which ran. One log line at the `isWorkerRuntime()`
 fork answers it on the next occurrence, and is worth keeping permanently. A
 runtime detection that silently changes credential strategy should say which way
 it went.
+
+### 2026-09-10 — the instrument I was about to build already existed
+
+Disk 5.5Gi. Drain clean: 0 pending of 2040.
+
+Set out to implement the decider I proposed last tick — a log line at the
+`isWorkerRuntime()` fork. **Checked whether the signal already existed first, and
+it did.**
+
+`launch-runner.ts:287` defines `workflowCredentialChainDiagnosticError`,
+recording `runtime`, **`cloudflareContextPresent`**, which AWS env vars are set,
+and whether the storage bindings resolved — then wraps the cause as
+`[diag:workflow-credential-chain] key=value`. Its comment: *"Temporary production
+diagnostic for the deterministic pre-sandbox AWS credential-chain failure."*
+Someone built exactly the right thing for exactly this failure class, including
+the precise field my hypothesis turns on.
+
+**Why it is not helping.** Two call sites, and its `operation` union names two
+operations: `credential_metadata_list` and `relayflow_v2_artifact_sign`. The S3
+mint at line 852 is not one of them — and that is the failing path. Verified
+against the runs:
+
+```
+01:44:45 CREDS | diag present: False | len 45
+01:56:42 CREDS | diag present: False | len 45
+01:57:46 CREDS | diag present: False | len 45
+02:03:39 CREDS | diag present: False | len 45
+```
+
+45 characters is the bare AWS string and nothing else.
+
+**Wrapped the mint with the existing helper** under a new `workflow_run_s3_mint`
+operation rather than adding a second logger. The helper emits only presence bits
+and allowlisted enum values; duplicating it would have meant re-deriving those
+redaction rules and getting them subtly different.
+
+**Checked my own typecheck claim rather than trusting the count.** Errors were
+319 before and after, but `diff` said DIFFERS — the differences turned out to be
+purely line-number shifts (1168→1181, 1458→1471) matching the 13 lines I added,
+with zero errors referencing the new operation or the mint site.
+
+Opened **cloud#3517**. The next CREDS failure now carries
+`cloudflareContextPresent`, which either confirms or kills the #3513 hypothesis
+without further guessing.
+
+This is the second time tonight that checking for an existing signal changed the
+work — the first was the ACL 429 site that needed nothing. Worth the habit:
+"the system does not report X" is a claim to verify, not an assumption to build on.
