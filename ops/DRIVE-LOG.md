@@ -9545,3 +9545,37 @@ untracked `.integrations/` survives a hard reset and was left alone.
 Lesson, recorded because I will need it again: **a quiet push is not a landed
 push.** `push -q` plus an `echo` of the local hash proves nothing. Check the
 remote ref, or grep the content out of the pushed object.
+
+### 2026-09-10 ~07:4xZ — I broke #3510's build; backticks in a template literal
+
+Queue drained. Disk 4.6Gi.
+
+**The race fix I pushed last tick broke the build.** Five checks red, all the
+same error:
+
+    src/sync/stuck-run-reaper-core.ts(251,55): error TS1005: ',' expected.
+
+Cause: my new comment quoted an identifier in backticks, and that SQL lives
+inside a TypeScript TEMPLATE LITERAL. The backticks closed the string early.
+
+**Third time this session** that backticks inside a delimiter have bitten me,
+in a third container -- twice in shell heredocs, now a template literal.
+
+Why it got through, stated plainly because the reasoning was explicit and
+wrong: I decided that a change confined to a SQL string could not affect
+compilation, and skipped the typecheck on that basis. A template literal does
+not care that its contents are SQL.
+
+Fixed at **8ac7e7d92**, verified: remote ref == local HEAD, zero backticks in
+the pushed block, and a real `npm run -w @cloud/core build` no longer emits
+TS1005 for that file.
+
+**A vacuous check I nearly trusted:** counting backticks in the file returns an
+EVEN number (82) both before and after the fix, because the two stray ones
+balance each other while still terminating the intended literal. It looks like
+a parity check and proves nothing. Only compiling settles it.
+
+Also inventoried worktrees while here: cloud has 16, flows has 12. Several look
+stale (cloud-pr3264-signoff4a/4b both detached at the same sha, two
+agent37-* from 08-28). Not touching them -- one nearly cost me a lane earlier
+tonight -- but worth a reclaim pass when someone is awake.
