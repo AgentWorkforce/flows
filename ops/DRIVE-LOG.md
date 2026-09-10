@@ -9262,3 +9262,40 @@ Instrument note: my first attempt read `~/.agentworkforce/relay/stages/prod.toke
 which does not exist (the files are `prod.json`). The unauthenticated fetch still
 parsed and reported `running=0` -- a clean vacuous instrument. Re-ran through
 drain.sh's own auth with an `assert runs` guard.
+
+### 2026-09-10 ~04:5xZ — gate diagnosed properly; opened flows#258
+
+Queue: pending=1 (young), 12 running.
+
+**Correcting myself twice from last tick.**
+
+1. I called the wait step "exits 0 without terminal state" as though that were
+   the bug. It is not — the `exit 0` is deliberate; the step reports through
+   `swarm_status` and `Enforce swarm result` does the failing. That design is
+   fine.
+
+2. I implied on #255 that the gate is a defect blocking everything. Checked a
+   second PR and the causes DIFFER:
+   - **#257**: wait ran **65.0 min exactly** (00:02:24Z -> 01:08:39Z vs a 3900s
+     budget) then reported `running`. A real timeout, mislabeled.
+   - **#238**: wait ran 5.3 min, `swarm_status=failed`. The swarm genuinely
+     failed and the gate reported it **correctly**. Not a gate bug at all.
+
+   So "9/9 fail the review check" stays true as a measurement, but it is not
+   one cause and it is not all gate defect. I over-read it.
+
+**The one real defect, fixed in flows#258:** `status=timed_out` is assigned
+before the loop and overwritten by every successful poll, so it survives only
+if the FIRST poll never returns a status. Every genuine timeout reports the
+last thing it saw. Restored the distinction after the loop.
+
+Proof it is safe: replayed the resolution logic over scripted poll sequences,
+old vs new. Differs on exactly ONE row — timeout `running` -> `timed_out`.
+completed/failed/cancelled/status_error paths are byte-identical, and
+enforcement keys on `!= completed`, which both values satisfy.
+
+Mutation asserted: md5 dd62a5e4 -> 9fee835d, YAML re-parsed clean.
+
+Noted in the PR but not fixed: the wait loop is inline YAML, so
+`swarm-gate.test.sh` cannot reach it. That is why this survived. Extracting it
+is a bigger change than belongs in this pass.
