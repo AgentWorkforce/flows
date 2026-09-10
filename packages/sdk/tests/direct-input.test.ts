@@ -14,6 +14,7 @@ import { dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { socketPathFor } from '../src/daemon-connection.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const BUILT_CLI = join(ROOT, 'packages', 'sdk', 'dist', 'cli.js');
@@ -154,7 +155,7 @@ async function startDaemon(dataDir: string): Promise<void> {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   daemons.push(daemon);
-  const socket = join(dataDir, 'relayflowd.sock');
+  const socket = socketPathFor(dataDir);
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (existsSync(socket)) return;
     if (daemon.exitCode !== null) throw new Error(`relayflowd exited ${daemon.exitCode}`);

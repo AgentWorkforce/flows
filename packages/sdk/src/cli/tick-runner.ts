@@ -37,6 +37,7 @@
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { socketPathFor } from '../daemon-connection.js';
 import { JournalClient } from '../journal-client.js';
 import {
   DEFAULT_MAX_CATCH_UP,
@@ -269,7 +270,7 @@ export async function runTickRunner(args: TickRunnerArgs, io: CliIo): Promise<nu
   const resuming = state.lastEmittedSlot !== undefined;
   const cursor: TickCursor = resuming ? { lastEmittedSlot: state.lastEmittedSlot } : {};
 
-  const socketPath = join(args.dataDir, 'relayflowd.sock');
+  const socketPath = socketPathFor(args.dataDir);
   let client: TickRunnerClient;
   try {
     client = args.connectClient

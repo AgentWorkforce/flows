@@ -24,6 +24,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { DaemonConnection } from '../src/daemon-lifecycle.js';
+import { socketPathFor } from '../src/daemon-connection.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
@@ -147,7 +148,7 @@ describe('flows run against a data dir with no daemon (§6 test 7)', () => {
     // daemon it started is still serving.
     const connection = connectionFile(dataDir);
     startedPids.push(connection.pid);
-    expect(connection.socket_path).toBe(join(dataDir, 'relayflowd.sock'));
+    expect(connection.socket_path).toBe(socketPathFor(dataDir));
     expect(isAlive(connection.pid)).toBe(true);
   });
 
@@ -187,7 +188,7 @@ describe('flows run against a data dir with no daemon (§6 test 7)', () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain('completionReason: success');
     expect(existsSync(join(dataDir, 'connection.json'))).toBe(false);
-    expect(existsSync(join(dataDir, 'relayflowd.sock'))).toBe(true);
+    expect(existsSync(socketPathFor(dataDir))).toBe(true);
     startedPids.push(lockHolder(dataDir));
   });
 

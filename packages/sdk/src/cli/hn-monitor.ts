@@ -16,6 +16,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { pollHackerNewsOnce, HnTransientFetchError, type Fetcher } from '../hn-poller.js';
 import { AgentWorker } from '../worker.js';
+import { socketPathFor } from '../daemon-connection.js';
 import { JournalClient } from '../journal-client.js';
 import type { EventSubmitResult, HelloResult, Pins } from '../protocol.js';
 import type { CliIo } from '../cli.js';
@@ -181,7 +182,7 @@ async function defaultAttachWorker(
  */
 export async function runHnMonitor(args: HnMonitorArgs, io: CliIo): Promise<0 | 1> {
   const pollIntervalMs = args.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const socketPath = `${args.dataDir}/relayflowd.sock`;
+  const socketPath = socketPathFor(args.dataDir);
 
   let spec: unknown;
   try {

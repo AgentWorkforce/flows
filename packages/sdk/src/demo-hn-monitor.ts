@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { socketPathFor } from './daemon-connection.js';
 import { pollHackerNewsOnce, type EventSink } from './hn-poller.js';
 import { JournalClient } from './journal-client.js';
 import type { EventSubmitResult } from './protocol.js';
@@ -8,7 +9,7 @@ import type { EventSubmitResult } from './protocol.js';
 const sdkRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(sdkRoot, '..');
 const dataDir = resolve(process.env.RELAYFLOW_DATA_DIR ?? join(repositoryRoot, '.relayflowd'));
-const socketPath = join(dataDir, 'relayflowd.sock');
+const socketPath = socketPathFor(dataDir);
 const specPath = join(repositoryRoot, 'testdata', 'hn-monitor.spec.canonical.json');
 
 interface Submission {

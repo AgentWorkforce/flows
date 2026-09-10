@@ -8,6 +8,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CheckReport, type CliIo } from '../src/cli.js';
 import { checkFlow } from '../src/cli/check.js';
+import { socketPathFor } from '../src/daemon-connection.js';
 import { runFlow } from '../src/cli/run.js';
 import { runAgentCli } from '../src/worker-cli.js';
 import {
@@ -139,7 +140,7 @@ const LADDER_FAULTS = [
 ] as const satisfies ReadonlyArray<readonly [string, (flow: Record<string, unknown>) => void]>;
 
 async function startCliLoopback(dataDir: string, handlers: LoopbackHandlers): Promise<void> {
-  const server = startLoopback(join(dataDir, 'relayflowd.sock'), handlers);
+  const server = startLoopback(socketPathFor(dataDir), handlers);
   loopbackServers.push(server);
   if (!server.listening) await once(server, 'listening');
 }
