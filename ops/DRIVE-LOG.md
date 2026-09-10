@@ -8532,3 +8532,43 @@ matched a trailing space the text did not have — and it *told* me
 (`cleaned: False`) while I posted anyway. Verified the live comment, patched it
 via the API, and re-verified. Garbage characters in a technical diagnosis
 undermine the diagnosis.
+
+### 2026-09-10 — cloud#3510: reconcile runs stranded in `running`
+
+Disk 5.1Gi. Drain clean: 0 pending of 2004.
+
+Implemented the fix I diagnosed last tick. The reaper's candidate query is
+`WHERE wr.status = 'pending'` and `running` appears **zero times** in the file,
+so a run that launched and then lost its orchestrator has no reconciler — which
+is why 14 runs sit in `running`, the oldest **102 days**, and why #3508's
+recovery deadlock exists.
+
+**The design decision worth recording: `runningStaleMinutes` has no default.**
+Omitting it skips the sweep entirely.
+
+This code marks rows `failed` and revokes their credentials. A threshold set too
+low silently kills healthy long-running work — and I do not know the real
+heartbeat interval, only that healthy runs I watched updated every few minutes
+while stranded ones froze permanently. Picking that number is a judgement about
+production behaviour that belongs to whoever owns the reaper, not to me at the
+end of a shift. So **merging changes nothing until someone passes a value**, and
+a test pins that property.
+
+**Mutation-verified the safety property specifically**, not just the happy path:
+giving the option a default fails **exactly** the opt-in test and no other.
+33 pass / 0 fail restored. `tsc` matches the baseline error set exactly.
+
+The existing suite uses **PGlite** — a real in-process Postgres — so the three
+new cases exercise the actual SQL rather than a mock. Worth noting because a
+mocked query would have proved nothing about a `WHERE` clause.
+
+Also kept the counts honest: `stalledRunningReaped` is reported separately and
+subtracted from `reaped`, so a stalled run is never miscounted as a launch
+failure.
+
+**Said plainly what it does not address:** *why* the orchestrator stops
+reporting. #3466's `cursor_expired` is the visible precursor but I have not
+traced mount-failure -> missing-status-write. This reconciles the symptom so work
+becomes recoverable; it does not stop runs stranding.
+
+Opened **cloud#3510**.
