@@ -236,6 +236,12 @@ jobs:
       - name: Wait for cloud swarm
         id: wait
         if: always() && steps.launch.outputs.run_id != ''
+        # `../gate-files/` below resolves relative to this step's cwd. Every
+        # other step that reaches into `gate-files/` runs from `pr-head/`;
+        # without a matching `working-directory` here, the diagnostic call
+        # resolves outside the workspace and `set +e` silently swallows the
+        # miss (Cursor Bugbot flagged as HIGH on #285).
+        working-directory: pr-head
         run: |
           set +e
           # Ordering invariant: swarm 60m < this poll deadline 65m < job 75m.
