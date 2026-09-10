@@ -1,0 +1,144 @@
+Issue #284 verification, 2026-09-10
+
+SDK and surface were built from this worktree; SDK dependencies are local to it.
+The daemon was built with PATH=/Users/khaliqgant/.cargo/bin:$PATH sh ../ops/cargo.sh build.
+The launcher uses socketPathFor to agree with the daemon socket relocation from #262.
+
+Working directory: packages/sdk
+$ NPM_CONFIG_USERCONFIG=/dev/null npx --no-install tsc --noEmit
+
+[exit 0]
+
+Working directory: repository root
+$ RELAYFLOWD_BIN=/Users/khaliqgant/.relayflows-toolchain/target/2814932978/debug/relayflowd node --test ops/local-work-acceptance.test.mjs ops/local-work-package.test.mjs ops/local-work-git-input.test.mjs ops/local-work-gate.test.mjs ops/local-work-review.test.mjs ops/drive-local-flow.test.mjs scripts/run-local-workflow.test.mjs
+✔ drive-local journals failure and blocks reporting for outside edit (2348.330958ms)
+✔ drive-local journals failure and blocks reporting for verifier edit (2414.250666ms)
+✔ drive-local journals failure and blocks reporting for unchanged package (2384.257ms)
+✔ drive-local journals failure and blocks reporting for HEAD repin (1785.088291ms)
+✔ drive-local journals failure and blocks reporting for forged snapshot (1938.18475ms)
+✔ drive-local journals failure and blocks reporting for edited pinned acceptance (2011.142417ms)
+✔ drive-local journals failure and blocks reporting for undeclared acceptance (1201.992042ms)
+✔ edited in-scope acceptance argv refuses while implementation stays broken (#284) (1567.470375ms)
+✔ pinned acceptance executes Git bytes despite an edited checkout script (2773.775208ms)
+✔ missing or unavailable script pin refuses: undefined (1526.077125ms)
+✔ missing or unavailable script pin refuses:  (1365.750875ms)
+✔ missing or unavailable script pin refuses: main (1251.065125ms)
+✔ missing or unavailable script pin refuses: ffffffffffffffffffffffffffffffffffffffff (1216.975875ms)
+✔ all inputs are validated before any acceptance command executes (998.611583ms)
+✔ external absolute acceptance reads the changed implementation (1304.858208ms)
+✔ an absolute acceptance path inside write scope refuses (977.067792ms)
+✔ an absolute acceptance path inside write scope refuses through a symlink (966.851459ms)
+✔ a symlink beneath writable scope cannot grant access to an external acceptance file (929.881792ms)
+✔ pinned relative dependencies also come from Git (1553.806375ms)
+✔ an external input with an in-scope hard link is refused (893.072ms)
+✔ package metadata cannot delete or repin the verification block (839.436167ms)
+✔ declaring a shell runtime cannot authorize arbitrary mutable acceptance argv (1119.170792ms)
+✔ an executable acceptance script is extracted from Git (1857.87075ms)
+✔ isolated report refuses an outside edit and names the DoD (822.944167ms)
+✔ a check that violates scope never emits PACKAGE_VERIFIED (935.567458ms)
+✔ committing outside scope and repinning metadata cannot replace the submitted HEAD (1686.649667ms)
+✔ forged legacy checkout snapshot and compiled picker cannot replace the Git-extracted judge (2852.912042ms)
+✔ raw template refuses selection before implementation without captured gate inputs (436.66975ms)
+✔ selection advances past rejected duplicate title: Same title (1107.619833ms)
+✔ selection advances past rejected duplicate title: Regex [a].* (b) + $ (973.025916ms)
+✔ preparation reads the committed gate instead of a working-tree replacement (1867.2475ms)
+✔ gate-snapshot builds committed picker source outside the checkout (2197.015416ms)
+✔ a committed picker compile failure prevents package selection (1118.3795ms)
+✔ an ignored compiled picker cannot become the input to selection (1738.46ms)
+✔ Git replacement objects cannot substitute gate source at the pinned ref (1538.807875ms)
+✔ skip cursor passes a later title mentioned in an earlier body (1355.620292ms)
+✔ selection skips missing checks and stale paths with reasons (1818.812792ms)
+✔ a non-SDK package fails unchanged and passes only after its check holds (2158.062584ms)
+✔ multiple acceptance checks all execute and failures propagate (1360.729792ms)
+✔ scope refuses an outside unstaged path (1142.692542ms)
+✔ scope refuses an outside staged path (1100.264167ms)
+✔ scope refuses an outside untracked path (1031.287667ms)
+✔ scope refuses an outside staged reversal path (985.621375ms)
+✔ scope refuses an outside rename path (996.860292ms)
+✔ scope refuses an outside deleted path (858.157542ms)
+✔ the submitted scope command refuses a changed ops/local-work-package.mjs before loading it (849.030667ms)
+✔ the submitted scope command refuses a changed ops/local-work-verification.mjs before loading it (831.58475ms)
+✔ the submitted scope command refuses a changed ops/BACKLOG.md before loading it (744.950917ms)
+✔ editing ignored package metadata cannot widen scope or replace checks (855.163292ms)
+✔ scope allows directory children but rejects a sibling with the same prefix (908.193166ms)
+✔ scope allows in-scope deletions and rejects symlink escapes (913.432208ms)
+✔ replacing a scoped file with a directory does not authorize its children (825.9675ms)
+✔ a check that writes outside scope fails verification (1183.466625ms)
+✔ interrupted package write preserves the original and retry replaces it atomically (1656.624958ms)
+✔ report includes an allowed unstaged change (1626.723667ms)
+✔ report includes an allowed staged change (2199.780542ms)
+✔ report includes an allowed untracked change (1727.172625ms)
+✔ directory scope checks a pre-existing dangling escape symlink (1377.846125ms)
+✔ directory scope checks a pre-existing existing internal symlink (1193.231417ms)
+✔ selection skips untracked scope and accepts the next committed scope (919.005958ms)
+✔ reporting after SDK suite effects enforces scope for outside.txt (1361.132292ms)
+✔ reporting after SDK suite effects enforces scope for src/value.txt (1464.640166ms)
+✔ local launcher journals deterministic effects and reads more than one journal page (1144.53775ms)
+✔ a failed command fails the run and prevents dependent effects (245.741875ms)
+✔ the SDK worker completes an agent step through the local journal protocol (751.097917ms)
+✔ missing daemon is refused before a data directory or run is created (325.319542ms)
+✔ an agent followed by work over 30 seconds reaches report and exports its journal (32642.067167ms)
+✔ a rejected worker completion preserves the protocol error and cannot report success (421.480541ms)
+ℹ tests 68
+ℹ suites 0
+ℹ pass 68
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 35624.611417
+
+[exit 0]
+
+Working directory: packages/sdk
+$ node node_modules/vitest/vitest.mjs run tests/backlog-picker.test.ts tests/backlog-picker-flow.test.ts tests/spec-parity.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/flows-284/packages/sdk
+
+ ✓ tests/backlog-picker.test.ts (14 tests) 103ms
+ ✓ tests/backlog-picker-flow.test.ts (6 tests) 786ms
+   ✓ backlog-picker flow > does not emit a stale entry left by a previous run 375ms
+ ✓ tests/spec-parity.test.ts (31 tests) 344ms
+
+ Test Files  3 passed (3)
+      Tests  51 passed (51)
+   Start at  22:29:23
+   Duration  1.45s (transform 429ms, setup 0ms, collect 818ms, tests 1.23s, environment 0ms, prepare 183ms)
+
+
+[exit 0]
+
+Direct regression probe (repository root):
+$ node --input-type=module <<'JS'
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { entry, fixture, pass, fail } from './ops/local-work-test-fixture.mjs';
+const cleanup = [];
+try {
+  const f = fixture({ after: fn => cleanup.push(fn) }, entry('Fix value', 'src/', [['node', 'src/check.cjs']]), {
+    'src/check.cjs': "require('node:assert/strict').equal(require('node:fs').readFileSync('src/value.txt','utf8'),'fixed');",
+  });
+  pass(f.run('select'));
+  f.put('src/check.cjs', 'process.exit(0);');
+  const result = f.run('verify');
+  fail(result, /ACCEPTANCE_IMMUTABILITY_VIOLATION/);
+  console.log('VERIFY_EXIT=' + result.status);
+  process.stdout.write(result.stdout + result.stderr);
+  console.log('IMPLEMENTATION=' + readFileSync(join(f.root, 'src/value.txt'), 'utf8'));
+  const reportFixture = fixture({ after: fn => cleanup.push(fn) });
+  pass(reportFixture.run('select'));
+  reportFixture.put('outside.txt', 'changed');
+  const report = reportFixture.run('report');
+  fail(report, /OUT_OF_SCOPE: outside.txt; DoD:/);
+  console.log('REPORT_EXIT=' + report.status);
+  process.stdout.write(report.stdout + report.stderr);
+} finally { for (const fn of cleanup) fn(); }
+JS
+VERIFY_EXIT=1
+SCOPE_OK: 1 changed path(s)
+ACCEPTANCE_IMMUTABILITY_VIOLATION: acceptance script is implementation-writable: src/check.cjs; DoD: Fix value
+IMPLEMENTATION=broken
+REPORT_EXIT=1
+OUT_OF_SCOPE: outside.txt; DoD: Fix value
+
+[probe exit 0; verify and report each refused with exit 1]

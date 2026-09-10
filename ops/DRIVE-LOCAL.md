@@ -13,7 +13,7 @@ submits commands through the existing local launcher. The daemon journals those
 pins before implementation starts. Running the YAML template directly refuses
 the snapshot step because its pinned inputs are missing.
 
-`gate-snapshot` runs first. It extracts the package helper, verifier and SDK
+`gate-snapshot` runs first. It extracts the package helper, verifier, acceptance helper and SDK
 picker source with `git --no-replace-objects show <head>:<path>`, then compiles
 that picker in a temporary directory outside the checkout. Its own extraction
 script also comes from that Git ref. Neither working-tree helper files nor
@@ -38,7 +38,44 @@ executed at the repository root with a two-minute bound. For example:
 
 Multiple `Verify:` lines mean all commands must pass. Commands come from the
 backlog before implementation; the agent cannot substitute its own acceptance
-checks in package.json. Entries with no executable checks are skipped with
+checks in package.json. Existing inline Node assertions (`node -e`, with an
+optional `--input-type=module`) remain supported: their code is part of the
+pinned backlog. Script checks must declare their code inputs explicitly:
+
+```text
+- **Fix the value** Update `src/value.txt` to contain exactly "fixed".
+  Verify: {"argv":["node","checks/value.cjs"],"inputs":[{"path":"checks/value.cjs","ref":"HEAD"}]}
+```
+
+`HEAD` is resolved once to the launcher's full commit ID. An explicit full
+commit ID is also accepted; branch names and missing Git objects are refused.
+Git inputs must name regular files at repository-relative paths. Verification
+extracts their Git bytes into a fresh temporary directory outside the checkout,
+preserving relative paths, and replaces matching argv elements with extracted
+paths. Declare assertion dependencies in the same `inputs` array so they are
+extracted together. The command still runs with the implementation checkout as
+its working directory, so assertions can read changed source and artifacts.
+
+Alternatively, use an absolute path without `ref` for an externally owned
+script, for example `{"argv":["node","/opt/acceptance/value.cjs"],"inputs":[{"path":"/opt/acceptance/value.cjs"}]}`.
+Such files must exist outside the implementation's declared write scope.
+Validation checks both real paths and symlink aliases beneath writable
+directories; hard-linked external inputs are refused because their ownership
+cannot be established from a path. A relative path without a pin, an undeclared script, an unavailable
+pin, or an external file inside write scope fails with
+`ACCEPTANCE_IMMUTABILITY_VIOLATION` before any check executes. Node script checks
+use the launcher's Node binary; other entry points must be declared scripts
+with a shebang (for example `checks/value.sh`). Declaring `/bin/sh` does not
+authorize an arbitrary `-c` command. Ambient `NODE_OPTIONS` and `NODE_PATH`
+cannot preload checkout code.
+
+The selected package retains `verificationCommands` and adds
+`verification: {ref, checks: [{argv, inputs}]}`. Every scope, verification and
+report operation reconstructs both fields from the original pinned backlog.
+The initial scope step therefore refuses an invalid contract before handing
+the package to implementation.
+
+Entries with no executable checks are skipped with
 `missing_executable_checks`, alongside the existing unbounded/stale scope
 reasons. The old F8b entry now carries a source assertion for its declared
 rename. That assertion also allows an already-completed package to pass
@@ -60,7 +97,8 @@ Verification reconstructs the selected work from the unchanged backlog and
 compares its scope and commands to package.json. Each package check must pass
 before the SDK regression suite runs. An unchanged implementation whose DoD
 is unmet fails. HEAD/branch changes fail, and out-of-scope changes produced by
-an acceptance command fail too. A failed scope or verification step prevents
+an acceptance command fail too. `PACKAGE_VERIFIED` is emitted only after that
+post-check validation succeeds. Refusals include the package's DoD. A failed scope or verification step prevents
 the dependent report step from running.
 
 The scope command runs again after the SDK build and suite, before reporting.
@@ -74,14 +112,17 @@ The execution contract has one owner for each kind of data:
 | HEAD, branch, backlog hash | Preparing launcher pins the original commit/branch and the hash of its committed backlog in submitted commands. The package records the commit as `head`; no adjacent ref or checksum file is authority. |
 | Package metadata | Private atomic JSON artifact for the agent; scope, verify and report reconstruct its fields from the picker built from the pinned ref and the pinned backlog. It cannot redefine the original HEAD. |
 | Allowed paths and protected paths | `local-work-verification.mjs` extracted from the pinned ref; index and working tree checked separately against the original HEAD, including non-ignored untracked files. |
-| Acceptance argv | Parsed from the pinned backlog; every command must succeed, with scope rechecked after execution. |
-| Acceptance scripts and dependencies | **Open blocker:** arbitrary argv can load mutable source from implementation scope. |
+| Acceptance argv | Parsed from the pinned backlog and reconstructed as the package's `verification` contract; every command must succeed, with scope rechecked before emitting `PACKAGE_VERIFIED`. |
+| Acceptance scripts and declared dependencies | Explicit `inputs` load regular files from full Git commit IDs or absolute external paths validated outside implementation write scope. Undeclared script entry points are refused. |
 
 **A same-user agent can still write to the temporary execution directory.**
 This meets the narrower bar that gate inputs come from a pinned Git ref rather
 than files implementation edits. It does not make extracted runtime files
 immutable, isolate processes, or prevent arbitrary Git-storage tampering.
 
-The remaining acceptance-input decision is documented in
-`runtime-evidence/drive-threads-0909-decisions.md`. This flow is not ready for
-unattended use until those inputs have an explicit enforced ownership contract.
+Acceptance authors still own the assertion program and its dependency
+declarations. This is an input ownership contract, not analysis or isolation of
+arbitrary programs: trusted checks must not delegate assertions to undeclared
+mutable code via inline evaluation, subprocesses, or dynamically computed paths.
+The historical acceptance-input decision is documented in
+`runtime-evidence/drive-threads-0909-decisions.md`.

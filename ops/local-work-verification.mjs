@@ -1,26 +1,13 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
-
-// An explicit argv contract avoids treating prose or arbitrary backticked
-// snippets as shell commands. Checks are authored before implementation.
-export function verificationCommands(body) {
-  const lines = body.split('\n').filter(line => /^\s*Verify:/.test(line));
-  return lines.map(line => {
-    let argv;
-    try { argv = JSON.parse(line.replace(/^\s*Verify:\s*/, '')); }
-    catch { throw new Error('INVALID_EXECUTABLE_CHECK: Verify must contain a JSON argv array'); }
-    assert(Array.isArray(argv) && argv.length > 0 &&
-      argv.every(arg => typeof arg === 'string' && !arg.includes('\0')) && argv[0].trim(),
-    'INVALID_EXECUTABLE_CHECK: expected nonempty command argv');
-    return argv;
-  });
-}
+import { runAcceptance } from './local-work-acceptance.mjs';
 
 const protectedPaths = [
   'ops/BACKLOG.md', 'ops/local-work-package.mjs', 'ops/local-work-verification.mjs',
   'ops/local-work-gate.mjs', 'ops/local-work-snapshot.mjs', 'scripts/run-drive-local.mjs',
+  'ops/local-work-acceptance.mjs',
   'workflows/drive-local.yaml', 'workflows/gates', 'packages/sdk/src/backlog-picker.ts',
 ];
 const within = (path, scope) => path === scope || path.startsWith(`${scope}/`);
@@ -105,12 +92,5 @@ export function checkScope(pkg) {
 }
 
 export function runChecks(pkg) {
-  assert(pkg.verificationCommands?.length > 0, 'MISSING_EXECUTABLE_CHECKS');
-  for (const argv of pkg.verificationCommands) {
-    console.log(`CHECK ${JSON.stringify(argv)}`);
-    const result = spawnSync(argv[0], argv.slice(1), { stdio: 'inherit', timeout: 120000 });
-    assert(!result.error && result.status === 0,
-      `PACKAGE_CHECK_FAILED: ${JSON.stringify(argv)} (${result.error?.message ?? result.signal ?? result.status})`);
-  }
-  console.log(`PACKAGE_VERIFIED: ${pkg.verificationCommands.length} check(s)`);
+  runAcceptance(pkg);
 }

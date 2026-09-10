@@ -16,6 +16,7 @@ try {
   for (const [source, destination] of [
     ['ops/local-work-package.mjs', 'local-work-package.mjs'],
     ['ops/local-work-verification.mjs', 'local-work-verification.mjs'],
+    ['ops/local-work-acceptance.mjs', 'local-work-acceptance.mjs'],
     ['packages/sdk/src/backlog-picker.ts', 'backlog-picker.ts'],
   ]) {
     writeFileSync(join(directory, destination), git('show', `${head}:${source}`), { flag: 'wx', mode: 0o600 });

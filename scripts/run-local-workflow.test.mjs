@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test, { after } from 'node:test';
+import { socketPathFor } from '../packages/sdk/dist/daemon-connection.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 mkdirSync(join(root, '.relayflow'), { recursive: true });
@@ -24,7 +25,7 @@ function run(name, steps, env = {}, timeout = 15000) {
   if (dataDir) dataDirectories.add(dataDir);
   assert.equal(result.error, undefined, result.stderr);
   const records = result.stdout.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line));
-  if (dataDir) assert(!existsSync(join(dataDir, 'relayflowd.sock')), 'owned daemon socket must be removed on exit');
+  if (dataDir) assert(!existsSync(socketPathFor(dataDir)), 'owned daemon socket must be removed on exit');
   return { ...result, records, dataDir };
 }
 

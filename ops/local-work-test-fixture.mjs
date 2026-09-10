@@ -16,7 +16,7 @@ export const entry = (title = 'Fix value', path = 'src/value.txt', commands = [c
   `- **${title}** Update \`${path}\` to the required value.\n` +
   commands.map(argv => `  Verify: ${JSON.stringify(argv)}\n`).join('');
 
-export function fixture(t, backlog = entry()) {
+export function fixture(t, backlog = entry(), files = {}) {
   mkdirSync('.relayflow', { recursive: true });
   const root = mkdtempSync(resolve('.relayflow/package-tests-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -31,10 +31,12 @@ export function fixture(t, backlog = entry()) {
   put('outside.txt', 'original');
   put('ops/BACKLOG.md', backlog);
   for (const path of ['ops/local-work-package.mjs', 'ops/local-work-verification.mjs',
-    'ops/local-work-snapshot.mjs', 'packages/sdk/src/backlog-picker.ts', 'workflows/drive-local.yaml']) {
+    'ops/local-work-snapshot.mjs', 'ops/local-work-acceptance.mjs',
+    'packages/sdk/src/backlog-picker.ts', 'workflows/drive-local.yaml']) {
     put(path, readFileSync(path));
   }
   put('packages/sdk/dist/backlog-picker.js', readFileSync('packages/sdk/dist/backlog-picker.js'));
+  for (const [path, contents] of Object.entries(files)) put(path, contents);
   git('add', '.');
   git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
     '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture');
