@@ -1,0 +1,10 @@
+version: "0.1.0"
+name: error-path
+steps:
+  - id: broken
+    type: agent
+    cli: claudee
+    instruction: Reply hello.
+    verification:
+      type: output_contains
+      value: hello

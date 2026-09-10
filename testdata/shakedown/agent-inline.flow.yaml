@@ -1,0 +1,14 @@
+version: "0.1.0"
+name: agent-inline
+agents:
+  drafter:
+    cli: claude
+    model: claude-sonnet-4-6
+steps:
+  - id: draft
+    type: agent
+    agent: drafter
+    instruction: Reply with exactly hello. Do not use tools or modify files.
+    verification:
+      type: output_contains
+      value: hello
