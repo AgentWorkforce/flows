@@ -9348,3 +9348,41 @@ Instrument failure worth recording: my first extraction used
 `grep -A2 "swarm failure reason" | tail -1` and returned `##[group]Run ...` and
 a package-version line as "reasons" for five PRs. It looked like data. Redone
 with an indent-anchored parse over the runtime emission.
+
+### 2026-09-10 ~05:3xZ — seven modes, none twice in a row: there is no single fix
+
+Queue: pending=0, 13 running. **#258's own review gate FAILED** -- same
+`notify-flush / cursor_expired` Relayfile mount error as #240. My fix PR is
+blocked by the class of problem it documents.
+
+Time-ordered the nine failures:
+
+    09-09T06:31  #238  launch queue deadline
+    09-09T08:47  #240  relayfile-mount cursor_expired
+    09-09T12:40  #244  sandbox provisioning
+    09-09T12:47  #245  database_overloaded
+    09-09T18:48  #253  dependency install
+    09-09T19:49  #251  relaycast key repair 503
+    09-09T21:02  #242  relaycast key repair 503
+    09-09T21:52  #256  workspace_busy
+    09-10T04:49  #258  relayfile-mount cursor_expired
+
+**No mode repeats back-to-back.** Seven subsystems, 22 hours, each failure a
+different one from the one before.
+
+That kills the framing I have been carrying all night. I kept looking for THE
+broken component. There isn't one. **Fixing any single mode will not unblock
+the gate** -- cloud#3516 closes `workspace_busy`, which is one row of nine, and
+#258's run then died on the mount instead. That is not a hypothetical; it
+happened while I was writing this up.
+
+The structural point, which IS fixable: the gate cannot distinguish
+  (1) swarm produced a verdict, verdict was FAILED  -- a real objection
+  (2) swarm never produced a verdict, infra died    -- weather
+Both exit 1. Across nine PRs, ALL were (2) and NONE were (1). So the check
+converts platform weather into what reads as a code-review rejection, across
+the whole repo at once.
+
+Proposed on #255; deliberately did NOT implement it. It makes a merge gate more
+permissive, which is the one category of change I should not land unattended on
+my own analysis at 05:00. #258 stays scoped to the mislabeled timeout.
