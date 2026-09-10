@@ -11,6 +11,6 @@ Every row starts RED and moves only on evidence. AMBER blocks nothing here
 | 4 — chief / harness | RED | not started |
 | 5 — memory | RED | scoped by harness directive 3 (relayfile + relayhistory per customer) |
 | 6 — integrations via relayfile | RED | **BLOCKED on gates 2-4** (Khaliq, 2026-08-28, option B — this repo has no example flows to convert; helper surface may be built now but does not make the gate green) — harness (design partner) needs slack/notion helpers; also unblocks its `REPLACE-WHEN: gate-2` shims |
-| 7 — sandbox routing | RED | regression suite needs darwin-arm64 placement |
+| 7 — sandbox routing | **AMBER** | in progress — #227 merged 2026-09-08 (`be3c95ed`). Routing is journaled as a `RoutingDecision` fact at `StepRouted` and dispatch consumes it without re-deciding. **Not GREEN**: gate 7 requires the same flow YAML to run locally and in cloud, and the cloud half is unproven. Design, test inventory and the mutation transcript live in the PR #227 review artifacts, not in this row. |
 | 8 — identity + credentials | RED | regression suite needs multi-principal runs |
 | 9 — self-improving agents | RED | depends on 5 + 8 |
