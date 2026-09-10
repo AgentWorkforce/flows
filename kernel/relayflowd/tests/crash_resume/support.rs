@@ -37,6 +37,11 @@ impl Fixture {
         Self::new(name, true)
     }
 
+    pub fn socket(&self) -> PathBuf {
+        relayflowd::socket_path::derive_socket_path(&self.data_dir)
+            .expect("derive socket path")
+    }
+
     fn new(name: &str, blocking_second: bool) -> Self {
         let directory = tempdir().unwrap();
         let data_dir = directory.path().join("data");

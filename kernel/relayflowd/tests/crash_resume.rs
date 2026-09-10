@@ -124,7 +124,7 @@ fn sigkill_under_serve_resumes_the_socket_started_run() {
         .process_group(0)
         .spawn()
         .unwrap();
-    let socket = fixture.data_dir.join("relayflowd.sock");
+    let socket = fixture.socket();
     wait_until("serve socket", || socket.exists());
 
     let spec: Value = serde_json::from_slice(&fs::read(&fixture.spec_path).unwrap()).unwrap();

@@ -30,7 +30,7 @@ fn complete(worker: &mut ProtocolClient, dispatch: &Value) -> Value {
 fn workspace_aliases_are_refused_and_canonical_subtrees_serialize_over_real_sockets() {
     let fixture = LlmFixture::parallel("workspace-identity");
     let _server = ServerGuard::start(&fixture);
-    let socket = fixture.data_dir.join("relayflowd.sock");
+    let socket = fixture.socket();
     let mut worker = ProtocolClient::connect(&socket);
     assert_eq!(
         worker.request_error_code(

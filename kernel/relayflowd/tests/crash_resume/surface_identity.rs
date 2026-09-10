@@ -30,7 +30,7 @@ fn complete(worker: &mut ProtocolClient, dispatch: &Value) -> Value {
 fn aliases_are_rejected_and_external_ancestors_serialize_over_real_sockets() {
     let fixture = LlmFixture::parallel("surface-identity");
     let _server = ServerGuard::start(&fixture);
-    let socket = fixture.data_dir.join("relayflowd.sock");
+    let socket = fixture.socket();
     let mut worker = ProtocolClient::connect(&socket);
     worker
         .request(

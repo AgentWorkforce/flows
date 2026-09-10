@@ -31,8 +31,17 @@ ambiguous case below. A file is never believed on its own.
 
 ### Path
 
-`<data-dir>/connection.json` — `data-dir` is the same directory that already
-holds `relayflowd.sock` and `relayflowd.sqlite3`, default `.relayflowd`.
+`<data-dir>/connection.json`, default data-dir `.relayflowd`. The data dir also
+holds `relayflowd.sqlite3`, `relayflowd.lock`, and `relayflowd.log`.
+
+**The socket itself lives OUTSIDE the data dir**, at a short hashed path
+under `$XDG_RUNTIME_DIR` / `$TMPDIR` — see `kernel/relayflowd/src/socket_path.rs`
+and `socketPathFor` in `packages/sdk/src/daemon-connection.ts`. The daemon and
+the CLI derive the same path from the same absolute data-dir input, so §2
+step 3's lexical equality still holds. This decoupling exists so a deep
+working directory cannot push the full socket path past `SUN_LEN` (~104 bytes
+on macOS), which used to fail the daemon at `bind(2)` before any step could
+run (#262).
 
 ### Shape
 

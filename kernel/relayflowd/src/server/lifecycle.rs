@@ -62,10 +62,14 @@ pub(crate) fn acquire(data_dir: &Path) -> std::result::Result<DaemonLock, Acquir
 }
 
 /// Safe only after `acquire`: no other daemon can own these paths.
-pub(crate) fn remove_residue(data_dir: &Path) -> Result<()> {
-    for name in ["relayflowd.sock", "connection.json"] {
-        let path = data_dir.join(name);
-        match std::fs::remove_file(&path) {
+///
+/// `socket_path` is now outside the data dir (see socket_path.rs and
+/// DAEMON-LIFECYCLE.md §1), so it is passed explicitly rather than derived
+/// from the data dir alone. The lock proves nobody else owns it.
+pub(crate) fn remove_residue(data_dir: &Path, socket_path: &Path) -> Result<()> {
+    let connection = data_dir.join("connection.json");
+    for path in [socket_path, connection.as_path()] {
+        match std::fs::remove_file(path) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => {
@@ -86,7 +90,12 @@ struct ConnectionFile<'a> {
 }
 
 /// Publish only after `UnixListener::bind`, which has already called listen(2).
-pub(crate) fn publish(socket_path: &Path) -> Result<()> {
+///
+/// `data_dir` and `socket_path` used to be one and the same directory
+/// (`connection.json` sat next to `relayflowd.sock`). #262 moves the socket
+/// outside the data dir so they diverge; the connection file still lives in
+/// the data dir, alongside the lock and journal.
+pub(crate) fn publish(data_dir: &Path, socket_path: &Path) -> Result<()> {
     // `absolute` preserves the caller's data-dir spelling (unlike
     // `canonicalize`, which would turn `/var` into macOS's `/private/var` and
     // fail the client's lexical `resolve(dataDir)` comparison).
@@ -95,7 +104,6 @@ pub(crate) fn publish(socket_path: &Path) -> Result<()> {
     let socket_text = socket_path
         .to_str()
         .context("socket path is not valid UTF-8")?;
-    let data_dir = socket_path.parent().context("socket path has no parent")?;
     let connection_path = data_dir.join("connection.json");
     let temporary_path = data_dir.join(format!("connection.json.tmp.{}", std::process::id()));
     let record = ConnectionFile {

@@ -12,7 +12,7 @@ use super::{
 fn rejected_completion_cannot_forge_inspect_retry_pins_over_the_real_socket() {
     let fixture = LlmFixture::parallel("rejected-pin-projection");
     let _server = ServerGuard::start(&fixture);
-    let socket = fixture.data_dir.join("relayflowd.sock");
+    let socket = fixture.socket();
     let mut worker = ProtocolClient::connect(&socket);
     worker
         .request(

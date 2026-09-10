@@ -13,6 +13,7 @@
 // what a file says about itself.
 
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   closeSync,
   mkdirSync,
@@ -20,6 +21,7 @@ import {
   readFileSync,
   rmSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { JournalClient, JournalProtocolError } from './journal-client.js';
 import { PROTOCOL_VERSION } from './protocol.js';
@@ -145,8 +147,37 @@ export const defaultDaemonLifecycleDeps: DaemonLifecycleDeps = {
   }),
 };
 
+/**
+ * Derive the daemon socket path from the data dir.
+ *
+ * The socket lives outside the data dir at a short hashed path so that a deep
+ * working directory cannot push the full socket path past `SUN_LEN` (~104
+ * bytes on macOS, ~108 on Linux) — the first-run papercut in #262. Anti-hijack
+ * still holds because the daemon derives the same path from the same input;
+ * this function and Rust's `crate::socket_path::derive_socket_path` must stay
+ * in lockstep. Both use `resolve()` / `std::path::absolute` (lexical, no
+ * symlink resolution) so `/var` vs macOS's `/private/var` can never diverge.
+ *
+ * `SOCKET_FILE` is retained as the exported constant name for compatibility,
+ * but is no longer the *entire* socket filename — see the derivation below.
+ */
 export function socketPathFor(dataDir: string): string {
-  return join(resolve(dataDir), SOCKET_FILE);
+  const absolute = resolve(dataDir);
+  // 12 hex chars = 6 bytes of SHA-256. Enough separation between data dirs on
+  // one machine, small enough to leave headroom under SUN_LEN.
+  const hash = createHash('sha256').update(absolute).digest('hex').slice(0, 12);
+  return join(runtimeDir(), `relayflowd-${hash}.sock`);
+}
+
+function runtimeDir(): string {
+  // XDG first (Linux, typically `/run/user/<uid>/`, ~14 chars — the shortest
+  // per-user private option). TMPDIR next (macOS, `/var/folders/xx/YYY/T/`,
+  // per-user private). Only fall back to os.tmpdir() when neither is set.
+  const xdg = process.env['XDG_RUNTIME_DIR'];
+  if (xdg && xdg.length > 0) return xdg;
+  const tmp = process.env['TMPDIR'];
+  if (tmp && tmp.length > 0) return tmp;
+  return tmpdir();
 }
 
 export function connectionPathFor(dataDir: string): string {

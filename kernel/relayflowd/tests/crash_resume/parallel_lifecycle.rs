@@ -16,7 +16,7 @@ use super::{
 };
 
 fn attached_agent(fixture: &LlmFixture, id: &str) -> ProtocolClient {
-    let mut worker = ProtocolClient::connect(&fixture.data_dir.join("relayflowd.sock"));
+    let mut worker = ProtocolClient::connect(&fixture.socket());
     worker
         .request(
             "worker.attach",
@@ -101,7 +101,7 @@ fn renewed_parallel_leases_survive_the_original_grant_and_remain_distinct() {
     thread::sleep(Duration::from_millis(40));
     let lane_a_deadline = renew(&mut worker, &dispatches[1]);
     assert_ne!(lane_b_deadline, lane_a_deadline);
-    let mut control = ProtocolClient::connect(&fixture.data_dir.join("relayflowd.sock"));
+    let mut control = ProtocolClient::connect(&fixture.socket());
     let snapshot = control
         .request("run.get", json!({"run_id": run_id}))
         .unwrap();
@@ -302,7 +302,7 @@ fn terminal_failure_drains_or_explains_every_live_sibling() {
                 == 2
         })
     });
-    let mut control = ProtocolClient::connect(&fixture.data_dir.join("relayflowd.sock"));
+    let mut control = ProtocolClient::connect(&fixture.socket());
     assert_eq!(
         control
             .request("run.resume", json!({"run_id": run_id}))

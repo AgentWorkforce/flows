@@ -1,6 +1,7 @@
 import { join, resolve } from 'node:path';
 import type { ProgressEvent } from '../progress.js';
 import { toKernelSpec } from '../compile.js';
+import { socketPathFor } from '../daemon-connection.js';
 import { ensureDaemon, type EnsureDaemonOptions } from '../daemon-lifecycle.js';
 import { daemonRefusal } from './daemon-refusal.js';
 import type { RunFailureKind, RunWarningKind } from '../failure-kinds.js';
@@ -464,8 +465,12 @@ function fromBase(command: RunCommand, base: CheckReport | RunReport): RunReport
   return 'command' in base ? base : fromCheckReport(command, base);
 }
 
+// Delegates to the daemon-connection derivation so run.ts, direct-run.ts, and
+// the daemon-lifecycle attach path all speak the same socket path. Kept as a
+// re-export here so existing callers do not have to reach into
+// daemon-connection.ts. See socketPathFor for the SUN_LEN reasoning (#262).
 export function socketFor(dataDir: string): string {
-  return join(resolve(dataDir), 'relayflowd.sock');
+  return socketPathFor(dataDir);
 }
 
 function errorMessage(error: unknown): string {

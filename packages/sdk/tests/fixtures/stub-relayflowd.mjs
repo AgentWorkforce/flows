@@ -18,6 +18,7 @@
 // `flock` guarantee itself belongs to the kernel implementation and its
 // `cargo test` cases (DAEMON-LIFECYCLE.md §6 tests 4 and 5).
 
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:net';
 import {
   appendFileSync,
@@ -31,7 +32,23 @@ import {
   writeFileSync,
   writeSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+
+// Must stay in lockstep with `packages/sdk/src/daemon-connection.ts::socketPathFor`
+// and `kernel/relayflowd/src/socket_path.rs::derive_socket_path` (see #262). The
+// CLI derives the same path from the same input; anti-hijack (DAEMON-LIFECYCLE
+// §2 step 3) breaks the moment these diverge, so update all three together.
+function deriveSocketPath(dataDir) {
+  const absolute = resolve(dataDir);
+  const hash = createHash('sha256').update(absolute).digest('hex').slice(0, 12);
+  const runtime = (process.env.XDG_RUNTIME_DIR && process.env.XDG_RUNTIME_DIR.length > 0)
+    ? process.env.XDG_RUNTIME_DIR
+    : ((process.env.TMPDIR && process.env.TMPDIR.length > 0)
+      ? process.env.TMPDIR
+      : tmpdir());
+  return join(runtime, `relayflowd-${hash}.sock`);
+}
 
 const EXIT_ALREADY_SERVING = 3;
 const VERSION = '0.0.0-stub';
@@ -43,7 +60,7 @@ if (dataDirIndex === -1 || argv[dataDirIndex + 1] === undefined) {
   fail('stub relayflowd: expected --data-dir <dir>');
 }
 const dataDir = resolve(argv[dataDirIndex + 1]);
-const socketPath = join(dataDir, 'relayflowd.sock');
+const socketPath = deriveSocketPath(dataDir);
 const connectionPath = join(dataDir, 'connection.json');
 const lockPath = join(dataDir, 'relayflowd.lock');
 

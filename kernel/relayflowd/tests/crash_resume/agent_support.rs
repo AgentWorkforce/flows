@@ -100,7 +100,8 @@ impl AgentFixture {
     }
 
     pub fn socket(&self) -> PathBuf {
-        self.data_dir.join("relayflowd.sock")
+        relayflowd::socket_path::derive_socket_path(&self.data_dir)
+            .expect("derive socket path")
     }
 
     pub fn server(&self) -> ServerGuard {

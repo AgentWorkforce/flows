@@ -22,7 +22,7 @@ fn serve_plumbs_watch_events_and_replayable_stream_verbs() {
     let fixture = LlmFixture::new("protocol-verbs", false);
     let _server = ServerGuard::start(&fixture);
     let run_id = start_run(&fixture);
-    let socket = fixture.data_dir.join("relayflowd.sock");
+    let socket = fixture.socket();
     let mut watcher = ProtocolClient::connect(&socket);
     watcher
         .request("run.watch", json!({"run_id": run_id}))
