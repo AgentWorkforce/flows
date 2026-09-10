@@ -1,0 +1,30 @@
+version: "0.1.0"
+name: chained
+agents:
+  drafter:
+    cli: claude
+    model: claude-sonnet-4-6
+steps:
+  - id: extract
+    type: llm
+    cli: claude
+    model: claude-sonnet-4-6
+    prompt: 'Return only JSON: {"message":"hello"}'
+    output:
+      type: object
+      required: [message]
+      properties:
+        message: {type: string}
+      additionalProperties: false
+  - id: draft
+    type: agent
+    agent: drafter
+    dependsOn: [extract]
+    instruction: 'Repeat the message from this JSON as plain text: {{steps.extract.output}}. Do not use tools or modify files.'
+    verification:
+      type: output_contains
+      value: hello
+  - id: write
+    type: deterministic
+    dependsOn: [draft]
+    command: "printf '%s' '{{steps.draft.output}}' > shakedown-result.txt"

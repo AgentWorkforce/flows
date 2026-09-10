@@ -1,0 +1,7 @@
+version: "0.1.0"
+name: error-dependency
+steps:
+  - id: broken
+    type: deterministic
+    dependsOn: [does-not-exist]
+    command: printf hello

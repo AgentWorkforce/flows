@@ -1,0 +1,6 @@
+version: "0.1.0"
+name: deep-cwd
+steps:
+  - id: hello
+    type: deterministic
+    command: printf hello
