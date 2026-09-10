@@ -18,6 +18,32 @@ swarm:
   timeoutMs: 3600000
   maxConcurrency: 3
 
+# Setting NOTHING here does not mean "no retries". The runner's
+# applyReliabilityDefaults() injects strategy:retry / maxRetries:2 /
+# retryDelayMs:1000 whenever errorHandling is absent, so every lens has always
+# had three attempts one second apart. That budget cannot survive a server that
+# asks for a longer wait:
+#
+#   [lens-maintainability] mcp-args --register failed: registration for
+#   'maintainability' was rate-limited; retry after 60s: Workspace write
+#   capacity is busy (code: workspace_busy)
+#
+# Three attempts across two seconds, against an advertised 60s. The retries are
+# spent before the backoff the server asked for has even begun, and the lens
+# reports "failed after 2 retries" as if it had been patient.
+#
+# Only retryDelayMs is set. maxRetries stays at the injected default of 2, so
+# this changes how long the swarm waits, never how many times it tries, and it
+# adds at most 2 x 60s per lens against a 30m lens timeout and a 60m swarm
+# timeout -- the ordering invariant above is untouched.
+#
+# strategy MUST be 'retry' here. applyReliabilityDefaults returns early on
+# 'fail-fast' and 'continue', which would strip the injected defaults and drop
+# every lens to zero retries -- the opposite of the intent.
+errorHandling:
+  strategy: retry
+  retryDelayMs: 60000
+
 agents:
   # Transcript contract: .github/workflows/scripts/swarm-verdict.sh,
   # swarm_transcript_verdict(): last non-empty line, surrounding whitespace
