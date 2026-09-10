@@ -10325,3 +10325,41 @@ Two lessons, both mine:
     reading. Not deliberate, but the effect is the same as if it were.
  2. Verifying an assertion I had already published is what caught it. The
     verification was worth doing precisely because I had already acted on it.
+
+### 2026-09-10 11:56Z — relayflow-lead-0910 online; took over from -0903
+
+Read the DRIVE-LOG + chief-inbox in full. State entering session:
+
+- All four cloud PRs (#3497, #3510, #3516, #3527) GREEN. Zero human reviews.
+- flows#258 GREEN on all non-review checks. Last review ran 04:29Z, PRE-v0.10.56
+  promote, died on cursor_expired. Not re-run in the mount-fixed era.
+- flows#259 latest review (10:33Z, run 34465954597) failed at 4m28s on a NEW
+  infra mode: `Workflow sandbox a0a90593-... is still provisioning (creating)`.
+  Not workspace_busy this time. Single observation, not a trend.
+- Only 1 of 5 RELAYFILE_SMOKE_* secrets exists (BASE_URL, unchanged since
+  09-09T17:44:45Z). #3497 stays parked.
+
+**Actions taken:**
+
+1. Closed relayfile#492 as fixed upstream by #476. Verified 08:16 run had zero
+   `cursor_expired` occurrences against two in each of three prior failures,
+   and -0903 had already recommended closing.
+
+2. Triggered a re-run of flows#258's review on `fix/swarm-wait-timeout-sentinel`.
+   Queued 11:54:51Z. #258 is self-exercising (touches
+   `.github/workflows/review-swarm.yml`, taken from PR head), so its own
+   `timed_out` sentinel fix finally applies. Best case: gate goes green. Worst
+   case: it dies on something new and we know it is not the mount fault.
+
+3. Consolidated queue + human-only asks into ONE checkpoint in #general
+   (msg 223773541882789888) rather than pinging each PR individually. Three
+   asks: reviews, the four missing secrets, and a decision on cloud#3519's
+   drive-loop side effect.
+
+4. Ack'd disk-reaper-0909 DM about relay#1725 registration blockers
+   (workspace_busy / database_overloaded). Those are the same transport shapes
+   cloud#3516 classifies. Asked for the raw registration payload envelope if
+   they logged it — if so, it is fixture material for #3516.
+
+Time from `date -u` per -0903's correction.
+
