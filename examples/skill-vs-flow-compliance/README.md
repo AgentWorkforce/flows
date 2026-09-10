@@ -76,7 +76,10 @@ effects of changing the prompt. The nudged arm has a different initial
 prompt from the bare and flow arms.
 
 The original easy prompt used `git add -A`. Several resulting patches
-include `.claude/settings.json`; one keeps a stale test-gap comment.
+include `.claude/settings.json`. Three final patches keep a stale test-gap
+comment despite adding the test: [bare trial 2](runs/agent-no-skill/trial-2/diff.patch),
+[flow run 1](runs/relayflow/run-1/diff.patch), and
+[flow run 2](runs/relayflow/run-2/diff.patch). Both flow runs report success.
 Those are real deficiencies in the agent output which these four checks
 did not detect. The patches and historical prompts are preserved rather
 than edited into a cleaner outcome. Treat them as evidence, not settings
