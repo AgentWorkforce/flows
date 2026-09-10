@@ -8944,3 +8944,44 @@ between. The useful facts are the onset time, the 63-minute pause, and the rate.
 Left a concrete pointer instead: the message is AWS credential-chain exhaustion
 arriving at *launch*, so the question is what supplies credentials to the launch
 path and what began intermittently failing to resolve them around midnight UTC.
+
+### 2026-09-10 — found the code path that emits the CREDS message
+
+Disk 5.6Gi. Drain: 2 pending, normal window.
+
+Last tick I said I had no candidate mechanism for the CREDS failures. Went
+looking and traced one, link by link:
+
+```
+launch-runner.ts:852      -> mintScopedS3Credentials(...)
+aws/sts-credentials.ts    -> if (isWorkerRuntime()) broker; else STSClient.AssumeRole
+aws/runtime.ts            -> isWorkerRuntime() === globalThis[Symbol.for("__cloudflare-context__")] !== undefined
+```
+
+`STSClient` is the only thing on this path that emits **"Could not load
+credentials from any providers"** — it is the AWS SDK's chain-exhaustion message.
+So the failure is consistent with `isWorkerRuntime()` returning **false while
+actually on the Worker**, which silently takes the Lambda branch into an IAM
+identity that does not exist.
+
+The file states the assumption itself: *"If the symbol is present, we're on the
+Worker. If not, we're on Lambda."* That symbol is populated by OpenNext **per
+request**, so anything running outside a request context — queue consumer,
+scheduled handler, `waitUntil` continuation — would not see it.
+
+**Kept the mechanism and the trigger separate, because the obvious trigger does
+not fit.** Launch is queue-driven, but the Cloudflare launch queue landed
+**dormant** on 2026-09-03 (#3290), and **#3446** — "launch v2 through Cloudflare
+while v1 keeps SQS" — is **still open, not merged**. Nothing there changed
+tonight, so I cannot connect this to the 00:03Z onset. It may be the right
+mechanism with a trigger I have not found, or the wrong one.
+
+Said exactly that rather than presenting a traced path as a diagnosis. Three
+wrong characterizations of this issue already; a fourth confident story is the
+last thing it needs.
+
+**Proposed the cheap decider:** the branch is silent — both paths return
+credentials and neither logs which ran. One log line at the `isWorkerRuntime()`
+fork answers it on the next occurrence, and is worth keeping permanently. A
+runtime detection that silently changes credential strategy should say which way
+it went.
