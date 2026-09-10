@@ -8813,3 +8813,48 @@ out of a posted code block — the same failure as on #242 two hours ago. Verifi
 the live comment, patched it via the API, re-verified. The lesson I apparently
 did not absorb the first time: write comment bodies containing backticks to a
 file with a quoted heredoc, never inline.
+
+### 2026-09-10 — two of my own reports contradicted by new data; both corrected
+
+Disk 5.9Gi. Drain: 2 pending, normal window. Nothing else had moved — both PRs
+open with no reviewers, lane still idle (0 writes in 30 min) — so I classified
+the newest failures before calling it a quiet tick. It was not one.
+
+**1. The CREDS burst was not deploy-correlated, and it did not stop.**
+
+```
+burst 1   00:03:46 00:09:02 00:09:06 00:09:10 00:10:46   (7 min, 5 runs)
+gap       63 minutes, clear
+burst 2   01:13:46 01:13:50 01:24:14 01:34:38            (21 min, 4 runs)
+```
+
+Deploys on `main` since 23:00Z: **exactly one**, at 23:51:17. Nothing between the
+bursts, nothing before the second.
+
+So the deploy correlation is dead, and with it the "T+12m onset, 7m duration"
+shape I called *recognisable numbers* — that was a single sample and I over-read
+it. Worse, **the falsifiable check I proposed would have produced a false
+negative**: watching the next deploy and seeing nothing would have looked like
+the issue closing itself.
+
+Retitled #3513 and posted the reversal explicitly rather than editing the body,
+because the deploy story was specific enough that someone could have spent time
+on worker cold-start behaviour on the strength of it.
+
+What survives: the mode is genuinely novel (0 in the preceding 70 failures) and
+fails at `launch`, so nothing retries it. That is still why it matters.
+
+**2. `workspace_busy` has recurred** — one at 01:37:00, ~1h46m after the fix
+deployed. My "0 in 8 post-deploy" now reads 1 in 17.
+
+Corrected that on #3507 in **both** directions: it does not mean the fix failed.
+The change makes the 429 retryable within a bounded budget; it cannot guarantee
+success, and a single occurrence is what sustained back-pressure outlasting the
+budget looks like — which the PR body already said it does not address. What
+would settle it is whether that run logged `attempt N failed transiently;
+retrying` before dying, and the failure record does not carry the executor's
+retry lines, so it needs the cloud run log I have not pulled.
+
+Both corrections filed within the tick that found them. The pattern I keep
+hitting: a clean number from a short window reads as a result, and someone quotes
+it back later as evidence the thing is fixed.
