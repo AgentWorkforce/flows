@@ -36,6 +36,7 @@ export function createAgentLowerer<Input>({
   definition: AuthoredFlowDefinition<Input>;
   checker: AuthoredFlowChecker;
   journal: JournalClient;
+  /** Appended only when output reading observes step.completed; never rolled back. */
   journalSteps: AuthoredFlowJournalStep[];
   localAgentStream?: string;
   waitOptions: RunLifecycleOptions;
@@ -116,11 +117,14 @@ export function createAgentLowerer<Input>({
     // (renewing as the lease renews, per docs/SURFACE.md §5's WAITING
     // [worker_lease] contract), never an unrelated fixed deadline.
     const execution = await classifyOutcome(journal, 'run', outcome, report, '', waitOptions);
+    // Preflight refusals (CLI exit 2) happen above, before runStart. Runtime
+    // classification returns success (0), failure (1), or parked (3). Keep
+    // the nonzero guard fail-closed if that classifier's contract expands.
     if (execution.exitCode === 3) {
       const parked = execution.report.parkedStep;
       throw new AuthoredFlowExecutionError(
         'agent_parked',
-        execution.report.diagnostics.at(-1)?.message
+        [...execution.report.diagnostics].reverse().find(d => d.severity === 'parked')?.message
           ?? `flow "${definition.name}" step "${id}" parked`
             + (parked !== undefined ? ` (${parked.type})` : '')
             + ': no worker is attached to run it.',
@@ -132,7 +136,7 @@ export function createAgentLowerer<Input>({
       const reason = execution.report.completionReason;
       throw new AuthoredFlowExecutionError(
         'step_failed',
-        execution.report.diagnostics.at(-1)?.message
+        [...execution.report.diagnostics].reverse().find(d => d.severity === 'failure' || d.severity === 'refusal')?.message
           ?? `flow "${definition.name}" step "${id}" did not complete successfully `
             + `(status: ${execution.report.status ?? 'unknown'})`,
         isSurfaceCompletionReason(reason) ? reason : undefined,

@@ -12,6 +12,7 @@ export type CliResolutionSource = 'step' | 'named' | 'flow' | 'project';
 export interface CliResolution {
   stepId: string;
   cli: string;
+  /** Relative CLI base: project config for project; flow file for all others. */
   source: CliResolutionSource;
   /** Model the step or selected named agent declared, probed with the CLI. */
   model?: string;
@@ -58,6 +59,11 @@ export interface PreflightOptions {
   projectSearchStart?: string;
   /** Exact, project-owned model allowlist from the nearest flows.json. */
   models?: readonly string[];
+  /**
+   * Presence enables named-agent allowlist enforcement; an absent/empty models
+   * list then allows no models. Absence means no project policy for named
+   * declarations. Explicit step models still require allowlist membership.
+   */
   modelRegistryPath?: string;
   probes: PreflightProbes;
 }

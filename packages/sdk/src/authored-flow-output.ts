@@ -18,6 +18,12 @@ import { AuthoredFlowExecutionError } from './authored-flow-error.js';
  * terminal state. Given that, a single read from the start of this run's
  * (small, single-step) journal is enough — no polling here, and no run
  * outcome ever needs re-checking.
+ *
+ * `journalSteps` records observed journal facts, not successful output
+ * conversions: a valid completion is appended before checking its reason or
+ * decoding output. A later refusal must not erase that fact. Missing or
+ * malformed completion entries append nothing. Execution propagates errors
+ * and does not return a successful result or automatically retry this read.
  */
 async function readCompletedStepOutput(
   journal: JournalClient,
