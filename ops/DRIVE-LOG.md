@@ -10285,3 +10285,43 @@ on that exact file -- two of my own PRs colliding there would be self-inflicted.
 in substance and passed". Weaker than that: they reviewed the working tree, not
 the diff. For this PR the two are nearly equivalent since the change IS that
 file, but I said it before checking and it should not stand unqualified.
+
+### 2026-09-10 10:57Z — I truncated a quote and filed an overclaim. Corrected.
+
+Queue: pending=3 (young), 12 running. Disk 5.1Gi.
+
+Went to VERIFY the mechanism I asserted in flows#260 -- that steps do not share
+a filesystem -- because I had filed an issue on it partly from memory. The
+verification falsified my own headline.
+
+The history transcript's full sentence:
+
+    "The /tmp diff was absent, so the supplied .review-target/pr.diff was used."
+
+**I quoted it up to "absent" and stopped.** It goes on to say it fell back to
+the staged copy, and it demonstrably used it:
+
+    git diff HEAD^ HEAD -- workflows/review-swarm.yaml | cmp - .review-target/pr.diff
+
+So the history lens DID review the actual change. My issue title -- "two lenses
+passed without ever seeing the diff" -- is false.
+
+For maintainability I inferred blindness from citation style. Weak evidence,
+and I presented it as a finding. Corrected to: I do not know, and the
+transcript does not say.
+
+**What survives:** the /tmp handoff really is broken, all three lens tasks
+point at a path that may not exist, and whether a lens recovers depends on it
+noticing `.review-target/pr.diff` unaided. One did. That is luck, not
+contract, and the fix (point the tasks at the staged path) is now the whole
+issue. Dropped my "gate passes while blind" framing -- unsupported.
+
+Also corrected the #259 comment, where I had over-corrected in the direction of
+doubt. That is its own kind of inaccuracy: the original report was closer to
+right than the correction was.
+
+Two lessons, both mine:
+ 1. I truncated a quote at exactly the point where it stopped supporting my
+    reading. Not deliberate, but the effect is the same as if it were.
+ 2. Verifying an assertion I had already published is what caught it. The
+    verification was worth doing precisely because I had already acted on it.
