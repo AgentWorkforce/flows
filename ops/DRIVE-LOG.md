@@ -9033,3 +9033,38 @@ without further guessing.
 This is the second time tonight that checking for an existing signal changed the
 work — the first was the ACL 429 site that needed nothing. Worth the habit:
 "the system does not report X" is a claim to verify, not an assumption to build on.
+
+### 2026-09-10 — CI caught what I could not run: my tests passed, I broke another
+
+Disk 5.3Gi. Drain clean: 0 pending of 2043. Four open cloud PRs; **#3516 had one
+failing check** — my own, so I took it.
+
+```
+ok 82 - the transport rendering of workspace_busy backs off instead of hammering
+ok 83 - a genuine transport error still retries fast
+not ok 81 - rate-limit delay honors the hint, falls back, and caps total delay
+```
+
+**My two new cases passed. I broke an existing one.** Test 81 asserted
+`deepEqual(noHint.delays, [281])` — a rate-limit with no advertised interval
+falling back to the 250ms transient delay. My change routes that to the overload
+delays, so it fails.
+
+**Updated the assertion, not the code — and justified it rather than letting it
+look like making a test agree with me.** The input is
+`was rate-limited ... (code: workspace_busy)` with the interval merely omitted.
+Falling back to a quarter-second there is the hammering the path exists to stop;
+it is the same defect as the transport shape reached differently. The old
+expectation was *documenting* behaviour, not requiring it — its own message said
+"falls back to the existing retry delay".
+
+Changed it to a magnitude assertion (`>= 8_000`) rather than a fresh exact
+number: the value carries proportional jitter by design, and pinning an exact
+figure encodes jitter internals into a test about back-pressure. The hinted
+(`[3_375]`) and capped (`[75_000]`) assertions are untouched and still exact.
+
+**This is precisely the risk I flagged when opening the PR.** I said the delay
+assertions were unexecuted by me because my worktree resolves a stale
+`daytona-runner` dist from another checkout, and that CI would run them. It did —
+and it found a consequence I had not anticipated, in a *different* test. Stating
+the limitation up front is what made the failure legible instead of surprising.
