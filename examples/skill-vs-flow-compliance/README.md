@@ -1,16 +1,26 @@
 # skill-vs-flow-compliance
 
-**The comparison the RelayFlow value prop rests on:** the same tiny coding
-task, run for real, three ways — an agent with a skill, an agent with no
-skill, and a relayflow that encodes the skill's rules as postfix
-deterministic gates instead of handing them to the agent at all. All three
-arms are real invocations of `claude` (Opus), not simulated. Every number
-below links to the literal captured evidence that produced it.
+**The comparison the RelayFlow value prop rests on:** the same coding task,
+run for real, three ways — an agent with a skill, an agent with no skill,
+and a relayflow that encodes the skill's rules as postfix deterministic
+gates instead of handing them to the agent at all. Every number below links
+to the literal captured evidence that produced it.
 
 **Like I'm 5:** you can write a note reminding a helper to double-check their
 work, or you can build a machine that physically won't let the box ship
 until it's been double-checked. Both usually work. This measures how often
 "usually" isn't good enough, and what happens differently when it isn't.
+
+**Two scenarios, on purpose.** The first run of this example (trivial task,
+frontier model) came back near-parity across all three arms — a real result,
+but not a compelling one, and reported honestly as exactly that below. So we
+re-ran the same harness against a harder, four-part task and a cheaper model
+— the exact "expected to widen the gap" follow-up this README's own "Known
+limitations" section named before it existed. It did: **0/3 final compliance
+without a gate, 3/3 with one**, same root cause every time, verified in the
+transcripts. Both scenarios are kept, not just the one that landed better —
+see [Scenario 1](#scenario-1--trivial-task-frontier-model) and
+[Scenario 2](#scenario-2--harder-task-cheaper-model).
 
 ## The four rules under test
 
@@ -19,22 +29,25 @@ until it's been double-checked. Both usually work. This measures how often
 house conventions: test-first, no debug leftovers, no secrets, conventional
 commit messages. `checks/*.sh` are the same four rules as deterministic
 shell scripts — no LLM anywhere — scored against a git diff. **The same four
-scripts are the ground truth for all three arms**: they score arm A's
-finished diff after the fact, and they are literally the steps
-`compliance-flow.ts` runs *during* arm B's run, before it is allowed to
-finish. Sanity-checked against a hand-built compliant diff (all four PASS)
-and a hand-built violating diff (all four correctly FAIL) — see the smoke
-test in this PR's evidence, not re-included here since it isn't a trial.
+scripts are the ground truth for all three arms, in both scenarios below**:
+they score arm A's finished diff after the fact, and they are literally the
+steps `compliance-flow.ts` runs *during* arm B's run, before it is allowed
+to finish. Sanity-checked against a hand-built compliant diff (all four
+PASS) and a hand-built violating diff (all four correctly FAIL) — see the
+smoke test in this PR's evidence, not re-included here since it isn't a
+trial.
 
-## The task
+## Scenario 1 — trivial task, frontier model
 
-`TASK.md`, verbatim, identical across every arm: fix `divide()` in
-`fixture/src/calculator.ts` so it throws on division by zero instead of
-returning `Infinity`/`NaN`. No arm is told about the four rules in its task
-prompt — arm A's agent has to notice the installed skill applies and choose
-to invoke it; the flow never mentions the rules to its agent at all.
+`TASK.md`, verbatim, identical across every arm in this scenario: fix
+`divide()` in `fixture/src/calculator.ts` so it throws on division by zero
+instead of returning `Infinity`/`NaN`. No arm is told about the four rules
+in its task prompt — arm A's agent has to notice the installed skill applies
+and choose to invoke it; the flow never mentions the rules to its agent at
+all. All three arms below are real invocations of `claude` at its default
+model (Opus, whatever the host resolves), not simulated.
 
-## Arm A — agent + skill (`shims/run-agent-trial.ts`)
+### Arm A — agent + skill (`shims/run-agent-trial.ts`)
 
 Single-shot: the skill is installed, the agent gets the bare task, and
 whatever it produces is scored once, after the fact — exactly like a human
@@ -51,7 +64,7 @@ reviewing a finished PR. Nothing intervenes mid-task.
 On this small, single-concern task, the skill worked every time it was
 tried.
 
-## Arm A-control — agent, no skill installed (same shim, `--no-skill`)
+### Arm A-control — agent, no skill installed (same shim, `--no-skill`)
 
 Same task, same model, same shim — `.claude/skills/` is simply absent from
 the repo. Isolates the skill's marginal effect from the model's baseline
@@ -69,7 +82,7 @@ in this sample. Reported anyway, per this repo's evidence rule: a smaller
 true claim beats a larger one that doesn't survive being checked. Keep
 reading — the same bare setup looks different inside the flow.
 
-## Arm B — the relayflow (`compliance-flow.ts` + `shims/run-flow.ts`)
+### Arm B — the relayflow (`compliance-flow.ts` + `shims/run-flow.ts`)
 
 The agent gets the identical bare task — no skill installed, no mention of
 the four rules. The difference is what happens next: the flow runs all four
@@ -101,32 +114,109 @@ when it does. Arm B's gate noticed it in real time, said exactly what was
 wrong, and fixed it before reporting anything —
 [see the actual repair prompt it generated](runs/relayflow/run-3/attempt-2-implementer.prompt.md).
 
+## Scenario 2 — harder task, cheaper model
+
+Same harness, same four ground-truth checks, same `claude` CLI — two things
+changed, both away from the frontier model's comfort zone: `TASK-HARD.md`
+replaces the one-line fix with four independent pieces of work in a single
+pass (fix `divide`, add `average`, add `power`, add `NaN` guards to `add`
+and `subtract`), and every invocation passes `--model haiku` instead of the
+host's Opus default. `SKILL.md` is unchanged and still states "test-first...
+on every change, however small." Reproduce with `--task TASK-HARD.md
+--model haiku --scenario hard` on all three commands in
+[Reproduce it](#reproduce-it).
+
+### Arm A — agent + skill, Haiku, hard task
+
+| Trial | Skill invoked? | tests-pass | no-debug | no-secrets | commit-msg | Evidence |
+|---|---|---|---|---|---|---|
+| 1 | **no** | FAIL | PASS | PASS | PASS | [transcript](runs/agent-plus-skill-hard/trial-1/transcript.txt) · [verdict](runs/agent-plus-skill-hard/trial-1/verdict.json) |
+| 2 | **no** | FAIL | PASS | PASS | FAIL | [transcript](runs/agent-plus-skill-hard/trial-2/transcript.txt) · [verdict](runs/agent-plus-skill-hard/trial-2/verdict.json) |
+| 3 | **no** | FAIL | PASS | PASS | PASS | [transcript](runs/agent-plus-skill-hard/trial-3/transcript.txt) · [verdict](runs/agent-plus-skill-hard/trial-3/verdict.json) |
+
+**0/3 compliant. The `Skill` tool never fired** (`grep -c '"name":"Skill"'
+runs/agent-plus-skill-hard/trial-*/transcript.txt` → `0` for all three,
+against `1` for every Scenario 1 trial). It isn't that Haiku read the skill
+and decided against it — the transcripts show it never discovered the
+installed skill at all under the harder task, and did visibly less
+verification work generally: one `Bash` call and one `Read` across the
+whole trial, versus five `Bash` calls when the same skill fired for Opus in
+Scenario 1 (`grep -c '"name":"Bash"' .../trial-1/transcript.txt`). Skill
+discovery, not just skill-following, degraded with task complexity and
+model tier.
+
+### Arm A-control — agent, no skill, Haiku, hard task
+
+| Trial | tests-pass | no-debug | no-secrets | commit-msg | Evidence |
+|---|---|---|---|---|---|
+| 1 | FAIL | PASS | PASS | FAIL | [verdict](runs/agent-no-skill-hard/trial-1/verdict.json) |
+| 2 | FAIL | PASS | PASS | PASS | [verdict](runs/agent-no-skill-hard/trial-2/verdict.json) |
+| 3 | FAIL | PASS | PASS | PASS | [verdict](runs/agent-no-skill-hard/trial-3/verdict.json) |
+
+**0/3 compliant — statistically indistinguishable from arm A with the skill
+installed**, which is exactly what "the skill was never discovered" in arm A
+predicts: an uninstalled skill and an undiscovered one look identical from
+the outside. Every failure is the same rule, `check-tests-pass`: no test
+file touched.
+
+### Arm B — the relayflow, Haiku, hard task
+
+| Run | Attempt 1 | Attempt 2 | Final | Evidence |
+|---|---|---|---|---|
+| 1 | **FAIL: check-tests-pass, check-commit-message** | ALL PASS | `success` | [verdict](runs/relayflow-hard/run-1/verdict.json) |
+| 2 | **FAIL: check-tests-pass** | ALL PASS | `success` | [verdict](runs/relayflow-hard/run-2/verdict.json) |
+| 3 | **FAIL: check-tests-pass, check-commit-message** | ALL PASS | `success` | [verdict](runs/relayflow-hard/run-3/verdict.json) |
+
+**3/3 attempt-1s failed `check-tests-pass` — the identical root cause seen
+in both agent arms, on the identical model, at the identical task.** That
+match matters: it rules out "the flow's agent step just behaves
+differently" as the explanation for what follows. The bounded retry, with
+the gate's own failure message fed back, fixed all three: **3/3 final
+`success`.**
+
+**Scenario 2, side by side: 0/3 final compliance without a gate (either
+arm), 3/3 with one — same task, same model, same failure mode, verified in
+the transcripts, not asserted.** This is the reliability gap Scenario 1
+didn't show, for exactly the reason its own "Known limitations" predicted:
+a smaller/cheaper model widened it.
+
 ## What this does and doesn't claim
 
-- **This is not a statistical study.** N=3 per arm is a worked mechanism
-  demo with real, checkable evidence, not a compliance-rate estimate. Don't
-  read "1/3" or "3/3" above as a population rate for any model.
-- **The skill genuinely worked, every time we invoked it.** This example
-  does not claim skills are unreliable in general — the honest result here
-  is closer to "a frontier model on a small, well-matched task follows both
-  a skill and its own defaults most of the time." That is a real finding,
-  and it undercuts a cheaper version of this pitch that assumes skills
-  fail constantly. They don't have to, to matter.
+- **Scenario 1 alone would not have proven the value prop; Scenario 2 is
+  why both are kept.** A frontier model on a one-line task followed both the
+  skill and its own defaults 3/3 times — a real result, but parity, not a
+  case for flows. Scenario 2, changed to a harder task and a cheaper model,
+  produced the actual gap: 0/3 vs 3/3 final compliance, same root cause in
+  every arm. Neither scenario is cherry-picked to make a point after the
+  fact — Scenario 1 was run and reported first, its own limitations section
+  named "smaller/cheaper model" as the follow-up expected to widen the gap
+  before Scenario 2 existed, and Scenario 2 is that follow-up.
+- **This is not a statistical study.** N=3 per arm per scenario is worked
+  mechanism evidence with real, checkable transcripts, not a
+  compliance-rate estimate for any model in general. Don't read "0/3" or
+  "3/3" above as a population rate — read it as "in these six+six real
+  invocations, this specific thing happened, here's the transcript."
+- **The skill isn't unreliable in the abstract; it's undiscovered under
+  load.** Scenario 1 shows the skill working every time it fires. Scenario 2
+  shows it not firing at all once the task got harder and the model got
+  cheaper — a different failure mode than "read the rule and ignored it,"
+  and arguably a worse one, because nothing in arm A's own output signals
+  that the skill was ever in play.
 - **The actual claim is about *kind*, not *rate*.** A skill is the agent
-  choosing, from memory, to apply a rule it was told about once. A
-  relayflow gate is a deterministic script that runs whether or not
-  anything remembers to ask it to, and a run cannot report success while
-  it's failing. At the scale RFC-0001's covenant 3 targets — ten, twenty,
-  thirty concurrent runs — the difference between "usually" and "provably"
-  is exactly the difference between an incident you find in a retro and one
-  that never ships. Run 3's attempt 1 is what "usually" looks like from the
-  inside: not a dramatic failure, a quietly skipped test, in a task nobody
-  was watching. The gate is the only reason it didn't ship that way.
+  choosing, from memory, to notice a rule applies and apply it. A relayflow
+  gate is a deterministic script that runs whether or not anything
+  remembers to invoke it, and a run cannot report success while it's
+  failing. Scenario 2's three flow runs needed the retry 3/3 times — the
+  gate did not make the underlying agent step more careful, it made the
+  run unable to ship the careless version. That's the mechanism in both
+  scenarios; Scenario 2 is where it also shows up as a rate.
 
 ## Reproduce it
 
 ```sh
 cd examples/skill-vs-flow-compliance
+
+# Scenario 1 (trivial task, default/frontier model):
 
 # Arm A: agent + skill (installed fresh into an isolated git repo per trial)
 node --experimental-strip-types shims/run-agent-trial.ts --trial 4
@@ -136,13 +226,20 @@ node --experimental-strip-types shims/run-agent-trial.ts --trial 4 --no-skill
 
 # Arm B: the relayflow (bare task, gate + bounded retry, no skill involved)
 node --experimental-strip-types shims/run-flow.ts --run 4
+
+# Scenario 2 (harder task, cheaper model) — same three commands, plus:
+node --experimental-strip-types shims/run-agent-trial.ts --trial 4 --task TASK-HARD.md --model haiku --scenario hard
+node --experimental-strip-types shims/run-agent-trial.ts --trial 4 --no-skill --task TASK-HARD.md --model haiku --scenario hard
+node --experimental-strip-types shims/run-flow.ts --run 4 --task TASK-HARD.md --model haiku --scenario hard
 ```
 
-Requires an authenticated `claude` CLI on `PATH` (`claude auth status`).
-Each invocation makes one or two real, billed model calls and writes fresh
-evidence under `runs/<arm>/`; nothing here is mocked or replayed. Trial/run
-numbers are not reused — pick a fresh `--trial`/`--run` value or a prior
-directory is left in place rather than silently overwritten.
+Requires an authenticated `claude` CLI on `PATH` (`claude auth status`), and
+that the host resolves `--model haiku` (`claude -p --model haiku ...`) for
+Scenario 2. Each invocation makes one or two real, billed model calls and
+writes fresh evidence under `runs/<arm[-scenario]>/`; nothing here is mocked
+or replayed. Trial/run numbers are not reused per arm — pick a fresh
+`--trial`/`--run` value or a prior directory is left in place rather than
+silently overwritten.
 
 Typecheck (opt-in, mirrors `examples/research`):
 
@@ -154,27 +251,30 @@ npm --prefix examples/skill-vs-flow-compliance run typecheck
 
 ```
 examples/skill-vs-flow-compliance/
-  TASK.md                the bare task, identical across every arm
-  SKILL.md                the four house conventions, as a skill
-  fixture/                the task repo template, copied fresh per trial/run
+  TASK.md                 Scenario 1's bare task, identical across every arm
+  TASK-HARD.md             Scenario 2's bare task (four independent changes, one pass)
+  SKILL.md                 the four house conventions, as a skill — unchanged across scenarios
+  fixture/                 the task repo template, copied fresh per trial/run
   checks/*.sh              the four rules as deterministic scripts — the shared ground truth
   compliance-flow.ts       arm B: the relayflow (v2 dialect, docs/SURFACE.md)
   shims/
     trial-runtime.ts       shared plumbing: materialize an isolated repo, run checks
-    run-agent-trial.ts     arm A + arm A-control entry point
+    run-agent-trial.ts     arm A + arm A-control entry point (--task/--model/--scenario select the scenario)
     run-flow.ts            arm B entry point — implements postfix .gate() in
                             userland, same documented gap as examples/research/shims/run.ts
-  runs/                    captured evidence (gitignored: runs/**/repo/, the live git repos)
+  runs/                    captured evidence, one dir per arm per scenario
+    agent-plus-skill/, agent-no-skill/, relayflow/            Scenario 1 (default model)
+    agent-plus-skill-hard/, agent-no-skill-hard/, relayflow-hard/   Scenario 2 (--model haiku, TASK-HARD.md)
+                             (gitignored: runs/**/repo/, the live git repos)
 ```
 
 ## Known limitations
 
-- **Single CLI (Claude), single model (Opus, whatever the host resolves as
-  default).** Unlike `examples/research`'s three-lane fan-out, this example
-  doesn't vary the model — the question here is skill-vs-gate, not
-  model-vs-model. Re-running against a smaller/cheaper model would be a
-  natural follow-up and is expected to widen the gap this README reports as
-  not visible yet.
+- **Single CLI (Claude).** Unlike `examples/research`'s three-lane fan-out,
+  this example doesn't vary the CLI — the question here is skill-vs-gate,
+  not CLI-vs-CLI. Two models are covered (Opus-tier default in Scenario 1,
+  Haiku in Scenario 2), which is what surfaced Scenario 2's gap; a third
+  provider's model is a natural further follow-up, not attempted here.
 - **No workspace containment.** Same limitation as `examples/research`:
   `--dangerously-skip-permissions` is real permission bypass, scoped only by
   the trial's isolated directory as a matter of task design, not by any
@@ -185,3 +285,7 @@ examples/skill-vs-flow-compliance/
   today. `compliance-flow.ts` typechecks as a v2-dialect flow; `shims/run-flow.ts`
   is what actually executes it, exactly the way `examples/research/shims/run.ts`
   already does for its own context.
+- **Scenario 2 is still N=3 per arm, one task, one cheap-tier model.** It
+  answers "does the gap show up at all" (yes, verified) not "how big is the
+  gap in general" (not attempted, and this harness would need far more
+  trials across more tasks and models to say that honestly).

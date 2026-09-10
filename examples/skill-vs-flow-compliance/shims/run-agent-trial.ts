@@ -7,12 +7,14 @@
 // result afterward, exactly like a human reviewer reading a PR after the
 // fact.
 //
-//   node --experimental-strip-types shims/run-agent-trial.ts --trial N [--no-skill]
+//   node --experimental-strip-types shims/run-agent-trial.ts --trial N [--no-skill] [--task FILE] [--model NAME] [--scenario NAME]
 //
-// Writes runs/agent-plus-skill/trial-<N>/{prompt.md,transcript.log,diff.patch,verdict.json},
-// or runs/agent-no-skill/trial-<N>/... with --no-skill — the control arm:
-// same task, same model, no skill installed, so a skill's marginal effect
-// (not just the agent's baseline competence) is visible in the evidence.
+// Writes runs/<scenario->agent-plus-skill/trial-<N>/{prompt.md,transcript.txt,diff.patch,verdict.json},
+// or runs/<scenario->agent-no-skill/trial-<N>/... with --no-skill — the
+// control arm: same task, same model, no skill installed, so a skill's
+// marginal effect (not just the agent's baseline competence) is visible in
+// the evidence. --task/--model/--scenario let a second, harder scenario
+// (TASK-HARD.md, a cheaper model) reuse this same harness and scoring.
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -47,16 +49,24 @@ function spawnCapture(argv: string[], cwd: string, stdin: string): Promise<{ cod
   });
 }
 
+function argAfter(flag: string): string | undefined {
+  const i = process.argv.indexOf(flag);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
 async function main(): Promise<number> {
-  const trialArg = process.argv.indexOf("--trial");
-  const trial = trialArg >= 0 ? process.argv[trialArg + 1] : undefined;
+  const trial = argAfter("--trial");
   const withSkill = !process.argv.includes("--no-skill");
+  const taskFile = argAfter("--task") ?? "TASK.md";
+  const model = argAfter("--model");
+  const scenario = argAfter("--scenario");
   if (!trial) {
-    process.stderr.write("usage: run-agent-trial.ts --trial <n> [--no-skill]\n");
+    process.stderr.write("usage: run-agent-trial.ts --trial <n> [--no-skill] [--task FILE] [--model NAME] [--scenario NAME]\n");
     return 2;
   }
 
-  const arm = withSkill ? "agent-plus-skill" : "agent-no-skill";
+  const armBase = withSkill ? "agent-plus-skill" : "agent-no-skill";
+  const arm = scenario ? `${armBase}-${scenario}` : armBase;
   const evidenceDir = join(EXAMPLE_ROOT, "runs", arm, `trial-${trial}`);
   const repoDir = join(evidenceDir, "repo");
   await mkdir(evidenceDir, { recursive: true });
@@ -66,12 +76,12 @@ async function main(): Promise<number> {
   // project skill. The prompt is the bare task — identical to what arm B's
   // flow hands its agent step. The agent is trusted to find the skill and
   // apply it; nothing here enforces that it does.
-  const prompt = await readTaskBrief();
+  const prompt = await readTaskBrief(taskFile);
   await writeFile(join(evidenceDir, "prompt.md"), prompt, "utf8");
 
   // headlessInvocation already includes --dangerously-skip-permissions for
   // claude (see headless.ts); nothing is added here.
-  const { argv } = headlessInvocation("claude", { promptFile: join(evidenceDir, "prompt.md"), cwd: repoDir });
+  const { argv } = headlessInvocation("claude", { promptFile: join(evidenceDir, "prompt.md"), cwd: repoDir, model });
   const spawned = await spawnCapture(argv, repoDir, prompt);
   // .txt, not .log: this repo's root .gitignore excludes *.log, and this
   // transcript is the evidence a claim in README.md cites, not a disposable
@@ -101,6 +111,8 @@ async function main(): Promise<number> {
   await writeJson(join(evidenceDir, "verdict.json"), {
     trial,
     arm,
+    task: taskFile,
+    model: model ?? "default",
     workerError,
     finalMessage: parsed?.finalText,
     usage: parsed?.usage,

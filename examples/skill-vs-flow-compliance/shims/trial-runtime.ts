@@ -90,8 +90,8 @@ export async function runChecks(dir: string): Promise<CheckOutcome[]> {
   return outcomes;
 }
 
-export async function readTaskBrief(): Promise<string> {
-  return readFile(join(EXAMPLE_ROOT, "TASK.md"), "utf8");
+export async function readTaskBrief(fileName = "TASK.md"): Promise<string> {
+  return readFile(join(EXAMPLE_ROOT, fileName), "utf8");
 }
 
 export async function readSkill(): Promise<string> {

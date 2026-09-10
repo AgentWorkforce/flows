@@ -1,0 +1,37 @@
+{
+  "trial": "3",
+  "arm": "agent-no-skill-hard",
+  "task": "TASK-HARD.md",
+  "model": "haiku",
+  "finalMessage": "Done. All four changes are complete and committed:\n\n**Commit 63725bc** — Fixed existing functions:\n- `divide()` throws `RangeError` on zero divisor\n- `add()` and `subtract()` throw `TypeError` when either argument is `NaN`\n\n**Commit a97e075** — Added new functions:\n- `average(nums)` computes the arithmetic mean; throws `RangeError` if the array is empty\n- `power(base, exponent)` raises base to a non-negative integer exponent; throws `TypeError` if exponent is negative or not an integer",
+  "usage": {
+    "inputTokens": 89,
+    "outputTokens": 3757,
+    "cacheReadInputTokens": 287478,
+    "cacheCreationInputTokens": 16633,
+    "costUsd": "0.080888"
+  },
+  "checks": [
+    {
+      "name": "check-tests-pass",
+      "pass": false,
+      "message": "FAIL no test file changed since baseline (test/*.test.ts)"
+    },
+    {
+      "name": "check-no-debug-artifacts",
+      "pass": true,
+      "message": "PASS no console.log/console.debug/debugger/commented-out code in added lines"
+    },
+    {
+      "name": "check-no-secrets",
+      "pass": true,
+      "message": "PASS no credential-shaped literals in added lines"
+    },
+    {
+      "name": "check-commit-message",
+      "pass": true,
+      "message": "PASS every commit since baseline matches conventional-commit format"
+    }
+  ],
+  "allPass": false
+}

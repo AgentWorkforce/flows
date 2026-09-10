@@ -1,0 +1,107 @@
+diff --git a/src/calculator.ts b/src/calculator.ts
+index b5d5312..71ee91b 100644
+--- a/src/calculator.ts
++++ b/src/calculator.ts
+@@ -3,13 +3,39 @@
+ // else here is in scope for the task, and both arms are told so.
+ 
+ export function add(a: number, b: number): number {
++  if (Number.isNaN(a) || Number.isNaN(b)) {
++    throw new TypeError("Arguments cannot be NaN");
++  }
+   return a + b;
+ }
+ 
+ export function subtract(a: number, b: number): number {
++  if (Number.isNaN(a) || Number.isNaN(b)) {
++    throw new TypeError("Arguments cannot be NaN");
++  }
+   return a - b;
+ }
+ 
+ export function divide(a: number, b: number): number {
++  if (b === 0) {
++    throw new RangeError("Division by zero");
++  }
+   return a / b;
+ }
++
++export function average(nums: number[]): number {
++  if (nums.length === 0) {
++    throw new RangeError("Cannot calculate average of empty array");
++  }
++  return nums.reduce((sum, n) => sum + n, 0) / nums.length;
++}
++
++export function power(base: number, exponent: number): number {
++  if (!Number.isInteger(exponent)) {
++    throw new TypeError("Exponent must be an integer");
++  }
++  if (exponent < 0) {
++    throw new TypeError("Exponent must be non-negative");
++  }
++  return Math.pow(base, exponent);
++}
+diff --git a/test/calculator.test.ts b/test/calculator.test.ts
+index 8638ef8..277b20f 100644
+--- a/test/calculator.test.ts
++++ b/test/calculator.test.ts
+@@ -1,18 +1,55 @@
+ import { test } from "node:test";
+ import assert from "node:assert/strict";
+-import { add, subtract, divide } from "../src/calculator.ts";
++import { add, subtract, divide, average, power } from "../src/calculator.ts";
+ 
+ test("add", () => {
+   assert.equal(add(2, 3), 5);
+ });
+ 
++test("add with NaN throws TypeError", () => {
++  assert.throws(() => add(NaN, 3), TypeError);
++  assert.throws(() => add(2, NaN), TypeError);
++});
++
+ test("subtract", () => {
+   assert.equal(subtract(5, 3), 2);
+ });
+ 
++test("subtract with NaN throws TypeError", () => {
++  assert.throws(() => subtract(NaN, 3), TypeError);
++  assert.throws(() => subtract(5, NaN), TypeError);
++});
++
+ test("divide", () => {
+   assert.equal(divide(6, 3), 2);
+ });
+ 
+-// Deliberately absent: a case for dividing by zero. That is the gap the
+-// task asks either arm to close.
++test("divide by zero throws RangeError", () => {
++  assert.throws(() => divide(5, 0), RangeError);
++  assert.throws(() => divide(-5, 0), RangeError);
++});
++
++test("average", () => {
++  assert.equal(average([1, 2, 3]), 2);
++  assert.equal(average([10]), 10);
++  assert.equal(average([1, 1, 1, 1]), 1);
++});
++
++test("average with empty array throws RangeError", () => {
++  assert.throws(() => average([]), RangeError);
++});
++
++test("power", () => {
++  assert.equal(power(2, 3), 8);
++  assert.equal(power(5, 0), 1);
++  assert.equal(power(2, 10), 1024);
++});
++
++test("power with negative exponent throws TypeError", () => {
++  assert.throws(() => power(2, -1), TypeError);
++});
++
++test("power with non-integer exponent throws TypeError", () => {
++  assert.throws(() => power(2, 1.5), TypeError);
++  assert.throws(() => power(2, 0.5), TypeError);
++});
