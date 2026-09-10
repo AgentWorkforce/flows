@@ -1,5 +1,11 @@
 name: Review swarm wrapper guard
 
+# `review-swarm.yml` is the wrapper: it chooses the base-owned relayflow
+# definition and launches/enforces the review lenses. RFC-0001 §2 rule 4 and
+# settled decision 6 prohibit a candidate from editing the gate that judges
+# it. This pull_request_target workflow and the guard script are both loaded
+# from the pull request base, so a candidate may change the code under review
+# but cannot change the judge or which protected path it checks.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -12,15 +18,32 @@ jobs:
   guard:
     runs-on: ubuntu-latest
     steps:
-      # pull_request_target always reads this workflow and script from the PR
-      # base. A candidate therefore cannot relax the guard that evaluates it.
+      # pull_request_target evaluates this workflow from the PR base. The
+      # checkout repeats that pin for the script: BOTH pieces of the guard are
+      # base-owned, so changing the candidate's copy cannot relax this gate.
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
 
       - name: Reject candidate-owned wrapper changes
+        id: wrapper_guard
         env:
           GH_TOKEN: ${{ github.token }}
           REVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: .github/workflows/scripts/swarm-wrapper-guard.sh "$REVIEW_PR_NUMBER"
+
+      # A rejection is intentional and blocking, but the default Actions error
+      # would otherwise leave the reason buried in the shell step. Keep this
+      # message tied to this step so API/checkout failures are not mislabeled.
+      - name: Explain wrapper guard rejection
+        if: ${{ failure() && steps.wrapper_guard.outputs.guard_result == 'rejected' }}
+        run: |
+          echo "::error::a base-owned review-swarm gate file is changed, added, deleted, or renamed by the candidate" >&2
+          exit 1
+
+      - name: Explain wrapper guard infrastructure failure
+        if: ${{ failure() && steps.wrapper_guard.outputs.guard_result == 'error' }}
+        run: |
+          echo "::error::review-swarm wrapper guard could not inspect the candidate file list; this is an infrastructure or permission failure, not a candidate rejection" >&2
+          exit 1
