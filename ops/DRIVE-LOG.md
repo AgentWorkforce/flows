@@ -9987,3 +9987,33 @@ been stamping entries from the assumed 18-minute cadence rather than measuring
 the clock. In a durable log whose whole purpose is surviving this session, that
 is a real defect: it makes the sequence unreconstructable. From here I take the
 time from a command, not from the cadence.
+
+### 2026-09-10 08:42Z — verified my own #3516 claim instead of leaving it asserted
+
+Queue drained. Disk 5.7Gi -- UP from 4.5Gi, something freed ~1.2GB elsewhere on
+the machine. Not mine; noting the direction since it had been monotonically
+falling all night.
+
+Last tick I told #3516's reviewers that the new flows failure is "the exact
+shape this PR adds a rule for". That was a claim, not a check. Replayed the
+classifier in order, with and without the rule, against three real inputs:
+
+    input                                    without   with
+    flows failure (run 34440534265)          transient RATE-LIMITED
+    plain transport error                    transient transient
+    structured rendering (flows#256)         rate-lim  rate-lim
+
+Row 1 confirms the claim.
+
+**Row 2 is the one that mattered.** Hours ago I examined a different failure --
+`register transport error: HTTP error: error sending request for url` -- and
+said it was NOT evidence for #3516 because it carries no workspace_busy marker.
+If the new rule were too greedy it would swallow that case as well and make the
+fast-retry path unreachable for genuine connection failures. It does not. So
+the earlier judgement and the new rule are consistent, and the diff's ordering
+comment is load-bearing.
+
+Posted the table on #3516. It is the evidence a reviewer needs and it costs
+them nothing to check.
+
+Timestamp on this entry read from `date -u`, per last tick's correction.
