@@ -1,0 +1,2 @@
+fcc342856e206b37266db47b00d7f6c557844465 feat(calculator): add average and power functions, improve error handling
+2b5946681068d2498fa8e8d42291325fcd3a15df test(calculator): add comprehensive test suite for validation and new functions

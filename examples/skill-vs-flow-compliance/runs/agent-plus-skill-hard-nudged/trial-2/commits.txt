@@ -1,0 +1,2 @@
+0694e2ae6735c62c441c2a5b84fc2070c6d5f4a0 feat(calculator): add average and power; validate inputs
+9963015758ab1dd2266b80c892c58d81b7b7ef48 test(calculator): add comprehensive tests

@@ -11,16 +11,23 @@ work, or you can build a machine that physically won't let the box ship
 until it's been double-checked. Both usually work. This measures how often
 "usually" isn't good enough, and what happens differently when it isn't.
 
-**Two scenarios, on purpose.** The first run of this example (trivial task,
-frontier model) came back near-parity across all three arms — a real result,
-but not a compelling one, and reported honestly as exactly that below. So we
-re-ran the same harness against a harder, four-part task and a cheaper model
-— the exact "expected to widen the gap" follow-up this README's own "Known
-limitations" section named before it existed. It did: **0/3 final compliance
-without a gate, 3/3 with one**, same root cause every time, verified in the
-transcripts. Both scenarios are kept, not just the one that landed better —
-see [Scenario 1](#scenario-1--trivial-task-frontier-model) and
-[Scenario 2](#scenario-2--harder-task-cheaper-model).
+**Two scenarios, on purpose, plus one follow-up that changed the story.**
+Scenario 1 (trivial task, frontier model) came back near-parity across all
+three arms — a real result, but not a compelling one, reported honestly as
+exactly that below. Scenario 2 (harder task, cheaper model) found a real
+gap: 0/3 final compliance without a gate, 3/3 with one. But the reason
+turned out to matter: the skill's `Skill` tool never fired in Scenario 2 —
+the agent didn't read the skill and disregard it, it never found the skill
+at all. That's a different claim than "skills are followed unreliably," so
+we ran a third variant, **Scenario 2b**, that forces discovery (a generic
+"check for applicable project skills" nudge — no rule text pasted) and
+re-measures compliance once the skill is actually read. Once discovery was
+forced, compliance came back **3/3** — so the gap in Scenario 2 was a
+discovery failure, not a follow-through failure, and the README below says
+so plainly rather than keeping the more dramatic-sounding original framing.
+See [Scenario 1](#scenario-1--trivial-task-frontier-model),
+[Scenario 2](#scenario-2--harder-task-cheaper-model), and
+[Scenario 2b](#scenario-2b--same-as-2-but-discovery-is-forced).
 
 ## The four rules under test
 
@@ -136,14 +143,14 @@ on every change, however small." Reproduce with `--task TASK-HARD.md
 
 **0/3 compliant. The `Skill` tool never fired** (`grep -c '"name":"Skill"'
 runs/agent-plus-skill-hard/trial-*/transcript.txt` → `0` for all three,
-against `1` for every Scenario 1 trial). It isn't that Haiku read the skill
-and decided against it — the transcripts show it never discovered the
-installed skill at all under the harder task, and did visibly less
-verification work generally: one `Bash` call and one `Read` across the
+against `1` for every Scenario 1 trial). It isn't (necessarily) that Haiku
+read the skill and decided against it — the transcripts show it never
+invoked the installed skill at all under the harder task, and did visibly
+less verification work generally: one `Bash` call and one `Read` across the
 whole trial, versus five `Bash` calls when the same skill fired for Opus in
-Scenario 1 (`grep -c '"name":"Bash"' .../trial-1/transcript.txt`). Skill
-discovery, not just skill-following, degraded with task complexity and
-model tier.
+Scenario 1 (`grep -c '"name":"Bash"' .../trial-1/transcript.txt`). That
+"necessarily" matters — see Scenario 2b immediately below, which tests it
+directly instead of leaving it as an inference from absence.
 
 ### Arm A-control — agent, no skill, Haiku, hard task
 
@@ -176,40 +183,92 @@ the gate's own failure message fed back, fixed all three: **3/3 final
 
 **Scenario 2, side by side: 0/3 final compliance without a gate (either
 arm), 3/3 with one — same task, same model, same failure mode, verified in
-the transcripts, not asserted.** This is the reliability gap Scenario 1
-didn't show, for exactly the reason its own "Known limitations" predicted:
-a smaller/cheaper model widened it.
+the transcripts, not asserted.** This is a real gap Scenario 1 didn't show.
+But before treating it as "skills are unreliable," the honest next question
+is *why* the agent arm failed — and Scenario 2's own transcripts already
+answered that: the skill was never read. Scenario 2b tests the more
+specific claim directly.
+
+## Scenario 2b — same as 2, but discovery is forced
+
+Identical to Scenario 2's agent+skill arm — same `TASK-HARD.md`, same
+`--model haiku`, same installed `SKILL.md` — plus one line appended to the
+prompt (`shims/run-agent-trial.ts`'s `SKILL_DISCOVERY_NUDGE`, via
+`--nudge-skill`):
+
+> Before you start, check whether this repository has any installed
+> project skills that apply to this kind of change, and use whatever
+> applies.
+
+That sentence names no rule and pastes none of `SKILL.md`'s text — it only
+tells the agent to check, the same standing instruction a team's own
+`CLAUDE.md` commonly carries. This isolates discovery from compliance: if
+the gap was "reads it, doesn't follow it," forcing discovery should still
+show failures. If the gap was "never finds it," forcing discovery should
+close it.
+
+| Trial | Skill invoked? | tests-pass | no-debug | no-secrets | commit-msg | Evidence |
+|---|---|---|---|---|---|---|
+| 1 | **yes** | PASS | PASS | PASS | PASS | [transcript](runs/agent-plus-skill-hard-nudged/trial-1/transcript.txt) · [verdict](runs/agent-plus-skill-hard-nudged/trial-1/verdict.json) |
+| 2 | **yes** | PASS | PASS | PASS | PASS | [transcript](runs/agent-plus-skill-hard-nudged/trial-2/transcript.txt) · [verdict](runs/agent-plus-skill-hard-nudged/trial-2/verdict.json) |
+| 3 | **yes** | PASS | PASS | PASS | PASS | [transcript](runs/agent-plus-skill-hard-nudged/trial-3/transcript.txt) · [verdict](runs/agent-plus-skill-hard-nudged/trial-3/verdict.json) |
+
+**It closed it: 3/3 discovered (`grep -c '"name":"Skill"'
+runs/agent-plus-skill-hard-nudged/trial-*/transcript.txt` → `1` each), 3/3
+fully compliant.** Same hard task, same cheap model, same four rules — the
+only change from Scenario 2's 0/3 was forcing the agent to actually read the
+skill. Once it did, on this sample, it followed all four rules every time,
+including the harder task's extra surface area for missing one.
+
+**What this changes about the claim:** Scenario 2's gap was real but was a
+*discovery* failure, not a *compliance* failure — and those are different
+things to fix. A compliance failure means the skill mechanism itself is
+unreliable even when it works as designed. A discovery failure means the
+mechanism worked fine once triggered, and the actual dependency is on
+something *outside* the skill: either the model reliably noticing an
+installed skill applies (which failed here, unprompted), or a human
+correctly anticipating that and writing the right nudge into every task
+prompt for every skill that might apply — which is the same "usually a
+human remembers" reliance this whole comparison is about, just moved one
+level up, from "will the agent follow the rule" to "will the agent (or a
+human writing its prompt) even go looking for it." The relayflow gate has
+no discovery step to fail, nudged or not, because it isn't something the
+agent finds — it isn't agent-mediated at all.
 
 ## What this does and doesn't claim
 
-- **Scenario 1 alone would not have proven the value prop; Scenario 2 is
-  why both are kept.** A frontier model on a one-line task followed both the
-  skill and its own defaults 3/3 times — a real result, but parity, not a
-  case for flows. Scenario 2, changed to a harder task and a cheaper model,
-  produced the actual gap: 0/3 vs 3/3 final compliance, same root cause in
-  every arm. Neither scenario is cherry-picked to make a point after the
-  fact — Scenario 1 was run and reported first, its own limitations section
-  named "smaller/cheaper model" as the follow-up expected to widen the gap
-  before Scenario 2 existed, and Scenario 2 is that follow-up.
+- **Scenario 1 alone would not have proven the value prop.** A frontier
+  model on a one-line task followed both the skill and its own defaults 3/3
+  times — a real result, but parity, not a case for flows.
+- **Scenario 2's 0/3 vs 3/3 is real, but Scenario 2b changes what it's
+  evidence of.** The gap was a skill-discovery failure (the `Skill` tool
+  never fired), not a skill-compliance failure — confirmed, not inferred,
+  by forcing discovery in Scenario 2b and watching compliance return to
+  3/3. This report keeps Scenario 2's original framing on the record and
+  corrects it here rather than quietly rewriting it, because a comparison
+  that only survives by not testing its own explanation isn't one worth
+  citing at HN. None of the three scenarios is cherry-picked after the
+  fact: 1 ran first, its own "Known limitations" section named "smaller/
+  cheaper model" as the expected-to-widen-the-gap follow-up before 2
+  existed, and 2's own transcripts (0 `Skill` invocations) are what
+  prompted 2b.
 - **This is not a statistical study.** N=3 per arm per scenario is worked
   mechanism evidence with real, checkable transcripts, not a
   compliance-rate estimate for any model in general. Don't read "0/3" or
-  "3/3" above as a population rate — read it as "in these six+six real
-  invocations, this specific thing happened, here's the transcript."
-- **The skill isn't unreliable in the abstract; it's undiscovered under
-  load.** Scenario 1 shows the skill working every time it fires. Scenario 2
-  shows it not firing at all once the task got harder and the model got
-  cheaper — a different failure mode than "read the rule and ignored it,"
-  and arguably a worse one, because nothing in arm A's own output signals
-  that the skill was ever in play.
-- **The actual claim is about *kind*, not *rate*.** A skill is the agent
-  choosing, from memory, to notice a rule applies and apply it. A relayflow
-  gate is a deterministic script that runs whether or not anything
-  remembers to invoke it, and a run cannot report success while it's
-  failing. Scenario 2's three flow runs needed the retry 3/3 times — the
-  gate did not make the underlying agent step more careful, it made the
-  run unable to ship the careless version. That's the mechanism in both
-  scenarios; Scenario 2 is where it also shows up as a rate.
+  "3/3" above as a population rate — read it as "in these real invocations,
+  this specific thing happened, here's the transcript."
+- **The actual, surviving claim is about discovery, not compliance, and
+  about *kind* of guarantee, not *rate*.** Across all three scenarios, once
+  an agent genuinely reads a rule — via a real skill or a flow's own agent
+  step — it tends to follow it. The difference is what stands between "the
+  rule exists" and "the rule was applied": for a skill, it's the agent (or
+  a human writing the prompt) correctly deciding to go check, which failed
+  silently in Scenario 2 and required a deliberate, hand-written nudge to
+  fix in 2b. For a relayflow gate, nothing stands there — the check just
+  runs, and a run cannot report success while it's failing, independent of
+  whether anything "decided" to look. Scenario 2's flow runs needed the
+  retry 3/3 times for the identical reason the bare agent failed, and
+  fixed it anyway, without anyone writing a nudge for this specific task.
 
 ## Reproduce it
 
@@ -231,6 +290,9 @@ node --experimental-strip-types shims/run-flow.ts --run 4
 node --experimental-strip-types shims/run-agent-trial.ts --trial 4 --task TASK-HARD.md --model haiku --scenario hard
 node --experimental-strip-types shims/run-agent-trial.ts --trial 4 --no-skill --task TASK-HARD.md --model haiku --scenario hard
 node --experimental-strip-types shims/run-flow.ts --run 4 --task TASK-HARD.md --model haiku --scenario hard
+
+# Scenario 2b (Scenario 2's agent+skill arm, discovery forced):
+node --experimental-strip-types shims/run-agent-trial.ts --trial 4 --task TASK-HARD.md --model haiku --scenario hard-nudged --nudge-skill
 ```
 
 Requires an authenticated `claude` CLI on `PATH` (`claude auth status`), and
@@ -265,6 +327,7 @@ examples/skill-vs-flow-compliance/
   runs/                    captured evidence, one dir per arm per scenario
     agent-plus-skill/, agent-no-skill/, relayflow/            Scenario 1 (default model)
     agent-plus-skill-hard/, agent-no-skill-hard/, relayflow-hard/   Scenario 2 (--model haiku, TASK-HARD.md)
+    agent-plus-skill-hard-nudged/                             Scenario 2b (Scenario 2 + --nudge-skill)
                              (gitignored: runs/**/repo/, the live git repos)
 ```
 
@@ -285,7 +348,18 @@ examples/skill-vs-flow-compliance/
   today. `compliance-flow.ts` typechecks as a v2-dialect flow; `shims/run-flow.ts`
   is what actually executes it, exactly the way `examples/research/shims/run.ts`
   already does for its own context.
-- **Scenario 2 is still N=3 per arm, one task, one cheap-tier model.** It
-  answers "does the gap show up at all" (yes, verified) not "how big is the
-  gap in general" (not attempted, and this harness would need far more
-  trials across more tasks and models to say that honestly).
+- **Scenarios 2 and 2b are still N=3 per arm, one task, one cheap-tier
+  model.** They answer "does a discovery gap show up, and does forcing
+  discovery close it" (yes to both, verified) not "how often does an
+  unprompted model discover a given skill in general" (not attempted, and
+  would need far more trials across more tasks, models, and numbers of
+  installed skills to say honestly — discovery presumably gets harder, not
+  easier, the more skills compete for the same decision).
+- **The discovery nudge in Scenario 2b is generic, not this skill's
+  content.** It doesn't name `engineering-conventions` or paste any of its
+  four rules, so 2b is still measuring compliance-once-discovered rather
+  than compliance-with-the-rules-restated. But it's still a hand-written
+  addition to the prompt, chosen by us, after seeing Scenario 2 fail — in a
+  real workflow, writing that nudge into every task for every relevant
+  skill in advance is exactly the "usually a human remembers" dependency
+  this comparison is about.

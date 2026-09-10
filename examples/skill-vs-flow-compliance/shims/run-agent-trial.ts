@@ -7,7 +7,7 @@
 // result afterward, exactly like a human reviewer reading a PR after the
 // fact.
 //
-//   node --experimental-strip-types shims/run-agent-trial.ts --trial N [--no-skill] [--task FILE] [--model NAME] [--scenario NAME]
+//   node --experimental-strip-types shims/run-agent-trial.ts --trial N [--no-skill] [--task FILE] [--model NAME] [--scenario NAME] [--nudge-skill]
 //
 // Writes runs/<scenario->agent-plus-skill/trial-<N>/{prompt.md,transcript.txt,diff.patch,verdict.json},
 // or runs/<scenario->agent-no-skill/trial-<N>/... with --no-skill — the
@@ -15,6 +15,17 @@
 // marginal effect (not just the agent's baseline competence) is visible in
 // the evidence. --task/--model/--scenario let a second, harder scenario
 // (TASK-HARD.md, a cheaper model) reuse this same harness and scoring.
+//
+// --nudge-skill (requires the skill installed, i.e. not --no-skill) appends
+// SKILL_DISCOVERY_NUDGE below to the prompt. It names no rule and pastes no
+// SKILL.md text — it only tells the agent to check for and use whatever
+// project skills apply, the same standing instruction a real team's
+// CLAUDE.md commonly carries. This exists to separate two different
+// failures that "the skill didn't help" can mean: the agent read the skill
+// and chose not to follow all of it, vs the agent never found the skill at
+// all (confirmed as the latter for Haiku on the hard task — see README.md
+// Scenario 2: 0/3 `Skill` tool invocations). --nudge-skill forces discovery
+// so what gets measured is compliance, not discovery.
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -49,6 +60,11 @@ function spawnCapture(argv: string[], cwd: string, stdin: string): Promise<{ cod
   });
 }
 
+const SKILL_DISCOVERY_NUDGE =
+  "\n\nBefore you start, check whether this repository has any installed " +
+  "project skills that apply to this kind of change, and use whatever " +
+  "applies.";
+
 function argAfter(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
   return i >= 0 ? process.argv[i + 1] : undefined;
@@ -60,8 +76,13 @@ async function main(): Promise<number> {
   const taskFile = argAfter("--task") ?? "TASK.md";
   const model = argAfter("--model");
   const scenario = argAfter("--scenario");
+  const nudgeSkill = process.argv.includes("--nudge-skill");
   if (!trial) {
-    process.stderr.write("usage: run-agent-trial.ts --trial <n> [--no-skill] [--task FILE] [--model NAME] [--scenario NAME]\n");
+    process.stderr.write("usage: run-agent-trial.ts --trial <n> [--no-skill] [--task FILE] [--model NAME] [--scenario NAME] [--nudge-skill]\n");
+    return 2;
+  }
+  if (nudgeSkill && !withSkill) {
+    process.stderr.write("--nudge-skill has nothing to nudge toward with --no-skill\n");
     return 2;
   }
 
@@ -74,9 +95,10 @@ async function main(): Promise<number> {
 
   // This is the whole of arm A's setup: the skill sits in the repo as a real
   // project skill. The prompt is the bare task — identical to what arm B's
-  // flow hands its agent step. The agent is trusted to find the skill and
-  // apply it; nothing here enforces that it does.
-  const prompt = await readTaskBrief(taskFile);
+  // flow hands its agent step, plus the discovery nudge above when
+  // requested. The agent is trusted to find the skill and apply it; nothing
+  // here enforces that it does, and nothing here pastes what the skill says.
+  const prompt = (await readTaskBrief(taskFile)) + (nudgeSkill ? SKILL_DISCOVERY_NUDGE : "");
   await writeFile(join(evidenceDir, "prompt.md"), prompt, "utf8");
 
   // headlessInvocation already includes --dangerously-skip-permissions for
@@ -113,6 +135,7 @@ async function main(): Promise<number> {
     arm,
     task: taskFile,
     model: model ?? "default",
+    nudgedSkillDiscovery: nudgeSkill,
     workerError,
     finalMessage: parsed?.finalText,
     usage: parsed?.usage,
