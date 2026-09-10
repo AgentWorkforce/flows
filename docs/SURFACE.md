@@ -163,14 +163,20 @@ No process runs between events: the handler wakes, executes to its next await, p
 
    **Deterministic model registry:** model existence is not inferred from a
    regex or provider prefix. The nearest `flows.json` owns an exact,
-   case-sensitive `models` allowlist. `flows check` first refuses a declared
-   model absent from that list as `model_unknown`, without starting the CLI.
-   One pure first pass collects every unknown named/inline model and every
+   case-sensitive `models` allowlist. When that file exists, `flows check`
+   first refuses a declared model absent from that list as `model_unknown`,
+   without starting the CLI. When no `flows.json` exists anywhere in the flow
+   file's ancestry, inline named-agent declarations (`agents: { drafter:
+   { cli, model } }`) proceed to the real CLI/model probe without a registry.
+   A model declared directly on a step still requires the project allowlist.
+   An existing config with no `models` field or an empty list remains an
+   explicit policy and refuses unlisted models, including named agents.
+   One pure first pass collects every model rejected by that policy and every
    unresolved step CLI
    before any CLI, command, executor, or daemon probe, independent of step
    order. This includes every named declaration, even when unused or shadowed
-   by a step override;
-   only an allowlisted value reaches the live model-scoped probe above. The
+   by a step override. When a registry exists, only an allowlisted value
+   reaches the live model-scoped probe above. The
    registry is author-owned project configuration, reviewed and versioned with
    the project. Updating it is an explicit file change made only after the
    project verifies access to the added model. No remote catalog is fetched,
