@@ -14,6 +14,7 @@ import {
   resolveObserverLinkEnv,
   type ObserverFetch,
 } from '../src/observer-link.js';
+import { socketPathFor } from '../src/daemon-connection.js';
 import { sendOk, sendResult, startLoopback, type LoopbackHandlers } from './journal-client-loopback.js';
 
 const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'testdata');
@@ -71,7 +72,7 @@ function temporaryProject(prefix = 'flows-observer-'): string {
 }
 
 async function startCliLoopback(dataDir: string, handlers: LoopbackHandlers): Promise<void> {
-  const server = startLoopback(join(dataDir, 'relayflowd.sock'), handlers);
+  const server = startLoopback(socketPathFor(dataDir), handlers);
   loopbackServers.push(server);
   if (!server.listening) await once(server, 'listening');
 }
@@ -102,7 +103,7 @@ describe('mintObserverUrl', () => {
       now: () => 1_700_000_000_000,
     });
 
-    expect(result).toEqual({ observerUrl: 'https://cast.agentrelay.com/observer?key=ot_live_abc123' });
+    expect(result).toEqual({ observerUrl: 'https://agentrelay.com/observer?key=ot_live_abc123' });
     expect(fetch).toHaveBeenCalledOnce();
     const [url, init] = fetch.mock.calls[0]!;
     expect(url).toBe('https://cast.agentrelay.com/v1/observer-tokens');
@@ -114,7 +115,11 @@ describe('mintObserverUrl', () => {
     expect(payload.expires_at).toBe(new Date(1_700_000_000_000 + 86_400_000).toISOString());
   });
 
-  it('respects a custom RELAYCAST_API_URL as both the mint host and the observer host', async () => {
+  it('routes RELAYCAST_API_URL to the mint host only; the dashboard stays on its own default', async () => {
+    // The two hostnames are separate axes (mint API vs dashboard). Overriding
+    // one must not silently move the other, or a caller pointing the mint at
+    // a preview API would end up emitting production dashboard URLs (or
+    // vice versa).
     const fetch = vi.fn<ObserverFetch>().mockResolvedValue(
       jsonResponse(200, { data: { token: 'ot_live_zzz' } }),
     );
@@ -125,8 +130,24 @@ describe('mintObserverUrl', () => {
       fetch,
     });
 
-    expect(result.observerUrl).toBe('https://relay.example.com/observer?key=ot_live_zzz');
     expect(fetch.mock.calls[0]![0]).toBe('https://relay.example.com/v1/observer-tokens');
+    expect(result.observerUrl).toBe('https://agentrelay.com/observer?key=ot_live_zzz');
+  });
+
+  it('respects dashboardUrl independently of baseUrl', async () => {
+    const fetch = vi.fn<ObserverFetch>().mockResolvedValue(
+      jsonResponse(200, { data: { token: 'ot_live_dash' } }),
+    );
+
+    const result = await mintObserverUrl({
+      workspaceKey: 'rk_live_key',
+      baseUrl: 'https://relay.example.com',
+      dashboardUrl: 'https://observer.example.com',
+      fetch,
+    });
+
+    expect(fetch.mock.calls[0]![0]).toBe('https://relay.example.com/v1/observer-tokens');
+    expect(result.observerUrl).toBe('https://observer.example.com/observer?key=ot_live_dash');
   });
 
   it('returns a warning and no URL when the mint API returns 500', async () => {
@@ -329,7 +350,7 @@ describe('flows observer verb', () => {
     const exit = await runCli(['observer'], output.io);
 
     expect(exit).toBe(0);
-    expect(output.stdout).toEqual(['https://cast.agentrelay.com/observer?key=ot_live_verb']);
+    expect(output.stdout).toEqual(['https://agentrelay.com/observer?key=ot_live_verb']);
     expect(output.stderr).toEqual([]);
     expect(fetch).toHaveBeenCalledOnce();
   });
@@ -416,7 +437,7 @@ describe('flows observer verb', () => {
     const exit = await runCli(['observer'], output.io);
 
     expect(exit).toBe(0);
-    expect(output.stdout).toEqual(['https://cast.agentrelay.com/observer?key=ot_live_via_login']);
+    expect(output.stdout).toEqual(['https://agentrelay.com/observer?key=ot_live_via_login']);
     // Verify the mint was called with the fallback key, not with anything
     // else -- specifically, not with an empty string that would sneak past
     // the "workspaceKey === undefined" gate.
@@ -439,9 +460,9 @@ describe('flows observer verb', () => {
 describe('finalizeObserverLine', () => {
   it('prints Observer: <url> on stdout when the mint resolves within the grace budget', async () => {
     const output = capture();
-    const mint = Promise.resolve({ observerUrl: 'https://cast.agentrelay.com/observer?key=ot_live_x' });
+    const mint = Promise.resolve({ observerUrl: 'https://agentrelay.com/observer?key=ot_live_x' });
     await finalizeObserverLine(mint, output.io, 100);
-    expect(output.stdout).toEqual(['Observer: https://cast.agentrelay.com/observer?key=ot_live_x']);
+    expect(output.stdout).toEqual(['Observer: https://agentrelay.com/observer?key=ot_live_x']);
     expect(output.stderr).toEqual([]);
   });
 
@@ -514,7 +535,7 @@ describe('flows run: observer link integration', () => {
     const runIndex = output.stdout.findIndex((line) => line.startsWith('RUN run-observer-happy'));
     expect(runIndex).toBeGreaterThanOrEqual(0);
     expect(output.stdout[runIndex + 1]).toBe(
-      'Observer: https://cast.agentrelay.com/observer?key=ot_live_integration_ok',
+      'Observer: https://agentrelay.com/observer?key=ot_live_integration_ok',
     );
     expect(fetch).toHaveBeenCalledOnce();
   });
@@ -676,7 +697,7 @@ describe('flows run: observer link integration', () => {
     const observerIndex = output.stdout.findIndex((line) => line.startsWith('Observer:'));
     expect(observerIndex).toBeGreaterThan(runIndex);
     expect(output.stdout[observerIndex]).toBe(
-      'Observer: https://cast.agentrelay.com/observer?key=ot_live_late',
+      'Observer: https://agentrelay.com/observer?key=ot_live_late',
     );
   });
 
@@ -715,6 +736,6 @@ describe('flows run: observer link integration', () => {
     expect(jsonLine).toBeDefined();
     const parsed = JSON.parse(jsonLine!) as { runId: string; observerUrl?: string };
     expect(parsed.runId).toBe('run-observer-json');
-    expect(parsed.observerUrl).toBe('https://cast.agentrelay.com/observer?key=ot_live_json');
+    expect(parsed.observerUrl).toBe('https://agentrelay.com/observer?key=ot_live_json');
   });
 });

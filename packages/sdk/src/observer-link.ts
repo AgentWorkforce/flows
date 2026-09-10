@@ -41,22 +41,31 @@ const OBSERVER_SCOPES = [
 const OBSERVER_TOKEN_TTL_MS = 60 * 60 * 24 * 1000;
 
 /**
- * Default Relaycast API base; overridable via `RELAYCAST_API_URL`.
+ * Default hosts for the two axes of the observer link. They are DIFFERENT
+ * subdomains and must not be conflated (empirically verified 2026-09-10):
  *
- * `agentrelay.com` returns 404 for `/v1/observer-tokens` — the mint endpoint
- * only lives on the `cast.` subdomain. Setting a wrong default here made every
- * `flows run` on a real workspace key silently 404 with `[observer] mint API
- * returned HTTP 404`. Shakedown 2026-09-10 verified: `cast.agentrelay.com`
- * accepts the mint (401 with a dummy token, 429 with a real one). Closes #278.
+ * - Mint API: `POST cast.agentrelay.com/v1/observer-tokens`. `agentrelay.com`
+ *   returns 404 for this path. Overridable via `RELAYCAST_API_URL`.
+ * - Observer dashboard: `agentrelay.com/observer?key=<ot_live_...>`.
+ *   `cast.agentrelay.com/observer` returns 404. Overridable via
+ *   `RELAYCAST_DASHBOARD_URL`.
+ *
+ * An earlier fix collapsed both to `cast.agentrelay.com` and closed #278 for
+ * the mint half only; a demo verification then landed on the 404 dashboard
+ * URL. Keep the two constants distinct.
  */
-const DEFAULT_RELAYCAST_URL = 'https://cast.agentrelay.com';
+const DEFAULT_RELAYCAST_MINT_URL = 'https://cast.agentrelay.com';
+const DEFAULT_RELAYCAST_DASHBOARD_URL = 'https://agentrelay.com';
 
 /** Bounded so a stalled Relaycast API cannot delay the RUN summary. */
 const MINT_TIMEOUT_MS = 5_000;
 
 export interface ObserverLinkEnv {
   workspaceKey?: string;
+  /** Base URL for the mint API (`POST /v1/observer-tokens`). */
   baseUrl?: string;
+  /** Base URL for the observer dashboard the emitted link points at. */
+  dashboardUrl?: string;
   /** `FLOWS_NO_OBSERVER=1` suppresses the mint even when a key is present. */
   suppressed: boolean;
 }
@@ -187,13 +196,18 @@ export function readObserverLinkEnv(
 ): ObserverLinkEnv {
   const rawKey = env['RELAYCAST_WORKSPACE_KEY'];
   const workspaceKey = typeof rawKey === 'string' ? rawKey.trim() : '';
-  const rawUrl = env['RELAYCAST_API_URL'];
-  const baseUrl = typeof rawUrl === 'string' && rawUrl.trim() !== ''
-    ? rawUrl.trim()
+  const rawApi = env['RELAYCAST_API_URL'];
+  const baseUrl = typeof rawApi === 'string' && rawApi.trim() !== ''
+    ? rawApi.trim()
+    : undefined;
+  const rawDashboard = env['RELAYCAST_DASHBOARD_URL'];
+  const dashboardUrl = typeof rawDashboard === 'string' && rawDashboard.trim() !== ''
+    ? rawDashboard.trim()
     : undefined;
   return {
     ...(workspaceKey !== '' ? { workspaceKey } : {}),
     ...(baseUrl !== undefined ? { baseUrl } : {}),
+    ...(dashboardUrl !== undefined ? { dashboardUrl } : {}),
     suppressed: env['FLOWS_NO_OBSERVER'] === '1',
   };
 }
@@ -218,7 +232,12 @@ export type ObserverFetch = (
 
 export interface MintObserverOptions {
   workspaceKey: string;
+  /** Base URL of the mint API (default `https://cast.agentrelay.com`). */
   baseUrl?: string;
+  /** Base URL of the observer dashboard the returned URL points at
+   * (default `https://agentrelay.com`). Separate axis from `baseUrl` — the
+   * mint API lives on a different subdomain from the dashboard. */
+  dashboardUrl?: string;
   fetch?: ObserverFetch;
   now?: () => number;
   /** Called for the token's uniquely-suffixed name; injectable for tests. */
@@ -253,14 +272,19 @@ export async function mintObserverUrl(
     return { warning: 'no fetch implementation available' };
   }
 
-  const rawBase = options.baseUrl ?? DEFAULT_RELAYCAST_URL;
+  const rawApi = options.baseUrl ?? DEFAULT_RELAYCAST_MINT_URL;
+  const rawDashboard = options.dashboardUrl ?? DEFAULT_RELAYCAST_DASHBOARD_URL;
   let mintUrl: URL;
   let observerBase: URL;
   try {
-    mintUrl = new URL('/v1/observer-tokens', rawBase);
-    observerBase = new URL('/observer', rawBase);
+    mintUrl = new URL('/v1/observer-tokens', rawApi);
   } catch {
-    return { warning: `invalid RELAYCAST_API_URL "${rawBase}"` };
+    return { warning: `invalid RELAYCAST_API_URL "${rawApi}"` };
+  }
+  try {
+    observerBase = new URL('/observer', rawDashboard);
+  } catch {
+    return { warning: `invalid RELAYCAST_DASHBOARD_URL "${rawDashboard}"` };
   }
 
   const uuid = (options.uuid ?? defaultUuid)();

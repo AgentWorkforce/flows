@@ -220,6 +220,7 @@ function startObserverMint(
   return mint({
     workspaceKey: link.workspaceKey,
     ...(link.baseUrl !== undefined ? { baseUrl: link.baseUrl } : {}),
+    ...(link.dashboardUrl !== undefined ? { dashboardUrl: link.dashboardUrl } : {}),
   }).catch((error) => ({
     warning: error instanceof Error ? error.message : 'unknown mint error',
   }));
@@ -246,12 +247,12 @@ async function observerUrlFrom(
 /**
  * Grace budget the plain-text emit path waits for a still-pending mint after
  * the RUN summary is out. `mintObserverUrl` already caps its own network
- * round-trip at `MINT_TIMEOUT_MS` (5s), so a mint that has not completed by
- * the time the run ends is almost certainly stuck; 2s is enough for the
- * common "run finished before the mint round-tripped" case without holding
- * the shell noticeably.
+ * round-trip at `MINT_TIMEOUT_MS` (5s). The grace matches that ceiling so a
+ * slow-but-legitimate mint (empirically ~1.6s cold against
+ * `cast.agentrelay.com`) is not clipped by a shorter grace. A mint that has
+ * not resolved by 5s is genuinely stuck.
  */
-const OBSERVER_FINALIZE_GRACE_MS = 2_000;
+const OBSERVER_FINALIZE_GRACE_MS = 5_000;
 
 /**
  * Finalize the plain-text observer line after the RUN summary is already on
