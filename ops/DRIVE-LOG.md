@@ -9386,3 +9386,39 @@ the whole repo at once.
 Proposed on #255; deliberately did NOT implement it. It makes a merge gate more
 permissive, which is the one category of change I should not land unattended on
 my own analysis at 05:00. #258 stays scoped to the mislabeled timeout.
+
+### 2026-09-10 ~05:5xZ — filed relayfile#492 for the one recurring mode
+
+Queue: pending=0, 15 running. Disk 4.8Gi, flat since last tick (my cached logs
+are 664K, not a contributor).
+
+Checked relayfile#485 first -- it is a DIFFERENT issue (login provisioning /
+PATH resolution), does not cover this. So the mount failure was unfiled.
+
+Filed **relayfile#492**. The substance:
+
+    http 410 cursor_expired: event cursor is no longer available;
+    perform a full resync
+
+The server names the remedy in the error and the client never performs it. The
+`stop-and-once` fallback then repeats the same cursor-based operation and
+collects the SAME 410. Both paths terminate on the identical error, so a
+recoverable condition is fatal in practice.
+
+Two occurrences, structurally identical line for line, 20 hours apart:
+  09-09 08:46:52  #240  run root 79c34ff1
+  09-10 04:48:59  #258  run root 7ae845bb
+
+Second fault noted in the same trace, NOT claimed as the cause:
+
+    websocket unavailable; using polling sync:
+    failed to WebSocket dial: expected ... 101 but got 403
+
+The mount is 403-rejected on the WS upgrade and degrades to polling, and the
+polling path carries the cursor that expires. Those two sit together in every
+trace but I have not shown the first causes the second, and I said so in the
+issue rather than implying a chain I did not verify.
+
+Why this one and not the other six: it is the only mode that RECURRED. The
+others are single observations and filing seven issues off one observation each
+would be noise.
