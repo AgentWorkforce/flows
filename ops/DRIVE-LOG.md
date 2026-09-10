@@ -9221,3 +9221,44 @@ fails on any of them. Three are cloud-run-authored work product. Posted the
 measurement on #255. Did not re-assert the mechanism — the structure-lens
 diagnosis was made under different conditions and I have not re-verified it
 tonight.
+
+### 2026-09-10 ~04:3xZ — the review gate's real failure mode, and a 103-day stranded cohort
+
+Queue drained (pending=0). Went after the gate blocking 9/9 flows PRs, since I
+owed it a fresh mechanism check.
+
+**My old diagnosis was wrong.** I had recorded that the structure lens never
+returns a verdict. The actual step breakdown on #257's review run:
+
+    8  Launch cloud swarm      -> success
+    9  Wait for cloud swarm    -> success
+    10 Post verdict            -> FAILURE
+    11 Enforce swarm result    -> FAILURE
+
+The swarm launches AND the wait succeeds. The failure is:
+
+    Review swarm did not complete successfully: running
+
+So the wait step exits 0 without the run reaching a terminal state, and the
+verdict step then reads `running` and fails. That is a different mechanism than
+the lens-credential story, and it is why I did not re-assert the old one.
+
+**Then a measurement.** Aged every `running` row in prod:
+
+    11 of 13 idle >24h; two idle 2478h (103 days, since 2026-05-29)
+
+Every stranded row has a 1-5 min createdAt->updatedAt gap and then nothing. They
+started, progressed, and stopped emitting. The reaper's candidate query is
+`WHERE wr.status='pending'` -- `running` appears zero times -- so none are
+reachable. Three are the 03:00 UTC verify-features schedule stranding one run a
+night. Posted on cloud#3510, which is exactly this case.
+
+**The check that killed my own story:** the gate's swarm ran at 01:08Z today and
+is NOT in the stranded set. So "the gate's run wedged like these" is unproven. I
+posted the population as standalone evidence and said explicitly that I am not
+claiming the link. Consistent is not linked.
+
+Instrument note: my first attempt read `~/.agentworkforce/relay/stages/prod.token`,
+which does not exist (the files are `prod.json`). The unauthenticated fetch still
+parsed and reported `running=0` -- a clean vacuous instrument. Re-ran through
+drain.sh's own auth with an `assert runs` guard.
