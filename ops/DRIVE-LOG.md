@@ -10244,3 +10244,44 @@ packages/cli/src/cli/commands/cloud.ts). Restored the modes; transcripts kept.
 
 I ran that sync inside my live main worktree without considering that it writes
 to the working directory. It happened to be recoverable. It did not have to be.
+
+### 2026-09-10 10:43Z — the lenses never saw the diff. Filed flows#260.
+
+Queue drained. Disk 5.2Gi. cloud#3527 clean, 0 failures, 0 pending.
+
+Read the recovered transcripts properly instead of stopping at the verdict
+line, and found something that qualifies last tick's report.
+
+**Neither passing lens had the PR diff.** The lens tasks say:
+
+    Review the PR ... (diff at /tmp/pr-<n>.diff, metadata at /tmp/pr-<n>.json)
+
+but the only step that writes /tmp is `fetch`, and steps do not share a
+filesystem. `.review-target/pr.diff` IS git-added by swarm-prepare.sh and does
+travel; the /tmp copy does not.
+
+Evidence, three ways:
+ - history lens, verbatim: "The /tmp diff was absent ... Static history review
+   only."
+ - maintainability's citations are ALL line numbers in review-swarm.yaml
+   itself (line 17, line 121, lines 129-131) and it quotes that file's comment
+   text -- repo-file positions, not diff hunks.
+ - both still returned REVIEW_PASSED.
+
+**That is the part that matters: a missing input does not fail the lens, it
+silently narrows what the lens saw.** A gate that passes while blind is worse
+than one that errors. The fetch step already models the right behaviour --
+it exits 1 with FETCH_FAILED when the staged diff is missing.
+
+Also recurring: `fatal: not a git repository: /home/daytona/.project-git`.
+The history lens says "again", and PR #257's repair summary described the same
+broken gitdir pointer on 09-09. Two sightings, days apart.
+
+Filed **flows#260**. Did NOT open a PR: it changes the gate definition, which
+by design cannot be validated by the gate, and I already have #259 outstanding
+on that exact file -- two of my own PRs colliding there would be self-inflicted.
+
+**Qualified my own claim on #259.** Last tick I wrote "two lenses reviewed #259
+in substance and passed". Weaker than that: they reviewed the working tree, not
+the diff. For this PR the two are nearly equivalent since the change IS that
+file, but I said it before checking and it should not stand unqualified.
