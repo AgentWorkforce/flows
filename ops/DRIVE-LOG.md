@@ -9786,3 +9786,44 @@ still says RELAYFILE_SMOKE_* is INCOMPLETE.
 
 Neat irony for the record: the secrets I have been asking for all night got
 partially provisioned, and the placeholder broke snapshot promotion repo-wide.
+
+### 2026-09-10 ~09:4xZ — opened cloud#3525, the guard that would have saved the night
+
+Queue pending=1, 14 running. Disk 4.7Gi.
+
+**Secret inventory settles the placeholder story:** only ONE of the five exists.
+
+    2026-09-09T17:44:45Z  RELAYFILE_SMOKE_BASE_URL
+
+_WORKSPACE_ID, _TOKEN, _REMOTE_PATH, _EXPECTED_TREE_SHA256 all absent. Someone
+started provisioning and stopped after the first field -- which is also why the
+probe still reports the set incomplete.
+
+**Opened cloud#3525.** The promote step did:
+
+    args=(--snapshot "${SNAPSHOT}")
+    node scripts/check-snapshot-sdk-downgrade.mjs "${args[@]}"
+
+With SNAPSHOT empty that is a syntactically valid call with an empty argument.
+`set -euo pipefail` does not help -- nothing is unset, nothing fails, until the
+node script prints its usage and exits 2. So a promotion that never had a
+snapshot presented as a broken invocation of an unrelated script, and the real
+event -- promotion did not happen -- was never stated anywhere.
+
+The guard names it in one line, and the message points at the
+hyphens-rendered-as-asterisks symptom explicitly, because that is the single
+observation that makes this diagnosable and nobody would look for it unprompted.
+
+**Tested the guard rather than trusting it**, five cases: both-empty,
+each-empty, normal, and a name containing `=`. That last one matters --
+`${pair#*=}` strips only to the FIRST `=`, so such a name survives intact. I
+checked because I have been wrong about exactly that class of thing twice
+tonight.
+
+Also applied the two lessons from earlier: zero backticks in the added block
+(asserted, count 0), and the push verified by comparing the remote ref to local
+HEAD rather than echoing a hash.
+
+Kept the framing honest on the issue: #3525 is a LEGIBILITY fix, not the
+repair. It would have turned this into a five-minute diagnosis. The repair is
+still Khaliq setting or removing that secret and re-dispatching the promote.
