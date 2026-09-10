@@ -13,7 +13,8 @@ import {
 } from '../cli-adapter.js';
 import { MODEL_ENV } from '../worker-cli.js';
 import { modelNameError } from '../model-name.js';
-import type { FlowSpec } from '../spec.js';
+import { preflightAgentDeclarations } from '../preflight-cli.js';
+import type { FlowSpec, NamedAgentSpec } from '../spec.js';
 import type { StepGateInspection } from '../gate-contract.js';
 import type { CheckFailureKind } from '../failure-kinds.js';
 import {
@@ -23,6 +24,7 @@ import {
   type CliProbeResult,
   type PreflightDiagnostic,
   type PreflightProbes,
+  type PreflightOptions,
 } from '../preflight.js';
 
 interface ProjectConfig {
@@ -75,43 +77,73 @@ export function checkFlow(path: string): CheckExecution {
 
 /** Preflight a validated authored flow through the same path as YAML/JSON. */
 export function checkAuthoredFlow(authoring: FlowSpec, path: string): CheckExecution {
-  const absolutePath = resolve(path);
+  return createAuthoredFlowChecker(path).check(authoring);
+}
+
+export interface AuthoredFlowChecker {
+  check(authoring: FlowSpec): CheckExecution;
+  declarations(agents: Readonly<Record<string, Readonly<NamedAgentSpec>>>): CheckReport;
+}
+
+/** One execution snapshots project policy and shares successful readiness probes. */
+export function createAuthoredFlowChecker(path: string): AuthoredFlowChecker {
+  const directory = dirname(resolve(path));
+  let config: ProjectConfig;
+  let options: PreflightOptions;
   try {
-    const config = readProjectConfig(dirname(absolutePath));
-    const probes = systemProbes(dirname(absolutePath), config);
-    const result = preflight(authoring, {
-      projectCli: config.cli,
-      projectConfigPath: config.path,
-      projectSearchStart: dirname(absolutePath),
-      models: config.models,
-      ...(config.path !== undefined ? { modelRegistryPath: config.path } : {}),
-      probes,
-    });
-    const flow = result.ok
-      ? bindResolvedCliPaths(
-          compileSpec(authoring),
-          result.resolutions,
-          dirname(absolutePath),
-          config.directory,
-        )
-      : undefined;
-    return {
-      report: {
-        ok: result.ok,
-        path,
-        ...(config.path !== undefined ? { projectConfigPath: config.path } : {}),
-        gates: result.gates,
-        resolutions: result.resolutions,
-        diagnostics: result.diagnostics,
+    config = readProjectConfig(directory);
+    const probes = systemProbes(directory, config);
+    // This cache spans checks within one authored execution. Preflight's
+    // inner cache only deduplicates probes within a single spec check.
+    // Refusals are never reused: an override must collect its own failure.
+    const ready = new Map<string, CliProbeResult>();
+    options = {
+      projectCli: config.cli, projectConfigPath: config.path,
+      projectSearchStart: directory, models: config.models,
+      ...(config.path === undefined ? {} : { modelRegistryPath: config.path }),
+      probes: {
+        ...probes,
+        cli(cli, source, model) {
+          const base = source === 'project' ? config.directory : directory;
+          const key = JSON.stringify([canonicalCli(cli, base), base, model ?? null]);
+          const cached = ready.get(key);
+          if (cached !== undefined) return cached;
+          const result = probes.cli(cli, source, model);
+          if (result.exists && result.authenticated && result.supported !== false
+            && (model === undefined || result.modelAvailable === true)) ready.set(key, result);
+          return result;
+        },
       },
-      ...(flow !== undefined ? { flow } : {}),
     };
   } catch (error) {
-    const failure = error instanceof CheckFailure
-      ? error
+    const failure = error instanceof CheckFailure ? error
       : new CheckFailure('invalid_spec', `Flow "${path}" could not be checked as a Relayflow spec.`);
-    return { report: inputFailureReport(failure, path) };
+    const report = inputFailureReport(failure, path);
+    return { check: (_authoring: FlowSpec): CheckExecution => ({ report }),
+      declarations: (_agents: Readonly<Record<string, Readonly<NamedAgentSpec>>>) => report };
   }
+  const reportFor = (result: ReturnType<typeof preflight>): CheckReport => ({
+    ...result, path,
+    ...(config.path === undefined ? {} : { projectConfigPath: config.path }),
+  });
+  return {
+    declarations(agents: Readonly<Record<string, Readonly<NamedAgentSpec>>>): CheckReport {
+      return reportFor(preflightAgentDeclarations(agents, options));
+    },
+    check(authoring: FlowSpec): CheckExecution {
+      try {
+        const result = preflight(authoring, options);
+        const flow = result.ok
+          ? bindResolvedCliPaths(compileSpec(authoring), result.resolutions, directory, config.directory)
+          : undefined;
+        return { report: reportFor(result), ...(flow === undefined ? {} : { flow }) };
+      } catch (error) {
+        const failure = error instanceof CheckFailure ? error
+          : new CheckFailure('invalid_spec', `Flow "${path}" could not be checked as a Relayflow spec.`);
+        return { report: inputFailureReport(failure, path) };
+      }
+    },
+  };
 }
 
 export function inputFailureReport(

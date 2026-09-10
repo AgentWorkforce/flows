@@ -19,4 +19,5 @@ export {
   flow,
   type FlowHandle,
   type FlowHeader,
+  type NamedAgentDeclaration,
 } from "./flow.js";

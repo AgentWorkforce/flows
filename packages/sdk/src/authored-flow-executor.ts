@@ -1,8 +1,5 @@
 import {
-  COMPLETION_REASONS,
   RUN_COMPLETION_REASONS,
-  type AgentOptions,
-  type AgentResult,
   type CloudHelper,
   type CompletionReason as SurfaceCompletionReason,
   type Ctx,
@@ -15,9 +12,10 @@ import { observeStep, type ProgressEvent } from './progress.js';
 import { compileSpec, toKernelSpec } from './compile.js';
 import { getAuthoredFlowDefinition } from './authored-flow.js';
 import type { GetFlowDefinition } from './authored-flow-loader.js';
-import { checkAuthoredFlow } from './cli/check.js';
-import { classifyOutcome, type RunLifecycleOptions } from './cli/run.js';
-import type { PreflightDiagnostic } from './preflight.js';
+import { createAuthoredFlowChecker } from './cli/check.js';
+import { type RunLifecycleOptions } from './cli/run.js';
+import { createAgentLowerer, assertAgentPreflight } from './authored-flow-agents.js';
+import { readSuccessfulOutput } from './authored-flow-output.js';
 import {
   AuthoredFlowExecutionError,
   type AuthoredFlowExecutionErrorCode,
@@ -32,9 +30,8 @@ import { JournalClient } from './journal-client.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
-  RunOutcome,
 } from './protocol.js';
-import { SPEC_SCHEMA_VERSION, type FlowSpec } from './spec.js';
+import { SPEC_SCHEMA_VERSION } from './spec.js';
 
 type Assert<T extends true> = T;
 type Equal<A, B> = [A] extends [B]
@@ -55,15 +52,6 @@ type EveryRunCompletionReasonIsAcceptedByDone = Assert<
 >;
 
 export { AuthoredFlowExecutionError, type AuthoredFlowExecutionErrorCode };
-
-/**
- * Matches the `"path/glob: readonly"` / `"path/glob: readwrite"` shorthand
- * shown in docs/SURFACE.md and the examples — the only shape a workspace
- * string could plausibly declare a permission in. No parser anywhere in this
- * package turns that annotation into a real restriction, so `lowerAgent`
- * refuses rather than silently accepting and ignoring it.
- */
-const WORKSPACE_PERMISSION_ANNOTATION = /:\s*(readonly|readwrite)\s*$/i;
 
 export interface AuthoredFlowJournalStep {
   readonly id: string;
@@ -139,12 +127,21 @@ export async function executeAuthoredFlow<Input = undefined>(
     ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
   };
   const definition = getDefinition<Input>(handle);
-  const headerFields = Object.keys(definition.header);
-  if (headerFields.length > 0) {
+  // `agents` is the one header field this executor lowers today (into
+  // `FlowSpec.agents`, resolved by authored-flow-agents.ts exactly like the
+  // declarative dialect's `agents:` map). Every other header field remains
+  // unimplemented and refuses closed rather than being silently ignored.
+  const unsupportedHeaderFields = Object.keys(definition.header)
+    .filter((field) => field !== 'agents');
+  if (unsupportedHeaderFields.length > 0) {
     throw new AuthoredFlowExecutionError(
       'unsupported_header',
-      `flow "${definition.name}" uses unsupported header fields: ${headerFields.join(', ')}`,
+      `flow "${definition.name}" uses unsupported header fields: ${unsupportedHeaderFields.join(', ')}`,
     );
+  }
+  const checker = createAuthoredFlowChecker(flowPath);
+  if (definition.header.agents !== undefined && Object.keys(definition.header.agents).length > 0) {
+    assertAgentPreflight(checker.declarations(definition.header.agents), definition.name);
   }
 
   const journalSteps: AuthoredFlowJournalStep[] = [];
@@ -166,103 +163,9 @@ export async function executeAuthoredFlow<Input = undefined>(
     return readSuccessfulOutput(journal, outcome, id, journalSteps);
   };
 
-  // `name` (the first f.agent argument, e.g. "fixer") is not wired to the
-  // kernel's `agent` field: that field selects a NAMED declaration from
-  // `FlowSpec.agents`, and this executor refuses every non-empty header
-  // (see the top of this function) — an authored flow has no way to declare
-  // one today. `name` is kept only for step-id readability; CLI selection
-  // goes through the project's flows.json default below, same as it does
-  // for a bare `type: agent` YAML step with no explicit `cli`.
-  const lowerAgent = async (
-    id: string,
-    options: AgentOptions,
-  ): Promise<AgentResult> => {
-    if (options.workspace !== undefined && localAgentStream !== undefined) {
-      throw new AuthoredFlowExecutionError('unsupported_workspace_permission',
-        'The local agent worker accepts stream-only steps. Remove workspace or attach a worker that holds its revision pins.');
-    }
-    if (options.workspace !== undefined && WORKSPACE_PERMISSION_ANNOTATION.test(options.workspace)) {
-      throw new AuthoredFlowExecutionError(
-        'unsupported_workspace_permission',
-        `flow "${definition.name}" step "${id}": workspace "${options.workspace}" declares a `
-          + 'permission annotation ("...: readonly" / "...: readwrite"), but nothing enforces it — '
-          + 'no parser anywhere in this package turns that annotation into a real restriction '
-          + '(kernel/DAEMON-LIFECYCLE.md\'s permission model is untouched by f.agent). '
-          + 'Silently accepting and ignoring it would let a flow believe a restriction is in effect '
-          + "when it is not. Declare a bare surface name (no trailing \": readonly\"/\": readwrite\") "
-          + 'if you do not need enforcement, or use the declarative spec\'s `permissions` field, which is real.',
-      );
-    }
-    const authoring: FlowSpec = {
-      version: SPEC_SCHEMA_VERSION,
-      name: `${definition.name}/${id}`,
-      steps: [{
-        id,
-        type: 'agent',
-        instruction: options.task,
-        ...(localAgentStream === undefined ? {} : {
-          surfaces: { streams: [{ stream: localAgentStream }] },
-        }),
-        ...(options.workspace === undefined ? {} : {
-          surfaces: { workspace: [{ surface: options.workspace }] },
-        }),
-      }],
-    };
-    // The kernel never resolves a `cli` on its own — every declarative
-    // `flows run`/`flows check` binds it first via this exact function
-    // (cli/check.ts), searching for the nearest flows.json from `flowPath`
-    // and real-probing auth/model readiness. An authored agent step gets
-    // nothing for free just because it was declared in TS instead of YAML.
-    const { report, flow: resolved } = checkAuthoredFlow(authoring, flowPath);
-    if (!report.ok || resolved === undefined) {
-      const refusal = report.diagnostics.find(
-        (diagnostic): diagnostic is PreflightDiagnostic & { severity: 'refusal' } =>
-          diagnostic.severity === 'refusal',
-      );
-      throw new AuthoredFlowExecutionError(
-        'agent_cli_unresolved',
-        refusal?.message
-          ?? `flow "${definition.name}" step "${id}": no CLI could be resolved for f.agent `
-            + `(searched for flows.json from "${flowPath}")`,
-      );
-    }
-    const spec = toKernelSpec(resolved);
-    const outcome = await journal.runStart(spec);
-    // Reuse the declarative CLI's own wait/classification (cli/run.ts) rather
-    // than a hand-rolled poll: `step.completed` and the run's own terminal
-    // state are appended as two SEPARATE actions (kernel/relayflowd-core/src/machine.rs
-    // completion_actions vs complete_run_actions), so a naive read right
-    // after runStart can race a real, valid completion — and a genuinely
-    // long-running agent has no reason to be bounded by anything other than
-    // its own worker's lease, which classifyOutcome already follows
-    // (renewing as the lease renews, per docs/SURFACE.md §5's WAITING
-    // [worker_lease] contract), never an unrelated fixed deadline.
-    const execution = await classifyOutcome(journal, 'run', outcome, report, '', waitOptions);
-    if (execution.exitCode === 3) {
-      const parked = execution.report.parkedStep;
-      throw new AuthoredFlowExecutionError(
-        'agent_parked',
-        execution.report.diagnostics.at(-1)?.message
-          ?? `flow "${definition.name}" step "${id}" parked`
-            + (parked !== undefined ? ` (${parked.type})` : '')
-            + ': no worker is attached to run it.',
-        undefined,
-        outcome.run_id,
-      );
-    }
-    if (execution.exitCode !== 0) {
-      const reason = execution.report.completionReason;
-      throw new AuthoredFlowExecutionError(
-        'step_failed',
-        execution.report.diagnostics.at(-1)?.message
-          ?? `flow "${definition.name}" step "${id}" did not complete successfully `
-            + `(status: ${execution.report.status ?? 'unknown'})`,
-        isSurfaceCompletionReason(reason) ? reason : undefined,
-        outcome.run_id,
-      );
-    }
-    return readSuccessfulAgentOutput(journal, outcome.run_id, id, journalSteps);
-  };
+  const lowerAgent = createAgentLowerer({
+    definition, checker, journal, journalSteps, localAgentStream, waitOptions,
+  });
 
   const context: Ctx = {
     run(command) {
@@ -288,13 +191,12 @@ export async function executeAuthoredFlow<Input = undefined>(
     },
     agent(name, options) {
       assertOperationAllowed('agent', definition.name, requestedCompletion);
-      void name; // step-id readability only — see the comment on lowerAgent.
       const id = `agent-${nextStep++}`;
       return trackStep(authoredSteps, new AuthoredFlowOperation(
         id,
         'agent',
         () => assertOperationAllowed('agent', definition.name, requestedCompletion),
-        () => observeStep(id, 'agent', () => lowerAgent(id, options), onProgress),
+        () => observeStep(id, 'agent', () => lowerAgent(id, name, options), onProgress),
         lifecycle,
       ));
     },
@@ -440,128 +342,7 @@ function unsupportedCloud(assertOpen: () => void): CloudHelper {
   }) as CloudHelper;
 }
 
-/**
- * Shared by every `f.*` verb that lowers to one kernel step run in isolation:
- * find its `step.completed` entry, record it, and refuse anything but a
- * clean success before handing the raw `output` back for verb-specific
- * extraction (a plain string for `f.run`, an `AgentResult` for `f.agent`).
- *
- * Callers are responsible for having already established that the RUN
- * reached a terminal, successful state before calling this — `f.run`'s
- * caller relies on `runStart`'s own immediate response (the kernel drives a
- * deterministic step to completion inline, no race); `f.agent`'s caller
- * relies on `classifyOutcome` (cli/run.ts) having already polled to a true
- * terminal state. Given that, a single read from the start of this run's
- * (small, single-step) journal is enough — no polling here, and no run
- * outcome ever needs re-checking.
- */
-async function readCompletedStepOutput(
-  journal: JournalClient,
-  runId: string,
-  stepId: string,
-  journalSteps: AuthoredFlowJournalStep[],
-): Promise<unknown> {
-  const entries = (await journal.journalRead(runId, 1)).entries;
-  const completed = entries.find((entry) => isStepCompleted(entry, stepId));
-  if (!isStepCompleted(completed, stepId)) {
-    throw protocolViolation(runId, `journal has no step.completed for "${stepId}"`);
-  }
-
-  const reason = completed.payload.completionReason;
-  journalSteps.push(Object.freeze({ id: stepId, runId, completionReason: reason }));
-  if (reason !== 'success') {
-    throw new AuthoredFlowExecutionError(
-      'step_failed',
-      `journal step "${stepId}" completed with ${reason}`,
-      reason,
-      runId,
-    );
-  }
-  return completed.payload.output;
-}
-
-async function readSuccessfulOutput(
-  journal: JournalClient,
-  outcome: RunOutcome,
-  stepId: string,
-  journalSteps: AuthoredFlowJournalStep[],
-): Promise<string> {
-  const output = await readCompletedStepOutput(journal, outcome.run_id, stepId, journalSteps);
-  if (!isRecord(output) || typeof output['stdout_tail'] !== 'string') {
-    throw protocolViolation(outcome.run_id, `step "${stepId}" has no string stdout_tail`);
-  }
-  return output['stdout_tail'];
-}
-
-/**
- * The kernel journals an agent step's raw `CliResult` shape
- * (`exit_code`/`stdout_tail`/`stderr_tail`) — same as a deterministic step —
- * UNLESS the CLI's stdout parsed as JSON, in which case `output` is that
- * parsed object directly (worker.ts: `parseJsonOutput(result.stdout_tail) ??
- * result`). Neither shape carries a real `artifacts` list today: nothing in
- * the kernel or worker enumerates files an agent wrote, and `f.agent`'s
- * `AgentOptions` has no `output` schema parameter for a CLI to target either
- * (unlike the declarative `AgentStepSpec.output` field). `artifacts` is
- * therefore always empty here — honest about what data exists, not a
- * placeholder for something not yet wired.
- */
-async function readSuccessfulAgentOutput(
-  journal: JournalClient,
-  runId: string,
-  stepId: string,
-  journalSteps: AuthoredFlowJournalStep[],
-): Promise<AgentResult> {
-  const output = await readCompletedStepOutput(journal, runId, stepId, journalSteps);
-  if (!isRecord(output)) {
-    throw protocolViolation(runId, `step "${stepId}" produced a non-object output`);
-  }
-  if (typeof output['stdout_tail'] === 'string') {
-    return { summary: output['stdout_tail'], artifacts: [] };
-  }
-  // The CLI's stdout parsed as JSON, so `output` is that value, not a
-  // CliResult. Fall back to a stable, inspectable summary rather than
-  // refusing a run whose agent step genuinely succeeded.
-  return { summary: JSON.stringify(output), artifacts: [] };
-}
-
-interface StepCompletedEntry {
-  entry_type: 'step.completed';
-  step_id: string;
-  payload: {
-    completionReason: ProtocolCompletionReason;
-    output: unknown;
-  };
-}
-
-function isStepCompleted(value: unknown, stepId: string): value is StepCompletedEntry {
-  if (!isRecord(value) || value['entry_type'] !== 'step.completed' || value['step_id'] !== stepId) {
-    return false;
-  }
-  const payload = value['payload'];
-  return isRecord(payload)
-    && isSurfaceCompletionReason(payload['completionReason'])
-    && 'output' in payload;
-}
-
-function isSurfaceCompletionReason(value: unknown): value is ProtocolCompletionReason {
-  return typeof value === 'string'
-    && (COMPLETION_REASONS as readonly string[]).includes(value);
-}
-
 function isSurfaceRunCompletionReason(value: unknown): value is ProtocolRunCompletionReason {
   return typeof value === 'string'
     && (RUN_COMPLETION_REASONS as readonly string[]).includes(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function protocolViolation(runId: string, detail: string): AuthoredFlowExecutionError {
-  return new AuthoredFlowExecutionError(
-    'journal_protocol_violation',
-    detail,
-    undefined,
-    runId,
-  );
 }
