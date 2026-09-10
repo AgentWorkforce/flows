@@ -8611,3 +8611,51 @@ The two post-merge failures are unrelated to this path: one `cursor_expired`
 
 **#3510** (stranded `running` runs) is open with no failing checks. **#3497**
 still awaits the `RELAYFILE_SMOKE_*` secrets.
+
+### 2026-09-10 — a novel launch failure appeared after the deploy; filed cloud#3513
+
+Disk 4.8Gi. Drain: 2 pending, newest 00:22, normal window.
+
+Went to strengthen the #3507 signal with a larger post-deploy sample. Found
+something more urgent instead.
+
+**Zero `workspace_busy` in 8 post-deploy failures** (P ≈ 7% by chance at the
+prior 28% rate — suggestive, still not conclusive). But the composition changed:
+
+```
+2x cursor_expired        (#3466)
+5x Could not load credentials from any providers   <- novel
+1x queue deadline
+```
+
+**"Could not load credentials" had not occurred once in the previous 70
+failures.** Split at the deploy:
+
+```
+pre   (18:00Z -> 23:51Z)   70 failed   0 CREDS   (0%)
+post  (23:51Z -> 00:27Z)    8 failed   5 CREDS   (62%)
+```
+
+**Disclosed the uncomfortable part rather than leaving it to be found.** The
+deploy window `1b24f8c52..4d226dece` contains **exactly one commit — #3507,
+mine**. It touches no credential, AWS, S3, secret or mint path (verified by
+`git diff --name-only | grep`), and a 429 string classifier cannot produce an AWS
+credential-chain failure. But it was the only code in that deploy, so it belongs
+on the record.
+
+The likelier shape is the **deploy event** — worker replacement, a late-resolving
+binding. `infra/stuck-run-reaper.ts` already documents the hazard class: *"A
+Worker has no IAM role, no metadata endpoint and no credential chain."*
+
+**Said plainly what does not fit:** the lag. Deploy at 23:51:17, first CREDS at
+00:03:46 — **12.5 minutes later**. A worker replaced at deploy time failing 12
+minutes on is not a clean cold-start story, and I have no account of the gap.
+
+**It has stopped** — nothing since 00:10:46, and the two failures after it are
+different modes. Filed **cloud#3513** anyway: five runs died, it is novel, and if
+it recurs on every deploy it is a recurring seven-minute launch outage that
+self-heals before anyone looks.
+
+Also had to redo the before/after split **again** — the first attempt reused the
+shell comparison that failed last tick. Did it in Python from the start this time
+for the 78-run window.
