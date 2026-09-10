@@ -8659,3 +8659,45 @@ self-heals before anyone looks.
 Also had to redo the before/after split **again** — the first attempt reused the
 shell comparison that failed last tick. Did it in Python from the start this time
 for the 78-run window.
+
+### 2026-09-10 — the CREDS burst is precisely bounded; a recognisable shape
+
+Disk 4.8Gi. Drain clean: 0 pending of 2014.
+
+Took the cheapest next signal I named on #3513 and it resolved cleanly. Every
+failure since the last CREDS at `00:10:46`:
+
+```
+00:11:49  queue deadline
+00:16:07  assess-1 step failure
+00:27:09  queue deadline
+00:36:10  assess-1 step failure
+```
+
+**Zero CREDS in 31 minutes.** So the window is exact:
+
+```
+23:51:17  deploy (success)
+00:03:46  first CREDS   (+12m29s)
+00:10:46  last  CREDS   (+19m29s)   duration 7m00s, 5 runs
+00:41:50  still clear
+```
+
+**That is more specific than "transient", and the specificity is the useful
+part.** It did not start at the deploy, ran for exactly seven minutes twelve
+minutes later, and recovered unaided. A cold credential chain on worker
+replacement would start *immediately* — something with a ~12-minute onset and a
+~7-minute lifetime looks more like a lease, cache TTL or token expiry than a cold
+start.
+
+I did not invent a mechanism to fit it. Posted the two numbers instead, on the
+view that "12 minutes on, 7 minutes long" is probably recognisable to whoever
+owns that path even though it means nothing to me.
+
+**Gave a falsifiable next step rather than leaving it open-ended:** watch the
+next deploy for CREDS at roughly T+12m. If it reproduces, the correlation is
+established without needing to understand it first.
+
+Also recorded from the same window: `workflow_launch_queue_timeout` twice in 31
+minutes — the claim-starvation mode from #3493, unrelated to #3513 but still
+present.
