@@ -1,3 +1,4 @@
+import type { CheckFailureKind } from './failure-kinds.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
@@ -27,6 +28,15 @@ export class AuthoredFlowExecutionError extends Error {
     message: string,
     readonly completionReason?: ProtocolCompletionReason | ProtocolRunCompletionReason,
     readonly runId?: string,
+    /**
+     * Set only for `code === 'agent_cli_unresolved'`: the specific preflight
+     * refusal kind (`cli_missing`, `model_unknown`, `model_unavailable`, ...)
+     * `checkAuthoredFlow` actually produced, so a caller can distinguish a bad
+     * model declaration from a missing CLI the same way the declarative
+     * `flows check` path's `report.diagnostics[].kind` already lets it —
+     * collapsing every refusal to one generic code would lose that taxonomy.
+     */
+    readonly refusalKind?: CheckFailureKind,
   ) {
     super(`${code}: ${message}`);
     this.name = 'AuthoredFlowExecutionError';

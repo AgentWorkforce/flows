@@ -1,0 +1,107 @@
+$ PATH=/tmp/flows245-tools/node_modules/.bin:$PATH bash scripts/surface-package-gate.sh
+bun install v1.4.0 (34cbb9a40)
+
+1 package installed [95.00ms]
+$ tsc
+$ bun run build && tsc -p tsconfig.test.json && vitest run
+$ tsc
+
+ RUN  v2.1.9 /Users/khaliqgant/lanes/flows245/repo/packages/surface
+
+ ✓ tests/flow.test.ts (11 tests) 4ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  22:28:02
+   Duration  245ms (transform 33ms, setup 0ms, collect 26ms, tests 4ms, environment 0ms, prepare 43ms)
+
+$ tsc -p ../../regressions/tsconfig.json
+bun pack v1.4.0 (34cbb9a40)
+
+packed 1.14KB package.json
+packed 2.77KB README.md
+packed 2.50KB dist/cloud.d.ts
+packed 2.30KB dist/cloud.d.ts.map
+packed 44B dist/cloud.js
+packed 102B dist/cloud.js.map
+packed 0.63KB dist/completion.d.ts
+packed 346B dist/completion.d.ts.map
+packed 0.51KB dist/completion.js
+packed 364B dist/completion.js.map
+packed 1.24KB dist/context.d.ts
+packed 1.0KB dist/context.d.ts.map
+packed 46B dist/context.js
+packed 106B dist/context.js.map
+packed 2.17KB dist/flow.d.ts
+packed 1.84KB dist/flow.d.ts.map
+packed 10.50KB dist/flow.js
+packed 9.74KB dist/flow.js.map
+packed 500B dist/index.d.ts
+packed 492B dist/index.d.ts.map
+packed 147B dist/index.js
+packed 200B dist/index.js.map
+packed 171B dist/runtime.d.ts
+packed 216B dist/runtime.d.ts.map
+packed 83B dist/runtime.js
+packed 148B dist/runtime.js.map
+packed 310B dist/step.d.ts
+packed 304B dist/step.d.ts.map
+packed 43B dist/step.js
+packed 100B dist/step.js.map
+packed 2.0KB src/cloud.ts
+packed 0.61KB src/completion.ts
+packed 1.16KB src/context.ts
+packed 12.73KB src/flow.ts
+packed 495B src/index.ts
+packed 144B src/runtime.ts
+packed 272B src/step.ts
+
+/tmp/relayflows-surface-pack.GXxJob/relayflows-surface-2.0.9.tgz
+
+Total files: 37
+Shasum: 1240967230113d0476c64ec1513b729cd30b334c
+Integrity: sha512-/ncqrlLB+vliv[...]W1FYhjc67ikEQ==
+Unpacked size: 57.57KB
+Packed size: 16.0KB
+
+added 58 packages, and audited 59 packages in 1s
+
+16 packages are looking for funding
+  run `npm fund` for details
+
+6 vulnerabilities (4 moderate, 1 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> @relayflows/sdk@2.0.9 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+bun add v1.4.0 (34cbb9a40)
+Resolving dependencies
+Resolved, downloaded and extracted [1]
+Saved lockfile
+
+installed @relayflows/surface@/tmp/relayflows-surface-pack.GXxJob/relayflows-surface-2.0.9.tgz
+
+1 package installed [6.00ms]
+PACKED_RUNTIME_OK name=packed-runtime-consumer completionReason=success
+PACKED_RUNTIME_REFUSAL_OK invalidHeaders=9 forgedHandle=refused
+PACKED_TYPESCRIPT_OK
+
+ RUN  v2.1.9 /Users/khaliqgant/lanes/flows245/repo/packages/sdk
+
+ ✓ tests/authored-flow.test.ts (24 tests) 637ms
+
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+   Start at  22:28:07
+   Duration  1.01s (transform 103ms, setup 0ms, collect 160ms, tests 637ms, environment 0ms, prepare 28ms)
+
+
+exit=0
