@@ -20,6 +20,11 @@ import { runCloudCli } from './cli/cloud-run.js';
 import { isAuthoredFlowPath } from './direct-input.js';
 import { runHnMonitor } from './cli/hn-monitor.js';
 import { runTickRunner } from './cli/tick-runner.js';
+import {
+  mintObserverUrl,
+  readObserverLinkEnv,
+  type MintObserverOptions,
+} from './observer-link.js';
 
 export type { CheckInputDiagnostic, CheckReport } from './cli/check.js';
 
@@ -32,8 +37,8 @@ type CliExitCode = 0 | 1 | 2 | 3;
 type ParsedArgs =
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean }
   | { command: 'check'; json: boolean; value: string }
-  | { command: 'run'; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; value: string }
-  | { command: 'resume'; dataDir: string; json: boolean; spawn: boolean; value: string }
+  | { command: 'run'; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
+  | { command: 'resume'; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
   | { command: 'hn-monitor'; sub: 'start'; dataDir: string; specPath: string; pollIntervalMs: number | undefined }
   | { command: 'tick'; sub: 'start'; dataDir: string; specPath: string; scheduleId: string;
       intervalMs: number; epochMs: number | undefined; maxCatchUp: number | undefined;
@@ -43,11 +48,11 @@ const DEFAULT_DATA_DIR = '.relayflowd';
 const USAGE = [
   'Usage:',
   'flows check [--json] <flow.yaml|spec.json>',
-  'flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
-  'flows run [--json] [--no-spawn] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
-  'flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>',
+  'flows resume [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] <run-id>',
   'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
 ].join(' ');
 
@@ -153,13 +158,61 @@ export async function runCli(
     },
     daemon: { spawn: parsed.spawn && spawnAllowedByEnv() },
   };
+  // Mint the observer token in parallel with the run so the mint round-trip
+  // never adds to the RUN summary latency. The outcome is only consulted at
+  // emit time; a rejected promise here can never fail the run (see
+  // `observerUrlFrom`, which swallows every failure into `warning`).
+  const observerMint = startObserverMint(parsed);
   const execution = parsed.command === 'run'
     ? isAuthoredFlowPath(parsed.value)
       ? await runDirectFlow(parsed.value, parsed.input, parsed.dataDir, lifecycle)
       : await runFlow(parsed.value, parsed.dataDir, lifecycle)
     : await resumeFlow(parsed.value, parsed.dataDir, lifecycle);
-  emitRunReport(execution, parsed.json, io);
+  const observerUrl = await observerUrlFrom(observerMint, io);
+  emitRunReport(execution, parsed.json, io, observerUrl);
   return execution.exitCode;
+}
+
+/**
+ * Start the observer-token mint if the environment says one should happen.
+ * Returns `undefined` when no attempt should be made — no workspace key
+ * configured, or `FLOWS_NO_OBSERVER=1` / `--no-observer-link` — which is the
+ * silent-skip branch. The returned promise always resolves; a rejection here
+ * would slip past `observerUrlFrom` and could fail the run, which the feature
+ * expressly forbids.
+ */
+function startObserverMint(
+  parsed: { command: 'run' | 'resume'; noObserverLink: boolean },
+  env: NodeJS.ProcessEnv = process.env,
+  mint: (options: MintObserverOptions) => Promise<{ observerUrl?: string; warning?: string }> = mintObserverUrl,
+): Promise<{ observerUrl?: string; warning?: string }> | undefined {
+  if (parsed.noObserverLink) return undefined;
+  const link = readObserverLinkEnv(env);
+  if (link.suppressed || link.workspaceKey === undefined) return undefined;
+  return mint({
+    workspaceKey: link.workspaceKey,
+    ...(link.baseUrl !== undefined ? { baseUrl: link.baseUrl } : {}),
+  }).catch((error) => ({
+    warning: error instanceof Error ? error.message : 'unknown mint error',
+  }));
+}
+
+/**
+ * Resolve the pending observer-mint into a URL (or nothing), and route any
+ * mint warning to stderr under a `[observer]` label. Silent-skip (`undefined`
+ * input) prints nothing at all, so a workspace with no observer configured
+ * produces no observer output on stderr or stdout.
+ */
+async function observerUrlFrom(
+  mint: Promise<{ observerUrl?: string; warning?: string }> | undefined,
+  io: CliIo,
+): Promise<string | undefined> {
+  if (mint === undefined) return undefined;
+  const outcome = await mint;
+  if (outcome.warning !== undefined) {
+    io.stderr(`[observer] token mint failed: ${outcome.warning}; skipping observer link`);
+  }
+  return outcome.observerUrl;
 }
 
 function emitWait(
@@ -185,6 +238,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let dataDir = DEFAULT_DATA_DIR;
   let sawDataDir = false;
   let spawn = true;
+  let noObserverLink = false;
   let input: string | undefined;
   let sawInput = false;
   const positionals: string[] = [];
@@ -213,6 +267,13 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       spawn = false;
       continue;
     }
+    if (argument === '--no-observer-link') {
+      // Only meaningful on verbs that actually emit the observer line — `run`
+      // and `resume`. Refused elsewhere so the flag never silently no-ops.
+      if (command === 'check' || noObserverLink) return undefined;
+      noObserverLink = true;
+      continue;
+    }
     if (argument === '--data-dir') {
       const value = args[index + 1];
       if (command === 'check' || sawDataDir || value === undefined || value.startsWith('-')) return undefined;
@@ -237,8 +298,9 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (cloud) {
     // `--cloud` submits the spec to Cloud, so every flag that only describes a
     // local run -- an inline input, a data dir, a suppressed daemon, a local
-    // agent -- describes nothing there and is refused rather than ignored.
-    if (sawInput || sawDataDir || !spawn || localAgent) return undefined;
+    // agent, a local observer-link opt-out -- describes nothing there and is
+    // refused rather than ignored.
+    if (sawInput || sawDataDir || !spawn || localAgent || noObserverLink) return undefined;
     return { command: 'cloud-run', value: positionals[0]!, json, wait };
   }
   if (wait) return undefined;
@@ -248,8 +310,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   return command === 'check'
     ? { command, json, value: positionals[0]! }
     : command === 'run'
-      ? { command, localAgent, dataDir, input, json, spawn, value: positionals[0]! }
-      : { command, dataDir, json, spawn, value: positionals[0]! };
+      ? { command, localAgent, dataDir, input, json, spawn, noObserverLink, value: positionals[0]! }
+      : { command, dataDir, json, spawn, noObserverLink, value: positionals[0]! };
 }
 
 function parseHnMonitorArgs(rest: readonly string[]): ParsedArgs | undefined {
@@ -385,11 +447,20 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
   if (report.ok) io.stdout(`CHECK PASSED ${report.path ?? ''}`.trimEnd());
 }
 
-function emitRunReport(execution: RunExecution, json: boolean, io: CliIo): void {
+function emitRunReport(
+  execution: RunExecution,
+  json: boolean,
+  io: CliIo,
+  observerUrl?: string,
+): void {
   const { report } = execution;
   emitDiagnostics(report.diagnostics, io);
   if (json) {
-    io.stdout(JSON.stringify(report));
+    // Fold `observerUrl` into the JSON report as a sibling of `runId`, so
+    // downstream tooling that consumes `--json` gets the same signal a
+    // human reader gets from the plain-text `Observer:` line.
+    const payload = observerUrl === undefined ? report : { ...report, observerUrl };
+    io.stdout(JSON.stringify(payload));
     return;
   }
   if (report.runId === undefined) return;
@@ -398,6 +469,11 @@ function emitRunReport(execution: RunExecution, json: boolean, io: CliIo): void 
     ? ''
     : ` completionReason: ${report.completionReason}`;
   io.stdout(`RUN ${report.runId} ${report.status ?? 'unknown'}${completed}${reason}`);
+  // The observer line follows RUN immediately, matching relayflows v1's
+  // convention. It is only printed when a URL was actually minted; a missing
+  // key, a suppressed mint, or a mint failure prints nothing here (the
+  // failure path emits `[observer] ...` on stderr instead — never stdout).
+  if (observerUrl !== undefined) io.stdout(`Observer: ${observerUrl}`);
 }
 
 function emitDiagnostics(
