@@ -1,0 +1,11 @@
+HEAD: 0a0bca44e460167951457371fd723c60aebf4303 (+main/#268 composition)
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run testdata/shakedown/observer.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-followup-run-2czx98k7
+ENV: unset RELAYCAST_WORKSPACE_KEY; {}
+EXIT: 0
+ELAPSED: 0.485s
+STDOUT:
+RUN 01M25VSBF398X2FV8GYQQYCMDC completed (1 steps) completionReason: success
+
+STDERR:
+WARNING [unprovable_effects] Step "hello" command "printf" resolves, but its effects cannot be proven before execution.
+[observer] token mint failed: mint API returned HTTP 404; skipping observer link

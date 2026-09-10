@@ -1,0 +1,10 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-more-vvv9qyb9/agent-inline.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-probe-j0gpvlrc
+ENV OVERRIDES: {"PATH": "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-more-vvv9qyb9/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/opt/homebrew/bin:/Users/khaliqgant/.local/share/vite-plus/bin:/Users/khaliqgant/.local/bin:/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-path:/Users/khaliqgant/.codex/tmp/arg0/codex-arg0fApWVR:/Users/khaliqgant/.rvm/bin"}
+EXIT: 2
+ELAPSED: 2.052s
+STDOUT:
+
+STDERR:
+REFUSED [cli_unauthenticated] Step "draft" declares CLI "claude", but "claude auth status" exited non-zero; authenticate it or repair that adapter's authentication probe.
+

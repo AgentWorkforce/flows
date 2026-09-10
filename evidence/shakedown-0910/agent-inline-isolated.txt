@@ -1,0 +1,10 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-author-os52tlx5/agent-inline.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-isolated-1qq7hybc
+ENV OVERRIDES: {}
+EXIT: 2
+ELAPSED: 1.440s
+STDOUT:
+
+STDERR:
+REFUSED [cli_unauthenticated] Step "draft" declares CLI "claude", but "claude auth status" exited non-zero; authenticate it or repair that adapter's authentication probe.
+

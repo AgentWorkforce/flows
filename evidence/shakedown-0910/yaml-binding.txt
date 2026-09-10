@@ -1,0 +1,12 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-binding-ih99sfv6/binding.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-binding-data-j_xc0rj_
+ENV OVERRIDES: {}
+EXIT: 0
+ELAPSED: 0.159s
+STDOUT:
+RUN 01M25TW2BTQ39XDNJPRN2RBA0B completed (2 steps) completionReason: success
+
+STDERR:
+WARNING [unprovable_effects] Step "first" command "printf" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "second" command "printf" resolves, but its effects cannot be proven before execution.
+

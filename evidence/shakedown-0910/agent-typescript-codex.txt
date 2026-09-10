@@ -1,0 +1,16 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-ts-_nlz0z2o/agent.flow.ts --local-agent --input '{}' --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-ts-agent-jtqafc9e
+ENV OVERRIDES: {}
+EXIT: 0
+ELAPSED: 5.476s
+STDOUT:
+hello
+
+RUN 01M25TP1V99RAKNE3GYHJDFC6X completed (2 steps) completionReason: success
+
+STDERR:
+○ agent-1 (agent) [agent: preparing] 0.00s
+WAITING [worker_lease] Run "01M25TNWT19BNW0537XV1N99SN" step "agent-1" (agent) is running under a worker lease until 1789049661559.
+↻ agent-1 (agent) [agent: running] 0.13s
+✓ agent-1 (agent) [agent: completed] 5.28s completionReason: success
+

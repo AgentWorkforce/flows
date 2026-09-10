@@ -1,0 +1,11 @@
+CWD: /Users/khaliqgant/tmp/a/b/c/d/e/f/g/h/i/j/k/l/m/n/deep
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run hello-world.flow.yaml --data-dir /Users/khaliqgant/tmp/a/b/c/d/e/f/g/h/i/j/k/l/m/n/deep/.relayflowd-shakedown-fresh
+ENV OVERRIDES: {}
+EXIT: 0
+ELAPSED: 0.153s
+STDOUT:
+RUN 01M25TGV9NAQYVW79JSWPT4MP7 completed (1 steps) completionReason: success
+
+STDERR:
+WARNING [unprovable_effects] Step "hello" command "printf" resolves, but its effects cannot be proven before execution.
+

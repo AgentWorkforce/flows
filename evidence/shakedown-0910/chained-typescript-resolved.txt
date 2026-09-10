@@ -1,0 +1,10 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-ts-final-k7sa1iih/chained.flow.ts --local-agent --input '{}' --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-chain-final-0xeh_n9e
+ENV OVERRIDES: {}
+EXIT: 1
+ELAPSED: 0.230s
+STDOUT:
+
+STDERR:
+FAILED [protocol_error] relayflowd could not complete the run request: unsupported_verb: the initial authored executor does not lower f.llm
+

@@ -1,0 +1,12 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-runtime-ptb6q92y/runtime-error.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-runtime-data-ma7lr189
+ENV OVERRIDES: {}
+EXIT: 1
+ELAPSED: 0.209s
+STDOUT:
+RUN 01M25VBQ8W3TCRWTM15KYAM7AA failed (1 steps) completionReason: step_failed
+
+STDERR:
+WARNING [unprovable_effects] Step "fail-command" command "printf" resolves, but its effects cannot be proven before execution.
+FAILED [step_failed] Run "01M25VBQ8W3TCRWTM15KYAM7AA" failed with completionReason: step_failed.
+

@@ -1,0 +1,14 @@
+CHECKOUT: /Users/khaliqgant/flows-help-shakedown-0910
+COMMAND: npx vitest run tests/cli.test.ts
+EXIT: 0
+
+ RUN  v2.1.9 /Users/khaliqgant/flows-help-shakedown-0910/packages/sdk
+
+ ✓ tests/cli.test.ts (63 tests) 2691ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 704ms
+
+ Test Files  1 passed (1)
+      Tests  63 passed (63)
+   Start at  16:21:14
+   Duration  3.14s (transform 133ms, setup 0ms, collect 236ms, tests 2.69s, environment 0ms, prepare 34ms)
+

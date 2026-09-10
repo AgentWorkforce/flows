@@ -1,0 +1,9 @@
+HEAD: 0a0bca44e460167951457371fd723c60aebf4303 (+main/#268 composition)
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js observer
+ENV: unset RELAYCAST_WORKSPACE_KEY; {"AGENT_RELAY_HOME": "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-no-workspace-o7e3lkm4"}
+EXIT: 2
+ELAPSED: 0.075s
+STDOUT:
+
+STDERR:
+REFUSED [observer_link_unavailable] no workspace key configured; set RELAYCAST_WORKSPACE_KEY or run `agent-relay workspace set_key`

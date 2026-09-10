@@ -1,0 +1,3 @@
+CHECKOUT: /Users/khaliqgant/flows-help-shakedown-0910
+COMMAND: npx tsc --noEmit
+EXIT: 0

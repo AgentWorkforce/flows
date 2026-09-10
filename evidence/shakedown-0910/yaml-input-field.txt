@@ -1,0 +1,10 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js check /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-binding-ih99sfv6/binding.flow.yaml
+ENV OVERRIDES: {}
+EXIT: 2
+ELAPSED: 0.088s
+STDOUT:
+
+STDERR:
+REFUSED [invalid_spec] Relayflow spec is invalid: spec.steps[1]: unknown key "input" (expected one of id | type | dependsOn | verification | maxIterations | memory | requirements | command | timeoutMs)
+

@@ -1,0 +1,7 @@
+HEAD: #269 0a0bca44e460167951457371fd723c60aebf4303 composed with main/#268
+COMMAND: npm --prefix packages/sdk run build
+EXIT: 0
+
+> @relayflows/sdk@2.0.8 build
+> tsc && node scripts/make-cli-executable.mjs
+

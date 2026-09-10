@@ -1,0 +1,12 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-more-vvv9qyb9/chained-llm.flow.ts --local-agent --input '{}' --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-chain-ts-rw7i29_t
+ENV OVERRIDES: {}
+EXIT: 2
+ELAPSED: 0.191s
+STDOUT:
+
+STDERR:
+REFUSED [invalid_spec] Flow "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-more-vvv9qyb9/chained-llm.flow.ts" imports @relayflows/surface, but @relayflows/surface/runtime could not be resolved from the same location: Cannot find module '@relayflows/surface/runtime'
+Require stack:
+- /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-more-vvv9qyb9/chained-llm.flow.ts
+

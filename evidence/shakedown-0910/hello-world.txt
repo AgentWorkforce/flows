@@ -1,0 +1,11 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run testdata/shakedown/hello-world.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-hello-world-itiz3eba
+ENV OVERRIDES: {}
+EXIT: 0
+ELAPSED: 0.591s
+STDOUT:
+RUN 01M25TFA3YGC4YX7YT8FV8V32Q completed (1 steps) completionReason: success
+
+STDERR:
+WARNING [unprovable_effects] Step "hello" command "printf" resolves, but its effects cannot be proven before execution.
+

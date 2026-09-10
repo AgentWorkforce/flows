@@ -1,0 +1,10 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run testdata/shakedown/chained.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-chained-tcxmagl0
+ENV OVERRIDES: {}
+EXIT: 2
+ELAPSED: 0.106s
+STDOUT:
+
+STDERR:
+REFUSED [invalid_spec] Relayflow spec is invalid: spec.steps[0]: unknown key "agent" (expected one of id | type | dependsOn | verification | maxIterations | memory | requirements | prompt | model | cli | output)
+

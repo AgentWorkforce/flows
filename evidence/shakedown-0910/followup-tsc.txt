@@ -1,0 +1,3 @@
+HEAD: #269 0a0bca44e460167951457371fd723c60aebf4303 composed with main/#268
+COMMAND: npx tsc --noEmit
+EXIT: 0

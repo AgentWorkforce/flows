@@ -1,0 +1,12 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run testdata/shakedown/observer.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-observer-dummy-wrmtumqg
+ENV OVERRIDES: {"RELAYCAST_WORKSPACE_KEY": "rk_live_test", "RELAYCAST_API_URL": "https://cast.agentrelay.com"}
+EXIT: 0
+ELAPSED: 0.364s
+STDOUT:
+RUN 01M25V4230JVKH7WH3F4JB05BD completed (1 steps) completionReason: success
+
+STDERR:
+[observer] token mint failed: mint API returned HTTP 401; skipping observer link
+WARNING [unprovable_effects] Step "hello" command "printf" resolves, but its effects cannot be proven before execution.
+

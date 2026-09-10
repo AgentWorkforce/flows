@@ -1,0 +1,8 @@
+COMMAND: curl --max-time 15 -sS -L -o /tmp/shakedown-observer-response.html -w '%{http_code} %{url_effective}
+' https://cast.agentrelay.com/observer?key=ot_live_REDACTED
+EXIT: 0
+404 https://cast.agentrelay.com/observer?key=ot_live_REDACTED
+
+
+BODY PREFIX:
+{"ok":false,"error":{"code":"not_found","message":"Route not found"}}

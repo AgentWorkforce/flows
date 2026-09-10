@@ -1,0 +1,12 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run testdata/shakedown/observer.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-observer-_uadyskr
+ENV OVERRIDES: {"RELAYCAST_WORKSPACE_KEY": "rk_live_test"}
+EXIT: 0
+ELAPSED: 1.521s
+STDOUT:
+RUN 01M25TFAK4B9BDY0JZ0WFZKEPE completed (1 steps) completionReason: success
+
+STDERR:
+[observer] token mint failed: mint API returned HTTP 404; skipping observer link
+WARNING [unprovable_effects] Step "hello" command "printf" resolves, but its effects cannot be proven before execution.
+

@@ -1,0 +1,10 @@
+CWD: /Users/khaliqgant/flows-help-shakedown-0910
+COMMAND: git rev-parse HEAD
+EXIT: 0
+179092173be91d4e4fcc9245be17371bca08360a
+
+CWD: /Users/khaliqgant/flows-help-shakedown-0910
+COMMAND: git ls-remote origin refs/heads/fix/cli-help-shakedown-0910
+EXIT: 0
+179092173be91d4e4fcc9245be17371bca08360a	refs/heads/fix/cli-help-shakedown-0910
+

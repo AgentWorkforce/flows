@@ -1,0 +1,11 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-more-vvv9qyb9/agent-codex.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-codex-nvv1nkt5
+ENV OVERRIDES: {}
+EXIT: 3
+ELAPSED: 0.280s
+STDOUT:
+RUN 01M25TMMAW07DKQCQBTTZVGZ8P parked (0 steps)
+
+STDERR:
+PARKED [run_parked] Run "01M25TMMAW07DKQCQBTTZVGZ8P" parked at step "draft" (agent): no worker is attached for step type "agent".
+

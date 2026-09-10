@@ -1,0 +1,9 @@
+HEAD: 0a0bca44e460167951457371fd723c60aebf4303 (+main/#268 composition)
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js observer
+ENV: unset RELAYCAST_WORKSPACE_KEY; {"FLOWS_NO_OBSERVER": "1"}
+EXIT: 2
+ELAPSED: 0.079s
+STDOUT:
+
+STDERR:
+REFUSED [observer_link_unavailable] mint suppressed by FLOWS_NO_OBSERVER=1

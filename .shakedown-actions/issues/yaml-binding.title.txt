@@ -1,0 +1,1 @@
+flows: declarative steps lack a supported way to consume upstream output

@@ -1,0 +1,5 @@
+Launch-prep shakedown against main a42ca16 + #268 + #269. The report verdict is NO: the requested local LLM chain cannot run, and YAML lacks upstream value bindings. The deep-cwd fix is independently verified; real Codex TS agent execution succeeds. Observer minting can succeed but the generated dashboard URL returns 404.
+
+The report includes six per-flow outcomes, literal commands/output, two separately pushed small fixes, and six prepared issue bodies. GitHub write authentication was invalid during delivery; the report distinguishes pushed branches from uncreated issues/PRs. No feature branches in flight were modified.
+
+Validation: release kernel build, SDK npm ci/build, composition `npx tsc --noEmit` and `cargo test -p relayflowd` passed. The CLI fix also passed 63 existing CLI tests and its required TypeScript/Rust checks. The late #269 follow-up built and typechecked, but its observer suite failed 4/38 tests when composed with #268; those literal failures are included. This PR changes only documentation/evidence.

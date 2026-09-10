@@ -1,0 +1,89 @@
+HEAD: #269 0a0bca44e460167951457371fd723c60aebf4303 composed with main/#268
+COMMAND: npx vitest run tests/observer-link.test.ts
+EXIT: 1
+
+ RUN  v2.1.9 /Users/khaliqgant/flows-shakedown-0910/packages/sdk
+
+ ❯ tests/observer-link.test.ts (38 tests | 4 failed) 3515ms
+   × flows run: observer link integration > prints the Observer: line immediately after RUN when a workspace key is set 81ms
+     → expected -1 to be greater than or equal to 0
+   × flows run: observer link integration > warns on stderr and proceeds normally when the mint API 500s 70ms
+     → expected false to be true // Object.is equality
+   × flows run: observer link integration > emits RUN before the mint resolves and appends Observer on a later line 3014ms
+     → expected false to be true // Object.is equality
+   × flows run: observer link integration > folds observerUrl into the --json payload rather than printing a bare line 108ms
+     → expected '01M25VR91BZCT0F5XZ4PSCF69S' to be 'run-observer-json' // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/observer-link.test.ts > flows run: observer link integration > prints the Observer: line immediately after RUN when a workspace key is set
+AssertionError: expected -1 to be greater than or equal to 0
+ ❯ tests/observer-link.test.ts:515:22
+    513|     expect(exit).toBe(0);
+    514|     const runIndex = output.stdout.findIndex((line) => line.startsWith…
+    515|     expect(runIndex).toBeGreaterThanOrEqual(0);
+       |                      ^
+    516|     expect(output.stdout[runIndex + 1]).toBe(
+    517|       'Observer: https://agentrelay.com/observer?key=ot_live_integrati…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/observer-link.test.ts > flows run: observer link integration > warns on stderr and proceeds normally when the mint API 500s
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/observer-link.test.ts:571:88
+    569| 
+    570|     expect(exit).toBe(0);
+    571|     expect(output.stdout.some((line) => line.startsWith('RUN run-obser…
+       |                                                                                        ^
+    572|     expect(output.stdout.some((line) => line.startsWith('Observer:')))…
+    573|     expect(output.stderr.some(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/observer-link.test.ts > flows run: observer link integration > emits RUN before the mint resolves and appends Observer on a later line
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/observer-link.test.ts:673:33
+    671|     const exit = await cliDone;
+    672| 
+    673|     expect(runLandedBeforeMint).toBe(true);
+       |                                 ^
+    674|     expect(exit).toBe(0);
+    675|     const runIndex = output.stdout.findIndex((line) => line.startsWith…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/observer-link.test.ts > flows run: observer link integration > folds observerUrl into the --json payload rather than printing a bare line
+AssertionError: expected '01M25VR91BZCT0F5XZ4PSCF69S' to be 'run-observer-json' // Object.is equality
+
+Expected: "run-observer-json"
+Received: "01M25VR91BZCT0F5XZ4PSCF69S"
+
+ ❯ tests/observer-link.test.ts:717:26
+    715|     expect(jsonLine).toBeDefined();
+    716|     const parsed = JSON.parse(jsonLine!) as { runId: string; observerU…
+    717|     expect(parsed.runId).toBe('run-observer-json');
+       |                          ^
+    718|     expect(parsed.observerUrl).toBe('https://agentrelay.com/observer?k…
+    719|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 34 passed (38)
+   Start at  16:32:34
+   Duration  3.94s (transform 121ms, setup 0ms, collect 216ms, tests 3.52s, environment 0ms, prepare 35ms)
+

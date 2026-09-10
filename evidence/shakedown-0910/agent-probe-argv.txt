@@ -1,0 +1,4 @@
+Forward-only PATH shim logs argv then execs the installed Claude binary. No simulated responses.
+auth status --help
+-p --model claude-sonnet-4-6 --tools  --no-session-persistence Reply with exactly RELAYFLOWS_MODEL_READY and nothing else.
+auth status

@@ -1,0 +1,41 @@
+COMMAND: node packages/sdk/dist/cli.js --help
+EXIT: 0
+STDOUT:
+Usage:
+flows check [--json] <flow.yaml|spec.json>
+flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>
+flows run --cloud [--json] [--wait] <flow.yaml|spec.json>
+flows run [--json] [--no-spawn] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>
+flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>
+flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>
+flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>
+
+STDERR:
+
+COMMAND: node packages/sdk/dist/cli.js -h
+EXIT: 0
+STDOUT:
+Usage:
+flows check [--json] <flow.yaml|spec.json>
+flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>
+flows run --cloud [--json] [--wait] <flow.yaml|spec.json>
+flows run [--json] [--no-spawn] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>
+flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>
+flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>
+flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>
+
+STDERR:
+
+COMMAND: node packages/sdk/dist/cli.js --definitely-invalid
+EXIT: 2
+STDOUT:
+
+STDERR:
+REFUSED [invalid_invocation] Usage:
+flows check [--json] <flow.yaml|spec.json>
+flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>
+flows run --cloud [--json] [--wait] <flow.yaml|spec.json>
+flows run [--json] [--no-spawn] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>
+flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>
+flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>
+flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>

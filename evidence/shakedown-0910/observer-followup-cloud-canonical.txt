@@ -1,0 +1,9 @@
+HEAD: 0a0bca44e460167951457371fd723c60aebf4303 (+main/#268 composition)
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js observer
+ENV: unset RELAYCAST_WORKSPACE_KEY; {"RELAYCAST_API_URL": "https://cast.agentrelay.com"}
+EXIT: 0
+ELAPSED: 0.924s
+STDOUT:
+https://cast.agentrelay.com/observer?key=ot_live_REDACTED
+
+STDERR:

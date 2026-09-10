@@ -1,0 +1,12 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-more-vvv9qyb9/chained-codex.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-chain-codex-6qgtqnge
+ENV OVERRIDES: {}
+EXIT: 3
+ELAPSED: 0.328s
+STDOUT:
+RUN 01M25TMMN68GZPYJ7JK85CSH2B parked (0 steps)
+
+STDERR:
+WARNING [unprovable_effects] Step "write" command "printf" resolves, but its effects cannot be proven before execution.
+PARKED [run_parked] Run "01M25TMMN68GZPYJ7JK85CSH2B" parked at step "extract" (llm): no worker is attached for step type "llm".
+

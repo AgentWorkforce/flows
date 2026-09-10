@@ -1,0 +1,3 @@
+Legacy path bytes: 117
+Legacy path: /Users/khaliqgant/tmp/a/b/c/d/e/f/g/h/i/j/k/l/m/n/deep/first-time-author-prospect-example/.relayflowd/relayflowd.sock
+Actual connection.json: {"socket_path":"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-0f60f389e97a.sock","pid":87505,"version":"0.1.0","protocol":0,"started_at_ms":1789049833320}

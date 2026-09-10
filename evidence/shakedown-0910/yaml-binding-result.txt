@@ -1,0 +1,4 @@
+FILE: binding-result.txt
+LITERAL CONTENTS:
+{{steps.first.output}}
+NOTE: {{steps.first.output}} was an exploratory author guess; no claim that this syntax is documented.

@@ -1,0 +1,10 @@
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run testdata/shakedown/observer.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-observer-live-4_4__lc_
+ENV: RELAYCAST_API_URL=https://cast.agentrelay.com; RELAYCAST_WORKSPACE_KEY=<active canonical workspace key, not logged>
+EXIT: 0
+ELAPSED: 0.979s
+STDOUT:
+RUN 01M25V447D3PY71J9JD8NDWSWQ completed (1 steps) completionReason: success
+Observer: https://cast.agentrelay.com/observer?key=ot_live_REDACTED
+
+STDERR:
+WARNING [unprovable_effects] Step "hello" command "printf" resolves, but its effects cannot be proven before execution.

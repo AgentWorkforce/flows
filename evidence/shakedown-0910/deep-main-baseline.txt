@@ -1,0 +1,15 @@
+CWD: /Users/khaliqgant/tmp/a/b/c/d/e/f/g/h/i/j/k/l/m/n/deep/first-time-author-prospect-example
+COMMAND: node /Users/khaliqgant/flows-help-shakedown-0910/packages/sdk/dist/cli.js run hello-world.flow.yaml --data-dir /Users/khaliqgant/tmp/a/b/c/d/e/f/g/h/i/j/k/l/m/n/deep/first-time-author-prospect-example/.relayflowd-baseline
+ENV OVERRIDES: {"RELAYFLOWD_BIN": "/Users/khaliqgant/flows-help-shakedown-0910/kernel/target/debug/relayflowd"}
+EXIT: 2
+ELAPSED: 0.190s
+STDOUT:
+
+STDERR:
+WARNING [unprovable_effects] Step "hello" command "printf" resolves, but its effects cannot be proven before execution.
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/Users/khaliqgant/tmp/a/b/c/d/e/f/g/h/i/j/k/l/m/n/deep/first-time-author-prospect-example/.relayflowd-baseline/relayflowd.log":
+Error: bind socket /Users/khaliqgant/tmp/a/b/c/d/e/f/g/h/i/j/k/l/m/n/deep/first-time-author-prospect-example/.relayflowd-baseline/relayflowd.sock
+
+Caused by:
+    path must be shorter than SUN_LEN
+

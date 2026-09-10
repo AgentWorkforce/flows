@@ -1,0 +1,1 @@
+flows: observer API and dashboard origins produce HTTP 404

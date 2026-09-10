@@ -1,0 +1,10 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-author-os52tlx5/chained.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-chain-a7ks9ujy
+ENV OVERRIDES: {}
+EXIT: 2
+ELAPSED: 0.114s
+STDOUT:
+
+STDERR:
+REFUSED [model_unknown] Step "extract" declares model "claude-sonnet-4-6" for CLI "claude", but it is not listed in the nearest project config (no model registry was found); add the exact model only after verifying that project is allowed to use it.
+

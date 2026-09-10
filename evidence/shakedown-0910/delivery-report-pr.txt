@@ -1,0 +1,7 @@
+COMMAND: gh pr create --repo AgentWorkforce/flows --base main --head shakedown/v2-launch-0910 --title 'docs: report v2 launch shakedown findings and evidence' --body-file evidence/shakedown-0910/report-pr-body.md --draft
+EXIT: 1
+STDOUT:
+
+STDERR:
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com

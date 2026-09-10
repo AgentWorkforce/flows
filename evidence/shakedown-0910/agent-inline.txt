@@ -1,0 +1,10 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run testdata/shakedown/agent-inline.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-agent-bviht7sl
+ENV OVERRIDES: {}
+EXIT: 2
+ELAPSED: 0.088s
+STDOUT:
+
+STDERR:
+REFUSED [model_unknown] Named agent "drafter" declares model "claude-sonnet-4-6" for CLI "claude", but it is not listed in project model registry "/Users/khaliqgant/flows-shakedown-0910/testdata/flows.json"; add the exact model only after verifying that project is allowed to use it.
+

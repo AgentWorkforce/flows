@@ -1,0 +1,10 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run testdata/shakedown/error-path.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-error-path-u0qg4zxb
+ENV OVERRIDES: {}
+EXIT: 2
+ELAPSED: 0.090s
+STDOUT:
+
+STDERR:
+REFUSED [cli_missing] Step "broken" declares CLI "claudee", but it does not resolve as an executable.
+

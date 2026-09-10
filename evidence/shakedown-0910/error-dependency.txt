@@ -1,0 +1,10 @@
+CWD: /Users/khaliqgant/flows-shakedown-0910
+COMMAND: node /Users/khaliqgant/flows-shakedown-0910/packages/sdk/dist/cli.js run testdata/shakedown/error-dependency.flow.yaml --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-error-dependency-xj9c2889
+ENV OVERRIDES: {}
+EXIT: 2
+ELAPSED: 0.086s
+STDOUT:
+
+STDERR:
+REFUSED [invalid_spec] Relayflow spec is invalid: spec.steps: step "broken" dependsOn unknown step "does-not-exist"
+
