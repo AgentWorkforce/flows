@@ -10201,3 +10201,46 @@ without a deploy.
 inside an echo string in the middle of a patch command. zsh parses the whole
 command before running any of it, so nothing executed -- clean state, no
 partial patch. Lucky rather than careful.
+
+### 2026-09-10 10:26Z — recovered the lens transcripts; TWO lenses PASSED #259
+
+Queue drained. Disk 5.2Gi. cloud#3527 CI running, 0 failures so far.
+
+Export is blocked (#3527), so I used the brief's own other tool:
+`agent-relay cloud sync <runId>` -- which DOES work on a terminal run. It
+returned what the agents actually wrote:
+
+    ops/reviews/20260910-1003-pr259-maintainability.md   140 lines
+    ops/reviews/20260910-1005-pr259-history.md           533 lines
+    ops/reviews/20260910-1009-pr259-history.md           761 lines
+
+**All three end in REVIEW_PASSED.** No pr259-structure transcript exists,
+consistent with lens-structure exiting 1. So two of three lenses reviewed #259
+in substance and passed it. Not a gate pass, and I did not present it as one.
+
+**The lens caught a real flaw in MY comment**, and it is precisely the class I
+have been policing all night:
+
+    "The claim 'stays at 2' is a statement about code elsewhere. If someone
+     later adds maxRetries: 5 to this block, the comment becomes misleading."
+
+Correct. My wording implied the YAML guaranteed a count it never sets. Fixed in
+39dd213: state the shape, not the figure. Asserted errorHandling and
+swarm.timeoutMs unchanged afterwards, so it is comment-only. It also derived
+the budget arithmetic itself rather than trusting my comment -- 3 x 60s against
+a 1800s lens timeout -- and agreed the invariant holds.
+
+**A destructive side effect I nearly missed.** `cloud sync` applied the patch
+with every mode reset to 100644, stripping +x from 30 shell scripts including
+this repo's gate scripts and `ops/bin/drain.sh`, which I invoke every tick.
+Verified the effect rather than reading it off the diff:
+
+    before: drain.sh executable? NO
+    after git checkout -- . : yes
+
+Nothing failed at sync time; the diff reads "0 insertions(+), 0 deletions(-)",
+which looks like noise. Filed as AgentWorkforce/relay#1734 (the command is
+packages/cli/src/cli/commands/cloud.ts). Restored the modes; transcripts kept.
+
+I ran that sync inside my live main worktree without considering that it writes
+to the working directory. It happened to be recoverable. It did not have to be.
