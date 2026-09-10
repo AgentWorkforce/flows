@@ -300,14 +300,22 @@ The herdr model: first-party helpers are just plugins that ship in the box; the 
 
 ## 5. Invocation: the gate-1 CLI
 
-Gate 1 ships three CLI verbs over the journal protocol:
+Gate 1 ships three CLI verbs over the journal protocol, plus one out-of-band
+verb (`observer`) that mints an observer link without contacting the daemon:
 
 ```text
 flows check [--json] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>
 flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>
+flows observer [--data-dir <dir>]
 ```
+
+`flows observer` prints a single `https://agentrelay.com/observer?key=<ot_live_...>`
+URL to stdout using the same mint used by `flows run`. It is daemon-free: no
+socket is opened, no `relayflowd` binary is invoked, the data dir is not
+touched. Refusals (`no workspace key configured`, mint failure) print
+`REFUSED [observer_link_unavailable] <reason>` on stderr and exit 2.
 
 `check` compiles and preflights without starting a run. `run` performs that
 same preflight before contacting `relayflowd`, then submits the compiled spec
