@@ -13,14 +13,23 @@ bun run test
 bun run typecheck:regressions
 bun pm pack --destination "$pack_dir"
 
-npm ci --prefix "$repo_root/packages/sdk" --ignore-scripts
-npm run typecheck --prefix "$repo_root/packages/sdk"
-
 tarball="$(find "$pack_dir" -maxdepth 1 -type f -name '*.tgz' -print -quit)"
 if [[ -z "$tarball" ]]; then
   echo "surface package gate: bun pm pack produced no tarball" >&2
   exit 1
 fi
+
+npm ci --prefix "$repo_root/packages/sdk" --ignore-scripts
+
+# Override the registry-installed @relayflows/surface with the freshly-packed
+# local tarball. Without this the SDK's typecheck reads the last-published
+# surface's types — an SDK change adding a new surface import fails against a
+# published surface that hasn't shipped it yet, keeping the SDK PR draft
+# forever. `--no-save` keeps package.json / package-lock.json unchanged so
+# this override does not leak into the committed manifest.
+npm install "$tarball" --prefix "$repo_root/packages/sdk" --no-save --ignore-scripts
+
+npm run typecheck --prefix "$repo_root/packages/sdk"
 
 cd "$consumer_dir"
 cat > package.json <<'JSON'
