@@ -99,8 +99,13 @@ jobs:
       # registry copy with the local directory install — --no-save keeps
       # package.json / package-lock.json unchanged so this is a CI-only local
       # override.
+      #
+      # The `./` prefix is load-bearing: `npm install packages/surface`
+      # without it makes npm treat the string as a GitHub org/repo shorthand
+      # (ssh://git@github.com/packages/surface.git) which then fails
+      # authentication.
       - name: Override registry surface with local build
-        run: npm install packages/surface --prefix packages/sdk --no-save --ignore-scripts
+        run: npm install ./packages/surface --prefix packages/sdk --no-save --ignore-scripts
 
       - name: Test SDK and type-level authoring contracts
         working-directory: packages/sdk
