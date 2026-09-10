@@ -1,0 +1,14 @@
+$ env -u RELAYFLOWD_BIN npm exec --prefix packages/sdk -- vitest run --root packages/sdk tests/live-named-agents.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/lanes/flows245/repo/packages/sdk
+
+ ✓ tests/live-named-agents.test.ts (1 test) 1376ms
+   ✓ named agents against a live kernel > dispatches two distinct named agents declared in the flow header 1376ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  22:43:42
+   Duration  1.80s (transform 113ms, setup 0ms, collect 207ms, tests 1.38s, environment 0ms, prepare 39ms)
+
+
+exit=0

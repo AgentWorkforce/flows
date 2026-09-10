@@ -12,7 +12,9 @@ export interface AgentResult {
 export interface AgentOptions {
   task: string;
   workspace?: string;
+  /** Overrides a named declaration's (or the flow/project default's) CLI for this step only. */
   cli?: string;
+  /** Overrides a named declaration's model for this step only. No flow/project default exists for model. */
   model?: string;
   /** Working directory for the CLI subprocess; defaults to the flow-runner's cwd. */
   cwd?: string;

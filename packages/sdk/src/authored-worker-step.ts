@@ -2,7 +2,7 @@ import type { AuthoredBudget } from './authored-budget.js';
 import { parseBudget } from './budget.js';
 import type { AgentOptions, AgentResult, LlmOptions, NamedGate } from '@relayflows/surface';
 import { compileSpec, toKernelSpec } from './compile.js';
-import { checkAuthoredFlow } from './cli/check.js';
+import { checkAuthoredFlow, type AuthoredFlowChecker } from './cli/check.js';
 import { classifyOutcome, type RunLifecycleOptions } from './cli/run.js';
 import type { PreflightDiagnostic } from './preflight.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
@@ -17,20 +17,28 @@ const WORKSPACE_PERMISSION_ANNOTATION = /:\s*(readonly|readwrite)\s*$/i;
 
 /** Agent and LLM calls share the exact declarative preflight and lease wait. */
 export function authoredWorkerRunner(
-  definition: { name: string }, journal: JournalClient, flowPath: string,
+  definition: { name: string; header?: { agents?: Readonly<Record<string, Readonly<{ cli: string; model: string }>>> } }, journal: JournalClient, flowPath: string,
   journalSteps: AuthoredFlowJournalStep[], waitOptions: RunLifecycleOptions,
   localAgentStream?: string, budget?: AuthoredBudget, headerBudget?: unknown,
-  rootRunId?: string,
+  rootRunId?: string, checker?: AuthoredFlowChecker,
 ) {
-  async function run(step: StepSpec): Promise<unknown> {
+  async function run(step: StepSpec, agents?: FlowSpec['agents']): Promise<unknown> {
     const id = step.id;
-    const authoring: FlowSpec = { version: SPEC_SCHEMA_VERSION, name: `${definition.name}/${id}`, steps: [step], ...(headerBudget === undefined ? {} : { budget: parseBudget(headerBudget) }) };
+    const authoring: FlowSpec = {
+      version: SPEC_SCHEMA_VERSION,
+      name: `${definition.name}/${id}`,
+      steps: [step],
+      ...(agents === undefined ? {} : { agents }),
+      ...(headerBudget === undefined ? {} : { budget: parseBudget(headerBudget) }),
+    };
     // The kernel never resolves a `cli` on its own — every declarative
     // `flows run`/`flows check` binds it first via this exact function
     // (cli/check.ts), searching for the nearest flows.json from `flowPath`
     // and real-probing auth/model readiness. An authored agent step gets
     // nothing for free just because it was declared in TS instead of YAML.
-    const { report, flow: resolved } = checkAuthoredFlow(authoring, flowPath);
+    const { report, flow: resolved } = checker === undefined
+      ? checkAuthoredFlow(authoring, flowPath)
+      : checker.check(authoring);
     if (!report.ok || resolved === undefined) {
       const refusal = report.diagnostics.find(
         (diagnostic): diagnostic is PreflightDiagnostic & { severity: 'refusal' } =>
@@ -88,7 +96,7 @@ export function authoredWorkerRunner(
   }
 
   return {
-    async agent(id: string, options: AgentOptions, verification?: NamedGate): Promise<AgentResult> {
+    async agent(id: string, name: string, options: AgentOptions, verification?: NamedGate): Promise<AgentResult> {
       if (options.workspace !== undefined && localAgentStream !== undefined) {
         throw new AuthoredFlowExecutionError('unsupported_workspace_permission',
           'The local agent worker accepts stream-only steps. Remove workspace or attach a worker that holds its revision pins.');
@@ -129,16 +137,21 @@ export function authoredWorkerRunner(
           `f.agent options.transport must be 'direct' or 'relay' (got ${JSON.stringify(options.transport)}).`,
         );
       }
+      const namedAgents = definition.header?.agents;
+      const matchesNamedAgent = namedAgents !== undefined
+        && Object.hasOwn(namedAgents, name)
+        && namedAgents[name] !== undefined;
       const output = await run({
         id, type: 'agent', instruction: options.task,
         ...(localAgentStream === undefined ? {} : { surfaces: { streams: [{ stream: localAgentStream }] } }),
+        ...(matchesNamedAgent ? { agent: name } : {}),
         ...(options.workspace === undefined ? {} : { surfaces: { workspace: [{ surface: options.workspace }] } }),
         ...(options.cli === undefined ? {} : { cli: options.cli }),
         ...(options.model === undefined ? {} : { model: options.model }),
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
         ...(options.transport === undefined ? {} : { transport: options.transport }),
         ...(verification === undefined ? {} : { verification }),
-      });
+      }, namedAgents === undefined ? undefined : { ...namedAgents });
       if (typeof output !== 'object' || output === null || Array.isArray(output)) {
         throw new AuthoredFlowExecutionError('journal_protocol_violation', `step "${id}" produced a non-object output`);
       }

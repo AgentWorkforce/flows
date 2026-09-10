@@ -1,0 +1,39 @@
+$ cd packages/sdk && RELAYFLOWD_BIN=/Users/khaliqgant/lanes/flows245/repo/kernel/target/debug/relayflowd npm exec -- vitest run tests/authored-flow.test.ts tests/authored-named-agents.test.ts tests/live-named-agents.test.ts tests/direct-input.test.ts tests/preflight.test.ts tests/cli.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/lanes/flows245/repo/packages/sdk
+
+ ✓ tests/preflight.test.ts (27 tests) 22ms
+ ✓ tests/authored-flow.test.ts (24 tests) 640ms
+ ✓ tests/authored-named-agents.test.ts (7 tests) 922ms
+   ✓ named agent declarations > lets a step-level cli override win over the named declaration 369ms
+   ✓ named agent declarations > does not treat an unrelated f.agent name as a named-agent selector 547ms
+ ✓ tests/live-named-agents.test.ts (1 test) 1771ms
+   ✓ named agents against a live kernel > dispatches two distinct named agents declared in the flow header 1771ms
+ ✓ tests/direct-input.test.ts (5 tests) 7878ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > executes inline and file JSON input through relayflowd 2713ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses missing and malformed input before contacting relayflowd 2539ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > surfaces the specific preflight refusal kind for an unresolved f.agent, not a generic invalid_spec 1094ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > does not import or execute authored code before daemon availability 706ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses oversized file input before contacting relayflowd 825ms
+ ✓ tests/cli.test.ts (63 tests) 16528ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 847ms
+   ✓ flows check CLI > uses the raw Claude adapter model flag instead of accepting auth status as model proof 398ms
+   ✓ flows check CLI > refuses a typo model before probing or contacting relayflowd 635ms
+   ✓ flows check CLI > maps every input refusal path to its declared kind without raw exceptions 2039ms
+   ✓ flows run/resume CLI over the journal protocol > parses run options, submits the kernel dialect, and exits 0 on success 880ms
+   ✓ flows run/resume CLI over the journal protocol > exits 1 and emits the declared completionReason for a failed run 592ms
+   ✓ flows run/resume CLI over the journal protocol > exits 3 and names the parked llm step 697ms
+   ✓ flows run/resume CLI over the journal protocol > reports a needs_human agent step as parked for human recovery 641ms
+   ✓ flows run/resume CLI over the journal protocol > classifies a typed hello refusal as a protocol error, not an unreachable daemon 622ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 706ms
+   ✓ flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 2408ms
+   ✓ flows run/resume CLI over the journal protocol > resumes a parked run from snapshot step types without reading journal sequence one 1377ms
+   ✓ flows run/resume CLI over the journal protocol > maps only run_not_found resumes to exit 2 3277ms
+
+ Test Files  6 passed (6)
+      Tests  127 passed (127)
+   Start at  22:42:04
+   Duration  16.99s (transform 311ms, setup 0ms, collect 1.12s, tests 27.76s, environment 1ms, prepare 288ms)
+
+
+exit=0

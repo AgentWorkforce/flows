@@ -45,15 +45,7 @@ export type CliProbeFailureDetail =
   | `timeout:${number}ms`
   | `signal:${string}`;
 
-export class CliProbeError extends Error {
-  constructor(readonly detail: CliProbeFailureDetail) {
-    super('CLI probe failed');
-  }
-}
-
-type CliProbeOutcome =
-  | { result: CliProbeResult }
-  | { failure: CliProbeFailureDetail | null };
+export { CliProbeError } from './preflight-probe-error.js';
 
 /**
  * Environment facts are injected; this module performs no I/O. A probe may
@@ -525,7 +517,6 @@ function probeFailedMessage(
   }
   return `${prefix}: the probe timed out after ${detail.slice('timeout:'.length)}.`;
 }
-
 function probeTrigger(
   trigger: TriggerSpec,
   probes: PreflightProbes,

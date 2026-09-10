@@ -29,6 +29,7 @@ import { observeStep, type ProgressEvent } from './progress.js';
 import { parseStepTimeout } from './compile.js';
 import { getAuthoredFlowDefinition } from './authored-flow.js';
 import type { GetFlowDefinition } from './authored-flow-loader.js';
+import { createAuthoredFlowChecker } from './cli/check.js';
 import type { RunLifecycleOptions } from './cli/run.js';
 import {
   AuthoredFlowExecutionError,
@@ -168,7 +169,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
   };
   const definition = getDefinition<Input>(handle);
-  const headerFields = Object.keys(definition.header).filter(key => key !== 'tools' && key !== 'budget' && key !== 'memory');
+  const headerFields = Object.keys(definition.header).filter(key => key !== 'tools' && key !== 'budget' && key !== 'memory' && key !== 'agents');
   if (definition.header.tools && Object.keys(definition.header.tools).some(key => !['mcp', ...helperProviders.map(p => p.namespace)].includes(key))) headerFields.push('tools');
   if (definition.header.tools?.relayfile !== undefined) headerFields.push('tools.relayfile');
   const helperPreflight = checkSlackHelpers(definition);
@@ -181,6 +182,15 @@ export async function executeAuthoredFlow<Input = undefined>(
       'unsupported_header',
       `flow "${definition.name}" uses unsupported header fields: ${headerFields.join(', ')}`,
     );
+  }
+  const checker = createAuthoredFlowChecker(flowPath);
+  if (definition.header.agents !== undefined && Object.keys(definition.header.agents).length > 0) {
+    const report = checker.declarations(definition.header.agents);
+    const refusal = report.diagnostics.find(diagnostic => diagnostic.severity === 'refusal');
+    if (refusal !== undefined) {
+      throw new AuthoredFlowExecutionError('agent_cli_unresolved', refusal.message,
+        undefined, undefined, refusal.kind);
+    }
   }
 
   const checkedMcp = await checkMcpHeader(definition, flowPath);
@@ -208,7 +218,7 @@ export async function executeAuthoredFlow<Input = undefined>(
 
   const worker = authoredWorkerRunner(
     definition, journal, flowPath, journalSteps, waitOptions,
-    localAgentStream, budget, definition.header.budget, options.rootRunId,
+    localAgentStream, budget, definition.header.budget, options.rootRunId, checker,
   );
 
   function llmOperation(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
@@ -307,14 +317,13 @@ export async function executeAuthoredFlow<Input = undefined>(
     llm: llmOperation,
     agent(name, options) {
       assertOperationAllowed('agent', definition.name, requestedCompletion);
-      void name; // Authored headers do not yet declare reusable named agents.
       const id = `agent-${nextStep++}`;
       let agentOp!: AuthoredFlowOperation<AgentResult>;
       agentOp = new AuthoredFlowOperation<AgentResult>(
         id,
         'agent',
         () => assertOperationAllowed('agent', definition.name, requestedCompletion),
-        () => observeStep(id, 'agent', () => worker.agent(id, options, agentOp.namedGate), onProgress),
+        () => observeStep(id, 'agent', () => worker.agent(id, name, options, agentOp.namedGate), onProgress),
         lifecycle,
       );
       return trackStep(authoredSteps, agentOp);
