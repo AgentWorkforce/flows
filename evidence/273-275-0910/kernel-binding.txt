@@ -1,0 +1,16 @@
+CWD: /Users/khaliqgant/flows-lead/kernel
+COMMAND: env RUSTC=/Users/khaliqgant/.rustup/toolchains/1.94.0-aarch64-apple-darwin/bin/rustc RUSTDOC=/Users/khaliqgant/.rustup/toolchains/1.94.0-aarch64-apple-darwin/bin/rustdoc CARGO_INCREMENTAL=0 sh ../ops/cargo.sh test --locked --test input_binding
+EXIT: 0
+CAPTURED OUTPUT:
+   Compiling relayflowd-core v0.1.0 (/Users/khaliqgant/flows-lead/kernel/relayflowd-core)
+   Compiling relayflowd-journal v0.1.0 (/Users/khaliqgant/flows-lead/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/Users/khaliqgant/flows-lead/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.08s
+     Running tests/input_binding.rs (/Users/khaliqgant/.relayflows-toolchain/target/1203194541/debug/deps/input_binding-f4d77d02e7636bb9)
+
+running 2 tests
+test binding_schema_is_additive_and_fails_closed ... ok
+test sigkill_before_consumer_resolves_original_journal_output_without_reexecuting_source ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+

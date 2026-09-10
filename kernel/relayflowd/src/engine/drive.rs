@@ -114,6 +114,9 @@ impl<C: Clock> Engine<C> {
                         }
                     }
                     Action::ExecDeterministic { step, attempt } => {
+                        let Some(input) = self.resolve_step_input(&mut journal, &step, attempt)? else {
+                            continue;
+                        };
                         if !self.ensure_step_memory(&mut journal, &step, attempt)? {
                             continue;
                         }
@@ -123,10 +126,11 @@ impl<C: Clock> Engine<C> {
                             .routing
                             .get(&step.id)
                             .and_then(|r| r.workspace.as_deref());
-                        let mut result = exec_det::execute_placed(
+                        let mut result = exec_det::execute_placed_with_input(
                             &step,
                             runtime.memory.as_ref(),
                             workspace.map(std::path::Path::new),
+                            step.input.as_ref().map(|_| &input),
                         );
                         if let Some(path) = workspace {
                             match crate::workspace::pin(std::path::Path::new(path)) {
@@ -178,6 +182,15 @@ impl<C: Clock> Engine<C> {
                         if skipped_dispatches.remove(&(step.id.clone(), attempt)) {
                             continue;
                         }
+                        let input = self.resolve_step_input(&mut journal, &step, attempt);
+                        if !matches!(input, Ok(Some(_))) {
+                            if let Some(dispatcher) = &self.dispatcher {
+                                dispatcher.release_dispatch_reservation(&state.run_id, &step.id, attempt);
+                            }
+                            input?;
+                            continue;
+                        }
+                        let input = input?.expect("input resolution checked above");
                         let injection = self.ensure_step_memory(&mut journal, &step, attempt);
                         if !matches!(injection, Ok(true)) {
                             if let Some(dispatcher) = &self.dispatcher {
@@ -205,6 +218,7 @@ impl<C: Clock> Engine<C> {
                                     attempt,
                                     step_type: worker_class,
                                     spec: step.clone(),
+                                    input: step.input.as_ref().map(|_| input),
                                     memory: started_state.steps[&step.id].memory.clone(),
                                     lease_id,
                                     idempotency_key,

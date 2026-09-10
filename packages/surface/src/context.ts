@@ -12,6 +12,13 @@ export interface AgentOptions {
   workspace?: string;
 }
 
+export interface LlmOptions {
+  /** JSON Schema checked before the result is accepted by the journal. */
+  output: Record<string, unknown>;
+  cli?: string;
+  model?: string;
+}
+
 /**
  * The context a journal-backed runtime injects into a flow body.
  *
@@ -21,6 +28,8 @@ export interface AgentOptions {
 export interface Ctx {
   run(command: string): Step<string>;
   llm(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
+  /** JSON Schema validates the value at runtime; narrow unknown in author code. */
+  llm(prompt: string, options: LlmOptions): Step<unknown>;
   agent(name: string, options: AgentOptions): Step<AgentResult>;
   human(question: string, options: { to: string }): Promise<boolean>;
   dispatch<T>(flow: string, input: unknown): Promise<T>;

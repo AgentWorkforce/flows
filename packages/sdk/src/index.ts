@@ -29,6 +29,7 @@ export type {
   LlmStepSpec,
   NamedAgentSpec,
   OutputContainsGate,
+  OutputBinding,
   OutputVerificationSpec,
   PermissionsSpec,
   RecoveryMode,

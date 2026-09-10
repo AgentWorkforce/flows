@@ -6,7 +6,7 @@ use std::{
 };
 
 use relayflowd_core::{AttemptResult, Budget, CommandSpec, CompletionReason, StepKind, StepSpec};
-use serde_json::json;
+use serde_json::{Value, json};
 use wait_timeout::ChildExt;
 
 const OUTPUT_TAIL_BYTES: usize = 64 * 1024;
@@ -27,6 +27,18 @@ pub(crate) fn execute_placed(
     memory: Option<&relayflowd_core::MemoryInjectedPayload>,
     workspace: Option<&std::path::Path>,
 ) -> AttemptResult {
+    execute_placed_with_input(step, memory, workspace, None)
+}
+
+pub(crate) fn execute_placed_with_input(
+    step: &StepSpec,
+    memory: Option<&relayflowd_core::MemoryInjectedPayload>,
+    workspace: Option<&std::path::Path>,
+    input: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> AttemptResult {
+    if step.input.is_some() && input.is_none() {
+        return worker_error("deterministic step input bindings were not resolved");
+    }
     let StepKind::Deterministic {
         command,
         timeout_ms,
@@ -55,6 +67,12 @@ pub(crate) fn execute_placed(
     process.env_remove("RELAYFLOW_MEMORY");
     if let Some(memory) = memory {
         process.env("RELAYFLOW_MEMORY", memory.pack.to_string());
+    }
+    process.env_remove("FLOWS_INPUT");
+    if let Some(input) = input {
+        // Transport JSON as data in the child environment. Never interpolate
+        // upstream output into shell source, including quotes or metacharacters.
+        process.env("FLOWS_INPUT", Value::Object(input.clone()).to_string());
     }
     process.stdout(Stdio::piped()).stderr(Stdio::piped());
     // Run the command in its own process group so a timeout can kill every

@@ -124,6 +124,8 @@ export interface KernelPlacementRequirements extends Omit<PlacementRequirements,
 
 /** Fields shared by every step on the ladder. */
 export interface BaseStepSpec {
+  /** Named values selected from earlier steps' declared, verified outputs. */
+  input?: Record<string, OutputBinding>;
   requirements?: PlacementRequirements;
   memory?: MemorySpec;
   /** Stable step identity; journaled as `step_id` and hashed into the idempotency key. */
@@ -133,6 +135,12 @@ export interface BaseStepSpec {
   dependsOn?: string[];
   /** Semantic retry bound (kernel DESIGN.md §1.2 `max_iterations`). Default 1. */
   maxIterations?: number;
+}
+
+export interface OutputBinding {
+  step: string;
+  /** Object keys or array indices; omit to select the whole output. */
+  path?: Array<string | number>;
 }
 
 /**
@@ -302,6 +310,7 @@ export interface KernelVerificationSpec {
 }
 
 export interface KernelStepCommon {
+  input?: Record<string, OutputBinding>;
   requirements?: KernelPlacementRequirements;
   memory?: KernelMemorySpec;
   id: string;

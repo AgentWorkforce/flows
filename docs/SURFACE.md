@@ -221,14 +221,153 @@ compiler removes `output` before the journal boundary and emits the schema as
       request: { type: string }
 ```
 
-The declaration does not add a kernel primitive and does not yet infer a
-TypeScript result type from arbitrary JSON Schema. Typed parsed values belong
-to the imperative `f.llm` / `f.agent` surface once that surface has a real
-consumer; the spec SDK does not publish an unchecked phantom type in advance.
+The declaration does not add a kernel primitive. Arbitrary JSON Schema does
+not infer a TypeScript result type: the imperative structured `f.llm` overload
+returns `unknown`, which author code narrows after runtime verification.
 
 The authoring surface deliberately narrows `steps: []`: `flows check` refuses
 it as `invalid_spec`, while the kernel accepts it. This is a chosen
 authoring-time narrowing, not a kernel guarantee.
+
+### Supported TypeScript LLM calls
+
+The local authored executor supports these signatures:
+
+```ts
+f.llm(prompt: string, options: {
+  output: Record<string, unknown>; // JSON Schema
+  cli?: string;
+  model?: string;
+}): Step<unknown>;
+f.llm(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
+```
+
+Run with `flows run chain.flow.ts --input '{}' --local-agent`. This attaches
+both an agent worker and a workspace-free LLM worker for the authored body.
+The LLM step remains `type: llm` in the journal. It uses the same CLI resolution,
+authentication probes, and exact `flows.json` model allow-list as agent steps;
+a declared `model` must be in that project's `models` array. A template call
+such as ``await f.llm`Summarize ${text}` `` returns text. The structured overload
+parses JSON and checks `output` before submitting a successful completion;
+the kernel independently checks the schema before accepting the output.
+Invalid JSON or a schema mismatch completes with `verification_failed` and
+prevents downstream work. Retry and lease handling use the existing kernel
+policies; this overload introduces no separate retry contract.
+
+```ts
+import { flow } from '@relayflows/surface';
+
+function shellWord(value: string): string {
+  return "'" + value.replaceAll("'", "'\\''") + "'";
+}
+
+export default flow('message-chain', async f => {
+  const value = await f.llm('Return a greeting as JSON.', {
+    output: {
+      type: 'object', required: ['message'],
+      properties: { message: { type: 'string' } },
+    },
+  });
+  if (typeof value !== 'object' || value === null
+      || !('message' in value) || typeof value.message !== 'string') {
+    throw new Error('Expected a message');
+  }
+  const draft = await f.agent('draft', { task: `Polish this greeting: ${value.message}` });
+  await f.run(`printf '%s' ${shellWord(draft.summary)} > message.txt`);
+  f.done('success');
+});
+```
+
+CLI adapters execute headlessly: Claude disables tools and session persistence;
+Codex uses its ephemeral, read-only invocation. Custom wrappers use the existing
+identified session protocol. No workspace or agent recovery pins are assigned
+to LLM steps. The local LLM registration is currently for authored TypeScript;
+YAML LLM worker registration remains separate work. Postfix `.gate(callback)`
+and resumable authored root orchestration remain unsupported; each authored
+step has its own journaled run, as with the existing `f.run` / `f.agent` executor.
+
+### Declarative output binding
+
+A step's `input` map selects values from earlier steps' declared outputs:
+
+```yaml
+- id: draft
+  type: agent
+  instruction: Polish the greeting supplied in input.message. Return JSON.
+  input:
+    message: { step: extract, path: [message] }
+    original: { step: extract }  # whole verified output
+  output:
+    type: object
+    required: [message]
+    properties:
+      message: { type: string }
+- id: write
+  type: deterministic
+  input:
+    message: { step: draft, path: [message] }
+  command: >-
+    node -e 'require("node:fs").writeFileSync("message.txt",
+    JSON.parse(process.env.FLOWS_INPUT).message)'
+```
+
+`path` is an array of literal object keys or non-negative integer array indices,
+for example `[items, 0, title]`. Omit it (or use `[]`) for the whole output.
+Selectors add dependency edges automatically; `dependsOn` can still add ordering
+constraints. The compiler deduplicates overlapping edges and refuses cycles.
+Source steps must precede their consumers in the step list: forward and self
+references are refused at preflight. Unknown step IDs, undeclared paths, and
+sources without an output schema are also refused before any run is submitted.
+A source schema may use `output` or explicit `verification: { type: json_schema,
+schema: ... }`. Selected paths must appear explicitly through `properties`,
+`items`, or `prefixItems`; path inference through `$ref` or schema combinators is
+not supported. An optional property that is absent from the actual verified
+output fails the consuming attempt with `worker_error` before its command or
+worker executes.
+
+The kernel resolves selectors from successful `step.completed` journal entries.
+The declarative flow remains one durable run: after interruption, resume reads
+the original source output and does not execute a completed source again.
+JSON values retain their types, including arrays, numbers, booleans, and null.
+Agent/LLM workers append the resolved map after the prompt and any memory pack:
+
+```text
+input:
+{"message":"hello","original":{"message":"hello"}}
+```
+
+Deterministic commands receive the entire map as JSON in `FLOWS_INPUT`. The
+executor never interpolates upstream values into shell source. Quotes, newlines,
+`$()`, and backticks stay data. Parse the environment value in the command, or
+use `printf '%s' "$FLOWS_INPUT"` to write the whole map. Ambient `FLOWS_INPUT` is
+removed when a deterministic step has no binding. `${{ ... }}`, `{{prev}}`, and
+`{{steps...}}` are not supported substitutions in the canonical dialect.
+
+This complete provider-free example runs with `flows run binding.yaml`:
+
+```yaml
+version: '0.1.0'
+steps:
+  - id: extract
+    type: deterministic
+    command: printf hello
+    verification:
+      type: json_schema
+      schema:
+        type: object
+        properties:
+          stdout_tail: { type: string }
+  - id: write
+    type: deterministic
+    input:
+      message: { step: extract, path: [stdout_tail] }
+    command: printf '%s' "$FLOWS_INPUT" > message.json
+```
+
+Deterministic outputs retain their existing process-result shape, so this
+example selects `stdout_tail`. JSON-emitting agent/LLM outputs use their declared
+value shape directly. Use matching SDK and kernel builds for input bindings;
+older kernels refuse the new field.
 
 ### The authored operation lifecycle
 
@@ -370,9 +509,9 @@ The exit codes are part of the surface contract:
 | `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
 | `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. |
 
-At gate 1 no `llm` or `agent` worker is attached by the CLI. Reaching either
-step therefore returns the durable parked outcome instead of hanging or
-reporting success. Event, schedule, deployed-digest, HTTP, SDK-call, and
+Without an attached worker, reaching an `llm` or `agent` step returns a durable
+parked outcome. For authored TypeScript, `--local-agent` attaches both local
+workers as described above. Event, schedule, deployed-digest, HTTP, SDK-call, and
 flow-to-flow invocation remain later-gate surface work; they are not shipped
 by this CLI.
 

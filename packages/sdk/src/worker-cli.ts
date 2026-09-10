@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { childStop, ownsProcessGroup } from './child-stop.js';
 import {
   agentExecution,
+  llmExecution,
   cliAdapterKind,
   type CliInvocation,
 } from './cli-adapter.js';
@@ -34,6 +35,7 @@ export async function runAgentCli(
   model?: string,
   wrapperLimits?: Partial<WrapperSessionLimits>,
   signal?: AbortSignal,
+  mode: 'agent' | 'llm' = 'agent',
 ): Promise<WorkerCliResult> {
   signal?.throwIfAborted();
   if (signal !== undefined && process.platform === 'win32') {
@@ -56,7 +58,7 @@ export async function runAgentCli(
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env[WAKE_CONTEXT_ENV];
   delete env[MODEL_ENV];
-  const invocation = agentExecution(kind, instruction, model);
+  const invocation = mode === 'llm' ? llmExecution(kind, instruction, model) : agentExecution(kind, instruction, model);
 
   if (wakeContext !== undefined) {
     try {

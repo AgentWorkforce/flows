@@ -177,6 +177,7 @@ describe('closed per-verb step fields', () => {
       'id',
       'type',
       'dependsOn',
+      'input',
       'verification',
       'maxIterations',
       // Added by #221 (gate 5 slice 1). `memory` is common rather than

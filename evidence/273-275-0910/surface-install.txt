@@ -1,0 +1,16 @@
+CWD: /Users/khaliqgant/flows-lead/packages/sdk
+COMMAND: npm install --no-save --package-lock=false --ignore-scripts /tmp/flows-273-packs/relayflows-surface-2.0.8.tgz
+EXIT: 0
+CAPTURED OUTPUT:
+
+changed 8 packages, and audited 59 packages in 4s
+
+16 packages are looking for funding
+  run `npm fund` for details
+
+5 vulnerabilities (3 moderate, 1 high, 1 critical)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.

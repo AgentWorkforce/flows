@@ -1,4 +1,5 @@
 import { attachLocalAgent } from '../local-agent.js';
+import { LlmWorker } from '../llm-worker.js';
 import {
   AuthoredFlowExecutionError,
   executeAuthoredFlow,
@@ -45,9 +46,22 @@ export async function runDirectFlow(
   if (connected !== undefined) return connected;
 
   let localAgent: Awaited<ReturnType<typeof attachLocalAgent>> | undefined;
+  let localLlm: LlmWorker | undefined;
+  let llmClient: JournalClient | undefined;
+  let llmFailure: unknown;
   try {
     const { handle, getDefinition } = await loadAuthoredFlow(path);
-    if (options.localAgent) localAgent = await attachLocalAgent(client);
+    if (options.localAgent) {
+      localAgent = await attachLocalAgent(client);
+      // A session owns one worker registration. Keep the workspace-free LLM
+      // worker on its own connection so it cannot replace the agent worker.
+      llmClient = new JournalClient(socketPath);
+      await llmClient.connect();
+      await llmClient.hello('flows-local-llm');
+      localLlm = new LlmWorker(llmClient, `${localAgent.stream}-llm`);
+      localLlm.on('error', error => { llmFailure = error; client.close(); });
+      await localLlm.attach();
+    }
     const result = await executeAuthoredFlow(handle, client, input, {
       getDefinition,
       flowPath: path,
@@ -78,7 +92,7 @@ export async function runDirectFlow(
     // Preserve authored classifications/run IDs; use the worker's cause only
     // when its connection teardown left a generic transport error.
     const error = caught instanceof AuthoredFlowExecutionError || caught instanceof AuthoredFlowLoadError
-      ? caught : localAgent?.failure ?? caught;
+      ? caught : llmFailure ?? localAgent?.failure ?? caught;
     // `agent_cli_unresolved` and `unsupported_workspace_permission` are
     // preflight-shaped refusals, not protocol failures — `flows check`
     // returns exit 2 for the equivalent declarative-spec failures, and this
@@ -93,6 +107,7 @@ export async function runDirectFlow(
       || (error instanceof AuthoredFlowExecutionError
         && (error.code === 'unsupported_header'
           || error.code === 'agent_cli_unresolved'
+          || error.code === 'llm_cli_unresolved'
           || error.code === 'unsupported_workspace_permission'))) {
       return {
         exitCode: 2,
@@ -105,7 +120,7 @@ export async function runDirectFlow(
         },
       };
     }
-    if (error instanceof AuthoredFlowExecutionError && error.code === 'agent_parked') {
+    if (error instanceof AuthoredFlowExecutionError && (error.code === 'agent_parked' || error.code === 'llm_parked')) {
       return {
         exitCode: 3,
         report: {
@@ -125,6 +140,9 @@ export async function runDirectFlow(
     const runId = error instanceof AuthoredFlowExecutionError ? error.runId : undefined;
     return protocolFailure('run', base, socketPath, error, runId);
   } finally {
-    try { await localAgent?.close(); } finally { client.close(); }
+    try {
+      await localLlm?.close();
+      await localAgent?.close();
+    } finally { llmClient?.close(); client.close(); }
   }
 }

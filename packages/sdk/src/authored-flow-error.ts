@@ -6,6 +6,8 @@ import type {
 export type AuthoredFlowExecutionErrorCode =
   | 'agent_cli_unresolved'
   | 'agent_parked'
+  | 'llm_cli_unresolved'
+  | 'llm_parked'
   | 'duplicate_completion'
   | 'journal_protocol_violation'
   | 'missing_completion'

@@ -198,6 +198,7 @@ impl RunSpec {
             .map(|step| (step.id.as_str(), step.depends_on.as_slice()))
             .collect::<BTreeMap<_, _>>();
         validate_dependency_cycles(&ids, &dependencies)?;
+        crate::input::validate_inputs(self)?;
         Ok(())
     }
 
@@ -274,6 +275,7 @@ const STEP_COMMON_FIELDS: &[&str] = &[
     "id",
     "type",
     "depends_on",
+    "input",
     "max_iterations",
     "retry",
     "verification",
@@ -316,6 +318,9 @@ fn reject_unknown_step_fields(value: &Value) -> Result<(), SpecError> {
                 detail,
             })?;
         }
+        if let Some(input) = object.get("input") {
+            crate::input::validate_shape(input)?;
+        }
         if let Some(requirements) = object.get("requirements") {
             crate::placement::validate_shape(requirements).map_err(SpecError::Malformed)?;
         }
@@ -334,6 +339,8 @@ fn reject_unknown_step_fields(value: &Value) -> Result<(), SpecError> {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StepSpec {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<crate::input::InputBindings>,
     #[serde(default)]
     pub depends_on: Vec<String>,
     #[serde(default = "default_max_iterations")]

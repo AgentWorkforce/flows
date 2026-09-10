@@ -1,3 +1,5 @@
+import { bindingDependencies } from './input-binding.js';
+
 /** Return author-facing dependency errors without assuming parsed step shapes. */
 const MAX_REPORTED_CYCLE_PATH_IDS = 16;
 
@@ -21,7 +23,7 @@ export function stepDependencyErrors(
     }
 
     const id = value['id'];
-    const dependencies = (rawDependencies ?? []) as string[];
+    const dependencies = [...(rawDependencies ?? []) as string[], ...bindingDependencies(value['input'])];
     for (const dependency of dependencies) {
       if (!knownIds.has(dependency)) {
         errors.push(`spec.steps: step "${id}" dependsOn unknown step "${dependency}"`);

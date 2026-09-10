@@ -1,0 +1,4 @@
+CWD: /Users/khaliqgant/flows-lead/packages/sdk
+COMMAND: npx tsc --noEmit
+EXIT: 0
+CAPTURED OUTPUT:

@@ -10,6 +10,9 @@ pub struct StepDispatch {
     pub attempt: u32,
     pub step_type: StepType,
     pub spec: StepSpec,
+    /// Selected successful outputs, read from the run's journal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<serde_json::Map<String, serde_json::Value>>,
     /// The already journaled pack; workers must not charge its budget again.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<relayflowd_core::MemoryInjectedPayload>,

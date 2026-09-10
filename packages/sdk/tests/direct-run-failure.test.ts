@@ -1,7 +1,14 @@
 import { expect, it, vi } from 'vitest';
 import { runDirectFlow } from '../src/cli/direct-run.js';
 import { AuthoredFlowExecutionError, executeAuthoredFlow } from '../src/authored-flow-executor.js';
-vi.mock('../src/journal-client.js', () => ({ JournalClient: class { close() {} } }));
+vi.mock('../src/journal-client.js', () => ({ JournalClient: class {
+  async connect() {}
+  async hello() {}
+  async workerAttach() {}
+  on() {}
+  off() {}
+  close() {}
+} }));
 vi.mock('../src/cli/run.js', async importOriginal => ({
   ...await importOriginal<typeof import('../src/cli/run.js')>(), connect: async () => undefined,
 }));
@@ -17,6 +24,7 @@ vi.mock('../src/local-agent.js', () => ({ attachLocalAgent: async () => ({
 }) }));
 it.each([
   ['agent_cli_unresolved', 2], ['agent_parked', 3], ['step_failed', 1],
+  ['llm_cli_unresolved', 2], ['llm_parked', 3],
 ] as const)('preserves authored %s classification despite a worker failure', async (code, exitCode) => {
   vi.mocked(executeAuthoredFlow).mockRejectedValueOnce(new AuthoredFlowExecutionError(code, 'authored cause', undefined, 'durable-run'));
   const result = await runDirectFlow('flow.ts', '{}', '/tmp/unused', { localAgent: true });

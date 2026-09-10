@@ -1,0 +1,8 @@
+CWD: /Users/khaliqgant/flows-lead/packages/surface
+COMMAND: npm run typecheck:regressions
+EXIT: 0
+CAPTURED OUTPUT:
+
+> @relayflows/surface@2.0.8 typecheck:regressions
+> tsc -p ../../regressions/tsconfig.json
+
