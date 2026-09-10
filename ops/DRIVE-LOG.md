@@ -8901,3 +8901,46 @@ Opened **cloud#3516**.
 
 The useful pattern: the follow-up existed only because I wrote down a specific
 unanswered question on #3507 instead of declaring the fix done.
+
+### 2026-09-10 — CREDS is now the dominant failure mode; my third correction on it
+
+Disk 5.6Gi. Drain: 2 pending, normal window. **cloud#3516** open, no failing
+checks — nothing to do there.
+
+Checked whether the CREDS recurrence had ended. It has not, and **my second
+characterization was wrong too.**
+
+```
+00:03:46  00:09:02  00:09:06  00:09:10  00:10:46
+          [ 63 minutes clear ]
+01:13:46  01:13:50  01:24:14  01:34:38  01:44:45  01:56:42  01:57:46  02:03:39
+```
+
+Thirteen occurrences. After the gap it has been **continuous**, not bursty.
+
+Measured over the window since it resumed:
+
+```
+window          01:13:46 -> 02:03:39   (50 min)
+total failures  13
+CREDS            8   (62%)
+rate            ~9.6 / hour
+```
+
+**It is the leading cause of launch failure on this workspace and has been for
+50 minutes.** Still `workflow_launch_failed` at phase `launch`, so nothing
+retries it; still zero occurrences before 00:03:46 today across 70 prior
+failures.
+
+**Posted the correction trail explicitly** — "bounded 7-min deploy-correlated
+burst" then "two bursts 63 min apart", both too optimistic, now "sustained
+dominant mode". Three readings of the same data as it arrived. Each was honest
+at the time and each was wrong, which is exactly why the trail belongs on the
+issue rather than a quietly edited body.
+
+**Still no mechanism, and I did not invent one.** The only event I had was the
+deploy and it is ruled out — burst two began 82 minutes after it with nothing in
+between. The useful facts are the onset time, the 63-minute pause, and the rate.
+Left a concrete pointer instead: the message is AWS credential-chain exhaustion
+arriving at *launch*, so the question is what supplies credentials to the launch
+path and what began intermittently failing to resolve them around midnight UTC.
