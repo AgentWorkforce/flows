@@ -37,3 +37,14 @@ are captured with [artifact hashes](../docs/evidence/ws13/followup/default-budge
 The first follow-up's shorter three-minute step limit expired after 217.375s
 ([captured failure](../docs/evidence/ws13/followup/gallery-research.txt)). That
 attempt is not evidence of missing authentication or an unsupported model.
+
+## A fourth entry, added separately from the 3 above
+
+[skill-vs-flow-compliance](skill-vs-flow-compliance/) — **PASS**, following
+research's precedent (typechecks against the v2 dialect, runs today through
+its own shim). Not one of the 3 requested entries this file otherwise
+tracks; not counted in the "1 of 3" line above. It runs the same real
+`claude` CLI three ways on one small task — agent + skill, agent with no
+skill, and a relayflow gating on the same four rules as deterministic
+checks — and every number in its own README links to the literal captured
+evidence, same discipline as this file.

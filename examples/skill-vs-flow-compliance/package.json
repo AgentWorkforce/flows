@@ -1,0 +1,9 @@
+{
+  "name": "@relayflows/skill-vs-flow-compliance",
+  "private": true,
+  "type": "module",
+  "description": "Comparison: the same task run by (a) a coding agent given a SKILL.md of house conventions, vs (b) a relayflow that encodes the same conventions as postfix deterministic gates. `checks/*.sh` are the shared, deterministic ground truth both arms are scored against.",
+  "scripts": {
+    "typecheck": "../../packages/sdk/node_modules/.bin/tsc -p tsconfig.json"
+  }
+}

@@ -1,0 +1,2 @@
+308f5e688c07102c3203c4b2cddfc408f3a44a77 test: cover divide-by-zero RangeError
+5333d5c23e62f2489d201ea20fabd61817026389 fix: throw RangeError on division by zero

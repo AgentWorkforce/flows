@@ -1,0 +1,6 @@
+# Each trial/run materializes its own git repo under runs/**/repo/ (its own
+# .git, its own history) so it never touches this repo's. Committing a
+# nested .git would make it a gitlink, not a normal tree — never do that.
+# The evidence that matters (prompt, transcript, diff, commit subjects,
+# verdict) is written as plain files alongside repo/ and IS committed.
+runs/**/repo/
