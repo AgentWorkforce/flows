@@ -10049,3 +10049,32 @@ cheap; I have paid for skipping it twice.
 
 Open PRs now: cloud #3497, #3510, #3516 (all CLEAN, zero human reviews) and
 flows #258, #259. Critical path unchanged: #3516 + #259.
+
+### 2026-09-10 09:07Z — audited my remaining PRs; all three survive
+
+Queue drained. Disk 5.5Gi.
+
+After closing two PRs as superseded in a few hours, audited the rest against
+current main rather than waiting to be surprised a third time.
+
+    #3497  target present, change NOT on main   -> still valid
+    #3510  reapStuckRuns present, runningStaleMinutes absent -> still valid
+    #3516  classifier present, my rule absent   -> still valid
+
+**A misread I caught mid-audit.** `git diff origin/main..my-branch` for #3497
+reported *59 files changed, 318 insertions, 3533 deletions* and looked like the
+branch would revert half the repo including #3522. It would not -- that diff is
+just "main has 3533 lines my branch lacks", not what a merge applies. The
+correct question is `git diff $(git merge-base main BRANCH) BRANCH`, which is
+1 file and +6/-2. I nearly wrote up a fake catastrophe.
+
+**And a real finding for #3497.** Main already has `--require-mount-probe` twice
+-- at lines 789-790, in the **candidate** job. The equivalent calls in the
+**promotion** job still omit it. So the lane that CANNOT promote enforces mount
+convergence, and the lane that DOES promote treats it as optional. That is
+backwards, and it is why the 07:16Z rebuild promoted v0.10.56 after logging
+"Skipping relayfile mount convergence probe" twice and going green.
+
+Posted that on #3497, with the caveat unchanged: still only 1 of 5 secrets, so
+merging today reds the rebuild lane every run -- and rebuilds are currently how
+relayfile fixes reach sandboxes. Land it WITH provisioning, not ahead of it.
