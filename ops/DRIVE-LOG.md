@@ -8701,3 +8701,43 @@ established without needing to understand it first.
 Also recorded from the same window: `workflow_launch_queue_timeout` twice in 31
 minutes — the claim-starvation mode from #3493, unrelated to #3513 but still
 present.
+
+### 2026-09-10 — tested my own hypothesis against new data; it does not hold
+
+Disk 4.7Gi. Drain: 2 pending, newest 00:53, normal window.
+
+#3507's deploy created a natural experiment for something I had asserted on
+#3493, so I ran it against my own claim rather than moving on.
+
+**What I had written:** that queue timeouts were a *secondary* symptom of
+Relaycast back-pressure — workers tied up failing over 503s, throughput drops,
+queued jobs age past the five-minute admission window.
+
+**What the data says:**
+
+```
+pre   window 214min   41 failures    6 queue_timeout  (15%)   1.7/hr
+post  window  56min   14 failures    2 queue_timeout  (14%)   2.2/hr
+```
+
+Unchanged. Same proportion, marginally higher rate, across a fix that removed a
+real back-pressure source from the launch path.
+
+**Stated the limits rather than declaring it refuted.** #3507 fixed the **429**;
+my hypothesis named the **503**, which #3471 had already handled at that call
+site — so the 503 path was never the variable. Samples are small (6 pre, 2 post),
+the post window is under an hour, and registration is one of several things a
+worker does. The honest statement is narrower than confirmed *or* refuted:
+queue timeouts persisted unchanged across a fix that measurably removed one
+back-pressure source, which makes the secondary-symptom story **less likely than
+when I proposed it**, without ruling it out.
+
+Posted it as an explicit supersede of the earlier paragraph, because **a
+hypothesis sitting on an issue gets read as a finding by whoever picks it up
+next**. That is the same failure mode as my deviation list on flows#251, where
+three confident notes turned out wrong — the difference here is that I went back
+before someone else acted on it.
+
+Also restated the missing instrument: queue timeouts should track *claim
+latency*, not registration failures. Correlating the two would settle it, and
+that telemetry still does not exist — the same gap I flagged hours ago.
