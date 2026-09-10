@@ -10164,3 +10164,40 @@ Instrument note: my first attempt to find that run id grabbed `ids[0]` from
 the log and got a temp-directory UUID, which 404'd. The reliable anchor is the
 literal `swarm-post.sh "<run_id>"` invocation, which is how I found it for
 #238 earlier. I knew that and reached for the lazy version anyway.
+
+### 2026-09-10 10:16Z — opened cloud#3527: the run export endpoint is unreachable
+
+Queue drained. Disk 5.3Gi.
+
+Went after WHY lens-structure exits 1, which needs the agent transcript, which
+needs `/export?format=json` -- item 2's own proof path. **That endpoint 400s
+for every caller:**
+
+    {"code":"bad_request","message":"missing X-Correlation-Id header"}
+
+relayfile wraps fs/export in requireCorrelationId(); cloud's route never sends
+the header. The error misleads badly: it names a header, so you send it, and
+nothing changes -- your header reaches CLOUD and is never forwarded upstream.
+
+**Two hypotheses I killed before filing:**
+- HTTP/2 lowercases header names, so a case-sensitive lookup would fail for
+  HTTP/2 clients only. Tested `--http1.1`: identical 400. Wrong.
+- Some auth/id problem. Control: `GET /runs/<id>` returns 200 with NO
+  correlation header. So it is specific to the export pass-through.
+
+Found the answer in cloud's own code: the relayfile STATUS route already mints
+or propagates the id, with a comment documenting this exact relayfile
+behaviour. The export route simply never adopted the pattern. Fix mirrors it,
++9 lines. Opened **cloud#3527**.
+
+Checked it was unclaimed first -- 0 correlation refs on main, no open PR or
+issue. Applying the lesson that cost me #3517 and #3525.
+
+Said plainly in the PR that I have NOT exercised the success path: the 400 is
+upstream of everything the route does, so it cannot be proven from outside
+without a deploy.
+
+**FIFTH backtick failure of the session,** and the dumbest: I put a backtick
+inside an echo string in the middle of a patch command. zsh parses the whole
+command before running any of it, so nothing executed -- clean state, no
+partial patch. Lucky rather than careful.
