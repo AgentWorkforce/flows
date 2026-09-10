@@ -9068,3 +9068,39 @@ assertions were unexecuted by me because my worktree resolves a stale
 `daytona-runner` dist from another checkout, and that CI would run them. It did —
 and it found a consequence I had not anticipated, in a *different* test. Stating
 the limitation up front is what made the failure legible instead of surprising.
+
+### 2026-09-10 — #3516 green; resolved the blocker I cited on #244
+
+Disk 5.2Gi. Drain clean: 0 pending of 2044. **#3516 now has no failing checks** —
+the assertion fix landed. All four cloud PRs (#3497, #3510, #3516, #3517) are
+clean and waiting on review; nothing further to do on any of them.
+
+So I went back to #244 and **resolved the specific uncertainty I had cited as my
+reason for not implementing its P1**. I had said the fix's shape depends on the
+package/command contract more than on the two files, and that I did not know that
+contract. I read it.
+
+**The contract already carries what the fix needs.** `local-work-package.mjs:148`
+puts `verificationCommands` in the package, and `report()` reconstructs the
+package from the unchanged backlog precisely so they cannot be tampered with —
+its own comment says *"editing ignored package.json cannot widen scope or replace
+acceptance commands with `true`"*. That protection is real and works. **It
+protects the argv, not the file the argv names.** And `verificationCommands` is
+already available to verification, which iterates it to execute the checks.
+
+So the shape is determined: the protected set becomes *fixed list + every
+repo-relative path referenced by `pkg.verificationCommands`*. I named the two
+decisions that should be made deliberately rather than fallen into — which argv
+entries count as paths (`["bash","-c","node src/check.mjs"]` hides one), and
+whether protection means "unmodified" or "outside scope".
+
+**Still did not implement it, but the reason has changed and I said so.** The
+contract uncertainty is gone; what remains is that this is an authorization check
+on a branch I do not own, and I have had **two collisions tonight** from working
+others' branches — a lane closed #242 under me mid-edit, and a push to #3507 was
+rejected because someone had committed to it. Landing a subtly wrong
+authorization check at 03:00 is worse than landing nothing.
+
+The lane there is now ~5 hours idle (16h15m uptime, last commit 13h ago, zero
+writes in 60 minutes), so the analysis is finished and waiting for whoever takes
+it.
