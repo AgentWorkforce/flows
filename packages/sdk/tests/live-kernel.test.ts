@@ -19,6 +19,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { flow } from '@relayflows/surface';
 import { compileYaml, toKernelSpec } from '../src/compile.js';
 import { checkFlow } from '../src/cli/check.js';
+import { socketPathFor } from '../src/daemon-connection.js';
 import { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 import { AgentWorker } from '../src/worker.js';
@@ -1322,7 +1323,7 @@ steps:
     // this case pins -- refused before any journal write, naming the socket --
     // is unchanged, and `runArtifacts(absentDir)` below still proves it.
     const absentDir = temporaryDirectory('flows-live-absent-');
-    const absentSocket = join(absentDir, 'relayflowd.sock');
+    const absentSocket = socketPathFor(absentDir);
     const unreachable = invokeCli([
       'run', '--no-spawn', '--data-dir', absentDir, join(TESTDATA, 'hello-deterministic.flow.yaml'),
     ]);
@@ -1780,7 +1781,7 @@ async function startDaemon(dataDir: string): Promise<ChildProcess> {
   daemons.push(daemon);
   const stderr: Buffer[] = [];
   daemon.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk));
-  const socket = join(dataDir, 'relayflowd.sock');
+  const socket = socketPathFor(dataDir);
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
     if (existsSync(socket) && lstatSync(socket).isSocket()) return daemon;
@@ -1800,7 +1801,7 @@ async function stopDaemon(daemon: ChildProcess, signal: NodeJS.Signals = 'SIGTER
 }
 
 async function connectClient(dataDir: string): Promise<JournalClient> {
-  const client = new JournalClient(join(dataDir, 'relayflowd.sock'), { requestTimeoutMs: 5_000 });
+  const client = new JournalClient(socketPathFor(dataDir), { requestTimeoutMs: 5_000 });
   clients.push(client);
   await client.connect();
   return client;
