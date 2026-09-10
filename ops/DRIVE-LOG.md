@@ -9133,3 +9133,52 @@ boolean. Wasteful; project the field next time.
 
 No work invented. Per the brief, a tick that reports "still blocked" is the
 correct output when that is the truth.
+
+### 2026-09-10 03:5xZ — queue is back up; found a dead env var (cloud#3519)
+
+**Queue recovered.** The pending run now acquires a sandbox and `updatedAt`
+moves off `createdAt` (`33a474b6`, 03:37:40 -> 03:40:51, sandbox
+`734e8c46`). That is not the DOWN shape from 21:25Z (`sandboxId: null`, frozen
+timestamp). 12 running. Did not retry-spam it.
+
+**Three drive PRs I had not seen** — flows #253, #256, #257, all authored by
+cloud runs, all failing only the `review` swarm gate (the unpassable one, #255).
+
+#257 repairs a run that died at `assess-1`:
+
+    mcp-args --register failed (exit 1): register transport error:
+    HTTP error: error sending request for url (.../v1/agents)
+
+I first suspected this was live evidence for #3516 and checked instead of
+claiming it: there is **no** `workspace_busy` marker, it is a plain reqwest
+connection failure, which the *existing* `transient` rule already classifies
+correctly. #3516 is not implicated. Not claiming it as evidence.
+
+The real finding is the contradiction that repair report raised and dropped —
+`DISABLE_RELAY=1` was set and registration ran anyway. Chased it:
+
+| tree | `DISABLE_RELAY` | `AGENT_RELAY_WORKFLOW_DISABLE_RELAYCAST` |
+|---|---|---|
+| cloud source | 15 | **0** |
+| relayflows/agent-relay dist | **0** | 1 |
+
+Cloud sets a name nothing reads; the runner reads a name cloud never sets.
+`drive-cloud.yaml` uses only analyst/worker/reviewer — all three set the dead
+one. Filed **cloud#3519**.
+
+Worth recording how I nearly got this wrong: my first grep "found" the reader at
+`runner.js:2320` and I almost reported the var as honored. It was a **substring
+match** — `DISABLE_RELAY` inside `AGENT_RELAY_WORKFLOW_DISABLE_RELAYCAST`. The
+finding only appeared when I re-ran with `[A-Z_]*DISABLE_RELAY[A-Z_]*` and
+counted distinct tokens. A grep that matches is not a grep that matched the
+thing you meant.
+
+**Did not push the fix, deliberately.** It is one line per preset, but making
+the opt-out finally work turns relay OFF for every worker/reviewer/analyst step
+in the drive loop for the first time. Those steps have only ever run with relay
+up and may depend on it. That is an unattended behavior change to the live loop
+at 04:00 — same shape as the prove-on-dev-first rule. It needs a human.
+
+Also noted: `tests/orchestrator/presets.test.ts` asserts the wrong name, so the
+suite locks the bug in. Any fix has to change that test, which is why it should
+be done deliberately and not by me at this hour.
