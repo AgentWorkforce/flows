@@ -1,6 +1,19 @@
-# Pending GitHub delivery
+# Completed GitHub delivery
 
-These commands were attempted and refused with HTTP 401. They are ready to run after existing GitHub write authentication is restored. Run from the root of branch `shakedown/v2-launch-0910`. Check for an existing matching issue/PR first if another coordinator has resumed delivery, to avoid duplicates. The report PR must remain a draft; a human merges. No credentials belong in this file.
+**Delivered by the coordinator's authenticated session on 2026-09-10; independently verified via the public API. Do not re-run these creation commands.**
+
+- LLM: [#273](https://github.com/AgentWorkforce/flows/issues/273)
+- YAML worker: [#274](https://github.com/AgentWorkforce/flows/issues/274)
+- YAML binding: [#275](https://github.com/AgentWorkforce/flows/issues/275)
+- Runtime diagnostic: [#276](https://github.com/AgentWorkforce/flows/issues/276)
+- Dependency audit: [#277](https://github.com/AgentWorkforce/flows/issues/277)
+- Observer origins: [#278](https://github.com/AgentWorkforce/flows/issues/278)
+- Help fix: [PR #279](https://github.com/AgentWorkforce/flows/pull/279)
+- Docs fix: [PR #280](https://github.com/AgentWorkforce/flows/pull/280)
+- Report: [draft PR #281](https://github.com/AgentWorkforce/flows/pull/281)
+- Observer owner update: [#264 comment](https://github.com/AgentWorkforce/flows/issues/264#issuecomment-5620663794)
+
+The commands below and local HTTP401 transcripts are historical evidence. A human still merges. No credentials belong in this file.
 
 ## llm-local
 
@@ -56,7 +69,7 @@ gh pr create --repo AgentWorkforce/flows --base main --head fix/docs-inline-mode
 gh pr create --repo AgentWorkforce/flows --base main --head shakedown/v2-launch-0910 --title 'docs: report v2 launch shakedown findings and evidence' --body-file evidence/shakedown-0910/report-pr-body.md --draft
 ```
 
-After creation, replace the report’s prepared-body links with the returned GitHub URLs and update the delivery-status paragraph. Do not mark any product blocker resolved merely because its issue was filed.
+The report now links the created objects. Filing an issue does not resolve the product blocker.
 
 ## observer-origins
 

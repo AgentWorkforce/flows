@@ -1,1 +1,1 @@
-All action bodies are on this report branch. OPEN-PR target branches are already pushed. Also open this report as a DRAFT using the exact gh command in evidence/shakedown-0910/DELIVERY.md; post the prepared observer-264-comment.md to existing #264. Never merge.
+COMPLETED: all actions delivered by the coordinator. Do not re-run ACTIONS.txt. Actual issue/PR/comment URLs and public API verification are in evidence/shakedown-0910/DELIVERY.md and publication.json. Report PR #281 is a draft. No merge was performed.

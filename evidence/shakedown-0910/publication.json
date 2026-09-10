@@ -1,0 +1,80 @@
+{
+  "issues/273": {
+    "number": 273,
+    "title": "flows: flagship llm chain has no executable local path in YAML or TypeScript",
+    "html_url": "https://github.com/AgentWorkforce/flows/issues/273",
+    "state": "open",
+    "created_at": "2026-09-10T14:52:41Z"
+  },
+  "issues/274": {
+    "number": 274,
+    "title": "flows: YAML agent runs park without a supported local-worker command",
+    "html_url": "https://github.com/AgentWorkforce/flows/issues/274",
+    "state": "open",
+    "created_at": "2026-09-10T14:52:42Z"
+  },
+  "issues/275": {
+    "number": 275,
+    "title": "flows: declarative steps lack a supported way to consume upstream output",
+    "html_url": "https://github.com/AgentWorkforce/flows/issues/275",
+    "state": "open",
+    "created_at": "2026-09-10T14:52:44Z"
+  },
+  "issues/276": {
+    "number": 276,
+    "title": "flows: failed deterministic runs hide the command exit code and stderr",
+    "html_url": "https://github.com/AgentWorkforce/flows/issues/276",
+    "state": "open",
+    "created_at": "2026-09-10T14:52:45Z"
+  },
+  "issues/277": {
+    "number": 277,
+    "title": "flows: fresh SDK npm ci reports six dependency advisories",
+    "html_url": "https://github.com/AgentWorkforce/flows/issues/277",
+    "state": "open",
+    "created_at": "2026-09-10T14:52:46Z"
+  },
+  "issues/278": {
+    "number": 278,
+    "title": "flows: observer API and dashboard origins produce HTTP 404",
+    "html_url": "https://github.com/AgentWorkforce/flows/issues/278",
+    "state": "open",
+    "created_at": "2026-09-10T14:52:47Z"
+  },
+  "pulls/279": {
+    "number": 279,
+    "title": "fix(cli): plug the shakedown-found holes in the --help / verbs surface",
+    "html_url": "https://github.com/AgentWorkforce/flows/pull/279",
+    "state": "open",
+    "draft": false,
+    "created_at": "2026-09-10T14:52:50Z",
+    "headRef": "fix/cli-help-shakedown-0910",
+    "headSha": "179092173be91d4e4fcc9245be17371bca08360a"
+  },
+  "pulls/280": {
+    "number": 280,
+    "title": "docs: correct inline named-agent example after the #263 fix",
+    "html_url": "https://github.com/AgentWorkforce/flows/pull/280",
+    "state": "open",
+    "draft": false,
+    "created_at": "2026-09-10T14:52:52Z",
+    "headRef": "fix/docs-inline-model-shakedown-0910",
+    "headSha": "e88651b67401ef21a55710bc8f2ae71b2dab58b9"
+  },
+  "pulls/281": {
+    "number": 281,
+    "title": "docs: v2 launch-prep shakedown report",
+    "html_url": "https://github.com/AgentWorkforce/flows/pull/281",
+    "state": "open",
+    "draft": true,
+    "created_at": "2026-09-10T14:52:55Z",
+    "headRef": "shakedown/v2-launch-0910",
+    "headSha": "5962d5d2bcc32455cf6c17664bdc639d3be7a8be"
+  },
+  "issues/comments/5620663794": {
+    "html_url": "https://github.com/AgentWorkforce/flows/issues/264#issuecomment-5620663794",
+    "created_at": "2026-09-10T14:52:57Z",
+    "commentId": 5620663794,
+    "containsSocketFinding": true
+  }
+}
