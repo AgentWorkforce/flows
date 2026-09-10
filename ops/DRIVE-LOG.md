@@ -9460,3 +9460,47 @@ unblock the gate.
 
 Verified: md5 14de3de9 -> 5846f01f, YAML parses, swarm.timeoutMs asserted
 unchanged so the 60m<65m<75m ordering invariant holds.
+
+### 2026-09-10 ~06:4xZ — Bugbot reviewed #3510; one finding correct, one contested
+
+Queue pending=1, 12 running. Disk 4.7Gi.
+
+Cursor Bugbot (not a human) left two findings on cloud#3510. Both substantive.
+
+**Finding 2, "Sweep can overwrite terminal run status" (Medium) -- CORRECT.**
+The CTE filters `status='running'`, but the UPDATE re-matched by `wr.id =
+candidates.id` alone. Under READ COMMITTED an UPDATE that blocks on a row a
+concurrent txn is changing re-evaluates ITS OWN where clause against the new
+row version after that txn commits -- and the id predicate is still true for a
+run that just completed. The sweep would manufacture the exact state it exists
+to clean up. Fixed by repeating both predicates in the UPDATE (70f6795).
+
+Deliberately NO test: the CTE already excludes those rows, so a
+single-threaded test passes identically with and without the fix. A test that
+cannot fail is worse than none. Proving it needs two concurrent transactions,
+which the suite cannot express. Said so in the commit and the reply.
+
+**Finding 1, "Stale timestamp is not a heartbeat" (High) -- premise wrong, but
+it caught a real flaw in MY evidence.**
+
+Its mechanism: "the runner only writes `running` once at start and leaves the
+row untouched until a terminal callback." Measured all 423 completed runs:
+
+    n=423  median 5.8m  max 33.3m  spans>10m: 118/423  spans>60m: 0/423
+
+updated_at clearly moves past creation. BUT -- and this is the honest part --
+a row written once at start and once at the TERMINAL callback produces exactly
+this distribution too. Bugbot's model and mine are indistinguishable from this
+data. I cannot tell them apart, and I said so rather than claiming the win.
+
+**So I conceded: my "idle_h" column in the #3510 evidence comment is
+MISLABELLED.** It is time since last status write. For a wedged run that is
+idle time; for a live run it may be nothing but age since start. I should not
+have called it idle. That is the second time tonight a column label of mine
+asserted more than the data supported.
+
+**Why the safety concern still fails, independent of the heartbeat question:**
+ZERO of 423 completed runs exceeded 60 minutes; the longest healthy run on
+record is 33.3 min. "Healthy long-running work" a threshold could kill does not
+appear in 423 samples. The 103-day rows are three orders of magnitude past the
+envelope. A threshold set above a few hours cannot hit healthy work.
