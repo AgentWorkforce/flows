@@ -9749,3 +9749,40 @@ worth a second opinion.
 Also confirmed live, incidental: `Skipping relayfile mount convergence probe;
 RELAYFILE_SMOKE_* env is incomplete.` printed twice -- exactly the condition
 cloud#3497 exists to make fatal. The probe has never run.
+
+### 2026-09-10 ~09:2xZ — named the secret: RELAYFILE_SMOKE_BASE_URL
+
+Queue drained. Disk 4.7Gi.
+
+Narrowed cloud#3524 to a single named secret.
+
+**Bracket:** 34320569038 (09-09 06:46, promote SUCCEEDED) has hyphens INTACT,
+6 masked lines. 34438917830 (09-10 04:53, promote FAILED) has them masked,
+1912. The promote succeeding in the unmasked run and failing in the masked one
+is the natural experiment I lacked when filing -- the causal link is no longer
+inference alone.
+
+**Exactly one secret changed in that window**, repo + all environments:
+
+    2026-09-09T17:44:45Z  RELAYFILE_SMOKE_BASE_URL
+
+**The control that nearly killed it.** I checked an ordinary run created AFTER
+17:44:45 expecting masking. It showed NONE. For a moment that looked like a
+falsification. It is not: a secret is only exposed to, and masked in, jobs that
+REFERENCE it. That run was Preview Cleanup, and RELAYFILE_SMOKE_* is referenced
+by exactly two workflows -- rebuild-snapshot.yml and smoke-sandbox-image.yml.
+So masking should appear in the snapshot workflow and nowhere else, which is
+exactly what is observed. rebuild-snapshot.yml:206 injects it into the same job
+whose outputs feed promote.
+
+I ran that control expecting it to CONFIRM, and it appeared to refute. Sitting
+with the refutation for one more step is what turned it into the strongest
+evidence in the chain.
+
+Still cannot read the value -- the API does not expose it -- so "the value is a
+hyphen" stays labelled as inference, now supported by four independent legs.
+Likeliest story: a placeholder typed during provisioning, since the same run
+still says RELAYFILE_SMOKE_* is INCOMPLETE.
+
+Neat irony for the record: the secrets I have been asking for all night got
+partially provisioned, and the placeholder broke snapshot promotion repo-wide.
