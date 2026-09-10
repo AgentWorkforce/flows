@@ -39,6 +39,7 @@ type ParsedArgs =
   | { command: 'check'; json: boolean; value: string }
   | { command: 'run'; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
   | { command: 'resume'; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
+  | { command: 'observer'; dataDir: string }
   | { command: 'hn-monitor'; sub: 'start'; dataDir: string; specPath: string; pollIntervalMs: number | undefined }
   | { command: 'tick'; sub: 'start'; dataDir: string; specPath: string; scheduleId: string;
       intervalMs: number; epochMs: number | undefined; maxCatchUp: number | undefined;
@@ -53,6 +54,7 @@ const USAGE = [
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] <run-id>',
+  'flows observer [--data-dir <dir>]',
   'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
 ].join(' ');
 
@@ -94,6 +96,8 @@ export async function runCli(
     emitCheckReport(checked.report, parsed.json, io);
     return checked.report.ok ? 0 : 2;
   }
+
+  if (parsed.command === 'observer') return runObserverCommand(io);
 
   if (parsed.command === 'hn-monitor') {
     const controller = new AbortController();
@@ -249,6 +253,50 @@ const OBSERVER_FINALIZE_GRACE_MS = 2_000;
  * knows the mint did not complete rather than seeing silence -- and stop
  * waiting so the CLI can exit.
  */
+/**
+ * `flows observer`: mint and print a single observer URL. Reuses the same
+ * env parsing (`readObserverLinkEnv`) and mint (`mintObserverUrl`) as the
+ * run/resume verbs, so an operator who already has an observer URL working
+ * via `flows run` will get the identical URL shape here. Every failure
+ * path -- unset key, suppressed via `FLOWS_NO_OBSERVER`, mint HTTP error,
+ * network error, malformed response -- is refused with `REFUSED
+ * [observer_link_unavailable] <reason>` on stderr and exit 2, matching the
+ * flows CLI refusal shape (see `parseArgs` -> `invalid_invocation`).
+ */
+async function runObserverCommand(
+  io: CliIo,
+  env: NodeJS.ProcessEnv = process.env,
+  mint: (options: MintObserverOptions) => Promise<{ observerUrl?: string; warning?: string }> = mintObserverUrl,
+): Promise<CliExitCode> {
+  const link = readObserverLinkEnv(env);
+  if (link.suppressed) {
+    io.stderr('REFUSED [observer_link_unavailable] mint suppressed by FLOWS_NO_OBSERVER=1');
+    return 2;
+  }
+  if (link.workspaceKey === undefined) {
+    io.stderr(
+      'REFUSED [observer_link_unavailable] no workspace key configured; set RELAYCAST_WORKSPACE_KEY',
+    );
+    return 2;
+  }
+  const outcome: { observerUrl?: string; warning?: string } = await mint({
+    workspaceKey: link.workspaceKey,
+    ...(link.baseUrl !== undefined ? { baseUrl: link.baseUrl } : {}),
+  }).catch((error): { warning: string } => ({
+    warning: error instanceof Error ? error.message : 'unknown mint error',
+  }));
+  if (outcome.observerUrl === undefined) {
+    // Fold the mint's own warning into the refusal so an operator sees the
+    // same phrasing they would have gotten under `flows run` -- no extra
+    // interpretation, no lossy summary.
+    const reason = outcome.warning ?? 'mint returned no URL';
+    io.stderr(`REFUSED [observer_link_unavailable] ${reason}`);
+    return 2;
+  }
+  io.stdout(outcome.observerUrl);
+  return 0;
+}
+
 export async function finalizeObserverLine(
   mint: Promise<{ observerUrl?: string; warning?: string }> | undefined,
   io: CliIo,
@@ -295,6 +343,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   const command = args[0];
   if (command === 'hn-monitor') return parseHnMonitorArgs(args.slice(1));
   if (command === 'tick') return parseTickArgs(args.slice(1));
+  if (command === 'observer') return parseObserverArgs(args.slice(1));
   if (command !== 'check' && command !== 'run' && command !== 'resume') return undefined;
 
   let json = false;
@@ -412,6 +461,35 @@ function parseHnMonitorArgs(rest: readonly string[]): ParsedArgs | undefined {
   }
   if (positionals.length !== 1) return undefined;
   return { command: 'hn-monitor', sub: 'start', dataDir, specPath: positionals[0]!, pollIntervalMs };
+}
+
+/**
+ * `flows observer`. On-demand mint verb: prints an observer URL without
+ * running a flow. Takes an optional `--data-dir` (accepted for parity with
+ * other verbs, so operators can share one invocation shape across the
+ * surface) but does not open a socket, spawn a daemon, or touch the data
+ * directory at all -- the mint is a pure Relaycast API round-trip. No
+ * positional argument, no other flags.
+ */
+function parseObserverArgs(rest: readonly string[]): ParsedArgs | undefined {
+  let dataDir = DEFAULT_DATA_DIR;
+  let sawDataDir = false;
+  for (let index = 0; index < rest.length; index += 1) {
+    const argument = rest[index]!;
+    if (argument === '--data-dir') {
+      const value = rest[index + 1];
+      if (sawDataDir || value === undefined || value.startsWith('-')) return undefined;
+      dataDir = value;
+      sawDataDir = true;
+      index += 1;
+      continue;
+    }
+    // Any positional or unknown flag is a shape error: this verb has no
+    // spec-path or run-id argument, so silently ignoring extras would be
+    // worse than refusing them.
+    return undefined;
+  }
+  return { command: 'observer', dataDir };
 }
 
 /**

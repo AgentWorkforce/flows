@@ -183,6 +183,93 @@ describe('readObserverLinkEnv', () => {
   });
 });
 
+describe('flows observer verb', () => {
+  it('mints and prints the observer URL on stdout, exit 0', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { token: 'ot_live_verb' } }),
+    });
+    vi.stubGlobal('fetch', fetch);
+    vi.stubEnv('RELAYCAST_WORKSPACE_KEY', 'rk_live_operator');
+    vi.stubEnv('FLOWS_NO_OBSERVER', '');
+
+    const output = capture();
+    const exit = await runCli(['observer'], output.io);
+
+    expect(exit).toBe(0);
+    expect(output.stdout).toEqual(['https://agentrelay.com/observer?key=ot_live_verb']);
+    expect(output.stderr).toEqual([]);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('refuses with observer_link_unavailable when no workspace key is set', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    vi.stubEnv('RELAYCAST_WORKSPACE_KEY', '');
+    vi.stubEnv('FLOWS_NO_OBSERVER', '');
+
+    const output = capture();
+    const exit = await runCli(['observer'], output.io);
+
+    expect(exit).toBe(2);
+    expect(output.stdout).toEqual([]);
+    expect(output.stderr).toEqual([
+      'REFUSED [observer_link_unavailable] no workspace key configured; set RELAYCAST_WORKSPACE_KEY',
+    ]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses with observer_link_unavailable when FLOWS_NO_OBSERVER=1', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    vi.stubEnv('RELAYCAST_WORKSPACE_KEY', 'rk_live_operator');
+    vi.stubEnv('FLOWS_NO_OBSERVER', '1');
+
+    const output = capture();
+    const exit = await runCli(['observer'], output.io);
+
+    expect(exit).toBe(2);
+    expect(output.stdout).toEqual([]);
+    expect(output.stderr).toEqual([
+      'REFUSED [observer_link_unavailable] mint suppressed by FLOWS_NO_OBSERVER=1',
+    ]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses with the mint diagnostic when the mint API 500s', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: 'boom' }),
+    });
+    vi.stubGlobal('fetch', fetch);
+    vi.stubEnv('RELAYCAST_WORKSPACE_KEY', 'rk_live_operator');
+    vi.stubEnv('FLOWS_NO_OBSERVER', '');
+
+    const output = capture();
+    const exit = await runCli(['observer'], output.io);
+
+    expect(exit).toBe(2);
+    expect(output.stdout).toEqual([]);
+    expect(output.stderr).toEqual([
+      'REFUSED [observer_link_unavailable] mint API returned HTTP 500',
+    ]);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('refuses invocation when an unknown flag or positional is passed', async () => {
+    vi.stubEnv('RELAYCAST_WORKSPACE_KEY', 'rk_live_operator');
+    const output = capture();
+    const exit = await runCli(['observer', 'unexpected-positional'], output.io);
+    expect(exit).toBe(2);
+    // Falls through to the top-level `invalid_invocation` refusal, printing
+    // the USAGE block. Task 2 adds the `flows observer` line to that block.
+    expect(output.stderr.some((line) => line.includes('invalid_invocation'))).toBe(true);
+    expect(output.stderr.some((line) => line.includes('flows observer'))).toBe(true);
+  });
+});
+
 describe('finalizeObserverLine', () => {
   it('prints Observer: <url> on stdout when the mint resolves within the grace budget', async () => {
     const output = capture();
