@@ -1,0 +1,26 @@
+name: Review swarm wrapper guard
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      # pull_request_target always reads this workflow and script from the PR
+      # base. A candidate therefore cannot relax the guard that evaluates it.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Reject candidate-owned wrapper changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: .github/workflows/scripts/swarm-wrapper-guard.sh "$REVIEW_PR_NUMBER"
