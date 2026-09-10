@@ -2,10 +2,15 @@
 set -euo pipefail
 
 response=${1:-}
-reason=$(jq -r '.result.error // .error // empty' <<<"$response" 2>/dev/null)
-if [ -n "$reason" ]; then
-  safe_reason=$(printf '%s\n' "$reason" | sed 's/^/    /')
-  echo "swarm failure reason:" >&2
-  printf '%s\n' "$safe_reason" >&2
-  { echo "### Swarm failure reason"; echo; printf '%s\n' "$safe_reason"; } >> "$GITHUB_STEP_SUMMARY"
+failure=$(jq -c '
+  def token: if type == "string" and test("^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$") then . else null end;
+  (if type == "object" then . else {} end) as $status
+  | ($status.failure // {}) as $failure
+  | if ($failure | type) == "object" then $failure else {} end
+  | {phase: (.phase? // null | token), code: (.code? // null | token)}
+  | with_entries(select(.value != null))
+' <<<"$response" 2>/dev/null)
+if [ -n "$failure" ] && [ "$failure" != '{}' ]; then
+  echo "swarm failure diagnostic: $failure" >&2
+  echo "- Swarm failure diagnostic: \`$failure\`" >> "$GITHUB_STEP_SUMMARY"
 fi
