@@ -9299,3 +9299,52 @@ Mutation asserted: md5 dd62a5e4 -> 9fee835d, YAML re-parsed clean.
 Noted in the PR but not fixed: the wait loop is inline YAML, so
 `swarm-gate.test.sh` cannot reach it. That is why this survived. Extracting it
 is a bigger change than belongs in this pass.
+
+### 2026-09-10 ~05:1xZ — all nine gate failures are infrastructure; zero are code
+
+Queue: pending=1, running=15. #258 open, CI running.
+
+Pulled the literal `swarm failure reason:` block from every open flows PR's
+review run:
+
+    #238 failed  Workflow launch exceeded its queue deadline before bootstrap
+    #240 failed  notify-flush ... http 410 cursor_expired (Relayfile mount)
+    #242 failed  Relaycast workspace key repair failed: 503
+    #244 failed  Workflow sandbox ... is still provisioning (creating)
+    #245 failed  mcp-args --register (503) database_overloaded
+    #251 failed  Relaycast workspace key repair failed: 503
+    #253 failed  Step sandbox dependency install failed
+    #256 failed  mcp-args --register rate-limited, retry after 60s, workspace_busy
+    #257 running (none) -- the 65-min timeout, see #258
+
+**Nine of nine infrastructure. Zero are a lens objecting to the code.** Seven
+distinct failure modes. Eight of nine die in `lens-maintainability`, the first
+lens to run -- whatever runs first absorbs whatever is broken that hour.
+
+That corrects my #255 framing again. "Single point of failure for merging
+anything" read as *the gate is defective*. It mostly is not: it faithfully
+reports a platform that cannot keep a swarm alive long enough to reach a
+verdict. The gate currently measures platform weather, not code quality.
+
+**Real evidence for my own cloud PRs, this time verified:**
+- #245 carries `database_overloaded` -> cloud#3507's shape
+- #256 carries `workspace_busy; retry after 60s` -> cloud#3516's shape
+
+Earlier tonight I examined a `register transport error` and correctly REJECTED
+it as evidence for #3516 (no workspace_busy marker). These two are genuine.
+Posted on #3516.
+
+**Unexpected, and it dents my own PR's premise:** both read
+
+    Step "lens-maintainability" failed after 2 retries
+
+while the register error says `attempts: 1`. Two different counters -- inner
+mcp-args attempt vs outer relayflow step retry -- and the OUTER one exhausted.
+The server advertised `retry after 60s` and the step gave up after two. Getting
+the backoff DELAY right does not help if the BUDGET cannot span the advertised
+interval. Said so on #3516 rather than letting the PR imply it closes this.
+
+Instrument failure worth recording: my first extraction used
+`grep -A2 "swarm failure reason" | tail -1` and returned `##[group]Run ...` and
+a package-version line as "reasons" for five PRs. It looked like data. Redone
+with an indent-anchored parse over the runtime emission.
