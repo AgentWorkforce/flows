@@ -8776,3 +8776,40 @@ other to the running lane. Neither is mine to reclaim, and the earlier
 one-worker-one-directory lesson applies.
 
 Net: **5.9Gi free**, up from 4.6Gi, without touching anything in use.
+
+### 2026-09-10 — #244's P1 is live, not stale; and its lane has stalled
+
+Disk 5.9Gi (holding after the reclaim). Drain: 2 pending, newest 01:20, normal
+window.
+
+**Checked #244's history blocker rather than assuming it was stale** — the
+verdict is dated `2026-09-08T10:11:41Z` and cites head `4aeb091`, while the PR is
+now at `f3fde5d` with commits since. Several blockers tonight turned out stale;
+this one does not.
+
+`ops/local-work-verification.mjs` still guards a **fixed list** of paths, and the
+scope assertion passes when a touched path is inside a declared scope and absent
+from that list. So a package scoped to `src/` whose acceptance command is
+`["node","src/check.mjs"]` may edit the very script the gate then executes. The
+lens's reproduction still describes this code.
+
+**Did not implement the fix.** The protected set needs deriving from the
+acceptance command actually being run, which changes what `checkScope` receives
+and touches the command reconstruction in `local-work-package.mjs`. That is a
+security boundary on a branch that is not mine, and the right shape depends on
+the package/command contract more than on these two files. Confirming the
+blocker is live is what I could do without guessing at intent.
+
+**The more actionable finding: `flows-threads-0909` has stalled.** Running
+14h34m, last commit here **13 hours ago**, **zero file writes in 3 hours**,
+nothing modified, nothing unpushed. Unlike the two lanes I stood down tonight,
+its target is still open — so this is idleness, not a dead objective. Left it
+running rather than killing it, since ending it would not advance #244 and it may
+resume; flagged for reassignment instead.
+
+**Repeated a mistake I had already made tonight.** Backticks inside a heredoc
+triggered command substitution again, eating the `OUT_OF_SCOPE` template literal
+out of a posted code block — the same failure as on #242 two hours ago. Verified
+the live comment, patched it via the API, re-verified. The lesson I apparently
+did not absorb the first time: write comment bodies containing backticks to a
+file with a quoted heredoc, never inline.
