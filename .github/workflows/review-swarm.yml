@@ -39,7 +39,9 @@ jobs:
       - name: Check out immutable gate from main
         uses: actions/checkout@v4
         with:
-          ref: main
+          # The base SHA is the immutable definition this PR is judged by. A
+          # moving `main` ref could change the judge while this run is live.
+          ref: ${{ github.event.pull_request.base.sha }}
           path: gate-files
           sparse-checkout: |
             workflows/review-swarm.yaml
@@ -47,6 +49,8 @@ jobs:
             .github/workflows/scripts/swarm-prepare.sh
             .github/workflows/scripts/swarm-verdict.sh
             .github/workflows/scripts/swarm-gate.test.sh
+            .github/workflows/scripts/swarm-definition.sh
+            .github/workflows/scripts/swarm-definition.test.sh
 
       # The gate decides whether code merges, so before it judges anything it
       # proves it can still say no. `swarm-verdict.sh` is a handful of lines of
@@ -70,6 +74,8 @@ jobs:
         env:
           REVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          ruby --version
+          ruby -ryaml -e 'abort "Psych YAML parser unavailable" unless defined?(Psych)'
           test_script=gate-files/.github/workflows/scripts/swarm-gate.test.sh
           if [ ! -f "$test_script" ]; then
             # Only the introducing PR may bootstrap before its test is on main.
@@ -82,6 +88,51 @@ jobs:
             exit 1
           fi
           bash "$test_script"
+          definition_test=gate-files/.github/workflows/scripts/swarm-definition.test.sh
+          if [ ! -f "$definition_test" ]; then
+            # The introducing PR cannot run a helper that is not on its base
+            # yet. Once this PR lands, absence is a deletion or checkout bug
+            # and must fail closed like the verdict self-test above.
+            if [ "$REVIEW_PR_NUMBER" = 265 ]; then
+              echo "::notice::PR #265 bootstrap: candidate validator is not on main yet."
+            else
+              echo "::error::main-owned candidate validator is missing" >&2
+              exit 1
+            fi
+          else
+            bash "$definition_test"
+          fi
+
+      # A PR that changes the relayflow definition cannot be judged by that
+      # definition without violating the immutable-gate rule. Parse and check
+      # the candidate's load-bearing policy against the trusted base, but keep
+      # the actual review run below on the base definition. This is a candidate
+      # contract check, not a candidate verdict.
+      - name: Validate candidate review definition
+        env:
+          REVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        working-directory: pr-head
+        run: |
+          # Compare the PR patch (merge-base...head), not the two trees. A
+          # branch can be stale on this file without the PR changing it.
+          if git diff --quiet "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA" -- workflows/review-swarm.yaml; then
+            echo "Candidate review definition unchanged; trusted base definition is the effective file."
+            exit 0
+          fi
+          validator=../gate-files/.github/workflows/scripts/swarm-definition.sh
+          if [ ! -f "$validator" ]; then
+            if [ "$REVIEW_PR_NUMBER" = 265 ]; then
+              echo "::notice::PR #265 bootstrap: candidate validator is not on main yet."
+            else
+              echo "::error::main-owned candidate validator is missing" >&2
+              exit 1
+            fi
+          else
+            "$validator" workflows/review-swarm.yaml \
+              ../gate-files/workflows/review-swarm.yaml
+          fi
 
       # Fail here, in seconds, rather than in `Launch cloud swarm` ten minutes
       # later. WorkflowApiKeyClient.fromEnv requires CLOUD_API_URL and
