@@ -9615,3 +9615,43 @@ Shell lesson worth keeping: `set -- $var` inside a loop failed TWICE tonight
 because **zsh does not word-split unquoted parameters** the way bash does. Both
 times it produced an empty argument and a confusing downstream error rather
 than an obvious one.
+
+### 2026-09-10 ~08:2xZ — relayfile#492: the remedy EXISTS, nothing triggers it
+
+Queue drained (pending=0, 15 running). Disk 4.5Gi.
+
+Went after #492 since it became the top item. Found a relayfile checkout and
+read the actual code.
+
+**Sharpened the issue materially.** I filed it saying the advertised full
+resync "is never attempted". Right about behaviour, WRONG about cause -- it is
+not missing, it is never reached:
+
+    cmd/relayfile-mount/main.go:117
+    flag.Bool("full-reconcile", boolEnv("RELAYFILE_FORCE_FULL_RECONCILE", false),
+      "force one full reconcile regardless of bootstrap-complete state (escape hatch)")
+
+wired at :219 and :501. The mount can do exactly what the 410 asks. There is
+simply no path from "server said cursor_expired" to "run the reconcile you
+already support" -- the error propagates through notify_flush_unix.go:70 as an
+opaque string and kills the process. Smaller fix than I implied.
+
+**Two things I could NOT establish, and said so on the issue:**
+- `cursor_expired` is emitted NOWHERE in this repo. The only StatusGone sites
+  (server.go:1539, :1580) are `fork_expired`. So it comes from the hosted
+  control plane, which I cannot read from here.
+- I read v0.10.52; the DEPLOYED mount may differ. Flagged rather than asserted
+  -- I have been burned on deployed-vs-main before.
+
+**Possible workaround, offered as a lead not a recommendation:** the flag reads
+`RELAYFILE_FORCE_FULL_RECONCILE` from the ENV, so a caller might break the loop
+without changing relayfile. Untested. Two cautions I wrote down: help says
+"force ONE full reconcile" so it may clear a stuck cursor without preventing
+the next, and enabling an escape hatch permanently has an unmeasured cost.
+Did NOT set it in the flows swarm def -- that is a guess dressed as a fix, and
+I already have #259 pending on that file.
+
+Method note: before claiming "no resync exists" I proved the instrument could
+express presence -- `cursor` returns 291 hits in the same grep. The absence was
+real, but I checked the grep worked first. That habit paid: it surfaced
+`ForceFullReconcile` and inverted my conclusion.
