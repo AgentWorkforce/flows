@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { runCli, type CliIo } from '../src/cli.js';
+import { finalizeObserverLine, runCli, type CliIo } from '../src/cli.js';
 import {
   mintObserverUrl,
   readObserverLinkEnv,
@@ -183,6 +183,46 @@ describe('readObserverLinkEnv', () => {
   });
 });
 
+describe('finalizeObserverLine', () => {
+  it('prints Observer: <url> on stdout when the mint resolves within the grace budget', async () => {
+    const output = capture();
+    const mint = Promise.resolve({ observerUrl: 'https://agentrelay.com/observer?key=ot_live_x' });
+    await finalizeObserverLine(mint, output.io, 100);
+    expect(output.stdout).toEqual(['Observer: https://agentrelay.com/observer?key=ot_live_x']);
+    expect(output.stderr).toEqual([]);
+  });
+
+  it('prints the mint-failed diagnostic on stderr when the mint resolved with a warning', async () => {
+    const output = capture();
+    const mint = Promise.resolve({ warning: 'mint API returned HTTP 500' });
+    await finalizeObserverLine(mint, output.io, 100);
+    expect(output.stdout).toEqual([]);
+    expect(output.stderr).toEqual([
+      '[observer] token mint failed: mint API returned HTTP 500; skipping observer link',
+    ]);
+  });
+
+  it('prints the timeout stderr line and stops waiting when the mint never resolves', async () => {
+    const output = capture();
+    // A promise that never resolves stands in for a stalled Relaycast call.
+    // If `finalizeObserverLine` were unbounded the awaited call would hang
+    // forever; the assertion after it proves the grace budget was honored.
+    const hung = new Promise<{ observerUrl?: string; warning?: string }>(() => {});
+    await finalizeObserverLine(hung, output.io, 20);
+    expect(output.stdout).toEqual([]);
+    expect(output.stderr).toEqual([
+      '[observer] mint did not complete in time; skipping observer link',
+    ]);
+  });
+
+  it('emits nothing at all when the mint was skipped (undefined input)', async () => {
+    const output = capture();
+    await finalizeObserverLine(undefined, output.io, 100);
+    expect(output.stdout).toEqual([]);
+    expect(output.stderr).toEqual([]);
+  });
+});
+
 /**
  * End-to-end through `runCli`: use the same journal-client loopback the CLI
  * suite uses for the daemon, and stub the global `fetch` for the mint call.
@@ -331,6 +371,60 @@ describe('flows run: observer link integration', () => {
     expect(exit).toBe(0);
     expect(fetch).not.toHaveBeenCalled();
     expect(output.stdout.some((line) => line.startsWith('Observer:'))).toBe(false);
+  });
+
+  it('emits RUN before the mint resolves and appends Observer on a later line', async () => {
+    const dataDir = temporaryProject();
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'run.start': (ctx) => sendResult(ctx, {
+        run_id: 'run-observer-late-mint',
+        status: 'completed',
+        completion_reason: 'success',
+        completed_steps: 2,
+      }),
+    });
+    // Hold the mint response until we release it. This proves the RUN line
+    // does not wait on the mint: without the fix from Task 1 the CLI would
+    // block on `observerUrlFrom` before `emitRunReport` and the RUN line
+    // would never appear on stdout inside our resolve window.
+    let releaseMint: (value: { ok: true; status: 200; json: () => Promise<unknown> }) => void = () => {};
+    const mintPromise = new Promise<{ ok: true; status: 200; json: () => Promise<unknown> }>((resolve) => {
+      releaseMint = resolve;
+    });
+    const fetch = vi.fn().mockReturnValue(mintPromise);
+    vi.stubGlobal('fetch', fetch);
+    vi.stubEnv('RELAYCAST_WORKSPACE_KEY', 'rk_live_operator');
+    vi.stubEnv('FLOWS_NO_OBSERVER', '');
+
+    const output = capture();
+    // Poll stdout while `runCli` is in flight: as soon as RUN appears, release
+    // the mint. If Task 1 regressed and the RUN line waits on the mint, this
+    // polling loop would time out because the mint would never be released.
+    const cliDone = runCli(RUN_ARGS(dataDir), output.io);
+    const runLandedBeforeMint = await new Promise<boolean>((resolve) => {
+      const start = Date.now();
+      const tick = (): void => {
+        if (output.stdout.some((line) => line.startsWith('RUN run-observer-late-mint'))) {
+          releaseMint({ ok: true, status: 200, json: async () => ({ data: { token: 'ot_live_late' } }) });
+          resolve(true);
+          return;
+        }
+        if (Date.now() - start > 3_000) { resolve(false); return; }
+        setTimeout(tick, 10);
+      };
+      tick();
+    });
+    const exit = await cliDone;
+
+    expect(runLandedBeforeMint).toBe(true);
+    expect(exit).toBe(0);
+    const runIndex = output.stdout.findIndex((line) => line.startsWith('RUN run-observer-late-mint'));
+    const observerIndex = output.stdout.findIndex((line) => line.startsWith('Observer:'));
+    expect(observerIndex).toBeGreaterThan(runIndex);
+    expect(output.stdout[observerIndex]).toBe(
+      'Observer: https://agentrelay.com/observer?key=ot_live_late',
+    );
   });
 
   it('folds observerUrl into the --json payload rather than printing a bare line', async () => {

@@ -168,8 +168,23 @@ export async function runCli(
       ? await runDirectFlow(parsed.value, parsed.input, parsed.dataDir, lifecycle)
       : await runFlow(parsed.value, parsed.dataDir, lifecycle)
     : await resumeFlow(parsed.value, parsed.dataDir, lifecycle);
-  const observerUrl = await observerUrlFrom(observerMint, io);
-  emitRunReport(execution, parsed.json, io, observerUrl);
+  // In `--json` mode the report is a single machine-readable object that
+  // MUST carry `observerUrl` when one is available, so a consumer sees one
+  // authoritative signal. That justifies blocking up to `MINT_TIMEOUT_MS`
+  // on the mint before emit -- consumers can wait for a bounded time.
+  //
+  // In plain-text mode the `RUN` line and any check diagnostics carry the
+  // primary signal; the observer URL is a nice-to-have follow-up. Blocking
+  // the RUN summary on a stalled Relaycast call (up to 5s per failed
+  // preflight) is worse than printing `Observer:` on a later line, so we
+  // emit the run report immediately and finalize the observer link after.
+  if (parsed.json) {
+    const observerUrl = await observerUrlFrom(observerMint, io);
+    emitRunReport(execution, parsed.json, io, observerUrl);
+    return execution.exitCode;
+  }
+  emitRunReport(execution, parsed.json, io);
+  await finalizeObserverLine(observerMint, io);
   return execution.exitCode;
 }
 
@@ -213,6 +228,57 @@ async function observerUrlFrom(
     io.stderr(`[observer] token mint failed: ${outcome.warning}; skipping observer link`);
   }
   return outcome.observerUrl;
+}
+
+/**
+ * Grace budget the plain-text emit path waits for a still-pending mint after
+ * the RUN summary is out. `mintObserverUrl` already caps its own network
+ * round-trip at `MINT_TIMEOUT_MS` (5s), so a mint that has not completed by
+ * the time the run ends is almost certainly stuck; 2s is enough for the
+ * common "run finished before the mint round-tripped" case without holding
+ * the shell noticeably.
+ */
+const OBSERVER_FINALIZE_GRACE_MS = 2_000;
+
+/**
+ * Finalize the plain-text observer line after the RUN summary is already on
+ * stdout. If the mint resolves in time, print `Observer: <url>` on its own
+ * stdout line (matching v1 relayflows' convention). If it fails, print the
+ * standard `[observer]` diagnostic on stderr. If it is still pending after
+ * `OBSERVER_FINALIZE_GRACE_MS`, print a distinct stderr line so the operator
+ * knows the mint did not complete rather than seeing silence -- and stop
+ * waiting so the CLI can exit.
+ */
+export async function finalizeObserverLine(
+  mint: Promise<{ observerUrl?: string; warning?: string }> | undefined,
+  io: CliIo,
+  graceMs: number = OBSERVER_FINALIZE_GRACE_MS,
+): Promise<void> {
+  if (mint === undefined) return;
+  // A race between the mint promise and a bounded timer. Using a sentinel
+  // symbol (not `undefined`) so we can tell "grace expired" from "mint
+  // resolved to no URL and no warning" -- which should never happen, but
+  // must not silently claim a timeout if it does.
+  const TIMED_OUT: unique symbol = Symbol('observer-finalize-timeout') as never;
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), graceMs);
+    // Do not let this timer prolong the event loop past a clean exit; if the
+    // mint promise resolves first we clear it below, if the process is
+    // otherwise idle Node should not wait for us to give up.
+    timer.unref?.();
+  });
+  const outcome = await Promise.race([mint, timeout]);
+  if (timer !== undefined) clearTimeout(timer);
+  if (outcome === TIMED_OUT) {
+    io.stderr('[observer] mint did not complete in time; skipping observer link');
+    return;
+  }
+  if (outcome.warning !== undefined) {
+    io.stderr(`[observer] token mint failed: ${outcome.warning}; skipping observer link`);
+    return;
+  }
+  if (outcome.observerUrl !== undefined) io.stdout(`Observer: ${outcome.observerUrl}`);
 }
 
 function emitWait(
@@ -469,10 +535,15 @@ function emitRunReport(
     ? ''
     : ` completionReason: ${report.completionReason}`;
   io.stdout(`RUN ${report.runId} ${report.status ?? 'unknown'}${completed}${reason}`);
-  // The observer line follows RUN immediately, matching relayflows v1's
-  // convention. It is only printed when a URL was actually minted; a missing
-  // key, a suppressed mint, or a mint failure prints nothing here (the
-  // failure path emits `[observer] ...` on stderr instead — never stdout).
+  // The observer line no longer rides inline with the RUN summary in
+  // plain-text mode: a slow mint used to hold back this whole line and any
+  // check diagnostics for up to `MINT_TIMEOUT_MS`. `finalizeObserverLine`
+  // now emits `Observer: <url>` as its own follow-up line after this one,
+  // matching v1 relayflows' output shape (which also printed the observer
+  // URL on its own line). The `observerUrl` parameter is kept for callers
+  // that already have a URL ready and want it inline; today only the
+  // `--json` path takes that branch (where the URL folds into the JSON
+  // payload above), so the plain-text pass through here never uses it.
   if (observerUrl !== undefined) io.stdout(`Observer: ${observerUrl}`);
 }
 
