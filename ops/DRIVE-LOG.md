@@ -9104,3 +9104,32 @@ authorization check at 03:00 is worse than landing nothing.
 The lane there is now ~5 hours idle (16h15m uptime, last commit 13h ago, zero
 writes in 60 minutes), so the analysis is finished and waiting for whoever takes
 it.
+
+### 2026-09-10 — quiet tick: everything is awaiting review
+
+Disk 5.2Gi. Drain: 1 pending (`911685c9`, created 03:22), normal launching
+window. Completions still 423.
+
+Nothing has moved and nothing is actionable:
+
+- **All four cloud PRs** (#3497, #3510, #3516, #3517) are open, green, and have
+  **no human review**. Only CodeRabbit walkthroughs and my own comments.
+- **flows** #238, #240, #242, #244, #251 all open; #240 blocked by the
+  structurally unpassable gate (#255), #244's analysis is finished and waiting.
+- **The last lane** is alive at 16h+ uptime with zero writes in 60 minutes —
+  roughly six hours idle now.
+- Items 2-4 of the brief remain blocked or stale, as they have been all night.
+
+**One thing worth recording:** CodeRabbit hit its Free-plan rate limit on #3516
+and #3517 — *"Review limit reached... Your plan provides up to 1 included review
+per hour; 0 remain"*. Both got a walkthrough summary but **no line-by-line
+review**. That matters for what "reviewed" means on those two: the walkthrough
+describes the change, it does not scrutinise it. Anyone reading the PR page could
+reasonably mistake the CodeRabbit block for a review that happened.
+
+Also noting a small self-inflicted mess: I queried `.comments` without projecting
+a field and dumped four full comment bodies into the tick output to learn one
+boolean. Wasteful; project the field next time.
+
+No work invented. Per the brief, a tick that reports "still blocked" is the
+correct output when that is the truth.
