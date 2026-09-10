@@ -447,6 +447,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       }],
     }), {
       models: ['known-model'],
+      modelRegistryPath: '/project/flows.json',
       probes: probes({
         cli: () => {
           probeCalls += 1;
@@ -482,6 +483,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
 
       const result = preflight(compiled, {
         models: ['known-model'],
+        modelRegistryPath: '/project/flows.json',
         probes: probes({ cli: () => {
           probeCalls += 1;
           return { exists: true, authenticated: true, modelAvailable: true };
@@ -497,4 +499,68 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       expect(toKernelSpec(compiled)).not.toHaveProperty('agents');
     },
   );
+
+  it('accepts an inline named-agent model when no flows.json registry is found', () => {
+    // #263: a self-contained flow that declares agents inline should validate
+    // without a mandatory external flows.json allowlist. The CLI+model probe
+    // still runs (below); model_unknown is a *governance* refusal about a
+    // registry-declared allowlist, and no registry means no policy to enforce.
+    let probeCalls = 0;
+    const result = preflight({
+      version: '0.1.0',
+      agents: { drafter: { cli: 'claude', model: 'claude-sonnet-5' } },
+      steps: [{
+        id: 'draft',
+        type: 'agent',
+        agent: 'drafter',
+        instruction: 'Draft.',
+      }],
+    }, {
+      // Exactly what check.ts sends when readProjectConfig finds no flows.json:
+      // models is empty and modelRegistryPath is absent.
+      models: [],
+      probes: probes({
+        cli: () => {
+          probeCalls += 1;
+          return { exists: true, authenticated: true, modelAvailable: true };
+        },
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.resolutions).toEqual([{
+      stepId: 'draft',
+      cli: 'claude',
+      source: 'named',
+      model: 'claude-sonnet-5',
+    }]);
+    // The probe still ran: model authority does not skip auth verification.
+    expect(probeCalls).toBe(1);
+  });
+
+  it('still refuses an inline named-agent model when a registry IS present and disallows it', () => {
+    // Governance semantics preserved: once flows.json declares an allowlist,
+    // an inline model outside it is still model_unknown. The relaxation in the
+    // previous test is *only* for the no-registry state.
+    const result = preflight({
+      version: '0.1.0',
+      agents: { drafter: { cli: 'claude', model: 'claude-sonnet-5' } },
+      steps: [{
+        id: 'draft',
+        type: 'agent',
+        agent: 'drafter',
+        instruction: 'Draft.',
+      }],
+    }, {
+      models: ['claude-sonnet-4'],
+      modelRegistryPath: '/project/flows.json',
+      probes: probes(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ kind: 'model_unknown', agent: 'drafter', model: 'claude-sonnet-5' }),
+    ]);
+  });
 });

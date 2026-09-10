@@ -181,12 +181,22 @@ function unknownModelDiagnostics(
   options: PreflightOptions,
 ): PreflightRefusal[] {
   const diagnostics: PreflightRefusal[] = [];
+  // model_unknown is a governance check: it exists to enforce a project's
+  // registry-declared allowlist. When no flows.json is found, `check.ts` sends
+  // `models: []` with `modelRegistryPath: undefined` — an empty list not
+  // because the project forbids everything, but because no policy exists.
+  // Refusing an inline `agents: { drafter: { cli, model } }` declaration in
+  // that state forces every self-contained example flow to ship a second file.
+  // A real allowlist (even an empty one from a found flows.json) still
+  // enforces; that state is signalled by modelRegistryPath.
+  const enforceRegistry = options.modelRegistryPath !== undefined;
 
   // Named declarations remain in the normalized authoring object until this
   // boundary so even unused or step-shadowed models are checked. toKernelSpec
   // erases the map and selector only after this pass has had a chance to fail.
   for (const [agent, declaration] of Object.entries(flow.agents ?? {})) {
     if (isKnownModel(declaration.model, options.models)) continue;
+    if (!enforceRegistry) continue;
     diagnostics.push({
       severity: 'refusal',
       kind: 'model_unknown',
