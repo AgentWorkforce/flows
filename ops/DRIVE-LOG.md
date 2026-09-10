@@ -10017,3 +10017,35 @@ Posted the table on #3516. It is the evidence a reviewer needs and it costs
 them nothing to check.
 
 Timestamp on this entry read from `date -u`, per last tick's correction.
+
+### 2026-09-10 08:57Z — closed cloud#3517 as obsolete; the conflict was the signal
+
+Queue drained (pending=0, 14 running). Disk 5.6Gi.
+
+**#3517 went DIRTY.** Rebased it and the conflict's `HEAD` side was EMPTY --
+which is the whole finding. Main did not modify the code my PR extends; it
+DELETED it.
+
+Two independent reasons it should not land:
+
+1. `workflowCredentialChainDiagnosticError` and
+   `SAFE_WORKFLOW_CREDENTIAL_ERROR_NAMES` were removed from launch-runner.ts
+   in cb5761b20 (#3518). Grep for either on main returns ZERO.
+2. The bug it existed to observe is FIXED. #3515 (merged 04:04Z, closes #3512)
+   routes credential listing through the Worker-aware, user-scoped credential
+   store -- the `isWorkerRuntime()` fork my hypothesis was about.
+
+**Aborted the rebase rather than resolving it.** Resolving in my favour would
+have silently reintroduced a deliberately-deleted block, and the merge would
+have looked routine. This is the silent-merge-trap shape from my own notes,
+except the trap fired visibly this time. Had #3518 touched a different region
+of the file there would have been no conflict and nothing would have caught it.
+
+**Second PR of mine closed as superseded in a few hours** (#3525 was the
+other), same root cause both times: I built on a snapshot of main without
+checking whether the problem was already being solved. That is now a pattern,
+not an incident. Checking `git log origin/main -- <file>` before starting is
+cheap; I have paid for skipping it twice.
+
+Open PRs now: cloud #3497, #3510, #3516 (all CLEAN, zero human reviews) and
+flows #258, #259. Critical path unchanged: #3516 + #259.
