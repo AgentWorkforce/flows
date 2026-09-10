@@ -205,6 +205,24 @@ jobs:
             esac
             sleep 15
           done
+          # `status=timed_out` above is set BEFORE the first poll and is
+          # overwritten by every successful one, so it can only survive if the
+          # very first `agent-relay cloud status` never returns a status. Any
+          # real timeout therefore reported the last thing it saw -- almost
+          # always `running` -- and "did not complete successfully: running"
+          # reads like a transient blip rather than "we waited the full 65
+          # minutes". Restore the distinction, and keep the last observed
+          # status, which is the more useful of the two facts.
+          if [ "$SECONDS" -ge "$deadline" ]; then
+            case "$status" in
+              completed|failed|cancelled|status_error) ;;
+              *)
+                echo "poll deadline reached after ${SECONDS}s;" \
+                     "last observed swarm status: ${status}" >&2
+                status=timed_out
+                ;;
+            esac
+          fi
           echo "swarm_status=$status" >> "$GITHUB_OUTPUT"
           if [ "$status" != completed ]; then
             # The status word alone does not say why the swarm failed, and the
