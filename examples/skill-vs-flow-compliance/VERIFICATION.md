@@ -4,22 +4,23 @@ Captured locally on 2026-09-10. Deterministic verification only; no model trials
 
 ```text
 $ node --experimental-strip-types --test examples/skill-vs-flow-compliance/shims/runtime.test.ts
-✔ existing evidence and repository are refused without changing bytes (173.721458ms)
-✔ empty and deletion-only scans pass; an invalid baseline fails (344.944666ms)
-✔ compliant final tree passes all checks; violating commit fails all four (784.386542ms)
-✔ uncommitted repair cannot hide failing committed test; all work is captured (453.735542ms)
-✔ sanitization retains Skill calls and task results, removes host metadata (0.465125ms)
-✔ flow control: first-pass (0.181167ms)
-✔ flow control: repair (0.086959ms)
-✔ flow control: still-failing (0.104417ms)
-ℹ tests 8
+✔ existing evidence and repository are refused without changing bytes (178.375958ms)
+✔ host tool settings stay local without blocking a committed task (530.18175ms)
+✔ empty and deletion-only scans pass; an invalid baseline fails (356.12325ms)
+✔ compliant final tree passes all checks; violating commit fails all four (797.042875ms)
+✔ uncommitted repair cannot hide failing committed test; all work is captured (472.048708ms)
+✔ sanitization retains Skill calls and task results, removes host metadata (0.583667ms)
+✔ flow control: first-pass (0.1715ms)
+✔ flow control: repair (0.094125ms)
+✔ flow control: still-failing (0.11925ms)
+ℹ tests 9
 ℹ suites 0
-ℹ pass 8
+ℹ pass 9
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 1872.648375
+ℹ duration_ms 2452.153625
 exit=0
 ```
 

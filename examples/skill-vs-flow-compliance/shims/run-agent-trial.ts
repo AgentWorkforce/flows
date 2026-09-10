@@ -1,8 +1,8 @@
 // Arm A: a coding agent that has SKILL.md installed as a real Claude Code
 // project skill (.claude/skills/engineering-conventions/SKILL.md) and is
 // given ONLY the task — the same brief arm B's flow gives its agent step.
-// Nothing in the prompt mentions the skill; whether it gets applied depends
-// entirely on the agent noticing it applies and choosing to follow it. No
+// The optional discovery nudge mentions project skills; otherwise the
+// agent gets the bare task. Invocation remains the agent's choice. No
 // deterministic check runs *during* the agent's work; checks only score the
 // result afterward, exactly like a human reviewer reading a PR after the
 // fact.

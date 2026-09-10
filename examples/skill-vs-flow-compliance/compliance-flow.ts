@@ -17,10 +17,7 @@ export interface ComplianceInput {
   task: string;
 }
 
-export interface Step<T> extends PromiseLike<T> {
-  /** Fails the step with `gate_failed` when the predicate is false. */
-  gate(predicate: (value: T) => boolean, because?: string): Step<T>;
-}
+export type Step<T> = PromiseLike<T>;
 
 export interface ImplementResult {
   summary: string;
@@ -89,15 +86,8 @@ function repairBrief(task: string, checks: CheckStepResult[]): string {
   );
 }
 
-/** Runs all four checks and returns every result, pass or fail. Not gated
- *  individually with postfix `.gate()`: the retry decision below needs to
- *  see ALL FOUR outcomes at once (which rules broke, not just the first),
- *  so the fail-closed decision is made once, in aggregate, after both
- *  attempts — by throwing GateFailed, never by returning a "success" that
- *  quietly omits what failed. `Step<T>.gate()` remains part of the context
- *  contract for callers that want a single step's immediate pass/fail
- *  (research.flow.ts uses exactly that shape); this flow's gate is the
- *  aggregate one below because its retry needs the aggregate view. */
+/** Collects every check outcome so the repair sees all failures. The final
+ * aggregate decision throws GateFailed if any check still fails. */
 async function runAllChecks(f: ComplianceFlowContext): Promise<CheckStepResult[]> {
   const results: CheckStepResult[] = [];
   for (const name of CHECK_NAMES) {

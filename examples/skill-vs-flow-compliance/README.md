@@ -26,7 +26,7 @@ make an implementation test-first. All counts below mean **passes these
 four checks**, not full skill compliance.
 
 The updated harness also requires a clean working tree before running the
-suite, so a passing uncommitted repair cannot conceal a failing committed
+suite (excluding Git-ignored host settings), so a passing uncommitted repair cannot conceal a failing committed
 tree. The scans still inspect committed changes. Trial agents can edit
 tests and package scripts; these checks are not a tamper-proof oracle or
 an independent acceptance test for the calculator task.
@@ -35,8 +35,8 @@ an independent acceptance test for the calculator task.
 
 These are historical model executions retained from the original example.
 Each linked directory contains prompts, transcripts, a final patch, commit
-subjects, and verdicts. Transcript host metadata and personal identifiers
-have been redacted; task actions and outcomes remain. They are not new
+subjects, and verdicts. Transcript initialization metadata, home-directory identifiers, emails,
+and Git/listing author fields have been redacted; task actions and outcomes remain. They are not new
 model executions made with the repaired harness.
 
 | Scenario | Agent + installed skill | Bare agent | Flow final result | Flow repair needed |
@@ -81,7 +81,10 @@ Those are real deficiencies in the agent output which these four checks
 did not detect. The patches and historical prompts are preserved rather
 than edited into a cleaner outcome. Treat them as evidence, not settings
 to install. Future prompts stage only task files, and future trial commits
-use a fixture-local anonymous Git identity.
+use a fixture-local anonymous Git identity. New trial repositories exclude
+`.claude/settings.json` via `.git/info/exclude`, so obeying the scoped
+staging instruction does not leave a gate-blocking tool-settings file.
+The installed skill remains tracked.
 
 ## Verify the artifacts and control flow
 

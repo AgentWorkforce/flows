@@ -1,10 +1,5 @@
-// REPLACE-WHEN: the real authored executor lowers postfix `.gate()`
-// (packages/sdk/src/authored-flow-operation.ts currently throws
-// `unsupported_gate`) and `flows run --local-agent` bypasses the target
-// CLI's own permission prompts for a file-editing agent step. Until then
-// this is the entry point — same shape and same justification as
-// examples/research/shims/run.ts, which this file's agent invocation
-// reuses directly (../../research/shims/headless.ts).
+// Userland runner for the illustrative flow. It reuses research's headless
+// CLI adapter; it does not submit a spec to the kernel or journal execution.
 //
 //   node --experimental-strip-types shims/run-flow.ts --run N [--task FILE] [--model NAME] [--scenario NAME]
 //
@@ -19,7 +14,6 @@ import complianceFlow, {
   type CheckStepResult,
   type ComplianceFlowContext,
   type ImplementResult,
-  type Step,
 } from "../compliance-flow.ts";
 import { headlessInvocation, parseHeadless } from "../../research/shims/headless.ts";
 import {
@@ -47,24 +41,6 @@ function spawnCapture(argv: string[], cwd: string, stdin: string): Promise<{ cod
     child.once("close", (code) => resolve({ code, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") }));
     child.stdin.end(stdin);
   });
-}
-
-/** Wraps a plain promise as a Step<T>: `.gate()` fails closed synchronously
- *  once the value resolves (throwing before the caller's `await` sees a
- *  value), and only one gate may be registered per step here — enough for
- *  this flow's usage, unlike research's shim which supports chained gates. */
-function asStep<T>(promise: Promise<T>): Step<T> {
-  return {
-    gate(predicate, because) {
-      return asStep(
-        promise.then((value) => {
-          if (!predicate(value)) throw new Error(`gate_failed${because ? `: ${because}` : ""}`);
-          return value;
-        }),
-      );
-    },
-    then: (onFulfilled, onRejected) => promise.then(onFulfilled, onRejected),
-  };
 }
 
 function argAfter(flag: string): string | undefined {
@@ -110,10 +86,10 @@ async function main(): Promise<number> {
         const parsed = parseHeadless("claude", spawned.stdout);
         return { summary: parsed.finalText };
       })();
-      return asStep(promise);
+      return promise;
     },
     check(name) {
-      return asStep(runCheck(repoDir, name));
+      return runCheck(repoDir, name);
     },
     done(reason, details) {
       return { completionReason: reason, ...details };

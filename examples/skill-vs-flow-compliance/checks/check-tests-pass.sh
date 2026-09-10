@@ -13,7 +13,8 @@ if [ -n "$dirty" ]; then
   exit 1
 fi
 
-changed_tests=$(git diff --name-only "$BASE_REF"...HEAD -- 'test/*.test.ts' | wc -l | tr -d ' ')
+changed_paths=$(git diff --name-only "$BASE_REF"...HEAD -- 'test/*.test.ts')
+changed_tests=$(printf '%s\n' "$changed_paths" | sed '/^$/d' | wc -l | tr -d ' ')
 if [ "$changed_tests" -eq 0 ]; then
   echo "FAIL no test file changed since $BASE_REF (test/*.test.ts)"
   exit 1

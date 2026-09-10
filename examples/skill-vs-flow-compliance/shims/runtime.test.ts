@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -29,6 +29,14 @@ test("existing evidence and repository are refused without changing bytes", () =
   await assert.rejects(reserveEvidence(dir), { code: "EEXIST" });
   await assert.rejects(materializeTrialRepo(dir), { code: "EEXIST" });
   assert.equal(git(dir, "rev-parse", "HEAD"), before);
+}));
+
+test("host tool settings stay local without blocking a committed task", () => fixture(async dir => {
+  await fix(dir);
+  await mkdir(join(dir, ".claude"));
+  await writeFile(join(dir, ".claude/settings.json"), '{"permissions":{}}\n');
+  assert.deepEqual((await runChecks(dir)).map(c => c.pass), [true, true, true, true]);
+  assert.doesNotMatch(await diffAgainstBaseline(dir), /settings.json/);
 }));
 
 test("empty and deletion-only scans pass; an invalid baseline fails", () => fixture(async dir => {
@@ -71,10 +79,10 @@ test("uncommitted repair cannot hide failing committed test; all work is capture
 
 test("sanitization retains Skill calls and task results, removes host metadata", () => {
   const raw = JSON.stringify({ type: "system", subtype: "init", model: "haiku", tools: ["private-tool"], session_id: "private-id" }) + '\n' +
-    JSON.stringify({ type: "assistant", session_id: "private-id", message: { content: [{type:"tool_use", name:"Skill", input:{skill:"engineering-conventions"}}] } }) + '\n/home/alice/repo alice@company.test';
+    JSON.stringify({ type: "assistant", session_id: "private-id", message: { content: [{type:"tool_use", name:"Skill", input:{skill:"engineering-conventions"}}] } }) + '\n/home/alice/repo alice@company.test\nAuthor: Alice Example <alice@company.test>\ndrwxr-xr-x 2 alice staff 64 Sep 10 10:00 test';
   const clean = sanitizeTranscript(raw);
   assert.match(clean, /"name":"Skill"/); assert.match(clean, /haiku/);
-  assert.doesNotMatch(clean, /private-tool|private-id|alice|company\.test/);
+  assert.doesNotMatch(clean, /private-tool|private-id|alice|Alice Example|staff|company\.test/);
   assert.equal(sanitizeTranscript(clean), clean);
 });
 
@@ -82,7 +90,7 @@ for (const scenario of ["first-pass", "repair", "still-failing"] as const) {
   test(`flow control: ${scenario}`, async () => {
     let attempts = 0, done = false;
     const prompts: string[] = [];
-    const step = <T>(value: T): Step<T> => ({ then: Promise.resolve(value).then.bind(Promise.resolve(value)), gate() { throw new Error("unused"); } });
+    const step = <T>(value: T): Step<T> => ({ then: Promise.resolve(value).then.bind(Promise.resolve(value)) });
     const context: ComplianceFlowContext = {
       agent(_name, options) { attempts++; prompts.push(options.task); return step({summary:"done"}); },
       check(name) { return step({ name, pass: scenario === "first-pass" || (scenario === "repair" && attempts === 2), message:"specific failure" }); },

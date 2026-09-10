@@ -76,6 +76,9 @@ export async function materializeTrialRepo(dir: string, options: { withSkill: bo
     await cp(join(EXAMPLE_ROOT, "SKILL.md"), skillPath);
   }
   await mustRun("git", ["init", "-q"], dir);
+  // Host-generated tool settings are not task output. Keep them local;
+  // the installed SKILL.md remains tracked and therefore reviewable.
+  await writeFile(join(dir, ".git", "info", "exclude"), ".claude/settings.json\n", "utf8");
   await mustRun("git", ["config", "user.email", "trial@example.invalid"], dir);
   await mustRun("git", ["config", "user.name", "trial"], dir);
   await mustRun("git", ["add", "-A"], dir);
