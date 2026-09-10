@@ -8858,3 +8858,46 @@ retry lines, so it needs the cloud run log I have not pulled.
 Both corrections filed within the tick that found them. The pattern I keep
 hitting: a clean number from a short window reads as a result, and someone quotes
 it back later as evidence the thing is fixed.
+
+### 2026-09-10 — my own fix was incomplete; found it by answering my own question
+
+Disk 5.9Gi. Drain: 2 pending, normal window.
+
+Last tick I said the recurring `workspace_busy` needed the run log to tell
+whether #3507's retries engaged. Pulled it. **They engaged and it still
+exhausted — because they were the wrong retries.**
+
+```
+[executor] assess-1 relaycast registration attempt 1 failed transiently; retrying
+[executor] assess-1 relaycast registration attempt 2 failed transiently; retrying
+Repair agent "lead" failed: register transport error: takeover failed:
+  API error (workspace_busy): Workspace write capacity is busy; retry with backoff
+```
+
+**There are two renderings of the same admission failure and I only matched
+one.** Shape B carries neither `rate-limited` nor `code: workspace_busy`, so
+#3507's pattern cannot see it — the transport-error rule claims it and retries at
+**250ms/750ms** against a workspace asking for backoff. Verified against the
+deployed classifier: shape A -> `rate-limited`, shape B -> `transient`.
+
+**The second half is the part that would have been easy to miss.** Matching the
+string alone would have looked like a fix and changed the delay by *nothing*:
+shape B advertises no `retry after Ns`, so it would have fallen back to the
+*transient* delay — still 250ms. The fallback now uses the overload delays, which
+are already tuned for admission-control back-pressure.
+
+Verified by extracting the predicates **verbatim from the edited source** and
+exercising all five classifications, including that a genuine transport error is
+still `transient` rather than swallowed by the new rule sitting in front of it.
+
+**Stated the limit honestly:** the two new test cases assert the retry *delay*,
+and I could not execute that suite locally — it imports the executor, which pulls
+the Daytona runtime, and my worktree resolves a stale `daytona-runner` dist from
+a checkout another session is using. The classifier verification is real; the
+delay assertions are unexecuted by me. Said so in the commit and the PR rather
+than letting "tests added" imply "tests run".
+
+Opened **cloud#3516**.
+
+The useful pattern: the follow-up existed only because I wrote down a specific
+unanswered question on #3507 instead of declaring the fix done.
