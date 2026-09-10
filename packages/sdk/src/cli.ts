@@ -22,7 +22,7 @@ import { runHnMonitor } from './cli/hn-monitor.js';
 import { runTickRunner } from './cli/tick-runner.js';
 import {
   mintObserverUrl,
-  readObserverLinkEnv,
+  resolveObserverLinkEnv,
   type MintObserverOptions,
 } from './observer-link.js';
 
@@ -206,7 +206,11 @@ function startObserverMint(
   mint: (options: MintObserverOptions) => Promise<{ observerUrl?: string; warning?: string }> = mintObserverUrl,
 ): Promise<{ observerUrl?: string; warning?: string }> | undefined {
   if (parsed.noObserverLink) return undefined;
-  const link = readObserverLinkEnv(env);
+  // `resolveObserverLinkEnv` (not `readObserverLinkEnv`) falls back to the
+  // `agent-relay cloud login` workspace store (~/.agentworkforce/relay/
+  // workspaces.json) when RELAYCAST_WORKSPACE_KEY is unset. Env wins if set;
+  // FLOWS_NO_OBSERVER=1 still suppresses regardless of source.
+  const link = resolveObserverLinkEnv(env);
   if (link.suppressed || link.workspaceKey === undefined) return undefined;
   return mint({
     workspaceKey: link.workspaceKey,
@@ -268,14 +272,19 @@ async function runObserverCommand(
   env: NodeJS.ProcessEnv = process.env,
   mint: (options: MintObserverOptions) => Promise<{ observerUrl?: string; warning?: string }> = mintObserverUrl,
 ): Promise<CliExitCode> {
-  const link = readObserverLinkEnv(env);
+  // Same resolution as `flows run`: env wins, then the `agent-relay cloud
+  // login` workspace store. The refusal message names the env var because
+  // that is the primary path an operator is expected to configure; the
+  // cloud-login fallback is convenience, not the documented contract.
+  const link = resolveObserverLinkEnv(env);
   if (link.suppressed) {
     io.stderr('REFUSED [observer_link_unavailable] mint suppressed by FLOWS_NO_OBSERVER=1');
     return 2;
   }
   if (link.workspaceKey === undefined) {
     io.stderr(
-      'REFUSED [observer_link_unavailable] no workspace key configured; set RELAYCAST_WORKSPACE_KEY',
+      'REFUSED [observer_link_unavailable] no workspace key configured; '
+        + 'set RELAYCAST_WORKSPACE_KEY or run `agent-relay workspace set_key`',
     );
     return 2;
   }

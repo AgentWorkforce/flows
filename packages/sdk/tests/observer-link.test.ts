@@ -1,14 +1,17 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
 import type { Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { finalizeObserverLine, runCli, type CliIo } from '../src/cli.js';
 import {
+  agentRelayWorkspaceStorePath,
   mintObserverUrl,
+  readAgentRelayWorkspaceKey,
   readObserverLinkEnv,
+  resolveObserverLinkEnv,
   type ObserverFetch,
 } from '../src/observer-link.js';
 import { sendOk, sendResult, startLoopback, type LoopbackHandlers } from './journal-client-loopback.js';
@@ -24,6 +27,19 @@ const TEST_MODELS = [
 
 const temporaryDirectories: string[] = [];
 const loopbackServers: Server[] = [];
+
+// The `agent-relay cloud login` fallback added in Task 3 reads
+// `~/.agentworkforce/relay/workspaces.json` when RELAYCAST_WORKSPACE_KEY
+// is unset. On any developer machine where `agent-relay` has been logged
+// in that file exists and contains a real workspace key, so every test
+// that asserts "no key set = no mint" would silently pick up the real
+// credential. Pin AGENT_RELAY_HOME to a temp directory that has no store
+// file, so the fallback always misses in this suite.
+beforeEach(() => {
+  const isolatedHome = mkdtempSync(join(tmpdir(), 'flows-observer-home-'));
+  temporaryDirectories.push(isolatedHome);
+  vi.stubEnv('AGENT_RELAY_HOME', isolatedHome);
+});
 
 afterEach(async () => {
   for (const server of loopbackServers.splice(0)) {
@@ -183,6 +199,121 @@ describe('readObserverLinkEnv', () => {
   });
 });
 
+/**
+ * Task 3 alt-auth: `agent-relay cloud login` + `agent-relay workspace
+ * set_key` writes a workspace-key store at
+ * `${AGENT_RELAY_HOME:-~/.agentworkforce/relay}/workspaces.json`, shape
+ * `{ active, workspaces: { [name]: { key } } }`. The path and shape are
+ * verified against `packages/cloud/src/workspace-store.ts` in the
+ * `AgentWorkforce/relay` repo -- not invented here.
+ */
+describe('readAgentRelayWorkspaceKey', () => {
+  function makeStore(contents: unknown): string {
+    const home = mkdtempSync(join(tmpdir(), 'flows-observer-store-'));
+    temporaryDirectories.push(home);
+    const dir = join(home, '.agentworkforce/relay');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'workspaces.json'), typeof contents === 'string' ? contents : JSON.stringify(contents));
+    // The path helper builds the sub-path itself from AGENT_RELAY_HOME.
+    return dir;
+  }
+
+  it('resolves the active workspace key from the store', () => {
+    const dir = makeStore({
+      active: 'primary',
+      workspaces: {
+        primary: { key: 'rk_live_from_store' },
+        secondary: { key: 'rk_live_other' },
+      },
+    });
+    const env = { AGENT_RELAY_HOME: dir };
+    expect(readAgentRelayWorkspaceKey(env)).toBe('rk_live_from_store');
+    // Path helper matches what the reader consumed.
+    expect(agentRelayWorkspaceStorePath(env)).toBe(join(dir, 'workspaces.json'));
+  });
+
+  it('returns undefined when the store file is missing', () => {
+    const home = mkdtempSync(join(tmpdir(), 'flows-observer-empty-'));
+    temporaryDirectories.push(home);
+    expect(readAgentRelayWorkspaceKey({ AGENT_RELAY_HOME: home })).toBeUndefined();
+  });
+
+  it('returns undefined when the file is malformed JSON', () => {
+    const dir = makeStore('{not valid json');
+    expect(readAgentRelayWorkspaceKey({ AGENT_RELAY_HOME: dir })).toBeUndefined();
+  });
+
+  it('returns undefined when no active workspace is set', () => {
+    const dir = makeStore({ workspaces: { primary: { key: 'rk_live_x' } } });
+    expect(readAgentRelayWorkspaceKey({ AGENT_RELAY_HOME: dir })).toBeUndefined();
+  });
+
+  it('returns undefined when the active workspace has no key', () => {
+    const dir = makeStore({ active: 'primary', workspaces: { primary: {} } });
+    expect(readAgentRelayWorkspaceKey({ AGENT_RELAY_HOME: dir })).toBeUndefined();
+  });
+
+  it('trims whitespace on the resolved key', () => {
+    const dir = makeStore({
+      active: 'primary',
+      workspaces: { primary: { key: '  rk_live_trimmed  ' } },
+    });
+    expect(readAgentRelayWorkspaceKey({ AGENT_RELAY_HOME: dir })).toBe('rk_live_trimmed');
+  });
+});
+
+describe('resolveObserverLinkEnv (env-first, cloud-login fallback)', () => {
+  it('prefers RELAYCAST_WORKSPACE_KEY over the workspace store (explicit beats implicit)', () => {
+    const readWorkspaceKey = vi.fn(() => 'rk_live_from_store');
+    const link = resolveObserverLinkEnv(
+      { RELAYCAST_WORKSPACE_KEY: 'rk_live_from_env' },
+      { readWorkspaceKey },
+    );
+    expect(link.workspaceKey).toBe('rk_live_from_env');
+    // The store must not be read at all when the env var is authoritative,
+    // both for correctness and so a hostile disk read cannot influence the
+    // resolved key when the operator has been explicit.
+    expect(readWorkspaceKey).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the workspace store when RELAYCAST_WORKSPACE_KEY is unset', () => {
+    const link = resolveObserverLinkEnv(
+      {},
+      { readWorkspaceKey: () => 'rk_live_from_store' },
+    );
+    expect(link.workspaceKey).toBe('rk_live_from_store');
+    expect(link.suppressed).toBe(false);
+  });
+
+  it('does not touch the store when FLOWS_NO_OBSERVER=1 suppresses the mint', () => {
+    const readWorkspaceKey = vi.fn(() => 'rk_live_from_store');
+    const link = resolveObserverLinkEnv(
+      { FLOWS_NO_OBSERVER: '1' },
+      { readWorkspaceKey },
+    );
+    // Explicit suppression is the operator's decision; a fallback lookup
+    // that resurrects the mint would silently defy it.
+    expect(link.suppressed).toBe(true);
+    expect(link.workspaceKey).toBeUndefined();
+    expect(readWorkspaceKey).not.toHaveBeenCalled();
+  });
+
+  it('returns no key at all when neither env nor store provide one', () => {
+    const link = resolveObserverLinkEnv({}, { readWorkspaceKey: () => undefined });
+    expect(link.workspaceKey).toBeUndefined();
+    expect(link.suppressed).toBe(false);
+  });
+
+  it('preserves RELAYCAST_API_URL when falling back to the store', () => {
+    const link = resolveObserverLinkEnv(
+      { RELAYCAST_API_URL: 'https://relay.example.com' },
+      { readWorkspaceKey: () => 'rk_live_from_store' },
+    );
+    expect(link.workspaceKey).toBe('rk_live_from_store');
+    expect(link.baseUrl).toBe('https://relay.example.com');
+  });
+});
+
 describe('flows observer verb', () => {
   it('mints and prints the observer URL on stdout, exit 0', async () => {
     const fetch = vi.fn().mockResolvedValue({
@@ -215,7 +346,8 @@ describe('flows observer verb', () => {
     expect(exit).toBe(2);
     expect(output.stdout).toEqual([]);
     expect(output.stderr).toEqual([
-      'REFUSED [observer_link_unavailable] no workspace key configured; set RELAYCAST_WORKSPACE_KEY',
+      'REFUSED [observer_link_unavailable] no workspace key configured; '
+        + 'set RELAYCAST_WORKSPACE_KEY or run `agent-relay workspace set_key`',
     ]);
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -256,6 +388,40 @@ describe('flows observer verb', () => {
       'REFUSED [observer_link_unavailable] mint API returned HTTP 500',
     ]);
     expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('uses the agent-relay cloud-login workspace store as a fallback key', async () => {
+    // Populate a real workspaces.json under the isolated AGENT_RELAY_HOME
+    // and leave RELAYCAST_WORKSPACE_KEY unset -- exercise the fallback path
+    // end-to-end, not just the resolver in isolation.
+    const isolated = process.env.AGENT_RELAY_HOME!;
+    mkdirSync(isolated, { recursive: true });
+    writeFileSync(
+      join(isolated, 'workspaces.json'),
+      JSON.stringify({
+        active: 'primary',
+        workspaces: { primary: { key: 'rk_live_from_login' } },
+      }),
+    );
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { token: 'ot_live_via_login' } }),
+    });
+    vi.stubGlobal('fetch', fetch);
+    vi.stubEnv('RELAYCAST_WORKSPACE_KEY', '');
+    vi.stubEnv('FLOWS_NO_OBSERVER', '');
+
+    const output = capture();
+    const exit = await runCli(['observer'], output.io);
+
+    expect(exit).toBe(0);
+    expect(output.stdout).toEqual(['https://agentrelay.com/observer?key=ot_live_via_login']);
+    // Verify the mint was called with the fallback key, not with anything
+    // else -- specifically, not with an empty string that would sneak past
+    // the "workspaceKey === undefined" gate.
+    const [, init] = fetch.mock.calls[0]!;
+    expect(init.headers['Authorization']).toBe('Bearer rk_live_from_login');
   });
 
   it('refuses invocation when an unknown flag or positional is passed', async () => {

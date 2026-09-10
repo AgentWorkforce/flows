@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
   checkDaemon,
   connectionPathFor,
@@ -463,6 +463,23 @@ describe('ensureDaemon — attach or spawn (§3)', () => {
 // Test 17: the lever that restores today's behavior exactly.
 describe('--no-spawn and FLOWS_NO_SPAWN reproduce the old refusal', () => {
   const temporaryDirectories: string[] = [];
+  // The observer-link fallback added in Task 3 reads
+  // `${AGENT_RELAY_HOME}/workspaces.json`; on a developer machine where
+  // agent-relay has been logged in that file exists and holds a real
+  // workspace key, so `runCli` would fire a mint whose 404/network error
+  // appends an `[observer]` line to stderr and displaces the byte-for-byte
+  // daemon_unreachable assertion below. Suppress the mint for the whole
+  // describe block via FLOWS_NO_OBSERVER=1 -- the daemon-unreachable path
+  // this suite covers is orthogonal to observer-link resolution.
+  let previousNoObserver: string | undefined;
+  beforeAll(() => {
+    previousNoObserver = process.env['FLOWS_NO_OBSERVER'];
+    process.env['FLOWS_NO_OBSERVER'] = '1';
+  });
+  afterAll(() => {
+    if (previousNoObserver === undefined) delete process.env['FLOWS_NO_OBSERVER'];
+    else process.env['FLOWS_NO_OBSERVER'] = previousNoObserver;
+  });
   afterEach(() => {
     delete process.env['FLOWS_NO_SPAWN'];
     for (const directory of temporaryDirectories.splice(0)) {

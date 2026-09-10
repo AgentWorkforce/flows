@@ -17,6 +17,10 @@
  * stderr and continues; a run must never fail because the observer link failed.
  */
 
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
 /** Scopes the minted token carries. Mirrors the observer dashboard's set. */
 const OBSERVER_SCOPES = [
   'stream:read',
@@ -47,6 +51,122 @@ export interface ObserverLinkEnv {
   baseUrl?: string;
   /** `FLOWS_NO_OBSERVER=1` suppresses the mint even when a key is present. */
   suppressed: boolean;
+}
+
+/**
+ * Path to the `agent-relay` local workspace-key store. Structure:
+ * `{ active: string, workspaces: { [name]: { key: string } } }`. Written
+ * by `agent-relay workspace set_key` / `agent-relay workspace join`; the
+ * canonical file the `@agent-relay/cloud` package reads via
+ * `resolveActiveWorkspaceKey`. Verified against
+ * `packages/cloud/src/workspace-store.ts` in `AgentWorkforce/relay`.
+ *
+ * Respects `AGENT_RELAY_HOME` so a caller can point at a different store
+ * for tests without touching the real one. Falls back to
+ * `~/.agentworkforce/relay/workspaces.json` -- the same default that
+ * package uses.
+ */
+export function agentRelayWorkspaceStorePath(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const dir = env['AGENT_RELAY_HOME'] ?? join(homedir(), '.agentworkforce/relay');
+  return join(dir, 'workspaces.json');
+}
+
+/**
+ * Shape of the `workspaces.json` file. Only the fields we depend on are
+ * declared; other keys are ignored. Kept structural so a type mismatch on
+ * an untrusted disk read falls into the "no cloud key readable" branch
+ * rather than throwing.
+ */
+interface AgentRelayWorkspaceStore {
+  active?: string;
+  workspaces?: Record<string, { key?: string } | undefined>;
+}
+
+/**
+ * Read the active workspace key from the `agent-relay cloud login` /
+ * `agent-relay workspace set_key` store. Returns `undefined` on every
+ * failure mode -- file absent, unreadable, malformed JSON, no active
+ * workspace, active workspace has no key, key is empty -- so the caller
+ * can silently fall through to "no observer link" the same way an unset
+ * `RELAYCAST_WORKSPACE_KEY` does.
+ *
+ * A file-shape mismatch is INTENTIONALLY not a hard error: `agent-relay`
+ * may extend this file in future without warning, and refusing a flow
+ * because a fallback credential store looked odd would be strictly worse
+ * than falling back to the explicit env var (which is the primary path).
+ */
+export function readAgentRelayWorkspaceKey(
+  env: NodeJS.ProcessEnv = process.env,
+  readFile: (path: string) => string = defaultReadFile,
+): string | undefined {
+  let raw: string;
+  try {
+    raw = readFile(agentRelayWorkspaceStorePath(env));
+  } catch {
+    return undefined;
+  }
+  let parsed: AgentRelayWorkspaceStore;
+  try {
+    parsed = JSON.parse(raw) as AgentRelayWorkspaceStore;
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined;
+  const activeName = parsed.active;
+  if (typeof activeName !== 'string' || activeName === '') return undefined;
+  const workspaces = parsed.workspaces;
+  if (typeof workspaces !== 'object' || workspaces === null) return undefined;
+  const entry = workspaces[activeName];
+  if (typeof entry !== 'object' || entry === null) return undefined;
+  const key = entry.key;
+  if (typeof key !== 'string') return undefined;
+  const trimmed = key.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
+
+function defaultReadFile(filePath: string): string {
+  return readFileSync(filePath, 'utf8');
+}
+
+/**
+ * Options controlling `resolveObserverLinkEnv`'s fallback behavior. The
+ * `readWorkspaceKey` seam is what the tests inject to simulate presence,
+ * absence, and malformed shapes of the on-disk store without touching the
+ * real home directory.
+ */
+export interface ResolveObserverLinkEnvOptions {
+  readWorkspaceKey?: (env: NodeJS.ProcessEnv) => string | undefined;
+}
+
+/**
+ * Env-first observer link resolution with an `agent-relay` cloud fallback.
+ *
+ * Priority (from the task spec, explicit beats implicit):
+ * 1. `RELAYCAST_WORKSPACE_KEY` if set and non-empty.
+ * 2. Active workspace key from `~/.agentworkforce/relay/workspaces.json`
+ *    (populated by `agent-relay cloud login` + `agent-relay workspace
+ *    set_key`), when readable.
+ * 3. Nothing -- silent skip, same as an unset primary env var.
+ *
+ * `FLOWS_NO_OBSERVER=1` still suppresses regardless of source.
+ */
+export function resolveObserverLinkEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  options: ResolveObserverLinkEnvOptions = {},
+): ObserverLinkEnv {
+  const primary = readObserverLinkEnv(env);
+  if (primary.workspaceKey !== undefined || primary.suppressed) {
+    return primary;
+  }
+  const readWorkspaceKey = options.readWorkspaceKey ?? readAgentRelayWorkspaceKey;
+  const fallback = readWorkspaceKey(env);
+  if (fallback === undefined) return primary;
+  return {
+    ...primary,
+    workspaceKey: fallback,
+  };
 }
 
 /**
