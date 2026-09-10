@@ -17,3 +17,6 @@ dist/
 .relayflow/
 .relayflowd/
 .relayflowd-*/
+
+# Legacy drive-local snapshots; the preparing launcher no longer executes them.
+.drive-gate/

@@ -1,71 +1,245 @@
-// The smallest useful local drive package: a mechanical change from BACKLOG.
+// Select one work package from ops/BACKLOG.md for a local drive tick.
+//
+// This used to hardcode a single item. The constants at the top named one file,
+// one old identifier and one new one, and `select` asserted that BACKLOG still
+// contained that exact entry. It proved a relayflow could drive a real change on
+// this checkout, which was the point at the time, but it could only ever drive
+// that one change — every later tick needed a human to rewrite the script first.
+//
+// Selection now comes from the SDK's backlog picker (gate 3, PR #20), which is
+// the same rule the cloud drive uses: the first top-level bullet whose title is
+// bold, validated for a title, files in scope, and a definition of done. Using
+// it here rather than a second implementation means the local loop and the cloud
+// loop cannot drift into disagreeing about what "the next work package" is.
+//
+// Implementation is no longer this script's job. A mechanical rewrite is the
+// only kind of change a deterministic step can make, and most backlog entries
+// are not mechanical. The flow now hands the package to an agent step, which is
+// what makes the loop general.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync,
+} from 'node:fs';
 import { dirname } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { checkScope, runChecks, verificationCommands } from './local-work-verification.mjs';
 
-const target = 'packages/sdk/src/compile.ts';
 const packagePath = '.relayflow/drive-local/package.json';
-const oldName = 'validateKernelRetry';
-const newName = 'validateAuthoringRetryDefaults';
-const hash = text => createHash('sha256').update(text).digest('hex');
-const read = path => readFileSync(path, 'utf8');
-const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+const backlogPath = 'ops/BACKLOG.md';
+// Both values are embedded by the preparing launcher into the submitted command.
+// There is no fallback to an ignored artifact that implementation can replace.
+assert(process.env.DRIVE_GATE_PICKER && process.env.DRIVE_GATE_BASELINE,
+  'LOCAL_DRIVE_NOT_PREPARED: run node scripts/run-drive-local.mjs');
+const sdkEntry = new URL(process.env.DRIVE_GATE_PICKER);
+const baseline = JSON.parse(process.env.DRIVE_GATE_BASELINE);
 
-// A killed writer leaves the destination wholly old or wholly new. Flush the
-// replacement before rename and the containing directory before reporting it.
-function writeAtomically(path, contents) {
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
-    const mode = path === target ? statSync(path).mode & 0o777 : 0o600;
-    writeFileSync(temporary, contents, { flag: 'wx', mode, flush: true });
-    renameSync(temporary, path);
-    const directory = openSync(dirname(path), 'r');
-    try { fsyncSync(directory); } finally { closeSync(directory); }
-  } finally { rmSync(temporary, { force: true }); }
+const read = (p) => readFileSync(p, 'utf8');
+const hash = (t) => createHash('sha256').update(t).digest('hex');
+const git = (...a) => execFileSync('git', a, { encoding: 'utf8' }).trim();
+
+function assertBaseline() {
+  assert.equal(git('rev-parse', 'HEAD'), baseline.head, 'HEAD_MOVED');
+  assert.equal(git('branch', '--show-current'), baseline.branch, 'BRANCH_MOVED');
+  assert.equal(hash(read(backlogPath)), baseline.backlogSha256, 'BACKLOG_CHANGED');
 }
 
-switch (process.argv[2]) {
-  case 'select': {
-    const branch = git('branch', '--show-current');
-    assert(branch && branch !== 'main', 'LOCAL_DRIVE_REFUSED: use a work branch');
-    assert.equal(git('status', '--porcelain', '--', target), '', 'LOCAL_DRIVE_REFUSED: target has uncommitted edits');
-    const entry = read('ops/BACKLOG.md').match(/^- \*\*F8b\*\*[^\n]*(?:\n  [^\n]*)*/m)?.[0];
-    assert(entry?.includes(oldName), 'BACKLOG_F8B_MISSING: expected the recorded work item');
-    const source = read(target);
-    assert.equal(source.split(oldName).length - 1, 2, 'PACKAGE_ALREADY_APPLIED_OR_CHANGED: expected declaration and call');
-    const work = { id: 'F8b', entry, branch, target, before: hash(source), after: hash(source.replaceAll(oldName, newName)) };
-    mkdirSync('.relayflow/drive-local', { recursive: true });
-    writeAtomically(packagePath, JSON.stringify(work, null, 2) + '\n');
-    assert.equal(JSON.parse(read(packagePath)).before, work.before);
-    console.log(JSON.stringify(work));
-    break;
+// Only package metadata is written, always private (0600), never executable
+// source. Rename prevents partial JSON; file and directory fsync are required
+// before success. A directory fsync failure propagates even after rename.
+function writeAtomically(path, contents) {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(temporary, contents, { flag: 'wx', mode: 0o600 });
+  const handle = openSync(temporary, 'r');
+  try { fsyncSync(handle); } finally { closeSync(handle); }
+  renameSync(temporary, path);
+  const directory = openSync(dirname(path), 'r');
+  try { fsyncSync(directory); } finally { closeSync(directory); }
+}
+
+async function loadPicker() {
+  try {
+    return await import(sdkEntry.href);
+  } catch (cause) {
+    // This is the picker built from Git by gate-snapshot, not SDK dist in the
+    // implementation checkout. Missing artifacts must never trigger a fallback.
+    throw new Error(
+      `GATE_PICKER_UNAVAILABLE: ${sdkEntry.pathname}; rerun through scripts/run-drive-local.mjs`,
+      { cause },
+    );
   }
-  case 'apply': {
-    const work = JSON.parse(read(packagePath));
-    assert.equal(git('branch', '--show-current'), work.branch, 'work branch changed');
-    const before = read(target);
-    // A retry after an interrupted write can observe the exact intended end state.
-    if (hash(before) === work.after) { console.log('PACKAGE_ALREADY_APPLIED: F8b'); break; }
-    assert.equal(hash(before), work.before, 'TARGET_CHANGED: refusing to overwrite intervening work');
-    const after = before.replaceAll(oldName, newName);
-    assert.notEqual(after, before);
-    writeAtomically(target, after);
-    assert.equal(hash(read(target)), work.after, 'MUTATION_NOT_PERSISTED');
-    console.log(`PACKAGE_APPLIED: F8b ${work.before} -> ${work.after}`);
-    console.log(git('diff', '--', target));
-    break;
+}
+
+async function choose(markdown, { pathExists, log = true }) {
+  const { selectBacklogEntry, packageFromEntry, validateWorkPackage, renderWorkPackage } =
+    await loadPicker();
+  const skipped = [];
+  let entry = null;
+  let validation = null;
+
+  // Take the first entry this loop can actually bound. The picker returns one
+  // entry -- the first top-level bullet with a bold title -- so "next" is found
+  // by removing the one just rejected and asking it again, rather than writing
+  // a second parser that could disagree with it about what an entry is.
+  let commands;
+  while (markdown.length > 0) {
+    const candidateEntry = selectBacklogEntry(markdown);
+    if (!candidateEntry) break;
+
+    const candidate = packageFromEntry(candidateEntry);
+    const result = validateWorkPackage(candidate);
+    const scope = result.accepted ? result.work.files_in_scope : [];
+
+    // The picker emits ['.'] when an entry references code but names no path.
+    // That is deliberate on its side -- its comment calls it "honest breadth" --
+    // and it is a fair description of the entry. It is not usable as scope for
+    // an agent: "." is the whole repository, and an agent told its scope is
+    // everything has been told nothing. Skip rather than widen what an
+    // unattended tick may touch.
+    const unbounded = scope.length === 1 && scope[0] === '.';
+
+    // A path that no longer exists is not scope either. Backlog entries outlive
+    // the tree they were written against -- this repo moved `sdk/` to
+    // `packages/sdk/`, so entries naming `sdk/src/protocol.ts` still read as
+    // precise while pointing at nothing. An agent handed four missing files
+    // will either invent work or widen scope to find something, and both are
+    // failures the flow's instruction explicitly forbids. Skipping here means a
+    // rotted entry can never silently become an agent's instruction, and the
+    // skip line names the missing paths so the entry can be repaired.
+    const missing = unbounded ? [] : scope.filter((path) => !pathExists(path));
+    const checks = verificationCommands(candidateEntry.body);
+
+    if (result.accepted && !unbounded && missing.length === 0 && checks.length > 0) {
+      entry = candidateEntry;
+      validation = result;
+      commands = checks;
+      break;
+    }
+    skipped.push({
+      title: candidateEntry.title,
+      reason: !result.accepted
+        ? result.reason
+        : unbounded
+          ? 'unbounded_scope'
+          : missing.length > 0
+            ? `stale_scope: ${missing.join(', ')}`
+            : 'missing_executable_checks',
+    });
+    // Locate the bullet the SDK matched, never a mention of its title in an
+    // earlier entry's body. Consuming the full line guarantees forward progress.
+    const lines = markdown.split('\n');
+    const at = lines.findIndex(line => line.startsWith(`- **${candidateEntry.title}**`));
+    assert(at >= 0, 'BACKLOG_CURSOR_LOST');
+    markdown = lines.slice(at + 1).join('\n');
   }
-  case 'report': {
-    const work = JSON.parse(read(packagePath));
-    assert.equal(hash(read(target)), work.after, 'TARGET_CHANGED: expected the applied package');
-    const diff = git('diff', '--', target);
-    assert(diff.includes(`+function ${newName}(`), 'PACKAGE_DIFF_MISSING');
-    console.log('PACKAGE_EXECUTED: F8b; delivery requires a branch commit and human-reviewed PR.');
-    console.log(diff);
-    break;
+
+  if (log) for (const s of skipped) console.log(`SKIPPED [${s.reason}] ${s.title.slice(0, 90)}`);
+  assert(
+    entry && validation?.accepted,
+    `NO_BOUNDED_WORK: ${skipped.length} entr(y|ies) considered, none named files ` +
+      `this loop can scope and verify. Add explicit paths and Verify: JSON argv to a BACKLOG entry.`,
+  );
+
+  return {
+    title: validation.work.title,
+    filesInScope: validation.work.files_in_scope,
+    definitionOfDone: validation.work.definition_of_done,
+    verificationCommands: commands,
+    brief: renderWorkPackage(entry),
+  };
+}
+
+async function select() {
+  assertBaseline();
+  // Restored guard. The generalization recorded the branch but stopped asserting
+  // it, so the loop would happily select work while sitting on `main` and let
+  // the agent edit the protected branch. `--show-current` prints nothing on a
+  // detached HEAD, which is equally not a work branch.
+  const branch = git('branch', '--show-current');
+  assert(
+    branch && branch !== 'main',
+    branch
+      ? `LOCAL_DRIVE_REFUSED: on '${branch}'; use a work branch, not main`
+      : 'LOCAL_DRIVE_REFUSED: detached HEAD is not a work branch; check out one',
+  );
+  const head = git('rev-parse', 'HEAD');
+  const markdown = read(backlogPath);
+  // Selection and the gate must share one baseline. `existsSync` accepts a path
+  // that exists only in the working tree, which selection then persists and
+  // checkScope immediately rejects -- its `git cat-file` lookup consults the
+  // selected commit, so an untracked path aborts the run on a package selection
+  // had already blessed. Committed-at-HEAD is the honest rule for both: scope is
+  // a claim about reviewable content, and an untracked path is not yet that.
+  const work = await choose(markdown, {
+    pathExists: path => spawnSync('git', ['cat-file', '-e', `${head}:${path.replace(/\/$/, '')}`],
+      { stdio: 'ignore' }).status === 0,
+  });
+  const pkg = {
+    selectedAt: new Date().toISOString(),
+    branch,
+    head,
+    backlogSha256: hash(markdown),
+    ...work,
+  };
+  writeAtomically(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+  console.log(`SELECTED ${pkg.title}`);
+  console.log(`  files in scope: ${pkg.filesInScope.join(', ')}`);
+  console.log(`  definition of done: ${pkg.definitionOfDone.length} item(s)`);
+}
+
+async function verifiedPackage() {
+  assertBaseline();
+  const pkg = JSON.parse(read(packagePath));
+  assert.equal(pkg.head, baseline.head, 'PACKAGE_CHANGED: head');
+  assert.equal(pkg.branch, baseline.branch, 'PACKAGE_CHANGED: branch');
+  const markdown = read(backlogPath);
+  assert.equal(hash(markdown), pkg.backlogSha256, 'BACKLOG_CHANGED');
+  // Reconstruct from the unchanged backlog, so editing ignored package.json
+  // cannot widen scope or replace acceptance commands with `true`.
+  const selected = await choose(markdown, {
+    log: false,
+    // Consult the selected commit so deleting an in-scope file neither shifts
+    // selection nor resurrects an earlier entry with stale paths.
+    pathExists: path => spawnSync('git', ['cat-file', '-e', `${pkg.head}:${path.replace(/\/$/, '')}`],
+      { stdio: 'ignore' }).status === 0,
+  });
+  for (const key of Object.keys(selected)) {
+    assert.deepEqual(pkg[key], selected[key], `PACKAGE_CHANGED: ${key}`);
   }
-  default: throw new Error('Usage: node ops/local-work-package.mjs <select|apply|report>');
+  checkScope(pkg);
+  return pkg;
+}
+
+async function report() {
+  const pkg = await verifiedPackage();
+  // The package pins the HEAD it was selected against. Reporting a diff from a
+  // different commit would describe work this tick did not do.
+  const head = git('rev-parse', 'HEAD');
+  assert.equal(head, pkg.head, `HEAD_MOVED: selected at ${pkg.head}, now ${head}`);
+  const stat = [
+    git('diff', 'HEAD', '--stat'),
+    git('ls-files', '--others', '--exclude-standard'),
+  ].filter(Boolean).join('\n');
+  console.log(`REPORT ${pkg.title}`);
+  console.log(stat || '  (no working-tree changes)');
+  for (const item of pkg.definitionOfDone) console.log(`  DoD: ${item}`);
+}
+
+try {
+  const command = process.argv[2];
+  if (command === 'select') await select();
+  else if (command === 'report') await report();
+  else if (command === 'scope') await verifiedPackage();
+  else if (command === 'verify') {
+    const pkg = await verifiedPackage();
+    runChecks(pkg);
+    await verifiedPackage();
+  } else {
+    console.error('usage: local-work-package.mjs <select|scope|verify|report>');
+    process.exitCode = 2;
+  }
+} catch (error) {
+  console.error(error.message);
+  process.exitCode = 1;
 }

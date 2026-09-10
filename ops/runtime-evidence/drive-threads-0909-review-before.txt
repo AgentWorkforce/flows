@@ -1,0 +1,81 @@
+$ node --test ops/local-work-review.test.mjs
+✔ report includes an allowed unstaged change (273.4115ms)
+✖ report includes an allowed staged change (286.932584ms)
+✖ report includes an allowed untracked change (268.523542ms)
+✖ directory scope checks a pre-existing dangling escape symlink (251.117166ms)
+✔ directory scope checks a pre-existing existing internal symlink (242.251375ms)
+✔ selection skips untracked scope and accepts the next committed scope (128.28975ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 3
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1496.888125
+
+✖ failing tests:
+
+test at ops/local-work-review.test.mjs:8:3
+✖ report includes an allowed staged change (286.932584ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /src\/value.txt/. Input:
+  
+  'REPORT Directory\n  (no working-tree changes)\n  DoD: Directory\n'
+  
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-review.test.mjs:17:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'REPORT Directory\n  (no working-tree changes)\n  DoD: Directory\n',
+    expected: /src\/value.txt/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at ops/local-work-review.test.mjs:8:3
+✖ report includes an allowed untracked change (268.523542ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /src\/new.txt/. Input:
+  
+  'REPORT Directory\n  (no working-tree changes)\n  DoD: Directory\n'
+  
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-review.test.mjs:17:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'REPORT Directory\n  (no working-tree changes)\n  DoD: Directory\n',
+    expected: /src\/new.txt/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at ops/local-work-review.test.mjs:23:3
+✖ directory scope checks a pre-existing dangling escape symlink (251.117166ms)
+  AssertionError [ERR_ASSERTION]: SCOPE_OK: 0 changed path(s)
+  
+      at fail (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:43:10)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-review.test.mjs:32:37)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 0,
+    operator: 'notStrictEqual',
+    diff: 'simple'
+  }
+
+EXIT_CODE=1

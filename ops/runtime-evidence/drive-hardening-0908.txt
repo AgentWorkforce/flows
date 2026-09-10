@@ -1,0 +1,480 @@
+Drive-local hardening — captured commands and output
+
+The baseline local-package test failed during select with NO_BOUNDED_WORK (ops/local-work-package.mjs:123), before any apply command ran. The replacement retains interrupted-write coverage for package selection.
+
+The default npm test invocation encountered a broken mise Cargo shim. The subsequent command selects the installed Rust toolchain without changing repository build scripts.
+
+F3 mutation procedure replaced only the cursor block with the original title-search implementation, ran the named test, restored the file byte-for-byte in a finally block, and reran the same test.
+
+
+=== baseline.txt ===
+$ npm --prefix packages/sdk run build
+
+> @relayflows/sdk@2.0.6 build
+> tsc && node scripts/make-cli-executable.mjs
+
+EXIT_CODE=0
+
+$ node ops/local-work-package.mjs select
+SKIPPED [unbounded_scope] `timeoutMs` is enforced LATE, not never — a step ran 2.3x past its limit.
+SKIPPED [stale_scope: sdk/tests/live-kernel.test.ts, sdk/src/protocol.ts, sdk/src/journal-client.ts, sdk/src/cli/run.ts] GATES 2 AND 3 ARE BLOCKED ON A MISSING COMPONENT: there is no agent worker.
+SKIPPED [unbounded_scope] Half the drive runs complete but build nothing.
+SKIPPED [missing_scope] DONE (PR #45, merged): refuse an entry with unterminated backticks.
+SKIPPED [missing_scope] DONE (PR #42, merged): sharpen what the picker considers actionable.
+SKIPPED [unbounded_scope] Close the deterministic-command preflight gap (Codex P1).
+SKIPPED [unbounded_scope] Release pipeline (relay pattern, NOT crates.io):
+SKIPPED [missing_scope] Persist review transcripts:
+SKIPPED [missing_scope] Re-register cloud schedules from current drive.yaml
+SKIPPED [missing_definition_of_done] Customer harness is a named design partner
+SKIPPED [missing_scope] PR titles from the pr step
+SKIPPED [unbounded_scope] The PR-shepherd flow (Garden component, gate 3):
+SELECTED Regression suite (`regressions/`, dormant):
+  files in scope: regressions/MANIFEST.json
+  definition of done: 1 item(s)
+EXIT_CODE=0
+
+$ node --test ops/local-work-package.test.mjs
+✖ interrupted package write preserves the original and retry applies once (83.60475ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 123.169166
+
+✖ failing tests:
+
+test at ops/local-work-package.test.mjs:10:1
+✖ interrupted package write preserves the original and retry applies once (83.60475ms)
+  AssertionError [ERR_ASSERTION]: node:internal/modules/run_main:107
+      triggerUncaughtException(
+      ^
+  
+  AssertionError [ERR_ASSERTION]: NO_BOUNDED_WORK: 1 entr(y|ies) considered, none named files this loop can scope. Add explicit paths to a BACKLOG entry.
+      at select (file:///Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/ops/local-work-package.mjs:123:3)
+      at async file:///Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/ops/local-work-package.mjs:158:27 {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: null,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+  
+  Node.js v26.7.0
+  
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (file:///Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/ops/local-work-package.test.mjs:27:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.start (node:internal/test_runner/test:1257:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+EXIT_CODE=1
+
+
+=== cursor-red-green.txt ===
+F3: restore the title-search cursor only.
+$ node --test --test-name-pattern='skip cursor' ops/local-work-package.test.mjs
+✖ skip cursor passes a later title mentioned in an earlier body (110.139667ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 154.29075
+
+✖ failing tests:
+
+test at ops/local-work-package.test.mjs:9:1
+✖ skip cursor passes a later title mentioned in an earlier body (110.139667ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  3 !== 2
+  
+      at TestContext.<anonymous> (file:///Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/ops/local-work-package.test.mjs:14:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.start (node:internal/test_runner/test:1257:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 3,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+EXIT_CODE=1
+
+F3: restore the fix byte-for-byte.
+$ node --test --test-name-pattern='skip cursor' ops/local-work-package.test.mjs
+✔ skip cursor passes a later title mentioned in an earlier body (193.51275ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 235.98425
+EXIT_CODE=0
+
+=== local-tests.txt ===
+$ node --test ops/local-work-package.test.mjs ops/drive-local-flow.test.mjs scripts/run-local-workflow.test.mjs
+✔ drive-local journals failure and blocks reporting for outside edit (771.314958ms)
+✔ drive-local journals failure and blocks reporting for verifier edit (602.589416ms)
+✔ drive-local journals failure and blocks reporting for unchanged package (676.513334ms)
+✔ skip cursor passes a later title mentioned in an earlier body (216.564416ms)
+✔ selection skips missing checks and stale paths with reasons (218.617167ms)
+✔ a non-SDK package fails unchanged and passes only after its check holds (488.200666ms)
+✔ multiple acceptance checks all execute and failures propagate (231.413083ms)
+✔ scope refuses an outside unstaged path (205.714125ms)
+✔ scope refuses an outside staged path (216.896625ms)
+✔ scope refuses an outside untracked path (205.137375ms)
+✔ scope refuses an outside staged reversal path (204.578667ms)
+✔ scope refuses an outside rename path (199.010584ms)
+✔ scope refuses an outside deleted path (193.009708ms)
+✔ the submitted scope command refuses a changed ops/local-work-package.mjs before loading it (107.126583ms)
+✔ the submitted scope command refuses a changed ops/local-work-verification.mjs before loading it (104.506792ms)
+✔ the submitted scope command refuses a changed ops/BACKLOG.md before loading it (108.702042ms)
+✔ editing ignored package metadata cannot widen scope or replace checks (234.544833ms)
+✔ scope allows directory children but rejects a sibling with the same prefix (293.47625ms)
+✔ scope allows in-scope deletions and rejects symlink escapes (290.1025ms)
+✔ replacing a scoped file with a directory does not authorize its children (192.775208ms)
+✔ a check that writes outside scope fails verification (255.667708ms)
+✔ interrupted package write preserves the original and retry replaces it atomically (194.482458ms)
+✔ local launcher journals deterministic effects and reads more than one journal page (694.106625ms)
+✔ a failed command fails the run and prevents dependent effects (134.531791ms)
+✔ the SDK worker completes an agent step through the local journal protocol (614.73825ms)
+✔ missing daemon is refused before a data directory or run is created (63.763834ms)
+ℹ tests 26
+ℹ suites 0
+ℹ pass 26
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4206.092958
+EXIT_CODE=0
+
+=== sdk.txt ===
+$ npm --prefix packages/sdk test
+
+> @relayflows/sdk@2.0.6 test
+> sh scripts/test.sh
+
+
+> @relayflows/sdk@2.0.6 test:prep
+> ( cd ../../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../../testdata/preflight ] || find ../../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )
+
+mise ERROR cargo is not a valid shim. This likely means you uninstalled a tool and the shim does not point to anything. Run `mise use <TOOL>` to reinstall the tool.
+mise ERROR Run with --verbose or MISE_VERBOSE=1 for more information
+EXIT_CODE=1
+
+=== sdk-toolchain.txt ===
+$ env PATH="/Users/khaliqgant/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH" CARGO_TARGET_DIR="$PWD/kernel/target" npm --prefix packages/sdk test
+
+> @relayflows/sdk@2.0.6 test
+> sh scripts/test.sh
+
+
+> @relayflows/sdk@2.0.6 test:prep
+> ( cd ../../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../../testdata/preflight ] || find ../../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )
+
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling libc v0.2.189
+   Compiling stable_deref_trait v1.2.1
+   Compiling version_check v0.9.5
+   Compiling cfg-if v1.0.4
+   Compiling autocfg v1.5.1
+   Compiling serde_core v1.0.229
+   Compiling getrandom v0.3.4
+   Compiling zerocopy v0.8.56
+   Compiling smallvec v1.15.2
+   Compiling serde v1.0.229
+   Compiling litemap v0.8.3
+   Compiling writeable v0.6.4
+   Compiling num-traits v0.2.19
+   Compiling memchr v2.8.3
+   Compiling generic-array v0.14.7
+   Compiling icu_normalizer_data v2.3.0
+   Compiling utf8_iter v1.0.4
+   Compiling icu_properties_data v2.3.0
+   Compiling zmij v1.0.23
+   Compiling typenum v1.20.1
+   Compiling parking_lot_core v0.9.12
+   Compiling ref-cast v1.0.27
+   Compiling syn v3.0.4
+   Compiling syn v2.0.119
+   Compiling aho-corasick v1.1.5
+   Compiling num-integer v0.1.47
+   Compiling synstructure v0.13.2
+   Compiling num-bigint v0.4.8
+   Compiling ahash v0.8.12
+   Compiling serde_json v1.0.151
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling regex-syntax v0.8.11
+   Compiling scopeguard v1.2.0
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling lock_api v0.4.14
+   Compiling num-rational v0.4.2
+   Compiling cc v1.4.4
+   Compiling num-iter v0.1.46
+   Compiling zerofrom v0.1.8
+   Compiling num-complex v0.4.6
+   Compiling rand_core v0.9.5
+   Compiling ppv-lite86 v0.2.21
+   Compiling once_cell v1.21.4
+   Compiling itoa v1.0.18
+   Compiling pkg-config v0.3.34
+   Compiling bit-vec v0.8.0
+   Compiling borrow-or-share v0.2.4
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling regex-automata v0.4.18
+   Compiling vcpkg v0.2.15
+   Compiling bit-set v0.8.0
+   Compiling num v0.4.3
+   Compiling rand_chacha v0.9.0
+   Compiling parking_lot v0.12.5
+   Compiling block-buffer v0.10.4
+   Compiling libsqlite3-sys v0.35.0
+   Compiling crypto-common v0.1.7
+   Compiling utf8parse v0.2.2
+   Compiling thiserror v2.0.20
+   Compiling foldhash v0.1.5
+   Compiling uuid v1.26.0
+   Compiling yoke v0.8.3
+   Compiling lazy_static v1.5.0
+   Compiling vsimd v0.8.0
+   Compiling percent-encoding v2.3.2
+   Compiling outref v0.5.2
+   Compiling fraction v0.15.4
+   Compiling hashbrown v0.15.5
+   Compiling anstyle-parse v1.0.0
+   Compiling uuid-simd v0.8.0
+   Compiling digest v0.10.7
+   Compiling rand v0.9.5
+   Compiling thiserror-impl v2.0.20
+   Compiling cpufeatures v0.2.17
+   Compiling bytecount v0.6.9
+   Compiling base64 v0.22.1
+   Compiling num-cmp v0.1.0
+   Compiling anstyle v1.0.14
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling colorchoice v1.0.5
+   Compiling anstyle-query v1.1.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling hashlink v0.10.0
+   Compiling sha2 v0.10.9
+   Compiling anstream v1.0.0
+   Compiling heck v0.5.0
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling strsim v0.11.1
+   Compiling clap_lex v1.1.0
+   Compiling anyhow v1.0.104
+   Compiling fallible-iterator v0.3.0
+   Compiling fancy-regex v0.16.2
+   Compiling regex v1.13.1
+   Compiling bitflags v2.13.1
+   Compiling clap_builder v4.6.6
+   Compiling clap_derive v4.6.4
+   Compiling tinystr v0.8.4
+   Compiling icu_locale_core v2.3.0
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling wait-timeout v0.2.1
+   Compiling fluent-uri v0.3.2
+   Compiling email_address v0.2.9
+   Compiling ulid v1.2.1
+   Compiling icu_provider v2.3.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling referencing v0.33.0
+   Compiling clap v4.6.6
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling jsonschema v0.33.0
+   Compiling rusqlite v0.37.0
+   Compiling relayflowd-core v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/kernel/relayflowd-core)
+   Compiling relayflowd-journal v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.67s
+
+> @relayflows/sdk@2.0.6 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.6 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+> @relayflows/sdk@2.0.6 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+ RUN  v2.1.9 /Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/kernel/target/debug/relayflowd
+LIVE_KERNEL flows=/Users/khaliqgant/AgentWorkforce/flows-runtime-0907-wt/packages/sdk/dist/cli.js
+
+ ✓ tests/tick-source.test.ts (33 tests) 13ms
+ ✓ tests/daemon-lifecycle.test.ts (42 tests) 19ms
+ ✓ tests/journal-client.test.ts (14 tests) 70ms
+ ✓ tests/validate.test.ts (68 tests) 16ms
+ ✓ tests/preflight.test.ts (25 tests) 29ms
+ ✓ tests/cli-hn-monitor.test.ts (16 tests) 98ms
+ ✓ tests/gate-contract.test.ts (20 tests) 156ms
+ ✓ tests/verb-field-lint.test.ts (78 tests) 272ms
+ ✓ tests/tick-runner.test.ts (22 tests) 524ms
+ ✓ tests/backlog-picker.test.ts (14 tests) 139ms
+ ✓ tests/authored-flow-lifecycle-executor.test.ts (27 tests) 508ms
+ ✓ tests/authored-flow.test.ts (23 tests) 843ms
+   ✓ authored flow journal executor > refuses manually chained work even when it settles before the body returns 305ms
+   ✓ authored flow journal executor > retains root operation failures even when a derived rejection handler consumes them 306ms
+ ✓ tests/work-package-consumer.test.ts (13 tests) 170ms
+ ✓ tests/backlog-picker-flow.test.ts (6 tests) 466ms
+ ✓ tests/authored-flow-operation.test.ts (23 tests) 340ms
+ ✓ tests/spec-parity.test.ts (31 tests) 256ms
+ ✓ tests/typed-output.test.ts (14 tests) 160ms
+ ✓ tests/model-selection.test.ts (10 tests) 11ms
+ ✓ tests/relayflowd-path.test.ts (10 tests) 9ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 73ms
+ ✓ tests/hn-poller.test.ts (6 tests) 3ms
+ ✓ tests/dir-watcher-poller.test.ts (6 tests) 6ms
+ ✓ tests/dependency-validation.test.ts (6 tests) 414ms
+ ✓ tests/direct-input.test.ts (4 tests) 1245ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > executes inline and file JSON input through relayflowd 637ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses missing and malformed input before contacting relayflowd 428ms
+ ✓ tests/work-package-validator.test.ts (7 tests) 4ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 12ms
+ ✓ tests/bin.test.ts (7 tests) 645ms
+ ✓ tests/parse-json-output.test.ts (7 tests) 1ms
+ ↓ tests/real-cli-adapters.test.ts (3 tests | 3 skipped)
+ ✓ tests/cli-adapter.test.ts (3 tests) 4ms
+ ✓ tests/placement.test.ts (54 tests) 7ms
+ ✓ tests/memory.test.ts (18 tests) 4ms
+ ✓ tests/json-schema-bound.test.ts (71 tests) 1702ms
+   ✓ JSON Schema termination bound > walks a deep schema with an explicit stack rather than recursion 1352ms
+ ✓ tests/classify-outcome.test.ts (2 tests) 2228ms
+   ✓ classifyOutcome > gives up and reports when a running run never becomes classifiable 2066ms
+ ✓ tests/cli.test.ts (63 tests) 4804ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 1161ms
+   ✓ flows check CLI > uses the raw Claude adapter model flag instead of accepting auth status as model proof 620ms
+   ✓ flows check CLI > uses Codex login status and reports a rejected model as unavailable, not unauthenticated 624ms
+   ✓ flows check CLI > refuses a nonconforming custom wrapper without calling it an authentication failure 316ms
+   ✓ flows check CLI > accepts an exact allowlisted named-agent model and probes that model 515ms
+   ✓ flows check CLI > checks the same named-agent contract from declarative JSON 506ms
+ ✓ tests/daemon-lifecycle-live.test.ts (9 tests) 5488ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > cold start spawns exactly one daemon, the run succeeds, and the daemon outlives the CLI 1099ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > polls, bounded, for a daemon that holds the lock before it binds 1526ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > attaches to a serving daemon that has not published a connection file 539ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > a second run attaches to the daemon the first one started, spawning nothing 301ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > detects a stale connection file left by a hard kill and starts a fresh daemon 522ms
+   ✓ concurrent invocations against one empty data dir (§6 test 15) > ends with exactly one daemon owning the socket, and both runs succeed 867ms
+ ✓ tests/worker-cli.test.ts (13 tests) 25064ms
+   ✓ custom wrapper execution identity > refuses a wrapper symlink retarget before delivering private values 1106ms
+   ✓ custom wrapper execution identity > bounds wrapper execution after acknowledgement 881ms
+   ✓ custom wrapper execution identity > bounds captured wrapper output 489ms
+   ✓ custom wrapper execution identity > refuses a duplicate execute protocol frame 318ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 2063ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 1906ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3258ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11257ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 852ms
+   ✓ custom wrapper execution bounds are reader-owned > still bounds an un-terminated handshake buffer and names the bound 1526ms
+   ✓ delivers the journaled memory pack to the real wrapper and excludes its charge from completion usage 830ms
+stdout | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER ready: claude -p --model claude-haiku-4-5-20251001 round-trip OK
+
+stdout | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER analysis: {"reasoning":"This story directly describes an AI agent performing autonomous software development tasks (opening and reviewing pull requests), which is a core application of AI agent automation and closely aligned with autonomous systems in development workflows.","relevance_score":9,"story_title":"Show HN: an agent that opens and reviews its own pull requests [wake-nonce-7f3a91c4]"}
+
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=58369 run=01M206M7KTVASPSFP8S8529PP2 while step=two state=Running
+
+ ✓ tests/live-kernel.test.ts (28 tests) 52485ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 1644ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32411ms
+   ✓ built flows CLI against live relayflowd > runs an agent CLI end to end through the SDK worker 317ms
+   ✓ built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5557ms
+   ✓ built flows CLI against live relayflowd > AgentWorker passes a declared model to an identified wrapper as RELAYFLOW_MODEL 673ms
+   ✓ built flows CLI against live relayflowd > AgentWorker refuses a nonconforming journal-submitted wrapper before exposing RELAYFLOW_MODEL 473ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw codex adapter with its real model flag 501ms
+   ✓ built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI 8661ms
+
+ Test Files  37 passed | 1 skipped (38)
+      Tests  803 passed | 3 skipped (806)
+   Start at  11:46:20
+   Duration  52.90s (transform 710ms, setup 0ms, collect 3.40s, tests 98.29s, environment 6ms, prepare 1.37s)
+
+EXIT_CODE=0
+
+=== Real backlog at implementation commit 6242049 ===
+$ node ops/local-work-package.mjs select
+SKIPPED [unbounded_scope] `timeoutMs` is enforced LATE, not never — a step ran 2.3x past its limit.
+SKIPPED [stale_scope: sdk/tests/live-kernel.test.ts, sdk/src/protocol.ts, sdk/src/journal-client.ts, sdk/src/cli/run.ts] GATES 2 AND 3 ARE BLOCKED ON A MISSING COMPONENT: there is no agent worker.
+SKIPPED [unbounded_scope] Half the drive runs complete but build nothing.
+SKIPPED [missing_scope] DONE (PR #45, merged): refuse an entry with unterminated backticks.
+SKIPPED [missing_scope] DONE (PR #42, merged): sharpen what the picker considers actionable.
+SKIPPED [unbounded_scope] Close the deterministic-command preflight gap (Codex P1).
+SKIPPED [unbounded_scope] Release pipeline (relay pattern, NOT crates.io):
+SKIPPED [missing_scope] Persist review transcripts:
+SKIPPED [missing_scope] Re-register cloud schedules from current drive.yaml
+SKIPPED [missing_definition_of_done] Customer harness is a named design partner
+SKIPPED [missing_scope] PR titles from the pr step
+SKIPPED [unbounded_scope] The PR-shepherd flow (Garden component, gate 3):
+SKIPPED [missing_executable_checks] Regression suite (`regressions/`, dormant):
+SKIPPED [unbounded_scope] `f.browser` helper (gate-6 family, plugin-shaped).
+SKIPPED [unbounded_scope] Computer use — deferred, behind heavier rails.
+SKIPPED [missing_definition_of_done] Upstream issues (2026-08-27):
+SKIPPED [unbounded_scope] Cloud sandbox runs die in `sync`: no git remote.
+SKIPPED [missing_executable_checks] Documented `steps: []` check/kernel asymmetry (P3, WP-4 review V3).
+SKIPPED [unbounded_scope] Scope the `flows check` CLI probe environment (gate 8; WP-7 F6).
+SKIPPED [unbounded_scope] F1
+SKIPPED [missing_scope] F2
+SKIPPED [unbounded_scope] F3
+SKIPPED [unbounded_scope] F5
+SKIPPED [unbounded_scope] F6
+SELECTED F8b
+  files in scope: packages/sdk/src/compile.ts
+  definition of done: 1 item(s)
+EXIT_CODE=0
+
+$ node ops/local-work-package.mjs scope
+SCOPE_OK: 0 changed path(s)
+EXIT_CODE=0
+
+$ node ops/local-work-package.mjs verify
+SCOPE_OK: 0 changed path(s)
+CHECK ["node","--input-type=module","-e","import assert from 'node:assert/strict'; import {readFileSync} from 'node:fs'; const source = readFileSync('packages/sdk/src/compile.ts', 'utf8'); assert(!source.includes('validateKernelRetry')); assert(source.includes('function validateAuthoringRetryDefaults(')); assert(source.includes('validateAuthoringRetryDefaults(step['));"]
+PACKAGE_VERIFIED: 1 check(s)
+SCOPE_OK: 0 changed path(s)
+EXIT_CODE=0
+
+$ node ops/local-work-package.mjs report
+REPORT F8b
+  (no working-tree changes)
+  DoD: F8b
+EXIT_CODE=0
+

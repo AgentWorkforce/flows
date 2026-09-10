@@ -1,28 +1,121 @@
-# A bounded, deterministic drive tick: execute backlog F8b on this checkout.
-# Run: node scripts/run-local-workflow.mjs workflows/drive-local.yaml
-# Selection, mutation, existing tests, and the resulting diff are journaled.
-# Delivery is a branch/PR by the operator; this flow never merges or switches branches.
+# A local drive tick: pick the next backlog item, do it, verify it, report.
+#
+# This replaces a flow that could only ever execute BACKLOG F8b. That version
+# proved a relayflow can drive a real change on this checkout with no Cloud
+# admission, no Daytona and no Relaycast workspace — but its selector hardcoded
+# one file and one identifier, so every subsequent tick needed a human to edit
+# the script before the loop could run again. A loop that needs editing between
+# iterations is not a loop.
+#
+# Two changes make it general. Selection comes from the SDK's backlog picker
+# (gate 3), the same rule the cloud drive uses, so the two cannot drift about
+# what "next" means. And implementation is an agent step rather than a
+# deterministic rewrite, because a deterministic step can only make mechanical
+# changes and most backlog entries are not mechanical.
+#
+# Run: node scripts/run-drive-local.mjs
+# The preparing launcher pins the Git ref in submitted commands. gate-snapshot
+# extracts gate inputs from that ref and builds the picker outside the checkout.
+# Running this template directly fails before any implementation step.
+# Delivery stays with the operator: this flow never commits, never switches
+# branches and never merges. It leaves a working tree and a report.
 version: '0.1.0'
-name: drive-local-f8b
-description: Correct the retry validator name to describe the authoring restriction (BACKLOG F8b).
+name: drive-local
+description: >-
+  Select the next work package from ops/BACKLOG.md, implement it, verify it
+  against its own definition of done, and report. Selection, implementation,
+  scope enforcement, verification and reporting are journaled steps.
 steps:
-  - id: select-package
+  # The preparing launcher builds the SDK before capture and submission.
+  - id: gate-snapshot
     type: deterministic
-    command: node ops/local-work-package.mjs select
-  - id: implement-package
+    timeoutMs: 300000
+    command: node ops/local-work-snapshot.mjs
+
+  # Selection uses the picker built from Git and records that ref as pkg.head.
+  - id: select
     type: deterministic
-    dependsOn: [select-package]
-    command: node ops/local-work-package.mjs apply
-  - id: verify-package
-    type: deterministic
-    dependsOn: [implement-package]
+    dependsOn: [gate-snapshot]
     timeoutMs: 120000
+    command: node ops/local-work-package.mjs select
+
+  - id: initial-scope
+    type: deterministic
+    dependsOn: [select]
+    timeoutMs: 120000
+    command: &scope-check node ops/local-work-package.mjs scope
+
+  - id: implement
+    type: agent
+    cli: claude
+    dependsOn: [initial-scope]
+    # Required, not decorative: the launcher refuses an agent step with no pins
+    # (`LOCAL_AGENT_PINS_REQUIRED: declare a stream; the kernel refuses workers
+    # with no pins`) and the run is never created. Verified by running it.
+    surfaces:
+      streams:
+        - stream: drive-local
+    # No timeoutMs: 0.1.0 bounds deterministic steps only, so an agent step
+    # cannot declare one. The run-level bound is the operator's.
+    maxIterations: 1
+    instruction: |
+      Read .relayflow/drive-local/package.json. It holds one work package
+      selected from ops/BACKLOG.md: a title, the files in scope, and a
+      definition of done.
+
+      Implement exactly that package on this checkout. Stay inside the files it
+      names; if the work genuinely requires a file outside that list, say so in
+      your output rather than widening scope silently.
+
+      Do not commit, do not switch branches, do not merge. The operator delivers
+      the diff.
+
+      End your final message with the single uppercase word DONE on its own
+      line. The verification below gates on that exact marker, so a correct
+      implementation that omits it is recorded as a failure.
+
+      If the package cannot be implemented as written — it is already done, its
+      premise is false, or it is underspecified — say that plainly and change
+      nothing. A tick that reports "already done" is a good tick; a tick that
+      invents an edit to look busy is not.
+    verification:
+      type: output_contains
+      value: "DONE"
+
+  - id: scope
+    type: deterministic
+    dependsOn: [implement]
+    timeoutMs: 120000
+    # The launcher substitutes the command for the Git-extracted helper.
+    # protectedPaths has one owner in the verifier extracted from the same ref.
+    command: *scope-check
+
+  - id: verify
+    type: deterministic
+    dependsOn: [scope]
+    timeoutMs: 900000
+    # The selected package's checks must pass before the regression suite.
     command: |
       set -eu
-      npm_config_cache="$PWD/.relayflow/npm-cache" npm --userconfig /tmp/empty-npmrc run build --prefix packages/sdk
+      node ops/local-work-package.mjs verify
       cd packages/sdk
-      node node_modules/vitest/vitest.mjs run tests/spec-parity.test.ts tests/cli.test.ts
-  - id: report-package
+      # Rebuild before the suite. Tests and probes import packages/sdk/dist/*,
+      # so running vitest against a stale dist exercises the PRE-agent artifact
+      # and can pass code the agent just changed. Invoked directly rather than
+      # via `npm run build` because npm hangs on this host's ~/.npmrc.
+      node node_modules/typescript/bin/tsc
+      node scripts/make-cli-executable.mjs
+      node node_modules/vitest/vitest.mjs run
+
+  - id: final-scope
     type: deterministic
-    dependsOn: [verify-package]
+    dependsOn: [verify]
+    timeoutMs: 120000
+    # Builds and tests can write too; recheck before loading the report helper.
+    command: *scope-check
+
+  - id: report
+    type: deterministic
+    dependsOn: [final-scope]
+    timeoutMs: 120000
     command: node ops/local-work-package.mjs report

@@ -1,0 +1,37 @@
+$ node --test --test-name-pattern='reporting after SDK' ops/local-work-review.test.mjs
+✖ reporting after SDK suite effects enforces scope for outside.txt (1530.28375ms)
+✔ reporting after SDK suite effects enforces scope for src/value.txt (710.962875ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2313.327542
+
+✖ failing tests:
+
+test at ops/local-work-review.test.mjs:47:3
+✖ reporting after SDK suite effects enforces scope for outside.txt (1530.28375ms)
+  AssertionError [ERR_ASSERTION]: REPORT Fix value
+  outside.txt   | 2 +-
+   src/value.txt | 2 +-
+   2 files changed, 2 insertions(+), 2 deletions(-)
+    DoD: Fix value
+  
+      at fail (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-test-fixture.mjs:60:10)
+      at TestContext.<anonymous> (file:///Users/khaliqgant/flows-threads-wt/ops/local-work-review.test.mjs:63:33)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.start (node:internal/test_runner/test:1257:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 0,
+    operator: 'notStrictEqual',
+    diff: 'simple'
+  }
+
+EXIT_CODE=1
