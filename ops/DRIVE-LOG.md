@@ -9872,3 +9872,33 @@ PATCH and verified the block is present. Cost: one redundant edit.
 The lesson I actually need from this tick is not about backticks. It is:
 **check whether the thing is already fixed before spending three hours proving
 it is broken.** One `git log origin/main` on the file would have done it.
+
+### 2026-09-10 ~08:1xZ — testing the fix: re-ran the gate, IN FLIGHT past the old failure point
+
+Queue drained (pending=0). Disk 4.6Gi.
+
+v0.10.56 is promoted but **no review run had happened since**, so the whole
+night's chain was still unverified. Re-ran the failed review check on my own
+#259 (run 34440534265) as the decisive test.
+
+**Result so far: still running at 16+ minutes.** That is not yet proof. Being
+careful about the comparison, because I nearly reported a false positive at the
+5-minute mark: I had claimed the infra failures surface "within 1-5 minutes",
+but #259's PREVIOUS failure on this same branch took **~19 minutes** (created
+05:18:22, failure reason logged 05:37:16). My 1-5 minute figure came from
+#238's queue-deadline failure, which is a different mode. So the run has not
+yet outlived its own prior failure window.
+
+Polled inline rather than scheduling a wake, per the standing rule -- the
+answer was plausibly minutes away. It was not; the poll hit the 10-minute
+command ceiling with the run still going.
+
+Leaving it in flight deliberately. The next tick reads the outcome. Two
+readings will be available:
+  - fails again with cursor_expired -> v0.10.56 does NOT fix our path, which
+    would promote candidate 2 from relayfile#492 (the notify-flush path never
+    reaching the typed-error recovery) from hypothesis to likely.
+  - passes or fails on something else -> the mount fault is closed and the
+    two-day gate outage traces to a snapshot that could not be promoted.
+
+Either way it is the first real datum on whether the chain I built holds.
