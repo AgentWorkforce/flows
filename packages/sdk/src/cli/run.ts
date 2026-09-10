@@ -3,6 +3,7 @@ import type { ProgressEvent } from '../progress.js';
 import { toKernelSpec } from '../compile.js';
 import { socketPathFor } from '../daemon-connection.js';
 import { ensureDaemon, type EnsureDaemonOptions } from '../daemon-lifecycle.js';
+import { isAuthoredFlowPath } from '../direct-input.js';
 import { daemonRefusal } from './daemon-refusal.js';
 import type { RunFailureKind, RunWarningKind } from '../failure-kinds.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
@@ -328,7 +329,17 @@ export async function classifyOutcome(
           message: needsHuman
             ? `Run "${current.run_id}" parked at step "${parkedStep.id}" (${parkedStep.type}): waiting for human recovery after the worker attempt failed.`
             : `Run "${current.run_id}" parked at step "${parkedStep.id}" (${parkedStep.type}): no worker is attached for step type "${parkedStep.type}".`
-              + (command === 'run' && parkedStep.type === 'agent' && !options.localAgent && base.path !== undefined
+              // Only suggest the `--local-agent` remedy for YAML flows.
+              // Authored TS flows require `--input`; the bare command below
+              // would be refused (Cursor Bugbot flagged as LOW on flows#293).
+              // For TS we omit the hint rather than fabricate a syntactically
+              // valid but semantically wrong command — the direct-run refusal
+              // for TS already names its own missing --input.
+              + (command === 'run'
+                  && parkedStep.type === 'agent'
+                  && !options.localAgent
+                  && base.path !== undefined
+                  && !isAuthoredFlowPath(base.path)
                 ? ` To start a new run with a local agent worker: flows run --local-agent '${base.path.replace(/'/g, "'\\''")}'. Declared workspace or stream surfaces require a worker that holds their pins.`
                 : ''),
         }],
