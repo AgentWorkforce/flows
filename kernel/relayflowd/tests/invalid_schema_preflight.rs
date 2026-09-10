@@ -33,7 +33,8 @@ struct Refusal {
 fn submit_gate(schema: Value) -> Refusal {
     let directory = tempfile::tempdir().unwrap();
     let marker = directory.path().join("command-ran");
-    let socket = directory.path().join("relayflowd.sock");
+    let socket = relayflowd::socket_path::derive_socket_path(directory.path())
+        .expect("derive socket path");
     let spec = json!({
         "steps": [{
             "id": "schema",

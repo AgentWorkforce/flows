@@ -22,7 +22,7 @@ fn lifecycle_request_via_socket(
         io::{BufRead, BufReader, Write},
         os::unix::net::UnixStream,
     };
-    let socket = data_dir.join("relayflowd.sock");
+    let socket = crate::socket_path::derive_socket_path(data_dir)?;
     if !socket.exists() {
         return Ok(None);
     }
@@ -110,7 +110,7 @@ pub fn resume_via_socket(data_dir: &Path, run_id: &str) -> Result<Option<crate::
         os::unix::net::UnixStream,
     };
 
-    let socket = data_dir.join("relayflowd.sock");
+    let socket = crate::socket_path::derive_socket_path(data_dir)?;
     if !socket.exists() {
         return Ok(None);
     }

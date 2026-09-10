@@ -90,9 +90,14 @@ fn connection_file_is_published_only_after_the_socket_is_live() {
         connection["protocol"].as_u64(),
         Some(PROTOCOL_VERSION as u64)
     );
+    // Socket now lives outside the data dir at a derived path (#262). The
+    // anti-hijack invariant is unchanged: the file must name the exact same
+    // path the CLI would recompute from --data-dir.
+    let expected_socket = relayflowd::socket_path::derive_socket_path(directory.path())
+        .expect("derive socket path");
     assert_eq!(
         connection["socket_path"].as_str(),
-        Some(directory.path().join("relayflowd.sock").to_str().unwrap())
+        expected_socket.to_str(),
     );
     signal(&daemon, libc::SIGTERM);
     assert!(daemon.wait().unwrap().success());
@@ -106,7 +111,9 @@ fn clean_shutdown_removes_advertisement_and_socket() {
     signal(&daemon, libc::SIGINT);
     assert!(daemon.wait().unwrap().success());
     assert!(!connection_path(directory.path()).exists());
-    assert!(!directory.path().join("relayflowd.sock").exists());
+    let socket = relayflowd::socket_path::derive_socket_path(directory.path())
+        .expect("derive socket path");
+    assert!(!socket.exists());
 }
 
 #[test]
@@ -190,4 +197,39 @@ fn a_sigkilled_daemons_successor_starts_cleanly() {
 
     signal(&second, libc::SIGTERM);
     assert!(second.wait().unwrap().success());
+}
+
+/// #262 regression: a deep working directory used to push
+/// `<data-dir>/relayflowd.sock` past SUN_LEN (~104 bytes on macOS). The socket
+/// now lives outside the data dir at a short hashed path, so the daemon binds
+/// and serves regardless of how deep the data dir is. Padding to well past
+/// the limit to prove the property holds by construction, not by accident.
+#[test]
+fn deep_data_dir_still_binds() {
+    let directory = TempDir::new().unwrap();
+    let mut deep = directory.path().to_path_buf();
+    // Grow the data-dir path well past the ~104-byte macOS ceiling.
+    while deep.as_os_str().len() < 200 {
+        deep = deep.join("nested-directory-with-a-long-enough-name-to-add-length");
+    }
+    assert!(
+        deep.as_os_str().len() > 104,
+        "test fixture must actually exceed SUN_LEN, got {} bytes",
+        deep.as_os_str().len(),
+    );
+    std::fs::create_dir_all(&deep).unwrap();
+
+    let mut daemon = start(&deep);
+    let connection = wait_for_connection(&deep);
+    let socket = connection["socket_path"].as_str().unwrap();
+    // The socket is what the caller must reach, so it is the length that
+    // matters — not the data-dir length.
+    assert!(
+        socket.len() < 104,
+        "derived socket path must fit SUN_LEN, got {} bytes: {socket}",
+        socket.len(),
+    );
+    UnixStream::connect(socket).expect("deep-data-dir daemon must accept connections");
+    signal(&daemon, libc::SIGTERM);
+    assert!(daemon.wait().unwrap().success());
 }

@@ -60,7 +60,7 @@ fn run_start_dispatches_every_independent_lane_before_any_completion() {
 
     // A live resume sees both leases held and must neither abandon nor
     // redispatch either attempt.
-    let mut control = ProtocolClient::connect(&fixture.data_dir.join("relayflowd.sock"));
+    let mut control = ProtocolClient::connect(&fixture.socket());
     let resumed = control
         .request("run.resume", json!({"run_id": run_id}))
         .unwrap();
@@ -161,7 +161,7 @@ fn concurrent_resumes_lease_exactly_one_attempt() {
     let run_id = start_run(&fixture);
     let mut worker = attached_worker(&fixture, "race-stub");
 
-    let socket = fixture.data_dir.join("relayflowd.sock");
+    let socket = fixture.socket();
     let barrier = Arc::new(Barrier::new(2));
     let resumes = (0..2)
         .map(|_| {
@@ -231,7 +231,7 @@ fn live_resume_leaves_an_active_lease_running() {
         .unwrap();
     assert!(heartbeat["lease_deadline_ms"].as_i64().unwrap() > 0);
 
-    let mut control = ProtocolClient::connect(&fixture.data_dir.join("relayflowd.sock"));
+    let mut control = ProtocolClient::connect(&fixture.socket());
     let resumed = control
         .request("run.resume", json!({"run_id": run_id}))
         .unwrap();
@@ -266,7 +266,7 @@ fn cancel_closes_the_lease_and_rejects_a_late_completion() {
     let mut worker = attached_worker(&fixture, "cancel-stub");
     let run_id = start_run(&fixture);
     let dispatch = worker.event("step.dispatch").unwrap();
-    let mut control = ProtocolClient::connect(&fixture.data_dir.join("relayflowd.sock"));
+    let mut control = ProtocolClient::connect(&fixture.socket());
 
     let canceled = control
         .request("run.cancel", json!({"run_id": run_id}))
@@ -298,7 +298,7 @@ fn cancel_and_completion_race_has_one_terminal_fact() {
     let mut worker = attached_worker(&fixture, "race-stub");
     let run_id = start_run(&fixture);
     let dispatch = worker.event("step.dispatch").unwrap();
-    let socket = fixture.data_dir.join("relayflowd.sock");
+    let socket = fixture.socket();
     let barrier = Arc::new(Barrier::new(2));
 
     let cancel_barrier = barrier.clone();

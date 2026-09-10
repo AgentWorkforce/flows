@@ -59,11 +59,14 @@ pub fn serve(data_dir: &Path) -> Result<()> {
         }
         Err(lifecycle::AcquireError::Io(error)) => return Err(error.into()),
     };
-    let socket_path = data_dir.join("relayflowd.sock");
-    lifecycle::remove_residue(data_dir)?;
+    // Bind outside the data dir at a short hashed path so SUN_LEN cannot be
+    // violated by a deep working directory (#262). See socket_path.rs and
+    // DAEMON-LIFECYCLE.md §1.
+    let socket_path = crate::socket_path::derive_socket_path(data_dir)?;
+    lifecycle::remove_residue(data_dir, &socket_path)?;
     let listener = UnixListener::bind(&socket_path)
         .with_context(|| format!("bind socket {}", socket_path.display()))?;
-    lifecycle::publish(&socket_path)?;
+    lifecycle::publish(data_dir, &socket_path)?;
     let hub = Arc::new(ProtocolHub::default());
     reconcile::spawn_reconciler(data_dir.to_path_buf(), hub.clone());
     // Trigger-plane liveness sweep (RFC-0001 gate 2, Native silent-death

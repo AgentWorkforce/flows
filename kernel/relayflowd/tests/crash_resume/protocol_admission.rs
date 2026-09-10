@@ -12,7 +12,7 @@ use super::{
 fn every_mutating_run_verb_refuses_terminal_before_changing_state() {
     let fixture = LlmFixture::completed("terminal-admission");
     let _server = ServerGuard::start(&fixture);
-    let socket = fixture.data_dir.join("relayflowd.sock");
+    let socket = fixture.socket();
     let mut client = ProtocolClient::connect(&socket);
     let started = client
         .request(

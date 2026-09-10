@@ -9,7 +9,7 @@ use super::{
 };
 
 fn attach(fixture: &LlmFixture, worker_id: &str, capacity: Option<usize>) -> ProtocolClient {
-    let mut worker = ProtocolClient::connect(&fixture.data_dir.join("relayflowd.sock"));
+    let mut worker = ProtocolClient::connect(&fixture.socket());
     let mut params = json!({"worker_id": worker_id, "step_types": ["llm"]});
     if let Some(capacity) = capacity {
         params["capacity"] = json!(capacity);
@@ -24,7 +24,7 @@ fn two_workers_receive_a_deterministic_fair_capacity_bounded_batch() {
     let _server = ServerGuard::start(&fixture);
     let mut first = attach(&fixture, "first", Some(2));
     let mut second = attach(&fixture, "second", Some(2));
-    let mut control = ProtocolClient::connect(&fixture.data_dir.join("relayflowd.sock"));
+    let mut control = ProtocolClient::connect(&fixture.socket());
     let started = control
         .request(
             "run.start",
@@ -78,7 +78,7 @@ fn default_capacity_one_reopens_only_after_durable_completion_or_crash() {
     let fixture = LlmFixture::parallel("capacity-one-completion");
     let _server = ServerGuard::start(&fixture);
     let mut worker = attach(&fixture, "serial", None);
-    let mut control = ProtocolClient::connect(&fixture.data_dir.join("relayflowd.sock"));
+    let mut control = ProtocolClient::connect(&fixture.socket());
     let started = control
         .request(
             "run.start",
@@ -118,7 +118,7 @@ fn default_capacity_one_reopens_only_after_durable_completion_or_crash() {
     let fixture = LlmFixture::parallel("capacity-one-crash");
     let _server = ServerGuard::start(&fixture);
     let mut crashed = attach(&fixture, "crashed", None);
-    let mut control = ProtocolClient::connect(&fixture.data_dir.join("relayflowd.sock"));
+    let mut control = ProtocolClient::connect(&fixture.socket());
     let started = control
         .request(
             "run.start",
