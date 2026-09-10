@@ -45,6 +45,10 @@ starter that needs no model credentials. The generated command is
 `flows run my-flow.flow.ts --local-agent --input '{}'`.
 
 `--local-agent` attaches the existing SDK agent worker to the local daemon.
+For YAML or JSON flows, use `flows run my-flow.flow.yaml --local-agent`;
+the worker uses the CLI and model resolved by `flows check`.
+YAML steps with declared workspace or stream surfaces require a worker holding
+those pins.
 It accepts stream-only agent steps and runs the chosen CLI with its existing
 local access. Workspace revision pins and isolation require a worker that
 provides those capabilities. Authored TypeScript bodies are not yet durably

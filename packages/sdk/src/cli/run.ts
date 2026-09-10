@@ -6,6 +6,7 @@ import { ensureDaemon, type EnsureDaemonOptions } from '../daemon-lifecycle.js';
 import { daemonRefusal } from './daemon-refusal.js';
 import type { RunFailureKind, RunWarningKind } from '../failure-kinds.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
+import { attachLocalAgent } from '../local-agent.js';
 import type { PreflightDiagnostic } from '../preflight.js';
 import type {
   RunCompletionReason,
@@ -99,14 +100,18 @@ async function executeCheckedFlow(
   const connected = await connect(client, 'run', dataDir, base, options);
   if (connected !== undefined) return connected;
 
+  let localAgent: Awaited<ReturnType<typeof attachLocalAgent>> | undefined;
   try {
     const spec = toKernelSpec(checked.flow!);
+    // Use the checked CLI/model and declared surfaces unchanged. The worker
+    // advertises its existing pins; the daemon still owns surface matching.
+    if (options.localAgent) localAgent = await attachLocalAgent(client);
     const outcome = await client.runStart(spec);
     return await classifyOutcome(client, 'run', outcome, base, socketPath, options);
   } catch (error) {
-    return protocolFailure('run', base, socketPath, error);
+    return protocolFailure('run', base, socketPath, localAgent?.failure ?? error);
   } finally {
-    client.close();
+    try { await localAgent?.close(); } finally { client.close(); }
   }
 }
 
@@ -322,7 +327,10 @@ export async function classifyOutcome(
           kind: 'run_parked',
           message: needsHuman
             ? `Run "${current.run_id}" parked at step "${parkedStep.id}" (${parkedStep.type}): waiting for human recovery after the worker attempt failed.`
-            : `Run "${current.run_id}" parked at step "${parkedStep.id}" (${parkedStep.type}): no worker is attached for step type "${parkedStep.type}".`,
+            : `Run "${current.run_id}" parked at step "${parkedStep.id}" (${parkedStep.type}): no worker is attached for step type "${parkedStep.type}".`
+              + (command === 'run' && parkedStep.type === 'agent' && !options.localAgent && base.path !== undefined
+                ? ` To start a new run with a local agent worker: flows run --local-agent '${base.path.replace(/'/g, "'\\''")}'. Declared workspace or stream surfaces require a worker that holds their pins.`
+                : ''),
         }],
       },
     };
