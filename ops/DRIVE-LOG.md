@@ -10123,3 +10123,44 @@ PRs were audited over the last two ticks and none is superseded. Nothing on my
 side is blocked on anything I can do.
 
 Reporting it as quiet rather than manufacturing a sixth PR.
+
+### 2026-09-10 10:12Z — the gate failure moved OFF infrastructure for the first time
+
+Queue drained. Disk 5.3Gi.
+
+**New snapshot promoted 09:13:43Z**: sdk-**11.11.0**, relayfile v0.10.56. The
+lineage on main also confirms the whole mount-fault chain in one place:
+
+    1d11723ae  sdk-11.10.3  relayfile-v0.10.55   <- caused the mount fault
+    04228b3cb  sdk-11.10.4  relayfile-v0.10.56   <- 07:27, used by the 08:16 run
+    a55167914  sdk-11.11.0  relayfile-v0.10.56   <- 09:13, current
+
+Re-ran #259's review check against the new snapshot. This is a genuinely
+different configuration, not a retry of the same one -- the only variable that
+changed since the 08:16 run is the snapshot, and the 08:16 failure was in agent
+REGISTRATION, which is exactly what an SDK bump can touch.
+
+**Result -- failed at ~15 min, but somewhere new:**
+
+    cursor_expired:      0
+    workspace_busy:      0      <- was THE failure at 08:16
+    database_overloaded: 0
+    Step "lens-structure" failed after 2 retries:
+      Agent step "lens-structure" exited with code 1
+
+For the first time tonight the swarm got past registration and actually RAN a
+lens, which then exited 1. The failure has moved from infrastructure into the
+agent step itself. That is a qualitatively better place to be stuck.
+
+**I am NOT claiming the SDK bump fixed workspace_busy.** That failure is
+contention-dependent and could vary run to run regardless of version. One
+observation is not a trend. Stating the change, not the mechanism.
+
+Swarm run for whoever picks it up: `42374345-25ba-4d31-8cc8-43c4e71f860e`,
+status failed. The run payload carries no per-step output, so the agent's own
+stdout needs the /export path -- more digging than this tick warranted.
+
+Instrument note: my first attempt to find that run id grabbed `ids[0]` from
+the log and got a temp-directory UUID, which 404'd. The reliable anchor is the
+literal `swarm-post.sh "<run_id>"` invocation, which is how I found it for
+#238 earlier. I knew that and reached for the lazy version anyway.
