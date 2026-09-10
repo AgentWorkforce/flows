@@ -9902,3 +9902,43 @@ readings will be available:
     two-day gate outage traces to a snapshot that could not be promoted.
 
 Either way it is the first real datum on whether the chain I built holds.
+
+### 2026-09-10 ~08:4xZ — the "still running" signal is NOT the good news I took it for
+
+Queue drained (pending=0), running=16. Disk 4.6Gi.
+
+The verification run (34440534265) is still in progress at ~40 minutes, past
+double its own prior failure window (~19 min). My first reading was that this
+is a positive signal. **On the cloud side it looks like the opposite.**
+
+Recent runs, aged from the drain:
+
+    age_min status     created              updated
+       16.9 running    2026-09-10T07:57:45  2026-09-10T08:02:08   <- almost certainly mine
+       29.7 running    2026-09-10T07:44:54  2026-09-10T07:49:18
+       34.9 failed     2026-09-10T07:39:45  2026-09-10T07:53:26
+       ... 8 failed runs in the last 90 minutes
+
+The 07:57:45 run matches my GHA launch (job started 07:56:30) closely. It is
+`running`, updated 08:02:08, and has emitted **nothing for ~15 minutes**. That
+is precisely the wedge signature I measured earlier tonight: 1-5 minutes of
+progress, then silence forever.
+
+So the GHA job being alive at 40 minutes is NOT evidence the mount fix worked.
+It is equally consistent with the swarm wedging in `running` while the gate
+waits out its full 65-minute deadline -- and then reports `running`, which is
+exactly the mislabelled timeout #258 exists to fix.
+
+**What I cannot do is confirm the identification.** `gh run view --log` returns
+nothing for an in-progress run, so I cannot read the launch step's run_id and
+match it. The attribution rests on timing alone. Strong, not proven, and I am
+not going to record it as proven.
+
+Also worth noting plainly: 8 runs FAILED in the last 90 minutes, well after the
+07:27 promote. Whatever v0.10.56 fixed, the platform is still failing runs at a
+steady rate.
+
+Two ticks ago I framed this re-run as producing a clean binary answer. It has
+not. The honest position is that the evidence now points slightly AGAINST the
+chain I built, and the definitive read comes when the job completes and its log
+becomes fetchable.
