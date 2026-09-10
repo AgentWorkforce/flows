@@ -3,12 +3,21 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
-import { fixture, packagePath } from './local-work-test-fixture.mjs';
+import { socketPathFor } from '../packages/sdk/dist/daemon-connection.js';
+import { entry, fixture, packagePath } from './local-work-test-fixture.mjs';
 
 const quote = text => "'" + text.replaceAll("'", "'\\''") + "'";
-for (const scenario of ['outside edit', 'verifier edit', 'unchanged package', 'HEAD repin', 'forged snapshot']) {
+for (const scenario of ['outside edit', 'verifier edit', 'unchanged package', 'HEAD repin', 'forged snapshot',
+  'edited pinned acceptance', 'undeclared acceptance']) {
   test(`drive-local journals failure and blocks reporting for ${scenario}`, t => {
-    const f = fixture(t);
+    const acceptance = scenario.includes('acceptance');
+    const argv = ['node', 'src/check.cjs'];
+    const check = scenario === 'undeclared acceptance' ? argv : {
+      argv, inputs: [{ path: 'src/check.cjs', ref: 'HEAD' }],
+    };
+    const f = acceptance ? fixture(t, entry('Fix value', 'src/', [check]), {
+      'src/check.cjs': "require('node:assert/strict').equal(require('node:fs').readFileSync('src/value.txt','utf8'),'fixed');",
+    }) : fixture(t);
     const wrapper = resolve('testdata/preflight/wrapper-session.mjs');
     const cli = join(f.root, '.relayflow/agent.mjs');
     f.put('.relayflow/agent.mjs', `#!/usr/bin/env node
@@ -19,6 +28,7 @@ const request = await receiveWrapperRequest();
 if (request) {
   ${scenario === 'outside edit' ? `writeFileSync(${JSON.stringify(join(f.root, 'outside.txt'))}, 'changed');` : ''}
   ${scenario === 'verifier edit' ? `writeFileSync(${JSON.stringify(join(f.root, 'ops/local-work-package.mjs'))}, 'process.exit(0)');` : ''}
+  ${scenario === 'edited pinned acceptance' ? `writeFileSync(${JSON.stringify(join(f.root, 'src/check.cjs'))}, 'process.exit(0)');` : ''}
   ${scenario === 'HEAD repin' ? `
   const git = (...args) => execFileSync('git', args, {cwd: ${JSON.stringify(f.root)}, encoding: 'utf8'}).trim();
   writeFileSync(${JSON.stringify(join(f.root, 'outside.txt'))}, 'changed');
@@ -56,12 +66,16 @@ if (request) {
     assert(dataDir, result.stderr);
     t.after(() => rmSync(dataDir, { recursive: true, force: true }));
     const journal = readFileSync(join(dataDir, 'journal.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
-    const failedStep = ['unchanged package', 'forged snapshot'].includes(scenario) ? 'verify' : 'scope';
+    const failedStep = scenario === 'undeclared acceptance' ? 'initial-scope' :
+      ['unchanged package', 'forged snapshot', 'edited pinned acceptance'].includes(scenario) ? 'verify' : 'scope';
     const completion = journal.find(e => e.entry_type === 'step.completed' && e.step_id === failedStep);
     assert.equal(completion?.payload.verification.verdict, 'fail', JSON.stringify(journal));
     assert.equal(completion.payload.completionReason, 'retries_exhausted');
     assert.equal(completion.payload.verification.detail, 'exit code was 1');
     assert(!journal.some(e => e.entry_type === 'step.attempt.started' && e.step_id === 'report'));
-    assert(!existsSync(join(dataDir, 'relayflowd.sock')));
+    if (scenario === 'undeclared acceptance') {
+      assert(!journal.some(e => e.entry_type === 'step.attempt.started' && e.step_id === 'implement'));
+    }
+    assert(!existsSync(socketPathFor(dataDir)));
   });
 }

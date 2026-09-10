@@ -21,6 +21,7 @@ async function main() {
   const { classifyOutcome } = await import('../packages/sdk/dist/cli/run.js');
   const { toKernelSpec } = await import('../packages/sdk/dist/compile.js');
   const { JournalClient } = await import('../packages/sdk/dist/journal-client.js');
+  const { socketPathFor } = await import('../packages/sdk/dist/daemon-connection.js');
   const { AgentWorker } = await import('../packages/sdk/dist/worker.js');
   const checked = checkFlow(path);
   for (const diagnostic of checked.report.diagnostics) console.error(JSON.stringify(diagnostic));
@@ -47,7 +48,7 @@ async function main() {
   });
   await mkdir('.relayflow', { recursive: true });
   const dataDir = await mkdtemp(join(root, '.relayflow', 'local-'));
-  const socket = join(dataDir, 'relayflowd.sock');
+  const socket = socketPathFor(dataDir);
   if (Buffer.byteLength(socket) >= 104) throw new Error(`LOCAL_SOCKET_PATH_TOO_LONG: ${socket}`);
   console.log(`LOCAL_DATA_DIR=${dataDir}`);
   const daemon = spawn(binary, ['--data-dir', dataDir, 'serve'], { stdio: ['ignore', 'ignore', 'inherit'] });

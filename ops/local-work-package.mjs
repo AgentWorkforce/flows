@@ -23,7 +23,8 @@ import {
   closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync,
 } from 'node:fs';
 import { dirname } from 'node:path';
-import { checkScope, runChecks, verificationCommands } from './local-work-verification.mjs';
+import { checkScope, runChecks } from './local-work-verification.mjs';
+import { acceptanceContract, validateAcceptance } from './local-work-acceptance.mjs';
 
 const packagePath = '.relayflow/drive-local/package.json';
 const backlogPath = 'ops/BACKLOG.md';
@@ -82,7 +83,7 @@ async function choose(markdown, { pathExists, log = true }) {
   // entry -- the first top-level bullet with a bold title -- so "next" is found
   // by removing the one just rejected and asking it again, rather than writing
   // a second parser that could disagree with it about what an entry is.
-  let commands;
+  let verification;
   while (markdown.length > 0) {
     const candidateEntry = selectBacklogEntry(markdown);
     if (!candidateEntry) break;
@@ -108,12 +109,13 @@ async function choose(markdown, { pathExists, log = true }) {
     // rotted entry can never silently become an agent's instruction, and the
     // skip line names the missing paths so the entry can be repaired.
     const missing = unbounded ? [] : scope.filter((path) => !pathExists(path));
-    const checks = verificationCommands(candidateEntry.body);
+    const contract = acceptanceContract(candidateEntry.body, baseline.head);
+    const checks = contract.checks;
 
     if (result.accepted && !unbounded && missing.length === 0 && checks.length > 0) {
       entry = candidateEntry;
       validation = result;
-      commands = checks;
+      verification = contract;
       break;
     }
     skipped.push({
@@ -145,7 +147,8 @@ async function choose(markdown, { pathExists, log = true }) {
     title: validation.work.title,
     filesInScope: validation.work.files_in_scope,
     definitionOfDone: validation.work.definition_of_done,
-    verificationCommands: commands,
+    verificationCommands: verification.checks.map(check => check.argv),
+    verification,
     brief: renderWorkPackage(entry),
   };
 }
@@ -205,9 +208,15 @@ async function verifiedPackage() {
       { stdio: 'ignore' }).status === 0,
   });
   for (const key of Object.keys(selected)) {
-    assert.deepEqual(pkg[key], selected[key], `PACKAGE_CHANGED: ${key}`);
+    assert.deepEqual(pkg[key], selected[key], `PACKAGE_CHANGED: ${key}` +
+      (key === 'verification' ? '; ACCEPTANCE_IMMUTABILITY_VIOLATION: verification contract changed' : ''));
   }
-  checkScope(pkg);
+  try {
+    checkScope(pkg);
+    validateAcceptance(pkg);
+  } catch (cause) {
+    throw new Error(`${cause.message}; DoD: ${pkg.definitionOfDone.join('; ')}`, { cause });
+  }
   return pkg;
 }
 
@@ -235,6 +244,7 @@ try {
     const pkg = await verifiedPackage();
     runChecks(pkg);
     await verifiedPackage();
+    console.log(`PACKAGE_VERIFIED: ${pkg.verificationCommands.length} check(s)`);
   } else {
     console.error('usage: local-work-package.mjs <select|scope|verify|report>');
     process.exitCode = 2;
