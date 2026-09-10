@@ -8572,3 +8572,42 @@ traced mount-failure -> missing-status-write. This reconciles the symptom so wor
 becomes recoverable; it does not stop runs stranding.
 
 Opened **cloud#3510**.
+
+### 2026-09-10 — #3507 MERGED and deployed; early signal, honestly bounded
+
+Disk 4.9Gi. Drain: 2 pending, newest 00:04, normal window.
+
+**cloud#3507 merged** by Khaliq at `23:51:14Z`, and the `Deploy` workflow on
+`main` completed **success** at `23:51:17Z` — verified rather than assumed, since
+merged and deployed are different things. `workspace_busy` now appears twice in
+`executor.ts` on `origin/main`.
+
+**Measured whether it helped, and the answer is "cannot tell yet":**
+
+```
+BEFORE (90 min pre-merge)   18 failed runs   5 workspace_busy   (28%)
+AFTER  (since merge)         2 failed runs   0 workspace_busy   (0%)
+```
+
+**That is not evidence the fix works.** With a 28% base rate, observing zero in
+two samples happens about half the time by chance. Consistent with success,
+nowhere near sufficient to claim it. Said exactly that on the PR rather than
+presenting a table that reads like a result.
+
+What would confirm it: a `workspace_busy` diagnostic followed by a *successful*
+retry — `registration attempt N failed transiently; retrying` reaching success
+instead of exhausting. Worth re-checking after a few dozen post-deploy runs.
+
+**Caught a broken instrument mid-measurement.** My first before/after split used
+a shell string comparison that silently mislabelled **every** run as AFTER — it
+would have reported 5 `workspace_busy` failures *after* the fix, the exact
+opposite conclusion. zsh printed `condition expected: <` twenty times, which is
+what caught it; redoing the split in Python gave the numbers above. A before/after
+table looks authoritative whether or not the split was real, so it is worth
+saying how it was computed.
+
+The two post-merge failures are unrelated to this path: one `cursor_expired`
+(#3466, still open) and one "Could not load credentials from any providers".
+
+**#3510** (stranded `running` runs) is open with no failing checks. **#3497**
+still awaits the `RELAYFILE_SMOKE_*` secrets.
