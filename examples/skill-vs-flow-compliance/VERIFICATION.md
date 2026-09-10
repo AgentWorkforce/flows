@@ -2,25 +2,61 @@
 
 Captured locally on 2026-09-10. Deterministic verification only; no model trials were rerun.
 
+The gate-file rewrite regression first failed against the old runtime. This is a fail-before/pass-after regression, not mutation verification. The earlier failure output below is rendered with trailing whitespace removed using `sed 's/[[:space:]]*$//' /tmp/flows291-audit/gate-integrity-before.txt`; the test text is otherwise unchanged.
+
 ```text
-$ node --experimental-strip-types --test examples/skill-vs-flow-compliance/shims/runtime.test.ts
-✔ existing evidence and repository are refused without changing bytes (178.375958ms)
-✔ host tool settings stay local without blocking a committed task (530.18175ms)
-✔ empty and deletion-only scans pass; an invalid baseline fails (356.12325ms)
-✔ compliant final tree passes all checks; violating commit fails all four (797.042875ms)
-✔ uncommitted repair cannot hide failing committed test; all work is captured (472.048708ms)
-✔ sanitization retains Skill calls and task results, removes host metadata (0.583667ms)
-✔ flow control: first-pass (0.1715ms)
-✔ flow control: repair (0.094125ms)
-✔ flow control: still-failing (0.11925ms)
-ℹ tests 9
+$ node --experimental-strip-types --test examples/skill-vs-flow-compliance/shims/gate-integrity.test.ts
+✖ rewriting gate files after startup cannot change the executed checks (360.969042ms)
+ℹ tests 1
 ℹ suites 0
-ℹ pass 9
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 466.501833
+
+✖ failing tests:
+
+test at examples/skill-vs-flow-compliance/shims/gate-integrity.test.ts:10:1
+✖ rewriting gate files after startup cannot change the executed checks (360.969042ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  true !== false
+
+      at TestContext.<anonymous> (file:///Users/khaliqgant/lanes/flows291/repo/examples/skill-vs-flow-compliance/shims/gate-integrity.test.ts:33:12)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+```
+
+```text
+$ node --experimental-strip-types --test examples/skill-vs-flow-compliance/shims/runtime.test.ts examples/skill-vs-flow-compliance/shims/gate-integrity.test.ts
+✔ rewriting gate files after startup cannot change the executed checks (353.072083ms)
+✔ existing evidence and repository are refused without changing bytes (195.2155ms)
+✔ host tool settings stay local without blocking a committed task (600.559875ms)
+✔ empty and deletion-only scans pass; an invalid baseline fails (385.592375ms)
+✔ compliant final tree passes all checks; violating commit fails all four (800.591ms)
+✔ uncommitted repair cannot hide failing committed test; all work is captured (466.587666ms)
+✔ sanitization retains Skill calls and task results, removes host metadata (0.619042ms)
+✔ flow control: first-pass (0.188042ms)
+✔ flow control: repair (0.092291ms)
+✔ flow control: still-failing (0.121083ms)
+✔ real checks drive one repair turn before success (844.710375ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 2452.153625
+ℹ duration_ms 3406.815208
 exit=0
 ```
 

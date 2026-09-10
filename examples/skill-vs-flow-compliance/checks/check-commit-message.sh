@@ -9,6 +9,10 @@ BASE_REF="${2:-baseline}"
 PATTERN='^(feat|fix|chore|refactor|test|docs)(\([a-z0-9-]+\))?: .+'
 
 cd "$REPO"
+if ! git rev-parse --verify "$BASE_REF^{commit}" >/dev/null 2>&1; then
+  echo "FAIL baseline ref '$BASE_REF' not found; ensure trial setup succeeded"
+  exit 1
+fi
 
 subjects=$(git log --format=%s "$BASE_REF"..HEAD)
 if [ -z "$subjects" ]; then

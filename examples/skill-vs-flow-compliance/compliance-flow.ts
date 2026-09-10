@@ -13,10 +13,12 @@ export type { CheckName };
 export interface ComplianceInput {
   /** Absolute path to the isolated git repo the agent works in. */
   repoDir: string;
-  /** TASK.md's content, verbatim — identical to what arm A's agent receives. */
+  /** Selected task text, before any optional skill-discovery nudge. */
   task: string;
 }
 
+// Ordinary local async values: no journal handles, memoization or durable
+// step boundaries are implied by this presentation type.
 export type Step<T> = PromiseLike<T>;
 
 export interface ImplementResult {
@@ -46,6 +48,8 @@ export interface ComplianceFlowContext {
   agent(name: "implementer", options: { task: string }): Step<ImplementResult>;
   /** Runs one of checks/<name>.sh against the declared repoDir. */
   check(name: CheckName): Step<CheckStepResult>;
+  /** Success only. Gate rejection is signaled by throwing GateFailed; the
+   * runner catches it and writes the terminal gate_failed verdict. */
   done(
     reason: "success",
     details: { checks: CheckStepResult[]; attempts: number; attemptHistory: CheckStepResult[][] },

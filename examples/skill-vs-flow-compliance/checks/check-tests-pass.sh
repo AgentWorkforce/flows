@@ -6,6 +6,10 @@ REPO="$1"
 BASE_REF="${2:-baseline}"
 
 cd "$REPO"
+if ! git rev-parse --verify "$BASE_REF^{commit}" >/dev/null 2>&1; then
+  echo "FAIL baseline ref '$BASE_REF' not found; ensure trial setup succeeded"
+  exit 1
+fi
 
 dirty=$(git status --porcelain --untracked-files=all)
 if [ -n "$dirty" ]; then

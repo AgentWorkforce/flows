@@ -91,10 +91,10 @@ The installed skill remains tracked.
 
 ## Verify the artifacts and control flow
 
-Run from the repository root with Node >=22.6.0:
+Run from the repository root with Node >=22.6.0, Git, npm, a POSIX shell and GNU/BSD text utilities:
 
 ```sh
-node --experimental-strip-types --test examples/skill-vs-flow-compliance/shims/runtime.test.ts
+node --experimental-strip-types --test examples/skill-vs-flow-compliance/shims/runtime.test.ts examples/skill-vs-flow-compliance/shims/gate-integrity.test.ts
 node --experimental-strip-types examples/skill-vs-flow-compliance/shims/audit-evidence.ts
 npm --prefix examples/skill-vs-flow-compliance run typecheck
 ```
@@ -146,13 +146,21 @@ prompts. Model aliases and host settings can also change.
 `shims/run-flow.ts` executes it in userland. It does not execute through
 the Rust journal, prove durability, or validate compatibility with the
 real authored executor. Its aggregate gate collects all four failures
-before deciding whether to retry. This example does not call postfix
-`.gate()` in its flow body. The real executor's unsupported gate operation
+before deciding whether to retry. This shim does not implement postfix `.gate()`. The real executor's unsupported gate operation
 is documented separately in `packages/sdk/src/authored-flow-operation.ts`.
+
+The runners capture all four check scripts into private supervisor memory
+at module startup, before starting the agent. They execute those fixed
+strings via `/bin/sh -c`, so replacing a checker file after startup cannot
+replace the active gate. A regression reproduces that exact file-rewrite
+attack. Each new runner process must start from a trusted checkout; this
+protects the current process's gate source, not future invocations after
+someone tampers with the checkout.
 
 The Claude invocation bypasses permission prompts. The trial directory
 is organizational isolation, not filesystem containment: the agent can
-reach files outside it, including the example scripts. Shared host
+reach files outside it, including the on-disk example scripts; edits there do not change the
+current process's captured gate source. Shared host
 configuration may influence skill discovery and task execution. Metadata
 redaction minimizes known identifiers; it is not a general secret scanner.
 
@@ -167,3 +175,11 @@ skill-vs-flow-compliance/
   runs/                     historical evidence (trial repo/ is ignored)
   VERIFICATION.md           captured deterministic verification
 ```
+
+The clean-tree check targets this simple calculator repository; it is not a
+hardened policy for arbitrary repositories with submodules or custom ignore
+rules. `worker_error` groups non-gate worker, setup and environment failures
+in this shim; it is not a complete implementation of the kernel taxonomy.
+Published transcript redactions are intentionally irreversible and may
+remove identifying text needed to replay a command byte-for-byte. The
+artifact audit reconstructs final states from patches instead.

@@ -48,7 +48,9 @@ test("empty and deletion-only scans pass; an invalid baseline fails", () => fixt
     assert.equal((await runCheck(dir, name)).pass, true);
   }
   git(dir, "tag", "-d", "baseline");
-  assert.equal((await runCheck(dir, "check-no-secrets")).pass, false);
+  const missing = await runCheck(dir, "check-no-secrets");
+  assert.equal(missing.pass, false);
+  assert.match(missing.message, /baseline ref.*not found/);
 }));
 
 test("compliant final tree passes all checks; violating commit fails all four", () => fixture(async dir => {
@@ -86,6 +88,7 @@ test("sanitization retains Skill calls and task results, removes host metadata",
   assert.equal(sanitizeTranscript(clean), clean);
 });
 
+// These cases pin local control flow; they assert no journal semantics.
 for (const scenario of ["first-pass", "repair", "still-failing"] as const) {
   test(`flow control: ${scenario}`, async () => {
     let attempts = 0, done = false;
@@ -106,3 +109,27 @@ for (const scenario of ["first-pass", "repair", "still-failing"] as const) {
     if (attempts === 2) assert.match(prompts[1]!, /specific failure/);
   });
 }
+
+
+test("real checks drive one repair turn before success", () => fixture(async dir => {
+  let attempts = 0;
+  const prompts: string[] = [];
+  const context: ComplianceFlowContext = {
+    async agent(_name, options) {
+      prompts.push(options.task);
+      if (++attempts === 1) {
+        const file = join(dir, "src/calculator.ts");
+        await writeFile(file, (await readFile(file, "utf8")).replace("return a / b;", 'if (b === 0) throw new RangeError("zero"); return a / b;'));
+        git(dir, "add", "src"); git(dir, "commit", "-qm", "fix: reject zero");
+      } else { await fix(dir); }
+      return {summary:"deterministic test actor"};
+    },
+    check(name) { return runCheck(dir, name); },
+    done(reason, details) { return {completionReason:reason, ...details}; },
+  };
+  const result = await flow.run(context, {repoDir:dir, task:"fix division by zero"});
+  assert.equal(result.attempts, 2);
+  assert.equal(result.attemptHistory[0]![0]!.pass, false);
+  assert.match(prompts[1]!, /no test file changed/);
+  assert.ok(result.checks.every(c => c.pass));
+}));

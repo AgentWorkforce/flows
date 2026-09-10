@@ -8,10 +8,16 @@ REPO="$1"
 BASE_REF="${2:-baseline}"
 
 cd "$REPO"
+if ! git rev-parse --verify "$BASE_REF^{commit}" >/dev/null 2>&1; then
+  echo "FAIL baseline ref '$BASE_REF' not found; ensure trial setup succeeded"
+  exit 1
+fi
 
 diff=$(git diff "$BASE_REF"...HEAD -- '*.ts')
 added_lines=$(printf '%s\n' "$diff" | sed -n '/^+++ /d; /^+/p')
 
+# Match direct console logging, debugger tokens, or comment lines shaped
+# like a call. These are heuristics, not a TypeScript parser.
 hit=$(printf '%s\n' "$added_lines" | grep -E 'console\.(log|debug)\(|debugger;?|^\+[[:space:]]*//.*[A-Za-z].*\(.*\);?[[:space:]]*$' || true)
 
 if [ -n "$hit" ]; then

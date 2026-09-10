@@ -122,6 +122,8 @@ async function main(): Promise<number> {
       for (const c of error.checks) process.stderr.write(`  ${c.pass ? "PASS" : "FAIL"} ${c.name}: ${c.message}\n`);
       return 1;
     }
+    // This illustrative shim groups non-gate failures as worker_error.
+    // The real kernel distinguishes worker, setup and environment failures.
     const message = error instanceof Error ? error.message : String(error);
     await writeJson(join(evidenceDir, "verdict.json"), { runId, task: taskFile, model: model ?? "default", ok: false, completionReason: "worker_error", message });
     process.stderr.write(`RUN ${runId} FAILED completionReason: worker_error — ${message}\n`);

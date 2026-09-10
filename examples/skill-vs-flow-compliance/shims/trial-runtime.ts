@@ -7,14 +7,14 @@
 // arm" are provably the same script, not two hand-synced copies of a rule.
 
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Claude Code's real project-skill location: a skill dropped here is
- *  auto-discovered by name/description match, the same way it would be in
- *  a real project — never force-pasted into the prompt. That is the actual
- *  claim under test: does the agent find and apply it on its own. */
+/** Project-skill path used by these Claude trials. The child runs with the
+ * trial repo as cwd; invocation is the observed Skill tool call, never
+ * guaranteed by placing this file. Host/CLI discovery behavior can change. */
 export const SKILL_INSTALL_PATH = ".claude/skills/engineering-conventions/SKILL.md";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -30,6 +30,15 @@ export const CHECK_NAMES = [
   "check-commit-message",
 ] as const;
 export type CheckName = (typeof CHECK_NAMES)[number];
+
+// Load before either runner can start an agent. The executed gate source
+// lives in this supervisor's private memory, not in files the child can
+// overwrite. Passing the captured source to sh -c avoids a mutable temp file.
+// Each process must start from a trusted checkout; this is not a filesystem
+// sandbox and does not protect other host programs or future invocations.
+const checkSources = Object.freeze(Object.fromEntries(CHECK_NAMES.map(name => [
+  name, readFileSync(join(CHECKS_DIR, `${name}.sh`), "utf8"),
+])) as Record<CheckName, string>);
 
 export interface CheckOutcome {
   name: CheckName;
@@ -64,9 +73,9 @@ export async function reserveEvidence(dir: string): Promise<void> {
 /** Copies fixture/ into `dir`, optionally installs SKILL.md at Claude Code's
  *  real project-skill path, commits the result as `chore: baseline`, tags
  *  it `baseline`. Every check diffs against this tag, never against main.
- *  Installing the skill (or not) is the ONLY difference between the two
- *  agent-side trial dirs this example runs — the task prompt is identical
- *  either way, while model nondeterminism and shared host settings remain uncontrolled. */
+ *  This copies the entire small fixture; keep large generated assets out.
+ *  Skill installation changes repo contents; the entry point separately
+ *  chooses the task and optional discovery nudge. */
 export async function materializeTrialRepo(dir: string, options: { withSkill: boolean } = { withSkill: false }): Promise<void> {
   await mkdir(dir);
   await cp(FIXTURE_DIR, dir, { recursive: true });
@@ -93,8 +102,7 @@ export async function materializeTrialRepo(dir: string, options: { withSkill: bo
  *  `check()` verb calls it as a step DURING the run, before deciding
  *  whether it may finish. */
 export async function runCheck(dir: string, name: CheckName): Promise<CheckOutcome> {
-  const script = join(CHECKS_DIR, `${name}.sh`);
-  const result = await run("sh", [script, dir, BASE_REF], dir);
+  const result = await run("/bin/sh", ["-c", checkSources[name], name, dir, BASE_REF], dir);
   const message = (result.stdout.trim() || result.stderr.trim()).split("\n")[0] ?? "";
   return { name, pass: result.code === 0, message };
 }
