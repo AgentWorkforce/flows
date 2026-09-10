@@ -9422,3 +9422,41 @@ issue rather than implying a chain I did not verify.
 Why this one and not the other six: it is the only mode that RECURRED. The
 others are single observations and filing seven issues off one observation each
 would be noise.
+
+### 2026-09-10 ~06:2xZ — opened flows#259: the retry budget had no delay
+
+Closed the thread I left open on cloud#3516 ("I have not measured the step's
+retry policy"). Measured it.
+
+flows sets NO `errorHandling` in review-swarm.yaml. That does not mean no
+retries -- `applyReliabilityDefaults()` injects one whenever the key is absent:
+
+    strategy: retry
+    maxRetries:   DEFAULT_WORKFLOW_MAX_RETRIES     = 2
+    retryDelayMs: DEFAULT_WORKFLOW_RETRY_DELAY_MS  = 1000
+
+and the loop applies it literally (`await this.delay(retryDelay)`).
+
+**Every lens has always had three attempts, one second apart.** Against a server
+that says `retry after 60s`, the entire budget is spent in TWO seconds. That is
+the complete mechanism for #256, and it explains the mismatch I flagged earlier
+between "failed after 2 retries" and "attempts: 1".
+
+Opened **flows#259**: sets `retryDelayMs: 60000` only. maxRetries stays at the
+injected 2, so it changes how long the swarm WAITS, never how many times it
+tries.
+
+**The trap I nearly walked into.** My instinct was `strategy: fail-fast` as the
+conservative value. `applyReliabilityDefaults` EARLY-RETURNS on `fail-fast` and
+`continue` -- that would strip the injected defaults and drop every lens to
+ZERO retries. The seemingly-safe value is the actively harmful one. I checked
+what `strategy` gated before writing, specifically because the file had no
+errorHandling at all and adding one could change untraced behavior.
+
+Honest scope: this addresses at most 2 of the 9 modes. Queue deadline and
+sandbox provisioning happen outside the step retry loop entirely. Said so in
+the PR -- it removes one way the gate LIES about having tried, it does not
+unblock the gate.
+
+Verified: md5 14de3de9 -> 5846f01f, YAML parses, swarm.timeoutMs asserted
+unchanged so the 60m<65m<75m ordering invariant holds.
