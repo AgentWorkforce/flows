@@ -49,7 +49,7 @@ const DEFAULT_DATA_DIR = '.relayflowd';
 const USAGE = [
   'Usage:',
   'flows check [--json] <flow.yaml|spec.json>',
-  'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] <flow.yaml|spec.json>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
@@ -435,7 +435,6 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   }
   if (wait) return undefined;
 
-  if (localAgent && !isAuthoredFlowPath(positionals[0]!)) return undefined;
   if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!)) return undefined;
   return command === 'check'
     ? { command, json, value: positionals[0]! }

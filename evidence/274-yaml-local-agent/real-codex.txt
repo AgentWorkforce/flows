@@ -1,0 +1,18 @@
+cwd: /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-274-codex-lcn48iyu
+RELAYFLOWD_BIN=/Users/khaliqgant/.relayflows-toolchain/target/162085787/debug/relayflowd
+
+agent.flow.yaml:
+version: '0.1.0'
+name: yaml-agent-codex
+steps:
+  - id: draft
+    type: agent
+    cli: codex
+    instruction: Reply with exactly hello. Do not use tools or modify files.
+    verification: {type: output_contains, value: hello}
+
+$ node /Users/khaliqgant/flows-274-yaml/packages/sdk/dist/cli.js run agent.flow.yaml --local-agent --no-observer-link --json --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-274-codex-lcn48iyu/data
+WAITING [worker_lease] Run "01M26FP95Y0SF94KDSVBFS3QJ3" step "draft" (agent) is running under a worker lease until 1789071694333.
+{"ok":true,"command":"run","path":"agent.flow.yaml","projectConfigPath":"/private/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-274-codex-lcn48iyu/flows.json","resolutions":[{"stepId":"draft","cli":"codex","source":"step"}],"diagnostics":[],"runId":"01M26FP95Y0SF94KDSVBFS3QJ3","socketPath":"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-489ce434af5d.sock","status":"completed","completionReason":"success","completedSteps":1}
+
+exit: 0

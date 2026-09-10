@@ -1,0 +1,37 @@
+cwd: packages/sdk
+RELAYFLOWD_BIN=/Users/khaliqgant/.relayflows-toolchain/target/1203194541/debug/relayflowd
+
+$ npx tsc --noEmit
+exit: 0
+
+$ npm run build
+
+> @relayflows/sdk@2.0.8 build
+> tsc && node scripts/make-cli-executable.mjs
+
+exit: 0
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.8 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+exit: 0
+
+$ npx vitest run tests/yaml-local-agent-live.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Users/khaliqgant/flows-274-yaml/packages/sdk
+
+ ✓ tests/yaml-local-agent-live.test.ts (7 tests) 2621ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked step CLI and model and journals done 511ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked named CLI and model and journals done 368ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked flow CLI and model and journals done 444ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked project CLI and model and journals done 453ms
+   ✓ YAML --local-agent through the built CLI and real daemon > reports the agent process failure 321ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  22:18:10
+   Duration  2.86s (transform 30ms, setup 0ms, collect 50ms, tests 2.62s, environment 0ms, prepare 71ms)
+
+exit: 0
