@@ -9655,3 +9655,44 @@ Method note: before claiming "no resync exists" I proved the instrument could
 express presence -- `cursor` returns 291 hits in the same grep. The absence was
 real, but I checked the grep worked first. That habit paid: it surfaced
 `ForceFullReconcile` and inverted my conclusion.
+
+### 2026-09-10 ~08:4xZ — I read a checkout 95 commits stale. Retracted most of #492.
+
+Queue drained. Disk 4.4Gi.
+
+Closed the caveat I flagged last tick, and it turned out to matter: my relayfile
+checkout was at **v0.10.52, 95 commits behind origin/main** (latest v0.10.57,
+with a .58 rc cut 03:56Z today). Both central claims in my last two #492
+comments were WRONG because of it.
+
+- I said `cursor_expired` is emitted nowhere in the repo. origin/main has
+  `isCursorExpired()` at syncer.go:323 matching StatusGone + the code + action.
+- I said the remedy is only reachable via the `--full-reconcile` escape hatch.
+  syncer.go:6103 already performs the documented recovery -- logs "events
+  cursor expired; clearing watermark and performing full resync" and sets
+  `forceFullReconcile = true`.
+
+That landed as `9b83d76e` "fix(mount): recover expired event cursors (#476)",
+2026-09-08, first released **v0.10.56**. So #492 is substantially a DUPLICATE.
+
+**What survives, as a sharper question.** All three failures POSTDATE v0.10.56
+(09-09 08:46, 09-10 04:48, 09-10 05:37), and the recovery's own log line
+appears in NONE of the three traces while `cursor_expired` appears twice in
+each. The recovery did not run. Two candidates I cannot separate from here:
+
+1. the sandbox pins relayfile < v0.10.56 -- and NO version string is logged in
+   any trace, which is itself worth fixing; one grep would have settled this;
+2. the failing path never reaches it. `isCursorExpired` has exactly ONE call
+   site and needs `errors.As` to recover a typed `*HTTPError`. Our failure
+   comes through notify_flush_unix.go:70, which carries the daemon's error
+   across a process socket as an opaque STRING. A typed error cannot survive
+   that boundary.
+
+Candidate 2 would be a real gap, not a duplicate. Posted the full retraction
+rather than quietly editing, and suggested the retitle.
+
+**The lesson is mine and it is not new.** My own rule says verify against the
+DEPLOYED tag, not main. I verified against neither -- I read a stale LOCAL main
+and treated it as current. I even flagged "the deployed mount may differ" as a
+caveat last tick and then did not spend the one `git fetch` that would have
+caught it. Flagging a risk is not managing it.
