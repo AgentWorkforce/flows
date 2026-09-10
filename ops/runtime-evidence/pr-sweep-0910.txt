@@ -1,0 +1,462 @@
+PR sweep evidence — 2026-09-10
+Baseline origin/main: a42ca161658f9f4c3ff22c7d158d6c65dd219473
+
+PR #261
+$ gh pr view 261 --repo AgentWorkforce/flows --json title,body,author,updatedAt,files,mergeable,mergeStateStatus,state,headRefOid,headRefName,url
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr diff 261 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr checks 261 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ git log -1 --format=%H%n%an%n%aI%n%s refs/sweep/261
+56a3c0780a10dd2ce00a74cb39165e802b4b7733
+kjgbot
+2026-09-10T14:38:20+02:00
+drive: cloud run 50beec3f
+
+exit=0
+
+$ git diff --stat origin/main...refs/sweep/261
+ ops/ASSESSMENT_SUMMARY.txt |  33 +++++++++
+ ops/NEEDS_HUMAN.md         | 163 ++++++++++++---------------------------------
+ ops/NEXT.md                | 157 ++++++++++++++++++++-----------------------
+ 3 files changed, 148 insertions(+), 205 deletions(-)
+
+exit=0
+
+
+PR #257
+$ gh pr view 257 --repo AgentWorkforce/flows --json title,body,author,updatedAt,files,mergeable,mergeStateStatus,state,headRefOid,headRefName,url
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr diff 257 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr checks 257 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ git log -1 --format=%H%n%an%n%aI%n%s refs/sweep/257
+85c4a2d2c73f66148932a0180535a5bdfe2403e4
+kjgbot
+2026-09-10T02:01:25+02:00
+drive: cloud run 0738fdfe
+
+exit=0
+
+$ git diff --stat origin/main...refs/sweep/257
+ REPAIR_SUMMARY.md       | 117 +++++++++++++++++++++++++++++++++++++++++++++
+ REPAIR_VERIFICATION.txt |  54 +++++++++++++++++++++
+ ops/NEXT.md             | 124 ++++++++++++++++++++++++++----------------------
+ 3 files changed, 237 insertions(+), 58 deletions(-)
+
+exit=0
+
+
+PR #256
+$ gh pr view 256 --repo AgentWorkforce/flows --json title,body,author,updatedAt,files,mergeable,mergeStateStatus,state,headRefOid,headRefName,url
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr diff 256 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr checks 256 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ git log -1 --format=%H%n%an%n%aI%n%s refs/sweep/256
+7928047c0bdc06572dfd5ba42cfe1ad98549315c
+kjgbot
+2026-09-09T23:36:59+02:00
+drive: cloud run 346379b0
+
+exit=0
+
+$ git diff --stat origin/main...refs/sweep/256
+ ops/NEEDS_HUMAN.md | 184 +++++++++++++++--------------------------------------
+ ops/NEXT.md        | 134 ++++++++++++++++++++------------------
+ 2 files changed, 123 insertions(+), 195 deletions(-)
+
+exit=0
+
+
+PR #253
+$ gh pr view 253 --repo AgentWorkforce/flows --json title,body,author,updatedAt,files,mergeable,mergeStateStatus,state,headRefOid,headRefName,url
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr diff 253 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr checks 253 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ git log -1 --format=%H%n%an%n%aI%n%s refs/sweep/253
+b4c8bb83e17f6fc19efd5fd9dc83dc30630b2ac2
+kjgbot
+2026-09-09T20:36:07+02:00
+drive: cloud run b5566b1c
+
+exit=0
+
+$ git diff --stat origin/main...refs/sweep/253
+ ops/NEXT.md                    | 123 ++++++++++++++++++++++++-----------------
+ packages/sdk/package-lock.json |   8 +--
+ packages/sdk/package.json      |   2 +-
+ 3 files changed, 78 insertions(+), 55 deletions(-)
+
+exit=0
+
+
+PR #251
+$ gh pr view 251 --repo AgentWorkforce/flows --json title,body,author,updatedAt,files,mergeable,mergeStateStatus,state,headRefOid,headRefName,url
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr diff 251 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr checks 251 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ git log -1 --format=%H%n%an%n%aI%n%s refs/sweep/251
+dbde1efe67cc7bb5ac6ddca09147e1cfaac11d1b
+kjgbot
+2026-09-09T21:42:53+02:00
+spec(rfc-0001): record that D2 is blocked on engine-side epoch rollover
+
+exit=0
+
+$ git diff --stat origin/main...refs/sweep/251
+ docs/RFC-0001-everything-is-a-relayflow.md | 167 +++++++++++++++++++++++++++++
+ 1 file changed, 167 insertions(+)
+
+exit=0
+
+
+PR #244
+$ gh pr view 244 --repo AgentWorkforce/flows --json title,body,author,updatedAt,files,mergeable,mergeStateStatus,state,headRefOid,headRefName,url
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr diff 244 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr checks 244 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ git log -1 --format=%H%n%an%n%aI%n%s refs/sweep/244
+f3fde5dcf05708caa704a51a8dedcf70329e6749
+kjgbot
+2026-09-09T14:31:52+02:00
+Load local drive gate inputs from a pinned Git commit
+
+exit=0
+
+$ git diff --stat origin/main...refs/sweep/244
+ .gitignore                                         |   3 +
+ ops/BACKLOG.md                                     |   3 +
+ ops/DRIVE-LOCAL.md                                 |  87 ++++
+ ops/RUNTIME-STATUS.md                              |   4 +
+ ops/drive-local-flow.test.mjs                      |  67 +++
+ ops/local-work-gate.mjs                            |  49 +++
+ ops/local-work-gate.test.mjs                       |  55 +++
+ ops/local-work-git-input.test.mjs                  |  72 ++++
+ ops/local-work-package.mjs                         | 290 ++++++++++---
+ ops/local-work-package.test.mjs                    | 160 +++++--
+ ops/local-work-review.test.mjs                     |  66 +++
+ ops/local-work-snapshot.mjs                        |  35 ++
+ ops/local-work-test-fixture.mjs                    |  65 +++
+ ops/local-work-verification.mjs                    | 116 +++++
+ ops/runtime-evidence/drive-hardening-0908.txt      | 480 +++++++++++++++++++++
+ .../drive-threads-0909-acceptance-input-probe.mjs  |  22 +
+ .../drive-threads-0909-acceptance-input.txt        |  10 +
+ ops/runtime-evidence/drive-threads-0909-after.txt  |  38 ++
+ .../drive-threads-0909-baseline.txt                | 321 ++++++++++++++
+ ops/runtime-evidence/drive-threads-0909-build.txt  | 261 +++++++++++
+ .../drive-threads-0909-decisions.md                |  61 +++
+ .../drive-threads-0909-flow-after.txt              |  14 +
+ .../drive-threads-0909-git-input-after.txt         |  53 +++
+ .../drive-threads-0909-git-input-before.txt        |  55 +++
+ .../drive-threads-0909-owned-build.txt             |   6 +
+ .../drive-threads-0909-owned-gate-after.txt        |  48 +++
+ .../drive-threads-0909-owned-trust-after.txt       |  41 ++
+ .../drive-threads-0909-post-suite-before.txt       |  37 ++
+ .../drive-threads-0909-review-before.txt           |  81 ++++
+ .../drive-threads-0909-trust-probe.mjs             |  35 ++
+ .../drive-threads-0909-trust-probe.txt             |  13 +
+ scripts/run-drive-local.mjs                        |  36 ++
+ workflows/drive-local.yaml                         | 125 +++++-
+ 33 files changed, 2695 insertions(+), 114 deletions(-)
+
+exit=0
+
+
+PR #242
+$ gh pr view 242 --repo AgentWorkforce/flows --json title,body,author,updatedAt,files,mergeable,mergeStateStatus,state,headRefOid,headRefName,url
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr diff 242 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr checks 242 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ git log -1 --format=%H%n%an%n%aI%n%s refs/sweep/242
+c4831e29ae0e99020edb7282e0ec40c7abbbb427
+kjgbot
+2026-09-09T22:43:04+02:00
+fix(drive-local): rebuild the SDK after implement, before the suites
+
+exit=0
+
+$ git diff --stat origin/main...refs/sweep/242
+ ops/local-work-package.mjs         | 206 +++++++++++++++++++++++++++----------
+ ops/local-work-package.test.mjs    | 107 ++++++++++++++-----
+ packages/sdk/src/backlog-picker.ts |  15 ++-
+ workflows/drive-local.yaml         | 105 ++++++++++++++++---
+ 4 files changed, 334 insertions(+), 99 deletions(-)
+
+exit=0
+
+
+PR #240
+$ gh pr view 240 --repo AgentWorkforce/flows --json title,body,author,updatedAt,files,mergeable,mergeStateStatus,state,headRefOid,headRefName,url
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr diff 240 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr checks 240 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ git log -1 --format=%H%n%an%n%aI%n%s refs/sweep/240
+3564fcb6d70161b875501597bad82721fc1749fa
+kjgbot
+2026-09-09T09:57:40+02:00
+docs: move the gate-5 contract out of kernel/ and shrink the gate-7 row
+
+exit=0
+
+$ git diff --stat origin/main...refs/sweep/240
+ docs/GATE5-MEMORY-CONTRACT.md | 78 +++++++++++++++++++++++++++++++++++++++++++
+ ops/SCOREBOARD.md             |  2 +-
+ 2 files changed, 79 insertions(+), 1 deletion(-)
+
+exit=0
+
+
+PR #238
+$ gh pr view 238 --repo AgentWorkforce/flows --json title,body,author,updatedAt,files,mergeable,mergeStateStatus,state,headRefOid,headRefName,url
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr diff 238 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ gh pr checks 238 --repo AgentWorkforce/flows
+HTTP 401: Requires authentication (https://api.github.com/graphql)
+Try authenticating with:  gh auth login -h github.com
+
+exit=1
+
+$ git log -1 --format=%H%n%an%n%aI%n%s refs/sweep/238
+bcafd4218c7011cc3ec4214d1c14703547a59fac
+kjgbot
+2026-09-09T08:24:45+02:00
+fix(schema-migration): close the refusal boundary on malformed input
+
+exit=0
+
+$ git diff --stat origin/main...refs/sweep/238
+ .gitignore                                      |   5 +
+ ops/schema-migration/README.md                  |  67 +++++++
+ ops/schema-migration/migrate-legacy-workflow.py | 222 ++++++++++++++++++++++++
+ 3 files changed, 294 insertions(+)
+
+exit=0
+
+
+merge-tree.txt
+$ git merge-tree --write-tree origin/main refs/sweep/261
+518731d8823bf7fbeff25a9eea8f7c7508e2b033
+exit=0
+
+$ git merge-tree --write-tree origin/main refs/sweep/257
+6f55c1ea6a70fd4eb7371d594218b5c47cafb4d5
+exit=0
+
+$ git merge-tree --write-tree origin/main refs/sweep/256
+f51ad738487c42e3cf07c543f4f931fd3f45f631
+exit=0
+
+$ git merge-tree --write-tree origin/main refs/sweep/253
+7a4f35fd537bf614cb441c9d74bbec146c718a04
+exit=0
+
+$ git merge-tree --write-tree origin/main refs/sweep/251
+099deea70b107c34b5c0fe8282f2c888331fd2e6
+exit=0
+
+$ git merge-tree --write-tree origin/main refs/sweep/244
+9523b584d01343822fe1185f1f9bf06d0cfd7528
+exit=0
+
+$ git merge-tree --write-tree origin/main refs/sweep/242
+ff4ffb4f622f1561f0fb72060ed95a194d0d3eae
+exit=0
+
+$ git merge-tree --write-tree origin/main refs/sweep/240
+66f8d2ce984d45465f4eeb0b17bd4c196a84836f
+exit=0
+
+$ git merge-tree --write-tree origin/main refs/sweep/238
+8f9f22a1ddeb7a7754517b0b0b424721491b7753
+exit=0
+
+history.txt
+$ git log -4 --oneline origin/main -- ops/NEXT.md
+2bae00c drive: cloud run a7041b3d (#226)
+9c1aa86 docs(next): point drive runs at #174 instead of human-blocked credential work (#210)
+7023884 docs(next): the gate has a CLI that reads an API key, and no key to read (#194)
+f163806 drive: cloud run 1ffd2aee (#200)
+exit=0
+
+$ git log -4 --oneline origin/main -- ops/NEEDS_HUMAN.md
+6f50591 drive: cloud run e8f72867 (#234)
+a1734c9 drive: cloud run b9742721 (#207)
+082c62a drive: cloud run 9047abc3 (#203)
+exit=0
+
+$ git log -3 --oneline origin/main -- ops/ASSESSMENT_SUMMARY.txt REPAIR_SUMMARY.md REPAIR_VERIFICATION.txt
+exit=0
+
+$ git log -3 --oneline origin/main -- packages/sdk/package.json packages/sdk/package-lock.json
+a387317 feat: scaffold local flows with SDK progress and a local agent worker (#247)
+f0a3b3b chore(release): v2.0.8
+452383d chore(release): v2.0.6
+exit=0
+
+$ git log --oneline origin/main '--grep=#120' '--grep=#258' '--grep=#259'
+78ae4b8 fix(review-swarm): make the wait step's timed_out sentinel reachable (#258)
+4dd9277 fix(review-swarm): give the lens retry budget a delay that can span a 60s backoff (#259)
+d9377d1 ops(drive-log): -0910 online; closed relayfile#492, re-ran flows#258
+ecaf6b8 ops(drive-log): lenses never received the diff; filed flows#260
+3cfbd06 ops(drive-log): recovered lens transcripts; two lenses passed #259
+ec01474 ops(drive-log): gate failure moved off infrastructure onto the agent step
+17c413e ops(drive-log): #259 cannot be validated by its own gate; audit complete
+a32dc6d ops(drive-log): mount fault CONFIRMED FIXED; two corrections
+7999b28 ops(drive-log): re-ran the gate to test v0.10.56; in flight past 16 minutes
+b58ce47 ops(drive-log): failures converged on one mode; retracting the rotation claim
+74b7eac ops(drive-log): opened flows#259 -- lens retries had a 1s delay vs a 60s backoff
+b00e77e ops(drive-log): seven failure modes, none consecutive -- no single fix exists
+576e5ee ops(drive-log): opened flows#258; corrected two over-readings of the gate
+201542a feat(cli): flows hn-monitor start — CLI-inlined proactive workload for gate 2 (#120)
+exit=0
+
+238-reproduction.txt
+$ /private/tmp/pr-sweep-0910/venv/bin/python3 /private/tmp/pr-sweep-0910/migrate-legacy-workflow.py /private/tmp/pr-sweep-0910/non-mapping-step.yaml /private/tmp/pr-sweep-0910/output.yaml
+Traceback (most recent call last):
+  File "/private/tmp/pr-sweep-0910/migrate-legacy-workflow.py", line 199, in <module>
+    spec, problems, notes = migrate(src)
+  File "/private/tmp/pr-sweep-0910/migrate-legacy-workflow.py", line 120, in migrate
+    t = s.get('type')
+AttributeError: 'str' object has no attribute 'get'
+exit=1
+
+242-reproduction.txt
+$ node ops/local-work-package.mjs report
+REPORT Fix value
+outside.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+  DoD: src/value.txt contains fixed
+exit=0
+IMPLEMENTATION=broken
+
+$ git ls-remote origin refs/heads/main
+a42ca161658f9f4c3ff22c7d158d6c65dd219473	refs/heads/main
+exit=0
+
+$ gh auth status
+github.com
+  X Failed to log in to github.com account miyaontherelay (default)
+  - Active account: true
+  - The token in default is invalid.
+  - To re-authenticate, run: gh auth login -h github.com
+  - To forget about this account, run: gh auth logout -h github.com -u miyaontherelay
+exit=1
