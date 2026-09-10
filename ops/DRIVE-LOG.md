@@ -9696,3 +9696,56 @@ DEPLOYED tag, not main. I verified against neither -- I read a stale LOCAL main
 and treated it as current. I even flagged "the deployed mount may differ" as a
 caveat last tick and then did not spend the one `git fetch` that would have
 caught it. Flagging a risk is not managing it.
+
+### 2026-09-10 ~09:0xZ — ROOT CAUSE. A secret whose value is "-". cloud#3524.
+
+Queue drained. Disk 4.4Gi.
+
+Chased the one question I left open: is the sandbox on an old relayfile, or does
+the failing path miss the recovery? **It is the version, and the reason it is
+the version is worth the whole night.**
+
+Verified chain:
+  2026-09-08        relayfile v0.10.56 ships 9b83d76e, the cursor-expiry fix
+  2026-09-09 06:46  last SUCCESSFUL snapshot rebuild+promote -- pin was v0.10.55
+  2026-09-09 08:18  7f82d2e30 bumps the pin to v0.10.56
+  2026-09-10 04:53  rebuild SUCCEEDS with v0.10.56; PROMOTE fails
+
+Promote failed with:
+
+    SNAPSHOT:
+    LITE_SNAPSHOT:
+    Usage: node scripts/check-snapshot-sdk-downgrade.mjs --snapshot <name> ...
+    ##[error]Process completed with exit code 2.
+
+Empty. And the reason is the find of the night: **every hyphen in runner output
+is masked to `***`.**
+
+    Build Date: 2026***08***28T16:44:25Z
+    Worker ID: {40d804bd***6e81***4e2d***9882***89212e2f88c4}
+    Image: ubuntu***24.04
+    npx tsx scripts/create***snapshot.ts ***name "${SNAPSHOT_NAME}"
+
+A runner date, a UUID, an OS version, a CLI flag. Nothing secret; the common
+factor is the hyphen. **A repository secret's value is a single `-`.** The
+snapshot name is hyphen-separated, so it is masked end to end, and GitHub
+redacts secret material crossing job outputs -- so
+`needs.rebuild-snapshot.outputs.snapshot` arrives EMPTY.
+
+Result: flows' gate has failed for two days on a bug fixed three days ago,
+because the fix cannot reach the sandbox.
+
+**The discriminating test that made this safe to claim.** My first read was
+"every dash is masked" -- but 1687 log lines still showed literal `x-y` dashes,
+which would have killed the theory. I checked instead of picking the reading I
+liked: those dashes are all in `gh run view`'s own client-side TIMESTAMP column,
+added after masking. Runner-emitted dashes: all masked. Client-added dashes:
+none. The theory survived a test that could have falsified it.
+
+Labelled the inference honestly in the issue: the masking observations are
+solid, the redaction-crossing-job-outputs step is inferred and is the part
+worth a second opinion.
+
+Also confirmed live, incidental: `Skipping relayfile mount convergence probe;
+RELAYFILE_SMOKE_* env is incomplete.` printed twice -- exactly the condition
+cloud#3497 exists to make fatal. The probe has never run.
