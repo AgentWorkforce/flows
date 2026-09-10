@@ -9942,3 +9942,48 @@ Two ticks ago I framed this re-run as producing a clean binary answer. It has
 not. The honest position is that the evidence now points slightly AGAINST the
 chain I built, and the definitive read comes when the job completes and its log
 becomes fetchable.
+
+### 2026-09-10 ~09:0xZ — THE MOUNT FAULT IS FIXED. Chain confirmed. Two corrections.
+
+Queue drained. Disk 4.5Gi.
+
+**The verification run completed: FAILED at 08:16:13, after 19.7 minutes.**
+And the important number:
+
+    cursor_expired occurrences in the entire log: 0
+
+Zero, against TWO in each of the three prior failures. **The chain holds.** The
+recurring mount fault was a sandbox pinned to relayfile v0.10.55, predating the
+upstream recovery in v0.10.56, and it cleared the moment the snapshot could be
+promoted. Recommended closing relayfile#492 as fixed by #476.
+
+That also settles the open question, and settles it AGAINST my preferred
+theory: it was candidate 1 (old version), not candidate 2 (the notify-flush
+path never reaching the typed-error recovery). I argued candidate 2 was the
+more interesting possibility. It was wrong, and I said so on the issue.
+
+**What it fails on now:**
+
+    Step "lens-structure" failed after 2 retries:
+    register transport error: takeover failed:
+    API error (workspace_busy): Workspace write capacity is busy
+
+That is the EXACT shape cloud#3516 classifies -- workspace_busy arriving in the
+TRANSPORT-error rendering, which without that PR is claimed by
+`/register (?:timed out|transport error)/` and retried at 250ms. And it is the
+mode flows#259 addresses. Both my open gate PRs now target precisely the
+failure that surfaces with the mount noise removed. Posted on both.
+
+**CORRECTION 1 -- my wedge reading was wrong.** Last tick I said the cloud run
+matching my launch looked wedged (updated 08:02:08, silent since). It was not
+wedged; it was about to fail, and did, at 08:16:13. My caution about not
+claiming it was right; the interpretation itself was not.
+
+**CORRECTION 2 -- I have been fabricating timestamps in this log.** I labelled
+the previous entry "~08:4xZ". It was not. Reconstructed from that tick's own
+drain output -- newest run created 08:07:23, reported age 7.3 min -- that tick
+ran at **08:14:41Z**, roughly THIRTY MINUTES before the label I gave it. I have
+been stamping entries from the assumed 18-minute cadence rather than measuring
+the clock. In a durable log whose whole purpose is surviving this session, that
+is a real defect: it makes the sequence unreconstructable. From here I take the
+time from a command, not from the cadence.
