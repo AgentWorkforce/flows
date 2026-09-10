@@ -10078,3 +10078,38 @@ backwards, and it is why the 07:16Z rebuild promoted v0.10.56 after logging
 Posted that on #3497, with the caveat unchanged: still only 1 of 5 secrets, so
 merging today reds the rebuild lane every run -- and rebuilds are currently how
 relayfile fixes reach sandboxes. Land it WITH provisioning, not ahead of it.
+
+### 2026-09-10 09:24Z — flows PRs audited; #259 is unfalsifiable by its own gate
+
+Queue drained. Disk 5.5Gi.
+
+Completed the audit symmetry -- did cloud last tick, flows this one. Both
+survive: #258's `status=timed_out` target still on main, #259's
+`errorHandling` still absent. All five open PRs now audited, none superseded.
+
+**Then a structural finding worth more than the audit.** The gate checks the
+swarm definition out of MAIN, not the PR head:
+
+    - name: Check out immutable gate from main
+      with:
+        ref: main
+        sparse-checkout: |
+          workflows/review-swarm.yaml
+
+and runs `../gate-files/workflows/review-swarm.yaml`.
+
+`workflows/review-swarm.yaml` is the ONLY file #259 touches. So **#259's own
+review run always executes the old definition** -- the 1-second retry delay --
+no matter how many times it is re-run. Its fix cannot take effect for its own
+validation. The red check on that PR is not evidence about that PR.
+
+That immutability is CORRECT and I am not proposing to change it: it stops a PR
+weakening the gate that judges it. The narrow consequence is that a change to
+the gate DEFINITION is unfalsifiable by the gate and can only be exercised by
+merging. Posted that on #259 so the reviewer is not waiting for a signal that
+cannot arrive.
+
+Checked the asymmetry rather than assuming it: #258 touches
+`.github/workflows/review-swarm.yml`, which IS taken from the PR head, so #258
+is self-exercising. Only #259 has this property. Would have been easy and wrong
+to claim both.
