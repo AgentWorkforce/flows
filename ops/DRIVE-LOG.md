@@ -9182,3 +9182,42 @@ at 04:00 — same shape as the prove-on-dev-first rule. It needs a human.
 Also noted: `tests/orchestrator/presets.test.ts` asserts the wrong name, so the
 suite locks the bug in. Any fix has to change that test, which is why it should
 be done deliberately and not by me at this hour.
+
+### 2026-09-10 ~04:1xZ — the standing brief is stale in all four items
+
+**Queue fully drained:** pending=0, 14 running. The run I followed last tick
+(`33a474b6`) went pending -> running. Item 1 is resolved, not blocked.
+
+**Item 2 is done, and I wasted most of this tick discovering that.** I pulled
+preview build 33801381261 and found it failed 17s after dispatch on
+**2026-09-03** at "Mint private Flows artifact token":
+
+    message: 'Not Found',
+    documentation_url: '.../apps#get-a-repository-installation-for-the-authenticated-app',
+    status: '404'
+
+I wrote that up as the preserved App-grant evidence the brief asks for — then
+checked the PR and found **#3270 MERGED 2026-09-07T19:25:12Z**. My own comments
+on it from 09-06/07 show the preview later got PAST that step to Drizzle, and I
+root-caused a drizzle timestamp-selection bug there. The 404 I "found" had been
+superseded three days before I looked at it. `prove-relayflow-v2-cloud.ts` and
+`ops/reviews/20260902-1740-pr3270-proof.md` are both on main; the pr-3270 stage
+was cleaned up post-merge.
+
+That is my own logged lesson landing on me: *check the lane's TARGET, not just
+its liveness.* I checked the run's liveness and never asked whether its objective
+was still real. Cost: most of a tick.
+
+**So all four brief items are resolved:** 1 queue recovered, 2 #3270 merged
+09-07, 3 #134 merged 09-04, 4 #139 merged 09-04. Ticks keep coming up empty
+because the brief points at finished work, not because work is blocked.
+
+**What actually blocks the repo,** measured per-PR rather than derived:
+
+    #257 #256 #253 #251 #245 #244 #242 #240 #238  -> FAIL=[review], all nine
+
+Nine of nine open flows PRs fail exactly one check, `review`, and nothing else
+fails on any of them. Three are cloud-run-authored work product. Posted the
+measurement on #255. Did not re-assert the mechanism — the structure-lens
+diagnosis was made under different conditions and I have not re-verified it
+tonight.
