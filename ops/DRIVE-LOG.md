@@ -9827,3 +9827,48 @@ HEAD rather than echoing a hash.
 Kept the framing honest on the issue: #3525 is a LEGIBILITY fix, not the
 repair. It would have turned this into a five-minute diagnosis. The repair is
 still Khaliq setting or removing that secret and re-dispatching the promote.
+
+### 2026-09-10 ~10:0xZ — Khaliq had already fixed it. I duplicated three hours of work.
+
+Queue pending=2, 12 running. Disk 4.7Gi.
+
+**v0.10.56 IS NOW PROMOTED.** Rebuild 34449172138 at 07:16Z succeeded and landed
+`04228b3cb chore(snapshot): promote relay-orchestrator-sdk-11.10.4-relayfile-
+v0.10.56-runtime-4.1.52-...`. The sandbox fix is live.
+
+**And I should have known before I filed anything.** cloud#3522, merged by
+Khaliq at **05:53Z**, says in its own description:
+
+    GitHub Actions skipped the plaintext job outputs in run 34438917830 as
+    potentially secret-bearing, leaving the promotion job with empty snapshot
+    names.
+
+Same run ID I analysed. Same mechanism I reconstructed. He had diagnosed and
+fixed it THREE HOURS before I opened #3524 at ~09:05 recommending an action
+that was already moot.
+
+My analysis was correct -- #3522 independently confirms the mechanism -- but
+correctness is not the point. I never checked whether the problem was already
+solved. I had #3522 in my local main when I reset to origin/main at ~07:25 and
+never looked at it.
+
+**Closed #3525 as redundant.** #3522 added a `Validate promotion identifiers`
+step calling validateSnapshotName()/validateLiteSnapshotName() BEFORE exporting
+to GITHUB_ENV. My guard sat downstream of that and could only fire in a case
+that can no longer reach it. Closed rather than landing a duplicate.
+
+**What survives, and is still unowned:** the masking is NOT fixed, only routed
+around. The successful 07:16 run still shows masked_count 2007 and
+`2026***08***28`. And one datum I could not have had before: in the PROMOTE job
+the names print UNMASKED, consistent with masking applying only to jobs that
+reference the secret. Suggested narrowing #3524 to the secret alone.
+
+**Fourth backtick failure of the session.** I built the #3524 correction as an
+inline double-quoted --body; the fenced blocks were eaten as command
+substitution and posted EMPTY. My own written rule says pass bodies via a
+quoted heredoc file, which I had done all night and then didn't. Repaired via
+PATCH and verified the block is present. Cost: one redundant edit.
+
+The lesson I actually need from this tick is not about backticks. It is:
+**check whether the thing is already fixed before spending three hours proving
+it is broken.** One `git log origin/main` on the file would have done it.
