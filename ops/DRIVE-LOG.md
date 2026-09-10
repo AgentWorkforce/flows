@@ -8741,3 +8741,38 @@ before someone else acted on it.
 Also restated the missing instrument: queue timeouts should track *claim
 latency*, not registration failures. Correlating the two would settle it, and
 that telemetry still does not exist — the same gap I flagged hours ago.
+
+### 2026-09-10 — reclaimed 1.2Gi; both PRs clean and waiting on review
+
+Drain: 1 pending, created 01:03, normal window. **cloud#3497** and **cloud#3510**
+are both open with **no failing checks** — nothing to do on either but wait for a
+human.
+
+Disk was the live item: 4.6Gi and falling ~100MB/tick, and the brief flags that
+it hit zero once today.
+
+**Audited before deleting anything.** Every worktree: clean, nothing unpushed.
+Removed only the two whose PRs are **merged** (`cloud-wsbusy` for #3507, `fl-d1`
+for #252), keeping `cloud-reaper`, `fl-242` and `fl-gate2` because their PRs are
+open and review may ask for changes.
+
+That reclaimed **0.1Gi** — the worktrees were small, and it was the wrong target.
+Measuring instead of guessing found the real consumers:
+
+```
+3.7G  cloud/node_modules          -- live claude session in that tree, untouchable
+1.2G  .relayflows-toolchain/target -- mine
+756M  flows-threads-wt             -- the running lane's worktree, in use
+```
+
+**Cleared the cargo target: 4.8Gi -> 5.9Gi.** Checked no build was running,
+confirmed it was last touched at 21:24 (my D1 work, now merged), and verified the
+manifest still resolves afterwards. Safe because D1 landed and D2 is blocked
+behind unbuilt epoch rollover — I am not doing kernel work, and the cache
+regenerates in ~40s if that changes.
+
+Left the other two alone: one belongs to a live session in another tree, the
+other to the running lane. Neither is mine to reclaim, and the earlier
+one-worker-one-directory lesson applies.
+
+Net: **5.9Gi free**, up from 4.6Gi, without touching anything in use.
