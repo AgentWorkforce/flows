@@ -64,11 +64,14 @@ export function authoredWorkerRunner(
     // (renewing as the lease renews, per docs/SURFACE.md §5's WAITING
     // [worker_lease] contract), never an unrelated fixed deadline.
     const execution = await classifyOutcome(journal, 'run', outcome, report, '', waitOptions);
+    // Preflight refusals happen before runStart. Runtime classification returns
+    // success, failure, or parked; retain the causal diagnostic rather than a
+    // later warning if that classifier's contract expands.
     if (execution.exitCode === 3) {
       const parked = execution.report.parkedStep;
       throw new AuthoredFlowExecutionError(
         step.type === 'llm' ? 'llm_parked' : 'agent_parked',
-        execution.report.diagnostics.at(-1)?.message
+        [...execution.report.diagnostics].reverse().find(diagnostic => diagnostic.severity === 'parked')?.message
           ?? `flow "${definition.name}" step "${id}" parked`
             + (parked !== undefined ? ` (${parked.type})` : '')
             + ': no worker is attached to run it.',
@@ -80,7 +83,9 @@ export function authoredWorkerRunner(
       const reason = execution.report.completionReason;
       throw new AuthoredFlowExecutionError(
         'step_failed',
-        execution.report.diagnostics.at(-1)?.message
+        [...execution.report.diagnostics].reverse().find(
+          diagnostic => diagnostic.severity === 'failure' || diagnostic.severity === 'refusal',
+        )?.message
           ?? `flow "${definition.name}" step "${id}" did not complete successfully `
             + `(status: ${execution.report.status ?? 'unknown'})`,
         isSurfaceCompletionReason(reason) ? reason : undefined,

@@ -3,7 +3,9 @@
 The recorded commands and complete outputs are adjacent to this file.
 The full SDK run uses the daemon built from this checkout and the local
 surface 2.0.9 tarball. It preceded the final model-syntax regression; the later
-focused run includes that additional test. The unchanged package gate verifies
+focused run includes that additional test. The subsequent review follow-up
+adds diagnostic-selection and failure-contract regressions; its captured
+build, typechecks, and seven-suite run are in `review-followup.txt`. The unchanged package gate verifies
 the 2.0.9 manifests and surface tarball with Bun 1.4.0; the host Bun 1.3.14
 cannot read the repository lockfile.
 

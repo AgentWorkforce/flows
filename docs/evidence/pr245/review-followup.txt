@@ -1,0 +1,58 @@
+$ cd /Users/khaliqgant/lanes/flows245/repo/packages/sdk
+$ export RELAYFLOWD_BIN=/Users/khaliqgant/lanes/flows245/repo/kernel/target/debug/relayflowd
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.9 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+exit: 0
+$ npm run build
+
+> @relayflows/sdk@2.0.9 build
+> tsc && node scripts/make-cli-executable.mjs
+
+exit: 0
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.9 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+exit: 0
+$ npm exec -- vitest run tests/authored-agent-failure.test.ts tests/authored-flow.test.ts tests/authored-named-agents.test.ts tests/live-named-agents.test.ts tests/direct-input.test.ts tests/preflight.test.ts tests/cli.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/lanes/flows245/repo/packages/sdk
+
+ ✓ tests/authored-agent-failure.test.ts (5 tests) 5ms
+ ✓ tests/preflight.test.ts (27 tests) 23ms
+ ✓ tests/authored-flow.test.ts (24 tests) 703ms
+ ✓ tests/authored-named-agents.test.ts (7 tests) 919ms
+   ✓ named agent declarations > lets a step-level cli override win over the named declaration 346ms
+   ✓ named agent declarations > does not treat an unrelated f.agent name as a named-agent selector 559ms
+ ✓ tests/live-named-agents.test.ts (1 test) 2206ms
+   ✓ named agents against a live kernel > dispatches two distinct named agents declared in the flow header 2206ms
+ ✓ tests/direct-input.test.ts (5 tests) 6754ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > executes inline and file JSON input through relayflowd 3181ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses missing and malformed input before contacting relayflowd 2177ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > surfaces the specific preflight refusal kind for an unresolved f.agent, not a generic invalid_spec 514ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > does not import or execute authored code before daemon availability 442ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses oversized file input before contacting relayflowd 439ms
+ ✓ tests/cli.test.ts (63 tests) 12089ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 820ms
+   ✓ flows check CLI > uses the raw Claude adapter model flag instead of accepting auth status as model proof 386ms
+   ✓ flows check CLI > refuses a typo model before probing or contacting relayflowd 397ms
+   ✓ flows check CLI > maps every input refusal path to its declared kind without raw exceptions 1440ms
+   ✓ flows run/resume CLI over the journal protocol > parses run options, submits the kernel dialect, and exits 0 on success 454ms
+   ✓ flows run/resume CLI over the journal protocol > exits 1 and emits the declared completionReason for a failed run 852ms
+   ✓ flows run/resume CLI over the journal protocol > reports a needs_human agent step as parked for human recovery 621ms
+   ✓ flows run/resume CLI over the journal protocol > maps only run_not_found resumes to exit 2 4132ms
+
+ Test Files  7 passed (7)
+      Tests  132 passed (132)
+   Start at  23:06:42
+   Duration  12.60s (transform 386ms, setup 0ms, collect 1.47s, tests 22.70s, environment 1ms, prepare 295ms)
+
+exit: 0
+
+$ cd /Users/khaliqgant/lanes/flows245/repo
+$ npm exec --prefix packages/sdk -- tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --strict --esModuleInterop --skipLibCheck packages/sdk/tests/authored-agent-failure.test.ts
+exit: 0
