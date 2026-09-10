@@ -1,0 +1,8 @@
+COMMAND: curl --max-time 15 -sS -L -o /tmp/shakedown-dashboard-origin.html -w '%{http_code}
+' https://agentrelay.com/observer
+EXIT: 0
+HTTP: 200
+
+STDERR: 
+BODY PREFIX:
+<!DOCTYPE html><html lang="en" class="theme-dark dark" data-theme="dark"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="/observer/_next/static/css/a1398b4051f72254.css" data-precedence="next"/><link rel="preload" as="script" fetchPriority="low" href="/observer/_next/static/chunks/webpack-fba6f78f5db84be6.js"/><script s

@@ -1,0 +1,3 @@
+COMMAND: python3 -c 'from pathlib import Path; p=Path("/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-shakedown-author-os52tlx5"); found=[str(q/"flows.json") for q in [p,*p.parents] if (q/"flows.json").exists()]; print("flows.json files in tested project ancestry:", found); assert not found'
+EXIT: 0
+flows.json files in tested project ancestry: []
