@@ -40,8 +40,16 @@ const OBSERVER_SCOPES = [
 /** Token lifetime for a `flows run` session. 24h is well past the longest run. */
 const OBSERVER_TOKEN_TTL_MS = 60 * 60 * 24 * 1000;
 
-/** Default Relaycast API base; overridable via `RELAYCAST_API_URL`. */
-const DEFAULT_RELAYCAST_URL = 'https://agentrelay.com';
+/**
+ * Default Relaycast API base; overridable via `RELAYCAST_API_URL`.
+ *
+ * `agentrelay.com` returns 404 for `/v1/observer-tokens` — the mint endpoint
+ * only lives on the `cast.` subdomain. Setting a wrong default here made every
+ * `flows run` on a real workspace key silently 404 with `[observer] mint API
+ * returned HTTP 404`. Shakedown 2026-09-10 verified: `cast.agentrelay.com`
+ * accepts the mint (401 with a dummy token, 429 with a real one). Closes #278.
+ */
+const DEFAULT_RELAYCAST_URL = 'https://cast.agentrelay.com';
 
 /** Bounded so a stalled Relaycast API cannot delay the RUN summary. */
 const MINT_TIMEOUT_MS = 5_000;

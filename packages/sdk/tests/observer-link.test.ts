@@ -102,10 +102,10 @@ describe('mintObserverUrl', () => {
       now: () => 1_700_000_000_000,
     });
 
-    expect(result).toEqual({ observerUrl: 'https://agentrelay.com/observer?key=ot_live_abc123' });
+    expect(result).toEqual({ observerUrl: 'https://cast.agentrelay.com/observer?key=ot_live_abc123' });
     expect(fetch).toHaveBeenCalledOnce();
     const [url, init] = fetch.mock.calls[0]!;
-    expect(url).toBe('https://agentrelay.com/v1/observer-tokens');
+    expect(url).toBe('https://cast.agentrelay.com/v1/observer-tokens');
     expect(init.method).toBe('POST');
     expect(init.headers['Authorization']).toBe('Bearer rk_live_key');
     const payload = JSON.parse(init.body) as { name: string; scopes: string[]; expires_at: string };
@@ -329,7 +329,7 @@ describe('flows observer verb', () => {
     const exit = await runCli(['observer'], output.io);
 
     expect(exit).toBe(0);
-    expect(output.stdout).toEqual(['https://agentrelay.com/observer?key=ot_live_verb']);
+    expect(output.stdout).toEqual(['https://cast.agentrelay.com/observer?key=ot_live_verb']);
     expect(output.stderr).toEqual([]);
     expect(fetch).toHaveBeenCalledOnce();
   });
@@ -416,7 +416,7 @@ describe('flows observer verb', () => {
     const exit = await runCli(['observer'], output.io);
 
     expect(exit).toBe(0);
-    expect(output.stdout).toEqual(['https://agentrelay.com/observer?key=ot_live_via_login']);
+    expect(output.stdout).toEqual(['https://cast.agentrelay.com/observer?key=ot_live_via_login']);
     // Verify the mint was called with the fallback key, not with anything
     // else -- specifically, not with an empty string that would sneak past
     // the "workspaceKey === undefined" gate.
@@ -439,9 +439,9 @@ describe('flows observer verb', () => {
 describe('finalizeObserverLine', () => {
   it('prints Observer: <url> on stdout when the mint resolves within the grace budget', async () => {
     const output = capture();
-    const mint = Promise.resolve({ observerUrl: 'https://agentrelay.com/observer?key=ot_live_x' });
+    const mint = Promise.resolve({ observerUrl: 'https://cast.agentrelay.com/observer?key=ot_live_x' });
     await finalizeObserverLine(mint, output.io, 100);
-    expect(output.stdout).toEqual(['Observer: https://agentrelay.com/observer?key=ot_live_x']);
+    expect(output.stdout).toEqual(['Observer: https://cast.agentrelay.com/observer?key=ot_live_x']);
     expect(output.stderr).toEqual([]);
   });
 
@@ -514,7 +514,7 @@ describe('flows run: observer link integration', () => {
     const runIndex = output.stdout.findIndex((line) => line.startsWith('RUN run-observer-happy'));
     expect(runIndex).toBeGreaterThanOrEqual(0);
     expect(output.stdout[runIndex + 1]).toBe(
-      'Observer: https://agentrelay.com/observer?key=ot_live_integration_ok',
+      'Observer: https://cast.agentrelay.com/observer?key=ot_live_integration_ok',
     );
     expect(fetch).toHaveBeenCalledOnce();
   });
@@ -676,7 +676,7 @@ describe('flows run: observer link integration', () => {
     const observerIndex = output.stdout.findIndex((line) => line.startsWith('Observer:'));
     expect(observerIndex).toBeGreaterThan(runIndex);
     expect(output.stdout[observerIndex]).toBe(
-      'Observer: https://agentrelay.com/observer?key=ot_live_late',
+      'Observer: https://cast.agentrelay.com/observer?key=ot_live_late',
     );
   });
 
@@ -715,6 +715,6 @@ describe('flows run: observer link integration', () => {
     expect(jsonLine).toBeDefined();
     const parsed = JSON.parse(jsonLine!) as { runId: string; observerUrl?: string };
     expect(parsed.runId).toBe('run-observer-json');
-    expect(parsed.observerUrl).toBe('https://agentrelay.com/observer?key=ot_live_json');
+    expect(parsed.observerUrl).toBe('https://cast.agentrelay.com/observer?key=ot_live_json');
   });
 });
