@@ -1,86 +1,94 @@
-# NEXT — gate 3: complete cloud review-swarm preflight validation and documentation
+# NEXT — gate 3 is complete, blocked on Daytona capacity
 
-**Scope:** Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time, addressing every architectural finding from the walked-away #75/#77 attempts. Parallel to Track A (hn-monitor); different territory (`.github/` + `workflows/` — no overlap with `sdk/` work).
+**Scope:** Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time, addressing every architectural finding from the walked-away #75/#77 attempts.
 
-## Why this matters
+## Assessment
 
-The local `~/AgentWorkforce/review-swarm-loop.sh` (chief-owned shell) is currently the only enforcement of RFC-0001 §2 rule 7 ("every PR met by a review swarm — our own, not a vendor's"). It works, but it lives on my laptop. When my session ends, so does swarm enforcement.
+Gate 3 implementation is **COMPLETE**. All 9 non-negotiable architectural requirements from ops/TARGET.md are satisfied:
 
-The cloud version — `workflows/review-swarm.yaml` fired from `.github/workflows/review-swarm.yml` — must exist for gate 3+ work to be trustworthy. Prior attempts (#75, #77) each shipped real code but were rejected on progressively deeper findings we never resolved.
+1. ✅ **Immutable gate** — Two checkout steps (`.github/workflows/review-swarm.yml:32-48`): pr-head from PR sha, gate-files from main. Swarm launches using main's gate files.
+2. ✅ **Unified verdict logic** — `swarm-verdict.sh` is the single source, sourced by both `workflows/review-swarm.yaml:184` and `swarm-post.sh:8`
+3. ✅ **Auth secret validation fail-fast** — Preflight at `.github/workflows/review-swarm.yml:90-137` validates all three secrets and actually exercises CLOUD_API_KEY against the API
+4. ✅ **Sticky marker + transcripts** — HTML anchors `<!-- review-swarm -->` and `<!-- swarm-lens: <lens> -->`, upsert_comment finds and PATCHes existing
+5. ✅ **Every PR gets reviewed** — No author whitelist exists (verified by grep)
+6. ✅ **Cloud sandbox fetch on GHA runner** — `swarm-prepare.sh` runs with GH_TOKEN, stages to `.review-target/`, uses `git add -f`
+7. ✅ **Timeout ordering** — 60m (review-swarm.yaml:18) < 65m (review-swarm.yml:191) < 75m (review-swarm.yml:19), with comments at each location
+8. ✅ **Wait step records terminal status** — Sets `swarm_status` output (review-swarm.yml:208), always exits 0 (line 235), post runs on `always()` (line 238), enforce step checks status (line 245)
+9. ✅ **Transcript freshness** — `.review-target/run-start` marker created by swarm-prepare.sh:11, freshness check in swarm-verdict.sh:33-34 rejects stale transcripts
 
-## Current state
+## Evidence
 
-The review-swarm implementation is 90% complete. Analysis of the 9 non-negotiable requirements:
+All definition-of-done checks from ops/TARGET.md pass:
 
-1. ✅ Immutable gate — two checkout steps at `.github/workflows/review-swarm.yml:32-48` (pr-head + gate-files from main)
-2. ✅ Unified verdict logic — `swarm-verdict.sh` sourced by both `review-swarm.yaml:132` and `swarm-post.sh:8`
-3. ✅ Auth secret validation — all three are checked in the "Validate cloud authentication" step: `CLOUD_API_URL`, `CLOUD_API_KEY` and `RELAY_WORKSPACE_KEY` (`.github/workflows/review-swarm.yml:56-58`)
-4. ✅ Sticky marker + transcripts — HTML anchors `<!-- swarm-lens: {lens} -->` in swarm-post.sh:34,39,44,47
-5. ✅ No author whitelist — grep confirms absent
-6. ✅ Cloud sandbox fetch on GHA runner — swarm-prepare.sh runs in step "Prepare review input" with GH_TOKEN
-7. ✅ Timeout ordering — 60m (review-swarm.yaml:18) < 65m (review-swarm.yml:112) < 75m (review-swarm.yml:19) with comments
-8. ✅ Wait step records status, post runs on always() — review-swarm.yml:106-130,132-137
-9. ✅ Transcript-to-run-id binding via freshness — swarm-prepare.sh:11 creates run-start marker; swarm-verdict.sh:33-34 rejects stale transcripts
-
-Additionally: README.md is already correct and needs no edit. The secrets
-table documents RELAY_WORKSPACE_KEY and CLOUD_API_KEY, and the sentence below
-it concerns CLOUD_API_URL only. The stale CLOUD_API_ACCESS_TOKEN_EXPIRES_AT
-mention was removed earlier in this branch, so the check below already passes.
-
-## Files in scope
-
-Nothing. Every item this brief once listed is already done in this branch. The two items previously listed here — preflight validation and
-the secrets table — are already done in this branch. A brief that asks for
-finished work does not produce a no-op; it produces an agent that re-derives
-the state, changes something to justify the trip, or declares a false blocked,
-which is the wasted cycle this file exists to prevent.
-
-## Definition of done
-
-1. ✅ Already satisfied — preflight checks all three required secrets:
-```
-test -n "$CLOUD_API_URL"
-test -n "$CLOUD_API_KEY"
-test -n "$RELAY_WORKSPACE_KEY"
-```
-
-2. ✅ Already satisfied — README needs no change. Its table names
-   RELAY_WORKSPACE_KEY and CLOUD_API_KEY, and the stale expiry mention is gone:
-```
-grep -c CLOUD_API_ACCESS_TOKEN_EXPIRES_AT README.md   # already 0
-```
-
-3. All files continue to parse:
 ```
 bash -n .github/workflows/scripts/swarm-post.sh && \
 bash -n .github/workflows/scripts/swarm-prepare.sh && \
 bash -n .github/workflows/scripts/swarm-verdict.sh && \
 echo "All bash scripts parse OK"
 ```
+Output: `All bash scripts parse OK`
 
 ```
 python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))" && \
 python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))" && \
 echo "YAML files parse OK"
 ```
+Output: `YAML files parse OK`
 
-4. No author whitelist exists:
 ```
-grep -i "whitelist\|github.event.pull_request.user.login" .github/workflows/review-swarm.yml || echo "No author whitelist found (GOOD)"
+grep -i "whitelist\|github.event.pull_request.user.login" .github/workflows/review-swarm.yml || \
+echo "No author whitelist found (GOOD)"
+```
+Output: `No author whitelist found (GOOD)`
+
+Aggregate verdict logic exists in ONE file (swarm-verdict.sh) with three functions, sourced by both callers.
+
+Immutable gate verified: two checkout steps with different paths (pr-head and gate-files).
+
+## The block
+
+Gate 3 is **BLOCKED on Daytona CPU quota**, not on implementation.
+
+Per ops/NEEDS_HUMAN.md (2026-09-08 status): `CLOUD_API_KEY` was minted and installed 2026-09-07. The workflow launches real cloud runs successfully (e.g., run 04da7e48-87ec-4c7a-a1ee-22fd482e1cd1), but every swarm fails with:
+
+```
+Step "lens-maintainability" failed after 2 retries:
+Total CPU limit exceeded. Maximum allowed: 250.
 ```
 
-5. As final action:
-```
-git status --porcelain
-```
+The orchestrator sandbox places; the three per-lens agent sandboxes cannot. Runs 34168392594, 34167663112, 34165035497, 34164872298, 34164770687 all failed this way on 2026-09-07.
 
-## Explicitly OUT of scope
+**What the human needs to do:** Run cloud's `daytona-sweep-orphans.yml` with `dry_run=false` (workspace_id=50587328-441d-4acb-b8f3-dbe1b3c5de99, min_age_hours=12, limit=20). Dry runs report 79 eligible orphans, ~40 CPU reclaimed per invocation. This is destructive, so no agent can run it.
 
-- `workflows/review-swarm.yaml` (already correct)
-- `.github/workflows/scripts/swarm-*.sh` (all three scripts already correct)
-- `.gitignore` (already correct - no .review-target mask)
+## What gate 3 still needs
+
+The implementation is complete. What remains unverified is the **verdict path**: no swarm has completed end to end, so the Definition of done's "first successful run" is outstanding. Gate 3 becomes GREEN when:
+
+1. A review-swarm GHA run completes (status=completed, not failed on CPU quota)
+2. The run ID appears in a PR comment
+3. Three lens transcripts are posted to the PR
+
+This requires CPU capacity, which requires the human action above.
+
+## Objective
+
+No code work. The work package is: **recognize gate 3 is complete and blocked on human action**.
+
+## Files in scope
+
+None. All files satisfy TARGET.md requirements.
+
+## Definition of done
+
+This assessment is done when:
+- ops/NEXT.md honestly reports gate 3 is complete and blocked
+- The commit exists in git history
+- The run ends with ASSESS_DONE
+
+## Out of scope
+
+- All code changes (gate 3 implementation is complete)
 - `sdk/` (Track A)
-- `kernel/` (gate 1 done, no changes)
-- `ops/*` (chief owns briefs and state)
-- Any GHA workflow other than review-swarm.yml
-- Actually TESTING the workflow in CI (requires `RELAY_WORKSPACE_KEY` + `CLOUD_API_KEY` secrets set which is a human step per requirement #3's context)
+- `kernel/` (gate 1 done)
+- `ops/*` except this file (chief owns state)
+- Running the Daytona sweep (human action per NEEDS_HUMAN.md)
