@@ -243,3 +243,170 @@ The problem, from the charter: exactly-once for an *agent* step needs a definiti
 5. **Exactly-once means exactly-once *effects*, not exactly-once execution.** Attempts may run more than once. Declared external effects are deduped at the mount boundary by `(step id, idempotency key, surface path)`: two attempts writing the same writeback produce one provider call.
 6. **Completion pins the end state.** `step.completed` journals ending revision ids, stream offsets, and `completionReason`. The next step's starting state *is defined as* this ending state — the chain of pins is the run's filesystem history.
 7. **The crash-injection gate extends to agent steps.** Under `reset`: kill mid-edit, resume, and assert (a) the second attempt observed the pinned revision, (b) the provider observed exactly one effect, (c) the journal explains both attempts.
+
+### A.1 — the wake-time context contract (v1)
+
+Rules 1-7 pin what an agent step *starts on top of*. A woken run needs one more
+pin: what it starts *because of*. This closes gate 2's remaining specification
+gap — the behaviour is implemented, but nothing said what it guarantees, so
+nothing could be held to it.
+
+8. **`wake_context` is journaled once, at the moment of the match.** When a
+   subscription matches an event, the engine writes a `SubscriptionMatched`
+   entry carrying `wake_context`. Its v1 shape is:
+
+   - `triggering_event` — the event as received, verbatim;
+   - `epoch_summary.open_steps` — the step ids of the run's epoch.
+
+   **v1 defines these fields as a minimum, not a closed set: readers must ignore
+   unknown keys and must not reject on their presence.** Additive fields are how
+   this reaches v2 without a flag day; a reader that rejects unknown keys makes
+   every future addition a breaking change.
+
+   The entry is the record. Nothing else may synthesize a `wake_context`.
+
+9. **A resumed run observes the same context, never a recomputed one.** Every
+   dispatch — first attempt, retry, or post-crash resume — resolves
+   `wake_context` by *reading a journaled value*, never by rebuilding it from
+   current state. This is what makes a woken agent step replayable: the event
+   that justified the wake cannot drift because the world moved on while the run
+   was down.
+
+   Concretely, an agent that woke on an event and crashed must, on resume, be
+   handed a `triggering_event` **structurally equal** to the journaled one — not
+   a re-fetch, not a fresher copy of the same logical event.
+
+   Equality is structural, not textual: equal JSON values under the v1 shape,
+   compared independently of key order, whitespace and number formatting. Byte
+   equality would be the wrong bar — the value round-trips through
+   deserialization and re-serialization, so a re-encoded but identical value is
+   conformant, while a re-fetched newer event is not, even if it serialized to
+   the same length.
+
+9a. **Resolution is current-segment-only, per decision #8.** Resume reads only
+    the current journal segment, so the `SubscriptionMatched` entry is not
+    always reachable: a resident run that rolls into a new epoch while still
+    open on its wake leaves that entry in a closed, archived segment.
+    `wake_context` therefore resolves from **either** the `SubscriptionMatched`
+    entry when it lies in the current segment, **or** the epoch summary that
+    opens the current segment.
+
+    This places an obligation on segment close, not on the reader: when a
+    segment closes while a run is still open on a wake, the new segment's epoch
+    summary **must carry `wake_context` forward unchanged**. Decision #8 already
+    defines the epoch summary as "everything still live"; an unfinished woken
+    run's triggering event is still live by that definition. Carrying it is what
+    makes rule 9 satisfiable without reopening archived segments.
+
+10. **Absent context and lost context are different failures.** A run that was
+    never woken by an event has no `wake_context`, and that is legitimate. So is
+    a woken run whose epoch summary legitimately carries none because the wake
+    is finished. A woken run **still open on its wake** whose context cannot be
+    resolved from the current segment is a **journal integrity failure**, and
+    the dispatch must fail rather than proceed with none.
+
+    Normal archival is never an integrity failure. The failure is a *missing
+    carry-forward* or an unreadable segment, not a closed one.
+
+10a. **"Fail" is two different failures, and they must not be conflated.**
+     Resolution failure splits by cause, because transient I/O and permanent
+     corruption deserve opposite handling:
+
+     - **Transient** (segment unreadable *right now*: I/O error, lock
+       contention, a truncated tail still being written) — **fail the attempt,
+       retryable**, under the step's ordinary retry budget. Journal
+       `wake_context_unresolved` with `reason: "transient"` and the underlying
+       error. A later attempt that resolves the context proceeds normally.
+     - **Permanent** (the run is open on a wake, the current segment is read
+       cleanly, and no `wake_context` is present — i.e. the carry-forward of
+       rule 9a never happened) — **fail the step and park as `needs_human`**,
+       not retryable. Journal `wake_context_unresolved` with
+       `reason: "absent"`. Retrying cannot invent a value that was never
+       written, so a retry budget would only delay the page.
+
+     Neither case may fall back to `wake_context: None`. Dispatching without
+     context is reserved for runs that were never woken (rule 10), and rule 11c
+     requires the two to stay distinguishable.
+
+11. **The gate.** Gate 2 is not green on a passing unit test. It requires, on a
+    real run: wake a flow on an event, kill it mid-step, resume, and assert
+    (a) the resumed dispatch carries a `wake_context` structurally equal to the
+    one in the original `SubscriptionMatched` entry, (b) the engine consulted the
+    journal rather than the live event source, and (c) a run with no
+    `SubscriptionMatched` entry is dispatched with `wake_context: None`, while a
+    run whose context failed to resolve is **not dispatched at all** and instead
+    carries a `wake_context_unresolved` entry naming its `reason`.
+
+    (c) is testable because the distinction has a surface: *never woken* is the
+    **absence** of any `wake_context_unresolved` entry alongside a dispatch with
+    `wake_context: None`; *failed to load* is the **presence** of that entry with
+    `reason` of `transient` or `absent`, and no dispatch for that attempt. A
+    conformance test asserts on those two journal shapes, not on log text.
+
+**Known deviations. These are binding obligations, not notes.** This contract is
+normative from the moment it lands. Two of the three items below are genuine
+implementation debt and **gate 2 cannot go green until D1 and D2 are closed** —
+rule 11's run-level bar cannot be satisfied while either stands. D3 is listed
+because the contract changes what a field's name obliges, not because the code
+is currently wrong; it blocks nothing.
+
+- **D1 — the reader fails open.** The resume path discards a journal scan error
+  and substitutes `None`, so the step runs as though it had never been woken.
+  Rules 10 and 10a require it to fail instead, split by cause. *(Today this is
+  the `.ok()` on the scan in `drive.rs`; the deviation is the behaviour, and the
+  call site is a pointer that will move.)*
+- **D2 — no carry-forward exists.** Nothing implements rule 9a:
+  `EpochSummaryPayload` has no `wake_context` field, so segment close cannot copy
+  it into the new epoch summary.
+
+  Why it is not currently observable is worth stating precisely, because the
+  obvious explanation is wrong. It is **not** that resolution reads a single
+  segment — `scan_from` is `SELECT ... FROM entries WHERE seq >= ?1` with **no
+  segment filter**, so it reads across every segment in the journal file. Two
+  other facts hide it:
+
+  1. **The engine never rolls.** `rollover()` exists in `relayflowd-journal` and
+     is covered by its own tests, but nothing in `relayflowd` calls it, so a run
+     has exactly one segment in practice. The test that covers it is named
+     `rollover_is_atomic_scaffolding_for_epoch_resume` — scaffolding is the
+     author's own word for it.
+  2. **Closed segments are never pruned.** Nothing archives them out of the
+     file, so even after a roll the older entries remain readable.
+
+  **D2 is therefore not implementable in isolation, and this contract should say
+  so rather than imply a fix is available.** `rollover()` takes a fully-formed
+  `EpochSummaryPayload` from its caller, and **every construction of that payload
+  in the kernel is inside a test** — no production code decides what an epoch
+  summary contains. There is no site at which to add the carry-forward.
+
+  Closing D2 therefore depends on epoch rollover being built in the engine
+  first: something must own the decision of what survives a segment boundary,
+  and `wake_context` then joins the list beside open waits, stream offsets and
+  pinned revisions. Adding the field to `EpochSummaryPayload` ahead of that
+  producer would be a field nothing populates — the appearance of a fix, not one.
+
+  The sequencing that follows: **engine-side epoch rollover -> D2 -> gate 2.**
+  D2 is not the next action on that chain; rollover is.
+
+  This means the implementation currently satisfies rule 9 *by violating
+  decision #8* — it resolves across segment boundaries rather than from the
+  current segment. That is invisible while there is only ever one segment. D2
+  becomes a live data-loss bug the moment either the engine begins rolling
+  epochs **or** archival starts removing closed segments from the file, and the
+  cross-segment read becomes a correctness violation as soon as the first of
+  those lands.
+- **D3 — `open_steps` is a naming hazard, not a wrong value.** It is populated
+  from every step declared in the spec rather than from open-step state, which
+  reads like a bug and is not one *today*. The only site that writes
+  `wake_context` is the event-run creation path, which calls
+  `SqliteJournal::create` and appends `run.spawned` in the same function: the run
+  is brand new, so every declared step genuinely is open and the two sets
+  coincide by construction.
+
+  So the implementation owes **no** change here, and this contract should not
+  claim otherwise. What it owes is a guard against drift: the field is only
+  correct because of where it is computed, nothing enforces that, and the name
+  invites reuse from a context — a run woken again into a later epoch — where
+  the sets diverge silently. This contract therefore fixes the *name's* meaning
+  (steps open at the epoch) so that a future second producer is obliged to
+  compute open-step state rather than copy the spec's step list.
