@@ -49,7 +49,7 @@ const USAGE = [
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>',
   'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
-].join(' ');
+].join('\n');
 
 /**
  * `FLOWS_NO_SPAWN=1` is `--no-spawn` for a whole environment: the lever for CI
@@ -70,6 +70,11 @@ export async function runCli(
   args: readonly string[],
   io: CliIo = PROCESS_IO,
 ): Promise<CliExitCode> {
+  if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
+    io.stdout(USAGE);
+    return 0;
+  }
+
   const parsed = parseArgs(args);
   if (parsed === undefined) {
     const report = inputFailureReport({ kind: 'invalid_invocation', message: USAGE });
@@ -393,7 +398,7 @@ function emitRunReport(execution: RunExecution, json: boolean, io: CliIo): void 
     return;
   }
   if (report.runId === undefined) return;
-  const completed = report.completedSteps === undefined ? '' : ` (${report.completedSteps} steps)`;
+  const completed = report.completedSteps === undefined ? '' : ` (${report.completedSteps} ${report.completedSteps === 1 ? 'step' : 'steps'})`;
   const reason = report.completionReason === undefined
     ? ''
     : ` completionReason: ${report.completionReason}`;
