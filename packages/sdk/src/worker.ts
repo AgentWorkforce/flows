@@ -7,6 +7,8 @@ import type { KernelAgentStep } from './spec.js';
 import { runAgentCli } from './worker-cli.js';
 import { withWorkerLease } from './worker-lease.js';
 import { workerInstruction } from './worker-input.js';
+import { helperCall } from './yaml-helpers.js';
+import { completeHelperDispatch } from './yaml-helper-effect.js';
 
 export { MODEL_ENV, WAKE_CONTEXT_ENV } from './worker-cli.js';
 
@@ -96,6 +98,12 @@ export class AgentWorker extends EventEmitter {
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
     const spec = dispatch.spec as Partial<KernelAgentStep>;
+    const helper = helperCall(spec);
+    if (helper !== undefined) {
+      if (this.options.dataDir === undefined) throw new Error('Helper worker requires a data directory for durable receipts');
+      await completeHelperDispatch(this.client, dispatch, helper, this.options.dataDir);
+      return;
+    }
     let humanIntervention = false;
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       typeof spec.cli === 'string' && typeof spec.instruction === 'string'

@@ -7,6 +7,7 @@ import { budgetDiagnostics } from './budget-preflight.js';
 import type { TriggerSource } from '@relayflows/surface';
 import { acceptsAnyOutput, inspectStepGate, type StepGateInspection } from './gate-contract.js';
 import { compileSpec, CompileError } from './compile.js';
+import { helperCall } from './yaml-helpers.js';
 import type {
   PreflightFailureKind,
   PreflightWarningKind,
@@ -54,6 +55,8 @@ type CliProbeOutcome =
  * emits `probe_failed` (or `command_unprovable` for a deterministic command).
  */
 export interface PreflightProbes {
+  /** Whether the provider's relayfile mount is available to the helper worker. */
+  helper?(provider: string): boolean;
   /**
    * Resolve relative paths against the file implied by `source`, then probe
    * `auth status`. When the step declared a `model`, the probe runs with that
@@ -216,6 +219,7 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
   // earlier command, provider/model, or trigger probe may run first.
   for (const step of compiled.steps) {
     if (step.type === 'deterministic') continue;
+    if (step.type === 'agent' && helperCall(step) !== undefined) continue;
     const resolution = resolveCli(step, compiled, options.projectCli);
     if (resolution === undefined) {
       diagnostics.push({
@@ -237,6 +241,22 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
     warnOnVacuousGate(step, diagnostics);
     warnOnUnprovableEffects(step, options.probes, diagnostics);
     if (step.type === 'deterministic') continue;
+    const helper = step.type === 'agent' ? helperCall(step) : undefined;
+    if (helper !== undefined) {
+      try {
+        if (options.probes.helper === undefined) {
+          diagnostics.push({ severity: 'warning', kind: 'unprovable_effects', stepId: step.id,
+            message: `${helper.provider} helper requires a relayfile mount and an SDK agent worker.` });
+        } else if (!options.probes.helper(helper.provider)) {
+          diagnostics.push({ severity: 'refusal', kind: 'helper_mount_required', stepId: step.id,
+            message: `${helper.provider} helper requires a relayfile mount.` });
+        }
+      } catch {
+        diagnostics.push({ severity: 'refusal', kind: 'probe_failed', stepId: step.id,
+          message: `${helper.provider} helper mount could not be checked.` });
+      }
+      continue;
+    }
     const resolution = resolutionByStep.get(step.id)!;
     probeResolvedCli(resolution, options.probes, cliProbeResults, diagnostics);
   }

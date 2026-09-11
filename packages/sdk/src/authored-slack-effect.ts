@@ -8,9 +8,9 @@ import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import { compileSpec, toKernelSpec } from './compile.js';
 import { SPEC_SCHEMA_VERSION, type KernelAgentStep } from './spec.js';
 import type { StepDispatchEvent } from './protocol.js';
-import { withWorkerLease } from './worker-lease.js';
+import { completeHelperDispatch } from './yaml-helper-effect.js';
 import { checkSlackHelpers } from './slack-preflight.js';
-import { atomicJson, readSlackReceipt, receiptPath, slackWriteback, type SlackCall } from './slack-writeback.js';
+import { atomicJson, type SlackCall } from './slack-writeback.js';
 
 export function assertSlackCredentials(): void {
   const report = checkSlackHelpers({ header: { tools: { slack: true } }, body() {} });
@@ -75,7 +75,7 @@ async function driveSlackEffect(
   client.on('step.dispatch', (dispatch: StepDispatchEvent) => {
     if (executing || dispatch.run_id !== runId || dispatch.step_id !== step.id) return;
     executing = true;
-    void completeSlackDispatch(client, dispatch, call, dataDir).then(resolve, reject);
+    void completeHelperDispatch(client, dispatch, call, dataDir).then(resolve, reject);
   });
   client.on('error', reject);
   try {
@@ -92,30 +92,4 @@ async function driveSlackEffect(
     if (error instanceof AuthoredFlowExecutionError) throw error;
     throw new AuthoredFlowExecutionError('step_failed', error instanceof Error ? error.message : 'Slack effect failed', 'worker_error', runId);
   } finally { client.close(); }
-}
-
-async function completeSlackDispatch(client: JournalClient, dispatch: StepDispatchEvent, call: SlackCall, dataDir: string): Promise<void> {
-  const output = await withWorkerLease(client, dispatch, async signal => {
-    const file = receiptPath(dataDir, dispatch.run_id, dispatch.step_id);
-    let receipt: unknown;
-    await client.performEffect({
-      runId: dispatch.run_id, stepId: dispatch.step_id, attempt: dispatch.attempt,
-      idempotencyKey: dispatch.idempotency_key, surfacePath: '/slack',
-      revisionBefore: 'pending', revisionAfter: `${dispatch.run_id}:${dispatch.step_id}`,
-    }, async () => {
-      try { receipt = await readSlackReceipt(file); }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-        receipt = await slackWriteback(call, dataDir, dispatch.run_id, dispatch.step_id, signal);
-        await atomicJson(file, receipt);
-      }
-      signal.throwIfAborted();
-    });
-    // Also required after a confirmed election followed by a crash before step.complete.
-    if (receipt === undefined) receipt = await readSlackReceipt(file);
-    return { ...call, idempotencyKey: `${dispatch.run_id}:${dispatch.step_id}`, receipt };
-  });
-  await client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,
-    dispatch.idempotency_key, 'success', { output, started_pins: dispatch.pins, end_pins: dispatch.pins,
-      effects: [{ surface_path: '/slack', idempotency_key: dispatch.idempotency_key }] });
 }
