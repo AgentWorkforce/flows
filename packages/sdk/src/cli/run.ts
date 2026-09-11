@@ -151,9 +151,12 @@ export async function resumeFlow(
   if (connected !== undefined) return connected;
 
   try {
-    await resumeHelperEffect(client, runId, dataDir);
+    // resumeHelperEffect subsumes the old resumeSlackEffect: it handles the
+    // slack effect resume plus every other provider from N's codegen. The
+    // second call the earlier rebase left is a stale reference from before
+    // the helper fanout renamed the API.
     let outcome = await client.runResume(runId, options.allowHumanInfluenced);
-    if (await resumeSlackEffect(client, runId, dataDir)) {
+    if (await resumeHelperEffect(client, runId, dataDir)) {
       outcome = await client.runResume(runId, options.allowHumanInfluenced);
     }
     return await classifyOutcome(client, 'resume', outcome, base, socketPath, options);
