@@ -209,8 +209,8 @@ export class JournalClient extends EventEmitter {
   }
 
   /** §3 memoized resume. */
-  runResume(runId: string): Promise<VerbContract['run.resume']['result']> {
-    return this.request('run.resume', { run_id: runId }, null);
+  runResume(runId: string, allowHumanInfluenced = false): Promise<VerbContract['run.resume']['result']> {
+    return this.request('run.resume', { run_id: runId, ...(allowHumanInfluenced ? { allow_human_influenced: true } : {}) }, null);
   }
 
   /** Durably request cancellation and return the terminal run fact. */
@@ -367,6 +367,7 @@ export class JournalClient extends EventEmitter {
       end_pins?: Pins;
       effects?: EffectRef[];
       trajectory_tail?: unknown;
+      human_intervention?: boolean;
     } = {},
   ): Promise<VerbContract['step.complete']['result']> {
     return this.request('step.complete', {

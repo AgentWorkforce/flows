@@ -50,8 +50,8 @@ type ParsedArgs =
   | { command: 'serve-webhook'; dataDir: string; port: number }
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean }
   | { command: 'check'; json: boolean; watch: boolean; value: string }
-  | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
-  | { command: 'resume'; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
+  | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'resume'; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'observer'; dataDir: string }
   | { command: 'hn-monitor'; sub: 'start'; dataDir: string; specPath: string; pollIntervalMs: number | undefined }
   | { command: 'tick'; sub: 'start'; dataDir: string; specPath: string; scheduleId: string;
@@ -71,8 +71,8 @@ const USAGE = [
   'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
-  'flows resume [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] <run-id>',
-  'flows replay [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
+  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] <run-id>',
+  'flows replay [--allow-human-influenced] [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
   'flows observer [--data-dir <dir>]',
   'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
 ].join('\n');
@@ -183,6 +183,8 @@ export async function runCli(
   };
   const lifecycle = {
     ...(parsed.command === 'run' ? { bucket: parsed.bucket } : {}),
+    allowHumanInfluenced: parsed.allowHumanInfluenced,
+    onPtyReady: (path: string) => io.stderr(`PTY ${path}`),
     ...(parsed.command === 'run' && parsed.reuseFromRunId !== undefined ? { reuseFromRunId: parsed.reuseFromRunId } : {}),
     localAgent: parsed.command === 'run' && parsed.localAgent,
     onProgress: showProgress,
@@ -423,6 +425,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let cloud = false;
   let wait = false;
   let localAgent = false;
+  let allowHumanInfluenced = false;
   let dataDir = DEFAULT_DATA_DIR;
   let sawDataDir = false;
   let spawn = true;
@@ -438,6 +441,11 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       if (command !== 'run' || (argument === '--cloud' ? cloud : wait)) return undefined;
       if (argument === '--cloud') cloud = true;
       else wait = true;
+      continue;
+    }
+    if (argument === '--allow-human-influenced') {
+      if (command === 'check' || allowHumanInfluenced) return undefined;
+      allowHumanInfluenced = true;
       continue;
     }
     if (argument === '--local-agent') {
@@ -509,7 +517,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     // local run -- an inline input, a data dir, a suppressed daemon, a local
     // agent, a local observer-link opt-out -- describes nothing there and is
     // refused rather than ignored.
-    if (sawInput || sawDataDir || !spawn || localAgent || noObserverLink || reuseFromRunId !== undefined) return undefined;
+    if (allowHumanInfluenced || sawInput || sawDataDir || !spawn || localAgent || noObserverLink || reuseFromRunId !== undefined) return undefined;
     return { command: 'cloud-run', value: positionals[0]!, json, wait };
   }
   if (wait) return undefined;
@@ -519,8 +527,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   return command === 'check'
     ? { command, json, watch, value: positionals[0]! }
     : command === 'run'
-      ? { command, bucket, reuseFromRunId, localAgent, dataDir, input, json, spawn, noObserverLink, value: positionals[0]! }
-      : { command, dataDir, json, spawn, noObserverLink, value: positionals[0]! };
+      ? { command, bucket, reuseFromRunId, localAgent, dataDir, input, json, spawn, noObserverLink, allowHumanInfluenced, value: positionals[0]! }
+      : { command, dataDir, json, spawn, noObserverLink, allowHumanInfluenced, value: positionals[0]! };
 }
 
 function parseHnMonitorArgs(rest: readonly string[]): ParsedArgs | undefined {

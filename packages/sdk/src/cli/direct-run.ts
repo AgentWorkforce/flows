@@ -64,7 +64,7 @@ export async function runDirectFlow(
   try {
     const { handle, getDefinition } = checked.loaded;
     if (options.localAgent) {
-      localAgent = await attachLocalAgent(client);
+      localAgent = await attachLocalAgent(client, dataDir, options.onPtyReady);
       // A session owns one worker registration. Keep the workspace-free LLM
       // worker on its own connection so it cannot replace the agent worker.
       llmClient = new JournalClient(socketPath);

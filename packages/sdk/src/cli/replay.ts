@@ -8,16 +8,21 @@ export interface ReplayArgs {
   json: boolean;
   dataDir: string;
   at?: string;
+  allowHumanInfluenced?: boolean;
 }
 
 export function parseReplayArgs(args: readonly string[]): ReplayArgs | undefined {
   let json = false;
+  let allowHumanInfluenced = false;
   let dataDir: string | undefined;
   let at: string | undefined;
   const positionals: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]!;
-    if (argument === '--json') {
+    if (argument === '--allow-human-influenced') {
+      if (allowHumanInfluenced) return undefined;
+      allowHumanInfluenced = true;
+    } else if (argument === '--json') {
       if (json) return undefined;
       json = true;
     } else if (argument === '--data-dir' || argument === '--at') {
@@ -37,7 +42,7 @@ export function parseReplayArgs(args: readonly string[]): ReplayArgs | undefined
     }
   }
   if (positionals.length !== 1) return undefined;
-  return { command: 'replay', value: positionals[0]!, json, dataDir: dataDir ?? '.relayflowd', at };
+  return { allowHumanInfluenced, command: 'replay', value: positionals[0]!, json, dataDir: dataDir ?? '.relayflowd', at };
 }
 
 export async function replayJournal(args: ReplayArgs, io: CliIo): Promise<0 | 1 | 2> {
@@ -46,6 +51,10 @@ export async function replayJournal(args: ReplayArgs, io: CliIo): Promise<0 | 1 
     for await (const event of walkJournal(args.value, args.dataDir, { at: args.at })) {
       const payload = event.payload !== null && typeof event.payload === 'object' && !Array.isArray(event.payload)
         ? event.payload as Record<string, unknown> : {};
+      if (event.entry_type === 'step.completed' && payload['human_intervention'] === true && !args.allowHumanInfluenced) {
+        io.stderr(`REFUSED [human_influenced_run] step ${JSON.stringify(event.step_id)}; pass --allow-human-influenced to continue`);
+        return 2;
+      }
       io.stdout(args.json ? canonicalize({
         step_id: event.step_id,
         kind: event.entry_type,

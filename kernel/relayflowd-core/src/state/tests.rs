@@ -22,6 +22,7 @@ fn journal_replays_data_gate_verdict_without_rerunning_completed_code() {
         Some(1),
         5,
         StepCompletedPayload {
+            human_intervention: false,
             step_spec_hash: None,
             input_hash: None,
             reused_from: None,

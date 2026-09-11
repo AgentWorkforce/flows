@@ -309,3 +309,72 @@ fn a_replacement_worker_that_never_reported_the_pinned_surface_is_not_dispatched
         "an undispatchable attempt parks; it must not be marked as leased"
     );
 }
+
+#[test]
+fn human_intervention_is_durable_and_resume_requires_explicit_override() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let worker_peer = attach_llm_worker(data_dir, &hub, 91);
+    let mut reader = BufReader::new(worker_peer);
+    let (writer, _peer) = shared_writer();
+    let started = request(
+        data_dir,
+        &hub,
+        92,
+        &writer,
+        &json!({
+            "id":"start", "verb":"run.start", "params":{"spec":{"steps":[
+                {"id":"influenced","type":"llm","prompt":"hi"}
+            ]}}
+        })
+        .to_string(),
+    );
+    assert!(started.ok, "{:?}", started.error);
+    let run_id = started.result.unwrap()["run_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let dispatch = read_frame(&mut reader)["data"].clone();
+    let completed = request(
+        data_dir,
+        &hub,
+        91,
+        &writer,
+        &json!({
+            "id":"complete", "verb":"step.complete", "params":{
+                "run_id":run_id, "step_id":"influenced", "attempt":1,
+                "idempotency_key":dispatch["idempotency_key"], "completionReason":"success",
+                "output":"operator-influenced result", "human_intervention":true
+            }
+        })
+        .to_string(),
+    );
+    assert!(completed.ok, "{:?}", completed.error);
+    assert!(step_completions(data_dir, &run_id)[0].human_intervention);
+    let engine = Engine::new(data_dir);
+    let before = engine.journal_entries(&run_id, 1, usize::MAX).unwrap();
+    assert!(engine.resume(&run_id, None).is_err());
+    let refused = request(
+        data_dir,
+        &hub,
+        92,
+        &writer,
+        &json!({
+            "id":"resume", "verb":"run.resume", "params":{"run_id":run_id}
+        })
+        .to_string(),
+    );
+    let error = refused.error.unwrap();
+    assert_eq!(error.code, "human_influenced_run");
+    assert!(error.message.contains("step \"influenced\""));
+    assert_eq!(
+        engine.journal_entries(&run_id, 1, usize::MAX).unwrap(),
+        before
+    );
+    let allowed = request(data_dir, &hub, 92, &writer, &json!({
+        "id":"resume", "verb":"run.resume", "params":{"run_id":run_id,"allow_human_influenced":true}
+    }).to_string());
+    assert!(allowed.ok, "{:?}", allowed.error);
+    assert_eq!(allowed.result.unwrap()["status"], "completed");
+}

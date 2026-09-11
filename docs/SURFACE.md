@@ -561,6 +561,42 @@ flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>
 flows observer [--data-dir <dir>]
 ```
 
+### Agent sidechannel (initial byte-stream slice)
+
+Local agent workers (`flows run --local-agent`) open
+`<data-dir>/runs/<run-id>/steps/<step-id>/pty.sock` for the raw Claude/Codex
+adapters and print `PTY <path>` on stderr. SDK workers opt in with `dataDir`
+and can receive the path through `onPtyReady`. Run and step IDs come from the
+kernel dispatch, including for authored `f.agent` calls.
+
+A subscriber sends `HELLO view\n`, `HELLO drive\n`, or
+`HELLO passthrough\n`, then receives live stdout/stderr bytes. View and
+passthrough are passive. Only drive forwards subsequent bytes to child stdin.
+There is no backlog, terminal resize, or framing after the greeting. Socket
+access is restricted to the worker's OS user. Slow, malformed, excess, and
+broken subscribers are disconnected independently; absent subscribers or an
+unavailable socket do not fail a step or change its lease/deadline handling.
+
+Operator input stays off journal. Influenced output follows the usual worker
+output decoding and completion path. Any accepted drive greeting marks
+`step.completed.human_intervention: true`, even without input. Passive and
+unattached completions omit the field. The marker persists on failed attempts
+as well, and marked completions are excluded from cross-run memoization.
+
+`flows resume` refuses marked runs with exit 2 and
+`REFUSED [human_influenced_run] step "<id>"` before recovery, unless passed
+`--allow-human-influenced`. The same flag permits `flows replay` to cross a
+marked completion; replay may already have printed earlier entries when it
+refuses. `--at` can still inspect a prefix before that boundary. The flag is
+per invocation and does not clear the journal marker.
+
+**Follow-up scope:** this minimal slice forwards the existing process pipes;
+it does not yet allocate an actual terminal. True PTY/resize support,
+wrapper-session attachment, crash-safe intervention recording before a worker
+completion, and the companion `agent-relay attach --external-pty` client are
+follow-ups. Long UNIX socket paths and stale socket files disable this optional
+channel; they do not prevent agent execution.
+
 `flows observer` prints a single `https://agentrelay.com/observer?key=<ot_live_...>`
 URL to stdout using the same mint used by `flows run`. It is daemon-free: no
 socket is opened, no `relayflowd` binary is invoked, the data dir is not

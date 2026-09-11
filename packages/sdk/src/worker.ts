@@ -14,6 +14,8 @@ export interface AgentWorkerOptions {
   workerId: string;
   pins: Pins;
   capacity?: number;
+  dataDir?: string;
+  onPtyReady?: (path: string) => void;
 }
 
 /**
@@ -94,9 +96,13 @@ export class AgentWorker extends EventEmitter {
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
     const spec = dispatch.spec as Partial<KernelAgentStep>;
+    let humanIntervention = false;
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       typeof spec.cli === 'string' && typeof spec.instruction === 'string'
-        ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, spec.model, undefined, signal)
+        ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, spec.model, undefined, signal, 'agent', this.options.dataDir === undefined ? undefined : {
+          dataDir: this.options.dataDir, runId: dispatch.run_id, stepId: dispatch.step_id,
+          onReady: this.options.onPtyReady, onDrive: () => { humanIntervention = true; },
+        })
         : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
     const { result, usage } = workerSpend(completed, spec.model);
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
@@ -124,6 +130,7 @@ export class AgentWorker extends EventEmitter {
       completionReason,
       {
         output,
+        ...(humanIntervention ? { human_intervention: true } : {}),
         ...(usage !== undefined ? { usage } : {}),
         started_pins: dispatch.pins,
         end_pins: dispatch.pins,

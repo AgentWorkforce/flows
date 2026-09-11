@@ -50,6 +50,7 @@ pub enum Action {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AttemptResult {
+    pub human_intervention: bool,
     pub output: Value,
     pub budget: Budget,
     pub completed_by: String,
@@ -67,6 +68,7 @@ pub struct AttemptResult {
 impl AttemptResult {
     pub fn successful(output: Value, completed_by: impl Into<String>) -> Self {
         Self {
+            human_intervention: false,
             output,
             budget: Budget::default(),
             completed_by: completed_by.into(),
@@ -415,6 +417,7 @@ pub fn completion_actions(
         Some(attempt),
         now_ms,
         StepCompletedPayload {
+            human_intervention: result.human_intervention,
             step_spec_hash: None,
             input_hash: None,
             reused_from: None,

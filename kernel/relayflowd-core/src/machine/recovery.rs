@@ -114,6 +114,7 @@ pub fn abandonment_actions(
         Some(attempt),
         now_ms,
         StepCompletedPayload {
+            human_intervention: false,
             step_spec_hash: None,
             input_hash: None,
             reused_from: None,

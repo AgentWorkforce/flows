@@ -82,6 +82,7 @@ fn main() -> Result<()> {
                     stop_after,
                     pause_before_step,
                     pause_before_completion,
+                    ..DriveOptions::default()
                 },
             )?;
             println!("{}", serde_json::to_string(&outcome)?);

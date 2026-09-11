@@ -42,6 +42,7 @@ fn crossing_completion_is_durable_and_next_step_is_refused() {
             &started.run_id,
             "first",
             OutOfBandCompletion {
+                human_intervention: false,
                 attempt: d.attempt,
                 idempotency_key: d.idempotency_key,
                 completion_reason: CompletionReason::Success,

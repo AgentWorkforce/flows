@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /Users/khaliqgant/flows-spec-Q-sidechannel/packages/sdk
+
+ ✓ tests/cli.test.ts (64 tests | 63 skipped) 8ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 63 skipped (64)
+   Start at  20:32:05
+   Duration  1.18s (transform 450ms, setup 0ms, collect 792ms, tests 8ms, environment 0ms, prepare 71ms)
+

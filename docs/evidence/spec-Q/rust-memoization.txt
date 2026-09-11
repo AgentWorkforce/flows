@@ -1,0 +1,38 @@
+   Compiling syn v3.0.4
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling thiserror-impl v2.0.20
+   Compiling ref-cast v1.0.27
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling thiserror v2.0.20
+   Compiling serde v1.0.229
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_provider v2.3.1
+   Compiling ahash v0.8.12
+   Compiling fluent-uri v0.3.2
+   Compiling email_address v0.2.9
+   Compiling ulid v1.2.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling referencing v0.33.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling jsonschema v0.33.0
+   Compiling relayflowd-core v0.1.0 (/Users/khaliqgant/flows-spec-Q-sidechannel/kernel/relayflowd-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.60s
+     Running tests/memoization.rs (/Users/khaliqgant/.relayflows-toolchain/target/3923540030/debug/deps/memoization-3560adb32830fb1c)
+
+running 4 tests
+test distinct_large_kernel_integers_do_not_alias_through_float_rounding ... ok
+test match_reuses_output_with_provenance_and_zero_cost_without_dispatch ... ok
+test changed_spec_or_input_dispatches_and_legacy_or_failed_records_miss ... ok
+test canonical_corpus_agrees_with_typescript_and_key_permutations ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

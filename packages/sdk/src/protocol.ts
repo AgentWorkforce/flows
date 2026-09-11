@@ -98,6 +98,7 @@ export interface RunOutcome {
 export type RunStartResult = RunOutcome;
 
 export interface RunResumeParams {
+  allow_human_influenced?: boolean;
   run_id: string;
 }
 export type RunResumeResult = RunOutcome;
@@ -297,6 +298,7 @@ export interface EffectConfirmResult {
 }
 
 export interface StepCompleteParams {
+  human_intervention?: boolean;
   run_id: string;
   step_id: string;
   attempt: number;

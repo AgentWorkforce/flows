@@ -13,6 +13,21 @@ use sha2::{Digest, Sha256};
 use ulid::Ulid;
 
 #[derive(Debug)]
+pub struct HumanInfluencedRun {
+    pub step_id: String,
+}
+impl std::fmt::Display for HumanInfluencedRun {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "step {:?}; pass --allow-human-influenced to continue",
+            self.step_id
+        )
+    }
+}
+impl std::error::Error for HumanInfluencedRun {}
+
+#[derive(Debug)]
 pub struct RunTerminalError {
     pub run_id: String,
 }
@@ -52,6 +67,7 @@ pub use wake::EventSubmitOutcome;
 #[derive(Debug, Clone, Default)]
 #[doc(hidden)]
 pub struct DriveOptions {
+    pub allow_human_influenced: bool,
     pub stop_after: Option<usize>,
     /// Test/debug hook: pause immediately before this runnable step starts.
     pub pause_before_step: Option<String>,
@@ -243,6 +259,22 @@ impl<C: Clock> Engine<C> {
         lease_is_active: &dyn Fn(&str, u32) -> bool,
     ) -> Result<RunOutcome> {
         let mut journal = self.open_run(run_id)?;
+        if !options.allow_human_influenced {
+            for entry in journal.scan_all()? {
+                if entry.entry_type == EntryType::StepCompleted
+                    && entry
+                        .payload
+                        .get("human_intervention")
+                        .and_then(serde_json::Value::as_bool)
+                        == Some(true)
+                {
+                    return Err(HumanInfluencedRun {
+                        step_id: entry.step_id.unwrap_or_default(),
+                    }
+                    .into());
+                }
+            }
+        }
         let registry = self.registry()?;
         if registry.lookup(run_id)?.is_none() {
             registry
