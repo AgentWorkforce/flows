@@ -3,11 +3,13 @@
 
 import type { SlackHelper as RuntimeSlackHelper } from "../slack.js";
 
+/** Generated from the pinned Slack OpenAPI fragments in scripts/slack-message-schema.json. */
+export type SlackBlock = { type: string; [key: string]: unknown; };
+export type SlackAttachment = { [key: string]: unknown; };
+
 /** Adapter argument shapes over the journal-backed Slack dispatcher. */
 export interface SlackHelper {
-  post(channel: string, text: string, opts?: {
-      replyTo?: string;
-  }): ReturnType<RuntimeSlackHelper["post"]>;
+  post(...args: Parameters<RuntimeSlackHelper["post"]>): ReturnType<RuntimeSlackHelper["post"]>;
   dm(user: string, text: string): ReturnType<RuntimeSlackHelper["dm"]>;
   reply(channel: string, threadTs: string, text: string): ReturnType<RuntimeSlackHelper["reply"]>;
   react(channel: string, messageTs: string, emoji: string): ReturnType<RuntimeSlackHelper["react"]>;

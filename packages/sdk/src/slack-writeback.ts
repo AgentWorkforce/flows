@@ -2,13 +2,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, rename } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { slackClient } from '@relayfile/relay-helpers';
-import { flowRunWritebackIdempotency } from '@relayflows/surface';
+import { flowRunWritebackIdempotency, type SlackHelper } from '@relayflows/surface';
+import { slackPostBody } from '@relayflows/surface/runtime';
 import type { RelayTransport } from '@relayfile/relay-helpers/transport';
 import { writeJsonFile, type WritebackResult } from '@relayfile/adapter-core/vfs-client';
 import { slackMount } from './slack-preflight.js';
 
 export type SlackCall =
-  | { type: 'effect'; provider: 'slack'; verb: 'post'; params: { channel: string; text: string; opts?: { replyTo?: string } } }
+  | { type: 'effect'; provider: 'slack'; verb: 'post'; params: { channel: string; text: Parameters<SlackHelper['post']>[1]; opts?: Parameters<SlackHelper['post']>[2] } }
   | { type: 'effect'; provider: 'slack'; verb: 'dm'; params: { user: string; text: string } }
   | { type: 'effect'; provider: 'slack'; verb: 'reply'; params: { channel: string; threadTs: string; text: string } }
   | { type: 'effect'; provider: 'slack'; verb: 'react'; params: { channel: string; messageTs: string; emoji: string } };
@@ -39,7 +40,12 @@ export async function slackWriteback(
     async list() { throw new Error('Slack effect transport is write-only'); },
     async write(request) {
       signal.throwIfAborted();
-      const body: Record<string, unknown> = { ...request.body as Record<string, unknown>, idempotencyKey };
+      // The pinned adapter's ergonomic post accepts text only. Preserve structured
+      // content at its transport boundary, retaining its paths and receipt handling.
+      const content = call.verb === 'post'
+        ? slackPostBody(call.params.text, call.params.opts)
+        : request.body as Record<string, unknown>;
+      const body: Record<string, unknown> = { ...content, idempotencyKey };
       const stamped = { ...request, body };
       const draft = `${request.path}/draft-${createHash('sha256').update(idempotencyKey).digest('hex')}.json`;
       if (process.env.RELAYFLOWS_SLACK_MOCK === '1') {
@@ -66,7 +72,8 @@ export async function slackWriteback(
   };
   const client = slackClient({ transport });
   switch (call.verb) {
-    case 'post': return client.post(call.params.channel, call.params.text, call.params.opts);
+    case 'post': return client.post(call.params.channel,
+      typeof call.params.text === 'string' ? call.params.text : call.params.text.text ?? '', call.params.opts);
     case 'dm': return client.dm(call.params.user, call.params.text);
     case 'reply': return { ...await client.reply(call.params.channel, call.params.threadTs, call.params.text), ref: deliveredRef };
     case 'react': await client.react(call.params.channel, call.params.messageTs, call.params.emoji); return null;

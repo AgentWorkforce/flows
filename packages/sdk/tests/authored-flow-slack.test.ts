@@ -67,6 +67,36 @@ function mockFiles(dataDir: string): string[] {
 }
 
 describe('authored Slack helper effects', () => {
+  it('snapshots structured posts into the journal and delivers the same Block Kit body', async () => {
+    vi.stubEnv('RELAYFLOWS_SLACK_MOCK', '1');
+    const dataDir = temporary();
+    const { client } = await start(dataDir);
+    const blocks = [{ type: 'section', text: { type: 'mrkdwn', text: '*Release*' } }];
+    const attachments = [{ color: '#36a64f', fallback: 'Release', blocks }];
+    const message = { text: 'Release', blocks, attachments };
+    const expected = structuredClone(message);
+    const result = await executeAuthoredFlow(flow('slack-block-kit', async f => {
+      const post = f.slack.post('C1', message, { replyTo: 'parent-ref' });
+      blocks[0]!.text.text = 'mutated after scheduling';
+      attachments.push({ color: '#ff0000', fallback: 'later', blocks: [] });
+      // Postfix .gate(callback) is spec-deferred (SURFACE §6); await the
+      // step directly and assert the receipt shape from the resolved value.
+      const receipt = await post;
+      expect(receipt.channel).toBe('C1');
+      f.done('success');
+    }), client, undefined, { dataDir });
+    const step = result.journalSteps[0]!;
+    const entries = (await client.journalRead(step.runId, 1)).entries as any[];
+    const completed = entries.filter(entry => entry.entry_type === 'step.completed');
+    expect(completed).toHaveLength(1);
+    expect(completed[0]).toMatchObject({ payload: { completionReason: 'success', output: {
+      params: { channel: 'C1', text: expected, opts: { replyTo: 'parent-ref' } },
+    } } });
+    expect(entries.filter(entry => entry.entry_type === 'effect.confirmed')).toHaveLength(1);
+    const written = JSON.parse(readFileSync(join(dataDir, 'mock-writeback/slack', `${step.id}.json`), 'utf8'));
+    expect(written.request.body).toEqual({ ...expected, parentRef: 'parent-ref', idempotencyKey: `${step.runId}:${step.id}` });
+  });
+
   it('journals exactly one effect with the authored params and typed receipt, without network', async () => {
     vi.stubEnv('RELAYFLOWS_SLACK_MOCK', '1');
     const network = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network forbidden'));

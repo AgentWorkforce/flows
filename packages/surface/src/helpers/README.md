@@ -6,6 +6,22 @@ inside this package). This repository has no root npm workspace, so
 This minimal slice ships Slack's four existing journal-backed methods. Argument
 shapes come from the pinned `@relayfile/relay-helpers` declaration; return types
 come from the existing surface dispatcher contract, including `reply`'s `ref`.
+`post` extends that contract with a structured second argument (`text`, `blocks`,
+`attachments`) or `blocks`/`attachments` in its third options argument. Options
+take precedence when both forms provide the same field. `replyTo` still maps to
+the adapter's `parentRef`; no interaction callback registration is added.
+
+The pinned relay-helpers 0.4.11 package does **not** export Block Kit/OpenAPI
+types. Until it does, `scripts/slack-message-schema.json` vendors the small
+fragments used by the generator, with their upstream URL and JSON pointers.
+Slack's published OpenAPI schema requires a string `type` on blocks but leaves
+their other fields open. Attachment objects are likewise open (the generic
+chat.update message schema is used; chat.postMessage's response attachment
+schema requires a server-assigned `id`, unsuitable for authoring).
+These types do not validate individual block layouts or interaction handlers.
+The SDK preserves structured content at the adapter transport boundary because
+the pinned adapter's ergonomic `post` still accepts only text.
+
 `Ctx` extends the generated `Helpers` namespace map. A union of namespace maps
 would make only their common properties accessible, so composition uses an
 interface instead.
