@@ -6,7 +6,7 @@ export interface FlowHeader {
   use?: string[];
   identity?: string;
   memory?: { script?: boolean; agent?: boolean };
-  budget?: string;
+  budget?: string | { tokens?: number; dollars?: number; wallclock?: string };
   tools?: { slack?: boolean; relayfile?: string[]; mcp?: string[] };
   workspace?: string;
 }
@@ -17,7 +17,7 @@ export interface ReadonlyFlowHeader {
   readonly use?: readonly string[];
   readonly identity?: string;
   readonly memory?: Readonly<{ script?: boolean; agent?: boolean }>;
-  readonly budget?: string;
+  readonly budget?: string | Readonly<{ tokens?: number; dollars?: number; wallclock?: string }>;
   readonly tools?: Readonly<{
     slack?: boolean;
     relayfile?: readonly string[];
@@ -146,7 +146,7 @@ function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
     ...(header.use === undefined ? {} : { use: Object.freeze([...header.use]) }),
     ...(header.identity === undefined ? {} : { identity: header.identity }),
     ...(memory === undefined ? {} : { memory }),
-    ...(header.budget === undefined ? {} : { budget: header.budget }),
+    ...(header.budget === undefined ? {} : { budget: typeof header.budget === "string" ? header.budget : Object.freeze({ ...header.budget }) }),
     ...(tools === undefined ? {} : { tools }),
     ...(header.workspace === undefined ? {} : { workspace: header.workspace }),
   });
@@ -161,7 +161,14 @@ function assertFlowHeader(value: unknown, flowName: string): asserts value is Fl
     at,
   );
   assertOptionalString(value, "identity", at);
-  assertOptionalString(value, "budget", at);
+  if (value.budget !== undefined && typeof value.budget !== "string") {
+    assertHeaderObject(value.budget, `${at}.budget`);
+    assertKnownKeys(value.budget, ["tokens", "dollars", "wallclock"], `${at}.budget`);
+    assertOptionalString(value.budget, "wallclock", at);
+    for (const key of ["tokens", "dollars"]) {
+      if (value.budget[key] !== undefined && typeof value.budget[key] !== "number") throw new TypeError(`budget_syntax_invalid: ${key} must be a number`);
+    }
+  }
   assertOptionalString(value, "workspace", at);
   assertOptionalStringArray(value, "use", at);
   if (value.use !== undefined) {

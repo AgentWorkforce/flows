@@ -1,4 +1,4 @@
-use super::{RunState, StateError, budget::add_budget, decode};
+use super::{RunState, StateError, decode};
 use crate::{JournalEntry, MemoryInjectedPayload, StepState};
 
 impl RunState {
@@ -43,9 +43,7 @@ impl RunState {
                 detail: "memory must be injected once by an active attempt".into(),
             });
         }
-        let mut total = self.budget.clone();
-        add_budget(&mut total, &payload.budget)?;
-        self.budget = total;
+        self.charge_budget(&payload.budget, 0, entry.at_ms)?;
         self.steps.get_mut(step_id).expect("validated step").memory = Some(payload);
         Ok(())
     }

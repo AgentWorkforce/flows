@@ -15,6 +15,7 @@
 // `tests/spec_parity.rs` pin both sides to the same `testdata/` fixture.
 
 import { parse as parseYaml } from 'yaml';
+import { parseBudget, toKernelBudget } from './budget.js';
 import { bindingDependencies } from './input-binding.js';
 import type {
   AgentStepSpec,
@@ -53,7 +54,7 @@ export class CompileError extends Error {
  * Compile a YAML string into a validated authoring `FlowSpec`.
  * Throws `CompileError` on a YAML parse error or any validation failure.
  */
-export function compileYaml(yaml: string): FlowSpec {
+export function compileYaml(yaml: string): CompiledFlowSpec {
   const parsed = parseYaml(yaml);
   if (parsed === null || typeof parsed !== 'object') {
     throw new CompileError(['YAML: expected a mapping at the top level']);
@@ -70,7 +71,9 @@ export function compileYamlToCanonicalJson(yaml: string): string {
  * Validate a parsed spec object and apply authoring defaults, returning a
  * normalized `FlowSpec`. Throws `CompileError` on validation failure.
  */
-export function compileSpec(spec: unknown): FlowSpec {
+export type CompiledFlowSpec = Omit<FlowSpec, 'budget'> & { budget?: import('./spec.js').BudgetSpec };
+
+export function compileSpec(spec: unknown): CompiledFlowSpec {
   let snapshot: unknown;
   try {
     snapshot = snapshotJsonValue(spec, 'spec');
@@ -79,15 +82,18 @@ export function compileSpec(spec: unknown): FlowSpec {
       error instanceof Error ? error.message : 'spec: expected JSON-compatible data',
     ]);
   }
+  if (snapshot !== null && typeof snapshot === 'object' && !Array.isArray(snapshot) && 'budget' in snapshot && snapshot.budget !== undefined) {
+    snapshot = { ...snapshot, budget: parseBudget(snapshot.budget) };
+  }
   const validation: ValidationResult = validateSpec(snapshot);
   if (!validation.ok) throw new CompileError(validation.errors);
 
-  const input = snapshot as FlowSpec;
+  const input = snapshot as CompiledFlowSpec;
   // Preserve named declarations and selectors through authoring normalization.
   // They are resolved exactly once at the kernel boundary, after public
   // preflight has validated every declaration with truthful provenance.
   const steps = input.steps.map(compileStep);
-  const flow: FlowSpec = {
+  const flow: CompiledFlowSpec = {
     version: input.version,
     ...(input.name !== undefined ? { name: input.name } : {}),
     ...(input.description !== undefined ? { description: input.description } : {}),
@@ -256,15 +262,7 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
     // look correct. See ops/reviews/20260903-pr139-repair-0903.md section 10.
     ...(compiled.triggers?.length ? { triggers: compiled.triggers.map(toKernelTrigger) } : {}),
     steps: compiled.steps.map((step) => toKernelStep(resolveNamedAgent(step, compiled.agents))),
-    ...(compiled.budget !== undefined
-      ? {
-          budget: {
-            ...(compiled.budget.maxTokensIn !== undefined ? { max_tokens_in: compiled.budget.maxTokensIn } : {}),
-            ...(compiled.budget.maxTokensOut !== undefined ? { max_tokens_out: compiled.budget.maxTokensOut } : {}),
-            ...(compiled.budget.maxDollars !== undefined ? { max_dollars: compiled.budget.maxDollars } : {}),
-          },
-        }
-      : {}),
+    ...(compiled.budget !== undefined ? { budget: toKernelBudget(compiled.budget) } : {}),
   };
 }
 
@@ -451,8 +449,12 @@ function kernelMemoryToAuthoring(value: unknown, at: string): unknown {
 }
 
 function kernelBudgetToAuthoring(value: unknown, at: string): unknown {
-  const budget = requireKernelObject(value, ['max_tokens_in', 'max_tokens_out', 'max_dollars'], at);
+  const budget = requireKernelObject(value, ['max_tokens_in', 'max_tokens_out', 'max_dollars', 'max_tokens', 'max_wallclock_ms', 'window', 'pricing'], at);
   return {
+    ...(budget['pricing'] !== undefined ? { pricing: budget['pricing'] } : {}),
+    ...(budget['max_tokens'] !== undefined ? { maxTokens: budget['max_tokens'] } : {}),
+    ...(budget['max_wallclock_ms'] !== undefined ? { maxWallclockMs: budget['max_wallclock_ms'] } : {}),
+    ...(budget['window'] !== undefined ? { window: budget['window'] } : {}),
     ...(budget['max_tokens_in'] !== undefined ? { maxTokensIn: budget['max_tokens_in'] } : {}),
     ...(budget['max_tokens_out'] !== undefined ? { maxTokensOut: budget['max_tokens_out'] } : {}),
     ...(budget['max_dollars'] !== undefined ? { maxDollars: budget['max_dollars'] } : {}),

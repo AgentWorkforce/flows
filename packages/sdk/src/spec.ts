@@ -100,6 +100,11 @@ export interface PermissionsSpec {
  * are integers.
  */
 export interface BudgetSpec {
+  /** Set when normalizing the surface budget header. Legacy explicit envelopes accept worker-supplied prices. */
+  pricing?: 'frozen';
+  maxTokens?: number;
+  maxWallclockMs?: number;
+  window?: 'day';
   maxTokensIn?: number;
   maxTokensOut?: number;
   /** Decimal string, e.g. "1.50". */
@@ -288,7 +293,7 @@ export interface FlowSpec {
   /** Declarations checked by preflight; gate 1 never dispatches them. */
   triggers?: TriggerSpec[];
   steps: StepSpec[];
-  budget?: BudgetSpec;
+  budget?: BudgetSpec | import('./budget.js').HeaderBudget;
 }
 
 /** Current spec schema version emitted by this SDK. */
@@ -370,6 +375,11 @@ export interface KernelAgentStep extends KernelStepCommon {
 export type KernelStepSpec = KernelDeterministicStep | KernelLlmStep | KernelAgentStep;
 
 export interface KernelBudgetSpec {
+  pricing?: 'frozen';
+  prior_spend?: { tokens_in: number; tokens_out: number; dollars: string; wallclock_ms: number; day?: number };
+  max_tokens?: number;
+  max_wallclock_ms?: number;
+  window?: 'day';
   max_tokens_in?: number;
   max_tokens_out?: number;
   max_dollars?: string;

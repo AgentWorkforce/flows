@@ -6,6 +6,8 @@ import type {
 export type AuthoredFlowExecutionErrorCode =
   | 'helper_slack.credential_missing'
   | 'helper_slack.mount_required'
+  | 'budget_syntax_invalid'
+  | 'budget_missing_price'
   | 'agent_cli_unresolved'
   | 'agent_parked'
   | 'llm_cli_unresolved'

@@ -32,6 +32,11 @@ pub struct MemoryInjectedPayload {
 
 impl MemorySpec {
     pub fn validate(&self) -> Result<(), String> {
+        if self.budget.pricing.is_some() || self.budget.prior_spend.is_some()
+            || self.budget.max_tokens.is_some() || self.budget.max_wallclock_ms.is_some()
+            || self.budget.window.is_some() {
+            return Err("memory budgets accept only max_tokens_in, max_tokens_out, max_dollars".into());
+        }
         if self.query.trim().is_empty() {
             return Err("query must be a non-empty string".into());
         }
@@ -73,7 +78,7 @@ impl MemorySpec {
     }
 }
 
-fn valid_decimal(value: &str) -> bool {
+pub fn valid_decimal(value: &str) -> bool {
     let (whole, fraction) = value
         .split_once('.')
         .map_or((value, None), |(w, f)| (w, Some(f)));
@@ -83,7 +88,7 @@ fn valid_decimal(value: &str) -> bool {
 }
 
 /// Exact decimal comparison without floating point or fixed-width scaling.
-fn decimal_cmp(left: &str, right: &str) -> Ordering {
+pub(crate) fn decimal_cmp(left: &str, right: &str) -> Ordering {
     let parts = |value: &str| {
         let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
         (

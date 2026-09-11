@@ -87,7 +87,7 @@ No process runs between events: the handler wakes, executes to its next await, p
    [the generator notes](../packages/surface/src/helpers/README.md).
 
 4. **`{{prev}}` / return-value chaining.** Output flows downward implicitly; naming steps is for reaching back, not bookkeeping.
-5. **Headers are optional escalation.** identity, memory, budget, tools appear only when used. The empty header is the common case.
+5. **Headers are optional escalation.** identity, memory, budget, tools appear only when used. The empty header is the common case. [Budget headers and spend](BUDGET.md) specifies parsing, prices, journal attribution, and admission limits.
 6. **Agent definitions escalate by composition** — and a reusable agent *is* a flow:
    ```yaml
    - agent: Review this diff for security issues.        # 1. anonymous

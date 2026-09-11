@@ -1,5 +1,7 @@
 import type { FlowSpec, StepSpec, TriggerSpec, McpServerConfig } from './spec.js';
 import { McpError, openMcpSession, type McpDiagnostic } from './mcp-client.js';
+import { BudgetSyntaxError } from './budget.js';
+import { budgetDiagnostics } from './budget-preflight.js';
 import { acceptsAnyOutput, inspectStepGate, type StepGateInspection } from './gate-contract.js';
 import { compileSpec, CompileError } from './compile.js';
 import type {
@@ -112,7 +114,7 @@ export interface PreflightResult {
 export function preflight(flow: FlowSpec, options: PreflightOptions & { mcpServers: readonly string[] }): Promise<PreflightResult>;
 export function preflight(flow: FlowSpec, options: PreflightOptions & { mcpServers?: undefined }): PreflightResult;
 export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightResult | Promise<PreflightResult>;
-export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightResult | Promise<PreflightResult> {
+export function preflight(flow: unknown, options: PreflightOptions): PreflightResult | Promise<PreflightResult> {
   const result = preflightSync(flow, options);
   if (options.mcpServers === undefined) return result;
   return probeMcp(result, options);
@@ -135,7 +137,7 @@ async function probeMcp(result: PreflightResult, options: PreflightOptions): Pro
   return { ...result, ok: !result.diagnostics.some(d => d.severity === 'refusal'), mcpTools: Object.freeze(inventory) };
 }
 
-function preflightSync(flow: FlowSpec, options: PreflightOptions): PreflightResult {
+function preflightSync(flow: unknown, options: PreflightOptions): PreflightResult {
   // Compile before touching any environment fact. `compileSpec` snapshots raw
   // input into inert data, validates it against the closed authoring schema,
   // and lowers `output` sugar into its json_schema gate — so the gate plan
@@ -143,7 +145,7 @@ function preflightSync(flow: FlowSpec, options: PreflightOptions): PreflightResu
   // inspection ever reads a live accessor. The failure is a named refusal
   // rather than a thrown error (RFC covenant 2), which is the contract main
   // settled for this boundary.
-  let compiled: FlowSpec;
+  let compiled: import('./compile.js').CompiledFlowSpec;
   try {
     compiled = compileSpec(flow);
   } catch (error) {
@@ -156,7 +158,7 @@ function preflightSync(flow: FlowSpec, options: PreflightOptions): PreflightResu
       resolutions: [],
       diagnostics: [{
         severity: 'refusal',
-        kind: 'invalid_spec',
+        kind: error instanceof BudgetSyntaxError ? 'budget_syntax_invalid' : 'invalid_spec',
         message: `Relayflow spec is invalid: ${errors.join('; ')}`,
         errors,
       }],
@@ -168,11 +170,12 @@ function preflightSync(flow: FlowSpec, options: PreflightOptions): PreflightResu
   const cliProbeResults = new Map<string, CliProbeOutcome>();
 
   diagnostics.push(...unknownModelDiagnostics(compiled, options));
-  for (const server of new Set(options.mcpServers)) {
+  for (const server of new Set(options.mcpServers ?? [])) {
     if (options.mcp !== undefined && Object.hasOwn(options.mcp, server)) continue;
     diagnostics.push({ severity: 'refusal', kind: 'mcp_undeclared_server', server,
       message: `MCP server "${server}" is not declared in the nearest flows.json mcp map.` });
   }
+  diagnostics.push(...budgetDiagnostics(compiled));
   // Resolve the complete flow before touching any environment fact. A later
   // statically unresolved CLI makes the whole submission impossible, so no
   // earlier command, provider/model, or trigger probe may run first.

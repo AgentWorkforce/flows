@@ -1,0 +1,9 @@
+
+ RUN  v2.1.9 /Users/khaliqgant/flows-spec-G-budget/packages/surface
+
+ ✓ tests/flow.test.ts (7 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  10:30:40
+   Duration  228ms (transform 21ms, setup 0ms, collect 21ms, tests 3ms, environment 0ms, prepare 32ms)
