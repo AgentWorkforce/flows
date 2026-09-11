@@ -13,7 +13,7 @@ stdout/stderr. The final commands exited 0.
   skipped. The failure was the existing real-Claude analyzer readiness check.
   The final run uses that test's documented `RELAYFLOWS_ALLOW_ANALYZER_SKIP=1`
   non-gate option; this is not gate-2 acceptance evidence. The other three skips
-  belong to the existing opt-in live local-agent suite.
+  belong to the existing opt-in `real-cli-adapters.test.ts` suite.
 
 The live `twenty-six-step` case first fails at step 26, edits that command,
 then asserts `25 reused, 1 executed`. A durable marker remains at 25 writes.
