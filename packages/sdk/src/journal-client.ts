@@ -74,6 +74,13 @@ export class JournalClient extends EventEmitter {
     this.connectTimeoutMs = options.connectTimeoutMs ?? 2_000;
   }
 
+  /** Independent session for an SDK helper worker; preserves the caller's registration. */
+  createPeer(): JournalClient {
+    return new JournalClient(this.socketPath, {
+      requestTimeoutMs: this.requestTimeoutMs, connectTimeoutMs: this.connectTimeoutMs,
+    });
+  }
+
   /** Open the unix socket connection. Rejects on connect failure (fail-closed). */
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {

@@ -4,6 +4,8 @@ const SHARED_SPEC_FAILURE_KINDS = ['invalid_spec'] as const;
 const PREFLIGHT_ENVIRONMENT_FAILURE_KINDS = [
   'helper_slack.credential_missing',
   'helper_slack.mount_required',
+  'mcp_undeclared_server',
+  'mcp_unreachable',
   'cli_missing',
   'cli_unauthenticated',
   'cli_unresolved',

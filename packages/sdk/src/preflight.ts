@@ -1,4 +1,5 @@
-import type { FlowSpec, StepSpec, TriggerSpec } from './spec.js';
+import type { FlowSpec, StepSpec, TriggerSpec, McpServerConfig } from './spec.js';
+import { McpError, openMcpSession, type McpDiagnostic } from './mcp-client.js';
 import { acceptsAnyOutput, inspectStepGate, type StepGateInspection } from './gate-contract.js';
 import { compileSpec, CompileError } from './compile.js';
 import type {
@@ -60,6 +61,9 @@ export interface PreflightProbes {
 }
 
 export interface PreflightOptions {
+  /** Validated tools.mcp header and nearest flows.json connections. */
+  mcpServers?: readonly string[];
+  mcp?: Readonly<Record<string, McpServerConfig>>;
   projectCli?: string;
   projectConfigPath?: string;
   projectSearchStart?: string;
@@ -70,6 +74,8 @@ export interface PreflightOptions {
 }
 
 export interface PreflightRefusal {
+  server?: string;
+  cause?: McpDiagnostic;
   severity: 'refusal';
   kind: PreflightFailureKind;
   message: string;
@@ -94,13 +100,42 @@ export interface PreflightWarning {
 export type PreflightDiagnostic = PreflightRefusal | PreflightWarning;
 
 export interface PreflightResult {
+  mcpTools?: Readonly<Record<string, readonly string[]>>;
   ok: boolean;
   gates: StepGateInspection[];
   resolutions: CliResolution[];
   diagnostics: PreflightDiagnostic[];
 }
 
-export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightResult {
+// Preserve the synchronous declarative API; an authored MCP declaration opts
+// into asynchronous connection probes after the same pure refusal pass.
+export function preflight(flow: FlowSpec, options: PreflightOptions & { mcpServers: readonly string[] }): Promise<PreflightResult>;
+export function preflight(flow: FlowSpec, options: PreflightOptions & { mcpServers?: undefined }): PreflightResult;
+export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightResult | Promise<PreflightResult>;
+export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightResult | Promise<PreflightResult> {
+  const result = preflightSync(flow, options);
+  if (options.mcpServers === undefined) return result;
+  return probeMcp(result, options);
+}
+
+async function probeMcp(result: PreflightResult, options: PreflightOptions): Promise<PreflightResult> {
+  if (!result.ok) return result;
+  const inventory: Record<string, readonly string[]> = Object.create(null);
+  for (const server of new Set(options.mcpServers)) {
+    try {
+      const session = await openMcpSession(options.mcp![server]!, 10_000);
+      try { inventory[server] = Object.freeze(await session.listTools()); }
+      finally { await session.close(); }
+    } catch (error) {
+      const cause = error instanceof McpError ? error.code : 'handshake_rejected';
+      result.diagnostics.push({ severity: 'refusal', kind: 'mcp_unreachable', server, cause,
+        message: `MCP server "${server}" is unreachable: ${cause}.` });
+    }
+  }
+  return { ...result, ok: !result.diagnostics.some(d => d.severity === 'refusal'), mcpTools: Object.freeze(inventory) };
+}
+
+function preflightSync(flow: FlowSpec, options: PreflightOptions): PreflightResult {
   // Compile before touching any environment fact. `compileSpec` snapshots raw
   // input into inert data, validates it against the closed authoring schema,
   // and lowers `output` sugar into its json_schema gate — so the gate plan
@@ -133,6 +168,11 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
   const cliProbeResults = new Map<string, CliProbeOutcome>();
 
   diagnostics.push(...unknownModelDiagnostics(compiled, options));
+  for (const server of new Set(options.mcpServers)) {
+    if (options.mcp !== undefined && Object.hasOwn(options.mcp, server)) continue;
+    diagnostics.push({ severity: 'refusal', kind: 'mcp_undeclared_server', server,
+      message: `MCP server "${server}" is not declared in the nearest flows.json mcp map.` });
+  }
   // Resolve the complete flow before touching any environment fact. A later
   // statically unresolved CLI makes the whole submission impossible, so no
   // earlier command, provider/model, or trigger probe may run first.

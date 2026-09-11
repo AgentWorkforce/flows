@@ -67,6 +67,17 @@ No process runs between events: the handler wakes, executes to its next await, p
    - `f.memory` — relayhistory: `f.memory.recall(query)`, `f.memory.why(task)`, `f.memory.learn(finding)`.
    - auth — relayauth: never called directly; `workspace:` / `tools:` declarations compile to path-scoped tokens ("the filesystem paths *are* the permissions").
    - `f.mcp` — one line to declare (`tools: { mcp: [stripe] }`), one call to use (`f.mcp.stripe.create_invoice({...})`). Preflight connects to every declared server before the run starts.
+   The first shipping slice supports stdio subprocess servers and http
+   endpoints, discovered via a `mcp` map in `flows.json`. Tool inventory is
+   captured at preflight and cached for the run; a call to an unknown tool
+   name at runtime is `mcp_unknown_tool`. See flows#302.
+   Helpers retain the closed kernel vocabulary: the SDK lowers each call to
+   an agent effect step. Its completed output is an MCP receipt containing
+   `type: "mcp"`, server, tool, input, output, and the argument-derived
+   idempotency key. The effect protocol uses the kernel-issued attempt key;
+   failed calls retain their MCP diagnostic in `trajectory_tail` and complete
+   with `worker_error`.
+
 4. **`{{prev}}` / return-value chaining.** Output flows downward implicitly; naming steps is for reaching back, not bookkeeping.
 5. **Headers are optional escalation.** identity, memory, budget, tools appear only when used. The empty header is the common case.
 6. **Agent definitions escalate by composition** — and a reusable agent *is* a flow:
@@ -192,7 +203,7 @@ No process runs between events: the handler wakes, executes to its next await, p
    deterministic-command preflight gap.” Consequently, `cli_missing` applies
    to declared `llm` and `agent` CLIs, not deterministic command words.
 
-   **Project-config discovery:** starting in the flow file's directory, `flows check` walks parent directories through the filesystem root and selects the first readable `flows.json`. That nearest file is the whole project config; it is not merged with outer files. Its schema is `{ "cli"?: <non-empty string>, "executors"?: <non-empty string>[], "models"?: <trimmed model string>[] }`; unknown keys, malformed model entries, and duplicates fail closed as `config_invalid`. A nearer config therefore defines a self-contained nested project boundary and prevents accidental inheritance of outer credentials, executors, or model approvals. The selected path is printed with project-level resolutions and named in refusals; if it declares no `cli` or models, outer configs remain shadowed. At gate 1, a trigger executor is considered registered only when its name is present in this author-written `executors` array; `flows check` does not yet contact a registry, broker, or RelayCron, and absence is `no_executor`.
+   **Project-config discovery:** starting in the flow file's directory, `flows check` walks parent directories through the filesystem root and selects the first readable `flows.json`. That nearest file is the whole project config; it is not merged with outer files. Its schema is `{ "cli"?: <non-empty string>, "executors"?: <non-empty string>[], "models"?: <trimmed model string>[], "mcp"?: <server map> }`; unknown keys, malformed model entries, and duplicates fail closed as `config_invalid`. A nearer config therefore defines a self-contained nested project boundary and prevents accidental inheritance of outer credentials, executors, or model approvals. The selected path is printed with project-level resolutions and named in refusals; if it declares no `cli` or models, outer configs remain shadowed. At gate 1, a trigger executor is considered registered only when its name is present in this author-written `executors` array; `flows check` does not yet contact a registry, broker, or RelayCron, and absence is `no_executor`.
 
    Implementation status for issue #132: this named-agent contract currently
    ships in the canonical declarative YAML/JSON compiler. Matching

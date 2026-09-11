@@ -1,3 +1,5 @@
+import { McpStepError } from '../authored-mcp.js';
+import { McpPreflightError } from './check-typescript.js';
 import { attachLocalAgent } from '../local-agent.js';
 import { LlmWorker } from '../llm-worker.js';
 import {
@@ -90,6 +92,16 @@ export async function runDirectFlow(
       },
     };
   } catch (caught) {
+    if (caught instanceof McpPreflightError) return {
+      exitCode: 2, report: fromCheckReport('run', caught.report),
+    };
+    if (caught instanceof McpStepError) return {
+      exitCode: 1,
+      report: { ...base, ok: false, runId: caught.runId, socketPath,
+        status: 'failed', completionReason: 'step_failed',
+        diagnostics: [...base.diagnostics, { severity: 'failure', kind: 'step_failed', message: caught.message }],
+      },
+    };
     // Preserve authored classifications/run IDs; use the worker's cause only
     // when its connection teardown left a generic transport error.
     const error = caught instanceof AuthoredFlowExecutionError || caught instanceof AuthoredFlowLoadError

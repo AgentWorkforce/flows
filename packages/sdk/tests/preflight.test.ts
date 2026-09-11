@@ -359,10 +359,17 @@ describe('preflight: CLI resolution and refusal predicates', () => {
   // the compiler, since PreflightRefusal.kind is typed to the declared union
   // and `tsc --noEmit` runs as part of `npm test`. Recorded so the guarantee is
   // not read as coming from this test alone.
-  it('reaches every declared refusal kind, with the converse held by the type', () => {
+  it('reaches every declared refusal kind, with the converse held by the type', async () => {
     const scenarios = [
       preflightHelpers({ header: { tools: { slack: true } }, body() {} }, { slackMount: false, slackMock: false }),
       preflightHelpers({ header: { tools: { slack: true } }, body() {} }, { slackToken: 'present', slackMount: false, slackMock: false }),
+      await preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), {
+        probes: probes(), mcpServers: ['absent'],
+      }),
+      await preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), {
+        probes: probes(), mcpServers: ['missing-binary'],
+        mcp: { 'missing-binary': { command: '/nonexistent-mcp-test-binary' } },
+      }),
       preflight({
         version: '0.1.0',
         steps: [{ id: 'a', type: 'deterministic', command: 'x', prompt: 'cross-verb' }],

@@ -4,6 +4,8 @@ import { assertSlackCredentials, runSlackEffect } from './authored-slack-effect.
 import { checkSlackHelpers } from './slack-preflight.js';
 import { snapshotJsonValue } from './json-value.js';
 import type { SlackCall } from './slack-writeback.js';
+import { checkMcpHeader, McpPreflightError } from './cli/check-typescript.js';
+import { buildMcpProxy, runMcpEffect } from './authored-mcp.js';
 import { authoredWorkerRunner } from './authored-worker-step.js';
 import { readSuccessfulOutput, isSurfaceRunCompletionReason } from './authored-step-output.js';
 import {
@@ -133,7 +135,8 @@ export async function executeAuthoredFlow<Input = undefined>(
   };
   const definition = getDefinition<Input>(handle);
   const headerFields = Object.keys(definition.header).filter(key => key !== 'tools');
-  if (definition.header.tools && Object.keys(definition.header.tools).some(key => key !== 'slack')) headerFields.push('tools');
+  if (definition.header.tools && Object.keys(definition.header.tools).some(key => !['slack', 'mcp'].includes(key))) headerFields.push('tools');
+  if (definition.header.tools?.relayfile !== undefined) headerFields.push('tools.relayfile');
   const helperPreflight = checkSlackHelpers(definition);
   if (!helperPreflight.ok) assertSlackCredentials();
   if (headerFields.length > 0) {
@@ -142,6 +145,9 @@ export async function executeAuthoredFlow<Input = undefined>(
       `flow "${definition.name}" uses unsupported header fields: ${headerFields.join(', ')}`,
     );
   }
+
+  const checkedMcp = await checkMcpHeader(definition, flowPath);
+  if (!checkedMcp.report.ok) throw new McpPreflightError(checkedMcp.report);
 
   const journalSteps: AuthoredFlowJournalStep[] = [];
   const authoredSteps: AuthoredFlowOperation<unknown>[] = [];
@@ -211,6 +217,17 @@ export async function executeAuthoredFlow<Input = undefined>(
       reply: (channel, threadTs, text) => slackOperation({ type: 'effect', provider: 'slack', verb: 'reply', params: { channel, threadTs, text } }),
       react: (channel, messageTs, emoji) => slackOperation({ type: 'effect', provider: 'slack', verb: 'react', params: { channel, messageTs, emoji } }),
     },
+    mcp: buildMcpProxy(checkedMcp.inventory, (server, tool, args, known) => {
+      assertOperationAllowed('mcp', definition.name, requestedCompletion);
+      const id = `mcp-${nextStep++}`;
+      return trackStep(authoredSteps, new AuthoredFlowOperation(
+        id, 'mcp',
+        () => assertOperationAllowed('mcp', definition.name, requestedCompletion),
+        () => runMcpEffect(journal, definition.name, id, server, tool, args,
+          known, checkedMcp.servers[server]!, journalSteps),
+        lifecycle,
+      ));
+    }),
     run(command) {
       assertOperationAllowed('run', definition.name, requestedCompletion);
       const id = `run-${nextStep++}`;

@@ -18,6 +18,7 @@ import {
 } from './cli/run.js';
 import { runDirectFlow } from './cli/direct-run.js';
 import { parseReplayArgs, replayJournal, type ReplayArgs } from './cli/replay.js';
+import { checkTypeScriptFlow } from './cli/check-typescript.js';
 import { runCloudCli } from './cli/cloud-run.js';
 import { isAuthoredFlowPath } from './direct-input.js';
 import { runHnMonitor } from './cli/hn-monitor.js';
@@ -51,7 +52,7 @@ type ParsedArgs =
 const DEFAULT_DATA_DIR = '.relayflowd';
 const USAGE = [
   'Usage:',
-  'flows check [--json] <flow.yaml|spec.json>',
+  'flows check [--json] <flow.ts|flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
@@ -98,12 +99,12 @@ export async function runCli(
 
   if (parsed.command === 'check') {
     // Deliberately daemon-free (kernel/DAEMON-LIFECYCLE.md §4). `checkFlow` is
-    // a pure compile-and-preflight that opens no socket, and the parser
+    // a compile-and-preflight that opens no daemon socket, and the parser
     // refuses `--data-dir` on `check`, so there is no data dir to attach to.
     // `flows check` keeps working with no daemon, no relayflowd binary and no
     // data directory at all -- a property worth keeping, not an omission.
     const checked = /\.(?:[cm]?[jt]s)$/.test(parsed.value)
-      ? await checkHelperBody(parsed.value) : checkFlow(parsed.value);
+      ? await checkAuthoredFlowComposed(parsed.value) : checkFlow(parsed.value);
     emitCheckReport(checked.report, parsed.json, io);
     return checked.report.ok ? 0 : 2;
   }
@@ -202,6 +203,26 @@ export async function runCli(
   emitRunReport(execution, parsed.json, io);
   await finalizeObserverLine(observerMint, io);
   return execution.exitCode;
+}
+
+/**
+ * Compose helper-body checks (from f.slack aspect) with TS-flow MCP checks
+ * so an authored .flow.ts surfaces diagnostics from both. Both check
+ * functions load the authored flow independently — this can be flattened
+ * later, but composing them keeps the rebase minimal and preserves both
+ * aspects' coverage.
+ */
+async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckReport }> {
+  const helper = await checkHelperBody(path);
+  if (!helper.report.ok) return helper;
+  const mcp = await checkTypeScriptFlow(path);
+  return {
+    report: {
+      ...mcp.report,
+      diagnostics: [...helper.report.diagnostics, ...mcp.report.diagnostics],
+      ok: helper.report.ok && mcp.report.ok,
+    },
+  };
 }
 
 /**

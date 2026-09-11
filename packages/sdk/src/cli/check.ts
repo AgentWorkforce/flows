@@ -14,6 +14,8 @@ import {
 import { MODEL_ENV } from '../worker-cli.js';
 import { modelNameError } from '../model-name.js';
 import type { FlowSpec } from '../spec.js';
+import type { McpServerConfig } from '../spec.js';
+import { parseMcpConfig } from '../mcp-config.js';
 import type { StepGateInspection } from '../gate-contract.js';
 import type { CheckFailureKind } from '../failure-kinds.js';
 import {
@@ -25,7 +27,8 @@ import {
   type PreflightProbes,
 } from '../preflight.js';
 
-interface ProjectConfig {
+export interface ProjectConfig {
+  mcp?: Record<string, McpServerConfig>;
   cli?: string;
   executors: string[];
   models: string[];
@@ -34,6 +37,7 @@ interface ProjectConfig {
 }
 
 export interface CheckReport {
+  mcpTools?: Readonly<Record<string, readonly string[]>>;
   ok: boolean;
   path?: string;
   projectConfigPath?: string;
@@ -161,7 +165,7 @@ function readFlow(path: string): FlowSpec {
   }
 }
 
-function readProjectConfig(start: string): ProjectConfig {
+export function readProjectConfig(start: string): ProjectConfig {
   const configPath = findConfig(start);
   if (configPath === undefined) return { executors: [], models: [], directory: start };
   let value: unknown;
@@ -170,8 +174,8 @@ function readProjectConfig(start: string): ProjectConfig {
   } catch {
     throw new CheckFailure('config_invalid', `Project config "${configPath}" is not valid JSON.`);
   }
-  if (!isObject(value) || Object.keys(value).some((key) => !['cli', 'executors', 'models'].includes(key))) {
-    throw new CheckFailure('config_invalid', `Project config "${configPath}" expects only cli, executors, and models.`);
+  if (!isObject(value) || Object.keys(value).some((key) => !['cli', 'executors', 'models', 'mcp'].includes(key))) {
+    throw new CheckFailure('config_invalid', `Project config "${configPath}" expects only cli, executors, models, and mcp.`);
   }
   if (value['cli'] !== undefined && !isNonEmptyString(value['cli'])) {
     throw new CheckFailure('config_invalid', `Project config "${configPath}" has an invalid cli.`);
@@ -193,7 +197,19 @@ function readProjectConfig(start: string): ProjectConfig {
       throw new CheckFailure('config_invalid', `Project config "${configPath}" has duplicate models.`);
     }
   }
+  let mcp: Record<string, McpServerConfig> | undefined;
+  if (value['mcp'] !== undefined) {
+    try { mcp = parseMcpConfig(value['mcp']); }
+    catch (error) {
+      throw new CheckFailure('config_invalid', `Project config "${configPath}": ${(error as Error).message}.`);
+    }
+    for (const entry of Object.values(mcp)) {
+      if ('command' in entry) entry.command = resolveExecutable(entry.command, dirname(configPath))
+        ?? canonicalCli(entry.command, dirname(configPath));
+    }
+  }
   return {
+    ...(mcp !== undefined ? { mcp } : {}),
     ...(value['cli'] !== undefined ? { cli: value['cli'] as string } : {}),
     executors: (value['executors'] as string[] | undefined) ?? [],
     models: (value['models'] as string[] | undefined) ?? [],
