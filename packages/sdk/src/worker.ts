@@ -124,7 +124,7 @@ export class AgentWorker extends EventEmitter {
       completionReason,
       {
         output,
-        usage,
+        ...(usage !== undefined ? { usage } : {}),
         started_pins: dispatch.pins,
         end_pins: dispatch.pins,
       },

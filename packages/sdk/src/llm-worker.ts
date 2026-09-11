@@ -75,7 +75,7 @@ export class LlmWorker extends EventEmitter {
     await this.client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,
       dispatch.idempotency_key, reason, {
         output,
-        usage,
+        ...(usage !== undefined ? { usage } : {}),
         ...(reason === 'success' ? {} : { trajectory_tail: { error: detail } }),
       });
   }

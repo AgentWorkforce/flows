@@ -1,7 +1,15 @@
 import { pricedUsage } from './model-pricing.js';
 import type { WorkerCliResult } from './worker-cli.js';
 
-/** Pricing failures are journaled worker errors, never dropped completions. */
+/**
+ * Attach token/dollar usage to a worker's CLI result. Invalid token counts
+ * (non-integer or negative) are the one remaining failure mode — those are
+ * journaled as `worker_error` with the usage projected from clamped counts.
+ *
+ * Unpriced models are NOT a failure here: `pricedUsage` returns
+ * `dollars: null` and preflight (see `budgetDiagnostics`) has already refused
+ * declared dollar budgets against unpriced models before the CLI dispatched.
+ */
 export function workerSpend(result: WorkerCliResult, model?: string) {
   try { return { result, usage: pricedUsage(model, result.tokens_input, result.tokens_output) }; }
   catch (error) {
