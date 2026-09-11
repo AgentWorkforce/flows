@@ -78,6 +78,14 @@ No process runs between events: the handler wakes, executes to its next await, p
    failed calls retain their MCP diagnostic in `trajectory_tail` and complete
    with `worker_error`.
 
+   The first typed codegen slice covers Slack's four existing dispatcher methods.
+   `Ctx` composes the generated helper namespace map; argument shapes come from
+   the pinned relayfile ergonomic client and results retain journal-backed `Step`
+   semantics. Run `npm run gen --prefix packages/surface` to regenerate; the
+   regression typecheck checks byte-for-byte drift. Mapping/discovery generation
+   and the other provider namespaces remain follow-up work; see
+   [the generator notes](../packages/surface/src/helpers/README.md).
+
 4. **`{{prev}}` / return-value chaining.** Output flows downward implicitly; naming steps is for reaching back, not bookkeeping.
 5. **Headers are optional escalation.** identity, memory, budget, tools appear only when used. The empty header is the common case.
 6. **Agent definitions escalate by composition** — and a reusable agent *is* a flow:
