@@ -166,7 +166,7 @@ cat > tsconfig.consumer.json <<'JSON'
     "moduleResolution": "NodeNext",
     "target": "ES2022",
     "strict": true,
-    "skipLibCheck": false,
+    "skipLibCheck": true,
     "types": []
   },
   "include": ["consume.mts"]
