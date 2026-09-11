@@ -152,13 +152,21 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
     const errors = error instanceof CompileError
       ? error.errors
       : [error instanceof Error ? error.message : 'spec: expected JSON-compatible data'];
+    // BudgetSyntaxError now flows through CompileError with kind on it; the
+    // legacy raw-throw instanceof is preserved as a fallback so a caller that
+    // constructs preflight input through a different path still classifies.
+    const kind: PreflightDiagnostic['kind'] = error instanceof CompileError && error.kind === 'budget_syntax_invalid'
+      ? 'budget_syntax_invalid'
+      : error instanceof BudgetSyntaxError
+        ? 'budget_syntax_invalid'
+        : 'invalid_spec';
     return {
       ok: false,
       gates: [],
       resolutions: [],
       diagnostics: [{
         severity: 'refusal',
-        kind: error instanceof BudgetSyntaxError ? 'budget_syntax_invalid' : 'invalid_spec',
+        kind,
         message: `Relayflow spec is invalid: ${errors.join('; ')}`,
         errors,
       }],

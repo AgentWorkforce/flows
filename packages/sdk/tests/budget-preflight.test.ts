@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { preflight } from '../src/preflight.js';
-import { compileSpec, toKernelSpec, kernelToAuthoring } from '../src/compile.js';
+import { compileSpec, CompileError, toKernelSpec, kernelToAuthoring } from '../src/compile.js';
 import { flow } from '@relayflows/surface';
 import { getFlowDefinition } from '@relayflows/surface/runtime';
 
@@ -49,5 +49,12 @@ describe('budget preflight', () => {
   });
   it.each(['$1/week', '-$1/run', '$1.0000001/run', {tokens: -1}, {wallclock: 'soon'}, {dollars: Infinity}, {typo: 2}])('refuses malformed budget %j', budget => {
     expect(preflight(spec(budget), options()).ok).toBe(false);
+  });
+  it.each(['$$$', '$1/week', {typo: 2}])('compileSpec wraps parseBudget throws as a CompileError with a budget-scoped message (%j)', budget => {
+    let caught: unknown;
+    try { compileSpec(spec(budget)); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(CompileError);
+    expect((caught as CompileError).errors[0]).toMatch(/^spec\.budget: /);
+    expect((caught as CompileError).errors[0]).toContain('budget_syntax_invalid');
   });
 });

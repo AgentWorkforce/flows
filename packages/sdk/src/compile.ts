@@ -43,10 +43,13 @@ import { snapshotJsonValue } from './json-value.js';
 
 export class CompileError extends Error {
   readonly errors: string[];
-  constructor(errors: string[]) {
+  /** Optional diagnostic kind for callers that classify refusals (e.g. preflight). */
+  readonly kind?: string;
+  constructor(errors: string[], kind?: string) {
     super('spec compile failed:\n  - ' + errors.join('\n  - '));
     this.name = 'CompileError';
     this.errors = errors;
+    if (kind !== undefined) this.kind = kind;
   }
 }
 
@@ -83,7 +86,20 @@ export function compileSpec(spec: unknown): CompiledFlowSpec {
     ]);
   }
   if (snapshot !== null && typeof snapshot === 'object' && !Array.isArray(snapshot) && 'budget' in snapshot && snapshot.budget !== undefined) {
-    snapshot = { ...snapshot, budget: parseBudget(snapshot.budget) };
+    // parseBudget throws BudgetSyntaxError on any malformed header. Without
+    // this wrap, that throw escaped compileSpec's own CompileError contract,
+    // so callers (validate, cli/check) that only catch CompileError would
+    // surface the budget error as an uncaught exception instead of a
+    // diagnostic. Rewrap as CompileError so it flows through the same
+    // gate-1 refusal path as every other invalid spec.
+    try {
+      snapshot = { ...snapshot, budget: parseBudget(snapshot.budget) };
+    } catch (error) {
+      throw new CompileError(
+        [`spec.budget: ${error instanceof Error ? error.message : 'budget_syntax_invalid'}`],
+        'budget_syntax_invalid',
+      );
+    }
   }
   const validation: ValidationResult = validateSpec(snapshot);
   if (!validation.ok) throw new CompileError(validation.errors);
