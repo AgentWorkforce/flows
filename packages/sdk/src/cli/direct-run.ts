@@ -89,6 +89,19 @@ export async function runDirectFlow(
         `authored flow "${result.name}" completed without a journal step`,
       ));
     }
+    if (result.completionReason === 'needs_human') {
+      return {
+        exitCode: 3,
+        report: {
+          ...base, ok: false, runId: terminal.runId, socketPath, status: 'parked',
+          completedSteps: result.journalSteps.length,
+          diagnostics: [...base.diagnostics, {
+            severity: 'parked', kind: 'run_parked',
+            message: `Flow "${result.name}" needs_human; see the journal for accumulated blockers.`,
+          }],
+        },
+      };
+    }
     return {
       exitCode: 0,
       report: {

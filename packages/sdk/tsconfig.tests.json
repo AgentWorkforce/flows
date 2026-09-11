@@ -5,6 +5,7 @@
     // forgery tests. The SDK's own tsconfig stays on ES2022.
     "lib": ["ES2022", "ES2024.Promise"],
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "rootDir": ".",
     "types": ["node", "vitest"]
   },
@@ -24,7 +25,10 @@
     "tests/authored-flow.test.ts",
     "tests/flow-executor-chain.test.ts",
     "tests/input-binding.test.ts",
-    "tests/journal-client-loopback.ts"
+    "tests/journal-client-loopback.ts",
+    "tests/close-pr-flow.test.ts",
+    "tests/direct-input.test.ts",
+    "tests/fixtures/needs-human.flow.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

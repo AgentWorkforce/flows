@@ -6,6 +6,7 @@ import {
   type FlowHandle,
   type FlowHeader,
   type RunCompletionReason,
+  type FlowCompletionReason,
 } from "@relayflows/surface";
 import { getFlowDefinition } from "@relayflows/surface/runtime";
 
@@ -126,14 +127,15 @@ describe("flow", () => {
     }
   });
 
-  it("uses run reasons for done while keeping step reasons distinct", () => {
+  it("uses authored outcomes for done while keeping step reasons distinct", () => {
     expectTypeOf<Parameters<Ctx["done"]>[0]>()
-      .toEqualTypeOf<RunCompletionReason>();
+      .toEqualTypeOf<FlowCompletionReason>();
     expectTypeOf<CompletionReason>()
       .not.toEqualTypeOf<RunCompletionReason>();
 
     const typeGate = (f: Ctx): void => {
       f.done("step_failed");
+      f.done("needs_human");
       // @ts-expect-error worker_error is a step reason, not a run reason.
       f.done("worker_error");
     };

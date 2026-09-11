@@ -1,7 +1,7 @@
 import type { Helpers } from "./helpers/index.js";
 import type { MemoryHelper } from "./memory.js";
 import type { CloudHelper } from "./cloud.js";
-import type { RunCompletionReason } from "./completion.js";
+import type { FlowCompletionReason } from "./completion.js";
 import type { Step } from "./step.js";
 
 export interface AgentResult {
@@ -39,7 +39,7 @@ export interface Ctx extends Helpers {
   agent(name: string, options: AgentOptions): Step<AgentResult>;
   human(question: string, options: { to: string }): Promise<boolean>;
   dispatch<T>(flow: string, input: unknown): Promise<T>;
-  done(reason: RunCompletionReason): void;
+  done(reason: FlowCompletionReason): void;
   cloud: CloudHelper;
   memory: MemoryHelper;
 }
