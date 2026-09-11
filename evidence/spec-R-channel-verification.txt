@@ -1,0 +1,29 @@
+$ (cd packages/sdk && npm run typecheck)
+
+> @relayflows/sdk@2.0.8 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+Exit code: 0
+
+$ (cd packages/sdk && npm run typecheck:tests)
+
+> @relayflows/sdk@2.0.8 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+Exit code: 0
+
+$ (cd packages/sdk && ./node_modules/.bin/vitest run tests/effect-channel.test.ts tests/journal-client.test.ts tests/worker-lease.test.ts)
+
+ RUN  v2.1.9 /Users/khaliqgant/flows-spec-R-channel/packages/sdk
+
+ ✓ tests/worker-lease.test.ts (7 tests) 6ms
+ ✓ tests/journal-client.test.ts (14 tests) 66ms
+ ✓ tests/effect-channel.test.ts (5 tests) 297ms
+
+ Test Files  3 passed (3)
+      Tests  26 passed (26)
+   Start at  20:29:12
+   Duration  633ms (transform 118ms, setup 0ms, collect 313ms, tests 370ms, environment 0ms, prepare 96ms)
+
+Exit code: 0
+
