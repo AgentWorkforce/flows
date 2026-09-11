@@ -22,3 +22,6 @@ export const RUN_COMPLETION_REASONS = [
 ] as const;
 
 export type RunCompletionReason = (typeof RUN_COMPLETION_REASONS)[number];
+
+/** Authored outcomes include a human handoff; it is not a kernel terminal reason. */
+export type FlowCompletionReason = RunCompletionReason | 'needs_human';

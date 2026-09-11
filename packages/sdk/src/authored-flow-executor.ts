@@ -17,6 +17,7 @@ import {
   type CloudHelper,
   type CompletionReason as SurfaceCompletionReason,
   type Ctx,
+  type FlowCompletionReason,
   type RunCompletionReason as SurfaceRunCompletionReason,
   type Step,
 } from '@relayflows/surface';
@@ -54,8 +55,8 @@ type RunCompletionVocabularyMatchesProtocol = Assert<
   Equal<SurfaceRunCompletionReason, ProtocolRunCompletionReason>
 >;
 type DoneCompletionReason = Parameters<Ctx['done']>[0];
-type DoneAcceptsOnlyRunCompletionReasons = Assert<
-  DoneCompletionReason extends SurfaceRunCompletionReason ? true : false
+type DoneAcceptsOnlyFlowCompletionReasons = Assert<
+  Equal<DoneCompletionReason, FlowCompletionReason>
 >;
 type EveryRunCompletionReasonIsAcceptedByDone = Assert<
   SurfaceRunCompletionReason extends DoneCompletionReason ? true : false
@@ -71,12 +72,12 @@ export interface AuthoredFlowJournalStep {
 
 export interface AuthoredFlowExecutionResult {
   readonly name: string;
-  readonly completionReason: ProtocolRunCompletionReason;
+  readonly completionReason: FlowCompletionReason;
   readonly journalSteps: readonly AuthoredFlowJournalStep[];
 }
 
-type ExecutionResultUsesRunCompletionReason = Assert<
-  Equal<AuthoredFlowExecutionResult['completionReason'], ProtocolRunCompletionReason>
+type ExecutionResultUsesFlowCompletionReason = Assert<
+  Equal<AuthoredFlowExecutionResult['completionReason'], FlowCompletionReason>
 >;
 type JournalStepUsesStepCompletionReason = Assert<
   Equal<AuthoredFlowJournalStep['completionReason'], ProtocolCompletionReason>
@@ -88,7 +89,7 @@ type JournalStepUsesStepCompletionReason = Assert<
  * This is deliberately not exported by the SDK package: without a durable
  * authored root, it is not a resumable public runner. The seam is narrow: an
  * flow with an optional budget may await `f.run`, `f.llm`, and `f.agent` steps and must
- * finish with `f.done("success")`. Each step and the terminal marker is
+ * finish with `f.done("success")` or `f.done("needs_human")`. Each step and the terminal marker is
  * a compiled spec submitted through
  * `JournalClient`; values are read back from `step.completed` journal entries.
  * Unsupported headers, verbs, gates, or completion lowering fail closed.
@@ -166,7 +167,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   const authoredSteps: AuthoredFlowOperation<unknown>[] = [];
   const lifecycle = new AuthoredFlowLifecycle();
   let nextStep = 1;
-  let requestedCompletion: SurfaceRunCompletionReason | undefined;
+  let requestedCompletion: FlowCompletionReason | undefined;
 
   const lowerDeterministic = authoredDeterministicRunner(definition.name, journal, journalSteps, budget);
 
@@ -269,7 +270,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       throw unsupportedVerb('dispatch');
     },
     done(reason) {
-      if (!isSurfaceRunCompletionReason(reason)) {
+      if (reason !== 'needs_human' && !isSurfaceRunCompletionReason(reason)) {
         throw new AuthoredFlowExecutionError(
           'unsupported_completion',
           `unknown completion reason: ${String(reason)}`,
@@ -281,7 +282,7 @@ export async function executeAuthoredFlow<Input = undefined>(
           `flow "${definition.name}" called done() more than once`,
         );
       }
-      if (reason !== 'success') {
+      if (reason !== 'success' && reason !== 'needs_human') {
         throw new AuthoredFlowExecutionError(
           'unsupported_completion',
           `the initial authored executor cannot lower done("${reason}")`,
@@ -356,7 +357,11 @@ export async function executeAuthoredFlow<Input = undefined>(
     lifecycle.close();
   }
 
-  await lowerDeterministic(`complete-${nextStep}`, ':', true);
+  // The authored runner has no durable root yet. Record the handoff as a
+  // successful effect containing the authored outcome, not a fabricated kernel
+  // run.completed reason. The CLI reports this outcome as parked (exit 3).
+  await lowerDeterministic(`complete-${nextStep}`, requestedCompletion === 'needs_human'
+    ? `printf '%s' '{"completionReason":"needs_human"}'` : ':', true);
   return Object.freeze({
     name: definition.name,
     completionReason: requestedCompletion,
@@ -382,13 +387,13 @@ function unsupportedVerb(verb: string): AuthoredFlowExecutionError {
 function assertOperationAllowed(
   verb: string,
   flowName: string,
-  completion: SurfaceRunCompletionReason | undefined,
+  completion: FlowCompletionReason | undefined,
 ): void {
   if (completion !== undefined) {
     throw new AuthoredFlowExecutionError(
       'operation_after_completion',
       `flow "${flowName}" called f.${verb} after done()`,
-      completion,
+      completion === 'needs_human' ? undefined : completion,
     );
   }
 }

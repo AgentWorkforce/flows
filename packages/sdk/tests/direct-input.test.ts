@@ -15,6 +15,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { socketPathFor } from '../src/daemon-connection.js';
+import { JournalClient } from '../src/journal-client.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const BUILT_CLI = join(ROOT, 'packages', 'sdk', 'dist', 'cli.js');
@@ -40,6 +41,31 @@ afterEach(async () => {
 });
 
 describe('direct .flow.ts input through the built CLI and live runtime', () => {
+  it('returns exit 3 for an authored human handoff and persists its outcome', async () => {
+    const dataDir = join(temporaryDirectory(), 'data');
+    await startDaemon(dataDir);
+    const result = invokeCli([
+      'run', join(ROOT, 'packages/sdk/tests/fixtures/needs-human.flow.ts'), '--input', '{}', '--data-dir', dataDir, '--json',
+    ]);
+    expect(result.status, result.stderr).toBe(3);
+    const report = JSON.parse(result.stdout);
+    expect(report.status).toBe('parked');
+    expect(report.ok).toBe(false);
+    expect(report.diagnostics[0].message).toContain('needs_human');
+    const client = new JournalClient(socketPathFor(dataDir));
+    try {
+      await client.connect();
+      await client.hello('handoff-evidence');
+      const journal = await client.journalRead(report.runId, 1);
+      expect(journal.entries).toContainEqual(expect.objectContaining({
+        entry_type: 'step.completed', payload: expect.objectContaining({
+          completionReason: 'success',
+          output: expect.objectContaining({ stdout_tail: '{"completionReason":"needs_human"}' }),
+        }),
+      }));
+    } finally { client.close(); }
+  });
+
   it('executes inline and file JSON input through relayflowd', async () => {
     const directory = temporaryDirectory();
     const dataDir = join(directory, 'data');

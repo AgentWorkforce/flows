@@ -13,6 +13,7 @@ export {
   RUN_COMPLETION_REASONS,
   type CompletionReason,
   type RunCompletionReason,
+  type FlowCompletionReason,
 } from "./completion.js";
 export type { Step } from "./step.js";
 export {
