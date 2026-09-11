@@ -10,6 +10,7 @@
 // loopback double in tests.
 
 import { EventEmitter } from 'node:events';
+export { walkJournal, JournalReadError, type JournalEvent, type JournalReadFailure } from './journal-reader.js';
 import { randomUUID } from 'node:crypto';
 import { createConnection, type Socket } from 'node:net';
 import type { VerbContract, EventSubmitParams } from './protocol.js';
