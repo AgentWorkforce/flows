@@ -15,6 +15,117 @@
         "agent"
       ]
     },
+    "McpServerConfig": {
+      "title": "McpServerConfig",
+      "description": "Project-owned MCP connections. env contains names, never secret values.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "title": "command",
+              "description": "command in the Relayflows spec.",
+              "type": "string"
+            },
+            "args": {
+              "title": "args",
+              "description": "args in the Relayflows spec.",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "title": "args items",
+                "description": "args items value."
+              }
+            },
+            "env": {
+              "title": "env",
+              "description": "env in the Relayflows spec.",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "title": "env items",
+                "description": "env items value."
+              }
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "additionalProperties": false,
+          "title": "McpServerConfig alternative 1",
+          "description": "McpServerConfig alternative 1 value."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "url": {
+              "title": "url",
+              "description": "url in the Relayflows spec.",
+              "type": "string"
+            },
+            "headers": {
+              "title": "headers",
+              "description": "headers in the Relayflows spec.",
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "title": "headers additionalProperties",
+                "description": "headers additionalProperties value."
+              }
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false,
+          "title": "McpServerConfig alternative 2",
+          "description": "McpServerConfig alternative 2 value."
+        }
+      ]
+    },
+    "FlowsJson": {
+      "title": "FlowsJson",
+      "description": "FlowsJson in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "cli": {
+          "title": "cli",
+          "description": "cli in the Relayflows spec.",
+          "type": "string"
+        },
+        "executors": {
+          "title": "executors",
+          "description": "executors in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "executors items",
+            "description": "executors items value."
+          }
+        },
+        "models": {
+          "title": "models",
+          "description": "models in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "models items",
+            "description": "models items value."
+          }
+        },
+        "mcp": {
+          "title": "mcp",
+          "description": "mcp in the Relayflows spec.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/McpServerConfig",
+            "title": "mcp additionalProperties",
+            "description": "See McpServerConfig."
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "VerificationGateType": {
       "title": "VerificationGateType",
       "description": "Verification is control flow, not decoration (kernel DESIGN.md §3).\nv0 gates are deterministic so verification is kernel-side and replayable.",

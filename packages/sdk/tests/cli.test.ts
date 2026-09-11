@@ -507,16 +507,17 @@ steps:
         replayable: true,
       }],
       resolutions: [{ stepId: 'answer', cli: './missing-cli', source: 'step' }],
-      // The editor-schema hint is suppressed when a real refusal is
-      // already present — see cli/check.ts. Refusal reports carry only
-      // the refusal, not documentation-nudge warnings on top.
+      // The editor-schema hint fires unconditionally on a `.flow.yaml`
+      // that lacks the first-line yaml-language-server comment. Emitting
+      // it alongside a refusal is deliberate — an editor showing squiggles
+      // on this file should still tell the author how to wire the schema.
       diagnostics: [{
         severity: 'refusal',
         kind: 'cli_missing',
         stepId: 'answer',
         cli: './missing-cli',
         message: 'Step "answer" declares CLI "./missing-cli", but it does not resolve as an executable.',
-      }],
+      }, editorHint],
     });
     expect(report.diagnostics.filter((entry) => entry.severity === 'refusal').every((entry) => isCheckFailureKind(entry.kind))).toBe(true);
   });

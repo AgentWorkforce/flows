@@ -85,14 +85,12 @@ export function checkFlow(path: string): CheckExecution {
       if (!(error instanceof CheckFailure)) throw error;
       execution = { report: inputFailureReport(error, path) };
     }
-    // The editor-schema hint is a documentation nudge, not a validation
-    // gate. Suppressing it when a real refusal is already present keeps the
-    // diagnostics list focused on what actually blocks the run — an author
-    // who cannot get past a refusal should not also be nagged about a
-    // yaml-language-server comment they can add later.
-    if (execution.report.ok && !execution.report.diagnostics.some(d => d.severity === 'refusal')) {
-      execution.report.diagnostics.push(...hint);
-    }
+    // The editor-schema hint is a documentation nudge, emitted for every
+    // .flow.yaml without a first-line yaml-language-server comment.
+    // Firing it even when a refusal is present is deliberate: an editor
+    // showing squiggles on this file should still tell the author how to
+    // wire the schema, so the next edit gets real-time feedback.
+    execution.report.diagnostics.push(...hint);
     return execution;
   } catch (error) {
     const failure = error instanceof CheckFailure
