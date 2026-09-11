@@ -1,3 +1,4 @@
+import { resumeSlackEffect } from '../authored-slack-effect.js';
 import { join, resolve } from 'node:path';
 import type { ProgressEvent } from '../progress.js';
 import { toKernelSpec } from '../compile.js';
@@ -128,6 +129,7 @@ export async function resumeFlow(
   if (connected !== undefined) return connected;
 
   try {
+    await resumeSlackEffect(client, runId, dataDir);
     const outcome = await client.runResume(runId);
     return await classifyOutcome(client, 'resume', outcome, base, socketPath, options);
   } catch (error) {

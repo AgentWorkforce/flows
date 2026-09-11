@@ -1,3 +1,4 @@
+import { preflightHelpers } from '../src/preflight.js';
 import { describe, expect, it } from 'vitest';
 import {
   PREFLIGHT_FAILURE_KINDS,
@@ -360,6 +361,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
   // not read as coming from this test alone.
   it('reaches every declared refusal kind, with the converse held by the type', () => {
     const scenarios = [
+      preflightHelpers({ header: { tools: { slack: true } }, body() {} }, { slackMount: false, slackMock: false }),
       preflight({
         version: '0.1.0',
         steps: [{ id: 'a', type: 'deterministic', command: 'x', prompt: 'cross-verb' }],

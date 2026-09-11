@@ -1,3 +1,4 @@
+import type { SlackHelper } from "./slack.js";
 import type { CloudHelper } from "./cloud.js";
 import type { RunCompletionReason } from "./completion.js";
 import type { Step } from "./step.js";
@@ -37,4 +38,5 @@ export interface Ctx {
   dispatch<T>(flow: string, input: unknown): Promise<T>;
   done(reason: RunCompletionReason): void;
   cloud: CloudHelper;
+  slack: SlackHelper;
 }

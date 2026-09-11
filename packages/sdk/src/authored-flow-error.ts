@@ -4,6 +4,7 @@ import type {
 } from './protocol.js';
 
 export type AuthoredFlowExecutionErrorCode =
+  | 'helper_slack.credential_missing'
   | 'agent_cli_unresolved'
   | 'agent_parked'
   | 'llm_cli_unresolved'

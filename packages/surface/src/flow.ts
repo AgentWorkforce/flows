@@ -5,7 +5,7 @@ export interface FlowHeader {
   identity?: string;
   memory?: { script?: boolean; agent?: boolean };
   budget?: string;
-  tools?: { relayfile?: string[]; mcp?: string[] };
+  tools?: { slack?: boolean; relayfile?: string[]; mcp?: string[] };
   workspace?: string;
 }
 
@@ -16,6 +16,7 @@ export interface ReadonlyFlowHeader {
   readonly memory?: Readonly<{ script?: boolean; agent?: boolean }>;
   readonly budget?: string;
   readonly tools?: Readonly<{
+    slack?: boolean;
     relayfile?: readonly string[];
     mcp?: readonly string[];
   }>;
@@ -129,6 +130,7 @@ function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
   const tools = header.tools === undefined
     ? undefined
     : Object.freeze({
+        ...(header.tools.slack === undefined ? {} : { slack: header.tools.slack }),
         ...(header.tools.relayfile === undefined
           ? {}
           : { relayfile: Object.freeze([...header.tools.relayfile]) }),
@@ -172,9 +174,10 @@ function assertFlowHeader(value: unknown, flowName: string): asserts value is Fl
     assertHeaderObject(value.tools, `${at}.tools`);
     assertKnownKeys(
       value.tools,
-      ["relayfile", "mcp"],
+      ["relayfile", "mcp", "slack"],
       `${at}.tools`,
     );
+    assertOptionalBoolean(value.tools, "slack", `${at}.tools`);
     assertOptionalStringArray(value.tools, "relayfile", `${at}.tools`);
     assertOptionalStringArray(value.tools, "mcp", `${at}.tools`);
   }

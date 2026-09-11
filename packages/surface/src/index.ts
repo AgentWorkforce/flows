@@ -20,3 +20,4 @@ export {
   type FlowHandle,
   type FlowHeader,
 } from "./flow.js";
+export { flowRunWritebackIdempotency, type SlackHelper, type SlackReceipt } from "./slack.js";

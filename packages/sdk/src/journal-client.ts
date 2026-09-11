@@ -65,7 +65,7 @@ export class JournalClient extends EventEmitter {
   private readonly connectTimeoutMs: number;
 
   constructor(
-    private readonly socketPath: string,
+    readonly socketPath: string,
     options: JournalClientOptions = {},
   ) {
     super();

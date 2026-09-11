@@ -1,3 +1,9 @@
+import { randomUUID } from 'node:crypto';
+import { dirname } from 'node:path';
+import { assertSlackCredentials, runSlackEffect } from './authored-slack-effect.js';
+import { checkSlackHelpers } from './slack-preflight.js';
+import { snapshotJsonValue } from './json-value.js';
+import type { SlackCall } from './slack-writeback.js';
 import { authoredWorkerRunner } from './authored-worker-step.js';
 import { readSuccessfulOutput, isSurfaceRunCompletionReason } from './authored-step-output.js';
 import {
@@ -90,6 +96,8 @@ export interface ExecuteAuthoredFlowOptions {
    * `getDefinition` instead; see authored-flow-loader.ts's comment on why.
    */
   readonly getDefinition?: GetFlowDefinition;
+  /** Helper receipt and mock-writeback storage; CLI passes its daemon data directory. */
+  readonly dataDir?: string;
   /**
    * The flow file's own path — passed straight to `checkAuthoredFlow`
    * (cli/check.ts) so `f.agent` resolves a CLI the same way a declarative
@@ -124,7 +132,10 @@ export async function executeAuthoredFlow<Input = undefined>(
     ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
   };
   const definition = getDefinition<Input>(handle);
-  const headerFields = Object.keys(definition.header);
+  const headerFields = Object.keys(definition.header).filter(key => key !== 'tools');
+  if (definition.header.tools && Object.keys(definition.header.tools).some(key => key !== 'slack')) headerFields.push('tools');
+  const helperPreflight = checkSlackHelpers(definition);
+  if (!helperPreflight.ok) assertSlackCredentials();
   if (headerFields.length > 0) {
     throw new AuthoredFlowExecutionError(
       'unsupported_header',
@@ -176,7 +187,30 @@ export async function executeAuthoredFlow<Input = undefined>(
     ));
   }
 
+  const slackRun = randomUUID();
+  function slackOperation<T>(call: SlackCall): Step<T> {
+    assertOperationAllowed(`slack.${call.verb}`, definition.name, requestedCompletion);
+    const snapshot = snapshotJsonValue(call, 'f.slack call') as unknown as SlackCall;
+    const id = `slack-${slackRun}-${nextStep++}`;
+    return trackStep(authoredSteps, new AuthoredFlowOperation<T>(
+      id, `slack.${call.verb}`,
+      () => assertOperationAllowed(`slack.${call.verb}`, definition.name, requestedCompletion),
+      async () => {
+        const receipt = await runSlackEffect(journal, definition.name, id, snapshot,
+          options.dataDir ?? dirname(journal.socketPath), journalSteps);
+        return (call.verb === 'react' ? undefined : receipt) as T;
+      },
+      lifecycle,
+    ));
+  }
+
   const context: Ctx = {
+    slack: {
+      post: (channel, text, opts) => slackOperation({ type: 'effect', provider: 'slack', verb: 'post', params: { channel, text, ...(opts === undefined ? {} : { opts }) } }),
+      dm: (user, text) => slackOperation({ type: 'effect', provider: 'slack', verb: 'dm', params: { user, text } }),
+      reply: (channel, threadTs, text) => slackOperation({ type: 'effect', provider: 'slack', verb: 'reply', params: { channel, threadTs, text } }),
+      react: (channel, messageTs, emoji) => slackOperation({ type: 'effect', provider: 'slack', verb: 'react', params: { channel, messageTs, emoji } }),
+    },
     run(command) {
       assertOperationAllowed('run', definition.name, requestedCompletion);
       const id = `run-${nextStep++}`;

@@ -41,5 +41,8 @@
     "type": "git",
     "url": "git+https://github.com/AgentWorkforce/flows.git",
     "directory": "packages/surface"
+  },
+  "peerDependencies": {
+    "@relayfile/relay-helpers": "0.4.11"
   }
 }
