@@ -15,6 +15,16 @@
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
       "require": "./dist/runtime.js"
+    },
+    "./triggers": {
+      "types": "./dist/triggers/index.d.ts",
+      "import": "./dist/triggers/index.js",
+      "require": "./dist/triggers/index.js"
+    },
+    "./triggers/*": {
+      "types": "./dist/triggers/*.d.ts",
+      "import": "./dist/triggers/*.js",
+      "require": "./dist/triggers/*.js"
     }
   },
   "files": [
@@ -23,6 +33,7 @@
   ],
   "scripts": {
     "gen": "node ../../scripts/generate-helpers.mjs",
+    "gen:triggers": "node ../../scripts/generate-triggers.mjs",
     "build": "tsc",
     "prepare": "bun run build",
     "typecheck": "tsc --noEmit",

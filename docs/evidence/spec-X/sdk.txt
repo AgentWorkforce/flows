@@ -1,0 +1,99 @@
+Command: PATH=/Users/khaliqgant/.cargo/bin:/Users/khaliqgant/.bun/bin:$PATH RELAYFLOWD_BIN=/Users/khaliqgant/.relayflows-toolchain/target/1463204285/debug/relayflowd npm test
+Working directory: /Users/khaliqgant/fl-slice-X/packages/sdk
+
+Full captured transcript: /private/tmp/fl-slice-X-sdk-tests-yk4hiyhm.log
+
+Captured webhook failure excerpt:
+ FAIL  tests/webhook-live.test.ts > executes and deduplicates 'app_mention' only for its provider and matching payload
+ FAIL  tests/webhook-live.test.ts > executes and deduplicates 'pull_request' only for its provider and matching payload
+Error: webhook integration timed out: FAILED [webhook_server] listen EPERM: operation not permitted 127.0.0.1
+
+ ❯ until tests/webhook-live.test.ts:39:9
+     37|   const deadline = Date.now() + 10_000;
+     38|   while (Date.now() < deadline) { if (await predicate()) return; await…
+     39|   throw new Error(`webhook integration timed out: ${detail()}`);
+       |         ^
+     40| }
+     41| async function daemon(dir: string): Promise<ChildProcess> {
+ ❯ setup tests/webhook-live.test.ts:60:3
+ ❯ tests/webhook-live.test.ts:84:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[107/187]⎯
+
+ FAIL  tests/webhook-live.test.ts > executes and deduplicates 'reaction_added' only for its provider and matching payload
+Error: webhook integration timed out: FAILED [webhook_server] listen EPERM: operation not permitted 127.0.0.1
+
+ ❯ until tests/webhook-live.test.ts:39:9
+     37|   const deadline = Date.now() + 10_000;
+     38|   while (Date.now() < deadline) { if (await predicate()) return; await…
+     39|   throw new Error(`webhook integration timed out: ${detail()}`);
+       |         ^
+     40| }
+     41| async function daemon(dir: string): Promise<ChildProcess> {
+ ❯ setup tests/webhook-live.test.ts:60:3
+ ❯ tests/webhook-live.test.ts:84:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[108/187]⎯
+
+ FAIL  tests/webhook-live.test.ts > flows serve-webhook writes JSON before the daemon starts, then journals and archives exactly once
+Error: webhook integration timed out: FAILED [webhook_server] listen EPERM: operation not permitted 127.0.0.1
+
+ ❯ until tests/webhook-live.test.ts:39:9
+     37|   const deadline = Date.now() + 10_000;
+     38|   while (Date.now() < deadline) { if (await predicate()) return; await…
+     39|   throw new Error(`webhook integration timed out: ${detail()}`);
+       |         ^
+     40| }
+     41| async function daemon(dir: string): Promise<ChildProcess> {
+ ❯ setup tests/webhook-live.test.ts:60:3
+ ❯ tests/webhook-live.test.ts:116:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[109/187]⎯
+
+ FAIL  tests/webhook-live.test.ts > replays a dropped file after SIGKILL before spawn
+Error: webhook integration timed out: FAILED [webhook_server] listen EPERM: operation not permitted 127.0.0.1
+
+ ❯ until tests/webhook-live.test.ts:39:9
+     37|   const deadline = Date.now() + 10_000;
+     38|   while (Date.now() < deadline) { if (await predicate()) return; await…
+     39|   throw new Error(`webhook integration timed out: ${detail()}`);
+       |         ^
+     40| }
+     41| async function daemon(dir: string): Promise<ChildProcess> {
+ ❯ setup tests/webhook-live.test.ts:60:3
+ ❯ tests/webhook-live.test.ts:136:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[110/187]⎯
+
+ FAIL  tests/webhook-live.test.ts > resumes the same journal after SIGKILL after spawn and before acknowledgement
+Error: webhook integration timed out: FAILED [webhook_server] listen EPERM: operation not permitted 127.0.0.1
+
+ ❯ until tests/webhook-live.test.ts:39:9
+     37|   const deadline = Date.now() + 10_000;
+     38|   while (Date.now() < deadline) { if (await predicate()) return; await…
+     39|   throw new Error(`webhook integration timed out: ${detail()}`);
+       |         ^
+     40| }
+     41| async function daemon(dir: string): Promise<ChildProcess> {
+ ❯ setup tests/webhook-live.test.ts:60:3
+ ❯ tests/webhook-live.test.ts:149:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[111/187]⎯
+
+ FAIL  tests/webhook.test.ts > webhook ingress > routes provider envelopes to isolated inboxes and rejects spoofed or unsupported events
+ FAIL  tests/webhook.test.ts > webhook ingress > accepts JSON through atomic files without creating a daemon
+ FAIL  tests/webhook.test.ts > webhook ingress > rejects malformed, oversized, traversal, and non-POST requests
+ FAIL  tests/webhook.test.ts > webhook ingress > fails closed on a symlink inbox target
+Error: listen EPERM: operation not permitted 127.0.0.1
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[112/187]⎯
+
+
+Captured suite summary:
+ Test Files  25 failed | 55 passed | 1 skipped (81)
+      Tests  185 failed | 1109 passed | 10 skipped (1304)
+     Errors  14 errors
+   Start at  23:52:24
+   Duration  68.17s (transform 1.54s, setup 0ms, collect 15.17s, tests 323.65s, environment 9ms, prepare 2.95s)
+
+
+Exit code: 1

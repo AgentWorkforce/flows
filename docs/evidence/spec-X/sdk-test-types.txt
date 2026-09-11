@@ -1,0 +1,9 @@
+Command: npm run typecheck:tests
+Working directory: /Users/khaliqgant/fl-slice-X/packages/sdk
+
+
+> @relayflows/sdk@2.0.8 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+Exit code: 0

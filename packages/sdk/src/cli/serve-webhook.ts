@@ -4,6 +4,7 @@ import { createServer, type Server, type ServerResponse } from 'node:http';
 import { join, resolve } from 'node:path';
 import { TextDecoder } from 'node:util';
 import type { CliIo } from '../cli.js';
+import { providerInboxEvent } from '../trigger-executor.js';
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
@@ -32,7 +33,7 @@ function reply(response: ServerResponse, status: number, body: object): void {
   response.end(JSON.stringify(body));
 }
 
-/** POST /<name> accepts JSON, including scalar values. No daemon connection. */
+/** POST /<name> accepts JSON; /providers/<provider> accepts typed event envelopes. */
 export async function startWebhookServer(dataDir: string, port: number): Promise<Server> {
   const inbox = join(resolve(dataDir), 'inbox');
   await directory(inbox);
@@ -45,7 +46,8 @@ export async function startWebhookServer(dataDir: string, port: number): Promise
       reply(response, 405, { error: 'method_not_allowed' });
       return;
     }
-    const name = request.url?.slice(1);
+    const providerRoute = request.url?.startsWith('/providers/') ?? false;
+    const name = request.url?.slice(providerRoute ? '/providers/'.length : 1);
     if (!name || !NAME.test(name)) {
       request.resume();
       reply(response, 404, { error: 'invalid_webhook_name' });
@@ -73,6 +75,15 @@ export async function startWebhookServer(dataDir: string, port: number): Promise
       } catch {
         reply(response, 400, { error: 'invalid_json' });
         return;
+      }
+      if (providerRoute) {
+        try {
+          payload = providerInboxEvent(name, payload);
+        } catch (error) {
+          reply(response, 400, { error: 'invalid_provider_event',
+            message: error instanceof Error ? error.message : 'invalid provider event' });
+          return;
+        }
       }
       const target = join(inbox, name);
       await directory(target);

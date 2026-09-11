@@ -1,0 +1,22 @@
+Command: PATH=/Users/khaliqgant/.bun/bin:$PATH npm test
+Working directory: /Users/khaliqgant/fl-slice-X/packages/surface
+
+> @relayflows/surface@2.0.8 test
+> bun run build && tsc -p tsconfig.test.json && vitest run
+
+$ tsc
+
+ RUN  v2.1.9 /Users/khaliqgant/fl-slice-X/packages/surface
+
+ ✓ tests/triggers.test.ts (4 tests) 4ms
+ ✓ tests/provider-triggers.test.ts (3 tests) 5ms
+ ✓ tests/flow.test.ts (20 tests) 7ms
+ ✓ tests/helpers.snapshot.test.ts (1 test) 661ms
+   ✓ regenerates helpers byte-identically from the pinned adapter 660ms
+
+ Test Files  4 passed (4)
+      Tests  28 passed (28)
+   Start at  23:51:18
+   Duration  1.55s (transform 64ms, setup 0ms, collect 913ms, tests 677ms, environment 0ms, prepare 387ms)
+
+Exit code: 0

@@ -1,0 +1,23 @@
+Command: PATH=/Users/khaliqgant/.cargo/bin:$PATH sh ../ops/cargo.sh test --offline -p relayflowd --test trigger_watcher
+Working directory: /Users/khaliqgant/fl-slice-X/kernel
+
+   Compiling bitflags v2.13.1
+   Compiling getrandom v0.4.3
+   Compiling rustix v1.1.4
+   Compiling errno v0.3.14
+   Compiling fastrand v2.5.0
+   Compiling rusqlite v0.37.0
+   Compiling relayflowd-journal v0.1.0 (/Users/khaliqgant/fl-slice-X/kernel/relayflowd-journal)
+   Compiling tempfile v3.27.0
+   Compiling relayflowd v0.1.0 (/Users/khaliqgant/fl-slice-X/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.38s
+     Running tests/trigger_watcher.rs (/Users/khaliqgant/.relayflows-toolchain/target/1463204285/debug/deps/trigger_watcher-dcffffe2d25ba6f1)
+
+running 3 tests
+test retains_bad_and_unregistered_events_while_consuming_filter_nonmatches ... ok
+test failed_archive_retries_the_same_durable_run ... ok
+test journals_payload_and_filename_key_then_archives_and_dedupes_replay ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+Exit code: 0

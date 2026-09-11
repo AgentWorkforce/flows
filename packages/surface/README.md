@@ -26,8 +26,9 @@ lifecycle contract are in `docs/SURFACE.md`, "The authored operation lifecycle".
 This is an in-repository foundation, not a registry-published package. The
 repository's `flows run` command can execute a directly authored `.flow.ts`
 with required JSON input. Durable authored-root resume remains tracked in issue
-#132. Resident trigger handlers (`flow.on(...)`) are gate-2 work and are not yet
-part of this package.
+#132. `flow.on(...)` records webhook and generated provider subscriptions.
+See [provider event triggers](src/triggers/README.md) for declarations, inbox
+envelopes, and executor bindings; deploying handler bodies is tracked in #301.
 
 The repository pins Bun through `surface/bun.lock`. From a fresh checkout:
 

@@ -216,3 +216,4 @@ export {
 export { createFlow, type CreateFlowOptions, type CreatedFlow } from './create-flow.js';
 
 export { renderProgress, type ProgressEvent } from './progress.js';
+export { webhookTriggerSpec } from './trigger-executor.js';
