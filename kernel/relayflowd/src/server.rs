@@ -162,7 +162,12 @@ fn handle_request(
                 .map_err(|error| ("invalid_spec", error.to_string()))?;
             to_value(
                 engine
-                    .start(spec, "protocol-v0", None)
+                    .start_with_reuse(
+                        spec,
+                        "protocol-v0",
+                        crate::DriveOptions::default(),
+                        params.reuse_from_run_id.as_deref(),
+                    )
                     .map_err(run_start_error)?,
             )
         }

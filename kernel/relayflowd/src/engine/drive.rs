@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, thread, time::Duration};
 use anyhow::{Context, Result, bail};
 use relayflowd_core::{
     Action, AttemptResult, Clock, CompletionReason, RunCompletionReason, RunSpec, RunState,
-    abandonment_actions, completion_actions, next_actions,
+    abandonment_actions, completion_actions, memoization::next_actions_with_reuse,
 };
 use relayflowd_journal::SqliteJournal;
 
@@ -20,6 +20,7 @@ impl<C: Clock> Engine<C> {
         spec: RunSpec,
         options: DriveOptions,
     ) -> Result<RunOutcome> {
+        let reuse = self.reuse_snapshot(&journal)?;
         let initial_completed = self.load_state(&journal, spec.clone())?.completed_steps();
         let mut pause_consumed = false;
         let mut failed_batch_redriven = false;
@@ -40,7 +41,7 @@ impl<C: Clock> Engine<C> {
                 thread::sleep(Duration::from_secs(300));
             }
 
-            let actions = next_actions(&state, self.clock.now_ms());
+            let actions = next_actions_with_reuse(&state, &reuse, self.clock.now_ms());
             if actions.is_empty() {
                 self.park_idle_run(&state)?;
                 return Ok(parked_outcome(&state, RunStatus::Parked));
@@ -114,7 +115,8 @@ impl<C: Clock> Engine<C> {
                         }
                     }
                     Action::ExecDeterministic { step, attempt } => {
-                        let Some(input) = self.resolve_step_input(&mut journal, &step, attempt)? else {
+                        let Some(input) = self.resolve_step_input(&mut journal, &step, attempt)?
+                        else {
                             continue;
                         };
                         if !self.ensure_step_memory(&mut journal, &step, attempt)? {
@@ -185,7 +187,11 @@ impl<C: Clock> Engine<C> {
                         let input = self.resolve_step_input(&mut journal, &step, attempt);
                         if !matches!(input, Ok(Some(_))) {
                             if let Some(dispatcher) = &self.dispatcher {
-                                dispatcher.release_dispatch_reservation(&state.run_id, &step.id, attempt);
+                                dispatcher.release_dispatch_reservation(
+                                    &state.run_id,
+                                    &step.id,
+                                    attempt,
+                                );
                             }
                             input?;
                             continue;
@@ -223,7 +229,11 @@ impl<C: Clock> Engine<C> {
                                     lease_id,
                                     idempotency_key,
                                     pins,
-                                    routing: started_state.routing.get(&step.id).context("dispatch has no journaled route")?.clone(),
+                                    routing: started_state
+                                        .routing
+                                        .get(&step.id)
+                                        .context("dispatch has no journaled route")?
+                                        .clone(),
                                     wake_context: resolve_wake_context(&journal)?,
                                     recovery,
                                     lease_deadline_ms,

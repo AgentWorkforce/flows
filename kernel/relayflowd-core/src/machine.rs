@@ -357,10 +357,9 @@ pub fn completion_actions(
         Some(reason) => Some(crate::entry::VerificationRecord {
             gate: "execution".to_owned(),
             verdict: crate::entry::VerificationVerdict::Fail,
-            detail: result
-                .failure_detail
-                .clone()
-                .unwrap_or_else(|| format!("worker reported {} without detail", reason_label(reason))),
+            detail: result.failure_detail.clone().unwrap_or_else(|| {
+                format!("worker reported {} without detail", reason_label(reason))
+            }),
         }),
     };
     let verified = verification
@@ -403,6 +402,9 @@ pub fn completion_actions(
         Some(attempt),
         now_ms,
         StepCompletedPayload {
+            step_spec_hash: None,
+            input_hash: None,
+            reused_from: None,
             completion_reason: reason,
             disposition,
             output,

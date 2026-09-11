@@ -118,6 +118,21 @@ impl SqliteJournal {
         })
     }
 
+    /// Read a source journal without schema migrations or write pragmas.
+    pub fn open_read_only(path: impl AsRef<Path>) -> Result<Self, JournalStoreError> {
+        let path = path.as_ref().to_path_buf();
+        let connection = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let run_id =
+            connection.query_row("SELECT value FROM meta WHERE key = 'run_id'", [], |row| {
+                row.get(0)
+            })?;
+        Ok(Self {
+            connection,
+            run_id,
+            path,
+        })
+    }
+
     pub fn run_id(&self) -> &str {
         &self.run_id
     }

@@ -1,0 +1,188 @@
+CWD: /Users/khaliqgant/flows-spec-K-memoization/packages/sdk
+COMMAND: PATH=/Users/khaliqgant/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH RELAYFLOWD_BIN=/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/relayflowd RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 npm test
+
+
+> @relayflows/sdk@2.0.8 test
+> sh scripts/test.sh
+
+
+> @relayflows/sdk@2.0.8 test:prep
+> ( cd ../../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../../testdata/preflight ] || find ../../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )
+
+    Blocking waiting for file lock on build directory
+   Compiling relayflowd-journal v0.1.0 (/Users/khaliqgant/flows-spec-K-memoization/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/Users/khaliqgant/flows-spec-K-memoization/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.48s
+
+> @relayflows/sdk@2.0.8 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.8 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+> @relayflows/sdk@2.0.8 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+ RUN  v2.1.9 /Users/khaliqgant/flows-spec-K-memoization/packages/sdk
+
+ ✓ tests/journal-client.test.ts (14 tests) 67ms
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/relayflowd
+LIVE_KERNEL flows=/Users/khaliqgant/flows-spec-K-memoization/packages/sdk/dist/cli.js
+
+ ✓ tests/daemon-lifecycle.test.ts (42 tests) 25ms
+ ✓ tests/validate.test.ts (68 tests) 15ms
+ ✓ tests/preflight.test.ts (27 tests) 26ms
+ ✓ tests/observer-link.test.ts (39 tests) 162ms
+ ✓ tests/tick-source.test.ts (33 tests) 15ms
+ ✓ tests/cloud-run.test.ts (47 tests) 115ms
+ ✓ tests/verb-field-lint.test.ts (78 tests) 224ms
+ ✓ tests/authored-flow.test.ts (25 tests) 640ms
+ ✓ tests/authored-flow-lifecycle-executor.test.ts (27 tests) 529ms
+ ✓ tests/cli-replay.test.ts (36 tests) 495ms
+   ✓ flows replay > --json is byte-identical across two CLI invocations (diff) 312ms
+ ✓ tests/gate-contract.test.ts (20 tests) 111ms
+ ✓ tests/cli-hn-monitor.test.ts (16 tests) 100ms
+ ✓ tests/backlog-picker.test.ts (14 tests) 91ms
+ ✓ tests/tick-runner.test.ts (22 tests) 880ms
+ ✓ tests/authored-flow-operation.test.ts (23 tests) 292ms
+ ✓ tests/backlog-picker-flow.test.ts (6 tests) 573ms
+ ✓ tests/authored-flow-slack.test.ts (5 tests) 1060ms
+   ✓ authored Slack helper effects > writes two files for two calls and supports dm, reply, and react 374ms
+ ✓ tests/work-package-consumer.test.ts (13 tests) 229ms
+ ✓ tests/worker-lease.test.ts (7 tests) 6ms
+ ✓ tests/spec-parity.test.ts (31 tests) 181ms
+ ✓ tests/typed-output.test.ts (14 tests) 108ms
+ ✓ tests/model-selection.test.ts (10 tests) 16ms
+ ✓ tests/relayflowd-path.test.ts (10 tests) 2ms
+ ✓ tests/json-schema-bound.test.ts (71 tests) 1492ms
+   ✓ JSON Schema termination bound > walks a deep schema with an explicit stack rather than recursion 1202ms
+ ✓ tests/direct-input.test.ts (4 tests) 4573ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > executes inline and file JSON input through relayflowd 1884ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses missing and malformed input before contacting relayflowd 1472ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > does not import or execute authored code before daemon availability 754ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses oversized file input before contacting relayflowd 463ms
+ ✓ tests/local-dev-ux.test.ts (8 tests) 8ms
+ ✓ tests/yaml-local-agent-live.test.ts (7 tests) 2507ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked step CLI and model and journals done 397ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked named CLI and model and journals done 386ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked flow CLI and model and journals done 388ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked project CLI and model and journals done 378ms
+   ✓ YAML --local-agent through the built CLI and real daemon > reports the agent process failure 379ms
+   ✓ YAML --local-agent through the built CLI and real daemon > preserves declared workspace surfaces that the local worker cannot pin 318ms
+ ✓ tests/dependency-validation.test.ts (6 tests) 292ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 36ms
+ ✓ tests/input-binding.test.ts (12 tests) 110ms
+ ✓ tests/hn-poller.test.ts (6 tests) 3ms
+ ✓ tests/dir-watcher-poller.test.ts (6 tests) 2ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 10ms
+ ✓ tests/work-package-validator.test.ts (7 tests) 3ms
+ ✓ tests/bin.test.ts (7 tests) 653ms
+ ↓ tests/real-cli-adapters.test.ts (3 tests | 3 skipped)
+ ✓ tests/stop-process-group.test.ts (6 tests) 8121ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after an execution-timeout stop 999ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after a protocol terminate stop 815ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after a protocol terminate stop 2208ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after an execution-timeout stop 2647ms
+   ✓ every stop reaches the process group, not just the direct child > holds the loop open long enough for the escalation to run 1153ms
+ ✓ tests/parse-json-output.test.ts (7 tests) 1ms
+ ✓ tests/cli-adapter.test.ts (3 tests) 3ms
+ ✓ tests/memoization.test.ts (57 tests) 613ms
+   ✓ refuses invalid reuse invocation "run" 579ms
+ ✓ tests/journal-client-completion.test.ts (4 tests) 100ms
+ ✓ tests/daemon-lifecycle-live.test.ts (9 tests) 8365ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > cold start spawns exactly one daemon, the run succeeds, and the daemon outlives the CLI 877ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > polls, bounded, for a daemon that holds the lock before it binds 1813ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > attaches to a serving daemon that has not published a connection file 526ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > a second run attaches to the daemon the first one started, spawning nothing 1213ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > detects a stale connection file left by a hard kill and starts a fresh daemon 1451ms
+   ✓ concurrent invocations against one empty data dir (§6 test 15) > ends with exactly one daemon owning the socket, and both runs succeed 1008ms
+   ✓ refusals from a spawn that cannot produce a daemon > names relayflowd_not_found rather than falling through to PATH 518ms
+   ✓ refusals from a spawn that cannot produce a daemon > names daemon_start_failed and quotes the daemon log when startup dies 523ms
+   ✓ refusals from a spawn that cannot produce a daemon > refuses a daemon speaking another protocol version instead of binding over it 434ms
+ ✓ tests/direct-run-failure.test.ts (6 tests) 2ms
+ ✓ tests/slack-writeback.test.ts (1 test) 261ms
+ ✓ tests/placement.test.ts (54 tests) 7ms
+ ✓ tests/memory.test.ts (18 tests) 3ms
+ ✓ tests/cli.test.ts (63 tests) 10277ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 518ms
+   ✓ flows check CLI > uses the raw Claude adapter model flag instead of accepting auth status as model proof 304ms
+   ✓ flows check CLI > uses Codex login status and reports a rejected model as unavailable, not unauthenticated 617ms
+   ✓ flows check CLI > refuses a nonconforming custom wrapper without calling it an authentication failure 614ms
+   ✓ flows check CLI > accepts an exact allowlisted named-agent model and probes that model 546ms
+   ✓ flows check CLI > checks the same named-agent contract from declarative JSON 852ms
+   ✓ flows check CLI > distinguishes an allowlisted but inaccessible model from broken auth 339ms
+   ✓ flows check CLI > resolves a project CLI path relative to the flows.json that declares it 345ms
+   ✓ flows check CLI > maps every input refusal path to its declared kind without raw exceptions 1110ms
+   ✓ flows run/resume CLI over the journal protocol > parses run options, submits the kernel dialect, and exits 0 on success 540ms
+   ✓ flows run/resume CLI over the journal protocol > exits 3 and names the parked llm step 559ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 386ms
+   ✓ flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 547ms
+   ✓ flows run/resume CLI over the journal protocol > resumes a parked run from snapshot step types without reading journal sequence one 327ms
+   ✓ flows run/resume CLI over the journal protocol > maps only run_not_found resumes to exit 2 1302ms
+ ✓ tests/worker-platform.test.ts (1 test) 2ms
+ ✓ tests/flow-executor-chain.test.ts (12 tests) 9066ms
+   ✓ flow executor LLM and output-binding chain > runs f.llm -> f.agent -> f.run with schema-verified journal output and the exact allowed model 1188ms
+   ✓ flow executor LLM and output-binding chain > fails invalid LLM output before the next step: not JSON 932ms
+   ✓ flow executor LLM and output-binding chain > fails invalid LLM output before the next step: {"message":7} 521ms
+   ✓ flow executor LLM and output-binding chain > retains tagged-template text output 768ms
+   ✓ flow executor LLM and output-binding chain > preserves JSON values without promoting them to process wrappers: null 955ms
+   ✓ flow executor LLM and output-binding chain > preserves JSON values without promoting them to process wrappers: [1,2] 639ms
+   ✓ flow executor LLM and output-binding chain > preserves JSON values without promoting them to process wrappers: "hello" 535ms
+   ✓ flow executor LLM and output-binding chain > runs the authored LLM path through the built flows CLI 1282ms
+   ✓ flow executor LLM and output-binding chain > passes a declarative verified value through an agent into a deterministic artifact 623ms
+   ✓ flow executor LLM and output-binding chain > journals a missing optional field as a failure before the consuming command executes 602ms
+   ✓ flow executor LLM and output-binding chain > flows run consumes YAML bindings and resume reuses the original journal output 911ms
+ ✓ tests/classify-outcome.test.ts (2 tests) 2212ms
+   ✓ classifyOutcome > gives up and reports when a running run never becomes classifiable 2056ms
+ ✓ tests/cli-progress-wait.test.ts (2 tests) 1400ms
+   ✓ run starts the wait clock on its first observed lease 810ms
+   ✓ resume starts the wait clock on its first observed lease 589ms
+ ✓ tests/worker-cli-abort.test.ts (2 tests) 2597ms
+   ✓ stops claude and its process group when lease ownership is lost 1326ms
+   ✓ stops wrapper.mjs and its process group when lease ownership is lost 1271ms
+ ✓ tests/worker-cli.test.ts (13 tests) 22284ms
+   ✓ custom wrapper execution identity > refuses a wrapper symlink retarget before delivering private values 590ms
+   ✓ custom wrapper execution identity > bounds wrapper execution after acknowledgement 447ms
+   ✓ custom wrapper execution identity > bounds captured wrapper output 549ms
+   ✓ custom wrapper execution identity > refuses a duplicate execute protocol frame 622ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 2285ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 2092ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3254ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11260ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 461ms
+ ✓ tests/local-agent-live.test.ts (5 tests) 40177ms
+   ✓ built CLI local agent against a real daemon > dispatches through the wrapper and keeps --json stdout report-shaped 869ms
+   ✓ built CLI local agent against a real daemon > runs beyond the initial 30-second lease without a second invocation 36067ms
+   ✓ built CLI local agent against a real daemon > renders actual agent completion in text output 1282ms
+   ✓ built CLI local agent against a real daemon > returns a failed run when the agent process fails 1171ms
+   ✓ built CLI local agent against a real daemon > refuses a workspace it cannot pin before invoking the agent 786ms
+stderr | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER_UNAVAILABLE: "/Users/khaliqgant/flows-spec-K-memoization/testdata/preflight/analyze-story-claude-cli auth status" exited 1: analyze-story-claude-cli: "claude -p --model claude-haiku-4-5-20251001" exited 1: — SKIPPING. This skip is diagnostics, not gate-2 acceptance evidence.
+
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=61454 run=01M27WS7RJNRY8Q3PNH1S8M0SP while step=two state=Running
+
+ ✓ tests/live-kernel.test.ts (31 tests | 1 skipped) 53202ms
+   ✓ built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 1459ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 3570ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32233ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 505ms
+   ✓ built flows CLI against live relayflowd > f.agent lowers to a real agent step and dispatches through a live worker 309ms
+   ✓ built flows CLI against live relayflowd > f.agent's default flowPath anchors on cwd, not cwd's parent 333ms
+   ✓ built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5665ms
+   ✓ built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 899ms
+   ✓ built flows CLI against live relayflowd > AgentWorker passes a declared model to an identified wrapper as RELAYFLOW_MODEL 794ms
+   ✓ built flows CLI against live relayflowd > AgentWorker refuses a nonconforming journal-submitted wrapper before exposing RELAYFLOW_MODEL 562ms
+   ✓ built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket 1636ms
+   ✓ built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir 906ms
+   ✓ surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 1063ms
+
+ Test Files  55 passed | 1 skipped (56)
+      Tests  1066 passed | 4 skipped (1070)
+   Start at  11:28:14
+   Duration  53.74s (transform 1.01s, setup 0ms, collect 4.81s, tests 174.34s, environment 4ms, prepare 1.70s)
+

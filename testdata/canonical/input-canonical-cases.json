@@ -1,0 +1,644 @@
+[
+  {
+    "name": "input-0",
+    "value": {},
+    "canonical": "{}",
+    "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+  },
+  {
+    "name": "input-1",
+    "value": null,
+    "canonical": "null",
+    "sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+  },
+  {
+    "name": "input-2",
+    "value": {
+      "z": 1,
+      "a": {
+        "y": [
+          true,
+          false,
+          null,
+          "quote\"\\\n"
+        ],
+        "b": "é"
+      }
+    },
+    "canonical": "{\"a\":{\"b\":\"é\",\"y\":[true,false,null,\"quote\\\"\\\\\\n\"]},\"z\":1}",
+    "sha256": "e87a109b541225118556ea2f32b60325b678137b103b7089708a03e0d8bc8c7e"
+  },
+  {
+    "name": "input-3",
+    "value": {
+      "": 1,
+      "😀": 2,
+      "a": 3
+    },
+    "canonical": "{\"a\":3,\"😀\":2,\"\":1}",
+    "sha256": "84495633024b0992798250783e7ccb01ab2875649ab22f353f14c0d6a8389fc2"
+  },
+  {
+    "name": "input-4",
+    "value": {
+      "values": [
+        0,
+        1,
+        0.1,
+        1e-7,
+        0.000001,
+        100000000000000000000,
+        1e+21,
+        9007199254740991
+      ]
+    },
+    "canonical": "{\"values\":[0,1,0.1,1e-7,0.000001,100000000000000000000,1e+21,9007199254740991]}",
+    "sha256": "c7a7424cec142d502e5969b55639b72592393ac0ebf24bd5a164cda222b97dd7"
+  },
+  {
+    "name": "input-5",
+    "value": {
+      "1": 1,
+      "2": 2,
+      "10": 10
+    },
+    "canonical": "{\"1\":1,\"10\":10,\"2\":2}",
+    "sha256": "c275fda38f0b687f7087b787ccd45762b4b2d2f423285407dd864feb1cf73635"
+  },
+  {
+    "name": "input-6",
+    "value": [
+      1,
+      2
+    ],
+    "canonical": "[1,2]",
+    "sha256": "49a64717d5d4cb19952e6eac2946415cf6879adacf9908e7d872332d32c6e684"
+  },
+  {
+    "name": "input-7",
+    "value": [
+      2,
+      1
+    ],
+    "canonical": "[2,1]",
+    "sha256": "af1a1fc110b6094c48582b0ef83553cb7908d7a4365424eef28e76ef6c88d630"
+  },
+  {
+    "name": "input-8",
+    "value": {
+      "price": "1.50",
+      "nested": [
+        {
+          "z": 2,
+          "a": 1
+        }
+      ]
+    },
+    "canonical": "{\"nested\":[{\"a\":1,\"z\":2}],\"price\":\"1.50\"}",
+    "sha256": "26ad8ad9e60b3ab990b667587d4aafd64d68ec403cbbdd9a14da523db9b8ba76"
+  },
+  {
+    "name": "input-9",
+    "value": {
+      "iteration": 0,
+      "values": [
+        0,
+        1e-10,
+        {
+          "b": 0,
+          "a": "value-0"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":0,\"values\":[0,1e-10,{\"a\":\"value-0\",\"b\":0}]}",
+    "sha256": "a06f29b8f7910852f8908a009512bd9713081f5ee80aa680ed27a9e0939950da"
+  },
+  {
+    "name": "input-10",
+    "value": {
+      "iteration": 1,
+      "values": [
+        0.1,
+        1e-9,
+        {
+          "b": 1,
+          "a": "value-1"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":1,\"values\":[0.1,1e-9,{\"a\":\"value-1\",\"b\":1}]}",
+    "sha256": "df24b903cc97df2c819a36fc1366922ae71be3cb82cf19f5ff22d540c6b45e63"
+  },
+  {
+    "name": "input-11",
+    "value": {
+      "iteration": 2,
+      "values": [
+        0.2,
+        1e-8,
+        {
+          "b": 2,
+          "a": "value-2"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":2,\"values\":[0.2,1e-8,{\"a\":\"value-2\",\"b\":2}]}",
+    "sha256": "3a39d9cb027ca39690d85639e8dd075e766672acba086c4a684a698a6a870b8f"
+  },
+  {
+    "name": "input-12",
+    "value": {
+      "iteration": 3,
+      "values": [
+        0.3,
+        1e-7,
+        {
+          "b": 3,
+          "a": "value-3"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":3,\"values\":[0.3,1e-7,{\"a\":\"value-3\",\"b\":3}]}",
+    "sha256": "40398c4188a1bf00caf818f1704ccd29ddf708e5565ff5ad0822e3814df31f93"
+  },
+  {
+    "name": "input-13",
+    "value": {
+      "iteration": 4,
+      "values": [
+        0.4,
+        0.000001,
+        {
+          "b": 4,
+          "a": "value-4"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":4,\"values\":[0.4,0.000001,{\"a\":\"value-4\",\"b\":4}]}",
+    "sha256": "85e5458801e7c2f8af7e31b82ece703b5647ddf167914b46ae553b13ad17dd2f"
+  },
+  {
+    "name": "input-14",
+    "value": {
+      "iteration": 5,
+      "values": [
+        0.5,
+        0.00001,
+        {
+          "b": 5,
+          "a": "value-5"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":5,\"values\":[0.5,0.00001,{\"a\":\"value-5\",\"b\":5}]}",
+    "sha256": "afc71b7592284f18580ede673f7777c4b84dd766076b6f9e90b457ee369da6ed"
+  },
+  {
+    "name": "input-15",
+    "value": {
+      "iteration": 6,
+      "values": [
+        0.6,
+        0.0001,
+        {
+          "b": 6,
+          "a": "value-6"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":6,\"values\":[0.6,0.0001,{\"a\":\"value-6\",\"b\":6}]}",
+    "sha256": "384ecb26b90779c83efaf9496a1f4a22238be8b1d4a407394b7fcc93972b16cb"
+  },
+  {
+    "name": "input-16",
+    "value": {
+      "iteration": 7,
+      "values": [
+        0.7,
+        0.001,
+        {
+          "b": 7,
+          "a": "value-7"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":7,\"values\":[0.7,0.001,{\"a\":\"value-7\",\"b\":7}]}",
+    "sha256": "4cadb77b545771073ac135dba827284a9d8b834c3ca0d974cc4a068c706cdb0e"
+  },
+  {
+    "name": "input-17",
+    "value": {
+      "iteration": 8,
+      "values": [
+        0.8,
+        0.01,
+        {
+          "b": 8,
+          "a": "value-8"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":8,\"values\":[0.8,0.01,{\"a\":\"value-8\",\"b\":8}]}",
+    "sha256": "4e5424f0f8baaf2d62277b8efa5a2b1aa368ed8494104559d56a40750d5004b4"
+  },
+  {
+    "name": "input-18",
+    "value": {
+      "iteration": 9,
+      "values": [
+        0.9,
+        0.1,
+        {
+          "b": 9,
+          "a": "value-9"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":9,\"values\":[0.9,0.1,{\"a\":\"value-9\",\"b\":9}]}",
+    "sha256": "a4cc781dbd00583331b3f193edae63c648d5c9d43411769b0a4bce16cc61320c"
+  },
+  {
+    "name": "input-19",
+    "value": {
+      "iteration": 10,
+      "values": [
+        1,
+        1,
+        {
+          "b": 10,
+          "a": "value-10"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":10,\"values\":[1,1,{\"a\":\"value-10\",\"b\":10}]}",
+    "sha256": "46839458676500f94f947f41a1108acf18ce935c0975f9025a96332898cf8cee"
+  },
+  {
+    "name": "input-20",
+    "value": {
+      "iteration": 11,
+      "values": [
+        1.1,
+        10,
+        {
+          "b": 11,
+          "a": "value-11"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":11,\"values\":[1.1,10,{\"a\":\"value-11\",\"b\":11}]}",
+    "sha256": "aa536283b6c96b1b57143357bf86ac9ed0497e7d8281554f5f02e6af3eff0e26"
+  },
+  {
+    "name": "input-21",
+    "value": {
+      "iteration": 12,
+      "values": [
+        1.2,
+        100,
+        {
+          "b": 12,
+          "a": "value-12"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":12,\"values\":[1.2,100,{\"a\":\"value-12\",\"b\":12}]}",
+    "sha256": "b718da5dd61ca50152a89e47cb6872790047d3ac6ac65af0692cbb992e659cf3"
+  },
+  {
+    "name": "input-22",
+    "value": {
+      "iteration": 13,
+      "values": [
+        1.3,
+        1000,
+        {
+          "b": 13,
+          "a": "value-13"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":13,\"values\":[1.3,1000,{\"a\":\"value-13\",\"b\":13}]}",
+    "sha256": "bbd75d229ff46d873b83d2c9bb2500b245e1e8a025a73f66aa56182357450c51"
+  },
+  {
+    "name": "input-23",
+    "value": {
+      "iteration": 14,
+      "values": [
+        1.4,
+        10000,
+        {
+          "b": 14,
+          "a": "value-14"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":14,\"values\":[1.4,10000,{\"a\":\"value-14\",\"b\":14}]}",
+    "sha256": "7c4e820e261e233ea7b09cd8ad775de641646e404c0fbf8ff9db745a57a2d4d8"
+  },
+  {
+    "name": "input-24",
+    "value": {
+      "iteration": 15,
+      "values": [
+        1.5,
+        100000,
+        {
+          "b": 15,
+          "a": "value-15"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":15,\"values\":[1.5,100000,{\"a\":\"value-15\",\"b\":15}]}",
+    "sha256": "586a9f33409a71a4f2bba9a1303628447c4f2ae246b979cbf976e66a01a8fbb4"
+  },
+  {
+    "name": "input-25",
+    "value": {
+      "iteration": 16,
+      "values": [
+        1.6,
+        1000000,
+        {
+          "b": 16,
+          "a": "value-16"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":16,\"values\":[1.6,1000000,{\"a\":\"value-16\",\"b\":16}]}",
+    "sha256": "d8b8c48e0c3b54e126dc76c96a16129d995924bc1dc94f333160c62a38e93693"
+  },
+  {
+    "name": "input-26",
+    "value": {
+      "iteration": 17,
+      "values": [
+        1.7,
+        10000000,
+        {
+          "b": 17,
+          "a": "value-17"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":17,\"values\":[1.7,10000000,{\"a\":\"value-17\",\"b\":17}]}",
+    "sha256": "ebcc0ee44b7ca311d435bea4ddcc2fb90d2c7f9a68b4904aa390c5201d8a0397"
+  },
+  {
+    "name": "input-27",
+    "value": {
+      "iteration": 18,
+      "values": [
+        1.8,
+        100000000,
+        {
+          "b": 18,
+          "a": "value-18"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":18,\"values\":[1.8,100000000,{\"a\":\"value-18\",\"b\":18}]}",
+    "sha256": "7ec18f8c0e69c8c8a420636a6760eba841cb51f0221a7a273c6bcc65e43797a4"
+  },
+  {
+    "name": "input-28",
+    "value": {
+      "iteration": 19,
+      "values": [
+        1.9,
+        1000000000,
+        {
+          "b": 19,
+          "a": "value-19"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":19,\"values\":[1.9,1000000000,{\"a\":\"value-19\",\"b\":19}]}",
+    "sha256": "7a89832b2c2c3617a1d502928a60904310f455edcb26f7572157ee8652ee9ccb"
+  },
+  {
+    "name": "input-29",
+    "value": {
+      "iteration": 20,
+      "values": [
+        2,
+        10000000000,
+        {
+          "b": 20,
+          "a": "value-20"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":20,\"values\":[2,10000000000,{\"a\":\"value-20\",\"b\":20}]}",
+    "sha256": "531db192c3ed097f2bf2024851837cb166a3688d17162dc93f6e24bb505f645d"
+  },
+  {
+    "name": "input-30",
+    "value": {
+      "iteration": 21,
+      "values": [
+        2.1,
+        100000000000,
+        {
+          "b": 21,
+          "a": "value-21"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":21,\"values\":[2.1,100000000000,{\"a\":\"value-21\",\"b\":21}]}",
+    "sha256": "f048494e3ab91b4ba19cf19afd9217719a605d65ff83d20a879ea6ea68eafa5c"
+  },
+  {
+    "name": "input-31",
+    "value": {
+      "iteration": 22,
+      "values": [
+        2.2,
+        1000000000000,
+        {
+          "b": 22,
+          "a": "value-22"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":22,\"values\":[2.2,1000000000000,{\"a\":\"value-22\",\"b\":22}]}",
+    "sha256": "e71a9187f88b2cf0776a54fca5b1c755a820acb495607c3cc21d5a6dd5ddda74"
+  },
+  {
+    "name": "input-32",
+    "value": {
+      "iteration": 23,
+      "values": [
+        2.3,
+        10000000000000,
+        {
+          "b": 23,
+          "a": "value-23"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":23,\"values\":[2.3,10000000000000,{\"a\":\"value-23\",\"b\":23}]}",
+    "sha256": "8d642808e265cb54481128633ab593c4f026c6af2ef59ba725bc615d770af450"
+  },
+  {
+    "name": "input-33",
+    "value": {
+      "iteration": 24,
+      "values": [
+        2.4,
+        100000000000000,
+        {
+          "b": 24,
+          "a": "value-24"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":24,\"values\":[2.4,100000000000000,{\"a\":\"value-24\",\"b\":24}]}",
+    "sha256": "d51c489acf4052f62bda1cb1abedd1033acd7bfd05a4f05326a26ac968536c3b"
+  },
+  {
+    "name": "input-34",
+    "value": {
+      "iteration": 25,
+      "values": [
+        2.5,
+        1e-10,
+        {
+          "b": 25,
+          "a": "value-25"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":25,\"values\":[2.5,1e-10,{\"a\":\"value-25\",\"b\":25}]}",
+    "sha256": "6a9474cf133af2f64e9eb8dc4c6293b1f1cd428c5eac73015e3c800989e88e2e"
+  },
+  {
+    "name": "input-35",
+    "value": {
+      "iteration": 26,
+      "values": [
+        2.6,
+        1e-9,
+        {
+          "b": 26,
+          "a": "value-26"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":26,\"values\":[2.6,1e-9,{\"a\":\"value-26\",\"b\":26}]}",
+    "sha256": "a5a83d3afd04d6f5b527469f62ea5635de1a25392209e94aada76202d977d103"
+  },
+  {
+    "name": "input-36",
+    "value": {
+      "iteration": 27,
+      "values": [
+        2.7,
+        1e-8,
+        {
+          "b": 27,
+          "a": "value-27"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":27,\"values\":[2.7,1e-8,{\"a\":\"value-27\",\"b\":27}]}",
+    "sha256": "9038098d2916c7fcef059c5aae0fd928b5e0de12223840ad8bf28cd8f70312cf"
+  },
+  {
+    "name": "input-37",
+    "value": {
+      "iteration": 28,
+      "values": [
+        2.8,
+        1e-7,
+        {
+          "b": 28,
+          "a": "value-28"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":28,\"values\":[2.8,1e-7,{\"a\":\"value-28\",\"b\":28}]}",
+    "sha256": "742e2894ffd3740c68dd14d9b6b61763783b1e6c69ae24acfadd1b7ba7554c82"
+  },
+  {
+    "name": "input-38",
+    "value": {
+      "iteration": 29,
+      "values": [
+        2.9,
+        0.000001,
+        {
+          "b": 29,
+          "a": "value-29"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":29,\"values\":[2.9,0.000001,{\"a\":\"value-29\",\"b\":29}]}",
+    "sha256": "f85835d0bdd7a6ae82505a267e62afa5a10ddc702f0084b475d06cbf081b7ed7"
+  },
+  {
+    "name": "input-39",
+    "value": {
+      "iteration": 30,
+      "values": [
+        3,
+        0.00001,
+        {
+          "b": 30,
+          "a": "value-30"
+        }
+      ],
+      "flag": true
+    },
+    "canonical": "{\"flag\":true,\"iteration\":30,\"values\":[3,0.00001,{\"a\":\"value-30\",\"b\":30}]}",
+    "sha256": "eb8f66744112b603a0ca76607695aaa73f8d315bac18e3d801934fb7f82d7568"
+  },
+  {
+    "name": "input-40",
+    "value": {
+      "iteration": 31,
+      "values": [
+        3.1,
+        0.0001,
+        {
+          "b": 31,
+          "a": "value-31"
+        }
+      ],
+      "flag": false
+    },
+    "canonical": "{\"flag\":false,\"iteration\":31,\"values\":[3.1,0.0001,{\"a\":\"value-31\",\"b\":31}]}",
+    "sha256": "f30fc5f935104ffd88c177ee8e82205c02d6362d9db2cc5aaaace959c270031e"
+  }
+]

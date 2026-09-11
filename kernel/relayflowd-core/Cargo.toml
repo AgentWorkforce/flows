@@ -12,3 +12,4 @@ sha2.workspace = true
 thiserror.workspace = true
 ulid.workspace = true
 
+ryu-js = "1.0"

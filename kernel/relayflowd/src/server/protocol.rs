@@ -63,7 +63,9 @@ fn mutation_error(error: anyhow::Error) -> (&'static str, String) {
 }
 
 pub(super) fn run_start_error(error: anyhow::Error) -> (&'static str, String) {
-    if error.downcast_ref::<SpecError>().is_some() {
+    if let Some(reuse) = error.downcast_ref::<crate::engine::ReuseError>() {
+        (reuse.code, reuse.detail.clone())
+    } else if error.downcast_ref::<SpecError>().is_some() {
         ("invalid_spec", format!("{error:#}"))
     } else {
         internal_error(error)

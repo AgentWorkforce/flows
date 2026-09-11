@@ -229,6 +229,12 @@ pub enum Disposition {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StepCompletedPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_spec_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reused_from: Option<crate::memoization::ReusedFrom>,
     #[serde(rename = "completionReason")]
     pub completion_reason: CompletionReason,
     pub disposition: Disposition,

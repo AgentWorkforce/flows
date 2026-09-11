@@ -39,6 +39,7 @@ pub(super) struct HelloParams {
 #[serde(deny_unknown_fields)]
 pub(super) struct RunStartParams {
     pub spec: Value,
+    pub reuse_from_run_id: Option<String>,
 }
 
 #[derive(Deserialize)]

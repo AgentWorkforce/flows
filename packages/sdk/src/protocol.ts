@@ -70,6 +70,7 @@ export interface HelloResult {
 }
 
 export interface RunStartParams {
+  reuse_from_run_id?: string;
   /**
    * The kernel spec dialect — the ONE boundary shape `RunSpec::parse`
    * accepts (snake_case, flat v0 verification, defaults materialized).

@@ -93,6 +93,41 @@ afterEach(async () => {
 });
 
 describe('built flows CLI against live relayflowd', () => {
+  it('twenty-six-step reuses 25 durable completions after editing the failed final step', async () => {
+    const dataDir = temporaryDirectory('flows-reuse-');
+    await startDaemon(dataDir);
+    const path = join(dataDir, 'twenty-six-step.json');
+    const marker = join(dataDir, 'executions');
+    const fixture = JSON.parse(readFileSync(join(TESTDATA, 'twenty-six-step.spec.json'), 'utf8'));
+    for (const step of fixture.steps.slice(0, 25)) step.command += `; printf x >> '${marker}'`;
+    writeFileSync(path, JSON.stringify(fixture));
+    const first = invokeCli(['run', '--json', '--no-observer-link', '--data-dir', dataDir, path]);
+    expect(first.status, first.stderr).toBe(1);
+    const prior = JSON.parse(first.stdout).runId as string;
+    expect(readFileSync(marker, 'utf8')).toHaveLength(25);
+    fixture.steps[25].command = 'printf repaired';
+    writeFileSync(path, JSON.stringify(fixture));
+    const second = invokeCli(['run', '--reuse-from', prior, '--no-observer-link', '--data-dir', dataDir, path]);
+    expect(second.status, second.stderr).toBe(0);
+    expect(second.stdout).toContain(`REUSE from ${prior}: 25 reused, 1 executed`);
+    expect(readFileSync(marker, 'utf8')).toHaveLength(25);
+    const runId = second.stdout.match(/RUN ([0-9A-Z]{26})/)![1]!;
+    const client = await connectClient(dataDir);
+    const { entries } = await client.journalRead(runId, 1, 1000);
+    const completions = (entries as Array<{ entry_type: string; payload: Record<string, unknown> }>)
+      .filter(entry => entry.entry_type === 'step.completed');
+    expect(completions).toHaveLength(26);
+    expect(completions.filter(entry => entry.payload['reused_from'] !== undefined)).toHaveLength(25);
+    for (const entry of completions) {
+      expect(entry.payload['step_spec_hash']).toMatch(/^[a-f0-9]{64}$/);
+      expect(entry.payload['input_hash']).toMatch(/^[a-f0-9]{64}$/);
+    }
+    const json = invokeCli(['run', '--json', '--reuse-from', runId, '--no-observer-link', '--data-dir', dataDir, path]);
+    expect(json.status, json.stderr).toBe(0);
+    expect(JSON.parse(json.stdout).reuse).toEqual({ fromRunId: runId, reusedSteps: 26, executedSteps: 0 });
+    expect(readFileSync(marker, 'utf8')).toHaveLength(25);
+  });
+
   it('runs rung (a), parks rung (b), and keeps JSON report-shaped', async () => {
     const dataDir = temporaryDirectory('flows-live-cli-');
     await startDaemon(dataDir);

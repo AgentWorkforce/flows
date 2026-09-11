@@ -114,6 +114,9 @@ pub fn abandonment_actions(
         Some(attempt),
         now_ms,
         StepCompletedPayload {
+            step_spec_hash: None,
+            input_hash: None,
+            reused_from: None,
             completion_reason: reason,
             disposition: if manual {
                 Disposition::Park
