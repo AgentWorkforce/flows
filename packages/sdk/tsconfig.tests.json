@@ -28,7 +28,8 @@
     "tests/journal-client-loopback.ts",
     "tests/close-pr-flow.test.ts",
     "tests/direct-input.test.ts",
-    "tests/fixtures/needs-human.flow.ts"
+    "tests/fixtures/needs-human.flow.ts",
+    "tests/named-gates.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
