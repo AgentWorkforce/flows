@@ -1,3 +1,8 @@
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { addPlugin } from '../src/cli/add.js';
+import type { PreflightFailureKind } from '../src/failure-kinds.js';
 import { preflightHelpers } from '../src/preflight.js';
 import { describe, expect, it } from 'vitest';
 import {
@@ -395,6 +400,35 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(memoryRefusal).toMatchObject({ kind: 'memory_unreachable', severity: 'refusal' });
     refusalKinds.push(memoryRefusal!.kind);
     expect(JSON.stringify(memoryRefusal)).not.toContain('raw secret');
+    // Plugin refusals exercise the public loader boundary, not synthetic diagnostics.
+    const basePlugin = { name: 'helper-test', version: '0.1.0', verbs: [], triggers: [], gates: [], preflight: { credentials: [], servers: [] } };
+    const cases = [
+      undefined,
+      {},
+      { ...basePlugin, version: null },
+      { ...basePlugin, verbs: [{ namespace: 'test', method: 'call', lowersTo: 'new-word', args: {} }] },
+      { ...basePlugin, triggers: [{}] },
+      { ...basePlugin, preflight: { credentials: ['FLOWS_J_TEST_MISSING_CREDENTIAL'], servers: [] } },
+      { ...basePlugin, preflight: { credentials: [], servers: ['http://127.0.0.1:1'] } },
+    ];
+    for (const manifest of cases) {
+      const root = mkdtempSync(join(tmpdir(), 'plugin-taxonomy-'));
+      try {
+        writeFileSync(join(root, 'flows.json'), JSON.stringify({ plugins: ['@flows/helper-test'] }));
+        const directory = join(root, 'node_modules/@flows/helper-test');
+        mkdirSync(directory, { recursive: true });
+        if (manifest !== undefined) writeFileSync(join(directory, 'flows-plugin.json'), JSON.stringify(manifest));
+        const result = await preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), {
+          probes: probes(), mcpServers: [], pluginSearchStart: root,
+        });
+        refusalKinds.push(...result.diagnostics.filter(d => d.severity === 'refusal').map(d => d.kind as PreflightFailureKind));
+        for (const stderr of ['E404', 'offline']) {
+          await addPlugin('helper-test', { stdout() {}, stderr(line) {
+            refusalKinds.push(line.match(/\[([^\]]+)\]/)![1] as PreflightFailureKind);
+          } }, { cwd: root, install() { throw { stderr }; } });
+        }
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    }
     expect(new Set(refusalKinds)).toEqual(new Set(PREFLIGHT_FAILURE_KINDS));
     expect(JSON.stringify(scenarios)).not.toContain('raw secret');
   });

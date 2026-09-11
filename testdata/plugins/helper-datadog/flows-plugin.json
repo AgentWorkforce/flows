@@ -1,0 +1,6 @@
+{
+  "name": "helper-datadog", "version": "0.1.0",
+  "verbs": [{ "namespace": "datadog", "method": "query", "lowersTo": "effect", "args": { "type": "object", "properties": { "metric": { "type": "string" } }, "required": ["metric"], "additionalProperties": false } }],
+  "triggers": [], "gates": [],
+  "preflight": { "credentials": ["DATADOG_API_KEY"], "servers": [] }
+}

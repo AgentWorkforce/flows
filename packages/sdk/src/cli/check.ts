@@ -199,13 +199,16 @@ export function readProjectConfig(start: string): ProjectConfig {
   } catch {
     throw new CheckFailure('config_invalid', `Project config "${configPath}" is not valid JSON.`);
   }
-  if (!isObject(value) || Object.keys(value).some((key) => !['cli', 'executors', 'models', 'mcp', 'deploy'].includes(key))) {
-    throw new CheckFailure('config_invalid', `Project config "${configPath}" expects only cli, executors, models, mcp, and deploy.`);
+  if (!isObject(value) || Object.keys(value).some((key) => !['cli', 'executors', 'models', 'mcp', 'deploy', 'plugins'].includes(key))) {
+    throw new CheckFailure('config_invalid', `Project config "${configPath}" expects only cli, executors, models, mcp, deploy, and plugins.`);
   }
   if (value['deploy'] !== undefined && (!isObject(value['deploy'])
     || Object.keys(value['deploy']).some(key => key !== 'bucket')
     || !isNonEmptyString(value['deploy']['bucket']))) {
     throw new CheckFailure('config_invalid', `Project config "${configPath}" has invalid deploy.bucket.`);
+  }
+  if (value['plugins'] !== undefined && (!Array.isArray(value['plugins']) || !value['plugins'].every(isNonEmptyString))) {
+    throw new CheckFailure('config_invalid', 'Project plugins must be package names.');
   }
   if (value['cli'] !== undefined && !isNonEmptyString(value['cli'])) {
     throw new CheckFailure('config_invalid', `Project config "${configPath}" has an invalid cli.`);

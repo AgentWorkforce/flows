@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { addPlugin } from './cli/add.js';
 import { watchCheck } from './cli-watch.js';
 import { checkHelperBody } from './cli/check-helper-body.js';
 
@@ -44,6 +45,7 @@ export interface CliIo {
 
 type CliExitCode = 0 | 1 | 2 | 3;
 type ParsedArgs =
+  | { command: 'add'; value: string }
   | ReplayArgs
   | BuildArgs
   | DeployArgs
@@ -61,6 +63,7 @@ type ParsedArgs =
 const DEFAULT_DATA_DIR = '.relayflowd';
 const USAGE = [
   'Usage:',
+  'flows add <helper-name|@flows/helper-name>',
   'flows build [--out <dir>] <flow.yaml|flow.ts>',
   'flows build --verify <bundle-dir>',
   'flows deploy <flow>@sha256:<digest> --to <file-bucket-uri>',
@@ -107,6 +110,8 @@ export async function runCli(
     emitCheckReport(report, args.includes('--json'), io);
     return 2;
   }
+
+  if (parsed.command === 'add') return addPlugin(parsed.value, io);
 
   if (parsed.command === 'serve-webhook') return runServeWebhook(parsed, io);
 
@@ -409,6 +414,7 @@ function emitWait(
 
 function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   const command = args[0];
+  if (command === 'add') return args.length === 2 ? { command: 'add', value: args[1]! } : undefined;
   if (command === 'replay') return parseReplayArgs(args.slice(1));
   if (command === 'build') return parseBuildArgs(args.slice(1));
   if (command === 'deploy') return parseDeployArgs(args.slice(1));

@@ -1,3 +1,5 @@
+import { pluginHelpers } from './plugin-loader.js';
+import { runPluginEffect } from './authored-plugin-effect.js';
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 import { assertSlackCredentials, runSlackEffect } from './authored-slack-effect.js';
@@ -305,6 +307,17 @@ export async function executeAuthoredFlow<Input = undefined>(
       () => assertOperationAllowed('cloud', definition.name, requestedCompletion),
     ),
   };
+
+  Object.assign(context, pluginHelpers(checkedMcp.plugins ?? [], (plugin, verb, args) => {
+    const label = `${verb.namespace}.${verb.method}`;
+    assertOperationAllowed(label, definition.name, requestedCompletion);
+    const id = `plugin-${nextStep++}`;
+    return trackStep(authoredSteps, new AuthoredFlowOperation(
+      id, label, () => assertOperationAllowed(label, definition.name, requestedCompletion),
+      () => runPluginEffect(journal, definition.name, id, plugin, verb, args, journalSteps, budget),
+      lifecycle,
+    ));
+  }));
 
   let bodyFailed = false;
   let bodyFailure: unknown;
