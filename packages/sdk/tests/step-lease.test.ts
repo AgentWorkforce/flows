@@ -14,6 +14,15 @@ describe('deterministic step lease compilation', () => {
   it.each([
     ['5m', 300_000], [300_000, 300_000], ['10s', 10_000], ['250ms', 250],
     ['1.5s', 1500], ['15m', 900_000], [900_000, 900_000],
+    // Bugbot #350 regression: fractional coefficients that hit float
+    // precision (1.1 * 1000 = 1100.0000000000002) must round to a clean
+    // integer, not be rejected as non-safe-integer.
+    ['1.1s', 1100], ['2.2s', 2200], ['1.1m', 66_000],
+    ['0.5s', 500], ['14.999m', 899_940],
+    // Explicit coefficient-vs-unit ordering — a regression that swapped
+    // match[1]/match[2] would produce 1000 (units["s"]) * 5 (coefficient
+    // read as unit) = NaN. The row below fails hard on that specific bug.
+    ['5s', 5000],
   ])('parses %s as %i milliseconds', (timeout, expected) => {
     expect(parseStepTimeout(timeout)).toBe(expected);
     const kernel = toKernelSpec(compileSpec(commandSpec(expected)));
