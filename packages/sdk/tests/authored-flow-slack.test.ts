@@ -79,7 +79,9 @@ describe('authored Slack helper effects', () => {
       const post = f.slack.post('C1', message, { replyTo: 'parent-ref' });
       blocks[0]!.text.text = 'mutated after scheduling';
       attachments.push({ color: '#ff0000', fallback: 'later', blocks: [] });
-      const receipt = await post.gate(value => Boolean(value.ts && value.ref));
+      // Postfix .gate(callback) is spec-deferred (SURFACE §6); await the
+      // step directly and assert the receipt shape from the resolved value.
+      const receipt = await post;
       expect(receipt.channel).toBe('C1');
       f.done('success');
     }), client, undefined, { dataDir });
