@@ -17,7 +17,7 @@ import type { FlowSpec } from '../spec.js';
 import type { McpServerConfig } from '../spec.js';
 import { parseMcpConfig } from '../mcp-config.js';
 import type { StepGateInspection } from '../gate-contract.js';
-import type { CheckFailureKind } from '../failure-kinds.js';
+import type { CheckFailureKind, CheckWarningKind } from '../failure-kinds.js';
 import {
   preflight,
   CliProbeError,
@@ -43,7 +43,13 @@ export interface CheckReport {
   projectConfigPath?: string;
   gates: StepGateInspection[];
   resolutions: CliResolution[];
-  diagnostics: Array<PreflightDiagnostic | CheckInputDiagnostic>;
+  diagnostics: Array<PreflightDiagnostic | CheckInputDiagnostic | CheckWarningDiagnostic>;
+}
+
+export interface CheckWarningDiagnostic {
+  severity: 'warning';
+  kind: CheckWarningKind;
+  message: string;
 }
 
 export interface CheckInputDiagnostic {
@@ -67,8 +73,25 @@ class CheckFailure extends Error {
 export function checkFlow(path: string): CheckExecution {
   const absolutePath = resolve(path);
   try {
-    const flow = readFlow(absolutePath);
-    return checkAuthoredFlow(flow, path);
+    const source = readFlowSource(absolutePath);
+    const hint = path.endsWith('.flow.yaml') && !/^\uFEFF?[ \t]*# yaml-language-server:/.test(source)
+      ? [{ severity: 'warning' as const, kind: 'editor_schema_missing' as const,
+          message: 'For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json' }]
+      : [];
+    let execution: CheckExecution;
+    try {
+      execution = checkAuthoredFlow(readFlow(source, absolutePath), path);
+    } catch (error) {
+      if (!(error instanceof CheckFailure)) throw error;
+      execution = { report: inputFailureReport(error, path) };
+    }
+    // The editor-schema hint is a documentation nudge, emitted for every
+    // .flow.yaml without a first-line yaml-language-server comment.
+    // Firing it even when a refusal is present is deliberate: an editor
+    // showing squiggles on this file should still tell the author how to
+    // wire the schema, so the next edit gets real-time feedback.
+    execution.report.diagnostics.push(...hint);
+    return execution;
   } catch (error) {
     const failure = error instanceof CheckFailure
       ? error
@@ -131,14 +154,15 @@ export function inputFailureReport(
   };
 }
 
-function readFlow(path: string): FlowSpec {
-  let source: string;
+function readFlowSource(path: string): string {
   try {
-    source = readFileSync(path, 'utf8');
+    return readFileSync(path, 'utf8');
   } catch {
     throw new CheckFailure('input_unreadable', `Flow "${path}" is not readable.`);
   }
+}
 
+function readFlow(source: string, path: string): FlowSpec {
   let parsed: unknown;
   try {
     parsed = parseYaml(source);

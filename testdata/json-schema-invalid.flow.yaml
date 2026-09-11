@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
 version: '0.1.0'
 steps:
   - id: schema

@@ -90,6 +90,10 @@ export const RUN_WARNING_KINDS = [
   'connection_file_stale',
 ] as const;
 
+/** File-level editor hints emitted by flows check, outside pure preflight. */
+export const CHECK_WARNING_KINDS = ['editor_schema_missing'] as const;
+export type CheckWarningKind = (typeof CHECK_WARNING_KINDS)[number];
+
 export type PreflightFailureKind = (typeof PREFLIGHT_FAILURE_KINDS)[number];
 export type CheckFailureKind = (typeof CHECK_FAILURE_KINDS)[number];
 export type PreflightWarningKind = (typeof PREFLIGHT_WARNING_KINDS)[number];

@@ -1,0 +1,151 @@
+name: Publish schema
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing stable release tag (vX.Y.Z)
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - 'packages/schema/**'
+      - 'packages/sdk/src/**'
+      - 'packages/sdk/package-lock.json'
+      - 'scripts/generate-json-schema.mjs'
+      - 'scripts/schema-*.mjs'
+      - '.github/workflows/schema-publish.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schema-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - name: Install generator and test dependencies
+        run: npm ci --prefix packages/sdk --ignore-scripts
+      - name: Regenerate and check committed schema
+        run: |
+          node scripts/generate-json-schema.mjs
+          git diff --exit-code -- packages/schema/flows.schema.json
+          cp packages/schema/flows.schema.json /tmp/flows.schema.first.json
+          node scripts/generate-json-schema.mjs
+          diff -q /tmp/flows.schema.first.json packages/schema/flows.schema.json
+      - name: Schema parity and smoke
+        working-directory: packages/schema
+        run: bun run test
+      - name: Version package from stable release tag
+        if: github.event_name != 'pull_request'
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo 'Schema publication requires a stable vX.Y.Z tag.' >&2
+            exit 1
+          fi
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          version="${RELEASE_TAG#v}"
+          npm version --prefix packages/schema "$version" --no-git-tag-version --allow-same-version
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Pack data-only artifact
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p dist/schema
+          npm pack ./packages/schema --pack-destination dist/schema --ignore-scripts
+          cp packages/schema/flows.schema.json dist/schema/
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: schema-release
+          path: dist/schema/
+          if-no-files-found: error
+
+  npm:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          name: schema-release
+          path: release
+      - name: Publish data package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: npm publish "release/relayflows-schema-${RELEASE_VERSION}.tgz" --access public --ignore-scripts
+
+  pages:
+    if: github.event_name != 'pull_request'
+    needs: [validate, npm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: schema-release
+          path: release
+      - name: Assemble versioned schema paths
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, mkdirSync, copyFileSync } from 'node:fs';
+          const schema = JSON.parse(readFileSync('release/flows.schema.json', 'utf8'));
+          const dialect = new URL(schema.$id).pathname.split('/')[1];
+          if (!/^v\d+\.\d+$/.test(dialect)) throw new Error('Unexpected schema dialect path');
+          for (const version of [dialect, `v${process.env.RELEASE_VERSION}`]) {
+            mkdirSync(`public/${version}`, { recursive: true });
+            copyFileSync('release/flows.schema.json', `public/${version}/flows.schema.json`);
+          }
+          NODE
+      # Retain old versions in gh-pages; deploy the complete retained tree with
+      # the official Pages API (a GITHUB_TOKEN push alone need not build Pages).
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: public
+          keep_files: true
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: retained-pages
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: retained-pages
+      - uses: actions/deploy-pages@v4
+        id: deployment
