@@ -16,6 +16,7 @@ import {
   type RunReport,
 } from './cli/run.js';
 import { runDirectFlow } from './cli/direct-run.js';
+import { parseReplayArgs, replayJournal, type ReplayArgs } from './cli/replay.js';
 import { runCloudCli } from './cli/cloud-run.js';
 import { isAuthoredFlowPath } from './direct-input.js';
 import { runHnMonitor } from './cli/hn-monitor.js';
@@ -35,6 +36,7 @@ export interface CliIo {
 
 type CliExitCode = 0 | 1 | 2 | 3;
 type ParsedArgs =
+  | ReplayArgs
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean }
   | { command: 'check'; json: boolean; value: string }
   | { command: 'run'; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
@@ -54,6 +56,7 @@ const USAGE = [
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] <run-id>',
+  'flows replay [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
   'flows observer [--data-dir <dir>]',
   'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
 ].join('\n');
@@ -90,6 +93,7 @@ export async function runCli(
   }
 
   if (parsed.command === 'cloud-run') return runCloudCli(parsed, io);
+  if (parsed.command === 'replay') return replayJournal(parsed, io);
 
   if (parsed.command === 'check') {
     // Deliberately daemon-free (kernel/DAEMON-LIFECYCLE.md §4). `checkFlow` is
@@ -356,6 +360,7 @@ function emitWait(
 
 function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   const command = args[0];
+  if (command === 'replay') return parseReplayArgs(args.slice(1));
   if (command === 'hn-monitor') return parseHnMonitorArgs(args.slice(1));
   if (command === 'tick') return parseTickArgs(args.slice(1));
   if (command === 'observer') return parseObserverArgs(args.slice(1));
