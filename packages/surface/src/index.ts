@@ -18,8 +18,10 @@ export type { Step } from "./step.js";
 export {
   flow,
   type FlowHandle,
+  type TriggeredFlowHandle,
   type FlowHeader,
 } from "./flow.js";
 export { flowRunWritebackIdempotency, type SlackHelper, type SlackReceipt } from "./slack.js";
 export type { Helpers } from "./helpers/index.js";
 export type { MemoryHelper, MemoryFinding, MemoryRecallOptions, HistoryEntry, TrajectoryEntry } from "./memory.js";
+export { webhook, type TriggerSource, type WebhookFilter, type WebhookValue } from "./triggers.js";

@@ -27,8 +27,9 @@ export async function checkMcpHeader(
 ): Promise<CheckedMcp> {
   const empty = { servers: Object.freeze({}), inventory: Object.freeze({}) };
   const KNOWN_HEADER_FIELDS = new Set(['tools', 'budget', 'identity', 'memory', 'workspace', 'use']);
-  const unsupported = Object.keys(definition.header).filter(key => !KNOWN_HEADER_FIELDS.has(key));
-  if (definition.header.tools?.relayfile !== undefined) unsupported.push('tools.relayfile');
+  const header = definition.header ?? {};
+  const unsupported = Object.keys(header).filter(key => !KNOWN_HEADER_FIELDS.has(key));
+  if (header.tools?.relayfile !== undefined) unsupported.push('tools.relayfile');
   if (unsupported.length) {
     return { ...empty, report: inputFailureReport({ kind: 'invalid_spec',
       message: `flow "${definition.name}" uses unsupported header fields: ${unsupported.join(', ')}` }, path) };
@@ -37,7 +38,7 @@ export async function checkMcpHeader(
     const config = readProjectConfig(dirname(resolve(path)));
     const result = await preflight({ version: SPEC_SCHEMA_VERSION, name: definition.name,
       steps: [{ id: 'header', type: 'deterministic', command: ':' }] }, {
-      mcpServers: definition.header.tools?.mcp ?? [], mcp: config.mcp,
+      mcpServers: header.tools?.mcp ?? [], mcp: config.mcp,
       probes: { command: () => true, cli: () => { throw new Error('no CLI declared'); }, executor: () => false },
     });
     return {

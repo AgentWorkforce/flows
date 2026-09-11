@@ -79,28 +79,33 @@ impl SqliteJournal {
             std::fs::create_dir_all(parent)?;
         }
         let run_id = run_id.into();
-        let connection = Connection::open_with_flags(
+        let mut connection = Connection::open_with_flags(
             &path,
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
         )?;
         configure(&connection)?;
-        connection.execute_batch(SCHEMA)?;
-        let mut journal = Self {
-            connection,
-            run_id,
-            path,
-        };
-        let transaction = journal.connection.transaction()?;
+        // Schema DDL + meta/segment rows land in one transaction so SIGKILL
+        // between create() and the first append() never leaves the file with
+        // schema but no meta row. Without this, open()'s
+        // "SELECT value FROM meta WHERE key = 'run_id'" surfaces as
+        // "Query returned no rows" on resume (kernel/journal SIGKILL race:
+        // reproduced by webhook-live's SIGKILL-after-spawn-before-ack test).
+        let transaction = connection.transaction()?;
+        transaction.execute_batch(SCHEMA)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES ('run_id', ?1), ('created_at_ms', ?2), ('journal_version', ?3)",
-            params![journal.run_id, created_at_ms.to_string(), relayflowd_core::JOURNAL_VERSION.to_string()],
+            params![run_id, created_at_ms.to_string(), relayflowd_core::JOURNAL_VERSION.to_string()],
         )?;
         transaction.execute(
             "INSERT INTO segments(segment_id, journal_version, opened_seq) VALUES (1, ?1, 1)",
             [i64::from(relayflowd_core::JOURNAL_VERSION)],
         )?;
         transaction.commit()?;
-        Ok(journal)
+        Ok(Self {
+            connection,
+            run_id,
+            path,
+        })
     }
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self, JournalStoreError> {

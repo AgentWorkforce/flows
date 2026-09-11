@@ -17,6 +17,8 @@ import {
   type RunProgress,
   type RunReport,
 } from './cli/run.js';
+import { checkAuthoredTriggers } from './cli/check-triggers.js';
+import { parseWebhookArgs, runServeWebhook } from './cli/serve-webhook.js';
 import { runDirectFlow } from './cli/direct-run.js';
 import { parseReplayArgs, replayJournal, type ReplayArgs } from './cli/replay.js';
 import { checkTypeScriptFlow } from './cli/check-typescript.js';
@@ -42,6 +44,7 @@ type CliExitCode = 0 | 1 | 2 | 3;
 type ParsedArgs =
   | ReplayArgs
   | BuildArgs
+  | { command: 'serve-webhook'; dataDir: string; port: number }
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean }
   | { command: 'check'; json: boolean; watch: boolean; value: string }
   | { command: 'run'; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
@@ -58,6 +61,7 @@ const USAGE = [
   'flows build [--out <dir>] <flow.yaml|flow.ts>',
   'flows build --verify <bundle-dir>',
   'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
+  'flows serve-webhook --data-dir <dir> --port <p>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
@@ -98,6 +102,8 @@ export async function runCli(
     emitCheckReport(report, args.includes('--json'), io);
     return 2;
   }
+
+  if (parsed.command === 'serve-webhook') return runServeWebhook(parsed, io);
 
   if (parsed.command === 'cloud-run') return runCloudCli(parsed, io);
   if (parsed.command === 'replay') return replayJournal(parsed, io);
@@ -223,11 +229,16 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
   const helper = await checkHelperBody(path);
   if (!helper.report.ok) return helper;
   const mcp = await checkTypeScriptFlow(path);
+  const triggers = isAuthoredFlowPath(path)
+    ? await checkAuthoredTriggers(path)
+    : undefined;
+  const triggerDiagnostics = triggers?.report.diagnostics ?? [];
+  const triggerOk = triggers?.report.ok ?? true;
   return {
     report: {
       ...mcp.report,
-      diagnostics: [...helper.report.diagnostics, ...mcp.report.diagnostics],
-      ok: helper.report.ok && mcp.report.ok,
+      diagnostics: [...helper.report.diagnostics, ...mcp.report.diagnostics, ...triggerDiagnostics],
+      ok: helper.report.ok && mcp.report.ok && triggerOk,
     },
   };
 }
@@ -393,6 +404,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   const command = args[0];
   if (command === 'replay') return parseReplayArgs(args.slice(1));
   if (command === 'build') return parseBuildArgs(args.slice(1));
+  if (command === 'serve-webhook') return parseWebhookArgs(args.slice(1));
   if (command === 'hn-monitor') return parseHnMonitorArgs(args.slice(1));
   if (command === 'tick') return parseTickArgs(args.slice(1));
   if (command === 'observer') return parseObserverArgs(args.slice(1));

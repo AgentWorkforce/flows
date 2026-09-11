@@ -4,6 +4,7 @@ pub mod exec_det;
 pub mod memory;
 pub mod server;
 pub mod socket_path;
+pub mod trigger_watcher;
 pub mod worker;
 
 pub use engine::{

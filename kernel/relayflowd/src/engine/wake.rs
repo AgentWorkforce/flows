@@ -11,6 +11,14 @@ use ulid::Ulid;
 
 use super::{DriveOptions, Engine, RunOutcome, canonical_hash};
 
+/// Additive event-run payload: normal run.spawned readers retain compatibility.
+#[derive(Serialize)]
+struct EventRunSpawnedPayload {
+    #[serde(flatten)]
+    run: RunSpawnedPayload,
+    event: serde_json::Value,
+}
+
 /// Default silence budget when a trigger does not declare its own
 /// `stale_after_ms`. 5 minutes is long enough not to trip a sluggish
 /// external stream during a normal quiet stretch, short enough that a
@@ -33,7 +41,30 @@ impl<C: Clock> Engine<C> {
         event: Event,
         created_by: &str,
     ) -> Result<EventSubmitOutcome> {
+        self.submit_event_inner(spec, event, created_by, None)
+    }
+
+    /// Inbox retries resume the claimed run before acknowledging its file.
+    pub fn submit_webhook_event(
+        &self,
+        spec: RunSpec,
+        event: Event,
+        resume: &dyn Fn(&str) -> Result<RunOutcome>,
+    ) -> Result<EventSubmitOutcome> {
+        self.submit_event_inner(spec, event, "webhook", Some(resume))
+    }
+
+    fn submit_event_inner(
+        &self,
+        spec: RunSpec,
+        event: Event,
+        created_by: &str,
+        inbox_resume: Option<&dyn Fn(&str) -> Result<RunOutcome>>,
+    ) -> Result<EventSubmitOutcome> {
         spec.validate().context("invalid run spec")?;
+        if inbox_resume.is_some() {
+            self.preflight_placement(&spec)?;
+        }
         let Some(trigger) = spec
             .triggers
             .iter()
@@ -107,16 +138,20 @@ impl<C: Clock> Engine<C> {
             stale_after_ms,
             self.clock.now_ms(),
         )?;
-        if self
-            .registry()?
-            .claim_event(&flow_key, &trigger.id, &event_key, &run_id, self.boot_id())?
-            .is_some()
-        {
+        if let Some(existing_run) = self.registry()?.claim_event(
+            &flow_key,
+            &trigger.id,
+            &event_key,
+            &run_id,
+            self.boot_id(),
+        )? {
             return Ok(EventSubmitOutcome {
                 matched: true,
                 deduped: true,
                 subscription_id: Some(trigger.id),
-                run: None,
+                run: inbox_resume
+                    .map(|resume| resume(&existing_run))
+                    .transpose()?,
             });
         }
         // The claim is now held by this boot, and `claim_event` will tell any
@@ -216,12 +251,15 @@ impl<C: Clock> Engine<C> {
                 None,
                 None,
                 now_ms,
-                RunSpawnedPayload {
-                    spec: spec_value.clone(),
-                    spec_hash: canonical_hash(&spec_value),
-                    parent_run_id: None,
-                    journal_version: relayflowd_core::JOURNAL_VERSION,
-                    created_by: created_by.to_owned(),
+                EventRunSpawnedPayload {
+                    run: RunSpawnedPayload {
+                        spec: spec_value.clone(),
+                        spec_hash: canonical_hash(&spec_value),
+                        parent_run_id: None,
+                        journal_version: relayflowd_core::JOURNAL_VERSION,
+                        created_by: created_by.to_owned(),
+                    },
+                    event: event.payload.clone(),
                 },
             ),
         )?;
@@ -292,16 +330,15 @@ impl Drop for ClaimGuard {
         // during an unwind, when holding a borrow of the engine would constrain
         // the guard's lifetime to it for no benefit. `Registry::open` is what
         // every other caller here does per operation anyway.
-        let released = Registry::open(self.data_dir.join("relayflowd.sqlite3")).and_then(
-            |registry| {
+        let released =
+            Registry::open(self.data_dir.join("relayflowd.sqlite3")).and_then(|registry| {
                 registry.release_claim(
                     &self.flow_key,
                     &self.subscription_id,
                     &self.event_key,
                     &self.run_id,
                 )
-            },
-        );
+            });
         if let Err(error) = released {
             // Report, do not panic. Panicking in `Drop` during an unwind aborts
             // the process, which would turn a stranded event into a dead daemon.
@@ -344,7 +381,9 @@ mod claim_guard_tests {
     /// Take a claim the way `submit_event` does, without registering a run.
     fn claim(data_dir: &std::path::Path, run_id: &str) {
         assert_eq!(
-            registry(data_dir).claim_event(FLOW, SUB, KEY, run_id, BOOT).unwrap(),
+            registry(data_dir)
+                .claim_event(FLOW, SUB, KEY, run_id, BOOT)
+                .unwrap(),
             None,
             "the first claim must be granted"
         );

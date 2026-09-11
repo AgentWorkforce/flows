@@ -2,6 +2,7 @@ import type { FlowSpec, StepSpec, TriggerSpec, McpServerConfig } from './spec.js
 import { McpError, openMcpSession, type McpDiagnostic } from './mcp-client.js';
 import { BudgetSyntaxError } from './budget.js';
 import { budgetDiagnostics } from './budget-preflight.js';
+import type { TriggerSource } from '@relayflows/surface';
 import { acceptsAnyOutput, inspectStepGate, type StepGateInspection } from './gate-contract.js';
 import { compileSpec, CompileError } from './compile.js';
 import type {
@@ -107,6 +108,21 @@ export interface PreflightResult {
   gates: StepGateInspection[];
   resolutions: CliResolution[];
   diagnostics: PreflightDiagnostic[];
+}
+
+/** Pure declared-surface check, before opening a receiver or journal. */
+export function preflightWebhookTriggers(
+  triggers: readonly TriggerSource[],
+  executors: readonly string[],
+): PreflightRefusal[] {
+  return [...new Set(triggers.map(trigger => trigger.name))]
+    .filter(name => !executors.includes(name))
+    .map(name => ({
+      severity: 'refusal',
+      kind: 'no_executor',
+      executor: name,
+      message: `webhook trigger "${name}" is not registered in flows.json`,
+    }));
 }
 
 // Preserve the synchronous declarative API; an authored MCP declaration opts
@@ -544,11 +560,12 @@ function firstCommandWord(command: string): string | undefined {
 
 /** Helper preflight never evaluates the authored body. Dynamic uses are checked at call time. */
 export function preflightHelpers(
-  definition: { header: { tools?: { slack?: boolean } }; body: Function },
+  definition: { header?: { tools?: { slack?: boolean } }; body?: Function },
   facts: { slackToken?: string; slackMount: boolean; slackMock: boolean },
 ): PreflightResult {
-  const usesSlack = definition.header.tools?.slack === true
-    || /(?:\.\s*slack\b|\[\s*['"]slack['"]\s*\])/.test(Function.prototype.toString.call(definition.body));
+  const usesSlack = definition.header?.tools?.slack === true
+    || (typeof definition.body === 'function'
+      && /(?:\.\s*slack\b|\[\s*['"]slack['"]\s*\])/.test(Function.prototype.toString.call(definition.body)));
   const diagnostics: PreflightDiagnostic[] = usesSlack && !facts.slackMock
     && !facts.slackToken?.trim() && !facts.slackMount
     ? [{ severity: 'refusal', kind: 'helper_slack.credential_missing',
