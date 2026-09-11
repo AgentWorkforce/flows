@@ -85,7 +85,13 @@ export function checkFlow(path: string): CheckExecution {
       if (!(error instanceof CheckFailure)) throw error;
       execution = { report: inputFailureReport(error, path) };
     }
-    execution.report.diagnostics.push(...hint);
+    // The editor-schema hint is noise once a real diagnostic is already
+    // present -- an author who can't get past a refusal shouldn't also be
+    // told to add a yaml-language-server comment. Suppress it unless the
+    // report is otherwise clean.
+    if (execution.report.ok && !execution.report.diagnostics.some(d => d.severity === 'refusal')) {
+      execution.report.diagnostics.push(...hint);
+    }
     return execution;
   } catch (error) {
     const failure = error instanceof CheckFailure
