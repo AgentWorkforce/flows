@@ -17,6 +17,8 @@ use crate::{
 
 const LEASE_DURATION_MS: i64 = 30_000;
 
+mod budget;
+pub use budget::exceeded as budget_exceeded;
 mod cancel;
 use cancel::cancel_run_actions;
 pub use cancel::request_cancel_action;
@@ -113,6 +115,17 @@ pub fn next_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
     }
     if state.all_steps_succeeded() {
         return complete_run_actions(state, RunCompletionReason::Success, None, now_ms);
+    }
+
+    if budget::exceeded(state, now_ms) {
+        if state
+            .steps
+            .values()
+            .any(|runtime| matches!(runtime.state, StepState::Running { .. }))
+        {
+            return Vec::new();
+        }
+        return complete_run_actions(state, RunCompletionReason::BudgetExceeded, None, now_ms);
     }
 
     // Wake every retry whose deterministic timer is due before starting work.

@@ -1,3 +1,5 @@
+import { workerSpend } from './worker-spend.js';
+import type { WorkerCliResult } from './worker-cli.js';
 import { EventEmitter } from 'node:events';
 import type { JournalClient } from './journal-client.js';
 import type { CompletionReason, StepDispatchEvent } from './protocol.js';
@@ -47,10 +49,11 @@ export class LlmWorker extends EventEmitter {
     const schema = spec.verification?.json_schema;
     const prompt = schema === undefined ? spec.prompt
       : `${spec.prompt}\n\nReturn only a JSON value matching this JSON Schema (no Markdown fences):\n${JSON.stringify(schema)}`;
-    const result = await withWorkerLease(this.client, dispatch, signal =>
+    const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       typeof spec.cli === 'string' && typeof spec.prompt === 'string'
         ? runAgentCli(spec.cli, workerInstruction(prompt, dispatch), dispatch.wake_context, spec.model, undefined, signal, 'llm')
         : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'llm step has no declared CLI' }));
+    const { result, usage } = workerSpend(completed, spec.model);
     let reason: CompletionReason = result.exit_code === 0 ? 'success' : 'worker_error';
     let output: unknown = result.stdout_tail;
     let detail = result.stderr_tail;
@@ -72,6 +75,7 @@ export class LlmWorker extends EventEmitter {
     await this.client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,
       dispatch.idempotency_key, reason, {
         output,
+        ...(usage !== undefined ? { usage } : {}),
         ...(reason === 'success' ? {} : { trajectory_tail: { error: detail } }),
       });
   }

@@ -1,0 +1,23 @@
+
+ RUN  v2.1.9 /Users/khaliqgant/flows-spec-G-budget/packages/sdk
+
+ ✓ tests/budget-attribution.test.ts (4 tests) 3ms
+ ✓ tests/budget-preflight.test.ts (13 tests) 6ms
+ ✓ tests/preflight.test.ts (27 tests) 26ms
+ ✓ tests/budget-authored-live.test.ts (2 tests) 267ms
+ ✓ tests/cli.test.ts (63 tests) 9479ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 459ms
+   ✓ flows check CLI > refuses a typo model before probing or contacting relayflowd 593ms
+   ✓ flows check CLI > resolves a project CLI path relative to the flows.json that declares it 315ms
+   ✓ flows check CLI > maps every input refusal path to its declared kind without raw exceptions 799ms
+   ✓ flows run/resume CLI over the journal protocol > reports a needs_human agent step as parked for human recovery 605ms
+   ✓ flows run/resume CLI over the journal protocol > classifies a typed hello refusal as a protocol error, not an unreachable daemon 721ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 696ms
+   ✓ flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 626ms
+   ✓ flows run/resume CLI over the journal protocol > resumes a parked run from snapshot step types without reading journal sequence one 532ms
+   ✓ flows run/resume CLI over the journal protocol > maps only run_not_found resumes to exit 2 1821ms
+
+ Test Files  5 passed (5)
+      Tests  109 passed (109)
+   Start at  10:32:46
+   Duration  10.07s (transform 473ms, setup 0ms, collect 1.31s, tests 9.78s, environment 0ms, prepare 230ms)

@@ -45,6 +45,9 @@ export type {
   VerificationSpec,
   WorkspaceSurface,
 } from './spec.js';
+export { MODEL_PRICING } from './model-pricing.js';
+export type { HeaderBudget } from './budget.js';
+export type { StepSpend } from './protocol.js';
 export { SPEC_SCHEMA_VERSION } from './spec.js';
 
 export { CloudFlowError, type CloudConnectionOptions } from './cloud-http.js';

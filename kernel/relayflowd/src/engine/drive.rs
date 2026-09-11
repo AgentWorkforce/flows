@@ -54,6 +54,16 @@ impl<C: Clock> Engine<C> {
                 match action {
                     Action::Append(mut entry) => {
                         if entry.entry_type == relayflowd_core::EntryType::StepAttemptStarted {
+                            // A deterministic peer may have completed since this batch
+                            // was elected. Re-fold before admitting the next start.
+                            if spec.budget.is_some()
+                                && relayflowd_core::machine::budget_exceeded(
+                                    &self.load_state(&journal, spec.clone())?,
+                                    self.clock.now_ms(),
+                                )
+                            {
+                                break;
+                            }
                             let step_id = entry
                                 .step_id
                                 .as_deref()

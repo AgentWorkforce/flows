@@ -318,9 +318,15 @@ impl<C: Clock> Engine<C> {
 
     fn load_state(&self, journal: &SqliteJournal, spec: RunSpec) -> Result<RunState> {
         let segment = journal.current_segment().map_err(|error| anyhow!(error))?;
-        let entries = journal
-            .scan_segment(segment)
-            .map_err(|error| anyhow!(error))?;
+        // Window and elapsed-time counters are reconstructed from completion
+        // facts across epochs, including facts predating this SDK version.
+        let entries = if spec.budget.is_some() {
+            journal.scan_all().map_err(|error| anyhow!(error))?
+        } else {
+            journal
+                .scan_segment(segment)
+                .map_err(|error| anyhow!(error))?
+        };
         RunState::fold(journal.run_id(), spec, &entries).context("fold run journal")
     }
 
@@ -332,6 +338,17 @@ impl<C: Clock> Engine<C> {
         self.ensure_journal_mutable(journal)?;
         let mut entry = entry.clone();
         self.stamp_completion(journal, &mut entry)?;
+        if entry.entry_type == EntryType::StepCompleted {
+            let start = journal.scan_all()?.into_iter().rev().find(|e| {
+                e.entry_type == EntryType::StepAttemptStarted
+                    && e.step_id == entry.step_id
+                    && e.attempt == entry.attempt
+            });
+            if let Some(start) = start {
+                entry.payload["spend"]["wallclock_ms"] =
+                    serde_json::json!(entry.at_ms.saturating_sub(start.at_ms).max(0));
+            }
+        }
         let persisted = journal.append(&entry).map_err(|error| anyhow!(error))?;
         if let Some(observer) = &self.observer {
             observer.appended(&persisted);

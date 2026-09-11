@@ -74,6 +74,21 @@ impl RunSpec {
             return Err(SpecError::EmptyCli);
         }
 
+        if let Some(budget) = &self.budget {
+            if budget
+                .max_dollars
+                .as_deref()
+                .is_some_and(|v| !crate::memory::valid_decimal(v))
+                || budget
+                    .prior_spend
+                    .as_ref()
+                    .is_some_and(|p| !crate::memory::valid_decimal(&p.dollars))
+            {
+                return Err(SpecError::Malformed(
+                    "budget dollars must be non-negative decimal strings".into(),
+                ));
+            }
+        }
         let mut trigger_ids = BTreeSet::new();
         for trigger in &self.triggers {
             if trigger.id.trim().is_empty()
@@ -526,11 +541,44 @@ impl TriggerSpec {
 #[serde(deny_unknown_fields)]
 pub struct BudgetSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pricing: Option<BudgetPricing>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prior_spend: Option<PriorSpend>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_wallclock_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<BudgetWindow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens_in: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens_out: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_dollars: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BudgetWindow {
+    Day,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BudgetPricing {
+    Frozen,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PriorSpend {
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub dollars: String,
+    pub wallclock_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub day: Option<i64>,
 }
 
 /// v0 verification gates (kernel DESIGN.md §4): `exit_code == 0` is implicit

@@ -13,10 +13,11 @@ use crate::{
 };
 
 mod budget;
+#[cfg(test)]
+use budget::add_budget;
 mod memory;
 mod pins;
 mod routing;
-use budget::add_budget;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StepState {
@@ -69,6 +70,10 @@ pub struct RunState {
     pub steps: BTreeMap<String, StepRuntime>,
     pub memo: BTreeMap<String, Value>,
     pub budget: Budget,
+    pub wallclock_ms: u64,
+    pub budget_day: Option<i64>,
+    pub daily_budget: Budget,
+    pub daily_wallclock_ms: u64,
     pub completion: Option<RunCompletionReason>,
     /// Durable cancellation intent. Once present, scheduling can only close
     /// live work and append the terminal canceled fact.
@@ -110,12 +115,32 @@ impl RunState {
             spec,
             memo: BTreeMap::new(),
             budget: Budget::default(),
+            wallclock_ms: 0,
+            budget_day: None,
+            daily_budget: Budget::default(),
+            daily_wallclock_ms: 0,
             completion: None,
             cancel_requested: None,
             current_pins: None,
             routing: BTreeMap::new(),
         };
 
+        if let Some(prior) = state
+            .spec
+            .budget
+            .as_ref()
+            .and_then(|b| b.prior_spend.as_ref())
+        {
+            state.budget = Budget {
+                tokens_in: prior.tokens_in,
+                tokens_out: prior.tokens_out,
+                dollars: prior.dollars.clone(),
+            };
+            state.wallclock_ms = prior.wallclock_ms;
+            state.budget_day = prior.day;
+            state.daily_budget = state.budget.clone();
+            state.daily_wallclock_ms = prior.wallclock_ms;
+        }
         for entry in entries {
             if entry.run_id != state.run_id {
                 return Err(StateError::WrongRun(entry.run_id.clone()));
@@ -251,7 +276,11 @@ impl RunState {
 
     fn apply_step_completed(&mut self, entry: &JournalEntry) -> Result<(), StateError> {
         let payload: StepCompletedPayload = decode(entry)?;
-        add_budget(&mut self.budget, &payload.budget)?;
+        self.charge_budget(
+            &payload.budget,
+            entry.payload["spend"]["wallclock_ms"].as_u64().unwrap_or(0),
+            entry.at_ms,
+        )?;
         let step_id = entry
             .step_id
             .clone()
@@ -321,6 +350,9 @@ impl RunState {
         self.validate_routing(&payload.routing)?;
         self.routing = payload.routing;
         self.memo.clear();
+        if self.spec.budget.is_some() && self.budget_day.is_some() && self.budget != payload.budget_spent {
+            return Err(StateError::BudgetSummaryMismatch);
+        }
         self.budget = payload.budget_spent;
         for runtime in self.steps.values_mut() {
             *runtime = StepRuntime {
@@ -464,6 +496,8 @@ pub enum StateError {
     },
     #[error("invalid non-negative decimal dollar amount {0:?}")]
     InvalidDollars(String),
+    #[error("epoch budget differs from recorded spend")]
+    BudgetSummaryMismatch,
     #[error("budget token total overflow")]
     BudgetOverflow,
 }

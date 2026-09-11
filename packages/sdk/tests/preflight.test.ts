@@ -370,6 +370,8 @@ describe('preflight: CLI resolution and refusal predicates', () => {
         probes: probes(), mcpServers: ['missing-binary'],
         mcp: { 'missing-binary': { command: '/nonexistent-mcp-test-binary' } },
       }),
+      preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }), budget: '$20' }, { probes: probes() }),
+      preflight({ ...flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x', model: 'unpriced' }), budget: '$20/run' }, { models: ['unpriced'], probes: probes() }),
       preflight({
         version: '0.1.0',
         steps: [{ id: 'a', type: 'deterministic', command: 'x', prompt: 'cross-verb' }],

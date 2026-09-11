@@ -1,3 +1,5 @@
+import { workerSpend } from './worker-spend.js';
+import type { WorkerCliResult } from './worker-cli.js';
 import { EventEmitter } from 'node:events';
 import type { JournalClient } from './journal-client.js';
 import type { Pins, StepDispatchEvent } from './protocol.js';
@@ -92,10 +94,11 @@ export class AgentWorker extends EventEmitter {
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
     const spec = dispatch.spec as Partial<KernelAgentStep>;
-    const result = await withWorkerLease(this.client, dispatch, signal =>
+    const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       typeof spec.cli === 'string' && typeof spec.instruction === 'string'
         ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, spec.model, undefined, signal)
         : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
+    const { result, usage } = workerSpend(completed, spec.model);
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
 
     // Output shape: if the CLI's stdout parses as JSON, promote THAT
@@ -121,6 +124,7 @@ export class AgentWorker extends EventEmitter {
       completionReason,
       {
         output,
+        ...(usage !== undefined ? { usage } : {}),
         started_pins: dispatch.pins,
         end_pins: dispatch.pins,
       },

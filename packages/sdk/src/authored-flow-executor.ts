@@ -6,6 +6,7 @@ import { snapshotJsonValue } from './json-value.js';
 import type { SlackCall } from './slack-writeback.js';
 import { checkMcpHeader, McpPreflightError } from './cli/check-typescript.js';
 import { buildMcpProxy, runMcpEffect } from './authored-mcp.js';
+import { AuthoredBudget } from './authored-budget.js';
 import { authoredWorkerRunner } from './authored-worker-step.js';
 import { readSuccessfulOutput, isSurfaceRunCompletionReason } from './authored-step-output.js';
 import {
@@ -84,7 +85,7 @@ type JournalStepUsesStepCompletionReason = Assert<
  *
  * This is deliberately not exported by the SDK package: without a durable
  * authored root, it is not a resumable public runner. The seam is narrow: an
- * empty-header flow may await `f.run`, `f.llm`, and `f.agent` steps and must
+ * flow with an optional budget may await `f.run`, `f.llm`, and `f.agent` steps and must
  * finish with `f.done("success")`. Each step and the terminal marker is
  * a compiled spec submitted through
  * `JournalClient`; values are read back from `step.completed` journal entries.
@@ -134,7 +135,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
   };
   const definition = getDefinition<Input>(handle);
-  const headerFields = Object.keys(definition.header).filter(key => key !== 'tools');
+  const headerFields = Object.keys(definition.header).filter(key => key !== 'tools' && key !== 'budget');
   if (definition.header.tools && Object.keys(definition.header.tools).some(key => !['slack', 'mcp'].includes(key))) headerFields.push('tools');
   if (definition.header.tools?.relayfile !== undefined) headerFields.push('tools.relayfile');
   const helperPreflight = checkSlackHelpers(definition);
@@ -149,6 +150,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   const checkedMcp = await checkMcpHeader(definition, flowPath);
   if (!checkedMcp.report.ok) throw new McpPreflightError(checkedMcp.report);
 
+  const budget = new AuthoredBudget(definition.header.budget);
   const journalSteps: AuthoredFlowJournalStep[] = [];
   const authoredSteps: AuthoredFlowOperation<unknown>[] = [];
   const lifecycle = new AuthoredFlowLifecycle();
@@ -158,17 +160,18 @@ export async function executeAuthoredFlow<Input = undefined>(
   const lowerDeterministic = async (
     id: string,
     command: string,
+    terminal = false,
   ): Promise<string> => {
     const spec = toKernelSpec(compileSpec({
       version: SPEC_SCHEMA_VERSION,
       name: `${definition.name}/${id}`,
       steps: [{ id, type: 'deterministic', command }],
     }));
-    const outcome = await journal.runStart(spec);
-    return readSuccessfulOutput(journal, outcome, id, journalSteps);
+    if (terminal) return readSuccessfulOutput(journal, await journal.runStart(spec), id, journalSteps);
+    return budget.execute(journal, spec, outcome => readSuccessfulOutput(journal, outcome, id, journalSteps));
   };
 
-  const worker = authoredWorkerRunner(definition, journal, flowPath, journalSteps, waitOptions, localAgentStream);
+  const worker = authoredWorkerRunner(definition, journal, flowPath, journalSteps, waitOptions, localAgentStream, budget, definition.header.budget);
 
   function llmOperation(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
   function llmOperation(prompt: string, options: LlmOptions): Step<unknown>;
@@ -337,7 +340,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     lifecycle.close();
   }
 
-  await lowerDeterministic(`complete-${nextStep}`, ':');
+  await lowerDeterministic(`complete-${nextStep}`, ':', true);
   return Object.freeze({
     name: definition.name,
     completionReason: requestedCompletion,

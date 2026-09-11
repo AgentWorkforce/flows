@@ -1,0 +1,48 @@
+[
+  {
+    "entry_type": "step.completed",
+    "step_id": "measured",
+    "payload": {
+      "budget": {
+        "dollars": "0",
+        "tokens_in": 0,
+        "tokens_out": 0
+      },
+      "completed_by": "kernel",
+      "completionReason": "success",
+      "disposition": "step_done",
+      "effects": [],
+      "end_pins": null,
+      "next_attempt_at_ms": null,
+      "output": {
+        "exit_code": 0,
+        "stderr_tail": "",
+        "stdout_tail": ""
+      },
+      "spend": {
+        "dollars": 0,
+        "tokens_input": 0,
+        "tokens_output": 0,
+        "wallclock_ms": 19
+      },
+      "verification": {
+        "detail": "all gates passed",
+        "gate": "exit_code",
+        "verdict": "pass"
+      }
+    }
+  },
+  {
+    "entry_type": "run.completed",
+    "step_id": null,
+    "payload": {
+      "budget_total": {
+        "dollars": "0",
+        "tokens_in": 0,
+        "tokens_out": 0
+      },
+      "completionReason": "budget_exceeded",
+      "failed_step_id": null
+    }
+  }
+]

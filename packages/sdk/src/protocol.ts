@@ -69,6 +69,13 @@ export interface HelloResult {
   server: string;
 }
 
+export interface StepSpend {
+  tokens_input: number;
+  tokens_output: number;
+  dollars: number;
+  wallclock_ms: number;
+}
+
 export interface RunStartParams {
   reuse_from_run_id?: string;
   /**

@@ -69,7 +69,7 @@ function isCanonicalPathSurface(value: unknown): value is string {
 // unknown keys (AGENTS.md rule 4; RFC covenant 2): a typo'd key like
 // `depends_on` must be an error naming the nearest valid key, never a
 // silently discarded field — silently dropping `dependsOn` loses ordering.
-const BUDGET_KEYS = ['maxTokensIn', 'maxTokensOut', 'maxDollars'] as const;
+const BUDGET_KEYS = ['maxTokensIn', 'maxTokensOut', 'maxDollars', 'maxTokens', 'maxWallclockMs', 'window', 'pricing'] as const;
 const VERIFICATION_KEYS: Record<string, readonly string[]> = {
   exit_code: ['type', 'expect'],
   output_contains: ['type', 'value'],
@@ -210,8 +210,13 @@ class Validator {
       this.fail(`${at}: expected an object`);
       return;
     }
-    this.checkKeys(b, BUDGET_KEYS, at);
+    this.checkKeys(b, at === 'spec.budget' ? BUDGET_KEYS : ['maxTokensIn', 'maxTokensOut', 'maxDollars'], at);
     const budget = b as BudgetSpec;
+    for (const key of ['maxTokens', 'maxWallclockMs'] as const) {
+      if (budget[key] !== undefined && (!Number.isSafeInteger(budget[key]) || budget[key]! < 0)) this.fail(`${at}.${key}: expected a safe non-negative integer`);
+    }
+    if (budget.pricing !== undefined && budget.pricing !== 'frozen') this.fail(`${at}.pricing: expected frozen`);
+    if (budget.window !== undefined && budget.window !== 'day') this.fail(`${at}.window: expected day`);
     if (
       budget.maxTokensIn !== undefined &&
       !isNonNegInt(budget.maxTokensIn)

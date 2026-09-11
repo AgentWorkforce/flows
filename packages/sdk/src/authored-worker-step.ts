@@ -1,3 +1,5 @@
+import type { AuthoredBudget } from './authored-budget.js';
+import { parseBudget } from './budget.js';
 import type { AgentOptions, AgentResult, LlmOptions } from '@relayflows/surface';
 import { toKernelSpec } from './compile.js';
 import { checkAuthoredFlow } from './cli/check.js';
@@ -16,11 +18,11 @@ const WORKSPACE_PERMISSION_ANNOTATION = /:\s*(readonly|readwrite)\s*$/i;
 export function authoredWorkerRunner(
   definition: { name: string }, journal: JournalClient, flowPath: string,
   journalSteps: AuthoredFlowJournalStep[], waitOptions: RunLifecycleOptions,
-  localAgentStream?: string,
+  localAgentStream?: string, budget?: AuthoredBudget, headerBudget?: unknown,
 ) {
   async function run(step: StepSpec): Promise<unknown> {
     const id = step.id;
-    const authoring: FlowSpec = { version: SPEC_SCHEMA_VERSION, name: `${definition.name}/${id}`, steps: [step] };
+    const authoring: FlowSpec = { version: SPEC_SCHEMA_VERSION, name: `${definition.name}/${id}`, steps: [step], ...(headerBudget === undefined ? {} : { budget: parseBudget(headerBudget) }) };
     // The kernel never resolves a `cli` on its own — every declarative
     // `flows run`/`flows check` binds it first via this exact function
     // (cli/check.ts), searching for the nearest flows.json from `flowPath`
@@ -33,14 +35,15 @@ export function authoredWorkerRunner(
           diagnostic.severity === 'refusal',
       );
       throw new AuthoredFlowExecutionError(
-        step.type === 'llm' ? 'llm_cli_unresolved' : 'agent_cli_unresolved',
+        refusal?.kind === 'budget_missing_price' || refusal?.kind === 'budget_syntax_invalid' ? refusal.kind
+          : step.type === 'llm' ? 'llm_cli_unresolved' : 'agent_cli_unresolved',
         refusal?.message
           ?? `flow "${definition.name}" step "${id}": no CLI could be resolved for f.${step.type} `
             + `(searched for flows.json from "${flowPath}")`,
       );
     }
     const spec = toKernelSpec(resolved);
-    const outcome = await journal.runStart(spec);
+    const consume = async (outcome: import('./protocol.js').RunOutcome) => {
     // Reuse the declarative CLI's own wait/classification (cli/run.ts) rather
     // than a hand-rolled poll: `step.completed` and the run's own terminal
     // state are appended as two SEPARATE actions (kernel/relayflowd-core/src/machine.rs
@@ -75,6 +78,8 @@ export function authoredWorkerRunner(
       );
     }
     return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps);
+    };
+    return budget === undefined ? consume(await journal.runStart(spec)) : budget.execute(journal, spec, consume);
   }
 
   return {

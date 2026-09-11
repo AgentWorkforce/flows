@@ -1,0 +1,8 @@
+{
+  "loggedIn": false,
+  "authMethod": "none",
+  "apiProvider": "firstParty",
+  "analyticsDisabled": false,
+  "projectsDirectory": "/Users/khaliqgant/.claude/projects",
+  "configDirectory": "/Users/khaliqgant/.claude"
+}

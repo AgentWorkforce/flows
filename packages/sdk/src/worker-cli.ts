@@ -1,3 +1,4 @@
+import { decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
 import { spawn } from 'node:child_process';
 import { childStop, ownsProcessGroup } from './child-stop.js';
 import {
@@ -23,6 +24,8 @@ export const WAKE_CONTEXT_ENV = 'RELAYFLOW_WAKE_CONTEXT';
 export const MODEL_ENV = 'RELAYFLOW_MODEL';
 
 export interface WorkerCliResult {
+  tokens_input?: number;
+  tokens_output?: number;
   exit_code: number | null;
   stdout_tail: string;
   stderr_tail: string;
@@ -44,7 +47,7 @@ export async function runAgentCli(
   const kind = cliAdapterKind(cli);
 
   if (kind === 'relayflows-wrapper-v1') {
-    return runWrapperSession(
+    return requirePricedUsage(decodeWrapperResult(await runWrapperSession(
       cli,
       instruction,
       wakeContext,
@@ -52,7 +55,7 @@ export async function runAgentCli(
       wrapperEnvironment(process.env),
       wrapperLimits,
       signal,
-    );
+    )), model);
   }
 
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -73,7 +76,10 @@ export async function runAgentCli(
   }
 
   if (invocation.modelEnv !== undefined) env[MODEL_ENV] = invocation.modelEnv;
-  return spawnInvocation(cli, invocation, env, signal);
+  // Structured provider output carries the authoritative token counts.
+  const args = [...invocation.args];
+  args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'json'] : ['--json']));
+  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal), kind), model);
 }
 
 function spawnInvocation(

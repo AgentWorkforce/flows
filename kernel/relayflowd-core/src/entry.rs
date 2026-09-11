@@ -133,6 +133,18 @@ pub struct JournalEntry {
     pub payload: Value,
 }
 
+pub fn journal_dollars(value: &str) -> Result<serde_json::Number, serde_json::Error> {
+    let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
+    let whole = whole.trim_start_matches('0');
+    let whole = if whole.is_empty() { "0" } else { whole };
+    let normalized = if fraction.is_empty() {
+        whole.to_owned()
+    } else {
+        format!("{whole}.{fraction}")
+    };
+    normalized.parse()
+}
+
 impl JournalEntry {
     pub fn new<T: Serialize>(
         entry_type: EntryType,
@@ -142,6 +154,16 @@ impl JournalEntry {
         at_ms: i64,
         payload: T,
     ) -> Self {
+        let mut payload = serde_json::to_value(payload).expect("journal payload must serialize");
+        if entry_type == EntryType::StepCompleted {
+            let budget: Budget =
+                serde_json::from_value(payload["budget"].clone()).unwrap_or_default();
+            payload["spend"] = serde_json::json!({
+                "tokens_input": budget.tokens_in, "tokens_output": budget.tokens_out,
+                "dollars": journal_dollars(&budget.dollars).expect("valid journal dollars"),
+                "wallclock_ms": 0,
+            });
+        }
         Self {
             seq: 0,
             segment_id: 0,
@@ -150,7 +172,7 @@ impl JournalEntry {
             step_id,
             attempt,
             at_ms,
-            payload: serde_json::to_value(payload).expect("journal payload must serialize"),
+            payload,
         }
     }
 }

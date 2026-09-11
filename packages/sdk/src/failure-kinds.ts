@@ -6,6 +6,8 @@ const PREFLIGHT_ENVIRONMENT_FAILURE_KINDS = [
   'helper_slack.mount_required',
   'mcp_undeclared_server',
   'mcp_unreachable',
+  'budget_syntax_invalid',
+  'budget_missing_price',
   'cli_missing',
   'cli_unauthenticated',
   'cli_unresolved',

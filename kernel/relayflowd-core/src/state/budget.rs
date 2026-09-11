@@ -1,6 +1,6 @@
 use crate::entry::Budget;
 
-use super::StateError;
+use super::{RunState, StateError};
 
 pub(super) fn add_budget(total: &mut Budget, value: &Budget) -> Result<(), StateError> {
     let tokens_in = total
@@ -131,5 +131,32 @@ mod tests {
             .is_err()
         );
         assert_eq!(total, original);
+    }
+}
+
+impl RunState {
+    pub(super) fn charge_budget(
+        &mut self,
+        value: &Budget,
+        duration: u64,
+        at_ms: i64,
+    ) -> Result<(), StateError> {
+        add_budget(&mut self.budget, value)?;
+        self.wallclock_ms = self
+            .wallclock_ms
+            .checked_add(duration)
+            .ok_or(StateError::BudgetOverflow)?;
+        let day = at_ms.div_euclid(86_400_000);
+        if self.budget_day != Some(day) {
+            self.budget_day = Some(day);
+            self.daily_budget = Budget::default();
+            self.daily_wallclock_ms = 0;
+        }
+        add_budget(&mut self.daily_budget, value)?;
+        self.daily_wallclock_ms = self
+            .daily_wallclock_ms
+            .checked_add(duration)
+            .ok_or(StateError::BudgetOverflow)?;
+        Ok(())
     }
 }

@@ -26,7 +26,8 @@ export async function checkMcpHeader(
   path: string,
 ): Promise<CheckedMcp> {
   const empty = { servers: Object.freeze({}), inventory: Object.freeze({}) };
-  const unsupported = Object.keys(definition.header).filter(key => key !== 'tools');
+  const KNOWN_HEADER_FIELDS = new Set(['tools', 'budget', 'identity', 'memory', 'workspace', 'use']);
+  const unsupported = Object.keys(definition.header).filter(key => !KNOWN_HEADER_FIELDS.has(key));
   if (definition.header.tools?.relayfile !== undefined) unsupported.push('tools.relayfile');
   if (unsupported.length) {
     return { ...empty, report: inputFailureReport({ kind: 'invalid_spec',

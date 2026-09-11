@@ -1,0 +1,12 @@
+version: 0.1.0
+name: budget-guarded
+budget:
+  wallclock: 0ms
+steps:
+  - id: measured
+    type: deterministic
+    command: sleep 0.01
+  - id: guarded
+    type: deterministic
+    dependsOn: [measured]
+    command: printf 'budget should refuse this step'

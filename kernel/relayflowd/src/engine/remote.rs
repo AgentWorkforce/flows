@@ -38,6 +38,11 @@ impl Engine<WallClock> {
         step_id: &str,
         completion: OutOfBandCompletion,
     ) -> Result<RunOutcome> {
+        if !relayflowd_core::memory::valid_decimal(&completion.budget.dollars)
+            || relayflowd_core::journal_dollars(&completion.budget.dollars).is_err()
+        {
+            bail!("step completion usage.dollars must be a non-negative decimal string");
+        }
         let mut journal = self.open_run(run_id)?;
         let spec = journal.run_spec().context("read run spec")?;
         let state = self.load_state(&journal, spec.clone())?;
@@ -380,7 +385,11 @@ fn worker_failure_detail(output: &Value) -> Option<String> {
     // and slicing it by byte index would panic on multi-byte input.
     Some(match trimmed.char_indices().nth(MAX_CHARS) {
         None => trimmed.to_owned(),
-        Some((cut, _)) => format!("{}… ({} bytes truncated)", &trimmed[..cut], trimmed.len() - cut),
+        Some((cut, _)) => format!(
+            "{}… ({} bytes truncated)",
+            &trimmed[..cut],
+            trimmed.len() - cut
+        ),
     })
 }
 
@@ -433,7 +442,10 @@ mod worker_failure_detail_tests {
         // 3000 three-byte chars = 9000 bytes.
         let output = json!("€".repeat(3000));
         let detail = worker_failure_detail(&output).expect("detail for a long output");
-        assert!(detail.contains('…'), "expected a truncation marker, got {detail:?}");
+        assert!(
+            detail.contains('…'),
+            "expected a truncation marker, got {detail:?}"
+        );
         // Cut at 2000 CHARS = 6000 bytes, so 3000 bytes remain.
         assert!(
             detail.contains("3000 bytes truncated"),
