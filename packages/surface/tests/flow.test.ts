@@ -10,6 +10,27 @@ import {
 import { getFlowDefinition } from "@relayflows/surface/runtime";
 
 describe("flow", () => {
+  it("retains an immutable copy of declared relative flow imports", () => {
+    const use = ["./reviewer.flow.ts", "../shared/helper.flow.ts"];
+    const handle = flow("chief", { use }, async () => undefined);
+    use.push("./later.flow.ts");
+    expect(getFlowDefinition(handle).header.use).toEqual([
+      "./reviewer.flow.ts", "../shared/helper.flow.ts",
+    ]);
+    expect(Object.isFrozen(getFlowDefinition(handle).header.use)).toBe(true);
+  });
+
+  it.each([
+    null, "./reviewer.flow.ts", [42], [""], [" "],
+    ["./reviewer.flow.ts", "./reviewer.flow.ts"],
+    ["reviewer.flow.ts"], ["@team/reviewer"], ["/reviewer.flow.ts"],
+    ["./reviewer.ts"], ["./reviewer.flow.ts?other.flow.ts"],
+    Array(1),
+  ])("refuses malformed use declarations: %j", (use) => {
+    expect(() => flow("chief", { use } as FlowHeader, async () => undefined))
+      .toThrow("header.use");
+  });
+
   it("defines a flow with the empty header as the default", () => {
     const body = async (_f: Ctx): Promise<void> => undefined;
     const definition = flow("release-note", body);

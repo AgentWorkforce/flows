@@ -2,6 +2,8 @@ import type { Ctx } from "./context.js";
 
 /** Optional escalation header; the empty header is the common case. */
 export interface FlowHeader {
+  /** Relative paths to reusable authored flows composed by this body. */
+  use?: string[];
   identity?: string;
   memory?: { script?: boolean; agent?: boolean };
   budget?: string;
@@ -12,6 +14,7 @@ export interface FlowHeader {
 export type FlowBody<Input = unknown> = (f: Ctx, input: Input) => Promise<void>;
 
 export interface ReadonlyFlowHeader {
+  readonly use?: readonly string[];
   readonly identity?: string;
   readonly memory?: Readonly<{ script?: boolean; agent?: boolean }>;
   readonly budget?: string;
@@ -114,6 +117,7 @@ function isStoredDefinition(
 
 function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
   const unknownFields = Object.keys(header).filter((field) => ![
+    "use",
     "identity",
     "memory",
     "budget",
@@ -137,6 +141,7 @@ function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
           : { mcp: Object.freeze([...header.tools.mcp]) }),
       });
   return Object.freeze({
+    ...(header.use === undefined ? {} : { use: Object.freeze([...header.use]) }),
     ...(header.identity === undefined ? {} : { identity: header.identity }),
     ...(memory === undefined ? {} : { memory }),
     ...(header.budget === undefined ? {} : { budget: header.budget }),
@@ -150,12 +155,20 @@ function assertFlowHeader(value: unknown, flowName: string): asserts value is Fl
   assertHeaderObject(value, at);
   assertKnownKeys(
     value,
-    ["identity", "memory", "budget", "tools", "workspace"],
+    ["use", "identity", "memory", "budget", "tools", "workspace"],
     at,
   );
   assertOptionalString(value, "identity", at);
   assertOptionalString(value, "budget", at);
   assertOptionalString(value, "workspace", at);
+  assertOptionalStringArray(value, "use", at);
+  if (value.use !== undefined) {
+    for (const path of value.use as string[]) {
+      if (!/^(?:\.\/|\.\.\/).+\.flow\.ts$/.test(path) || /[?#\\\\]/.test(path)) {
+        throw new TypeError(`${at}.use: expected relative .flow.ts paths`);
+      }
+    }
+  }
 
   if (value.memory !== undefined) {
     assertHeaderObject(value.memory, `${at}.memory`);
@@ -238,8 +251,13 @@ function assertOptionalStringArray(
   const candidate = value[key];
   if (
     candidate !== undefined
-    && (!Array.isArray(candidate) || candidate.some((item) => typeof item !== "string"))
+    && (!Array.isArray(candidate) || Array.from(candidate).some((item) => typeof item !== "string"))
   ) {
     throw new TypeError(`${at}.${key}: expected an array of strings`);
+  }
+  if (key === "use" && Array.isArray(candidate)
+    && (candidate.some((item) => item.trim().length === 0)
+      || new Set(candidate).size !== candidate.length)) {
+    throw new TypeError(`${at}.${key}: expected unique nonempty paths`);
   }
 }
