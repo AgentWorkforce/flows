@@ -28,6 +28,7 @@ import {
 } from '../preflight.js';
 
 export interface ProjectConfig {
+  deploy?: { bucket: string };
   mcp?: Record<string, McpServerConfig>;
   cli?: string;
   executors: string[];
@@ -63,7 +64,7 @@ export interface CheckExecution {
   flow?: FlowSpec;
 }
 
-class CheckFailure extends Error {
+export class CheckFailure extends Error {
   constructor(readonly kind: CheckFailureKind, message: string) {
     super(message);
   }
@@ -101,10 +102,10 @@ export function checkFlow(path: string): CheckExecution {
 }
 
 /** Preflight a validated authored flow through the same path as YAML/JSON. */
-export function checkAuthoredFlow(authoring: FlowSpec, path: string): CheckExecution {
+export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConfig?: ProjectConfig): CheckExecution {
   const absolutePath = resolve(path);
   try {
-    const config = readProjectConfig(dirname(absolutePath));
+    const config = projectConfig ?? readProjectConfig(dirname(absolutePath));
     const probes = systemProbes(dirname(absolutePath), config);
     const result = preflight(authoring, {
       projectCli: config.cli,
@@ -198,8 +199,13 @@ export function readProjectConfig(start: string): ProjectConfig {
   } catch {
     throw new CheckFailure('config_invalid', `Project config "${configPath}" is not valid JSON.`);
   }
-  if (!isObject(value) || Object.keys(value).some((key) => !['cli', 'executors', 'models', 'mcp'].includes(key))) {
-    throw new CheckFailure('config_invalid', `Project config "${configPath}" expects only cli, executors, models, and mcp.`);
+  if (!isObject(value) || Object.keys(value).some((key) => !['cli', 'executors', 'models', 'mcp', 'deploy'].includes(key))) {
+    throw new CheckFailure('config_invalid', `Project config "${configPath}" expects only cli, executors, models, mcp, and deploy.`);
+  }
+  if (value['deploy'] !== undefined && (!isObject(value['deploy'])
+    || Object.keys(value['deploy']).some(key => key !== 'bucket')
+    || !isNonEmptyString(value['deploy']['bucket']))) {
+    throw new CheckFailure('config_invalid', `Project config "${configPath}" has invalid deploy.bucket.`);
   }
   if (value['cli'] !== undefined && !isNonEmptyString(value['cli'])) {
     throw new CheckFailure('config_invalid', `Project config "${configPath}" has an invalid cli.`);
@@ -233,6 +239,7 @@ export function readProjectConfig(start: string): ProjectConfig {
     }
   }
   return {
+    ...(value['deploy'] !== undefined ? { deploy: value['deploy'] as { bucket: string } } : {}),
     ...(mcp !== undefined ? { mcp } : {}),
     ...(value['cli'] !== undefined ? { cli: value['cli'] as string } : {}),
     executors: (value['executors'] as string[] | undefined) ?? [],

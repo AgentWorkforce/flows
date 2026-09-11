@@ -1,3 +1,5 @@
+import { parseDigestReference } from '../bundle-transport.js';
+import { prepareDigestRun } from './run-digest.js';
 import { reuseSummary } from './reuse.js';
 import { resumeSlackEffect } from '../authored-slack-effect.js';
 import { AuthoredFlowExecutionError } from '../authored-flow-error.js';
@@ -65,6 +67,7 @@ export interface RunProgress {
 }
 
 export interface RunLifecycleOptions {
+  bucket?: string;
   reuseFromRunId?: string;
   onProgress?: (event: ProgressEvent) => void;
   localAgent?: boolean;
@@ -83,7 +86,9 @@ export async function runFlow(
   dataDir: string,
   options: RunLifecycleOptions = {},
 ): Promise<RunExecution> {
-  const checked = checkFlow(path);
+  const prepared = parseDigestReference(path) ? await prepareDigestRun(path, options.bucket) : undefined;
+  if (prepared && 'exitCode' in prepared) return prepared;
+  const checked = prepared ?? checkFlow(path);
   if (!checked.report.ok || checked.flow === undefined) {
     return { exitCode: 2, report: fromCheckReport('run', checked.report) };
   }

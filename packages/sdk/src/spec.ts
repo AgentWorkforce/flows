@@ -21,6 +21,7 @@ export type McpServerConfig =
   | { url: string; headers?: Record<string, string> };
 
 export interface FlowsJson {
+  deploy?: { bucket: string };
   cli?: string;
   executors?: string[];
   models?: string[];

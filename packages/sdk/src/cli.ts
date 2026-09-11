@@ -24,6 +24,8 @@ import { parseReplayArgs, replayJournal, type ReplayArgs } from './cli/replay.js
 import { checkTypeScriptFlow } from './cli/check-typescript.js';
 import { runCloudCli } from './cli/cloud-run.js';
 import { isAuthoredFlowPath } from './direct-input.js';
+import { parseDeployArgs, runDeploy, type DeployArgs } from './cli/deploy.js';
+import { parseDigestReference } from './bundle-transport.js';
 import { parseBuildArgs, runBuild, type BuildArgs } from './cli/build.js';
 import { runHnMonitor } from './cli/hn-monitor.js';
 import { runTickRunner } from './cli/tick-runner.js';
@@ -44,10 +46,11 @@ type CliExitCode = 0 | 1 | 2 | 3;
 type ParsedArgs =
   | ReplayArgs
   | BuildArgs
+  | DeployArgs
   | { command: 'serve-webhook'; dataDir: string; port: number }
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean }
   | { command: 'check'; json: boolean; watch: boolean; value: string }
-  | { command: 'run'; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
+  | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
   | { command: 'resume'; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
   | { command: 'observer'; dataDir: string }
   | { command: 'hn-monitor'; sub: 'start'; dataDir: string; specPath: string; pollIntervalMs: number | undefined }
@@ -60,6 +63,8 @@ const USAGE = [
   'Usage:',
   'flows build [--out <dir>] <flow.yaml|flow.ts>',
   'flows build --verify <bundle-dir>',
+  'flows deploy <flow>@sha256:<digest> --to <file-bucket-uri>',
+  'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json]',
   'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
   'flows serve-webhook --data-dir <dir> --port <p>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] [--reuse-from <run-id>] <flow.yaml|spec.json>',
@@ -108,6 +113,7 @@ export async function runCli(
   if (parsed.command === 'cloud-run') return runCloudCli(parsed, io);
   if (parsed.command === 'replay') return replayJournal(parsed, io);
   if (parsed.command === 'build') return runBuild(parsed, io);
+  if (parsed.command === 'deploy') return runDeploy(parsed, io);
 
   if (parsed.command === 'check') {
     if (parsed.watch) return watchCheck(parsed.value, parsed.json, io);
@@ -176,6 +182,7 @@ export async function runCli(
     if (!parsed.json) for (const line of renderProgress([event])) io.stderr(line);
   };
   const lifecycle = {
+    ...(parsed.command === 'run' ? { bucket: parsed.bucket } : {}),
     ...(parsed.command === 'run' && parsed.reuseFromRunId !== undefined ? { reuseFromRunId: parsed.reuseFromRunId } : {}),
     localAgent: parsed.command === 'run' && parsed.localAgent,
     onProgress: showProgress,
@@ -404,6 +411,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   const command = args[0];
   if (command === 'replay') return parseReplayArgs(args.slice(1));
   if (command === 'build') return parseBuildArgs(args.slice(1));
+  if (command === 'deploy') return parseDeployArgs(args.slice(1));
   if (command === 'serve-webhook') return parseWebhookArgs(args.slice(1));
   if (command === 'hn-monitor') return parseHnMonitorArgs(args.slice(1));
   if (command === 'tick') return parseTickArgs(args.slice(1));
@@ -422,6 +430,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let input: string | undefined;
   let sawInput = false;
   let reuseFromRunId: string | undefined;
+  let bucket: string | undefined;
   const positionals: string[] = [];
   for (let index = 1; index < args.length; index += 1) {
     const argument = args[index]!;
@@ -475,6 +484,12 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       index += 1;
       continue;
     }
+    if (argument === '--bucket') {
+      const value = args[++index];
+      if (command !== 'run' || bucket !== undefined || !value || value.startsWith('-')) return undefined;
+      bucket = value;
+      continue;
+    }
     if (argument === '--input') {
       const value = args[index + 1];
       if (command !== 'run' || sawInput || value === undefined || value.startsWith('--')) return undefined;
@@ -488,6 +503,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   }
   if (positionals.length !== 1) return undefined;
 
+  if (bucket !== undefined && (cloud || !parseDigestReference(positionals[0]!))) return undefined;
   if (cloud) {
     // `--cloud` submits the spec to Cloud, so every flag that only describes a
     // local run -- an inline input, a data dir, a suppressed daemon, a local
@@ -503,7 +519,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   return command === 'check'
     ? { command, json, watch, value: positionals[0]! }
     : command === 'run'
-      ? { command, reuseFromRunId, localAgent, dataDir, input, json, spawn, noObserverLink, value: positionals[0]! }
+      ? { command, bucket, reuseFromRunId, localAgent, dataDir, input, json, spawn, noObserverLink, value: positionals[0]! }
       : { command, dataDir, json, spawn, noObserverLink, value: positionals[0]! };
 }
 

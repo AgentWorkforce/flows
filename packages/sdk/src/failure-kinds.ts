@@ -70,6 +70,10 @@ export const PREFLIGHT_WARNING_KINDS = [
  * step failed. All of them are still exit 2 — refused before a journal write.
  */
 export const RUN_FAILURE_KINDS = [
+  'bucket_unconfigured',
+  'bucket_unreachable',
+  'bundle_signature_invalid',
+  'bundle_unsupported',
   'reuse_spec_mismatch',
   'reuse_run_not_found',
   'reuse_journal_read_failed',

@@ -494,6 +494,31 @@ The herdr model: first-party helpers are just plugins that ship in the box; the 
 
 `flows build` seals a flow into a content-addressed, immutable bundle: canonical spec JSON, compiled TS with pinned deps, helper/plugin lockfile, assets, preflight declaration, identity signature — `flow@sha256:…`, pushed to a bucket/registry. `flows deploy` points a trigger at a digest; `flows run flow@sha256:…` executes from the bucket on any cell, no checkout. Preflight runs at build time for everything build-provable and again at deploy time for environment facts (credentials, workers, MCP servers). The working tree is for authoring; **production only ever runs digests.**
 
+The first deployment slice supports `file://` buckets and self-contained
+**declarative deterministic** bundles:
+
+```text
+flows deploy <name>@sha256:<64-hex-digest> --to file:///absolute/bucket
+flows run <name>@sha256:<64-hex-digest> --bucket file:///absolute/bucket
+```
+
+Deploy reads `dist/flows/<name>@sha256:<digest>/` and publishes the complete
+verified bundle at `<bucket>/<name>/sha256/<digest>/`. Re-deploy prints
+`deploy_noop`; a partial copy is never published at the final path.
+Run resolves `--bucket` before the nearest `flows.json`'s
+`{"deploy":{"bucket":"file:///absolute/bucket"}}`. Verified payloads are cached
+under `$XDG_CACHE_HOME/flows/bundles/<hex-digest>/`, falling back to
+`~/.cache/flows/bundles/<hex-digest>/`. Every cache hit is verified before use.
+The canonical spec goes through the existing journal run path with command
+preflight before any daemon connection. Local authoring files are unnecessary.
+Refusals exit 2; transport failure after copying starts exits 1 (`deploy_partial`).
+
+**Remaining work for #333:** S3 transport, trigger digest binding and conflict
+checks, authored TypeScript execution, assets and placement, agent/LLM environment
+preflight, and separating build-provable checks from environment checks.
+Unsupported bundle execution is refused with `bundle_unsupported`; this slice
+does not claim to implement the full production-digest contract above.
+
 The local build and verification commands are available now:
 
 ```text
