@@ -71,6 +71,7 @@ const VERB_FIELD_VALUES: Record<string, unknown> = {
   agent: 'reviewer',
   command: 'printf foreign',
   timeoutMs: 1_000,
+  lease_ms: 1_000,
   prompt: 'foreign prompt',
   model: 'foreign-model',
   cli: 'foreign-cli',
@@ -190,12 +191,13 @@ describe('closed per-verb step fields', () => {
       'requirements',
     ]);
     expect(STEP_FIELDS_BY_TYPE).toEqual({
-      deterministic: ['command', 'timeoutMs'],
+      deterministic: ['command', 'timeoutMs', 'lease_ms'],
       llm: ['prompt', 'model', 'cli', 'output'],
       agent: ['instruction', 'agent', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions', 'output'],
     });
     expect(CROSS_VERB_STEP_FIELDS.map(({ label }) => label).sort()).toEqual([
       'agent foreign command',
+      'agent foreign lease_ms',
       'agent foreign prompt',
       'agent foreign timeoutMs',
       'deterministic foreign agent',
@@ -210,6 +212,7 @@ describe('closed per-verb step fields', () => {
       'llm foreign agent',
       'llm foreign command',
       'llm foreign instruction',
+      'llm foreign lease_ms',
       'llm foreign permissions',
       'llm foreign recoveryMode',
       'llm foreign surfaces',

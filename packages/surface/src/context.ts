@@ -31,7 +31,8 @@ export interface LlmOptions {
  */
 export interface Ctx extends Helpers {
   readonly mcp: Readonly<Record<string, Readonly<Record<string, (args: unknown) => Step<unknown>>>>>;
-  run(command: string): Step<string>;
+  /** Command lease: milliseconds or a duration such as "5m"; default 30s, maximum 15m. */
+  run(command: string, options?: { timeout?: string | number }): Step<string>;
   llm(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
   /** JSON Schema validates the value at runtime; narrow unknown in author code. */
   llm(prompt: string, options: LlmOptions): Step<unknown>;

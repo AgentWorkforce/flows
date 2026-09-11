@@ -10,8 +10,8 @@ import { checkMcpHeader, McpPreflightError } from './cli/check-typescript.js';
 import { buildMcpProxy, runMcpEffect } from './authored-mcp.js';
 import { AuthoredBudget } from './authored-budget.js';
 import { assertMemoryReachable, authoredMemory, scriptMemoryScope } from './authored-memory.js';
-import { authoredWorkerRunner } from './authored-worker-step.js';
-import { readSuccessfulOutput, isSurfaceRunCompletionReason } from './authored-step-output.js';
+import { authoredDeterministicRunner, authoredWorkerRunner } from './authored-worker-step.js';
+import { isSurfaceRunCompletionReason } from './authored-step-output.js';
 import {
   type LlmOptions,
   type CloudHelper,
@@ -23,7 +23,7 @@ import {
 import type { FlowHandle } from '@relayflows/surface/runtime';
 import { join } from 'node:path';
 import { observeStep, type ProgressEvent } from './progress.js';
-import { compileSpec, toKernelSpec } from './compile.js';
+import { parseStepTimeout } from './compile.js';
 import { getAuthoredFlowDefinition } from './authored-flow.js';
 import type { GetFlowDefinition } from './authored-flow-loader.js';
 import type { RunLifecycleOptions } from './cli/run.js';
@@ -42,7 +42,6 @@ import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
 } from './protocol.js';
-import { SPEC_SCHEMA_VERSION } from './spec.js';
 
 type Assert<T extends true> = T;
 type Equal<A, B> = [A] extends [B]
@@ -169,19 +168,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   let nextStep = 1;
   let requestedCompletion: SurfaceRunCompletionReason | undefined;
 
-  const lowerDeterministic = async (
-    id: string,
-    command: string,
-    terminal = false,
-  ): Promise<string> => {
-    const spec = toKernelSpec(compileSpec({
-      version: SPEC_SCHEMA_VERSION,
-      name: `${definition.name}/${id}`,
-      steps: [{ id, type: 'deterministic', command }],
-    }));
-    if (terminal) return readSuccessfulOutput(journal, await journal.runStart(spec), id, journalSteps);
-    return budget.execute(journal, spec, outcome => readSuccessfulOutput(journal, outcome, id, journalSteps));
-  };
+  const lowerDeterministic = authoredDeterministicRunner(definition.name, journal, journalSteps, budget);
 
   const worker = authoredWorkerRunner(definition, journal, flowPath, journalSteps, waitOptions, localAgentStream, budget, definition.header.budget);
 
@@ -248,14 +235,15 @@ export async function executeAuthoredFlow<Input = undefined>(
       () => assertOperationAllowed('memory', definition.name, requestedCompletion),
       definition.header.memory?.script !== false,
     ),
-    run(command) {
+    run(command, runOptions) {
       assertOperationAllowed('run', definition.name, requestedCompletion);
+      const leaseMs = runOptions?.timeout === undefined ? undefined : parseStepTimeout(runOptions.timeout);
       const id = `run-${nextStep++}`;
       return trackStep(authoredSteps, new AuthoredFlowOperation(
         id,
         'run',
         () => assertOperationAllowed('run', definition.name, requestedCompletion),
-        () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command), options.onProgress),
+        () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs), options.onProgress),
         lifecycle,
       ));
     },

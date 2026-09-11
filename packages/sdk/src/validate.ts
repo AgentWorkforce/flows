@@ -423,6 +423,9 @@ class Validator {
     if (!isNonEmptyString(st.command)) {
       this.fail(`${at}.command: expected a non-empty string`);
     }
+    if (st.lease_ms !== undefined && !isPosInt(st.lease_ms)) {
+      this.fail(`${at}.lease_ms: expected a positive integer`);
+    }
     if (st.timeoutMs !== undefined && !isPosInt(st.timeoutMs)) {
       this.fail(`${at}.timeoutMs: expected a positive integer`);
     }

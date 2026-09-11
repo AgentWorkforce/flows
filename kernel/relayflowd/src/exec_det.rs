@@ -42,6 +42,7 @@ pub(crate) fn execute_placed_with_input(
     let StepKind::Deterministic {
         command,
         timeout_ms,
+        lease_ms,
     } = &step.kind
     else {
         return worker_error("deterministic executor received a non-deterministic step");
@@ -93,7 +94,11 @@ pub(crate) fn execute_placed_with_input(
     let stderr = child.stderr.take().expect("piped stderr");
     let stdout_reader = thread::spawn(move || read_all(stdout));
     let stderr_reader = thread::spawn(move || read_all(stderr));
-    let timeout = Duration::from_millis(timeout_ms.unwrap_or(30_000));
+    let timeout = Duration::from_millis(match (lease_ms, timeout_ms) {
+        (Some(lease), Some(command)) => (*lease).min(*command),
+        (Some(lease), None) => *lease,
+        (None, command) => command.unwrap_or(30_000),
+    });
     let (status, timed_out) = match child.wait_timeout(timeout) {
         Ok(Some(status)) => (Some(status), false),
         Ok(None) => {
@@ -194,6 +199,23 @@ mod tests {
         .unwrap();
         let result = execute(&step);
         assert_eq!(result.failure_reason, Some(CompletionReason::Timeout));
+    }
+
+    #[test]
+    fn lease_override_bounds_execution_and_preserves_command_timeout() {
+        for (lease, command_timeout) in [(5, None), (1000, Some(5))] {
+            let mut value = json!({
+                "id": "slow", "type": "deterministic", "command": "sleep 1", "lease_ms": lease
+            });
+            if let Some(ms) = command_timeout {
+                value["timeout_ms"] = json!(ms);
+            }
+            let step: StepSpec = serde_json::from_value(value).unwrap();
+            let started = std::time::Instant::now();
+            let result = execute(&step);
+            assert_eq!(result.failure_reason, Some(CompletionReason::Timeout));
+            assert!(started.elapsed() < Duration::from_millis(900));
+        }
     }
 
     #[test]

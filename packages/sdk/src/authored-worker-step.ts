@@ -1,14 +1,14 @@
 import type { AuthoredBudget } from './authored-budget.js';
 import { parseBudget } from './budget.js';
 import type { AgentOptions, AgentResult, LlmOptions } from '@relayflows/surface';
-import { toKernelSpec } from './compile.js';
+import { compileSpec, toKernelSpec } from './compile.js';
 import { checkAuthoredFlow } from './cli/check.js';
 import { classifyOutcome, type RunLifecycleOptions } from './cli/run.js';
 import type { PreflightDiagnostic } from './preflight.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import type { JournalClient } from './journal-client.js';
 import { SPEC_SCHEMA_VERSION, type FlowSpec, type StepSpec } from './spec.js';
-import { isSurfaceCompletionReason, readCompletedStepOutput } from './authored-step-output.js';
+import { isSurfaceCompletionReason, readCompletedStepOutput, readSuccessfulOutput } from './authored-step-output.js';
 import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import { snapshotJsonValue } from './json-value.js';
 
@@ -140,5 +140,20 @@ export function authoredWorkerRunner(
       }
       return output;
     },
+  };
+}
+
+/** Deterministic commands execute inline under their per-invocation lease. */
+export function authoredDeterministicRunner(
+  name: string, journal: JournalClient, journalSteps: AuthoredFlowJournalStep[], budget: AuthoredBudget,
+) {
+  return async (id: string, command: string, terminal = false, leaseMs?: number): Promise<string> => {
+    const spec = toKernelSpec(compileSpec({
+      version: SPEC_SCHEMA_VERSION,
+      name: `${name}/${id}`,
+      steps: [{ id, type: 'deterministic', command, ...(leaseMs === undefined ? {} : { lease_ms: leaseMs }) }],
+    }));
+    if (terminal) return readSuccessfulOutput(journal, await journal.runStart(spec), id, journalSteps);
+    return budget.execute(journal, spec, outcome => readSuccessfulOutput(journal, outcome, id, journalSteps));
   };
 }

@@ -171,6 +171,8 @@ export interface DeterministicStepSpec extends BaseStepSpec {
   command: string;
   /** Wall-clock command timeout; worker-backed verbs own their dispatch timeout. */
   timeoutMs?: number;
+  /** Per-invocation deterministic lease in milliseconds (maximum 15 minutes). */
+  lease_ms?: number;
   /** Omit to get the implicit `exit_code` gate. */
   verification?: VerificationSpec;
 }
@@ -342,6 +344,7 @@ export interface KernelDeterministicStep extends KernelStepCommon {
   type: 'deterministic';
   command: string;
   timeout_ms?: number;
+  lease_ms?: number;
 }
 
 export interface KernelLlmStep extends KernelStepCommon {

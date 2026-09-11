@@ -53,6 +53,21 @@ export class CompileError extends Error {
   }
 }
 
+/** Parse the f.run timeout before submitting any command to the kernel. */
+export function parseStepTimeout(timeout: unknown): number {
+  const units: Record<string, number> = { ms: 1, s: 1000, m: 60_000 };
+  const match = typeof timeout === 'string' ? /^(\d+(?:\.\d+)?)(ms|s|m)$/.exec(timeout) : null;
+  const milliseconds = typeof timeout === 'number' ? timeout
+    : match === null ? NaN : Number(match[1]) * units[match[2]!]!;
+  if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) {
+    throw new CompileError(['f.run timeout must be a positive whole number of milliseconds or a duration such as "10s" or "5m".'], 'timeout_invalid');
+  }
+  if (milliseconds > 15 * 60_000) {
+    throw new CompileError(['f.run timeout exceeds the maximum of 15 minutes declared in SURFACE.md.'], 'lease_exceeded');
+  }
+  return milliseconds;
+}
+
 /**
  * Compile a YAML string into a validated authoring `FlowSpec`.
  * Throws `CompileError` on a YAML parse error or any validation failure.
@@ -156,6 +171,7 @@ function compileStep(step: StepSpec): StepSpec {
         // #138: `timeoutMs` is deterministic-only — worker-backed verbs own
         // their dispatch timeout. It must be spread HERE and nowhere in `base`.
         ...(s.timeoutMs !== undefined ? { timeoutMs: s.timeoutMs } : {}),
+        ...(s.lease_ms !== undefined ? { lease_ms: parseStepTimeout(s.lease_ms) } : {}),
       };
     }
     case 'llm': {
@@ -372,14 +388,14 @@ function kernelTriggerToAuthoring(value: unknown, at: string): unknown {
 function kernelStepToAuthoring(value: unknown, at: string): unknown {
   const unionKeys = [
     'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input',
-    'command', 'timeout_ms', 'prompt', 'model', 'cli', 'instruction',
+    'command', 'timeout_ms', 'lease_ms', 'prompt', 'model', 'cli', 'instruction',
     'recovery_mode', 'surfaces', 'permissions',
   ] as const;
   const step = requireKernelObject(value, unionKeys, at);
   const type = step['type'];
   const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input'] as const;
   const typeKeys = type === 'deterministic'
-    ? ['command', 'timeout_ms'] as const
+    ? ['command', 'timeout_ms', 'lease_ms'] as const
     : type === 'llm'
       ? ['prompt', 'model', 'cli'] as const
       : type === 'agent'
@@ -405,6 +421,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
       ...common,
       command: step['command'],
       ...(step['timeout_ms'] !== undefined ? { timeoutMs: step['timeout_ms'] } : {}),
+      ...(step['lease_ms'] !== undefined ? { lease_ms: step['lease_ms'] } : {}),
     };
   }
   if (type === 'llm') {
@@ -554,6 +571,7 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
         type: 'deterministic',
         command: step.command,
         ...(step.timeoutMs !== undefined ? { timeout_ms: step.timeoutMs } : {}),
+        ...(step.lease_ms !== undefined ? { lease_ms: parseStepTimeout(step.lease_ms) } : {}),
       };
     case 'llm': {
       return {

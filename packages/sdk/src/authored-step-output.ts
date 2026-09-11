@@ -50,7 +50,14 @@ export async function readSuccessfulOutput(
   stepId: string,
   journalSteps: AuthoredFlowJournalStep[],
 ): Promise<string> {
-  const output = await readCompletedStepOutput(journal, outcome.run_id, stepId, journalSteps);
+  const output = await readCompletedStepOutput(journal, outcome.run_id, stepId, journalSteps).catch(error => {
+    if (error instanceof AuthoredFlowExecutionError
+      && (error.completionReason === 'timeout' || error.completionReason === 'lease_expired')) {
+      throw new AuthoredFlowExecutionError('lease_exceeded',
+        `f.run step "${stepId}" exceeded its command timeout.`, error.completionReason, error.runId);
+    }
+    throw error;
+  });
   if (!isRecord(output) || typeof output['stdout_tail'] !== 'string') {
     throw protocolViolation(outcome.run_id, `step "${stepId}" has no string stdout_tail`);
   }

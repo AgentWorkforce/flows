@@ -33,7 +33,7 @@ export const STEP_COMMON_FIELDS = [
  * per-verb boundary through a second, drifting allowlist.
  */
 export const STEP_FIELDS_BY_TYPE = {
-  deterministic: ['command', 'timeoutMs'],
+  deterministic: ['command', 'timeoutMs', 'lease_ms'],
   llm: ['prompt', 'model', 'cli', 'output'],
   agent: ['instruction', 'agent', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions', 'output'],
 } as const satisfies Record<StepType, readonly string[]>;
