@@ -1,4 +1,4 @@
-import type { SlackHelper } from "./slack.js";
+import type { Helpers } from "./helpers/index.js";
 import type { CloudHelper } from "./cloud.js";
 import type { RunCompletionReason } from "./completion.js";
 import type { Step } from "./step.js";
@@ -28,7 +28,7 @@ export interface LlmOptions {
  * This package declares the authoring contract only. It cannot construct a
  * context or execute a step, so all effects remain behind the journal client.
  */
-export interface Ctx {
+export interface Ctx extends Helpers {
   readonly mcp: Readonly<Record<string, Readonly<Record<string, (args: unknown) => Step<unknown>>>>>;
   run(command: string): Step<string>;
   llm(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
@@ -39,5 +39,4 @@ export interface Ctx {
   dispatch<T>(flow: string, input: unknown): Promise<T>;
   done(reason: RunCompletionReason): void;
   cloud: CloudHelper;
-  slack: SlackHelper;
 }
