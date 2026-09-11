@@ -112,6 +112,23 @@ describe('authored Slack helper effects', () => {
     }).ok).toBe(true);
   });
 
+  it('surfaces helper_slack.credential_missing on `.flow.ts` paths too, not just helper modules', async () => {
+    // Regression: `flows check` on `.flow.ts` routes through `checkAuthoredTriggers`
+    // (trigger-aware) while `.mjs` helper modules routed through `checkHelperBody`.
+    // Before this fix, the `.flow.ts` path silently skipped the helper preflight,
+    // so a flow using `f.slack.post` without SLACK_BOT_TOKEN passed check and only
+    // crashed at run.
+    for (const key of ['SLACK_BOT_TOKEN', 'RELAYFLOWS_SLACK_MOCK', 'RELAYFILE_MOUNT_PATH', 'WORKSPACE_ROOT', 'WORKFORCE_SANDBOX_ROOT', 'RELAYFILE_MOUNT_ROOT', 'RELAYFILE_ROOT']) vi.stubEnv(key, '');
+    const dataDir = temporary();
+    mkdirSync(join(dataDir, 'node_modules/@relayflows'), { recursive: true });
+    symlinkSync(join(root, 'packages/sdk/node_modules/@relayflows/surface'), join(dataDir, 'node_modules/@relayflows/surface'));
+    const fixture = join(dataDir, 'slack.flow.ts');
+    writeFileSync(fixture, `import { flow } from ${JSON.stringify(join(root, 'packages/sdk/node_modules/@relayflows/surface/dist/index.js'))};\nexport default flow('slack-authored', async f => { await f.slack.post('#test', 'hi'); f.done('success'); });`);
+    const output: string[] = [];
+    expect(await runCli(['check', '--json', fixture], { stdout: line => output.push(line), stderr: line => output.push(line) })).toBe(2);
+    expect(output.join('')).toContain('helper_slack.credential_missing');
+  });
+
   it.each(['confirm', 'complete'] as const)('replays after SIGKILL before %s with the same token and one successful completion', async boundary => {
     vi.stubEnv('RELAYFLOWS_SLACK_MOCK', '1');
     const dataDir = temporary();
