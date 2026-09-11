@@ -117,25 +117,35 @@ async function repositoryRoot(start: string): Promise<string> {
  * Shell commands are opaque; explicit ./file words are captured without
  * interpreting substitutions or running a shell at build time. */
 async function captureFiles(flow: FlowSpec, directory: string, files: BundleFile[]): Promise<FlowSpec> {
-  const captured = new Map<string, string>();
-  async function capture(path: string): Promise<string> {
-    if (!path.includes('/')) return path;
+  // Cache the in-flight *promise*, not the resolved string. Two concurrent
+  // captures of the same path (Promise.all over named agents that share a CLI)
+  // both pass a `captured.has(path)` guard before either has finished awaiting
+  // its lstat/readFile, so both would push the same `assets/...` entry -- and
+  // sealBundle then refuses the whole flow as a duplicate. Storing the promise
+  // dedups on the first synchronous look-up.
+  const captured = new Map<string, Promise<string>>();
+  function capture(path: string): Promise<string> {
+    if (!path.includes('/')) return Promise.resolve(path);
     if (!path.startsWith('./') || path.split('/').includes('..') || path.includes('\\')) {
-      throw new Error(`${path}: bundle file references must start with ./ and stay inside the flow directory`);
+      return Promise.reject(new Error(`${path}: bundle file references must start with ./ and stay inside the flow directory`));
     }
-    if (captured.has(path)) return captured.get(path)!;
-    const parts = path.slice(2).split('/');
-    if (parts.some(p => p === '' || p === '.')) throw new Error(`${path}: invalid file reference`);
-    let executable = false;
-    for (let i = 1; i <= parts.length; i++) {
-      const stat = await lstat(join(directory, ...parts.slice(0, i)));
-      if (i === parts.length ? !stat.isFile() : !stat.isDirectory()) throw new Error(`${path}: expected regular file without symlinks`);
-      if (i === parts.length) executable = (stat.mode & 0o111) !== 0;
-    }
-    const target = `assets/${parts.join('/')}`;
-    files.push({ path: target, data: await readFile(join(directory, ...parts)), executable });
-    captured.set(path, `./${target}`);
-    return `./${target}`;
+    const existing = captured.get(path);
+    if (existing !== undefined) return existing;
+    const pending = (async () => {
+      const parts = path.slice(2).split('/');
+      if (parts.some(p => p === '' || p === '.')) throw new Error(`${path}: invalid file reference`);
+      let executable = false;
+      for (let i = 1; i <= parts.length; i++) {
+        const stat = await lstat(join(directory, ...parts.slice(0, i)));
+        if (i === parts.length ? !stat.isFile() : !stat.isDirectory()) throw new Error(`${path}: expected regular file without symlinks`);
+        if (i === parts.length) executable = (stat.mode & 0o111) !== 0;
+      }
+      const target = `assets/${parts.join('/')}`;
+      files.push({ path: target, data: await readFile(join(directory, ...parts)), executable });
+      return `./${target}`;
+    })();
+    captured.set(path, pending);
+    return pending;
   }
   // Capture the flow-level `cli` default and every named-agent `cli` BEFORE
   // walking steps. Otherwise a step that inherits its CLI from the flow header

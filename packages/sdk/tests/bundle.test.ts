@@ -141,6 +141,42 @@ describe('immutable bundles', () => {
     await expect(buildFlow(join(cwd, 'hello.yaml'), join(cwd, 'out'), () => {})).rejects.toThrow('script.sh');
   });
 
+  it('deduplicates named-agent CLI captures that share one relative path', async () => {
+    // Two named agents pointing at the same `./` CLI must both resolve to a
+    // single bundle entry. captureFiles runs the agents through Promise.all;
+    // if the capture cache holds resolved strings the two concurrent calls
+    // both miss the guard, push twice, and sealBundle refuses the whole flow.
+    const cwd = await temp();
+    await writeFile(join(cwd, 'agent-cli'), '#!/bin/sh\necho ok\n');
+    await chmod(join(cwd, 'agent-cli'), 0o755);
+    await writeFile(join(cwd, 'flows.json'), JSON.stringify({
+      cli: './agent-cli', models: ['claude-sonnet-4-6'],
+    }));
+    await writeFile(join(cwd, 'twin.yaml'), JSON.stringify({
+      version: '0.1.0', name: 'twin-agents',
+      agents: {
+        reviewer: { cli: './agent-cli', model: 'claude-sonnet-4-6' },
+        drafter: { cli: './agent-cli', model: 'claude-sonnet-4-6' },
+      },
+      steps: [
+        { id: 'first', type: 'agent', instruction: 'first', agent: 'reviewer' },
+        { id: 'second', type: 'agent', instruction: 'second', agent: 'drafter' },
+      ],
+    }));
+    const bundle = await buildFlow(join(cwd, 'twin.yaml'), join(cwd, 'out'), () => {});
+    // toKernelSpec compiles named agents away, lowering each step's `cli`
+    // reference. Both steps should point at the same shared bundle path.
+    const spec = JSON.parse(await readFile(join(bundle, 'spec.canonical.json'), 'utf8'));
+    expect(spec.steps[0].cli).toBe('./assets/agent-cli');
+    expect(spec.steps[1].cli).toBe('./assets/agent-cli');
+    // Manifest must carry the CLI exactly once; a duplicate entry is what
+    // sealBundle would refuse if the capture cache lost the race.
+    const manifest = JSON.parse(await readFile(join(bundle, 'manifest.json'), 'utf8'));
+    const assetEntries = manifest.filter((entry: { path: string }) => entry.path === 'assets/agent-cli');
+    expect(assetEntries).toHaveLength(1);
+    expect(await verifyBundle(bundle)).toBe(basename(bundle).split('@sha256:')[1]);
+  });
+
   it('preserves quoted asset words and executable permissions', async () => {
     const cwd = await temp();
     await writeFile(join(cwd, 'run script.sh'), '#!/bin/sh\ncat "$1"\n');
