@@ -29,6 +29,7 @@ export interface LlmOptions {
  * context or execute a step, so all effects remain behind the journal client.
  */
 export interface Ctx {
+  readonly mcp: Readonly<Record<string, Readonly<Record<string, (args: unknown) => Step<unknown>>>>>;
   run(command: string): Step<string>;
   llm(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
   /** JSON Schema validates the value at runtime; narrow unknown in author code. */

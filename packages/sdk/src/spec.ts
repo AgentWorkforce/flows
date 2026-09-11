@@ -15,6 +15,18 @@ export type { JsonOutputSchema } from './output-schema.js';
 /** The three rungs of the ladder (RFC §1; AGENTS.md rule 7). */
 export type StepType = 'deterministic' | 'llm' | 'agent';
 
+/** Project-owned MCP connections. env contains names, never secret values. */
+export type McpServerConfig =
+  | { command: string; args?: string[]; env?: string[] }
+  | { url: string; headers?: Record<string, string> };
+
+export interface FlowsJson {
+  cli?: string;
+  executors?: string[];
+  models?: string[];
+  mcp?: Record<string, McpServerConfig>;
+}
+
 /**
  * Verification is control flow, not decoration (kernel DESIGN.md §3).
  * v0 gates are deterministic so verification is kernel-side and replayable.

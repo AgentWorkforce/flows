@@ -12,6 +12,8 @@ export type {
   DeterministicStepSpec,
   ExitCodeGate,
   FlowSpec,
+  FlowsJson,
+  McpServerConfig,
   JsonSchemaGate,
   JsonOutputSchema,
   KernelAgentStep,
