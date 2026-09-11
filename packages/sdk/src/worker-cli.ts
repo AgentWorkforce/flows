@@ -91,8 +91,13 @@ async function spawnInvocation(
   signal?: AbortSignal,
   sidechannel?: SidechannelContext,
 ): Promise<WorkerCliResult> {
-  let writeInput: (bytes: Buffer) => boolean = () => false;
-  const channel = sidechannel === undefined ? undefined : await openSidechannel(sidechannel, bytes => writeInput(bytes));
+  let writeInput: (bytes: Buffer) => Promise<boolean> = async () => false;
+  let canDrive = () => false;
+  let driven = false;
+  const channel = sidechannel === undefined ? undefined : await openSidechannel({
+    ...sidechannel,
+    onDrive() { driven = true; sidechannel.onDrive(); },
+  }, bytes => writeInput(bytes), () => canDrive());
   if (signal?.aborted) { channel?.close(); signal.throwIfAborted(); }
   return new Promise((resolve) => {
     const ownsGroup = ownsProcessGroup(signal);
@@ -102,7 +107,18 @@ async function spawnInvocation(
     });
     child.stdin.on('error', () => {});
     if (channel === undefined) child.stdin.end();
-    writeInput = bytes => !child.stdin.destroyed && child.stdin.write(bytes);
+    canDrive = () => !child.stdin.destroyed && !child.stdin.writableEnded;
+    // A pipe cannot be reopened after EOF. Give startup subscribers a bounded
+    // chance to opt into drive, then let unattended/view-only CLIs read EOF.
+    const inputTimer = channel === undefined ? undefined : setTimeout(() => {
+      if (!driven) child.stdin.end();
+    }, 100);
+    writeInput = bytes => new Promise(resolve => {
+      if (!canDrive()) { resolve(false); return; }
+      // write(false) still accepts the bytes. The completion callback waits
+      // until they flush; the sidechannel pauses its reader in the meantime.
+      child.stdin.write(bytes, error => resolve(!error));
+    });
     const stop = childStop(child, ownsGroup);
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -111,6 +127,7 @@ async function spawnInvocation(
     const finish = (result: WorkerCliResult): void => {
       if (settled) return;
       settled = true;
+      if (inputTimer !== undefined) clearTimeout(inputTimer);
       channel?.close();
       if (timer !== undefined) clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);

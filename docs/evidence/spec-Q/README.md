@@ -1,5 +1,23 @@
 # Slice Q verification
 
+## PR #338 Bugbot follow-up
+
+Rebased onto `origin/main` at `494f2a11`. Unattended, passive, and incomplete
+subscribers now allow stdin EOF after a 100ms startup drive-attachment window.
+Late drive greetings are rejected without setting the intervention marker.
+Drive input pauses its socket until each child write completes, including
+writes that exceed the pipe's buffer capacity. Arbitrary-time drive attachment
+remains a terminal/session transport follow-up, documented in SURFACE.md.
+
+After SDK `npm ci --ignore-scripts` and repository-root
+`npm install ./packages/surface --prefix packages/sdk --no-save --ignore-scripts`,
+ran from `packages/sdk`:
+`npm run typecheck && ./node_modules/.bin/vitest run tests/worker-cli.test.ts tests/pty-sidechannel.test.ts`.
+Exit 0; literal command and output: [bugbot-fixes.txt](bugbot-fixes.txt).
+This is focused SDK regression evidence, not a new live-provider acceptance run.
+
+## Original slice evidence
+
 This is a minimal byte-stream proof for #334, with completion markers and
 resume/replay protection. Actual PTY allocation, wrapper-session attachment,
 crash-safe intervention recording before completion, and the companion

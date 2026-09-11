@@ -18,7 +18,11 @@ export function ptySocketPath(context: Pick<SidechannelContext, 'dataDir' | 'run
 }
 
 /** Best-effort live bytes. Slow peers are dropped; they never pause execution. */
-export async function openSidechannel(context: SidechannelContext, input: (bytes: Buffer) => boolean) {
+export async function openSidechannel(
+  context: SidechannelContext,
+  input: (bytes: Buffer) => boolean | Promise<boolean>,
+  canDrive: () => boolean = () => true,
+) {
   const peers = new Map<Socket, boolean>();
   let closed = false;
   const server = createServer(socket => {
@@ -37,6 +41,7 @@ export async function openSidechannel(context: SidechannelContext, input: (bytes
         const line = hello.subarray(0, end).toString('utf8');
         if (!['HELLO view', 'HELLO drive', 'HELLO passthrough'].includes(line)) { socket.destroy(); return; }
         mode = line.slice(6);
+        if (mode === 'drive' && !canDrive()) { socket.destroy(); return; }
         socket.setTimeout(0);
         peers.set(socket, true);
         // Passthrough is a passive raw-byte view in this initial slice.
@@ -44,7 +49,13 @@ export async function openSidechannel(context: SidechannelContext, input: (bytes
         bytes = hello.subarray(end + 1);
         hello = Buffer.alloc(0);
       }
-      if (mode === 'drive' && bytes.length > 0 && !input(bytes)) socket.destroy();
+      if (mode === 'drive' && bytes.length > 0) {
+        socket.pause();
+        void Promise.resolve().then(() => input(bytes)).then(accepted => {
+          if (!accepted) socket.destroy();
+          else if (!socket.destroyed) socket.resume();
+        }, () => socket.destroy());
+      }
     });
   });
   server.on('error', () => { for (const peer of peers.keys()) peer.destroy(); });

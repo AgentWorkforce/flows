@@ -572,6 +572,12 @@ kernel dispatch, including for authored `f.agent` calls.
 A subscriber sends `HELLO view\n`, `HELLO drive\n`, or
 `HELLO passthrough\n`, then receives live stdout/stderr bytes. View and
 passthrough are passive. Only drive forwards subsequent bytes to child stdin.
+In this pipe-based slice, a drive greeting must arrive within 100ms of child
+startup. Without one, the worker closes stdin so unattended and passive-view
+agents receive EOF. Later drive greetings are rejected without marking human
+intervention; a closed stdin pipe cannot be reopened. Supporting drive attachment
+at arbitrary times requires a future terminal/session transport. Drive readers
+pause while child stdin writes flush, preserving input under backpressure.
 There is no backlog, terminal resize, or framing after the greeting. Socket
 access is restricted to the worker's OS user. Slow, malformed, excess, and
 broken subscribers are disconnected independently; absent subscribers or an
