@@ -560,11 +560,12 @@ function firstCommandWord(command: string): string | undefined {
 
 /** Helper preflight never evaluates the authored body. Dynamic uses are checked at call time. */
 export function preflightHelpers(
-  definition: { header: { tools?: { slack?: boolean } }; body: Function },
+  definition: { header?: { tools?: { slack?: boolean } }; body?: Function },
   facts: { slackToken?: string; slackMount: boolean; slackMock: boolean },
 ): PreflightResult {
-  const usesSlack = definition.header.tools?.slack === true
-    || /(?:\.\s*slack\b|\[\s*['"]slack['"]\s*\])/.test(Function.prototype.toString.call(definition.body));
+  const usesSlack = definition.header?.tools?.slack === true
+    || (typeof definition.body === 'function'
+      && /(?:\.\s*slack\b|\[\s*['"]slack['"]\s*\])/.test(Function.prototype.toString.call(definition.body)));
   const diagnostics: PreflightDiagnostic[] = usesSlack && !facts.slackMock
     && !facts.slackToken?.trim() && !facts.slackMount
     ? [{ severity: 'refusal', kind: 'helper_slack.credential_missing',
