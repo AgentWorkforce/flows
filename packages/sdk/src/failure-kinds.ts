@@ -6,6 +6,8 @@ const SHARED_SPEC_FAILURE_KINDS = ['invalid_spec'] as const;
 const PREFLIGHT_ENVIRONMENT_FAILURE_KINDS = [
   ...NAMED_GATE_FAILURE_KINDS,
   ...PLUGIN_FAILURE_KINDS,
+  'helper_provider.mount_required',
+  'helper_provider.unsupported',
   'helper_slack.credential_missing',
   'helper_slack.mount_required',
   'helper_mount_required',

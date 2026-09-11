@@ -1,0 +1,513 @@
+
+> @relayflows/sdk@2.0.8 test
+> sh scripts/test.sh
+
+
+> @relayflows/sdk@2.0.8 test:prep
+> ( cd ../../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../../testdata/preflight ] || find ../../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.68s
+
+> @relayflows/sdk@2.0.8 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.8 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+> @relayflows/sdk@2.0.8 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+ RUN  v2.1.9 /Users/khaliqgant/fl-slice-S/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/Users/khaliqgant/.relayflows-toolchain/target/2945819964/debug/relayflowd
+LIVE_KERNEL flows=/Users/khaliqgant/fl-slice-S/packages/sdk/dist/cli.js
+
+ ✓ tests/validate.test.ts (68 tests) 135ms
+ ❯ tests/preflight.test.ts (27 tests | 1 failed) 306ms
+   × preflight: CLI resolution and refusal predicates > reaches every declared refusal kind, with the converse held by the type 69ms
+     → expected Set{ …(17) } to deeply equal Set{ 'invalid_spec', …(18) }
+ ✓ tests/daemon-lifecycle.test.ts (42 tests) 231ms
+ ✓ tests/observer-link.test.ts (39 tests) 656ms
+ ✓ tests/authored-flow.test.ts (25 tests) 1041ms
+ ✓ tests/journal-client.test.ts (14 tests) 226ms
+ ✓ tests/tick-source.test.ts (33 tests) 208ms
+ ✓ tests/cloud-run.test.ts (47 tests) 412ms
+ ✓ tests/authored-flow-lifecycle-executor.test.ts (27 tests) 838ms
+ ✓ tests/verb-field-lint.test.ts (78 tests) 1530ms
+   ✓ closed per-verb step fields > preserves a valid v0.1.0 ladder with every declared per-verb field 361ms
+ ✓ tests/cli-hn-monitor.test.ts (16 tests) 170ms
+ ✓ tests/gate-contract.test.ts (20 tests) 666ms
+ ✓ tests/cli-replay.test.ts (36 tests) 4351ms
+   ✓ flows replay > --json is byte-identical across two CLI invocations (diff) 3296ms
+ ✓ tests/tick-runner.test.ts (22 tests) 9034ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms fractional as an invocation error 1557ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms exponent notation as an invocation error 1485ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms hex as an invocation error 1623ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms trailing text as an invocation error 1254ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms empty as an invocation error 1393ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > accepts an exact integer and proceeds past parsing 1087ms
+ ❯ tests/mcp.test.ts (30 tests | 4 skipped) 14281ms
+   ✓ MCP preflight and transports > flows check refuses an undeclared server with exit 2 and no daemon 2153ms
+   ✓ MCP preflight and transports > flows check reports a refusing server and leaves no PID 1711ms
+   ✓ MCP preflight and transports > kills a SIGTERM-resistant silent child after a parent-owned handshake deadline 1316ms
+   ✓ MCP preflight and transports > reaps a SIGTERM-resistant descendant with inherit stdio before cleanup finishes 1498ms
+   ✓ MCP preflight and transports > reaps a SIGTERM-resistant descendant with ignore stdio before cleanup finishes 2069ms
+   ✓ MCP preflight and transports > reports malformed connection configuration as config_invalid 1435ms
+ ✓ tests/stop-process-group.test.ts (6 tests) 9161ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after an execution-timeout stop 1283ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after a protocol terminate stop 930ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after a protocol terminate stop 2505ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after an execution-timeout stop 2366ms
+   ✓ every stop reaches the process group, not just the direct child > holds the loop open long enough for the escalation to run 1528ms
+   ✓ every stop reaches the process group, not just the direct child > terminate() forces a group that outlives SIGTERM 547ms
+ ✓ tests/authored-flow-slack.test.ts (6 tests) 5065ms
+   ✓ authored Slack helper effects > journals exactly one effect with the authored params and typed receipt, without network 420ms
+   ✓ authored Slack helper effects > replays after SIGKILL before confirm with the same token and one successful completion 1713ms
+   ✓ authored Slack helper effects > replays after SIGKILL before complete with the same token and one successful completion 1598ms
+   ✓ authored Slack helper effects > writes two files for two calls and supports dm, reply, and react 1276ms
+ ✓ tests/backlog-picker.test.ts (14 tests) 282ms
+ ✓ tests/backlog-picker-flow.test.ts (6 tests) 2288ms
+   ✓ backlog-picker flow > emit-package describes the entry select-entry chose, even if the backlog changes between them 649ms
+   ✓ backlog-picker flow > does not emit a stale entry left by a previous run 1119ms
+   ✓ backlog-picker canonical spec > keeps directories and extensionless paths, and rejects prose 505ms
+ ✓ tests/cli.test.ts (63 tests) 17725ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 1004ms
+   ✓ flows check CLI > uses Codex login status and reports a rejected model as unavailable, not unauthenticated 549ms
+   ✓ flows check CLI > refuses a typo model before probing or contacting relayflowd 745ms
+   ✓ flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 748ms
+   ✓ flows check CLI > resolves a project CLI path relative to the flows.json that declares it 494ms
+   ✓ flows check CLI > maps every input refusal path to its declared kind without raw exceptions 2005ms
+   ✓ flows run/resume CLI over the journal protocol > parses run options, submits the kernel dialect, and exits 0 on success 620ms
+   ✓ flows run/resume CLI over the journal protocol > exits 1 and emits the declared completionReason for a failed run 937ms
+   ✓ flows run/resume CLI over the journal protocol > exits 3 and names the parked llm step 1156ms
+   ✓ flows run/resume CLI over the journal protocol > reports a needs_human agent step as parked for human recovery 659ms
+   ✓ flows run/resume CLI over the journal protocol > classifies a typed hello refusal as a protocol error, not an unreachable daemon 600ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 973ms
+   ✓ flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 738ms
+   ✓ flows run/resume CLI over the journal protocol > resumes a parked run from snapshot step types without reading journal sequence one 693ms
+   ✓ flows run/resume CLI over the journal protocol > maps only run_not_found resumes to exit 2 1901ms
+ ✓ tests/authored-flow-operation.test.ts (23 tests) 1554ms
+   ✓ completes the gate in linear time over a body with 30000 ordinary awaits 1329ms
+ ✓ tests/worker-cli.test.ts (13 tests) 25059ms
+   ✓ custom wrapper execution identity > passes an explicit safe environment at identification and execution 534ms
+   ✓ custom wrapper execution identity > refuses a wrapper symlink retarget before delivering private values 475ms
+   ✓ custom wrapper execution identity > bounds wrapper execution after acknowledgement 1367ms
+   ✓ custom wrapper execution identity > bounds captured wrapper output 552ms
+   ✓ custom wrapper execution identity > refuses a duplicate execute protocol frame 575ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 2062ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 2044ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3261ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11272ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts an execute token and an over-8KiB payload flushed in one write 546ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 1230ms
+   ✓ custom wrapper execution bounds are reader-owned > still bounds an un-terminated handshake buffer and names the bound 523ms
+   ✓ delivers the journaled memory pack to the real wrapper and excludes its charge from completion usage 611ms
+ ✓ tests/work-package-consumer.test.ts (13 tests) 1179ms
+   ✓ the Garden join: picker output feeds the consumer > accepts a package the picker actually emits, and refuses one lacking a definition of done 1141ms
+ ✓ tests/spec-parity.test.ts (31 tests) 1947ms
+ ✓ tests/helpers-fanout.test.ts (94 tests) 2578ms
+ ✓ tests/worker-lease.test.ts (7 tests) 69ms
+ ✓ tests/authored-helpers.test.ts (6 tests) 17292ms
+   ✓ lowers the named acceptance helpers and Slack to confirmed journal effects 1598ms
+   ✓ runs every available provider through the real kernel and resumes completed effects without a second write 10020ms
+   ✓ replays after SIGKILL before confirm with the same token and one successful completion 3046ms
+   ✓ replays after SIGKILL before complete with the same token and one successful completion 2005ms
+   ✓ journals provider failure with worker_error and never confirms the effect 610ms
+ ✓ tests/typed-output.test.ts (14 tests) 1231ms
+   ✓ typed llm and agent outputs > compiles llm output sugar to the existing json_schema primitive 343ms
+ ✓ tests/effect-channel.test.ts (5 tests) 960ms
+ ✓ tests/mcp-lifecycle.test.ts (4 tests) 53ms
+ ✓ tests/model-selection.test.ts (10 tests) 119ms
+ ✓ tests/bundle.test.ts (21 tests) 31809ms
+   ✓ immutable bundles > returns exit 2 naming a byte-flipped payload and refuses to reuse corruption 1492ms
+   ✓ immutable bundles > builds and verifies the canonical YAML fixture through the compiled CLI 3516ms
+   ✓ immutable bundles > emits the ephemeral warning on CLI stderr and uses the default output directory 3478ms
+   ✓ immutable bundles > preserves quoted asset words and executable permissions 328ms
+   ✓ immutable bundles > refuses build-provable CLI resolution errors without environment probes 2096ms
+   ✓ immutable bundles > builds a standalone TS fixture twice with identical executable hashes 10113ms
+   ✓ immutable bundles > refuses to label installed dependency drift with lockfile pins 1650ms
+   ✓ immutable bundles > refuses invalid CLI arguments %j 1523ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--out" 1449ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 2186ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 1543ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--out" 1910ms
+ ✓ tests/daemon-lifecycle-live.test.ts (9 tests) 32061ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > cold start spawns exactly one daemon, the run succeeds, and the daemon outlives the CLI 2355ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > polls, bounded, for a daemon that holds the lock before it binds 2742ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > attaches to a serving daemon that has not published a connection file 2448ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > a second run attaches to the daemon the first one started, spawning nothing 6032ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > detects a stale connection file left by a hard kill and starts a fresh daemon 7211ms
+   ✓ concurrent invocations against one empty data dir (§6 test 15) > ends with exactly one daemon owning the socket, and both runs succeed 2908ms
+   ✓ refusals from a spawn that cannot produce a daemon > names relayflowd_not_found rather than falling through to PATH 2356ms
+   ✓ refusals from a spawn that cannot produce a daemon > names daemon_start_failed and quotes the daemon log when startup dies 3116ms
+   ✓ refusals from a spawn that cannot produce a daemon > refuses a daemon speaking another protocol version instead of binding over it 2887ms
+ ✓ tests/relayflowd-path.test.ts (10 tests) 15ms
+ ✓ tests/direct-input.test.ts (4 tests) 25404ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > executes inline and file JSON input through relayflowd 9848ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses missing and malformed input before contacting relayflowd 10133ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > does not run the authored body before daemon availability 2889ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses oversized file input before contacting relayflowd 2527ms
+ ✓ tests/webhook.test.ts (6 tests) 427ms
+ ❯ tests/f-memory.test.ts (7 tests | 3 failed) 4753ms
+   ✓ reads the seeded local SQLite database with cloud unused and fallback disabled 977ms
+   ✓ cannot widen script scope using a raw project option or another flow name 589ms
+   × attaches read helpers without journaling read steps 726ms
+     → helper_provider.mount_required: f.recall requires a relayfile recall mount; direct-token transport is not implemented.
+   ✓ refuses missing, corrupt, and directory database paths before body or journal activity 584ms
+   × detects direct memory use before running earlier body effects 635ms
+     → expected AuthoredFlowExecutionError: helper_provid… { …(3) } to match object { code: 'memory_unreachable' }
+(3 matching properties omitted from actual)
+   ✓ maps an unavailable provider probe to memory_unreachable 687ms
+   × fails closed for deferred writes, agent scope, disabled script memory, and reads after done 552ms
+     → expected AuthoredFlowExecutionError: helper_provid… { …(3) } to match object { code: 'operation_after_completion' }
+(3 matching properties omitted from actual)
+ ✓ tests/local-dev-ux.test.ts (8 tests) 129ms
+ ✓ tests/json-schema-bound.test.ts (71 tests) 14395ms
+   ✓ JSON Schema termination bound > walks a deep schema with an explicit stack rather than recursion 12244ms
+ ✓ tests/flow-executor-chain.test.ts (12 tests) 30965ms
+   ✓ flow executor LLM and output-binding chain > runs f.llm -> f.agent -> f.run with schema-verified journal output and the exact allowed model 3404ms
+   ✓ flow executor LLM and output-binding chain > fails invalid LLM output before the next step: not JSON 2282ms
+   ✓ flow executor LLM and output-binding chain > fails invalid LLM output before the next step: {"message":7} 2539ms
+   ✓ flow executor LLM and output-binding chain > retains tagged-template text output 2036ms
+   ✓ flow executor LLM and output-binding chain > preserves JSON values without promoting them to process wrappers: null 2417ms
+   ✓ flow executor LLM and output-binding chain > preserves JSON values without promoting them to process wrappers: [1,2] 1931ms
+   ✓ flow executor LLM and output-binding chain > preserves JSON values without promoting them to process wrappers: "hello" 1996ms
+   ✓ flow executor LLM and output-binding chain > refuses a model outside flows.json before a run or adapter execution 452ms
+   ✓ flow executor LLM and output-binding chain > runs the authored LLM path through the built flows CLI 4610ms
+   ✓ flow executor LLM and output-binding chain > passes a declarative verified value through an agent into a deterministic artifact 2725ms
+   ✓ flow executor LLM and output-binding chain > journals a missing optional field as a failure before the consuming command executes 1918ms
+   ✓ flow executor LLM and output-binding chain > flows run consumes YAML bindings and resume reuses the original journal output 4651ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 283ms
+ ✓ tests/input-binding.test.ts (12 tests) 1274ms
+   ✓ declarative output binding > compiles YAML selectors into durable input and implicit dependency edges 331ms
+ ✓ tests/scope-compiler.test.ts (25 tests) 51ms
+ ✓ tests/hn-poller.test.ts (6 tests) 31ms
+ ✓ tests/budget-attribution.test.ts (4 tests) 16ms
+ ✓ tests/dependency-validation.test.ts (6 tests) 2709ms
+   ✓ dependency validation > accepts a valid 10,000-step reverse chain through every direct public boundary 1593ms
+   ✓ dependency validation > bounds the author-facing path for a 10,000-step cycle 944ms
+ ✓ tests/dir-watcher-poller.test.ts (6 tests) 34ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 85ms
+ ✓ tests/work-package-validator.test.ts (7 tests) 15ms
+ ✓ tests/budget-preflight.test.ts (16 tests) 50ms
+ ✓ tests/model-pricing.test.ts (8 tests) 19ms
+ ↓ tests/real-cli-adapters.test.ts (3 tests | 3 skipped)
+ ✓ tests/authored-use-loader.test.ts (5 tests) 200ms
+ ✓ tests/parse-json-output.test.ts (7 tests) 11ms
+ ✓ tests/cli-adapter.test.ts (3 tests) 14ms
+ ✓ tests/classify-outcome.test.ts (2 tests) 2260ms
+   ✓ classifyOutcome > gives up and reports when a running run never becomes classifiable 2094ms
+ ✓ tests/memoization.test.ts (57 tests) 883ms
+   ✓ refuses invalid reuse invocation "run" 634ms
+ ✓ tests/journal-client-completion.test.ts (4 tests) 133ms
+ ✓ tests/bin.test.ts (7 tests) 8330ms
+   ✓ built flows binary > refuses through a symlink to the built artifact 1466ms
+   ✓ built flows binary > refuses through a symlinked directory component 1508ms
+   ✓ built flows binary > classifies a signal-terminated auth probe as probe_failed 1866ms
+   ✓ built flows binary > classifies an unavailable PATH resolver as probe_failed 910ms
+   ✓ built flows binary > does not describe a present non-executable CLI as missing 1100ms
+   ✓ built flows binary > runs one auth probe for three steps sharing a flow CLI 1469ms
+ ✓ tests/direct-run-failure.test.ts (6 tests) 45ms
+ ✓ tests/worker-cli-abort.test.ts (2 tests) 3045ms
+   ✓ stops claude and its process group when lease ownership is lost 1453ms
+   ✓ stops wrapper.mjs and its process group when lease ownership is lost 1590ms
+ ✓ tests/budget-authored-live.test.ts (2 tests) 1513ms
+   ✓ authored budgets through the live kernel > retains the first completion and journals refusal of the next authored step 765ms
+   ✓ authored budgets through the live kernel > permits done after the last valid step crosses the limit 745ms
+ ✓ tests/slack-writeback.test.ts (1 test) 291ms
+ ✓ tests/memory.test.ts (18 tests) 25ms
+ ✓ tests/placement.test.ts (54 tests) 57ms
+ ✓ tests/worker-platform.test.ts (1 test) 11ms
+ ✓ tests/cli-progress-wait.test.ts (2 tests) 1248ms
+   ✓ run starts the wait clock on its first observed lease 752ms
+   ✓ resume starts the wait clock on its first observed lease 494ms
+ ✓ tests/yaml-local-agent-live.test.ts (7 tests) 15889ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked step CLI and model and journals done 2363ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked named CLI and model and journals done 2667ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked flow CLI and model and journals done 2658ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked project CLI and model and journals done 1740ms
+   ✓ YAML --local-agent through the built CLI and real daemon > still parks without --local-agent 1829ms
+   ✓ YAML --local-agent through the built CLI and real daemon > reports the agent process failure 2848ms
+   ✓ YAML --local-agent through the built CLI and real daemon > preserves declared workspace surfaces that the local worker cannot pin 1781ms
+ ❯ tests/webhook-live.test.ts (3 tests | 3 failed) 35448ms
+   × flows serve-webhook writes JSON before the daemon starts, then journals and archives exactly once 11955ms
+     → webhook integration timed out: spawn /Users/khaliqgant/fl-slice-S/kernel/target/debug/relayflowd ENOENT
+   × replays a dropped file after SIGKILL before spawn 11895ms
+     → webhook integration timed out: spawn /Users/khaliqgant/fl-slice-S/kernel/target/debug/relayflowd ENOENT
+   × resumes the same journal after SIGKILL after spawn and before acknowledgement 11593ms
+     → webhook integration timed out: spawn /Users/khaliqgant/fl-slice-S/kernel/target/debug/relayflowd ENOENT
+ ❯ tests/cli-watch.test.ts (10 tests | 7 failed) 46106ms
+   × flows check --watch > rechecks syntax errors, clears once, and returns the last refusal on Ctrl-C 7383ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > streams JSON lines without ANSI, recovers after atomic saves, and exits zero after repair 5628ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > coalesces 20 concurrent saves into at most two rechecks 6078ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > watches transitive relative use imports, cycles, and nearest config changes 5633ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > refreshes the import graph and notices missing imports being created 5063ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > reloads authored TypeScript instead of reusing the first imported definition 5130ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > detects a nearer config appearing and falls back after it is deleted 5479ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   ✓ flows check --watch > keeps watching after the target is deleted and recreated 4895ms
+   ✓ flows check --watch > queues changes during a slow check without overlapping checks 799ms
+stdout | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER ready: claude -p --model claude-haiku-4-5-20251001 round-trip OK
+
+stdout | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER analysis: {"reasoning":"This story is directly relevant to AI agents and automation as it describes an autonomous agent performing software development workflows including opening and reviewing pull requests, exemplifying practical agent-driven automation in development operations.","relevance_score":9,"story_title":"Show HN: an agent that opens and reviews its own pull requests [wake-nonce-7f3a91c4]"}
+
+ ✓ tests/local-agent-live.test.ts (5 tests) 46375ms
+   ✓ built CLI local agent against a real daemon > dispatches through the wrapper and keeps --json stdout report-shaped 3445ms
+   ✓ built CLI local agent against a real daemon > runs beyond the initial 30-second lease without a second invocation 37410ms
+   ✓ built CLI local agent against a real daemon > renders actual agent completion in text output 2066ms
+   ✓ built CLI local agent against a real daemon > returns a failed run when the agent process fails 2027ms
+   ✓ built CLI local agent against a real daemon > refuses a workspace it cannot pin before invoking the agent 1423ms
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=44112 run=01M29084XKR3WMXDY5FDX3Z49H while step=two state=Running
+
+ ❯ tests/live-kernel.test.ts (31 tests | 2 failed) 95283ms
+   × built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 8531ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 12969ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 35120ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 2669ms
+   ✓ built flows CLI against live relayflowd > runs an agent CLI end to end through the SDK worker 706ms
+   ✓ built flows CLI against live relayflowd > f.agent lowers to a real agent step and dispatches through a live worker 986ms
+   ✓ built flows CLI against live relayflowd > f.agent's default flowPath anchors on cwd, not cwd's parent 1028ms
+   ✓ built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5683ms
+   ✓ built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 1494ms
+   ✓ built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo) 616ms
+   ✓ built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields 657ms
+   ✓ built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text 528ms
+   ✓ built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite) 588ms
+   ✓ built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin) 479ms
+   ✓ built flows CLI against live relayflowd > AgentWorker passes a declared model to an identified wrapper as RELAYFLOW_MODEL 795ms
+   ✓ built flows CLI against live relayflowd > AgentWorker refuses a nonconforming journal-submitted wrapper before exposing RELAYFLOW_MODEL 517ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw claude adapter with its real model flag 350ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw codex adapter with its real model flag 340ms
+   ✓ built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model 342ms
+   ✓ built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI 11871ms
+   ✓ built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket 2788ms
+   × built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir 1531ms
+     → WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "shout" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [relayflowd_not_found] No relayflowd binary could be found. Install the runtime package for this host (@relayflows/runtime-darwin-arm64), or set RELAYFLOWD_BIN to a relayflowd executable. Tried: /Users/khaliqgant/fl-slice-S/packages/sdk/dist/relayflowd.
+: expected 2 to be +0 // Object.is equality
+   ✓ surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 2851ms
+   ✓ a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant 603ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/mcp.test.ts > authored MCP effects against the real kernel
+Error: journal client: connect failed: connect ENOENT /var/folders/yv/nbp9l2c55wlbj1x0gml37s7c0000gn/T/relayflowd-edbd934b342d.sock
+ ❯ Socket.onError src/journal-client.ts:99:16
+     97|         socket.removeAllListeners();
+     98|         this.failAll(err);
+     99|         reject(new Error(`journal client: connect failed: ${err.messag…
+       |                ^
+    100|       };
+    101|       socket.once('error', onError);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/17]⎯
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 16 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/cli-watch.test.ts > flows check --watch > rechecks syntax errors, clears once, and returns the last refusal on Ctrl-C
+ FAIL  tests/cli-watch.test.ts > flows check --watch > streams JSON lines without ANSI, recovers after atomic saves, and exits zero after repair
+ FAIL  tests/cli-watch.test.ts > flows check --watch > coalesces 20 concurrent saves into at most two rechecks
+ FAIL  tests/cli-watch.test.ts > flows check --watch > watches transitive relative use imports, cycles, and nearest config changes
+ FAIL  tests/cli-watch.test.ts > flows check --watch > refreshes the import graph and notices missing imports being created
+ FAIL  tests/cli-watch.test.ts > flows check --watch > reloads authored TypeScript instead of reusing the first imported definition
+ FAIL  tests/cli-watch.test.ts > flows check --watch > detects a nearer config appearing and falls back after it is deleted
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/17]⎯
+
+ FAIL  tests/f-memory.test.ts > attaches read helpers without journaling read steps
+AuthoredFlowExecutionError: helper_provider.mount_required: f.recall requires a relayfile recall mount; direct-token transport is not implemented.
+ ❯ Module.executeAuthoredFlow src/authored-flow-executor.ts:145:11
+    143|   if (!helperPreflight.ok) {
+    144|     const diagnostic = helperPreflight.diagnostics[0]!;
+    145|     throw new AuthoredFlowExecutionError(diagnostic.kind as AuthoredFl…
+       |           ^
+    146|   }
+    147|   if (headerFields.length > 0) {
+ ❯ tests/f-memory.test.ts:62:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/17]⎯
+
+ FAIL  tests/f-memory.test.ts > detects direct memory use before running earlier body effects
+AssertionError: expected AuthoredFlowExecutionError: helper_provid… { …(3) } to match object { code: 'memory_unreachable' }
+(3 matching properties omitted from actual)
+
+- Expected
++ Received
+
+- Object {
+-   "code": "memory_unreachable",
++ AuthoredFlowExecutionError {
++   "code": "helper_provider.mount_required",
+  }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/17]⎯
+
+ FAIL  tests/f-memory.test.ts > fails closed for deferred writes, agent scope, disabled script memory, and reads after done
+AssertionError: expected AuthoredFlowExecutionError: helper_provid… { …(3) } to match object { code: 'operation_after_completion' }
+(3 matching properties omitted from actual)
+
+- Expected
++ Received
+
+- Object {
+-   "code": "operation_after_completion",
++ AuthoredFlowExecutionError {
++   "code": "helper_provider.mount_required",
+  }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/17]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir
+AssertionError: WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "shout" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [relayflowd_not_found] No relayflowd binary could be found. Install the runtime package for this host (@relayflows/runtime-darwin-arm64), or set RELAYFLOWD_BIN to a relayflowd executable. Tried: /Users/khaliqgant/fl-slice-S/packages/sdk/dist/relayflowd.
+: expected 2 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 2
+
+ ❯ tests/live-kernel.test.ts:1388:40
+    1386|     ]);
+    1387| 
+    1388|     expect(first.status, first.stderr).toBe(0);
+       |                                        ^
+    1389|     expect(second.status, second.stderr).toBe(0);
+    1390|     expect(first.stdout).toContain('completionReason: success');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/17]⎯
+
+ FAIL  tests/preflight.test.ts > preflight: CLI resolution and refusal predicates > reaches every declared refusal kind, with the converse held by the type
+AssertionError: expected Set{ …(17) } to deeply equal Set{ 'invalid_spec', …(18) }
+
+- Expected
++ Received
+
+  Set {
+    "budget_missing_price",
+    "budget_syntax_invalid",
+    "cli_missing",
+    "cli_unauthenticated",
+    "cli_unresolved",
+    "cli_unsupported",
+    "command_missing",
+-   "helper_provider.mount_required",
+-   "helper_provider.unsupported",
+    "helper_slack.credential_missing",
+    "helper_slack.mount_required",
+    "invalid_spec",
+    "mcp_undeclared_server",
+    "mcp_unreachable",
+    "memory_unreachable",
+    "model_unavailable",
+    "model_unknown",
+    "no_executor",
+    "probe_failed",
+  }
+
+ ❯ tests/preflight.test.ts:398:35
+    396|     refusalKinds.push(memoryRefusal!.kind);
+    397|     expect(JSON.stringify(memoryRefusal)).not.toContain('raw secret');
+    398|     expect(new Set(refusalKinds)).toEqual(new Set(PREFLIGHT_FAILURE_KI…
+       |                                   ^
+    399|     expect(JSON.stringify(scenarios)).not.toContain('raw secret');
+    400|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/17]⎯
+
+ FAIL  tests/webhook-live.test.ts > flows serve-webhook writes JSON before the daemon starts, then journals and archives exactly once
+Error: webhook integration timed out: spawn /Users/khaliqgant/fl-slice-S/kernel/target/debug/relayflowd ENOENT
+ ❯ until tests/webhook-live.test.ts:36:9
+     34|   const deadline = Date.now() + 10_000;
+     35|   while (Date.now() < deadline) { if (await predicate()) return; await…
+     36|   throw new Error(`webhook integration timed out: ${detail()}`);
+       |         ^
+     37| }
+     38| async function daemon(dir: string): Promise<ChildProcess> {
+ ❯ daemon tests/webhook-live.test.ts:40:3
+ ❯ tests/webhook-live.test.ts:82:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/17]⎯
+
+ FAIL  tests/webhook-live.test.ts > replays a dropped file after SIGKILL before spawn
+Error: webhook integration timed out: spawn /Users/khaliqgant/fl-slice-S/kernel/target/debug/relayflowd ENOENT
+ ❯ until tests/webhook-live.test.ts:36:9
+     34|   const deadline = Date.now() + 10_000;
+     35|   while (Date.now() < deadline) { if (await predicate()) return; await…
+     36|   throw new Error(`webhook integration timed out: ${detail()}`);
+       |         ^
+     37| }
+     38| async function daemon(dir: string): Promise<ChildProcess> {
+ ❯ daemon tests/webhook-live.test.ts:40:3
+ ❯ tests/webhook-live.test.ts:98:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/17]⎯
+
+ FAIL  tests/webhook-live.test.ts > resumes the same journal after SIGKILL after spawn and before acknowledgement
+Error: webhook integration timed out: spawn /Users/khaliqgant/fl-slice-S/kernel/target/debug/relayflowd ENOENT
+ ❯ until tests/webhook-live.test.ts:36:9
+     34|   const deadline = Date.now() + 10_000;
+     35|   while (Date.now() < deadline) { if (await predicate()) return; await…
+     36|   throw new Error(`webhook integration timed out: ${detail()}`);
+       |         ^
+     37| }
+     38| async function daemon(dir: string): Promise<ChildProcess> {
+ ❯ daemon tests/webhook-live.test.ts:40:3
+ ❯ tests/webhook-live.test.ts:111:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/17]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: spawn /Users/khaliqgant/fl-slice-S/kernel/target/release/relayflowd ENOENT
+ ❯ Process.ChildProcess._handle.onexit node:internal/child_process:286:19
+ ❯ onErrorNT node:internal/child_process:524:16
+ ❯ processTicksAndRejections node:internal/process/task_queues:90:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -2, code: 'ENOENT', syscall: 'spawn /Users/khaliqgant/fl-slice-S/kernel/target/release/relayflowd', path: '/Users/khaliqgant/fl-slice-S/kernel/target/release/relayflowd', spawnargs: [ '--data-dir', '/var/folders/yv/nbp9l2c55wlbj1x0gml37s7c0000gn/T/flows-mcp-daemon-l2Zu58', 'serve' ] }
+This error originated in "tests/mcp.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "authored MCP effects against the real kernel". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ Test Files  6 failed | 65 passed | 1 skipped (72)
+      Tests  16 failed | 1294 passed | 7 skipped (1317)
+     Errors  1 error
+   Start at  21:47:18
+   Duration  101.03s (transform 9.25s, setup 0ms, collect 84.94s, tests 522.34s, environment 44ms, prepare 17.39s)
+

@@ -4,6 +4,8 @@ import type {
 } from './protocol.js';
 
 export type AuthoredFlowExecutionErrorCode =
+  | 'helper_provider.mount_required'
+  | 'helper_provider.unsupported'
   | 'helper_slack.credential_missing'
   | 'helper_slack.mount_required'
   | 'budget_syntax_invalid'

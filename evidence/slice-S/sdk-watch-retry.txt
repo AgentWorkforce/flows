@@ -1,0 +1,19 @@
+
+ RUN  v2.1.9 /Users/khaliqgant/fl-slice-S/packages/sdk
+
+ ✓ tests/cli-watch.test.ts (10 tests) 28592ms
+   ✓ flows check --watch > rechecks syntax errors, clears once, and returns the last refusal on Ctrl-C 2560ms
+   ✓ flows check --watch > streams JSON lines without ANSI, recovers after atomic saves, and exits zero after repair 3579ms
+   ✓ flows check --watch > coalesces 20 concurrent saves into at most two rechecks 2996ms
+   ✓ flows check --watch > watches transitive relative use imports, cycles, and nearest config changes 4517ms
+   ✓ flows check --watch > refreshes the import graph and notices missing imports being created 4436ms
+   ✓ flows check --watch > reloads authored TypeScript instead of reusing the first imported definition 2660ms
+   ✓ flows check --watch > detects a nearer config appearing and falls back after it is deleted 3600ms
+   ✓ flows check --watch > keeps watching after the target is deleted and recreated 3442ms
+   ✓ flows check --watch > queues changes during a slow check without overlapping checks 796ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  22:02:45
+   Duration  31.19s (transform 1.07s, setup 0ms, collect 2.14s, tests 28.59s, environment 0ms, prepare 127ms)
+

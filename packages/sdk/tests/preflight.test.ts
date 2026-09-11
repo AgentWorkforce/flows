@@ -367,6 +367,8 @@ describe('preflight: CLI resolution and refusal predicates', () => {
   // not read as coming from this test alone.
   it('reaches every declared refusal kind, with the converse held by the type', async () => {
     const scenarios = [
+      preflightHelpers({ header: { tools: { github: true } } }, {}),
+      preflightHelpers({ header: { tools: { airtable: true } } }, {}),
       preflightHelpers({ header: { tools: { slack: true } }, body() {} }, { slackMount: false, slackMock: false }),
       preflightHelpers({ header: { tools: { slack: true } }, body() {} }, { slackToken: 'present', slackMount: false, slackMock: false }),
       await preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), {

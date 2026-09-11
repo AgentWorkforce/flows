@@ -2,10 +2,211 @@
 // Run `npm run gen --prefix packages/surface` from the repository root.
 
 import type { SlackHelper } from "./slack.js";
+import { createAirtableHelper, type AirtableHelper } from "./airtable.js";
+import { createAsanaHelper, type AsanaHelper } from "./asana.js";
+import { createAzureBlobHelper, type AzureBlobHelper } from "./azure-blob.js";
+import { createBoxHelper, type BoxHelper } from "./box.js";
+import { createCalendlyHelper, type CalendlyHelper } from "./calendly.js";
+import { createClickupHelper, type ClickupHelper } from "./clickup.js";
+import { createCloudflareHelper, type CloudflareHelper } from "./cloudflare.js";
+import { createConfluenceHelper, type ConfluenceHelper } from "./confluence.js";
+import { createDaytonaHelper, type DaytonaHelper } from "./daytona.js";
+import { createDockerHubHelper, type DockerHubHelper } from "./docker-hub.js";
+import { createDropboxHelper, type DropboxHelper } from "./dropbox.js";
+import { createFathomHelper, type FathomHelper } from "./fathom.js";
+import { createGcpHelper, type GcpHelper } from "./gcp.js";
+import { createGcsHelper, type GcsHelper } from "./gcs.js";
+import { createGithubHelper, type GithubHelper } from "./github.js";
+import { createGitlabHelper, type GitlabHelper } from "./gitlab.js";
+import { createGmailHelper, type GmailHelper } from "./gmail.js";
+import { createGoogleCalendarHelper, type GoogleCalendarHelper } from "./google-calendar.js";
+import { createGoogleDriveHelper, type GoogleDriveHelper } from "./google-drive.js";
+import { createGranolaHelper, type GranolaHelper } from "./granola.js";
+import { createHubspotHelper, type HubspotHelper } from "./hubspot.js";
+import { createIntercomHelper, type IntercomHelper } from "./intercom.js";
+import { createJiraHelper, type JiraHelper } from "./jira.js";
+import { createLinearHelper, type LinearHelper } from "./linear.js";
+import { createMailgunHelper, type MailgunHelper } from "./mailgun.js";
+import { createMixpanelHelper, type MixpanelHelper } from "./mixpanel.js";
+import { createNeonHelper, type NeonHelper } from "./neon.js";
+import { createNotionHelper, type NotionHelper } from "./notion.js";
+import { createOnedriveHelper, type OnedriveHelper } from "./onedrive.js";
+import { createPipedriveHelper, type PipedriveHelper } from "./pipedrive.js";
+import { createPostgresHelper, type PostgresHelper } from "./postgres.js";
+import { createPosthogHelper, type PosthogHelper } from "./posthog.js";
+import { createRampHelper, type RampHelper } from "./ramp.js";
+import { createRecallHelper, type RecallHelper } from "./recall.js";
+import { createRedditHelper, type RedditHelper } from "./reddit.js";
+import { createRedisHelper, type RedisHelper } from "./redis.js";
+import { createS3Helper, type S3Helper } from "./s3.js";
+import { createSalesforceHelper, type SalesforceHelper } from "./salesforce.js";
+import { createSegmentHelper, type SegmentHelper } from "./segment.js";
+import { createSendgridHelper, type SendgridHelper } from "./sendgrid.js";
+import { createSharepointHelper, type SharepointHelper } from "./sharepoint.js";
+import { createShopifyHelper, type ShopifyHelper } from "./shopify.js";
+import { createShortcutHelper, type ShortcutHelper } from "./shortcut.js";
+import { createStripeHelper, type StripeHelper } from "./stripe.js";
+import { createTeamsHelper, type TeamsHelper } from "./teams.js";
+import { createTelegramHelper, type TelegramHelper } from "./telegram.js";
+import { createWebhookServerHelper, type WebhookServerHelper } from "./webhook-server.js";
+import { createXHelper, type XHelper } from "./x.js";
+import { createZendeskHelper, type ZendeskHelper } from "./zendesk.js";
+import type { EffectDispatcher } from "../effect-transport.js";
 
+export type { AirtableHelper } from "./airtable.js";
+export type { AsanaHelper } from "./asana.js";
+export type { AzureBlobHelper } from "./azure-blob.js";
+export type { BoxHelper } from "./box.js";
+export type { CalendlyHelper } from "./calendly.js";
+export type { ClickupHelper } from "./clickup.js";
+export type { CloudflareHelper } from "./cloudflare.js";
+export type { ConfluenceHelper } from "./confluence.js";
+export type { DaytonaHelper } from "./daytona.js";
+export type { DockerHubHelper } from "./docker-hub.js";
+export type { DropboxHelper } from "./dropbox.js";
+export type { FathomHelper } from "./fathom.js";
+export type { GcpHelper } from "./gcp.js";
+export type { GcsHelper } from "./gcs.js";
+export type { GithubHelper } from "./github.js";
+export type { GitlabHelper } from "./gitlab.js";
+export type { GmailHelper } from "./gmail.js";
+export type { GoogleCalendarHelper } from "./google-calendar.js";
+export type { GoogleDriveHelper } from "./google-drive.js";
+export type { GranolaHelper } from "./granola.js";
+export type { HubspotHelper } from "./hubspot.js";
+export type { IntercomHelper } from "./intercom.js";
+export type { JiraHelper } from "./jira.js";
+export type { LinearHelper } from "./linear.js";
+export type { MailgunHelper } from "./mailgun.js";
+export type { MixpanelHelper } from "./mixpanel.js";
+export type { NeonHelper } from "./neon.js";
+export type { NotionHelper } from "./notion.js";
+export type { OnedriveHelper } from "./onedrive.js";
+export type { PipedriveHelper } from "./pipedrive.js";
+export type { PostgresHelper } from "./postgres.js";
+export type { PosthogHelper } from "./posthog.js";
+export type { RampHelper } from "./ramp.js";
+export type { RecallHelper } from "./recall.js";
+export type { RedditHelper } from "./reddit.js";
+export type { RedisHelper } from "./redis.js";
+export type { S3Helper } from "./s3.js";
+export type { SalesforceHelper } from "./salesforce.js";
+export type { SegmentHelper } from "./segment.js";
+export type { SendgridHelper } from "./sendgrid.js";
+export type { SharepointHelper } from "./sharepoint.js";
+export type { ShopifyHelper } from "./shopify.js";
+export type { ShortcutHelper } from "./shortcut.js";
 export type { SlackHelper } from "./slack.js";
+export type { StripeHelper } from "./stripe.js";
+export type { TeamsHelper } from "./teams.js";
+export type { TelegramHelper } from "./telegram.js";
+export type { WebhookServerHelper } from "./webhook-server.js";
+export type { XHelper } from "./x.js";
+export type { ZendeskHelper } from "./zendesk.js";
 
-/** Supported helper namespaces composed into Ctx. */
 export interface Helpers {
+  airtable: AirtableHelper;
+  asana: AsanaHelper;
+  azureBlob: AzureBlobHelper;
+  box: BoxHelper;
+  calendly: CalendlyHelper;
+  clickup: ClickupHelper;
+  cloudflare: CloudflareHelper;
+  confluence: ConfluenceHelper;
+  daytona: DaytonaHelper;
+  dockerHub: DockerHubHelper;
+  dropbox: DropboxHelper;
+  fathom: FathomHelper;
+  gcp: GcpHelper;
+  gcs: GcsHelper;
+  github: GithubHelper;
+  gitlab: GitlabHelper;
+  gmail: GmailHelper;
+  googleCalendar: GoogleCalendarHelper;
+  googleDrive: GoogleDriveHelper;
+  granola: GranolaHelper;
+  hubspot: HubspotHelper;
+  intercom: IntercomHelper;
+  jira: JiraHelper;
+  linear: LinearHelper;
+  mailgun: MailgunHelper;
+  mixpanel: MixpanelHelper;
+  neon: NeonHelper;
+  notion: NotionHelper;
+  onedrive: OnedriveHelper;
+  pipedrive: PipedriveHelper;
+  postgres: PostgresHelper;
+  posthog: PosthogHelper;
+  ramp: RampHelper;
+  recall: RecallHelper;
+  reddit: RedditHelper;
+  redis: RedisHelper;
+  s3: S3Helper;
+  salesforce: SalesforceHelper;
+  segment: SegmentHelper;
+  sendgrid: SendgridHelper;
+  sharepoint: SharepointHelper;
+  shopify: ShopifyHelper;
+  shortcut: ShortcutHelper;
   slack: SlackHelper;
+  stripe: StripeHelper;
+  teams: TeamsHelper;
+  telegram: TelegramHelper;
+  webhookServer: WebhookServerHelper;
+  x: XHelper;
+  zendesk: ZendeskHelper;
+}
+
+export function createHelpers(dispatch: EffectDispatcher): Omit<Helpers, "slack"> {
+  return {
+    airtable: createAirtableHelper(dispatch),
+    asana: createAsanaHelper(dispatch),
+    azureBlob: createAzureBlobHelper(dispatch),
+    box: createBoxHelper(dispatch),
+    calendly: createCalendlyHelper(dispatch),
+    clickup: createClickupHelper(dispatch),
+    cloudflare: createCloudflareHelper(dispatch),
+    confluence: createConfluenceHelper(dispatch),
+    daytona: createDaytonaHelper(dispatch),
+    dockerHub: createDockerHubHelper(dispatch),
+    dropbox: createDropboxHelper(dispatch),
+    fathom: createFathomHelper(dispatch),
+    gcp: createGcpHelper(dispatch),
+    gcs: createGcsHelper(dispatch),
+    github: createGithubHelper(dispatch),
+    gitlab: createGitlabHelper(dispatch),
+    gmail: createGmailHelper(dispatch),
+    googleCalendar: createGoogleCalendarHelper(dispatch),
+    googleDrive: createGoogleDriveHelper(dispatch),
+    granola: createGranolaHelper(dispatch),
+    hubspot: createHubspotHelper(dispatch),
+    intercom: createIntercomHelper(dispatch),
+    jira: createJiraHelper(dispatch),
+    linear: createLinearHelper(dispatch),
+    mailgun: createMailgunHelper(dispatch),
+    mixpanel: createMixpanelHelper(dispatch),
+    neon: createNeonHelper(dispatch),
+    notion: createNotionHelper(dispatch),
+    onedrive: createOnedriveHelper(dispatch),
+    pipedrive: createPipedriveHelper(dispatch),
+    postgres: createPostgresHelper(dispatch),
+    posthog: createPosthogHelper(dispatch),
+    ramp: createRampHelper(dispatch),
+    recall: createRecallHelper(dispatch),
+    reddit: createRedditHelper(dispatch),
+    redis: createRedisHelper(dispatch),
+    s3: createS3Helper(dispatch),
+    salesforce: createSalesforceHelper(dispatch),
+    segment: createSegmentHelper(dispatch),
+    sendgrid: createSendgridHelper(dispatch),
+    sharepoint: createSharepointHelper(dispatch),
+    shopify: createShopifyHelper(dispatch),
+    shortcut: createShortcutHelper(dispatch),
+    stripe: createStripeHelper(dispatch),
+    teams: createTeamsHelper(dispatch),
+    telegram: createTelegramHelper(dispatch),
+    webhookServer: createWebhookServerHelper(dispatch),
+    x: createXHelper(dispatch),
+    zendesk: createZendeskHelper(dispatch),
+  };
 }
