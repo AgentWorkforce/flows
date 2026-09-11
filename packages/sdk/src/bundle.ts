@@ -112,8 +112,9 @@ async function regularFile(root: string, path: string): Promise<Buffer> {
   }
 }
 
-/** Verify an untrusted directory without following symlinks or manifest traversal. */
-export async function verifyBundle(directory: string): Promise<string> {
+/** Verify an untrusted directory without following symlinks or manifest traversal.
+ * Bucket/cache readers supply the requested digest; local builds bind it to the directory name. */
+export async function verifyBundle(directory: string, expectedDigest?: string): Promise<string> {
   const root = resolve(directory);
   if (!(await lstat(root)).isDirectory()) throw new Error('manifest.json: bundle must be a directory, not a symlink');
   const raw = (await regularFile(root, 'manifest.json')).toString('utf8');
@@ -146,7 +147,9 @@ export async function verifyBundle(directory: string): Promise<string> {
   const canonical = canonicalize(manifest);
   if (raw !== canonical) throw new Error('manifest.json: noncanonical bytes');
   const digest = sha256(canonical);
-  if (!basename(root).endsWith(`@sha256:${digest}`)) throw new Error('manifest.json: directory digest mismatch');
+  const matchesDigest = expectedDigest === undefined
+    ? basename(root).endsWith(`@sha256:${digest}`) : digest === expectedDigest;
+  if (!matchesDigest) throw new Error('manifest.json: directory digest mismatch');
   await rejectExtras(root, '', new Set([...paths, 'manifest.json', 'identity.json']));
   try {
     const identity = JSON.parse((await regularFile(root, 'identity.json')).toString('utf8'));

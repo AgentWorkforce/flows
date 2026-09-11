@@ -11,6 +11,9 @@
   "include": [
     "src/**/*.ts",
     "tests/bundle.test.ts",
+    "tests/deploy.test.ts",
+    "tests/run-from-digest.test.ts",
+    "tests/run-digest-live.test.ts",
     "tests/fixtures/build.flow.ts",
     "tests/typed-output.test.ts",
     "tests/mcp.test.ts",
