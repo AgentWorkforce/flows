@@ -74,6 +74,16 @@ pub fn serve(data_dir: &Path) -> Result<()> {
     // because the failure mode it catches is "minutes without an event",
     // not "seconds without a heartbeat".
     liveness::spawn_liveness_sweep(data_dir.to_path_buf());
+    let trigger_hub = hub.clone();
+    let trigger_dir = data_dir.to_path_buf();
+    crate::trigger_watcher::spawn_watcher(trigger_dir.clone(), move |spec, event| {
+        let engine = Engine::with_runtime(&trigger_dir, trigger_hub.clone(), trigger_hub.clone());
+        engine.submit_webhook_event(spec, event, &|run_id| {
+            let lock = trigger_hub.run_lock(run_id);
+            let _guard = lock.lock().expect("run lock");
+            engine.resume_live(run_id, trigger_hub.as_ref())
+        })
+    });
     let next_connection = Arc::new(AtomicU64::new(1));
     for connection in listener.incoming() {
         let connection = connection?;

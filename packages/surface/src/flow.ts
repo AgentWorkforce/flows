@@ -1,4 +1,5 @@
 import type { Ctx } from "./context.js";
+import { webhook, type TriggerSource } from "./triggers.js";
 
 /** Optional escalation header; the empty header is the common case. */
 export interface FlowHeader {
@@ -31,15 +32,25 @@ export interface AuthoredFlowDefinition<Input = unknown> {
   readonly name: string;
   readonly header: ReadonlyFlowHeader;
   readonly body: FlowBody<Input>;
+  readonly handlers: readonly TriggerHandler[];
+}
+
+export interface TriggerHandler {
+  readonly trigger: TriggerSource;
+  readonly body: FlowBody;
 }
 
 /** Opaque authored-flow handle. Execution stays behind the journal runtime. */
 export interface FlowHandle {
   readonly name: string;
+  on<Event = Record<string, unknown>>(trigger: TriggerSource, body: FlowBody<Event>): TriggeredFlowHandle;
 }
+
+export interface TriggeredFlowHandle extends FlowHandle {}
 
 const definitions = new WeakMap<object, AuthoredFlowDefinition>();
 
+export function flow(name: string, header?: FlowHeader): FlowHandle;
 export function flow<Input = unknown>(name: string, body: FlowBody<Input>): FlowHandle;
 export function flow<Input = unknown>(
   name: string,
@@ -48,7 +59,7 @@ export function flow<Input = unknown>(
 ): FlowHandle;
 export function flow<Input = unknown>(
   name: string,
-  headerOrBody: FlowHeader | FlowBody<Input>,
+  headerOrBody: FlowHeader | FlowBody<Input> = {},
   body?: FlowBody<Input>,
 ): FlowHandle {
   const flowBody = typeof headerOrBody === "function" ? headerOrBody : body;
@@ -57,7 +68,7 @@ export function flow<Input = unknown>(
   if (name.trim().length === 0) {
     throw new TypeError("flow name must not be empty");
   }
-  if (typeof flowBody !== "function") {
+  if (flowBody !== undefined && typeof flowBody !== "function") {
     throw new TypeError(`flow "${name}" requires a body`);
   }
   assertFlowHeader(header, name);
@@ -65,9 +76,28 @@ export function flow<Input = unknown>(
   const definition: AuthoredFlowDefinition<Input> = Object.freeze({
     name,
     header: freezeHeader(header),
-    body: flowBody,
+    body: flowBody ?? (async () => { throw new TypeError(`flow "${name}" has no direct-run body`); }),
+    handlers: Object.freeze([]),
   });
-  const handle: FlowHandle = Object.freeze({ name });
+  return makeHandle(definition as AuthoredFlowDefinition);
+}
+
+function makeHandle(definition: AuthoredFlowDefinition): FlowHandle {
+  const handle = { name: definition.name } as FlowHandle;
+  Object.defineProperty(handle, "on", {
+    value: <Event>(trigger: TriggerSource, body: FlowBody<Event>): TriggeredFlowHandle => {
+      if (typeof body !== "function") throw new TypeError("trigger handler requires a body");
+      assertHeaderObject(trigger, "trigger");
+      assertKnownKeys(trigger, ["kind", "name", "filter"], "trigger");
+      if (trigger.kind !== "webhook") throw new TypeError("unsupported trigger kind");
+      const source = webhook(trigger.name, trigger.filter);
+      return makeHandle(Object.freeze({
+        ...definition,
+        handlers: Object.freeze([...definition.handlers, Object.freeze({ trigger: source, body: body as FlowBody })]),
+      }));
+    },
+  });
+  Object.freeze(handle);
   // One map holds definitions of many input types, so it is stored at the
   // default parameterisation and `getFlowDefinition<Input>` re-parameterises on
   // the way out. The cast is needed because `body` puts `Input` in a parameter
@@ -75,7 +105,7 @@ export function flow<Input = unknown>(
   // assignable to `AuthoredFlowDefinition<unknown>` even though every read
   // recovers the author's own type. Sound here because the handle-to-definition
   // pairing is 1:1 and both sides are keyed by the same authored flow.
-  definitions.set(handle, definition as AuthoredFlowDefinition);
+  definitions.set(handle, definition);
   return handle;
 }
 
@@ -83,7 +113,7 @@ export function flow<Input = unknown>(
  * Runtime bridge used by the SDK after it imports an authored `.flow.ts`.
  * The root package deliberately does not re-export this accessor.
  */
-export function getFlowDefinition<Input = unknown>(handle: FlowHandle): AuthoredFlowDefinition<Input> {
+export function getFlowDefinition<Input = unknown>(handle: Pick<FlowHandle, "name">): AuthoredFlowDefinition<Input> {
   if ((typeof handle !== "object" && typeof handle !== "function") || handle === null) {
     throw new TypeError("expected an @relayflows/surface flow handle");
   }

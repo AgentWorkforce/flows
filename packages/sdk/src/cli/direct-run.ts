@@ -6,10 +6,11 @@ import {
   AuthoredFlowExecutionError,
   executeAuthoredFlow,
 } from '../authored-flow-executor.js';
-import { AuthoredFlowLoadError, loadAuthoredFlow } from '../authored-flow-loader.js';
+import { AuthoredFlowLoadError } from '../authored-flow-loader.js';
 import { DirectInputError, parseDirectInput } from '../direct-input.js';
 import { JournalClient } from '../journal-client.js';
 import { inputFailureReport } from './check.js';
+import { checkAuthoredTriggers } from './check-triggers.js';
 import {
   connect,
   emptyReport,
@@ -41,6 +42,11 @@ export async function runDirectFlow(
     };
   }
 
+  // Declared triggers are knowable before any daemon or step is started.
+  const checked = await checkAuthoredTriggers(path);
+  if (!checked.report.ok || checked.loaded === undefined) {
+    return { exitCode: 2, report: fromCheckReport('run', checked.report) };
+  }
   const socketPath = socketFor(dataDir);
   const base: RunReport = { ...emptyReport('run'), path };
   const client = new JournalClient(socketPath);
@@ -52,7 +58,7 @@ export async function runDirectFlow(
   let llmClient: JournalClient | undefined;
   let llmFailure: unknown;
   try {
-    const { handle, getDefinition } = await loadAuthoredFlow(path);
+    const { handle, getDefinition } = checked.loaded;
     if (options.localAgent) {
       localAgent = await attachLocalAgent(client);
       // A session owns one worker registration. Keep the workspace-free LLM
