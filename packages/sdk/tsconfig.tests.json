@@ -10,6 +10,8 @@
   },
   "include": [
     "src/**/*.ts",
+    "tests/bundle.test.ts",
+    "tests/fixtures/build.flow.ts",
     "tests/typed-output.test.ts",
     "tests/mcp.test.ts",
     "tests/mcp-lifecycle.test.ts",

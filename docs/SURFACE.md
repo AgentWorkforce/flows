@@ -448,6 +448,35 @@ The herdr model: first-party helpers are just plugins that ship in the box; the 
 
 `flows build` seals a flow into a content-addressed, immutable bundle: canonical spec JSON, compiled TS with pinned deps, helper/plugin lockfile, assets, preflight declaration, identity signature — `flow@sha256:…`, pushed to a bucket/registry. `flows deploy` points a trigger at a digest; `flows run flow@sha256:…` executes from the bucket on any cell, no checkout. Preflight runs at build time for everything build-provable and again at deploy time for environment facts (credentials, workers, MCP servers). The working tree is for authoring; **production only ever runs digests.**
 
+The local build and verification commands are available now:
+
+```text
+flows build [--out <dir>] <flow.yaml|flow.ts>
+flows build --verify <bundle-dir>
+```
+
+Output defaults to `dist/flows/<name>@sha256:<digest>/`. The canonical manifest
+hashes the payload files; `manifest.json` and `identity.json` are excluded from
+its entries to avoid circular hashing. A stable signing seed gives identical
+identity bytes across builds. Ephemeral keys preserve the payload digest but
+produce different identity signatures. An existing valid bundle is reused.
+Verification refuses changed, missing, unlisted, or symlinked files with exit 2.
+
+TypeScript builds require Bun on PATH and an installed npm workspace matching
+its `package-lock.json`. The full lockfile is retained in this first slice.
+A TS module can default-export a declarative spec, or default-export `flow()`
+with an additional exported `spec` declaration for build-time checks. The
+authored body is retained in the executable and is not run during build;
+nonempty authored headers are currently refused. Module initialization must
+be deterministic. `preflight.json` preserves the preflight report, including
+uncollected environment facts; `metadata.json` separately records the platform,
+compiler, executable asset paths, and checks deferred until deployment.
+
+Signing uses `FLOWS_BUILD_KEY` or the repository's `.flows/build.key`, each a
+base64 32-byte Ed25519 seed. Without either, stderr reports
+`identity_ephemeral: bundle can be verified but not attributed`.
+Deployment, remote upload, and execution by digest remain future slices.
+
 ## 5. Invocation: the gate-1 CLI
 
 Gate 1 ships three CLI verbs over the journal protocol, plus one out-of-band

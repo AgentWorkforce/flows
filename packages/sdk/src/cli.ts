@@ -21,6 +21,7 @@ import { parseReplayArgs, replayJournal, type ReplayArgs } from './cli/replay.js
 import { checkTypeScriptFlow } from './cli/check-typescript.js';
 import { runCloudCli } from './cli/cloud-run.js';
 import { isAuthoredFlowPath } from './direct-input.js';
+import { parseBuildArgs, runBuild, type BuildArgs } from './cli/build.js';
 import { runHnMonitor } from './cli/hn-monitor.js';
 import { runTickRunner } from './cli/tick-runner.js';
 import {
@@ -39,6 +40,7 @@ export interface CliIo {
 type CliExitCode = 0 | 1 | 2 | 3;
 type ParsedArgs =
   | ReplayArgs
+  | BuildArgs
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean }
   | { command: 'check'; json: boolean; value: string }
   | { command: 'run'; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
@@ -52,6 +54,8 @@ type ParsedArgs =
 const DEFAULT_DATA_DIR = '.relayflowd';
 const USAGE = [
   'Usage:',
+  'flows build [--out <dir>] <flow.yaml|flow.ts>',
+  'flows build --verify <bundle-dir>',
   'flows check [--json] <flow.ts|flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
@@ -96,6 +100,7 @@ export async function runCli(
 
   if (parsed.command === 'cloud-run') return runCloudCli(parsed, io);
   if (parsed.command === 'replay') return replayJournal(parsed, io);
+  if (parsed.command === 'build') return runBuild(parsed, io);
 
   if (parsed.command === 'check') {
     // Deliberately daemon-free (kernel/DAEMON-LIFECYCLE.md §4). `checkFlow` is
@@ -385,6 +390,7 @@ function emitWait(
 function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   const command = args[0];
   if (command === 'replay') return parseReplayArgs(args.slice(1));
+  if (command === 'build') return parseBuildArgs(args.slice(1));
   if (command === 'hn-monitor') return parseHnMonitorArgs(args.slice(1));
   if (command === 'tick') return parseTickArgs(args.slice(1));
   if (command === 'observer') return parseObserverArgs(args.slice(1));

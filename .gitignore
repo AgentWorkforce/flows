@@ -20,3 +20,4 @@ dist/
 
 # Legacy drive-local snapshots; the preparing launcher no longer executes them.
 .drive-gate/
+.flows/build.key
