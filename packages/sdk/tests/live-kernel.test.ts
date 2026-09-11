@@ -345,11 +345,13 @@ process.stdin.on('end', () => {
 });
 `);
     chmodSync(cli, 0o755);
-    // f.agent has no way to declare a CLI itself (AgentOptions is
-    // {task, workspace} only) — it resolves one exactly the way a bare
-    // `type: agent` YAML step with no explicit `cli` does: the nearest
-    // flows.json's project default, found searching upward from the flow's
-    // own path (checkAuthoredFlow, cli/check.ts).
+    // This test intentionally omits cli/model on f.agent (AgentOptions
+    // accepts { task, workspace, cli?, model? } as of #310) — it exercises
+    // the resolution fallback: with no step cli, an authored agent resolves
+    // exactly like a bare `type: agent` YAML step, walking up to the
+    // nearest flows.json's project default (checkAuthoredFlow, cli/check.ts).
+    // The explicit-cli/model path is covered by unit tests in
+    // authored-flow.test.ts.
     writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli }));
     await startDaemon(dataDir);
 

@@ -10,6 +10,8 @@ export interface AgentResult {
 export interface AgentOptions {
   task: string;
   workspace?: string;
+  cli?: string;
+  model?: string;
 }
 
 export interface LlmOptions {
