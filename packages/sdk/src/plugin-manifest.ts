@@ -2,7 +2,7 @@ import { Ajv } from 'ajv';
 import { snapshotJsonValue } from './json-value.js';
 
 export const PLUGIN_FAILURE_KINDS = [
-  'plugin_unknown', 'plugin_install_failed', 'plugin_manifest_missing',
+  'plugin_unknown', 'plugin_unlisted', 'plugin_install_failed', 'plugin_manifest_missing',
   'plugin_manifest_invalid', 'plugin_preflight_missing', 'plugin_verb_unknown_primitive',
   'plugin_unsupported', 'plugin_credential_missing', 'plugin_server_unreachable',
 ] as const;

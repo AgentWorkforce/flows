@@ -23,6 +23,26 @@ function project() {
   writeFileSync(join(root, 'flows.json'), JSON.stringify({ plugins: ['@flows/helper-datadog'] }));
   cpSync(fixture, join(root, 'node_modules/@flows/helper-datadog'), { recursive: true }); return root;
 }
+it.each([{}, { plugins: [] }])('rejects an installed helper without an explicit declaration: %j', async config => {
+  const root = project();
+  writeFileSync(join(root, 'flows.json'), JSON.stringify(config));
+  vi.stubEnv('DATADOG_API_KEY', '');
+  await expect(loadPlugins(root)).rejects.toMatchObject({ code: 'plugin_unlisted' });
+});
+it('rejects an extra installed helper before probing the declared plugins', async () => {
+  const root = project();
+  cpSync(fixture, join(root, 'node_modules/@flows/helper-extra'), { recursive: true });
+  vi.stubEnv('DATADOG_API_KEY', '');
+  await expect(loadPlugins(root)).rejects.toMatchObject({ code: 'plugin_unlisted', message: expect.stringContaining('@flows/helper-extra') });
+});
+it('loads explicitly declared helpers using either supported package name spelling', async () => {
+  const root = project();
+  vi.stubEnv('DATADOG_API_KEY', 'test');
+  for (const name of ['helper-datadog', '@flows/helper-datadog']) {
+    writeFileSync(join(root, 'flows.json'), JSON.stringify({ plugins: [name] }));
+    expect((await loadPlugins(root)).map(plugin => plugin.manifest.name)).toEqual([manifest.name]);
+  }
+});
 it('freezes manifest and refuses unknown primitives and missing preflight', () => {
   expect(Object.isFrozen(validatePluginManifest(manifest).verbs[0]!.args)).toBe(true);
   expect(() => validatePluginManifest({ ...manifest, verbs: [{ ...manifest.verbs[0], lowersTo: 'new-word' }] })).toThrow('Unknown primitive');

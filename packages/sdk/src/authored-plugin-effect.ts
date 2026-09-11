@@ -89,21 +89,37 @@ export async function runPluginEffect(
       });
   }
   let childRunId: string | undefined;
+  async function cancelChildRun(): Promise<void> {
+    const runId = childRunId;
+    childRunId = undefined;
+    if (runId !== undefined) {
+      try { await journal.runCancel(runId); } catch { /* fail-open on cleanup */ }
+    }
+  }
+  const deadlineError = new Error('Plugin worker dispatch deadline exceeded');
+  let finishDeadline!: () => void;
+  const deadline = new Promise<void>((resolve, reject) => {
+    finishDeadline = resolve;
+    // One deadline covers connection, initialization, run creation and dispatch.
+    timer = setTimeout(() => {
+      dispatchExpired = true;
+      failed(deadlineError);
+      reject(deadlineError);
+    }, 30_000);
+  });
   try {
-    await peer.connect();
-    await peer.hello('flows-plugin');
+    await Promise.race([peer.connect(), deadline]);
+    await Promise.race([peer.hello('flows-plugin'), deadline]);
     peer.on('step.dispatch', dispatch);
-    await peer.workerAttach(stream, ['agent'], { workspace: [], streams: [{ stream, read_offset: 0 }] }, 1);
+    await Promise.race([peer.workerAttach(stream, ['agent'], { workspace: [], streams: [{ stream, read_offset: 0 }] }, 1), deadline]);
     const spec = toKernelSpec(compileSpec({ version: SPEC_SCHEMA_VERSION, name: `${flowName}/${id}`,
       steps: [{ id, type: 'agent', instruction,
         surfaces: { streams: [{ stream }], external: [surfacePath] }, maxIterations: 1 }],
     }));
-    return await budget.execute(journal, spec, async outcome => {
-      timer = setTimeout(() => {
-        dispatchExpired = true;
-        failed(new Error('Plugin worker dispatch deadline exceeded'));
-      }, 30_000);
+    return await Promise.race([budget.execute(journal, spec, async outcome => {
       childRunId = outcome.run_id;
+      // run.start may answer after the deadline and the outer cleanup.
+      if (dispatchExpired) await cancelChildRun();
       await completed;
       if (diagnostic !== undefined) {
         try { await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps); }
@@ -114,17 +130,16 @@ export async function runPluginEffect(
       }
       const receipt = await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps) as { output: unknown };
       return receipt.output;
-    });
+    }), deadline]);
   } finally {
     clearTimeout(timer);
+    finishDeadline();
     peer.off('step.dispatch', dispatch);
     // If the dispatch deadline fired we started a child run that will never
     // be worked -- cancel it so its journal doesn't stay indeterminate.
     // Best-effort: the parent flow already surfaced the deadline via the
     // rejected `completed` promise, so a cancel error here must not mask it.
-    if (dispatchExpired && childRunId !== undefined) {
-      try { await journal.runCancel(childRunId); } catch { /* fail-open on cleanup */ }
-    }
+    if (dispatchExpired) await cancelChildRun();
     peer.close();
     await work?.catch(() => undefined);
   }

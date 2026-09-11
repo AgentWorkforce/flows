@@ -49,7 +49,11 @@ export async function loadPlugins(start: string): Promise<readonly LoadedPlugin[
   }
   const scope = join(root, 'node_modules/@flows');
   const names = new Set<string>((config.plugins as string[] | undefined)?.map(pluginPackageName));
-  if (existsSync(scope)) for (const name of readdirSync(scope).sort()) if (name.startsWith('helper-')) names.add(pluginPackageName(name));
+  if (existsSync(scope)) for (const name of readdirSync(scope).sort()) {
+    if (name.startsWith('helper-') && !names.has(`@flows/${name}`)) {
+      throw new PluginError('plugin_unlisted', `@flows/${name} is installed but not declared in flows.json plugins. Run flows add ${name}.`);
+    }
+  }
   const plugins = [...names].sort().map(name => readPlugin(join(root, 'node_modules', name), name));
   const namespaces = new Set<string>();
   for (const plugin of plugins) {
