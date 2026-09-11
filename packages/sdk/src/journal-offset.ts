@@ -14,6 +14,9 @@ export function journalRecordOffset(path: string, rootPage: number, seq: number)
     const frameSize = pageSize + 24;
     let lastCommit = 0;
     for (let frame = 32; frame + frameSize <= wal.length; frame += frameSize) {
+      // RESTART checkpoints reuse the WAL without truncating its old tail.
+      // Frames from that prior generation are not part of SQLite's view.
+      if (!wal.subarray(frame + 8, frame + 16).equals(wal.subarray(16, 24))) break;
       if (wal.readUInt32BE(frame + 4) !== 0) lastCommit = frame;
     }
     for (let frame = 32; frame <= lastCommit; frame += frameSize) {

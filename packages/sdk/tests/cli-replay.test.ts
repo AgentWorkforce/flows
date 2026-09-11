@@ -204,6 +204,36 @@ describe('flows replay', () => {
     expect(output.stdout.map((line) => JSON.parse(line).event)).toEqual(EVENTS.slice(0, 7));
   });
 
+  it('--at includes the human-wait record after a parked completion', async () => {
+    const { dataDir, writer } = fixture(EVENTS.slice(0, 8));
+    writer.exec("UPDATE entries SET payload = json_set(payload, '$.disposition', 'park', '$.completionReason', 'needs_human') WHERE seq = 7");
+    writer.prepare("UPDATE entries SET step_id = 'verify', entry_type = 'wait.human', payload = ? WHERE seq = 8")
+      .run(JSON.stringify({ prompt: 'Review the workspace changes', diff_ref: 'diff-1' }));
+    writer.close();
+    const output = await replay(dataDir, ['--json', '--at', 'verify']);
+    expect(output.code).toBe(0);
+    expect(output.stdout).toHaveLength(8);
+    expect(JSON.parse(output.stdout.at(-1)!)).toMatchObject({
+      kind: 'wait.human', step_id: 'verify',
+      event: { payload: { prompt: 'Review the workspace changes', diff_ref: 'diff-1' } },
+    });
+  });
+
+  it('locates corruption in the current WAL generation after a checkpoint', async () => {
+    const { dataDir, path, writer } = fixture(EVENTS, true);
+    try {
+      writer.exec('PRAGMA wal_checkpoint(RESTART)');
+      writer.exec("UPDATE entries SET payload = 'invalid-after-checkpoint' WHERE seq = 7");
+      const output = await replay(dataDir, ['--json']);
+      expect(output.code).toBe(1);
+      expect(output.stdout).toHaveLength(6);
+      const location = output.stderr[0]!.match(/WAL byte offset (\d+)/);
+      expect(location, output.stderr[0]).not.toBeNull();
+      const bytes = readFileSync(`${path}-wal`);
+      expect(bytes.subarray(Number(location![1]), Number(location![1]) + 100).toString()).toContain('invalid-after-checkpoint');
+    } finally { writer.close(); }
+  });
+
   it.each([false, true])('returns exit 1 and a byte offset after a mid-journal parse error (WAL=%s)', async (wal) => {
     const { dataDir, path, writer } = fixture(EVENTS, wal);
     writer.exec("UPDATE entries SET payload = '{' WHERE seq = 7");

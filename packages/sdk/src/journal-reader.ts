@@ -110,7 +110,7 @@ export async function* walkJournal(
     if (options.at !== undefined) {
       const row = database.prepare(`
         SELECT COALESCE(MAX(CASE WHEN entry_type = 'step.completed'
-          AND json_valid(payload) AND json_extract(payload, '$.disposition') IN ('step_done', 'park')
+          AND json_valid(payload) AND json_extract(payload, '$.disposition') = 'step_done'
           THEN seq END), MAX(seq)) AS seq FROM entries WHERE step_id = ?
       `).get(options.at);
       if (row?.['seq'] === null || row === undefined) {
