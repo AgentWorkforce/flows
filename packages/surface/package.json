@@ -46,5 +46,8 @@
   },
   "peerDependencies": {
     "@relayfile/relay-helpers": "0.4.11"
+  },
+  "dependencies": {
+    "ai-hist": "0.4.1"
   }
 }

@@ -15,6 +15,7 @@
     "tests/typed-output.test.ts",
     "tests/mcp.test.ts",
     "tests/mcp-lifecycle.test.ts",
+    "tests/f-memory.test.ts",
     "tests/authored-flow-lifecycle-executor.test.ts",
     "tests/authored-flow-operation.test.ts",
     "tests/authored-flow.test.ts",

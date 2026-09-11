@@ -559,3 +559,19 @@ export function preflightHelpers(
       : [];
   return { ok: diagnostics.length === 0, gates: [], resolutions: [], diagnostics };
 }
+
+/** Authored memory probes run before invoking the body or contacting the journal. */
+export async function preflightMemory(
+  probe: () => Promise<void>,
+): Promise<PreflightRefusal | undefined> {
+  try {
+    await probe();
+    return undefined;
+  } catch {
+    return {
+      severity: 'refusal',
+      kind: 'memory_unreachable',
+      message: 'Script memory requires the ai-hist Node SDK and a readable SQLite database at AI_HIST_DB (or defaultDbPath()). Run ai-hist sync first.',
+    };
+  }
+}

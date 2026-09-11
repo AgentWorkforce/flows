@@ -47,6 +47,7 @@
     "@relayfile/relay-helpers": "0.4.11",
     "@relayflows/surface": "2.0.8",
     "@types/js-yaml": "^4.0.9",
+    "ai-hist": "0.4.1",
     "ajv": "^8.17.1",
     "ajv-draft-04": "^1.0.0",
     "js-yaml": "^5.4.1",

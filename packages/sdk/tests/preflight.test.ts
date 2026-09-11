@@ -6,6 +6,7 @@ import {
 } from '../src/failure-kinds.js';
 import {
   CliProbeError,
+  preflightMemory,
   type CliProbeResult,
   type PreflightProbes,
 } from '../src/preflight.js';
@@ -390,6 +391,10 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       .filter((diagnostic) => diagnostic.severity === 'refusal')
       .map((diagnostic) => diagnostic.kind);
 
+    const memoryRefusal = await preflightMemory(async () => { throw new Error('raw secret'); });
+    expect(memoryRefusal).toMatchObject({ kind: 'memory_unreachable', severity: 'refusal' });
+    refusalKinds.push(memoryRefusal!.kind);
+    expect(JSON.stringify(memoryRefusal)).not.toContain('raw secret');
     expect(new Set(refusalKinds)).toEqual(new Set(PREFLIGHT_FAILURE_KINDS));
     expect(JSON.stringify(scenarios)).not.toContain('raw secret');
   });

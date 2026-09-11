@@ -15,6 +15,7 @@ const PREFLIGHT_ENVIRONMENT_FAILURE_KINDS = [
   'command_missing',
   'model_unavailable',
   'model_unknown',
+  'memory_unreachable',
   'no_executor',
   'probe_failed',
 ] as const;

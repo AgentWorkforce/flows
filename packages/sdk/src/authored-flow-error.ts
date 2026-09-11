@@ -15,6 +15,7 @@ export type AuthoredFlowExecutionErrorCode =
   | 'duplicate_completion'
   | 'journal_protocol_violation'
   | 'missing_completion'
+  | 'memory_unreachable'
   | 'operation_after_completion'
   | 'operation_callback_failed'
   | 'step_failed'

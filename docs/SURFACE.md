@@ -86,6 +86,16 @@ No process runs between events: the handler wakes, executes to its next await, p
    and the other provider namespaces remain follow-up work; see
    [the generator notes](../packages/surface/src/helpers/README.md).
 
+   The initial local memory slice supports `recall` and `why` in authored flows,
+   with no journal step for either read. Script scope is stable across runs of
+   the same flow file and name; reads cannot widen it to another flow. The
+   existing `memory: { script: true }` header enables an eager reachability
+   check; direct `.memory` use also triggers it. Aliased access is checked at
+   call time. The local Node SDK and an existing readable SQLite DB are required
+   (`AI_HIST_DB` overrides `defaultDbPath()`); JSONL fallback is disabled.
+   `learn` and `memory: { agent: true }` refuse pending the journal-backed write
+   and identity-scoped agent follow-ups. CLI-only operation is also deferred.
+
 4. **`{{prev}}` / return-value chaining.** Output flows downward implicitly; naming steps is for reaching back, not bookkeeping.
 5. **Headers are optional escalation.** identity, memory, budget, tools appear only when used. The empty header is the common case. [Budget headers and spend](BUDGET.md) specifies parsing, prices, journal attribution, and admission limits.
 6. **Agent definitions escalate by composition** — and a reusable agent *is* a flow:
