@@ -15,6 +15,7 @@
 // `tests/spec_parity.rs` pin both sides to the same `testdata/` fixture.
 
 import { parse as parseYaml } from 'yaml';
+import { bindingDependencies } from './input-binding.js';
 import type {
   AgentStepSpec,
   DeterministicStepSpec,
@@ -107,7 +108,9 @@ function compileStep(step: StepSpec): StepSpec {
   const base = {
     id: step.id,
     type: step.type,
-    ...(step.dependsOn !== undefined ? { dependsOn: step.dependsOn } : {}),
+    ...((step.dependsOn !== undefined || step.input !== undefined)
+      ? { dependsOn: step.input === undefined ? step.dependsOn : [...new Set([...(step.dependsOn ?? []), ...bindingDependencies(step.input)])] } : {}),
+    ...(step.input !== undefined ? { input: step.input } : {}),
     maxIterations,
     ...(step.memory !== undefined ? { memory: step.memory } : {}),
     ...(step.requirements !== undefined ? { requirements: step.requirements } : {}),
@@ -354,13 +357,13 @@ function kernelTriggerToAuthoring(value: unknown, at: string): unknown {
 
 function kernelStepToAuthoring(value: unknown, at: string): unknown {
   const unionKeys = [
-    'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements',
+    'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input',
     'command', 'timeout_ms', 'prompt', 'model', 'cli', 'instruction',
     'recovery_mode', 'surfaces', 'permissions',
   ] as const;
   const step = requireKernelObject(value, unionKeys, at);
   const type = step['type'];
-  const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements'] as const;
+  const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input'] as const;
   const typeKeys = type === 'deterministic'
     ? ['command', 'timeout_ms'] as const
     : type === 'llm'
@@ -374,6 +377,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
   const common = {
     id: step['id'],
     type,
+    ...(step['input'] !== undefined ? { input: step['input'] } : {}),
     ...(step['requirements'] !== undefined ? { requirements: kernelRequirementsToAuthoring(step['requirements'], `${at}.requirements`) } : {}),
     ...(dependsOn !== undefined && (!Array.isArray(dependsOn) || dependsOn.length > 0)
       ? { dependsOn }
@@ -505,7 +509,9 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function toKernelStep(step: StepSpec): KernelStepSpec {
   const common: KernelStepCommon = {
     id: step.id,
-    depends_on: step.dependsOn ?? [],
+    depends_on: step.input === undefined ? step.dependsOn ?? []
+      : [...new Set([...(step.dependsOn ?? []), ...bindingDependencies(step.input)])],
+    ...(step.input !== undefined ? { input: step.input } : {}),
     max_iterations: step.maxIterations ?? 1,
     retry: { ...KERNEL_RETRY_DEFAULTS },
     verification: toKernelVerification(step),

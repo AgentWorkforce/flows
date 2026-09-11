@@ -8,6 +8,7 @@ pub mod channel;
 pub mod clock;
 pub mod entry;
 pub mod event;
+pub mod input;
 pub mod journal;
 pub mod machine;
 pub mod memory;

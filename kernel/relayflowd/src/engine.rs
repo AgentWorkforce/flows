@@ -36,6 +36,7 @@ mod channels;
 mod drive;
 mod effects;
 mod memory;
+mod input;
 mod model;
 mod placement;
 mod remote;

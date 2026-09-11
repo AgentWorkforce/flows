@@ -14,6 +14,8 @@
     "tests/authored-flow-lifecycle-executor.test.ts",
     "tests/authored-flow-operation.test.ts",
     "tests/authored-flow.test.ts",
+    "tests/flow-executor-chain.test.ts",
+    "tests/input-binding.test.ts",
     "tests/journal-client-loopback.ts"
   ],
   "exclude": ["node_modules", "dist"]

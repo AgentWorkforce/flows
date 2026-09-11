@@ -4,6 +4,7 @@ import type { Pins, StepDispatchEvent } from './protocol.js';
 import type { KernelAgentStep } from './spec.js';
 import { runAgentCli } from './worker-cli.js';
 import { withWorkerLease } from './worker-lease.js';
+import { workerInstruction } from './worker-input.js';
 
 export { MODEL_ENV, WAKE_CONTEXT_ENV } from './worker-cli.js';
 
@@ -93,7 +94,7 @@ export class AgentWorker extends EventEmitter {
     const spec = dispatch.spec as Partial<KernelAgentStep>;
     const result = await withWorkerLease(this.client, dispatch, signal =>
       typeof spec.cli === 'string' && typeof spec.instruction === 'string'
-        ? runAgentCli(spec.cli, memoryInstruction(spec.instruction, dispatch.memory), dispatch.wake_context, spec.model, undefined, signal)
+        ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, spec.model, undefined, signal)
         : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
 
@@ -149,10 +150,4 @@ export function parseJsonOutput(stdout: string): Record<string, unknown> | null 
     return null;
   }
   return parsed as Record<string, unknown>;
-}
-
-/** Pass the journaled pack to both raw CLI and wrapper execution paths. */
-function memoryInstruction(instruction: string, memory: StepDispatchEvent['memory']): string {
-  return memory === undefined ? instruction
-    : `${instruction}\n\nMemory context (journaled):\n${JSON.stringify(memory.pack)}`;
 }

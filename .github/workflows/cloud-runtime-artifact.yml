@@ -92,6 +92,21 @@ jobs:
       - name: Install SDK dependencies
         run: npm ci --prefix packages/sdk --ignore-scripts
 
+      # `npm ci` above installs `@relayflows/surface@2.0.8` from the REGISTRY,
+      # not the local one built two steps up. Any SDK change that imports a
+      # symbol that landed in the local surface but is not yet in the published
+      # 2.0.8 (e.g. LlmOptions on flows#296) then fails typecheck. Override the
+      # registry copy with the local directory install — --no-save keeps
+      # package.json / package-lock.json unchanged so this is a CI-only local
+      # override.
+      #
+      # The `./` prefix is load-bearing: `npm install packages/surface`
+      # without it makes npm treat the string as a GitHub org/repo shorthand
+      # (ssh://git@github.com/packages/surface.git) which then fails
+      # authentication.
+      - name: Override registry surface with local build
+        run: npm install ./packages/surface --prefix packages/sdk --no-save --ignore-scripts
+
       - name: Test SDK and type-level authoring contracts
         working-directory: packages/sdk
         env:

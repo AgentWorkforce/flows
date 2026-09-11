@@ -110,6 +110,19 @@ export function displayInvocation(cli: string, invocation: CliInvocation): strin
     : `RELAYFLOW_MODEL=${shellDisplayWord(invocation.modelEnv)} ${command}`;
 }
 
+/** Reuse the workspace-free model probe's provider flags for a real LLM call. */
+export function llmExecution(kind: CliAdapterKind, prompt: string, model?: string): CliInvocation {
+  if (kind === 'claude') {
+    return { args: ['-p', '--tools', '', '--no-session-persistence',
+      ...(model === undefined ? [] : ['--model', model]), prompt], timeoutMs: 0 };
+  }
+  if (kind === 'codex') {
+    return { args: ['exec', '--ephemeral', '--sandbox', 'read-only', '--skip-git-repo-check',
+      ...(model === undefined ? [] : ['--model', model]), prompt], timeoutMs: 0 };
+  }
+  throw new Error('custom wrapper execution requires the same-process session');
+}
+
 function shellDisplayWord(word: string): string {
   return /^[A-Za-z0-9_./:-]+$/.test(word) ? word : JSON.stringify(word);
 }

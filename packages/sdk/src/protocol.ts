@@ -179,6 +179,8 @@ export interface RoutingDecision {
 }
 
 export interface StepDispatchEvent {
+  /** Selected successful outputs, resolved by the kernel from the journal. */
+  input?: Record<string, unknown>;
   /** Durable choice; optional only for older kernel protocol compatibility. */
   routing?: RoutingDecision;
   /** Already journaled and charged; completion usage excludes this cost. */

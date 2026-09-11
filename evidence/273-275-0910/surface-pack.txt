@@ -1,0 +1,5 @@
+CWD: /Users/khaliqgant/flows-lead
+COMMAND: node scripts/pack-release.mjs surface /tmp/flows-273-packs
+EXIT: 0
+CAPTURED OUTPUT:
+PACK_OK @relayflows/surface@2.0.8: package/dist/index.js, package/dist/index.d.ts, package/dist/runtime.js, package/dist/runtime.d.ts

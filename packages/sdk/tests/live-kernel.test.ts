@@ -1784,7 +1784,18 @@ async function startDaemon(dataDir: string): Promise<ChildProcess> {
   const socket = socketPathFor(dataDir);
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
-    if (existsSync(socket) && lstatSync(socket).isSocket()) return daemon;
+    if (existsSync(socket) && lstatSync(socket).isSocket()) {
+      // Binding precedes the atomic connection.json rename. A protocol reply
+      // proves initialization finished before tests snapshot daemon artifacts.
+      const ready = new JournalClient(socket, { requestTimeoutMs: 1_000 });
+      try {
+        await ready.connect();
+        await ready.hello('live-kernel-readiness');
+        return daemon;
+      } catch {
+        // Startup is still in progress; retry within the fixture's deadline.
+      } finally { ready.close(); }
+    }
     if (daemon.exitCode !== null || daemon.signalCode !== null) {
       throw new Error(`relayflowd exited before binding ${socket}: ${Buffer.concat(stderr).toString('utf8')}`);
     }

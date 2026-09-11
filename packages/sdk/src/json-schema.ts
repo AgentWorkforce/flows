@@ -22,24 +22,7 @@ export function jsonSchemaError(schema: boolean | Record<string, unknown>): stri
   const unbounded = jsonSchemaBoundError(schema);
   if (unbounded !== undefined) return unbounded;
   try {
-    const dialect = typeof schema === 'object' && typeof schema['$schema'] === 'string'
-      ? schema['$schema'].replace(/#$/, '')
-      : DRAFT_2020_12;
-    const options = { strict: false, allErrors: true } as const;
-    if (dialect === DRAFT_4) {
-      new AjvDraft4(options).compile(schema);
-    } else if (dialect === DRAFT_6) {
-      const validator = new Ajv(options);
-      validator.addMetaSchema(draft6MetaSchema);
-      validator.compile(schema);
-    } else if (dialect === DRAFT_7) {
-      new Ajv(options).compile(schema);
-    } else if (dialect === DRAFT_2019_09) {
-      new Ajv2019(options).compile(schema);
-    } else {
-      // Ajv reports unknown dialect identifiers instead of guessing.
-      new Ajv2020(options).compile(schema);
-    }
+    compileSchema(schema);
     return undefined;
   } catch (error) {
     // A RangeError here is Ajv exhausting its own JS stack while COMPILING,
@@ -62,4 +45,37 @@ export function snapshotJsonSchema(schema: unknown, at: string): boolean | Recor
   if (typeof snapshot === 'boolean') return snapshot;
   if (snapshot !== null && !Array.isArray(snapshot) && typeof snapshot === 'object') return snapshot;
   throw new Error(`${at}: expected a JSON Schema object or boolean`);
+}
+
+function compileSchema(schema: boolean | Record<string, unknown>) {
+  const dialect = typeof schema === 'object' && typeof schema['$schema'] === 'string'
+    ? schema['$schema'].replace(/#$/, '')
+    : DRAFT_2020_12;
+  const options = { strict: false, allErrors: true } as const;
+  if (dialect === DRAFT_4) {
+    return new AjvDraft4(options).compile(schema);
+  } else if (dialect === DRAFT_6) {
+    const validator = new Ajv(options);
+    validator.addMetaSchema(draft6MetaSchema);
+    return validator.compile(schema);
+  } else if (dialect === DRAFT_7) {
+    return new Ajv(options).compile(schema);
+  } else if (dialect === DRAFT_2019_09) {
+    return new Ajv2019(options).compile(schema);
+  } else {
+    // Ajv reports unknown dialect identifiers instead of guessing.
+    return new Ajv2020(options).compile(schema);
+  }
+}
+
+/** A worker verdict; the kernel independently verifies the same schema. */
+export function jsonSchemaOutputError(schema: boolean | Record<string, unknown>, output: unknown): string | undefined {
+  const invalid = jsonSchemaError(schema);
+  if (invalid !== undefined) return invalid;
+  try {
+    const validate = compileSchema(schema);
+    return validate(output) ? undefined : JSON.stringify(validate.errors);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }

@@ -1,0 +1,8 @@
+CWD: /Users/khaliqgant/flows-lead/packages/sdk
+COMMAND: npm run build
+EXIT: 0
+CAPTURED OUTPUT:
+
+> @relayflows/sdk@2.0.8 build
+> tsc && node scripts/make-cli-executable.mjs
+

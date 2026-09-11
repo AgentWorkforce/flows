@@ -1,0 +1,16 @@
+NOTE: observer token redacted from captured stdout.
+CWD: /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-273-real-26jvcc6f
+COMMAND: node /Users/khaliqgant/flows-lead/packages/sdk/dist/cli.js run chain.flow.ts --input '{}' --local-agent --data-dir /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-273-real-26jvcc6f/data --json
+ENV OVERRIDE: RELAYFLOWD_BIN=/Users/khaliqgant/.relayflows-toolchain/target/1203194541/debug/relayflowd
+PROJECT CONFIG: {"cli": "/opt/homebrew/bin/codex"}
+EXIT: 0
+ELAPSED: 9.24s
+STDOUT:
+{"ok":true,"command":"run","resolutions":[],"diagnostics":[],"path":"chain.flow.ts","runId":"01M26GHNP33WZ1D6RWJZ1W8JV2","socketPath":"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-2ad0bbdaf3f8.sock","status":"completed","completionReason":"success","completedSteps":4,"observerUrl":"https://agentrelay.com/observer?key=[REDACTED_OBSERVER_TOKEN]"}
+
+STDERR:
+WAITING [worker_lease] Run "01M26GHD8BJT9T7XKGCJKRZ3RB" step "llm-1" (llm) is running under a worker lease until 1789072583251.
+WAITING [worker_lease] Run "01M26GHHKMZV0JRFRHKTEB1H7Z" step "agent-2" (agent) is running under a worker lease until 1789072587692.
+
+ARTIFACT message.json:
+{"message":"hello flagship"}

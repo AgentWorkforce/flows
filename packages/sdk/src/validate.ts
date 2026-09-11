@@ -21,6 +21,7 @@ import { validateOutputDeclaration } from './output-schema.js';
 import { modelNameError } from './model-name.js';
 import { unknownKeyErrors } from './unknown-keys.js';
 import { stepDependencyErrors } from './step-dependencies.js';
+import { inputBindingErrors } from './input-binding.js';
 import {
   AGENT_DECLARATION_FIELDS,
   FLOW_FIELDS,
@@ -175,6 +176,7 @@ class Validator {
 
     // Dependents must reference real step ids and form a DAG (no cycles).
     for (const error of stepDependencyErrors(steps, this.ids)) this.fail(error);
+    for (const error of inputBindingErrors(steps)) this.fail(error);
     return this.result();
   }
 
