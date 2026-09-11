@@ -61,6 +61,8 @@ export default flow<unknown>('close-pr', async (f, supplied) => {
     }
     blockers.push(...findings);
     if (pending) {
+      // parseInput already capped pollIntervalSeconds at MAX_POLL_INTERVAL_SECONDS
+      // so this sleep cannot exceed the deterministic-step lease budget.
       await run(`sleep ${input.pollIntervalSeconds ?? 15}`);
       continue;
     }

@@ -273,6 +273,18 @@ describe('PR state parsing and shell boundaries', () => {
     expect(parsePrNumber('https://github.com/acme/repo/pull/7\n')).toBe(7);
     expect(() => parsePrNumber('failed: 7')).toThrow();
   });
+  it('caps pollIntervalSeconds so sleep fits under the deterministic-step lease', () => {
+    // Callers may pass 60/120 without realizing the sleep runs inside f.run
+    // whose default kernel lease is ~30s. parseInput must clamp silently rather
+    // than throw or let a step_failed propagate at runtime.
+    expect(parseInput(JSON.stringify({ ...baseInput, pollIntervalSeconds: 60 })).pollIntervalSeconds).toBe(25);
+    expect(parseInput(JSON.stringify({ ...baseInput, pollIntervalSeconds: 25 })).pollIntervalSeconds).toBe(25);
+    expect(parseInput(JSON.stringify({ ...baseInput, pollIntervalSeconds: 15 })).pollIntervalSeconds).toBe(15);
+    expect(parseInput(JSON.stringify({ ...baseInput, pollIntervalSeconds: 1 })).pollIntervalSeconds).toBe(1);
+    // Positive-integer floor still holds — the cap doesn't accept fractions or zero.
+    expect(() => parseInput(JSON.stringify({ ...baseInput, pollIntervalSeconds: 0 }))).toThrow();
+    expect(() => parseInput(JSON.stringify({ ...baseInput, pollIntervalSeconds: -5 }))).toThrow();
+  });
   it('shell-quotes metacharacters as literal data', () => {
     const data = "a' ; $(echo unsafe) `echo unsafe`\nline";
     expect(spawnSync('/bin/sh', ['-c', `printf '%s' ${quote(data)}`], { encoding: 'utf8' }).stdout).toBe(data);

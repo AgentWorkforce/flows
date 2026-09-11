@@ -2,6 +2,13 @@ import { isAbsolute } from 'node:path';
 
 export const MAX_REPAIR_ITERATIONS = 3;
 
+// Sleep between polls runs inside a f.run step whose default kernel lease is
+// 30 s (see flows#343 / slice W for the per-step timeout override). Any poll
+// interval larger than that either times out the step or, worse, sleeps under
+// a lease renewal window and races. Cap silently so a caller who sets
+// `pollIntervalSeconds: 60` still gets a poll cycle instead of a step_failed.
+export const MAX_POLL_INTERVAL_SECONDS = 25;
+
 export interface ClosePrInput {
   worktree: string;
   repo: string;
@@ -36,6 +43,9 @@ export function parseInput(raw: string): ClosePrInput {
     if (input[key] !== undefined && (!Number.isSafeInteger(input[key]) || input[key] < 1)) {
       throw new Error(`${key} must be a positive integer`);
     }
+  }
+  if (input.pollIntervalSeconds !== undefined) {
+    input.pollIntervalSeconds = Math.min(input.pollIntervalSeconds, MAX_POLL_INTERVAL_SECONDS);
   }
   return input;
 }
