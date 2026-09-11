@@ -3,7 +3,7 @@ import type { JournalClient } from './journal-client.js';
 import { AgentWorker } from './worker.js';
 
 /** A local worker for stream-only steps; no workspace recovery is claimed. */
-export async function attachLocalAgent(client: JournalClient): Promise<{
+export async function attachLocalAgent(client: JournalClient, dataDir?: string, onPtyReady?: (path: string) => void): Promise<{
   stream: string;
   readonly failure: unknown;
   close(): Promise<void>;
@@ -14,6 +14,7 @@ export async function attachLocalAgent(client: JournalClient): Promise<{
   const worker = new AgentWorker(client, {
     workerId: stream,
     capacity: 1,
+    dataDir, onPtyReady,
     pins: { workspace: [], streams: [{ stream, read_offset: 0 }] },
   });
   let failure: unknown;

@@ -114,6 +114,7 @@ pub(crate) fn execute_placed_with_input(
         "stderr_tail": tail(&stderr),
     });
     AttemptResult {
+        human_intervention: false,
         output,
         budget: Budget::default(),
         completed_by: "kernel".to_owned(),
@@ -155,6 +156,7 @@ fn tail(bytes: &[u8]) -> String {
 
 fn worker_error(detail: &str) -> AttemptResult {
     AttemptResult {
+        human_intervention: false,
         output: json!({"error": detail}),
         budget: Budget::default(),
         completed_by: "kernel".to_owned(),

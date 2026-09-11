@@ -99,6 +99,9 @@ fn changed_spec_or_input_dispatches_and_legacy_or_failed_records_miss() {
         .unwrap()
         .remove("step_spec_hash");
     assert!(candidates(&[legacy]).unwrap().is_empty());
+    let mut influenced = source(&state);
+    influenced.payload["human_intervention"] = true.into();
+    assert!(candidates(&[influenced]).unwrap().is_empty());
     let mut failed = source(&state);
     failed.payload["completionReason"] = "worker_error".into();
     assert!(candidates(&[failed]).unwrap().is_empty());

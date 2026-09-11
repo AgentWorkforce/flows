@@ -251,6 +251,8 @@ pub enum Disposition {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StepCompletedPayload {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub human_intervention: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step_spec_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

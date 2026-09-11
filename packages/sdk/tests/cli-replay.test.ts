@@ -294,6 +294,16 @@ describe('flows replay', () => {
     expect(output.stderr[0]).toContain('REFUSED [journal_read_failed]');
   });
 
+  it('refuses human-influenced replay unless explicitly allowed', async () => {
+    const { dataDir, writer } = fixture();
+    writer.exec("UPDATE entries SET payload = json_set(payload, '$.human_intervention', json('true')) WHERE entry_type = 'step.completed'");
+    writer.close();
+    const refused = await replay(dataDir);
+    expect(refused.code).toBe(2);
+    expect(refused.stderr.join('\n')).toContain('REFUSED [human_influenced_run] step');
+    expect((await replay(dataDir, ['--allow-human-influenced'])).code).toBe(0);
+  });
+
   it.each([
     [], [RUN_ID, '--at'], [RUN_ID, '--data-dir'], [RUN_ID, '--no-spawn'],
     [RUN_ID, '--json', '--json'], [RUN_ID, '--at', 'x', '--at', 'y'],

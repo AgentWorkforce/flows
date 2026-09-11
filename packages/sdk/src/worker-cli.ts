@@ -1,4 +1,5 @@
 import { decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
+import { openSidechannel, type SidechannelContext } from './pty-sidechannel.js';
 import { spawn } from 'node:child_process';
 import { childStop, ownsProcessGroup } from './child-stop.js';
 import {
@@ -39,6 +40,7 @@ export async function runAgentCli(
   wrapperLimits?: Partial<WrapperSessionLimits>,
   signal?: AbortSignal,
   mode: 'agent' | 'llm' = 'agent',
+  sidechannel?: SidechannelContext,
 ): Promise<WorkerCliResult> {
   signal?.throwIfAborted();
   if (signal !== undefined && process.platform === 'win32') {
@@ -79,20 +81,43 @@ export async function runAgentCli(
   // Structured provider output carries the authoritative token counts.
   const args = [...invocation.args];
   args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'json'] : ['--json']));
-  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal), kind), model);
+  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel), kind), model);
 }
 
-function spawnInvocation(
+async function spawnInvocation(
   cli: string,
   invocation: CliInvocation,
   env: NodeJS.ProcessEnv,
   signal?: AbortSignal,
+  sidechannel?: SidechannelContext,
 ): Promise<WorkerCliResult> {
+  let writeInput: (bytes: Buffer) => Promise<boolean> = async () => false;
+  let canDrive = () => false;
+  let driven = false;
+  const channel = sidechannel === undefined ? undefined : await openSidechannel({
+    ...sidechannel,
+    onDrive() { driven = true; sidechannel.onDrive(); },
+  }, bytes => writeInput(bytes), () => canDrive());
+  if (signal?.aborted) { channel?.close(); signal.throwIfAborted(); }
   return new Promise((resolve) => {
     const ownsGroup = ownsProcessGroup(signal);
     const child = spawn(cli, invocation.args, {
-      stdio: ['ignore', 'pipe', 'pipe'], env,
+      stdio: ['pipe', 'pipe', 'pipe'], env,
       detached: ownsGroup,
+    });
+    child.stdin.on('error', () => {});
+    if (channel === undefined) child.stdin.end();
+    canDrive = () => !child.stdin.destroyed && !child.stdin.writableEnded;
+    // A pipe cannot be reopened after EOF. Give startup subscribers a bounded
+    // chance to opt into drive, then let unattended/view-only CLIs read EOF.
+    const inputTimer = channel === undefined ? undefined : setTimeout(() => {
+      if (!driven) child.stdin.end();
+    }, 100);
+    writeInput = bytes => new Promise(resolve => {
+      if (!canDrive()) { resolve(false); return; }
+      // write(false) still accepts the bytes. The completion callback waits
+      // until they flush; the sidechannel pauses its reader in the meantime.
+      child.stdin.write(bytes, error => resolve(!error));
     });
     const stop = childStop(child, ownsGroup);
     const stdout: Buffer[] = [];
@@ -102,6 +127,8 @@ function spawnInvocation(
     const finish = (result: WorkerCliResult): void => {
       if (settled) return;
       settled = true;
+      if (inputTimer !== undefined) clearTimeout(inputTimer);
+      channel?.close();
       if (timer !== undefined) clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
       resolve(result);
@@ -124,8 +151,8 @@ function spawnInvocation(
     };
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) onAbort();
-    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+    child.stdout.on('data', (chunk: Buffer) => { stdout.push(chunk); channel?.publish(chunk); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk); channel?.publish(chunk); });
     child.once('error', (error) => finishOnChildExit({
       exit_code: null,
       stdout_tail: Buffer.concat(stdout).toString('utf8'),

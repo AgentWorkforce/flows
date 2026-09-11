@@ -44,6 +44,14 @@ pub(super) struct RunStartParams {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(super) struct RunResumeParams {
+    pub run_id: String,
+    #[serde(default)]
+    pub allow_human_influenced: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct RunIdParams {
     pub run_id: String,
 }
@@ -75,6 +83,8 @@ pub(super) struct StepHeartbeatParams {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StepCompleteParams {
+    #[serde(default)]
+    pub human_intervention: bool,
     pub run_id: String,
     pub step_id: String,
     pub attempt: u32,

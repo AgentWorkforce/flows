@@ -1,0 +1,31 @@
+
+ RUN  v2.1.9 /Users/khaliqgant/flows-spec-Q-sidechannel/packages/sdk
+
+ ✓ tests/cli-replay.test.ts (37 tests) 638ms
+   ✓ flows replay > --json is byte-identical across two CLI invocations (diff) 501ms
+ ✓ tests/worker-cli-abort.test.ts (2 tests) 2912ms
+   ✓ stops claude and its process group when lease ownership is lost 1525ms
+   ✓ stops wrapper.mjs and its process group when lease ownership is lost 1386ms
+ ✓ tests/pty-sidechannel.test.ts (5 tests) 3152ms
+   ✓ view attach preserves worker completion and marks only drive 1390ms
+   ✓ passthrough attach preserves worker completion and marks only drive 948ms
+   ✓ none attach preserves worker completion and marks only drive 655ms
+ ✓ tests/worker-cli.test.ts (13 tests) 25865ms
+   ✓ custom wrapper execution identity > passes an explicit safe environment at identification and execution 704ms
+   ✓ custom wrapper execution identity > refuses a wrapper symlink retarget before delivering private values 485ms
+   ✓ custom wrapper execution identity > bounds captured wrapper output 310ms
+   ✓ custom wrapper execution identity > refuses a duplicate execute protocol frame 514ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 1717ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 1759ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3256ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11257ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts an execute token and an over-8KiB payload flushed in one write 1958ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 1971ms
+   ✓ custom wrapper execution bounds are reader-owned > still bounds an un-terminated handshake buffer and names the bound 792ms
+   ✓ delivers the journaled memory pack to the real wrapper and excludes its charge from completion usage 917ms
+
+ Test Files  4 passed (4)
+      Tests  57 passed (57)
+   Start at  20:29:40
+   Duration  26.18s (transform 404ms, setup 0ms, collect 999ms, tests 32.57s, environment 0ms, prepare 180ms)
+

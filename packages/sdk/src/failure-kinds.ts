@@ -74,6 +74,7 @@ export const RUN_FAILURE_KINDS = [
   'bucket_unreachable',
   'bundle_signature_invalid',
   'bundle_unsupported',
+  'human_influenced_run',
   'reuse_spec_mismatch',
   'reuse_run_not_found',
   'reuse_journal_read_failed',

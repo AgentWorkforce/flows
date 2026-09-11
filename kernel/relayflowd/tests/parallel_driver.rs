@@ -166,6 +166,7 @@ fn complete(engine: &Engine, run_id: &str, dispatch: &StepDispatch) -> RunStatus
             run_id,
             &dispatch.step_id,
             OutOfBandCompletion {
+                human_intervention: false,
                 attempt: dispatch.attempt,
                 idempotency_key: dispatch.idempotency_key.clone(),
                 completion_reason: CompletionReason::Success,

@@ -182,7 +182,7 @@ fn handle_request(
             )
         }
         "run.resume" => {
-            let params: RunIdParams = decode_params(request.params)?;
+            let params: RunResumeParams = decode_params(request.params)?;
             let registry = relayflowd_journal::Registry::open(data_dir.join("relayflowd.sqlite3"))
                 .map_err(|error| internal_error(error.into()))?;
             if registry
@@ -257,8 +257,21 @@ fn handle_request(
             // Live resume: attempts with a valid, heartbeating lease on this
             // hub stay running; only genuinely dead attempts are recovered.
             let outcome = engine
-                .resume_live(&params.run_id, hub.as_ref())
-                .map_err(internal_error)?;
+                .resume_live_with_human_influence(
+                    &params.run_id,
+                    hub.as_ref(),
+                    params.allow_human_influenced,
+                )
+                .map_err(|error| {
+                    if error
+                        .downcast_ref::<crate::engine::HumanInfluencedRun>()
+                        .is_some()
+                    {
+                        ("human_influenced_run", error.to_string())
+                    } else {
+                        internal_error(error)
+                    }
+                })?;
             if outcome.completion_reason.is_some() {
                 hub.finish_run(&params.run_id);
             }
@@ -371,6 +384,7 @@ fn handle_request(
                     &params.run_id,
                     &params.step_id,
                     OutOfBandCompletion {
+                        human_intervention: params.human_intervention,
                         attempt: params.attempt,
                         idempotency_key: params.idempotency_key,
                         completion_reason: params.completion_reason,

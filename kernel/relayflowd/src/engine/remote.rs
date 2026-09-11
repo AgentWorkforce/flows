@@ -17,6 +17,7 @@ use crate::worker::LeaseProbe;
 
 #[derive(Debug, Clone)]
 pub struct OutOfBandCompletion {
+    pub human_intervention: bool,
     pub attempt: u32,
     pub idempotency_key: String,
     pub completion_reason: CompletionReason,
@@ -127,6 +128,7 @@ impl Engine<WallClock> {
             completion.end_pins
         };
         let result = AttemptResult {
+            human_intervention: completion.human_intervention,
             output: completion.output,
             budget: completion.budget,
             completed_by: completion.completed_by,
@@ -153,10 +155,24 @@ impl Engine<WallClock> {
     /// valid, heartbeating lease are left running; only genuinely dead
     /// attempts (worker detached, or lease deadline passed) are recovered.
     pub fn resume_live(&self, run_id: &str, leases: &dyn LeaseProbe) -> Result<RunOutcome> {
+        self.resume_live_with_human_influence(run_id, leases, false)
+    }
+
+    pub fn resume_live_with_human_influence(
+        &self,
+        run_id: &str,
+        leases: &dyn LeaseProbe,
+        allow_human_influenced: bool,
+    ) -> Result<RunOutcome> {
         let now_ms = self.clock.now_ms();
-        self.resume_filtered(run_id, DriveOptions::default(), &|step_id, attempt| {
-            leases.lease_active(run_id, step_id, attempt, now_ms)
-        })
+        self.resume_filtered(
+            run_id,
+            DriveOptions {
+                allow_human_influenced,
+                ..DriveOptions::default()
+            },
+            &|step_id, attempt| leases.lease_active(run_id, step_id, attempt, now_ms),
+        )
     }
 
     /// Explain a dead leased attempt (worker disconnect or lease expiry), then

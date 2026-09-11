@@ -73,7 +73,8 @@ pub fn candidates(entries: &[JournalEntry]) -> Result<Vec<JournalEntry>, serde_j
         .filter(|e| e.entry_type == EntryType::StepCompleted)
     {
         let payload: StepCompletedPayload = serde_json::from_value(entry.payload.clone())?;
-        if payload.completion_reason == CompletionReason::Success
+        if !payload.human_intervention
+            && payload.completion_reason == CompletionReason::Success
             && payload.disposition == Disposition::StepDone
             && payload.step_spec_hash.is_some()
             && payload.input_hash.is_some()

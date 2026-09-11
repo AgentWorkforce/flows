@@ -1,0 +1,36 @@
+$ cd packages/sdk
+$ npm run typecheck && ./node_modules/.bin/vitest run tests/worker-cli.test.ts tests/pty-sidechannel.test.ts
+
+> @relayflows/sdk@2.0.8 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+ RUN  v2.1.9 /Users/khaliqgant/flows-spec-Q-sidechannel/packages/sdk
+
+ ✓ tests/pty-sidechannel.test.ts (11 tests) 5016ms
+   ✓ view attach preserves worker completion and marks only drive 1048ms
+   ✓ passthrough attach preserves worker completion and marks only drive 800ms
+   ✓ none attach preserves worker completion and marks only drive 707ms
+   ✓ none subscriber lets an unattended CLI read EOF 311ms
+   ✓ rejects drive after EOF without marking human intervention 678ms
+   ✓ delivers all drive bytes in order across child stdin backpressure 661ms
+ ✓ tests/worker-cli.test.ts (13 tests) 24222ms
+   ✓ custom wrapper execution identity > passes an explicit safe environment at identification and execution 381ms
+   ✓ custom wrapper execution identity > refuses a wrapper symlink retarget before delivering private values 520ms
+   ✓ custom wrapper execution identity > bounds wrapper execution after acknowledgement 360ms
+   ✓ custom wrapper execution identity > refuses a duplicate execute protocol frame 400ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 1864ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 2009ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3280ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11264ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts an execute token and an over-8KiB payload flushed in one write 1289ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 896ms
+   ✓ custom wrapper execution bounds are reader-owned > still bounds an un-terminated handshake buffer and names the bound 377ms
+   ✓ delivers the journaled memory pack to the real wrapper and excludes its charge from completion usage 1297ms
+
+ Test Files  2 passed (2)
+      Tests  24 passed (24)
+   Start at  21:10:32
+   Duration  24.48s (transform 50ms, setup 0ms, collect 81ms, tests 29.24s, environment 0ms, prepare 75ms)
+
+Exit status: 0

@@ -68,6 +68,8 @@ export interface RunProgress {
 
 export interface RunLifecycleOptions {
   bucket?: string;
+  allowHumanInfluenced?: boolean;
+  onPtyReady?: (path: string) => void;
   reuseFromRunId?: string;
   onProgress?: (event: ProgressEvent) => void;
   localAgent?: boolean;
@@ -114,7 +116,7 @@ async function executeCheckedFlow(
     const spec = toKernelSpec(checked.flow!);
     // Use the checked CLI/model and declared surfaces unchanged. The worker
     // advertises its existing pins; the daemon still owns surface matching.
-    if (options.localAgent) localAgent = await attachLocalAgent(client);
+    if (options.localAgent) localAgent = await attachLocalAgent(client, dataDir, options.onPtyReady);
     const outcome = await client.runStart(spec, options.reuseFromRunId);
     const execution = await classifyOutcome(client, 'run', outcome, base, socketPath, options);
     if (options.reuseFromRunId !== undefined) {
@@ -149,10 +151,16 @@ export async function resumeFlow(
   if (connected !== undefined) return connected;
 
   try {
-    await resumeSlackEffect(client, runId, dataDir);
-    const outcome = await client.runResume(runId);
+    let outcome = await client.runResume(runId, options.allowHumanInfluenced);
+    if (await resumeSlackEffect(client, runId, dataDir)) {
+      outcome = await client.runResume(runId, options.allowHumanInfluenced);
+    }
     return await classifyOutcome(client, 'resume', outcome, base, socketPath, options);
   } catch (error) {
+    if (error instanceof JournalProtocolError && error.code === 'human_influenced_run') {
+      return { exitCode: 2, report: { ...base, runId, socketPath,
+        diagnostics: [{ severity: 'refusal', kind: 'human_influenced_run', message: error.message.replace(/^human_influenced_run: /, '') }] } };
+    }
     if (error instanceof AuthoredFlowExecutionError
       && (error.code === 'helper_slack.credential_missing' || error.code === 'helper_slack.mount_required')) {
       return { exitCode: 2, report: { ...base, runId, socketPath,
@@ -280,11 +288,11 @@ export async function classifyOutcome(
     }
     if (inspection?.runningStep !== undefined) {
       await waitForRunningStep(client, current.run_id, inspection.runningStep, options);
-      current = await client.runResume(current.run_id);
+      current = await client.runResume(current.run_id, command === 'run' || options.allowHumanInfluenced);
       continue;
     }
     if (inspection?.status === 'completed' || inspection?.status === 'failed') {
-      current = await client.runResume(current.run_id);
+      current = await client.runResume(current.run_id, command === 'run' || options.allowHumanInfluenced);
       continue;
     }
     // The run is still RUNNING but no step is identifiable at this instant.
@@ -312,7 +320,7 @@ export async function classifyOutcome(
       // is already progressing -- it returns the current state rather than
       // re-dispatching. This loop leans on that up to MAX_UNCLASSIFIED_POLLS
       // times while the daemon is mid-transition.
-      current = await client.runResume(current.run_id);
+      current = await client.runResume(current.run_id, command === 'run' || options.allowHumanInfluenced);
       continue;
     }
     // Fail closed rather than loop forever: if it never resolves, the original

@@ -288,6 +288,7 @@ fn all_backing_off_steps_return_timers() {
     }))
     .unwrap();
     let result = AttemptResult {
+        human_intervention: false,
         output: Value::Null,
         budget: Budget::default(),
         completed_by: "kernel".to_owned(),
@@ -398,6 +399,7 @@ fn inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail() {
     let started = started_agent(&spec, clean);
     let running = RunState::fold("run", spec.clone(), std::slice::from_ref(&started)).unwrap();
     let result = AttemptResult {
+        human_intervention: false,
         output: Value::Null,
         budget: Budget::default(),
         completed_by: "worker".to_owned(),
@@ -515,6 +517,7 @@ fn worker_reported_failure_without_detail_still_records_a_verification() {
     }))
     .unwrap();
     let result = AttemptResult {
+        human_intervention: false,
         output: Value::Null,
         budget: Budget::default(),
         completed_by: "worker".to_owned(),

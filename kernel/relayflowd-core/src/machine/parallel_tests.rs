@@ -436,6 +436,7 @@ fn failed_run_drains_open_siblings_before_terminal_entry() {
         Some(1),
         22,
         StepCompletedPayload {
+            human_intervention: false,
             step_spec_hash: None,
             input_hash: None,
             reused_from: None,

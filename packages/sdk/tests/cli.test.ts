@@ -959,6 +959,24 @@ describe('flows run/resume CLI over the journal protocol', () => {
     expect(output.stderr.join('\n')).not.toContain('journal.read');
   });
 
+  it('refuses human-influenced resume with exit 2 and forwards the explicit override', async () => {
+    const dataDir = temporaryProject('flows-human-');
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'run.resume': (ctx, params) => {
+        if (params['allow_human_influenced'] === true) {
+          sendResult(ctx, { run_id: 'human-run', status: 'completed', completion_reason: 'success', completed_steps: 1 });
+        } else {
+          ctx.send({ id: ctx.id, ok: false, error: { code: 'human_influenced_run', message: 'step "agent"' } });
+        }
+      },
+    });
+    const refused = capture();
+    expect(await runCli(['resume', '--no-observer-link', '--data-dir', dataDir, 'human-run'], refused.io)).toBe(2);
+    expect(refused.stderr.join('\n')).toContain('REFUSED [human_influenced_run] step "agent"');
+    expect(await runCli(['resume', '--allow-human-influenced', '--no-observer-link', '--data-dir', dataDir, 'human-run'], capture().io)).toBe(0);
+  });
+
   it('maps only run_not_found resumes to exit 2', async () => {
     const dataDir = temporaryProject('flows-resume-');
     await startCliLoopback(dataDir, {
