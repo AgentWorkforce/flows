@@ -1,3 +1,5 @@
+import { loadPlugins, type LoadedPlugin } from './plugin-loader.js';
+import { PluginError } from './plugin-manifest.js';
 import type { FlowSpec, StepSpec, TriggerSpec, McpServerConfig } from './spec.js';
 import { McpError, openMcpSession, type McpDiagnostic } from './mcp-client.js';
 import { BudgetSyntaxError } from './budget.js';
@@ -64,6 +66,7 @@ export interface PreflightProbes {
 }
 
 export interface PreflightOptions {
+  pluginSearchStart?: string;
   /** Validated tools.mcp header and nearest flows.json connections. */
   mcpServers?: readonly string[];
   mcp?: Readonly<Record<string, McpServerConfig>>;
@@ -103,6 +106,7 @@ export interface PreflightWarning {
 export type PreflightDiagnostic = PreflightRefusal | PreflightWarning;
 
 export interface PreflightResult {
+  plugins?: readonly LoadedPlugin[];
   mcpTools?: Readonly<Record<string, readonly string[]>>;
   ok: boolean;
   gates: StepGateInspection[];
@@ -133,7 +137,14 @@ export function preflight(flow: FlowSpec, options: PreflightOptions): PreflightR
 export function preflight(flow: unknown, options: PreflightOptions): PreflightResult | Promise<PreflightResult> {
   const result = preflightSync(flow, options);
   if (options.mcpServers === undefined) return result;
-  return probeMcp(result, options);
+  return probeMcp(result, options).then(async checked => {
+    if (!checked.ok || options.pluginSearchStart === undefined) return checked;
+    try { return { ...checked, plugins: await loadPlugins(options.pluginSearchStart) }; }
+    catch (error) {
+      if (!(error instanceof PluginError)) throw error;
+      return { ...checked, ok: false, diagnostics: [...checked.diagnostics, { severity: 'refusal' as const, kind: error.code, message: error.message }] };
+    }
+  });
 }
 
 async function probeMcp(result: PreflightResult, options: PreflightOptions): Promise<PreflightResult> {

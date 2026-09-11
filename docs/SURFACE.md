@@ -490,6 +490,28 @@ The herdr model: first-party helpers are just plugins that ship in the box; the 
 - **Preflight is part of the contract:** a plugin declares what must be provable before a run using it starts (credentials present, server reachable, scope grantable). A plugin that can't state its preflight doesn't load. Covenant 2 extends to the ecosystem by construction.
 - Receipts, budget attribution, and identity scoping apply to plugin verbs exactly as to first-party ones — they come from the compile target, so a plugin can't opt out.
 
+### Initial plugin manifest and runtime
+
+`flows add helper-datadog` installs `@flows/helper-datadog` in the nearest
+`flows.json` project. See `testdata/plugins/helper-datadog/flows-plugin.json`
+for the manifest and `packages/sdk/src/plugin-manifest.ts` for validation.
+Successful installation records the package in `flows.json.plugins`; optional
+`flows-plugin.d.ts` augments `@relayflows/surface`'s `Ctx` and is added to the
+project's `tsconfig.json` include list (currently plain JSON configs).
+
+This first slice supports `lowersTo: "effect"`. A plugin supplies an ESM
+`src/index.js` exporting `execute(namespace, method, input, { idempotencyKey })`.
+The SDK snapshots arguments, validates their JSON Schema, and executes the
+provider through the existing journal-backed agent effect protocol. Providers
+must honor the supplied kernel effect key. Credentials and HTTP(S) HEAD probes
+run before authored flow bodies, including `flows check`.
+
+Follow-ups: other primitive targets, trigger/gate dispatch (currently refused
+with `plugin_unsupported`), manifest-driven type generation, JSONC tsconfigs,
+plugin code bundling/pinning, declarative-flow plugin preflight, and restart
+recovery of an interrupted plugin effect. Plugin effects currently inherit the
+internal authored executor's child-run lifecycle, not a resumable authored root.
+
 ## 4. Build: the immutable bundle
 
 `flows build` seals a flow into a content-addressed, immutable bundle: canonical spec JSON, compiled TS with pinned deps, helper/plugin lockfile, assets, preflight declaration, identity signature — `flow@sha256:…`, pushed to a bucket/registry. `flows deploy` points a trigger at a digest; `flows run flow@sha256:…` executes from the bucket on any cell, no checkout. Preflight runs at build time for everything build-provable and again at deploy time for environment facts (credentials, workers, MCP servers). The working tree is for authoring; **production only ever runs digests.**
