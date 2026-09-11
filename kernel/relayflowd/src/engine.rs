@@ -32,11 +32,13 @@ impl std::error::Error for RunTerminalError {}
 use crate::clock::WallClock;
 use crate::worker::{JournalObserver, StepDispatcher};
 
+mod memoization;
+pub use memoization::ReuseError;
 mod channels;
 mod drive;
 mod effects;
-mod memory;
 mod input;
+mod memory;
 mod model;
 mod placement;
 mod remote;
@@ -168,7 +170,20 @@ impl<C: Clock> Engine<C> {
         created_by: &str,
         options: DriveOptions,
     ) -> Result<RunOutcome> {
+        self.start_with_reuse(spec, created_by, options, None)
+    }
+
+    pub fn start_with_reuse(
+        &self,
+        spec: RunSpec,
+        created_by: &str,
+        options: DriveOptions,
+        reuse_from_run_id: Option<&str>,
+    ) -> Result<RunOutcome> {
         spec.validate().context("invalid run spec")?;
+        let reuse = reuse_from_run_id
+            .map(|id| self.reuse_source(id, &spec))
+            .transpose()?;
         self.preflight_placement(&spec)?;
         let run_id = Ulid::new().to_string();
         let path = self.run_path(&run_id);
@@ -176,23 +191,25 @@ impl<C: Clock> Engine<C> {
         let mut journal =
             SqliteJournal::create(&path, &run_id, now_ms).context("create run journal")?;
         let spec_value = serde_json::to_value(&spec)?;
-        self.append(
-            &mut journal,
-            &JournalEntry::new(
-                EntryType::RunSpawned,
-                run_id.clone(),
-                None,
-                None,
-                now_ms,
-                RunSpawnedPayload {
-                    spec: spec_value.clone(),
-                    spec_hash: canonical_hash(&spec_value),
-                    parent_run_id: None,
-                    journal_version: relayflowd_core::JOURNAL_VERSION,
-                    created_by: created_by.to_owned(),
-                },
-            ),
-        )?;
+        let mut spawned = JournalEntry::new(
+            EntryType::RunSpawned,
+            run_id.clone(),
+            None,
+            None,
+            now_ms,
+            RunSpawnedPayload {
+                spec: spec_value.clone(),
+                spec_hash: canonical_hash(&spec_value),
+                parent_run_id: None,
+                journal_version: relayflowd_core::JOURNAL_VERSION,
+                created_by: created_by.to_owned(),
+            },
+        );
+        if let Some(candidates) = reuse {
+            spawned.payload["reuse_from_run_id"] = reuse_from_run_id.into();
+            spawned.payload["reuse_candidates"] = serde_json::to_value(candidates)?;
+        }
+        self.append(&mut journal, &spawned)?;
         self.registry()?
             .register(&run_id, &path)
             .context("register run")?;
@@ -313,7 +330,9 @@ impl<C: Clock> Engine<C> {
         entry: &JournalEntry,
     ) -> Result<JournalEntry> {
         self.ensure_journal_mutable(journal)?;
-        let persisted = journal.append(entry).map_err(|error| anyhow!(error))?;
+        let mut entry = entry.clone();
+        self.stamp_completion(journal, &mut entry)?;
+        let persisted = journal.append(&entry).map_err(|error| anyhow!(error))?;
         if let Some(observer) = &self.observer {
             observer.appended(&persisted);
         }

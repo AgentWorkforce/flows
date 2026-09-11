@@ -197,8 +197,8 @@ export class JournalClient extends EventEmitter {
    * the run file, and append `run.spawned`. Authoring specs must be compiled
    * with `toKernelSpec` before crossing this journal-protocol boundary.
    */
-  runStart(spec: KernelRunSpec): Promise<VerbContract['run.start']['result']> {
-    return this.request('run.start', { spec }, null);
+  runStart(spec: KernelRunSpec, reuseFromRunId?: string): Promise<VerbContract['run.start']['result']> {
+    return this.request('run.start', { spec, ...(reuseFromRunId === undefined ? {} : { reuse_from_run_id: reuseFromRunId }) }, null);
   }
 
   /** §3 memoized resume. */

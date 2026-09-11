@@ -35,3 +35,5 @@ pub use state::{RunState, StateError, StepRuntime, StepState};
 
 pub const JOURNAL_VERSION: u32 = 1;
 pub const PROTOCOL_VERSION: u32 = 0;
+
+pub mod memoization;

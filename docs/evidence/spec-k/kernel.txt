@@ -1,0 +1,375 @@
+CWD: /Users/khaliqgant/flows-spec-K-memoization/kernel
+COMMAND: PATH=/Users/khaliqgant/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH sh ../ops/cargo.sh test --workspace
+
+   Compiling relayflowd-core v0.1.0 (/Users/khaliqgant/flows-spec-K-memoization/kernel/relayflowd-core)
+   Compiling relayflowd-journal v0.1.0 (/Users/khaliqgant/flows-spec-K-memoization/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/Users/khaliqgant/flows-spec-K-memoization/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.18s
+     Running unittests src/lib.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/relayflowd-1b685d2c9c9d396d)
+
+running 40 tests
+test engine::remote::worker_failure_detail_tests::a_null_or_blank_output_yields_no_detail ... ok
+test engine::remote::worker_failure_detail_tests::a_string_output_is_carried_verbatim_and_trimmed ... ok
+test engine::remote::worker_failure_detail_tests::an_output_at_the_boundary_is_not_truncated ... ok
+test engine::remote::worker_failure_detail_tests::a_non_string_output_is_rendered_rather_than_dropped ... ok
+test engine::remote::worker_failure_detail_tests::truncation_does_not_split_a_multi_byte_char ... ok
+test server::client::tests::resume_waits_while_the_heartbeat_renewed_lease_is_live ... ok
+test server::channels::tests::unknown_verb_never_falls_through_to_receive ... ok
+test server::liveness::tests::sweep_id_buckets_by_the_interval ... ok
+test engine::boot_identity_tests::every_engine_in_this_process_shares_one_boot_id ... ok
+test exec_det::tests::captures_deterministic_output ... ok
+test exec_det::tests::timeout_has_an_explicit_completion_reason ... ok
+test server::liveness::tests::sweep_pass_latches_after_journaling_and_next_bucket_is_empty ... ok
+test server::tests::agent::contract::an_agent_worker_attaching_without_pins_is_refused_at_attach ... ok
+test engine::wake::claim_guard_tests::a_guard_only_releases_its_own_run ... ok
+test server::liveness::tests::sweep_pass_healthy_subscription_is_a_noop ... ok
+test engine::wake::claim_guard_tests::an_armed_guard_releases_the_claim_when_dropped ... ok
+test engine::wake::claim_guard_tests::a_disarmed_guard_leaves_the_claim_alone ... ok
+test engine::wake::claim_guard_tests::a_panic_between_claim_and_register_still_releases ... ok
+test server::tests::agent::contract::an_oversized_trajectory_tail_is_refused_at_step_complete ... ok
+test server::tests::agent::contract::agent_without_a_compatible_worker_parks_without_starting ... ok
+test server::tests::hello_enforces_protocol_version ... ok
+test server::tests::agent::contract::an_agent_worker_missing_a_declared_surface_parks_the_run_instead_of_erroring ... ok
+test server::tests::run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run ... ok
+test server::tests::a_failed_disconnect_journal_append_is_retained_and_retried_not_dropped ... ok
+test server::tests::agent::contract::an_llm_completion_claiming_an_effect_fails_closed_with_the_reason_journaled ... ok
+test server::tests::run_start_fails_closed_on_an_unknown_verification_key ... ok
+test server::tests::agent::contract::a_replacement_worker_that_never_reported_the_pinned_surface_is_not_dispatched_to ... ok
+test socket_path::tests::deep_data_dir_produces_short_socket_path ... ok
+test socket_path::tests::different_data_dirs_yield_different_sockets ... ok
+test socket_path::tests::relative_and_absolute_data_dirs_agree ... ok
+test socket_path::tests::same_data_dir_yields_same_socket ... ok
+test server::tests::agent::pins::reset_worker_reporting_a_revision_other_than_its_pin_fails_closed_as_worker_error ... ok
+test server::tests::run_resume_refuses_a_journal_that_never_recorded_its_run ... ok
+test server::tests::run_resume_adopts_a_real_journal_whose_registry_row_is_missing ... ok
+test server::tests::run_resume_refuses_a_valid_journal_that_belongs_to_another_run ... ok
+test server::tests::agent::pins::consecutive_agent_steps_on_different_surfaces_each_start_from_their_own_pins ... ok
+test server::tests::stopped_heartbeats_past_the_deadline_journal_lease_expired_and_release_the_step ... ok
+test exec_det::tests::timeout_kills_the_whole_process_group ... ok
+test server::tests::agent::pins::a_replacement_worker_at_a_different_revision_is_not_dispatched_the_stale_pins ... ok
+test server::tests::an_entry_appended_during_watch_registration_is_delivered_exactly_once ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running unittests src/main.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/relayflowd-070cc697f576c1b0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/crash_resume.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/crash_resume-0ed88b47753927b7)
+
+running 40 tests
+test agent::resume_without_a_worker_parks_immediately_instead_of_timing_out ... ok
+test concurrency::cancel_and_completion_race_has_one_terminal_fact ... ok
+test agent::rung_c_sigkill_after_final_effect_replays_results_without_redispatch ... ok
+test concurrency::cancel_closes_the_lease_and_rejects_a_late_completion ... ok
+test agent::rung_c_crash_between_effect_election_and_the_provider_call_performs_it_exactly_once ... ok
+test channels::channels_reject_foreign_workers_stale_attempts_and_invalid_acknowledgements ... ok
+test agent::rung_c_sigkill_between_agent_completion_and_final_effect_memoizes_the_agent ... ok
+test agent::rung_c_reset_sigkill_mid_edit_restores_pins_dedupes_effect_and_explains_attempts ... ok
+test concurrency::concurrent_resumes_lease_exactly_one_attempt ... ok
+test concurrency::run_start_dispatches_every_independent_lane_before_any_completion ... ok
+test concurrency::live_resume_leaves_an_active_lease_running ... ok
+test llm::serve_plumbs_watch_events_and_replayable_stream_verbs ... ok
+test llm::llm_verification_exhaustion_is_a_declared_failure_kind ... ok
+test llm::completed_llm_output_is_memoized_when_serve_dies_during_the_next_step ... ok
+test concurrency::server_restart_recovers_every_parallel_lease_without_duplicate_success ... ok
+test agent::rung_c_sigkill_boundaries_resume_only_unfinished_steps_via_real_cli ... ok
+test llm::failing_llm_verification_schedules_a_durable_retry_and_succeeds ... ok
+test llm::sigkill_after_the_final_rung_b_effect_resumes_without_redispatching_llm ... ok
+test pin_projection::rejected_completion_cannot_forge_inspect_retry_pins_over_the_real_socket ... ok
+test memory::memory_sigkill_after_injection_replays_pack_and_charges_it_once ... ok
+test llm::worker_killed_while_holding_a_lease_is_explained_and_released_on_cli_resume ... ok
+test llm::sigkill_under_serve_mid_llm_releases_the_lease_and_finishes_via_cli_resume ... ok
+test parallel_lifecycle::terminal_failure_drains_or_explains_every_live_sibling ... ok
+test protocol_admission::every_mutating_run_verb_refuses_terminal_before_changing_state ... ok
+test llm::sigkill_sweep_covers_before_and_between_the_rung_b_steps ... ok
+test sigkill_after_cancel_request_resumes_to_one_canceled_fact ... ok
+test parallel_lifecycle::overlapping_agent_conflict_survives_server_crash_and_resume ... ok
+test sigkill_mid_step_replaces_and_explains_the_dead_attempt ... ok
+test parallel_lifecycle::overlapping_agent_lanes_serialize_while_disjoint_lanes_merge_in_either_order ... ok
+test surface_identity::aliases_are_rejected_and_external_ancestors_serialize_over_real_sockets ... ok
+test sigkill_under_serve_resumes_the_socket_started_run ... ok
+test worker_capacity::default_capacity_one_reopens_only_after_durable_completion_or_crash ... ok
+test worker_capacity::two_workers_receive_a_deterministic_fair_capacity_bounded_batch ... ok
+test workspace_identity::workspace_aliases_are_refused_and_canonical_subtrees_serialize_over_real_sockets ... ok
+test channels::channels_sigkill_resume_redelivers_unacked_messages_with_exactly_once_effects ... ok
+test placement::declared_placement_keeps_one_source_tree_across_resume ... ok
+test sigkill_sweep_covers_every_hello_step_boundary ... ok
+test placement::sigkill_before_first_step_preserves_the_submitted_workspace ... ok
+test placement::sigkill_mid_step_keeps_the_route_and_source_tree ... ok
+test parallel_lifecycle::renewed_parallel_leases_survive_the_original_grant_and_remain_distinct ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 37.66s
+
+     Running tests/daemon_lifecycle.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/daemon_lifecycle-9620bb48f99e843a)
+
+running 6 tests
+test sigkill_leaves_a_stale_file_with_a_dead_pid ... ok
+test deep_data_dir_still_binds ... ok
+test clean_shutdown_removes_advertisement_and_socket ... ok
+test connection_file_is_published_only_after_the_socket_is_live ... ok
+test a_second_serve_on_a_served_data_dir_refuses_and_the_first_keeps_serving ... ok
+test a_sigkilled_daemons_successor_starts_cleanly ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/event_wake.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/event_wake-19bcde4a9fd273d1)
+
+running 3 tests
+test two_racing_deliveries_of_one_event_produce_exactly_one_run ... ok
+test matching_event_wakes_once_with_fresh_context ... ok
+test a_resumed_run_dispatches_the_original_wake_context ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/hn_monitor_integration.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/hn_monitor_integration-04d03cb85723a133)
+
+running 1 test
+test hn_story_event_wakes_monitor_once_with_story_context ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/input_binding.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/input_binding-8c528b7421bc61ce)
+
+running 2 tests
+test binding_schema_is_additive_and_fails_closed ... ok
+test sigkill_before_consumer_resolves_original_journal_output_without_reexecuting_source ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/invalid_schema_preflight.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/invalid_schema_preflight-7e401b9ec45c0d28)
+
+running 3 tests
+test invalid_json_schema_is_refused_before_journal_or_command ... ok
+test unbounded_json_schema_is_refused_before_journal_or_command ... ok
+test legitimately_recursive_json_schema_still_starts ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.54s
+
+     Running tests/memoization.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/memoization-88ddd4eac687cedb)
+
+running 3 tests
+test refuses_missing_wrong_flow_and_unreadable_journal_before_creating_run ... ok
+test reused_prefix_survives_restart_without_source_and_never_mutates_prior ... ok
+test actual_changed_input_invalidates_consumer_even_with_identical_consumer_spec ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/memory.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/memory-0532e3a6bb825072)
+
+running 5 tests
+test rejected_journal_fact_releases_reservation_and_never_dispatches ... ok
+test llm_dispatch_receives_same_pack_after_resume_without_provider ... ok
+test over_budget_and_provider_errors_fail_without_dispatch_or_charge ... ok
+test replay_and_resume_need_no_provider_and_script_receives_recorded_pack ... ok
+test semantic_retry_reuses_memory_without_a_second_charge ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/memory_epoch.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/memory_epoch-792b15d548958f87)
+
+running 1 test
+test epoch_carries_pack_and_exact_charge_and_refuses_duplicate_injection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/parallel_driver.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/parallel_driver-da70d2f33154a601)
+
+running 4 tests
+test stop_after_one_holds_for_an_independent_deterministic_batch ... ok
+test pause_before_second_independent_step_holds_the_driver_boundary ... ok
+test backpressured_or_mismatched_lane_does_not_drop_a_later_dispatch ... ok
+test crash_boundaries_resume_the_real_driver_with_one_effect_per_lane ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/placement_pins.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/placement_pins-d57597bd05809d85)
+
+running 3 tests
+test unsupported_local_pty_is_refused_before_an_earlier_step_can_run ... ok
+test default_worker_pins_the_declared_worktree_base_commit_and_refuses_missing_source ... ok
+test a_resumed_attempt_keeps_the_original_pin_after_the_worktree_head_moves ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running tests/placement_routing.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/placement_routing-f70863cafe5a7139)
+
+running 3 tests
+test a_failed_routing_append_never_starts_or_dispatches_work ... ok
+test crash_between_routing_and_start_does_not_redecide ... ok
+test worker_retry_consumes_the_original_routing_fact ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/routing_diagnostics.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/routing_diagnostics-5c14a326886356e9)
+
+running 2 tests
+test duplicate_routes_have_a_distinct_diagnostic_and_leave_the_original_fact_intact ... ok
+test malformed_routes_name_the_same_field_at_append_replay_and_epoch_replay ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/spec_review_routing.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/spec_review_routing-74ae623efb05f674)
+
+running 4 tests
+test attempt_scoped_route_is_rejected_at_append_and_replay ... ok
+test malformed_epoch_routes_are_rejected_before_commit ... ok
+test epoch_cannot_drop_or_replace_a_durable_route ... ok
+test workspace_pin_peels_tags_and_refuses_non_commit_objects ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/subscription_liveness.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/subscription_liveness-64b4de1920a40c88)
+
+running 3 tests
+test submit_event_upserts_subscription_row_and_sweep_flags_it_stale_after_budget ... ok
+test stale_transition_is_journaled_as_subscription_stale_entry_in_the_last_known_run ... ok
+test a_fresh_arrival_re_arms_the_latch_and_the_next_silence_can_stale_again ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/relayflowd_core-3dfe6fb231bf8ce6)
+
+running 60 tests
+test clock::tests::simulated_clock_is_explicitly_advanced ... ok
+test journal::tests::memory_journal_assigns_sequences_and_rolls_epochs ... ok
+test channel::tests::send_retry_is_stable_and_conflicting_content_is_rejected ... ok
+test channel::tests::malformed_payloads_and_invalid_new_channel_appends_leave_state_unchanged ... ok
+test channel::tests::forged_deliveries_and_acknowledgements_fail_closed ... ok
+test channel::tests::delivery_replay_and_independent_acknowledged_offsets ... ok
+test machine::parallel_tests::machine_starts_every_runnable_step_in_authored_order ... ok
+test machine::parallel_tests::every_declared_mutable_surface_participates_in_conflict_selection ... ok
+test machine::parallel_tests::external_ancestor_and_descendant_paths_conflict_but_siblings_do_not ... ok
+test machine::parallel_tests::workspace_ancestor_and_descendant_paths_conflict_but_siblings_do_not ... ok
+test machine::tests::cancel_request_closes_the_active_lease_before_the_terminal_fact ... ok
+test machine::parallel_tests::overlapping_agent_surfaces_are_serialized_in_authored_order ... ok
+test machine::tests::all_backing_off_steps_return_timers ... ok
+test machine::parallel_tests::failed_run_drains_open_siblings_before_terminal_entry ... ok
+test machine::parallel_tests::crash_resume_preserves_each_parallel_lease_exactly_once ... ok
+test machine::parallel_tests::parallel_lanes_do_not_cross_the_dependency_barrier_early ... ok
+test machine::tests::every_reason_label_matches_its_serialized_form ... ok
+test machine::tests::durable_cancel_request_outranks_crash_recovery ... ok
+test machine::tests::machine_starts_runnable_step_with_stable_effect_key ... ok
+test machine::tests::repeated_cancel_request_is_idempotent ... ok
+test machine::tests::crashed_attempt_does_not_consume_an_iteration ... ok
+test machine::parallel_tests::disjoint_agent_lanes_merge_pins_in_either_completion_order ... ok
+test machine::tests::successful_memo_is_never_scheduled_again ... ok
+test machine::tests::manual_recovery_parks_needs_human_and_never_redispatches ... ok
+test machine::tests::verification_failure_schedules_a_durable_retry ... ok
+test machine::tests::worker_reported_failure_without_detail_still_records_a_verification ... ok
+test memory::tests::caps_compare_exact_decimals_and_each_token_dimension ... ok
+test machine::tests::inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail ... ok
+test retry::tests::jitter_is_repeatable_and_bounded ... ok
+test machine::tests::reset_recovery_dispatches_the_original_pinned_revision ... ok
+test machine::tests::every_failed_run_terminates_with_declared_completion_reasons ... ok
+test spec::tests::a_misspelled_step_level_key_is_a_parse_error ... ok
+test spec::tests::a_misspelled_verification_gate_key_is_a_parse_error_not_a_dropped_gate ... ok
+test schema::tests::refusal_names_the_cycle_it_found ... ok
+test schema::tests::in_document_uri_references_resolve_to_the_node_they_name ... ok
+test spec::tests::cycles_are_rejected ... ok
+test spec::tests::external_surface_paths_must_have_one_canonical_spelling ... ok
+test spec::tests::preflight_data_is_fail_closed ... ok
+test spec::tests::spec_version_is_semver_and_gated ... ok
+test spec::tests::unknown_root_and_nested_fields_are_rejected ... ok
+test schema::tests::references_the_bound_leaves_opaque_are_refused_by_the_engine ... ok
+test spec::tests::zero_agent_flow_is_valid ... ok
+test state::budget::tests::adds_costs_exactly_beyond_machine_decimal_precision ... ok
+test state::budget::tests::overflow_and_malformed_cost_leave_total_unchanged ... ok
+test spec::tests::workspace_mounts_and_worktrees_must_have_one_canonical_spelling ... ok
+test state::tests::budget_decimal_strings_add_without_floats ... ok
+test state::tests::end_pin_chain_is_enforced_and_a_broken_chain_is_a_hard_error ... ok
+test state::tests::a_completion_that_omits_a_surface_does_not_drop_it_from_the_pin_chain ... ok
+test state::tests::journal_replays_data_gate_verdict_without_rerunning_completed_code ... ok
+test verify::tests::an_unbounded_schema_in_a_journal_fails_its_gate_instead_of_aborting ... ok
+test verify::tests::deterministic_output_requires_successful_exit_and_content ... ok
+test spec::tests::the_full_ladder_parses_in_the_one_dialect ... ok
+test verify::tests::json_schema_is_a_control_gate ... ok
+test schema::tests::a_property_named_ref_is_not_a_reference ... ok
+test schema::tests::shared_declarations_and_boolean_schemas_are_validated ... ok
+test schema::tests::every_accepted_corpus_schema_is_accepted ... ok
+test schema::tests::every_refused_corpus_schema_compiles_but_is_refused_by_the_bound ... ok
+test spec::tests::sdk_boundary_rejects_a_10_000_step_cycle_with_a_typed_error ... ok
+test spec::tests::sdk_boundary_accepts_a_valid_10_000_step_reverse_chain ... ok
+test schema::tests::deeply_nested_schemas_do_not_overflow_the_checker ... ok
+
+test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+     Running tests/memoization.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/memoization-03ce1496a6bf6a9f)
+
+running 4 tests
+test distinct_large_kernel_integers_do_not_alias_through_float_rounding ... ok
+test match_reuses_output_with_provenance_and_zero_cost_without_dispatch ... ok
+test changed_spec_or_input_dispatches_and_legacy_or_failed_records_miss ... ok
+test canonical_corpus_agrees_with_typescript_and_key_permutations ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/spec_parity.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/spec_parity-314cc71d517af1cb)
+
+running 9 tests
+test placement_requirements_have_identical_canonical_bytes_and_hash ... ok
+test the_kernel_parses_the_event_triggered_spec_and_stamps_the_same_hash ... ok
+test step_memory_has_identical_canonical_bytes_and_hash ... ok
+test memory_declaration_acceptance_matches_the_sdk_corpus ... ok
+test the_kernel_parses_the_deterministic_rung_and_stamps_the_same_hash ... ok
+test the_kernel_parses_the_rung_c_agent_spec_and_stamps_the_same_hash ... ok
+test placement_declaration_acceptance_matches_the_sdk_corpus ... ok
+test the_kernel_parses_the_sdk_compiled_spec_and_stamps_the_same_hash ... ok
+test the_kernel_parses_the_rung_b_spec_and_stamps_the_same_hash ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (/Users/khaliqgant/.relayflows-toolchain/target/1475297677/debug/deps/relayflowd_journal-90f048220e0eee34)
+
+running 28 tests
+test registry::tests::a_same_boot_claim_with_no_run_yet_is_a_duplicate_not_wreckage ... ok
+test registry::tests::registry_is_a_rebuildable_run_locator ... ok
+test registry::tests::releasing_a_claim_lets_the_same_boot_retry ... ok
+test registry::tests::a_registered_run_dedupes_across_boots ... ok
+test registry::tests::a_previous_boots_claim_with_no_run_is_repaired ... ok
+test registry::tests::a_pre_migration_registry_gains_boot_id_and_its_claims_are_repairable ... ok
+test registry::tests::releasing_is_scoped_to_the_claiming_run ... ok
+test channel::tests::stale_attempts_and_raw_forged_acknowledgements_cannot_change_offsets ... ok
+test subscriptions::tests::last_run_for_subscription_returns_none_before_first_arrival ... ok
+test subscriptions::tests::detect_without_latch_stays_available_for_the_next_sweep ... ok
+test subscriptions::tests::latch_is_a_no_op_if_a_fresh_event_arrived_between_detect_and_latch ... ok
+test subscriptions::tests::prune_sweep_claims_deletes_only_rows_older_than_cutoff ... ok
+test subscriptions::tests::last_run_for_subscription_returns_the_lex_greatest_ulid_regardless_of_insertion ... ok
+test channel::tests::channels_cross_segment_boundaries_and_terminal_runs_reject_mutations ... ok
+test subscriptions::tests::sweep_election_gives_the_first_caller_the_result_and_second_gets_empty ... ok
+test subscriptions::tests::sweep_does_not_re_emit_the_same_stale_row_on_a_later_tick ... ok
+test subscriptions::tests::sweep_ignores_subscriptions_whose_silence_is_still_within_budget ... ok
+test subscriptions::tests::sweep_marks_row_stale_when_silence_exceeds_budget ... ok
+test subscriptions::tests::upsert_after_stale_re_arms_and_next_silence_can_re_emit ... ok
+test subscriptions::tests::upsert_is_idempotent_across_bumps_and_preserves_event_type_updates ... ok
+test tests::failed_commit_is_returned_not_swallowed ... ok
+test channel::tests::failed_channel_writes_never_expose_delivery_or_advance_acknowledged_offset ... ok
+test tests::append_is_durable_and_monotonic_after_reopen ... ok
+test tests::rollover_is_atomic_scaffolding_for_epoch_resume ... ok
+test tests::an_unconfirmed_election_is_reclaimed_by_the_next_attempt_not_treated_as_done ... ok
+test tests::effects_are_deduplicated_at_the_journal_boundary ... ok
+test tests::terminal_run_refuses_every_later_entry_atomically ... ok
+test channel::tests::independent_connections_serialize_send_receive_and_acknowledgement ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+   Doc-tests relayflowd
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests relayflowd_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests relayflowd_journal
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

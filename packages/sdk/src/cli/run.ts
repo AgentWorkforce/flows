@@ -1,3 +1,4 @@
+import { reuseSummary } from './reuse.js';
 import { resumeSlackEffect } from '../authored-slack-effect.js';
 import { AuthoredFlowExecutionError } from '../authored-flow-error.js';
 import { join, resolve } from 'node:path';
@@ -46,6 +47,7 @@ export interface RunReport {
   status?: RunStatus;
   completionReason?: RunCompletionReason;
   completedSteps?: number;
+  reuse?: { fromRunId: string; reusedSteps: number; executedSteps: number };
   parkedStep?: ParkedStep;
   projectConfigPath?: string;
   resolutions: CheckReport['resolutions'];
@@ -65,6 +67,7 @@ export interface RunProgress {
 }
 
 export interface RunLifecycleOptions {
+  reuseFromRunId?: string;
   onProgress?: (event: ProgressEvent) => void;
   localAgent?: boolean;
   signal?: AbortSignal;
@@ -109,9 +112,22 @@ async function executeCheckedFlow(
     // Use the checked CLI/model and declared surfaces unchanged. The worker
     // advertises its existing pins; the daemon still owns surface matching.
     if (options.localAgent) localAgent = await attachLocalAgent(client);
-    const outcome = await client.runStart(spec);
-    return await classifyOutcome(client, 'run', outcome, base, socketPath, options);
+    const outcome = await client.runStart(spec, options.reuseFromRunId);
+    const execution = await classifyOutcome(client, 'run', outcome, base, socketPath, options);
+    if (options.reuseFromRunId !== undefined) {
+      execution.report.reuse = await reuseSummary(client, outcome.run_id, options.reuseFromRunId);
+    }
+    return execution;
   } catch (error) {
+    if (error instanceof JournalProtocolError && (
+      error.code === 'reuse_spec_mismatch' || error.code === 'reuse_run_not_found'
+      || error.code === 'reuse_journal_read_failed'
+    )) {
+      const failed = error.code === 'reuse_journal_read_failed';
+      return { exitCode: failed ? 1 : 2, report: { ...base, socketPath,
+        diagnostics: [...base.diagnostics, { severity: failed ? 'failure' : 'refusal',
+          kind: error.code, message: error.message }] } };
+    }
     return protocolFailure('run', base, socketPath, localAgent?.failure ?? error);
   } finally {
     try { await localAgent?.close(); } finally { client.close(); }

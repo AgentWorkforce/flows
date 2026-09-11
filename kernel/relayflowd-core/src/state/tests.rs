@@ -22,6 +22,9 @@ fn journal_replays_data_gate_verdict_without_rerunning_completed_code() {
         Some(1),
         5,
         StepCompletedPayload {
+            step_spec_hash: None,
+            input_hash: None,
+            reused_from: None,
             completion_reason: CompletionReason::Success,
             disposition: Disposition::StepDone,
             output: json!({"exit_code": 0, "stdout_tail": "once"}),

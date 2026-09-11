@@ -436,6 +436,9 @@ fn failed_run_drains_open_siblings_before_terminal_entry() {
         Some(1),
         22,
         StepCompletedPayload {
+            step_spec_hash: None,
+            input_hash: None,
+            reused_from: None,
             completion_reason: CompletionReason::Success,
             disposition: Disposition::StepDone,
             output: Value::Null,
@@ -453,4 +456,3 @@ fn failed_run_drains_open_siblings_before_terminal_entry() {
         Err(StateError::EntryAfterRunCompleted { .. })
     ));
 }
-

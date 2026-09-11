@@ -40,7 +40,7 @@ type ParsedArgs =
   | ReplayArgs
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean }
   | { command: 'check'; json: boolean; value: string }
-  | { command: 'run'; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
+  | { command: 'run'; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
   | { command: 'resume'; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
   | { command: 'observer'; dataDir: string }
   | { command: 'hn-monitor'; sub: 'start'; dataDir: string; specPath: string; pollIntervalMs: number | undefined }
@@ -52,7 +52,7 @@ const DEFAULT_DATA_DIR = '.relayflowd';
 const USAGE = [
   'Usage:',
   'flows check [--json] <flow.yaml|spec.json>',
-  'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.yaml|spec.json>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
@@ -162,6 +162,7 @@ export async function runCli(
     if (!parsed.json) for (const line of renderProgress([event])) io.stderr(line);
   };
   const lifecycle = {
+    ...(parsed.command === 'run' && parsed.reuseFromRunId !== undefined ? { reuseFromRunId: parsed.reuseFromRunId } : {}),
     localAgent: parsed.command === 'run' && parsed.localAgent,
     onProgress: showProgress,
     onWait: (progress: RunProgress) => {
@@ -378,6 +379,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let noObserverLink = false;
   let input: string | undefined;
   let sawInput = false;
+  let reuseFromRunId: string | undefined;
   const positionals: string[] = [];
   for (let index = 1; index < args.length; index += 1) {
     const argument = args[index]!;
@@ -419,6 +421,13 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       index += 1;
       continue;
     }
+    if (argument === '--reuse-from') {
+      const value = args[index + 1];
+      if (command !== 'run' || reuseFromRunId !== undefined || !value || value.startsWith('-')) return undefined;
+      reuseFromRunId = value;
+      index += 1;
+      continue;
+    }
     if (argument === '--input') {
       const value = args[index + 1];
       if (command !== 'run' || sawInput || value === undefined || value.startsWith('--')) return undefined;
@@ -437,16 +446,17 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     // local run -- an inline input, a data dir, a suppressed daemon, a local
     // agent, a local observer-link opt-out -- describes nothing there and is
     // refused rather than ignored.
-    if (sawInput || sawDataDir || !spawn || localAgent || noObserverLink) return undefined;
+    if (sawInput || sawDataDir || !spawn || localAgent || noObserverLink || reuseFromRunId !== undefined) return undefined;
     return { command: 'cloud-run', value: positionals[0]!, json, wait };
   }
   if (wait) return undefined;
+  if (reuseFromRunId !== undefined && isAuthoredFlowPath(positionals[0]!)) return undefined;
 
   if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!)) return undefined;
   return command === 'check'
     ? { command, json, value: positionals[0]! }
     : command === 'run'
-      ? { command, localAgent, dataDir, input, json, spawn, noObserverLink, value: positionals[0]! }
+      ? { command, reuseFromRunId, localAgent, dataDir, input, json, spawn, noObserverLink, value: positionals[0]! }
       : { command, dataDir, json, spawn, noObserverLink, value: positionals[0]! };
 }
 
@@ -634,6 +644,9 @@ function emitRunReport(
     ? ''
     : ` completionReason: ${report.completionReason}`;
   io.stdout(`RUN ${report.runId} ${report.status ?? 'unknown'}${completed}${reason}`);
+  if (report.reuse !== undefined) {
+    io.stdout(`REUSE from ${report.reuse.fromRunId}: ${report.reuse.reusedSteps} reused, ${report.reuse.executedSteps} executed`);
+  }
   // The observer line no longer rides inline with the RUN summary in
   // plain-text mode: a slow mint used to hold back this whole line and any
   // check diagnostics for up to `MINT_TIMEOUT_MS`. `finalizeObserverLine`

@@ -1,0 +1,186 @@
+[
+  {
+    "name": "step-0",
+    "value": {
+      "command": "echo hello",
+      "depends_on": [],
+      "id": "greet",
+      "max_iterations": 1,
+      "retry": {
+        "initial_backoff_ms": 100,
+        "jitter_percent": 20,
+        "max_backoff_ms": 60000,
+        "multiplier": 2
+      },
+      "timeout_ms": 5000,
+      "type": "deterministic",
+      "verification": {
+        "output_contains": "hello"
+      }
+    },
+    "canonical": "{\"command\":\"echo hello\",\"depends_on\":[],\"id\":\"greet\",\"max_iterations\":1,\"retry\":{\"initial_backoff_ms\":100,\"jitter_percent\":20,\"max_backoff_ms\":60000,\"multiplier\":2},\"timeout_ms\":5000,\"type\":\"deterministic\",\"verification\":{\"output_contains\":\"hello\"}}",
+    "sha256": "afe88864ffdf0b1709194cddea8c25fb8b2a43794f2b42cfe8bcc690705b8d44"
+  },
+  {
+    "name": "step-1",
+    "value": {
+      "depends_on": [
+        "greet"
+      ],
+      "id": "plan",
+      "max_iterations": 3,
+      "model": "claude-sonnet-5",
+      "prompt": "Reply with JSON {answer: number} for 2+2.",
+      "retry": {
+        "initial_backoff_ms": 100,
+        "jitter_percent": 20,
+        "max_backoff_ms": 60000,
+        "multiplier": 2
+      },
+      "type": "llm",
+      "verification": {
+        "json_schema": {
+          "required": [
+            "answer"
+          ],
+          "type": "object"
+        }
+      }
+    },
+    "canonical": "{\"depends_on\":[\"greet\"],\"id\":\"plan\",\"max_iterations\":3,\"model\":\"claude-sonnet-5\",\"prompt\":\"Reply with JSON {answer: number} for 2+2.\",\"retry\":{\"initial_backoff_ms\":100,\"jitter_percent\":20,\"max_backoff_ms\":60000,\"multiplier\":2},\"type\":\"llm\",\"verification\":{\"json_schema\":{\"required\":[\"answer\"],\"type\":\"object\"}}}",
+    "sha256": "b8181eacbb5f276901f8893a1a7996e1e10d6cca2d9e58077071252d55b182fd"
+  },
+  {
+    "name": "step-2",
+    "value": {
+      "depends_on": [
+        "plan"
+      ],
+      "id": "act",
+      "instruction": "Apply the plan to the repo.",
+      "max_iterations": 1,
+      "permissions": {
+        "access_preset": "readwrite",
+        "file_globs": [
+          "src/**"
+        ]
+      },
+      "recovery_mode": "inspect",
+      "retry": {
+        "initial_backoff_ms": 100,
+        "jitter_percent": 20,
+        "max_backoff_ms": 60000,
+        "multiplier": 2
+      },
+      "surfaces": {
+        "external": [
+          "pr://github/example"
+        ],
+        "streams": [
+          {
+            "stream": "results"
+          }
+        ],
+        "workspace": [
+          {
+            "surface": "repo"
+          }
+        ]
+      },
+      "type": "agent",
+      "verification": {}
+    },
+    "canonical": "{\"depends_on\":[\"plan\"],\"id\":\"act\",\"instruction\":\"Apply the plan to the repo.\",\"max_iterations\":1,\"permissions\":{\"access_preset\":\"readwrite\",\"file_globs\":[\"src/**\"]},\"recovery_mode\":\"inspect\",\"retry\":{\"initial_backoff_ms\":100,\"jitter_percent\":20,\"max_backoff_ms\":60000,\"multiplier\":2},\"surfaces\":{\"external\":[\"pr://github/example\"],\"streams\":[{\"stream\":\"results\"}],\"workspace\":[{\"surface\":\"repo\"}]},\"type\":\"agent\",\"verification\":{}}",
+    "sha256": "6b8c6f989ac32e3675db713bc2c5fa585bb8023b0b687059ce3cfd28bc42f853"
+  },
+  {
+    "name": "step-3",
+    "value": {
+      "depends_on": [
+        "greet"
+      ],
+      "id": "plan",
+      "max_iterations": 3,
+      "model": "claude-sonnet-5",
+      "prompt": "Reply with JSON {answer: number} for 2+2.",
+      "retry": {
+        "initial_backoff_ms": 100,
+        "jitter_percent": 20,
+        "max_backoff_ms": 60000,
+        "multiplier": 2
+      },
+      "type": "llm",
+      "verification": {
+        "json_schema": {
+          "type": "number",
+          "minimum": 1e-7,
+          "maximum": 1e+21
+        }
+      }
+    },
+    "canonical": "{\"depends_on\":[\"greet\"],\"id\":\"plan\",\"max_iterations\":3,\"model\":\"claude-sonnet-5\",\"prompt\":\"Reply with JSON {answer: number} for 2+2.\",\"retry\":{\"initial_backoff_ms\":100,\"jitter_percent\":20,\"max_backoff_ms\":60000,\"multiplier\":2},\"type\":\"llm\",\"verification\":{\"json_schema\":{\"maximum\":1e+21,\"minimum\":1e-7,\"type\":\"number\"}}}",
+    "sha256": "298e756ddd738e32ab4b299d9ce04f903cada8786838c723dbf31f3f1e16f0ee"
+  },
+  {
+    "name": "step-4",
+    "value": {
+      "command": "printf \"héllo\\n世界\"",
+      "depends_on": [],
+      "id": "greet",
+      "max_iterations": 1,
+      "retry": {
+        "initial_backoff_ms": 100,
+        "jitter_percent": 20,
+        "max_backoff_ms": 60000,
+        "multiplier": 2
+      },
+      "timeout_ms": 5000,
+      "type": "deterministic",
+      "verification": {
+        "output_contains": "hello"
+      }
+    },
+    "canonical": "{\"command\":\"printf \\\"héllo\\\\n世界\\\"\",\"depends_on\":[],\"id\":\"greet\",\"max_iterations\":1,\"retry\":{\"initial_backoff_ms\":100,\"jitter_percent\":20,\"max_backoff_ms\":60000,\"multiplier\":2},\"timeout_ms\":5000,\"type\":\"deterministic\",\"verification\":{\"output_contains\":\"hello\"}}",
+    "sha256": "11d410ed10a1d5935e24f89ee53f55340218502a701e3c522008ae2b20e8d745"
+  },
+  {
+    "name": "step-5",
+    "value": {
+      "depends_on": [
+        "greet"
+      ],
+      "id": "plan",
+      "max_iterations": 3,
+      "model": "claude-sonnet-5",
+      "prompt": "Reply with JSON {answer: number} for 2+2.",
+      "retry": {
+        "initial_backoff_ms": 100,
+        "jitter_percent": 20,
+        "max_backoff_ms": 60000,
+        "multiplier": 2
+      },
+      "type": "llm",
+      "verification": {
+        "json_schema": {
+          "required": [
+            "answer"
+          ],
+          "type": "object"
+        }
+      },
+      "input": {
+        "z": {
+          "step": "greet",
+          "path": [
+            "stdout_tail"
+          ]
+        },
+        "a": {
+          "step": "greet"
+        }
+      }
+    },
+    "canonical": "{\"depends_on\":[\"greet\"],\"id\":\"plan\",\"input\":{\"a\":{\"step\":\"greet\"},\"z\":{\"path\":[\"stdout_tail\"],\"step\":\"greet\"}},\"max_iterations\":3,\"model\":\"claude-sonnet-5\",\"prompt\":\"Reply with JSON {answer: number} for 2+2.\",\"retry\":{\"initial_backoff_ms\":100,\"jitter_percent\":20,\"max_backoff_ms\":60000,\"multiplier\":2},\"type\":\"llm\",\"verification\":{\"json_schema\":{\"required\":[\"answer\"],\"type\":\"object\"}}}",
+    "sha256": "d1ac482ded0a2e5e47c8bc7d63034b8c7ad8c89add796009266f0ac8a2932a7c"
+  }
+]
