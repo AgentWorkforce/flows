@@ -596,3 +596,43 @@ fn every_reason_label_matches_its_serialized_form() {
         );
     }
 }
+
+#[test]
+fn deterministic_lease_override_and_default_are_journaled() {
+    for (lease, duration) in [(None, 30_000), (Some(300_000), 300_000), (Some(10), 10)] {
+        let mut value =
+            json!({"steps": [{"id": "cmd", "type": "deterministic", "command": "true"}]});
+        if let Some(ms) = lease {
+            value["steps"][0]["lease_ms"] = json!(ms);
+        }
+        let spec = crate::RunSpec::parse(&value).unwrap();
+        spec.validate().unwrap();
+        let state = RunState::fold("run", spec, &[]).unwrap();
+        let clock = SimClock::new(1000);
+        let Action::Append(started) = &next_actions(&state, clock.now_ms())[0] else {
+            panic!("expected journaled lease");
+        };
+        let payload: AttemptStartedPayload =
+            serde_json::from_value(started.payload.clone()).unwrap();
+        assert_eq!(payload.lease_deadline_ms, clock.now_ms() + duration);
+    }
+}
+
+#[test]
+fn deterministic_lease_rejects_invalid_and_foreign_fields() {
+    for ms in [0, u64::MAX] {
+        let spec = crate::RunSpec::parse(&json!({"steps": [{
+            "id": "cmd", "type": "deterministic", "command": "true", "lease_ms": ms
+        }]}))
+        .unwrap();
+        assert!(spec.validate().is_err());
+    }
+    for kind in ["llm", "agent"] {
+        assert!(
+            crate::RunSpec::parse(&json!({"steps": [{
+                "id": "worker", "type": kind, "lease_ms": 1000
+            }]}))
+            .is_err()
+        );
+    }
+}

@@ -280,7 +280,13 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
         "unassigned"
     };
     let lease_id = deterministic_ulid(&state.run_id, &step.id, attempt, now_ms, "lease");
-    let lease_deadline_ms = now_ms.saturating_add(LEASE_DURATION_MS);
+    let lease_duration_ms = match &step.kind {
+        StepKind::Deterministic {
+            lease_ms: Some(ms), ..
+        } => i64::try_from(*ms).unwrap_or(i64::MAX),
+        _ => LEASE_DURATION_MS,
+    };
+    let lease_deadline_ms = now_ms.saturating_add(lease_duration_ms);
     let started = JournalEntry::new(
         EntryType::StepAttemptStarted,
         state.run_id.clone(),

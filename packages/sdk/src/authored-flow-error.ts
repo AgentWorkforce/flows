@@ -19,6 +19,7 @@ export type AuthoredFlowExecutionErrorCode =
   | 'operation_after_completion'
   | 'operation_callback_failed'
   | 'step_failed'
+  | 'lease_exceeded'
   | 'unsupported_completion'
   | 'unsupported_gate'
   | 'unsupported_header'

@@ -146,6 +146,16 @@ impl RunSpec {
             if step.max_iterations == 0 {
                 return Err(SpecError::ZeroIterations(step.id.clone()));
             }
+            if let StepKind::Deterministic {
+                lease_ms: Some(ms), ..
+            } = &step.kind
+                && (*ms == 0 || *ms > i64::MAX as u64)
+            {
+                return Err(SpecError::Malformed(format!(
+                    "step {}: lease_ms must be positive and fit in i64",
+                    step.id
+                )));
+            }
             let cli = match &step.kind {
                 StepKind::Llm { cli, .. } | StepKind::Agent { cli, .. } => cli,
                 StepKind::Deterministic { .. } => &None,
@@ -297,7 +307,7 @@ const STEP_COMMON_FIELDS: &[&str] = &[
     "memory",
     "requirements",
 ];
-const STEP_DETERMINISTIC_FIELDS: &[&str] = &["command", "timeout_ms"];
+const STEP_DETERMINISTIC_FIELDS: &[&str] = &["command", "timeout_ms", "lease_ms"];
 const STEP_LLM_FIELDS: &[&str] = &["prompt", "model", "cli"];
 const STEP_AGENT_FIELDS: &[&str] = &[
     "instruction",
@@ -393,6 +403,8 @@ pub enum StepKind {
         command: CommandSpec,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         timeout_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lease_ms: Option<u64>,
     },
     Llm {
         prompt: String,

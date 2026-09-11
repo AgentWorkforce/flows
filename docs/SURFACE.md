@@ -426,6 +426,20 @@ example selects `stdout_tail`. JSON-emitting agent/LLM outputs use their declare
 value shape directly. Use matching SDK and kernel builds for input bindings;
 older kernels refuse the new field.
 
+### Command timeouts
+
+`f.run(command, { timeout?: string | number })` gives each command its own
+lease. The default is **30 seconds**. Use `await f.run(command, { timeout: '5m' })`
+or `{ timeout: 300000 }` for longer work. Strings accept `ms`, `s`, and `m`;
+the resolved value must be a positive whole number of milliseconds.
+
+The hard ceiling is **15 minutes** (900000 ms), inclusive. A larger timeout
+is refused during step compilation, before dispatch, with `lease_exceeded`;
+malformed durations are refused with `timeout_invalid`. On reaching its timeout,
+the kernel kills the command's process group and journals `completionReason: timeout`;
+`f.run` refuses with code `lease_exceeded`. The override applies only to that
+invocation; calls without options retain the default.
+
 ### The authored operation lifecycle
 
 An authored TypeScript body reaches `done()` only if every step it created was

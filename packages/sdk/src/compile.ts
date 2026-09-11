@@ -54,6 +54,48 @@ export class CompileError extends Error {
 }
 
 /**
+ * Parse the f.run timeout before submitting any command to the kernel.
+ *
+ * Accepts a positive whole-millisecond `number`, or a duration string of the
+ * form `<coefficient><unit>` where unit is `ms` / `s` / `m` — matched by an
+ * anchored regex that captures the coefficient first (group 1) and the unit
+ * second (group 2), so a future edit cannot silently swap them. Fractional
+ * coefficients that resolve to integer milliseconds are accepted; the
+ * multiplication is rounded to the nearest integer so `1.1s → 1100`
+ * survives float-precision (`1.1 * 1000 = 1100.0000000000002`) rather than
+ * being rejected by `isSafeInteger`.
+ */
+export function parseStepTimeout(timeout: unknown): number {
+  const unitToMs: Record<'ms' | 's' | 'm', number> = { ms: 1, s: 1000, m: 60_000 };
+  let milliseconds: number;
+  if (typeof timeout === 'number') {
+    milliseconds = timeout;
+  } else if (typeof timeout === 'string') {
+    const match = /^(\d+(?:\.\d+)?)(ms|s|m)$/.exec(timeout);
+    if (match === null) {
+      milliseconds = NaN;
+    } else {
+      const coefficient = Number(match[1]);
+      const unit = match[2] as 'ms' | 's' | 'm';
+      // Round to defeat float precision (1.1 * 1000 = 1100.0000000000002).
+      // Fractional milliseconds themselves (e.g. `1.5ms`) still round to `2`,
+      // which the isSafeInteger check below accepts. Sub-ms precision is not
+      // a supported unit — authors expressing "1.5ms" get the closest int.
+      milliseconds = Math.round(coefficient * unitToMs[unit]);
+    }
+  } else {
+    milliseconds = NaN;
+  }
+  if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) {
+    throw new CompileError(['f.run timeout must be a positive whole number of milliseconds or a duration such as "10s" or "5m".'], 'timeout_invalid');
+  }
+  if (milliseconds > 15 * 60_000) {
+    throw new CompileError(['f.run timeout exceeds the maximum of 15 minutes declared in SURFACE.md.'], 'lease_exceeded');
+  }
+  return milliseconds;
+}
+
+/**
  * Compile a YAML string into a validated authoring `FlowSpec`.
  * Throws `CompileError` on a YAML parse error or any validation failure.
  */
@@ -156,6 +198,7 @@ function compileStep(step: StepSpec): StepSpec {
         // #138: `timeoutMs` is deterministic-only — worker-backed verbs own
         // their dispatch timeout. It must be spread HERE and nowhere in `base`.
         ...(s.timeoutMs !== undefined ? { timeoutMs: s.timeoutMs } : {}),
+        ...(s.lease_ms !== undefined ? { lease_ms: parseStepTimeout(s.lease_ms) } : {}),
       };
     }
     case 'llm': {
@@ -372,14 +415,14 @@ function kernelTriggerToAuthoring(value: unknown, at: string): unknown {
 function kernelStepToAuthoring(value: unknown, at: string): unknown {
   const unionKeys = [
     'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input',
-    'command', 'timeout_ms', 'prompt', 'model', 'cli', 'instruction',
+    'command', 'timeout_ms', 'lease_ms', 'prompt', 'model', 'cli', 'instruction',
     'recovery_mode', 'surfaces', 'permissions',
   ] as const;
   const step = requireKernelObject(value, unionKeys, at);
   const type = step['type'];
   const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input'] as const;
   const typeKeys = type === 'deterministic'
-    ? ['command', 'timeout_ms'] as const
+    ? ['command', 'timeout_ms', 'lease_ms'] as const
     : type === 'llm'
       ? ['prompt', 'model', 'cli'] as const
       : type === 'agent'
@@ -405,6 +448,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
       ...common,
       command: step['command'],
       ...(step['timeout_ms'] !== undefined ? { timeoutMs: step['timeout_ms'] } : {}),
+      ...(step['lease_ms'] !== undefined ? { lease_ms: step['lease_ms'] } : {}),
     };
   }
   if (type === 'llm') {
@@ -554,6 +598,7 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
         type: 'deterministic',
         command: step.command,
         ...(step.timeoutMs !== undefined ? { timeout_ms: step.timeoutMs } : {}),
+        ...(step.lease_ms !== undefined ? { lease_ms: parseStepTimeout(step.lease_ms) } : {}),
       };
     case 'llm': {
       return {
