@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { watchCheck } from './cli-watch.js';
 import { checkHelperBody } from './cli/check-helper-body.js';
 
 import { renderProgress, type ProgressEvent } from './progress.js';
@@ -42,7 +43,7 @@ type ParsedArgs =
   | ReplayArgs
   | BuildArgs
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean }
-  | { command: 'check'; json: boolean; value: string }
+  | { command: 'check'; json: boolean; watch: boolean; value: string }
   | { command: 'run'; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
   | { command: 'resume'; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; value: string }
   | { command: 'observer'; dataDir: string }
@@ -56,7 +57,7 @@ const USAGE = [
   'Usage:',
   'flows build [--out <dir>] <flow.yaml|flow.ts>',
   'flows build --verify <bundle-dir>',
-  'flows check [--json] <flow.ts|flow.yaml|spec.json>',
+  'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
@@ -103,6 +104,7 @@ export async function runCli(
   if (parsed.command === 'build') return runBuild(parsed, io);
 
   if (parsed.command === 'check') {
+    if (parsed.watch) return watchCheck(parsed.value, parsed.json, io);
     // Deliberately daemon-free (kernel/DAEMON-LIFECYCLE.md §4). `checkFlow` is
     // a compile-and-preflight that opens no daemon socket, and the parser
     // refuses `--data-dir` on `check`, so there is no data dir to attach to.
@@ -397,6 +399,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (command !== 'check' && command !== 'run' && command !== 'resume') return undefined;
 
   let json = false;
+  let watch = false;
   let cloud = false;
   let wait = false;
   let localAgent = false;
@@ -419,6 +422,11 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     if (argument === '--local-agent') {
       if (command !== 'run' || localAgent) return undefined;
       localAgent = true;
+      continue;
+    }
+    if (argument === '--watch') {
+      if (command !== 'check' || watch) return undefined;
+      watch = true;
       continue;
     }
     if (argument === '--json') {
@@ -481,7 +489,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
 
   if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!)) return undefined;
   return command === 'check'
-    ? { command, json, value: positionals[0]! }
+    ? { command, json, watch, value: positionals[0]! }
     : command === 'run'
       ? { command, reuseFromRunId, localAgent, dataDir, input, json, spawn, noObserverLink, value: positionals[0]! }
       : { command, dataDir, json, spawn, noObserverLink, value: positionals[0]! };

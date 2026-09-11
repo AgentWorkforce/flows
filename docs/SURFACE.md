@@ -483,7 +483,7 @@ Gate 1 ships three CLI verbs over the journal protocol, plus one out-of-band
 verb (`observer`) that mints an observer link without contacting the daemon:
 
 ```text
-flows check [--json] <flow.yaml|spec.json>
+flows check [--watch] [--json] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>
 flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>
@@ -502,6 +502,14 @@ to `<data-dir>/relayflowd.sock`; `resume` asks that daemon to continue an
 existing run from its journal. The data directory defaults to `.relayflowd`.
 `--json` writes one report-shaped object to stdout while diagnostics remain on
 stderr.
+
+`flows check --watch` checks once, then watches the target, its reachable
+relative `use:` imports, and the nearest `flows.json` walking up from the
+flow directory. Saves are debounced for 150 ms; a change during a check
+schedules another check after it completes. Each re-check clears the screen
+and prints the ordinary report. With `--json`, the screen is never cleared
+and stdout streams one report object per line. Ctrl-C closes the watchers
+and exits with the last check’s status (0 for a pass, 2 for a refusal).
 
 `run` and `resume` attach to the daemon serving `<data-dir>` or start one
 (kernel/DAEMON-LIFECYCLE.md). The attach is decided by the socket, not by a
