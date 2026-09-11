@@ -43,6 +43,10 @@ export async function runDirectFlow(
   }
 
   // Declared triggers are knowable before any daemon or step is started.
+  // Importing the authored module is unavoidable here — trigger sources
+  // are only observable after `flow(...).on(webhook(...))` has run — but
+  // the authored body is not called, so a side-effect-in-body flow still
+  // has its body deferred until after daemon-attach below.
   const checked = await checkAuthoredTriggers(path);
   if (!checked.report.ok || checked.loaded === undefined) {
     return { exitCode: 2, report: fromCheckReport('run', checked.report) };

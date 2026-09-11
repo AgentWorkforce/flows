@@ -107,18 +107,26 @@ describe('direct .flow.ts input through the built CLI and live runtime', () => {
   // `--no-spawn` keeps this case about the property it names. `flows run` now
   // starts a daemon when none is serving (kernel/DAEMON-LIFECYCLE.md §3), so
   // without the flag the refusal under test would be about the spawn rather
-  // than about the authored module never being imported.
-  it('does not import or execute authored code before daemon availability', () => {
+  // than about the authored BODY never being run.
+  //
+  // Trigger preflight (checkAuthoredTriggers) DOES import the authored
+  // module before daemon-attach — trigger sources are only observable
+  // after `flow(...).on(webhook(...))` has run — so the import-time
+  // marker is expected to exist. The load-bearing invariant is that the
+  // authored BODY does not run before the daemon is confirmed available;
+  // the body-run marker path is what this test checks.
+  it('does not run the authored body before daemon availability', () => {
     const directory = temporaryDirectory();
-    const marker = join(directory, 'marker.txt');
+    const bodyMarker = join(directory, 'body-marker.txt');
+    const importMarker = join(directory, 'import-marker.txt');
     const result = invokeCli([
-      'run', '--no-spawn', SIDE_EFFECT_FLOW, '--input', JSON.stringify({ marker }),
+      'run', '--no-spawn', SIDE_EFFECT_FLOW, '--input', JSON.stringify({ marker: bodyMarker }),
       '--data-dir', join(directory, 'absent-daemon'),
-    ], { RELAYFLOWS_TEST_IMPORT_MARKER: marker });
+    ], { RELAYFLOWS_TEST_IMPORT_MARKER: importMarker });
 
     expect(result.status, result.stderr).toBe(2);
     expect(result.stderr).toContain('REFUSED [daemon_unreachable]');
-    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(bodyMarker)).toBe(false);
   });
 
   it('refuses oversized file input before contacting relayflowd', () => {
