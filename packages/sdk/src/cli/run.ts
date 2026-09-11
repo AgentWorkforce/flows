@@ -11,7 +11,6 @@ import { daemonRefusal } from './daemon-refusal.js';
 import type { RunFailureKind, RunWarningKind } from '../failure-kinds.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
 import { attachLocalAgent } from '../local-agent.js';
-import type { PreflightDiagnostic } from '../preflight.js';
 import type {
   RunCompletionReason,
   RunOutcome,
@@ -20,7 +19,6 @@ import type {
 import type { StepType } from '../spec.js';
 import {
   checkFlow,
-  type CheckInputDiagnostic,
   type CheckReport,
 } from './check.js';
 
@@ -51,7 +49,7 @@ export interface RunReport {
   parkedStep?: ParkedStep;
   projectConfigPath?: string;
   resolutions: CheckReport['resolutions'];
-  diagnostics: Array<PreflightDiagnostic | CheckInputDiagnostic | RunDiagnostic>;
+  diagnostics: Array<CheckReport['diagnostics'][number] | RunDiagnostic>;
 }
 
 export interface RunExecution {

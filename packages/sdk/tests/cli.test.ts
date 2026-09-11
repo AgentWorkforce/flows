@@ -465,6 +465,11 @@ steps:
   });
 
   it('pins the complete JSON report for a pass and a refusal', async () => {
+    const editorHint = {
+      severity: 'warning',
+      kind: 'editor_schema_missing',
+      message: 'For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json',
+    };
     const configPath = join(PREFLIGHT, 'flows.json');
     const passPath = join(PREFLIGHT, 'cli-declared.flow.yaml');
     const pass = await run(passPath, true);
@@ -482,7 +487,7 @@ steps:
         replayable: true,
       }],
       resolutions: [{ stepId: 'answer', cli: './authenticated-cli', source: 'step' }],
-      diagnostics: [],
+      diagnostics: [editorHint],
     });
 
     const refusalPath = join(PREFLIGHT, 'cli-missing.flow.yaml');
@@ -508,9 +513,9 @@ steps:
         stepId: 'answer',
         cli: './missing-cli',
         message: 'Step "answer" declares CLI "./missing-cli", but it does not resolve as an executable.',
-      }],
+      }, editorHint],
     });
-    expect(report.diagnostics.every((entry) => isCheckFailureKind(entry.kind))).toBe(true);
+    expect(report.diagnostics.filter((entry) => entry.severity === 'refusal').every((entry) => isCheckFailureKind(entry.kind))).toBe(true);
   });
 
   it('checks the compiled kernel-dialect canonical spec as well as YAML', async () => {

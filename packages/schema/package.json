@@ -1,0 +1,29 @@
+{
+  "name": "@relayflows/schema",
+  "version": "0.1.0",
+  "description": "JSON Schema for Relayflows YAML and JSON editor validation",
+  "license": "Apache-2.0",
+  "main": "./flows.schema.json",
+  "exports": {
+    ".": "./flows.schema.json",
+    "./flows.schema.json": "./flows.schema.json"
+  },
+  "files": [
+    "flows.schema.json",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_LICENSES"
+  ],
+  "scripts": {
+    "generate": "node ../../scripts/generate-json-schema.mjs",
+    "test": "bun test tests"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AgentWorkforce/flows.git",
+    "directory": "packages/schema"
+  }
+}

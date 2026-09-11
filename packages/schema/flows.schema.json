@@ -1,0 +1,4095 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.relayflows.dev/v0.1/flows.schema.json",
+  "title": "Relayflow",
+  "description": "Relayflows YAML/JSON authoring spec. Run flows check for cross-step references, dependency cycles, schema-reference termination, and environment readiness.",
+  "$ref": "#/$defs/FlowSpec",
+  "$defs": {
+    "StepType": {
+      "title": "StepType",
+      "description": "The three rungs of the ladder (RFC §1; AGENTS.md rule 7).",
+      "type": "string",
+      "enum": [
+        "deterministic",
+        "llm",
+        "agent"
+      ]
+    },
+    "VerificationGateType": {
+      "title": "VerificationGateType",
+      "description": "Verification is control flow, not decoration (kernel DESIGN.md §3).\nv0 gates are deterministic so verification is kernel-side and replayable.",
+      "type": "string",
+      "enum": [
+        "exit_code",
+        "output_contains",
+        "json_schema"
+      ]
+    },
+    "ExitCodeGate": {
+      "title": "ExitCodeGate",
+      "description": "`exit_code == 0` — the implicit gate for deterministic steps. v0 judges\nexactly zero (kernel DESIGN.md §4); it is not configurable, so this gate\ncarries no parameters. Writing it explicitly is allowed and compiles to the\nsame kernel spec as omitting it.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "exit_code"
+        },
+        "expect": {
+          "type": "integer",
+          "const": 0,
+          "description": "Legacy explicit success code. Only zero is supported.",
+          "title": "expect"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "OutputContainsGate": {
+      "title": "OutputContainsGate",
+      "description": "Step output (stdout_tail / llm value, stringified) contains `value`.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "output_contains"
+        },
+        "value": {
+          "title": "value",
+          "description": "value in the Relayflows spec.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "JsonSchemaGate": {
+      "title": "JsonSchemaGate",
+      "description": "Step output validates against a JSON Schema. Used for `llm` structured output.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "json_schema"
+        },
+        "schema": {
+          "$ref": "#/$defs/OutputSchema",
+          "description": "JSON Schema object or boolean; references and termination are checked by flows check.",
+          "title": "schema"
+        }
+      },
+      "required": [
+        "type",
+        "schema"
+      ],
+      "additionalProperties": false
+    },
+    "VerificationSpec": {
+      "title": "VerificationSpec",
+      "description": "VerificationSpec in the Relayflows spec.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ExitCodeGate",
+          "title": "VerificationSpec alternative 1",
+          "description": "See ExitCodeGate."
+        },
+        {
+          "$ref": "#/$defs/OutputContainsGate",
+          "title": "VerificationSpec alternative 2",
+          "description": "See OutputContainsGate."
+        },
+        {
+          "$ref": "#/$defs/JsonSchemaGate",
+          "title": "VerificationSpec alternative 3",
+          "description": "See JsonSchemaGate."
+        }
+      ]
+    },
+    "OutputVerificationSpec": {
+      "title": "OutputVerificationSpec",
+      "description": "OutputVerificationSpec in the Relayflows spec.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/OutputContainsGate",
+          "title": "OutputVerificationSpec alternative 1",
+          "description": "See OutputContainsGate."
+        },
+        {
+          "$ref": "#/$defs/JsonSchemaGate",
+          "title": "OutputVerificationSpec alternative 2",
+          "description": "See JsonSchemaGate."
+        }
+      ]
+    },
+    "RecoveryMode": {
+      "title": "RecoveryMode",
+      "description": "Agent-step recovery modes (RFC Appendix A rule 4). Default is `reset`.\nThese recovery modes apply to agent steps; deterministic steps retry their commands.",
+      "type": "string",
+      "enum": [
+        "reset",
+        "inspect",
+        "manual"
+      ]
+    },
+    "WorkspaceSurface": {
+      "title": "WorkspaceSurface",
+      "description": "Declared mutable surfaces for an agent step (RFC Appendix A rule 1).\nAnything undeclared is outside the contract and outside the step's\npermissions (gate 8 makes this enforceable, not advisory).",
+      "type": "object",
+      "properties": {
+        "surface": {
+          "title": "surface",
+          "description": "Relayfile mount path, or a named worktree.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)(?:/|[^/]+://)?(?:(?!\\.{1,2}(?:/|$))[^/]+(?:/(?!\\.{1,2}(?:/|$))[^/]+)*)?$"
+        }
+      },
+      "required": [
+        "surface"
+      ],
+      "additionalProperties": false
+    },
+    "StreamSurface": {
+      "title": "StreamSurface",
+      "description": "StreamSurface in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "stream": {
+          "title": "stream",
+          "description": "Durable channel the agent may write (kernel DESIGN.md §1.8).",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "stream"
+      ],
+      "additionalProperties": false
+    },
+    "AgentSurfaces": {
+      "title": "AgentSurfaces",
+      "description": "AgentSurfaces in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "workspace": {
+          "title": "workspace",
+          "description": "workspace in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WorkspaceSurface",
+            "title": "workspace items",
+            "description": "See WorkspaceSurface."
+          }
+        },
+        "streams": {
+          "title": "streams",
+          "description": "streams in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StreamSurface",
+            "title": "streams items",
+            "description": "See StreamSurface."
+          }
+        },
+        "external": {
+          "title": "external",
+          "description": "Integration writeback paths — mount writes per gate 6.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)(?:/|[^/]+://)?(?:(?!\\.{1,2}(?:/|$))[^/]+(?:/(?!\\.{1,2}(?:/|$))[^/]+)*)?$",
+            "title": "external items",
+            "description": "external items value."
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "PermissionsSpec": {
+      "title": "PermissionsSpec",
+      "description": "Permission model for an agent step (gate 8). `readonly` provably cannot write.",
+      "type": "object",
+      "properties": {
+        "fileGlobs": {
+          "title": "fileGlobs",
+          "description": "fileGlobs in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "title": "fileGlobs items",
+            "description": "fileGlobs items value."
+          }
+        },
+        "networkAllowlist": {
+          "title": "networkAllowlist",
+          "description": "networkAllowlist in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "title": "networkAllowlist items",
+            "description": "networkAllowlist items value."
+          }
+        },
+        "accessPreset": {
+          "title": "accessPreset",
+          "description": "accessPreset in the Relayflows spec.",
+          "type": "string",
+          "enum": [
+            "readonly",
+            "readwrite"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "BudgetSpec": {
+      "title": "BudgetSpec",
+      "description": "Budget envelope. Per decision #10 every token has exactly one owner: an\ninjected context pack spends the consuming step's budget. Money is a decimal\nstring at the boundary (kernel DESIGN.md §1: no floats for money); tokens\nare integers.",
+      "type": "object",
+      "properties": {
+        "maxTokensIn": {
+          "title": "maxTokensIn",
+          "description": "maxTokensIn in the Relayflows spec.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxTokensOut": {
+          "title": "maxTokensOut",
+          "description": "maxTokensOut in the Relayflows spec.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxDollars": {
+          "title": "maxDollars",
+          "description": "Decimal string, e.g. \"1.50\".",
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "MemorySpec": {
+      "title": "MemorySpec",
+      "description": "Slice 1 records a fixed pack; retrieval is supplied by a future provider.",
+      "type": "object",
+      "properties": {
+        "scope": {
+          "title": "scope",
+          "description": "scope in the Relayflows spec.",
+          "type": "string",
+          "enum": [
+            "script",
+            "agent"
+          ]
+        },
+        "query": {
+          "title": "query",
+          "description": "query in the Relayflows spec.",
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "budget": {
+          "title": "budget",
+          "description": "budget in the Relayflows spec.",
+          "$ref": "#/$defs/BudgetSpec",
+          "type": "object",
+          "properties": {
+            "maxTokensIn": {
+              "type": "integer",
+              "maximum": 9007199254740991,
+              "title": "maxTokensIn",
+              "description": "maxTokensIn value."
+            },
+            "maxTokensOut": {
+              "type": "integer",
+              "maximum": 9007199254740991,
+              "title": "maxTokensOut",
+              "description": "maxTokensOut value."
+            }
+          }
+        }
+      },
+      "required": [
+        "scope",
+        "query",
+        "budget"
+      ],
+      "additionalProperties": false
+    },
+    "KernelBudgetSpec": {
+      "title": "KernelBudgetSpec",
+      "description": "KernelBudgetSpec in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "max_tokens_in": {
+          "title": "max_tokens_in",
+          "description": "max_tokens_in in the Relayflows spec.",
+          "type": "number"
+        },
+        "max_tokens_out": {
+          "title": "max_tokens_out",
+          "description": "max_tokens_out in the Relayflows spec.",
+          "type": "number"
+        },
+        "max_dollars": {
+          "title": "max_dollars",
+          "description": "max_dollars in the Relayflows spec.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "KernelMemorySpec": {
+      "title": "KernelMemorySpec",
+      "description": "KernelMemorySpec in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "scope": {
+          "title": "scope",
+          "description": "scope in the Relayflows spec.",
+          "type": "string",
+          "enum": [
+            "script",
+            "agent"
+          ]
+        },
+        "query": {
+          "title": "query",
+          "description": "query in the Relayflows spec.",
+          "type": "string"
+        },
+        "budget": {
+          "title": "budget",
+          "description": "budget in the Relayflows spec.",
+          "$ref": "#/$defs/KernelBudgetSpec"
+        }
+      },
+      "required": [
+        "scope",
+        "query",
+        "budget"
+      ],
+      "additionalProperties": false
+    },
+    "PlacementRequirements": {
+      "title": "PlacementRequirements",
+      "description": "Capability needs, never provider names or source revisions.",
+      "type": "object",
+      "properties": {
+        "execution": {
+          "title": "execution",
+          "description": "execution in the Relayflows spec.",
+          "type": "string",
+          "enum": [
+            "batch",
+            "interactive"
+          ]
+        },
+        "workspace": {
+          "title": "workspace",
+          "description": "Share the run tree; defaults true for deterministic steps declaring requirements.",
+          "type": "boolean"
+        },
+        "network": {
+          "title": "network",
+          "description": "True requests connectivity; false does not impose a network deny policy.",
+          "type": "boolean"
+        },
+        "expectedDurationMs": {
+          "title": "expectedDurationMs",
+          "description": "expectedDurationMs in the Relayflows spec.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "preference": {
+          "title": "preference",
+          "description": "preference in the Relayflows spec.",
+          "type": "string",
+          "enum": [
+            "cost",
+            "latency",
+            "reliability",
+            "balanced"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "KernelPlacementRequirements": {
+      "title": "KernelPlacementRequirements",
+      "description": "KernelPlacementRequirements in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "execution": {
+          "title": "execution",
+          "description": "execution in the Relayflows spec.",
+          "type": "string",
+          "enum": [
+            "batch",
+            "interactive"
+          ]
+        },
+        "workspace": {
+          "title": "workspace",
+          "description": "Share the run tree; defaults true for deterministic steps declaring requirements.",
+          "type": "boolean"
+        },
+        "network": {
+          "title": "network",
+          "description": "True requests connectivity; false does not impose a network deny policy.",
+          "type": "boolean"
+        },
+        "preference": {
+          "title": "preference",
+          "description": "preference in the Relayflows spec.",
+          "type": "string",
+          "enum": [
+            "cost",
+            "latency",
+            "reliability",
+            "balanced"
+          ]
+        },
+        "expected_duration_ms": {
+          "title": "expected_duration_ms",
+          "description": "expected_duration_ms in the Relayflows spec.",
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "OutputBinding": {
+      "title": "OutputBinding",
+      "description": "OutputBinding in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "step": {
+          "title": "step",
+          "description": "step in the Relayflows spec.",
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "path": {
+          "title": "path",
+          "description": "Object keys or array indices; omit to select the whole output.",
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "title": "path items alternative 1",
+                "description": "path items alternative 1 value."
+              },
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "title": "path items alternative 2",
+                "description": "path items alternative 2 value."
+              }
+            ],
+            "title": "path items",
+            "description": "path items value."
+          }
+        }
+      },
+      "required": [
+        "step"
+      ],
+      "additionalProperties": false
+    },
+    "BaseStepSpec": {
+      "title": "BaseStepSpec",
+      "description": "Fields shared by every step on the ladder.",
+      "type": "object",
+      "properties": {
+        "input": {
+          "title": "input",
+          "description": "Named values selected from earlier steps' declared, verified outputs.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/OutputBinding",
+            "title": "input additionalProperties",
+            "description": "See OutputBinding."
+          },
+          "propertyNames": {
+            "type": "string",
+            "pattern": "\\S",
+            "title": "input propertyNames",
+            "description": "input propertyNames value."
+          }
+        },
+        "requirements": {
+          "title": "requirements",
+          "description": "requirements in the Relayflows spec.",
+          "$ref": "#/$defs/PlacementRequirements"
+        },
+        "memory": {
+          "title": "memory",
+          "description": "memory in the Relayflows spec.",
+          "$ref": "#/$defs/MemorySpec"
+        },
+        "id": {
+          "title": "id",
+          "description": "Stable step identity; journaled as `step_id` and hashed into the idempotency key.",
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "$ref": "#/$defs/StepType"
+        },
+        "dependsOn": {
+          "title": "dependsOn",
+          "description": "Step dependencies — a step runs only after these complete.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "title": "dependsOn items",
+            "description": "dependsOn items value."
+          }
+        },
+        "maxIterations": {
+          "title": "maxIterations",
+          "description": "Semantic retry bound (kernel DESIGN.md §1.2 `max_iterations`). Default 1.",
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "DeterministicStepSpec": {
+      "title": "DeterministicStepSpec",
+      "description": "Rung 1 — a pure script. Executed by the `relayflowd` binary: spawn command,\ncapture stdout/exit code. Output = `{exit_code, stdout_tail}`. Gate-1\ndeterministic steps with placement requirements pin their worktree base commit.",
+      "type": "object",
+      "properties": {
+        "input": {
+          "title": "input",
+          "description": "Named values selected from earlier steps' declared, verified outputs.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/OutputBinding",
+            "title": "input additionalProperties",
+            "description": "See OutputBinding."
+          },
+          "propertyNames": {
+            "type": "string",
+            "pattern": "\\S",
+            "title": "input propertyNames",
+            "description": "input propertyNames value."
+          }
+        },
+        "requirements": {
+          "title": "requirements",
+          "description": "requirements in the Relayflows spec.",
+          "$ref": "#/$defs/PlacementRequirements"
+        },
+        "memory": {
+          "title": "memory",
+          "description": "memory in the Relayflows spec.",
+          "$ref": "#/$defs/MemorySpec"
+        },
+        "id": {
+          "title": "id",
+          "description": "Stable step identity; journaled as `step_id` and hashed into the idempotency key.",
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "deterministic"
+        },
+        "dependsOn": {
+          "title": "dependsOn",
+          "description": "Step dependencies — a step runs only after these complete.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "title": "dependsOn items",
+            "description": "dependsOn items value."
+          }
+        },
+        "maxIterations": {
+          "title": "maxIterations",
+          "description": "Semantic retry bound (kernel DESIGN.md §1.2 `max_iterations`). Default 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "command": {
+          "title": "command",
+          "description": "command in the Relayflows spec.",
+          "type": "string",
+          "minLength": 1
+        },
+        "timeoutMs": {
+          "title": "timeoutMs",
+          "description": "Wall-clock command timeout; worker-backed verbs own their dispatch timeout.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "verification": {
+          "title": "verification",
+          "description": "Omit to get the implicit `exit_code` gate.",
+          "$ref": "#/$defs/VerificationSpec"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "command"
+      ],
+      "additionalProperties": false,
+      "examples": [
+        {
+          "id": "diff",
+          "type": "deterministic",
+          "command": "git diff main"
+        }
+      ]
+    },
+    "JsonOutputSchema": {
+      "title": "JsonOutputSchema",
+      "description": "Structured output schema, compiled into json_schema verification.",
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/OutputSchema",
+          "title": "JsonOutputSchema alternative 1",
+          "description": "See OutputSchema."
+        }
+      ]
+    },
+    "LlmStepSpec": {
+      "title": "LlmStepSpec",
+      "description": "Rung 2 — a bare model call. No workspace, output is a value. The kernel\nnever calls a model: it dispatches to an attached SDK worker (§5) which\nreturns `{output, usage}`; the kernel then runs the verification gate.",
+      "type": "object",
+      "properties": {
+        "input": {
+          "title": "input",
+          "description": "Named values selected from earlier steps' declared, verified outputs.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/OutputBinding",
+            "title": "input additionalProperties",
+            "description": "See OutputBinding."
+          },
+          "propertyNames": {
+            "type": "string",
+            "pattern": "\\S",
+            "title": "input propertyNames",
+            "description": "input propertyNames value."
+          }
+        },
+        "requirements": {
+          "title": "requirements",
+          "description": "requirements in the Relayflows spec.",
+          "$ref": "#/$defs/PlacementRequirements"
+        },
+        "memory": {
+          "title": "memory",
+          "description": "memory in the Relayflows spec.",
+          "$ref": "#/$defs/MemorySpec"
+        },
+        "id": {
+          "title": "id",
+          "description": "Stable step identity; journaled as `step_id` and hashed into the idempotency key.",
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "llm"
+        },
+        "dependsOn": {
+          "title": "dependsOn",
+          "description": "Step dependencies — a step runs only after these complete.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "title": "dependsOn items",
+            "description": "dependsOn items value."
+          }
+        },
+        "maxIterations": {
+          "title": "maxIterations",
+          "description": "Semantic retry bound (kernel DESIGN.md §1.2 `max_iterations`). Default 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "prompt": {
+          "title": "prompt",
+          "description": "prompt in the Relayflows spec.",
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "title": "verification",
+          "description": "verification in the Relayflows spec.",
+          "$ref": "#/$defs/OutputVerificationSpec"
+        },
+        "model": {
+          "title": "model",
+          "description": "model in the Relayflows spec.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+          "allOf": [
+            {
+              "pattern": "^[^\\u0000-\\u001f\\u007f]*$",
+              "title": "model alternative 1",
+              "description": "model alternative 1 value."
+            }
+          ]
+        },
+        "cli": {
+          "title": "cli",
+          "description": "Inert preflight declaration; overrides the flow/project CLI default.",
+          "type": "string",
+          "minLength": 1
+        },
+        "output": {
+          "title": "output",
+          "description": "Structured-output authoring sugar. Compiles to the existing `json_schema`\nverification primitive and is removed before the kernel boundary.",
+          "$ref": "#/$defs/JsonOutputSchema"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "prompt"
+      ],
+      "additionalProperties": false,
+      "not": {
+        "required": [
+          "output",
+          "verification"
+        ],
+        "title": "LlmStepSpec not",
+        "description": "LlmStepSpec not value."
+      },
+      "examples": [
+        {
+          "id": "note",
+          "type": "llm",
+          "prompt": "One-line release note for the diff above."
+        }
+      ]
+    },
+    "AgentStepSpec": {
+      "title": "AgentStepSpec",
+      "description": "Rung 3 — a harnessed agent in a workspace. Dispatched like `llm`, plus\nAppendix A in full: pins declared workspace revisions and stream offsets;\nevery writeback is a journaled `effect.recorded` deduped by\n`(step_id, idempotency_key, surface_path)`.",
+      "type": "object",
+      "properties": {
+        "input": {
+          "title": "input",
+          "description": "Named values selected from earlier steps' declared, verified outputs.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/OutputBinding",
+            "title": "input additionalProperties",
+            "description": "See OutputBinding."
+          },
+          "propertyNames": {
+            "type": "string",
+            "pattern": "\\S",
+            "title": "input propertyNames",
+            "description": "input propertyNames value."
+          }
+        },
+        "requirements": {
+          "title": "requirements",
+          "description": "requirements in the Relayflows spec.",
+          "$ref": "#/$defs/PlacementRequirements"
+        },
+        "memory": {
+          "title": "memory",
+          "description": "memory in the Relayflows spec.",
+          "$ref": "#/$defs/MemorySpec"
+        },
+        "id": {
+          "title": "id",
+          "description": "Stable step identity; journaled as `step_id` and hashed into the idempotency key.",
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "agent"
+        },
+        "dependsOn": {
+          "title": "dependsOn",
+          "description": "Step dependencies — a step runs only after these complete.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "title": "dependsOn items",
+            "description": "dependsOn items value."
+          }
+        },
+        "maxIterations": {
+          "title": "maxIterations",
+          "description": "Semantic retry bound (kernel DESIGN.md §1.2 `max_iterations`). Default 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "instruction": {
+          "title": "instruction",
+          "description": "instruction in the Relayflows spec.",
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "title": "verification",
+          "description": "verification in the Relayflows spec.",
+          "$ref": "#/$defs/OutputVerificationSpec"
+        },
+        "agent": {
+          "title": "agent",
+          "description": "Named authoring declaration selected from `FlowSpec.agents`. Compiled away.",
+          "type": "string",
+          "minLength": 1
+        },
+        "cli": {
+          "title": "cli",
+          "description": "Inert preflight declaration; overrides the flow/project CLI default.",
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "title": "model",
+          "description": "Model the declared CLI must use. Raw Claude/Codex adapters receive their\nreal model flag; an identified Relayflows wrapper receives it in its\nsame-process execution request. Declared here so the choice is journaled with the step\ninstead of being ambient host state.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+          "allOf": [
+            {
+              "pattern": "^[^\\u0000-\\u001f\\u007f]*$",
+              "title": "model alternative 1",
+              "description": "model alternative 1 value."
+            }
+          ]
+        },
+        "surfaces": {
+          "title": "surfaces",
+          "description": "surfaces in the Relayflows spec.",
+          "$ref": "#/$defs/AgentSurfaces"
+        },
+        "recoveryMode": {
+          "title": "recoveryMode",
+          "description": "recoveryMode in the Relayflows spec.",
+          "$ref": "#/$defs/RecoveryMode"
+        },
+        "permissions": {
+          "title": "permissions",
+          "description": "permissions in the Relayflows spec.",
+          "$ref": "#/$defs/PermissionsSpec"
+        },
+        "output": {
+          "title": "output",
+          "description": "Structured-output authoring sugar. A successful CLI JSON object is the parsed\nvalue; the kernel persists it only after `json_schema` verification.",
+          "$ref": "#/$defs/JsonOutputSchema"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "instruction"
+      ],
+      "additionalProperties": false,
+      "not": {
+        "required": [
+          "output",
+          "verification"
+        ],
+        "title": "AgentStepSpec not",
+        "description": "AgentStepSpec not value."
+      },
+      "examples": [
+        {
+          "id": "review",
+          "type": "agent",
+          "instruction": "Review this diff for security issues."
+        }
+      ]
+    },
+    "StepSpec": {
+      "title": "StepSpec",
+      "description": "StepSpec in the Relayflows spec.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/DeterministicStepSpec",
+          "title": "StepSpec alternative 1",
+          "description": "See DeterministicStepSpec."
+        },
+        {
+          "$ref": "#/$defs/LlmStepSpec",
+          "title": "StepSpec alternative 2",
+          "description": "See LlmStepSpec."
+        },
+        {
+          "$ref": "#/$defs/AgentStepSpec",
+          "title": "StepSpec alternative 3",
+          "description": "See AgentStepSpec."
+        }
+      ]
+    },
+    "NamedAgentSpec": {
+      "title": "NamedAgentSpec",
+      "description": "Reusable authoring declaration for an agent CLI/model pair. Both fields are\nrequired so selecting a named agent can never inherit a host model. The\ncompiler lowers these values into the selected kernel agent step at the\njournal boundary; the kernel never receives this map or a new step field.",
+      "type": "object",
+      "properties": {
+        "cli": {
+          "title": "cli",
+          "description": "cli in the Relayflows spec.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+        },
+        "model": {
+          "title": "model",
+          "description": "model in the Relayflows spec.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+          "allOf": [
+            {
+              "pattern": "^[^\\u0000-\\u001f\\u007f]*$",
+              "title": "model alternative 1",
+              "description": "model alternative 1 value."
+            }
+          ]
+        }
+      },
+      "required": [
+        "cli",
+        "model"
+      ],
+      "additionalProperties": false
+    },
+    "TriggerSpec": {
+      "title": "TriggerSpec",
+      "description": "A trigger is an entry condition, not a scheduler (RFC-0001 gate 2). It names\nthe event type that wakes the flow, the payload subset that must match, the\ntemplate that derives the dedupe key, and the silence budget after which the\nkernel's liveness sweep declares the subscription dead.\n\nThe event-subscription fields were shipped in `testdata/` long before this\ninterface described them: `hn-monitor.flow.yaml`, `dir-watcher.flow.yaml`\nand `event-triggered-flow.yaml` all carry `eventType`, `pattern` and\n`dedupeKeyTemplate`, and `validate.ts` has always accepted them. The type\nstill said \"inert gate-1 declaration\" with only `id` and `executor`, so the\nauthoring dialect disagreed with both the shipped specs and the kernel.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "title": "id",
+          "description": "id in the Relayflows spec.",
+          "type": "string",
+          "minLength": 1
+        },
+        "executor": {
+          "title": "executor",
+          "description": "Executor registration required before this trigger may start a run.",
+          "type": "string",
+          "minLength": 1
+        },
+        "eventType": {
+          "title": "eventType",
+          "description": "Event type this trigger subscribes to. Lowers to `event_type`.",
+          "type": "string"
+        },
+        "pattern": {
+          "title": "pattern",
+          "description": "Recursive-subset match against the event payload. Lowers to `pattern`.",
+          "type": "object",
+          "additionalProperties": {
+            "title": "pattern additionalProperties",
+            "description": "pattern additionalProperties value."
+          }
+        },
+        "dedupeKeyTemplate": {
+          "title": "dedupeKeyTemplate",
+          "description": "Derives the dedupe key. Lowers to `dedupe_key_template`.",
+          "type": "string"
+        },
+        "staleAfterMs": {
+          "title": "staleAfterMs",
+          "description": "Silence budget in milliseconds. When no matching event arrives inside it,\nthe kernel's liveness sweep journals `subscription.stale` and emits a\n`relayflowd: subscription.stale ...` line\n(`kernel/relayflowd/src/server/liveness.rs`). Omitted means the engine\ndefault (`DEFAULT_STALE_AFTER_MS`, 5 minutes) applies — which is a\ndecision the author did not make, not the absence of a budget.\n\nA flow that is never triggered is silently zero (RFC-0001 §\"Trigger\nliveness\"), so declaring this is how a schedule stops being able to die\nquietly. Lowers to `stale_after_ms`.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "executor"
+      ],
+      "additionalProperties": false
+    },
+    "FlowSpec": {
+      "title": "FlowSpec",
+      "description": "A Relayflow spec in the authoring shape — the composable unit (RFC settled\ndecision #5). Schema-validated, diffable, signable (gate 8), and emittable\nby a step (gate 9 self-authoring). What the kernel inlines in `run.spawned`\nis this spec mapped to the kernel dialect (`toKernelSpec`).",
+      "type": "object",
+      "properties": {
+        "version": {
+          "title": "version",
+          "description": "Spec schema semver (RFC §7). Compilers always emit latest.",
+          "type": "string",
+          "const": "0.1.0"
+        },
+        "name": {
+          "title": "name",
+          "description": "name in the Relayflows spec.",
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "title": "description",
+          "description": "description in the Relayflows spec.",
+          "type": "string"
+        },
+        "cli": {
+          "title": "cli",
+          "description": "Inert preflight default for llm/agent steps that do not declare a CLI.",
+          "type": "string",
+          "minLength": 1
+        },
+        "agents": {
+          "title": "agents",
+          "description": "Named authoring declarations. Compiled into agent steps, never journaled as a new primitive.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/NamedAgentSpec",
+            "title": "agents additionalProperties",
+            "description": "See NamedAgentSpec."
+          },
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+            "title": "agents propertyNames",
+            "description": "agents propertyNames value."
+          }
+        },
+        "triggers": {
+          "title": "triggers",
+          "description": "Declarations checked by preflight; gate 1 never dispatches them.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TriggerSpec",
+            "title": "triggers items",
+            "description": "See TriggerSpec."
+          }
+        },
+        "steps": {
+          "title": "steps",
+          "description": "steps in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StepSpec",
+            "title": "steps items",
+            "description": "See StepSpec."
+          },
+          "minItems": 1
+        },
+        "budget": {
+          "title": "budget",
+          "description": "budget in the Relayflows spec.",
+          "$ref": "#/$defs/BudgetSpec"
+        }
+      },
+      "required": [
+        "version",
+        "steps"
+      ],
+      "additionalProperties": false
+    },
+    "KernelRetryPolicy": {
+      "title": "KernelRetryPolicy",
+      "description": "KernelRetryPolicy in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "initial_backoff_ms": {
+          "title": "initial_backoff_ms",
+          "description": "initial_backoff_ms in the Relayflows spec.",
+          "type": "number"
+        },
+        "max_backoff_ms": {
+          "title": "max_backoff_ms",
+          "description": "max_backoff_ms in the Relayflows spec.",
+          "type": "number"
+        },
+        "multiplier": {
+          "title": "multiplier",
+          "description": "multiplier in the Relayflows spec.",
+          "type": "number"
+        },
+        "jitter_percent": {
+          "title": "jitter_percent",
+          "description": "jitter_percent in the Relayflows spec.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "initial_backoff_ms",
+        "max_backoff_ms",
+        "multiplier",
+        "jitter_percent"
+      ],
+      "additionalProperties": false
+    },
+    "KernelVerificationSpec": {
+      "title": "KernelVerificationSpec",
+      "description": "Flat v0 gates (kernel DESIGN.md §4): `exit_code == 0` is implicit for\ndeterministic steps; these two are optional and combinable. An empty object\nmeans \"implicit gates only\".",
+      "type": "object",
+      "properties": {
+        "output_contains": {
+          "title": "output_contains",
+          "description": "output_contains in the Relayflows spec.",
+          "type": "string"
+        },
+        "json_schema": {
+          "title": "json_schema",
+          "description": "json_schema in the Relayflows spec.",
+          "oneOf": [
+            {
+              "type": "boolean",
+              "title": "json_schema alternative 1",
+              "description": "json_schema alternative 1 value."
+            },
+            {
+              "type": "object",
+              "additionalProperties": {
+                "title": "json_schema alternative 2 additionalProperties",
+                "description": "json_schema alternative 2 additionalProperties value."
+              },
+              "title": "json_schema alternative 2",
+              "description": "json_schema alternative 2 value."
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "KernelStepCommon": {
+      "title": "KernelStepCommon",
+      "description": "KernelStepCommon in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "input": {
+          "title": "input",
+          "description": "input in the Relayflows spec.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/OutputBinding",
+            "title": "input additionalProperties",
+            "description": "See OutputBinding."
+          }
+        },
+        "requirements": {
+          "title": "requirements",
+          "description": "requirements in the Relayflows spec.",
+          "$ref": "#/$defs/KernelPlacementRequirements"
+        },
+        "memory": {
+          "title": "memory",
+          "description": "memory in the Relayflows spec.",
+          "$ref": "#/$defs/KernelMemorySpec"
+        },
+        "id": {
+          "title": "id",
+          "description": "id in the Relayflows spec.",
+          "type": "string"
+        },
+        "depends_on": {
+          "title": "depends_on",
+          "description": "depends_on in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "depends_on items",
+            "description": "depends_on items value."
+          }
+        },
+        "max_iterations": {
+          "title": "max_iterations",
+          "description": "max_iterations in the Relayflows spec.",
+          "type": "number"
+        },
+        "retry": {
+          "title": "retry",
+          "description": "retry in the Relayflows spec.",
+          "$ref": "#/$defs/KernelRetryPolicy"
+        },
+        "verification": {
+          "title": "verification",
+          "description": "verification in the Relayflows spec.",
+          "$ref": "#/$defs/KernelVerificationSpec"
+        }
+      },
+      "required": [
+        "id",
+        "depends_on",
+        "max_iterations",
+        "retry",
+        "verification"
+      ],
+      "additionalProperties": false
+    },
+    "KernelDeterministicStep": {
+      "title": "KernelDeterministicStep",
+      "description": "KernelDeterministicStep in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "input": {
+          "title": "input",
+          "description": "input in the Relayflows spec.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/OutputBinding",
+            "title": "input additionalProperties",
+            "description": "See OutputBinding."
+          }
+        },
+        "requirements": {
+          "title": "requirements",
+          "description": "requirements in the Relayflows spec.",
+          "$ref": "#/$defs/KernelPlacementRequirements"
+        },
+        "memory": {
+          "title": "memory",
+          "description": "memory in the Relayflows spec.",
+          "$ref": "#/$defs/KernelMemorySpec"
+        },
+        "id": {
+          "title": "id",
+          "description": "id in the Relayflows spec.",
+          "type": "string"
+        },
+        "depends_on": {
+          "title": "depends_on",
+          "description": "depends_on in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "depends_on items",
+            "description": "depends_on items value."
+          }
+        },
+        "max_iterations": {
+          "title": "max_iterations",
+          "description": "max_iterations in the Relayflows spec.",
+          "type": "number"
+        },
+        "retry": {
+          "title": "retry",
+          "description": "retry in the Relayflows spec.",
+          "$ref": "#/$defs/KernelRetryPolicy"
+        },
+        "verification": {
+          "title": "verification",
+          "description": "verification in the Relayflows spec.",
+          "$ref": "#/$defs/KernelVerificationSpec"
+        },
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "deterministic"
+        },
+        "command": {
+          "title": "command",
+          "description": "command in the Relayflows spec.",
+          "type": "string"
+        },
+        "timeout_ms": {
+          "title": "timeout_ms",
+          "description": "timeout_ms in the Relayflows spec.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "depends_on",
+        "max_iterations",
+        "retry",
+        "verification",
+        "type",
+        "command"
+      ],
+      "additionalProperties": false
+    },
+    "KernelLlmStep": {
+      "title": "KernelLlmStep",
+      "description": "KernelLlmStep in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "input": {
+          "title": "input",
+          "description": "input in the Relayflows spec.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/OutputBinding",
+            "title": "input additionalProperties",
+            "description": "See OutputBinding."
+          }
+        },
+        "requirements": {
+          "title": "requirements",
+          "description": "requirements in the Relayflows spec.",
+          "$ref": "#/$defs/KernelPlacementRequirements"
+        },
+        "memory": {
+          "title": "memory",
+          "description": "memory in the Relayflows spec.",
+          "$ref": "#/$defs/KernelMemorySpec"
+        },
+        "id": {
+          "title": "id",
+          "description": "id in the Relayflows spec.",
+          "type": "string"
+        },
+        "depends_on": {
+          "title": "depends_on",
+          "description": "depends_on in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "depends_on items",
+            "description": "depends_on items value."
+          }
+        },
+        "max_iterations": {
+          "title": "max_iterations",
+          "description": "max_iterations in the Relayflows spec.",
+          "type": "number"
+        },
+        "retry": {
+          "title": "retry",
+          "description": "retry in the Relayflows spec.",
+          "$ref": "#/$defs/KernelRetryPolicy"
+        },
+        "verification": {
+          "title": "verification",
+          "description": "verification in the Relayflows spec.",
+          "$ref": "#/$defs/KernelVerificationSpec"
+        },
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "llm"
+        },
+        "prompt": {
+          "title": "prompt",
+          "description": "prompt in the Relayflows spec.",
+          "type": "string"
+        },
+        "model": {
+          "title": "model",
+          "description": "model in the Relayflows spec.",
+          "type": "string"
+        },
+        "cli": {
+          "title": "cli",
+          "description": "cli in the Relayflows spec.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "depends_on",
+        "max_iterations",
+        "retry",
+        "verification",
+        "type",
+        "prompt"
+      ],
+      "additionalProperties": false
+    },
+    "KernelAgentSurfaces": {
+      "title": "KernelAgentSurfaces",
+      "description": "KernelAgentSurfaces in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "workspace": {
+          "title": "workspace",
+          "description": "workspace in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "surface": {
+                "title": "surface",
+                "description": "surface in the Relayflows spec.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "surface"
+            ],
+            "additionalProperties": false,
+            "title": "workspace items",
+            "description": "workspace items value."
+          }
+        },
+        "streams": {
+          "title": "streams",
+          "description": "streams in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "stream": {
+                "title": "stream",
+                "description": "stream in the Relayflows spec.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "stream"
+            ],
+            "additionalProperties": false,
+            "title": "streams items",
+            "description": "streams items value."
+          }
+        },
+        "external": {
+          "title": "external",
+          "description": "external in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "external items",
+            "description": "external items value."
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "KernelPermissionsSpec": {
+      "title": "KernelPermissionsSpec",
+      "description": "KernelPermissionsSpec in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "file_globs": {
+          "title": "file_globs",
+          "description": "file_globs in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "file_globs items",
+            "description": "file_globs items value."
+          }
+        },
+        "network_allowlist": {
+          "title": "network_allowlist",
+          "description": "network_allowlist in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "network_allowlist items",
+            "description": "network_allowlist items value."
+          }
+        },
+        "access_preset": {
+          "title": "access_preset",
+          "description": "access_preset in the Relayflows spec.",
+          "type": "string",
+          "enum": [
+            "readonly",
+            "readwrite"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "KernelAgentStep": {
+      "title": "KernelAgentStep",
+      "description": "KernelAgentStep in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "input": {
+          "title": "input",
+          "description": "input in the Relayflows spec.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/OutputBinding",
+            "title": "input additionalProperties",
+            "description": "See OutputBinding."
+          }
+        },
+        "requirements": {
+          "title": "requirements",
+          "description": "requirements in the Relayflows spec.",
+          "$ref": "#/$defs/KernelPlacementRequirements"
+        },
+        "memory": {
+          "title": "memory",
+          "description": "memory in the Relayflows spec.",
+          "$ref": "#/$defs/KernelMemorySpec"
+        },
+        "id": {
+          "title": "id",
+          "description": "id in the Relayflows spec.",
+          "type": "string"
+        },
+        "depends_on": {
+          "title": "depends_on",
+          "description": "depends_on in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "depends_on items",
+            "description": "depends_on items value."
+          }
+        },
+        "max_iterations": {
+          "title": "max_iterations",
+          "description": "max_iterations in the Relayflows spec.",
+          "type": "number"
+        },
+        "retry": {
+          "title": "retry",
+          "description": "retry in the Relayflows spec.",
+          "$ref": "#/$defs/KernelRetryPolicy"
+        },
+        "verification": {
+          "title": "verification",
+          "description": "verification in the Relayflows spec.",
+          "$ref": "#/$defs/KernelVerificationSpec"
+        },
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "agent"
+        },
+        "instruction": {
+          "title": "instruction",
+          "description": "instruction in the Relayflows spec.",
+          "type": "string"
+        },
+        "cli": {
+          "title": "cli",
+          "description": "cli in the Relayflows spec.",
+          "type": "string"
+        },
+        "model": {
+          "title": "model",
+          "description": "model in the Relayflows spec.",
+          "type": "string"
+        },
+        "recovery_mode": {
+          "title": "recovery_mode",
+          "description": "recovery_mode in the Relayflows spec.",
+          "$ref": "#/$defs/RecoveryMode"
+        },
+        "surfaces": {
+          "title": "surfaces",
+          "description": "surfaces in the Relayflows spec.",
+          "$ref": "#/$defs/KernelAgentSurfaces"
+        },
+        "permissions": {
+          "title": "permissions",
+          "description": "permissions in the Relayflows spec.",
+          "$ref": "#/$defs/KernelPermissionsSpec"
+        }
+      },
+      "required": [
+        "id",
+        "depends_on",
+        "max_iterations",
+        "retry",
+        "verification",
+        "type",
+        "instruction",
+        "recovery_mode"
+      ],
+      "additionalProperties": false
+    },
+    "KernelStepSpec": {
+      "title": "KernelStepSpec",
+      "description": "KernelStepSpec in the Relayflows spec.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/KernelDeterministicStep",
+          "title": "KernelStepSpec alternative 1",
+          "description": "See KernelDeterministicStep."
+        },
+        {
+          "$ref": "#/$defs/KernelLlmStep",
+          "title": "KernelStepSpec alternative 2",
+          "description": "See KernelLlmStep."
+        },
+        {
+          "$ref": "#/$defs/KernelAgentStep",
+          "title": "KernelStepSpec alternative 3",
+          "description": "See KernelAgentStep."
+        }
+      ]
+    },
+    "KernelTriggerSpec": {
+      "title": "KernelTriggerSpec",
+      "description": "KernelTriggerSpec in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "title": "id",
+          "description": "id in the Relayflows spec.",
+          "type": "string"
+        },
+        "executor": {
+          "title": "executor",
+          "description": "executor in the Relayflows spec.",
+          "type": "string"
+        },
+        "event_type": {
+          "title": "event_type",
+          "description": "event_type in the Relayflows spec.",
+          "type": "string"
+        },
+        "pattern": {
+          "title": "pattern",
+          "description": "pattern in the Relayflows spec.",
+          "type": "object",
+          "additionalProperties": {
+            "title": "pattern additionalProperties",
+            "description": "pattern additionalProperties value."
+          }
+        },
+        "dedupe_key_template": {
+          "title": "dedupe_key_template",
+          "description": "dedupe_key_template in the Relayflows spec.",
+          "type": "string"
+        },
+        "stale_after_ms": {
+          "title": "stale_after_ms",
+          "description": "stale_after_ms in the Relayflows spec.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "executor"
+      ],
+      "additionalProperties": false
+    },
+    "KernelRunSpec": {
+      "title": "KernelRunSpec",
+      "description": "The compiled spec as the kernel parses, journals, and hashes it.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "title": "version",
+          "description": "version in the Relayflows spec.",
+          "type": "string"
+        },
+        "name": {
+          "title": "name",
+          "description": "name in the Relayflows spec.",
+          "type": "string"
+        },
+        "description": {
+          "title": "description",
+          "description": "description in the Relayflows spec.",
+          "type": "string"
+        },
+        "cli": {
+          "title": "cli",
+          "description": "cli in the Relayflows spec.",
+          "type": "string"
+        },
+        "triggers": {
+          "title": "triggers",
+          "description": "triggers in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/KernelTriggerSpec",
+            "title": "triggers items",
+            "description": "See KernelTriggerSpec."
+          }
+        },
+        "steps": {
+          "title": "steps",
+          "description": "steps in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/KernelStepSpec",
+            "title": "steps items",
+            "description": "See KernelStepSpec."
+          }
+        },
+        "budget": {
+          "title": "budget",
+          "description": "budget in the Relayflows spec.",
+          "$ref": "#/$defs/KernelBudgetSpec"
+        }
+      },
+      "required": [
+        "version",
+        "steps"
+      ],
+      "additionalProperties": false
+    },
+    "Meta04": {
+      "description": "Core schema meta-schema",
+      "definitions": {
+        "schemaArray": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/Meta04",
+            "title": "schemaArray items",
+            "description": "See Meta04."
+          },
+          "title": "schemaArray",
+          "description": "schemaArray value."
+        },
+        "positiveInteger": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "positiveInteger",
+          "description": "positiveInteger value."
+        },
+        "positiveIntegerDefault0": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Meta04/definitions/positiveInteger",
+              "title": "positiveIntegerDefault0 alternative 1",
+              "description": "See positiveInteger."
+            },
+            {
+              "default": 0,
+              "title": "positiveIntegerDefault0 alternative 2",
+              "description": "positiveIntegerDefault0 alternative 2 value."
+            }
+          ],
+          "title": "positiveIntegerDefault0",
+          "description": "positiveIntegerDefault0 value."
+        },
+        "simpleTypes": {
+          "enum": [
+            "array",
+            "boolean",
+            "integer",
+            "null",
+            "number",
+            "object",
+            "string"
+          ],
+          "title": "simpleTypes",
+          "description": "simpleTypes value."
+        },
+        "stringArray": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "stringArray items",
+            "description": "stringArray items value."
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "title": "stringArray",
+          "description": "stringArray value."
+        }
+      },
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "id",
+          "description": "id value."
+        },
+        "$schema": {
+          "type": "string",
+          "title": "$schema",
+          "description": "$schema value."
+        },
+        "title": {
+          "type": "string",
+          "title": "title",
+          "description": "title value."
+        },
+        "description": {
+          "type": "string",
+          "title": "description",
+          "description": "description value."
+        },
+        "default": {
+          "title": "default",
+          "description": "default value."
+        },
+        "multipleOf": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "title": "multipleOf",
+          "description": "multipleOf value."
+        },
+        "maximum": {
+          "type": "number",
+          "title": "maximum",
+          "description": "maximum value."
+        },
+        "exclusiveMaximum": {
+          "type": "boolean",
+          "default": false,
+          "title": "exclusiveMaximum",
+          "description": "exclusiveMaximum value."
+        },
+        "minimum": {
+          "type": "number",
+          "title": "minimum",
+          "description": "minimum value."
+        },
+        "exclusiveMinimum": {
+          "type": "boolean",
+          "default": false,
+          "title": "exclusiveMinimum",
+          "description": "exclusiveMinimum value."
+        },
+        "maxLength": {
+          "$ref": "#/$defs/Meta04/definitions/positiveInteger",
+          "title": "maxLength",
+          "description": "See positiveInteger."
+        },
+        "minLength": {
+          "$ref": "#/$defs/Meta04/definitions/positiveIntegerDefault0",
+          "title": "minLength",
+          "description": "See positiveIntegerDefault0."
+        },
+        "pattern": {
+          "type": "string",
+          "title": "pattern",
+          "description": "pattern value."
+        },
+        "additionalItems": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "title": "additionalItems alternative 1",
+              "description": "additionalItems alternative 1 value."
+            },
+            {
+              "$ref": "#/$defs/Meta04",
+              "title": "additionalItems alternative 2",
+              "description": "See Meta04."
+            }
+          ],
+          "default": {},
+          "title": "additionalItems",
+          "description": "additionalItems value."
+        },
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Meta04",
+              "title": "items alternative 1",
+              "description": "See Meta04."
+            },
+            {
+              "$ref": "#/$defs/Meta04/definitions/schemaArray",
+              "title": "items alternative 2",
+              "description": "See schemaArray."
+            }
+          ],
+          "default": {},
+          "title": "items",
+          "description": "items value."
+        },
+        "maxItems": {
+          "$ref": "#/$defs/Meta04/definitions/positiveInteger",
+          "title": "maxItems",
+          "description": "See positiveInteger."
+        },
+        "minItems": {
+          "$ref": "#/$defs/Meta04/definitions/positiveIntegerDefault0",
+          "title": "minItems",
+          "description": "See positiveIntegerDefault0."
+        },
+        "uniqueItems": {
+          "type": "boolean",
+          "default": false,
+          "title": "uniqueItems",
+          "description": "uniqueItems value."
+        },
+        "maxProperties": {
+          "$ref": "#/$defs/Meta04/definitions/positiveInteger",
+          "title": "maxProperties",
+          "description": "See positiveInteger."
+        },
+        "minProperties": {
+          "$ref": "#/$defs/Meta04/definitions/positiveIntegerDefault0",
+          "title": "minProperties",
+          "description": "See positiveIntegerDefault0."
+        },
+        "required": {
+          "$ref": "#/$defs/Meta04/definitions/stringArray",
+          "title": "required",
+          "description": "See stringArray."
+        },
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "boolean",
+              "title": "additionalProperties alternative 1",
+              "description": "additionalProperties alternative 1 value."
+            },
+            {
+              "$ref": "#/$defs/Meta04",
+              "title": "additionalProperties alternative 2",
+              "description": "See Meta04."
+            }
+          ],
+          "default": {},
+          "title": "additionalProperties",
+          "description": "additionalProperties value."
+        },
+        "definitions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta04",
+            "title": "definitions additionalProperties",
+            "description": "See Meta04."
+          },
+          "default": {},
+          "title": "definitions",
+          "description": "definitions value."
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta04",
+            "title": "properties additionalProperties",
+            "description": "See Meta04."
+          },
+          "default": {},
+          "title": "properties",
+          "description": "properties value."
+        },
+        "patternProperties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta04",
+            "title": "patternProperties additionalProperties",
+            "description": "See Meta04."
+          },
+          "default": {},
+          "title": "patternProperties",
+          "description": "patternProperties value."
+        },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Meta04",
+                "title": "dependencies additionalProperties alternative 1",
+                "description": "See Meta04."
+              },
+              {
+                "$ref": "#/$defs/Meta04/definitions/stringArray",
+                "title": "dependencies additionalProperties alternative 2",
+                "description": "See stringArray."
+              }
+            ],
+            "title": "dependencies additionalProperties",
+            "description": "dependencies additionalProperties value."
+          },
+          "title": "dependencies",
+          "description": "dependencies value."
+        },
+        "enum": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "title": "enum",
+          "description": "enum value."
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Meta04/definitions/simpleTypes",
+              "title": "type alternative 1",
+              "description": "See simpleTypes."
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Meta04/definitions/simpleTypes",
+                "title": "type alternative 2 items",
+                "description": "See simpleTypes."
+              },
+              "minItems": 1,
+              "uniqueItems": true,
+              "title": "type alternative 2",
+              "description": "type alternative 2 value."
+            }
+          ],
+          "title": "type",
+          "description": "type value."
+        },
+        "allOf": {
+          "$ref": "#/$defs/Meta04/definitions/schemaArray",
+          "title": "allOf",
+          "description": "See schemaArray."
+        },
+        "anyOf": {
+          "$ref": "#/$defs/Meta04/definitions/schemaArray",
+          "title": "anyOf",
+          "description": "See schemaArray."
+        },
+        "oneOf": {
+          "$ref": "#/$defs/Meta04/definitions/schemaArray",
+          "title": "oneOf",
+          "description": "See schemaArray."
+        },
+        "not": {
+          "$ref": "#/$defs/Meta04",
+          "title": "not",
+          "description": "See Meta04."
+        }
+      },
+      "dependentRequired": {
+        "exclusiveMaximum": [
+          "maximum"
+        ],
+        "exclusiveMinimum": [
+          "minimum"
+        ]
+      },
+      "default": {},
+      "title": "Meta04"
+    },
+    "Meta06": {
+      "title": "Core schema meta-schema",
+      "definitions": {
+        "schemaArray": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/Meta06",
+            "title": "schemaArray items",
+            "description": "See Meta06."
+          },
+          "title": "schemaArray",
+          "description": "schemaArray value."
+        },
+        "nonNegativeInteger": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "nonNegativeInteger",
+          "description": "nonNegativeInteger value."
+        },
+        "nonNegativeIntegerDefault0": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Meta06/definitions/nonNegativeInteger",
+              "title": "nonNegativeIntegerDefault0 alternative 1",
+              "description": "See nonNegativeInteger."
+            },
+            {
+              "default": 0,
+              "title": "nonNegativeIntegerDefault0 alternative 2",
+              "description": "nonNegativeIntegerDefault0 alternative 2 value."
+            }
+          ],
+          "title": "nonNegativeIntegerDefault0",
+          "description": "nonNegativeIntegerDefault0 value."
+        },
+        "simpleTypes": {
+          "enum": [
+            "array",
+            "boolean",
+            "integer",
+            "null",
+            "number",
+            "object",
+            "string"
+          ],
+          "title": "simpleTypes",
+          "description": "simpleTypes value."
+        },
+        "stringArray": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "stringArray items",
+            "description": "stringArray items value."
+          },
+          "uniqueItems": true,
+          "default": [],
+          "title": "stringArray",
+          "description": "stringArray value."
+        }
+      },
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "$id": {
+          "type": "string",
+          "title": "$id",
+          "description": "$id value."
+        },
+        "$schema": {
+          "type": "string",
+          "title": "$schema",
+          "description": "$schema value."
+        },
+        "$ref": {
+          "type": "string",
+          "title": "$ref",
+          "description": "$ref value."
+        },
+        "title": {
+          "type": "string",
+          "title": "title",
+          "description": "title value."
+        },
+        "description": {
+          "type": "string",
+          "title": "description",
+          "description": "description value."
+        },
+        "default": {
+          "title": "default",
+          "description": "default value."
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "title": "examples items",
+            "description": "examples items value."
+          },
+          "title": "examples",
+          "description": "examples value."
+        },
+        "multipleOf": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "title": "multipleOf",
+          "description": "multipleOf value."
+        },
+        "maximum": {
+          "type": "number",
+          "title": "maximum",
+          "description": "maximum value."
+        },
+        "exclusiveMaximum": {
+          "type": "number",
+          "title": "exclusiveMaximum",
+          "description": "exclusiveMaximum value."
+        },
+        "minimum": {
+          "type": "number",
+          "title": "minimum",
+          "description": "minimum value."
+        },
+        "exclusiveMinimum": {
+          "type": "number",
+          "title": "exclusiveMinimum",
+          "description": "exclusiveMinimum value."
+        },
+        "maxLength": {
+          "$ref": "#/$defs/Meta06/definitions/nonNegativeInteger",
+          "title": "maxLength",
+          "description": "See nonNegativeInteger."
+        },
+        "minLength": {
+          "$ref": "#/$defs/Meta06/definitions/nonNegativeIntegerDefault0",
+          "title": "minLength",
+          "description": "See nonNegativeIntegerDefault0."
+        },
+        "pattern": {
+          "type": "string",
+          "title": "pattern",
+          "description": "pattern value."
+        },
+        "additionalItems": {
+          "$ref": "#/$defs/Meta06",
+          "title": "additionalItems",
+          "description": "See Meta06."
+        },
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Meta06",
+              "title": "items alternative 1",
+              "description": "See Meta06."
+            },
+            {
+              "$ref": "#/$defs/Meta06/definitions/schemaArray",
+              "title": "items alternative 2",
+              "description": "See schemaArray."
+            }
+          ],
+          "default": {},
+          "title": "items",
+          "description": "items value."
+        },
+        "maxItems": {
+          "$ref": "#/$defs/Meta06/definitions/nonNegativeInteger",
+          "title": "maxItems",
+          "description": "See nonNegativeInteger."
+        },
+        "minItems": {
+          "$ref": "#/$defs/Meta06/definitions/nonNegativeIntegerDefault0",
+          "title": "minItems",
+          "description": "See nonNegativeIntegerDefault0."
+        },
+        "uniqueItems": {
+          "type": "boolean",
+          "default": false,
+          "title": "uniqueItems",
+          "description": "uniqueItems value."
+        },
+        "contains": {
+          "$ref": "#/$defs/Meta06",
+          "title": "contains",
+          "description": "See Meta06."
+        },
+        "maxProperties": {
+          "$ref": "#/$defs/Meta06/definitions/nonNegativeInteger",
+          "title": "maxProperties",
+          "description": "See nonNegativeInteger."
+        },
+        "minProperties": {
+          "$ref": "#/$defs/Meta06/definitions/nonNegativeIntegerDefault0",
+          "title": "minProperties",
+          "description": "See nonNegativeIntegerDefault0."
+        },
+        "required": {
+          "$ref": "#/$defs/Meta06/definitions/stringArray",
+          "title": "required",
+          "description": "See stringArray."
+        },
+        "additionalProperties": {
+          "$ref": "#/$defs/Meta06",
+          "title": "additionalProperties",
+          "description": "See Meta06."
+        },
+        "definitions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta06",
+            "title": "definitions additionalProperties",
+            "description": "See Meta06."
+          },
+          "default": {},
+          "title": "definitions",
+          "description": "definitions value."
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta06",
+            "title": "properties additionalProperties",
+            "description": "See Meta06."
+          },
+          "default": {},
+          "title": "properties",
+          "description": "properties value."
+        },
+        "patternProperties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta06",
+            "title": "patternProperties additionalProperties",
+            "description": "See Meta06."
+          },
+          "default": {},
+          "title": "patternProperties",
+          "description": "patternProperties value."
+        },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Meta06",
+                "title": "dependencies additionalProperties alternative 1",
+                "description": "See Meta06."
+              },
+              {
+                "$ref": "#/$defs/Meta06/definitions/stringArray",
+                "title": "dependencies additionalProperties alternative 2",
+                "description": "See stringArray."
+              }
+            ],
+            "title": "dependencies additionalProperties",
+            "description": "dependencies additionalProperties value."
+          },
+          "title": "dependencies",
+          "description": "dependencies value."
+        },
+        "propertyNames": {
+          "$ref": "#/$defs/Meta06",
+          "title": "propertyNames",
+          "description": "See Meta06."
+        },
+        "const": {
+          "title": "const",
+          "description": "const value."
+        },
+        "enum": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "title": "enum",
+          "description": "enum value."
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Meta06/definitions/simpleTypes",
+              "title": "type alternative 1",
+              "description": "See simpleTypes."
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Meta06/definitions/simpleTypes",
+                "title": "type alternative 2 items",
+                "description": "See simpleTypes."
+              },
+              "minItems": 1,
+              "uniqueItems": true,
+              "title": "type alternative 2",
+              "description": "type alternative 2 value."
+            }
+          ],
+          "title": "type",
+          "description": "type value."
+        },
+        "format": {
+          "type": "string",
+          "title": "format",
+          "description": "format value."
+        },
+        "allOf": {
+          "$ref": "#/$defs/Meta06/definitions/schemaArray",
+          "title": "allOf",
+          "description": "See schemaArray."
+        },
+        "anyOf": {
+          "$ref": "#/$defs/Meta06/definitions/schemaArray",
+          "title": "anyOf",
+          "description": "See schemaArray."
+        },
+        "oneOf": {
+          "$ref": "#/$defs/Meta06/definitions/schemaArray",
+          "title": "oneOf",
+          "description": "See schemaArray."
+        },
+        "not": {
+          "$ref": "#/$defs/Meta06",
+          "title": "not",
+          "description": "See Meta06."
+        }
+      },
+      "default": {},
+      "description": "Meta06 value."
+    },
+    "Meta07": {
+      "title": "Core schema meta-schema",
+      "definitions": {
+        "schemaArray": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/Meta07",
+            "title": "schemaArray items",
+            "description": "See Meta07."
+          },
+          "title": "schemaArray",
+          "description": "schemaArray value."
+        },
+        "nonNegativeInteger": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "nonNegativeInteger",
+          "description": "nonNegativeInteger value."
+        },
+        "nonNegativeIntegerDefault0": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Meta07/definitions/nonNegativeInteger",
+              "title": "nonNegativeIntegerDefault0 alternative 1",
+              "description": "See nonNegativeInteger."
+            },
+            {
+              "default": 0,
+              "title": "nonNegativeIntegerDefault0 alternative 2",
+              "description": "nonNegativeIntegerDefault0 alternative 2 value."
+            }
+          ],
+          "title": "nonNegativeIntegerDefault0",
+          "description": "nonNegativeIntegerDefault0 value."
+        },
+        "simpleTypes": {
+          "enum": [
+            "array",
+            "boolean",
+            "integer",
+            "null",
+            "number",
+            "object",
+            "string"
+          ],
+          "title": "simpleTypes",
+          "description": "simpleTypes value."
+        },
+        "stringArray": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "stringArray items",
+            "description": "stringArray items value."
+          },
+          "uniqueItems": true,
+          "default": [],
+          "title": "stringArray",
+          "description": "stringArray value."
+        }
+      },
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "$id": {
+          "type": "string",
+          "title": "$id",
+          "description": "$id value."
+        },
+        "$schema": {
+          "type": "string",
+          "title": "$schema",
+          "description": "$schema value."
+        },
+        "$ref": {
+          "type": "string",
+          "title": "$ref",
+          "description": "$ref value."
+        },
+        "$comment": {
+          "type": "string",
+          "title": "$comment",
+          "description": "$comment value."
+        },
+        "title": {
+          "type": "string",
+          "title": "title",
+          "description": "title value."
+        },
+        "description": {
+          "type": "string",
+          "title": "description",
+          "description": "description value."
+        },
+        "default": true,
+        "readOnly": {
+          "type": "boolean",
+          "default": false,
+          "title": "readOnly",
+          "description": "readOnly value."
+        },
+        "examples": {
+          "type": "array",
+          "items": true,
+          "title": "examples",
+          "description": "examples value."
+        },
+        "multipleOf": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "title": "multipleOf",
+          "description": "multipleOf value."
+        },
+        "maximum": {
+          "type": "number",
+          "title": "maximum",
+          "description": "maximum value."
+        },
+        "exclusiveMaximum": {
+          "type": "number",
+          "title": "exclusiveMaximum",
+          "description": "exclusiveMaximum value."
+        },
+        "minimum": {
+          "type": "number",
+          "title": "minimum",
+          "description": "minimum value."
+        },
+        "exclusiveMinimum": {
+          "type": "number",
+          "title": "exclusiveMinimum",
+          "description": "exclusiveMinimum value."
+        },
+        "maxLength": {
+          "$ref": "#/$defs/Meta07/definitions/nonNegativeInteger",
+          "title": "maxLength",
+          "description": "See nonNegativeInteger."
+        },
+        "minLength": {
+          "$ref": "#/$defs/Meta07/definitions/nonNegativeIntegerDefault0",
+          "title": "minLength",
+          "description": "See nonNegativeIntegerDefault0."
+        },
+        "pattern": {
+          "type": "string",
+          "title": "pattern",
+          "description": "pattern value."
+        },
+        "additionalItems": {
+          "$ref": "#/$defs/Meta07",
+          "title": "additionalItems",
+          "description": "See Meta07."
+        },
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Meta07",
+              "title": "items alternative 1",
+              "description": "See Meta07."
+            },
+            {
+              "$ref": "#/$defs/Meta07/definitions/schemaArray",
+              "title": "items alternative 2",
+              "description": "See schemaArray."
+            }
+          ],
+          "default": true,
+          "title": "items",
+          "description": "items value."
+        },
+        "maxItems": {
+          "$ref": "#/$defs/Meta07/definitions/nonNegativeInteger",
+          "title": "maxItems",
+          "description": "See nonNegativeInteger."
+        },
+        "minItems": {
+          "$ref": "#/$defs/Meta07/definitions/nonNegativeIntegerDefault0",
+          "title": "minItems",
+          "description": "See nonNegativeIntegerDefault0."
+        },
+        "uniqueItems": {
+          "type": "boolean",
+          "default": false,
+          "title": "uniqueItems",
+          "description": "uniqueItems value."
+        },
+        "contains": {
+          "$ref": "#/$defs/Meta07",
+          "title": "contains",
+          "description": "See Meta07."
+        },
+        "maxProperties": {
+          "$ref": "#/$defs/Meta07/definitions/nonNegativeInteger",
+          "title": "maxProperties",
+          "description": "See nonNegativeInteger."
+        },
+        "minProperties": {
+          "$ref": "#/$defs/Meta07/definitions/nonNegativeIntegerDefault0",
+          "title": "minProperties",
+          "description": "See nonNegativeIntegerDefault0."
+        },
+        "required": {
+          "$ref": "#/$defs/Meta07/definitions/stringArray",
+          "title": "required",
+          "description": "See stringArray."
+        },
+        "additionalProperties": {
+          "$ref": "#/$defs/Meta07",
+          "title": "additionalProperties",
+          "description": "See Meta07."
+        },
+        "definitions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta07",
+            "title": "definitions additionalProperties",
+            "description": "See Meta07."
+          },
+          "default": {},
+          "title": "definitions",
+          "description": "definitions value."
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta07",
+            "title": "properties additionalProperties",
+            "description": "See Meta07."
+          },
+          "default": {},
+          "title": "properties",
+          "description": "properties value."
+        },
+        "patternProperties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta07",
+            "title": "patternProperties additionalProperties",
+            "description": "See Meta07."
+          },
+          "propertyNames": {
+            "title": "patternProperties propertyNames",
+            "description": "patternProperties propertyNames value."
+          },
+          "default": {},
+          "title": "patternProperties",
+          "description": "patternProperties value."
+        },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Meta07",
+                "title": "dependencies additionalProperties alternative 1",
+                "description": "See Meta07."
+              },
+              {
+                "$ref": "#/$defs/Meta07/definitions/stringArray",
+                "title": "dependencies additionalProperties alternative 2",
+                "description": "See stringArray."
+              }
+            ],
+            "title": "dependencies additionalProperties",
+            "description": "dependencies additionalProperties value."
+          },
+          "title": "dependencies",
+          "description": "dependencies value."
+        },
+        "propertyNames": {
+          "$ref": "#/$defs/Meta07",
+          "title": "propertyNames",
+          "description": "See Meta07."
+        },
+        "const": true,
+        "enum": {
+          "type": "array",
+          "items": true,
+          "minItems": 1,
+          "uniqueItems": true,
+          "title": "enum",
+          "description": "enum value."
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Meta07/definitions/simpleTypes",
+              "title": "type alternative 1",
+              "description": "See simpleTypes."
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Meta07/definitions/simpleTypes",
+                "title": "type alternative 2 items",
+                "description": "See simpleTypes."
+              },
+              "minItems": 1,
+              "uniqueItems": true,
+              "title": "type alternative 2",
+              "description": "type alternative 2 value."
+            }
+          ],
+          "title": "type",
+          "description": "type value."
+        },
+        "format": {
+          "type": "string",
+          "title": "format",
+          "description": "format value."
+        },
+        "contentMediaType": {
+          "type": "string",
+          "title": "contentMediaType",
+          "description": "contentMediaType value."
+        },
+        "contentEncoding": {
+          "type": "string",
+          "title": "contentEncoding",
+          "description": "contentEncoding value."
+        },
+        "if": {
+          "$ref": "#/$defs/Meta07",
+          "title": "if",
+          "description": "See Meta07."
+        },
+        "then": {
+          "$ref": "#/$defs/Meta07",
+          "title": "then",
+          "description": "See Meta07."
+        },
+        "else": {
+          "$ref": "#/$defs/Meta07",
+          "title": "else",
+          "description": "See Meta07."
+        },
+        "allOf": {
+          "$ref": "#/$defs/Meta07/definitions/schemaArray",
+          "title": "allOf",
+          "description": "See schemaArray."
+        },
+        "anyOf": {
+          "$ref": "#/$defs/Meta07/definitions/schemaArray",
+          "title": "anyOf",
+          "description": "See schemaArray."
+        },
+        "oneOf": {
+          "$ref": "#/$defs/Meta07/definitions/schemaArray",
+          "title": "oneOf",
+          "description": "See schemaArray."
+        },
+        "not": {
+          "$ref": "#/$defs/Meta07",
+          "title": "not",
+          "description": "See Meta07."
+        }
+      },
+      "default": true,
+      "description": "Meta07 value."
+    },
+    "Meta2019": {
+      "title": "Core and Validation specifications meta-schema",
+      "allOf": [
+        {
+          "$ref": "#/$defs/Meta2019_core",
+          "title": "Meta2019 alternative 1",
+          "description": "See Meta2019_core."
+        },
+        {
+          "$ref": "#/$defs/Meta2019_applicator",
+          "title": "Meta2019 alternative 2",
+          "description": "See Meta2019_applicator."
+        },
+        {
+          "$ref": "#/$defs/Meta2019_validation",
+          "title": "Meta2019 alternative 3",
+          "description": "See Meta2019_validation."
+        },
+        {
+          "$ref": "#/$defs/Meta2019_meta-data",
+          "title": "Meta2019 alternative 4",
+          "description": "See Meta2019_meta-data."
+        },
+        {
+          "$ref": "#/$defs/Meta2019_format",
+          "title": "Meta2019 alternative 5",
+          "description": "See Meta2019_format."
+        },
+        {
+          "$ref": "#/$defs/Meta2019_content",
+          "title": "Meta2019 alternative 6",
+          "description": "See Meta2019_content."
+        }
+      ],
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "definitions": {
+          "$comment": "While no longer an official keyword as it is replaced by $defs, this keyword is retained in the meta-schema to prevent incompatible extensions as it remains in common use.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta2019",
+            "title": "definitions additionalProperties",
+            "description": "See Meta2019."
+          },
+          "default": {},
+          "title": "definitions",
+          "description": "definitions value."
+        },
+        "dependencies": {
+          "$comment": "\"dependencies\" is no longer a keyword, but schema authors should avoid redefining it to facilitate a smooth transition to \"dependentSchemas\" and \"dependentRequired\"",
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Meta2019",
+                "title": "dependencies additionalProperties alternative 1",
+                "description": "See Meta2019."
+              },
+              {
+                "$ref": "#/$defs/Meta2019_validation/$defs/stringArray",
+                "title": "dependencies additionalProperties alternative 2",
+                "description": "See stringArray."
+              }
+            ],
+            "title": "dependencies additionalProperties",
+            "description": "dependencies additionalProperties value."
+          },
+          "title": "dependencies",
+          "description": "dependencies value."
+        }
+      },
+      "description": "Meta2019 value."
+    },
+    "Meta2019_core": {
+      "title": "Core vocabulary meta-schema",
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "$id": {
+          "type": "string",
+          "$comment": "Non-empty fragments not allowed.",
+          "pattern": "^[^#]*#?$",
+          "title": "$id",
+          "description": "$id value."
+        },
+        "$schema": {
+          "type": "string",
+          "title": "$schema",
+          "description": "$schema value."
+        },
+        "$anchor": {
+          "type": "string",
+          "pattern": "^[A-Za-z][-A-Za-z0-9.:_]*$",
+          "title": "$anchor",
+          "description": "$anchor value."
+        },
+        "$ref": {
+          "type": "string",
+          "title": "$ref",
+          "description": "$ref value."
+        },
+        "$recursiveRef": {
+          "type": "string",
+          "title": "$recursiveRef",
+          "description": "$recursiveRef value."
+        },
+        "$recursiveAnchor": {
+          "type": "boolean",
+          "default": false,
+          "title": "$recursiveAnchor",
+          "description": "$recursiveAnchor value."
+        },
+        "$vocabulary": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "title": "$vocabulary propertyNames",
+            "description": "$vocabulary propertyNames value."
+          },
+          "additionalProperties": {
+            "type": "boolean",
+            "title": "$vocabulary additionalProperties",
+            "description": "$vocabulary additionalProperties value."
+          },
+          "title": "$vocabulary",
+          "description": "$vocabulary value."
+        },
+        "$comment": {
+          "type": "string",
+          "title": "$comment",
+          "description": "$comment value."
+        },
+        "$defs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta2019",
+            "title": "$defs additionalProperties",
+            "description": "See Meta2019."
+          },
+          "default": {},
+          "title": "$defs",
+          "description": "$defs value."
+        }
+      },
+      "description": "Meta2019_core value."
+    },
+    "Meta2019_applicator": {
+      "title": "Applicator vocabulary meta-schema",
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "additionalItems": {
+          "$ref": "#/$defs/Meta2019",
+          "title": "additionalItems",
+          "description": "See Meta2019."
+        },
+        "unevaluatedItems": {
+          "$ref": "#/$defs/Meta2019",
+          "title": "unevaluatedItems",
+          "description": "See Meta2019."
+        },
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Meta2019",
+              "title": "items alternative 1",
+              "description": "See Meta2019."
+            },
+            {
+              "$ref": "#/$defs/Meta2019_applicator/$defs/schemaArray",
+              "title": "items alternative 2",
+              "description": "See schemaArray."
+            }
+          ],
+          "title": "items",
+          "description": "items value."
+        },
+        "contains": {
+          "$ref": "#/$defs/Meta2019",
+          "title": "contains",
+          "description": "See Meta2019."
+        },
+        "additionalProperties": {
+          "$ref": "#/$defs/Meta2019",
+          "title": "additionalProperties",
+          "description": "See Meta2019."
+        },
+        "unevaluatedProperties": {
+          "$ref": "#/$defs/Meta2019",
+          "title": "unevaluatedProperties",
+          "description": "See Meta2019."
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta2019",
+            "title": "properties additionalProperties",
+            "description": "See Meta2019."
+          },
+          "default": {},
+          "title": "properties",
+          "description": "properties value."
+        },
+        "patternProperties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta2019",
+            "title": "patternProperties additionalProperties",
+            "description": "See Meta2019."
+          },
+          "propertyNames": {
+            "title": "patternProperties propertyNames",
+            "description": "patternProperties propertyNames value."
+          },
+          "default": {},
+          "title": "patternProperties",
+          "description": "patternProperties value."
+        },
+        "dependentSchemas": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta2019",
+            "title": "dependentSchemas additionalProperties",
+            "description": "See Meta2019."
+          },
+          "title": "dependentSchemas",
+          "description": "dependentSchemas value."
+        },
+        "propertyNames": {
+          "$ref": "#/$defs/Meta2019",
+          "title": "propertyNames",
+          "description": "See Meta2019."
+        },
+        "if": {
+          "$ref": "#/$defs/Meta2019",
+          "title": "if",
+          "description": "See Meta2019."
+        },
+        "then": {
+          "$ref": "#/$defs/Meta2019",
+          "title": "then",
+          "description": "See Meta2019."
+        },
+        "else": {
+          "$ref": "#/$defs/Meta2019",
+          "title": "else",
+          "description": "See Meta2019."
+        },
+        "allOf": {
+          "$ref": "#/$defs/Meta2019_applicator/$defs/schemaArray",
+          "title": "allOf",
+          "description": "See schemaArray."
+        },
+        "anyOf": {
+          "$ref": "#/$defs/Meta2019_applicator/$defs/schemaArray",
+          "title": "anyOf",
+          "description": "See schemaArray."
+        },
+        "oneOf": {
+          "$ref": "#/$defs/Meta2019_applicator/$defs/schemaArray",
+          "title": "oneOf",
+          "description": "See schemaArray."
+        },
+        "not": {
+          "$ref": "#/$defs/Meta2019",
+          "title": "not",
+          "description": "See Meta2019."
+        }
+      },
+      "$defs": {
+        "schemaArray": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/Meta2019",
+            "title": "schemaArray items",
+            "description": "See Meta2019."
+          },
+          "title": "schemaArray",
+          "description": "schemaArray value."
+        }
+      },
+      "description": "Meta2019_applicator value."
+    },
+    "Meta2019_validation": {
+      "title": "Validation vocabulary meta-schema",
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "multipleOf": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "title": "multipleOf",
+          "description": "multipleOf value."
+        },
+        "maximum": {
+          "type": "number",
+          "title": "maximum",
+          "description": "maximum value."
+        },
+        "exclusiveMaximum": {
+          "type": "number",
+          "title": "exclusiveMaximum",
+          "description": "exclusiveMaximum value."
+        },
+        "minimum": {
+          "type": "number",
+          "title": "minimum",
+          "description": "minimum value."
+        },
+        "exclusiveMinimum": {
+          "type": "number",
+          "title": "exclusiveMinimum",
+          "description": "exclusiveMinimum value."
+        },
+        "maxLength": {
+          "$ref": "#/$defs/Meta2019_validation/$defs/nonNegativeInteger",
+          "title": "maxLength",
+          "description": "See nonNegativeInteger."
+        },
+        "minLength": {
+          "$ref": "#/$defs/Meta2019_validation/$defs/nonNegativeIntegerDefault0",
+          "title": "minLength",
+          "description": "See nonNegativeIntegerDefault0."
+        },
+        "pattern": {
+          "type": "string",
+          "title": "pattern",
+          "description": "pattern value."
+        },
+        "maxItems": {
+          "$ref": "#/$defs/Meta2019_validation/$defs/nonNegativeInteger",
+          "title": "maxItems",
+          "description": "See nonNegativeInteger."
+        },
+        "minItems": {
+          "$ref": "#/$defs/Meta2019_validation/$defs/nonNegativeIntegerDefault0",
+          "title": "minItems",
+          "description": "See nonNegativeIntegerDefault0."
+        },
+        "uniqueItems": {
+          "type": "boolean",
+          "default": false,
+          "title": "uniqueItems",
+          "description": "uniqueItems value."
+        },
+        "maxContains": {
+          "$ref": "#/$defs/Meta2019_validation/$defs/nonNegativeInteger",
+          "title": "maxContains",
+          "description": "See nonNegativeInteger."
+        },
+        "minContains": {
+          "$ref": "#/$defs/Meta2019_validation/$defs/nonNegativeInteger",
+          "default": 1,
+          "title": "minContains",
+          "description": "See nonNegativeInteger."
+        },
+        "maxProperties": {
+          "$ref": "#/$defs/Meta2019_validation/$defs/nonNegativeInteger",
+          "title": "maxProperties",
+          "description": "See nonNegativeInteger."
+        },
+        "minProperties": {
+          "$ref": "#/$defs/Meta2019_validation/$defs/nonNegativeIntegerDefault0",
+          "title": "minProperties",
+          "description": "See nonNegativeIntegerDefault0."
+        },
+        "required": {
+          "$ref": "#/$defs/Meta2019_validation/$defs/stringArray",
+          "title": "required",
+          "description": "See stringArray."
+        },
+        "dependentRequired": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta2019_validation/$defs/stringArray",
+            "title": "dependentRequired additionalProperties",
+            "description": "See stringArray."
+          },
+          "title": "dependentRequired",
+          "description": "dependentRequired value."
+        },
+        "const": true,
+        "enum": {
+          "type": "array",
+          "items": true,
+          "title": "enum",
+          "description": "enum value."
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Meta2019_validation/$defs/simpleTypes",
+              "title": "type alternative 1",
+              "description": "See simpleTypes."
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Meta2019_validation/$defs/simpleTypes",
+                "title": "type alternative 2 items",
+                "description": "See simpleTypes."
+              },
+              "minItems": 1,
+              "uniqueItems": true,
+              "title": "type alternative 2",
+              "description": "type alternative 2 value."
+            }
+          ],
+          "title": "type",
+          "description": "type value."
+        }
+      },
+      "$defs": {
+        "nonNegativeInteger": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "nonNegativeInteger",
+          "description": "nonNegativeInteger value."
+        },
+        "nonNegativeIntegerDefault0": {
+          "$ref": "#/$defs/Meta2019_validation/$defs/nonNegativeInteger",
+          "default": 0,
+          "title": "nonNegativeIntegerDefault0",
+          "description": "See nonNegativeInteger."
+        },
+        "simpleTypes": {
+          "enum": [
+            "array",
+            "boolean",
+            "integer",
+            "null",
+            "number",
+            "object",
+            "string"
+          ],
+          "title": "simpleTypes",
+          "description": "simpleTypes value."
+        },
+        "stringArray": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "stringArray items",
+            "description": "stringArray items value."
+          },
+          "uniqueItems": true,
+          "default": [],
+          "title": "stringArray",
+          "description": "stringArray value."
+        }
+      },
+      "description": "Meta2019_validation value."
+    },
+    "Meta2019_meta-data": {
+      "title": "Meta-data vocabulary meta-schema",
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "title": "title",
+          "description": "title value."
+        },
+        "description": {
+          "type": "string",
+          "title": "description",
+          "description": "description value."
+        },
+        "default": true,
+        "deprecated": {
+          "type": "boolean",
+          "default": false,
+          "title": "deprecated",
+          "description": "deprecated value."
+        },
+        "readOnly": {
+          "type": "boolean",
+          "default": false,
+          "title": "readOnly",
+          "description": "readOnly value."
+        },
+        "writeOnly": {
+          "type": "boolean",
+          "default": false,
+          "title": "writeOnly",
+          "description": "writeOnly value."
+        },
+        "examples": {
+          "type": "array",
+          "items": true,
+          "title": "examples",
+          "description": "examples value."
+        }
+      },
+      "description": "Meta2019_meta-data value."
+    },
+    "Meta2019_format": {
+      "title": "Format vocabulary meta-schema",
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "format": {
+          "type": "string",
+          "title": "format",
+          "description": "format value."
+        }
+      },
+      "description": "Meta2019_format value."
+    },
+    "Meta2019_content": {
+      "title": "Content vocabulary meta-schema",
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "contentMediaType": {
+          "type": "string",
+          "title": "contentMediaType",
+          "description": "contentMediaType value."
+        },
+        "contentEncoding": {
+          "type": "string",
+          "title": "contentEncoding",
+          "description": "contentEncoding value."
+        },
+        "contentSchema": {
+          "$ref": "#/$defs/Meta2019",
+          "title": "contentSchema",
+          "description": "See Meta2019."
+        }
+      },
+      "description": "Meta2019_content value."
+    },
+    "Meta2020": {
+      "title": "Core and Validation specifications meta-schema",
+      "allOf": [
+        {
+          "$ref": "#/$defs/Meta2020_core",
+          "title": "Meta2020 alternative 1",
+          "description": "See Meta2020_core."
+        },
+        {
+          "$ref": "#/$defs/Meta2020_applicator",
+          "title": "Meta2020 alternative 2",
+          "description": "See Meta2020_applicator."
+        },
+        {
+          "$ref": "#/$defs/Meta2020_unevaluated",
+          "title": "Meta2020 alternative 3",
+          "description": "See Meta2020_unevaluated."
+        },
+        {
+          "$ref": "#/$defs/Meta2020_validation",
+          "title": "Meta2020 alternative 4",
+          "description": "See Meta2020_validation."
+        },
+        {
+          "$ref": "#/$defs/Meta2020_meta-data",
+          "title": "Meta2020 alternative 5",
+          "description": "See Meta2020_meta-data."
+        },
+        {
+          "$ref": "#/$defs/Meta2020_format-annotation",
+          "title": "Meta2020 alternative 6",
+          "description": "See Meta2020_format-annotation."
+        },
+        {
+          "$ref": "#/$defs/Meta2020_content",
+          "title": "Meta2020 alternative 7",
+          "description": "See Meta2020_content."
+        }
+      ],
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "$comment": "This meta-schema also defines keywords that have appeared in previous drafts in order to prevent incompatible extensions as they remain in common use.",
+      "properties": {
+        "definitions": {
+          "$comment": "\"definitions\" has been replaced by \"$defs\".",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta2020",
+            "title": "definitions additionalProperties",
+            "description": "See Meta2020."
+          },
+          "deprecated": true,
+          "default": {},
+          "title": "definitions",
+          "description": "definitions value."
+        },
+        "dependencies": {
+          "$comment": "\"dependencies\" has been split and replaced by \"dependentSchemas\" and \"dependentRequired\" in order to serve their differing semantics.",
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Meta2020",
+                "title": "dependencies additionalProperties alternative 1",
+                "description": "See Meta2020."
+              },
+              {
+                "$ref": "#/$defs/Meta2020_validation/$defs/stringArray",
+                "title": "dependencies additionalProperties alternative 2",
+                "description": "See stringArray."
+              }
+            ],
+            "title": "dependencies additionalProperties",
+            "description": "dependencies additionalProperties value."
+          },
+          "deprecated": true,
+          "default": {},
+          "title": "dependencies",
+          "description": "dependencies value."
+        },
+        "$recursiveAnchor": {
+          "$comment": "\"$recursiveAnchor\" has been replaced by \"$dynamicAnchor\".",
+          "$ref": "#/$defs/Meta2020_core/$defs/anchorString",
+          "deprecated": true,
+          "title": "$recursiveAnchor",
+          "description": "See anchorString."
+        },
+        "$recursiveRef": {
+          "$comment": "\"$recursiveRef\" has been replaced by \"$dynamicRef\".",
+          "$ref": "#/$defs/Meta2020_core/$defs/uriReferenceString",
+          "deprecated": true,
+          "title": "$recursiveRef",
+          "description": "See uriReferenceString."
+        }
+      },
+      "description": "Meta2020 value."
+    },
+    "Meta2020_core": {
+      "title": "Core vocabulary meta-schema",
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "$id": {
+          "$ref": "#/$defs/Meta2020_core/$defs/uriReferenceString",
+          "$comment": "Non-empty fragments not allowed.",
+          "pattern": "^[^#]*#?$",
+          "title": "$id",
+          "description": "See uriReferenceString."
+        },
+        "$schema": {
+          "$ref": "#/$defs/Meta2020_core/$defs/uriString",
+          "title": "$schema",
+          "description": "See uriString."
+        },
+        "$ref": {
+          "$ref": "#/$defs/Meta2020_core/$defs/uriReferenceString",
+          "title": "$ref",
+          "description": "See uriReferenceString."
+        },
+        "$anchor": {
+          "$ref": "#/$defs/Meta2020_core/$defs/anchorString",
+          "title": "$anchor",
+          "description": "See anchorString."
+        },
+        "$dynamicRef": {
+          "$ref": "#/$defs/Meta2020_core/$defs/uriReferenceString",
+          "title": "$dynamicRef",
+          "description": "See uriReferenceString."
+        },
+        "$dynamicAnchor": {
+          "$ref": "#/$defs/Meta2020_core/$defs/anchorString",
+          "title": "$dynamicAnchor",
+          "description": "See anchorString."
+        },
+        "$vocabulary": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/Meta2020_core/$defs/uriString",
+            "title": "$vocabulary propertyNames",
+            "description": "See uriString."
+          },
+          "additionalProperties": {
+            "type": "boolean",
+            "title": "$vocabulary additionalProperties",
+            "description": "$vocabulary additionalProperties value."
+          },
+          "title": "$vocabulary",
+          "description": "$vocabulary value."
+        },
+        "$comment": {
+          "type": "string",
+          "title": "$comment",
+          "description": "$comment value."
+        },
+        "$defs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta2020",
+            "title": "$defs additionalProperties",
+            "description": "See Meta2020."
+          },
+          "title": "$defs",
+          "description": "$defs value."
+        }
+      },
+      "$defs": {
+        "anchorString": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][-A-Za-z0-9._]*$",
+          "title": "anchorString",
+          "description": "anchorString value."
+        },
+        "uriString": {
+          "type": "string",
+          "title": "uriString",
+          "description": "uriString value."
+        },
+        "uriReferenceString": {
+          "type": "string",
+          "title": "uriReferenceString",
+          "description": "uriReferenceString value."
+        }
+      },
+      "description": "Meta2020_core value."
+    },
+    "Meta2020_applicator": {
+      "title": "Applicator vocabulary meta-schema",
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "prefixItems": {
+          "$ref": "#/$defs/Meta2020_applicator/$defs/schemaArray",
+          "title": "prefixItems",
+          "description": "See schemaArray."
+        },
+        "items": {
+          "$ref": "#/$defs/Meta2020",
+          "title": "items",
+          "description": "See Meta2020."
+        },
+        "contains": {
+          "$ref": "#/$defs/Meta2020",
+          "title": "contains",
+          "description": "See Meta2020."
+        },
+        "additionalProperties": {
+          "$ref": "#/$defs/Meta2020",
+          "title": "additionalProperties",
+          "description": "See Meta2020."
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta2020",
+            "title": "properties additionalProperties",
+            "description": "See Meta2020."
+          },
+          "default": {},
+          "title": "properties",
+          "description": "properties value."
+        },
+        "patternProperties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta2020",
+            "title": "patternProperties additionalProperties",
+            "description": "See Meta2020."
+          },
+          "propertyNames": {
+            "title": "patternProperties propertyNames",
+            "description": "patternProperties propertyNames value."
+          },
+          "default": {},
+          "title": "patternProperties",
+          "description": "patternProperties value."
+        },
+        "dependentSchemas": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta2020",
+            "title": "dependentSchemas additionalProperties",
+            "description": "See Meta2020."
+          },
+          "default": {},
+          "title": "dependentSchemas",
+          "description": "dependentSchemas value."
+        },
+        "propertyNames": {
+          "$ref": "#/$defs/Meta2020",
+          "title": "propertyNames",
+          "description": "See Meta2020."
+        },
+        "if": {
+          "$ref": "#/$defs/Meta2020",
+          "title": "if",
+          "description": "See Meta2020."
+        },
+        "then": {
+          "$ref": "#/$defs/Meta2020",
+          "title": "then",
+          "description": "See Meta2020."
+        },
+        "else": {
+          "$ref": "#/$defs/Meta2020",
+          "title": "else",
+          "description": "See Meta2020."
+        },
+        "allOf": {
+          "$ref": "#/$defs/Meta2020_applicator/$defs/schemaArray",
+          "title": "allOf",
+          "description": "See schemaArray."
+        },
+        "anyOf": {
+          "$ref": "#/$defs/Meta2020_applicator/$defs/schemaArray",
+          "title": "anyOf",
+          "description": "See schemaArray."
+        },
+        "oneOf": {
+          "$ref": "#/$defs/Meta2020_applicator/$defs/schemaArray",
+          "title": "oneOf",
+          "description": "See schemaArray."
+        },
+        "not": {
+          "$ref": "#/$defs/Meta2020",
+          "title": "not",
+          "description": "See Meta2020."
+        }
+      },
+      "$defs": {
+        "schemaArray": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/Meta2020",
+            "title": "schemaArray items",
+            "description": "See Meta2020."
+          },
+          "title": "schemaArray",
+          "description": "schemaArray value."
+        }
+      },
+      "description": "Meta2020_applicator value."
+    },
+    "Meta2020_unevaluated": {
+      "title": "Unevaluated applicator vocabulary meta-schema",
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "unevaluatedItems": {
+          "$ref": "#/$defs/Meta2020",
+          "title": "unevaluatedItems",
+          "description": "See Meta2020."
+        },
+        "unevaluatedProperties": {
+          "$ref": "#/$defs/Meta2020",
+          "title": "unevaluatedProperties",
+          "description": "See Meta2020."
+        }
+      },
+      "description": "Meta2020_unevaluated value."
+    },
+    "Meta2020_validation": {
+      "title": "Validation vocabulary meta-schema",
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Meta2020_validation/$defs/simpleTypes",
+              "title": "type alternative 1",
+              "description": "See simpleTypes."
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Meta2020_validation/$defs/simpleTypes",
+                "title": "type alternative 2 items",
+                "description": "See simpleTypes."
+              },
+              "minItems": 1,
+              "uniqueItems": true,
+              "title": "type alternative 2",
+              "description": "type alternative 2 value."
+            }
+          ],
+          "title": "type",
+          "description": "type value."
+        },
+        "const": true,
+        "enum": {
+          "type": "array",
+          "items": true,
+          "title": "enum",
+          "description": "enum value."
+        },
+        "multipleOf": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "title": "multipleOf",
+          "description": "multipleOf value."
+        },
+        "maximum": {
+          "type": "number",
+          "title": "maximum",
+          "description": "maximum value."
+        },
+        "exclusiveMaximum": {
+          "type": "number",
+          "title": "exclusiveMaximum",
+          "description": "exclusiveMaximum value."
+        },
+        "minimum": {
+          "type": "number",
+          "title": "minimum",
+          "description": "minimum value."
+        },
+        "exclusiveMinimum": {
+          "type": "number",
+          "title": "exclusiveMinimum",
+          "description": "exclusiveMinimum value."
+        },
+        "maxLength": {
+          "$ref": "#/$defs/Meta2020_validation/$defs/nonNegativeInteger",
+          "title": "maxLength",
+          "description": "See nonNegativeInteger."
+        },
+        "minLength": {
+          "$ref": "#/$defs/Meta2020_validation/$defs/nonNegativeIntegerDefault0",
+          "title": "minLength",
+          "description": "See nonNegativeIntegerDefault0."
+        },
+        "pattern": {
+          "type": "string",
+          "title": "pattern",
+          "description": "pattern value."
+        },
+        "maxItems": {
+          "$ref": "#/$defs/Meta2020_validation/$defs/nonNegativeInteger",
+          "title": "maxItems",
+          "description": "See nonNegativeInteger."
+        },
+        "minItems": {
+          "$ref": "#/$defs/Meta2020_validation/$defs/nonNegativeIntegerDefault0",
+          "title": "minItems",
+          "description": "See nonNegativeIntegerDefault0."
+        },
+        "uniqueItems": {
+          "type": "boolean",
+          "default": false,
+          "title": "uniqueItems",
+          "description": "uniqueItems value."
+        },
+        "maxContains": {
+          "$ref": "#/$defs/Meta2020_validation/$defs/nonNegativeInteger",
+          "title": "maxContains",
+          "description": "See nonNegativeInteger."
+        },
+        "minContains": {
+          "$ref": "#/$defs/Meta2020_validation/$defs/nonNegativeInteger",
+          "default": 1,
+          "title": "minContains",
+          "description": "See nonNegativeInteger."
+        },
+        "maxProperties": {
+          "$ref": "#/$defs/Meta2020_validation/$defs/nonNegativeInteger",
+          "title": "maxProperties",
+          "description": "See nonNegativeInteger."
+        },
+        "minProperties": {
+          "$ref": "#/$defs/Meta2020_validation/$defs/nonNegativeIntegerDefault0",
+          "title": "minProperties",
+          "description": "See nonNegativeIntegerDefault0."
+        },
+        "required": {
+          "$ref": "#/$defs/Meta2020_validation/$defs/stringArray",
+          "title": "required",
+          "description": "See stringArray."
+        },
+        "dependentRequired": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Meta2020_validation/$defs/stringArray",
+            "title": "dependentRequired additionalProperties",
+            "description": "See stringArray."
+          },
+          "title": "dependentRequired",
+          "description": "dependentRequired value."
+        }
+      },
+      "$defs": {
+        "nonNegativeInteger": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "nonNegativeInteger",
+          "description": "nonNegativeInteger value."
+        },
+        "nonNegativeIntegerDefault0": {
+          "$ref": "#/$defs/Meta2020_validation/$defs/nonNegativeInteger",
+          "default": 0,
+          "title": "nonNegativeIntegerDefault0",
+          "description": "See nonNegativeInteger."
+        },
+        "simpleTypes": {
+          "enum": [
+            "array",
+            "boolean",
+            "integer",
+            "null",
+            "number",
+            "object",
+            "string"
+          ],
+          "title": "simpleTypes",
+          "description": "simpleTypes value."
+        },
+        "stringArray": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "stringArray items",
+            "description": "stringArray items value."
+          },
+          "uniqueItems": true,
+          "default": [],
+          "title": "stringArray",
+          "description": "stringArray value."
+        }
+      },
+      "description": "Meta2020_validation value."
+    },
+    "Meta2020_meta-data": {
+      "title": "Meta-data vocabulary meta-schema",
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "title": "title",
+          "description": "title value."
+        },
+        "description": {
+          "type": "string",
+          "title": "description",
+          "description": "description value."
+        },
+        "default": true,
+        "deprecated": {
+          "type": "boolean",
+          "default": false,
+          "title": "deprecated",
+          "description": "deprecated value."
+        },
+        "readOnly": {
+          "type": "boolean",
+          "default": false,
+          "title": "readOnly",
+          "description": "readOnly value."
+        },
+        "writeOnly": {
+          "type": "boolean",
+          "default": false,
+          "title": "writeOnly",
+          "description": "writeOnly value."
+        },
+        "examples": {
+          "type": "array",
+          "items": true,
+          "title": "examples",
+          "description": "examples value."
+        }
+      },
+      "description": "Meta2020_meta-data value."
+    },
+    "Meta2020_format-annotation": {
+      "title": "Format vocabulary meta-schema for annotation results",
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "format": {
+          "type": "string",
+          "title": "format",
+          "description": "format value."
+        }
+      },
+      "description": "Meta2020_format-annotation value."
+    },
+    "Meta2020_content": {
+      "title": "Content vocabulary meta-schema",
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "contentEncoding": {
+          "type": "string",
+          "title": "contentEncoding",
+          "description": "contentEncoding value."
+        },
+        "contentMediaType": {
+          "type": "string",
+          "title": "contentMediaType",
+          "description": "contentMediaType value."
+        },
+        "contentSchema": {
+          "$ref": "#/$defs/Meta2020",
+          "title": "contentSchema",
+          "description": "See Meta2020."
+        }
+      },
+      "description": "Meta2020_content value."
+    },
+    "OutputSchema": {
+      "title": "Output JSON Schema",
+      "description": "Schema declaration using SDK-supported drafts 04, 06, 07, 2019-09 or 2020-12 (default). Run flows check to resolve references and prove termination.",
+      "type": [
+        "object",
+        "boolean"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string",
+          "enum": [
+            "http://json-schema.org/draft-04/schema",
+            "http://json-schema.org/draft-04/schema#",
+            "http://json-schema.org/draft-06/schema",
+            "http://json-schema.org/draft-06/schema#",
+            "http://json-schema.org/draft-07/schema",
+            "http://json-schema.org/draft-07/schema#",
+            "https://json-schema.org/draft/2019-09/schema",
+            "https://json-schema.org/draft/2019-09/schema#",
+            "https://json-schema.org/draft/2020-12/schema",
+            "https://json-schema.org/draft/2020-12/schema#"
+          ],
+          "title": "$schema",
+          "description": "$schema value."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "$schema": {
+                "enum": [
+                  "http://json-schema.org/draft-04/schema",
+                  "http://json-schema.org/draft-04/schema#"
+                ],
+                "title": "$schema",
+                "description": "$schema value."
+              }
+            },
+            "required": [
+              "$schema"
+            ],
+            "title": "OutputSchema alternative 1 if",
+            "description": "OutputSchema alternative 1 if value."
+          },
+          "then": {
+            "$ref": "#/$defs/Meta04",
+            "title": "OutputSchema alternative 1 then",
+            "description": "See Meta04."
+          },
+          "title": "OutputSchema alternative 1",
+          "description": "OutputSchema alternative 1 value."
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "$schema": {
+                "enum": [
+                  "http://json-schema.org/draft-06/schema",
+                  "http://json-schema.org/draft-06/schema#"
+                ],
+                "title": "$schema",
+                "description": "$schema value."
+              }
+            },
+            "required": [
+              "$schema"
+            ],
+            "title": "OutputSchema alternative 2 if",
+            "description": "OutputSchema alternative 2 if value."
+          },
+          "then": {
+            "$ref": "#/$defs/Meta06",
+            "title": "OutputSchema alternative 2 then",
+            "description": "See Meta06."
+          },
+          "title": "OutputSchema alternative 2",
+          "description": "OutputSchema alternative 2 value."
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "$schema": {
+                "enum": [
+                  "http://json-schema.org/draft-07/schema",
+                  "http://json-schema.org/draft-07/schema#"
+                ],
+                "title": "$schema",
+                "description": "$schema value."
+              }
+            },
+            "required": [
+              "$schema"
+            ],
+            "title": "OutputSchema alternative 3 if",
+            "description": "OutputSchema alternative 3 if value."
+          },
+          "then": {
+            "$ref": "#/$defs/Meta07",
+            "title": "OutputSchema alternative 3 then",
+            "description": "See Meta07."
+          },
+          "title": "OutputSchema alternative 3",
+          "description": "OutputSchema alternative 3 value."
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "$schema": {
+                "enum": [
+                  "https://json-schema.org/draft/2019-09/schema",
+                  "https://json-schema.org/draft/2019-09/schema#"
+                ],
+                "title": "$schema",
+                "description": "$schema value."
+              }
+            },
+            "required": [
+              "$schema"
+            ],
+            "title": "OutputSchema alternative 4 if",
+            "description": "OutputSchema alternative 4 if value."
+          },
+          "then": {
+            "$ref": "#/$defs/Meta2019",
+            "title": "OutputSchema alternative 4 then",
+            "description": "See Meta2019."
+          },
+          "title": "OutputSchema alternative 4",
+          "description": "OutputSchema alternative 4 value."
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "$schema": {
+                    "enum": [
+                      "https://json-schema.org/draft/2020-12/schema",
+                      "https://json-schema.org/draft/2020-12/schema#"
+                    ],
+                    "title": "$schema",
+                    "description": "$schema value."
+                  }
+                },
+                "required": [
+                  "$schema"
+                ],
+                "title": "OutputSchema alternative 5 if alternative 1",
+                "description": "OutputSchema alternative 5 if alternative 1 value."
+              },
+              {
+                "not": {
+                  "type": "object",
+                  "required": [
+                    "$schema"
+                  ],
+                  "title": "OutputSchema alternative 5 if alternative 2 not",
+                  "description": "OutputSchema alternative 5 if alternative 2 not value."
+                },
+                "title": "OutputSchema alternative 5 if alternative 2",
+                "description": "OutputSchema alternative 5 if alternative 2 value."
+              }
+            ],
+            "title": "OutputSchema alternative 5 if",
+            "description": "OutputSchema alternative 5 if value."
+          },
+          "then": {
+            "$ref": "#/$defs/Meta2020",
+            "title": "OutputSchema alternative 5 then",
+            "description": "See Meta2020."
+          },
+          "title": "OutputSchema alternative 5",
+          "description": "OutputSchema alternative 5 value."
+        }
+      ]
+    }
+  }
+}
