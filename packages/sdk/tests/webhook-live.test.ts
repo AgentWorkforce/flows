@@ -7,6 +7,9 @@ import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { socketPathFor } from '../src/daemon-connection.js';
 import { JournalClient } from '../src/journal-client.js';
+import { github, slack, webhook, type TriggerSource } from '@relayflows/surface';
+import { webhookTriggerSpec } from '../src/trigger-executor.js';
+import { compileSpec, toKernelSpec } from '../src/compile.js';
 
 const binary = process.env['RELAYFLOWD_BIN'] ?? resolve('../../kernel/target/debug/relayflowd');
 const children: ChildProcess[] = [];
@@ -44,15 +47,15 @@ async function daemon(dir: string): Promise<ChildProcess> {
   }, process.output);
   return process.child;
 }
-async function setup(command = 'printf accepted'): Promise<{ dir: string; base: string }> {
+async function setup(command = 'printf accepted', source: TriggerSource = webhook('release')): Promise<{ dir: string; base: string }> {
   const dir = await mkdtemp(join(tmpdir(), 'flows-inbox-live-'));
   directories.push(dir);
   await mkdir(join(dir, 'triggers'));
-  await writeFile(join(dir, 'triggers', 'release.json'), JSON.stringify({
-    version: '0.1.0', name: 'release',
-    triggers: [{ id: 'release', executor: 'release', event_type: 'release', dedupe_key_template: '{{event.type}}' }],
+  await writeFile(join(dir, 'triggers', `${source.name}.json`), JSON.stringify(toKernelSpec(compileSpec({
+    version: '0.1.0', name: source.name,
+    triggers: [webhookTriggerSpec('event', source)],
     steps: [{ id: 'log', type: 'deterministic', command }],
-  }));
+  }))));
   const receiver = start(process.execPath, [resolve('dist/cli.js'), 'serve-webhook', '--data-dir', dir, '--port', '0']);
   await until(() => /WEBHOOK http:\/\/127.0.0.1:\d+/.test(receiver.output()), receiver.output);
   return { dir, base: receiver.output().match(/http:\/\/127.0.0.1:\d+/)![0] };
@@ -72,6 +75,42 @@ async function readJournal(dir: string, runFile: string) {
   await client.connect();
   return client.journalRead(runFile.slice(0, -8), 1);
 }
+
+it.each([
+  { source: slack.mention('C123'), type: 'app_mention', payload: { channel: 'C123' }, rejected: { channel: 'C456' } },
+  { source: slack.reaction('eyes'), type: 'reaction_added', payload: { reaction: 'eyes' }, rejected: { reaction: 'heart' } },
+  { source: github.pull_request('opened'), type: 'pull_request', payload: { action: 'opened' }, rejected: { action: 'closed' } },
+])('executes and deduplicates $type only for its provider and matching payload', async ({ source, type, payload, rejected }) => {
+  const { dir, base } = await setup('printf provider-accepted', source);
+  const ids: string[] = [];
+  for (const body of [{ type, payload }, { type, payload: rejected }]) {
+    const response = await fetch(`${base}/providers/${source.name}`, { method: 'POST', body: JSON.stringify(body) });
+    expect(response.status).toBe(202);
+    ids.push(`${(await response.json() as { id: string }).id}.json`);
+  }
+  // Even a generic webhook writer cannot bypass the provider/type filter.
+  for (const body of [
+    { provider: 'other', type, payload },
+    { provider: source.name, type: 'other', payload },
+  ]) {
+    const response = await fetch(`${base}/${source.name}`, { method: 'POST', body: JSON.stringify(body) });
+    expect(response.status).toBe(202);
+    ids.push(`${(await response.json() as { id: string }).id}.json`);
+  }
+  await daemon(dir);
+  const processed = join(dir, 'inbox-processed', source.name);
+  await until(() => ids.every(id => existsSync(join(processed, id))));
+  const files = await journals(dir);
+  expect(files).toHaveLength(1);
+  const journal = await readJournal(dir, files[0]!);
+  expect(journal.entries.find(entry => entry.entry_type === 'run.spawned')?.payload['event'])
+    .toEqual({ provider: source.name, type, payload });
+  expect(journal.entries.filter(entry => entry.entry_type === 'step.completed')).toHaveLength(1);
+  await rename(join(processed, ids[0]!), join(dir, 'inbox', source.name, ids[0]!));
+  await until(() => existsSync(join(processed, ids[0]!)));
+  expect(await journals(dir)).toEqual(files);
+  expect((await readJournal(dir, files[0]!)).entries.filter(entry => entry.entry_type === 'step.completed')).toHaveLength(1);
+}, 20_000);
 
 it('flows serve-webhook writes JSON before the daemon starts, then journals and archives exactly once', async () => {
   const { dir, base } = await setup();

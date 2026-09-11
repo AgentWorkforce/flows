@@ -25,4 +25,6 @@ export { flowRunWritebackIdempotency, type SlackHelper, type SlackReceipt } from
 export type { Helpers } from "./helpers/index.js";
 export type { MemoryHelper, MemoryFinding, MemoryRecallOptions, HistoryEntry, TrajectoryEntry } from "./memory.js";
 export { webhook, type TriggerSource, type WebhookFilter, type WebhookValue } from "./triggers.js";
+export * from "./triggers/index.js";
+export type { ProviderTriggerSource } from "./provider-trigger.js";
 export type { PluginMethod, PluginPrimitive } from './plugin-contract.js';

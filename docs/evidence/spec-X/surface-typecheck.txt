@@ -1,0 +1,9 @@
+Command: npm run typecheck
+Working directory: /Users/khaliqgant/fl-slice-X/packages/surface
+
+
+> @relayflows/surface@2.0.8 typecheck
+> tsc --noEmit
+
+
+Exit code: 0

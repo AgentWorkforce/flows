@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import type { Server } from 'node:http';
 import { startWebhookServer, parseWebhookArgs } from '../src/cli/serve-webhook.js';
 import { preflightWebhookTriggers } from '../src/preflight.js';
-import { webhook } from '@relayflows/surface';
+import { webhook, slack, github } from '@relayflows/surface';
+import { webhookTriggerSpec } from '../src/trigger-executor.js';
 import { runCli } from '../src/cli.js';
 import { runDirectFlow } from '../src/cli/direct-run.js';
 
@@ -30,6 +31,41 @@ async function receiver(dir: string): Promise<string> {
 }
 
 describe('webhook ingress', () => {
+  it('lowers provider subscriptions to provider inbox executors with payload filters', () => {
+    expect(webhookTriggerSpec('mention', slack.mention('C123'))).toEqual({
+      id: 'mention', executor: 'slack', eventType: 'slack', dedupeKeyTemplate: '{{event.type}}',
+      pattern: { provider: 'slack', type: 'app_mention', payload: { channel: 'C123' } },
+    });
+    expect(preflightWebhookTriggers([slack.mention('C123'), slack.reaction('eyes'), github.pull_request()], ['slack']))
+      .toEqual([expect.objectContaining({ kind: 'no_executor', executor: 'github' })]);
+    expect(webhookTriggerSpec('plain', webhook('release')).pattern).toBeUndefined();
+  });
+  it('routes provider envelopes to isolated inboxes and rejects spoofed or unsupported events', async () => {
+    const dir = await temporary();
+    const base = await receiver(dir);
+    const post = (provider: string, body: unknown) => fetch(`${base}/providers/${provider}`, {
+      method: 'POST', body: JSON.stringify(body),
+    });
+    for (const [provider, type, payload] of [
+      ['slack', 'app_mention', { channel: 'C123', text: 'hello' }],
+      ['github', 'pull_request', { action: 'opened', number: 42 }],
+    ] as const) {
+      const response = await post(provider, { type, payload });
+      expect(response.status).toBe(202);
+      const { id } = await response.json() as { id: string };
+      expect(JSON.parse(await readFile(join(dir, 'inbox', provider, `${id}.json`), 'utf8')))
+        .toEqual({ provider, type, payload });
+    }
+    for (const body of [null, {}, { type: 'pull_request', payload: {} },
+      { provider: 'github', type: 'app_mention', payload: {} },
+      { type: 'app_mention', payload: [] }, { type: 'app_mention', payload: null }]) {
+      expect((await post('slack', body)).status).toBe(400);
+    }
+    expect((await post('unknown', { type: 'push', payload: {} })).status).toBe(400);
+    expect((await post('slack%2Fgithub', { type: 'push', payload: {} })).status).toBe(404);
+    expect(await readdir(join(dir, 'inbox', 'slack'))).toHaveLength(1);
+    expect(await readdir(join(dir, 'inbox'))).toEqual(['github', 'slack']);
+  });
   it('requires registered executor names with the exact refusal', () => {
     expect(preflightWebhookTriggers([webhook('unregistered')], [])).toEqual([{
       severity: 'refusal', kind: 'no_executor', executor: 'unregistered',

@@ -1,0 +1,15 @@
+Command: RELAYFLOWD_BIN=/Users/khaliqgant/.relayflows-toolchain/target/1463204285/debug/relayflowd ./node_modules/.bin/vitest run tests/provider-trigger-executor.test.ts tests/generate-triggers.test.ts
+Working directory: /Users/khaliqgant/fl-slice-X/packages/sdk
+
+ RUN  v2.1.9 /Users/khaliqgant/fl-slice-X/packages/sdk
+
+ ✓ tests/provider-trigger-executor.test.ts (4 tests) 138ms
+ ✓ tests/generate-triggers.test.ts (3 tests) 645ms
+   ✓ discovers new adapters, preserves exact event names, and prefers adapter-local mappings 369ms
+
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+   Start at  23:55:10
+   Duration  881ms (transform 82ms, setup 0ms, collect 128ms, tests 784ms, environment 0ms, prepare 69ms)
+
+Exit code: 0

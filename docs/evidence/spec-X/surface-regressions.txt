@@ -1,0 +1,10 @@
+Command: npm run typecheck:regressions
+Working directory: /Users/khaliqgant/fl-slice-X/packages/surface
+
+
+> @relayflows/surface@2.0.8 typecheck:regressions
+> tsc -p ../../regressions/tsconfig.json && tsc -p tsconfig.test.json && node scripts/check-generated-helpers.mjs
+
+HELPERS_GENERATED_OK index.ts, slack.ts
+
+Exit code: 0
