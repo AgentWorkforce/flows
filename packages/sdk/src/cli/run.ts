@@ -1,3 +1,5 @@
+import { resumeSlackEffect } from '../authored-slack-effect.js';
+import { AuthoredFlowExecutionError } from '../authored-flow-error.js';
 import { join, resolve } from 'node:path';
 import type { ProgressEvent } from '../progress.js';
 import { toKernelSpec } from '../compile.js';
@@ -128,9 +130,15 @@ export async function resumeFlow(
   if (connected !== undefined) return connected;
 
   try {
+    await resumeSlackEffect(client, runId, dataDir);
     const outcome = await client.runResume(runId);
     return await classifyOutcome(client, 'resume', outcome, base, socketPath, options);
   } catch (error) {
+    if (error instanceof AuthoredFlowExecutionError
+      && (error.code === 'helper_slack.credential_missing' || error.code === 'helper_slack.mount_required')) {
+      return { exitCode: 2, report: { ...base, runId, socketPath,
+        diagnostics: [{ severity: 'refusal', kind: error.code, message: error.message }] } };
+    }
     if (!(error instanceof JournalProtocolError) || error.code !== 'run_not_found') {
       return protocolFailure('resume', base, socketPath, error, runId);
     }

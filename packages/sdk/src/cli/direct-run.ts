@@ -64,6 +64,7 @@ export async function runDirectFlow(
     }
     const result = await executeAuthoredFlow(handle, client, input, {
       getDefinition,
+      dataDir,
       flowPath: path,
       onProgress: options.onProgress,
       localAgentStream: localAgent?.stream,
@@ -105,7 +106,9 @@ export async function runDirectFlow(
     // the same limitation already documented elsewhere).
     if (error instanceof AuthoredFlowLoadError
       || (error instanceof AuthoredFlowExecutionError
-        && (error.code === 'unsupported_header'
+        && (error.code === 'helper_slack.credential_missing'
+          || error.code === 'helper_slack.mount_required'
+          || error.code === 'unsupported_header'
           || error.code === 'agent_cli_unresolved'
           || error.code === 'llm_cli_unresolved'
           || error.code === 'unsupported_workspace_permission'))) {
@@ -113,7 +116,7 @@ export async function runDirectFlow(
         exitCode: 2,
         report: {
           ...fromCheckReport('run', inputFailureReport({
-            kind: 'invalid_spec',
+            kind: error instanceof AuthoredFlowExecutionError && (error.code === 'helper_slack.credential_missing' || error.code === 'helper_slack.mount_required') ? error.code : 'invalid_spec',
             message: error.message,
           }, path)),
           socketPath,

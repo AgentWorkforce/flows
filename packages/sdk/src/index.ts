@@ -70,6 +70,7 @@ export {
 } from './authored-flow.js';
 export {
   preflight,
+  preflightHelpers,
   type CliResolution,
   type CliResolutionSource,
   type CliProbeResult,

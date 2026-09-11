@@ -490,3 +490,21 @@ function firstCommandWord(command: string): string | undefined {
   const match = rest.match(/^(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
   return match?.[1] ?? match?.[2] ?? match?.[3];
 }
+
+/** Helper preflight never evaluates the authored body. Dynamic uses are checked at call time. */
+export function preflightHelpers(
+  definition: { header: { tools?: { slack?: boolean } }; body: Function },
+  facts: { slackToken?: string; slackMount: boolean; slackMock: boolean },
+): PreflightResult {
+  const usesSlack = definition.header.tools?.slack === true
+    || /(?:\.\s*slack\b|\[\s*['"]slack['"]\s*\])/.test(Function.prototype.toString.call(definition.body));
+  const diagnostics: PreflightDiagnostic[] = usesSlack && !facts.slackMock
+    && !facts.slackToken?.trim() && !facts.slackMount
+    ? [{ severity: 'refusal', kind: 'helper_slack.credential_missing',
+        message: 'f.slack requires SLACK_BOT_TOKEN or a relayfile Slack mount.' }]
+    : usesSlack && !facts.slackMock && !facts.slackMount
+      ? [{ severity: 'refusal', kind: 'helper_slack.mount_required',
+          message: 'f.slack direct bot-token transport is not implemented; configure a relayfile Slack mount.' }]
+      : [];
+  return { ok: diagnostics.length === 0, gates: [], resolutions: [], diagnostics };
+}

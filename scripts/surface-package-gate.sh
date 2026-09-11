@@ -113,6 +113,8 @@ import {
   type AgentOptions,
   type AgentResult,
   type CloudHelper,
+  type SlackHelper,
+  type SlackReceipt,
   type CompletionReason,
   type Ctx,
   type FlowHandle,
@@ -131,6 +133,10 @@ const body = async (f: Ctx): Promise<void> => {
   const options: AgentOptions = { task: 'review' };
   const agent: Step<AgentResult> = f.agent('reviewer', options);
   await agent;
+  const slack: SlackHelper = f.slack;
+  const post: Step<SlackReceipt> = slack.post('#test', 'hi');
+  await post;
+  await f.slack.post('#test', 'typed');
   f.done('success');
 };
 const header: FlowHeader = { identity: 'packed-type-consumer' };

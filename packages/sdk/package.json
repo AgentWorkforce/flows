@@ -42,6 +42,8 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
+    "@relayfile/adapter-core": "0.5.24",
+    "@relayfile/relay-helpers": "0.4.11",
     "@relayflows/surface": "2.0.8",
     "@types/js-yaml": "^4.0.9",
     "ajv": "^8.17.1",

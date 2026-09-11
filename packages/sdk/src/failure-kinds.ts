@@ -2,6 +2,8 @@ const SHARED_SPEC_FAILURE_KINDS = ['invalid_spec'] as const;
 
 /** Environment refusal kinds produced after spec validation succeeds. */
 const PREFLIGHT_ENVIRONMENT_FAILURE_KINDS = [
+  'helper_slack.credential_missing',
+  'helper_slack.mount_required',
   'cli_missing',
   'cli_unauthenticated',
   'cli_unresolved',
