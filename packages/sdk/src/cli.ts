@@ -103,7 +103,7 @@ export async function runCli(
     // refuses `--data-dir` on `check`, so there is no data dir to attach to.
     // `flows check` keeps working with no daemon, no relayflowd binary and no
     // data directory at all -- a property worth keeping, not an omission.
-    const checked = isAuthoredFlowPath(parsed.value)
+    const checked = /\.(?:[cm]?[jt]s)$/.test(parsed.value)
       ? await checkAuthoredFlowComposed(parsed.value) : checkFlow(parsed.value);
     emitCheckReport(checked.report, parsed.json, io);
     return checked.report.ok ? 0 : 2;
