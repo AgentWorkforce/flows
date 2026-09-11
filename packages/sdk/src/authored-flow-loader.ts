@@ -1,6 +1,6 @@
-import { accessSync, constants } from 'node:fs';
+import { accessSync, constants, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   getAuthoredFlowDefinition,
@@ -9,7 +9,7 @@ import {
 } from './authored-flow.js';
 
 export class AuthoredFlowLoadError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly kind: 'invalid_spec' | 'use_not_found' | 'use_invalid' | 'use_cycle' = 'invalid_spec') {
     super(message);
     this.name = 'AuthoredFlowLoadError';
   }
@@ -28,10 +28,67 @@ export interface LoadedAuthoredFlow {
    * `getAuthoredFlowDefinition` import.
    */
   readonly getDefinition: GetFlowDefinition;
+  /** Dependency-first load order, each canonical absolute path appearing once. */
+  readonly graph: readonly LoadedAuthoredFlowNode[];
+}
+
+export interface LoadedAuthoredFlowNode {
+  readonly path: string;
+  readonly handle: FlowHandle;
+  readonly getDefinition: GetFlowDefinition;
+  readonly use: readonly string[];
 }
 
 /** Import and validate a direct-run module without executing its authored body. */
 export async function loadAuthoredFlow(path: string): Promise<LoadedAuthoredFlow> {
+  const loaded = new Map<string, LoadedAuthoredFlowNode>();
+  const visiting = new Set<string>();
+  async function visit(sourcePath: string, isRoot = false): Promise<LoadedAuthoredFlowNode> {
+    let absolutePath: string;
+    try {
+      absolutePath = realpathSync(sourcePath);
+      accessSync(absolutePath, constants.R_OK);
+    } catch {
+      throw new AuthoredFlowLoadError(`Flow "${sourcePath}" is not readable.`, isRoot ? 'invalid_spec' : 'use_not_found');
+    }
+    if (visiting.has(absolutePath)) {
+      throw new AuthoredFlowLoadError(`Flow use cycle: ${[...visiting, absolutePath].join(' -> ')}`, 'use_cycle');
+    }
+    const cached = loaded.get(absolutePath);
+    if (cached !== undefined) return cached;
+    visiting.add(absolutePath);
+    try {
+      const { handle, getDefinition } = await importAuthoredFlow(absolutePath);
+      const dependencies: string[] = [];
+      for (const entry of getDefinition(handle).header.use ?? []) {
+        // Validate again at the SDK boundary: the author's surface package may
+        // be a different version from the runtime loading the graph.
+        if (!/^(?:\.\/|\.\.\/).+\.flow\.ts$/.test(entry) || /[?#\\\\]/.test(entry)) {
+          throw new AuthoredFlowLoadError(`Flow "${absolutePath}" use must contain relative .flow.ts paths.`, 'use_invalid');
+        }
+        const child = await visit(resolve(dirname(absolutePath), entry));
+        if (dependencies.includes(child.path)) {
+          throw new AuthoredFlowLoadError(`Flow "${absolutePath}" declares the same use path more than once.`, 'use_invalid');
+        }
+        dependencies.push(child.path);
+      }
+      const node = Object.freeze({ path: absolutePath, handle, getDefinition, use: Object.freeze(dependencies) });
+      loaded.set(absolutePath, node);
+      return node;
+    } catch (error) {
+      if (error instanceof AuthoredFlowLoadError && error.kind === 'invalid_spec' && !isRoot) {
+        throw new AuthoredFlowLoadError(error.message, 'use_invalid');
+      }
+      throw error;
+    } finally {
+      visiting.delete(absolutePath);
+    }
+  }
+  const root = await visit(resolve(path), true);
+  return Object.freeze({ handle: root.handle, getDefinition: root.getDefinition, graph: Object.freeze([...loaded.values()]) });
+}
+
+async function importAuthoredFlow(path: string): Promise<Pick<LoadedAuthoredFlow, 'handle' | 'getDefinition'>> {
   const absolutePath = resolve(path);
   try {
     accessSync(absolutePath, constants.R_OK);
