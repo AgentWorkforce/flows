@@ -1,3 +1,4 @@
+import { childStop, type ChildStop } from './child-stop.js';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
@@ -11,6 +12,7 @@ export class McpStdioTransport implements Transport {
   onerror?: Transport['onerror'];
   onmessage?: Transport['onmessage'];
   private child?: ChildProcessWithoutNullStreams;
+  private stopTree?: ChildStop;
   private readonly buffer = new ReadBuffer({ maxBufferSize: 1_048_576 });
   private closed?: Promise<void>;
   private closing?: Promise<void>;
@@ -22,8 +24,9 @@ export class McpStdioTransport implements Transport {
       if (process.env[name] !== undefined) env[name] = process.env[name];
     }
     const child = this.child = spawn(this.config.command, this.config.args ?? [], {
-      env, stdio: ['pipe', 'pipe', 'pipe'],
+      env, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
     });
+    this.stopTree = childStop(child, process.platform !== 'win32');
     this.closed = new Promise(resolve => child.once('close', () => resolve()));
     child.stderr.resume();
     child.stdout.on('data', (chunk: Buffer) => {
@@ -59,17 +62,17 @@ export class McpStdioTransport implements Transport {
     const child = this.child;
     if (!child) return;
     child.stdin.end();
-    child.kill('SIGTERM');
-    // Drain pipes until close or our own deadline; a descendant may keep a
-    // pipe open even after the direct child has exited.
+    this.stopTree!.terminate();
+    // A direct-child close is insufficient: wrappers can leave descendants
+    // alive with either inherited pipes or completely detached stdio.
     let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([this.closed, new Promise<void>(resolve => {
-      timer = setTimeout(resolve, 1000);
-    })]);
+    const deadline = new Promise<void>(resolve => { timer = setTimeout(resolve, 1000); });
+    await Promise.race([this.closed, deadline]);
+    if (!this.stopTree!.maySettleOnChildExit()) await deadline;
     clearTimeout(timer);
     if (child.exitCode === null && child.signalCode === null && child.pid !== undefined) {
       const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
-      child.kill('SIGKILL');
+      this.stopTree!.kill();
       await exited;
     }
     child.stdin.destroy();

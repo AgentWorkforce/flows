@@ -62,7 +62,9 @@ export async function runMcpEffect(
   void completed.catch(() => undefined);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let work: Promise<void> | undefined;
+  let dispatchExpired = false;
   const dispatch = (event: StepDispatchEvent): void => {
+    if (dispatchExpired) return;
     const dispatched = event.spec as { instruction?: string; surfaces?: { streams?: { stream: string }[] } };
     if (event.step_id !== id || event.step_type !== 'agent' || work !== undefined
       || dispatched?.instruction !== instruction
@@ -70,6 +72,8 @@ export async function runMcpEffect(
       failed(new Error('MCP worker received an unexpected dispatch'));
       return;
     }
+    clearTimeout(timer);
+    timer = undefined;
     work = execute(event);
     void work.then(settled, failed);
   };
@@ -116,8 +120,14 @@ export async function runMcpEffect(
       steps: [{ id, type: 'agent', instruction,
         surfaces: { streams: [{ stream }], external: [surfacePath] }, maxIterations: 1 }],
     }));
-    timer = setTimeout(() => failed(new Error('MCP worker dispatch deadline exceeded')), 30_000);
-    const outcome = await journal.runStart(spec);
+    timer = setTimeout(() => {
+      dispatchExpired = true;
+      failed(new Error('MCP worker dispatch deadline exceeded'));
+    }, 30_000);
+    // Propagate a dispatch failure even if run.start itself is still pending.
+    const starting = journal.runStart(spec);
+    await Promise.race([starting, completed]);
+    const outcome = await starting;
     await completed;
     if (diagnostic !== undefined) {
       try { await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps); }

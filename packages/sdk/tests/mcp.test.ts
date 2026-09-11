@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSy
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { flow } from '@relayflows/surface';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -107,6 +108,35 @@ describe('MCP preflight and transports', () => {
     const source = `require('fs').writeFileSync(${JSON.stringify(marker)}, JSON.stringify({pid:process.pid})); process.on('SIGTERM',()=>{}); setInterval(()=>{},100);`;
     await expect(openMcpSession({ command: process.execPath, args: ['-e', source] }, 300)).rejects.toMatchObject({ code: 'handshake_timeout' });
     gone(marker);
+  });
+  it.skipIf(process.platform === 'win32').each(['inherit', 'ignore'] as const)('reaps a SIGTERM-resistant descendant with %s stdio before cleanup finishes', async stdio => {
+    const directory = temp();
+    const parent = join(directory, 'parent');
+    const child = join(directory, 'child');
+    const wrapper = join(directory, 'wrapper.mjs');
+    const source = `process.on('SIGTERM',()=>{}); require('node:fs').writeFileSync(${JSON.stringify(child)},JSON.stringify({pid:process.pid})); setInterval(()=>{},100);`;
+    writeFileSync(wrapper, `import {spawn} from 'node:child_process';
+import {writeFileSync,existsSync} from 'node:fs';
+writeFileSync(${JSON.stringify(parent)},JSON.stringify({pid:process.pid}));
+spawn(process.execPath,['-e',${JSON.stringify(source)}],{stdio:${JSON.stringify(stdio)}});
+while(!existsSync(${JSON.stringify(child)})) await new Promise(r=>setTimeout(r,10));
+${stdio === 'inherit' ? `await import(${JSON.stringify(pathToFileURL(mock('ok')).href)});` : 'setInterval(()=>{},100);'}
+`);
+    try {
+      if (stdio === 'inherit') {
+        const session = await openMcpSession({ command: process.execPath, args: [wrapper] }, 1000);
+        await session.close();
+      } else {
+        await expect(openMcpSession({ command: process.execPath, args: [wrapper] }, 1000)).rejects.toMatchObject({ code: 'handshake_timeout' });
+      }
+      gone(parent);
+      await vi.waitFor(() => gone(child));
+    } finally {
+      for (const marker of [parent, child]) {
+        if (!existsSync(marker)) continue;
+        try { process.kill(JSON.parse(readFileSync(marker, 'utf8')).pid, 'SIGKILL'); } catch {}
+      }
+    }
   });
   it('classifies a mid-call stdout drop without retry and closes the child', async () => {
     const marker = join(temp(), 'pid');
