@@ -429,6 +429,21 @@ describe('preflight: CLI resolution and refusal predicates', () => {
         }
       } finally { rmSync(root, { recursive: true, force: true }); }
     }
+    // `plugin_unlisted` fires when a @flows/helper-* package is present in
+    // node_modules but is missing from the declared plugins list — the loader
+    // refuses to auto-load undeclared packages (plugin-loader.ts). Exercise it
+    // with an installed but unlisted helper directory.
+    {
+      const root = mkdtempSync(join(tmpdir(), 'plugin-unlisted-'));
+      try {
+        writeFileSync(join(root, 'flows.json'), JSON.stringify({ plugins: [] }));
+        mkdirSync(join(root, 'node_modules/@flows/helper-unlisted'), { recursive: true });
+        const result = await preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), {
+          probes: probes(), mcpServers: [], pluginSearchStart: root,
+        });
+        refusalKinds.push(...result.diagnostics.filter(d => d.severity === 'refusal').map(d => d.kind as PreflightFailureKind));
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    }
     expect(new Set(refusalKinds)).toEqual(new Set(PREFLIGHT_FAILURE_KINDS));
     expect(JSON.stringify(scenarios)).not.toContain('raw secret');
   });
