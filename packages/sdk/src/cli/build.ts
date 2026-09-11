@@ -6,6 +6,7 @@ import { canonicalize } from '../canonical.js';
 import { compileSpec, toKernelSpec } from '../compile.js';
 import { preflight } from '../preflight.js';
 import { buildTypescript } from '../bundle-typescript.js';
+import { readProjectConfig } from './check.js';
 import type { CliIo } from '../cli.js';
 import type { FlowSpec } from '../spec.js';
 
@@ -65,7 +66,20 @@ export async function buildFlow(path: string, out: string, warn: (line: string) 
   // The current preflight API reports uncollected environment facts as
   // probe_failed. Preserve that truthful report verbatim and separately declare
   // the deployment obligations; never manufacture successful auth probes.
+  //
+  // Load the nearest flows.json so declared model allowlists and the project
+  // CLI participate in build-time preflight. Without them a declared `model:`
+  // that appears in flows.json/models refuses the whole build as
+  // `model_unknown`, because preflight defaults treat "no registry" as "no
+  // model is known" and only environment probes (deferred here) would rescue
+  // it. Model existence is a build-provable fact; only the live probe is not.
+  const config = readProjectConfig(directory);
   const report = preflight(authoring, {
+    ...(config.cli !== undefined ? { projectCli: config.cli } : {}),
+    ...(config.path !== undefined ? { projectConfigPath: config.path } : {}),
+    projectSearchStart: directory,
+    models: config.models,
+    ...(config.path !== undefined ? { modelRegistryPath: config.path } : {}),
     probes: {
       cli: () => { throw new Error('deferred to deployment'); },
       executor: () => { throw new Error('deferred to deployment'); },
@@ -123,6 +137,16 @@ async function captureFiles(flow: FlowSpec, directory: string, files: BundleFile
     captured.set(path, `./${target}`);
     return `./${target}`;
   }
+  // Capture the flow-level `cli` default and every named-agent `cli` BEFORE
+  // walking steps. Otherwise a step that inherits its CLI from the flow header
+  // or an agents-map entry never emits its own `cli`, so the step-level walk
+  // below misses it, the executable never enters the bundle, and the sealed
+  // spec still points at the author's absolute path outside the bundle.
+  const flowCli = flow.cli !== undefined ? await capture(flow.cli) : undefined;
+  const agents: FlowSpec['agents'] = flow.agents === undefined ? undefined
+    : Object.fromEntries(await Promise.all(Object.entries(flow.agents).map(
+        async ([name, agent]) => [name, { ...agent, cli: await capture(agent.cli) }] as const,
+      )));
   const compiled = toKernelSpec(flow);
   // Lower named/flow CLI resolution first so every runtime reference is bound.
   const steps: FlowSpec['steps'] = [];
@@ -145,5 +169,10 @@ async function captureFiles(flow: FlowSpec, directory: string, files: BundleFile
     if (/^\s*["']?\//.test(command)) throw new Error(`${step.id}: absolute command paths cannot be bundled`);
     steps.push({ ...step, command });
   }
-  return { ...flow, steps };
+  return {
+    ...flow,
+    ...(flowCli !== undefined ? { cli: flowCli } : {}),
+    ...(agents !== undefined ? { agents } : {}),
+    steps,
+  };
 }
