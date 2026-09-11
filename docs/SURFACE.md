@@ -78,6 +78,34 @@ No process runs between events: the handler wakes, executes to its next await, p
    failed calls retain their MCP diagnostic in `trajectory_tail` and complete
    with `worker_error`.
 
+   **Agent channels (contract; initial post proof).** The target authoring API is
+   `const channel = f.channel('review-panel')`, followed by
+   `await channel.post('security-lens', 'this looks off at line 42')` or
+   `await channel.recv('maintainability-lens', { timeout: '30s' })`.
+   Each send and receive is one journaled effect boundary. Helpers lower to
+   the existing agent effect record/confirm path, never a new `StepKind`.
+   The message ID is the transport idempotency key; the kernel still uses its
+   issued attempt key to authorize the effect claim. The broker transports
+   messages; the journal records their truth and ordering.
+
+   The initial internal SDK proof (`effect-channel.ts`) implements one post
+   per declared agent step through Agent Relay's `messages.dm` interface,
+   with the logical channel in message metadata. It validates recipients
+   against a supplied participant inventory before producing the spec, and
+   again before transport. Credentials stay in the supplied broker client;
+   the completed output contains only the message envelope. A confirmed
+   post can complete after interruption without fetching or resending it.
+   An unconfirmed retry reuses the same broker idempotency key.
+
+   This proof does **not** expose `Ctx.channel` yet. Public authored lowering,
+   `flows check` participant discovery, receive/acknowledgement, concurrent
+   per-channel ordering and a real broker SIGKILL/resume test remain follow-up.
+   Automatic workspaces also remain follow-up: provision on first use with a
+   run-ID-derived identity, inject credentials during step setup, retain on
+   park until resume or lease expiry, clean up at terminal completion, and
+   reconstruct broker state from journal after broker loss. The proof accepts
+   an already provisioned run-scoped client and makes no workspace API changes.
+
    The first typed codegen slice covers Slack's four existing dispatcher methods.
    `Ctx` composes the generated helper namespace map; argument shapes come from
    the pinned relayfile ergonomic client and results retain journal-backed `Step`
@@ -661,3 +689,13 @@ kernel primitives.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.
+
+## 7. Broker transport covenant
+
+Broker interactions with a v2 flow are legal only as journaled effect steps.
+Any bypass of that journaling makes the run non-replayable and must set
+`step.completed.human_intervention: true`.
+
+This is the required contract for channel rollout. Detecting bypasses and
+carrying that marker through the completion protocol remain implementation
+work; the initial post proof does not claim to enforce uninstrumented agent I/O.
