@@ -12,7 +12,8 @@ export class BundleFailure extends Error {
 }
 export interface DigestReference { name: string; digest: string }
 export function parseDigestReference(value: string): DigestReference | undefined {
-  const match = /^([a-z][a-z0-9-]*)@sha256:([0-9a-f]{64})$/.exec(value);
+  // Match the safe single-component name grammar used by sealBundle.
+  const match = /^([A-Za-z0-9][A-Za-z0-9._-]*)@sha256:([0-9a-f]{64})$/.exec(value);
   return match ? { name: match[1]!, digest: match[2]! } : undefined;
 }
 export function bucketDirectory(uri: string, ref: DigestReference): string {

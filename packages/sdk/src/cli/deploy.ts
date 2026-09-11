@@ -35,13 +35,14 @@ export async function runDeploy(args: DeployArgs, io: CliIo): Promise<0 | 1 | 2>
     if (await exists(target)) {
       await verifyDigest(target, ref.digest);
       io.stderr(`deploy_noop: ${args.value}`);
+      io.stdout(`SKIPPED (already-present) ${args.value} ${args.to}`);
       return 0;
     }
     await writableBucket(target);
     started = true;
     const copied = await copyBundle(source, target, ref.digest);
     if (!copied) io.stderr(`deploy_noop: ${args.value}`);
-    io.stdout(`DEPLOYED ${args.value} ${args.to}`);
+    io.stdout(`${copied ? 'DEPLOYED' : 'SKIPPED (already-present)'} ${args.value} ${args.to}`);
     return 0;
   } catch (error) {
     const kind = started ? 'deploy_partial' : error instanceof BundleFailure ? error.kind : 'bucket_unreachable';

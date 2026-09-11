@@ -10,7 +10,8 @@ export async function checkRunnableBundle(directory: string, name: string): Prom
   const metadata = JSON.parse(await readFile(join(directory, 'metadata.json'), 'utf8'));
   const manifest = JSON.parse(await readFile(join(directory, 'manifest.json'), 'utf8')) as { path: string }[];
   const flow = compileSpec(kernelToAuthoring(JSON.parse(await readFile(join(directory, 'spec.canonical.json'), 'utf8'))));
-  if (flow.name !== name) throw new BundleFailure('bundle_signature_invalid', 'Bundle name does not match the requested flow.');
+  if (flow.name !== undefined && flow.name !== name) throw new BundleFailure('bundle_signature_invalid', 'Bundle name does not match the requested flow.');
+  flow.name ??= name;
   if (metadata.kind !== 'declarative' || flow.steps.some(step => step.type !== 'deterministic'
       || step.requirements !== undefined) || (flow.triggers?.length ?? 0) > 0
       || manifest.some(entry => entry.path.startsWith('assets/'))) {
@@ -19,5 +20,9 @@ export async function checkRunnableBundle(directory: string, name: string): Prom
   }
   // Keep existing fail-closed environment checks before transport/journal.
   // Splitting static and environment checks is follow-up.
-  return checkAuthoredFlow(flow, join(directory, 'spec.canonical.json'));
+  // This deterministic-only slice declares no project models or executors.
+  // Never discover flows.json in the deployment/cache tree or its ancestors.
+  return checkAuthoredFlow(flow, join(directory, 'spec.canonical.json'), {
+    directory, models: [], executors: [],
+  });
 }

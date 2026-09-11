@@ -1,5 +1,5 @@
 import { BundleFailure, fetchBundle, parseDigestReference } from '../bundle-transport.js';
-import { readProjectConfig, type CheckExecution } from './check.js';
+import { CheckFailure, inputFailureReport, readProjectConfig, type CheckExecution } from './check.js';
 import { checkRunnableBundle } from './bundle-preflight.js';
 import type { RunExecution } from './run.js';
 
@@ -13,6 +13,7 @@ export async function prepareDigestRun(reference: string, bucket?: string): Prom
     checked.report.path = reference;
     return checked;
   } catch (error) {
+    if (error instanceof CheckFailure) return { report: inputFailureReport(error, reference) };
     const kind = error instanceof BundleFailure && (
       error.kind === 'bucket_unconfigured' || error.kind === 'bucket_unreachable'
       || error.kind === 'bundle_signature_invalid' || error.kind === 'bundle_unsupported'

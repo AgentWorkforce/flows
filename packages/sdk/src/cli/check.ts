@@ -64,7 +64,7 @@ export interface CheckExecution {
   flow?: FlowSpec;
 }
 
-class CheckFailure extends Error {
+export class CheckFailure extends Error {
   constructor(readonly kind: CheckFailureKind, message: string) {
     super(message);
   }
@@ -102,10 +102,10 @@ export function checkFlow(path: string): CheckExecution {
 }
 
 /** Preflight a validated authored flow through the same path as YAML/JSON. */
-export function checkAuthoredFlow(authoring: FlowSpec, path: string): CheckExecution {
+export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConfig?: ProjectConfig): CheckExecution {
   const absolutePath = resolve(path);
   try {
-    const config = readProjectConfig(dirname(absolutePath));
+    const config = projectConfig ?? readProjectConfig(dirname(absolutePath));
     const probes = systemProbes(dirname(absolutePath), config);
     const result = preflight(authoring, {
       projectCli: config.cli,
