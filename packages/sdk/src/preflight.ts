@@ -502,6 +502,9 @@ export function preflightHelpers(
     && !facts.slackToken?.trim() && !facts.slackMount
     ? [{ severity: 'refusal', kind: 'helper_slack.credential_missing',
         message: 'f.slack requires SLACK_BOT_TOKEN or a relayfile Slack mount.' }]
-    : [];
+    : usesSlack && !facts.slackMock && !facts.slackMount
+      ? [{ severity: 'refusal', kind: 'helper_slack.mount_required',
+          message: 'f.slack direct bot-token transport is not implemented; configure a relayfile Slack mount.' }]
+      : [];
   return { ok: diagnostics.length === 0, gates: [], resolutions: [], diagnostics };
 }

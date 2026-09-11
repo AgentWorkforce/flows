@@ -18,41 +18,11 @@ function setup(): string {
 const post: SlackCall = { type: 'effect', provider: 'slack', verb: 'post', params: { channel: 'C1', text: 'hi' } };
 const signal = () => new AbortController().signal;
 
-it('direct-token writes preserve idempotency and thread through the delivered receipt', async () => {
-  const dir = setup();
-  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true, ts: '123.456' })));
-  const first = await slackWriteback(post, dir, 'run', 'step1', signal()) as { ref: string };
-  fetch.mockResolvedValue(new Response(JSON.stringify({ ok: true, ts: '123.457' })));
-  await slackWriteback({ ...post, params: { ...post.params, opts: { replyTo: first.ref } } }, dir, 'run', 'step2', signal());
-  expect(JSON.parse(String(fetch.mock.calls[0]![1]!.body))).toEqual({ channel: 'C1', text: 'hi', client_msg_id: 'run:step1' });
-  expect(JSON.parse(String(fetch.mock.calls[1]![1]!.body))).toMatchObject({ thread_ts: '123.456', client_msg_id: 'run:step2' });
-  expect(fetch.mock.calls[0]![1]!.headers).toMatchObject({ Authorization: 'Bearer test-token' });
-});
-
-it('opens DMs and treats an already-present reaction as the same effect', async () => {
-  const dir = setup();
-  const fetch = vi.spyOn(globalThis, 'fetch')
-    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, channel: { id: 'D1' } })))
-    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, ts: '123.456' })))
-    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: false, error: 'already_reacted' })));
-  expect(await slackWriteback({ type: 'effect', provider: 'slack', verb: 'dm', params: { user: 'U1', text: 'hi' } }, dir, 'run', 'dm', signal())).toEqual({ user: 'U1', ts: '123.456' });
-  await slackWriteback({ type: 'effect', provider: 'slack', verb: 'react', params: { channel: 'C1', messageTs: '123.456', emoji: 'wave' } }, dir, 'run', 'react', signal());
-  expect(JSON.parse(String(fetch.mock.calls[1]![1]!.body))).toMatchObject({ channel: 'D1', client_msg_id: 'run:dm' });
-  expect(JSON.parse(String(fetch.mock.calls[2]![1]!.body))).toEqual({ channel: 'C1', timestamp: '123.456', name: 'wave' });
-});
-
-it('refuses unsuccessful Slack responses instead of inventing a receipt', async () => {
-  const dir = setup();
-  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: false, error: 'missing_scope' })));
-  await expect(slackWriteback(post, dir, 'run', 'step', signal())).rejects.toThrow('missing_scope');
-  fetch.mockResolvedValue(new Response(JSON.stringify({ ok: true })));
-  await expect(slackWriteback(post, dir, 'run', 'step', signal())).rejects.toThrow('no timestamp');
-});
-
 it('stamps a real mount draft and waits for its delivered receipt', async () => {
   const dir = setup();
   mkdirSync(join(dir, 'slack'));
   vi.stubEnv('WORKSPACE_ROOT', dir);
+  vi.stubEnv('WORKFORCE_TICK_DELIVERY_ID', 'ambient-tick');
   expect(slackMount()).toBe(dir); // Empty higher-precedence env must not mask a mount.
   const network = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('no network'));
   const request = slackWriteback(post, dir, 'run', 'step', signal());

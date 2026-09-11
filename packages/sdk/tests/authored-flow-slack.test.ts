@@ -104,6 +104,9 @@ describe('authored Slack helper effects', () => {
     const output: string[] = [];
     expect(await runCli(['check', '--json', fixture], { stdout: line => output.push(line), stderr: line => output.push(line) })).toBe(2);
     expect(output.join('')).toContain('helper_slack.credential_missing');
+    vi.stubEnv('SLACK_BOT_TOKEN', 'configured-token');
+    await expect(executeAuthoredFlow(handle, new JournalClient('/must-not-connect'))).rejects.toMatchObject({ code: 'helper_slack.mount_required' });
+    expect(executed).toBe(false);
     expect(preflightHelpers({ header: {}, body: async (f: any) => f.slack.post('#test', 'hi') }, {
       slackMount: true, slackMock: false,
     }).ok).toBe(true);
@@ -139,6 +142,11 @@ describe('authored Slack helper effects', () => {
     if (boundary === 'confirm') {
       for (const cache of readdirSync(join(dataDir, 'helper-receipts'))) rmSync(join(dataDir, 'helper-receipts', cache));
     }
+    for (const key of ['SLACK_BOT_TOKEN', 'RELAYFLOWS_SLACK_MOCK', 'RELAYFILE_MOUNT_PATH', 'WORKSPACE_ROOT', 'WORKFORCE_SANDBOX_ROOT', 'RELAYFILE_MOUNT_ROOT', 'RELAYFILE_ROOT']) vi.stubEnv(key, '');
+    const refused = await resumeFlow(before.runId, dataDir, { spawn: false });
+    expect(refused.exitCode).toBe(2);
+    expect(refused.report.diagnostics).toContainEqual(expect.objectContaining({ kind: 'helper_slack.credential_missing' }));
+    vi.stubEnv('RELAYFLOWS_SLACK_MOCK', '1');
     const resumed = await resumeFlow(before.runId, dataDir, { spawn: false });
     expect(resumed.exitCode, JSON.stringify(resumed.report)).toBe(0);
     const after = JSON.parse(readFileSync(file, 'utf8'));

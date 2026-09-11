@@ -14,7 +14,11 @@ import { atomicJson, readSlackReceipt, receiptPath, slackWriteback, type SlackCa
 
 export function assertSlackCredentials(): void {
   const report = checkSlackHelpers({ header: { tools: { slack: true } }, body() {} });
-  if (!report.ok) throw new AuthoredFlowExecutionError('helper_slack.credential_missing', report.diagnostics[0]!.message);
+  if (!report.ok) {
+    const diagnostic = report.diagnostics[0]!;
+    throw new AuthoredFlowExecutionError(
+      diagnostic.kind === 'helper_slack.mount_required' ? diagnostic.kind : 'helper_slack.credential_missing', diagnostic.message);
+  }
 }
 
 /** Each helper uses the existing agent lease + effect protocol; no new kernel verb. */

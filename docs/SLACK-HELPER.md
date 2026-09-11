@@ -15,10 +15,13 @@ export default flow('notify', async f => {
 });
 ```
 
-Set `SLACK_BOT_TOKEN` or provide a relayfile mount with a `slack/` directory.
-`flows check notify.flow.ts` refuses visible Slack calls when neither is
-available, with `REFUSED [helper_slack.credential_missing]` and exit status 2.
-A header can declare `tools: { slack: true }` for calls hidden behind another
+Provide a relayfile mount with a `slack/` directory.
+`flows check notify.flow.ts` refuses visible Slack calls when neither a mount
+nor a bot token is available, with `REFUSED [helper_slack.credential_missing]`
+and exit status 2.
+Direct bot-token transport is deferred: a token without a mount is refused
+as `helper_slack.mount_required`, before running the body. A header can declare
+`tools: { slack: true }` for calls hidden behind another
 function. The body is not evaluated during check; dynamic calls also check
 credentials when they are awaited.
 
@@ -28,8 +31,9 @@ a synthetic receipt. Message timestamps are `mock-<step-id>` and message
 references are `mock-ref-<step-id>`.
 
 The runtime uses the published `@relayfile/relay-helpers` Slack client with an
-explicit transport. Relayfile receives the adapter's canonical write path;
-bot-token mode calls Slack with the same flow token as `client_msg_id`.
+explicit transport. Relayfile receives the adapter's canonical write path.
+Direct-token idempotency needs Slack-server timestamp deduplication, which
+mount writeback already handles; direct-token transport is deferred.
 `flowRunWritebackIdempotency(runId, stepId)` always returns `runId:stepId`.
 The process-tick stamper cannot replace this token, including for reactions.
 

@@ -107,6 +107,7 @@ export async function runDirectFlow(
     if (error instanceof AuthoredFlowLoadError
       || (error instanceof AuthoredFlowExecutionError
         && (error.code === 'helper_slack.credential_missing'
+          || error.code === 'helper_slack.mount_required'
           || error.code === 'unsupported_header'
           || error.code === 'agent_cli_unresolved'
           || error.code === 'llm_cli_unresolved'
@@ -115,7 +116,7 @@ export async function runDirectFlow(
         exitCode: 2,
         report: {
           ...fromCheckReport('run', inputFailureReport({
-            kind: error instanceof AuthoredFlowExecutionError && error.code === 'helper_slack.credential_missing' ? error.code : 'invalid_spec',
+            kind: error instanceof AuthoredFlowExecutionError && (error.code === 'helper_slack.credential_missing' || error.code === 'helper_slack.mount_required') ? error.code : 'invalid_spec',
             message: error.message,
           }, path)),
           socketPath,

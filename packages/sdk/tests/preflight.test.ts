@@ -362,6 +362,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
   it('reaches every declared refusal kind, with the converse held by the type', () => {
     const scenarios = [
       preflightHelpers({ header: { tools: { slack: true } }, body() {} }, { slackMount: false, slackMock: false }),
+      preflightHelpers({ header: { tools: { slack: true } }, body() {} }, { slackToken: 'present', slackMount: false, slackMock: false }),
       preflight({
         version: '0.1.0',
         steps: [{ id: 'a', type: 'deterministic', command: 'x', prompt: 'cross-verb' }],
