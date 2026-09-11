@@ -7,6 +7,7 @@ import type { SlackCall } from './slack-writeback.js';
 import { checkMcpHeader, McpPreflightError } from './cli/check-typescript.js';
 import { buildMcpProxy, runMcpEffect } from './authored-mcp.js';
 import { AuthoredBudget } from './authored-budget.js';
+import { assertMemoryReachable, authoredMemory, scriptMemoryScope } from './authored-memory.js';
 import { authoredWorkerRunner } from './authored-worker-step.js';
 import { readSuccessfulOutput, isSurfaceRunCompletionReason } from './authored-step-output.js';
 import {
@@ -135,7 +136,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
   };
   const definition = getDefinition<Input>(handle);
-  const headerFields = Object.keys(definition.header).filter(key => key !== 'tools' && key !== 'budget');
+  const headerFields = Object.keys(definition.header).filter(key => key !== 'tools' && key !== 'budget' && key !== 'memory');
   if (definition.header.tools && Object.keys(definition.header.tools).some(key => !['slack', 'mcp'].includes(key))) headerFields.push('tools');
   if (definition.header.tools?.relayfile !== undefined) headerFields.push('tools.relayfile');
   const helperPreflight = checkSlackHelpers(definition);
@@ -151,6 +152,15 @@ export async function executeAuthoredFlow<Input = undefined>(
   if (!checkedMcp.report.ok) throw new McpPreflightError(checkedMcp.report);
 
   const budget = new AuthoredBudget(definition.header.budget);
+  if (definition.header.memory?.agent === true) {
+    throw new AuthoredFlowExecutionError('unsupported_header', 'memory.agent requires the follow-up identity-scoped agent memory adapter');
+  }
+  // Direct member use is checked before any body effects; aliases are checked
+  // by the helper itself, without executing the body during discovery.
+  if (definition.header.memory !== undefined || /\.memory\b/.test(String(definition.body))) {
+    await assertMemoryReachable();
+  }
+
   const journalSteps: AuthoredFlowJournalStep[] = [];
   const authoredSteps: AuthoredFlowOperation<unknown>[] = [];
   const lifecycle = new AuthoredFlowLifecycle();
@@ -231,6 +241,11 @@ export async function executeAuthoredFlow<Input = undefined>(
         lifecycle,
       ));
     }),
+    memory: authoredMemory(
+      scriptMemoryScope(flowPath, definition.name),
+      () => assertOperationAllowed('memory', definition.name, requestedCompletion),
+      definition.header.memory?.script !== false,
+    ),
     run(command) {
       assertOperationAllowed('run', definition.name, requestedCompletion);
       const id = `run-${nextStep++}`;
