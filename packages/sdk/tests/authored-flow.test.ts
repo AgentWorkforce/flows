@@ -169,6 +169,31 @@ describe('authored flow journal executor', () => {
     });
   });
 
+  it('refuses non-string cli or model on f.agent options before contacting the journal', async () => {
+    const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+
+    // Both preflight and the type check throw `agent_cli_unresolved`
+    // (matching the shared LLM code pattern) — the diagnostic message
+    // distinguishes them so authors get an accurate error.
+    for (const bad of [42, true, {}, []]) {
+      await expect(executeAuthoredFlow(flow('agent-cli-not-string', async (f) => {
+        await f.agent('worker', { task: 'x', cli: bad as unknown as string });
+        f.done('success');
+      }), disconnectedJournal)).rejects.toMatchObject({
+        code: 'agent_cli_unresolved',
+        message: expect.stringMatching(/f\.agent options\.cli must be a string when set/),
+      });
+
+      await expect(executeAuthoredFlow(flow('agent-model-not-string', async (f) => {
+        await f.agent('worker', { task: 'x', model: bad as unknown as string });
+        f.done('success');
+      }), disconnectedJournal)).rejects.toMatchObject({
+        code: 'agent_cli_unresolved',
+        message: expect.stringMatching(/f\.agent options\.model must be a string when set/),
+      });
+    }
+  });
+
   it('rejects invalid raw headers before the executor can contact the journal', async () => {
     const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
 
