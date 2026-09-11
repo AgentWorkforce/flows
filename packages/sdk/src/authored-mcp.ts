@@ -10,6 +10,7 @@ import type { StepDispatchEvent } from './protocol.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import { readCompletedStepOutput } from './authored-step-output.js';
+import { withWorkerLease } from './worker-lease.js';
 
 /** Own keys expose precisely the preflight inventory, including prototype-like names. */
 export function buildMcpProxy(
@@ -83,17 +84,22 @@ export async function runMcpEffect(
     let confirmed = false;
     try {
       if (!known) throw new Error('mcp_unknown_tool');
-      confirmed = await peer.performEffect({
-        runId: event.run_id, stepId: id, attempt: event.attempt, idempotencyKey: event.idempotency_key,
-        surfacePath, revisionBefore: 'pending', revisionAfter: idempotencyKey,
-      }, async () => {
-        const session = await openMcpSession(config, 10_000);
-        try {
-          output = await session.callTool(tool, args);
-          if (typeof output === 'object' && output !== null && 'isError' in output && output.isError === true) {
-            throw new Error('mcp_tool_error');
-          }
-        } finally { await session.close(); }
+      // Renew the worker lease while the MCP tool is in flight. Without this,
+      // a tool that runs longer than the initial lease loses ownership and
+      // the write-back path fails — see worker-lease.ts for the renewal contract.
+      confirmed = await withWorkerLease(peer, event, async () => {
+        return peer.performEffect({
+          runId: event.run_id, stepId: id, attempt: event.attempt, idempotencyKey: event.idempotency_key,
+          surfacePath, revisionBefore: 'pending', revisionAfter: idempotencyKey,
+        }, async () => {
+          const session = await openMcpSession(config, 10_000);
+          try {
+            output = await session.callTool(tool, args);
+            if (typeof output === 'object' && output !== null && 'isError' in output && output.isError === true) {
+              throw new Error('mcp_tool_error');
+            }
+          } finally { await session.close(); }
+        });
       });
       // A confirmed election without its receipt is an interrupted writeback,
       // not a successful result we may invent or a call we may safely repeat.
@@ -111,6 +117,7 @@ export async function runMcpEffect(
         effects: confirmed ? [{ surface_path: surfacePath, idempotency_key: event.idempotency_key }] : [],
       });
   }
+  let childRunId: string | undefined;
   try {
     await peer.connect();
     await peer.hello('flows-mcp');
@@ -128,6 +135,7 @@ export async function runMcpEffect(
     const starting = journal.runStart(spec);
     await Promise.race([starting, completed]);
     const outcome = await starting;
+    childRunId = outcome.run_id;
     await completed;
     if (diagnostic !== undefined) {
       try { await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps); }
@@ -141,6 +149,13 @@ export async function runMcpEffect(
   } finally {
     clearTimeout(timer);
     peer.off('step.dispatch', dispatch);
+    // If the dispatch deadline fired we started a child run that will never
+    // be worked -- cancel it so its journal doesn't stay indeterminate.
+    // Best-effort: the parent flow already surfaced the deadline via the
+    // rejected `completed` promise, so a cancel error here must not mask it.
+    if (dispatchExpired && childRunId !== undefined) {
+      try { await journal.runCancel(childRunId); } catch { /* fail-open on cleanup */ }
+    }
     peer.close();
     await work?.catch(() => undefined);
   }
