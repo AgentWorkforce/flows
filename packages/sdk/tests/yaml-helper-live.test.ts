@@ -36,10 +36,18 @@ steps:
     type: deterministic
     command: "true"
 `);
-  const metadata = spawnSync('sh', [resolve('../../ops/cargo.sh'), 'metadata', '--format-version=1', '--no-deps', '--locked', '--offline'],
-    { cwd: resolve('../../kernel'), encoding: 'utf8' });
-  expect(metadata.status, metadata.stderr).toBe(0);
-  const binary = process.env.RELAYFLOWD_BIN ?? join(JSON.parse(metadata.stdout).target_directory, 'debug/relayflowd');
+  // If the caller (CI, or a developer with a prebuilt kernel) already picked
+  // the relayflowd binary, honor that verbatim. Falling through to `cargo
+  // metadata` here would fail on CI runners whose rustup has no default cargo
+  // configured — the binary is prebuilt and shipped via RELAYFLOWD_BIN in that
+  // shape, so the metadata query is only needed to LOCATE it otherwise.
+  let binary = process.env.RELAYFLOWD_BIN;
+  if (binary === undefined) {
+    const metadata = spawnSync('sh', [resolve('../../ops/cargo.sh'), 'metadata', '--format-version=1', '--no-deps', '--locked', '--offline'],
+      { cwd: resolve('../../kernel'), encoding: 'utf8' });
+    expect(metadata.status, metadata.stderr).toBe(0);
+    binary = join(JSON.parse(metadata.stdout).target_directory, 'debug/relayflowd');
+  }
   const cli = process.env.FLOWS_TEST_CLI ?? resolve('dist/cli.js');
   const args = ['--json', '--no-observer-link', '--data-dir', join(root, 'data')];
   const invoke = (...command: string[]) => spawnSync(process.execPath, [cli, ...command, ...args], {
