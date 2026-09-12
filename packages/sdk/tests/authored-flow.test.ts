@@ -140,10 +140,20 @@ describe('authored flow journal executor', () => {
       async (f) => f.done('success'),
     ), disconnectedJournal)).rejects.toMatchObject({ code: 'unsupported_header' });
 
-    await expect(executeAuthoredFlow(flow('gate-not-lowered', async (f) => {
+    // Predicate .gate(fn) still refuses — JS closures can't be journaled.
+    await expect(executeAuthoredFlow(flow('gate-predicate-not-lowered', async (f) => {
       await f.run('true').gate(Boolean);
       f.done('success');
     }), disconnectedJournal)).rejects.toMatchObject({ code: 'unsupported_gate' });
+
+    // Config-object .gate({...}) MUST NOT throw unsupported_gate — it lowers
+    // into the compiled step's `verification:` field via slice-P named gates.
+    // The disconnected journal still refuses the run, but on a different code
+    // path than 'unsupported_gate' (the step spec reaches journal.runStart).
+    await expect(executeAuthoredFlow(flow('gate-config-is-lowered', async (f) => {
+      await f.run('echo ok').gate({ type: 'regex_match', pattern: 'ok' });
+      f.done('success');
+    }), disconnectedJournal)).rejects.not.toMatchObject({ code: 'unsupported_gate' });
   });
 
   it('refuses a workspace permission annotation f.agent cannot enforce, before contacting the journal', async () => {

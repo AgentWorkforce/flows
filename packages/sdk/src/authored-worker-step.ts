@@ -1,6 +1,6 @@
 import type { AuthoredBudget } from './authored-budget.js';
 import { parseBudget } from './budget.js';
-import type { AgentOptions, AgentResult, LlmOptions } from '@relayflows/surface';
+import type { AgentOptions, AgentResult, LlmOptions, NamedGate } from '@relayflows/surface';
 import { compileSpec, toKernelSpec } from './compile.js';
 import { checkAuthoredFlow } from './cli/check.js';
 import { classifyOutcome, type RunLifecycleOptions } from './cli/run.js';
@@ -83,7 +83,7 @@ export function authoredWorkerRunner(
   }
 
   return {
-    async agent(id: string, options: AgentOptions): Promise<AgentResult> {
+    async agent(id: string, options: AgentOptions, verification?: NamedGate): Promise<AgentResult> {
       if (options.workspace !== undefined && localAgentStream !== undefined) {
         throw new AuthoredFlowExecutionError('unsupported_workspace_permission',
           'The local agent worker accepts stream-only steps. Remove workspace or attach a worker that holds its revision pins.');
@@ -125,6 +125,7 @@ export function authoredWorkerRunner(
         ...(options.cli === undefined ? {} : { cli: options.cli }),
         ...(options.model === undefined ? {} : { model: options.model }),
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        ...(verification === undefined ? {} : { verification }),
       });
       if (typeof output !== 'object' || output === null || Array.isArray(output)) {
         throw new AuthoredFlowExecutionError('journal_protocol_violation', `step "${id}" produced a non-object output`);
@@ -132,7 +133,7 @@ export function authoredWorkerRunner(
       const stdout = 'stdout_tail' in output ? output.stdout_tail : undefined;
       return { summary: typeof stdout === 'string' ? stdout : JSON.stringify(output), artifacts: [] };
     },
-    async llm(id: string, prompt: string, options?: LlmOptions): Promise<unknown> {
+    async llm(id: string, prompt: string, options?: LlmOptions, verification?: NamedGate): Promise<unknown> {
       if (options !== undefined && (typeof options !== 'object' || options === null || options.output === undefined)) {
         throw new AuthoredFlowExecutionError('llm_cli_unresolved', 'f.llm(prompt, options) requires an output JSON Schema.');
       }
@@ -141,7 +142,10 @@ export function authoredWorkerRunner(
         || Object.keys(snapshot).some(key => !['output', 'cli', 'model'].includes(key)))) {
         throw new AuthoredFlowExecutionError('llm_cli_unresolved', 'f.llm options accepts only output, cli, and model.');
       }
-      const output = await run({ id, type: 'llm', prompt, ...snapshot as unknown as LlmOptions });
+      const output = await run({
+        id, type: 'llm', prompt, ...snapshot as unknown as LlmOptions,
+        ...(verification === undefined ? {} : { verification }),
+      });
       if (options === undefined && typeof output !== 'string') {
         throw new AuthoredFlowExecutionError('journal_protocol_violation', `text step "${id}" produced a non-string output`);
       }
@@ -154,11 +158,15 @@ export function authoredWorkerRunner(
 export function authoredDeterministicRunner(
   name: string, journal: JournalClient, journalSteps: AuthoredFlowJournalStep[], budget: AuthoredBudget,
 ) {
-  return async (id: string, command: string, terminal = false, leaseMs?: number): Promise<string> => {
+  return async (id: string, command: string, terminal = false, leaseMs?: number, verification?: NamedGate): Promise<string> => {
     const spec = toKernelSpec(compileSpec({
       version: SPEC_SCHEMA_VERSION,
       name: `${name}/${id}`,
-      steps: [{ id, type: 'deterministic', command, ...(leaseMs === undefined ? {} : { lease_ms: leaseMs }) }],
+      steps: [{
+        id, type: 'deterministic', command,
+        ...(leaseMs === undefined ? {} : { lease_ms: leaseMs }),
+        ...(verification === undefined ? {} : { verification }),
+      }],
     }));
     if (terminal) return readSuccessfulOutput(journal, await journal.runStart(spec), id, journalSteps);
     return budget.execute(journal, spec, outcome => readSuccessfulOutput(journal, outcome, id, journalSteps));

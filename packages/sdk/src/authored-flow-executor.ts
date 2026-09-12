@@ -13,6 +13,7 @@ import { assertMemoryReachable, authoredMemory, scriptMemoryScope } from './auth
 import { authoredDeterministicRunner, authoredWorkerRunner } from './authored-worker-step.js';
 import { isSurfaceRunCompletionReason } from './authored-step-output.js';
 import {
+  type AgentResult,
   type LlmOptions,
   type CloudHelper,
   type CompletionReason as SurfaceCompletionReason,
@@ -181,7 +182,11 @@ export async function executeAuthoredFlow<Input = undefined>(
   function llmOperation(prompt: string | TemplateStringsArray, ...values: unknown[]): Step<unknown> {
     assertOperationAllowed('llm', definition.name, requestedCompletion);
     const id = `llm-${nextStep++}`;
-    return trackStep(authoredSteps, new AuthoredFlowOperation(
+    // Hoist the operation reference so the start closure can read the
+    // caller's `.gate(config)` at spec-build time. AuthoredFlowOperation
+    // begins after construction returns, so `llmOp` is defined by then.
+    let llmOp!: AuthoredFlowOperation<unknown>;
+    llmOp = new AuthoredFlowOperation(
       id, 'llm',
       () => assertOperationAllowed('llm', definition.name, requestedCompletion),
       () => observeStep(id, 'llm', () => {
@@ -189,14 +194,15 @@ export async function executeAuthoredFlow<Input = undefined>(
           if (values.length !== 1 || values[0] === undefined) {
             throw new AuthoredFlowExecutionError('llm_cli_unresolved', 'f.llm(prompt, options) requires an output JSON Schema.');
           }
-          return worker.llm(id, prompt, values[0] as LlmOptions);
+          return worker.llm(id, prompt, values[0] as LlmOptions, llmOp.namedGate);
         }
         const text = prompt.reduce((result, part, index) => result + part
           + (index < values.length ? String(values[index]) : ''), '');
-        return worker.llm(id, text);
+        return worker.llm(id, text, undefined, llmOp.namedGate);
       }, onProgress),
       lifecycle,
-    ));
+    );
+    return trackStep(authoredSteps, llmOp);
   }
 
   const slackRun = randomUUID();
@@ -254,26 +260,30 @@ export async function executeAuthoredFlow<Input = undefined>(
       assertOperationAllowed('run', definition.name, requestedCompletion);
       const leaseMs = runOptions?.timeout === undefined ? undefined : parseStepTimeout(runOptions.timeout);
       const id = `run-${nextStep++}`;
-      return trackStep(authoredSteps, new AuthoredFlowOperation(
+      let runOp!: AuthoredFlowOperation<string>;
+      runOp = new AuthoredFlowOperation<string>(
         id,
         'run',
         () => assertOperationAllowed('run', definition.name, requestedCompletion),
-        () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs), options.onProgress),
+        () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate), options.onProgress),
         lifecycle,
-      ));
+      );
+      return trackStep(authoredSteps, runOp);
     },
     llm: llmOperation,
     agent(name, options) {
       assertOperationAllowed('agent', definition.name, requestedCompletion);
       void name; // Authored headers do not yet declare reusable named agents.
       const id = `agent-${nextStep++}`;
-      return trackStep(authoredSteps, new AuthoredFlowOperation(
+      let agentOp!: AuthoredFlowOperation<AgentResult>;
+      agentOp = new AuthoredFlowOperation<AgentResult>(
         id,
         'agent',
         () => assertOperationAllowed('agent', definition.name, requestedCompletion),
-        () => observeStep(id, 'agent', () => worker.agent(id, options), onProgress),
+        () => observeStep(id, 'agent', () => worker.agent(id, options, agentOp.namedGate), onProgress),
         lifecycle,
-      ));
+      );
+      return trackStep(authoredSteps, agentOp);
     },
     human() {
       assertOperationAllowed('human', definition.name, requestedCompletion);
