@@ -38,8 +38,12 @@ jobs:
       # the CLIs disagree — and a lens whose CLI is not available in either
       # runner produces MISSING transcripts on every PR, keeping `review`
       # unpassable by construction. `structure = opencode` was that failure
-      # mode. Enforce the runner and the swarm agree on the CLI per lens, and
-      # that every mapped CLI is on PATH. PRESWARM_ALLOW_MISSING_CLI=1 opts a
-      # partial environment out — do not set it here.
+      # mode. Enforce the runner and the swarm agree on the CLI per lens.
+      # PRESWARM_ALLOW_MISSING_CLI=1 here because THIS workflow runs on the
+      # generic GitHub Actions runner which never has claude/codex/opencode
+      # on PATH — the CLI-presence half of the check belongs to the actual
+      # pre-swarm runner env, which sets this to 0 (its default).
       - name: Enforce lens CLI parity between pre-swarm runner and post-push swarm
+        env:
+          PRESWARM_ALLOW_MISSING_CLI: "1"
         run: sh ops/preswarm-check/lens-cli-parity-check.sh
