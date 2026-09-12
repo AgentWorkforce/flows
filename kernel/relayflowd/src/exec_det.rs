@@ -209,7 +209,14 @@ mod tests {
         let Action::Append(completed) = &actions[0] else {
             panic!("expected completion")
         };
-        assert_eq!(completed.payload["output"], serde_json::Value::Null);
+        // Post-#292: structured output survives on failed deterministic completions
+        // so the CLI diagnostic (#276 / merged as #366) can render exit code + stderr
+        // directly, without falling back to trajectory_tail.
+        assert_eq!(completed.payload["output"]["exit_code"], 7);
+        assert_eq!(
+            completed.payload["output"]["stderr_tail"],
+            "shakedown intentional failure"
+        );
         assert_eq!(completed.payload["trajectory_tail"]["exit_code"], 7);
         assert_eq!(
             completed.payload["trajectory_tail"]["stderr_tail"],
