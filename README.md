@@ -76,3 +76,15 @@ Give your agent a skill to write a flow:
 ```sh
 npx skills add https://github.com/agentworkforce/skills --skill writing-relayflows
 ```
+
+## GitHub Actions Secrets
+
+The `.github/workflows/review-swarm.yml` workflow requires the following secrets and variables to be configured in repository settings:
+
+- **`CLOUD_API_KEY`** (secret) — Agent Relay Cloud API credential for launching cloud workflows. Mint per `AgentWorkforce/cloud → docs/runbooks/relay-ci-workflow-credential.md` with profile `workflow-invoke` and scopes `workflow:invoke:read` and `workflow:invoke:write`. Store in Repository Settings → Secrets and variables → Actions → New repository secret.
+
+- **`RELAY_WORKSPACE_KEY`** (secret) — Agent Relay workspace key for review swarm communication. Contact repository administrator for the workspace key.
+
+- **`CLOUD_API_URL`** (variable) — Cloud API endpoint, typically `https://agentrelay.com/cloud`. Set as a repository variable. Defaults to production endpoint if not set.
+
+See `.github/workflows/review-swarm.yml` for implementation details.
