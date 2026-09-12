@@ -410,6 +410,9 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x',
         verification: { type: 'subprocess_gate', command: '/nonexistent-gate-binary-xxx' } }),
         { probes: probes({ command: (c) => c !== '/nonexistent-gate-binary-xxx' }) }),
+      // `scope_syntax_invalid`: grant string doesn't match "mount/path: mode".
+      preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }),
+        workspace: 'not-a-grant' } as FlowSpec, { probes: probes() }),
     ];
     const refusalKinds = scenarios.flatMap((result) => result.diagnostics)
       .filter((diagnostic) => diagnostic.severity === 'refusal')
@@ -461,6 +464,26 @@ describe('preflight: CLI resolution and refusal predicates', () => {
           probes: probes(), mcpServers: [], pluginSearchStart: root,
         });
         refusalKinds.push(...result.diagnostics.filter(d => d.severity === 'refusal').map(d => d.kind as PreflightFailureKind));
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    }
+    // Path-scoped auth: `mount_unknown` and `scope_ungrantable` fire against the
+    // nearest relayfile.mounts.json — a real manifest that declares `acme` with
+    // only the `api` prefix in `readonly` mode. Any grant naming another mount
+    // is unknown; any grant asking for a different path or mode is ungrantable.
+    {
+      const root = mkdtempSync(join(tmpdir(), 'scope-mounts-'));
+      try {
+        writeFileSync(join(root, 'relayfile.mounts.json'), JSON.stringify({
+          version: 1, mounts: { acme: [{ path: 'api', modes: ['readonly'] }] },
+        }));
+        const unknownFlow = { ...flow({ id: 'a', type: 'deterministic', command: 'x' }),
+          workspace: 'other/api: readonly' } as FlowSpec;
+        const unknownResult = preflight(unknownFlow, { probes: probes(), projectSearchStart: root }) as import('../src/preflight.js').PreflightResult;
+        refusalKinds.push(...unknownResult.diagnostics.filter(d => d.severity === 'refusal').map(d => d.kind as PreflightFailureKind));
+        const ungrantableFlow = { ...flow({ id: 'a', type: 'deterministic', command: 'x' }),
+          workspace: 'acme/other: readwrite' } as FlowSpec;
+        const ungrantableResult = preflight(ungrantableFlow, { probes: probes(), projectSearchStart: root }) as import('../src/preflight.js').PreflightResult;
+        refusalKinds.push(...ungrantableResult.diagnostics.filter(d => d.severity === 'refusal').map(d => d.kind as PreflightFailureKind));
       } finally { rmSync(root, { recursive: true, force: true }); }
     }
     expect(new Set(refusalKinds)).toEqual(new Set(PREFLIGHT_FAILURE_KINDS));

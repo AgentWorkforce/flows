@@ -10,6 +10,8 @@ export const FLOW_FIELDS = [
   'triggers',
   'steps',
   'budget',
+  'workspace',
+  'tools',
 ] as const;
 
 /** Closed named-agent declaration schema. */

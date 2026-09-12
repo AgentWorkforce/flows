@@ -166,6 +166,8 @@ export function compileSpec(spec: unknown): CompiledFlowSpec {
     ...(input.triggers?.length ? { triggers: input.triggers } : {}),
     steps,
     ...(input.budget !== undefined ? { budget: input.budget } : {}),
+    ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
+    ...(input.tools !== undefined ? { tools: input.tools } : {}),
   };
   return flow;
 }

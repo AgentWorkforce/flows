@@ -170,6 +170,7 @@ describe('closed per-verb step fields', () => {
   it('pins the per-verb descriptor and generates every foreign-field pair from it', () => {
     expect(FLOW_FIELDS).toEqual([
       'version', 'name', 'description', 'cli', 'agents', 'triggers', 'steps', 'budget',
+      'workspace', 'tools',
     ]);
     expect(AGENT_DECLARATION_FIELDS).toEqual(['cli', 'model']);
     // `timeoutMs` is deliberately absent: it is a deterministic-only authoring

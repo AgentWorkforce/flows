@@ -32,7 +32,8 @@
     "tests/direct-input.test.ts",
     "tests/fixtures/needs-human.flow.ts",
     "tests/named-gates.test.ts",
-    "tests/build-gate.test.ts"
+    "tests/build-gate.test.ts",
+    "tests/scope-preflight.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
