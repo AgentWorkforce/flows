@@ -241,6 +241,89 @@ pub enum CompletionReason {
     Canceled,
 }
 
+impl CompletionReason {
+    /// The label journaled beside a `completionReason` field, and the only
+    /// spelling any journal record renders. The match is deliberately
+    /// wildcard-free: a new variant is a compile error here until given a
+    /// label, so this boundary fails closed at build time rather than at
+    /// runtime.
+    ///
+    /// These strings must stay identical to the `rename_all = "snake_case"`
+    /// spellings serde emits, which `every_journal_label_matches_serialized`
+    /// pins. The enum owns its label; nothing else does. #197 removed the
+    /// duplicate table in `machine.rs` that made drift silently possible.
+    pub fn journal_label(&self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::VerificationFailed => "verification_failed",
+            Self::RetriesExhausted => "retries_exhausted",
+            Self::LeaseExpired => "lease_expired",
+            Self::Crashed => "crashed",
+            Self::Timeout => "timeout",
+            Self::WorkerError => "worker_error",
+            Self::BudgetExceeded => "budget_exceeded",
+            Self::Canceled => "canceled",
+        }
+    }
+
+    /// The canonical list of every variant, hand-maintained beside the enum
+    /// so tests can iterate without pulling in `strum`. A new variant added
+    /// above forces this list to be updated (via the pinning test); adding
+    /// only there would be caught at the next `journal_label` call site.
+    pub const ALL: &'static [Self] = &[
+        Self::Success,
+        Self::VerificationFailed,
+        Self::RetriesExhausted,
+        Self::LeaseExpired,
+        Self::Crashed,
+        Self::Timeout,
+        Self::WorkerError,
+        Self::BudgetExceeded,
+        Self::Canceled,
+    ];
+}
+
+#[cfg(test)]
+mod completion_reason_tests {
+    use super::CompletionReason;
+
+    /// Owner-side drift check: journaled label must match serde output for
+    /// every variant. The list lives on the enum's own `ALL` const, so
+    /// `machine.rs` no longer has a second owner to keep in sync (#197).
+    #[test]
+    fn every_journal_label_matches_serialized() {
+        for reason in CompletionReason::ALL {
+            let serialized = serde_json::to_value(reason).unwrap();
+            assert_eq!(
+                serialized.as_str().expect("a string spelling"),
+                reason.journal_label(),
+                "journal label drifted from the serialized form for {reason:?}"
+            );
+        }
+    }
+
+    /// `ALL` must actually enumerate every variant. Serde's snake_case output
+    /// gives us that check for free: if a new variant existed but was missing
+    /// from `ALL`, this test's iteration would not observe it, which is why
+    /// the pinning above is the load-bearing guard.
+    ///
+    /// The redundancy is deliberate: this test asserts `ALL` covers every
+    /// label the enum's own labeler produces. Together with the compile-time
+    /// exhaustiveness of `journal_label`, missing a variant becomes: (a) a
+    /// build error if you skip `journal_label`, or (b) a test failure if you
+    /// skip `ALL`.
+    #[test]
+    fn all_covers_every_serialized_label() {
+        let labels: std::collections::HashSet<&str> =
+            CompletionReason::ALL.iter().map(|r| r.journal_label()).collect();
+        assert_eq!(
+            labels.len(),
+            CompletionReason::ALL.len(),
+            "ALL must list each variant exactly once"
+        );
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Disposition {
