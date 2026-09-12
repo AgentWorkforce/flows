@@ -86,7 +86,16 @@ export function agentExecution(
 ): CliInvocation {
   if (kind === 'claude') {
     return {
-      args: ['-p', ...(model === undefined ? [] : ['--model', model]), instruction],
+      args: [
+        '-p',
+        // Symmetric to codex's --dangerously-bypass-approvals-and-sandbox: in
+        // agent mode the flow explicitly delegates writes. Without this
+        // claude's headless mode prompts for tool approval, gets no TTY,
+        // and completes successfully without touching files.
+        '--dangerously-skip-permissions',
+        ...(model === undefined ? [] : ['--model', model]),
+        instruction,
+      ],
       timeoutMs: 0,
     };
   }
@@ -94,6 +103,12 @@ export function agentExecution(
     return {
       args: [
         'exec', '--ephemeral', '--skip-git-repo-check',
+        // Agent-mode is where the flow explicitly delegates code changes to
+        // the CLI. Without this flag codex prompts for approval on every
+        // write, gets nothing (no TTY), and completes "successfully" without
+        // touching files — the dogfood no-op failure mode. LLM-mode below
+        // stays read-only and does NOT get the bypass.
+        '--dangerously-bypass-approvals-and-sandbox',
         ...(model === undefined ? [] : ['--model', model]),
         instruction,
       ],
