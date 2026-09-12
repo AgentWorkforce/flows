@@ -19,7 +19,14 @@ function fixture(files: Record<string, string[]>): string {
     writeFileSync(join(directory, `${name}.flow.ts`), `
       import { flow } from '@relayflows/surface';
       export default flow(${JSON.stringify(name)}, { use: ${JSON.stringify(use)} }, async f => {
-        throw new Error('loader must never execute authored bodies');
+        // The authored body must NEVER run during use: resolution — the loader
+        // only walks the header. If you see this thrown by a test in
+        // packages/sdk/tests/authored-use-loader.test.ts, some loader code path
+        // is invoking the body when it should be inspecting the header only.
+        // Track the invocation site and gate it on the same signal that
+        // execute-authored-flow uses (see 'preflightHelpers' or the compile
+        // pass, not the body).
+        throw new Error('loader-invoked-body: use: resolution must not execute authored bodies (see authored-use-loader.test.ts)');
       });
     `);
   }

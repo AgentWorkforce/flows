@@ -26,7 +26,18 @@ async function receiver(dir: string): Promise<string> {
   const server = await startWebhookServer(dir, 0);
   servers.push(server);
   const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('missing HTTP address');
+  if (!address || typeof address === 'string') {
+    // startWebhookServer returned before the TCP socket bound (address()===null)
+    // or bound to a UNIX socket path (typeof 'string'). Neither shape is usable
+    // for the http:// URL these tests hand to the receiver. If you hit this:
+    //   - Verify startWebhookServer is awaited before receiver() returns.
+    //   - Confirm the second arg (port) is a number, not a socket path.
+    //   - Check that a prior test didn't hold onto port 0 or exhaust ephemeral ports.
+    throw new Error(
+      'webhook receiver: server.address() returned a non-TCP address; '
+      + `see packages/sdk/tests/webhook.test.ts:${28}`,
+    );
+  }
   return `http://127.0.0.1:${address.port}`;
 }
 
