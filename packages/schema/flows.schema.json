@@ -88,6 +88,22 @@
       "description": "FlowsJson in the Relayflows spec.",
       "type": "object",
       "properties": {
+        "deploy": {
+          "title": "deploy",
+          "description": "deploy in the Relayflows spec.",
+          "type": "object",
+          "properties": {
+            "bucket": {
+              "title": "bucket",
+              "description": "bucket in the Relayflows spec.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "bucket"
+          ],
+          "additionalProperties": false
+        },
         "cli": {
           "title": "cli",
           "description": "cli in the Relayflows spec.",
@@ -133,7 +149,11 @@
       "enum": [
         "exit_code",
         "output_contains",
-        "json_schema"
+        "json_schema",
+        "references_input",
+        "subprocess_gate",
+        "word_count_bounds",
+        "regex_match"
       ]
     },
     "ExitCodeGate": {
@@ -206,24 +226,193 @@
       ],
       "additionalProperties": false
     },
-    "VerificationSpec": {
-      "title": "VerificationSpec",
-      "description": "VerificationSpec in the Relayflows spec.",
+    "ReferencesInputGate": {
+      "title": "ReferencesInputGate",
+      "description": "ReferencesInputGate in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "references_input"
+        },
+        "input_key": {
+          "title": "input_key",
+          "description": "input_key in the Relayflows spec.",
+          "type": "string"
+        },
+        "in_output_at": {
+          "title": "in_output_at",
+          "description": "in_output_at in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "title": "in_output_at items alternative 1",
+                "description": "in_output_at items alternative 1 value."
+              },
+              {
+                "type": "number",
+                "title": "in_output_at items alternative 2",
+                "description": "in_output_at items alternative 2 value."
+              }
+            ],
+            "title": "in_output_at items",
+            "description": "in_output_at items value."
+          }
+        }
+      },
+      "required": [
+        "type",
+        "input_key"
+      ],
+      "additionalProperties": false
+    },
+    "SubprocessGate": {
+      "title": "SubprocessGate",
+      "description": "SubprocessGate in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "subprocess_gate"
+        },
+        "command": {
+          "title": "command",
+          "description": "command in the Relayflows spec.",
+          "type": "string"
+        },
+        "from_output": {
+          "title": "from_output",
+          "description": "from_output in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "title": "from_output items alternative 1",
+                "description": "from_output items alternative 1 value."
+              },
+              {
+                "type": "number",
+                "title": "from_output items alternative 2",
+                "description": "from_output items alternative 2 value."
+              }
+            ],
+            "title": "from_output items",
+            "description": "from_output items value."
+          }
+        }
+      },
+      "required": [
+        "type",
+        "command"
+      ],
+      "additionalProperties": false
+    },
+    "WordCountBoundsGate": {
+      "title": "WordCountBoundsGate",
+      "description": "WordCountBoundsGate in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "word_count_bounds"
+        },
+        "min": {
+          "title": "min",
+          "description": "min in the Relayflows spec.",
+          "type": "number"
+        },
+        "max": {
+          "title": "max",
+          "description": "max in the Relayflows spec.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "RegexMatchGate": {
+      "title": "RegexMatchGate",
+      "description": "RegexMatchGate in the Relayflows spec.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "regex_match"
+        },
+        "pattern": {
+          "title": "pattern",
+          "description": "pattern in the Relayflows spec.",
+          "type": "string"
+        },
+        "in_output_at": {
+          "title": "in_output_at",
+          "description": "in_output_at in the Relayflows spec.",
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "title": "in_output_at items alternative 1",
+                "description": "in_output_at items alternative 1 value."
+              },
+              {
+                "type": "number",
+                "title": "in_output_at items alternative 2",
+                "description": "in_output_at items alternative 2 value."
+              }
+            ],
+            "title": "in_output_at items",
+            "description": "in_output_at items value."
+          }
+        },
+        "flags": {
+          "title": "flags",
+          "description": "Only i, m, and s; evaluated by a non-backtracking RE2 engine.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "pattern"
+      ],
+      "additionalProperties": false
+    },
+    "NamedDataGate": {
+      "title": "NamedDataGate",
+      "description": "NamedDataGate in the Relayflows spec.",
       "oneOf": [
         {
-          "$ref": "#/$defs/ExitCodeGate",
-          "title": "VerificationSpec alternative 1",
-          "description": "See ExitCodeGate."
+          "$ref": "#/$defs/ReferencesInputGate",
+          "title": "NamedDataGate alternative 1",
+          "description": "See ReferencesInputGate."
         },
         {
-          "$ref": "#/$defs/OutputContainsGate",
-          "title": "VerificationSpec alternative 2",
-          "description": "See OutputContainsGate."
+          "$ref": "#/$defs/SubprocessGate",
+          "title": "NamedDataGate alternative 2",
+          "description": "See SubprocessGate."
         },
         {
-          "$ref": "#/$defs/JsonSchemaGate",
-          "title": "VerificationSpec alternative 3",
-          "description": "See JsonSchemaGate."
+          "$ref": "#/$defs/WordCountBoundsGate",
+          "title": "NamedDataGate alternative 3",
+          "description": "See WordCountBoundsGate."
+        },
+        {
+          "$ref": "#/$defs/RegexMatchGate",
+          "title": "NamedDataGate alternative 4",
+          "description": "See RegexMatchGate."
         }
       ]
     },
@@ -240,6 +429,27 @@
           "$ref": "#/$defs/JsonSchemaGate",
           "title": "OutputVerificationSpec alternative 2",
           "description": "See JsonSchemaGate."
+        },
+        {
+          "$ref": "#/$defs/NamedDataGate",
+          "title": "OutputVerificationSpec alternative 3",
+          "description": "See NamedDataGate."
+        }
+      ]
+    },
+    "VerificationSpec": {
+      "title": "VerificationSpec",
+      "description": "VerificationSpec in the Relayflows spec.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ExitCodeGate",
+          "title": "VerificationSpec alternative 1",
+          "description": "See ExitCodeGate."
+        },
+        {
+          "$ref": "#/$defs/OutputVerificationSpec",
+          "title": "VerificationSpec alternative 2",
+          "description": "See OutputVerificationSpec."
         }
       ]
     },
@@ -372,6 +582,28 @@
       "description": "Budget envelope. Per decision #10 every token has exactly one owner: an\ninjected context pack spends the consuming step's budget. Money is a decimal\nstring at the boundary (kernel DESIGN.md §1: no floats for money); tokens\nare integers.",
       "type": "object",
       "properties": {
+        "pricing": {
+          "title": "pricing",
+          "description": "Set when normalizing the surface budget header. Legacy explicit envelopes accept worker-supplied prices.",
+          "type": "string",
+          "const": "frozen"
+        },
+        "maxTokens": {
+          "title": "maxTokens",
+          "description": "maxTokens in the Relayflows spec.",
+          "type": "number"
+        },
+        "maxWallclockMs": {
+          "title": "maxWallclockMs",
+          "description": "maxWallclockMs in the Relayflows spec.",
+          "type": "number"
+        },
+        "window": {
+          "title": "window",
+          "description": "window in the Relayflows spec.",
+          "type": "string",
+          "const": "day"
+        },
         "maxTokensIn": {
           "title": "maxTokensIn",
           "description": "maxTokensIn in the Relayflows spec.",
@@ -446,6 +678,67 @@
       "description": "KernelBudgetSpec in the Relayflows spec.",
       "type": "object",
       "properties": {
+        "pricing": {
+          "title": "pricing",
+          "description": "pricing in the Relayflows spec.",
+          "type": "string",
+          "const": "frozen"
+        },
+        "prior_spend": {
+          "title": "prior_spend",
+          "description": "prior_spend in the Relayflows spec.",
+          "type": "object",
+          "properties": {
+            "tokens_in": {
+              "title": "tokens_in",
+              "description": "tokens_in in the Relayflows spec.",
+              "type": "number"
+            },
+            "tokens_out": {
+              "title": "tokens_out",
+              "description": "tokens_out in the Relayflows spec.",
+              "type": "number"
+            },
+            "dollars": {
+              "title": "dollars",
+              "description": "dollars in the Relayflows spec.",
+              "type": "string"
+            },
+            "wallclock_ms": {
+              "title": "wallclock_ms",
+              "description": "wallclock_ms in the Relayflows spec.",
+              "type": "number"
+            },
+            "day": {
+              "title": "day",
+              "description": "day in the Relayflows spec.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "tokens_in",
+            "tokens_out",
+            "dollars",
+            "wallclock_ms"
+          ],
+          "additionalProperties": false
+        },
+        "max_tokens": {
+          "title": "max_tokens",
+          "description": "max_tokens in the Relayflows spec.",
+          "type": "number"
+        },
+        "max_wallclock_ms": {
+          "title": "max_wallclock_ms",
+          "description": "max_wallclock_ms in the Relayflows spec.",
+          "type": "number"
+        },
+        "window": {
+          "title": "window",
+          "description": "window in the Relayflows spec.",
+          "type": "string",
+          "const": "day"
+        },
         "max_tokens_in": {
           "title": "max_tokens_in",
           "description": "max_tokens_in in the Relayflows spec.",
@@ -762,6 +1055,11 @@
           "type": "integer",
           "minimum": 1
         },
+        "lease_ms": {
+          "title": "lease_ms",
+          "description": "Per-invocation deterministic lease in milliseconds (maximum 15 minutes).",
+          "type": "number"
+        },
         "verification": {
           "title": "verification",
           "description": "Omit to get the implicit `exit_code` gate.",
@@ -1074,6 +1372,162 @@
         }
       ]
     },
+    "YamlHelperParams": {
+      "title": "YamlHelperParams",
+      "description": "YAML argument maps use the same pinned client types as the TS helpers.",
+      "type": "object",
+      "properties": {
+        "slack": {
+          "title": "slack",
+          "description": "slack in the Relayflows spec.",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "github": {
+          "title": "github",
+          "description": "github in the Relayflows spec.",
+          "type": "object",
+          "properties": {
+            "comment": {
+              "title": "comment",
+              "description": "comment in the Relayflows spec.",
+              "type": "object",
+              "properties": {
+                "target": {
+                  "title": "target",
+                  "description": "target in the Relayflows spec.",
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "body": {
+                  "title": "body",
+                  "description": "body in the Relayflows spec.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "target",
+                "body"
+              ],
+              "additionalProperties": false
+            },
+            "createIssue": {
+              "title": "createIssue",
+              "description": "createIssue in the Relayflows spec.",
+              "type": "object",
+              "additionalProperties": true
+            },
+            "createPullRequest": {
+              "title": "createPullRequest",
+              "description": "createPullRequest in the Relayflows spec.",
+              "type": "object",
+              "additionalProperties": true
+            },
+            "closePullRequest": {
+              "title": "closePullRequest",
+              "description": "closePullRequest in the Relayflows spec.",
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "comment",
+            "createIssue",
+            "createPullRequest",
+            "closePullRequest"
+          ],
+          "additionalProperties": false
+        },
+        "linear": {
+          "title": "linear",
+          "description": "linear in the Relayflows spec.",
+          "type": "object",
+          "properties": {
+            "comment": {
+              "title": "comment",
+              "description": "comment in the Relayflows spec.",
+              "type": "object",
+              "properties": {
+                "issueId": {
+                  "title": "issueId",
+                  "description": "issueId in the Relayflows spec.",
+                  "type": "string"
+                },
+                "body": {
+                  "title": "body",
+                  "description": "body in the Relayflows spec.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "issueId",
+                "body"
+              ],
+              "additionalProperties": false
+            },
+            "createIssue": {
+              "title": "createIssue",
+              "description": "createIssue in the Relayflows spec.",
+              "type": "object",
+              "additionalProperties": true
+            },
+            "updateIssue": {
+              "title": "updateIssue",
+              "description": "updateIssue in the Relayflows spec.",
+              "type": "object",
+              "properties": {
+                "issueId": {
+                  "title": "issueId",
+                  "description": "issueId in the Relayflows spec.",
+                  "type": "string"
+                },
+                "args": {
+                  "title": "args",
+                  "description": "args in the Relayflows spec.",
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              },
+              "required": [
+                "issueId",
+                "args"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "comment",
+            "createIssue",
+            "updateIssue"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "slack",
+        "github",
+        "linear"
+      ],
+      "additionalProperties": false
+    },
+    "OneKey": {
+      "title": "OneKey",
+      "description": "OneKey in the Relayflows spec.",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "YamlHelperStepSpec": {
+      "title": "YamlHelperStepSpec",
+      "description": "Helper sugar is removed before validation of the three kernel step types.",
+      "type": "object",
+      "additionalProperties": true
+    },
+    "YamlFlowSpec": {
+      "title": "YamlFlowSpec",
+      "description": "YamlFlowSpec in the Relayflows spec.",
+      "type": "object",
+      "additionalProperties": true
+    },
     "NamedAgentSpec": {
       "title": "NamedAgentSpec",
       "description": "Reusable authoring declaration for an agent CLI/model pair. Both fields are\nrequired so selecting a named agent can never inherit a host model. The\ncompiler lowers these values into the selected kernel agent step at the\njournal boundary; the kernel never receives this map or a new step field.",
@@ -1157,6 +1611,40 @@
       ],
       "additionalProperties": false
     },
+    "HeaderBudget": {
+      "title": "HeaderBudget",
+      "description": "HeaderBudget in the Relayflows spec.",
+      "oneOf": [
+        {
+          "type": "string",
+          "title": "HeaderBudget alternative 1",
+          "description": "HeaderBudget alternative 1 value."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "tokens": {
+              "title": "tokens",
+              "description": "tokens in the Relayflows spec.",
+              "type": "number"
+            },
+            "dollars": {
+              "title": "dollars",
+              "description": "dollars in the Relayflows spec.",
+              "type": "number"
+            },
+            "wallclock": {
+              "title": "wallclock",
+              "description": "wallclock in the Relayflows spec.",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "title": "HeaderBudget alternative 2",
+          "description": "HeaderBudget alternative 2 value."
+        }
+      ]
+    },
     "FlowSpec": {
       "title": "FlowSpec",
       "description": "A Relayflow spec in the authoring shape — the composable unit (RFC settled\ndecision #5). Schema-validated, diffable, signable (gate 8), and emittable\nby a step (gate 9 self-authoring). What the kernel inlines in `run.spawned`\nis this spec mapped to the kernel dialect (`toKernelSpec`).",
@@ -1226,7 +1714,18 @@
         "budget": {
           "title": "budget",
           "description": "budget in the Relayflows spec.",
-          "$ref": "#/$defs/BudgetSpec"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/BudgetSpec",
+              "title": "budget alternative 1",
+              "description": "See BudgetSpec."
+            },
+            {
+              "$ref": "#/$defs/HeaderBudget",
+              "title": "budget alternative 2",
+              "description": "See HeaderBudget."
+            }
+          ]
         }
       },
       "required": [
@@ -1436,6 +1935,11 @@
         "timeout_ms": {
           "title": "timeout_ms",
           "description": "timeout_ms in the Relayflows spec.",
+          "type": "number"
+        },
+        "lease_ms": {
+          "title": "lease_ms",
+          "description": "lease_ms in the Relayflows spec.",
           "type": "number"
         }
       },
