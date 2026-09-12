@@ -221,7 +221,15 @@ async function verifiedPackage() {
 }
 
 async function report() {
+  // Assert scope AND run the acceptance argv before printing anything. Without
+  // this, an unattended local drive tick could exit "REPORT ... DoD: X" while
+  // the DoD is unmet: verifiedPackage only validates the contract's integrity,
+  // it does not execute the checks that prove the actual state satisfies it.
+  // The scope refusal is already covered by verifiedPackage -> checkScope;
+  // runChecks makes the DoD assertion executable rather than decorative (#271).
   const pkg = await verifiedPackage();
+  runChecks(pkg);
+  await verifiedPackage();
   // The package pins the HEAD it was selected against. Reporting a diff from a
   // different commit would describe work this tick did not do.
   const head = git('rev-parse', 'HEAD');
@@ -233,6 +241,7 @@ async function report() {
   console.log(`REPORT ${pkg.title}`);
   console.log(stat || '  (no working-tree changes)');
   for (const item of pkg.definitionOfDone) console.log(`  DoD: ${item}`);
+  console.log(`PACKAGE_VERIFIED: ${pkg.verificationCommands.length} check(s)`);
 }
 
 try {
