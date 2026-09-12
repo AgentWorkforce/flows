@@ -110,7 +110,7 @@ export class AgentWorker extends EventEmitter {
         ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, spec.model, undefined, signal, 'agent', this.options.dataDir === undefined ? undefined : {
           dataDir: this.options.dataDir, runId: dispatch.run_id, stepId: dispatch.step_id,
           onReady: this.options.onPtyReady, onDrive: () => { humanIntervention = true; },
-        })
+        }, typeof spec.cwd === 'string' ? spec.cwd : undefined)
         : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
     const { result, usage } = workerSpend(completed, spec.model);
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';

@@ -112,12 +112,19 @@ export function authoredWorkerRunner(
           `f.agent options.model must be a string when set (got ${typeof options.model}).`,
         );
       }
+      if (options.cwd !== undefined && typeof options.cwd !== 'string') {
+        throw new AuthoredFlowExecutionError(
+          'agent_cli_unresolved',
+          `f.agent options.cwd must be a string when set (got ${typeof options.cwd}).`,
+        );
+      }
       const output = await run({
         id, type: 'agent', instruction: options.task,
         ...(localAgentStream === undefined ? {} : { surfaces: { streams: [{ stream: localAgentStream }] } }),
         ...(options.workspace === undefined ? {} : { surfaces: { workspace: [{ surface: options.workspace }] } }),
         ...(options.cli === undefined ? {} : { cli: options.cli }),
         ...(options.model === undefined ? {} : { model: options.model }),
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       });
       if (typeof output !== 'object' || output === null || Array.isArray(output)) {
         throw new AuthoredFlowExecutionError('journal_protocol_violation', `step "${id}" produced a non-object output`);

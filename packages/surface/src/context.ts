@@ -14,6 +14,8 @@ export interface AgentOptions {
   workspace?: string;
   cli?: string;
   model?: string;
+  /** Working directory for the CLI subprocess; defaults to the flow-runner's cwd. */
+  cwd?: string;
 }
 
 export interface LlmOptions {
