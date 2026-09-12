@@ -388,9 +388,13 @@ pub fn completion_actions(
         .as_ref()
         .is_some_and(|record| record.verdict == crate::entry::VerificationVerdict::Pass);
     let may_retry = semantic_executions.saturating_add(1) < step.max_iterations;
-    // Preserve `result.output` across every branch so a failed deterministic
-    // attempt journals the captured `{exit_code, stdout_tail, stderr_tail}`
-    // instead of dropping the diagnostic on the floor (#292 unblocks #276).
+    // Preserve `result.output` for successful completions, and for FAILED
+    // deterministic completions specifically — deterministic attempts journal
+    // `{exit_code, stdout_tail, stderr_tail}` so the CLI can render the
+    // diagnostic (#292 unblocks #276). LLM/agent step outputs remain nulled on
+    // verification failure: their `result.output` is the rejected parsed value,
+    // and the existing invariant is that it never survives to the journal.
+    let preserve_failure_output = step.step_type() == StepType::Deterministic;
     let (reason, disposition, output, next_attempt_at_ms) = if verified {
         (
             CompletionReason::Success,
@@ -406,7 +410,7 @@ pub fn completion_actions(
                 .failure_reason
                 .unwrap_or(CompletionReason::VerificationFailed),
             Disposition::Retry,
-            result.output,
+            if preserve_failure_output { result.output } else { Value::Null },
             Some(now_ms.saturating_add(delay as i64)),
         )
     } else {
@@ -415,7 +419,7 @@ pub fn completion_actions(
                 .failure_reason
                 .unwrap_or(CompletionReason::RetriesExhausted),
             Disposition::StepDone,
-            result.output,
+            if preserve_failure_output { result.output } else { Value::Null },
             None,
         )
     };
