@@ -21,7 +21,7 @@ describe('typed CLI adapters', () => {
     });
     expect(readiness).not.toHaveProperty('modelEnv');
     expect(agentExecution(kind, 'Review.', 'claude-model')).toEqual({
-      args: ['-p', '--model', 'claude-model', 'Review.'],
+      args: ['-p', '--dangerously-skip-permissions', '--model', 'claude-model', 'Review.'],
       timeoutMs: 0,
     });
   });
@@ -40,7 +40,8 @@ describe('typed CLI adapters', () => {
       timeoutMs: 60_000,
     });
     expect(agentExecution(kind, 'Review.', 'gpt-model')).toEqual({
-      args: ['exec', '--ephemeral', '--skip-git-repo-check', '--model', 'gpt-model', 'Review.'],
+      args: ['exec', '--ephemeral', '--skip-git-repo-check', '--dangerously-bypass-approvals-and-sandbox',
+        '--model', 'gpt-model', 'Review.'],
       timeoutMs: 0,
     });
   });
