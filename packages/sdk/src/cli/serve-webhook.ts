@@ -10,13 +10,13 @@ const MAX_BODY_BYTES = 1024 * 1024;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 export function parseWebhookArgs(args: readonly string[]): {
-  command: 'serve-webhook'; dataDir: string; port: number;
+  command: 'serve-webhook'; dataDir: string; port: number; admitted?: readonly string[];
 } | undefined {
   const values = new Map<string, string>();
   for (let i = 0; i < args.length; i += 2) {
     const flag = args[i]!;
     const value = args[i + 1];
-    if (!['--data-dir', '--port'].includes(flag) || values.has(flag)
+    if (!['--data-dir', '--port', '--allow'].includes(flag) || values.has(flag)
       || !value || value.startsWith('-')) return undefined;
     values.set(flag, value);
   }
@@ -25,7 +25,17 @@ export function parseWebhookArgs(args: readonly string[]): {
   if (!dataDir || !portText || !/^\d+$/.test(portText)) return undefined;
   const port = Number(portText);
   if (!Number.isInteger(port) || port < 0 || port > 65535) return undefined;
-  return { command: 'serve-webhook', dataDir, port };
+  const allow = values.get('--allow');
+  // --allow is comma-separated. Empty list is not admitted (would refuse everything);
+  // treat as parse failure so the author sees the typo rather than a mute receiver.
+  const admitted = allow === undefined ? undefined
+    : allow.split(',').map(entry => entry.trim());
+  if (admitted !== undefined && (admitted.length === 0 || admitted.some(entry => !NAME.test(entry)))) {
+    return undefined;
+  }
+  return admitted === undefined
+    ? { command: 'serve-webhook', dataDir, port }
+    : { command: 'serve-webhook', dataDir, port, admitted };
 }
 
 function reply(response: ServerResponse, status: number, body: object): void {
@@ -33,10 +43,22 @@ function reply(response: ServerResponse, status: number, body: object): void {
   response.end(JSON.stringify(body));
 }
 
-/** POST /<name> accepts JSON; /providers/<provider> accepts typed event envelopes. */
-export async function startWebhookServer(dataDir: string, port: number): Promise<Server> {
+/**
+ * POST /<name> accepts JSON; /providers/<provider> accepts typed event envelopes.
+ *
+ * When `admittedNames` is set, unknown names (or providers) refuse with
+ * `webhook_flow_unknown`. This closes the "any-name" ingress opened by slice E
+ * (#333) so the receiver only accepts inbox writes for triggers whose flows
+ * have been explicitly loaded — the loaded-flow admission half of #303.
+ * (Durable handler execution against the journal is deferred; per #303 that
+ * half depends on kernel authored-handler registration + resume protocol.)
+ */
+export async function startWebhookServer(
+  dataDir: string, port: number, options: { admittedNames?: ReadonlySet<string> } = {},
+): Promise<Server> {
   const inbox = join(resolve(dataDir), 'inbox');
   await directory(inbox);
+  const admitted = options.admittedNames;
   // TODO https://github.com/AgentWorkforce/flows/issues/301: provider signatures,
   // public ingress and Cloud mount provisioning belong to the deployment slice.
   const server = createServer(async (request, response) => {
@@ -51,6 +73,15 @@ export async function startWebhookServer(dataDir: string, port: number): Promise
     if (!name || !NAME.test(name)) {
       request.resume();
       reply(response, 404, { error: 'invalid_webhook_name' });
+      return;
+    }
+    if (admitted !== undefined && !admitted.has(name)) {
+      // Loaded-flow admission (#303): the receiver refuses any name whose
+      // trigger wasn't advertised at boot, so a rogue POST can't accumulate
+      // events in an inbox the daemon will never drain. The check runs before
+      // any body read so an unadmitted caller can't waste MAX_BODY_BYTES.
+      request.resume();
+      reply(response, 404, { error: 'webhook_flow_unknown', name });
       return;
     }
     let temporary: string | undefined;
@@ -125,12 +156,17 @@ async function directory(path: string): Promise<void> {
 }
 
 export async function runServeWebhook(
-  options: { dataDir: string; port: number }, io: CliIo,
+  options: { dataDir: string; port: number; admitted?: readonly string[] }, io: CliIo,
 ): Promise<0 | 1> {
   try {
-    const server = await startWebhookServer(options.dataDir, options.port);
+    const admittedNames = options.admitted === undefined ? undefined : new Set(options.admitted);
+    const server = await startWebhookServer(options.dataDir, options.port, { admittedNames });
     const address = server.address();
-    io.stdout(`WEBHOOK http://127.0.0.1:${typeof address === 'object' && address ? address.port : options.port}`);
+    const port = typeof address === 'object' && address ? address.port : options.port;
+    io.stdout(`WEBHOOK http://127.0.0.1:${port}`);
+    if (admittedNames !== undefined) {
+      io.stdout(`ADMITTED ${[...admittedNames].sort().join(',')}`);
+    }
     await new Promise<void>((accept, reject) => {
       const stop = (): void => {
         server.close(error => error ? reject(error) : accept());

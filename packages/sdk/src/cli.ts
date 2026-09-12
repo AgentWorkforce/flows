@@ -49,7 +49,7 @@ type ParsedArgs =
   | ReplayArgs
   | BuildArgs
   | DeployArgs
-  | { command: 'serve-webhook'; dataDir: string; port: number }
+  | { command: 'serve-webhook'; dataDir: string; port: number; admitted?: readonly string[] }
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean }
   | { command: 'check'; json: boolean; watch: boolean; value: string }
   | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
@@ -69,7 +69,7 @@ const USAGE = [
   'flows deploy <flow>@sha256:<digest> --to <file-bucket-uri>',
   'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json]',
   'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
-  'flows serve-webhook --data-dir <dir> --port <p>',
+  'flows serve-webhook --data-dir <dir> --port <p> [--allow <name>[,<name>]]',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',

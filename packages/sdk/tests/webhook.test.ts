@@ -135,9 +135,30 @@ describe('webhook ingress', () => {
   });
   it('parses CLI options strictly', () => {
     expect(parseWebhookArgs(['--data-dir', 'data', '--port', '0'])).toEqual({ command: 'serve-webhook', dataDir: 'data', port: 0 });
+    expect(parseWebhookArgs(['--data-dir', 'data', '--port', '0', '--allow', 'release,push']))
+      .toEqual({ command: 'serve-webhook', dataDir: 'data', port: 0, admitted: ['release', 'push'] });
     for (const args of [[], ['--port', '80'], ['--data-dir', 'x', '--port', '65536'],
-      ['--data-dir', 'x', '--port', '1', '--port', '2'], ['--data-dir', 'x', '--port', '3.1']]) {
+      ['--data-dir', 'x', '--port', '1', '--port', '2'], ['--data-dir', 'x', '--port', '3.1'],
+      // #303 admission: empty --allow list and invalid names refuse at parse time
+      ['--data-dir', 'x', '--port', '0', '--allow', ''],
+      ['--data-dir', 'x', '--port', '0', '--allow', '../oops'],
+      ['--data-dir', 'x', '--port', '0', '--allow', 'ok,../oops']]) {
       expect(parseWebhookArgs(args)).toBeUndefined();
     }
+  });
+  it('admits only loaded flow trigger names when the allowlist is set (#303)', async () => {
+    const dir = await temporary();
+    const server = await startWebhookServer(dir, 0, { admittedNames: new Set(['release', 'push']) });
+    servers.push(server);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing HTTP address');
+    const base = `http://127.0.0.1:${address.port}`;
+    expect((await fetch(`${base}/release`, { method: 'POST', body: '{"ok":true}' })).status).toBe(202);
+    expect((await fetch(`${base}/push`, { method: 'POST', body: '{"ok":true}' })).status).toBe(202);
+    const unknown = await fetch(`${base}/rogue`, { method: 'POST', body: '{"ok":true}' });
+    expect(unknown.status).toBe(404);
+    expect(await unknown.json()).toEqual({ error: 'webhook_flow_unknown', name: 'rogue' });
+    // Unadmitted names never write to disk — the daemon can't drain what wasn't accumulated.
+    expect(await readdir(join(dir, 'inbox'))).toEqual(['push', 'release']);
   });
 });
