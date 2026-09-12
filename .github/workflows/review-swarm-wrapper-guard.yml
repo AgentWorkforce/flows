@@ -24,3 +24,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: .github/workflows/scripts/swarm-wrapper-guard.sh "$REVIEW_PR_NUMBER"
+
+      # #218: the pre-swarm runner and the post-push swarm YAML carry the same
+      # three lens contracts. If they drift, the weaker prompt can hold the
+      # auto-merge gate while the stricter pre-check yells into the void.
+      # Enforce that workflows/review-swarm.yaml role blocks retain every
+      # canonical clause from ops/preswarm-check/lens-prompts/. Runs from base
+      # (same pull_request_target invariant) so a candidate cannot relax it.
+      - name: Enforce lens parity between pre-swarm runner and post-push swarm
+        run: sh ops/preswarm-check/lens-parity-check.sh

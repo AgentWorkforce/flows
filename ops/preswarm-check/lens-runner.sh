@@ -110,58 +110,27 @@ if [ ! -s "$DIFF_FILE" ]; then
   exit 0
 fi
 
+# Canonical lens prompts live in one place, ops/preswarm-check/lens-prompts/,
+# so this runner and workflows/review-swarm.yaml stop drifting. See #218 for
+# the incident where the two lens definitions returned different verdicts on
+# the same commit and let a defect merge. lens-parity-check.sh enforces
+# that review-swarm.yaml still carries the same text.
+PROMPT_DIR="$(dirname "$0")/lens-prompts"
+PROMPT_FILE="$PROMPT_DIR/$LENS.txt"
 case "$LENS" in
-  maintainability)
-    LENS_PROMPT='You are the MAINTAINABILITY lens on a code-review swarm.
-Ask: could a stranger read this diff in six months and change it safely?
-Name unclear boundaries, implicit contracts, missing failure handling, comments
-that assert what the code does not do, and tests that would not fail if the
-behavior broke.'
-    CLI=claude
-    ;;
-  history)
-    LENS_PROMPT='You are the HISTORY lens on a code-review swarm.
-Run `git log --oneline -40` and read ops/DRIVE-LOG.md, ops/NEXT.md, and
-ops/DIRECTIVES.md if present. Reject the diff ONLY on these three:
-
-  1. REPEATS a mistake DRIVE-LOG records — reintroduces a pattern a previous
-     commit deliberately removed.
-  2. INTRODUCES a NEW contradiction with a settled RFC-0001 decision — the
-     diff adds a pattern the RFC explicitly rules out.
-  3. The commit message TELLS UNTRUTHS about the diff — false claims about
-     tests, evidence, scope, or files touched.
-
-Scaffolding PRs (explicitly scoped, with deferrals documented in the commit
-message or PR body) PASS this lens as long as they do not REGRESS
-previously-fixed behavior and do not LIE.
-
-Do NOT reject on:
-  - Aspirational RFC decisions the diff does not yet fully realize.
-  - Pre-existing scaffolding the diff does not touch.
-  - Deferrals that name a follow-up (bundle digests, async drain
-    semantics, etc) instead of implementing them all at once.
-  - A drive-loop-generated file (like ops/NEXT.md) still referencing an
-    older gate — that is a follow-up brief-and-tick concern, not a
-    correctness violation of the diff being reviewed.
-
-Note those as concerns, not blockers. A scaffolding-first PR that lands
-cleanly is more valuable than a monolithic first PR that lands never.'
-    CLI=codex
-    ;;
-  structure)
-    LENS_PROMPT='You are the STRUCTURE lens on a code-review swarm.
-Ask: boundaries, coupling, file size and single purpose. Does the shape match
-RFC-0001 (closed kernel vocabulary, helpers over primitives, fail-closed,
-completionReason discipline) and AGENTS.md? Name anything that puts product
-logic in the kernel, adds a primitive instead of a helper, or grows a file past
-its purpose.'
-    CLI=opencode
-    ;;
+  maintainability) CLI=claude ;;
+  history)         CLI=codex ;;
+  structure)       CLI=opencode ;;
   *)
     echo "lens-runner: unknown lens '$LENS' (expected maintainability|history|structure)" >&2
     exit 2
     ;;
 esac
+if [ ! -s "$PROMPT_FILE" ]; then
+  echo "lens-runner: canonical prompt file missing at $PROMPT_FILE" >&2
+  exit 2
+fi
+LENS_PROMPT=$(cat "$PROMPT_FILE")
 
 # Read AGENTS.md and the RFC before reviewing so the lens has the same
 # rulebook the post-push swarm does. `flow_key`, `spec_hash`, and other
