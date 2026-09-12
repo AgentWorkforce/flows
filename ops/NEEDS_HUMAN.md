@@ -1,4 +1,36 @@
-# NEEDS_HUMAN — gate 3 launches; the block moved to Daytona capacity
+# NEEDS_HUMAN — multiple blockers
+
+## Current blocker (2026-09-12, run afcc2c6f) — SDK compilation errors
+
+**Assessment:** Gate 3 hn-monitor-runner work is BLOCKED on SDK compilation errors.
+
+The gate 3 target (ops/TARGET.md) requires implementing `sdk/src/hn-monitor-runner.ts` with comprehensive test coverage. The definition of done includes "`cd packages/sdk && npm test` green (pretest hook builds the kernel automatically)".
+
+**The block:** The SDK does not compile. TypeScript errors prevent npm test from running:
+
+```
+src/authored-worker-step.ts(118,80): error TS2339: Property 'cwd' does not exist on type 'AgentOptions'.
+src/cli/check-triggers.ts(23,19): error TS2339: Property 'handlers' does not exist on type 'AuthoredFlowDefinition<unknown>'.
+src/helper-preflight.ts(1,10): error TS2305: Module '"@relayflows/surface/runtime"' has no exported member 'helperProviders'.
+src/helper-writeback.ts(5,10): error TS2305: Module '"@relayflows/surface/runtime"' has no exported member 'helperClients'.
+src/preflight.ts(7,15): error TS2305: Module '"@relayflows/surface"' has no exported member 'TriggerSource'.
+src/slack-preflight.ts(3,10): error TS2305: Module '"@relayflows/surface/runtime"' has no exported member 'helperProviders'.
+src/slack-writeback.ts(3,15): error TS2305: Module '"@relayflows/surface"' has no exported member 'SlackHelper'.
+src/trigger-executor.ts(1,10): error TS2305: Module '"@relayflows/surface"' has no exported member 'providerEventTypes'.
+```
+
+These errors indicate missing or incompatible dependencies from the `@relayflows/surface` package.
+
+**Question for human:** Should the Lead fix the SDK compilation errors first (which appears out of scope for the gate 3 hn-monitor-runner target), or is there an environment/dependency issue that needs resolution before this work can proceed?
+
+**Options:**
+- **A:** Fix the SDK compilation errors first. This would be out-of-scope work (SDK package dependencies, not the runner itself), but it unblocks the target.
+- **B:** Wait for human intervention to resolve the SDK compilation environment, since fixing package dependencies is outside the gate 3 scope defined in TARGET.md.
+- **C:** Something else (e.g., the compilation errors are expected in this environment and there's a different test command to use).
+
+---
+
+## Prior blocker (2026-09-08) — gate 3 launches; the block moved to Daytona capacity
 
 ## Status (2026-09-08 ~04:00Z) — supersedes the 2026-09-07 assessment below
 
