@@ -41,6 +41,7 @@ export async function runAgentCli(
   signal?: AbortSignal,
   mode: 'agent' | 'llm' = 'agent',
   sidechannel?: SidechannelContext,
+  cwd?: string,
 ): Promise<WorkerCliResult> {
   signal?.throwIfAborted();
   if (signal !== undefined && process.platform === 'win32') {
@@ -81,7 +82,7 @@ export async function runAgentCli(
   // Structured provider output carries the authoritative token counts.
   const args = [...invocation.args];
   args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'json'] : ['--json']));
-  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel), kind), model);
+  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd), kind), model);
 }
 
 async function spawnInvocation(
@@ -90,6 +91,7 @@ async function spawnInvocation(
   env: NodeJS.ProcessEnv,
   signal?: AbortSignal,
   sidechannel?: SidechannelContext,
+  cwd?: string,
 ): Promise<WorkerCliResult> {
   let writeInput: (bytes: Buffer) => Promise<boolean> = async () => false;
   let canDrive = () => false;
@@ -104,6 +106,7 @@ async function spawnInvocation(
     const child = spawn(cli, invocation.args, {
       stdio: ['pipe', 'pipe', 'pipe'], env,
       detached: ownsGroup,
+      ...(cwd === undefined ? {} : { cwd }),
     });
     child.stdin.on('error', () => {});
     if (channel === undefined) child.stdin.end();

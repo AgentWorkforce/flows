@@ -247,6 +247,8 @@ export interface AgentStepSpec extends BaseStepSpec {
   surfaces?: AgentSurfaces;
   recoveryMode?: RecoveryMode;
   permissions?: PermissionsSpec;
+  /** Working directory for the CLI subprocess; defaults to the flow-runner's cwd. */
+  cwd?: string;
   /**
    * Structured-output authoring sugar. A successful CLI JSON object is the parsed
    * value; the kernel persists it only after `json_schema` verification.
@@ -432,6 +434,8 @@ export interface KernelAgentStep extends KernelStepCommon {
   recovery_mode: RecoveryMode;
   surfaces?: KernelAgentSurfaces;
   permissions?: KernelPermissionsSpec;
+  /** Working directory for the CLI subprocess; kernel passes through untouched. */
+  cwd?: string;
 }
 
 export type KernelStepSpec = KernelDeterministicStep | KernelLlmStep | KernelAgentStep;
