@@ -1,83 +1,89 @@
-# NEEDS_HUMAN — Conflicting Work Package Context
+# NEEDS_HUMAN — TARGET.md references completed work; gate 3 not startable
 
-**Situation:** This run has conflicting scope context that requires human clarification.
+## The block
 
-## The Conflict
+This run is pinned to gate 3 by ops/TARGET.md, but:
 
-1. **ops/TARGET.md says:** Gate 3, build hn-monitor runner (sub-PR A), `sdk/src/` code task
-2. **ops/NEXT.md says:** Gate 3, cloud review-swarm preflight validation, `.github/workflows/` task  
-3. **These are completely different tasks** — one is SDK code (track A per TARGET), one is GitHub Actions (track D per NEXT)
+1. **TARGET.md's scope describes work already merged in PR #120**
+2. **RFC-0001 gate 3 (Software Garden) is not startable from this codebase**
 
-## Evidence
+## Evidence: TARGET.md work is complete
 
-**ops/TARGET.md line 1-5:**
+**TARGET.md line 1:** "TARGET — gate 3"
+
+**TARGET.md line 5-6:**
+> Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side.
+
+**But packages/sdk/src/cli/hn-monitor.ts already exists:**
+
 ```
-# TARGET — gate 3
+ls -la packages/sdk/src/cli/hn-monitor.ts
+# -rw-r--r-- 1 daytona daytona 6824 Sep 12 21:20 packages/sdk/src/cli/hn-monitor.ts
 
-This run is pinned to **gate 3** and must not work on any other gate.
-
-**Scope:** Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side.
-```
-
-**ops/NEXT.md line 1-3:**
-```
-# NEXT — gate 3: complete cloud review-swarm preflight validation and documentation
-
-**Scope:** Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time
+wc -l packages/sdk/src/cli/hn-monitor.ts
+# 287 packages/sdk/src/cli/hn-monitor.ts
 ```
 
-## The Charter Says
+**ops/STATE.md line 45 confirms this is merged work:**
 
-Per charter/LEAD.md (the instruction I received):
-- "Read ops/TARGET.md if it exists" — it does, says hn-monitor
-- "Then read ops/STATE.md, ops/DIRECTIVES.md" — done
-- "Then write ops/NEXT.md: the SINGLE highest-priority work package toward the current gate"
+> - PR #120 (`201542a`, merged 2026-09-01 08:29 UTC) —
+>   **`flows hn-monitor start`**, the CLI runner that turns the poller
+>   into an unattended process.
 
-But ops/NEXT.md ALREADY EXISTS with different work.
+TARGET.md line 9 says "Prior attempt (PR #83, closed)" and lists five findings to address, framing this as new work. But PR #120 (merged 2026-09-01) already addressed those findings and completed the runner.
 
-## Additional Context Found
+## Evidence: gate confusion
 
-**ops/STATE.md gate 2 block (lines 39-81)** says:
-- PR #120 merged 2026-09-01 — `flows hn-monitor start` CLI runner
-- Gate 2 is AMBER, not GREEN
-- Two clauses remain: trigger-plane liveness, analyze-agent execution
+**RFC-0001 §3 Gate 2 (hn-monitor):**
+> Done when: `hn-monitor` (or `linear`) runs as a relayflow in production
 
-**Actual file check:**
-- `packages/sdk/src/cli/hn-monitor.ts` exists (288 lines)
-- Contains `runHnMonitor` function implementing all TARGET.md requirements
-- Addresses all five findings from closed PR #83
+**RFC-0001 §3 Gate 3 (Software Garden):**
+> ### Gate 3 — a relayflow can power a factory → **Software Garden**
+> **Done when:** a labeled issue flows to a reviewed PR end-to-end with every claim/lease/retry served by the kernel
 
-## The Question
+TARGET.md title says "gate 3" but its scope is hn-monitor (gate 2 work). RFC-0001 gate 3 is Software Garden — factory migration to kernel leases, not hn-monitor.
 
-**Which work package should this run execute?**
+**Per STATE.md line 26:**
 
-**Option A: ops/TARGET.md wins (hn-monitor, sdk/ territory)**
-- Overwrite ops/NEXT.md with hn-monitor work package
-- But the code already exists (PR #120 merged per STATE.md)
-- Task would be verification/testing, not building from scratch
+> - **Gates 2, 3, 4, 5, 7, 8, 9: RED / AMBER as noted.** Gate 2 is AMBER; the rest are RED / not started.
 
-**Option B: ops/NEXT.md wins (review-swarm, .github/ territory)**
-- Ignore ops/TARGET.md
-- Execute the review-swarm validation work
-- But TARGET.md explicitly pins this run to gate 3 hn-monitor work
+Gate 3 is RED / not started. The components for Software Garden (factory code, migration to kernel leases, customer config surface) do not exist in this codebase.
 
-**Option C: TARGET.md is stale**
-- The launcher wrote an outdated TARGET.md referencing closed PR #83
-- Real work is in ops/NEXT.md (review-swarm)
-- Proceed with review-swarm, update TARGET understanding
+## The question
 
-**Option D: Both are stale**
-- Neither accurately reflects current gate 3 needs
-- Assessor should read RFC-0001 §3 gate 3 definition
-- Write fresh work package from RFC requirements
+**What work should this run execute?**
+
+**Option A: Retarget to gate 2 remaining work**
+
+Gate 2 is AMBER with two open clauses (STATE.md lines 60-73):
+1. Trigger plane liveness-check (relayflowd does not detect stopped pollers)
+2. Analyze-agent step execution (recorded run shows worker_error because no user-supplied handler)
+
+Both are implementable in this codebase. Assessor could write a work package for one of these.
+
+**Option B: Park as BLOCKED_STALE_TARGET**
+
+TARGET.md references completed work (PR #120). Gate 3 (Software Garden per RFC-0001) is not startable. No executable work exists for the stated target. Block and wait for human retargeting.
+
+**Option C: Substitute different work (NOT RECOMMENDED)**
+
+Find some other task (docs, tests, refactoring) and write a work package. The charter warns:
+
+> Do not silently substitute different work: a run that reports progress on the wrong gate is worse than one that reports it is blocked.
 
 ## Recommendation
 
-**Option C** — ops/TARGET.md appears stale (references closed PR #83 from earlier attempts, describes code that PR #120 already merged). The active work package is ops/NEXT.md (review-swarm). But I need human confirmation before overwriting NEXT.md or executing potentially wrong work.
+**Option B.** The charter says:
 
-## What I Need
+> If gate 3 is genuinely unreachable from the current state, write ops/NEEDS_HUMAN.md saying exactly why and still end with ASSESS_DONE.
 
-**Clear answer:** Which work package is correct for this run?
-- If hn-monitor: shall I overwrite the review-swarm NEXT.md, or is there a different file I should write?
-- If review-swarm: shall I proceed with ops/NEXT.md as-is and ignore TARGET.md?
-- If neither: what is the actual gate 3 work I should assess?
+Gate 3 (Software Garden) is genuinely unreachable. TARGET.md's hn-monitor work is complete. The assessor's job is to assess, not to retarget or substitute work.
+
+## What I need
+
+**Clear answer:** Should this run:
+1. Be retargeted to gate 2 (liveness-check or step handler)?
+2. Park as BLOCKED_STALE_TARGET and wait for launcher fix?
+3. Something else?
+
+The TARGET/NEXT/gate-number conflict has appeared multiple times. Root cause may be ops/launch-gate.sh writing TARGET.md from stale context rather than current repo state.
