@@ -1,86 +1,73 @@
-# NEXT — gate 3: complete cloud review-swarm preflight validation and documentation
+# NEXT — work package for this tick
 
-**Scope:** Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time, addressing every architectural finding from the walked-away #75/#77 attempts. Parallel to Track A (hn-monitor); different territory (`.github/` + `workflows/` — no overlap with `sdk/` work).
+**Gate:** 2 (the target file header says "gate 3" but the actual dependency is gate 2 per RFC-0001 §3 and the task itself)
 
-## Why this matters
+**Objective:** Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `packages/sdk/src/`-side. This is a scaffolding PR — proof that the workload EXECUTES end-to-end is deliberately deferred to sub-PR B (integration test).
 
-The local `~/AgentWorkforce/review-swarm-loop.sh` (chief-owned shell) is currently the only enforcement of RFC-0001 §2 rule 7 ("every PR met by a review swarm — our own, not a vendor's"). It works, but it lives on my laptop. When my session ends, so does swarm enforcement.
+**Scope (quoted from ops/TARGET.md — the full target, not just the header):**
 
-The cloud version — `workflows/review-swarm.yaml` fired from `.github/workflows/review-swarm.yml` — must exist for gate 3+ work to be trustworthy. Prior attempts (#75, #77) each shipped real code but were rejected on progressively deeper findings we never resolved.
+> Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side. This is a scaffolding PR — proof that the workload EXECUTES end-to-end is deliberately deferred to sub-PR B (integration test). Do not conflate the two.
+>
+> RFC-0001 §3 gate 2 is done when "hn-monitor runs as a relayflow in production, triggered by its real events, with zero bespoke persistence." Every primitive already exists in this repo — event triggers (PR #14, `kernel/relayflowd/tests/event_wake.rs`), the flow spec (`testdata/hn-monitor.flow.yaml`), the poller (`sdk/src/hn-poller.ts`), the agent worker (`sdk/src/worker.ts` from PR #53), a one-shot demo (`sdk/src/demo-hn-monitor.ts`) — but nothing has ever run them together as a continuous workload. This PR fixes that.
+>
+> Prior attempt (PR #83, closed) produced a functional runner but was rejected by the swarm on five real findings:
+>
+> 1. Fail-closed on journal errors. Only fetch-level errors (network flakiness, HN API rate limits) may be swallowed; a journal write failure MUST throw and terminate the runner. Split: `try { fetch } catch { onFetchError }` around the network call, `try { eventSubmit } catch { rethrow }` around the journal call.
+>
+> 2. AgentWorker.close() must release the worker (or explicitly document it does not). Either add a `workerRelease` verb to `sdk/src/protocol.ts` and call it from `close()`, OR add a one-line comment on `close()` naming exactly what shutdown intentionally does NOT do.
+>
+> 3. Class field declaration order. Declare ALL fields at the top of the class body, before the constructor.
+>
+> 4. Signal handlers must be opt-in via AbortSignal. Accept `signal?: AbortSignal` in options; the CLI wrapper (sub-PR C) can create + wire a process-signal-driven AbortController.
+>
+> 5. Test coverage for pollError branch. Add test cases asserting the loop survives a fetcher throw AND the loop TERMINATES on a journal throw.
 
-## Current state
+**Files in scope:**
 
-The review-swarm implementation is 90% complete. Analysis of the 9 non-negotiable requirements:
+- `packages/sdk/src/hn-monitor-runner.ts` (create)
+- `packages/sdk/src/worker.ts` (modify `close()` per finding #2)
+- `packages/sdk/src/protocol.ts` (add `workerRelease` if chosen)
+- `packages/sdk/tests/hn-monitor-runner.test.ts` (create)
+- `packages/sdk/src/index.ts` (export `HnMonitorRunner`)
 
-1. ✅ Immutable gate — two checkout steps at `.github/workflows/review-swarm.yml:32-48` (pr-head + gate-files from main)
-2. ✅ Unified verdict logic — `swarm-verdict.sh` sourced by both `review-swarm.yaml:132` and `swarm-post.sh:8`
-3. ✅ Auth secret validation — all three are checked in the "Validate cloud authentication" step: `CLOUD_API_URL`, `CLOUD_API_KEY` and `RELAY_WORKSPACE_KEY` (`.github/workflows/review-swarm.yml:56-58`)
-4. ✅ Sticky marker + transcripts — HTML anchors `<!-- swarm-lens: {lens} -->` in swarm-post.sh:34,39,44,47
-5. ✅ No author whitelist — grep confirms absent
-6. ✅ Cloud sandbox fetch on GHA runner — swarm-prepare.sh runs in step "Prepare review input" with GH_TOKEN
-7. ✅ Timeout ordering — 60m (review-swarm.yaml:18) < 65m (review-swarm.yml:112) < 75m (review-swarm.yml:19) with comments
-8. ✅ Wait step records status, post runs on always() — review-swarm.yml:106-130,132-137
-9. ✅ Transcript-to-run-id binding via freshness — swarm-prepare.sh:11 creates run-start marker; swarm-verdict.sh:33-34 rejects stale transcripts
+**Definition of done (all must hold):**
 
-Additionally: README.md is already correct and needs no edit. The secrets
-table documents RELAY_WORKSPACE_KEY and CLOUD_API_KEY, and the sentence below
-it concerns CLOUD_API_URL only. The stale CLOUD_API_ACCESS_TOKEN_EXPIRES_AT
-mention was removed earlier in this branch, so the check below already passes.
+1. `packages/sdk/src/hn-monitor-runner.ts` exists, exports `HnMonitorRunner` from `packages/sdk/src/index.ts`
+2. `packages/sdk/src/worker.ts` — either `close()` calls `workerRelease` (add to protocol.ts if missing), OR a one-line comment names what close() intentionally does NOT do
+3. `packages/sdk/src/protocol.ts` — if you added `workerRelease`, matching request/response definitions
+4. `packages/sdk/tests/hn-monitor-runner.test.ts` covers ALL of these cases:
+   - fake fetch + mock journal client → runner submits an event on each tick
+   - abort signal triggers clean shutdown within one tick (worker released or documented)
+   - worker attach happens before first poll
+   - **fetch throw → loop survives** (onPollError called, next tick still runs)
+   - **journal throw → loop TERMINATES** (runner.run() rejects with the error)
+5. EVERY new test confirmed to FAIL against current code (comment out the source; the test fails), with the literal failing output pasted in the summary
+6. Passing test suite with literal output:
+   ```
+   cd packages/sdk && npm test
+   [paste exact output showing all tests passing, or the specific subset that is expected to pass]
+   ```
+7. PR body explicitly names the non-goals (test-actually-runs is sub-PR B; CLI is sub-PR C; gate-2 declaration is sub-PR D)
+8. `git status --porcelain` output pasted as the final action
 
-## Files in scope
+**Explicit OUT OF SCOPE for this tick (DO NOT TOUCH):**
 
-Nothing. Every item this brief once listed is already done in this branch. The two items previously listed here — preflight validation and
-the secrets table — are already done in this branch. A brief that asks for
-finished work does not produce a no-op; it produces an agent that re-derives
-the state, changes something to justify the trip, or declares a false blocked,
-which is the wasted cycle this file exists to prevent.
+- `.github/workflows/*` — no GHA changes
+- `kernel/*` — the kernel side of gate 2 already works via PR #14
+- `workflows/*.yaml` — those are for later sub-PRs
+- `ops/AUTODRIVE_BRIEF.md` — chief owns this file, not the drive loop
+- CLI wrapper — sub-PR C, separate PR
+- end-to-end integration test with real relayflowd — sub-PR B, separate PR
+- ops/STATE.md gate-2 declaration — sub-PR D, separate PR
+- Proving the workload actually executes end-to-end (dispatch → step complete). That is sub-PR B (integration test with real relayflowd + fake HN fetch + assert step reaches `done`). This PR ONLY proves the runner assembles and its unit tests hold.
 
-## Definition of done
+**Prerequisites RESOLVED:**
 
-1. ✅ Already satisfied — preflight checks all three required secrets:
-```
-test -n "$CLOUD_API_URL"
-test -n "$CLOUD_API_KEY"
-test -n "$RELAY_WORKSPACE_KEY"
-```
+The previous assessor correctly identified that the SDK build was broken due to missing exports from `@relayflows/surface/runtime`. This has been resolved:
 
-2. ✅ Already satisfied — README needs no change. Its table names
-   RELAY_WORKSPACE_KEY and CLOUD_API_KEY, and the stale expiry mention is gone:
-```
-grep -c CLOUD_API_ACCESS_TOKEN_EXPIRES_AT README.md   # already 0
-```
+1. Built `packages/surface` (which was unbilt) → `npm ci` succeeded, generated dist/runtime.d.ts with all exports
+2. Copied fresh `packages/surface/dist` to `packages/sdk/node_modules/@relayflows/surface/dist` to resolve stale node_modules
+3. Verified SDK build succeeds: `cd packages/sdk && npm run build` → SUCCESS
+4. Verified SDK tests mostly pass: `npm test` → 1515 passed / 11 failed (the 11 failures are integration tests expecting kernel binary at specific path; this is a known environment issue per STATE.md §"Known environment faults")
 
-3. All files continue to parse:
-```
-bash -n .github/workflows/scripts/swarm-post.sh && \
-bash -n .github/workflows/scripts/swarm-prepare.sh && \
-bash -n .github/workflows/scripts/swarm-verdict.sh && \
-echo "All bash scripts parse OK"
-```
-
-```
-python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))" && \
-python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))" && \
-echo "YAML files parse OK"
-```
-
-4. No author whitelist exists:
-```
-grep -i "whitelist\|github.event.pull_request.user.login" .github/workflows/review-swarm.yml || echo "No author whitelist found (GOOD)"
-```
-
-5. As final action:
-```
-git status --porcelain
-```
-
-## Explicitly OUT of scope
-
-- `workflows/review-swarm.yaml` (already correct)
-- `.github/workflows/scripts/swarm-*.sh` (all three scripts already correct)
-- `.gitignore` (already correct - no .review-target mask)
-- `sdk/` (Track A)
-- `kernel/` (gate 1 done, no changes)
-- `ops/*` (chief owns briefs and state)
-- Any GHA workflow other than review-swarm.yml
-- Actually TESTING the workflow in CI (requires `RELAY_WORKSPACE_KEY` + `CLOUD_API_KEY` secrets set which is a human step per requirement #3's context)
+The SDK is now buildable and the work package can proceed.
