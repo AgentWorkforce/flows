@@ -1,0 +1,18 @@
+
+> @relayflows/surface@2.0.8 test
+> bun run build && tsc -p tsconfig.test.json && vitest run
+
+$ tsc
+
+ RUN  v2.1.9 /Users/khaliqgant/fl-slice-S/packages/surface
+
+ ✓ tests/triggers.test.ts (4 tests) 21ms
+ ✓ tests/flow.test.ts (20 tests) 26ms
+ ✓ tests/helpers.snapshot.test.ts (1 test) 994ms
+   ✓ regenerates helpers byte-identically from the pinned adapter 993ms
+
+ Test Files  3 passed (3)
+      Tests  25 passed (25)
+   Start at  21:56:57
+   Duration  2.09s (transform 474ms, setup 0ms, collect 1.41s, tests 1.04s, environment 1ms, prepare 747ms)
+

@@ -2,7 +2,7 @@ import { pluginHelpers } from './plugin-loader.js';
 import { runPluginEffect } from './authored-plugin-effect.js';
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
-import { assertSlackCredentials, runSlackEffect } from './authored-slack-effect.js';
+import { runHelperEffect } from './authored-helper-effect.js';
 import { checkSlackHelpers } from './slack-preflight.js';
 import { snapshotJsonValue } from './json-value.js';
 import type { SlackCall } from './slack-writeback.js';
@@ -21,7 +21,7 @@ import {
   type RunCompletionReason as SurfaceRunCompletionReason,
   type Step,
 } from '@relayflows/surface';
-import type { FlowHandle } from '@relayflows/surface/runtime';
+import { createHelpers, helperProviders, type HelperCall, type FlowHandle } from '@relayflows/surface/runtime';
 import { join } from 'node:path';
 import { observeStep, type ProgressEvent } from './progress.js';
 import { parseStepTimeout } from './compile.js';
@@ -139,10 +139,13 @@ export async function executeAuthoredFlow<Input = undefined>(
   };
   const definition = getDefinition<Input>(handle);
   const headerFields = Object.keys(definition.header).filter(key => key !== 'tools' && key !== 'budget' && key !== 'memory');
-  if (definition.header.tools && Object.keys(definition.header.tools).some(key => !['slack', 'mcp'].includes(key))) headerFields.push('tools');
+  if (definition.header.tools && Object.keys(definition.header.tools).some(key => !['mcp', ...helperProviders.map(p => p.namespace)].includes(key))) headerFields.push('tools');
   if (definition.header.tools?.relayfile !== undefined) headerFields.push('tools.relayfile');
   const helperPreflight = checkSlackHelpers(definition);
-  if (!helperPreflight.ok) assertSlackCredentials();
+  if (!helperPreflight.ok) {
+    const diagnostic = helperPreflight.diagnostics[0]!;
+    throw new AuthoredFlowExecutionError(diagnostic.kind as AuthoredFlowExecutionErrorCode, diagnostic.message);
+  }
   if (headerFields.length > 0) {
     throw new AuthoredFlowExecutionError(
       'unsupported_header',
@@ -205,7 +208,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       id, `slack.${call.verb}`,
       () => assertOperationAllowed(`slack.${call.verb}`, definition.name, requestedCompletion),
       async () => {
-        const receipt = await runSlackEffect(journal, definition.name, id, snapshot,
+        const receipt = await runHelperEffect(journal, definition.name, id, snapshot,
           options.dataDir ?? dirname(journal.socketPath), journalSteps);
         return (call.verb === 'react' ? undefined : receipt) as T;
       },
@@ -214,6 +217,17 @@ export async function executeAuthoredFlow<Input = undefined>(
   }
 
   const context: Ctx = {
+    ...createHelpers(<T>(call: HelperCall): Step<T> => {
+      const verb = `${call.provider}.${call.verb}`;
+      assertOperationAllowed(verb, definition.name, requestedCompletion);
+      const snapshot = snapshotJsonValue(call, `f.${verb} call`) as unknown as HelperCall;
+      const id = `${call.provider}-${slackRun}-${nextStep++}`;
+      return trackStep(authoredSteps, new AuthoredFlowOperation<T>(id, verb,
+        () => assertOperationAllowed(verb, definition.name, requestedCompletion),
+        async () => await runHelperEffect(journal, definition.name, id, snapshot,
+          options.dataDir ?? dirname(journal.socketPath), journalSteps) as T,
+        lifecycle));
+    }),
     slack: {
       post: (channel, text, opts) => slackOperation({ type: 'effect', provider: 'slack', verb: 'post', params: { channel, text, ...(opts === undefined ? {} : { opts }) } }),
       dm: (user, text) => slackOperation({ type: 'effect', provider: 'slack', verb: 'dm', params: { user, text } }),

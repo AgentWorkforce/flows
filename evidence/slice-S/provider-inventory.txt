@@ -1,0 +1,16 @@
+{
+  "namespaces": 50,
+  "runtimeClients": 40,
+  "unavailable": [
+    "airtable",
+    "docker-hub",
+    "fathom",
+    "gcp",
+    "neon",
+    "posthog",
+    "segment",
+    "shopify",
+    "webhook-server",
+    "x"
+  ]
+}

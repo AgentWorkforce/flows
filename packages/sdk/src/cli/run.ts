@@ -1,7 +1,7 @@
 import { parseDigestReference } from '../bundle-transport.js';
 import { prepareDigestRun } from './run-digest.js';
 import { reuseSummary } from './reuse.js';
-import { resumeSlackEffect } from '../authored-slack-effect.js';
+import { resumeHelperEffect } from '../authored-helper-effect.js';
 import { AuthoredFlowExecutionError } from '../authored-flow-error.js';
 import { join, resolve } from 'node:path';
 import type { ProgressEvent } from '../progress.js';
@@ -151,8 +151,12 @@ export async function resumeFlow(
   if (connected !== undefined) return connected;
 
   try {
+    // resumeHelperEffect subsumes the old resumeSlackEffect: it handles the
+    // slack effect resume plus every other provider from N's codegen. The
+    // second call the earlier rebase left is a stale reference from before
+    // the helper fanout renamed the API.
     let outcome = await client.runResume(runId, options.allowHumanInfluenced);
-    if (await resumeSlackEffect(client, runId, dataDir)) {
+    if (await resumeHelperEffect(client, runId, dataDir)) {
       outcome = await client.runResume(runId, options.allowHumanInfluenced);
     }
     return await classifyOutcome(client, 'resume', outcome, base, socketPath, options);
@@ -162,7 +166,8 @@ export async function resumeFlow(
         diagnostics: [{ severity: 'refusal', kind: 'human_influenced_run', message: error.message.replace(/^human_influenced_run: /, '') }] } };
     }
     if (error instanceof AuthoredFlowExecutionError
-      && (error.code === 'helper_slack.credential_missing' || error.code === 'helper_slack.mount_required')) {
+      && (error.code === 'helper_slack.credential_missing' || error.code === 'helper_slack.mount_required'
+        || error.code === 'helper_provider.mount_required' || error.code === 'helper_provider.unsupported')) {
       return { exitCode: 2, report: { ...base, runId, socketPath,
         diagnostics: [{ severity: 'refusal', kind: error.code, message: error.message }] } };
     }

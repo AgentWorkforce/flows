@@ -1,3 +1,6 @@
+import { helperProviders } from "./helpers/providers.js";
+import type { Helpers } from "./helpers/index.js";
+type HelperTools = Partial<Record<keyof Helpers, boolean>>;
 import type { Ctx } from "./context.js";
 import { webhook, type TriggerSource } from "./triggers.js";
 
@@ -8,7 +11,7 @@ export interface FlowHeader {
   identity?: string;
   memory?: { script?: boolean; agent?: boolean };
   budget?: string | { tokens?: number; dollars?: number; wallclock?: string };
-  tools?: { slack?: boolean; relayfile?: string[]; mcp?: string[] };
+  tools?: HelperTools & { relayfile?: string[]; mcp?: string[] };
   workspace?: string;
 }
 
@@ -19,7 +22,7 @@ export interface ReadonlyFlowHeader {
   readonly identity?: string;
   readonly memory?: Readonly<{ script?: boolean; agent?: boolean }>;
   readonly budget?: string | Readonly<{ tokens?: number; dollars?: number; wallclock?: string }>;
-  readonly tools?: Readonly<{
+  readonly tools?: Readonly<HelperTools & {
     slack?: boolean;
     relayfile?: readonly string[];
     mcp?: readonly string[];
@@ -164,7 +167,8 @@ function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
   const tools = header.tools === undefined
     ? undefined
     : Object.freeze({
-        ...(header.tools.slack === undefined ? {} : { slack: header.tools.slack }),
+        ...Object.fromEntries(helperProviders.filter(p => header.tools?.[p.namespace] !== undefined)
+          .map(p => [p.namespace, header.tools![p.namespace]])),
         ...(header.tools.relayfile === undefined
           ? {}
           : { relayfile: Object.freeze([...header.tools.relayfile]) }),
@@ -224,10 +228,10 @@ function assertFlowHeader(value: unknown, flowName: string): asserts value is Fl
     assertHeaderObject(value.tools, `${at}.tools`);
     assertKnownKeys(
       value.tools,
-      ["relayfile", "mcp", "slack"],
+      ["relayfile", "mcp", ...helperProviders.map(p => p.namespace)],
       `${at}.tools`,
     );
-    assertOptionalBoolean(value.tools, "slack", `${at}.tools`);
+    for (const { namespace } of helperProviders) assertOptionalBoolean(value.tools, namespace, `${at}.tools`);
     assertOptionalStringArray(value.tools, "relayfile", `${at}.tools`);
     assertOptionalStringArray(value.tools, "mcp", `${at}.tools`);
   }
