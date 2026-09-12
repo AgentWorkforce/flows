@@ -17,6 +17,8 @@
 import { parse as parseYaml } from 'yaml';
 import { parseBudget, toKernelBudget } from './budget.js';
 import { bindingDependencies } from './input-binding.js';
+import { namedGateFailure } from './named-gates.js';
+import { lowerNamedGates } from './named-gate-lowering.js';
 import type {
   AgentStepSpec,
   DeterministicStepSpec,
@@ -146,7 +148,7 @@ export function compileSpec(spec: unknown): CompiledFlowSpec {
     }
   }
   const validation: ValidationResult = validateSpec(snapshot);
-  if (!validation.ok) throw new CompileError(validation.errors);
+  if (!validation.ok) throw new CompileError(validation.errors, namedGateFailure(validation.errors));
 
   const input = snapshot as CompiledFlowSpec;
   // Preserve named declarations and selectors through authoring normalization.
@@ -322,7 +324,7 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
     // reverts the other, and `validateSpec` and `flows check` would both still
     // look correct. See ops/reviews/20260903-pr139-repair-0903.md section 10.
     ...(compiled.triggers?.length ? { triggers: compiled.triggers.map(toKernelTrigger) } : {}),
-    steps: compiled.steps.map((step) => toKernelStep(resolveNamedAgent(step, compiled.agents))),
+    steps: lowerNamedGates(compiled.steps).map((step) => toKernelStep(resolveNamedAgent(step, compiled.agents))),
     ...(compiled.budget !== undefined ? { budget: toKernelBudget(compiled.budget) } : {}),
   };
 }

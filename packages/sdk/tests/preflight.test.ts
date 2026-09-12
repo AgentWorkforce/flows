@@ -108,17 +108,17 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       } as FlowSpec['steps'][number]],
     });
 
-    for (const verification of [
-      (value: unknown) => value,
-      { type: 'expression', expression: 'length < 200' },
-      { type: 'json_schema', schema: { type: 'definitely-not-a-json-schema-type' } },
+    for (const { verification, kind } of [
+      { verification: (value: unknown) => value, kind: 'invalid_spec' as const },
+      { verification: { type: 'expression', expression: 'length < 200' }, kind: 'unknown_gate_kind' as const },
+      { verification: { type: 'json_schema', schema: { type: 'definitely-not-a-json-schema-type' } }, kind: 'invalid_spec' as const },
     ]) {
       const result = preflight(candidate(verification), { probes: injected });
       expect(result).toMatchObject({
         ok: false,
         gates: [],
         resolutions: [],
-        diagnostics: [{ severity: 'refusal', kind: 'invalid_spec' }],
+        diagnostics: [{ severity: 'refusal', kind }],
       });
     }
     expect(probeCount).toBe(0);
@@ -395,6 +395,19 @@ describe('preflight: CLI resolution and refusal predicates', () => {
         compileYaml('version: 0.1.0\nsteps:\n  - id: notify\n    slack:\n      post:\n        channel: "#test"\n        text: hi\n'),
         { probes: probes({ helper: () => false }) },
       ),
+      // Named-data-gate refusal coverage: each of the four kinds surfaces
+      // through the public preflight boundary — three are compile-time
+      // (`unknown_gate_kind`, `gate_pattern_invalid`, `gate_bound_invalid`)
+      // and one is probe-time (`gate_command_missing`).
+      preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x',
+        verification: { type: 'not_a_real_gate' } as never }), { probes: probes() }),
+      preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x',
+        verification: { type: 'regex_match', pattern: '(?=lookahead)' } }), { probes: probes() }),
+      preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x',
+        verification: { type: 'word_count_bounds', min: 100, max: 10 } }), { probes: probes() }),
+      preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x',
+        verification: { type: 'subprocess_gate', command: '/nonexistent-gate-binary-xxx' } }),
+        { probes: probes({ command: (c) => c !== '/nonexistent-gate-binary-xxx' }) }),
     ];
     const refusalKinds = scenarios.flatMap((result) => result.diagnostics)
       .filter((diagnostic) => diagnostic.severity === 'refusal')

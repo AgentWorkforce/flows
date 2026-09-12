@@ -8,6 +8,7 @@ import type { TriggerSource } from '@relayflows/surface';
 import { acceptsAnyOutput, inspectStepGate, type StepGateInspection } from './gate-contract.js';
 import { compileSpec, CompileError } from './compile.js';
 import { helperCall } from './yaml-helpers.js';
+import { isNamedGate, NAMED_GATE_FAILURE_KINDS, type NamedGateFailureKind } from './named-gates.js';
 import type {
   PreflightFailureKind,
   PreflightWarningKind,
@@ -187,6 +188,8 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
     // constructs preflight input through a different path still classifies.
     const kind: PreflightDiagnostic['kind'] = error instanceof CompileError && error.kind === 'budget_syntax_invalid'
       ? 'budget_syntax_invalid'
+      : error instanceof CompileError && NAMED_GATE_FAILURE_KINDS.includes(error.kind as NamedGateFailureKind)
+        ? error.kind as NamedGateFailureKind
       : error instanceof BudgetSyntaxError
         ? 'budget_syntax_invalid'
         : 'invalid_spec';
@@ -238,6 +241,7 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
   }
 
   for (const step of compiled.steps) {
+    probeNamedGate(step, options.probes, diagnostics);
     warnOnVacuousGate(step, diagnostics);
     warnOnUnprovableEffects(step, options.probes, diagnostics);
     if (step.type === 'deterministic') continue;
@@ -587,6 +591,20 @@ function firstCommandWord(command: string): string | undefined {
   }
   const match = rest.match(/^(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
   return match?.[1] ?? match?.[2] ?? match?.[3];
+}
+
+function probeNamedGate(step: StepSpec, probes: PreflightProbes, diagnostics: PreflightDiagnostic[]): void {
+  const gate = step.verification;
+  if (!isNamedGate(gate)) return;
+  const commands = ['node', ...(gate.type === 'word_count_bounds' ? ['wc'] : [])];
+  if (gate.type === 'subprocess_gate') commands.push(firstCommandWord(gate.command) ?? '');
+  for (const command of commands) {
+    let exists = false;
+    try { exists = command !== '' && probes.command(command); } catch { /* Fail closed on an unprovable gate. */ }
+    if (exists) continue;
+    diagnostics.push({ severity: 'refusal', kind: 'gate_command_missing', stepId: step.id,
+      message: `Step "${step.id}" ${gate.type} command "${command}" does not resolve as an executable.` });
+  }
 }
 
 /** Helper preflight never evaluates the authored body. Dynamic uses are checked at call time. */

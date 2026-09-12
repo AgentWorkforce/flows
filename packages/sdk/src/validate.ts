@@ -22,6 +22,7 @@ import { modelNameError } from './model-name.js';
 import { unknownKeyErrors } from './unknown-keys.js';
 import { stepDependencyErrors } from './step-dependencies.js';
 import { inputBindingErrors } from './input-binding.js';
+import { NAMED_GATE_KEYS, namedGateErrors } from './named-gates.js';
 import {
   AGENT_DECLARATION_FIELDS,
   FLOW_FIELDS,
@@ -71,6 +72,7 @@ function isCanonicalPathSurface(value: unknown): value is string {
 // silently discarded field — silently dropping `dependsOn` loses ordering.
 const BUDGET_KEYS = ['maxTokensIn', 'maxTokensOut', 'maxDollars', 'maxTokens', 'maxWallclockMs', 'window', 'pricing'] as const;
 const VERIFICATION_KEYS: Record<string, readonly string[]> = {
+  ...NAMED_GATE_KEYS,
   exit_code: ['type', 'expect'],
   output_contains: ['type', 'value'],
   json_schema: ['type', 'schema'],
@@ -363,7 +365,7 @@ class Validator {
     }
 
     if (st['verification'] !== undefined) {
-      this.validateVerification(st['verification'], `${at}.verification`, type);
+      this.validateVerification(st['verification'], `${at}.verification`, type, st['input']);
     }
 
     if (st['maxIterations'] !== undefined && !isPosInt(st['maxIterations'])) {
@@ -381,13 +383,14 @@ class Validator {
     }
   }
 
-  private validateVerification(v: unknown, at: string, stepType: StepType): void {
+  private validateVerification(v: unknown, at: string, stepType: StepType, input: unknown): void {
     if (!isObject(v)) {
       this.fail(`${at}: expected an object`);
       return;
     }
     const gate = v as unknown as VerificationSpec & { expect?: unknown };
-    const gateKeys = typeof gate.type === 'string' ? VERIFICATION_KEYS[gate.type] : undefined;
+    const gateKeys = typeof gate.type === 'string' && Object.hasOwn(VERIFICATION_KEYS, gate.type)
+      ? VERIFICATION_KEYS[gate.type] : undefined;
     if (gateKeys !== undefined) {
       this.checkKeys(v, gateKeys, at);
     }
@@ -414,8 +417,10 @@ class Validator {
       } catch (error) {
         this.fail(error instanceof Error ? error.message : `${at}.schema: expected JSON-compatible data`);
       }
+    } else if (Object.hasOwn(NAMED_GATE_KEYS, gate.type)) {
+      for (const error of namedGateErrors(v, input, at)) this.fail(error);
     } else {
-      this.fail(`${at}.type: expected exit_code | output_contains | json_schema`);
+      this.fail(`${at}.type: unknown_gate_kind: expected exit_code | output_contains | json_schema | references_input | subprocess_gate | word_count_bounds | regex_match`);
     }
   }
 

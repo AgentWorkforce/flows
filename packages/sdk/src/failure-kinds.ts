@@ -1,8 +1,10 @@
 import { PLUGIN_FAILURE_KINDS } from './plugin-manifest.js';
+import { NAMED_GATE_FAILURE_KINDS } from './named-gates.js';
 const SHARED_SPEC_FAILURE_KINDS = ['invalid_spec'] as const;
 
 /** Environment refusal kinds produced after spec validation succeeds. */
 const PREFLIGHT_ENVIRONMENT_FAILURE_KINDS = [
+  ...NAMED_GATE_FAILURE_KINDS,
   ...PLUGIN_FAILURE_KINDS,
   'helper_slack.credential_missing',
   'helper_slack.mount_required',

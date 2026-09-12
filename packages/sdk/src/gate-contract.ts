@@ -1,4 +1,5 @@
 import type { StepSpec } from './spec.js';
+import { isNamedGate } from './named-gates.js';
 
 export type JournalGateCheck =
   | 'completion'
@@ -54,6 +55,12 @@ export function acceptsAnyOutput(schema: unknown): boolean {
 /** Describe the exact named checks the existing kernel applies to a step. */
 export function inspectStepGate(step: StepSpec): StepGateInspection {
   const checks: JournalGateCheck[] = [];
+  if (isNamedGate(step.verification)) {
+    checks.push('exit_code');
+    if (step.verification.type === 'references_input') checks.push('output_contains');
+    if (step.verification.type === 'word_count_bounds') checks.push('json_schema');
+    return { stepId: step.id, kind: 'data', checks, evaluator: 'kernel', preflightable: true, replayable: true };
+  }
   if (step.type === 'deterministic') checks.push('exit_code');
   if (step.verification?.type === 'output_contains') checks.push('output_contains');
   if (step.verification?.type === 'json_schema') checks.push('json_schema');

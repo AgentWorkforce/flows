@@ -32,7 +32,7 @@ export interface FlowsJson {
  * Verification is control flow, not decoration (kernel DESIGN.md §3).
  * v0 gates are deterministic so verification is kernel-side and replayable.
  */
-export type VerificationGateType = 'exit_code' | 'output_contains' | 'json_schema';
+export type VerificationGateType = VerificationSpec['type'];
 
 /**
  * `exit_code == 0` — the implicit gate for deterministic steps. v0 judges
@@ -56,8 +56,35 @@ export interface JsonSchemaGate {
   schema: boolean | Record<string, unknown>;
 }
 
-export type VerificationSpec = ExitCodeGate | OutputContainsGate | JsonSchemaGate;
-export type OutputVerificationSpec = OutputContainsGate | JsonSchemaGate;
+export interface ReferencesInputGate {
+  type: 'references_input';
+  input_key: string;
+  in_output_at?: Array<string | number>;
+}
+
+export interface SubprocessGate {
+  type: 'subprocess_gate';
+  command: string;
+  from_output?: Array<string | number>;
+}
+
+export interface WordCountBoundsGate {
+  type: 'word_count_bounds';
+  min?: number;
+  max?: number;
+}
+
+export interface RegexMatchGate {
+  type: 'regex_match';
+  pattern: string;
+  in_output_at?: Array<string | number>;
+  /** Only i, m, and s; evaluated by a non-backtracking RE2 engine. */
+  flags?: string;
+}
+
+export type NamedDataGate = ReferencesInputGate | SubprocessGate | WordCountBoundsGate | RegexMatchGate;
+export type OutputVerificationSpec = OutputContainsGate | JsonSchemaGate | NamedDataGate;
+export type VerificationSpec = ExitCodeGate | OutputVerificationSpec;
 
 /**
  * Agent-step recovery modes (RFC Appendix A rule 4). Default is `reset`.
