@@ -195,7 +195,7 @@ describe('closed per-verb step fields', () => {
     expect(STEP_FIELDS_BY_TYPE).toEqual({
       deterministic: ['command', 'timeoutMs', 'lease_ms'],
       llm: ['prompt', 'model', 'cli', 'output'],
-      agent: ['instruction', 'agent', 'cli', 'model', 'surfaces', 'recoveryMode', 'permissions', 'output', 'cwd'],
+      agent: ['instruction', 'agent', 'cli', 'model', 'cwd', 'surfaces', 'recoveryMode', 'permissions', 'output'],
     });
     expect(CROSS_VERB_STEP_FIELDS.map(({ label }) => label).sort()).toEqual([
       'agent foreign command',
