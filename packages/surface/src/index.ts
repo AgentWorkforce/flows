@@ -15,7 +15,14 @@ export {
   type RunCompletionReason,
   type FlowCompletionReason,
 } from "./completion.js";
-export type { Step } from "./step.js";
+export type {
+  Step,
+  NamedGate,
+  ReferencesInputNamedGate,
+  SubprocessNamedGate,
+  WordCountBoundsNamedGate,
+  RegexMatchNamedGate,
+} from "./step.js";
 export {
   flow,
   type FlowHandle,

@@ -1,10 +1,21 @@
 import { executionAsyncId } from 'node:async_hooks';
-import type { Step } from '@relayflows/surface';
+import type { NamedGate, Step } from '@relayflows/surface';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import {
   AuthoredFlowLifecycle,
   type AuthoredOperationInvocation,
 } from './authored-flow-lifecycle.js';
+
+/** Slice-P kinds the surface `.gate(config)` accepts and the SDK lowers. */
+const NAMED_GATE_KINDS = new Set([
+  'references_input', 'subprocess_gate', 'word_count_bounds', 'regex_match',
+]);
+
+function isNamedGateConfig(candidate: unknown): candidate is NamedGate {
+  return typeof candidate === 'object' && candidate !== null && !Array.isArray(candidate)
+    && typeof (candidate as { type?: unknown }).type === 'string'
+    && NAMED_GATE_KINDS.has((candidate as { type: string }).type);
+}
 
 type OperationState = 'created' | 'running' | 'fulfilled' | 'rejected';
 const nativePromiseThen = Promise.prototype.then;
@@ -12,6 +23,14 @@ const nativePromiseThen = Promise.prototype.then;
 /** A root authored operation whose outcome cannot be hidden by promise handlers. */
 export class AuthoredFlowOperation<T> {
   readonly step: Step<T>;
+  /**
+   * Named-gate config attached via `.gate({type: '…', …})`. The start closure
+   * reads this at spec-build time and injects it into the compiled StepSpec's
+   * `verification:` field — journal-honest via slice P's named-gate lowering.
+   * Undefined means no postfix gate (default behavior). Predicate `.gate(fn)`
+   * still throws `unsupported_gate` and never sets this field.
+   */
+  namedGate: NamedGate | undefined = undefined;
   private state: OperationState = 'created';
   private thenInvoked = false;
   private rootFailureRecorded = false;
@@ -40,11 +59,21 @@ export class AuthoredFlowOperation<T> {
 
     observeRejection(this.promise, (error) => this.recordRootFailure(error));
     const operation = this;
-    this.step = Object.freeze({
-      gate(): never {
+    const step: Step<T> = {
+      gate(configOrPredicate: NamedGate | ((value: T) => boolean), _because?: string): Step<T> {
+        if (isNamedGateConfig(configOrPredicate)) {
+          // Config-object gate: lowers into the compiled StepSpec's
+          // `verification:` field via slice-P named-gate lowering.
+          operation.namedGate = configOrPredicate;
+          return step;
+        }
+        // Predicate gate: closures cannot be journaled (covenant 1
+        // journal-as-truth). Refuse — authors should use a config-object
+        // gate or the declarative `verification:` block.
         throw new AuthoredFlowExecutionError(
           'unsupported_gate',
-          'postfix gates are not lowered by the initial authored executor',
+          'postfix .gate(predicate) closures cannot be journaled; '
+            + 'use .gate({type: "…", …}) with a slice-P named gate instead.',
         );
       },
       then<TResult1 = T, TResult2 = never>(
@@ -64,7 +93,11 @@ export class AuthoredFlowOperation<T> {
           (error) => operation.recordCallbackFailure(error),
         );
       },
-    });
+    };
+    // Freeze the `then`/`gate` method table so the surface's Step contract
+    // stays intact, but keep `namedGate` reachable via the enclosing
+    // operation reference (not through the surface Step handle).
+    this.step = Object.freeze(step);
     this.scope.registerStep(this.step, this);
   }
 
