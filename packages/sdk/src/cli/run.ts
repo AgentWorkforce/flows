@@ -10,7 +10,8 @@ import { socketPathFor } from '../daemon-connection.js';
 import { ensureDaemon, type EnsureDaemonOptions } from '../daemon-lifecycle.js';
 import { isAuthoredFlowPath } from '../direct-input.js';
 import { daemonRefusal } from './daemon-refusal.js';
-import type { RunFailureKind, RunWarningKind } from '../failure-kinds.js';
+import type { RunFailureKind, RunWarningKind, StepFailedDetails } from '../failure-kinds.js';
+import { deterministicFailureDetails } from './deterministic-failure.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
 import { attachLocalAgent } from '../local-agent.js';
 import type {
@@ -32,7 +33,7 @@ export interface ParkedStep {
   type: Extract<StepType, 'llm' | 'agent'>;
 }
 
-export interface RunDiagnostic {
+export interface RunDiagnostic extends StepFailedDetails {
   severity: 'refusal' | 'failure' | 'parked' | 'warning';
   kind: RunFailureKind | RunWarningKind | RunCompletionReason;
   message: string;
@@ -345,15 +346,30 @@ export async function classifyOutcome(
 
   if (report.ok) return { exitCode: 0, report };
   if (current.status === 'failed' && current.completion_reason !== null) {
+    const diagnostic: RunDiagnostic = {
+      severity: 'failure',
+      kind: current.completion_reason,
+      message: `Run "${current.run_id}" failed with completionReason: ${current.completion_reason}.`,
+    };
+    if (current.completion_reason === 'step_failed') {
+      try {
+        const details = await deterministicFailureDetails(client, current.run_id);
+        if (details !== undefined) {
+          Object.assign(diagnostic, details);
+          diagnostic.message += ` Step ${JSON.stringify(details.stepId)} exit=${details.exitCode}.`
+            + (details.stderrTail ? `\nStderr (last 1,024 bytes):\n${details.stderrTail}` : '')
+            + `\nInspect: ${details.hint}`;
+        }
+      } catch (error) {
+        // Inspection must not erase the already known run failure.
+        diagnostic.message += ` Could not inspect command failure: ${errorMessage(error)}`;
+      }
+    }
     return {
       exitCode: 1,
       report: {
         ...report,
-        diagnostics: [...report.diagnostics, {
-          severity: 'failure',
-          kind: current.completion_reason,
-          message: `Run "${current.run_id}" failed with completionReason: ${current.completion_reason}.`,
-        }],
+        diagnostics: [...report.diagnostics, diagnostic],
       },
     };
   }

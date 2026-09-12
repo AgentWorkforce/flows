@@ -118,6 +118,10 @@ pub(crate) fn execute_placed_with_input(
         "stdout_tail": tail(&stdout),
         "stderr_tail": tail(&stderr),
     });
+    // Failed completions deliberately null their reusable output. Preserve
+    // command evidence in the existing diagnostic field before that happens.
+    let trajectory_tail = (output["exit_code"] != 0)
+        .then(|| json!({ "exit_code": output["exit_code"], "stderr_tail": output["stderr_tail"] }));
     AttemptResult {
         human_intervention: false,
         output,
@@ -125,7 +129,7 @@ pub(crate) fn execute_placed_with_input(
         completed_by: "kernel".to_owned(),
         end_pins: None,
         effects: vec![],
-        trajectory_tail: None,
+        trajectory_tail,
         failure_reason: timed_out.then_some(CompletionReason::Timeout),
         failure_detail: timed_out
             .then(|| format!("step exceeded its {} ms timeout", timeout.as_millis())),
@@ -189,6 +193,28 @@ mod tests {
         assert_eq!(result.output["exit_code"], 0);
         assert_eq!(result.output["stdout_tail"], "hello");
         assert_eq!(result.failure_reason, None);
+        assert_eq!(result.trajectory_tail, None);
+    }
+
+    #[test]
+    fn failed_command_evidence_survives_completion() {
+        use relayflowd_core::machine::{Action, completion_actions};
+
+        let step: StepSpec = serde_json::from_value(json!({
+            "id": "fail-command", "type": "deterministic",
+            "command": "printf 'shakedown intentional failure' >&2; exit 7"
+        }))
+        .unwrap();
+        let actions = completion_actions("run", &step, 1, 0, execute(&step), 0);
+        let Action::Append(completed) = &actions[0] else {
+            panic!("expected completion")
+        };
+        assert_eq!(completed.payload["output"], serde_json::Value::Null);
+        assert_eq!(completed.payload["trajectory_tail"]["exit_code"], 7);
+        assert_eq!(
+            completed.payload["trajectory_tail"]["stderr_tail"],
+            "shakedown intentional failure"
+        );
     }
 
     #[test]

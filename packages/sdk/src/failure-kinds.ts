@@ -118,6 +118,15 @@ export type PreflightWarningKind = (typeof PREFLIGHT_WARNING_KINDS)[number];
 export type RunFailureKind = (typeof RUN_FAILURE_KINDS)[number];
 export type RunWarningKind = (typeof RUN_WARNING_KINDS)[number];
 
+/** Optional evidence on the existing step_failed diagnostic, not a new kind. */
+export interface StepFailedDetails {
+  stepId?: string;
+  exitCode?: number;
+  /** Terminal-safe UTF-8 excerpt, at most 1,024 bytes. */
+  stderrTail?: string;
+  hint?: string;
+}
+
 const CHECK_FAILURE_KIND_SET: ReadonlySet<string> = new Set(CHECK_FAILURE_KINDS);
 const RUN_FAILURE_KIND_SET: ReadonlySet<string> = new Set(RUN_FAILURE_KINDS);
 
