@@ -117,10 +117,18 @@ fi
 # that review-swarm.yaml still carries the same text.
 PROMPT_DIR="$(dirname "$0")/lens-prompts"
 PROMPT_FILE="$PROMPT_DIR/$LENS.txt"
+# CLI diversity is a nice-to-have across lenses; a lens whose CLI is not
+# installed in either runner is a hard blocker on the aggregate gate. flows#255:
+# `opencode` produced no transcript on either runner (github-actions or kjgbot)
+# for every PR sampled, keeping `structure` MISSING and making `review`
+# unpassable by construction. Move `structure` to `codex` — installed and
+# authenticated in both runners — so the gate can produce a verdict; the
+# authoritative diversity is still model-vs-model (claude / codex), and
+# `history` and `structure` remain independent because their prompts differ.
 case "$LENS" in
   maintainability) CLI=claude ;;
   history)         CLI=codex ;;
-  structure)       CLI=opencode ;;
+  structure)       CLI=codex ;;
   *)
     echo "lens-runner: unknown lens '$LENS' (expected maintainability|history|structure)" >&2
     exit 2

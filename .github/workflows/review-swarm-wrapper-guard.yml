@@ -33,3 +33,13 @@ jobs:
       # (same pull_request_target invariant) so a candidate cannot relax it.
       - name: Enforce lens parity between pre-swarm runner and post-push swarm
         run: sh ops/preswarm-check/lens-parity-check.sh
+
+      # flows#255: same drift shape, different axis. The prompt can match while
+      # the CLIs disagree — and a lens whose CLI is not available in either
+      # runner produces MISSING transcripts on every PR, keeping `review`
+      # unpassable by construction. `structure = opencode` was that failure
+      # mode. Enforce the runner and the swarm agree on the CLI per lens, and
+      # that every mapped CLI is on PATH. PRESWARM_ALLOW_MISSING_CLI=1 opts a
+      # partial environment out — do not set it here.
+      - name: Enforce lens CLI parity between pre-swarm runner and post-push swarm
+        run: sh ops/preswarm-check/lens-cli-parity-check.sh
