@@ -250,6 +250,12 @@ export interface AgentStepSpec extends BaseStepSpec {
   /** Working directory for the CLI subprocess; defaults to the flow-runner's cwd. */
   cwd?: string;
   /**
+   * Dispatch transport (flows#385). `'direct'` (default) spawns the CLI as
+   * a local subprocess. `'relay'` posts to agent-relay so the agent
+   * registers as a first-class workspace participant.
+   */
+  transport?: 'direct' | 'relay';
+  /**
    * Structured-output authoring sugar. A successful CLI JSON object is the parsed
    * value; the kernel persists it only after `json_schema` verification.
    */
@@ -436,6 +442,11 @@ export interface KernelAgentStep extends KernelStepCommon {
   permissions?: KernelPermissionsSpec;
   /** Working directory for the CLI subprocess; kernel passes through untouched. */
   cwd?: string;
+  /**
+   * Dispatch transport (flows#385). Kernel passes through untouched;
+   * the SDK worker selects between direct-spawn and agent-relay routing.
+   */
+  transport?: 'direct' | 'relay';
 }
 
 export type KernelStepSpec = KernelDeterministicStep | KernelLlmStep | KernelAgentStep;

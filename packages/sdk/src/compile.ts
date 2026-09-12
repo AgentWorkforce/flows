@@ -233,6 +233,7 @@ function compileStep(step: StepSpec): StepSpec {
         ...(s.cli !== undefined ? { cli: s.cli } : {}),
         ...(s.model !== undefined ? { model: s.model } : {}),
         ...(s.cwd !== undefined ? { cwd: s.cwd } : {}),
+        ...(s.transport !== undefined ? { transport: s.transport } : {}),
         recoveryMode,
         ...(s.surfaces !== undefined ? { surfaces: s.surfaces } : {}),
         ...(s.permissions !== undefined ? { permissions: s.permissions } : {}),
@@ -624,6 +625,7 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
         ...(step.cli !== undefined ? { cli: step.cli } : {}),
         ...(step.model !== undefined ? { model: step.model } : {}),
         ...(step.cwd !== undefined ? { cwd: step.cwd } : {}),
+        ...(step.transport !== undefined ? { transport: step.transport } : {}),
         recovery_mode: step.recoveryMode ?? 'reset',
       };
       const surfaces = {

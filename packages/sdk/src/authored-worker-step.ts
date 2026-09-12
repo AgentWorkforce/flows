@@ -118,6 +118,12 @@ export function authoredWorkerRunner(
           `f.agent options.cwd must be a string when set (got ${typeof options.cwd}).`,
         );
       }
+      if (options.transport !== undefined && options.transport !== 'direct' && options.transport !== 'relay') {
+        throw new AuthoredFlowExecutionError(
+          'agent_cli_unresolved',
+          `f.agent options.transport must be 'direct' or 'relay' (got ${JSON.stringify(options.transport)}).`,
+        );
+      }
       const output = await run({
         id, type: 'agent', instruction: options.task,
         ...(localAgentStream === undefined ? {} : { surfaces: { streams: [{ stream: localAgentStream }] } }),
@@ -125,6 +131,7 @@ export function authoredWorkerRunner(
         ...(options.cli === undefined ? {} : { cli: options.cli }),
         ...(options.model === undefined ? {} : { model: options.model }),
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        ...(options.transport === undefined ? {} : { transport: options.transport }),
         ...(verification === undefined ? {} : { verification }),
       });
       if (typeof output !== 'object' || output === null || Array.isArray(output)) {

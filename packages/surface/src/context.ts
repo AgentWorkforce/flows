@@ -16,6 +16,12 @@ export interface AgentOptions {
   model?: string;
   /** Working directory for the CLI subprocess; defaults to the flow-runner's cwd. */
   cwd?: string;
+  /**
+   * Dispatch transport (flows#385). `'direct'` (default) spawns the CLI as a
+   * local subprocess. `'relay'` posts to agent-relay so the agent registers
+   * as a first-class workspace participant that DMs can steer.
+   */
+  transport?: 'direct' | 'relay';
 }
 
 export interface LlmOptions {
