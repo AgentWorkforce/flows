@@ -31,7 +31,8 @@
     "tests/close-pr-flow.test.ts",
     "tests/direct-input.test.ts",
     "tests/fixtures/needs-human.flow.ts",
-    "tests/named-gates.test.ts"
+    "tests/named-gates.test.ts",
+    "tests/build-gate.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
