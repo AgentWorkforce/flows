@@ -6,6 +6,7 @@ const PREFLIGHT_ENVIRONMENT_FAILURE_KINDS = [
   ...PLUGIN_FAILURE_KINDS,
   'helper_slack.credential_missing',
   'helper_slack.mount_required',
+  'helper_mount_required',
   'mcp_undeclared_server',
   'mcp_unreachable',
   'budget_syntax_invalid',

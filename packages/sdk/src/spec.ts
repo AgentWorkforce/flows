@@ -229,6 +229,33 @@ export interface AgentStepSpec extends BaseStepSpec {
 
 export type StepSpec = DeterministicStepSpec | LlmStepSpec | AgentStepSpec;
 
+/** YAML argument maps use the same pinned client types as the TS helpers. */
+export interface YamlHelperParams {
+  slack: { [V in import('./slack-writeback.js').SlackCall['verb']]:
+    Extract<import('./slack-writeback.js').SlackCall, { verb: V }>['params'] };
+  github: {
+    comment: { target: Parameters<import('@relayfile/relay-helpers').GithubClient['comment']>[0]; body: string };
+    createIssue: Parameters<import('@relayfile/relay-helpers').GithubClient['createIssue']>[0];
+    createPullRequest: Parameters<import('@relayfile/relay-helpers').GithubClient['createPullRequest']>[0];
+    closePullRequest: Parameters<import('@relayfile/relay-helpers').GithubClient['closePullRequest']>[0];
+  };
+  linear: {
+    comment: { issueId: string; body: string };
+    createIssue: Parameters<import('@relayfile/relay-helpers').LinearClient['createIssue']>[0];
+    updateIssue: { issueId: string; args: Parameters<import('@relayfile/relay-helpers').LinearClient['updateIssue']>[1] };
+  };
+}
+
+type OneKey<T> = { [K in keyof T]: Pick<T, K> & Partial<Record<Exclude<keyof T, K>, never>> }[keyof T];
+
+/** Helper sugar is removed before validation of the three kernel step types. */
+export type YamlHelperStepSpec = Pick<BaseStepSpec, 'id' | 'dependsOn' | 'maxIterations'> & {
+  verification?: OutputVerificationSpec;
+  output?: JsonOutputSchema;
+} & OneKey<{ [P in keyof YamlHelperParams]: OneKey<YamlHelperParams[P]> }>;
+
+export type YamlFlowSpec = Omit<FlowSpec, 'steps'> & { steps: Array<StepSpec | YamlHelperStepSpec> };
+
 /**
  * Reusable authoring declaration for an agent CLI/model pair. Both fields are
  * required so selecting a named agent can never inherit a host model. The

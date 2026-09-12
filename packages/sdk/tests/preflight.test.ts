@@ -17,7 +17,7 @@ import {
 } from '../src/preflight.js';
 import { preflight } from '../src/index.js';
 import type { FlowSpec } from '../src/spec.js';
-import { compileSpec, toKernelSpec } from '../src/compile.js';
+import { compileSpec, compileYaml, toKernelSpec } from '../src/compile.js';
 
 function flow(step: FlowSpec['steps'][number]): FlowSpec {
   return { version: '0.1.0', name: 'test', steps: [step] };
@@ -391,6 +391,10 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x', model: 'known-model' }), { models: ['known-model'], probes: probes({ cli: () => ({ exists: true, authenticated: true, modelAvailable: false }) }) }),
       preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }), triggers: [{ id: 't', executor: 'e' }] }, { probes: probes({ executor: () => false, command: () => false }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => { throw new Error('raw secret'); } }) }),
+      preflight(
+        compileYaml('version: 0.1.0\nsteps:\n  - id: notify\n    slack:\n      post:\n        channel: "#test"\n        text: hi\n'),
+        { probes: probes({ helper: () => false }) },
+      ),
     ];
     const refusalKinds = scenarios.flatMap((result) => result.diagnostics)
       .filter((diagnostic) => diagnostic.severity === 'refusal')

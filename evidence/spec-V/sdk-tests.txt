@@ -1,0 +1,839 @@
+
+> @relayflows/sdk@2.0.8 test
+> sh scripts/test.sh
+
+
+> @relayflows/sdk@2.0.8 test:prep
+> ( cd ../../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../../testdata/preflight ] || find ../../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )
+
+    Finished `dev` profile [unoptimized] target(s) in 0.28s
+
+> @relayflows/sdk@2.0.8 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.8 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+> @relayflows/sdk@2.0.8 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+ RUN  v2.1.9 /Users/khaliqgant/fl-slice-V/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/tmp/relayflowd
+LIVE_KERNEL flows=/Users/khaliqgant/fl-slice-V/packages/sdk/dist/cli.js
+
+ ❯ tests/preflight.test.ts (27 tests | 1 failed) 36ms
+   × preflight: CLI resolution and refusal predicates > reaches every declared refusal kind, with the converse held by the type 16ms
+     → expected Set{ …(27) } to deeply equal Set{ 'invalid_spec', …(27) }
+ ❯ tests/observer-link.test.ts (39 tests | 7 failed) 62ms
+   × flows run: observer link integration > prints the Observer: line immediately after RUN when a workspace key is set 4ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-f02a364602e4.sock
+   × flows run: observer link integration > emits no observer line and no fetch when no workspace key is set 1ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-0fd217077a89.sock
+   × flows run: observer link integration > warns on stderr and proceeds normally when the mint API 500s 1ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-f5ca95d93192.sock
+   × flows run: observer link integration > suppresses the mint entirely when --no-observer-link is passed 1ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-35880eb0d8da.sock
+   × flows run: observer link integration > suppresses the mint entirely when FLOWS_NO_OBSERVER=1 is set 1ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-2b372dc5b4e3.sock
+   × flows run: observer link integration > emits RUN before the mint resolves and appends Observer on a later line 0ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-ddc7262a615d.sock
+   × flows run: observer link integration > folds observerUrl into the --json payload rather than printing a bare line 0ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-894520b4a7b6.sock
+ ✓ tests/daemon-lifecycle.test.ts (42 tests) 45ms
+ ❯ tests/authored-flow.test.ts (25 tests | 18 failed) 64ms
+   × authored flow journal executor > lowers an imported .flow.ts run and completion through the journal protocol 38ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > surfaces the closed journal reason when a lowered run fails 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > rechecks terminal state when a precreated lazy step first starts 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > refuses manually chained work even when it settles before the body returns 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > refuses forgotten work even when the body remains open long enough to settle it 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > retains root operation failures even when a derived rejection handler consumes them 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > captures a rejected derived callback instead of leaking unhandled success 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > passes direct input into the journal-backed authored body 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > evaluates journal output through JavaScript truthiness 1ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > evaluates journal output through JavaScript negation 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > evaluates journal output through JavaScript loose equality 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > evaluates journal output through JavaScript strict equality 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > evaluates journal output through JavaScript ternary 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > evaluates journal output through JavaScript logical and 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > evaluates journal output through JavaScript logical or 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > preserves separately awaited sibling ordering before the join 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > requires an explicit completion after journal-backed steps 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+   × authored flow journal executor > refuses a body that completes nothing at all 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-b77eeeee.sock
+ ❯ tests/live-kernel.test.ts (31 tests | 31 failed) 3802ms
+   × built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 28ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-a7922ae553a6.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-a7922ae553a6.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 25ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-5f211e4b7884.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-5f211e4b7884.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 26ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-4e40c9691c13.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-4e40c9691c13.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > follows a live worker dispatch through flows run 1099ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-e337d7475fe6.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-e337d7475fe6.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > cancels over the real socket and rejects the lease holder after closure 31ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-6c8324f6e561.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-6c8324f6e561.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > runs an agent CLI end to end through the SDK worker 28ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-5db529486a52.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-5db529486a52.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > f.agent lowers to a real agent step and dispatches through a live worker 25ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-a031accc6bf9.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-a031accc6bf9.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > f.agent's default flowPath anchors on cwd, not cwd's parent 25ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-ac6ed447a5ea.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-ac6ed447a5ea.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 24ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-0334a5a33908.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-0334a5a33908.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 26ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-054cf39d74f4.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-054cf39d74f4.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo) 30ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-c84e2faf7b80.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-c84e2faf7b80.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields 22ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-d70e13b85ebf.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-d70e13b85ebf.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text 21ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-1ba6ce36c405.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-1ba6ce36c405.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite) 46ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-fe2b8b48cba6.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-fe2b8b48cba6.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin) 22ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-6db3e56d6799.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-6db3e56d6799.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > AgentWorker passes a declared model to an identified wrapper as RELAYFLOW_MODEL 23ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-b47864a7d830.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-b47864a7d830.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > AgentWorker refuses a nonconforming journal-submitted wrapper before exposing RELAYFLOW_MODEL 23ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-54a2023ab33d.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-54a2023ab33d.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > AgentWorker executes the raw claude adapter with its real model flag 28ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-148b0ea59c2d.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-148b0ea59c2d.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > AgentWorker executes the raw codex adapter with its real model flag 26ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-99c5020df27f.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-99c5020df27f.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model 29ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-9aef8bc77f55.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-9aef8bc77f55.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI 1605ms
+     → LIVE_ANALYZER_UNAVAILABLE: "/Users/khaliqgant/fl-slice-V/testdata/preflight/analyze-story-claude-cli auth status" exited 1: analyze-story-claude-cli: "claude -p --model leaked-parent-model" exited 1: "leaked-parent-model" isn't described by this version's model catalog; update Claude Code, or map it with behavesAs on a modelPicker row (or modelOverrides, if it is a provider id of a model this version knows). Until then auto-compact keeps this session within 200k tokens (the context window it assumes); if the model accepts more, append [1m] to the model name for 1M, or set CLAUDE_CODE_MAX_CONTEXT_TOKENS to its real window; CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 restores the previous wait-for-the-API behavior.
+[claude-code:unrecognized_model] {"model":"leaked-parent-model","query_source":"sdk"} — failing because gate-2 acceptance requires the real analyzer to execute. Set RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 only if this run is not gate evidence.
+   × built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket 24ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-6f6922a0fc49.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-6f6922a0fc49.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir 372ms
+     → WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "shout" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-live-race-dM7eSg/data/relayflowd.log":
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-55bcf9621c4a.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-55bcf9621c4a.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+[observer] token mint failed: network error: fetch failed; skipping observer link
+: expected 2 to be +0 // Object.is equality
+   × JournalClient wire conformance against live relayflowd > exercises every protocol-v0 verb with the real server 22ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-894a8bc39eb2.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-894a8bc39eb2.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 25ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-12f64160eaf2.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-12f64160eaf2.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant 23ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-3a06f2cbbe70.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-3a06f2cbbe70.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × a relayflow can be scheduled: tick source against live relayflowd > TWO ticks for ONE scheduled instant produce exactly ONE run 27ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-72c9ac807192.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-72c9ac807192.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × a relayflow can be scheduled: tick source against live relayflowd > a poller RESTART re-emitting a slot does not re-run it 23ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-c7c5bd7e994c.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-c7c5bd7e994c.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × a relayflow can be scheduled: tick source against live relayflowd > a MISSED interval is backfilled into its own run, not collapsed into the current one 23ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-7636e15bf2d9.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-7636e15bf2d9.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × a relayflow can be scheduled: tick source against live relayflowd > a tick for a DIFFERENT schedule id does not wake this flow 24ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-f764ed9419f1.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-f764ed9419f1.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × a relayflow can be scheduled: tick source against live relayflowd > journals the declared silence budget, so a dead schedule is not silently zero 25ms
+     → relayflowd exited before binding /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-aff50438179e.sock: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-aff50438179e.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+ ✓ tests/validate.test.ts (68 tests) 10ms
+ ❯ tests/cli.test.ts (64 tests | 11 failed) 4153ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 1430ms
+   ✓ flows check CLI > uses Codex login status and reports a rejected model as unavailable, not unauthenticated 383ms
+   ✓ flows check CLI > accepts an exact allowlisted named-agent model and probes that model 368ms
+   ✓ flows check CLI > passes all three canonical ladder flows and prints their resolved CLI 304ms
+   × flows run/resume CLI over the journal protocol > parses run options, submits the kernel dialect, and exits 0 on success 4ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-825497140ec4.sock
+   × flows run/resume CLI over the journal protocol > exits 1 and emits the declared completionReason for a failed run 1ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-9ce0c2ffc607.sock
+   × flows run/resume CLI over the journal protocol > exits 3 and names the parked llm step 0ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-957d899a3619.sock
+   × flows run/resume CLI over the journal protocol > reports a needs_human agent step as parked for human recovery 0ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-ca6a7f684971.sock
+   × flows run/resume CLI over the journal protocol > classifies a typed hello refusal as a protocol error, not an unreachable daemon 0ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-6e8ecab91d22.sock
+   × flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 0ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-408edd128286.sock
+   × flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 0ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-c37fd1e3ca17.sock
+   × flows run/resume CLI over the journal protocol > allows a caller to cancel a worker-lease wait 0ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-494268b375ab.sock
+   × flows run/resume CLI over the journal protocol > resumes a parked run from snapshot step types without reading journal sequence one 0ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-3ad3744675c7.sock
+   × flows run/resume CLI over the journal protocol > refuses human-influenced resume with exit 2 and forwards the explicit override 0ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-a5c748711b57.sock
+   × flows run/resume CLI over the journal protocol > maps only run_not_found resumes to exit 2 0ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-5bc2424b667c.sock
+ ❯ tests/journal-client.test.ts (14 tests | 13 failed) 14ms
+   × JournalClient: protocol v0 over unix socket > handshakes with the matching protocol version 3ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-1d06f034.sock
+   × JournalClient: protocol v0 over unix socket > starts a run and receives the run_id (zero-agent spec is legal) 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-1d06f034.sock
+   × JournalClient: protocol v0 over unix socket > round-trips a spec straight from compileYaml through run.start in the kernel dialect 4ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-1d06f034.sock
+   × JournalClient: protocol v0 over unix socket > demultiplexes server-pushed events 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-1d06f034.sock
+   × JournalClient: protocol v0 over unix socket > reads the journal and streams 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-1d06f034.sock
+   × JournalClient: protocol v0 over unix socket > wires every out-of-band worker verb and receives dispatch events 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-1d06f034.sock
+   × JournalClient: protocol v0 over unix socket > wires run watch, resume/get, events, and replayable stream reads 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-1d06f034.sock
+   × JournalClient: protocol v0 over unix socket > cancels a run through the typed lifecycle surface 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-1d06f034.sock
+   × JournalClient: protocol v0 over unix socket > fails closed when the server returns an error 1ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-a071f0ca.sock
+   × JournalClient: protocol v0 over unix socket > does not apply the bounded request timeout to run lifecycle requests 1ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-30422c38.sock
+   × JournalClient: protocol v0 over unix socket > fails closed on connection drop (pending requests reject) 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-e47749e0.sock
+   × JournalClient: an effect election is atomic with its provider call > performs the effect exactly once when an attempt dies between electing and calling 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-0203db75.sock
+   × JournalClient: an effect election is atomic with its provider call > leaves an unconfirmed election reclaimable rather than suppressing the effect forever 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-60d8f692.sock
+ ✓ tests/tick-source.test.ts (33 tests) 11ms
+ ✓ tests/cloud-run.test.ts (47 tests) 92ms
+ ✓ tests/verb-field-lint.test.ts (78 tests) 187ms
+ ❯ tests/authored-flow-lifecycle-executor.test.ts (27 tests | 27 failed) 17ms
+   × authored flow lifecycle through the journal executor > refuses native resolver callbacks without starting terminal success 6ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unawaited_step' }
+   × authored flow lifecycle through the journal executor > refuses an ignored Promise.resolve operation without terminal success 1ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unawaited_step' }
+   × authored flow lifecycle through the journal executor > refuses an ignored Promise.all operation without terminal success 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unawaited_step' }
+   × authored flow lifecycle through the journal executor > retains a swallowed Promise.resolve callback failure before terminal success 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'operation_callback_failed' }
+   × authored flow lifecycle through the journal executor > retains root failure through a swallowed Promise.resolve callback chain 1ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'step_failed', …(1) }
+   × authored flow lifecycle through the journal executor > ignores forged Function.prototype.toString when refusing manual callbacks 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unawaited_step' }
+   × authored flow lifecycle through the journal executor > refuses a handled-and-forgotten derived failure deferred by ten microtask ticks 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unsettled_derived_work' }
+   × authored flow lifecycle through the journal executor > refuses a handled-and-forgotten derived failure deferred by setTimeout(0) 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unsettled_derived_work' }
+   × authored flow lifecycle through the journal executor > refuses terminal success while derived work is still in flight 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unsettled_derived_work' }
+   × authored flow lifecycle through the journal executor > preserves pre-constructed steps awaited in a loop 1ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-ac038052.sock
+   × authored flow lifecycle through the journal executor > preserves pre-constructed steps awaited out of order 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-ac038052.sock
+   × authored flow lifecycle through the journal executor > refuses a deferred derived failure behind an aggregate: allSettled resolved by an unrelated member 1ms
+     → expected Error: journal client: connect failed: co… to match object { code: StringMatching{…} }
+   × authored flow lifecycle through the journal executor > refuses a deferred derived failure behind an aggregate: allSettled with the step declared second 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: StringMatching{…} }
+   × authored flow lifecycle through the journal executor > refuses a deferred derived failure behind an aggregate: all resolved by an unrelated member 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: StringMatching{…} }
+   × authored flow lifecycle through the journal executor > refuses a deferred derived failure behind an aggregate: race resolved by an unrelated member 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: StringMatching{…} }
+   × authored flow lifecycle through the journal executor > refuses a deferred derived failure behind an aggregate: any resolved by an unrelated member 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: StringMatching{…} }
+   × authored flow lifecycle through the journal executor > refuses a deferred derived failure behind an aggregate: allSettled resolved by the step itself 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: StringMatching{…} }
+   × authored flow lifecycle through the journal executor > refuses a deferred derived failure behind an aggregate: race resolved by the step itself 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: StringMatching{…} }
+   × authored flow lifecycle through the journal executor > preserves authoring: await Promise.allSettled over two steps 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-ac038052.sock
+   × authored flow lifecycle through the journal executor > preserves authoring: await Promise.allSettled over five steps 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-ac038052.sock
+   × authored flow lifecycle through the journal executor > preserves authoring: await Promise.all over three steps 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-ac038052.sock
+   × authored flow lifecycle through the journal executor > preserves authoring: await Promise.race over two steps 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-ac038052.sock
+   × authored flow lifecycle through the journal executor > preserves authoring: await Promise.any over two steps 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-ac038052.sock
+   × authored flow lifecycle through the journal executor > preserves authoring: await an aggregate mixing a step and an unrelated promise 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-ac038052.sock
+   × authored flow lifecycle through the journal executor > refuses for-await over authored steps, and says so in the docs 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unawaited_step' }
+   × authored flow lifecycle through the journal executor > preserves ordinary awaited work after an authored step 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-ac038052.sock
+   × authored flow lifecycle through the journal executor > preserves direct await, Promise.resolve, and Promise.all authoring 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/rf-ac038052.sock
+ ✓ tests/cli-replay.test.ts (37 tests) 719ms
+   ✓ flows replay > --json is byte-identical across two CLI invocations (diff) 501ms
+ ✓ tests/tick-runner.test.ts (22 tests) 1308ms
+ ✓ tests/gate-contract.test.ts (20 tests) 72ms
+ ✓ tests/cli-hn-monitor.test.ts (16 tests) 95ms
+ ❯ tests/bundle.test.ts (21 tests | 1 failed) 3390ms
+   ✓ immutable bundles > builds and verifies the canonical YAML fixture through the compiled CLI 629ms
+   ✓ immutable bundles > emits the ephemeral warning on CLI stderr and uses the default output directory 425ms
+   ✓ immutable bundles > preserves quoted asset words and executable permissions 301ms
+   × immutable bundles > builds a standalone TS fixture twice with identical executable hashes 292ms
+     → expected 'REFUSED [bundle_invalid] package-lock…' to be '' // Object.is equality
+ ❯ tests/authored-flow-slack.test.ts (6 tests | 4 failed) 816ms
+   × authored Slack helper effects > journals exactly one effect with the authored params and typed receipt, without network 698ms
+     → Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-24df71c1bd86.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × authored Slack helper effects > replays after SIGKILL before confirm with the same token and one successful completion 26ms
+     → Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-0ecdd1ff74e4.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × authored Slack helper effects > replays after SIGKILL before complete with the same token and one successful completion 25ms
+     → Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-129d390d0db2.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × authored Slack helper effects > writes two files for two calls and supports dm, reply, and react 25ms
+     → Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-7f6561bbf623.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+ ✓ tests/stop-process-group.test.ts (6 tests) 6550ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after an execution-timeout stop 773ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after a protocol terminate stop 462ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after a protocol terminate stop 1775ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after an execution-timeout stop 2039ms
+   ✓ every stop reaches the process group, not just the direct child > holds the loop open long enough for the escalation to run 1169ms
+   ✓ every stop reaches the process group, not just the direct child > terminate() forces a group that outlives SIGTERM 332ms
+ ❯ tests/mcp.test.ts (30 tests | 7 skipped) 18614ms
+   ✓ MCP preflight and transports > flows check refuses an undeclared server with exit 2 and no daemon 307ms
+   ✓ MCP preflight and transports > flows check reports a refusing server and leaves no PID 466ms
+   ✓ MCP preflight and transports > kills a SIGTERM-resistant silent child after a parent-owned handshake deadline 1306ms
+   ✓ MCP preflight and transports > reaps a SIGTERM-resistant descendant with inherit stdio before cleanup finishes 1170ms
+   ✓ MCP preflight and transports > reaps a SIGTERM-resistant descendant with ignore stdio before cleanup finishes 2058ms
+ ✓ tests/backlog-picker.test.ts (14 tests) 63ms
+ ✓ tests/backlog-picker-flow.test.ts (6 tests) 575ms
+ ✓ tests/worker-cli.test.ts (13 tests) 20538ms
+   ✓ custom wrapper execution identity > refuses a wrapper symlink retarget before delivering private values 356ms
+   ✓ custom wrapper execution identity > bounds wrapper execution after acknowledgement 328ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 1753ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 1740ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3255ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11261ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 476ms
+ ✓ tests/authored-flow-operation.test.ts (23 tests) 263ms
+ ❯ tests/direct-input.test.ts (4 tests | 1 failed) 1366ms
+   × direct .flow.ts input through the built CLI and live runtime > executes inline and file JSON input through relayflowd 27ms
+     → relayflowd exited 1
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses missing and malformed input before contacting relayflowd 877ms
+ ✓ tests/work-package-consumer.test.ts (13 tests) 181ms
+ ✓ tests/spec-parity.test.ts (31 tests) 183ms
+ ❯ tests/daemon-lifecycle-live.test.ts (9 tests | 7 failed) 15610ms
+   × flows run against a data dir with no daemon (§6 test 7) > cold start spawns exactly one daemon, the run succeeds, and the daemon outlives the CLI 1217ms
+     → WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "shout" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-cold-start-4DDZXt/data/relayflowd.log":
+stub relayflowd: bind failed: listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-146a37c5124f.sock
+[observer] token mint failed: network error: fetch failed; skipping observer link
+: expected 2 to be +0 // Object.is equality
+   × flows run against a data dir with no daemon (§6 test 7) > polls, bounded, for a daemon that holds the lock before it binds 1385ms
+     → WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "shout" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-slow-listen-yOETbs/data/relayflowd.log":
+stub relayflowd: bind failed: listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-402d1e572957.sock
+[observer] token mint failed: network error: fetch failed; skipping observer link
+: expected 2 to be +0 // Object.is equality
+   × flows run against a data dir with no daemon (§6 test 7) > attaches to a serving daemon that has not published a connection file 550ms
+     → WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "shout" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-no-index-QmvYN4/data/relayflowd.log":
+stub relayflowd: bind failed: listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-6b96fbbe50ae.sock
+[observer] token mint failed: network error: fetch failed; skipping observer link
+: expected 2 to be +0 // Object.is equality
+   × flows run against a data dir with no daemon (§6 test 7) > a second run attaches to the daemon the first one started, spawning nothing 490ms
+     → expected 2 to be +0 // Object.is equality
+   × flows run against a data dir with no daemon (§6 test 7) > detects a stale connection file left by a hard kill and starts a fresh daemon 562ms
+     → expected 2 to be +0 // Object.is equality
+   × concurrent invocations against one empty data dir (§6 test 15) > ends with exactly one daemon owning the socket, and both runs succeed 10240ms
+     → WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "shout" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [daemon_start_timeout] relayflowd did not start serving "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-72795d072983.sock" within 10000ms. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-race-HTfKDp/data/relayflowd.log":
+stub relayflowd: another relayflowd is already serving /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-race-HTfKDp/data
+stub relayflowd: bind failed: listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-72795d072983.sock
+[observer] token mint failed: network error: fetch failed; skipping observer link
+: expected 2 to be +0 // Object.is equality
+   ✓ refusals from a spawn that cannot produce a daemon > names daemon_start_failed and quotes the daemon log when startup dies 494ms
+   × refusals from a spawn that cannot produce a daemon > refuses a daemon speaking another protocol version instead of binding over it 428ms
+     → expected 'WARNING [unprovable_effects] Step "gr…' to contain 'REFUSED [daemon_protocol_mismatch]'
+ ❯ tests/pty-sidechannel.test.ts (11 tests | 6 failed) 4255ms
+   × view attach preserves worker completion and marks only drive 635ms
+     → expected '' to contain 'visible'
+   × drive attach preserves worker completion and marks only drive 631ms
+     → expected undefined to be true // Object.is equality
+   × passthrough attach preserves worker completion and marks only drive 696ms
+     → expected '' to contain 'visible'
+   ✓ none attach preserves worker completion and marks only drive 614ms
+   × broken handshake and occupied socket do not affect the sidechannel owner 2ms
+     → expected undefined to be defined
+   × rejects drive after EOF without marking human intervention 520ms
+     → expected false to be true // Object.is equality
+   × delivers all drive bytes in order across child stdin backpressure 497ms
+     → expected '' to be '4194304:4f1f8b605b8fd4ba8b9a16234a54d…' // Object.is equality
+ ❯ tests/plugin-loader.test.ts (9 tests | 1 failed) 2227ms
+   × journals plugin effect input and receipt through the daemon 2185ms
+     → journal client: connect failed: connect ENOENT /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-f429c50f03fe.sock
+ ✓ tests/worker-lease.test.ts (7 tests) 5ms
+ ✓ tests/yaml-helpers.test.ts (33 tests) 34ms
+ ✓ tests/typed-output.test.ts (14 tests) 97ms
+ ✓ tests/json-schema-bound.test.ts (71 tests) 1544ms
+   ✓ JSON Schema termination bound > walks a deep schema with an explicit stack rather than recursion 1314ms
+ ❯ tests/effect-channel.test.ts (5 tests | 4 failed) 10244ms
+   × journals one post across interruption before none 2201ms
+     → daemon startup failed: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-8d2762eca5f7.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × journals one post across interruption before record 2174ms
+     → daemon startup failed: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-a038ba8179c7.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × journals one post across interruption before confirm 2142ms
+     → daemon startup failed: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-34b7c2d71b64.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+   × journals one post across interruption before complete 3725ms
+     → daemon startup failed: Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-22dda1a0e2e3.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+
+ ✓ tests/mcp-lifecycle.test.ts (4 tests) 10ms
+ ✓ tests/model-selection.test.ts (10 tests) 12ms
+ ✓ tests/f-memory.test.ts (7 tests) 1047ms
+ ✓ tests/relayflowd-path.test.ts (10 tests) 3ms
+ ❯ tests/local-agent-live.test.ts (5 tests | 5 failed) 2099ms
+   × built CLI local agent against a real daemon > dispatches through the wrapper and keeps --json stdout report-shaped 560ms
+     → [observer] token mint failed: network error: fetch failed; skipping observer link
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-local-agent-kxXZch/data/relayflowd.log":
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-1de00edb785d.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+{"ok":false,"command":"run","resolutions":[],"diagnostics":[{"severity":"refusal","kind":"daemon_start_failed","message":"relayflowd exited 1 during startup. Last output in \"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-local-agent-kxXZch/data/relayflowd.log\":\nError: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-1de00edb785d.sock\n\nCaused by:\n    Operation not permitted (os error 1)"}],"path":"hello.flow.ts","socketPath":"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-1de00edb785d.sock"}
+: expected 2 to be +0 // Object.is equality
+   × built CLI local agent against a real daemon > runs beyond the initial 30-second lease without a second invocation 362ms
+     → [observer] token mint failed: network error: fetch failed; skipping observer link
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-local-agent-FCi81v/data/relayflowd.log":
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-72823645522d.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+{"ok":false,"command":"run","resolutions":[],"diagnostics":[{"severity":"refusal","kind":"daemon_start_failed","message":"relayflowd exited 1 during startup. Last output in \"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-local-agent-FCi81v/data/relayflowd.log\":\nError: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-72823645522d.sock\n\nCaused by:\n    Operation not permitted (os error 1)"}],"path":"hello.flow.ts","socketPath":"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-72823645522d.sock"}
+: expected 2 to be +0 // Object.is equality
+   × built CLI local agent against a real daemon > renders actual agent completion in text output 416ms
+     → REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-local-agent-t9Ov7h/data/relayflowd.log":
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-54e9b36d19b7.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+[observer] token mint failed: network error: fetch failed; skipping observer link
+: expected 2 to be +0 // Object.is equality
+   × built CLI local agent against a real daemon > returns a failed run when the agent process fails 366ms
+     → REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-local-agent-qomOoc/data/relayflowd.log":
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-de5f741d0aa7.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+[observer] token mint failed: network error: fetch failed; skipping observer link
+: expected 2 to be 1 // Object.is equality
+   × built CLI local agent against a real daemon > refuses a workspace it cannot pin before invoking the agent 394ms
+     → expected 'REFUSED [daemon_start_failed] relayfl…' to contain 'stream-only'
+ ❯ tests/webhook.test.ts (6 tests | 3 failed) 71ms
+   × webhook ingress > accepts JSON through atomic files without creating a daemon 8ms
+     → listen EPERM: operation not permitted 127.0.0.1
+   × webhook ingress > rejects malformed, oversized, traversal, and non-POST requests 2ms
+     → listen EPERM: operation not permitted 127.0.0.1
+   × webhook ingress > fails closed on a symlink inbox target 5ms
+     → listen EPERM: operation not permitted 127.0.0.1
+ ✓ tests/authored-plugin-effect.test.ts (6 tests) 47ms
+ ✓ tests/deploy.test.ts (9 tests) 3001ms
+   ✓ flows deploy file buckets > publishes the full signed layout byte-for-byte and redeploys as a noop 797ms
+   ✓ flows deploy file buckets > refuses a missing local bundle before creating the bucket 300ms
+   ✓ flows deploy file buckets > never labels a corrupt existing deployment as a noop 499ms
+ ❯ tests/yaml-local-agent-live.test.ts (7 tests | 7 failed) 5091ms
+   × YAML --local-agent through the built CLI and real daemon > runs with the checked step CLI and model and journals done 1393ms
+     → WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-NHcQgf/data/relayflowd.log":
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-f02e381247b8.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+{"ok":false,"command":"run","path":"flows/hello.flow.yaml","projectConfigPath":"/private/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-NHcQgf/flows.json","resolutions":[{"stepId":"greet","cli":"../agent.mjs","source":"step","model":"yaml-test-model"}],"diagnostics":[{"severity":"warning","kind":"editor_schema_missing","message":"For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json"},{"severity":"refusal","kind":"daemon_start_failed","message":"relayflowd exited 1 during startup. Last output in \"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-NHcQgf/data/relayflowd.log\":\nError: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-f02e381247b8.sock\n\nCaused by:\n    Operation not permitted (os error 1)"}],"socketPath":"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-f02e381247b8.sock"}
+: expected 2 to be +0 // Object.is equality
+   × YAML --local-agent through the built CLI and real daemon > runs with the checked named CLI and model and journals done 486ms
+     → WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-NfFaig/data/relayflowd.log":
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-5a2ef78a8832.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+{"ok":false,"command":"run","path":"flows/hello.flow.yaml","projectConfigPath":"/private/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-NfFaig/flows.json","resolutions":[{"stepId":"greet","cli":"../agent.mjs","source":"named","model":"yaml-test-model"}],"diagnostics":[{"severity":"warning","kind":"editor_schema_missing","message":"For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json"},{"severity":"refusal","kind":"daemon_start_failed","message":"relayflowd exited 1 during startup. Last output in \"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-NfFaig/data/relayflowd.log\":\nError: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-5a2ef78a8832.sock\n\nCaused by:\n    Operation not permitted (os error 1)"}],"socketPath":"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-5a2ef78a8832.sock"}
+: expected 2 to be +0 // Object.is equality
+   × YAML --local-agent through the built CLI and real daemon > runs with the checked flow CLI and model and journals done 600ms
+     → WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-kbqdc5/data/relayflowd.log":
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-e4c83769af74.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+{"ok":false,"command":"run","path":"flows/hello.flow.yaml","projectConfigPath":"/private/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-kbqdc5/flows.json","resolutions":[{"stepId":"greet","cli":"../agent.mjs","source":"flow","model":"yaml-test-model"}],"diagnostics":[{"severity":"warning","kind":"editor_schema_missing","message":"For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json"},{"severity":"refusal","kind":"daemon_start_failed","message":"relayflowd exited 1 during startup. Last output in \"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-kbqdc5/data/relayflowd.log\":\nError: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-e4c83769af74.sock\n\nCaused by:\n    Operation not permitted (os error 1)"}],"socketPath":"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-e4c83769af74.sock"}
+: expected 2 to be +0 // Object.is equality
+   × YAML --local-agent through the built CLI and real daemon > runs with the checked project CLI and model and journals done 572ms
+     → WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-0mnfaE/data/relayflowd.log":
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-ab5f63d92b00.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+{"ok":false,"command":"run","path":"flows/hello.flow.yaml","projectConfigPath":"/private/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-0mnfaE/flows.json","resolutions":[{"stepId":"greet","cli":"./agent.mjs","source":"project","model":"yaml-test-model"}],"diagnostics":[{"severity":"warning","kind":"editor_schema_missing","message":"For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json"},{"severity":"refusal","kind":"daemon_start_failed","message":"relayflowd exited 1 during startup. Last output in \"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-0mnfaE/data/relayflowd.log\":\nError: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-ab5f63d92b00.sock\n\nCaused by:\n    Operation not permitted (os error 1)"}],"socketPath":"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-ab5f63d92b00.sock"}
+: expected 2 to be +0 // Object.is equality
+   × YAML --local-agent through the built CLI and real daemon > still parks without --local-agent 756ms
+     → WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-pqVgLK/data/relayflowd.log":
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-6e27ecb877f7.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+{"ok":false,"command":"run","path":"flows/hello.flow.yaml","projectConfigPath":"/private/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-pqVgLK/flows.json","resolutions":[{"stepId":"greet","cli":"../agent.mjs","source":"step","model":"yaml-test-model"}],"diagnostics":[{"severity":"warning","kind":"editor_schema_missing","message":"For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json"},{"severity":"refusal","kind":"daemon_start_failed","message":"relayflowd exited 1 during startup. Last output in \"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-pqVgLK/data/relayflowd.log\":\nError: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-6e27ecb877f7.sock\n\nCaused by:\n    Operation not permitted (os error 1)"}],"socketPath":"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-6e27ecb877f7.sock"}
+: expected 2 to be 3 // Object.is equality
+   × YAML --local-agent through the built CLI and real daemon > reports the agent process failure 638ms
+     → WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-Lm0tUQ/data/relayflowd.log":
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-480ed1a76276.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+{"ok":false,"command":"run","path":"flows/hello.flow.yaml","projectConfigPath":"/private/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-Lm0tUQ/flows.json","resolutions":[{"stepId":"greet","cli":"../agent.mjs","source":"step","model":"yaml-test-model"}],"diagnostics":[{"severity":"warning","kind":"editor_schema_missing","message":"For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json"},{"severity":"refusal","kind":"daemon_start_failed","message":"relayflowd exited 1 during startup. Last output in \"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-Lm0tUQ/data/relayflowd.log\":\nError: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-480ed1a76276.sock\n\nCaused by:\n    Operation not permitted (os error 1)"}],"socketPath":"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-480ed1a76276.sock"}
+: expected 2 to be 1 // Object.is equality
+   × YAML --local-agent through the built CLI and real daemon > preserves declared workspace surfaces that the local worker cannot pin 645ms
+     → WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-k9qCCp/data/relayflowd.log":
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-8611097ec8af.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+{"ok":false,"command":"run","path":"flows/hello.flow.yaml","projectConfigPath":"/private/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-k9qCCp/flows.json","resolutions":[{"stepId":"greet","cli":"../agent.mjs","source":"step","model":"yaml-test-model"}],"diagnostics":[{"severity":"warning","kind":"editor_schema_missing","message":"For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json"},{"severity":"refusal","kind":"daemon_start_failed","message":"relayflowd exited 1 during startup. Last output in \"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-yaml-local-k9qCCp/data/relayflowd.log\":\nError: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-8611097ec8af.sock\n\nCaused by:\n    Operation not permitted (os error 1)"}],"socketPath":"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-8611097ec8af.sock"}
+: expected 2 to be 3 // Object.is equality
+ ✓ tests/local-dev-ux.test.ts (8 tests) 258ms
+ ❯ tests/webhook-live.test.ts (3 tests | 3 failed) 30259ms
+   × flows serve-webhook writes JSON before the daemon starts, then journals and archives exactly once 10026ms
+     → webhook integration timed out: FAILED [webhook_server] listen EPERM: operation not permitted 127.0.0.1
+
+   × replays a dropped file after SIGKILL before spawn 10193ms
+     → webhook integration timed out: FAILED [webhook_server] listen EPERM: operation not permitted 127.0.0.1
+
+   × resumes the same journal after SIGKILL after spawn and before acknowledgement 10039ms
+     → webhook integration timed out: FAILED [webhook_server] listen EPERM: operation not permitted 127.0.0.1
+
+ ✓ tests/dependency-validation.test.ts (6 tests) 823ms
+   ✓ dependency validation > accepts a valid 10,000-step reverse chain through every direct public boundary 352ms
+   ✓ dependency validation > bounds the author-facing path for a 10,000-step cycle 451ms
+ ✓ tests/input-binding.test.ts (12 tests) 295ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 105ms
+ ✓ tests/scope-compiler.test.ts (25 tests) 18ms
+ ✓ tests/bin.test.ts (7 tests) 8914ms
+   ✓ built flows binary > refuses through a symlink to the built artifact 5146ms
+   ✓ built flows binary > refuses through a symlinked directory component 654ms
+   ✓ built flows binary > classifies a signal-terminated auth probe as probe_failed 994ms
+   ✓ built flows binary > classifies an unavailable PATH resolver as probe_failed 698ms
+   ✓ built flows binary > does not describe a present non-executable CLI as missing 713ms
+   ✓ built flows binary > runs one auth probe for three steps sharing a flow CLI 706ms
+ ✓ tests/budget-attribution.test.ts (4 tests) 6ms
+(node:24470) PromiseRejectionHandledWarning: Promise rejection was handled asynchronously (rejection id: 1)
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ tests/cli-watch.test.ts (10 tests | 9 failed) 49312ms
+   × flows check --watch > rechecks syntax errors, clears once, and returns the last refusal on Ctrl-C 5005ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > streams JSON lines without ANSI, recovers after atomic saves, and exits zero after repair 5006ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > coalesces 20 concurrent saves into at most two rechecks 5002ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > watches transitive relative use imports, cycles, and nearest config changes 6492ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > refreshes the import graph and notices missing imports being created 5150ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > reloads authored TypeScript instead of reusing the first imported definition 5015ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > detects a nearer config appearing and falls back after it is deleted 5132ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > keeps watching after the target is deleted and recreated 7407ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > queues changes during a slow check without overlapping checks 5052ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ✓ tests/hn-poller.test.ts (6 tests) 19ms
+ ✓ tests/dir-watcher-poller.test.ts (6 tests) 3ms
+ ❯ tests/flow-executor-chain.test.ts (12 tests | 12 failed) 58944ms
+   × flow executor LLM and output-binding chain > runs f.llm -> f.agent -> f.run with schema-verified journal output and the exact allowed model 5014ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flow executor LLM and output-binding chain > fails invalid LLM output before the next step: not JSON 5004ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flow executor LLM and output-binding chain > fails invalid LLM output before the next step: {"message":7} 5003ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flow executor LLM and output-binding chain > retains tagged-template text output 5003ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flow executor LLM and output-binding chain > preserves JSON values without promoting them to process wrappers: null 5004ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flow executor LLM and output-binding chain > preserves JSON values without promoting them to process wrappers: [1,2] 5107ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flow executor LLM and output-binding chain > preserves JSON values without promoting them to process wrappers: "hello" 5153ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flow executor LLM and output-binding chain > refuses a model outside flows.json before a run or adapter execution 5013ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flow executor LLM and output-binding chain > runs the authored LLM path through the built flows CLI 5126ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flow executor LLM and output-binding chain > passes a declarative verified value through an agent into a deterministic artifact 7412ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flow executor LLM and output-binding chain > journals a missing optional field as a failure before the consuming command executes 5030ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flow executor LLM and output-binding chain > flows run consumes YAML bindings and resume reuses the original journal output 1072ms
+     → [observer] token mint failed: network error: fetch failed; skipping observer link
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-chain-40sloh/data/relayflowd.log":
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-2db2a1febb70.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+: expected 2 to be +0 // Object.is equality
+ ✓ tests/hello-deterministic.test.ts (5 tests) 9ms
+ ✓ tests/yaml-helper-effect.test.ts (4 tests) 679ms
+ ❯ tests/run-from-digest.test.ts (6 tests | 1 failed) 11371ms
+   × flows run digest input > submits the sealed canonical spec through the normal journal path without checkout 3448ms
+     → listen EPERM: operation not permitted /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-969a1c94e98e.sock
+   ✓ flows run digest input > uses a verified cache hit even after the bucket is removed 589ms
+   ✓ flows run digest input > resolves deploy.bucket from flows.json and honors explicit override 2334ms
+   ✓ flows run digest input > refuses an unconfigured bucket 1285ms
+   ✓ flows run digest input > refuses tampered spec.canonical.json before creating run data 1465ms
+   ✓ flows run digest input > refuses tampered identity.json before creating run data 2246ms
+ ✓ tests/budget-preflight.test.ts (16 tests) 14ms
+ ✓ tests/work-package-validator.test.ts (7 tests) 7ms
+ ❯ tests/yaml-helper-live.test.ts (1 test | 1 failed) 2188ms
+   × runs compiled YAML helpers through the built CLI and kernel effect journal 2188ms
+     → {"ok":false,"command":"run","path":"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/yaml-helper-live-K7vnCQ/notify.yaml","resolutions":[],"diagnostics":[{"severity":"warning","kind":"unprovable_effects","stepId":"before","message":"Step \"before\" command \"true\" resolves, but its effects cannot be proven before execution."},{"severity":"warning","kind":"unprovable_effects","stepId":"after","message":"Step \"after\" command \"true\" resolves, but its effects cannot be proven before execution."},{"severity":"refusal","kind":"daemon_start_failed","message":"relayflowd exited 1 during startup. Last output in \"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/yaml-helper-live-K7vnCQ/data/relayflowd.log\":\nError: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-d641c6113fd4.sock\n\nCaused by:\n    Operation not permitted (os error 1)"}],"socketPath":"/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-d641c6113fd4.sock"}
+WARNING [unprovable_effects] Step "before" command "true" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "after" command "true" resolves, but its effects cannot be proven before execution.
+REFUSED [daemon_start_failed] relayflowd exited 1 during startup. Last output in "/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/yaml-helper-live-K7vnCQ/data/relayflowd.log":
+Error: bind socket /var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/relayflowd-d641c6113fd4.sock
+
+Caused by:
+    Operation not permitted (os error 1)
+: expected 2 to be +0 // Object.is equality
+ ✓ tests/plugin-add.test.ts (7 tests) 4511ms
+   ✓ installs a real offline npm fixture and includes declarations 2518ms
+   ✓ typechecks the augmented verb and rejects unknown namespaces 1751ms
+ ✓ tests/model-pricing.test.ts (8 tests) 8ms
+ ✓ tests/classify-outcome.test.ts (2 tests) 2309ms
+   ✓ classifyOutcome > gives up and reports when a running run never becomes classifiable 2143ms
+ ↓ tests/real-cli-adapters.test.ts (3 tests | 3 skipped)
+ ❯ tests/authored-use-loader.test.ts (0 test)
+ ❯ tests/memoization.test.ts (0 test)
+ ❯ tests/parse-json-output.test.ts (0 test)
+ ❯ tests/cli-adapter.test.ts (0 test)
+ ❯ tests/bundle-preflight.test.ts (4 tests | 3 failed) 2853ms
+   ✓ bundle execution preflight > ignores surrounding cache configuration on a verified cache hit 1841ms
+   × bundle execution preflight > uses the built alias for a nameless flow even in a digest-only cache directory 948ms
+     → expected 2 to be +0 // Object.is equality
+   × bundle execution preflight > still rejects a named spec requested under another alias 62ms
+     → ENOSPC: no space left on device, open '/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-deploy-BDvujg/dist/flows/.build-DWlxuE/metadata.json'
+   × bundle execution preflight > still checks command availability without project configuration 1ms
+     → ENOSPC: no space left on device, mkdtemp '/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/flows-deploy-O7Tll2'
+ ❯ tests/journal-client-completion.test.ts (0 test)
+ ❯ tests/worker-cli-abort.test.ts (0 test)
+ ❯ tests/direct-run-failure.test.ts (0 test)
+ ❯ tests/budget-authored-live.test.ts (0 test)
+ ❯ tests/slack-writeback.test.ts (0 test)
+ ❯ tests/bundle-transport.test.ts (0 test)
+ ❯ tests/cli-progress-wait.test.ts (0 test)
+ ❯ tests/run-digest-live.test.ts (0 test)
+ ❯ tests/placement.test.ts (0 test)
+ ❯ tests/run-digest.test.ts (0 test)
+ ❯ tests/memory.test.ts (0 test)
+ ❯ tests/worker-platform.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 18 ⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-use-loader.test.ts [ tests/authored-use-loader.test.ts ]
+Error: ENOSPC: no space left on device, open '/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/CEIJNJJF6kZvWoAmgwjUJ/ssr/30f50a4f0bd903ae5628051a07953a46ba487415'
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/194]⎯
+
+ FAIL  tests/budget-authored-live.test.ts [ tests/budget-authored-live.test.ts ]
+Error: ENOSPC: no space left on device, open '/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/CEIJNJJF6kZvWoAmgwjUJ/ssr/b9d631f1254be129f56bcdc0ec2ea9f8a8b2af2d'
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/194]⎯
+
+ FAIL  tests/bundle-transport.test.ts [ tests/bundle-transport.test.ts ]
+Error: ENOSPC: no space left on device, open '/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/CEIJNJJF6kZvWoAmgwjUJ/ssr/0277ae37872dd56683e816b137746512f0410f96'
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/194]⎯
+
+ FAIL  tests/cli-adapter.test.ts [ tests/cli-adapter.test.ts ]
+Error: ENOSPC: no space left on device, open '/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/CEIJNJJF6kZvWoAmgwjUJ/ssr/8365134012f2b02772f04d675c5b3b9fb8b83ea4'
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/194]⎯
+
+ FAIL  tests/cli-progress-wait.test.ts [ tests/cli-progress-wait.test.ts ]
+Error: ENOSPC: no space left on device, open '/var/folders/_z/f_fpl8j533g_r63706k2xvp00000gn/T/CEIJNJJF6kZvWoAmgwjUJ/ssr/05b6a45a28d11295d61113caf2326a580e7da34d'
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/194]⎯
+
+
+Node.js v25.8.1

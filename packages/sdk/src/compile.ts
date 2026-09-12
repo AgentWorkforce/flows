@@ -40,6 +40,7 @@ import { canonicalize, specHash } from './canonical.js';
 import { validateOutputDeclaration } from './output-schema.js';
 import { validateSpec, type ValidationResult } from './validate.js';
 import { snapshotJsonValue } from './json-value.js';
+import { expandYamlHelpers } from './yaml-helpers.js';
 
 export class CompileError extends Error {
   readonly errors: string[];
@@ -122,6 +123,7 @@ export function compileSpec(spec: unknown): CompiledFlowSpec {
   let snapshot: unknown;
   try {
     snapshot = snapshotJsonValue(spec, 'spec');
+    snapshot = expandYamlHelpers(snapshot);
   } catch (error) {
     throw new CompileError([
       error instanceof Error ? error.message : 'spec: expected JSON-compatible data',

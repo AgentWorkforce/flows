@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:pat
 import { spawnSync } from 'node:child_process';
 import { parse as parseYaml } from 'yaml';
 import { CompileError, compileSpec, kernelToAuthoring } from '../compile.js';
+import { helperReady } from '../yaml-helper-effect.js';
 import {
   adapterIdentification,
   authenticationProbe,
@@ -270,6 +271,7 @@ function findConfig(start: string): string | undefined {
 
 function systemProbes(flowDirectory: string, config: ProjectConfig): PreflightProbes {
   return {
+    helper: helperReady,
     cli: (cli, source, model) => probeCli(cli, source === 'project' ? config.directory : flowDirectory, model),
     executor: (trigger) => config.executors.includes(trigger.executor),
     command: (binary) => executableExists(binary, flowDirectory),
