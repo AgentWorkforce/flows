@@ -31,7 +31,7 @@ describe('agent-relay-transport (#385)', () => {
   });
 
   it('POSTs to /api/v1/agents/spawn with bearer auth and returns a handle', async () => {
-    const fetchMock = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
       expect(String(url)).toBe('https://cast.agentrelay.com/api/v1/agents/spawn');
       expect(init?.method).toBe('POST');
       const headers = init?.headers as Record<string, string>;
