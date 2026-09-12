@@ -99,7 +99,13 @@ export async function agentRelaySpawn(
   request: AgentRelaySpawnRequest,
   env: AgentRelayEnv & { fetch?: typeof fetch } = {},
 ): Promise<AgentSpawnHandle> {
-  const resolved = { ...readAgentRelayEnv(), ...env };
+  // Only fall back to process.env if the caller didn't supply the required
+  // fields directly. Tests pass { apiKey, fetch } inline; they shouldn't need
+  // to also set RELAY_API_KEY in the runner env.
+  const fromEnv: Partial<AgentRelayEnv> = env.apiKey
+    ? { baseUrl: env.baseUrl || 'https://cast.agentrelay.com' }
+    : readAgentRelayEnv();
+  const resolved = { ...fromEnv, ...env };
   const url = new URL('/api/v1/agents/spawn', resolved.baseUrl).toString();
   const doFetch: typeof fetch = env.fetch ?? (globalThis as typeof globalThis & { fetch: typeof fetch }).fetch;
   if (typeof doFetch !== 'function') {
