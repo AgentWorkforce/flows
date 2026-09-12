@@ -327,30 +327,6 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
 /// A completion reason in the journal's own vocabulary rather than Rust's.
 ///
 /// Exhaustive on purpose. An earlier version serialized and fell back to
-/// `format!("{reason:?}")`, which meant the fallback path could journal
-/// `WorkerError` beside `completionReason: worker_error` — the same
-/// engine-internal spelling leak DRIVE-LOG records being removed from
-/// `RunSnapshot`. A match with no wildcard cannot leak: adding a variant is a
-/// compile error here until it is given its journal label, so the boundary
-/// fails closed at build time rather than at runtime.
-///
-/// These strings must stay identical to the `rename_all = "snake_case"`
-/// spellings `CompletionReason` serializes with, which
-/// `every_reason_label_matches_its_serialized_form` pins.
-fn reason_label(reason: &CompletionReason) -> &'static str {
-    match reason {
-        CompletionReason::Success => "success",
-        CompletionReason::VerificationFailed => "verification_failed",
-        CompletionReason::RetriesExhausted => "retries_exhausted",
-        CompletionReason::LeaseExpired => "lease_expired",
-        CompletionReason::Crashed => "crashed",
-        CompletionReason::Timeout => "timeout",
-        CompletionReason::WorkerError => "worker_error",
-        CompletionReason::BudgetExceeded => "budget_exceeded",
-        CompletionReason::Canceled => "canceled",
-    }
-}
-
 /// `semantic_executions` is the number of *completed* semantic executions
 /// before this attempt (`StepRuntime::semantic_executions`). The attempt being
 /// completed here ran to a result, so it is the `semantic_executions + 1`-th
@@ -380,7 +356,7 @@ pub fn completion_actions(
             gate: "execution".to_owned(),
             verdict: crate::entry::VerificationVerdict::Fail,
             detail: result.failure_detail.clone().unwrap_or_else(|| {
-                format!("worker reported {} without detail", reason_label(reason))
+                format!("worker reported {} without detail", reason.journal_label())
             }),
         }),
     };

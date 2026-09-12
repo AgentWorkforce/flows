@@ -77,10 +77,19 @@ impl Engine<WallClock> {
         // output the worker sent with its failing completion — and that is
         // exactly what gets nulled. Capture it here, bounded, or the run records
         // that the step failed and discards every trace of why.
-        let mut failure_detail = failure_reason
-            .is_some()
-            .then(|| worker_failure_detail(&completion.output))
-            .flatten();
+        //
+        // ORDERING NOTE (#197 item 4): this capture MUST run before any
+        // `reject()` call below. If it did not, `reject`'s "keep both accounts"
+        // path would see a leftover `failure_detail` from a completion whose
+        // ORIGINAL `completion_reason` was `Success` and format
+        // "rejected: …; worker reported: …" for a success. The explicit
+        // `match` (rather than the tighter `.is_some().then().flatten()`)
+        // makes the "only on non-success" precondition self-evident so a
+        // future edit that moves this line downward reads as suspicious.
+        let mut failure_detail = match failure_reason {
+            Some(_) => worker_failure_detail(&completion.output),
+            None => None,
+        };
         let mut rejected_completion = false;
         let mut reject = |error: anyhow::Error| {
             rejected_completion = true;
@@ -378,20 +387,90 @@ fn next_stream_offset(journal: &SqliteJournal, stream: &str) -> Result<u64> {
     Ok(next)
 }
 
-/// The worker's own account of a failure, bounded so a large or hostile output
-/// cannot bloat the journal. `None` when the worker sent nothing useful, which
-/// keeps the caller's fallback ("reported X without detail") honest rather than
-/// recording an empty string as though it were a diagnostic.
+/// The worker's own account of a failure, bounded — both in the journal AND
+/// during render — so a large or hostile output cannot bloat the process's
+/// heap OR the run's journal. `None` when the worker sent nothing useful,
+/// which keeps the caller's fallback ("reported X without detail") honest
+/// rather than recording an empty string as though it were a diagnostic.
+///
+/// #197 (item 3) previously said "bounded" when only the OUTPUT was bounded;
+/// the render inside this function was unbounded, so a multi-megabyte JSON
+/// object was fully materialized into memory before anything was measured or
+/// truncated. `write_bounded_json` now stops emitting once
+/// `MAX_RENDER_BYTES` has been produced, and the truncation suffix is added
+/// after the cheap byte cap, not after a full render.
 fn worker_failure_detail(output: &Value) -> Option<String> {
     // Chars, not bytes: the cut below is by char index. The suffix reports the
     // remainder in bytes, which is why both units appear in one function.
     const MAX_CHARS: usize = 2000;
+    // UTF-8 upper-bounds a char at 4 bytes, plus slack for the "… (N bytes
+    // truncated)" suffix computation. This ceiling ONLY caps the render; the
+    // final cut still happens on char boundaries below.
+    const MAX_RENDER_BYTES: usize = MAX_CHARS * 4 + 256;
     if output.is_null() {
         return None;
     }
+    let mut render_truncated = false;
     let rendered = match output {
-        Value::String(text) => text.clone(),
-        other => other.to_string(),
+        Value::String(text) => {
+            if text.len() > MAX_RENDER_BYTES {
+                render_truncated = true;
+                // Char-boundary-safe slice for the pre-cap head.
+                let cut = text
+                    .char_indices()
+                    .take_while(|(byte_index, _)| *byte_index <= MAX_RENDER_BYTES)
+                    .last()
+                    .map(|(byte_index, ch)| byte_index + ch.len_utf8())
+                    .unwrap_or(0);
+                text[..cut].to_owned()
+            } else {
+                text.clone()
+            }
+        }
+        other => {
+            // A hand-rolled `Write` that stops once its budget is exhausted,
+            // so `to_writer` never allocates a full render of a hostile
+            // object before we get a chance to cut it.
+            struct BoundedWriter {
+                buf: Vec<u8>,
+                budget: usize,
+                truncated: bool,
+            }
+            impl std::io::Write for BoundedWriter {
+                fn write(&mut self, chunk: &[u8]) -> std::io::Result<usize> {
+                    if self.budget == 0 {
+                        self.truncated = true;
+                        return Ok(chunk.len());
+                    }
+                    let take = chunk.len().min(self.budget);
+                    self.buf.extend_from_slice(&chunk[..take]);
+                    self.budget -= take;
+                    if take < chunk.len() {
+                        self.truncated = true;
+                    }
+                    // Report full consumption so serde does not spin.
+                    Ok(chunk.len())
+                }
+                fn flush(&mut self) -> std::io::Result<()> {
+                    Ok(())
+                }
+            }
+            let mut writer = BoundedWriter {
+                buf: Vec::with_capacity(MAX_RENDER_BYTES.min(4096)),
+                budget: MAX_RENDER_BYTES,
+                truncated: false,
+            };
+            let _ = serde_json::to_writer(&mut writer, other);
+            render_truncated = writer.truncated;
+            // Repair a mid-multi-byte cut so `String::from_utf8` never fails.
+            while !writer.buf.is_empty() && std::str::from_utf8(&writer.buf).is_err() {
+                writer.buf.pop();
+            }
+            match String::from_utf8(writer.buf) {
+                Ok(text) => text,
+                Err(_) => String::new(),
+            }
+        }
     };
     let trimmed = rendered.trim();
     if trimmed.is_empty() {
@@ -400,7 +479,13 @@ fn worker_failure_detail(output: &Value) -> Option<String> {
     // Truncate on a char boundary; `output` is arbitrary worker-supplied data
     // and slicing it by byte index would panic on multi-byte input.
     Some(match trimmed.char_indices().nth(MAX_CHARS) {
-        None => trimmed.to_owned(),
+        None => {
+            if render_truncated {
+                format!("{trimmed}… (render bounded)")
+            } else {
+                trimmed.to_owned()
+            }
+        }
         Some((cut, _)) => format!(
             "{}… ({} bytes truncated)",
             &trimmed[..cut],
@@ -455,16 +540,21 @@ mod worker_failure_detail_tests {
     /// trusts it.
     #[test]
     fn truncation_does_not_split_a_multi_byte_char() {
-        // 3000 three-byte chars = 9000 bytes.
-        let output = json!("€".repeat(3000));
+        // 2500 three-byte chars = 7500 bytes: above the char cap (2000) so
+        // the char cut happens, but below MAX_RENDER_BYTES (~8256) so the
+        // render cap does NOT preempt it. The char-boundary invariant is
+        // what this test exists to pin, so keep the input in the char-cap
+        // regime and let `render_is_bounded_before_allocation_for_hostile_*`
+        // cover the render cap.
+        let output = json!("€".repeat(2500));
         let detail = worker_failure_detail(&output).expect("detail for a long output");
         assert!(
             detail.contains('…'),
             "expected a truncation marker, got {detail:?}"
         );
-        // Cut at 2000 CHARS = 6000 bytes, so 3000 bytes remain.
+        // Cut at 2000 CHARS = 6000 bytes; input is 7500 bytes, so 1500 bytes remain.
         assert!(
-            detail.contains("3000 bytes truncated"),
+            detail.contains("1500 bytes truncated"),
             "expected the byte remainder, got {detail:?}"
         );
         assert_eq!(detail.chars().take_while(|c| *c == '€').count(), 2000);
@@ -474,5 +564,51 @@ mod worker_failure_detail_tests {
     fn an_output_at_the_boundary_is_not_truncated() {
         let exact = "a".repeat(2000);
         assert_eq!(worker_failure_detail(&json!(exact.clone())), Some(exact));
+    }
+
+    /// #197 item 3: the render itself is bounded. Before the fix, a
+    /// pathological JSON object would allocate its full serialization into
+    /// memory before anything measured or cut it, which was the exact
+    /// "bloat the process" case the docstring claimed to prevent. Give the
+    /// worker a JSON object whose full render would be ~500 KB and confirm
+    /// (a) we still return a bounded detail, and (b) we mark it as bounded.
+    #[test]
+    fn render_is_bounded_before_allocation_for_hostile_json() {
+        // 50_000-element array of small integers → ~500 KB serialized.
+        let big: Vec<Value> = (0..50_000_i64).map(|n| json!(n)).collect();
+        let detail = worker_failure_detail(&Value::Array(big))
+            .expect("detail for a large output");
+        // Truncation was applied AND signaled — the caller can tell the
+        // difference between a short detail that fit and a bounded render.
+        assert!(
+            detail.contains('…'),
+            "expected a truncation marker, got {} bytes",
+            detail.len()
+        );
+        // Render was capped: `MAX_RENDER_BYTES = MAX_CHARS * 4 + 256 = 8256`;
+        // trimmed detail should stay near that ceiling with slack for the
+        // suffix ("… (N bytes truncated)"). Pin at a generous ~9 KB so
+        // future MAX_CHARS bumps don't need to touch this test.
+        assert!(
+            detail.len() < 9_000,
+            "detail bloated past render bound: {} bytes",
+            detail.len()
+        );
+    }
+
+    /// A big STRING output also gets its render bounded — the previous cheap
+    /// `text.clone()` allocated the full string before the char-boundary cut.
+    #[test]
+    fn render_is_bounded_before_allocation_for_hostile_string() {
+        // 500 KB of ASCII.
+        let big: String = "x".repeat(500_000);
+        let detail = worker_failure_detail(&json!(big))
+            .expect("detail for a large string");
+        assert!(detail.contains('…'), "expected truncation marker");
+        assert!(
+            detail.len() < 9_000,
+            "detail bloated past render bound: {} bytes",
+            detail.len()
+        );
     }
 }

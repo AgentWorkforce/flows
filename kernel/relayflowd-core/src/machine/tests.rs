@@ -637,29 +637,17 @@ fn worker_reported_failure_without_detail_still_records_a_verification() {
 /// place fails here instead of silently showing a reader two names for one
 /// completion.
 ///
-/// The list below is itself hand-maintained: `reason_label`'s wildcard-free
-/// match makes a NEW variant a compile error there, but a new variant simply
-/// missing from this array is not caught by anything. Add variants in both
-/// places. (An iterable-enum derive would remove the second list; that is a
-/// dependency decision, not one to smuggle into a diagnostic fix.)
+/// #197 moved the drift test onto `CompletionReason` itself, beside the label.
+/// This wrapper stays only to catch a rename of `journal_label()` at a
+/// familiar call site — the real invariant lives in `entry.rs`'s
+/// `completion_reason_tests::every_journal_label_matches_serialized`.
 #[test]
 fn every_reason_label_matches_its_serialized_form() {
-    for reason in [
-        CompletionReason::Success,
-        CompletionReason::VerificationFailed,
-        CompletionReason::RetriesExhausted,
-        CompletionReason::LeaseExpired,
-        CompletionReason::Crashed,
-        CompletionReason::Timeout,
-        CompletionReason::WorkerError,
-        CompletionReason::BudgetExceeded,
-        CompletionReason::Canceled,
-    ] {
+    for reason in CompletionReason::ALL {
         let serialized = serde_json::to_value(reason).unwrap();
         assert_eq!(
             serialized.as_str().expect("a string spelling"),
-            super::reason_label(&reason),
-            "journal label drifted from the serialized form for {reason:?}"
+            reason.journal_label(),
         );
     }
 }
