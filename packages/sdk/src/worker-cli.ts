@@ -7,12 +7,19 @@ import {
   llmExecution,
   cliAdapterKind,
   type CliInvocation,
+  type CliAdapterKind,
 } from './cli-adapter.js';
 import {
   runWrapperSession,
   type WrapperSessionLimits,
 } from './wrapper-session.js';
 import { wrapperEnvironment } from './wrapper-runtime.js';
+import {
+  agentRelaySpawn,
+  deriveAgentName,
+  AgentRelayTransportError,
+  type AgentTransport,
+} from './agent-relay-transport.js';
 
 /** Present only when a dispatched agent step carries a journaled wake context. */
 export const WAKE_CONTEXT_ENV = 'RELAYFLOW_WAKE_CONTEXT';
@@ -32,6 +39,15 @@ export interface WorkerCliResult {
   stderr_tail: string;
 }
 
+/**
+ * Optional identity threaded through so the relay transport can derive a
+ * stable, DM-addressable agent name (flows#385).
+ */
+export interface AgentRelayContext {
+  runId: string;
+  stepId: string;
+}
+
 export async function runAgentCli(
   cli: string,
   instruction: string,
@@ -42,6 +58,8 @@ export async function runAgentCli(
   mode: 'agent' | 'llm' = 'agent',
   sidechannel?: SidechannelContext,
   cwd?: string,
+  transport: AgentTransport = 'direct',
+  relayContext?: AgentRelayContext,
 ): Promise<WorkerCliResult> {
   signal?.throwIfAborted();
   if (signal !== undefined && process.platform === 'win32') {
@@ -59,6 +77,10 @@ export async function runAgentCli(
       wrapperLimits,
       signal,
     )), model);
+  }
+
+  if (mode === 'agent' && transport === 'relay') {
+    return runViaAgentRelay(kind, instruction, model, relayContext, cwd);
   }
 
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -83,6 +105,56 @@ export async function runAgentCli(
   const args = [...invocation.args];
   args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'json'] : ['--json']));
   return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd), kind), model);
+}
+
+/**
+ * Relay-transport path (flows#385). Fires an agent-relay spawn HTTP request
+ * that registers the CLI as a first-class workspace participant DMs can
+ * steer, then reports the spawn outcome as a WorkerCliResult. Streaming
+ * completion tracking is a follow-up — this initial slice proves the
+ * transport wire and returns quickly with the registered name in stdout.
+ */
+async function runViaAgentRelay(
+  kind: CliAdapterKind,
+  instruction: string,
+  model: string | undefined,
+  relayContext: AgentRelayContext | undefined,
+  worker_cwd: string | undefined,
+): Promise<WorkerCliResult> {
+  if (kind === 'relayflows-wrapper-v1') {
+    return {
+      exit_code: null,
+      stdout_tail: '',
+      stderr_tail: 'agent-relay transport does not support the relayflows-wrapper-v1 same-process session.',
+    };
+  }
+  if (relayContext === undefined) {
+    return {
+      exit_code: null,
+      stdout_tail: '',
+      stderr_tail: 'agent-relay transport requires a relayContext (runId, stepId); the caller did not thread it through.',
+    };
+  }
+  const name = deriveAgentName(relayContext.runId, relayContext.stepId);
+  try {
+    const handle = await agentRelaySpawn({
+      name,
+      cli: kind,
+      task: instruction,
+      ...(model === undefined ? {} : { model }),
+      ...(worker_cwd === undefined ? {} : { worker_cwd }),
+    });
+    return {
+      exit_code: 0,
+      stdout_tail: JSON.stringify({ registeredName: handle.registeredName, invocationId: handle.invocationId }),
+      stderr_tail: '',
+    };
+  } catch (error) {
+    const detail = error instanceof AgentRelayTransportError
+      ? error.message
+      : `agent-relay spawn failed: ${(error as Error).message ?? String(error)}`;
+    return { exit_code: null, stdout_tail: '', stderr_tail: detail };
+  }
 }
 
 async function spawnInvocation(

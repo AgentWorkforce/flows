@@ -81,6 +81,7 @@ const VERB_FIELD_VALUES: Record<string, unknown> = {
   permissions: { accessPreset: 'readonly' },
   output: { type: 'object' },
   cwd: '/tmp/foreign-cwd',
+  transport: 'direct',
 };
 
 /**
@@ -200,7 +201,7 @@ describe('closed per-verb step fields', () => {
     expect(STEP_FIELDS_BY_TYPE).toEqual({
       deterministic: ['command', 'timeoutMs', 'lease_ms'],
       llm: ['prompt', 'model', 'cli', 'output'],
-      agent: ['instruction', 'agent', 'cli', 'model', 'cwd', 'surfaces', 'recoveryMode', 'permissions', 'output'],
+      agent: ['instruction', 'agent', 'cli', 'model', 'cwd', 'transport', 'surfaces', 'recoveryMode', 'permissions', 'output'],
     });
     expect(CROSS_VERB_STEP_FIELDS.map(({ label }) => label).sort()).toEqual([
       'agent foreign command',
@@ -217,6 +218,7 @@ describe('closed per-verb step fields', () => {
       'deterministic foreign prompt',
       'deterministic foreign recoveryMode',
       'deterministic foreign surfaces',
+      'deterministic foreign transport',
       'llm foreign agent',
       'llm foreign command',
       'llm foreign cwd',
@@ -226,6 +228,7 @@ describe('closed per-verb step fields', () => {
       'llm foreign recoveryMode',
       'llm foreign surfaces',
       'llm foreign timeoutMs',
+      'llm foreign transport',
     ]);
   });
 

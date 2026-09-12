@@ -34,7 +34,8 @@
     "tests/named-gates.test.ts",
     "tests/build-gate.test.ts",
     "tests/scope-preflight.test.ts",
-    "tests/worker-cli-cwd.test.ts"
+    "tests/worker-cli-cwd.test.ts",
+    "tests/agent-relay-transport.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
