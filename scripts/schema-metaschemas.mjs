@@ -42,7 +42,17 @@ export function outputMetaschemas(require) {
         const fragment = target.hash;
         target.hash = '';
         const name = ids.get(target.href);
-        if (!name) throw new Error(`Unbundled meta-schema reference ${target.href}`);
+        if (!name) {
+          throw new Error(
+            `Unbundled meta-schema reference ${target.href}.\n`
+            + `Add the referenced schema's $id to the bundled roots list in\n`
+            + `scripts/schema-metaschemas.mjs so this generator can inline it under\n`
+            + `#/$defs/<name>. Bundled roots are the entries fed to \`ids\`. This pin\n`
+            + `exists so a new schema can't silently produce a JSON Schema file with\n`
+            + `an unresolvable external $ref — Ajv would then throw at load time and\n`
+            + `every consumer would see a runtime failure with no context.`,
+          );
+        }
         result.$ref = `#/$defs/${name}${fragment.startsWith('#/') ? fragment.slice(1) : ''}`;
       } else if (key === 'dependencies') {
         result.dependentRequired = child;
