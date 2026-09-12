@@ -93,7 +93,12 @@ const VERB_FIELD_VALUES: Record<string, unknown> = {
  */
 function foreignFieldValue(field: string): unknown {
   if (!Object.hasOwn(VERB_FIELD_VALUES, field)) {
-    throw new Error(`verb-field-lint: no sample value declared for foreign field "${field}"`);
+    throw new Error(`verb-field-lint: no sample value declared for foreign field "${field}".
+Add an entry to \`VERB_FIELD_VALUES\` in packages/sdk/tests/verb-field-lint.test.ts:
+  ${field}: <a-runtime-valid-sample-value>
+This pin exists because the generator would otherwise silently produce
+{${field}: undefined}, which passes in-memory validation but drops on YAML
+serialization — the test would pretend to prove a coverage it doesn't.`);
   }
   return VERB_FIELD_VALUES[field];
 }
