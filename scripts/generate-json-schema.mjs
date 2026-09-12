@@ -16,6 +16,15 @@ const outputSource = ts.createSourceFile('output-schema.ts', readFileSync(new UR
 for (const node of outputSource.statements) {
   if (ts.isTypeAliasDeclaration(node) && node.name.text === 'JsonOutputSchema') declarations.set(node.name.text, node);
 }
+// Additional adjacent modules whose exported types are referenced from spec.ts
+// via `import('./<module>.js').<Name>` — load them the same way so the walker
+// can resolve them without touching TypeScript's module resolver.
+const budgetSource = ts.createSourceFile('budget.ts', readFileSync(new URL('../packages/sdk/src/budget.ts', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true);
+for (const node of budgetSource.statements) {
+  if ((ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) && !declarations.has(node.name.text)) {
+    declarations.set(node.name.text, node);
+  }
+}
 const defs = {};
 const ref = name => ({ $ref: `#/$defs/${name}` });
 const docs = node => (node.jsDoc ?? []).map(doc => typeof doc.comment === 'string' ? doc.comment : '').filter(Boolean).join('\n\n');
@@ -81,8 +90,90 @@ function type(node) {
       if (node.typeArguments[0].kind !== ts.SyntaxKind.StringKeyword) throw new Error('Only string-keyed maps are supported');
       return { type: 'object', additionalProperties: type(node.typeArguments[1]) };
     }
+    // TS built-in utility types (Parameters, Extract, Exclude, Pick, Partial,
+    // Required, Readonly, NonNullable, ReturnType, Awaited, ThisParameterType)
+    // are transformations, not authored types — the walker can't statically
+    // evaluate them. Emit an open object so IDE hints keep working.
+    if (['Parameters', 'ReturnType', 'Extract', 'Exclude', 'Pick', 'Partial',
+      'Required', 'Readonly', 'NonNullable', 'Awaited', 'ThisParameterType',
+      'InstanceType', 'ConstructorParameters'].includes(name)) {
+      return { type: 'object', additionalProperties: true };
+    }
+    if (!declarations.has(name)) {
+      // Unknown reference: probably from an external package we don't preload.
+      // Emit an open object rather than crashing the schema build.
+      return { type: 'object', additionalProperties: true };
+    }
     definition(name);
     return ref(name);
+  }
+  if (ts.isImportTypeNode(node)) {
+    // `import('./module.js').TypeName` — the referenced module's declarations
+    // are preloaded above (see budgetSource). Treat the qualifier as a plain
+    // reference to a known type.
+    const qualifier = node.qualifier?.getText();
+    if (!qualifier) throw new Error(`Unsupported import type ${node.getText()}`);
+    definition(qualifier);
+    return ref(qualifier);
+  }
+  if (ts.isIntersectionTypeNode(node)) {
+    // A & B & C — merge the schemas of each arm. If any arm can't be reduced
+    // to a plain object schema, emit an open object.
+    const arms = node.types.map(type);
+    const merged = { type: 'object', properties: {}, required: [], additionalProperties: false };
+    for (const arm of arms) {
+      if (arm.type !== 'object' || !arm.properties) return { type: 'object', additionalProperties: true };
+      Object.assign(merged.properties, arm.properties);
+      merged.required.push(...(arm.required ?? []));
+      if (arm.additionalProperties === true) merged.additionalProperties = true;
+    }
+    merged.required = [...new Set(merged.required)];
+    if (!merged.required.length) delete merged.required;
+    return merged;
+  }
+  if (ts.isMappedTypeNode(node)) {
+    // Mapped types like `{ [V in Union]: Extract<X, {tag: V}>['payload'] }`
+    // (slice N's helper-params fan-out) are dynamic — the walker doesn't
+    // interpret Extract/conditional types. Emit an open object so editors
+    // still see this as a well-typed record without hard-coding the union.
+    return { type: 'object', additionalProperties: true };
+  }
+  if (ts.isIndexedAccessTypeNode(node)) {
+    // `T['prop']` — walk the target type, collecting each arm's property type.
+    // Numeric or computed indices (`T[0]`, `T[K]`) refer to tuple/function
+    // parameter positions and can't be resolved statically here; emit open.
+    if (!ts.isLiteralTypeNode(node.indexType) || !ts.isStringLiteral(node.indexType.literal)) {
+      return { type: 'object', additionalProperties: true };
+    }
+    const property = node.indexType.literal.text;
+    const collect = (target) => {
+      if (ts.isTypeReferenceNode(target)) {
+        const decl = declarations.get(target.typeName.getText());
+        if (!decl) return null; // unresolvable external reference — bail out
+        if (ts.isTypeAliasDeclaration(decl)) return collect(decl.type);
+        if (ts.isInterfaceDeclaration(decl)) {
+          const member = decl.members.find(m => ts.isPropertySignature(m) && m.name.text === property);
+          if (!member) return null;
+          return [type(member.type)];
+        }
+      }
+      if (ts.isUnionTypeNode(target)) {
+        const arms = target.types.map(collect);
+        if (arms.some(a => a === null)) return null;
+        return arms.flat();
+      }
+      if (ts.isTypeLiteralNode(target)) {
+        const member = target.members.find(m => ts.isPropertySignature(m) && m.name.text === property);
+        if (!member) return null;
+        return [type(member.type)];
+      }
+      return null;
+    };
+    const variants = collect(node.objectType);
+    if (!variants) return { type: 'object', additionalProperties: true };
+    if (variants.length === 1) return variants[0];
+    if (variants.every(v => v.type === 'string' && 'const' in v)) return { type: 'string', enum: variants.map(v => v.const) };
+    return { oneOf: variants };
   }
   const primitives = { [ts.SyntaxKind.StringKeyword]: 'string', [ts.SyntaxKind.NumberKeyword]: 'number', [ts.SyntaxKind.BooleanKeyword]: 'boolean' };
   if (primitives[node.kind]) return { type: primitives[node.kind] };
