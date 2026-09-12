@@ -63,6 +63,73 @@ fn verification_failure_schedules_a_durable_retry() {
 }
 
 #[test]
+fn failed_deterministic_completion_preserves_exit_code_and_stderr(
+) {
+    // #292: failed attempts used to journal `output: null`, so the CLI
+    // could not surface the actual exit code or stderr excerpt. Both the
+    // retry branch and the terminal branch must now preserve the captured
+    // shape verbatim from `AttemptResult.output`.
+    let spec = retrying_spec();
+    let mut retryable_step = spec.steps[0].clone();
+    retryable_step.max_iterations = 2;
+    let retry_output = json!({
+        "exit_code": 7,
+        "stdout_tail": "",
+        "stderr_tail": "shakedown intentional failure",
+    });
+    let retry_actions = completion_actions(
+        "run",
+        &retryable_step,
+        1,
+        0,
+        AttemptResult::successful(retry_output.clone(), "kernel"),
+        1_000,
+    );
+    let Action::Append(retry_completed) = &retry_actions[0] else {
+        panic!("failed attempt must append a typed completion");
+    };
+    let retry_payload: StepCompletedPayload =
+        serde_json::from_value(retry_completed.payload.clone())
+            .expect("failed retry completion must deserialize");
+    assert_eq!(retry_payload.disposition, Disposition::Retry);
+    assert_eq!(
+        retry_payload.output, retry_output,
+        "retry path drops the captured exit_code/stderr_tail"
+    );
+
+    let mut terminal_step = spec.steps[0].clone();
+    terminal_step.max_iterations = 1;
+    let terminal_output = json!({
+        "exit_code": 7,
+        "stdout_tail": "",
+        "stderr_tail": "final attempt failed",
+    });
+    let terminal_actions = completion_actions(
+        "run",
+        &terminal_step,
+        1,
+        0,
+        AttemptResult::successful(terminal_output.clone(), "kernel"),
+        2_000,
+    );
+    let Action::Append(terminal_completed) = &terminal_actions[0] else {
+        panic!("terminal failure must append a typed completion");
+    };
+    let terminal_payload: StepCompletedPayload =
+        serde_json::from_value(terminal_completed.payload.clone())
+            .expect("terminal failure completion must deserialize");
+    assert_eq!(terminal_payload.disposition, Disposition::StepDone);
+    assert_eq!(
+        terminal_payload.completion_reason,
+        CompletionReason::RetriesExhausted
+    );
+    assert_eq!(
+        terminal_payload.output, terminal_output,
+        "terminal failure path drops the captured exit_code/stderr_tail"
+    );
+}
+
+#[test]
 fn every_failed_run_terminates_with_declared_completion_reasons() {
     let failure_reasons = [
         CompletionReason::VerificationFailed,

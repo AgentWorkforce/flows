@@ -171,4 +171,27 @@ describe('deterministic failure diagnostic', () => {
       kind: 'step_failed', message: expect.stringContaining('invalid journal sequence'),
     });
   });
+
+  it('reads exit_code and stderr_tail from output (post-#292 canonical shape)', async () => {
+    // Post-#292 the kernel emits the captured shape in `output` on failed
+    // completions rather than routing it through `trajectory_tail`. The CLI
+    // must surface the diagnostic from that field even when trajectory_tail
+    // is absent.
+    const post292Completion = {
+      seq: 1, entry_type: 'step.completed', step_id: 'fail-command',
+      payload: {
+        completionReason: 'retries_exhausted', disposition: 'step_done',
+        output: { exit_code: 7, stdout_tail: '', stderr_tail: 'post-292 stderr' },
+        // trajectory_tail intentionally omitted — output is the canonical
+        // carrier once the kernel fix has landed.
+      },
+    };
+    const { client } = stub([[post292Completion]]);
+    const diagnostic = (await classify(client)).report.diagnostics.at(-1) as RunDiagnostic;
+    expect(diagnostic).toMatchObject({
+      kind: 'step_failed', stepId: 'fail-command', exitCode: 7,
+      stderrTail: 'post-292 stderr',
+      hint: 'flows replay run-failed --at fail-command',
+    });
+  });
 });

@@ -28,9 +28,10 @@ export async function deterministicFailureDetails(
       // A later completion supersedes an earlier failed attempt.
       failures.delete(stepId);
       const payload = record(entry['payload']);
-      // Failed completions null reusable output; command evidence survives in
-      // trajectory_tail. Accept output as well for existing completion records.
-      const output = record(payload?.['trajectory_tail']) ?? record(payload?.['output']);
+      // Post-#292 the kernel preserves the captured `{exit_code, stdout_tail,
+      // stderr_tail}` in `output` on failed completions; prefer it. Fall back
+      // to `trajectory_tail` for journal records emitted before that fix.
+      const output = record(payload?.['output']) ?? record(payload?.['trajectory_tail']);
       const exitCode = output?.['exit_code'];
       if (payload?.['disposition'] !== 'step_done' || payload['completionReason'] === 'success'
         || typeof exitCode !== 'number' || !Number.isSafeInteger(exitCode) || exitCode === 0) continue;

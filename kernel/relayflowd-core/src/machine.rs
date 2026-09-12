@@ -60,8 +60,9 @@ pub struct AttemptResult {
     /// Execution failures bypass verification but still follow retry policy.
     pub failure_reason: Option<CompletionReason>,
     /// Why the attempt was rejected, in the vocabulary of whoever rejected it.
-    /// A failed completion journals a null `output` — this is the only place a
-    /// rejection can name its own cause, so a dropped detail is a lost error.
+    /// The structured `output` (exit code + captured stdout/stderr tails) also
+    /// survives into the failed completion record (#292); this human-readable
+    /// detail complements it rather than being the only surviving cause.
     pub failure_detail: Option<String>,
 }
 
@@ -387,6 +388,9 @@ pub fn completion_actions(
         .as_ref()
         .is_some_and(|record| record.verdict == crate::entry::VerificationVerdict::Pass);
     let may_retry = semantic_executions.saturating_add(1) < step.max_iterations;
+    // Preserve `result.output` across every branch so a failed deterministic
+    // attempt journals the captured `{exit_code, stdout_tail, stderr_tail}`
+    // instead of dropping the diagnostic on the floor (#292 unblocks #276).
     let (reason, disposition, output, next_attempt_at_ms) = if verified {
         (
             CompletionReason::Success,
@@ -402,7 +406,7 @@ pub fn completion_actions(
                 .failure_reason
                 .unwrap_or(CompletionReason::VerificationFailed),
             Disposition::Retry,
-            Value::Null,
+            result.output,
             Some(now_ms.saturating_add(delay as i64)),
         )
     } else {
@@ -411,7 +415,7 @@ pub fn completion_actions(
                 .failure_reason
                 .unwrap_or(CompletionReason::RetriesExhausted),
             Disposition::StepDone,
-            Value::Null,
+            result.output,
             None,
         )
     };
