@@ -9,6 +9,8 @@ import { acceptsAnyOutput, inspectStepGate, type StepGateInspection } from './ga
 import { compileSpec, CompileError } from './compile.js';
 import { helperCall } from './yaml-helpers.js';
 import { isNamedGate, NAMED_GATE_FAILURE_KINDS, type NamedGateFailureKind } from './named-gates.js';
+import { compileScopes, type ScopeInput, type MountRegistry } from './scope-compiler.js';
+import { readMountRegistry } from './mount-registry.js';
 import type {
   PreflightFailureKind,
   PreflightWarningKind,
@@ -211,6 +213,7 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
   const cliProbeResults = new Map<string, CliProbeOutcome>();
 
   diagnostics.push(...unknownModelDiagnostics(compiled, options));
+  diagnostics.push(...scopeDiagnostics(compiled, options));
   for (const server of new Set(options.mcpServers ?? [])) {
     if (options.mcp !== undefined && Object.hasOwn(options.mcp, server)) continue;
     diagnostics.push({ severity: 'refusal', kind: 'mcp_undeclared_server', server,
@@ -275,6 +278,33 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
     resolutions,
     diagnostics,
   };
+}
+
+/**
+ * Compile author-declared `workspace:` / `tools.fs:` grants against the nearest
+ * relayfile mount manifest. The compiler is pure; only mount discovery reads a
+ * fact about the filesystem. Missing manifest means no known mounts — a grant
+ * still parses but refuses as `mount_unknown` in that case.
+ */
+function scopeDiagnostics(flow: FlowSpec, options: PreflightOptions): PreflightRefusal[] {
+  const workspace = flow.workspace;
+  const toolsFs = flow.tools?.fs;
+  if (workspace === undefined && toolsFs === undefined) return [];
+  const input: ScopeInput = {
+    ...(workspace === undefined ? {} : { workspace }),
+    ...(toolsFs === undefined ? {} : { tools: { fs: toolsFs } }),
+  };
+  let mounts: MountRegistry | undefined;
+  if (options.projectSearchStart !== undefined) {
+    try { mounts = readMountRegistry(options.projectSearchStart); }
+    catch { mounts = {}; /* fail closed — unreadable manifest treats every mount as unknown */ }
+  }
+  return compileScopes(input, mounts).diagnostics.map(refusal => ({
+    severity: 'refusal',
+    kind: refusal.kind,
+    message: refusal.message,
+    ...(refusal.stepId === undefined ? {} : { stepId: refusal.stepId }),
+  }));
 }
 
 /** Pure authoring validation: no executable, command, trigger, or daemon probe. */

@@ -351,6 +351,10 @@ export interface FlowSpec {
   triggers?: TriggerSpec[];
   steps: StepSpec[];
   budget?: BudgetSpec | import('./budget.js').HeaderBudget;
+  /** Path-scoped workspace grants — "mount/path: readonly|readwrite|append". Compiled by preflight. */
+  workspace?: string | readonly string[];
+  /** Path-scoped tool grants; `fs` mirrors workspace for shell/deterministic scope. */
+  tools?: { fs?: string | readonly string[] };
 }
 
 /** Current spec schema version emitted by this SDK. */

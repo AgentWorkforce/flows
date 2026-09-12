@@ -166,6 +166,22 @@ class Validator {
 
     if (s['budget'] !== undefined) this.validateBudget(s['budget']);
 
+    if (s['workspace'] !== undefined) this.validateScopeGrants(s['workspace'], 'spec.workspace');
+
+    if (s['tools'] !== undefined) {
+      if (!isObject(s['tools'])) {
+        this.fail('spec.tools: expected an object');
+      } else {
+        const tools = s['tools'] as Record<string, unknown>;
+        for (const key of Object.keys(tools)) {
+          if (key !== 'fs' && key !== 'mcp') {
+            this.fail(`spec.tools: unknown key "${key}" (expected fs or mcp)`);
+          }
+        }
+        if (tools['fs'] !== undefined) this.validateScopeGrants(tools['fs'], 'spec.tools.fs');
+      }
+    }
+
     if (!Array.isArray(s['steps']) || s['steps'].length === 0) {
       this.fail('spec.steps: expected a non-empty array');
       return this.result();
@@ -204,6 +220,16 @@ class Validator {
         this.fail(`${at}.cli: expected a non-empty trimmed string`);
       }
       this.validateModel(declaration.model, at, true);
+    }
+  }
+
+  private validateScopeGrants(value: unknown, at: string): void {
+    const grants = Array.isArray(value) ? value : [value];
+    for (const grant of grants) {
+      if (typeof grant !== 'string' || grant.length === 0) {
+        this.fail(`${at}: expected a scope-grant string like "mount/path: readonly" (or an array of them)`);
+        return;
+      }
     }
   }
 

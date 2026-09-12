@@ -25,6 +25,9 @@ const PREFLIGHT_ENVIRONMENT_FAILURE_KINDS = [
   'memory_unreachable',
   'no_executor',
   'probe_failed',
+  'scope_syntax_invalid',
+  'mount_unknown',
+  'scope_ungrantable',
 ] as const;
 
 /** Closed refusal taxonomy for public preflight (RFC covenant 2). */
