@@ -1,83 +1,93 @@
-# NEEDS_HUMAN — Conflicting Work Package Context
+# NEEDS_HUMAN — TARGET.md gate 2/3 conflict and possible duplicate work
 
-**Situation:** This run has conflicting scope context that requires human clarification.
+## The question
 
-## The Conflict
+Is this run's target actually gate 3 or gate 2? And is the requested `HnMonitorRunner` class needed when `runHnMonitor` function already exists?
 
-1. **ops/TARGET.md says:** Gate 3, build hn-monitor runner (sub-PR A), `sdk/src/` code task
-2. **ops/NEXT.md says:** Gate 3, cloud review-swarm preflight validation, `.github/workflows/` task  
-3. **These are completely different tasks** — one is SDK code (track A per TARGET), one is GitHub Actions (track D per NEXT)
+## The conflict
+
+**TARGET.md header (line 1):** "TARGET — gate 3"
+
+**TARGET.md scope (line 5):** "Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK."
+
+These contradict. The instructions say "this run is pinned to gate 3" but the work described is explicitly gate 2 sub-PR A.
+
+## The possible duplication
+
+TARGET.md requests (lines 35-42, 58-60):
+- Add `sdk/src/hn-monitor-runner.ts` exporting `HnMonitorRunner` **class**
+- Worker attach before poll, loop poll → sleep, AbortSignal shutdown
+- Fail-closed on journal errors (covenant 2, finding #1 from PR #83)
+
+**This already exists** in `packages/sdk/src/cli/hn-monitor.ts` as `runHnMonitor()` **function**:
+- Merged in PR #120 on 2026-09-01 (ops/STATE.md line 45)
+- Worker attaches before poll (line 227: `await worker.attach()`)
+- Loops poll → sleep with AbortSignal support (lines 239-273)
+- Journal errors fail runner, fetch errors log+continue (lines 258-268, typed split via `HnTransientFetchError`)
+- Shutdown drains worker (lines 274-278: `await worker.close(); client.close()`)
+- Documents workerRelease absence (line 161-162 comment)
+
+The difference: function in `cli/` vs class in `src/`.
 
 ## Evidence
 
-**ops/TARGET.md line 1-5:**
-```
-# TARGET — gate 3
+```bash
+$ ls packages/sdk/src/cli/hn-monitor.ts
+packages/sdk/src/cli/hn-monitor.ts
 
-This run is pinned to **gate 3** and must not work on any other gate.
+$ grep "export.*function runHnMonitor" packages/sdk/src/cli/hn-monitor.ts
+export async function runHnMonitor(args: HnMonitorArgs, io: CliIo): Promise<0 | 1> {
 
-**Scope:** Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side.
-```
+$ ls packages/sdk/src/hn-monitor-runner.ts
+ls: cannot access 'packages/sdk/src/hn-monitor-runner.ts': No such file or directory
 
-**ops/NEXT.md line 1-3:**
-```
-# NEXT — gate 3: complete cloud review-swarm preflight validation and documentation
-
-**Scope:** Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time
+$ grep -c "HnMonitorRunner" packages/sdk/src/*.ts
+0
 ```
 
-## The Charter Says
+From ops/STATE.md lines 45-46:
+> PR #120 (`201542a`, merged 2026-09-01 08:29 UTC) — **`flows hn-monitor start`**, the CLI runner that turns the poller into an unattended process.
 
-Per charter/LEAD.md (the instruction I received):
-- "Read ops/TARGET.md if it exists" — it does, says hn-monitor
-- "Then read ops/STATE.md, ops/DIRECTIVES.md" — done
-- "Then write ops/NEXT.md: the SINGLE highest-priority work package toward the current gate"
+That CLI runner IS `cli/hn-monitor.ts`.
 
-But ops/NEXT.md ALREADY EXISTS with different work.
+## Why gate 2 is AMBER (not the runner)
 
-## Additional Context Found
+ops/STATE.md lines 60-73 says gate 2 is AMBER because:
+1. **Trigger plane liveness-checking** not implemented (kernel doesn't notice if poller stops)
+2. **The analyze-agent step doesn't execute** (worker has no user-supplied handler)
 
-**ops/STATE.md gate 2 block (lines 39-81)** says:
-- PR #120 merged 2026-09-01 — `flows hn-monitor start` CLI runner
-- Gate 2 is AMBER, not GREEN
-- Two clauses remain: trigger-plane liveness, analyze-agent execution
+Neither is about the runner implementation - #1 is a kernel feature, #2 is handler wiring.
 
-**Actual file check:**
-- `packages/sdk/src/cli/hn-monitor.ts` exists (288 lines)
-- Contains `runHnMonitor` function implementing all TARGET.md requirements
-- Addresses all five findings from closed PR #83
+## Options for resolution
 
-## The Question
+**Option A:** TARGET.md is stale. The work is done as a function-based implementation. Mark this run complete or redirect to actual gate 3 work.
 
-**Which work package should this run execute?**
+**Option B:** Class-based API is architecturally required. Refactor `runHnMonitor` function → `HnMonitorRunner` class, keep both (class in src/, function wrapper in cli/).
 
-**Option A: ops/TARGET.md wins (hn-monitor, sdk/ territory)**
-- Overwrite ops/NEXT.md with hn-monitor work package
-- But the code already exists (PR #120 merged per STATE.md)
-- Task would be verification/testing, not building from scratch
+**Option C:** This run's true target is gate 3 (Software Garden/factory), not hn-monitor. The TARGET.md body is copy-paste error. Redirect to actual gate 3 work per ops/BACKLOG.md.
 
-**Option B: ops/NEXT.md wins (review-swarm, .github/ territory)**
-- Ignore ops/TARGET.md
-- Execute the review-swarm validation work
-- But TARGET.md explicitly pins this run to gate 3 hn-monitor work
+**Option D:** The function exists but doesn't satisfy TARGET.md Definition of Done because tests don't cover fetch-survives/journal-terminates branches. Add those tests to cli-hn-monitor.test.ts.
 
-**Option C: TARGET.md is stale**
-- The launcher wrote an outdated TARGET.md referencing closed PR #83
-- Real work is in ops/NEXT.md (review-swarm)
-- Proceed with review-swarm, update TARGET understanding
+## What I cannot decide alone
 
-**Option D: Both are stale**
-- Neither accurately reflects current gate 3 needs
-- Assessor should read RFC-0001 §3 gate 3 definition
-- Write fresh work package from RFC requirements
+The scoping discipline the instructions enforce says:
+> "It is the operator's scoping decision and it overrides your own judgement about priority. Stay inside it or, if the target is genuinely unreachable, say so in ops/NEEDS_HUMAN.md rather than silently choosing different work."
+
+I cannot determine:
+1. Whether this run should work on gate 2 or gate 3
+2. Whether function-based `runHnMonitor` satisfies the requirement or class-based `HnMonitorRunner` is mandatory
+3. Whether I should implement a new class when equivalent logic exists
+
+If Option B (class required): I can build `sdk/src/hn-monitor-runner.ts` as a class wrapping the existing primitives. But doing so without confirmation risks duplicating PR #120's work in a different shape.
+
+If Option D (tests missing): I can add test coverage. But TARGET.md Definition of Done line 62 says `sdk/tests/hn-monitor-runner.test.ts` (not `cli-hn-monitor.test.ts`), implying a separate artifact.
 
 ## Recommendation
 
-**Option C** — ops/TARGET.md appears stale (references closed PR #83 from earlier attempts, describes code that PR #120 already merged). The active work package is ops/NEXT.md (review-swarm). But I need human confirmation before overwriting NEXT.md or executing potentially wrong work.
+Clarify whether:
+1. This run targets gate 2 or 3
+2. Function implementation (done) vs class implementation (TARGET.md requests) preference
+3. If class: should it replace function or coexist?
 
-## What I Need
+Then I can write an unambiguous work package.
 
-**Clear answer:** Which work package is correct for this run?
-- If hn-monitor: shall I overwrite the review-swarm NEXT.md, or is there a different file I should write?
-- If review-swarm: shall I proceed with ops/NEXT.md as-is and ignore TARGET.md?
-- If neither: what is the actual gate 3 work I should assess?
