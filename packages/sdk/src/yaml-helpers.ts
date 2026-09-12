@@ -24,7 +24,7 @@ const helpers = {
   slack: {
     post: verb<YamlHelperParams['slack']['post']>(object({ channel: string, text,
       opts: object({ replyTo: string }, []) }, ['channel', 'text']),
-    (p, transport) => slackClient({ transport }).post(p.channel, p.text, p.opts)),
+    (p, transport) => slackClient({ transport }).post(p.channel, p.text as string, p.opts as { replyTo?: string } | undefined)),
     dm: verb<YamlHelperParams['slack']['dm']>(object({ user: string, text }),
       (p, transport) => slackClient({ transport }).dm(p.user, p.text)),
     reply: verb<YamlHelperParams['slack']['reply']>(object({ channel: string, threadTs: string, text }),
