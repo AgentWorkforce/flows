@@ -44,6 +44,8 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           path: gate-files
           sparse-checkout: |
+            .github/workflows/review-swarm.yml
+            .github/workflows/review-swarm-wrapper-guard.yml
             workflows/review-swarm.yaml
             .github/workflows/scripts/swarm-post.sh
             .github/workflows/scripts/swarm-prepare.sh
@@ -51,6 +53,11 @@ jobs:
             .github/workflows/scripts/swarm-gate.test.sh
             .github/workflows/scripts/swarm-definition.sh
             .github/workflows/scripts/swarm-definition.test.sh
+            .github/workflows/scripts/swarm-status-diagnostic.sh
+            .github/workflows/scripts/swarm-status-diagnostic.test.sh
+            .github/workflows/scripts/swarm-wrapper-guard.sh
+            .github/workflows/scripts/swarm-wrapper-guard.test.sh
+            .github/workflows/scripts/review-swarm-workflow.test.sh
 
       # The gate decides whether code merges, so before it judges anything it
       # proves it can still say no. `swarm-verdict.sh` is a handful of lines of
@@ -88,6 +95,43 @@ jobs:
             exit 1
           fi
           bash "$test_script"
+          diagnostic_script=gate-files/.github/workflows/scripts/swarm-status-diagnostic.sh
+          if [ ! -x "$diagnostic_script" ]; then
+            # PR #297 is the base-owned bootstrap that first adds this helper
+            # to the trusted sparse checkout. Its own review cannot read a
+            # file that is not on its base yet; later PRs fail closed if the
+            # helper disappears or loses its executable bit.
+            if [ "$REVIEW_PR_NUMBER" = 297 ]; then
+              echo "::notice::PR #297 bootstrap: diagnostic helper is not on the base yet."
+            else
+              echo "::error::main-owned swarm-status-diagnostic.sh is missing or not executable" >&2
+              exit 1
+            fi
+          else
+            bash -n "$diagnostic_script"
+          fi
+          for bootstrap_test in \
+            gate-files/.github/workflows/scripts/swarm-status-diagnostic.test.sh \
+            gate-files/.github/workflows/scripts/swarm-wrapper-guard.test.sh \
+            gate-files/.github/workflows/scripts/review-swarm-workflow.test.sh; do
+            if [ -f "$bootstrap_test" ]; then
+              case "$bootstrap_test" in
+                *swarm-status-diagnostic.test.sh)
+                  if [ -x "$diagnostic_script" ]; then bash "$bootstrap_test"; fi
+                  ;;
+                *swarm-wrapper-guard.test.sh) bash "$bootstrap_test" ;;
+                *review-swarm-workflow.test.sh)
+                  bash "$bootstrap_test" \
+                    gate-files/.github/workflows/review-swarm.yml \
+                    gate-files/.github/workflows/review-swarm-wrapper-guard.yml ;;
+              esac
+            elif [ "$REVIEW_PR_NUMBER" != 297 ]; then
+              echo "::error::main-owned bootstrap test is missing: $bootstrap_test" >&2
+              exit 1
+            else
+              echo "::notice::PR #297 bootstrap: test is not on the base yet: $bootstrap_test"
+            fi
+          done
           definition_test=gate-files/.github/workflows/scripts/swarm-definition.test.sh
           if [ ! -f "$definition_test" ]; then
             # The introducing PR cannot run a helper that is not on its base
@@ -282,7 +326,19 @@ jobs:
           fi
           echo "swarm_status=$status" >> "$GITHUB_OUTPUT"
           if [ "$status" != completed ]; then
-            ../gate-files/.github/workflows/scripts/swarm-status-diagnostic.sh "${response:-}"
+            # `gate-files` is checked out at the immutable base SHA and this
+            # step runs from `pr-head`, so this is the base-owned helper's
+            # deliberate relative path. The preflight above catches a missing
+            # or non-executable helper before the cloud run starts. The helper
+            # is observability-only and is total over malformed responses; if
+            # a future edit regresses that contract, retain the swarm failure
+            # while making the regression visible in this step's log.
+            diagnostic=../gate-files/.github/workflows/scripts/swarm-status-diagnostic.sh
+            if [ ! -x "$diagnostic" ]; then
+              echo "::error::base-owned swarm-status-diagnostic.sh is unavailable; swarm status was $status" >&2
+            elif ! "$diagnostic" "${response:-}"; then
+              echo "::error::base-owned swarm-status-diagnostic.sh failed; swarm status was $status" >&2
+            fi
           fi
           exit 0
 
