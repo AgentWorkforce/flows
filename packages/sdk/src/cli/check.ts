@@ -143,6 +143,72 @@ export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConf
   }
 }
 
+/**
+ * Build-time gate that runs the same preflight pipeline as `checkFlow`
+ * but with deferred probes — a build machine is not the deployment target,
+ * so `cli`/`command`/`executor` existence is checked at run-time, not here.
+ *
+ * "Build-provable" refusals (unknown model, `use:` unresolved, invalid
+ * verification, missing bundle assets, budget syntax, etc.) still surface,
+ * because they are properties of the flow spec, not of the build host.
+ */
+export async function checkBuildableFlow(path: string): Promise<CheckExecution> {
+  const absolutePath = resolve(path);
+  try {
+    const authored = /\.(?:[cm]?[jt]s)$/.test(path);
+    if (authored) {
+      // TS flows are gated by `buildFlow` itself, which runs
+      // `buildTypescript` to compile the authored spec and then invokes
+      // preflight with deferred probes at the same refusal threshold as
+      // this gate. Running `checkTypeScriptFlow` here would need
+      // `@relayflows/surface` to be resolvable from the flow's directory,
+      // which is not a build-time invariant. Return an ok report so the
+      // gate delegates to `buildFlow`'s inline preflight.
+      return {
+        report: { ok: true, path, gates: [], resolutions: [], diagnostics: [] },
+      };
+    }
+    const source = readFlowSource(absolutePath);
+    const authoring: FlowSpec = readFlow(source, absolutePath);
+    const config = readProjectConfig(dirname(absolutePath));
+    const deferred: PreflightProbes = {
+      cli: () => { throw new Error('deferred to deployment'); },
+      executor: () => { throw new Error('deferred to deployment'); },
+      command: () => { throw new Error('deferred to deployment'); },
+    };
+    const result = preflight(authoring, {
+      ...(config.cli !== undefined ? { projectCli: config.cli } : {}),
+      ...(config.path !== undefined ? { projectConfigPath: config.path } : {}),
+      projectSearchStart: dirname(absolutePath),
+      models: config.models,
+      ...(config.path !== undefined ? { modelRegistryPath: config.path } : {}),
+      probes: deferred,
+    });
+    // Refusals rooted in build-machine environment probes (`probe_failed`)
+    // are excluded from the build gate — the build host is not the
+    // deployment target, and those checks are re-run at `flows run`.
+    const diagnostics = result.diagnostics.filter(
+      (d) => !(d.severity === 'refusal' && d.kind === 'probe_failed'),
+    );
+    const ok = !diagnostics.some((d) => d.severity === 'refusal');
+    return {
+      report: {
+        ok,
+        path,
+        ...(config.path !== undefined ? { projectConfigPath: config.path } : {}),
+        gates: result.gates,
+        resolutions: result.resolutions,
+        diagnostics,
+      },
+    };
+  } catch (error) {
+    const failure = error instanceof CheckFailure
+      ? error
+      : new CheckFailure('invalid_spec', `Flow "${path}" could not be checked as a Relayflow spec.`);
+    return { report: inputFailureReport(failure, path) };
+  }
+}
+
 export function inputFailureReport(
   failure: { kind: CheckFailureKind; message: string },
   path?: string,

@@ -6,28 +6,44 @@ import { canonicalize } from '../canonical.js';
 import { compileSpec, toKernelSpec } from '../compile.js';
 import { preflight } from '../preflight.js';
 import { buildTypescript } from '../bundle-typescript.js';
-import { readProjectConfig } from './check.js';
+import { checkBuildableFlow, readProjectConfig, type CheckReport } from './check.js';
 import type { CliIo } from '../cli.js';
 import type { FlowSpec } from '../spec.js';
 
-export interface BuildArgs { command: 'build'; value: string; out?: string; verify: boolean }
+export interface BuildArgs { command: 'build'; value: string; out?: string; verify: boolean; json: boolean }
 
 export function parseBuildArgs(args: readonly string[]): BuildArgs | undefined {
   if (args[0] === '--verify') {
     return args.length === 2 && !args[1]!.startsWith('-')
-      ? { command: 'build', value: args[1]!, verify: true } : undefined;
+      ? { command: 'build', value: args[1]!, verify: true, json: false } : undefined;
   }
   let out: string | undefined;
   let value: string | undefined;
+  let json = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--out') {
       if (out !== undefined || args[i + 1] === undefined || args[i + 1]!.startsWith('-')) return undefined;
       out = args[++i];
+    } else if (arg === '--json') {
+      if (json) return undefined;
+      json = true;
     } else if (arg.startsWith('-') || value !== undefined) return undefined;
     else value = arg;
   }
-  return value === undefined ? undefined : { command: 'build', value, out, verify: false };
+  return value === undefined ? undefined : { command: 'build', value, out, verify: false, json };
+}
+
+/**
+ * Emit a check report in the same shape `flows check` uses so build-time
+ * refusals are consumable by the same tooling.
+ */
+function emitBuildCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
+  for (const diagnostic of report.diagnostics) {
+    if (diagnostic.severity !== 'refusal') continue;
+    io.stderr(`REFUSED [${diagnostic.kind}] ${diagnostic.message}`);
+  }
+  if (json) io.stdout(JSON.stringify(report));
 }
 
 export async function runBuild(args: BuildArgs, io: CliIo): Promise<0 | 2> {
@@ -35,6 +51,16 @@ export async function runBuild(args: BuildArgs, io: CliIo): Promise<0 | 2> {
     if (args.verify) {
       io.stdout(`VERIFIED sha256:${await verifyBundle(args.value)}`);
       return 0;
+    }
+    // Gate the build on the same preflight pipeline `flows check` uses.
+    // Refusals never leave partial artifacts — no file capture, no canonical
+    // spec write, no digest computation, no bundle directory creation. A
+    // previous `dist/flows/<name>@sha256:<hex>/` directory from an earlier
+    // successful build is not touched (buildFlow is never called).
+    const gate = await checkBuildableFlow(args.value);
+    if (!gate.report.ok) {
+      emitBuildCheckReport(gate.report, args.json, io);
+      return 2;
     }
     io.stdout(await buildFlow(args.value, args.out ?? 'dist/flows', io.stderr));
     return 0;
