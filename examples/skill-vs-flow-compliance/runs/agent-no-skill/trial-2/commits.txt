@@ -1,0 +1,1 @@
+5d77793856f9e057ac29ed71f32c4b8add2ca9f5 fix: throw RangeError when dividing by zero

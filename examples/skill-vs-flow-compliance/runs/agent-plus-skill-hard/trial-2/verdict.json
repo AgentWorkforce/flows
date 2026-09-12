@@ -1,0 +1,37 @@
+{
+  "trial": "2",
+  "arm": "agent-plus-skill-hard",
+  "task": "TASK-HARD.md",
+  "model": "haiku",
+  "finalMessage": "Done! I've extended `src/calculator.ts` with all four changes across two commits:\n\n**Commit 1** – Error handling improvements:\n- `divide()` now throws `RangeError` when divisor is 0\n- `add()` and `subtract()` throw `TypeError` if either argument is `NaN`\n\n**Commit 2** – New functions:\n- `average(nums)` computes the arithmetic mean, throws `RangeError` if array is empty\n- `power(base, exponent)` raises base to a non-negative integer exponent, throws `TypeError` for invalid exponents",
+  "usage": {
+    "inputTokens": 129,
+    "outputTokens": 4053,
+    "cacheReadInputTokens": 444146,
+    "cacheCreationInputTokens": 19224,
+    "costUsd": "0.103257"
+  },
+  "checks": [
+    {
+      "name": "check-tests-pass",
+      "pass": false,
+      "message": "FAIL no test file changed since baseline (test/*.test.ts)"
+    },
+    {
+      "name": "check-no-debug-artifacts",
+      "pass": true,
+      "message": "PASS no console.log/console.debug/debugger/commented-out code in added lines"
+    },
+    {
+      "name": "check-no-secrets",
+      "pass": true,
+      "message": "PASS no credential-shaped literals in added lines"
+    },
+    {
+      "name": "check-commit-message",
+      "pass": false,
+      "message": "FAIL commit subject does not match 'type(scope): subject': Add average and power functions"
+    }
+  ],
+  "allPass": false
+}

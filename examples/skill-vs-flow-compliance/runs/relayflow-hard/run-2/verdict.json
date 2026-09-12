@@ -1,0 +1,76 @@
+{
+  "runId": "2",
+  "task": "TASK-HARD.md",
+  "model": "haiku",
+  "ok": true,
+  "completionReason": "success",
+  "checks": [
+    {
+      "name": "check-tests-pass",
+      "pass": true,
+      "message": "PASS 1 test file(s) changed since baseline and npm test is green"
+    },
+    {
+      "name": "check-no-debug-artifacts",
+      "pass": true,
+      "message": "PASS no console.log/console.debug/debugger/commented-out code in added lines"
+    },
+    {
+      "name": "check-no-secrets",
+      "pass": true,
+      "message": "PASS no credential-shaped literals in added lines"
+    },
+    {
+      "name": "check-commit-message",
+      "pass": true,
+      "message": "PASS every commit since baseline matches conventional-commit format"
+    }
+  ],
+  "attempts": 2,
+  "attemptHistory": [
+    [
+      {
+        "name": "check-tests-pass",
+        "pass": false,
+        "message": "FAIL no test file changed since baseline (test/*.test.ts)"
+      },
+      {
+        "name": "check-no-debug-artifacts",
+        "pass": true,
+        "message": "PASS no console.log/console.debug/debugger/commented-out code in added lines"
+      },
+      {
+        "name": "check-no-secrets",
+        "pass": true,
+        "message": "PASS no credential-shaped literals in added lines"
+      },
+      {
+        "name": "check-commit-message",
+        "pass": true,
+        "message": "PASS every commit since baseline matches conventional-commit format"
+      }
+    ],
+    [
+      {
+        "name": "check-tests-pass",
+        "pass": true,
+        "message": "PASS 1 test file(s) changed since baseline and npm test is green"
+      },
+      {
+        "name": "check-no-debug-artifacts",
+        "pass": true,
+        "message": "PASS no console.log/console.debug/debugger/commented-out code in added lines"
+      },
+      {
+        "name": "check-no-secrets",
+        "pass": true,
+        "message": "PASS no credential-shaped literals in added lines"
+      },
+      {
+        "name": "check-commit-message",
+        "pass": true,
+        "message": "PASS every commit since baseline matches conventional-commit format"
+      }
+    ]
+  ]
+}
