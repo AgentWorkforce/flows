@@ -80,6 +80,7 @@ const VERB_FIELD_VALUES: Record<string, unknown> = {
   recoveryMode: 'reset',
   permissions: { accessPreset: 'readonly' },
   output: { type: 'object' },
+  cwd: '/tmp/foreign-cwd',
 };
 
 /**
