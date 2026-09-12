@@ -35,7 +35,8 @@
     "tests/build-gate.test.ts",
     "tests/scope-preflight.test.ts",
     "tests/worker-cli-cwd.test.ts",
-    "tests/agent-relay-transport.test.ts"
+    "tests/agent-relay-transport.test.ts",
+    "tests/webhook-hardening.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
