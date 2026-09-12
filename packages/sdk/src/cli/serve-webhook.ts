@@ -5,9 +5,13 @@ import { join, resolve } from 'node:path';
 import { TextDecoder } from 'node:util';
 import type { CliIo } from '../cli.js';
 import { providerInboxEvent } from '../trigger-executor.js';
+import { verifySignature, schemeFor } from '../webhook-signature.js';
+import { TokenBucketLimiter, keyFor, type RateLimitConfig } from '../webhook-rate-limit.js';
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+const DEFAULT_RATE_LIMIT: RateLimitConfig = { ratePerSecond: 20, burst: 60 };
 
 export function parseWebhookArgs(args: readonly string[]): {
   command: 'serve-webhook'; dataDir: string; port: number; admitted?: readonly string[];
@@ -44,21 +48,45 @@ function reply(response: ServerResponse, status: number, body: object): void {
 }
 
 /**
- * POST /<name> accepts JSON; /providers/<provider> accepts typed event envelopes.
+ * Look up the shared secret for a provider from the process environment.
  *
- * When `admittedNames` is set, unknown names (or providers) refuse with
- * `webhook_flow_unknown`. This closes the "any-name" ingress opened by slice E
- * (#333) so the receiver only accepts inbox writes for triggers whose flows
- * have been explicitly loaded — the loaded-flow admission half of #303.
- * (Durable handler execution against the journal is deferred; per #303 that
- * half depends on kernel authored-handler registration + resume protocol.)
+ * `WEBHOOK_SECRET_<PROVIDER_UPPER>` (e.g. `WEBHOOK_SECRET_GITHUB`) is the
+ * canonical env var. When unset, the receiver runs unsigned — this is
+ * documented in #301 as the local-development posture.
  */
+export function providerSecret(provider: string | undefined, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (!provider) return env.WEBHOOK_SECRET_DEFAULT;
+  const upper = provider.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  return env[`WEBHOOK_SECRET_${upper}`];
+}
+
+export interface WebhookServerOptions {
+  /**
+   * When set, unknown names refuse with `webhook_flow_unknown`. Closes the
+   * "any-name" ingress opened by slice E (#333) so the receiver only accepts
+   * inbox writes for triggers whose flows have been explicitly loaded — the
+   * loaded-flow admission half of #303. Durable handler execution against
+   * the journal is deferred; per #303 that half depends on kernel authored-
+   * handler registration + resume protocol.
+   */
+  admittedNames?: ReadonlySet<string>;
+  /** Optional rate limit config; defaults to 20/s with 60 burst per key. */
+  rateLimit?: RateLimitConfig;
+  /** Injectable env lookup for tests. */
+  env?: NodeJS.ProcessEnv;
+}
+
+/** POST /<name> accepts JSON; /providers/<provider> accepts typed event envelopes. */
 export async function startWebhookServer(
-  dataDir: string, port: number, options: { admittedNames?: ReadonlySet<string> } = {},
+  dataDir: string,
+  port: number,
+  options: WebhookServerOptions = {},
 ): Promise<Server> {
   const inbox = join(resolve(dataDir), 'inbox');
   await directory(inbox);
   const admitted = options.admittedNames;
+  const env = options.env ?? process.env;
+  const limiter = new TokenBucketLimiter(options.rateLimit ?? DEFAULT_RATE_LIMIT);
   // TODO https://github.com/AgentWorkforce/flows/issues/301: provider signatures,
   // public ingress and Cloud mount provisioning belong to the deployment slice.
   const server = createServer(async (request, response) => {
@@ -75,13 +103,27 @@ export async function startWebhookServer(
       reply(response, 404, { error: 'invalid_webhook_name' });
       return;
     }
+    // Loaded-flow admission (#303) runs FIRST: refuse unknown names before
+    // spending any body-read or rate-limit budget. A rogue POST can't
+    // accumulate events in an inbox the daemon will never drain, and can't
+    // steal from the honest ratelimit token bucket.
     if (admitted !== undefined && !admitted.has(name)) {
-      // Loaded-flow admission (#303): the receiver refuses any name whose
-      // trigger wasn't advertised at boot, so a rogue POST can't accumulate
-      // events in an inbox the daemon will never drain. The check runs before
-      // any body read so an unadmitted caller can't waste MAX_BODY_BYTES.
       request.resume();
       reply(response, 404, { error: 'webhook_flow_unknown', name });
+      return;
+    }
+    // #304 rate limiting — key by provider+name+source so an abusive caller
+    // cannot starve every route. Loopback callers share 127.0.0.1 as the
+    // source key by design (single-process, single-tenant).
+    const sourceAddress = request.socket.remoteAddress ?? '127.0.0.1';
+    const provider = providerRoute ? name : undefined;
+    const rateKey = keyFor(provider, name, sourceAddress);
+    const decision = limiter.consume(rateKey);
+    if (!decision.allowed) {
+      request.resume();
+      const retryAfterSeconds = Math.max(1, Math.ceil(decision.retryAfterMs / 1000));
+      response.setHeader('retry-after', String(retryAfterSeconds));
+      reply(response, 429, { error: 'webhook_rate_limited', retryAfterMs: decision.retryAfterMs });
       return;
     }
     let temporary: string | undefined;
@@ -97,9 +139,23 @@ export async function startWebhookServer(
         }
         chunks.push(buffer);
       }
+      const rawBody = Buffer.concat(chunks);
+      // #304 signature verification — only enforced when a secret is
+      // configured for this provider/name. Absent secret = development mode.
+      const secret = providerSecret(provider, env);
+      if (secret) {
+        const scheme = schemeFor(provider);
+        const headerValue = request.headers[scheme.header];
+        const suppliedHeader = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+        const verdict = verifySignature(provider, rawBody, suppliedHeader, secret);
+        if (!verdict.ok) {
+          reply(response, 401, { error: 'webhook_signature_invalid', reason: verdict.reason });
+          return;
+        }
+      }
       let payload: unknown;
       try {
-        payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)), (_key, value: unknown) => {
+        payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(rawBody), (_key, value: unknown) => {
           if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('non-finite JSON number');
           return value;
         });
@@ -111,7 +167,9 @@ export async function startWebhookServer(
         try {
           payload = providerInboxEvent(name, payload);
         } catch (error) {
-          reply(response, 400, { error: 'invalid_provider_event',
+          // #304 payload-shape rejection: providers declare a closed event
+          // vocabulary; anything else is `webhook_payload_invalid`.
+          reply(response, 400, { error: 'webhook_payload_invalid',
             message: error instanceof Error ? error.message : 'invalid provider event' });
           return;
         }
