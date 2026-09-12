@@ -83,7 +83,14 @@ agents:
       when there are none. Your final REVIEW_PASSED/REVIEW_FAILED token is
       DERIVED from that section — concerns and notes must not change it.
   - name: structure
-    cli: opencode
+    # flows#255: `opencode` produced MISSING transcripts on both runners for
+    # every PR sampled, keeping this lens's verdict permanently absent and
+    # making `review` unpassable by construction. Move `structure` to `codex`
+    # — installed and authenticated in both runners — so the gate can produce
+    # a verdict. Model diversity across lenses is preserved by
+    # `maintainability = claude`; `history` and `structure` stay independent
+    # because their prompts differ, not because their CLIs differ.
+    cli: codex
     preset: reviewer
     role: >-
       STRUCTURE lens. Boundaries, coupling, file size, single purpose. Does the
