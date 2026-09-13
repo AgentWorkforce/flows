@@ -1,83 +1,66 @@
-# NEEDS_HUMAN — Conflicting Work Package Context
+# NEEDS_HUMAN — Track D appears complete, but cannot verify merge status
 
-**Situation:** This run has conflicting scope context that requires human clarification.
+## Situation
 
-## The Conflict
+Track D (cloud review-swarm redesign) work appears to be **fully complete** per TARGET.md requirements, but this cloud sandbox has no git history to determine whether the work is already merged, in an open PR, or needs a new PR.
 
-1. **ops/TARGET.md says:** Gate 3, build hn-monitor runner (sub-PR A), `sdk/src/` code task
-2. **ops/NEXT.md says:** Gate 3, cloud review-swarm preflight validation, `.github/workflows/` task  
-3. **These are completely different tasks** — one is SDK code (track A per TARGET), one is GitHub Actions (track D per NEXT)
+## What I verified
 
-## Evidence
+✅ All 9 architectural requirements from TARGET.md are satisfied:
+1. Immutable gate (two checkout steps with different paths)
+2. Unified verdict logic (swarm-verdict.sh single source of truth)
+3. Auth secret validation fail-fast (preflight with actual credential exercise)
+4. Sticky marker + sticky transcripts (HTML anchors with upsert)
+5. Every PR gets reviewed (no author whitelist)
+6. Cloud sandbox has no gh auth (fetch on GHA runner)
+7. Timeout ordering documented (60m < 65m < 75m)
+8. Wait step records status, post runs on always()
+9. Transcript-to-run-id binding (freshness marker)
 
-**ops/TARGET.md line 1-5:**
-```
-# TARGET — gate 3
+✅ All files parse (bash scripts, YAML files)
+✅ README.md documents all three secrets (CLOUD_API_KEY, RELAY_WORKSPACE_KEY, CLOUD_API_URL)
+✅ .gitignore does NOT mask .review-target
 
-This run is pinned to **gate 3** and must not work on any other gate.
+## What blocks assessment
 
-**Scope:** Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side.
-```
+1. **No git history** in cloud sandbox (ops/STATE.md:198-200)
+2. **ops/STATE.md last updated 2026-09-01** — mentions gates 1-2 but not Track D status
+3. **Existing NEXT.md** claimed README documentation was missing, but it exists (lines 80-90)
+4. **SDK test failure** blocks TARGET.md DoD line 81, but SDK is explicitly out of scope per line 86
 
-**ops/NEXT.md line 1-3:**
-```
-# NEXT — gate 3: complete cloud review-swarm preflight validation and documentation
+## The question
 
-**Scope:** Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time
-```
+**What is the disposition of Track D review-swarm work?**
 
-## The Charter Says
+## Options
 
-Per charter/LEAD.md (the instruction I received):
-- "Read ops/TARGET.md if it exists" — it does, says hn-monitor
-- "Then read ops/STATE.md, ops/DIRECTIVES.md" — done
-- "Then write ops/NEXT.md: the SINGLE highest-priority work package toward the current gate"
+**A. Track D is already merged**
+- All requirements satisfied
+- README documentation exists
+- Work was completed by a prior run and merged
+- Assessment should identify next gate 3 work package
+- SDK test failure is a separate Track A issue
 
-But ops/NEXT.md ALREADY EXISTS with different work.
+**B. Track D needs a PR**
+- Work is complete but not yet merged
+- Should write PR despite SDK test failure (SDK explicitly out of scope)
+- PR body should document the 9 requirements and where each is satisfied (TARGET.md DoD line 76-77)
 
-## Additional Context Found
+**C. Track D needs a PR AND SDK must be green first**
+- SDK test failure is a hard blocker despite being out of scope
+- Must escalate to Track A owner or fix SDK before proceeding
+- Cannot merge Track D until `cd sdk && npm test` passes
 
-**ops/STATE.md gate 2 block (lines 39-81)** says:
-- PR #120 merged 2026-09-01 — `flows hn-monitor start` CLI runner
-- Gate 2 is AMBER, not GREEN
-- Two clauses remain: trigger-plane liveness, analyze-agent execution
-
-**Actual file check:**
-- `packages/sdk/src/cli/hn-monitor.ts` exists (288 lines)
-- Contains `runHnMonitor` function implementing all TARGET.md requirements
-- Addresses all five findings from closed PR #83
-
-## The Question
-
-**Which work package should this run execute?**
-
-**Option A: ops/TARGET.md wins (hn-monitor, sdk/ territory)**
-- Overwrite ops/NEXT.md with hn-monitor work package
-- But the code already exists (PR #120 merged per STATE.md)
-- Task would be verification/testing, not building from scratch
-
-**Option B: ops/NEXT.md wins (review-swarm, .github/ territory)**
-- Ignore ops/TARGET.md
-- Execute the review-swarm validation work
-- But TARGET.md explicitly pins this run to gate 3 hn-monitor work
-
-**Option C: TARGET.md is stale**
-- The launcher wrote an outdated TARGET.md referencing closed PR #83
-- Real work is in ops/NEXT.md (review-swarm)
-- Proceed with review-swarm, update TARGET understanding
-
-**Option D: Both are stale**
-- Neither accurately reflects current gate 3 needs
-- Assessor should read RFC-0001 §3 gate 3 definition
-- Write fresh work package from RFC requirements
+**D. The prior NEXT.md was correct and work is not done**
+- README documentation claim in old NEXT.md was wrong but something else is missing
+- Re-assess what actually remains for Track D completion
 
 ## Recommendation
 
-**Option C** — ops/TARGET.md appears stale (references closed PR #83 from earlier attempts, describes code that PR #120 already merged). The active work package is ops/NEXT.md (review-swarm). But I need human confirmation before overwriting NEXT.md or executing potentially wrong work.
+**Option B** — Track D work is complete and needs a PR. The SDK is explicitly out of scope per TARGET.md line 86, and DoD line 81 says tests "should be unaffected" (expectation, not requirement). Track D touched zero SDK files.
 
-## What I Need
+However, if SDK tests green is a hard gate, then Option C applies and this is blocked on Track A.
 
-**Clear answer:** Which work package is correct for this run?
-- If hn-monitor: shall I overwrite the review-swarm NEXT.md, or is there a different file I should write?
-- If review-swarm: shall I proceed with ops/NEXT.md as-is and ignore TARGET.md?
-- If neither: what is the actual gate 3 work I should assess?
+## What I need
+
+Clear directive on which option to execute, OR clarification on whether SDK test failure blocks Track D delivery.
