@@ -1,0 +1,3 @@
+8790cfe267afd3d90017ca7566f88db091a1c334 feat(calculator): add average and power functions
+ac9935987151c41359987a87fa692131ca25f672 fix(calculator): reject division by zero and NaN arguments
+3b86fd0d6b1c3eaab3b446a9ac5da3b7b889ac99 test(calculator): add tests for divide by zero, average, power, and NaN validation

@@ -37,3 +37,11 @@ are captured with [artifact hashes](../docs/evidence/ws13/followup/default-budge
 The first follow-up's shorter three-minute step limit expired after 217.375s
 ([captured failure](../docs/evidence/ws13/followup/gallery-research.txt)). That
 attempt is not evidence of missing authentication or an unsupported model.
+
+## A fourth entry, added separately from the 3 above
+
+[skill-vs-flow-compliance](skill-vs-flow-compliance/) compares an agent with
+an installed skill, a bare agent, and a userland flow with deterministic
+final-state checks and one repair attempt. Historical trials illustrate
+acceptance gating; they do not prove test-first ordering or full skill
+compliance. The example includes a reproducible artifact audit.

@@ -1,0 +1,6 @@
+2cda70203747becd362cb0b67e4508d8e8cf1d8a test: add comprehensive test coverage for calculator functions
+3f12a92c5cdada0bd46103cad294014e298bbc58 feat(power): add exponentiation function
+e3f78587006f065032ad2fda747ed3a6b33d8b11 feat(average): add arithmetic mean function
+0eba620ab39ff70b37cd149cbac62bf1c0934eb6 feat(subtract): throw TypeError on NaN arguments
+eab72cc155154aa22689b4d2c8b597c76076b723 feat(add): throw TypeError on NaN arguments
+2f0eb16561bcbb08d05edccc2a9604f60d956267 fix(divide): throw RangeError on zero divisor

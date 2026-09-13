@@ -1,0 +1,12 @@
+{
+  "name": "@relayflows/skill-vs-flow-compliance",
+  "private": true,
+  "type": "module",
+  "description": "Comparison: the same task run by (a) a coding agent given a SKILL.md of house conventions, vs (b) a userland flow that enforces final-state checks and one repair attempt. The checks are proxies for parts of the skill, not full skill compliance.",
+  "scripts": {
+    "typecheck": "../../packages/sdk/node_modules/.bin/tsc -p tsconfig.json"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  }
+}

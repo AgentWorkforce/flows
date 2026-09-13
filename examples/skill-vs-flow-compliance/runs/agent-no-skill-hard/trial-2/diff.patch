@@ -1,0 +1,45 @@
+diff --git a/src/calculator.ts b/src/calculator.ts
+index b5d5312..59fbe83 100644
+--- a/src/calculator.ts
++++ b/src/calculator.ts
+@@ -3,13 +3,40 @@
+ // else here is in scope for the task, and both arms are told so.
+ 
+ export function add(a: number, b: number): number {
++  if (Number.isNaN(a) || Number.isNaN(b)) {
++    throw new TypeError('Arguments must be valid numbers, not NaN');
++  }
+   return a + b;
+ }
+ 
+ export function subtract(a: number, b: number): number {
++  if (Number.isNaN(a) || Number.isNaN(b)) {
++    throw new TypeError('Arguments must be valid numbers, not NaN');
++  }
+   return a - b;
+ }
+ 
+ export function divide(a: number, b: number): number {
++  if (b === 0) {
++    throw new RangeError('Division by zero is not allowed');
++  }
+   return a / b;
+ }
++
++export function average(nums: number[]): number {
++  if (nums.length === 0) {
++    throw new RangeError('Cannot calculate average of an empty array');
++  }
++  const sum = nums.reduce((acc, val) => acc + val, 0);
++  return sum / nums.length;
++}
++
++export function power(base: number, exponent: number): number {
++  if (!Number.isInteger(exponent)) {
++    throw new TypeError('Exponent must be an integer');
++  }
++  if (exponent < 0) {
++    throw new TypeError('Exponent must be non-negative');
++  }
++  return Math.pow(base, exponent);
++}

@@ -1,0 +1,18 @@
+{
+  "//": "OPT-IN typecheck, mirrors examples/research/tsconfig.json. Not part of any CI job yet. Run: npm --prefix examples/skill-vs-flow-compliance run typecheck (not npx: without node_modules, npx fetches an unrelated tsc and passes vacuously)",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "typeRoots": ["../../packages/sdk/node_modules/@types"],
+    "types": ["node"]
+  },
+  "include": ["**/*.ts"]
+}

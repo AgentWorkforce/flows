@@ -1,0 +1,42 @@
+diff --git a/.claude/settings.json b/.claude/settings.json
+new file mode 100644
+index 0000000..5123f1d
+--- /dev/null
++++ b/.claude/settings.json
+@@ -0,0 +1,7 @@
++{
++  "permissions": {
++    "allow": [
++      "mcp__relaycast__*"
++    ]
++  }
++}
+diff --git a/src/calculator.ts b/src/calculator.ts
+index b5d5312..39bf1d1 100644
+--- a/src/calculator.ts
++++ b/src/calculator.ts
+@@ -11,5 +11,8 @@ export function subtract(a: number, b: number): number {
+ }
+ 
+ export function divide(a: number, b: number): number {
++  if (b === 0) {
++    throw new RangeError("Cannot divide by zero");
++  }
+   return a / b;
+ }
+diff --git a/test/calculator.test.ts b/test/calculator.test.ts
+index 8638ef8..bac2620 100644
+--- a/test/calculator.test.ts
++++ b/test/calculator.test.ts
+@@ -14,5 +14,11 @@ test("divide", () => {
+   assert.equal(divide(6, 3), 2);
+ });
+ 
++test("divide by zero throws RangeError", () => {
++  assert.throws(() => divide(1, 0), RangeError);
++  assert.throws(() => divide(-1, 0), RangeError);
++  assert.throws(() => divide(0, 0), RangeError);
++});
++
+ // Deliberately absent: a case for dividing by zero. That is the gap the
+ // task asks either arm to close.

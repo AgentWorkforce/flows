@@ -1,0 +1,2 @@
+a97e0759b4f8f2facdcf009538d6d9dd86bb7cf4 feat: add average and power functions
+63725bc8f9b771fa160c7f90be0fced38c7425a6 fix: add input validation to divide, add, subtract

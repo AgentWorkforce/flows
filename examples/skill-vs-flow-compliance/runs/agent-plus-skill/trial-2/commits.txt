@@ -1,0 +1,1 @@
+2ddf23ab0bf4bdee18aca74fbf2a9a16d92631b8 fix(calculator): reject division by zero

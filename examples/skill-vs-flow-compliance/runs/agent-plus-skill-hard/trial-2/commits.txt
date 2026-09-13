@@ -1,0 +1,2 @@
+4f179b51886c84aa89f4922359e29f1c664246b3 Add average and power functions
+1f2982aceb2be90842161c6bf40d7cfc5a28e4e1 Fix divide by zero and add NaN validation to add/subtract

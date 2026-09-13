@@ -1,0 +1,1 @@
+913cbbd27327057a011e7aa20c2c2169f728b747 fix: add error handling to divide, add, and subtract

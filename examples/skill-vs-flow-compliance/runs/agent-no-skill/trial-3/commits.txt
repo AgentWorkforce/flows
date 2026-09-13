@@ -1,0 +1,1 @@
+c86cb39d490b0ebcdd3e18fc263410442ff01682 fix: throw RangeError when divide is called with a zero divisor
