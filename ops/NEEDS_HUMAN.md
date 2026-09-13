@@ -1,83 +1,110 @@
-# NEEDS_HUMAN — Conflicting Work Package Context
+# NEEDS_HUMAN — TARGET.md scope already complete, gate 3 needs definition
 
-**Situation:** This run has conflicting scope context that requires human clarification.
+**Situation:** TARGET.md describes work that is already merged. Gate 3 work package needs human definition.
 
-## The Conflict
+## The Core Issue
 
-1. **ops/TARGET.md says:** Gate 3, build hn-monitor runner (sub-PR A), `sdk/src/` code task
-2. **ops/NEXT.md says:** Gate 3, cloud review-swarm preflight validation, `.github/workflows/` task  
-3. **These are completely different tasks** — one is SDK code (track A per TARGET), one is GitHub Actions (track D per NEXT)
+**ops/TARGET.md** (line 1) says "gate 3" but describes gate-2 work (hn-monitor runner, sub-PR A) that was **merged in PR #120 on 2026-09-01**.
 
-## Evidence
+The hn-monitor runner exists at `packages/sdk/src/cli/hn-monitor.ts` (288 lines) with all five findings from closed PR #83 addressed:
 
-**ops/TARGET.md line 1-5:**
-```
-# TARGET — gate 3
+1. ✅ Fail-closed on journal errors (lines 254-268)
+2. ✅ AgentWorker.close() drains workers (lines 275-278)
+3. ✅ Field declaration order (functional approach, not class-based)
+4. ✅ AbortSignal opt-in (lines 59-60, 127-142)
+5. ✅ Test coverage (`tests/cli-hn-monitor.test.ts`, 15420 bytes)
 
-This run is pinned to **gate 3** and must not work on any other gate.
+**ops/STATE.md** (lines 44-47) confirms:
+> PR #120 (`201542a`, merged 2026-09-01 08:29 UTC) —
+> **`flows hn-monitor start`**, the CLI runner that turns the poller
+> into an unattended process.
 
-**Scope:** Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side.
-```
+## What RFC-0001 §3 says gate 3 actually is
 
-**ops/NEXT.md line 1-3:**
-```
-# NEXT — gate 3: complete cloud review-swarm preflight validation and documentation
+Gate 3 is **Software Garden** — the full issue-to-PR pipeline:
 
-**Scope:** Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time
-```
+> **Gate 3 — a relayflow can power a factory → Software Garden**
+>
+> **Proves:** the flagship DAG. Discover → implement → review → merge-gate → close, on kernel leases instead of factory's ~10 hand-rolled claim protocols.
+>
+> **Done when:** a labeled issue flows to a reviewed PR end-to-end with every claim/lease/retry served by the kernel, the merge gate holding (no auto-merge without opt-in), and the run legible in the journal — while the customer-facing config surface mentions none of it.
 
-## The Charter Says
+This is a **multi-component, multi-PR gate** involving:
+- Factory claim protocol migration to kernel leases
+- Discover → implement → review → merge-gate → close pipeline
+- Journal-backed run tracking
+- Merge gate enforcement
+- Customer-facing surface design
 
-Per charter/LEAD.md (the instruction I received):
-- "Read ops/TARGET.md if it exists" — it does, says hn-monitor
-- "Then read ops/STATE.md, ops/DIRECTIVES.md" — done
-- "Then write ops/NEXT.md: the SINGLE highest-priority work package toward the current gate"
+This is **not** a single work package. It requires phased planning.
 
-But ops/NEXT.md ALREADY EXISTS with different work.
+## Why I cannot proceed
 
-## Additional Context Found
+Charter instructions say:
 
-**ops/STATE.md gate 2 block (lines 39-81)** says:
-- PR #120 merged 2026-09-01 — `flows hn-monitor start` CLI runner
-- Gate 2 is AMBER, not GREEN
-- Two clauses remain: trigger-plane liveness, analyze-agent execution
+> "Then write ops/NEXT.md: the SINGLE highest-priority work package toward the current gate (gate 1 until its done-when in RFC-0001 §3 holds)."
 
-**Actual file check:**
-- `packages/sdk/src/cli/hn-monitor.ts` exists (288 lines)
-- Contains `runHnMonitor` function implementing all TARGET.md requirements
-- Addresses all five findings from closed PR #83
+I cannot write a work package for TARGET.md's scope because **it is already complete**. I cannot start gate 3 without human direction on which component to build first.
+
+## Gate 2 is AMBER, not GREEN
+
+Per ops/STATE.md lines 59-81, gate 2 has two open clauses:
+
+1. **Trigger plane liveness-checked** — RelayCron-style deterministic-id single-winner claim + stale_after sweep. The poller runs; the kernel doesn't notice if it stops.
+
+2. **The analyze-agent step actually executing** — In the recorded live run (ops/reviews/20260901-1050-gate2-live-run.md), every step ended in `worker_error` because the AgentWorker has no user-supplied step handler. The dispatch loop works; the analyzer doesn't.
+
+ops/STATE.md line 74-76 says:
+> **AMBER → GREEN is Khaliq's read** on the enclosed evidence, per this
+> block's prior wording ("that is a judgement, not a missing part") and
+> per the charter's standing rule that the Lead never merges / never
+> flips gates.
 
 ## The Question
 
-**Which work package should this run execute?**
+**What is the actual work package for this assess run?**
 
-**Option A: ops/TARGET.md wins (hn-monitor, sdk/ territory)**
-- Overwrite ops/NEXT.md with hn-monitor work package
-- But the code already exists (PR #120 merged per STATE.md)
-- Task would be verification/testing, not building from scratch
+**Option 1: Declare hn-monitor work done**
+- Write ops/NEXT.md confirming PR #120 completed TARGET.md's scope
+- Mark this as "assessment complete, target already merged"
+- Let the launcher decide next target
 
-**Option B: ops/NEXT.md wins (review-swarm, .github/ territory)**
-- Ignore ops/TARGET.md
-- Execute the review-swarm validation work
-- But TARGET.md explicitly pins this run to gate 3 hn-monitor work
+**Option 2: Start gate 3 — first component**
+- Human specifies which gate-3 component to build first:
+  - Kernel lease primitive implementation?
+  - Factory claim protocol migration plan?
+  - Discover → implement flow scaffolding?
+  - Merge gate enforcement?
+- I write work package for that specific component
 
-**Option C: TARGET.md is stale**
-- The launcher wrote an outdated TARGET.md referencing closed PR #83
-- Real work is in ops/NEXT.md (review-swarm)
-- Proceed with review-swarm, update TARGET understanding
+**Option 3: Fix gate 2 AMBER clauses**
+- Write work package for trigger-plane liveness check (deterministic-id + stale_after sweep)
+- OR write work package for analyze-agent step execution (user-supplied step handler)
+- Gate 2 → GREEN before starting gate 3
 
-**Option D: Both are stale**
-- Neither accurately reflects current gate 3 needs
-- Assessor should read RFC-0001 §3 gate 3 definition
-- Write fresh work package from RFC requirements
+**Option 4: Different direction**
+- Human provides alternative scope
 
-## Recommendation
+## Evidence Files
 
-**Option C** — ops/TARGET.md appears stale (references closed PR #83 from earlier attempts, describes code that PR #120 already merged). The active work package is ops/NEXT.md (review-swarm). But I need human confirmation before overwriting NEXT.md or executing potentially wrong work.
+The assessment found these files:
+
+```
+packages/sdk/src/cli/hn-monitor.ts          # 288 lines, merged PR #120
+packages/sdk/tests/cli-hn-monitor.test.ts   # 15420 bytes, test coverage
+packages/sdk/src/worker.ts                  # AgentWorker implementation
+packages/sdk/src/hn-poller.ts               # pollHackerNewsOnce primitive
+```
+
+All are committed on main. No unmerged work exists for TARGET.md's scope.
 
 ## What I Need
 
-**Clear answer:** Which work package is correct for this run?
-- If hn-monitor: shall I overwrite the review-swarm NEXT.md, or is there a different file I should write?
-- If review-swarm: shall I proceed with ops/NEXT.md as-is and ignore TARGET.md?
-- If neither: what is the actual gate 3 work I should assess?
+**Clear answer from human:** Which work package should I write in ops/NEXT.md?
+
+- If option 1: I'll document that TARGET.md is complete and commit the assessment
+- If option 2: Specify the gate-3 component to start with
+- If option 3: Specify which gate-2 AMBER clause to address
+- If option 4: Provide the actual scope
+
+Without this, I cannot write an honest work package per charter requirements.
