@@ -49,6 +49,34 @@ Every check records `pass` / `fail` / `skip` + reason in `checks.jsonl`;
 `verdict.json` is the only authoritative result. An agent's prose never
 greens a test — only a deterministic gate does.
 
+### What a flow test is, and is not
+
+A flow test is **deterministic assertions over a run that contains real
+agent steps.** The agent is the workload, never the oracle — the same way an
+integration test uses a real Postgres without letting Postgres decide whether
+the test passed. Most coverage belongs in tiers 0 and 1; a tier-2 flow is
+justified only when the feature under test *is* the agent path, which a stub
+CLI is too well-behaved to exercise:
+
+1. the headless adapters against the real CLIs (`claude -p --output-format
+   stream-json`, `codex exec --json`, `grok --output-format json`) — vendors
+   change these without notice and CI has never run one;
+2. `flows check` refusals on real auth/model state (`model_unavailable`,
+   unauthenticated CLI) rather than on a fixture of it;
+3. budget accounting from real token usage, incl. "a resumed run's spend
+   equals one execution of each step";
+4. resume across a real long-running agent step (kill -9 mid-step, `reset` /
+   `inspect` recovery, lease heartbeat under realistic timing);
+5. flows hosting its own verification suite — if the runtime cannot run its
+   own tests, that is a product finding.
+
+Everything else — kernel crash injection, adapter *parsing*, preflight logic,
+webhook auth, helper clients — is a tier 0/1 test and must not be promoted to
+a flow to look thorough. The manifest audit (WP-V2) flags a `verify.flow`
+entry on a feature whose `location` does not touch the agent path. Agent-led
+exploratory runs ("use the feature like a user") may report findings; they
+never gate a merge.
+
 ## Work packages, in order
 
 Each has a runnable definition of done. Quote the DoD into `ops/NEXT.md`;
@@ -105,12 +133,16 @@ paste literal command output in the PR (AGENTS.md "Evidence is captured").
   `.workflow-artifacts/flow-tests/checks.jsonl` and `verdict.json`
   (`pass|fail|skip` + reason per feature; overall = no `fail`, and no `skip`
   on a `critical` feature). Zero retries. Per-flow budget cap and timeout.
-- **First flows (all `critical`):** hello ladder a (deterministic), b (llm +
-  gate), c (agent); kill -9 mid-run then `flows resume` completes only
-  unfinished work with exact budget; `flows check` refuses a missing /
-  unauthenticated CLI (uses WP-V1 `.expect`); `serve-webhook` rejects a bad
-  signature and admits a good one; budget cap parks the run with
-  `completionReason` set.
+- **First flows (all `critical`, each justified by an item in "What a flow
+  test is"):** hello ladder a/b/c as the smoke (the ladder is RFC-0001 gate
+  1's done-when); one adapter round trip per real CLI, asserting the parsed
+  `AgentResult` shape and `completionReason` (item 1); `flows check` refuses
+  an impossible model and an unauthenticated CLI via WP-V1 `.expect`
+  (item 2); kill -9 during a real agent step, then `flows resume` completes
+  only unfinished work and the journal's spend equals one execution per step
+  (items 3, 4); budget cap parks the run with `completionReason` set
+  (item 3). Webhook signature and admission checks stay in tier 1
+  (`webhook-hardening.test.ts`) — they need no agent.
 - **DoD:** `node scripts/flow-tests.mjs --all` on an authenticated host
   writes a `verdict.json` with every listed feature `pass`; the runner's own
   tests pass; `regressions/` pairs run under the same runner with red/green
