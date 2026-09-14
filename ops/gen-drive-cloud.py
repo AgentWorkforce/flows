@@ -10,10 +10,16 @@ Run from the repo root:  python3 ops/gen-drive-cloud.py
 
 Variant with every agent on one CLI (e.g. to spend a provider credit pool):
 
-    python3 ops/gen-drive-cloud.py --cli grok --out workflows/drive-cloud-grok.yaml
+    python3 ops/gen-drive-cloud.py --cli opencode --model xai/grok-4.6 \
+        --suffix grok --out workflows/drive-cloud-grok.yaml
 
-The step bodies are identical; only the agents' `cli` and the swarm name /
-channel differ, so the variant is a generated file too, never hand-edited.
+The step bodies are identical; only the agents' `cli` / `constraints.model`
+and the swarm name / channel differ, so the variant is a generated file too,
+never hand-edited. `--cli grok` is NOT valid: the v1 engine's CLI registry
+(relayflows/packages/core/src/cli-registry.ts) has no grok entry, and run
+3b7beb42 died at assess-1 with "Unknown or non-executable CLI: grok".
+opencode reaches xAI through XAI_API_KEY, which cloud injects for any
+`xai/...` model name from the workspace's BYOK credential.
 """
 import argparse
 import copy
@@ -47,15 +53,17 @@ CYCLES = 1
 BASE_STEPS = ["assess", "assess-gate", "build", "verify"]
 
 
-def build(cli=None, suffix=""):
+def build(cli=None, model=None, suffix=""):
     d = yaml.safe_load(open("workflows/drive.yaml"))
     src = {s["name"]: s for s in d["workflows"][0]["steps"]}
 
     out = copy.deepcopy(d)
     out["name"] = f"flows-drive-cloud{suffix}"
-    if cli:
-        for agent in out["agents"]:
+    for agent in out["agents"]:
+        if cli:
             agent["cli"] = cli
+        if model:
+            agent.setdefault("constraints", {})["model"] = model
     out["description"] = (
         "The Lead's tick, shaped for a cloud sandbox with the laptop closed.\n"
         "A cloud sandbox has no git remote and no GitHub token, so this flow\n"
@@ -143,12 +151,20 @@ def build(cli=None, suffix=""):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cli", help="put every agent on this CLI (claude, codex, grok, ...)")
+    ap.add_argument("--cli", help="put every agent on this registered CLI (claude, codex, opencode, ...)")
+    ap.add_argument("--model", help="set constraints.model on every agent (passed as --model to the CLI)")
+    ap.add_argument("--suffix", help="name/channel suffix for the variant (default: the cli name)")
     ap.add_argument("--out", default="workflows/drive-cloud.yaml")
     args = ap.parse_args()
-    suffix = f"-{args.cli}" if args.cli else ""
-    doc = build(cli=args.cli, suffix=suffix)
-    regen = "python3 ops/gen-drive-cloud.py" + (f" --cli {args.cli} --out {args.out}" if args.cli else "")
+    if (args.cli or args.model) and args.out == "workflows/drive-cloud.yaml":
+        ap.error("a variant needs its own --out; workflows/drive-cloud.yaml is the canonical loop")
+    suffix = f"-{args.suffix or args.cli}" if (args.cli or args.model) else ""
+    doc = build(cli=args.cli, model=args.model, suffix=suffix)
+    regen = "python3 ops/gen-drive-cloud.py"
+    if args.cli: regen += f" --cli {args.cli}"
+    if args.model: regen += f" --model {args.model}"
+    if args.suffix: regen += f" --suffix {args.suffix}"
+    if args.cli or args.model: regen += f" --out {args.out}"
     with open(args.out, "w") as f:
         f.write("# GENERATED from workflows/drive.yaml by ops/gen-drive-cloud.py.\n"
                 f"# Do not hand-edit: change drive.yaml, then regenerate:  {regen}\n")

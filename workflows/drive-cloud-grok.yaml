@@ -1,5 +1,5 @@
 # GENERATED from workflows/drive.yaml by ops/gen-drive-cloud.py.
-# Do not hand-edit: change drive.yaml, then regenerate:  python3 ops/gen-drive-cloud.py --cli grok --out workflows/drive-cloud-grok.yaml
+# Do not hand-edit: change drive.yaml, then regenerate:  python3 ops/gen-drive-cloud.py --cli opencode --model xai/grok-4.6 --suffix grok --out workflows/drive-cloud-grok.yaml
 version: '1.0'
 name: flows-drive-cloud-grok
 description: 'The Lead''s tick, shaped for a cloud sandbox with the laptop closed.
@@ -21,17 +21,23 @@ swarm:
   timeoutMs: 3600000
 agents:
 - name: lead
-  cli: grok
+  cli: opencode
   preset: analyst
   role: The Relayflow Lead. Assesses state, plans one work package, reports honestly.
+  constraints:
+    model: xai/grok-4.6
 - name: builder
-  cli: grok
+  cli: opencode
   preset: worker
   role: Implements the work package. Rust for kernel/, TypeScript for packages/sdk/.
+  constraints:
+    model: xai/grok-4.6
 - name: adversary
-  cli: grok
+  cli: opencode
   preset: reviewer
   role: Adversarial reviewer against RFC-0001 and AGENTS.md.
+  constraints:
+    model: xai/grok-4.6
 workflows:
 - name: drive-cloud-loop
   steps:

@@ -81,7 +81,7 @@ echo "LAUNCH_WORKTREE=$work"
 echo "LAUNCH_TARGET_TRACKED=ok"
 # DRIVE_WORKFLOW selects the generated cloud variant to launch. The default
 # is the canonical claude/codex loop; ops/gen-drive-cloud.py --cli emits
-# same-steps variants (e.g. workflows/drive-cloud-grok.yaml) for spending a
+# same-steps variants (e.g. workflows/drive-cloud-grok.yaml: opencode on xai/grok-4.6) for spending a
 # specific provider's credit pool without forking the loop itself.
 workflow="${DRIVE_WORKFLOW:-workflows/drive-cloud.yaml}"
 if [ ! -f "$workflow" ]; then
