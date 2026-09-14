@@ -71,6 +71,8 @@ function definition(name) {
 
 function type(node) {
   if (ts.isParenthesizedTypeNode(node)) return type(node.type);
+  // Readonly changes TypeScript mutability, not the serialized value shape.
+  if (ts.isTypeOperatorNode(node) && node.operator === ts.SyntaxKind.ReadonlyKeyword) return type(node.type);
   if (ts.isArrayTypeNode(node)) return { type: 'array', items: type(node.elementType) };
   if (ts.isTypeLiteralNode(node)) return object(node.members);
   if (ts.isLiteralTypeNode(node)) {
