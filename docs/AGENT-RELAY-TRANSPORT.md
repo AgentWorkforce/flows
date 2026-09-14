@@ -8,12 +8,14 @@ This adapter requires the task contract in AgentWorkforce/relaycast#436
 AgentWorkforce/relay#1772 (`6a06fd176df94ca1054d5b7965bd777b7d881eb6`;
 subsequent proof-only commit `a8577736dd32c0bcf51a37f88ac0b04fb056da3f`).
 These changes need to be admitted and deployed in that order before a live
-Cloud proof can validate this adapter. Local wire fixtures do not establish
+Cloud proof can validate this adapter. The independent schema-validation fix in AgentWorkforce/flows#398 is also an
+explicit validate dependency; its patch is not included here. Local wire fixtures do not establish
 that the deployed service supports the contract.
 
 Configure a pre-provisioned `RELAY_AGENT_TOKEN` for the caller in the provider's
 workspace and, if needed, `RELAY_BASE_URL` (default `https://cast.agentrelay.com`).
-A workspace API key cannot substitute for the agent token. The Relay provider
+A workspace API key cannot substitute for the agent token. HTTPS is required
+except for literal loopback IP addresses used in local development. The Relay provider
 must explicitly enable `AGENT_RELAY_TASK_PROVIDER=1` with persistent state.
 The worker uses its injected `agent_result` tool to submit the final output or
 failure and waits for the provider's durable acknowledgment before exiting.
@@ -41,8 +43,8 @@ journal identity, including on a retry of the same dispatch. Starting a new
 logical task requires a new journal identity.
 
 While polling, Flows renews the existing worker lease. Lease loss aborts polling
-and prevents a stale journal completion. Accepted generation and execution
-identity must remain stable; final receipts must match the caller, invocation,
+and prevents a stale journal completion. Execution identity must remain stable across every observed receipt. Generation
+and acceptance time may appear together once and must then remain stable; final receipts must match the caller, invocation,
 input, run, step, and dispatch. A completed receipt supplies the exact JSON
 output, including arrays, scalars, and null. A failed receipt supplies an
 explicit failure reason. Receipt correlation is retained in the step's

@@ -66,15 +66,23 @@ export function readTaskReceipt(
     throw new Error("Relay task receipt is missing durable acceptance");
   }
   if (
+    (execution.worker_generation !== undefined ||
+      execution.accepted_at !== undefined) &&
+    !accepted
+  ) {
+    throw new Error("Relay task receipt has incomplete durable acceptance");
+  }
+  if (
     previous !== undefined &&
-    (previous.task_execution.deadline !== execution.deadline ||
+    (previous.task_execution.execution_id !== execution.execution_id ||
+      previous.task_execution.deadline !== execution.deadline ||
       (previous.task_execution.worker_generation !== undefined &&
         (previous.task_execution.worker_generation !==
           execution.worker_generation ||
-          previous.task_execution.execution_id !== execution.execution_id)))
+          previous.task_execution.accepted_at !== execution.accepted_at)))
   ) {
     throw new Error(
-      "Relay task receipt changed its accepted generation or deadline",
+      "Relay task receipt changed its execution, accepted generation/time, or deadline",
     );
   }
   if (

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { claimRelayTask } from "./agent-relay-state.js";
 import { canonicalize } from "./canonical.js";
@@ -75,6 +76,14 @@ export async function runAgentRelayTask(
     !["https:", "http:"].includes(base.protocol)
   )
     throw new AgentRelayTransportError("Invalid Relay task base URL");
+  const loopback =
+    base.hostname === "[::1]" ||
+    (isIP(base.hostname) === 4 && base.hostname.startsWith("127."));
+  if (base.protocol !== "https:" && !loopback) {
+    throw new AgentRelayTransportError(
+      "Relay task credentials require HTTPS outside literal loopback addresses",
+    );
+  }
   const baseUrl = base.origin;
   const timeoutMs = request.timeoutMs ?? 86_400_000;
   if (
