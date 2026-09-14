@@ -7,7 +7,15 @@ cycles back to back in ONE sandbox so the program keeps moving with the
 laptop closed. The operator recovers the work with `agent-relay cloud sync`.
 
 Run from the repo root:  python3 ops/gen-drive-cloud.py
+
+Variant with every agent on one CLI (e.g. to spend a provider credit pool):
+
+    python3 ops/gen-drive-cloud.py --cli grok --out workflows/drive-cloud-grok.yaml
+
+The step bodies are identical; only the agents' `cli` and the swarm name /
+channel differ, so the variant is a generated file too, never hand-edited.
 """
+import argparse
 import copy
 import yaml
 
@@ -39,12 +47,15 @@ CYCLES = 1
 BASE_STEPS = ["assess", "assess-gate", "build", "verify"]
 
 
-def build():
+def build(cli=None, suffix=""):
     d = yaml.safe_load(open("workflows/drive.yaml"))
     src = {s["name"]: s for s in d["workflows"][0]["steps"]}
 
     out = copy.deepcopy(d)
-    out["name"] = "flows-drive-cloud"
+    out["name"] = f"flows-drive-cloud{suffix}"
+    if cli:
+        for agent in out["agents"]:
+            agent["cli"] = cli
     out["description"] = (
         "The Lead's tick, shaped for a cloud sandbox with the laptop closed.\n"
         "A cloud sandbox has no git remote and no GitHub token, so this flow\n"
@@ -53,7 +64,7 @@ def build():
         "with `agent-relay cloud sync <runId>`. Nothing reaches main without a\n"
         "human. GENERATED from workflows/drive.yaml by ops/gen-drive-cloud.py.\n"
     )
-    out["swarm"]["channel"] = "flows-drive-cloud"
+    out["swarm"]["channel"] = f"flows-drive-cloud{suffix}"
     out["swarm"]["timeoutMs"] = 3600000  # 1h — one cycle takes ~10 min; a run
     # that has not finished in an hour is hung, not slow, and should stop
     # burning budget rather than sit for eight hours.
@@ -131,9 +142,15 @@ def build():
 
 
 if __name__ == "__main__":
-    doc = build()
-    with open("workflows/drive-cloud.yaml", "w") as f:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--cli", help="put every agent on this CLI (claude, codex, grok, ...)")
+    ap.add_argument("--out", default="workflows/drive-cloud.yaml")
+    args = ap.parse_args()
+    suffix = f"-{args.cli}" if args.cli else ""
+    doc = build(cli=args.cli, suffix=suffix)
+    regen = "python3 ops/gen-drive-cloud.py" + (f" --cli {args.cli} --out {args.out}" if args.cli else "")
+    with open(args.out, "w") as f:
         f.write("# GENERATED from workflows/drive.yaml by ops/gen-drive-cloud.py.\n"
-                "# Do not hand-edit: change drive.yaml, then regenerate.\n")
+                f"# Do not hand-edit: change drive.yaml, then regenerate:  {regen}\n")
         yaml.safe_dump(doc, f, sort_keys=False, width=100, default_flow_style=False)
-    print(f"wrote workflows/drive-cloud.yaml ({len(doc['workflows'][0]['steps'])} steps)")
+    print(f"wrote {args.out} ({len(doc['workflows'][0]['steps'])} steps)")

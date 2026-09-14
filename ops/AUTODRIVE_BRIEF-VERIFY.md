@@ -1,0 +1,5 @@
+Work the standing directive of 2026-09-14 in ops/DIRECTIVES.md: make every feature in this repo verifiable and get to autonomous merge. The ordered work list with runnable definitions of done is ops/VERIFY-FEATURES-PLAN.md (WP-V1 … WP-V7).
+
+Selection rule for this tick: read ops/STATE.md, ops/DRIVE-LOG.md and `gh pr list --state open` if available; take the FIRST work package whose `blocked-by` packages are all merged on main. If an earlier package's PR is open and review is waiting on fixes, that fix IS the tick. One package per tick, never two. Quote the package's definition of done into ops/NEXT.md verbatim — cite no path that is not in the tree.
+
+Hard rails, unchanged: never edit `.github/workflows/review-swarm*.yml`, `workflows/review-swarm.yaml`, `ops/preswarm-check/`, or anything in ops/IMMUTABLE_PATHS; never merge; if a package cannot land as written, write ops/NEEDS_HUMAN.md with the exact question and still end with ASSESS_DONE. Every claim of a passing command carries the literal command and its captured output.

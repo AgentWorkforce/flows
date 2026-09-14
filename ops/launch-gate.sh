@@ -79,5 +79,15 @@ fi
 echo "LAUNCH_GATE=$gate"
 echo "LAUNCH_WORKTREE=$work"
 echo "LAUNCH_TARGET_TRACKED=ok"
-agent-relay cloud run workflows/drive-cloud.yaml 2>&1 | grep -E "Run created|Status:"
+# DRIVE_WORKFLOW selects the generated cloud variant to launch. The default
+# is the canonical claude/codex loop; ops/gen-drive-cloud.py --cli emits
+# same-steps variants (e.g. workflows/drive-cloud-grok.yaml) for spending a
+# specific provider's credit pool without forking the loop itself.
+workflow="${DRIVE_WORKFLOW:-workflows/drive-cloud.yaml}"
+if [ ! -f "$workflow" ]; then
+  echo "LAUNCH_FAIL_NO_WORKFLOW: $workflow is not in the launch worktree (is it on origin/main?)" >&2
+  exit 70
+fi
+echo "LAUNCH_WORKFLOW=$workflow"
+agent-relay cloud run "$workflow" 2>&1 | grep -E "Run created|Status:"
 echo "LAUNCH_NOTE: worktree kept at $work — remove with 'git worktree remove --force $work'"
