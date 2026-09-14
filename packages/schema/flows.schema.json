@@ -1323,6 +1323,20 @@
           "description": "permissions in the Relayflows spec.",
           "$ref": "#/$defs/PermissionsSpec"
         },
+        "cwd": {
+          "title": "cwd",
+          "description": "Working directory for the CLI subprocess; defaults to the flow-runner's cwd.",
+          "type": "string"
+        },
+        "transport": {
+          "title": "transport",
+          "description": "Dispatch transport (flows#385). `'direct'` (default) spawns the CLI as\na local subprocess. `'relay'` posts to agent-relay so the agent\nregisters as a first-class workspace participant.",
+          "type": "string",
+          "enum": [
+            "direct",
+            "relay"
+          ]
+        },
         "output": {
           "title": "output",
           "description": "Structured-output authoring sugar. A successful CLI JSON object is the parsed\nvalue; the kernel persists it only after `json_schema` verification.",
@@ -1726,6 +1740,56 @@
               "description": "See HeaderBudget."
             }
           ]
+        },
+        "workspace": {
+          "title": "workspace",
+          "description": "Path-scoped workspace grants — \"mount/path: readonly|readwrite|append\". Compiled by preflight.",
+          "oneOf": [
+            {
+              "type": "string",
+              "title": "workspace alternative 1",
+              "description": "workspace alternative 1 value."
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "title": "workspace alternative 2 items",
+                "description": "workspace alternative 2 items value."
+              },
+              "title": "workspace alternative 2",
+              "description": "workspace alternative 2 value."
+            }
+          ]
+        },
+        "tools": {
+          "title": "tools",
+          "description": "Path-scoped tool grants; `fs` mirrors workspace for shell/deterministic scope.",
+          "type": "object",
+          "properties": {
+            "fs": {
+              "title": "fs",
+              "description": "fs in the Relayflows spec.",
+              "oneOf": [
+                {
+                  "type": "string",
+                  "title": "fs alternative 1",
+                  "description": "fs alternative 1 value."
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "title": "fs alternative 2 items",
+                    "description": "fs alternative 2 items value."
+                  },
+                  "title": "fs alternative 2",
+                  "description": "fs alternative 2 value."
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [
@@ -2229,6 +2293,20 @@
           "title": "permissions",
           "description": "permissions in the Relayflows spec.",
           "$ref": "#/$defs/KernelPermissionsSpec"
+        },
+        "cwd": {
+          "title": "cwd",
+          "description": "Working directory for the CLI subprocess; kernel passes through untouched.",
+          "type": "string"
+        },
+        "transport": {
+          "title": "transport",
+          "description": "Dispatch transport (flows#385). Kernel passes through untouched;\nthe SDK worker selects between direct-spawn and agent-relay routing.",
+          "type": "string",
+          "enum": [
+            "direct",
+            "relay"
+          ]
         }
       },
       "required": [
