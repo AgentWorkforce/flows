@@ -1,6 +1,6 @@
 {
   "name": "@relayflows/sdk",
-  "version": "2.0.8",
+  "version": "2.0.10",
   "description": "TypeScript-first authoring SDK for Relayflows. Compiles specs; speaks the journal protocol.",
   "type": "module",
   "main": "./dist/index.js",
@@ -45,7 +45,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@relayfile/adapter-core": "0.5.24",
     "@relayfile/relay-helpers": "0.4.11",
-    "@relayflows/surface": "2.0.8",
+    "@relayflows/surface": "2.0.10",
     "@types/js-yaml": "^4.0.9",
     "ai-hist": "0.4.1",
     "ajv": "^8.17.1",
