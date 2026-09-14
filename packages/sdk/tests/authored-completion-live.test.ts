@@ -82,11 +82,15 @@ describe('authored cancellation and rejection through the live journal', () => {
     { accepted: true, reviewed: true, reason: 'needs_human', status: 'parked', exit: 3 },
   ])('reports $reason from a generated-style flow through the built CLI', async testCase => {
     const runtime = await fixture();
-    writeFileSync(runtime.flowPath, `import { flow, matchesIssue, type Issue } from '@relayflows/surface';
-const sources = { linear: { labels: ['ready'] } };
-export default flow<{ issue: Issue; reviewed: boolean }>('software-factory',
+    writeFileSync(runtime.flowPath, `import { flow } from '@relayflows/surface';
+type Input = {
+  issue: { source: string; title: string; body: string; labels: string[] };
+  reviewed: boolean;
+};
+export default flow<Input>('software-factory',
   { budget: { wallclock: '1h' } }, async (f, input) => {
-    if (!matchesIssue(input.issue, sources)) return f.done('canceled');
+    if (input.issue.source !== 'linear') return f.done('canceled');
+    if (!input.issue.labels.includes('ready')) return f.done('canceled');
     await f.agent('implementer', { task: input.issue.title + '\\n' + input.issue.body });
     const clean = (await f.run(input.reviewed ? 'printf yes' : 'printf no')).trim() === 'yes';
     if (!clean) return f.done('step_failed');

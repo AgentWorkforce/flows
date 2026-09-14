@@ -2,10 +2,6 @@
 
 The TypeScript authoring contract described by `docs/SURFACE.md`.
 
-For shared normalized ticket inputs and source-specific filters, see
-[issue sources](../../docs/ISSUE-SOURCES.md): `Issue`, `SourceFilters`, and
-`matchesIssue()` keep validation and filtering out of individual flow files.
-
 The package defines flows and the context that a future journal-backed runtime
 will inject. A flow handle retains an immutable header and body behind the
 `@relayflows/surface/runtime` bridge used by in-repository SDK inspection; the
