@@ -28,11 +28,15 @@ INTERVAL="${AUTODRIVE_INTERVAL:-300}"
 MAX_LIVE="${AUTODRIVE_MAX_LIVE:-1}"
 STOP_FILE="${AUTODRIVE_STOP:-/tmp/autodrive.stop}"
 STATE="${AUTODRIVE_STATE:-/tmp/autodrive-seen.txt}"
+# The brief is a file so a running loop can be re-aimed without a restart;
+# BRIEF_FILE lets two loops with different briefs (and DRIVE_WORKFLOW
+# variants) coexist without fighting over ops/AUTODRIVE_BRIEF.md.
+BRIEF_FILE="${AUTODRIVE_BRIEF_FILE:-ops/AUTODRIVE_BRIEF.md}"
 
 touch "$STATE"
 say() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
-say "autodrive starting (interval ${INTERVAL}s, max ${MAX_LIVE} live run, stop: $STOP_FILE)"
+say "autodrive starting (interval ${INTERVAL}s, max ${MAX_LIVE} live run, brief: $BRIEF_FILE, workflow: ${DRIVE_WORKFLOW:-workflows/drive-cloud.yaml}, stop: $STOP_FILE)"
 
 while [ ! -f "$STOP_FILE" ]; do
   cd "$REPO" 2>/dev/null || { say "FATAL: $REPO missing"; exit 1; }
@@ -106,9 +110,9 @@ while [ ! -f "$STOP_FILE" ]; do
     # loop. Five generic-brief cycles ("read STATE.md, pick one small thing")
     # produced nothing deliverable, while every run that produced real code had
     # a specific, scoped task. Vague instructions cost a full cycle each.
-    brief=$(cat ops/AUTODRIVE_BRIEF.md 2>/dev/null)
+    brief=$(cat "$BRIEF_FILE" 2>/dev/null)
     if [ -z "$brief" ]; then
-      say "NO BRIEF: ops/AUTODRIVE_BRIEF.md is missing or empty — not launching blind"
+      say "NO BRIEF: $BRIEF_FILE is missing or empty — not launching blind"
       sleep "$INTERVAL"
       continue
     fi
