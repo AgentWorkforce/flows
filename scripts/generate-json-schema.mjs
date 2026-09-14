@@ -71,6 +71,9 @@ function definition(name) {
 
 function type(node) {
   if (ts.isParenthesizedTypeNode(node)) return type(node.type);
+  // Readonly is a TypeScript mutation constraint; JSON keeps the array shape.
+  if (ts.isTypeOperatorNode(node) && node.operator === ts.SyntaxKind.ReadonlyKeyword
+      && ts.isArrayTypeNode(node.type)) return type(node.type);
   if (ts.isArrayTypeNode(node)) return { type: 'array', items: type(node.elementType) };
   if (ts.isTypeLiteralNode(node)) return object(node.members);
   if (ts.isLiteralTypeNode(node)) {

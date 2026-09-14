@@ -102,6 +102,20 @@ export async function runDirectFlow(
         },
       };
     }
+    if (result.completionReason !== 'success') {
+      return {
+        exitCode: 1,
+        report: {
+          ...base, ok: false, runId: terminal.runId, socketPath, status: 'failed',
+          completionReason: result.completionReason,
+          completedSteps: result.journalSteps.length,
+          diagnostics: [...base.diagnostics, {
+            severity: 'failure', kind: result.completionReason,
+            message: `Flow "${result.name}" ended with completionReason: ${result.completionReason}.`,
+          }],
+        },
+      };
+    }
     return {
       exitCode: 0,
       report: {

@@ -90,7 +90,8 @@ type JournalStepUsesStepCompletionReason = Assert<
  * This is deliberately not exported by the SDK package: without a durable
  * authored root, it is not a resumable public runner. The seam is narrow: an
  * flow with an optional budget may await `f.run`, `f.llm`, and `f.agent` steps and must
- * finish with `f.done("success")` or `f.done("needs_human")`. Each step and the terminal marker is
+ * finish with `f.done("success")`, `f.done("needs_human")`, `f.done("canceled")`,
+ * or `f.done("step_failed")`. Each step and the terminal marker is
  * a compiled spec submitted through
  * `JournalClient`; values are read back from `step.completed` journal entries.
  * Unsupported headers, verbs, gates, or completion lowering fail closed.
@@ -306,7 +307,7 @@ export async function executeAuthoredFlow<Input = undefined>(
           `flow "${definition.name}" called done() more than once`,
         );
       }
-      if (reason !== 'success' && reason !== 'needs_human') {
+      if (reason !== 'success' && reason !== 'needs_human' && reason !== 'canceled' && reason !== 'step_failed') {
         throw new AuthoredFlowExecutionError(
           'unsupported_completion',
           `the initial authored executor cannot lower done("${reason}")`,
@@ -381,11 +382,11 @@ export async function executeAuthoredFlow<Input = undefined>(
     lifecycle.close();
   }
 
-  // The authored runner has no durable root yet. Record the handoff as a
-  // successful effect containing the authored outcome, not a fabricated kernel
-  // run.completed reason. The CLI reports this outcome as parked (exit 3).
-  await lowerDeterministic(`complete-${nextStep}`, requestedCompletion === 'needs_human'
-    ? `printf '%s' '{"completionReason":"needs_human"}'` : ':', true);
+  // The authored runner has no durable root yet. Record the authored outcome
+  // in a successful terminal effect, not a fabricated kernel run.completed
+  // reason. The CLI classifies the authored outcome separately from this step.
+  await lowerDeterministic(`complete-${nextStep}`, requestedCompletion === 'success'
+    ? ':' : `printf '%s' '${JSON.stringify({ completionReason: requestedCompletion })}'`, true);
   return Object.freeze({
     name: definition.name,
     completionReason: requestedCompletion,
