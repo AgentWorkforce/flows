@@ -67,6 +67,15 @@ const cases: Array<[string, unknown, boolean]> = [
   ['blank input name', flow({ input: { ' ': { step: 'one' } } }), false],
   ['trigger silence budget', { ...flow({}), triggers: [{ id: 'tick', executor: 'worker', staleAfterMs: 0 }] }, false],
 ];
+for (const [label, grants, ok] of [
+  ['single grant', 'repo: readonly', true],
+  ['grant array', ['repo: readonly', 'output: readwrite'], true],
+  ['non-string item', ['repo: readonly', 42], false],
+  ['nested array', [['repo: readonly']], false],
+] as const) {
+  cases.push([`workspace: ${label}`, { ...flow({}), workspace: grants }, ok]);
+  cases.push([`tools.fs: ${label}`, { ...flow({}), tools: { fs: grants } }, ok]);
+}
 for (const type of ['llm', 'agent']) {
   const step = { id: 'one', type, [type === 'llm' ? 'prompt' : 'instruction']: 'hello' };
   for (const [label, fields, ok] of [
