@@ -1,0 +1,105 @@
+npm notice run @relayflows/sdk@2.0.8 npx
+npm notice run 'vitest' run tests/authored-completion-live.test.ts tests/authored-flow.test.ts tests/authored-flow-lifecycle-executor.test.ts tests/direct-input.test.ts tests/close-pr-flow.test.ts
+
+ RUN  v2.1.9 /Users/will/Projects/AgentWorkforce/flows/packages/sdk
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts (27 tests | 27 failed) 19ms
+   × authored flow lifecycle through the journal executor > refuses native resolver callbacks without starting terminal success 7ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unawaited_step' }
+   × authored flow lifecycle through the journal executor > refuses an ignored Promise.resolve operation without terminal success 1ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unawaited_step' }
+   × authored flow lifecycle through the journal executor > refuses an ignored Promise.all operation without terminal success 1ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unawaited_step' }
+   × authored flow lifecycle through the journal executor > retains a swallowed Promise.resolve callback failure before terminal success 1ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'operation_callback_failed' }
+   × authored flow lifecycle through the journal executor > retains root failure through a swallowed Promise.resolve callback chain 1ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'step_failed', …(1) }
+   × authored flow lifecycle through the journal executor > ignores forged Function.prototype.toString when refusing manual callbacks 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unawaited_step' }
+   × authored flow lifecycle through the journal executor > refuses a handled-and-forgotten derived failure deferred by ten microtask ticks 1ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unsettled_derived_work' }
+   × authored flow lifecycle through the journal executor > refuses a handled-and-forgotten derived failure deferred by setTimeout(0) 1ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unsettled_derived_work' }
+   × authored flow lifecycle through the journal executor > refuses terminal success while derived work is still in flight 1ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unsettled_derived_work' }
+   × authored flow lifecycle through the journal executor > preserves pre-constructed steps awaited in a loop 1ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-7d8bbc5d.sock
+   × authored flow lifecycle through the journal executor > preserves pre-constructed steps awaited out of order 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-7d8bbc5d.sock
+   × authored flow lifecycle through the journal executor > refuses a deferred derived failure behind an aggregate: allSettled resolved by an unrelated member 1ms
+     → expected Error: journal client: connect failed: co… to match object { code: StringMatching{…} }
+   × authored flow lifecycle through the journal executor > refuses a deferred derived failure behind an aggregate: allSettled with the step declared second 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: StringMatching{…} }
+   × authored flow lifecycle through the journal executor > refuses a deferred derived failure behind an aggregate: all resolved by an unrelated member 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: StringMatching{…} }
+   × authored flow lifecycle through the journal executor > refuses a deferred derived failure behind an aggregate: race resolved by an unrelated member 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: StringMatching{…} }
+   × authored flow lifecycle through the journal executor > refuses a deferred derived failure behind an aggregate: any resolved by an unrelated member 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: StringMatching{…} }
+   × authored flow lifecycle through the journal executor > refuses a deferred derived failure behind an aggregate: allSettled resolved by the step itself 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: StringMatching{…} }
+   × authored flow lifecycle through the journal executor > refuses a deferred derived failure behind an aggregate: race resolved by the step itself 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: StringMatching{…} }
+   × authored flow lifecycle through the journal executor > preserves authoring: await Promise.allSettled over two steps 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-7d8bbc5d.sock
+   × authored flow lifecycle through the journal executor > preserves authoring: await Promise.allSettled over five steps 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-7d8bbc5d.sock
+   × authored flow lifecycle through the journal executor > preserves authoring: await Promise.all over three steps 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-7d8bbc5d.sock
+   × authored flow lifecycle through the journal executor > preserves authoring: await Promise.race over two steps 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-7d8bbc5d.sock
+   × authored flow lifecycle through the journal executor > preserves authoring: await Promise.any over two steps 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-7d8bbc5d.sock
+   × authored flow lifecycle through the journal executor > preserves authoring: await an aggregate mixing a step and an unrelated promise 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-7d8bbc5d.sock
+   × authored flow lifecycle through the journal executor > refuses for-await over authored steps, and says so in the docs 0ms
+     → expected Error: journal client: connect failed: co… to match object { code: 'unawaited_step' }
+   × authored flow lifecycle through the journal executor > preserves ordinary awaited work after an authored step 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-7d8bbc5d.sock
+   × authored flow lifecycle through the journal executor > preserves direct await, Promise.resolve, and Promise.all authoring 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-7d8bbc5d.sock
+ ❯ tests/authored-flow.test.ts (25 tests | 18 failed) 50ms
+   × authored flow journal executor > lowers an imported .flow.ts run and completion through the journal protocol 6ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > surfaces the closed journal reason when a lowered run fails 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > rechecks terminal state when a precreated lazy step first starts 1ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > refuses manually chained work even when it settles before the body returns 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > refuses forgotten work even when the body remains open long enough to settle it 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > retains root operation failures even when a derived rejection handler consumes them 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > captures a rejected derived callback instead of leaking unhandled success 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > passes direct input into the journal-backed authored body 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > evaluates journal output through JavaScript truthiness 1ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > evaluates journal output through JavaScript negation 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > evaluates journal output through JavaScript loose equality 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > evaluates journal output through JavaScript strict equality 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > evaluates journal output through JavaScript ternary 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > evaluates journal output through JavaScript logical and 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > evaluates journal output through JavaScript logical or 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > preserves separately awaited sibling ordering before the join 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > requires an explicit completion after journal-backed steps 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+   × authored flow journal executor > refuses a body that completes nothing at all 0ms
+     → journal client: connect failed: connect ENOENT /var/folders/9x/52nbxvs12sx8qf_zcw752c8h0000gn/T/rf-323040e0.sock
+ ❯ tests/direct-input.test.ts (5 tests | 2 failed) 2165ms
+   × direct .flow.ts input through the built CLI and live runtime > returns exit 3 for an authored human handoff and persists its outcome 650ms
+     → relayflowd exited 1
+   × direct .flow.ts input through the built CLI and live runtime > executes inline and file JSON input through relayflowd 24ms
+     → relayflowd exited 1
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses missing and malformed input before contacting relayflowd 982ms
+ ✓ tests/close-pr-flow.test.ts (28 tests) 1650ms
+   ✓ close-pr journaled repair loop > executes the deterministic commit and force-push steps against a local Git remote, including a no-op repair 482ms

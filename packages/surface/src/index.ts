@@ -44,3 +44,4 @@ export { webhook, type TriggerSource, type WebhookFilter, type WebhookValue } fr
 export * from "./triggers/index.js";
 export type { ProviderTriggerSource } from "./provider-trigger.js";
 export type { PluginMethod, PluginPrimitive } from './plugin-contract.js';
+export { matchesIssue, type Issue, type IssueSource, type SourceFilters } from './issues.js';
