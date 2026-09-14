@@ -76,38 +76,48 @@ describe('authored cancellation and rejection through the live journal', () => {
     expect(start).not.toHaveBeenCalled();
   });
 
-  it.each([
-    { accepted: false, reviewed: false, reason: 'canceled', status: 'failed', exit: 1 },
-    { accepted: true, reviewed: false, reason: 'step_failed', status: 'failed', exit: 1 },
-    { accepted: true, reviewed: true, reason: 'needs_human', status: 'parked', exit: 3 },
-  ])('reports $reason from a generated-style flow through the built CLI', async testCase => {
+  it('reports an explicit cancellation through the built CLI without starting an agent', async () => {
     const runtime = await fixture();
     writeFileSync(runtime.flowPath, `import { flow } from '@relayflows/surface';
-type Input = {
-  issue: { source: string; title: string; body: string; labels: string[] };
-  reviewed: boolean;
-};
+export default flow<{ cancellationRequested: boolean }>('cancel-work', async (f, input) => {
+  if (input.cancellationRequested) return f.done('canceled');
+  await f.agent('implementer', { task: 'Implement the requested change.' });
+  return f.done('success');
+});
+`);
+    const invoked = runtime.invoke('run', runtime.flowPath,
+      '--input', JSON.stringify({ cancellationRequested: true }),
+      '--local-agent', '--data-dir', runtime.data, '--json');
+    expect(invoked.status, invoked.stderr + invoked.stdout).toBe(1);
+    const report = JSON.parse(invoked.stdout);
+    expect(report).toMatchObject({ ok: false, status: 'failed', completionReason: 'canceled' });
+    expect(existsSync(runtime.calls)).toBe(false);
+    await expectMarker(runtime.client, report.runId, 'canceled');
+  });
+
+  it.each([
+    { reviewed: false, reason: 'step_failed', status: 'failed', exit: 1 },
+    { reviewed: true, reason: 'needs_human', status: 'parked', exit: 3 },
+  ])('reports $reason after reviewing work through the built CLI', async testCase => {
+    const runtime = await fixture();
+    writeFileSync(runtime.flowPath, `import { flow } from '@relayflows/surface';
+type Input = { task: string; reviewed: boolean };
 export default flow<Input>('software-factory',
   { budget: { wallclock: '1h' } }, async (f, input) => {
-    if (input.issue.source !== 'linear') return f.done('canceled');
-    if (!input.issue.labels.includes('ready')) return f.done('canceled');
-    await f.agent('implementer', { task: input.issue.title + '\\n' + input.issue.body });
+    await f.agent('implementer', { task: input.task });
     const clean = (await f.run(input.reviewed ? 'printf yes' : 'printf no')).trim() === 'yes';
     if (!clean) return f.done('step_failed');
     return f.done('needs_human');
   });
 `);
-    const input = { reviewed: testCase.reviewed, issue: {
-      source: 'linear', title: 'Add issue filters', body: 'Match all configured labels.',
-      labels: testCase.accepted ? ['ready'] : ['backlog'],
-    } };
+    const input = { reviewed: testCase.reviewed, task: 'Implement the requested change.' };
     const invoked = runtime.invoke('run', runtime.flowPath, '--input', JSON.stringify(input),
       '--local-agent', '--data-dir', runtime.data, '--json');
     expect(invoked.status, invoked.stderr + invoked.stdout).toBe(testCase.exit);
     const report = JSON.parse(invoked.stdout);
     expect(report).toMatchObject({ ok: false, status: testCase.status });
     if (testCase.reason !== 'needs_human') expect(report.completionReason).toBe(testCase.reason);
-    expect(existsSync(runtime.calls)).toBe(testCase.accepted);
+    expect(existsSync(runtime.calls)).toBe(true);
     await expectMarker(runtime.client, report.runId, testCase.reason);
   });
 });
