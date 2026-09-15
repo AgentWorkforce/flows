@@ -147,8 +147,10 @@ No process runs between events: the handler wakes, executes to its next await, p
    boundary. CLI and model resolve independently. CLI priority is step → named
    declaration → flow → project config. Model priority is step → named
    declaration → registered adapter default. Claude's adapter default is
-   `claude-opus-5`; Codex and custom wrappers have no default. A frozen dollar
-   budget refuses before execution when the selected model has no frozen price.
+   `claude-opus-5`; Codex and custom wrappers have no default. Under a frozen
+   dollar budget, a step whose model has no frozen price (or no model, as with
+   Codex choosing its own) warns `budget_unmetered` and runs without accruing
+   dollars; pricing never refuses.
    The worker explicitly removes ambient `RELAYFLOW_MODEL`; raw provider
    adapters use a model flag, while a custom wrapper receives an explicitly
    declared model only inside its identified same-process session.

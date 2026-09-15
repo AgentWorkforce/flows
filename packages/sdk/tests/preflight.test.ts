@@ -355,6 +355,11 @@ describe('preflight: CLI resolution and refusal predicates', () => {
         } as never),
         { probes: probes() },
       ),
+      // Pricing is light enforcement: an unmetered step under a dollar budget warns.
+      preflight(
+        { ...flow({ id: 'a', type: 'llm', cli: 'codex', prompt: 'x' } as never), budget: '$1/run' } as never,
+        { probes: probes() },
+      ),
     ];
     const warningKinds = scenarios.flatMap((result) => result.diagnostics)
       .filter((diagnostic) => diagnostic.severity === 'warning')

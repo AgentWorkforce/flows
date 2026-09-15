@@ -37,7 +37,7 @@ export function authoredWorkerRunner(
           diagnostic.severity === 'refusal',
       );
       throw new AuthoredFlowExecutionError(
-        refusal?.kind === 'budget_missing_price' || refusal?.kind === 'budget_syntax_invalid' ? refusal.kind
+        refusal?.kind === 'budget_syntax_invalid' ? refusal.kind
           : step.type === 'llm' ? 'llm_cli_unresolved' : 'agent_cli_unresolved',
         refusal?.message
           ?? `flow "${definition.name}" step "${id}": no CLI could be resolved for f.${step.type} `

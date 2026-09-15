@@ -6,9 +6,9 @@ import type { WorkerCliResult } from './worker-cli.js';
  * (non-integer or negative) are the one remaining failure mode — those are
  * journaled as `worker_error` with the usage projected from clamped counts.
  *
- * Unpriced models are NOT a failure here: `pricedUsage` returns
- * `dollars: null` and preflight (see `budgetDiagnostics`) has already refused
- * declared dollar budgets against unpriced models before the CLI dispatched.
+ * Unpriced models are NOT a failure here: `pricedUsage` returns undefined, so
+ * the step journals no dollars and never trips a dollar budget. Preflight
+ * (see `budgetDiagnostics`) warns that such a step is unmetered.
  */
 export function workerSpend(result: WorkerCliResult, model?: string) {
   try { return { result, usage: pricedUsage(model, result.tokens_input, result.tokens_output) }; }

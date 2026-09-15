@@ -249,11 +249,11 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
   diagnostics.push(...budgetDiagnostics(
     compiled,
     new Map(resolutions.map(resolution => [resolution.stepId, {
+      cli: resolution.cli,
       ...(resolution.model === undefined ? {} : { model: resolution.model }),
-      ...(resolution.modelSource === undefined ? {} : { source: resolution.modelSource }),
     }])),
   ));
-  if (diagnostics.length > 0) {
+  if (diagnostics.some((diagnostic) => diagnostic.severity === 'refusal')) {
     return { ok: false, gates: compiled.steps.map(inspectStepGate), resolutions, diagnostics };
   }
 
