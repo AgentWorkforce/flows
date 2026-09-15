@@ -5,10 +5,17 @@ import {
   authenticationProbe,
   cliAdapterKind,
   modelReadinessProbe,
+  resolveCliModel,
   WRAPPER_IDENTIFY_ARG,
 } from '../src/cli-adapter.js';
 
 describe('typed CLI adapters', () => {
+  it('resolves only Claude to its stable default and preserves explicit models', () => {
+    expect(resolveCliModel('/usr/local/bin/claude')).toBe('claude-sonnet-4-6');
+    expect(resolveCliModel('/usr/local/bin/claude', 'explicit-model')).toBe('explicit-model');
+    expect(resolveCliModel('/opt/bin/codex')).toBeUndefined();
+    expect(resolveCliModel('/project/bin/team-reviewer')).toBeUndefined();
+  });
   it('maps raw Claude to real auth, noninteractive, and model flag shapes', () => {
     const kind = cliAdapterKind('/usr/local/bin/claude');
 

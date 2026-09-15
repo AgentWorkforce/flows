@@ -358,7 +358,10 @@ function bindResolvedCliPaths(
       const resolution = byStep.get(step.id);
       if (resolution === undefined) return step;
       const directory = resolution.source === 'project' ? configDirectory : flowDirectory;
-      return { ...step, cli: canonicalCli(resolution.cli, directory) };
+      const declaredModel = step.model ?? (step.type === 'agent' && step.agent !== undefined
+        ? flow.agents?.[step.agent]?.model : undefined);
+      return { ...step, cli: canonicalCli(resolution.cli, directory),
+        ...(declaredModel === undefined && resolution.model !== undefined ? { model: resolution.model } : {}) };
     }),
   };
 }

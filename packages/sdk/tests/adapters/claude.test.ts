@@ -4,6 +4,7 @@ import { claudeAdapter } from '../../src/adapters/claude.js';
 describe('claudeAdapter — HeadlessAdapter contract', () => {
   it('identifies itself as kind "claude"', () => {
     expect(claudeAdapter.kind).toBe('claude');
+    expect(claudeAdapter.defaultModel).toBe('claude-sonnet-4-6');
   });
 
   it('buildIdentification uses the auth-status help shape', () => {

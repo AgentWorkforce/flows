@@ -41,11 +41,22 @@ describe('budget preflight', () => {
     expect(preflight(kernelToAuthoring(toKernelSpec(compileSpec(spec('$20/run', 'unknown')))), options()).diagnostics)
       .toEqual(expect.arrayContaining([expect.objectContaining({kind: 'budget_missing_price'})]));
   });
-  it('requires a model when declaring a dollar budget', () => {
+  it('prices and probes the Claude default when a dollar-budgeted step omits model', () => {
     const input = spec('$20/run');
     const { model, ...step } = input.steps[0]!;
-    expect(preflight({...input, steps:[step]}, options()).diagnostics)
-      .toEqual(expect.arrayContaining([expect.objectContaining({kind: 'budget_missing_price'})]));
+    const o = options();
+    const result = preflight({...input, steps:[step]}, o);
+    expect(result.ok).toBe(true);
+    expect(result.resolutions).toContainEqual(expect.objectContaining({
+      stepId: 'ask', cli: 'claude', model: 'claude-sonnet-4-6',
+    }));
+    expect(o.probes.cli).toHaveBeenCalledWith('claude', 'step', 'claude-sonnet-4-6');
+  });
+  it('still requires a model for an unknown/custom CLI under a dollar budget', () => {
+    const input = spec('$20/run');
+    const { model, ...step } = input.steps[0]!;
+    expect(preflight({...input, steps:[{...step, cli:'team-wrapper'}]}, options()).diagnostics)
+      .toEqual(expect.arrayContaining([expect.objectContaining({kind: 'budget_missing_price', stepId: 'ask'})]));
   });
   it.each(['$1/week', '-$1/run', '$1.0000001/run', {tokens: -1}, {wallclock: 'soon'}, {dollars: Infinity}, {typo: 2}])('refuses malformed budget %j', budget => {
     expect(preflight(spec(budget), options()).ok).toBe(false);

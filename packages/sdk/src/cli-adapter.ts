@@ -28,6 +28,12 @@ export function cliAdapterKind(executable: string): CliAdapterKind {
   return resolveAdapterKind(executable);
 }
 
+/** Resolve only defaults owned by registered raw-CLI adapters. */
+export function resolveCliModel(executable: string, model?: string): string | undefined {
+  if (model !== undefined) return model;
+  return registeredAdapters()[resolveAdapterKind(executable)].defaultModel;
+}
+
 /** Prove the adapter command shape before classifying an auth failure. */
 export function adapterIdentification(kind: CliAdapterKind): CliAdapterIdentification {
   return registeredAdapters()[kind].buildIdentification();

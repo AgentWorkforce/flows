@@ -6,6 +6,7 @@ import {
   agentExecution,
   llmExecution,
   cliAdapterKind,
+  resolveCliModel,
   type CliInvocation,
   type CliAdapterKind,
 } from './cli-adapter.js';
@@ -68,9 +69,10 @@ export async function runAgentCli(
     throw new Error('Lease-bound agent execution requires macOS or Linux process-group cancellation; Windows is unsupported.');
   }
   const kind = cliAdapterKind(cli);
+  const effectiveModel = resolveCliModel(cli, model);
 
   if (mode === 'agent' && transport === 'relay') {
-    return runViaAgentRelay(kind, instruction, wakeContext, model, relayContext, cwd, signal);
+    return runViaAgentRelay(kind, instruction, wakeContext, effectiveModel, relayContext, cwd, signal);
   }
 
   if (kind === 'relayflows-wrapper-v1') {
@@ -78,17 +80,17 @@ export async function runAgentCli(
       cli,
       instruction,
       wakeContext,
-      model,
+      effectiveModel,
       wrapperEnvironment(process.env),
       wrapperLimits,
       signal,
-    )), model);
+    )), effectiveModel);
   }
 
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env[WAKE_CONTEXT_ENV];
   delete env[MODEL_ENV];
-  const invocation = mode === 'llm' ? llmExecution(kind, instruction, model) : agentExecution(kind, instruction, model);
+  const invocation = mode === 'llm' ? llmExecution(kind, instruction, effectiveModel) : agentExecution(kind, instruction, effectiveModel);
 
   if (wakeContext !== undefined) {
     try {
@@ -106,7 +108,7 @@ export async function runAgentCli(
   // Structured provider output carries the authoritative token counts.
   const args = [...invocation.args];
   args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'json'] : ['--json']));
-  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd), kind), model);
+  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd), kind), effectiveModel);
 }
 
 /** Wait under the same worker lease for an authoritative task receipt. */

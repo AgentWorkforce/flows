@@ -8,6 +8,7 @@ import type { TriggerSource } from '@relayflows/surface';
 import { acceptsAnyOutput, inspectStepGate, type StepGateInspection } from './gate-contract.js';
 import { compileSpec, CompileError } from './compile.js';
 import { helperCall } from './yaml-helpers.js';
+import { resolveCliModel } from './cli-adapter.js';
 import { isNamedGate, NAMED_GATE_FAILURE_KINDS, type NamedGateFailureKind } from './named-gates.js';
 import { compileScopes, type ScopeInput, type MountRegistry } from './scope-compiler.js';
 import { readMountRegistry } from './mount-registry.js';
@@ -208,18 +209,17 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
     };
   }
   const diagnostics: PreflightDiagnostic[] = [];
+  const cliResolutionDiagnostics: PreflightDiagnostic[] = [];
   const resolutions: CliResolution[] = [];
   const resolutionByStep = new Map<string, CliResolution>();
   const cliProbeResults = new Map<string, CliProbeOutcome>();
 
-  diagnostics.push(...unknownModelDiagnostics(compiled, options));
   diagnostics.push(...scopeDiagnostics(compiled, options));
   for (const server of new Set(options.mcpServers ?? [])) {
     if (options.mcp !== undefined && Object.hasOwn(options.mcp, server)) continue;
     diagnostics.push({ severity: 'refusal', kind: 'mcp_undeclared_server', server,
       message: `MCP server "${server}" is not declared in the nearest flows.json mcp map.` });
   }
-  diagnostics.push(...budgetDiagnostics(compiled));
   // Resolve the complete flow before touching any environment fact. A later
   // statically unresolved CLI makes the whole submission impossible, so no
   // earlier command, provider/model, or trigger probe may run first.
@@ -228,7 +228,7 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
     if (step.type === 'agent' && helperCall(step) !== undefined) continue;
     const resolution = resolveCli(step, compiled, options.projectCli);
     if (resolution === undefined) {
-      diagnostics.push({
+      cliResolutionDiagnostics.push({
         severity: 'refusal',
         kind: 'cli_unresolved',
         stepId: step.id,
@@ -239,6 +239,12 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
       resolutionByStep.set(step.id, resolution);
     }
   }
+  diagnostics.push(...unknownModelDiagnostics(compiled, options, resolutionByStep));
+  diagnostics.push(...cliResolutionDiagnostics);
+  diagnostics.push(...budgetDiagnostics(
+    compiled,
+    new Map(resolutions.map(resolution => [resolution.stepId, resolution.model])),
+  ));
   if (diagnostics.length > 0) {
     return { ok: false, gates: compiled.steps.map(inspectStepGate), resolutions, diagnostics };
   }
@@ -311,6 +317,7 @@ function scopeDiagnostics(flow: FlowSpec, options: PreflightOptions): PreflightR
 function unknownModelDiagnostics(
   flow: FlowSpec,
   options: PreflightOptions,
+  resolutionByStep: ReadonlyMap<string, CliResolution> = new Map(),
 ): PreflightRefusal[] {
   const diagnostics: PreflightRefusal[] = [];
   // model_unknown is a governance check: it exists to enforce a project's
@@ -340,17 +347,21 @@ function unknownModelDiagnostics(
   }
 
   for (const step of flow.steps) {
-    if (step.type === 'deterministic' || step.model === undefined) continue;
-    if (isKnownModel(step.model, options.models)) continue;
+    if (step.type === 'deterministic') continue;
+    const named = step.type === 'agent' && step.agent !== undefined
+      ? flow.agents?.[step.agent] : undefined;
+    if (step.model === undefined && named !== undefined) continue;
+    const resolution = resolutionByStep.get(step.id);
+    const model = step.model ?? resolution?.model;
+    if (model === undefined || isKnownModel(model, options.models)) continue;
     if (!enforceRegistry) continue;
-    const resolution = resolveCli(step, flow, options.projectCli);
     diagnostics.push({
       severity: 'refusal',
       kind: 'model_unknown',
       stepId: step.id,
       ...(resolution === undefined ? {} : { cli: resolution.cli }),
-      model: step.model,
-      message: unknownModelMessage(step.id, step.model, resolution?.cli, options.modelRegistryPath),
+      model,
+      message: unknownModelMessage(step.id, model, resolution?.cli, options.modelRegistryPath),
     });
   }
 
@@ -403,14 +414,16 @@ function resolveCli(
   const named = step.type === 'agent' && step.agent !== undefined
     ? flow.agents?.[step.agent]
     : undefined;
-  // Model comes only from the step or its explicitly selected declaration.
-  // There is deliberately no flow/project or host default.
-  const effectiveModel = step.model ?? named?.model;
-  const model = effectiveModel !== undefined ? { model: effectiveModel } : {};
-  if (step.cli !== undefined) return { stepId: step.id, cli: step.cli, source: 'step', ...model };
-  if (named !== undefined) return { stepId: step.id, cli: named.cli, source: 'named', ...model };
-  if (flow.cli !== undefined) return { stepId: step.id, cli: flow.cli, source: 'flow', ...model };
-  if (projectCli !== undefined) return { stepId: step.id, cli: projectCli, source: 'project', ...model };
+  const declaredModel = step.model ?? named?.model;
+  const resolved = (cli: string, source: CliResolutionSource): CliResolution => {
+    const effectiveModel = resolveCliModel(cli, declaredModel);
+    return { stepId: step.id, cli, source,
+      ...(effectiveModel === undefined ? {} : { model: effectiveModel }) };
+  };
+  if (step.cli !== undefined) return resolved(step.cli, 'step');
+  if (named !== undefined) return resolved(named.cli, 'named');
+  if (flow.cli !== undefined) return resolved(flow.cli, 'flow');
+  if (projectCli !== undefined) return resolved(projectCli, 'project');
   return undefined;
 }
 

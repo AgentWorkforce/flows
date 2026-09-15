@@ -32,6 +32,9 @@ export interface HeadlessAdapter {
   /** Identity of this adapter — matches CliAdapterKind for registry keys. */
   readonly kind: string;
 
+  /** Stable model used when an author omits one. */
+  readonly defaultModel?: string;
+
   /** Shape-check invocation before classifying an auth failure. */
   buildIdentification(): CliAdapterIdentification;
 
