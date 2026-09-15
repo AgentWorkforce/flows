@@ -803,3 +803,31 @@ Any bypass of that journaling makes the run non-replayable and must set
 This is the required contract for channel rollout. Detecting bypasses and
 carrying that marker through the completion protocol remain implementation
 work; the initial post proof does not claim to enforce uninstrumented agent I/O.
+
+
+### Standalone authored runtime
+
+The standalone CLI embeds the Node authored runner in the same hashed executable.
+Authored `.flow.ts` bodies require Node **22.14 or newer** on `PATH`, or an
+absolute `FLOWS_AUTHORED_NODE` executable path. No runtime is downloaded. The
+runner probes Node version and native promise-hook capability before root
+admission/body effects; a missing, old, or incompatible runtime is refused.
+Direct SDK authored execution likewise requires working native promise hooks.
+Bun 1.4.0 exposes no-op `async_hooks`, so it cannot prove that a native `await`
+consumed a step. Treating every `.then` call as an await would incorrectly accept
+ignored operations; that verification remains unchanged inside Node.
+
+Only the authored body runs in the Node child. The standalone CLI retains the
+root worker lease, agent workers, declarative execution, daemon lookup, and
+resume protocol. The child inherits the working directory/environment and uses
+the same journal socket and child admission identities. It verifies the root's
+pinned source graph and Surface package before executing the body. Root aborts
+and signals stop the child. Parent-pipe loss exits a responsive child; an independent
+watchdog thread checks parent identity every 50 ms and kills the process even if
+the authored body blocks its event loop. This is bounded scheduling, not an
+instantaneous termination guarantee. Result frames are authenticated and checked
+against durable child completion before root success. The Node loader executes
+captured, hash-verified authored source bytes at their original module URLs.
+Successful root output records the Node version, executable SHA256, and embedded
+payload SHA256 as `executionRuntime`. The payload remains part of the existing
+artifact hash, and completed child effects remain journal results on resume.

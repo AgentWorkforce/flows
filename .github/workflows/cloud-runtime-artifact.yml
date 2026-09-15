@@ -22,6 +22,7 @@ on:
       - "kernel/**"
       - "packages/sdk/**"
       - "scripts/cloud-artifact.mjs"
+      - "scripts/build-standalone-cli.mjs"
       - "scripts/cloud-artifact.test.mjs"
       - "testdata/**"
 
@@ -159,10 +160,7 @@ jobs:
       - name: Build standalone flows CLI
         run: |
           mkdir -p dist/cloud-artifact-input
-          bun build packages/sdk/src/cli-executable.ts \
-            --compile \
-            --target=bun-linux-x64 \
-            --outfile=dist/cloud-artifact-input/flows
+          node scripts/build-standalone-cli.mjs bun-linux-x64 dist/cloud-artifact-input/flows
 
       - name: Assemble artifact and smoke verifier path
         env:
