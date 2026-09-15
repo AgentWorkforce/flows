@@ -313,6 +313,7 @@ const STEP_AGENT_FIELDS: &[&str] = &[
     "instruction",
     "cli",
     "model",
+    "transport",
     "recovery_mode",
     "surfaces",
     "permissions",
@@ -423,6 +424,11 @@ pub enum StepKind {
         /// then handed to the worker, which surfaces it to the CLI.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+        /// How the attached worker invokes the declared CLI. The kernel does
+        /// not implement either transport; it journals and dispatches the
+        /// choice so the worker can honor it deterministically.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        transport: Option<AgentTransport>,
         #[serde(default)]
         recovery_mode: RecoveryMode,
         /// Declared mutable surfaces (RFC Appendix A rule 1) — names only.
@@ -448,6 +454,13 @@ pub enum StepType {
     Deterministic,
     Llm,
     Agent,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentTransport {
+    Direct,
+    Relay,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
