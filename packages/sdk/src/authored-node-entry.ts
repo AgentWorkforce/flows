@@ -4,7 +4,7 @@ import { readFileSync, writeSync } from 'node:fs';
 import { JournalClient } from './journal-client.js';
 import { executeAuthoredFlow } from './authored-flow-executor.js';
 import { loadPinnedAuthoredSource } from './authored-source-authority.js';
-import { assertAuthoredNodeVersion } from './authored-runtime-capability.js';
+import { assertAuthoredNodeVersion, parseAuthoredParentPid } from './authored-runtime-capability.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import type { AuthoredRootMetadata } from './authored-root.js';
 
@@ -31,8 +31,7 @@ process.stdin.on('end', () => { if (!finished) process.exit(1); });
 process.stdin.on('error', () => process.exit(1));
 // A separate event loop enforces parent loss even while authored JS is blocked.
 // Capture the expected PID in the parent's spawn arguments, before any child work.
-const parentPid = Number(process.argv[2]);
-if (!Number.isSafeInteger(parentPid) || parentPid <= 1) throw new Error('invalid authored parent identity');
+const parentPid = parseAuthoredParentPid(process.argv[2]);
 const watchdog = new Worker(`
   const {parentPort,workerData}=require('node:worker_threads');
   function check(){if(process.ppid!==workerData.parentPid)process.kill(process.pid,'SIGKILL');}

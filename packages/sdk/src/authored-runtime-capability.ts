@@ -31,3 +31,10 @@ export function assertAuthoredNodeVersion(version = process.versions.node): void
   }
   assertAuthoredPromiseHooks();
 }
+
+/** PID 1 is valid when the standalone CLI is a container's init process. */
+export function parseAuthoredParentPid(value: string | undefined): number {
+  const pid = Number(value);
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('invalid authored parent identity');
+  return pid;
+}

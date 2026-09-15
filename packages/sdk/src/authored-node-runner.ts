@@ -184,11 +184,23 @@ export async function verifyAuthoredNodeResult(
       const state = await journal.runGet(claimed.runId);
       if (state.run_id !== claimed.runId || state.status !== 'completed'
         || state.steps[claimed.id]?.state !== 'done') invalid();
-      const entries = (await journal.journalRead(claimed.runId, 1)).entries as Array<{
-        entry_type: string; step_id?: string; payload?: {
+      const entries: Array<{
+        seq: number; entry_type: string; step_id?: string; payload?: {
           completionReason?: string; spec?: { name?: string; steps?: Array<{id?:string;type?:string;command?:string}> };
         };
-      }>;
+      }> = [];
+      let fromSeq = 1;
+      for (;;) {
+        const page = (await journal.journalRead(claimed.runId, fromSeq, 100)).entries;
+        if (page.length === 0) break;
+        for (const raw of page) {
+          const entry = raw as typeof entries[number];
+          if (!Number.isSafeInteger(entry?.seq) || entry.seq < fromSeq) invalid();
+          fromSeq = entry.seq + 1;
+          // Keep only completion evidence; streaming logs can span many pages.
+          if (['run.spawned', 'step.completed', 'run.completed'].includes(entry.entry_type)) entries.push(entry);
+        }
+      }
       const spec = entries.find(entry => entry.entry_type === 'run.spawned')?.payload?.spec;
       const step = spec?.steps?.[0];
       const completed = entries.filter(entry => entry.entry_type === 'step.completed' && entry.step_id === claimed.id);
