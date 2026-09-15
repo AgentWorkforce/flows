@@ -22,6 +22,7 @@ import {
   type Request,
   type Response,
   type ServerEvent,
+  type StepUsage,
 } from './protocol.js';
 import type { KernelRunSpec, StepType } from './spec.js';
 
@@ -366,7 +367,7 @@ export class JournalClient extends EventEmitter {
     completionReason: CompletionReason,
     extra: {
       output?: unknown;
-      usage?: { tokens_in: number; tokens_out: number; dollars: string };
+      usage?: StepUsage;
       started_pins?: Pins;
       end_pins?: Pins;
       effects?: EffectRef[];

@@ -163,6 +163,9 @@ impl JournalEntry {
                 "dollars": journal_dollars(&budget.dollars).expect("valid journal dollars"),
                 "wallclock_ms": 0,
             });
+            if budget.dollars_unmetered {
+                payload["spend"]["dollars_unmetered"] = serde_json::Value::Bool(true);
+            }
         }
         Self {
             seq: 0,
@@ -388,8 +391,18 @@ pub struct Budget {
     pub tokens_in: u64,
     #[serde(default)]
     pub tokens_out: u64,
+    /// Metered dollars: the priced cost of this charge. When
+    /// `dollars_unmetered` is set this is a lower bound, not a total.
     #[serde(default = "zero_dollars")]
     pub dollars: String,
+    /// The charge spent tokens whose dollar cost is unknown (an unpriced or
+    /// undeclared model). On a running total it is sticky: at least one charge
+    /// was unmetered. Dollar ceilings compare only metered `dollars`; token
+    /// ceilings still count every token. Omitted when false, so journals
+    /// without unmetered spend keep their exact bytes, and readers that predate
+    /// the key ignore it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub dollars_unmetered: bool,
 }
 
 impl Default for Budget {
@@ -398,8 +411,13 @@ impl Default for Budget {
             tokens_in: 0,
             tokens_out: 0,
             dollars: zero_dollars(),
+            dollars_unmetered: false,
         }
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn zero_dollars() -> String {

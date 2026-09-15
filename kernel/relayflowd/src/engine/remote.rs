@@ -44,6 +44,17 @@ impl Engine<WallClock> {
         {
             bail!("step completion usage.dollars must be a non-negative decimal string");
         }
+        // Unmetered usage means the cost is unknown; it may not also claim a
+        // priced amount, or a partial price would read as the whole cost.
+        if completion.budget.dollars_unmetered
+            && completion
+                .budget
+                .dollars
+                .bytes()
+                .any(|b| b.is_ascii_digit() && b != b'0')
+        {
+            bail!("step completion usage.dollars_unmetered must not carry non-zero dollars");
+        }
         let mut journal = self.open_run(run_id)?;
         let spec = journal.run_spec().context("read run spec")?;
         let state = self.load_state(&journal, spec.clone())?;

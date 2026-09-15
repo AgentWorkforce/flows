@@ -117,6 +117,11 @@ export type PreflightDiagnostic = PreflightRefusal | PreflightWarning;
 export interface PreflightResult {
   plugins?: readonly LoadedPlugin[];
   mcpTools?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * True when no diagnostic is a refusal. `ok: true` may still carry warnings
+   * (e.g. `budget_unmetered`); callers that report to a person must surface
+   * `diagnostics`, not just branch on `ok`.
+   */
   ok: boolean;
   gates: StepGateInspection[];
   resolutions: CliResolution[];

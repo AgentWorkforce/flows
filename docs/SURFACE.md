@@ -149,8 +149,9 @@ No process runs between events: the handler wakes, executes to its next await, p
    declaration → registered adapter default. Claude's adapter default is
    `claude-opus-5`; Codex and custom wrappers have no default. Under a frozen
    dollar budget, a step whose model has no frozen price (or no model, as with
-   Codex choosing its own) warns `budget_unmetered` and runs without accruing
-   dollars; pricing never refuses.
+   Codex choosing its own) warns `budget_unmetered` and runs; it journals its
+   tokens with `dollars_unmetered: true`, cannot cross the dollar limit, and
+   still counts toward token limits. Pricing never refuses (see `BUDGET.md`).
    The worker explicitly removes ambient `RELAYFLOW_MODEL`; raw provider
    adapters use a model flag, while a custom wrapper receives an explicitly
    declared model only inside its identified same-process session.
