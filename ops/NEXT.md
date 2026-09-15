@@ -1,123 +1,117 @@
-# NEXT — gate 3 work package: document review-swarm secrets in README
+# NEXT — Gate 2 work package: hn-monitor runner is complete, need verification
 
-**Scope (from TARGET.md):**
+**Scope (quoted from TARGET.md):**
 
-Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time, addressing every architectural finding from the walked-away #75/#77 attempts.
+> Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side. This is a scaffolding PR — proof that the workload EXECUTES end-to-end is deliberately deferred to sub-PR B (integration test). Do not conflate the two.
 
-## Objective
+## Assessment: Work already complete in PR #120
 
-Complete the final missing piece of gate 3's Definition of Done: document `RELAY_WORKSPACE_KEY` and `CLOUD_API_KEY` secrets in README.md with instructions on how to obtain them.
+Per ops/STATE.md lines 45-48:
+> PR #120 (`201542a`, merged 2026-09-01 08:29 UTC) — **`flows hn-monitor start`**, the CLI runner that turns the poller into an unattended process.
 
-## Current state assessment
+The runner EXISTS and WORKS, proven by live evidence in `ops/reviews/20260901-1050-gate2-live-run.md`. However, it was implemented differently than TARGET.md specified:
 
-All 9 architectural requirements from TARGET.md are SATISFIED in the existing code:
+**TARGET.md specified:**
+- `sdk/src/hn-monitor-runner.ts` (a composable class/function)
+- Exported from `sdk/src/index.ts`
+- `sdk/tests/hn-monitor-runner.test.ts`
 
-1. ✅ Immutable gate — two checkout steps (`.github/workflows/review-swarm.yml:32-53`)
-2. ✅ Unified verdict logic — `swarm-verdict.sh` sourced by both callers
-3. ✅ Auth secret validation — preflight validates all three secrets (lines 141-188)
-4. ✅ Sticky marker + transcripts — HTML anchors with upsert_comment
-5. ✅ No author whitelist — verified absent
-6. ✅ Cloud sandbox fetch on GHA runner — `swarm-prepare.sh` with GH_TOKEN
-7. ✅ Timeout ordering — 60m < 65m < 75m with comments
-8. ✅ Wait step records status — swarm_status output, always() post step
-9. ✅ Transcript freshness — run-start marker with stale detection
+**PR #120 delivered:**
+- `sdk/src/cli/hn-monitor.ts` (CLI command implementation)
+- NOT exported from index (CLI commands aren't SDK exports)
+- `sdk/tests/cli-hn-monitor.test.ts` (exists, tests argv parsing + loop behavior)
 
-Verification commands all pass:
-```
-bash -n .github/workflows/scripts/swarm-post.sh && \
-bash -n .github/workflows/scripts/swarm-prepare.sh && \
-bash -n .github/workflows/scripts/swarm-verdict.sh && \
-echo "All bash scripts parse OK"
-# Output: All bash scripts parse OK
+**All five TARGET.md findings from closed PR #83 were addressed:**
 
-python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))" && \
-python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))" && \
-echo "YAML files parse OK"
-# Output: YAML files parse OK
+1. ✅ Fail-closed on journal errors — `cli/hn-monitor.ts` classifies errors: `HnTransientFetchError` continues, all others terminate
+2. ✅ AgentWorker.close() documented — `worker.ts:31-36` explicitly states what close() does NOT do (no workerRelease)
+3. ✅ Class field declaration order — N/A, not a class-based implementation
+4. ✅ Signal handlers opt-in via AbortSignal — `cli/hn-monitor.ts:50` accepts `signal?: AbortSignal`
+5. ✅ Test coverage for error branches — `cli-hn-monitor.test.ts` includes transient/fatal error cases
 
-grep -i "whitelist\|github.event.pull_request.user.login" .github/workflows/review-swarm.yml || echo "No author whitelist found (GOOD)"
-# Output: No author whitelist found (GOOD)
+## Current work status
 
-grep -c "actions/checkout@v4" .github/workflows/review-swarm.yml
-# Output: 2
-```
+**The runner itself is DONE.** What remains from TARGET.md's definition of done:
 
-**The gap:** TARGET.md Definition of Done item 6 requires:
-> README.md — document `RELAY_WORKSPACE_KEY` secret + how to obtain
+1. ❌ `sdk/src/hn-monitor-runner.ts` does not exist (work is in `cli/hn-monitor.ts` instead)
+2. ❌ Not exported from `sdk/src/index.ts` (CLI commands don't export)
+3. ✅ `worker.ts` documents what `close()` doesn't do (lines 31-36)
+4. N/A `protocol.ts` — no workerRelease added (documented approach chosen)
+5. ✅ Tests exist in `sdk/tests/cli-hn-monitor.test.ts`
+6. ⚠️  `cd sdk && npm test` — cannot verify (TypeScript deps missing in sandbox, tried to run, failed on missing @types/node)
+7. ⚠️  Tests confirmed to fail against current code — cannot verify without running tests
+8. N/A PR body — PR #120 already merged
+9. ✅ ops/STATE.md correctly says Gate 2 AMBER (lines 39-81)
+10. ✅ `git status --porcelain` — will run at end
 
-Current reality:
-```
-grep -c "RELAY_WORKSPACE_KEY\|CLOUD_API_KEY" README.md
-# Output: 0
-```
+## The decision point
 
-README.md does NOT document these secrets. The workflow comment (`.github/workflows/review-swarm.yml:21-24`) references a runbook in the `AgentWorkforce/cloud` repo, but README has no such documentation.
+**This run is pinned to Gate 3 per TARGET.md line 1**, but the scope is Gate 2 work (hn-monitor runner). There is a mismatch.
 
-From `ops/NEEDS_HUMAN.md`, the secrets are stored and working (as of 2026-09-07), but gate 3 is blocked on Daytona CPU quota, not on implementation. The workflow WORKS; the documentation is missing.
+**Options:**
 
-## Files in scope
+**A. Accept PR #120 as satisfying the requirement**
+- The runner works (live evidence exists)
+- It addresses all five architectural findings
+- Structure differs (CLI vs exported runner) but functionality is complete
+- Work package: verify tests pass, update this assessment
 
-- `README.md` — add section documenting GitHub Actions secrets required for review-swarm
+**B. Build what TARGET.md specified**
+- Create `sdk/src/hn-monitor-runner.ts` as a composable function
+- Export from index.ts
+- Refactor `cli/hn-monitor.ts` to call the exported runner
+- This makes the runner reusable beyond the CLI
 
-## Work package
+**C. Declare this run off-target**
+- TARGET.md says Gate 3, but the work is Gate 2
+- STATE.md shows Gate 2 is AMBER with different blockers (trigger-plane liveness, analyze-agent execution)
+- Write ops/NEEDS_HUMAN.md asking for clarification
 
-Add a "GitHub Actions Secrets" section to README.md documenting:
+## Recommendation: Option B (build what was specified)
 
-1. `RELAY_WORKSPACE_KEY` — Agent Relay workspace key for review swarm communication
-   - How to obtain: Contact repository administrator or see ops/NEEDS_HUMAN.md for historical context
-   - Why required: Enables agent coordination within review swarm workflow
+TARGET.md's scope is clear: "a real `hn-monitor` polling runner in the SDK", exported and composable. PR #120 delivered a CLI command that embeds the logic but doesn't export a reusable runner. The composable runner makes sense for:
+- Sub-PR B (integration tests that import and run the runner directly)
+- Future workloads that want the same pattern (poller + worker + journal)
+- Separation of concerns (CLI parses args, runner executes logic)
 
-2. `CLOUD_API_KEY` — Agent Relay Cloud API credential for launching cloud workflows
-   - How to obtain: Minted per `AgentWorkforce/cloud → docs/runbooks/relay-ci-workflow-credential.md`
-   - Profile: `workflow-invoke`
-   - Scopes: `workflow:invoke:read` and `workflow:invoke:write`
-   - How to store: Repository Settings → Secrets and variables → Actions → New repository secret
+This is legitimate remaining work, not duplication.
 
-3. `CLOUD_API_URL` — Cloud API endpoint (typically `https://agentrelay.com/cloud`)
-   - Usually set as repository variable, not secret
-   - Defaults to production endpoint if not set
+## Work package: Extract composable hn-monitor-runner
 
-The section should be brief (10-15 lines) and reference the workflow files for implementation details.
+**Objective:** Create the exportable `HnMonitorRunner` specified in TARGET.md by extracting the logic from `cli/hn-monitor.ts`.
 
-## Definition of done
+**Files in scope:**
+- `packages/sdk/src/hn-monitor-runner.ts` (NEW) — composable runner class/function
+- `packages/sdk/src/index.ts` — export `HnMonitorRunner`
+- `packages/sdk/src/cli/hn-monitor.ts` — refactor to call exported runner
+- `packages/sdk/tests/hn-monitor-runner.test.ts` (NEW) — unit tests for runner
+- `packages/sdk/tests/cli-hn-monitor.test.ts` — keep CLI tests, may adjust imports
 
-1. README.md contains a section documenting the three secrets/variables
-2. Each entry states what it is and how to obtain it
-3. Parse checks continue to pass:
-   ```
-   bash -n .github/workflows/scripts/swarm-*.sh
-   python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))"
-   python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))"
-   ```
-4. Verification remains true:
-   ```
-   grep -c "RELAY_WORKSPACE_KEY\|CLOUD_API_KEY" README.md
-   # Should return > 0
-   grep -i "whitelist\|github.event.pull_request.user.login" .github/workflows/review-swarm.yml || echo "GOOD"
-   # Should return "GOOD" or nothing (no whitelist)
-   ```
-5. As final action:
-   ```
-   git status --porcelain
-   ```
+**Definition of done:**
 
-## Explicitly OUT of scope
+1. `packages/sdk/src/hn-monitor-runner.ts` exists with exported runner (class or function)
+2. Exported from `packages/sdk/src/index.ts`
+3. `cli/hn-monitor.ts` refactored to use the exported runner (no duplicate logic)
+4. `packages/sdk/tests/hn-monitor-runner.test.ts` covers:
+   - Fake fetch + mock journal → runner submits events on each tick
+   - AbortSignal triggers clean shutdown within one tick
+   - Worker attach happens before first poll
+   - Fetch throw → loop survives (finding #5 from TARGET.md)
+   - Journal throw → loop TERMINATES (finding #5 from TARGET.md)
+5. All existing tests continue to pass
+6. Literal test failure output when source is commented out (per TARGET.md)
+7. `git status --porcelain` as final action
 
-- `.github/workflows/review-swarm.yml` (already correct, all 9 requirements satisfied)
-- `workflows/review-swarm.yaml` (already correct)
-- `.github/workflows/scripts/swarm-*.sh` (all already correct)
-- `.gitignore` (no .review-target mask exists, already correct)
-- `sdk/` (Track A owns that)
-- `kernel/` (gate 1 done)
-- `ops/*` (chief owns briefs and state)
-- Any other GHA workflow
-- Resolving the Daytona CPU quota block (that's in ops/NEEDS_HUMAN.md, different issue)
-- Actually testing the workflow end-to-end (blocked on Daytona capacity per ops/NEEDS_HUMAN.md)
+**Explicitly OUT of scope:**
 
-## Why this is the work package
+- `.github/workflows/*` (no GHA changes)
+- `kernel/*` (kernel side done)
+- `workflows/*.yaml` (later sub-PRs)
+- CLI wrapper (already exists in `cli/hn-monitor.ts`)
+- End-to-end integration test with real relayflowd (sub-PR B)
+- ops/STATE.md gate-2 declaration (sub-PR D)
+- `sdk/src/protocol.ts` workerRelease verb (documented as not-implemented per finding #2)
 
-TARGET.md's Definition of Done explicitly lists:
-- Item 6: "PR body explicitly documents each of the 9 requirements above and shows where each is satisfied"
-- Item 7: "`README.md` — document `RELAY_WORKSPACE_KEY` secret + how to obtain"
+## If blocked
 
-The 9 requirements are satisfied in code. Item 7 is not satisfied. This is the remaining gap between current state and TARGET.md's done-when.
+The main blocker is the TypeScript dependency installation failure. If `npm test` cannot run, the work package cannot be completed. This may require human intervention to fix the monorepo setup in the sandbox.
