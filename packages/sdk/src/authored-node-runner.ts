@@ -1,5 +1,6 @@
+import { JournalClient } from './journal-client.js';
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,11 +29,12 @@ function nodeAuthority(): NodeAuthority {
   if (override !== undefined && !isAbsolute(override)) throw refusal();
   const probe = spawnSync(override ?? 'node', ['--input-type=module', '--eval', `
 import {createHook} from 'node:async_hooks';
+import {stripTypeScriptTypes,register} from 'node:module';
 const [major,minor]=process.versions.node.split('.').map(Number);
 let init=false,resolve=false;
 const h=createHook({init(_id,type){if(type==='PROMISE')init=true},promiseResolve(){resolve=true}}).enable();
 new Promise(r=>r());h.disable();
-if(process.versions.bun || major<22 || (major===22 && minor<14) || !init || !resolve) process.exit(2);
+if(process.versions.bun || major<22 || (major===22 && minor<14) || !init || !resolve || typeof stripTypeScriptTypes!=='function' || typeof register!=='function') process.exit(2);
 process.stdout.write(JSON.stringify({path:process.execPath,version:process.versions.node}));
 `], { encoding: 'utf8', timeout: 10_000, maxBuffer: 4096, env: process.env });
   if (probe.error || probe.status !== 0) throw refusal();
@@ -71,11 +73,13 @@ export async function runAuthoredInNode(
   try {
     await writeFile(entry, source, { mode: 0o400, flag: 'wx' });
     if (hash(await readFile(entry)) !== runtime.payloadSha256) throw refusal();
-    const child = spawn(authority.path, ['--experimental-transform-types', entry], {
+    const child = spawn(authority.path, ['--experimental-transform-types', entry, String(process.pid)], {
       cwd: process.cwd(), env: process.env,
       stdio: ['pipe', 'inherit', 'inherit', 'pipe'],
     });
-    return await new Promise<AuthoredFlowExecutionResult>((resolve, reject) => {
+    const result = await new Promise<AuthoredFlowExecutionResult>((resolve, reject) => {
+      const channelKey = randomBytes(32).toString('hex');
+      let expectedSequence = 1;
       let buffer = '', ready = false, result: AuthoredFlowExecutionResult | undefined;
       let failure: Error | undefined, killTimer: ReturnType<typeof setTimeout> | undefined;
       const stop = (error: Error): void => {
@@ -100,13 +104,26 @@ export async function runAuthoredInNode(
           const end = buffer.indexOf('\n'); if (end < 0) break;
           const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
           try {
-            const message = JSON.parse(line);
+            let message = JSON.parse(line);
+            if (ready) {
+              if (message.seq !== expectedSequence || typeof message.payload !== 'string'
+                || typeof message.mac !== 'string' || !/^[a-f0-9]{64}$/.test(message.mac)) {
+                throw new Error('invalid authored runtime authenticated frame');
+              }
+              const expected = createHmac('sha256', channelKey)
+                .update(`${expectedSequence}\0${message.payload}`).digest();
+              if (!timingSafeEqual(expected, Buffer.from(message.mac, 'hex'))) {
+                throw new Error('invalid authored runtime authenticated frame');
+              }
+              expectedSequence++;
+              message = JSON.parse(message.payload);
+            }
             if (message.type === 'ready' && !ready && !result) {
               if (JSON.stringify(message.runtime) !== JSON.stringify(runtime)) throw refusal();
               ready = true;
               clearTimeout(startupTimer);
               // Keep stdin open: EOF tells the child its lease-owning parent died.
-              child.stdin!.write(JSON.stringify({ metadata, socketPath, rootRunId,
+              child.stdin!.write(JSON.stringify({ channelKey, metadata, socketPath, rootRunId,
                 dataDir: options.dataDir, localAgentStream: options.localAgentStream }) + '\n');
             } else if (!ready || result) throw new Error('unexpected authored runtime message');
             else if (message.type === 'progress') options.onProgress?.(message.event);
@@ -133,5 +150,58 @@ export async function runAuthoredInNode(
         else resolve(result);
       });
     });
+    await verifyAuthoredNodeResult(result, metadata, rootRunId, socketPath);
+    return result;
   } finally { await rm(directory, { recursive: true, force: true }); }
+}
+
+/** The IPC frame is a claim, not a durable terminal fact or a sandbox boundary. */
+export async function verifyAuthoredNodeResult(
+  result: AuthoredFlowExecutionResult, metadata: AuthoredRootMetadata,
+  rootRunId: string, socketPath: string,
+): Promise<void> {
+  const invalid = (): never => { throw new Error('authored runtime result has no matching durable completion'); };
+  if (result.rootRunId !== rootRunId || result.name !== metadata.flowName
+    || !['success', 'needs_human'].includes(result.completionReason)
+    || !Array.isArray(result.journalSteps) || result.journalSteps.length === 0) invalid();
+  const terminal = result.journalSteps.at(-1)!;
+  if (!terminal || !/^complete-[1-9][0-9]*$/.test(terminal.id)) invalid();
+  const count = Number(terminal.id.slice('complete-'.length));
+  if (!Number.isSafeInteger(count) || result.journalSteps.length !== count) invalid();
+  const ordinal = (id: string): number => Number(/-([1-9][0-9]*)$/.exec(id)?.[1]);
+  // Parallel awaits may finish in either order; validate a copy in declaration order.
+  const ordered = [...result.journalSteps].sort((a,b)=>ordinal(a.id)-ordinal(b.id));
+  const runs = new Set<string>();
+  const journal = new JournalClient(socketPath);
+  await journal.connect();
+  try {
+    await journal.hello('flows-authored-result-verifier');
+    for (const [index, claimed] of ordered.entries()) {
+      if (!claimed || typeof claimed.id !== 'string' || typeof claimed.runId !== 'string'
+        || ordinal(claimed.id) !== index+1 || claimed.completionReason !== 'success'
+        || runs.has(claimed.runId)) invalid();
+      runs.add(claimed.runId);
+      const state = await journal.runGet(claimed.runId);
+      if (state.run_id !== claimed.runId || state.status !== 'completed'
+        || state.steps[claimed.id]?.state !== 'done') invalid();
+      const entries = (await journal.journalRead(claimed.runId, 1)).entries as Array<{
+        entry_type: string; step_id?: string; payload?: {
+          completionReason?: string; spec?: { name?: string; steps?: Array<{id?:string;type?:string;command?:string}> };
+        };
+      }>;
+      const spec = entries.find(entry => entry.entry_type === 'run.spawned')?.payload?.spec;
+      const step = spec?.steps?.[0];
+      const completed = entries.filter(entry => entry.entry_type === 'step.completed' && entry.step_id === claimed.id);
+      const terminalFacts = entries.filter(entry => entry.entry_type === 'run.completed');
+      if (spec?.name !== `${metadata.flowName}/${claimed.id}` || spec?.steps?.length !== 1
+        || step?.id !== claimed.id || completed.length !== 1
+        || completed[0]?.payload?.completionReason !== 'success'
+        || terminalFacts.length !== 1 || terminalFacts[0]?.payload?.completionReason !== 'success') invalid();
+      if (claimed === terminal) {
+        const command = result.completionReason === 'needs_human'
+          ? `printf '%s' '{"completionReason":"needs_human"}'` : ':';
+        if (step?.type !== 'deterministic' || step.command !== command) invalid();
+      }
+    }
+  } finally { journal.close(); }
 }

@@ -821,7 +821,12 @@ root worker lease, agent workers, declarative execution, daemon lookup, and
 resume protocol. The child inherits the working directory/environment and uses
 the same journal socket and child admission identities. It verifies the root's
 pinned source graph and Surface package before executing the body. Root aborts
-and signals stop the child; loss of the parent pipe stops it immediately.
+and signals stop the child. Parent-pipe loss exits a responsive child; an independent
+watchdog thread checks parent identity every 50 ms and kills the process even if
+the authored body blocks its event loop. This is bounded scheduling, not an
+instantaneous termination guarantee. Result frames are authenticated and checked
+against durable child completion before root success. The Node loader executes
+captured, hash-verified authored source bytes at their original module URLs.
 Successful root output records the Node version, executable SHA256, and embedded
 payload SHA256 as `executionRuntime`. The payload remains part of the existing
 artifact hash, and completed child effects remain journal results on resume.

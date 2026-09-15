@@ -1,3 +1,4 @@
+import { stripTypeScriptTypes, register } from 'node:module';
 import { createHook } from 'node:async_hooks';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 
@@ -23,7 +24,8 @@ export function assertAuthoredNodeVersion(version = process.versions.node): void
   const [major, minor] = version.split('.').map(Number);
   if (!Number.isInteger(major) || !Number.isInteger(minor)
     || major! < 22 || (major === 22 && minor! < 14)
-    || process.versions['bun'] !== undefined) {
+    || process.versions['bun'] !== undefined
+    || typeof stripTypeScriptTypes !== 'function' || typeof register !== 'function') {
     throw new AuthoredFlowExecutionError('unsupported_promise_lifecycle',
       'the authored runner requires Node >=22.14; no workflow body was executed');
   }

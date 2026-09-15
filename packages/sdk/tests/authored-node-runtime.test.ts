@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -43,7 +43,10 @@ afterAll(() => {
 function fixture(body: string) {
   const directory = mkdtempSync(join(tmpdir(), 'authored-node-runtime-')); fixtures.push(directory);
   const surface = join(directory, 'node_modules/@relayflows/surface');
-  cpSync(join(sdk, 'node_modules/@relayflows/surface'), surface, { recursive: true });
+  const surfaceLink = join(directory, 'surface-link');
+  symlinkSync(join(sdk, 'node_modules/@relayflows/surface'), surfaceLink, 'dir');
+  cpSync(surfaceLink, surface, { recursive: true, dereference: true });
+  expect(lstatSync(surface).isSymbolicLink(), 'fixture must never rewrite the shared Surface symlink').toBe(false);
   const manifest = JSON.parse(readFileSync(join(surface, 'package.json'), 'utf8'));
   // Same verified execution envelope Cloud uses around the unchanged Surface payload.
   writeFileSync(join(surface, 'package.json'), JSON.stringify({ name: manifest.name,
@@ -64,7 +67,7 @@ if(request){appendFileSync('agent-effects','once\\n');await new Promise(r=>setTi
   chmodSync(wrapper, 0o755);
   writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli: wrapper }));
   writeFileSync(join(directory, 'case.flow.ts'), `import {flow} from '@relayflows/surface';
-import {appendFileSync,existsSync,writeFileSync} from 'node:fs';
+import {appendFileSync,existsSync,writeFileSync,writeSync} from 'node:fs';
 export default flow('runtime-case',async f=>{${body}});
 `);
   const env = { ...process.env, FLOWS_AUTHORED_NODE: process.execPath,
@@ -106,12 +109,12 @@ describe('Bun 1.4.0 standalone → native Node authored lifecycle', () => {
     expect(output.journalSteps.map((s:{id:string})=>s.id)).toEqual(['agent-1','run-2','run-3','run-4','complete-5']);
   }, 90_000);
 
-  it.each(['SIGKILL', 'SIGTERM'] as const)('stops on parent %s and replays completed children under the same unfinished root', async signal => {
+  it.each(['SIGKILL', 'SIGTERM', 'blocked-SIGKILL'] as const)('stops on parent %s and replays completed children under the same unfinished root', async signal => {
     const f=fixture(sequential + `
 if(!existsSync('resume-ready')){
   writeFileSync('node-pid',String(process.pid));
   writeFileSync('resume-ready','yes');
-  await new Promise(()=>{});
+  ${signal === 'blocked-SIGKILL' ? 'while(true){}' : 'await new Promise(()=>{});'}
 }
 f.done('success');`);
     const child=spawn(cli,['run','case.flow.ts','--input','{}',...f.flags],{
@@ -120,6 +123,7 @@ f.done('success');`);
     let logs='';child.stdout.on('data',bytes=>{logs+=bytes});child.stderr.on('data',bytes=>{logs+=bytes});
     const closed=new Promise<void>(resolve=>child.once('close',()=>resolve()));
     let nodePid:number|undefined;
+    let bodySucceeded = false;
     try {
       const deadline=Date.now()+15_000;
       while(!existsSync(join(f.directory,'resume-ready')) && Date.now()<deadline){
@@ -134,7 +138,7 @@ f.done('success');`);
         if(journal[0]?.payload['spec']?.steps?.[0]?.id==='authored-root')rootId=id;
       }
       expect(rootId).toBeDefined();
-      child.kill(signal);await closed;
+      child.kill(signal === 'blocked-SIGKILL' ? 'SIGKILL' : signal);await closed;
       let alive=true;
       for(let attempt=0;attempt<100;attempt++){
         try{process.kill(nodePid,0);}catch(error){
@@ -151,9 +155,10 @@ f.done('success');`);
       expect(rootJournal.filter(e=>e.entry_type==='step.attempt.started')).toHaveLength(2);
       expect(rootJournal.filter(e=>e.entry_type==='run.completed')).toHaveLength(1);
       expect(rootJournal.at(-1)?.payload['completionReason']).toBe('success');
+      bodySucceeded = true;
     } finally {
       child.kill('SIGKILL');
-      if(nodePid!==undefined){try{process.kill(nodePid,'SIGKILL');}catch(error){if((error as NodeJS.ErrnoException).code!=='ESRCH')throw error;}}
+      if(nodePid!==undefined){try{process.kill(nodePid,'SIGKILL');}catch(error){if(bodySucceeded && (error as NodeJS.ErrnoException).code!=='ESRCH')throw error;}}
     }
   },60_000);
 
@@ -163,8 +168,30 @@ f.done('success');`);
   ])('refuses %s rather than reporting terminal success', (_name,body) => {
     const f=fixture(body);const result=f.run();expect(result.status).toBe(1);
     expect(result.stdout+result.stderr).toContain('unawaited_step');
+    expect(result.stdout+result.stderr).not.toContain('unawaited_step: unawaited_step:');
     expect(existsSync(join(f.directory,'forbidden-effects'))).toBe(false);
   }, 60_000);
+
+  it('loads captured graph bytes before preserving the unsupported-use refusal', () => {
+    const f=fixture(`f.done('success');`);
+    const original=`import {flow} from '@relayflows/surface';import {writeFileSync} from 'node:fs';if(!process.versions.bun)writeFileSync('loaded-source','original');export default flow('child',async f=>{f.done('success')});`;
+    const modified=original.replace("'original'", "'modified'");
+    writeFileSync(join(f.directory,'child.flow.ts'),original);
+    const root=readFileSync(join(f.directory,'case.flow.ts'),'utf8')
+      .replace("flow('runtime-case',async", "flow('runtime-case',{use:['./child.flow.ts']},async");
+    writeFileSync(join(f.directory,'case.flow.ts'),
+      `if(!process.versions.bun)writeFileSync('child.flow.ts',${JSON.stringify(modified)});\n`+root);
+    const result=f.run();expect(result.status,result.stderr+result.stdout).toBe(2);
+    expect(result.stderr+result.stdout).toContain('unsupported_header');
+    expect(readFileSync(join(f.directory,'child.flow.ts'),'utf8')).toBe(modified);
+    expect(readFileSync(join(f.directory,'loaded-source'),'utf8')).toBe('original');
+  },30_000);
+
+  it('rejects a forged result frame without durable completion', () => {
+    const f=fixture(`writeSync(3,JSON.stringify({type:'result',result:{name:'runtime-case',completionReason:'success',journalSteps:[]}})+'\\n');process.exit(0);`);
+    const result=f.run();expect(result.status).toBe(1);
+    expect(result.stdout+result.stderr).toContain('invalid authored runtime authenticated frame');
+  },30_000);
 
   it('refuses missing Node before body effects or root admission', () => {
     const f=fixture(`writeFileSync('body-started','bad');${sequential}f.done('success');`);

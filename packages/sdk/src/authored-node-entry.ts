@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto';
+import { Worker } from 'node:worker_threads';
+import { createHash, createHmac } from 'node:crypto';
 import { readFileSync, writeSync } from 'node:fs';
 import { JournalClient } from './journal-client.js';
 import { executeAuthoredFlow } from './authored-flow-executor.js';
@@ -7,7 +8,16 @@ import { assertAuthoredNodeVersion } from './authored-runtime-capability.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import type { AuthoredRootMetadata } from './authored-root.js';
 
-const send = (message: unknown): void => { writeSync(3, JSON.stringify(message) + '\n'); };
+let channelKey: string | undefined, sequence = 0;
+// Capture writers before loading authored modules; credentials never enter env.
+const writeFrame = writeSync, mac = createHmac;
+const send = (message: unknown): void => {
+  const payload = JSON.stringify(message);
+  if (channelKey === undefined) { writeFrame(3, payload + '\n'); return; }
+  const seq = ++sequence;
+  writeFrame(3, JSON.stringify({ seq, payload,
+    mac: mac('sha256', channelKey).update(`${seq}\0${payload}`).digest('hex') }) + '\n');
+};
 const hash = (path: string): string => createHash('sha256').update(readFileSync(path)).digest('hex');
 const controller = new AbortController();
 let finished = false;
@@ -19,12 +29,22 @@ process.on('SIGINT', abort); process.on('SIGTERM', abort);
 // The parent owns the root lease. Do not continue authored effects after it dies.
 process.stdin.on('end', () => { if (!finished) process.exit(1); });
 process.stdin.on('error', () => process.exit(1));
+// A separate event loop enforces parent loss even while authored JS is blocked.
+// Capture the expected PID in the parent's spawn arguments, before any child work.
+const parentPid = Number(process.argv[2]);
+if (!Number.isSafeInteger(parentPid) || parentPid <= 1) throw new Error('invalid authored parent identity');
+const watchdog = new Worker(`
+  const {parentPort,workerData}=require('node:worker_threads');
+  function check(){if(process.ppid!==workerData.parentPid)process.kill(process.pid,'SIGKILL');}
+  check();setInterval(check,50);parentPort.postMessage('ready');
+`, { eval: true, workerData: { parentPid } });
 let client: JournalClient | undefined;
 try {
   assertAuthoredNodeVersion();
+  await new Promise<void>((resolve,reject)=>{watchdog.once('message',()=>resolve());watchdog.once('error',reject);});
   send({ type: 'ready', runtime: { kind: 'node', version: process.versions.node,
     executableSha256: hash(process.execPath), payloadSha256: hash(process.argv[1]!) } });
-  const request = await new Promise<{ metadata: AuthoredRootMetadata; socketPath: string;
+  const request = await new Promise<{ channelKey: string; metadata: AuthoredRootMetadata; socketPath: string;
     rootRunId: string; dataDir: string; localAgentStream?: string }>((resolve, reject) => {
     let buffer = '';
     process.stdin.setEncoding('utf8');
@@ -38,8 +58,10 @@ try {
     };
     process.stdin.on('data', onData);
   });
+  if (typeof request.channelKey !== 'string' || !/^[a-f0-9]{64}$/.test(request.channelKey)) throw new Error('invalid authored channel key');
+  channelKey = request.channelKey;
   controller.signal.throwIfAborted();
-  const loaded = await loadPinnedAuthoredSource(request.metadata);
+  const loaded = await loadPinnedAuthoredSource(request.metadata, true);
   if (request.localAgentStream !== request.metadata.localAgentStream) throw new Error('authored root local agent surface mismatch');
   client = new JournalClient(request.socketPath);
   await client.connect(); await client.hello('flows-authored-node');
@@ -53,11 +75,13 @@ try {
     });
   send({ type: 'result', result });
 } catch (error) {
-  send({ type: 'error', message: error instanceof Error ? error.message : 'authored body failed',
+  const message = error instanceof Error ? error.message : 'authored body failed';
+  const prefix = error instanceof AuthoredFlowExecutionError ? `${error.code}: ` : '';
+  send({ type: 'error', message: prefix && message.startsWith(prefix) ? message.slice(prefix.length) : message,
     ...(error instanceof AuthoredFlowExecutionError ? { code: error.code,
       completionReason: error.completionReason, runId: error.runId } : {}) });
   process.exitCode = 1;
 } finally {
-  finished = true; client?.close(); process.stdin.destroy();
+  finished = true; await watchdog.terminate(); client?.close(); process.stdin.destroy();
   process.off('SIGINT', abort); process.off('SIGTERM', abort);
 }
