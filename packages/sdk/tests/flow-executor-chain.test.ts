@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -63,6 +63,44 @@ describe('flow executor LLM and output-binding chain', () => {
     expect(entries).toEqual(expect.arrayContaining([expect.objectContaining({
       entry_type: 'step.completed', payload: expect.objectContaining({ completionReason: 'success', output: { message: 'hello from llm' } }),
     })]));
+    expect(failures).toEqual([]);
+  });
+
+  it('runs a dollar-budgeted authored Claude agent with the same default used by preflight', async () => {
+    const { fixture, client, agent, failures } = await setup();
+    const calls = join(fixture.root, 'claude-calls.jsonl');
+    const claude = join(fixture.root, 'claude');
+    writeFileSync(join(fixture.root, 'flows.json'), JSON.stringify({ models: ['claude-opus-5'] }));
+    writeFileSync(claude, `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
+appendFileSync(${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2)) + '\\n');
+if (process.argv[2] === 'auth') process.exit(0);
+if (process.argv.includes('Reply with exactly RELAYFLOWS_MODEL_READY and nothing else.')) {
+  process.stdout.write('RELAYFLOWS_MODEL_READY\\n'); process.exit(0);
+}
+process.stdout.write(JSON.stringify({ type: 'result', result: 'default-model-agent-ok',
+  usage: { input_tokens: 2, output_tokens: 1 } }) + '\\n');
+`);
+    chmodSync(claude, 0o755);
+    const handle = flow('default-model-agent', { budget: '$8/run' }, async f => {
+      const result = await f.agent('implementer', { cli: claude, task: 'Implement.' });
+      expect(result.summary).toBe('default-model-agent-ok');
+      f.done('success');
+    });
+
+    const result = await executeAuthoredFlow(handle, client, undefined, {
+      flowPath: fixture.flowPath, localAgentStream: agent.stream,
+    });
+
+    expect(result.completionReason).toBe('success');
+    const invocations = readFileSync(calls, 'utf8').trim().split('\n').map(line => JSON.parse(line) as string[]);
+    const modelScoped = invocations.filter(args => args.includes('--model'));
+    expect(modelScoped).toHaveLength(2);
+    expect(modelScoped.every(args => args[args.indexOf('--model') + 1] === 'claude-opus-5')).toBe(true);
+    expect(modelScoped.at(-1)).toEqual([
+      '-p', '--dangerously-skip-permissions', '--model', 'claude-opus-5',
+      '--output-format', 'json', expect.stringContaining('Implement.'),
+    ]);
     expect(failures).toEqual([]);
   });
 

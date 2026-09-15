@@ -423,8 +423,8 @@ describe('closed per-verb step fields', () => {
     });
     expect(result.ok).toBe(true);
     expect(result.resolutions).toEqual([
-      { stepId: 'answer', cli: 'llm-cli', source: 'step', model: 'project-model' },
-      { stepId: 'act', cli: 'agent-cli', source: 'step', model: 'project-model' },
+      { stepId: 'answer', cli: 'llm-cli', source: 'step', model: 'project-model', modelSource: 'step' },
+      { stepId: 'act', cli: 'agent-cli', source: 'step', model: 'project-model', modelSource: 'step' },
     ]);
   });
 

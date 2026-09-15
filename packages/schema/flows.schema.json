@@ -1296,7 +1296,7 @@
         },
         "model": {
           "title": "model",
-          "description": "Model the declared CLI must use. Raw Claude/Codex adapters receive their\nreal model flag; an identified Relayflows wrapper receives it in its\nsame-process execution request. Declared here so the choice is journaled with the step\ninstead of being ambient host state.",
+          "description": "Model the declared CLI must use. A step declaration wins over its selected\nnamed agent and any registered adapter default. Raw Claude/Codex adapters\nreceive the effective model as a real flag; an identified Relayflows\nwrapper receives an explicitly declared model in its same-process request.\nThe effective choice is journaled instead of being ambient host state.",
           "type": "string",
           "minLength": 1,
           "pattern": "^\\S(?:[\\s\\S]*\\S)?$",

@@ -19,7 +19,9 @@ mkdirSync(join(root, 'bin'));
 // every check must agree, including environment readiness (no ignored refusals).
 const wrapper = '#!/bin/sh\nif [ "$1" = "--relayflows-adapter-v1" ]; then echo relayflows-agent-cli-v1; fi\nexit 0\n';
 for (const file of ['preflight/authenticated-cli', 'preflight/analyze-story-claude-cli', 'bin/claude']) writeFileSync(join(root, file), wrapper, { mode: 0o755 });
-writeFileSync(join(root, 'flows.json'), readFileSync(new URL('../../../testdata/flows.json', import.meta.url)));
+const parityConfig = JSON.parse(readFileSync(new URL('../../../testdata/flows.json', import.meta.url), 'utf8'));
+parityConfig.models.push('claude-opus-5');
+writeFileSync(join(root, 'flows.json'), JSON.stringify(parityConfig));
 const oldPath = process.env.PATH;
 process.env.PATH = `${join(root, 'bin')}:${oldPath ?? ''}`;
 afterAll(() => { process.env.PATH = oldPath; rmSync(root, { recursive: true, force: true }); });

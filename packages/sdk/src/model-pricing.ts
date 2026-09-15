@@ -2,6 +2,7 @@
 export const MODEL_PRICING: Readonly<Record<string, Readonly<{ input: number; output: number }>>> = Object.freeze({
   'claude-sonnet-4-6': Object.freeze({ input: 3, output: 15 }),
   'claude-opus-4-7': Object.freeze({ input: 15, output: 75 }),
+  'claude-opus-5': Object.freeze({ input: 5, output: 25 }),
   'codex-medium': Object.freeze({ input: 2, output: 8 }),
   'codex-large': Object.freeze({ input: 5, output: 20 }),
 });

@@ -32,6 +32,13 @@ export interface HeadlessAdapter {
   /** Identity of this adapter — matches CliAdapterKind for registry keys. */
   readonly kind: string;
 
+  /**
+   * Stable model used only when neither the step nor its selected named agent
+   * declares one. Explicit authoring always wins. A default used with frozen
+   * dollar budgets must also have an entry in MODEL_PRICING.
+   */
+  readonly defaultModel?: string;
+
   /** Shape-check invocation before classifying an auth failure. */
   buildIdentification(): CliAdapterIdentification;
 

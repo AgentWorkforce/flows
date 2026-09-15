@@ -5,6 +5,7 @@ import type { JournalClient } from './journal-client.js';
 import type { Pins, StepDispatchEvent } from './protocol.js';
 import type { KernelAgentStep } from './spec.js';
 import { runAgentCli } from './worker-cli.js';
+import { resolveCliModel } from './cli-adapter.js';
 import { withWorkerLease } from './worker-lease.js';
 import { workerInstruction } from './worker-input.js';
 import { helperCall } from './yaml-helpers.js';
@@ -105,9 +106,10 @@ export class AgentWorker extends EventEmitter {
       return;
     }
     let humanIntervention = false;
+    const effectiveModel = typeof spec.cli === 'string' ? resolveCliModel(spec.cli, spec.model) : spec.model;
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       typeof spec.cli === 'string' && typeof spec.instruction === 'string'
-        ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, spec.model, undefined, signal, 'agent', this.options.dataDir === undefined ? undefined : {
+        ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'agent', this.options.dataDir === undefined ? undefined : {
           dataDir: this.options.dataDir, runId: dispatch.run_id, stepId: dispatch.step_id,
           onReady: this.options.onPtyReady, onDrive: () => { humanIntervention = true; },
         }, typeof spec.cwd === 'string' ? spec.cwd : undefined,
@@ -115,7 +117,7 @@ export class AgentWorker extends EventEmitter {
           { runId: dispatch.run_id, stepId: dispatch.step_id, idempotencyKey: dispatch.idempotency_key,
             dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema })
         : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
-    const { result, usage } = workerSpend(completed, spec.model);
+    const { result, usage } = workerSpend(completed, effectiveModel);
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
 
     // Output shape: if the CLI's stdout parses as JSON, promote THAT
