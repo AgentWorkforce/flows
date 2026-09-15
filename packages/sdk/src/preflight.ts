@@ -8,7 +8,7 @@ import type { TriggerSource } from '@relayflows/surface';
 import { acceptsAnyOutput, inspectStepGate, type StepGateInspection } from './gate-contract.js';
 import { compileSpec, CompileError } from './compile.js';
 import { helperCall } from './yaml-helpers.js';
-import { resolveCliModel } from './cli-adapter.js';
+import { resolveCliModelSelection, type CliModelSource } from './cli-adapter.js';
 import { isNamedGate, NAMED_GATE_FAILURE_KINDS, type NamedGateFailureKind } from './named-gates.js';
 import { compileScopes, type ScopeInput, type MountRegistry } from './scope-compiler.js';
 import { readMountRegistry } from './mount-registry.js';
@@ -23,8 +23,10 @@ export interface CliResolution {
   stepId: string;
   cli: string;
   source: CliResolutionSource;
-  /** Model the step or selected named agent declared, probed with the CLI. */
+  /** Effective model probed with the CLI. */
   model?: string;
+  /** Exact source selected by step > named agent > adapter default priority. */
+  modelSource?: CliModelSource;
 }
 
 export interface CliProbeResult {
@@ -239,11 +241,17 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
       resolutionByStep.set(step.id, resolution);
     }
   }
-  diagnostics.push(...unknownModelDiagnostics(compiled, options, resolutionByStep));
   diagnostics.push(...cliResolutionDiagnostics);
+  if (cliResolutionDiagnostics.length > 0) {
+    return { ok: false, gates: compiled.steps.map(inspectStepGate), resolutions, diagnostics };
+  }
+  diagnostics.push(...unknownModelDiagnostics(compiled, options, resolutionByStep));
   diagnostics.push(...budgetDiagnostics(
     compiled,
-    new Map(resolutions.map(resolution => [resolution.stepId, resolution.model])),
+    new Map(resolutions.map(resolution => [resolution.stepId, {
+      ...(resolution.model === undefined ? {} : { model: resolution.model }),
+      ...(resolution.modelSource === undefined ? {} : { source: resolution.modelSource }),
+    }])),
   ));
   if (diagnostics.length > 0) {
     return { ok: false, gates: compiled.steps.map(inspectStepGate), resolutions, diagnostics };
@@ -348,11 +356,11 @@ function unknownModelDiagnostics(
 
   for (const step of flow.steps) {
     if (step.type === 'deterministic') continue;
-    const named = step.type === 'agent' && step.agent !== undefined
-      ? flow.agents?.[step.agent] : undefined;
-    if (step.model === undefined && named !== undefined) continue;
     const resolution = resolutionByStep.get(step.id);
-    const model = step.model ?? resolution?.model;
+    // Selected named declarations were checked once above, including unused
+    // declarations. Other sources are step declarations or adapter defaults.
+    if (resolution?.modelSource === 'named') continue;
+    const model = resolution?.model ?? step.model;
     if (model === undefined || isKnownModel(model, options.models)) continue;
     if (!enforceRegistry) continue;
     diagnostics.push({
@@ -414,11 +422,11 @@ function resolveCli(
   const named = step.type === 'agent' && step.agent !== undefined
     ? flow.agents?.[step.agent]
     : undefined;
-  const declaredModel = step.model ?? named?.model;
   const resolved = (cli: string, source: CliResolutionSource): CliResolution => {
-    const effectiveModel = resolveCliModel(cli, declaredModel);
+    const effectiveModel = resolveCliModelSelection(cli, { step: step.model, named: named?.model });
     return { stepId: step.id, cli, source,
-      ...(effectiveModel === undefined ? {} : { model: effectiveModel }) };
+      ...(effectiveModel.model === undefined ? {} : { model: effectiveModel.model }),
+      ...(effectiveModel.source === undefined ? {} : { modelSource: effectiveModel.source }) };
   };
   if (step.cli !== undefined) return resolved(step.cli, 'step');
   if (named !== undefined) return resolved(named.cli, 'named');

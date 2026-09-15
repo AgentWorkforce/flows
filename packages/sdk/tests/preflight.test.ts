@@ -37,7 +37,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     const calls: Array<[string, string, string | undefined]> = [];
     const authored: FlowSpec = {
       version: '0.1.0',
-      agents: { reviewer: { cli: 'wrapper', model: 'allowed-model' } },
+      agents: { reviewer: { cli: 'claude', model: 'allowed-model' } },
       steps: [{ id: 'review', type: 'agent', agent: 'reviewer', instruction: 'Review.' }],
     };
 
@@ -54,11 +54,12 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(result.ok).toBe(true);
     expect(result.resolutions).toEqual([{
       stepId: 'review',
-      cli: 'wrapper',
+      cli: 'claude',
       source: 'named',
       model: 'allowed-model',
+      modelSource: 'named',
     }]);
-    expect(calls).toEqual([['wrapper', 'named', 'allowed-model']]);
+    expect(calls).toEqual([['claude', 'named', 'allowed-model']]);
   });
 
   it('refuses malformed raw input before any public preflight probe', () => {
@@ -144,6 +145,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       const unresolved: FlowSpec['steps'][number] = {
         id: 'unresolved',
         type: 'agent',
+        model: 'must-not-check',
         instruction: 'No CLI is declared.',
       };
       const resolvable: FlowSpec['steps'][number] = {
@@ -154,11 +156,14 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       };
       const result = preflight({
         version: '0.1.0',
+        budget: '$1/run',
         steps: order === 'unresolved first'
           ? [unresolved, resolvable, { id: 'command', type: 'deterministic', command: 'printf ready' }]
           : [{ id: 'command', type: 'deterministic', command: 'printf ready' }, resolvable, unresolved],
         triggers: [{ id: 'trigger', executor: 'must-not-probe' }],
       }, {
+        models: ['allowed-model'],
+        modelRegistryPath: '/project/flows.json',
         probes: {
           cli: () => { calls.push('cli'); return { exists: true, authenticated: true }; },
           command: () => { calls.push('command'); return true; },
@@ -492,19 +497,15 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(JSON.stringify(scenarios)).not.toContain('raw secret');
   });
 
-  it('reports every model and CLI static refusal on the same step', () => {
+  it('reports CLI resolution before evaluating model governance on the same step', () => {
     const result = preflight(
       flow({ id: 'a', type: 'agent', instruction: 'i', model: 'typo-model' }),
       { models: ['known-model'], modelRegistryPath: '/project/flows.json', probes: probes() },
     );
 
-    expect(result.diagnostics.map((diagnostic) => diagnostic.kind)).toEqual([
-      'model_unknown',
-      'cli_unresolved',
-    ]);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.kind)).toEqual(['cli_unresolved']);
     expect(result.diagnostics[0]).toMatchObject({
       stepId: 'a',
-      model: 'typo-model',
     });
   });
 
@@ -645,6 +646,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       cli: 'claude',
       source: 'named',
       model: 'claude-sonnet-5',
+      modelSource: 'named',
     }]);
     // The probe still ran: model authority does not skip auth verification.
     expect(probeCalls).toBe(1);
@@ -675,6 +677,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       cli: 'claude',
       source: 'step',
       model: 'claude-sonnet-5',
+      modelSource: 'step',
     }]);
     expect(probeCalls).toBe(1);
   });

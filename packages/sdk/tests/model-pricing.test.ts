@@ -8,6 +8,12 @@ describe('pricedUsage', () => {
     expect(usage).toEqual({ tokens_in: 1_000_000, tokens_out: 500_000, dollars: '10.500000' });
   });
 
+  it('uses the frozen Claude Opus 5 standard rate', () => {
+    expect(pricedUsage('claude-opus-5', 1_000_000, 500_000)).toEqual({
+      tokens_in: 1_000_000, tokens_out: 500_000, dollars: '17.500000',
+    });
+  });
+
   it('returns undefined for an unpriced model rather than throwing after decode', () => {
     // Regression for the Cursor Bugbot HIGH finding "Unlisted models fail
     // after usage decode": the runtime previously threw here after the CLI

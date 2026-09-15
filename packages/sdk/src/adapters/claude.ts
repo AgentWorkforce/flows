@@ -10,7 +10,7 @@ const MODEL_PROBE_PROMPT = 'Reply with exactly RELAYFLOWS_MODEL_READY and nothin
  *  pre-#141 inline shape in `cli-adapter.ts` — only the packaging changed. */
 export const claudeAdapter: HeadlessAdapter = {
   kind: 'claude',
-  defaultModel: 'claude-sonnet-4-6',
+  defaultModel: 'claude-opus-5',
 
   buildIdentification(): CliAdapterIdentification {
     return { invocation: { args: ['auth', 'status', '--help'], timeoutMs: 10_000 } };

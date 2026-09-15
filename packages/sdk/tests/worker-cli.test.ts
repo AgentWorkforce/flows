@@ -73,7 +73,7 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'default-model-ok'
     expect(result).toMatchObject({ exit_code: 0, stdout_tail: 'default-model-ok',
       tokens_input: 2, tokens_output: 1 });
     expect(JSON.parse(readFileSync(calls, 'utf8'))).toEqual([
-      '-p', '--dangerously-skip-permissions', '--model', 'claude-sonnet-4-6',
+      '-p', '--dangerously-skip-permissions', '--model', 'claude-opus-5',
       '--output-format', 'json', 'do the task',
     ]);
   });

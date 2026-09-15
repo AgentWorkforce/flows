@@ -6,15 +6,23 @@ import {
   cliAdapterKind,
   modelReadinessProbe,
   resolveCliModel,
+  resolveCliModelSelection,
   WRAPPER_IDENTIFY_ARG,
 } from '../src/cli-adapter.js';
 
 describe('typed CLI adapters', () => {
   it('resolves only Claude to its stable default and preserves explicit models', () => {
-    expect(resolveCliModel('/usr/local/bin/claude')).toBe('claude-sonnet-4-6');
+    expect(resolveCliModel('/usr/local/bin/claude')).toBe('claude-opus-5');
     expect(resolveCliModel('/usr/local/bin/claude', 'explicit-model')).toBe('explicit-model');
     expect(resolveCliModel('/opt/bin/codex')).toBeUndefined();
     expect(resolveCliModel('/project/bin/team-reviewer')).toBeUndefined();
+    expect(resolveCliModelSelection('claude', { step: 'step-model', named: 'named-model' }))
+      .toEqual({ model: 'step-model', source: 'step' });
+    expect(resolveCliModelSelection('claude', { named: 'named-model' }))
+      .toEqual({ model: 'named-model', source: 'named' });
+    expect(resolveCliModelSelection('claude')).toEqual({ model: 'claude-opus-5', source: 'adapter' });
+    expect(resolveCliModelSelection('codex')).toEqual({});
+    expect(resolveCliModelSelection('team-reviewer')).toEqual({});
   });
   it('maps raw Claude to real auth, noninteractive, and model flag shapes', () => {
     const kind = cliAdapterKind('/usr/local/bin/claude');

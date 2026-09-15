@@ -28,10 +28,31 @@ export function cliAdapterKind(executable: string): CliAdapterKind {
   return resolveAdapterKind(executable);
 }
 
-/** Resolve only defaults owned by registered raw-CLI adapters. */
+export type CliModelSource = 'step' | 'named' | 'adapter';
+
+export interface ResolvedCliModel {
+  readonly model?: string;
+  readonly source?: CliModelSource;
+}
+
+/**
+ * Resolve the model once, in authoring priority order: step, selected named
+ * agent, then the registered CLI adapter's default. Unregistered executables
+ * resolve through the wrapper adapter, whose absent default remains undefined.
+ */
+export function resolveCliModelSelection(
+  executable: string,
+  declarations: Readonly<{ step?: string; named?: string }> = {},
+): ResolvedCliModel {
+  if (declarations.step !== undefined) return { model: declarations.step, source: 'step' };
+  if (declarations.named !== undefined) return { model: declarations.named, source: 'named' };
+  const model = registeredAdapters()[resolveAdapterKind(executable)].defaultModel;
+  return model === undefined ? {} : { model, source: 'adapter' };
+}
+
+/** Resolve a runtime model, where any materialized value is step-owned. */
 export function resolveCliModel(executable: string, model?: string): string | undefined {
-  if (model !== undefined) return model;
-  return registeredAdapters()[resolveAdapterKind(executable)].defaultModel;
+  return resolveCliModelSelection(executable, { step: model }).model;
 }
 
 /** Prove the adapter command shape before classifying an auth failure. */

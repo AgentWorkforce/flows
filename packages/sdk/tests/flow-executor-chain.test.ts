@@ -70,7 +70,7 @@ describe('flow executor LLM and output-binding chain', () => {
     const { fixture, client, agent, failures } = await setup();
     const calls = join(fixture.root, 'claude-calls.jsonl');
     const claude = join(fixture.root, 'claude');
-    writeFileSync(join(fixture.root, 'flows.json'), JSON.stringify({ models: ['claude-sonnet-4-6'] }));
+    writeFileSync(join(fixture.root, 'flows.json'), JSON.stringify({ models: ['claude-opus-5'] }));
     writeFileSync(claude, `#!/usr/bin/env node
 import { appendFileSync } from 'node:fs';
 appendFileSync(${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2)) + '\\n');
@@ -96,9 +96,9 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'default-model-age
     const invocations = readFileSync(calls, 'utf8').trim().split('\n').map(line => JSON.parse(line) as string[]);
     const modelScoped = invocations.filter(args => args.includes('--model'));
     expect(modelScoped).toHaveLength(2);
-    expect(modelScoped.every(args => args[args.indexOf('--model') + 1] === 'claude-sonnet-4-6')).toBe(true);
+    expect(modelScoped.every(args => args[args.indexOf('--model') + 1] === 'claude-opus-5')).toBe(true);
     expect(modelScoped.at(-1)).toEqual([
-      '-p', '--dangerously-skip-permissions', '--model', 'claude-sonnet-4-6',
+      '-p', '--dangerously-skip-permissions', '--model', 'claude-opus-5',
       '--output-format', 'json', expect.stringContaining('Implement.'),
     ]);
     expect(failures).toEqual([]);
