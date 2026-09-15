@@ -1,12 +1,15 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.js';
-import { runInCloud, getCloudFlowRun, waitForCloudFlowRun } from '../src/cloud-run.js';
+import {
+  runInCloud, getCloudFlowRun, waitForCloudFlowRun, type RunInCloudOptions,
+} from '../src/cloud-run.js';
 import { cloudConnection } from '../src/cloud-http.js';
 import { compileSpec, toKernelSpec } from '../src/compile.js';
-import { specHash } from '../src/canonical.js';
+import { canonicalize, specHash } from '../src/canonical.js';
 import type { FlowSpec } from '../src/spec.js';
 
 const flow: FlowSpec = {
@@ -50,11 +53,96 @@ describe('hosted v2 submission', () => {
     expect(JSON.parse(body.workflow).steps[0]).toMatchObject({ id: 'gate', type: 'deterministic', command: 'printf verified' });
   });
 
-  it('refuses invalid specs and unsupported hosted TS before any HTTP request', async () => {
+  it('refuses invalid specs and unsupported source extensions before any HTTP request', async () => {
     const fetch = vi.spyOn(globalThis, 'fetch');
     const options = { token: 'test-token' };
     await expect(runInCloud({ ...flow, steps: [] }, options)).rejects.toThrow();
-    await expect(runInCloud({ path: 'example.flow.ts' }, options)).rejects.toMatchObject({ code: 'unsupported_source' });
+    await expect(runInCloud({ path: 'example.txt' }, options)).rejects.toMatchObject({ code: 'unsupported_source' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('submits exact authored UTF-8 bytes with source and pinned Surface authority', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-authored-'));
+    dirs.push(dir);
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'flagship.flow.ts');
+    const source = "import { flow } from '@relayflows/surface';\n"
+      + "// exact UTF-8 boundary: 🛰️\n"
+      + "export default flow('cloud-authored', async f => f.done('success'));\n";
+    await writeFile(path, source);
+    let request: { workflow: string; fileType: string; relayflowVersion: string;
+      inputs: unknown;
+      authoredAuthority: { sourceSha256: string; byteLength: number;
+        surface: { packageName: string; version: string; packageSha256: string; runtimeSha256: string } } } | undefined;
+    const options = await cloud((_url, body) => {
+      request = body as typeof request;
+      return { runId: 'authored-run', status: 'pending' };
+    });
+
+    const receipt = await runInCloud({ path }, { ...options, input: {} });
+    const surfaceManifest = JSON.parse(await readFile(
+      join(process.cwd(), 'node_modules/@relayflows/surface/package.json'), 'utf8',
+    )) as { version: string };
+
+    expect(request).toMatchObject({ workflow: source, fileType: 'ts', relayflowVersion: 'v2', inputs: {} });
+    expect(request!.authoredAuthority).toMatchObject({
+      sourceSha256: createHash('sha256').update(Buffer.from(source)).digest('hex'),
+      byteLength: Buffer.byteLength(source),
+      surface: { packageName: '@relayflows/surface', version: surfaceManifest.version },
+    });
+    expect(request!.authoredAuthority.surface.packageSha256).toMatch(/^[a-f0-9]{64}$/u);
+    expect(request!.authoredAuthority.surface.runtimeSha256).toMatch(/^[a-f0-9]{64}$/u);
+    expect(receipt).toMatchObject({ runId: 'authored-run', status: 'pending' });
+    expect(receipt.specHash).toBe(createHash('sha256')
+      .update(canonicalize({ authority: request!.authoredAuthority, input: {} }))
+      .digest('hex'));
+  });
+
+  it.each([
+    { label: 'object', input: { prompt: 'ship', count: 2 } },
+    { label: 'primitive', input: 'ship' },
+    { label: 'array', input: [null, 1, true] },
+    { label: 'null', input: null },
+  ] as const)('preserves authored Cloud input: $label', async ({ input }) => {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-authored-input-'));
+    dirs.push(dir);
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'input.flow.ts');
+    await writeFile(path, "import { flow } from '@relayflows/surface';\n"
+      + "export default flow('input', async f => f.done('success'));\n");
+    let request: Record<string, unknown> | undefined;
+    const connection = await cloud((_url, body) => {
+      request = body as Record<string, unknown>;
+      return { runId: 'input-run', status: 'pending' };
+    });
+
+    const receipt = await runInCloud(
+      { path },
+      { ...connection, input },
+    );
+
+    expect(Object.prototype.hasOwnProperty.call(request, 'inputs')).toBe(true);
+    expect(request!.inputs).toEqual(input);
+    const authority = request!.authoredAuthority;
+    expect(receipt.specHash).toBe(createHash('sha256').update(canonicalize({
+      authority,
+      input,
+    })).digest('hex'));
+  });
+
+  it('refuses declarative input plus omitted or undefined authored input before HTTP', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    await expect(runInCloud(flow, { token: 'test', input: null })).rejects.toMatchObject({ code: 'invalid_input' });
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-authored-input-invalid-'));
+    dirs.push(dir);
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'input.flow.ts');
+    await writeFile(path, "import { flow } from '@relayflows/surface';\n"
+      + "export default flow('input', async f => f.done('success'));\n");
+    await expect(runInCloud({ path }, { token: 'test' }))
+      .rejects.toMatchObject({ code: 'invalid_input' });
+    await expect(runInCloud({ path }, { token: 'test', input: undefined } as RunInCloudOptions))
+      .rejects.toMatchObject({ code: 'invalid_input' });
     expect(fetch).not.toHaveBeenCalled();
   });
 

@@ -14,6 +14,8 @@ import type { RunFailureKind, RunWarningKind, StepFailedDetails } from '../failu
 import { deterministicFailureDetails } from './deterministic-failure.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
 import { attachLocalAgent } from '../local-agent.js';
+import { LlmWorker } from '../llm-worker.js';
+import { readAuthoredRootMetadata, resumeDurableAuthoredFlow } from '../authored-root.js';
 import type {
   RunCompletionReason,
   RunOutcome,
@@ -68,6 +70,8 @@ export interface RunProgress {
 }
 
 export interface RunLifecycleOptions {
+  /** Caller-owned hosted invocation identity for authored-root start recovery. */
+  authoredAdmissionKey?: string;
   bucket?: string;
   allowHumanInfluenced?: boolean;
   onPtyReady?: (path: string) => void;
@@ -151,7 +155,50 @@ export async function resumeFlow(
   const connected = await connect(client, 'resume', dataDir, base, options);
   if (connected !== undefined) return connected;
 
+  let authoredAgent: Awaited<ReturnType<typeof attachLocalAgent>> | undefined;
+  let authoredLlm: LlmWorker | undefined;
+  let authoredLlmClient: JournalClient | undefined;
   try {
+    const authoredRoot = await readAuthoredRootMetadata(client, runId);
+    if (authoredRoot !== undefined) {
+      if (authoredRoot.localAgentStream !== undefined && !options.localAgent) {
+        throw new Error('authored root requires --local-agent to resume its pinned worker surface');
+      }
+      if (authoredRoot.localAgentStream === undefined && options.localAgent) {
+        throw new Error('authored root was started without a local agent worker surface');
+      }
+      if (options.localAgent) {
+        authoredAgent = await attachLocalAgent(
+          client, dataDir, options.onPtyReady, authoredRoot.localAgentStream,
+        );
+        authoredLlmClient = new JournalClient(socketPath);
+        await authoredLlmClient.connect();
+        await authoredLlmClient.hello('flows-authored-resume-llm');
+        authoredLlm = new LlmWorker(authoredLlmClient, `${authoredAgent.stream}-llm`);
+        await authoredLlm.attach();
+      }
+      const result = await resumeDurableAuthoredFlow(runId, client, {
+        dataDir,
+        localAgentStream: authoredAgent?.stream,
+        lifecycle: options,
+      });
+      if (result === undefined) throw new Error('authored root disappeared during resume');
+      return {
+        exitCode: result.completionReason === 'needs_human' ? 3 : 0,
+        report: {
+          ...base,
+          ok: result.completionReason === 'success',
+          runId,
+          socketPath,
+          status: result.completionReason === 'needs_human' ? 'parked' : 'completed',
+          ...(result.completionReason === 'success'
+            ? { completionReason: 'success' as const }
+            : { diagnostics: [{ severity: 'parked' as const, kind: 'run_parked' as const,
+              message: `Flow "${result.name}" needs_human; see the journal for accumulated blockers.` }] }),
+          completedSteps: result.journalSteps.length,
+        },
+      };
+    }
     // resumeHelperEffect subsumes the old resumeSlackEffect: it handles the
     // slack effect resume plus every other provider from N's codegen. The
     // second call the earlier rebase left is a stale reference from before
@@ -189,7 +236,13 @@ export async function resumeFlow(
       },
     };
   } finally {
-    client.close();
+    try {
+      await authoredLlm?.close();
+      authoredLlmClient?.close();
+      await authoredAgent?.close();
+    } finally {
+      client.close();
+    }
   }
 }
 

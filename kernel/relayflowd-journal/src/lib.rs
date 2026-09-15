@@ -14,7 +14,7 @@ use relayflowd_core::{EpochSummaryPayload, Journal, JournalEntry, JournalError, 
 use rusqlite::{Connection, OpenFlags, params};
 use thiserror::Error;
 
-pub use registry::{Registry, RegistryRecord};
+pub use registry::{Registry, RegistryRecord, RunAdmissionClaim};
 pub use subscriptions::StaleSubscription;
 
 const SCHEMA: &str = r#"

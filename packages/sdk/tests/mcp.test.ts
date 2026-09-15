@@ -271,7 +271,12 @@ describe('authored MCP effects against the real kernel', () => {
   it('reports a dropped tool connection as a failed CLI run', () => {
     const f = fixture({ foo: config('drop') });
     const result = spawnSync(process.execPath, ['dist/cli-executable.js', 'run', f.path,
-      '--input', '{}', '--data-dir', directory, '--no-spawn', '--no-observer-link', '--json'], { encoding: 'utf8', timeout: 15000 });
+      '--input', '{}', '--data-dir', directory, '--no-spawn', '--no-observer-link', '--json'], {
+      encoding: 'utf8',
+      // The durable authored root terminalizes all eight declared retries
+      // before the CLI returns its failed report; leave CI scheduling margin.
+      timeout: 40_000,
+    });
     expect(result.status, result.stderr).toBe(1);
     expect(JSON.parse(result.stdout)).toMatchObject({ status: 'failed', completionReason: 'step_failed', diagnostics: [
       { kind: 'step_failed', message: expect.stringContaining('mcp_disconnected') },

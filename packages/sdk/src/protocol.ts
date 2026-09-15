@@ -77,6 +77,8 @@ export interface StepSpend {
 }
 
 export interface RunStartParams {
+  /** Caller-owned retry identity. Reuse with a different spec is refused. */
+  admission_key?: string;
   reuse_from_run_id?: string;
   /**
    * The kernel spec dialect — the ONE boundary shape `RunSpec::parse`

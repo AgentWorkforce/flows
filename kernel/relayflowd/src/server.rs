@@ -172,11 +172,12 @@ fn handle_request(
                 .map_err(|error| ("invalid_spec", error.to_string()))?;
             to_value(
                 engine
-                    .start_with_reuse(
+                    .start_with_admission(
                         spec,
                         "protocol-v0",
                         crate::DriveOptions::default(),
                         params.reuse_from_run_id.as_deref(),
+                        params.admission_key.as_deref(),
                     )
                     .map_err(run_start_error)?,
             )

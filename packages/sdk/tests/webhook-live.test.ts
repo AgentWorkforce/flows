@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { socketPathFor } from '../src/daemon-connection.js';
-import { JournalClient } from '../src/journal-client.js';
+import { JournalClient, JournalProtocolError } from '../src/journal-client.js';
 import { github, slack, webhook, type TriggerSource } from '@relayflows/surface';
 import { webhookTriggerSpec } from '../src/trigger-executor.js';
 import { compileSpec, toKernelSpec } from '../src/compile.js';
@@ -153,8 +153,18 @@ it('resumes the same journal after SIGKILL after spawn and before acknowledgemen
   // Wait until a real attempt exists, proving the run is registered and driven.
   const files = await journals(dir);
   await until(async () => {
-    const journal = await readJournal(dir, files[0]!);
-    return journal.entries.some(entry => entry.entry_type === 'step.attempt.started');
+    try {
+      const journal = await readJournal(dir, files[0]!);
+      return journal.entries.some(entry => entry.entry_type === 'step.attempt.started');
+    } catch (error) {
+      // The filename is visible as soon as SQLite creates it, before the
+      // create transaction commits its schema. A public start receipt cannot
+      // expose this interval, but this crash test deliberately discovers the
+      // private run id by listing the directory. Keep polling until that
+      // journal is initialized; a persistent write failure still times out.
+      if (error instanceof JournalProtocolError && error.code === 'journal_write_failed') return false;
+      throw error;
+    }
   });
   clients.splice(0).forEach(client => client.close());
   await stop(first);

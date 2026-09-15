@@ -2,6 +2,7 @@ import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { canonicalize, specHash } from '../src/canonical.js';
 import { runCli } from '../src/cli.js';
@@ -46,7 +47,7 @@ it.each([
   });
   await once(server, 'listening');
   try {
-    const result = await runFlow(new URL('../../../testdata/hello-deterministic.flow.yaml', import.meta.url).pathname,
+    const result = await runFlow(fileURLToPath(new URL('../../../testdata/hello-deterministic.flow.yaml', import.meta.url)),
       dir, { reuseFromRunId: 'prior', daemon: { spawn: false } });
     expect(result.exitCode).toBe(exitCode);
     expect(result.report.diagnostics.at(-1)?.kind).toBe(code);

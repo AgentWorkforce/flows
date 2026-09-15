@@ -1,6 +1,8 @@
-import { accessSync, constants, realpathSync } from 'node:fs';
+import { accessSync, constants, existsSync, realpathSync } from 'node:fs';
+import { readFile, readdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   getAuthoredFlowDefinition,
@@ -18,7 +20,15 @@ export class AuthoredFlowLoadError extends Error {
 /** Same signature as `getAuthoredFlowDefinition`, resolved from wherever a flow was loaded. */
 export type GetFlowDefinition = <Input = unknown>(handle: FlowHandle) => AuthoredFlowDefinition<Input>;
 
+export interface SurfaceModuleAuthority {
+  readonly packageName: '@relayflows/surface';
+  readonly version: string;
+  readonly packageSha256: string;
+  readonly runtimeSha256: string;
+}
+
 export interface LoadedAuthoredFlow {
+  readonly sourcePath: string;
   readonly handle: FlowHandle;
   /**
    * Bound to the SAME `@relayflows/surface` module instance the flow file
@@ -28,6 +38,8 @@ export interface LoadedAuthoredFlow {
    * `getAuthoredFlowDefinition` import.
    */
   readonly getDefinition: GetFlowDefinition;
+  /** Exact Surface package/runtime that owns the handle's WeakMap identity. */
+  readonly surfaceAuthority: SurfaceModuleAuthority;
   /** Dependency-first load order, each canonical absolute path appearing once. */
   readonly graph: readonly LoadedAuthoredFlowNode[];
 }
@@ -36,6 +48,7 @@ export interface LoadedAuthoredFlowNode {
   readonly path: string;
   readonly handle: FlowHandle;
   readonly getDefinition: GetFlowDefinition;
+  readonly surfaceAuthority: SurfaceModuleAuthority;
   readonly use: readonly string[];
 }
 
@@ -58,7 +71,7 @@ export async function loadAuthoredFlow(path: string): Promise<LoadedAuthoredFlow
     if (cached !== undefined) return cached;
     visiting.add(absolutePath);
     try {
-      const { handle, getDefinition } = await importAuthoredFlow(absolutePath);
+      const { handle, getDefinition, surfaceAuthority } = await importAuthoredFlow(absolutePath);
       const dependencies: string[] = [];
       for (const entry of getDefinition(handle).header.use ?? []) {
         // Validate again at the SDK boundary: the author's surface package may
@@ -72,7 +85,7 @@ export async function loadAuthoredFlow(path: string): Promise<LoadedAuthoredFlow
         }
         dependencies.push(child.path);
       }
-      const node = Object.freeze({ path: absolutePath, handle, getDefinition, use: Object.freeze(dependencies) });
+      const node = Object.freeze({ path: absolutePath, handle, getDefinition, surfaceAuthority, use: Object.freeze(dependencies) });
       loaded.set(absolutePath, node);
       return node;
     } catch (error) {
@@ -85,10 +98,11 @@ export async function loadAuthoredFlow(path: string): Promise<LoadedAuthoredFlow
     }
   }
   const root = await visit(resolve(path), true);
-  return Object.freeze({ handle: root.handle, getDefinition: root.getDefinition, graph: Object.freeze([...loaded.values()]) });
+  return Object.freeze({ sourcePath: root.path, handle: root.handle, getDefinition: root.getDefinition,
+    surfaceAuthority: root.surfaceAuthority, graph: Object.freeze([...loaded.values()]) });
 }
 
-async function importAuthoredFlow(path: string): Promise<Pick<LoadedAuthoredFlow, 'handle' | 'getDefinition'>> {
+async function importAuthoredFlow(path: string): Promise<Pick<LoadedAuthoredFlow, 'handle' | 'getDefinition' | 'surfaceAuthority'>> {
   const absolutePath = resolve(path);
   try {
     accessSync(absolutePath, constants.R_OK);
@@ -98,14 +112,14 @@ async function importAuthoredFlow(path: string): Promise<Pick<LoadedAuthoredFlow
 
   let authoredModule: Record<string, unknown>;
   try {
-    authoredModule = await import(pathToFileURL(absolutePath).href) as Record<string, unknown>;
+    authoredModule = await import(/* @vite-ignore */ pathToFileURL(absolutePath).href) as Record<string, unknown>;
   } catch (error) {
     throw new AuthoredFlowLoadError(
       `Flow "${path}" could not be imported: ${errorMessage(error)}`,
     );
   }
 
-  const getDefinition = await resolveGetFlowDefinition(absolutePath, path);
+  const { getDefinition, surfaceAuthority } = await resolveSurfaceRuntime(absolutePath, path);
   const handle = authoredModule['default'] as FlowHandle;
   try {
     getDefinition(handle);
@@ -114,7 +128,7 @@ async function importAuthoredFlow(path: string): Promise<Pick<LoadedAuthoredFlow
       `Flow "${path}" must default-export flow(...): ${errorMessage(error)}`,
     );
   }
-  return { handle, getDefinition };
+  return { handle, getDefinition, surfaceAuthority };
 }
 
 /**
@@ -138,21 +152,27 @@ async function importAuthoredFlow(path: string): Promise<Pick<LoadedAuthoredFlow
  * compatible `@relayflows/surface` is provably resolvable from this same
  * anchor.
  */
-async function resolveGetFlowDefinition(
+async function resolveSurfaceRuntime(
   absolutePath: string,
   displayPath: string,
-): Promise<GetFlowDefinition> {
+): Promise<{ getDefinition: GetFlowDefinition; surfaceAuthority: SurfaceModuleAuthority }> {
   const require = createRequire(pathToFileURL(absolutePath));
   let resolvedRuntimePath: string;
   try {
     resolvedRuntimePath = require.resolve('@relayflows/surface/runtime');
+    // Some ESM test/load hooks return a percent-encoded absolute path without
+    // a file: scheme. Normalize it only when the literal path does not exist.
+    if (!existsSync(resolvedRuntimePath) && resolvedRuntimePath.includes('%')) {
+      const decoded = decodeURI(resolvedRuntimePath);
+      if (existsSync(decoded)) resolvedRuntimePath = decoded;
+    }
   } catch (error) {
     throw new AuthoredFlowLoadError(
       `Flow "${displayPath}" imports @relayflows/surface, but @relayflows/surface/runtime `
         + `could not be resolved from the same location: ${errorMessage(error)}`,
     );
   }
-  const runtimeModule = await import(pathToFileURL(resolvedRuntimePath).href) as {
+  const runtimeModule = await import(/* @vite-ignore */ resolvedRuntimePath) as {
     getFlowDefinition?: unknown;
   };
   if (typeof runtimeModule.getFlowDefinition !== 'function') {
@@ -161,7 +181,70 @@ async function resolveGetFlowDefinition(
         + 'does not export getFlowDefinition — check its @relayflows/surface version.',
     );
   }
-  return runtimeModule.getFlowDefinition as GetFlowDefinition;
+  let packagePath = dirname(resolvedRuntimePath);
+  for (;;) {
+    const candidate = resolve(packagePath, 'package.json');
+    try {
+      const packageBytes = await readFile(candidate);
+      const manifest = JSON.parse(packageBytes.toString('utf8')) as { name?: unknown; version?: unknown };
+      if (manifest.name === '@relayflows/surface') {
+        if (typeof manifest.version !== 'string' || manifest.version.length === 0) {
+          throw new AuthoredFlowLoadError(`Flow "${displayPath}": @relayflows/surface has no pinned package version.`);
+        }
+        const runtimeBytes = await readFile(resolvedRuntimePath);
+        return {
+          getDefinition: runtimeModule.getFlowDefinition as GetFlowDefinition,
+          surfaceAuthority: Object.freeze({
+            packageName: '@relayflows/surface', version: manifest.version,
+            packageSha256: await packageTreeSha256(packagePath),
+            runtimeSha256: createHash('sha256').update(runtimeBytes).digest('hex'),
+          }),
+        };
+      }
+    } catch (error) {
+      if (!(error instanceof SyntaxError) && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    const parent = dirname(packagePath);
+    if (parent === packagePath) break;
+    packagePath = parent;
+  }
+  throw new AuthoredFlowLoadError(
+    `Flow "${displayPath}": the resolved @relayflows/surface/runtime is not inside its declared package.`,
+  );
+}
+
+/**
+ * Hash the exact installed Surface package payload, including path boundaries.
+ *
+ * npm may materialize a package-local node_modules tree for workspace and
+ * file: dependencies. That tree is installation state, not part of the
+ * published Surface package, and can contain platform-specific .bin symlinks.
+ * Keep it outside the authority boundary while pinning every package payload
+ * file, including the runtime module hashed separately by the caller.
+ */
+export async function packageTreeSha256(root: string): Promise<string> {
+  const files: string[] = [];
+  async function visit(directory: string): Promise<void> {
+    const entries = await readdir(directory, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (directory === root && entry.name === 'node_modules') continue;
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else if (entry.isFile()) files.push(path);
+      else throw new AuthoredFlowLoadError(
+        `@relayflows/surface package contains unsupported entry "${relative(root, path)}".`,
+      );
+    }
+  }
+  await visit(root);
+  const hash = createHash('sha256');
+  for (const path of files) {
+    const bytes = await readFile(path);
+    const name = relative(root, path).split(sep).join('/');
+    hash.update(name).update('\0').update(String(bytes.length)).update('\0').update(bytes);
+  }
+  return hash.digest('hex');
 }
 
 // Exported for callers (internal SDK tests, and any co-located flow that is

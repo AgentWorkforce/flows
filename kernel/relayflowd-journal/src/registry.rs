@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::JournalStoreError;
 
@@ -20,6 +20,14 @@ pub struct RegistryRecord {
     pub file: PathBuf,
     pub status: String,
     pub next_wake_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunAdmissionClaim {
+    Acquired,
+    Existing(String),
+    Recover(String),
+    Conflict,
 }
 
 impl Registry {
@@ -120,6 +128,12 @@ impl Registry {
                run_id TEXT NOT NULL,
                boot_id TEXT NOT NULL DEFAULT '',
                PRIMARY KEY (flow_key, subscription_id, dedupe_key)
+             ) WITHOUT ROWID;
+             CREATE TABLE IF NOT EXISTS run_admissions (
+               admission_key TEXT PRIMARY KEY,
+               spec_hash TEXT NOT NULL,
+               run_id TEXT NOT NULL,
+               boot_id TEXT NOT NULL
              ) WITHOUT ROWID;",
         )?;
         // Trigger-plane liveness lives in a sibling module; its schema is
@@ -157,6 +171,86 @@ impl Registry {
             "INSERT INTO runs(run_id, file, status, next_wake_at_ms)
              VALUES (?1, ?2, 'running', NULL)",
             params![run_id, file.to_string_lossy()],
+        )?;
+        Ok(())
+    }
+
+    /// Claim one caller-owned start identity before creating its run journal.
+    ///
+    /// A registered claim is the durable admission receipt. An unregistered
+    /// claim from this boot is still in flight; one from an older boot is safe
+    /// to repair because its process cannot finish creating the claimed run.
+    /// The spec hash is immutable so one key can never name two programs.
+    pub fn claim_run_admission(
+        &mut self,
+        admission_key: &str,
+        spec_hash: &str,
+        proposed_run_id: &str,
+        boot_id: &str,
+    ) -> Result<RunAdmissionClaim, JournalStoreError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = transaction.execute(
+            "INSERT OR IGNORE INTO run_admissions(admission_key, spec_hash, run_id, boot_id)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![admission_key, spec_hash, proposed_run_id, boot_id],
+        )?;
+        if changed == 1 {
+            transaction.commit()?;
+            return Ok(RunAdmissionClaim::Acquired);
+        }
+
+        let (existing_hash, existing_run, existing_boot): (String, String, String) = transaction
+            .query_row(
+                "SELECT spec_hash, run_id, boot_id FROM run_admissions
+                 WHERE admission_key = ?1",
+                [admission_key],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+        if existing_hash != spec_hash {
+            transaction.commit()?;
+            return Ok(RunAdmissionClaim::Conflict);
+        }
+        let registered: i64 = transaction.query_row(
+            "SELECT COUNT(1) FROM runs WHERE run_id = ?1",
+            [&existing_run],
+            |row| row.get(0),
+        )?;
+        if registered > 0 {
+            if existing_boot != boot_id {
+                transaction.execute(
+                    "UPDATE run_admissions SET boot_id = ?2 WHERE admission_key = ?1",
+                    params![admission_key, boot_id],
+                )?;
+                transaction.commit()?;
+                return Ok(RunAdmissionClaim::Recover(existing_run));
+            }
+            transaction.commit()?;
+            return Ok(RunAdmissionClaim::Existing(existing_run));
+        }
+        if existing_boot == boot_id {
+            transaction.commit()?;
+            return Ok(RunAdmissionClaim::Existing(existing_run));
+        }
+
+        transaction.execute(
+            "UPDATE run_admissions SET run_id = ?2, boot_id = ?3
+             WHERE admission_key = ?1",
+            params![admission_key, proposed_run_id, boot_id],
+        )?;
+        transaction.commit()?;
+        Ok(RunAdmissionClaim::Acquired)
+    }
+
+    pub fn release_run_admission(
+        &self,
+        admission_key: &str,
+        run_id: &str,
+    ) -> Result<(), JournalStoreError> {
+        self.connection.execute(
+            "DELETE FROM run_admissions WHERE admission_key = ?1 AND run_id = ?2",
+            params![admission_key, run_id],
         )?;
         Ok(())
     }
@@ -380,6 +474,136 @@ mod tests {
         );
     }
 
+    #[test]
+    fn run_admission_reuses_registered_run_and_rejects_spec_drift() {
+        let directory = tempdir().unwrap();
+        let mut registry = Registry::open(directory.path().join("r.sqlite3")).unwrap();
+        assert_eq!(
+            registry
+                .claim_run_admission("root", "hash-a", "run-a", "boot-1")
+                .unwrap(),
+            RunAdmissionClaim::Acquired
+        );
+        registry
+            .register("run-a", directory.path().join("run-a.sqlite3").as_path())
+            .unwrap();
+        assert_eq!(
+            registry
+                .claim_run_admission("root", "hash-a", "run-b", "boot-1")
+                .unwrap(),
+            RunAdmissionClaim::Existing("run-a".to_string())
+        );
+        assert_eq!(
+            registry
+                .claim_run_admission("root", "hash-b", "run-b", "boot-1")
+                .unwrap(),
+            RunAdmissionClaim::Conflict
+        );
+    }
+
+    #[test]
+    fn prior_boot_unregistered_run_admission_is_repaired() {
+        let directory = tempdir().unwrap();
+        let mut registry = Registry::open(directory.path().join("r.sqlite3")).unwrap();
+        assert_eq!(
+            registry
+                .claim_run_admission("root", "hash", "run-a", "boot-1")
+                .unwrap(),
+            RunAdmissionClaim::Acquired
+        );
+        assert_eq!(
+            registry
+                .claim_run_admission("root", "hash", "run-b", "boot-2")
+                .unwrap(),
+            RunAdmissionClaim::Acquired
+        );
+        assert_eq!(
+            registry
+                .claim_run_admission("root", "hash", "run-c", "boot-2")
+                .unwrap(),
+            RunAdmissionClaim::Existing("run-b".to_string())
+        );
+    }
+
+    #[test]
+    fn concurrent_same_boot_run_admissions_have_one_owner() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("r.sqlite3");
+        Registry::open(&path).unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let claims = ["run-a", "run-b"].map(|run_id| {
+            let path = path.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                let mut registry = Registry::open(path).unwrap();
+                barrier.wait();
+                registry
+                    .claim_run_admission("root", "hash", run_id, "boot-1")
+                    .unwrap()
+            })
+        });
+        let results = claims.map(|claim| claim.join().unwrap());
+        assert_eq!(
+            results
+                .iter()
+                .filter(|claim| matches!(claim, RunAdmissionClaim::Acquired))
+                .count(),
+            1
+        );
+        assert_eq!(
+            results
+                .iter()
+                .filter(|claim| matches!(claim, RunAdmissionClaim::Existing(_)))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn concurrent_new_boot_retries_have_one_recovery_owner() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("r.sqlite3");
+        let mut registry = Registry::open(&path).unwrap();
+        assert_eq!(
+            registry
+                .claim_run_admission("root", "hash", "run-a", "dead-boot")
+                .unwrap(),
+            RunAdmissionClaim::Acquired
+        );
+        registry
+            .register("run-a", directory.path().join("run-a.sqlite3").as_path())
+            .unwrap();
+        drop(registry);
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let claims = ["run-b", "run-c"].map(|run_id| {
+            let path = path.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                let mut registry = Registry::open(path).unwrap();
+                barrier.wait();
+                registry
+                    .claim_run_admission("root", "hash", run_id, "new-boot")
+                    .unwrap()
+            })
+        });
+        let results = claims.map(|claim| claim.join().unwrap());
+        assert_eq!(
+            results
+                .iter()
+                .filter(|claim| matches!(claim, RunAdmissionClaim::Recover(run) if run == "run-a"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            results
+                .iter()
+                .filter(|claim| matches!(claim, RunAdmissionClaim::Existing(run) if run == "run-a"))
+                .count(),
+            1
+        );
+    }
+
     /// The ALTER path: a registry written before `boot_id` existed must open,
     /// gain the column, and read its pre-existing rows as a previous boot's.
     /// This branch only runs against an old database, so nothing else in the
@@ -418,7 +642,9 @@ mod tests {
         // The legacy row carries boot_id '' -- no live boot -- so it is a dead
         // process's claim and must be repaired, not treated as in flight.
         assert_eq!(
-            registry.claim_event("f", "s", "k", "run-new", "boot-1").unwrap(),
+            registry
+                .claim_event("f", "s", "k", "run-new", "boot-1")
+                .unwrap(),
             None,
             "a pre-migration claim with no run belongs to no live boot"
         );

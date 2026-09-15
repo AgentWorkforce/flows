@@ -53,7 +53,7 @@ type ParsedArgs =
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean }
   | { command: 'check'; json: boolean; watch: boolean; value: string }
   | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
-  | { command: 'resume'; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'resume'; localAgent: boolean; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'observer'; dataDir: string }
   | { command: 'hn-monitor'; sub: 'start'; dataDir: string; specPath: string; pollIntervalMs: number | undefined }
   | { command: 'tick'; sub: 'start'; dataDir: string; specPath: string; scheduleId: string;
@@ -74,7 +74,7 @@ const USAGE = [
   'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
-  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] <run-id>',
+  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <run-id>',
   'flows replay [--allow-human-influenced] [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
   'flows observer [--data-dir <dir>]',
   'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
@@ -191,7 +191,7 @@ export async function runCli(
     allowHumanInfluenced: parsed.allowHumanInfluenced,
     onPtyReady: (path: string) => io.stderr(`PTY ${path}`),
     ...(parsed.command === 'run' && parsed.reuseFromRunId !== undefined ? { reuseFromRunId: parsed.reuseFromRunId } : {}),
-    localAgent: parsed.command === 'run' && parsed.localAgent,
+    localAgent: parsed.localAgent,
     onProgress: showProgress,
     onWait: (progress: RunProgress) => {
       emitWait(progress, io);
@@ -455,7 +455,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       continue;
     }
     if (argument === '--local-agent') {
-      if (command !== 'run' || localAgent) return undefined;
+      if (command === 'check' || localAgent) return undefined;
       localAgent = true;
       continue;
     }
@@ -534,7 +534,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     ? { command, json, watch, value: positionals[0]! }
     : command === 'run'
       ? { command, bucket, reuseFromRunId, localAgent, dataDir, input, json, spawn, noObserverLink, allowHumanInfluenced, value: positionals[0]! }
-      : { command, dataDir, json, spawn, noObserverLink, allowHumanInfluenced, value: positionals[0]! };
+      : { command, localAgent, dataDir, json, spawn, noObserverLink, allowHumanInfluenced, value: positionals[0]! };
 }
 
 function parseHnMonitorArgs(rest: readonly string[]): ParsedArgs | undefined {

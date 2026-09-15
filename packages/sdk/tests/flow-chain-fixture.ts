@@ -36,6 +36,9 @@ if (request) {
     invoke: (...args: string[]) => spawnSync(process.execPath, [resolve('dist/cli.js'), ...args], {
       cwd: root, encoding: 'utf8', timeout: 30_000, env: { ...process.env, RELAYFLOWD_BIN: binary },
     }),
+    invokeAsync: (...args: string[]) => spawn(process.execPath, [resolve('dist/cli.js'), ...args], {
+      cwd: root, stdio: 'pipe', env: { ...process.env, RELAYFLOWD_BIN: binary },
+    }),
     async connect() {
       daemon = spawn(binary, ['--data-dir', data, 'serve'], { stdio: 'ignore' });
       const deadline = Date.now() + 10_000;

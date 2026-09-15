@@ -72,6 +72,7 @@ export interface AuthoredFlowJournalStep {
 }
 
 export interface AuthoredFlowExecutionResult {
+  readonly rootRunId?: string;
   readonly name: string;
   readonly completionReason: FlowCompletionReason;
   readonly journalSteps: readonly AuthoredFlowJournalStep[];
@@ -122,6 +123,8 @@ export interface ExecuteAuthoredFlowOptions {
   readonly onWait?: RunLifecycleOptions['onWait'];
   readonly onProgress?: (event: ProgressEvent) => void;
   readonly localAgentStream?: string;
+  /** Durable kernel root that owns this body's child admission identities. */
+  readonly rootRunId?: string;
 }
 
 export async function executeAuthoredFlow<Input = undefined>(
@@ -173,9 +176,14 @@ export async function executeAuthoredFlow<Input = undefined>(
   let nextStep = 1;
   let requestedCompletion: FlowCompletionReason | undefined;
 
-  const lowerDeterministic = authoredDeterministicRunner(definition.name, journal, journalSteps, budget);
+  const lowerDeterministic = authoredDeterministicRunner(
+    definition.name, journal, journalSteps, budget, options.rootRunId,
+  );
 
-  const worker = authoredWorkerRunner(definition, journal, flowPath, journalSteps, waitOptions, localAgentStream, budget, definition.header.budget);
+  const worker = authoredWorkerRunner(
+    definition, journal, flowPath, journalSteps, waitOptions,
+    localAgentStream, budget, definition.header.budget, options.rootRunId,
+  );
 
   function llmOperation(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
   function llmOperation(prompt: string, options: LlmOptions): Step<unknown>;
@@ -205,7 +213,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     return trackStep(authoredSteps, llmOp);
   }
 
-  const slackRun = randomUUID();
+  const slackRun = options.rootRunId ?? randomUUID();
   function slackOperation<T>(call: SlackCall): Step<T> {
     assertOperationAllowed(`slack.${call.verb}`, definition.name, requestedCompletion);
     const snapshot = snapshotJsonValue(call, 'f.slack call') as unknown as SlackCall;
@@ -215,7 +223,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       () => assertOperationAllowed(`slack.${call.verb}`, definition.name, requestedCompletion),
       async () => {
         const receipt = await runHelperEffect(journal, definition.name, id, snapshot,
-          options.dataDir ?? dirname(journal.socketPath), journalSteps);
+          options.dataDir ?? dirname(journal.socketPath), journalSteps, options.rootRunId);
         return (call.verb === 'react' ? undefined : receipt) as T;
       },
       lifecycle,
@@ -231,7 +239,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       return trackStep(authoredSteps, new AuthoredFlowOperation<T>(id, verb,
         () => assertOperationAllowed(verb, definition.name, requestedCompletion),
         async () => await runHelperEffect(journal, definition.name, id, snapshot,
-          options.dataDir ?? dirname(journal.socketPath), journalSteps) as T,
+          options.dataDir ?? dirname(journal.socketPath), journalSteps, options.rootRunId) as T,
         lifecycle));
     }),
     slack: {
@@ -247,7 +255,7 @@ export async function executeAuthoredFlow<Input = undefined>(
         id, 'mcp',
         () => assertOperationAllowed('mcp', definition.name, requestedCompletion),
         () => runMcpEffect(journal, definition.name, id, server, tool, args,
-          known, checkedMcp.servers[server]!, journalSteps),
+          known, checkedMcp.servers[server]!, journalSteps, options.rootRunId),
         lifecycle,
       ));
     }),
@@ -327,7 +335,8 @@ export async function executeAuthoredFlow<Input = undefined>(
     const id = `plugin-${nextStep++}`;
     return trackStep(authoredSteps, new AuthoredFlowOperation(
       id, label, () => assertOperationAllowed(label, definition.name, requestedCompletion),
-      () => runPluginEffect(journal, definition.name, id, plugin, verb, args, journalSteps, budget),
+      () => runPluginEffect(journal, definition.name, id, plugin, verb, args,
+        journalSteps, budget, options.rootRunId),
       lifecycle,
     ));
   }));
@@ -387,6 +396,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   await lowerDeterministic(`complete-${nextStep}`, requestedCompletion === 'needs_human'
     ? `printf '%s' '{"completionReason":"needs_human"}'` : ':', true);
   return Object.freeze({
+    ...(options.rootRunId === undefined ? {} : { rootRunId: options.rootRunId }),
     name: definition.name,
     completionReason: requestedCompletion,
     journalSteps: Object.freeze([...journalSteps]),

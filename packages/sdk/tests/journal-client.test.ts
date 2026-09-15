@@ -22,6 +22,7 @@ import {
 // are proven in `kernel/relayflowd/` (unit + crash-injection tests).
 
 let lastStartedSpec: Record<string, unknown> | null = null;
+let lastAdmissionKey: unknown;
 
 describe('JournalClient: protocol v0 over unix socket', () => {
   let path: string;
@@ -43,6 +44,7 @@ describe('JournalClient: protocol v0 over unix socket', () => {
           return;
         }
         lastStartedSpec = params.spec as Record<string, unknown>;
+        lastAdmissionKey = params.admission_key;
         const spec = params.spec as { name?: string };
         sendResult(ctx, { run_id: 'run-01' });
         // Server-pushed entry event for run.watch subscribers would follow.
@@ -128,6 +130,16 @@ describe('JournalClient: protocol v0 over unix socket', () => {
     await client.hello('sdk-test');
     const res = await client.runStart(HELLO_SPEC);
     expect(res.run_id).toBe('run-01');
+  });
+
+  it('sends a caller-owned run admission key without changing legacy starts', async () => {
+    client = new JournalClient(path, { requestTimeoutMs: 2000 });
+    await client.connect();
+    lastAdmissionKey = undefined;
+    await client.runStart(HELLO_SPEC, undefined, 'authored-root:fixture');
+    expect(lastAdmissionKey).toBe('authored-root:fixture');
+    await client.runStart(HELLO_SPEC);
+    expect(lastAdmissionKey).toBeUndefined();
   });
 
   it('round-trips a spec straight from compileYaml through run.start in the kernel dialect', async () => {

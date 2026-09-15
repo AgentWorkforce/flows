@@ -1,11 +1,13 @@
 import { McpStepError } from '../authored-mcp.js';
+import { randomUUID } from 'node:crypto';
+import { authoredLocalAgentStream } from '../authored-admission.js';
 import { McpPreflightError } from './check-typescript.js';
 import { attachLocalAgent } from '../local-agent.js';
 import { LlmWorker } from '../llm-worker.js';
 import {
   AuthoredFlowExecutionError,
-  executeAuthoredFlow,
 } from '../authored-flow-executor.js';
+import { executeDurableAuthoredFlow } from '../authored-root.js';
 import { AuthoredFlowLoadError } from '../authored-flow-loader.js';
 import { DirectInputError, parseDirectInput } from '../direct-input.js';
 import { JournalClient } from '../journal-client.js';
@@ -61,10 +63,13 @@ export async function runDirectFlow(
   let localLlm: LlmWorker | undefined;
   let llmClient: JournalClient | undefined;
   let llmFailure: unknown;
+  const admissionIdentity = options.authoredAdmissionKey
+    ?? process.env['RELAYFLOW_AUTHORED_ADMISSION_KEY'] ?? randomUUID();
   try {
-    const { handle, getDefinition } = checked.loaded;
     if (options.localAgent) {
-      localAgent = await attachLocalAgent(client, dataDir, options.onPtyReady);
+      localAgent = await attachLocalAgent(
+        client, dataDir, options.onPtyReady, authoredLocalAgentStream(admissionIdentity),
+      );
       // A session owns one worker registration. Keep the workspace-free LLM
       // worker on its own connection so it cannot replace the agent worker.
       llmClient = new JournalClient(socketPath);
@@ -74,15 +79,19 @@ export async function runDirectFlow(
       localLlm.on('error', error => { llmFailure = error; client.close(); });
       await localLlm.attach();
     }
-    const result = await executeAuthoredFlow(handle, client, input, {
-      getDefinition,
-      dataDir,
-      flowPath: path,
-      onProgress: options.onProgress,
-      localAgentStream: localAgent?.stream,
-      ...(options.signal !== undefined ? { signal: options.signal } : {}),
-      ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
-    });
+    const result = await executeDurableAuthoredFlow(
+      checked.loaded, client, input,
+      {
+        dataDir,
+        admissionKey: admissionIdentity,
+        localAgentStream: localAgent?.stream,
+        lifecycle: {
+          onProgress: options.onProgress,
+          ...(options.signal !== undefined ? { signal: options.signal } : {}),
+          ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
+        },
+      },
+    );
     const terminal = result.journalSteps.at(-1);
     if (terminal === undefined) {
       return protocolFailure('run', base, socketPath, new Error(
@@ -93,7 +102,7 @@ export async function runDirectFlow(
       return {
         exitCode: 3,
         report: {
-          ...base, ok: false, runId: terminal.runId, socketPath, status: 'parked',
+          ...base, ok: false, runId: result.rootRunId, socketPath, status: 'parked',
           completedSteps: result.journalSteps.length,
           diagnostics: [...base.diagnostics, {
             severity: 'parked', kind: 'run_parked',
@@ -107,7 +116,7 @@ export async function runDirectFlow(
       report: {
         ...base,
         ok: true,
-        runId: terminal.runId,
+        runId: result.rootRunId,
         socketPath,
         status: 'completed',
         completionReason: result.completionReason,

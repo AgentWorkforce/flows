@@ -1,11 +1,14 @@
 import { RUN_COMPLETION_REASONS } from '@relayflows/surface';
 import type { RunCompletionReason } from './protocol.js';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { setTimeout } from 'node:timers/promises';
 import { parse as parseYaml } from 'yaml';
 import { canonicalize, specHash } from './canonical.js';
 import { CompileError, compileSpec, kernelToAuthoring, toKernelSpec } from './compile.js';
 import type { FlowSpec } from './spec.js';
+import { snapshotJsonValue, type JsonValue } from './json-value.js';
+import { loadAuthoredFlow, type SurfaceModuleAuthority } from './authored-flow-loader.js';
 import {
   CloudFlowError, cloudConnection, cloudRequest, cloudRunId, isCloudRecord,
   type CloudConnectionOptions,
@@ -15,6 +18,8 @@ export type CloudFlowSource = FlowSpec | { path: string };
 export interface RunInCloudOptions extends CloudConnectionOptions {
   /** Existing Cloud workspace to run in; provisioning/authorization remains server-side. */
   workspaceId?: string;
+  /** Exact JSON input. Required at runtime for authored .flow.ts; refused for declarative source. */
+  input?: JsonValue;
 }
 export interface CloudRunReceipt {
   runId: string;
@@ -23,6 +28,12 @@ export interface CloudRunReceipt {
   specHash: string;
   /** Authenticated run API resource; this is not a public sharing URL. */
   apiUrl: string;
+}
+export interface CloudAuthoredAuthority {
+  readonly schemaVersion: 1;
+  readonly sourceSha256: string;
+  readonly byteLength: number;
+  readonly surface: SurfaceModuleAuthority;
 }
 export type CloudRunState =
   | { runId: string; status: 'pending' | 'launching' | 'running' }
@@ -38,29 +49,62 @@ export async function runInCloud(
   options: RunInCloudOptions = {},
 ): Promise<CloudRunReceipt> {
   const { baseUrl } = cloudConnection(options);
-  let spec: FlowSpec;
+  let spec: FlowSpec | undefined;
+  let authored: { source: string; authority: CloudAuthoredAuthority } | undefined;
+  const inputPresent = Object.prototype.hasOwnProperty.call(options, 'input');
+  let authoredInput: JsonValue | undefined;
   try {
     options.signal?.throwIfAborted();
     if ('path' in flow) {
-      if (!/\.(?:ya?ml|json)$/iu.test(flow.path)) {
+      if (/\.flow\.ts$/iu.test(flow.path)) {
+        const bytes = await readFile(flow.path);
+        const source = bytes.toString('utf8');
+        if (!bytes.length || Buffer.from(source, 'utf8').compare(bytes) !== 0) {
+          throw new CloudFlowError('invalid_input', 'Authored source must be nonempty, lossless UTF-8.');
+        }
+        const loaded = await loadAuthoredFlow(flow.path);
+        loaded.getDefinition(loaded.handle);
+        if (loaded.graph.length !== 1) {
+          throw new CloudFlowError('unsupported_source',
+            'Cloud authored submission currently accepts one self-contained .flow.ts source without use dependencies.');
+        }
+        authored = {
+          source,
+          authority: Object.freeze({
+            schemaVersion: 1,
+            sourceSha256: createHash('sha256').update(bytes).digest('hex'),
+            byteLength: bytes.length,
+            surface: loaded.surfaceAuthority,
+          }),
+        };
+      } else if (!/\.(?:ya?ml|json)$/iu.test(flow.path)) {
         throw new CloudFlowError('unsupported_source',
-          'Cloud v2 currently accepts declarative YAML or JSON specs; authored TypeScript flows are not supported by the hosted runtime.');
-      }
-      const parsed: unknown = parseYaml(await readFile(flow.path, 'utf8'));
-      try {
-        spec = compileSpec(parsed);
-      } catch (error) {
-        if (!(error instanceof CompileError)) throw error;
-        // Prefer the authoring dialect; accept compiled kernel JSON for local-CLI
-        // compatibility. If both fail, retain the original authoring diagnostic.
+          'Cloud v2 accepts declarative YAML/JSON specs or authored .flow.ts source.');
+      } else {
+        const parsed: unknown = parseYaml(await readFile(flow.path, 'utf8'));
         try {
-          spec = compileSpec(kernelToAuthoring(parsed));
-        } catch {
-          throw error;
+          spec = compileSpec(parsed);
+        } catch (error) {
+          if (!(error instanceof CompileError)) throw error;
+          // Prefer the authoring dialect; accept compiled kernel JSON for local-CLI
+          // compatibility. If both fail, retain the original authoring diagnostic.
+          try {
+            spec = compileSpec(kernelToAuthoring(parsed));
+          } catch {
+            throw error;
+          }
         }
       }
     } else {
       spec = compileSpec(flow);
+    }
+    if (authored !== undefined) {
+      if (!inputPresent) {
+        throw new CloudFlowError('invalid_input', 'Cloud authored .flow.ts requires an explicit JSON input. Pass {} when the flow needs no fields.');
+      }
+      authoredInput = snapshotJsonValue(options.input, 'Cloud authored input');
+    } else if (inputPresent) {
+      throw new CloudFlowError('invalid_input', 'Cloud input is supported only for authored .flow.ts source.');
     }
   } catch (error) {
     options.signal?.throwIfAborted();
@@ -68,13 +112,20 @@ export async function runInCloud(
     throw new CloudFlowError('invalid_input', 'Cannot read or compile the declarative flow. Check the file path and YAML/JSON spec.');
   }
   options.signal?.throwIfAborted();
-  const hash = specHash(toKernelSpec(spec));
+  const hash = authored === undefined
+    ? specHash(toKernelSpec(spec!))
+    : createHash('sha256').update(canonicalize({
+        authority: authored.authority,
+        input: authoredInput,
+      })).digest('hex');
   const result = await cloudRequest('/api/v1/workflows/run', options, {
     // JSON is a YAML subset. Sending canonical data preserves the exact spec
     // while using the server's existing YAML-to-config admission path.
-    workflow: canonicalize(spec),
-    fileType: 'yaml',
+    workflow: authored?.source ?? canonicalize(spec),
+    fileType: authored === undefined ? 'yaml' : 'ts',
     relayflowVersion: 'v2',
+    ...(authored === undefined ? {} : { authoredAuthority: authored.authority }),
+    ...(authored === undefined ? {} : { inputs: authoredInput }),
     ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
   });
   if (!isCloudRecord(result) || (result.status !== 'pending' && result.status !== 'running')) {

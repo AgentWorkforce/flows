@@ -8,7 +8,7 @@ use relayflowd_core::{
     Clock, EntryType, Journal, JournalEntry, RunSpawnedPayload, RunSpec, RunState, StepKind,
     recovery_actions_filtered, request_cancel_action, workspace_surfaces_equal,
 };
-use relayflowd_journal::{Registry, SqliteJournal};
+use relayflowd_journal::{Registry, RunAdmissionClaim, SqliteJournal};
 use sha2::{Digest, Sha256};
 use ulid::Ulid;
 
@@ -44,6 +44,37 @@ impl std::fmt::Display for RunTerminalError {
 
 impl std::error::Error for RunTerminalError {}
 
+#[derive(Debug)]
+pub struct RunAdmissionConflict {
+    pub admission_key: String,
+}
+
+impl std::fmt::Display for RunAdmissionConflict {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "run admission key {:?} is already bound to a different spec",
+            self.admission_key
+        )
+    }
+}
+
+impl std::error::Error for RunAdmissionConflict {}
+
+#[derive(Debug)]
+pub struct RunAdmissionInvalid;
+
+impl std::fmt::Display for RunAdmissionInvalid {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "run admission key must be 1-256 ASCII identity characters"
+        )
+    }
+}
+
+impl std::error::Error for RunAdmissionInvalid {}
+
 use crate::clock::WallClock;
 use crate::worker::{JournalObserver, StepDispatcher};
 
@@ -73,6 +104,9 @@ pub struct DriveOptions {
     pub pause_before_step: Option<String>,
     /// Test/debug hook: pause after every step is durable, before run completion.
     pub pause_before_completion: bool,
+    /// Test/debug hook: fail after workspace bindings are durable but before
+    /// the run becomes a durable admission receipt.
+    pub fail_before_register: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -196,41 +230,91 @@ impl<C: Clock> Engine<C> {
         options: DriveOptions,
         reuse_from_run_id: Option<&str>,
     ) -> Result<RunOutcome> {
+        self.start_with_admission(spec, created_by, options, reuse_from_run_id, None)
+    }
+
+    pub fn start_with_admission(
+        &self,
+        spec: RunSpec,
+        created_by: &str,
+        options: DriveOptions,
+        reuse_from_run_id: Option<&str>,
+        admission_key: Option<&str>,
+    ) -> Result<RunOutcome> {
         spec.validate().context("invalid run spec")?;
         let reuse = reuse_from_run_id
             .map(|id| self.reuse_source(id, &spec))
             .transpose()?;
         self.preflight_placement(&spec)?;
         let run_id = Ulid::new().to_string();
+        let spec_value = serde_json::to_value(&spec)?;
+        let spec_hash = canonical_hash(&spec_value);
+        let mut registry = self.registry()?;
+        if let Some(key) = admission_key {
+            validate_admission_key(key)?;
+            match registry.claim_run_admission(key, &spec_hash, &run_id, self.boot_id())? {
+                RunAdmissionClaim::Existing(existing_run_id) => {
+                    return self.current_outcome(&existing_run_id);
+                }
+                RunAdmissionClaim::Recover(existing_run_id) => {
+                    return self.resume_with_options(&existing_run_id, options);
+                }
+                RunAdmissionClaim::Conflict => {
+                    return Err(RunAdmissionConflict {
+                        admission_key: key.to_owned(),
+                    }
+                    .into());
+                }
+                RunAdmissionClaim::Acquired => {}
+            }
+        }
+
         let path = self.run_path(&run_id);
         let now_ms = self.clock.now_ms();
-        let mut journal =
-            SqliteJournal::create(&path, &run_id, now_ms).context("create run journal")?;
-        let spec_value = serde_json::to_value(&spec)?;
-        let mut spawned = JournalEntry::new(
-            EntryType::RunSpawned,
-            run_id.clone(),
-            None,
-            None,
-            now_ms,
-            RunSpawnedPayload {
-                spec: spec_value.clone(),
-                spec_hash: canonical_hash(&spec_value),
-                parent_run_id: None,
-                journal_version: relayflowd_core::JOURNAL_VERSION,
-                created_by: created_by.to_owned(),
-            },
-        );
-        if let Some(candidates) = reuse {
-            spawned.payload["reuse_from_run_id"] = reuse_from_run_id.into();
-            spawned.payload["reuse_candidates"] = serde_json::to_value(candidates)?;
+        let started = (|| -> Result<RunOutcome> {
+            let mut journal =
+                SqliteJournal::create(&path, &run_id, now_ms).context("create run journal")?;
+            let mut spawned = JournalEntry::new(
+                EntryType::RunSpawned,
+                run_id.clone(),
+                None,
+                None,
+                now_ms,
+                RunSpawnedPayload {
+                    spec: spec_value.clone(),
+                    spec_hash,
+                    parent_run_id: None,
+                    journal_version: relayflowd_core::JOURNAL_VERSION,
+                    created_by: created_by.to_owned(),
+                },
+            );
+            if let Some(candidates) = reuse {
+                spawned.payload["reuse_from_run_id"] = reuse_from_run_id.into();
+                spawned.payload["reuse_candidates"] = serde_json::to_value(candidates)?;
+            }
+            self.append(&mut journal, &spawned)?;
+            self.bind_local_workspaces(&mut journal, &spec)?;
+            if options.fail_before_register {
+                bail!("injected failure before run registration");
+            }
+            registry.register(&run_id, &path).context("register run")?;
+            self.drive(journal, spec, options)
+        })();
+        if started.is_err() {
+            if let Some(key) = admission_key {
+                // Once registered, this run is the durable receipt even if a
+                // later drive/journal operation failed. Releasing then would
+                // let a retry create a second run after the first may already
+                // have journaled effects. Only a claim that never materialised
+                // as a registered run is safe to release in this boot.
+                if registry.lookup(&run_id)?.is_none() {
+                    registry
+                        .release_run_admission(key, &run_id)
+                        .context("release failed run admission")?;
+                }
+            }
         }
-        self.append(&mut journal, &spawned)?;
-        self.registry()?
-            .register(&run_id, &path)
-            .context("register run")?;
-        self.bind_local_workspaces(&mut journal, &spec)?;
-        self.drive(journal, spec, options)
+        started
     }
 
     pub fn resume(&self, run_id: &str, stop_after: Option<usize>) -> Result<RunOutcome> {
@@ -308,6 +392,23 @@ impl<C: Clock> Engine<C> {
             }
         }
         Ok(snapshot)
+    }
+
+    /// Read a start receipt without driving or abandoning an active attempt.
+    /// Used by idempotent `run.start` retries whose original response was lost.
+    pub fn current_outcome(&self, run_id: &str) -> Result<RunOutcome> {
+        let journal = self.open_run(run_id)?;
+        let spec = journal.run_spec().context("read run spec")?;
+        let state = self.load_state(&journal, spec)?;
+        if let Some(reason) = state.completion {
+            return Ok(outcome_from_state(&state, reason));
+        }
+        Ok(RunOutcome {
+            run_id: state.run_id.clone(),
+            status: snapshot_from_state(&state).status,
+            completion_reason: None,
+            completed_steps: state.completed_steps(),
+        })
     }
 
     pub fn cancel(&self, run_id: &str, requested_by: &str) -> Result<RunOutcome> {
@@ -612,6 +713,18 @@ pub(super) fn canonical_hash(value: &serde_json::Value) -> String {
         .collect()
 }
 
+fn validate_admission_key(value: &str) -> std::result::Result<(), RunAdmissionInvalid> {
+    if value.is_empty()
+        || value.len() > 256
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+    {
+        return Err(RunAdmissionInvalid);
+    }
+    Ok(())
+}
+
 pub fn read_spec(path: &Path) -> Result<RunSpec> {
     let bytes = std::fs::read(path).with_context(|| format!("read run spec {}", path.display()))?;
     let value: serde_json::Value = serde_json::from_slice(&bytes)
@@ -657,5 +770,138 @@ mod boot_identity_tests {
         );
         assert_eq!(first.boot_id(), third.boot_id());
         assert!(!first.boot_id().is_empty());
+    }
+
+    #[test]
+    fn prior_boot_registered_undriven_admission_is_recovered_by_start_retry() {
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("recovered");
+        let engine = Engine::new(directory.path());
+        let spec = RunSpec::parse(&serde_json::json!({
+            "name": "registered-undriven",
+            "steps": [{
+                "id": "recover",
+                "type": "deterministic",
+                "command": format!("printf recovered > {}", marker.display())
+            }]
+        }))
+        .unwrap();
+        let spec_value = serde_json::to_value(&spec).unwrap();
+        let stalled_run_id = "registered-undriven-run";
+        let path = engine.run_path(stalled_run_id);
+        let mut registry = engine.registry().unwrap();
+        assert_eq!(
+            registry
+                .claim_run_admission(
+                    "authored-root:registered-undriven",
+                    &canonical_hash(&spec_value),
+                    stalled_run_id,
+                    "dead-boot",
+                )
+                .unwrap(),
+            RunAdmissionClaim::Acquired
+        );
+        let mut journal = SqliteJournal::create(&path, stalled_run_id, 0).unwrap();
+        engine
+            .append(
+                &mut journal,
+                &JournalEntry::new(
+                    EntryType::RunSpawned,
+                    stalled_run_id,
+                    None,
+                    None,
+                    0,
+                    RunSpawnedPayload {
+                        spec: spec_value,
+                        spec_hash: canonical_hash(&serde_json::to_value(&spec).unwrap()),
+                        parent_run_id: None,
+                        journal_version: relayflowd_core::JOURNAL_VERSION,
+                        created_by: "crashed-boot".into(),
+                    },
+                ),
+            )
+            .unwrap();
+        registry.register(stalled_run_id, &path).unwrap();
+        drop(journal);
+        drop(registry);
+
+        let outcome = engine
+            .start_with_admission(
+                spec,
+                "retry",
+                DriveOptions::default(),
+                None,
+                Some("authored-root:registered-undriven"),
+            )
+            .unwrap();
+
+        assert_eq!(outcome.run_id, stalled_run_id);
+        assert_eq!(outcome.status, RunStatus::Completed);
+        assert_eq!(std::fs::read_to_string(marker).unwrap(), "recovered");
+    }
+
+    #[test]
+    fn failure_after_workspace_binding_releases_admission_without_exposing_effects() {
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("effect");
+        let engine = Engine::new(directory.path());
+        let spec = RunSpec::parse(&serde_json::json!({
+            "name": "pre-registration-failure",
+            "steps": [{
+                "id": "effect",
+                "type": "deterministic",
+                "command": format!("printf effect > {}", marker.display()),
+                "requirements": { "workspace": true }
+            }]
+        }))
+        .unwrap();
+        let admission_key = "authored-root:pre-registration-failure";
+
+        let error = engine
+            .start_with_admission(
+                spec.clone(),
+                "first",
+                DriveOptions {
+                    fail_before_register: true,
+                    ..DriveOptions::default()
+                },
+                None,
+                Some(admission_key),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("injected failure"));
+        assert!(!marker.exists(), "binding must not execute the step");
+
+        let orphan = std::fs::read_dir(directory.path().join("runs"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "sqlite3")
+            })
+            .unwrap();
+        let journal = SqliteJournal::open(&orphan).unwrap();
+        let entries = journal.scan_all().unwrap();
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.entry_type == EntryType::StepRouted)
+        );
+        assert!(entries.iter().all(|entry| matches!(
+            entry.entry_type,
+            EntryType::RunSpawned | EntryType::StepRouted
+        )));
+
+        let retry = engine
+            .start_with_admission(
+                spec,
+                "retry",
+                DriveOptions::default(),
+                None,
+                Some(admission_key),
+            )
+            .unwrap();
+        assert_eq!(retry.status, RunStatus::Completed);
+        assert_eq!(std::fs::read_to_string(marker).unwrap(), "effect");
     }
 }

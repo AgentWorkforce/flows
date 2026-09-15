@@ -11,6 +11,7 @@ import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import { readCompletedStepOutput } from './authored-step-output.js';
 import { withWorkerLease } from './worker-lease.js';
+import { authoredChildAdmissionKey } from './authored-admission.js';
 
 /** Own keys expose precisely the preflight inventory, including prototype-like names. */
 export function buildMcpProxy(
@@ -49,11 +50,12 @@ export class McpStepError extends AuthoredFlowExecutionError {
 export async function runMcpEffect(
   journal: JournalClient, flowName: string, id: string, server: string, tool: string,
   args: unknown, known: boolean, config: McpServerConfig,
-  journalSteps: AuthoredFlowJournalStep[],
+  journalSteps: AuthoredFlowJournalStep[], rootRunId?: string,
 ): Promise<unknown> {
   const idempotencyKey = `mcp:${server}:${tool}:${createHash('sha256').update(JSON.stringify(args)).digest('hex')}`;
   const surfacePath = `/mcp/${pathPart(server)}/${pathPart(tool)}`;
-  const stream = `mcp-worker-${randomUUID()}`;
+  const admissionKey = authoredChildAdmissionKey(rootRunId, id);
+  const stream = `mcp-worker-${admissionKey?.slice(-32) ?? randomUUID()}`;
   const instruction = JSON.stringify({ type: 'mcp', server, tool, input: args });
   const peer = journal.createPeer();
   let diagnostic: string | undefined;
@@ -132,11 +134,11 @@ export async function runMcpEffect(
       failed(new Error('MCP worker dispatch deadline exceeded'));
     }, 30_000);
     // Propagate a dispatch failure even if run.start itself is still pending.
-    const starting = journal.runStart(spec);
+    const starting = journal.runStart(spec, undefined, admissionKey);
     await Promise.race([starting, completed]);
     const outcome = await starting;
     childRunId = outcome.run_id;
-    await completed;
+    if (outcome.status !== 'completed') await completed;
     if (diagnostic !== undefined) {
       try { await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps); }
       catch (error) {

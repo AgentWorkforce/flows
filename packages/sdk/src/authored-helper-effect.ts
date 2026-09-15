@@ -13,6 +13,7 @@ import { helperProviders, type HelperCall } from '@relayflows/surface/runtime';
 import { helperWriteback, HelperDeliveryError } from './helper-writeback.js';
 import { checkSlackHelpers } from './slack-preflight.js';
 import { atomicJson, readSlackReceipt, receiptPath, slackWriteback, type SlackCall } from './slack-writeback.js';
+import { authoredChildAdmissionKey } from './authored-admission.js';
 
 type ProviderCall = HelperCall | SlackCall;
 
@@ -30,20 +31,21 @@ export function assertHelperCredentials(provider: string): void {
 /** Each helper uses the existing agent lease + effect protocol; no new kernel verb. */
 export async function runHelperEffect(
   journal: JournalClient, name: string, stepId: string, call: ProviderCall,
-  dataDir: string, journalSteps: AuthoredFlowJournalStep[],
+  dataDir: string, journalSteps: AuthoredFlowJournalStep[], rootRunId?: string,
 ): Promise<unknown> {
   assertHelperCredentials(call.provider);
   if (call.provider === 'notion' && call.verb === 'appendBlock' && process.env.RELAYFLOWS_NOTION_MOCK !== '1') {
     throw new AuthoredFlowExecutionError('helper_provider.unsupported', 'Notion appendBlock has no upstream mount writeback route');
   }
-  const stream = `${call.provider}-helper-${randomUUID()}`;
+  const admissionKey = authoredChildAdmissionKey(rootRunId, stepId);
+  const stream = `${call.provider}-helper-${admissionKey?.slice(-32) ?? randomUUID()}`;
   const spec = toKernelSpec(compileSpec({
     version: SPEC_SCHEMA_VERSION, name: `${name}/${stepId}`,
     steps: [{ id: stepId, type: 'agent', instruction: JSON.stringify(call),
       maxIterations: 3, recoveryMode: 'reset',
       surfaces: { streams: [{ stream }], external: [`/${call.provider}`] } }],
   }));
-  const outcome = await journal.runStart(spec);
+  const outcome = await journal.runStart(spec, undefined, admissionKey);
   await atomicJson(join(dataDir, 'helper-runs', `${outcome.run_id}.json`), { provider: call.provider });
   await driveHelperEffect(journal, outcome.run_id, spec.steps[0] as KernelAgentStep, call, dataDir);
   const output = await readCompletedStepOutput(journal, outcome.run_id, stepId, journalSteps);
