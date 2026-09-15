@@ -1,3 +1,4 @@
+import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
 import { pluginHelpers } from './plugin-loader.js';
 import { runPluginEffect } from './authored-plugin-effect.js';
 import { randomUUID } from 'node:crypto';
@@ -71,7 +72,15 @@ export interface AuthoredFlowJournalStep {
   readonly completionReason: ProtocolCompletionReason;
 }
 
+export interface AuthoredExecutionRuntime {
+  readonly kind: 'node';
+  readonly version: string;
+  readonly executableSha256: string;
+  readonly payloadSha256: string;
+}
+
 export interface AuthoredFlowExecutionResult {
+  readonly executionRuntime?: AuthoredExecutionRuntime;
   readonly rootRunId?: string;
   readonly name: string;
   readonly completionReason: FlowCompletionReason;
@@ -133,6 +142,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   input?: Input,
   options: ExecuteAuthoredFlowOptions = {},
 ): Promise<AuthoredFlowExecutionResult> {
+  assertAuthoredPromiseHooks();
   const getDefinition = options.getDefinition ?? getAuthoredFlowDefinition;
   const localAgentStream = options.localAgentStream;
   const onProgress = options.onProgress;

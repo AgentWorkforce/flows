@@ -1,3 +1,5 @@
+import { loadPinnedAuthoredSource } from './authored-source-authority.js';
+import { assertAuthoredRuntimeAvailable, runAuthoredInNode } from './authored-node-runner.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { canonicalize } from './canonical.js';
@@ -49,6 +51,7 @@ export async function executeDurableAuthoredFlow(
   input: unknown,
   options: DurableAuthoredOptions,
 ): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
+  assertAuthoredRuntimeAvailable();
   const source = await readFile(loaded.sourcePath);
   const sources = await Promise.all(loaded.graph.map(async node => Object.freeze({
     path: node.path,
@@ -108,28 +111,8 @@ export async function resumeDurableAuthoredFlow(
 ): Promise<(AuthoredFlowExecutionResult & { readonly rootRunId: string }) | undefined> {
   const metadata = await readAuthoredRootMetadata(journal, rootRunId);
   if (metadata === undefined) return undefined;
-  const source = await readFile(metadata.flowPath);
-  if (sha256(source) !== metadata.sourceSha256) {
-    throw new Error('authored root source authority mismatch');
-  }
-  for (const pinned of metadata.sources) {
-    if (sha256(await readFile(pinned.path)) !== pinned.sourceSha256) {
-      throw new Error(`authored root source authority mismatch for "${pinned.path}"`);
-    }
-  }
-  const loaded = await loadAuthoredFlow(metadata.flowPath);
-  if (canonicalize(loaded.surfaceAuthority) !== canonicalize(metadata.surface)
-    || loaded.getDefinition(loaded.handle).name !== metadata.flowName) {
-    throw new Error('authored root Surface module authority mismatch');
-  }
-  const loadedSources = loaded.graph.map(node => ({
-    path: node.path,
-    sourceSha256: metadata.sources.find(source => source.path === node.path)?.sourceSha256 ?? '',
-    surface: node.surfaceAuthority,
-  }));
-  if (canonicalize(loadedSources) !== canonicalize(metadata.sources)) {
-    throw new Error('authored root declared source graph authority mismatch');
-  }
+  assertAuthoredRuntimeAvailable();
+  const loaded = await loadPinnedAuthoredSource(metadata);
   if (metadata.localAgentStream !== options.localAgentStream) {
     throw new Error('authored root local agent surface mismatch');
   }
@@ -188,6 +171,13 @@ async function driveRoot(
   try {
     const result = await withWorkerLease(peer, dispatch, async rootSignal => {
       const callerSignal = options.lifecycle?.signal;
+      const signal = callerSignal === undefined ? rootSignal : AbortSignal.any([callerSignal, rootSignal]);
+      if (process.versions['bun'] !== undefined) {
+        return runAuthoredInNode(metadata, journal.socketPath, dispatch.run_id, {
+          dataDir: options.dataDir, localAgentStream: options.localAgentStream,
+          ...options.lifecycle, signal,
+        });
+      }
       return await executeAuthoredFlow(
         loaded.handle,
         journal,
@@ -209,7 +199,8 @@ async function driveRoot(
       dispatch.run_id, dispatch.step_id, dispatch.attempt,
       dispatch.idempotency_key, 'success', {
         output: { name: result.name, completionReason: result.completionReason,
-          journalSteps: result.journalSteps },
+          journalSteps: result.journalSteps,
+          ...(result.executionRuntime === undefined ? {} : { executionRuntime: result.executionRuntime }) },
         started_pins: dispatch.pins, end_pins: dispatch.pins,
       },
     );
