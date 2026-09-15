@@ -1,4 +1,4 @@
-import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -80,12 +80,15 @@ describe('hosted v2 submission', () => {
     });
 
     const receipt = await runInCloud({ path }, { ...options, input: {} });
+    const surfaceManifest = JSON.parse(await readFile(
+      join(process.cwd(), 'node_modules/@relayflows/surface/package.json'), 'utf8',
+    )) as { version: string };
 
     expect(request).toMatchObject({ workflow: source, fileType: 'ts', relayflowVersion: 'v2', inputs: {} });
     expect(request!.authoredAuthority).toMatchObject({
       sourceSha256: createHash('sha256').update(Buffer.from(source)).digest('hex'),
       byteLength: Buffer.byteLength(source),
-      surface: { packageName: '@relayflows/surface', version: '2.0.10' },
+      surface: { packageName: '@relayflows/surface', version: surfaceManifest.version },
     });
     expect(request!.authoredAuthority.surface.packageSha256).toMatch(/^[a-f0-9]{64}$/u);
     expect(request!.authoredAuthority.surface.runtimeSha256).toMatch(/^[a-f0-9]{64}$/u);
