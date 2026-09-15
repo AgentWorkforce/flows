@@ -29,6 +29,7 @@ impl MemoryProvider for FixedMemoryProvider {
                 tokens_in: 7,
                 tokens_out: 0,
                 dollars: "0.002".into(),
+                dollars_unmetered: false,
             },
         })
     }

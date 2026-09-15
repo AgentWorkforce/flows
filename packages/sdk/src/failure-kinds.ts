@@ -62,8 +62,11 @@ export const CHECK_FAILURE_KINDS = [
  * accepting every output must not be reported as if it constrained one.
  *
  * `budget_unmetered` names an LLM/agent step under a dollar budget whose model
- * has no frozen price (including Codex, which selects its own model). Pricing
- * is light enforcement: the step runs and simply contributes no dollars.
+ * has no frozen price (including Codex, which selects its own model). A
+ * missing price never refuses: the step runs, journals its tokens with
+ * `dollars_unmetered: true`, and cannot cross `maxDollars`; token limits still
+ * apply. It replaced the `budget_missing_price` refusal (#421), which older
+ * `flows check` reports may still show.
  */
 export const PREFLIGHT_WARNING_KINDS = [
   'unprovable_effects',

@@ -16,6 +16,7 @@ pub(super) fn add_budget(total: &mut Budget, value: &Budget) -> Result<(), State
         tokens_in,
         tokens_out,
         dollars,
+        dollars_unmetered: total.dollars_unmetered || value.dollars_unmetered,
     };
     Ok(())
 }
@@ -107,6 +108,7 @@ mod tests {
             tokens_in: u64::MAX,
             tokens_out: 1,
             dollars: "0.002".into(),
+            dollars_unmetered: false,
         };
         let original = total.clone();
         assert!(matches!(

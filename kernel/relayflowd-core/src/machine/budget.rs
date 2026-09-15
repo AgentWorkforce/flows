@@ -22,6 +22,9 @@ pub fn exceeded(state: &RunState, now_ms: i64) -> bool {
             u128::from(spent.tokens_in) + u128::from(spent.tokens_out) > u128::from(n)
         })
         || limit.max_wallclock_ms.is_some_and(|n| wallclock > n)
+        // Metered dollars only. Unmetered charges (`dollars_unmetered`) have no
+        // known cost, so they cannot cross a dollar ceiling; their tokens were
+        // counted above. Preflight warns `budget_unmetered` for such steps.
         || limit
             .max_dollars
             .as_deref()

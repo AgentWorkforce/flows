@@ -62,6 +62,13 @@ export async function runBuild(args: BuildArgs, io: CliIo): Promise<0 | 2> {
       emitBuildCheckReport(gate.report, args.json, io);
       return 2;
     }
+    // `ok` means "no refusal", not "no diagnostics". Build defers environment
+    // probes, so probe-shaped warnings (`command_unprovable`, ...) are expected
+    // here and stay in preflight.json; `budget_unmetered` does not depend on a
+    // probe and changes what the dollar budget enforces, so it is printed.
+    for (const diagnostic of gate.report.diagnostics) {
+      if (diagnostic.kind === 'budget_unmetered') io.stderr(`WARNING [${diagnostic.kind}] ${diagnostic.message}`);
+    }
     io.stdout(await buildFlow(args.value, args.out ?? 'dist/flows', io.stderr));
     return 0;
   } catch (error) {

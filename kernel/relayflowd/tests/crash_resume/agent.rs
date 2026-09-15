@@ -332,6 +332,7 @@ fn assert_exact_agent_budget(entries: &[relayflowd_core::JournalEntry]) {
             tokens_in: 13,
             tokens_out: 5,
             dollars: "0.003".to_owned(),
+            dollars_unmetered: false,
         },
         "resumed spend equals one successful agent execution"
     );

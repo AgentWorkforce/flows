@@ -148,6 +148,7 @@ fn sigkill_sweep_covers_before_and_between_the_rung_b_steps() {
                 tokens_in: 11,
                 tokens_out: 4,
                 dollars: "0.002".to_owned(),
+                dollars_unmetered: false,
             },
         );
     }
@@ -197,6 +198,7 @@ fn failing_llm_verification_schedules_a_durable_retry_and_succeeds() {
             tokens_in: 22,
             tokens_out: 8,
             dollars: "0.004".to_owned(),
+            dollars_unmetered: false,
         },
     );
 }
@@ -264,6 +266,7 @@ fn worker_killed_while_holding_a_lease_is_explained_and_released_on_cli_resume()
             tokens_in: 11,
             tokens_out: 4,
             dollars: "0.002".to_owned(),
+            dollars_unmetered: false,
         },
     );
 }
@@ -297,6 +300,7 @@ fn sigkill_under_serve_mid_llm_releases_the_lease_and_finishes_via_cli_resume() 
             tokens_in: 11,
             tokens_out: 4,
             dollars: "0.002".to_owned(),
+            dollars_unmetered: false,
         },
     );
 }
@@ -339,6 +343,7 @@ fn completed_llm_output_is_memoized_when_serve_dies_during_the_next_step() {
             tokens_in: 11,
             tokens_out: 4,
             dollars: "0.002".to_owned(),
+            dollars_unmetered: false,
         },
     );
 }
@@ -374,6 +379,7 @@ fn sigkill_after_the_final_rung_b_effect_resumes_without_redispatching_llm() {
             tokens_in: 11,
             tokens_out: 4,
             dollars: "0.002".to_owned(),
+            dollars_unmetered: false,
         },
     );
 }
