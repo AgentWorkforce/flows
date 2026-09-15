@@ -1,123 +1,130 @@
-# NEXT — gate 3 work package: document review-swarm secrets in README
+# NEXT — BLOCKED: TARGET.md scopes already-completed work
 
-**Scope (from TARGET.md):**
+## Assessment
 
-Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time, addressing every architectural finding from the walked-away #75/#77 attempts.
+This run is **BLOCKED** on contradictory scope. Cannot proceed without human clarification.
 
-## Objective
+**Scope assigned in ops/TARGET.md (lines 1-5):**
 
-Complete the final missing piece of gate 3's Definition of Done: document `RELAY_WORKSPACE_KEY` and `CLOUD_API_KEY` secrets in README.md with instructions on how to obtain them.
+> # TARGET — gate 3
+>
+> This run is pinned to **gate 3** and must not work on any other gate.
+>
+> **Scope:** Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side.
 
-## Current state assessment
+**Problem 1: The work is already done.**
 
-All 9 architectural requirements from TARGET.md are SATISFIED in the existing code:
+Per ops/STATE.md:45-47, the hn-monitor CLI runner was merged in **PR #120** on 2026-09-01 08:29 UTC:
 
-1. ✅ Immutable gate — two checkout steps (`.github/workflows/review-swarm.yml:32-53`)
-2. ✅ Unified verdict logic — `swarm-verdict.sh` sourced by both callers
-3. ✅ Auth secret validation — preflight validates all three secrets (lines 141-188)
-4. ✅ Sticky marker + transcripts — HTML anchors with upsert_comment
-5. ✅ No author whitelist — verified absent
-6. ✅ Cloud sandbox fetch on GHA runner — `swarm-prepare.sh` with GH_TOKEN
-7. ✅ Timeout ordering — 60m < 65m < 75m with comments
-8. ✅ Wait step records status — swarm_status output, always() post step
-9. ✅ Transcript freshness — run-start marker with stale detection
-
-Verification commands all pass:
 ```
-bash -n .github/workflows/scripts/swarm-post.sh && \
-bash -n .github/workflows/scripts/swarm-prepare.sh && \
-bash -n .github/workflows/scripts/swarm-verdict.sh && \
-echo "All bash scripts parse OK"
-# Output: All bash scripts parse OK
-
-python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))" && \
-python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))" && \
-echo "YAML files parse OK"
-# Output: YAML files parse OK
-
-grep -i "whitelist\|github.event.pull_request.user.login" .github/workflows/review-swarm.yml || echo "No author whitelist found (GOOD)"
-# Output: No author whitelist found (GOOD)
-
-grep -c "actions/checkout@v4" .github/workflows/review-swarm.yml
-# Output: 2
+- PR #120 (`201542a`, merged 2026-09-01 08:29 UTC) —
+  **`flows hn-monitor start`**, the CLI runner that turns the poller
+  into an unattended process.
 ```
 
-**The gap:** TARGET.md Definition of Done item 6 requires:
-> README.md — document `RELAY_WORKSPACE_KEY` secret + how to obtain
+The implementation exists at `packages/sdk/src/cli/hn-monitor.ts` (288 lines) with all features TARGET.md describes:
+- Constructs JournalClient connected to relayflowd socket
+- Constructs AgentWorker and calls workerAttach() before first poll
+- Loops: pollHackerNewsOnce → sleep POLL_INTERVAL_MS → repeat
+- Exits cleanly on AbortSignal (drain in-flight steps, close client, close worker)
+- Fail-closed on journal errors (covenant 2), transient-tolerant on fetch errors
+- All five findings from closed PR #83 addressed
 
-Current reality:
+Test suite exists: `packages/sdk/tests/cli-hn-monitor.test.ts`
+
+**Problem 2: Gate numbering is confused.**
+
+TARGET.md:1 says "gate 3" but TARGET.md:5 says "Gate 2 push" and TARGET.md:71 acknowledges "the assessor on #83 confused itself" about gate numbers.
+
+RFC-0001 §3 defines:
+- **Gate 2** = proactive agent (hn-monitor runs as relayflow) — AMBER per STATE.md
+- **Gate 3** = Software Garden (factory DAG: discover → implement → review → merge) — RED/not started
+
+The hn-monitor runner is gate-2 work, not gate-3 work.
+
+**Problem 3: Parallel execution collision.**
+
+Per charter/LEAD.md:86-90:
+
+> Several drive runs execute in parallel, each pinned to a different gate. Work outside this target collides with a sibling run, so staying inside it is not a preference — it is what makes parallel execution safe.
+
+If I work on gate-2 follow-up (the two AMBER clauses in STATE.md:59-73), I'm outside my assigned gate-3 scope and collide with any sibling run pinned to gate 2.
+
+If I work on actual gate-3 (Software Garden factory DAG), the TARGET.md description is nonsensical.
+
+## What the previous run said
+
+ops/NEEDS_HUMAN.md (from a previous assess run, same timestamp as TARGET.md) already identified this exact conflict and offered four options:
+- A: TARGET.md wins (hn-monitor) — but code exists, task would be verification only
+- B: Prior NEXT.md wins (review-swarm) — but TARGET pins to hn-monitor
+- C: TARGET.md is stale (references closed PR #83) — NEXT.md is active work
+- D: Both stale — write fresh from RFC-0001 gate-3 definition
+
+That run ended blocked awaiting human decision. No decision was recorded.
+
+## Current state verification
+
+Verified the hn-monitor runner implementation is present and complete:
+
+```bash
+ls -l packages/sdk/src/cli/hn-monitor.ts packages/sdk/tests/cli-hn-monitor.test.ts
+# -rw-r--r-- 1 daytona daytona 9468 Sep 15 12:59 packages/sdk/src/cli/hn-monitor.ts
+# -rw-r--r-- 1 daytona daytona 18839 Sep 15 12:59 packages/sdk/tests/cli-hn-monitor.test.ts
+
+grep -c "export async function runHnMonitor" packages/sdk/src/cli/hn-monitor.ts
+# 1
+
+grep -c "PR #120" ops/STATE.md
+# 1
 ```
-grep -c "RELAY_WORKSPACE_KEY\|CLOUD_API_KEY" README.md
-# Output: 0
-```
 
-README.md does NOT document these secrets. The workflow comment (`.github/workflows/review-swarm.yml:21-24`) references a runbook in the `AgentWorkforce/cloud` repo, but README has no such documentation.
+## The two remaining gate-2 AMBER clauses
 
-From `ops/NEEDS_HUMAN.md`, the secrets are stored and working (as of 2026-09-07), but gate 3 is blocked on Daytona CPU quota, not on implementation. The workflow WORKS; the documentation is missing.
+ops/STATE.md:59-73 names two unfinished gate-2 requirements that COULD be valid work, but they're gate-2, not gate-3:
 
-## Files in scope
+1. **Trigger plane liveness-checked** — kernel does not yet detect when a poller stops (needs RelayCron's deterministic-id claim + stale_after sweep pattern per RFC-0001 §3 gate 2).
 
-- `README.md` — add section documenting GitHub Actions secrets required for review-swarm
+2. **The analyze-agent step actually executing** — in the recorded run every step ended in `worker_error` because `hn-monitor start`'s AgentWorker has no user-supplied step handler. The dispatch loop works; the analyzer does not.
 
-## Work package
+## Question for operator
 
-Add a "GitHub Actions Secrets" section to README.md documenting:
+**Which of these should this run work on?**
 
-1. `RELAY_WORKSPACE_KEY` — Agent Relay workspace key for review swarm communication
-   - How to obtain: Contact repository administrator or see ops/NEEDS_HUMAN.md for historical context
-   - Why required: Enables agent coordination within review swarm workflow
+**Option A:** Actual gate-3 work (Software Garden factory DAG migration).
+- Requires fresh assessment from RFC-0001 §3 gate-3 definition.
+- No broken-down work package exists yet.
 
-2. `CLOUD_API_KEY` — Agent Relay Cloud API credential for launching cloud workflows
-   - How to obtain: Minted per `AgentWorkforce/cloud → docs/runbooks/relay-ci-workflow-credential.md`
-   - Profile: `workflow-invoke`
-   - Scopes: `workflow:invoke:read` and `workflow:invoke:write`
-   - How to store: Repository Settings → Secrets and variables → Actions → New repository secret
+**Option B:** Gate-2 AMBER clause 1 (trigger plane liveness-checking).
+- Add stale_after sweep + deterministic-id claim to kernel.
+- This is gate-2 work → collision risk with sibling gate-2 runs.
 
-3. `CLOUD_API_URL` — Cloud API endpoint (typically `https://agentrelay.com/cloud`)
-   - Usually set as repository variable, not secret
-   - Defaults to production endpoint if not set
+**Option C:** Gate-2 AMBER clause 2 (analyze-agent step handler).
+- Add user-supplied step handler to AgentWorker so hn-monitor steps complete successfully.
+- Also gate-2 work → same collision risk.
 
-The section should be brief (10-15 lines) and reference the workflow files for implementation details.
+**Option D:** Treat work as complete.
+- The hn-monitor runner exists, PR merged, evidence filed.
+- Report success, await new TARGET.md with different scope.
 
-## Definition of done
+## Recommendation
 
-1. README.md contains a section documenting the three secrets/variables
-2. Each entry states what it is and how to obtain it
-3. Parse checks continue to pass:
-   ```
-   bash -n .github/workflows/scripts/swarm-*.sh
-   python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))"
-   python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))"
-   ```
-4. Verification remains true:
-   ```
-   grep -c "RELAY_WORKSPACE_KEY\|CLOUD_API_KEY" README.md
-   # Should return > 0
-   grep -i "whitelist\|github.event.pull_request.user.login" .github/workflows/review-swarm.yml || echo "GOOD"
-   # Should return "GOOD" or nothing (no whitelist)
-   ```
-5. As final action:
-   ```
-   git status --porcelain
-   ```
+**Option D** — The described work (hn-monitor CLI runner) is complete and merged. The confusion between gate 2 and gate 3 suggests the TARGET.md was generated from stale context (references closed PR #83).
 
-## Explicitly OUT of scope
+If gate-3 work is genuinely needed, a fresh TARGET.md should scope actual gate-3 work (Software Garden factory DAG per RFC-0001 §3).
 
-- `.github/workflows/review-swarm.yml` (already correct, all 9 requirements satisfied)
-- `workflows/review-swarm.yaml` (already correct)
-- `.github/workflows/scripts/swarm-*.sh` (all already correct)
-- `.gitignore` (no .review-target mask exists, already correct)
-- `sdk/` (Track A owns that)
-- `kernel/` (gate 1 done)
-- `ops/*` (chief owns briefs and state)
-- Any other GHA workflow
-- Resolving the Daytona CPU quota block (that's in ops/NEEDS_HUMAN.md, different issue)
-- Actually testing the workflow end-to-end (blocked on Daytona capacity per ops/NEEDS_HUMAN.md)
+If gate-2 follow-up is needed (AMBER → GREEN), a new TARGET.md should:
+1. Explicitly say "gate 2" not "gate 3"
+2. Scope one of the two AMBER clauses specifically
+3. Note it's follow-up work, not new scaffolding
 
-## Why this is the work package
+## Files in scope (if Option D rejected)
 
-TARGET.md's Definition of Done explicitly lists:
-- Item 6: "PR body explicitly documents each of the 9 requirements above and shows where each is satisfied"
-- Item 7: "`README.md` — document `RELAY_WORKSPACE_KEY` secret + how to obtain"
+Cannot be determined without operator decision on which option.
 
-The 9 requirements are satisfied in code. Item 7 is not satisfied. This is the remaining gap between current state and TARGET.md's done-when.
+## Definition of done (if Option D rejected)
+
+Cannot be determined without operator decision on which option.
+
+## Out of scope
+
+Everything, until scope is clarified.
