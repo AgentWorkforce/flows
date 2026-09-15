@@ -1,83 +1,66 @@
-# NEEDS_HUMAN — Conflicting Work Package Context
+# NEEDS_HUMAN — blocked on human decision
 
-**Situation:** This run has conflicting scope context that requires human clarification.
+**Run:** d6d4cf38-6005-49ef-bb51-8a603db87312  
+**Assessed by:** Relayflow Lead  
+**Date:** 2026-09-15
 
-## The Conflict
+## The block
 
-1. **ops/TARGET.md says:** Gate 3, build hn-monitor runner (sub-PR A), `sdk/src/` code task
-2. **ops/NEXT.md says:** Gate 3, cloud review-swarm preflight validation, `.github/workflows/` task  
-3. **These are completely different tasks** — one is SDK code (track A per TARGET), one is GitHub Actions (track D per NEXT)
+This run is pinned to Gate 3 with a TARGET scope that describes building `sdk/src/hn-monitor-runner.ts` — a polling runner for the hn-monitor workload. However, this functionality **already exists** in `packages/sdk/src/cli/hn-monitor.ts` with full test coverage addressing all five findings from the rejected PR #83.
 
-## Evidence
+## The evidence
 
-**ops/TARGET.md line 1-5:**
-```
-# TARGET — gate 3
+**What the TARGET asks for:**
+- File: `sdk/src/hn-monitor-runner.ts`
+- Exports: `HnMonitorRunner` from `sdk/src/index.ts`
+- Behavior: JournalClient + AgentWorker + poll loop + AbortSignal shutdown
 
-This run is pinned to **gate 3** and must not work on any other gate.
+**What actually exists:**
+- File: `packages/sdk/src/cli/hn-monitor.ts` (288 lines)
+- Exports: `runHnMonitor()` function (NOT exported from index.ts, only from cli.ts)
+- Behavior: Identical — JournalClient + AgentWorker + poll loop + AbortSignal shutdown
+- Tests: `packages/sdk/tests/cli-hn-monitor.test.ts` (337 lines)
 
-**Scope:** Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side.
-```
+**All TARGET requirements are met:**
+- ✓ Constructs JournalClient (hn-monitor.ts:144-149)
+- ✓ Constructs AgentWorker (hn-monitor.ts:151-175)
+- ✓ Worker attaches BEFORE first poll (hn-monitor.ts:227)
+- ✓ Poll loop with sleep (hn-monitor.ts:239-273)
+- ✓ AbortSignal for shutdown (hn-monitor.ts:59, 128-142, 271-272)
+- ✓ Worker.close() drains in-flight work (hn-monitor.ts:277)
+- ✓ Fail-closed: journal errors terminate, fetch errors continue (hn-monitor.ts:258-267)
+- ✓ Test coverage for fetch-error survival (cli-hn-monitor.test.ts:215-234)
+- ✓ Test coverage for journal-error termination (cli-hn-monitor.test.ts:236-257)
+- ✓ Test coverage for worker-attach-before-poll (cli-hn-monitor.test.ts:179-213)
 
-**ops/NEXT.md line 1-3:**
-```
-# NEXT — gate 3: complete cloud review-swarm preflight validation and documentation
+**The only difference:** file path (`cli/hn-monitor.ts` vs `hn-monitor-runner.ts`) and export surface (not exported from index.ts).
 
-**Scope:** Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time
-```
+## The options
 
-## The Charter Says
+**Option A: Treat existing code as satisfying the target**
+- The work is done; mark this gate complete
+- Next assessment targets fresh Gate 3 work (whatever that is)
+- Pro: avoids duplicate implementation
+- Con: if file path/export matters architecturally, this is wrong
 
-Per charter/LEAD.md (the instruction I received):
-- "Read ops/TARGET.md if it exists" — it does, says hn-monitor
-- "Then read ops/STATE.md, ops/DIRECTIVES.md" — done
-- "Then write ops/NEXT.md: the SINGLE highest-priority work package toward the current gate"
+**Option B: Re-implement at the specified path**
+- Create `sdk/src/hn-monitor-runner.ts` (not in `cli/` subdirectory)
+- Export from `sdk/src/index.ts`
+- Move or duplicate logic from `cli/hn-monitor.ts`
+- Pro: literal compliance with TARGET
+- Con: creates duplication; unclear why path matters
 
-But ops/NEXT.md ALREADY EXISTS with different work.
+**Option C: TARGET.md is stale; assess fresh work**
+- This run's TARGET was written before the work merged
+- The Lead should assess what Gate 3 ACTUALLY needs now
+- Write a fresh NEXT.md for current-state Gate 3 work
+- Pro: stays productive on real gaps
+- Con: if TARGET was deliberate, this is insubordination
 
-## Additional Context Found
+## The question
 
-**ops/STATE.md gate 2 block (lines 39-81)** says:
-- PR #120 merged 2026-09-01 — `flows hn-monitor start` CLI runner
-- Gate 2 is AMBER, not GREEN
-- Two clauses remain: trigger-plane liveness, analyze-agent execution
+**Which option should this run take?**
 
-**Actual file check:**
-- `packages/sdk/src/cli/hn-monitor.ts` exists (288 lines)
-- Contains `runHnMonitor` function implementing all TARGET.md requirements
-- Addresses all five findings from closed PR #83
+Alternatively: **Is there a Gate 3 requirement I'm missing** that makes `hn-monitor-runner.ts` distinct from `cli/hn-monitor.ts` in a way the TARGET didn't spell out?
 
-## The Question
-
-**Which work package should this run execute?**
-
-**Option A: ops/TARGET.md wins (hn-monitor, sdk/ territory)**
-- Overwrite ops/NEXT.md with hn-monitor work package
-- But the code already exists (PR #120 merged per STATE.md)
-- Task would be verification/testing, not building from scratch
-
-**Option B: ops/NEXT.md wins (review-swarm, .github/ territory)**
-- Ignore ops/TARGET.md
-- Execute the review-swarm validation work
-- But TARGET.md explicitly pins this run to gate 3 hn-monitor work
-
-**Option C: TARGET.md is stale**
-- The launcher wrote an outdated TARGET.md referencing closed PR #83
-- Real work is in ops/NEXT.md (review-swarm)
-- Proceed with review-swarm, update TARGET understanding
-
-**Option D: Both are stale**
-- Neither accurately reflects current gate 3 needs
-- Assessor should read RFC-0001 §3 gate 3 definition
-- Write fresh work package from RFC requirements
-
-## Recommendation
-
-**Option C** — ops/TARGET.md appears stale (references closed PR #83 from earlier attempts, describes code that PR #120 already merged). The active work package is ops/NEXT.md (review-swarm). But I need human confirmation before overwriting NEXT.md or executing potentially wrong work.
-
-## What I Need
-
-**Clear answer:** Which work package is correct for this run?
-- If hn-monitor: shall I overwrite the review-swarm NEXT.md, or is there a different file I should write?
-- If review-swarm: shall I proceed with ops/NEXT.md as-is and ignore TARGET.md?
-- If neither: what is the actual gate 3 work I should assess?
+I cannot proceed without this decision.
