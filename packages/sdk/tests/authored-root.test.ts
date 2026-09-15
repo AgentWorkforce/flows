@@ -30,10 +30,15 @@ const surface = Object.freeze({
 
 class RootPeer extends EventEmitter {
   readonly completions: Array<{ attempt: number; reason: string }> = [];
+  heartbeats = 0;
 
   async connect() {}
   async hello() {}
   async workerAttach() {}
+  async stepHeartbeat() {
+    this.heartbeats += 1;
+    return { lease_deadline_ms: Date.now() + 30 };
+  }
   close() {}
 
   async stepComplete(
@@ -57,6 +62,8 @@ class RootJournal {
   runId = 'root-run';
   startStatus: RunOutcome = outcome(this.runId, 'parked', null);
   resumeStatus: RunOutcome = outcome(this.runId, 'parked', null);
+  dispatchOnStart = true;
+  resumeCalls = 0;
   entries: Array<Record<string, unknown>> = [];
   readonly childEntries = new Map<string, Array<Record<string, unknown>>>();
 
@@ -72,12 +79,14 @@ class RootJournal {
       }]);
       return outcome(childRunId, 'completed', 'success');
     }
-    if (this.startStatus.status === 'running' || this.startStatus.status === 'parked') {
+    if (this.dispatchOnStart
+      && (this.startStatus.status === 'running' || this.startStatus.status === 'parked')) {
       queueMicrotask(() => this.peer.emit('step.dispatch', dispatch(this.runId, 1)));
     }
     return this.startStatus;
   }
   async runResume(runId: string): Promise<RunOutcome> {
+    this.resumeCalls += 1;
     if (this.resumeStatus.status === 'running' || this.resumeStatus.status === 'parked') {
       queueMicrotask(() => this.peer.emit('step.dispatch', dispatch(runId, 2)));
     }
@@ -136,6 +145,39 @@ describe('durable authored root', () => {
     expect(journal.peer.completions).toEqual([]);
   });
 
+  it('fails closed on a malformed completed root result', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    journal.startStatus = outcome(journal.runId, 'completed', 'success');
+    journal.entries = [{
+      entry_type: 'step.completed', step_id: 'authored-root',
+      payload: { completionReason: 'success', output: {
+        name: 'flagship', completionReason: 'invented',
+        journalSteps: [{ id: 'run-1', runId: 'child-1', completionReason: 'success' }],
+      } },
+    }];
+
+    await expect(executeDurableAuthoredFlow(
+      loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'malformed-completed-result' },
+    )).rejects.toThrow('completed authored root has no durable result');
+  });
+
+  it('recovers a same-daemon start retry whose original worker lost its dispatch', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    journal.dispatchOnStart = false;
+
+    const result = await executeDurableAuthoredFlow(
+      loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'same-daemon-lost-dispatch' },
+    );
+
+    expect(result).toMatchObject({ rootRunId: 'root-run', completionReason: 'success' });
+    expect(journal.resumeCalls).toBe(1);
+    expect(journal.peer.completions).toEqual([{ attempt: 2, reason: 'success' }]);
+  });
+
   it('drives declared root retries to a durable terminal after a body failure', async () => {
     const loaded = await fixture(true);
     const journal = new RootJournal();
@@ -147,6 +189,19 @@ describe('durable authored root', () => {
     expect(journal.peer.completions).toEqual(Array.from({ length: 8 }, (_, index) => ({
       attempt: index + 1, reason: 'worker_error',
     })));
+  });
+
+  it('renews the authored root lease while its body is still running', async () => {
+    const loaded = await fixture(false, 100);
+    const journal = new RootJournal();
+
+    await executeDurableAuthoredFlow(
+      loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'slow-body' },
+    );
+
+    expect(journal.peer.heartbeats).toBeGreaterThan(2);
+    expect(journal.peer.completions).toEqual([{ attempt: 1, reason: 'success' }]);
   });
 
   it('resumes from journaled source and Surface authority under the same root identity', async () => {
@@ -177,14 +232,17 @@ describe('durable authored root', () => {
   });
 });
 
-async function fixture(fails = false): Promise<LoadedAuthoredFlow> {
+async function fixture(fails = false, delayMs = 0): Promise<LoadedAuthoredFlow> {
   const directory = await mkdtemp(join(tmpdir(), 'authored-root-'));
   directories.push(directory);
   const sourcePath = join(directory, 'flagship.flow.ts');
   await writeFile(sourcePath, 'export default "exact source";\n');
   const handle = fails
     ? flow('flagship', async () => { throw new Error('child failed'); })
-    : flow('flagship', async f => f.done('success'));
+    : flow('flagship', async f => {
+      if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
+      f.done('success');
+    });
   const getDefinition = getFlowDefinition as LoadedAuthoredFlow['getDefinition'];
   return {
     sourcePath, handle, getDefinition, surfaceAuthority: surface,
@@ -196,6 +254,7 @@ function dispatch(runId: string, attempt: number): StepDispatchEvent {
   return {
     run_id: runId, step_id: 'authored-root', attempt, step_type: 'agent', spec: {},
     lease_id: `lease-${attempt}`, idempotency_key: `key-${attempt}`,
+    lease_deadline_ms: Date.now() + 30,
     pins: { workspace: [], streams: [{ stream: 'authored-root-stream', read_offset: 0 }] },
   };
 }

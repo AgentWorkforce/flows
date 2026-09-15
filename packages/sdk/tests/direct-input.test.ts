@@ -57,7 +57,21 @@ describe('direct .flow.ts input through the built CLI and live runtime', () => {
       await client.connect();
       await client.hello('handoff-evidence');
       const journal = await client.journalRead(report.runId, 1);
-      expect(journal.entries).toContainEqual(expect.objectContaining({
+      const rootCompletion = (journal.entries as Array<Record<string, unknown>>)
+        .find(entry => entry['entry_type'] === 'step.completed'
+          && entry['step_id'] === 'authored-root');
+      expect(rootCompletion).toEqual(expect.objectContaining({
+        entry_type: 'step.completed', payload: expect.objectContaining({
+          completionReason: 'success',
+          output: expect.objectContaining({ completionReason: 'needs_human' }),
+        }),
+      }));
+      const output = (rootCompletion!['payload'] as { output: unknown }).output as {
+        journalSteps: Array<{ id: string; runId: string }>;
+      };
+      const terminal = output.journalSteps.find(step => step.id.startsWith('complete-'))!;
+      const child = await client.journalRead(terminal.runId, 1);
+      expect(child.entries).toContainEqual(expect.objectContaining({
         entry_type: 'step.completed', payload: expect.objectContaining({
           completionReason: 'success',
           output: expect.objectContaining({ stdout_tail: '{"completionReason":"needs_human"}' }),

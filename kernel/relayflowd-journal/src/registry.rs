@@ -26,6 +26,7 @@ pub struct RegistryRecord {
 pub enum RunAdmissionClaim {
     Acquired,
     Existing(String),
+    Recover(String),
     Conflict,
 }
 
@@ -200,8 +201,8 @@ impl Registry {
             return Ok(RunAdmissionClaim::Acquired);
         }
 
-        let (existing_hash, existing_run, existing_boot): (String, String, String) =
-            transaction.query_row(
+        let (existing_hash, existing_run, existing_boot): (String, String, String) = transaction
+            .query_row(
                 "SELECT spec_hash, run_id, boot_id FROM run_admissions
                  WHERE admission_key = ?1",
                 [admission_key],
@@ -216,7 +217,19 @@ impl Registry {
             [&existing_run],
             |row| row.get(0),
         )?;
-        if registered > 0 || existing_boot == boot_id {
+        if registered > 0 {
+            if existing_boot != boot_id {
+                transaction.execute(
+                    "UPDATE run_admissions SET boot_id = ?2 WHERE admission_key = ?1",
+                    params![admission_key, boot_id],
+                )?;
+                transaction.commit()?;
+                return Ok(RunAdmissionClaim::Recover(existing_run));
+            }
+            transaction.commit()?;
+            return Ok(RunAdmissionClaim::Existing(existing_run));
+        }
+        if existing_boot == boot_id {
             transaction.commit()?;
             return Ok(RunAdmissionClaim::Existing(existing_run));
         }
@@ -546,6 +559,51 @@ mod tests {
         );
     }
 
+    #[test]
+    fn concurrent_new_boot_retries_have_one_recovery_owner() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("r.sqlite3");
+        let mut registry = Registry::open(&path).unwrap();
+        assert_eq!(
+            registry
+                .claim_run_admission("root", "hash", "run-a", "dead-boot")
+                .unwrap(),
+            RunAdmissionClaim::Acquired
+        );
+        registry
+            .register("run-a", directory.path().join("run-a.sqlite3").as_path())
+            .unwrap();
+        drop(registry);
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let claims = ["run-b", "run-c"].map(|run_id| {
+            let path = path.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                let mut registry = Registry::open(path).unwrap();
+                barrier.wait();
+                registry
+                    .claim_run_admission("root", "hash", run_id, "new-boot")
+                    .unwrap()
+            })
+        });
+        let results = claims.map(|claim| claim.join().unwrap());
+        assert_eq!(
+            results
+                .iter()
+                .filter(|claim| matches!(claim, RunAdmissionClaim::Recover(run) if run == "run-a"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            results
+                .iter()
+                .filter(|claim| matches!(claim, RunAdmissionClaim::Existing(run) if run == "run-a"))
+                .count(),
+            1
+        );
+    }
+
     /// The ALTER path: a registry written before `boot_id` existed must open,
     /// gain the column, and read its pre-existing rows as a previous boot's.
     /// This branch only runs against an old database, so nothing else in the
@@ -584,7 +642,9 @@ mod tests {
         // The legacy row carries boot_id '' -- no live boot -- so it is a dead
         // process's claim and must be repaired, not treated as in flight.
         assert_eq!(
-            registry.claim_event("f", "s", "k", "run-new", "boot-1").unwrap(),
+            registry
+                .claim_event("f", "s", "k", "run-new", "boot-1")
+                .unwrap(),
             None,
             "a pre-migration claim with no run belongs to no live boot"
         );

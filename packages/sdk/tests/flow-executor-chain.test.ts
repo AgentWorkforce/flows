@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { once } from 'node:events';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flow } from '@relayflows/surface';
@@ -11,6 +12,7 @@ import { socketPathFor } from '../src/daemon-connection.js';
 import { compileSpec, compileYaml, toKernelSpec } from '../src/compile.js';
 import { checkAuthoredFlow } from '../src/cli/check.js';
 import { classifyOutcome } from '../src/cli/run.js';
+import { readAuthoredRootMetadata } from '../src/authored-root.js';
 import { chainFixture, shellWord } from './flow-chain-fixture.js';
 
 const schema = { type: 'object', required: ['message'], properties: { message: { type: 'string' } } };
@@ -140,6 +142,50 @@ export default flow('cli-flagship', async f => {
     expect(readFileSync(artifact, 'utf8')).toBe('x');
   });
 
+  it('resumes an interrupted durable authored root without replaying completed flagship effects', async () => {
+    const fixture = chainFixture();
+    closes.push(() => fixture.close());
+    const client = await fixture.connect();
+    vi.stubEnv('RELAYFLOW_AUTHORED_ADMISSION_KEY', 'flagship-crash-resume-fixture');
+    const artifact = join(fixture.root, 'completed-effect.txt');
+    const secondStarted = join(fixture.root, 'second-started');
+    const crashReady = join(fixture.root, 'crash-ready');
+    writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+export default flow('cli-flagship-resume', async f => {
+  const value = await f.llm('EXTRACT', { output: ${JSON.stringify(schema)} });
+  await f.agent('draft', { task: 'Draft from ' + JSON.stringify(value) });
+  await f.run(${JSON.stringify(`printf x >> ${shellWord(artifact)}`)});
+  await f.run(${JSON.stringify(`touch ${shellWord(secondStarted)} ${shellWord(crashReady)}; sleep 1`)});
+  f.done('success');
+});`);
+    const first = fixture.invokeAsync(
+      'run', fixture.flowPath, '--input', '{}', '--local-agent', '--data-dir', fixture.data, '--json',
+    );
+    await waitForPath(crashReady);
+    if (first.exitCode === null && first.signalCode === null) {
+      const exited = once(first, 'exit');
+      first.kill('SIGKILL');
+      await exited;
+    }
+    await new Promise(resolve => setTimeout(resolve, 1_500));
+    const runIds = readdirSync(join(fixture.data, 'runs'))
+      .filter(name => name.endsWith('.sqlite3')).map(name => name.slice(0, -'.sqlite3'.length));
+    let rootRunId: string | undefined;
+    for (const runId of runIds) {
+      if (await readAuthoredRootMetadata(client, runId).catch(() => undefined)) rootRunId = runId;
+    }
+    expect(rootRunId).toBeDefined();
+    const resumed = fixture.invoke('resume', rootRunId!, '--local-agent', '--data-dir', fixture.data, '--json');
+    expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+    expect(JSON.parse(resumed.stdout)).toMatchObject({ runId: rootRunId, completionReason: 'success' });
+    expect(readFileSync(artifact, 'utf8')).toBe('x');
+    expect(fixture.requests()).toHaveLength(2);
+    const rootEntries = (await client.journalRead(rootRunId!, 1)).entries as Array<Record<string, unknown>>;
+    expect(rootEntries.filter(entry => entry['entry_type'] === 'step.completed'
+      && entry['step_id'] === 'authored-root'
+      && (entry['payload'] as { completionReason?: unknown })?.completionReason === 'success')).toHaveLength(1);
+  }, 20_000);
+
   it('passes a declarative verified value through an agent into a deterministic artifact', async () => {
     const payload = { message: "quotes '\"\n$(touch forbidden) `echo hi`; \\ end" };
     const { fixture, client, agent } = await setup(JSON.stringify(payload));
@@ -222,3 +268,12 @@ steps:
     expect(JSON.parse(readFileSync(artifact, 'utf8'))).toEqual({ message: 'original' });
   });
 });
+
+async function waitForPath(path: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (existsSync(path)) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error(`timed out waiting for ${path}`);
+}

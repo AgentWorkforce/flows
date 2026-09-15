@@ -12,6 +12,8 @@ import { JournalClient } from './journal-client.js';
 import type { RunOutcome, StepDispatchEvent } from './protocol.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import type { RunLifecycleOptions } from './cli/run.js';
+import { withWorkerLease } from './worker-lease.js';
+import { isSurfaceCompletionReason } from './authored-step-output.js';
 
 const ROOT_KIND = 'relayflows.authored-root.v1';
 
@@ -84,6 +86,12 @@ export async function executeDurableAuthoredFlow(
       return await completedRootResult(journal, outcome.run_id);
     }
     assertRootCanDispatch(outcome);
+    // `run.start` is an idempotent receipt. If the first caller died after
+    // the daemon dispatched this root, a same-daemon retry sees the existing
+    // active run but receives no second dispatch from start itself. Resume is
+    // safe for the first caller too: the daemon preserves a live lease and
+    // redelivers only when the former worker connection is gone.
+    await journal.runResume(outcome.run_id);
     const dispatch = await dispatchWait.promise;
     return await driveRoot(loaded, metadata, journal, peer, dispatch, options);
   } finally {
@@ -178,19 +186,25 @@ async function driveRoot(
   options: Omit<DurableAuthoredOptions, 'admissionKey'>,
 ): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
   try {
-    const result = await executeAuthoredFlow(
-      loaded.handle,
-      journal,
-      metadata.inputPresent ? metadata.input : undefined,
-      {
-        getDefinition: loaded.getDefinition,
-        dataDir: options.dataDir,
-        flowPath: metadata.flowPath,
-        localAgentStream: options.localAgentStream,
-        rootRunId: dispatch.run_id,
-        ...options.lifecycle,
-      },
-    );
+    const result = await withWorkerLease(peer, dispatch, async rootSignal => {
+      const callerSignal = options.lifecycle?.signal;
+      return await executeAuthoredFlow(
+        loaded.handle,
+        journal,
+        metadata.inputPresent ? metadata.input : undefined,
+        {
+          getDefinition: loaded.getDefinition,
+          dataDir: options.dataDir,
+          flowPath: metadata.flowPath,
+          localAgentStream: options.localAgentStream,
+          rootRunId: dispatch.run_id,
+          ...options.lifecycle,
+          signal: callerSignal === undefined
+            ? rootSignal
+            : AbortSignal.any([callerSignal, rootSignal]),
+        },
+      );
+    });
     await peer.stepComplete(
       dispatch.run_id, dispatch.step_id, dispatch.attempt,
       dispatch.idempotency_key, 'success', {
@@ -319,12 +333,27 @@ async function completedRootResult(
   const completed = entries.slice().reverse().find(entry => entry.entry_type === 'step.completed'
     && entry.step_id === 'authored-root'
     && (entry.payload as { completionReason?: unknown } | undefined)?.completionReason === 'success');
-  const output = (completed?.payload as { output?: unknown } | undefined)?.output as
-    | Omit<AuthoredFlowExecutionResult, 'rootRunId'> | undefined;
-  if (!output || typeof output.name !== 'string' || !Array.isArray(output.journalSteps)) {
+  const output = (completed?.payload as { output?: unknown } | undefined)?.output;
+  if (!isCompletedRootOutput(output)) {
     throw new Error('completed authored root has no durable result');
   }
-  return Object.freeze({ ...output, rootRunId });
+  return Object.freeze({
+    name: output.name,
+    completionReason: output.completionReason,
+    journalSteps: Object.freeze(output.journalSteps.map(step => Object.freeze({ ...step }))),
+    rootRunId,
+  });
+}
+
+function isCompletedRootOutput(value: unknown): value is Omit<AuthoredFlowExecutionResult, 'rootRunId'> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const output = value as Partial<AuthoredFlowExecutionResult>;
+  return typeof output.name === 'string'
+    && (output.completionReason === 'success' || output.completionReason === 'needs_human')
+    && Array.isArray(output.journalSteps)
+    && output.journalSteps.every(step => typeof step === 'object' && step !== null
+      && typeof step.id === 'string' && typeof step.runId === 'string'
+      && isSurfaceCompletionReason(step.completionReason));
 }
 
 function assertRootCanDispatch(outcome: RunOutcome): void {

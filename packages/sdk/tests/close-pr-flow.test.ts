@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flow } from '@relayflows/surface';
 import closePr from '../scripts/dogfood/close-pr.flow.js';
@@ -91,9 +92,17 @@ async function harness(snapshots: Snapshot[], options: {
     if (options.failTerminal && step.id.startsWith('complete-')) {
       throw new Error('journal_write_failed: disk full');
     }
+    const durableRootOutput = step.id === 'authored-root' ? {
+      name: 'needs-human', completionReason: 'needs_human',
+      journalSteps: [
+        { id: 'run-1', runId: 'child-run-1', completionReason: 'success' },
+        { id: 'complete-2', runId: 'child-run-2', completionReason: 'success' },
+      ],
+    } : undefined;
     entries.set(id, {
       entry_type: 'step.completed', step_id: step.id,
-      payload: { completionReason: 'success', output: { stdout_tail: output(step), exit_code: 0, stderr_tail: '' } },
+      payload: { completionReason: 'success', output: durableRootOutput
+        ?? { stdout_tail: output(step), exit_code: 0, stderr_tail: '' } },
     });
     return { run_id: id, status: 'completed', completion_reason: 'success', completed_steps: 1 };
   });
@@ -209,7 +218,17 @@ describe('close-pr journaled repair loop', () => {
     vi.spyOn(runOperations, 'connect').mockResolvedValue(undefined);
     vi.spyOn(JournalClient.prototype, 'runStart').mockImplementation(h.client.runStart.bind(h.client));
     vi.spyOn(JournalClient.prototype, 'journalRead').mockImplementation(h.client.journalRead.bind(h.client));
-    const result = await runDirectFlow(join(import.meta.dirname, 'fixtures/needs-human.flow.ts'), '{}', '/unused');
+    const peer = Object.assign(new EventEmitter(), {
+      connect: async () => {}, hello: async () => {}, workerAttach: async () => {}, close: () => {},
+    });
+    vi.spyOn(JournalClient.prototype, 'createPeer').mockReturnValue(peer as unknown as JournalClient);
+    const directory = mkdtempSync(join(tmpdir(), 'close-pr-direct-'));
+    cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
+    symlinkSync(join(process.cwd(), 'node_modules'), join(directory, 'node_modules'), 'dir');
+    const source = join(directory, 'needs-human.flow.ts');
+    writeFileSync(source, "import { flow } from '@relayflows/surface';\n"
+      + "export default flow('needs-human', async f => { await f.run(':'); f.done('needs_human'); });\n");
+    const result = await runDirectFlow(source, '{}', '/unused');
     expect(result).toMatchObject({ exitCode: 3, report: {
       ok: false, status: 'parked', completedSteps: 2,
       diagnostics: [{ severity: 'parked', kind: 'run_parked', message: expect.stringContaining('needs_human') }],

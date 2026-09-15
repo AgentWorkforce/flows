@@ -112,7 +112,7 @@ async function importAuthoredFlow(path: string): Promise<Pick<LoadedAuthoredFlow
 
   let authoredModule: Record<string, unknown>;
   try {
-    authoredModule = await import(pathToFileURL(absolutePath).href) as Record<string, unknown>;
+    authoredModule = await import(/* @vite-ignore */ pathToFileURL(absolutePath).href) as Record<string, unknown>;
   } catch (error) {
     throw new AuthoredFlowLoadError(
       `Flow "${path}" could not be imported: ${errorMessage(error)}`,

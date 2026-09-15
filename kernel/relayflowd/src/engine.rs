@@ -104,6 +104,9 @@ pub struct DriveOptions {
     pub pause_before_step: Option<String>,
     /// Test/debug hook: pause after every step is durable, before run completion.
     pub pause_before_completion: bool,
+    /// Test/debug hook: fail after workspace bindings are durable but before
+    /// the run becomes a durable admission receipt.
+    pub fail_before_register: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -253,6 +256,9 @@ impl<C: Clock> Engine<C> {
                 RunAdmissionClaim::Existing(existing_run_id) => {
                     return self.current_outcome(&existing_run_id);
                 }
+                RunAdmissionClaim::Recover(existing_run_id) => {
+                    return self.resume_with_options(&existing_run_id, options);
+                }
                 RunAdmissionClaim::Conflict => {
                     return Err(RunAdmissionConflict {
                         admission_key: key.to_owned(),
@@ -287,8 +293,11 @@ impl<C: Clock> Engine<C> {
                 spawned.payload["reuse_candidates"] = serde_json::to_value(candidates)?;
             }
             self.append(&mut journal, &spawned)?;
-            registry.register(&run_id, &path).context("register run")?;
             self.bind_local_workspaces(&mut journal, &spec)?;
+            if options.fail_before_register {
+                bail!("injected failure before run registration");
+            }
+            registry.register(&run_id, &path).context("register run")?;
             self.drive(journal, spec, options)
         })();
         if started.is_err() {
@@ -761,5 +770,138 @@ mod boot_identity_tests {
         );
         assert_eq!(first.boot_id(), third.boot_id());
         assert!(!first.boot_id().is_empty());
+    }
+
+    #[test]
+    fn prior_boot_registered_undriven_admission_is_recovered_by_start_retry() {
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("recovered");
+        let engine = Engine::new(directory.path());
+        let spec = RunSpec::parse(&serde_json::json!({
+            "name": "registered-undriven",
+            "steps": [{
+                "id": "recover",
+                "type": "deterministic",
+                "command": format!("printf recovered > {}", marker.display())
+            }]
+        }))
+        .unwrap();
+        let spec_value = serde_json::to_value(&spec).unwrap();
+        let stalled_run_id = "registered-undriven-run";
+        let path = engine.run_path(stalled_run_id);
+        let mut registry = engine.registry().unwrap();
+        assert_eq!(
+            registry
+                .claim_run_admission(
+                    "authored-root:registered-undriven",
+                    &canonical_hash(&spec_value),
+                    stalled_run_id,
+                    "dead-boot",
+                )
+                .unwrap(),
+            RunAdmissionClaim::Acquired
+        );
+        let mut journal = SqliteJournal::create(&path, stalled_run_id, 0).unwrap();
+        engine
+            .append(
+                &mut journal,
+                &JournalEntry::new(
+                    EntryType::RunSpawned,
+                    stalled_run_id,
+                    None,
+                    None,
+                    0,
+                    RunSpawnedPayload {
+                        spec: spec_value,
+                        spec_hash: canonical_hash(&serde_json::to_value(&spec).unwrap()),
+                        parent_run_id: None,
+                        journal_version: relayflowd_core::JOURNAL_VERSION,
+                        created_by: "crashed-boot".into(),
+                    },
+                ),
+            )
+            .unwrap();
+        registry.register(stalled_run_id, &path).unwrap();
+        drop(journal);
+        drop(registry);
+
+        let outcome = engine
+            .start_with_admission(
+                spec,
+                "retry",
+                DriveOptions::default(),
+                None,
+                Some("authored-root:registered-undriven"),
+            )
+            .unwrap();
+
+        assert_eq!(outcome.run_id, stalled_run_id);
+        assert_eq!(outcome.status, RunStatus::Completed);
+        assert_eq!(std::fs::read_to_string(marker).unwrap(), "recovered");
+    }
+
+    #[test]
+    fn failure_after_workspace_binding_releases_admission_without_exposing_effects() {
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("effect");
+        let engine = Engine::new(directory.path());
+        let spec = RunSpec::parse(&serde_json::json!({
+            "name": "pre-registration-failure",
+            "steps": [{
+                "id": "effect",
+                "type": "deterministic",
+                "command": format!("printf effect > {}", marker.display()),
+                "requirements": { "workspace": true }
+            }]
+        }))
+        .unwrap();
+        let admission_key = "authored-root:pre-registration-failure";
+
+        let error = engine
+            .start_with_admission(
+                spec.clone(),
+                "first",
+                DriveOptions {
+                    fail_before_register: true,
+                    ..DriveOptions::default()
+                },
+                None,
+                Some(admission_key),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("injected failure"));
+        assert!(!marker.exists(), "binding must not execute the step");
+
+        let orphan = std::fs::read_dir(directory.path().join("runs"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "sqlite3")
+            })
+            .unwrap();
+        let journal = SqliteJournal::open(&orphan).unwrap();
+        let entries = journal.scan_all().unwrap();
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.entry_type == EntryType::StepRouted)
+        );
+        assert!(entries.iter().all(|entry| matches!(
+            entry.entry_type,
+            EntryType::RunSpawned | EntryType::StepRouted
+        )));
+
+        let retry = engine
+            .start_with_admission(
+                spec,
+                "retry",
+                DriveOptions::default(),
+                None,
+                Some(admission_key),
+            )
+            .unwrap();
+        assert_eq!(retry.status, RunStatus::Completed);
+        assert_eq!(std::fs::read_to_string(marker).unwrap(), "effect");
     }
 }
