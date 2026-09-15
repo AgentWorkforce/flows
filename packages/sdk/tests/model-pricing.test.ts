@@ -49,13 +49,22 @@ describe('workerSpend', () => {
     expect(spent.result.exit_code).toBe(0);
   });
 
-  it('leaves usage undefined for an unpriced model without failing the step', () => {
-    // The step still succeeded — an unpriced model is a preflight concern
-    // when a dollar budget is declared, not a runtime failure per se.
-    const spent = workerSpend(priced, 'unlisted-model');
-    expect(spent.usage).toBeUndefined();
-    expect(spent.result.exit_code).toBe(0);
-    expect(spent.result.stderr_tail).toBe('');
+  it('keeps an unpriced model step metered for tokens but not dollars, without failing it', () => {
+    // The step still succeeded — an unpriced model is a preflight warning
+    // when a dollar budget is declared, not a runtime failure. Its tokens must
+    // still reach the kernel so token budgets see the step.
+    for (const model of ['unlisted-model', undefined]) {
+      const spent = workerSpend(priced, model);
+      expect(spent.usage).toEqual({ tokens_in: 100, tokens_out: 50, dollars: '0.000000' });
+      expect(spent.result.exit_code).toBe(0);
+      expect(spent.result.stderr_tail).toBe('');
+    }
+  });
+
+  it('attaches no usage for an unpriced model whose CLI reported no tokens', () => {
+    const unreported = { exit_code: 0, stdout_tail: '', stderr_tail: '' };
+    expect(workerSpend(unreported, 'unlisted-model').usage).toBeUndefined();
+    expect(workerSpend(unreported).usage).toBeUndefined();
   });
 
   it('journals invalid token counts as worker_error, projecting clamped counts', () => {

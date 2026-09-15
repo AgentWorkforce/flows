@@ -10,10 +10,11 @@ export interface BudgetStepResolution {
 
 /**
  * Dollar budgets are light enforcement: pricing never refuses a run. A step
- * whose model has no frozen price journals no dollars (`pricedUsage` returns
- * undefined), so it cannot trip `maxDollars`; priced steps still accrue and a
- * crossed limit still stops the run in the kernel. This warning names each
- * unmetered step so the gap is reported, not silent.
+ * whose model has no frozen price journals zero dollars (see `workerSpend`),
+ * so it cannot trip `maxDollars`, while its reported tokens still count toward
+ * any token budget; priced steps still accrue and a crossed limit still stops
+ * the run in the kernel. This warning names each dollar-unmetered step so the
+ * gap is reported, not silent.
  *
  * Codex selects its own model when none is declared, so a Codex step is
  * expected to be unmetered and says so rather than asking for a fake price.
