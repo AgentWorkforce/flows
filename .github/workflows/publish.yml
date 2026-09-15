@@ -248,7 +248,7 @@ jobs:
     name: Publish packages in dependency order
     needs: [build, build-darwin-arm64]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30 # publish + up to 10 minutes of registry propagation wait
     steps:
       - uses: actions/checkout@v4
         with:
@@ -315,10 +315,55 @@ jobs:
             npm publish "dist/publish/$tarball" \
               --access public --provenance --ignore-scripts --tag "$NPM_TAG" "${args[@]}"
           done
+      - name: Wait for the registry to serve every published version
+        if: ${{ !inputs.dry_run }}
+        env:
+          PACKAGE: ${{ inputs.package }}
+          NEW_VERSION: ${{ needs.build.outputs.new_version }}
+          # `npm publish` above already fetched and cached each packument from
+          # before the new version existed, and npm honors the registry's
+          # 5-minute max-age on that cache. Bypass it or this loop can spin on
+          # a stale copy after the registry has caught up.
+          NPM_CONFIG_PREFER_ONLINE: 'true'
+        run: |
+          # `npm publish` returns before the registry serves the new version.
+          # The lockfile regeneration below resolves the just-published
+          # packages from the registry, and on the v2.0.10 release it hit
+          # ETARGET for @relayflows/surface@2.0.10 seconds after that publish
+          # succeeded, which skipped the release commit and tag. Poll the
+          # packument for each version and probe its tarball (the CDN edge can
+          # still 404 after the packument lists it) before touching lockfiles.
+          for package in surface sdk runtime-linux-x64 runtime-darwin-arm64 relayflows; do
+            if [[ "$PACKAGE" != all && "$PACKAGE" != "$package" ]]; then continue; fi
+            if [[ "$package" == relayflows ]]; then name=relayflows; else name="@relayflows/$package"; fi
+            spec="$name@$NEW_VERSION"
+            ready=false
+            for attempt in $(seq 1 20); do
+              tarball=$(npm view "$spec" dist.tarball 2>/dev/null || true)
+              if [[ -n "$tarball" ]]; then
+                status=$(curl -sS -o /dev/null -w '%{http_code}' -I \
+                  --connect-timeout 5 --max-time 15 "$tarball" || echo 000)
+                if [[ "$status" == 200 ]]; then
+                  echo "$spec is served (attempt $attempt)"
+                  ready=true
+                  break
+                fi
+                echo "$spec listed but tarball returned HTTP $status (attempt $attempt/20)"
+              else
+                echo "$spec not yet in the registry (attempt $attempt/20)"
+              fi
+              sleep 30
+            done
+            if [[ "$ready" != true ]]; then
+              echo "::error::$spec was published but is still not served after 10 minutes; finish the release by rerunning this job once it propagates."
+              exit 1
+            fi
+          done
       - name: Regenerate release lockfiles
         if: ${{ !inputs.dry_run }}
         env:
           NEW_VERSION: ${{ needs.build.outputs.new_version }}
+          NPM_CONFIG_PREFER_ONLINE: 'true' # same stale-packument cache as the wait step above
         run: |
           npm install --prefix packages/surface --package-lock-only --ignore-scripts
           npm install --prefix packages/sdk --package-lock-only --ignore-scripts --save-exact "@relayflows/surface@$NEW_VERSION"
