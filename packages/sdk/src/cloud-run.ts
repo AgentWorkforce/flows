@@ -7,6 +7,7 @@ import { parse as parseYaml } from 'yaml';
 import { canonicalize, specHash } from './canonical.js';
 import { CompileError, compileSpec, kernelToAuthoring, toKernelSpec } from './compile.js';
 import type { FlowSpec } from './spec.js';
+import { snapshotJsonValue, type JsonValue } from './json-value.js';
 import { loadAuthoredFlow, type SurfaceModuleAuthority } from './authored-flow-loader.js';
 import {
   CloudFlowError, cloudConnection, cloudRequest, cloudRunId, isCloudRecord,
@@ -17,6 +18,8 @@ export type CloudFlowSource = FlowSpec | { path: string };
 export interface RunInCloudOptions extends CloudConnectionOptions {
   /** Existing Cloud workspace to run in; provisioning/authorization remains server-side. */
   workspaceId?: string;
+  /** Exact JSON input. Required at runtime for authored .flow.ts; refused for declarative source. */
+  input?: JsonValue;
 }
 export interface CloudRunReceipt {
   runId: string;
@@ -48,6 +51,8 @@ export async function runInCloud(
   const { baseUrl } = cloudConnection(options);
   let spec: FlowSpec | undefined;
   let authored: { source: string; authority: CloudAuthoredAuthority } | undefined;
+  const inputPresent = Object.prototype.hasOwnProperty.call(options, 'input');
+  let authoredInput: JsonValue | undefined;
   try {
     options.signal?.throwIfAborted();
     if ('path' in flow) {
@@ -93,6 +98,14 @@ export async function runInCloud(
     } else {
       spec = compileSpec(flow);
     }
+    if (authored !== undefined) {
+      if (!inputPresent) {
+        throw new CloudFlowError('invalid_input', 'Cloud authored .flow.ts requires an explicit JSON input. Pass {} when the flow needs no fields.');
+      }
+      authoredInput = snapshotJsonValue(options.input, 'Cloud authored input');
+    } else if (inputPresent) {
+      throw new CloudFlowError('invalid_input', 'Cloud input is supported only for authored .flow.ts source.');
+    }
   } catch (error) {
     options.signal?.throwIfAborted();
     if (error instanceof CloudFlowError) throw error;
@@ -101,7 +114,10 @@ export async function runInCloud(
   options.signal?.throwIfAborted();
   const hash = authored === undefined
     ? specHash(toKernelSpec(spec!))
-    : createHash('sha256').update(canonicalize(authored.authority)).digest('hex');
+    : createHash('sha256').update(canonicalize({
+        authority: authored.authority,
+        input: authoredInput,
+      })).digest('hex');
   const result = await cloudRequest('/api/v1/workflows/run', options, {
     // JSON is a YAML subset. Sending canonical data preserves the exact spec
     // while using the server's existing YAML-to-config admission path.
@@ -109,6 +125,7 @@ export async function runInCloud(
     fileType: authored === undefined ? 'yaml' : 'ts',
     relayflowVersion: 'v2',
     ...(authored === undefined ? {} : { authoredAuthority: authored.authority }),
+    ...(authored === undefined ? {} : { inputs: authoredInput }),
     ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
   });
   if (!isCloudRecord(result) || (result.status !== 'pending' && result.status !== 'running')) {

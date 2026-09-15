@@ -213,13 +213,22 @@ async function resolveSurfaceRuntime(
   );
 }
 
-/** Hash the exact installed Surface package tree, including path boundaries. */
-async function packageTreeSha256(root: string): Promise<string> {
+/**
+ * Hash the exact installed Surface package payload, including path boundaries.
+ *
+ * npm may materialize a package-local node_modules tree for workspace and
+ * file: dependencies. That tree is installation state, not part of the
+ * published Surface package, and can contain platform-specific .bin symlinks.
+ * Keep it outside the authority boundary while pinning every package payload
+ * file, including the runtime module hashed separately by the caller.
+ */
+export async function packageTreeSha256(root: string): Promise<string> {
   const files: string[] = [];
   async function visit(directory: string): Promise<void> {
     const entries = await readdir(directory, { withFileTypes: true });
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
+      if (directory === root && entry.name === 'node_modules') continue;
       const path = join(directory, entry.name);
       if (entry.isDirectory()) await visit(path);
       else if (entry.isFile()) files.push(path);
