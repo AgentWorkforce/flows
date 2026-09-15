@@ -1,0 +1,224 @@
+{
+  "source": "AgentWorkforce/relaycast@c80202f2dfe7a15a6cef5b81f2452b1d7acd6add",
+  "idempotencyKey": "journal-key",
+  "input": {
+    "cli": "claude",
+    "task": "return output",
+    "task_context": {
+      "run_id": "run",
+      "step_id": "step",
+      "dispatch_id": "journal-key",
+      "timeout_ms": 86400000
+    }
+  },
+  "identity": {
+    "ok": true,
+    "data": {
+      "id": "225390157268688896",
+      "workspace_id": "225390157243523072",
+      "name": "fixture-caller",
+      "handle": "@fixture-caller",
+      "type": "agent",
+      "status": "active",
+      "persona": null,
+      "capabilities": null,
+      "created_at": "2026-09-14T23:00:01.000Z",
+      "last_seen": "2026-09-14T23:00:01.000Z",
+      "metadata": {},
+      "channels": [
+        {
+          "id": "225390157251911680",
+          "name": "general",
+          "role": "member",
+          "joined_at": "2026-09-14T23:00:01.000Z"
+        }
+      ],
+      "actions_provided": [],
+      "actions_available_to": [],
+      "pending_deliveries": []
+    }
+  },
+  "ack": {
+    "ok": true,
+    "data": {
+      "invocation_id": "inv_idem_8e4f567dc9d74f3385f2020353253a1e779fa866ccd3606adf975f3ac31ac9c7",
+      "action_name": "task.run",
+      "handler_agent_id": null,
+      "handler_node_id": "fixture-node",
+      "dispatched_node_id": "fixture-node",
+      "input": {
+        "cli": "claude",
+        "task": "return output",
+        "task_context": {
+          "run_id": "run",
+          "step_id": "step",
+          "dispatch_id": "journal-key",
+          "timeout_ms": 86400000
+        }
+      },
+      "status": "dispatched",
+      "created_at": "2026-09-14T23:00:01.000Z"
+    }
+  },
+  "dispatched": {
+    "ok": true,
+    "data": {
+      "invocation_id": "inv_idem_8e4f567dc9d74f3385f2020353253a1e779fa866ccd3606adf975f3ac31ac9c7",
+      "action_name": "task.run",
+      "caller_id": "225390157268688896",
+      "caller_name": "fixture-caller",
+      "input": {
+        "cli": "claude",
+        "task": "return output",
+        "task_context": {
+          "run_id": "run",
+          "step_id": "step",
+          "dispatch_id": "journal-key",
+          "timeout_ms": 86400000
+        }
+      },
+      "output": null,
+      "status": "dispatched",
+      "error": null,
+      "duration_ms": null,
+      "dispatched_node_id": "fixture-node",
+      "dispatched_at": "2026-09-14T23:00:01.000Z",
+      "created_at": "2026-09-14T23:00:01.000Z",
+      "completed_at": null,
+      "task_execution": {
+        "execution_id": "inv_idem_8e4f567dc9d74f3385f2020353253a1e779fa866ccd3606adf975f3ac31ac9c7/1",
+        "run_id": "run",
+        "step_id": "step",
+        "dispatch_id": "journal-key",
+        "deadline": "2026-09-15T23:00:01.052Z"
+      }
+    }
+  },
+  "running": {
+    "ok": true,
+    "data": {
+      "invocation_id": "inv_idem_8e4f567dc9d74f3385f2020353253a1e779fa866ccd3606adf975f3ac31ac9c7",
+      "action_name": "task.run",
+      "caller_id": "225390157268688896",
+      "caller_name": "fixture-caller",
+      "input": {
+        "cli": "claude",
+        "task": "return output",
+        "task_context": {
+          "run_id": "run",
+          "step_id": "step",
+          "dispatch_id": "journal-key",
+          "timeout_ms": 86400000
+        }
+      },
+      "output": null,
+      "status": "running",
+      "error": null,
+      "duration_ms": null,
+      "dispatched_node_id": "fixture-node",
+      "dispatched_at": "2026-09-14T23:00:01.000Z",
+      "created_at": "2026-09-14T23:00:01.000Z",
+      "completed_at": null,
+      "task_execution": {
+        "execution_id": "inv_idem_8e4f567dc9d74f3385f2020353253a1e779fa866ccd3606adf975f3ac31ac9c7/1",
+        "run_id": "run",
+        "step_id": "step",
+        "dispatch_id": "journal-key",
+        "deadline": "2026-09-15T23:00:01.052Z",
+        "worker_generation": "fixture-generation",
+        "accepted_at": "2026-09-14T23:00:01.055Z"
+      }
+    }
+  },
+  "completed": {
+    "ok": true,
+    "data": {
+      "invocation_id": "inv_idem_8e4f567dc9d74f3385f2020353253a1e779fa866ccd3606adf975f3ac31ac9c7",
+      "action_name": "task.run",
+      "caller_id": "225390157268688896",
+      "caller_name": "fixture-caller",
+      "input": {
+        "cli": "claude",
+        "task": "return output",
+        "task_context": {
+          "run_id": "run",
+          "step_id": "step",
+          "dispatch_id": "journal-key",
+          "timeout_ms": 86400000
+        }
+      },
+      "output": {
+        "answer": 42
+      },
+      "status": "completed",
+      "error": null,
+      "duration_ms": null,
+      "dispatched_node_id": "fixture-node",
+      "dispatched_at": "2026-09-14T23:00:01.000Z",
+      "created_at": "2026-09-14T23:00:01.000Z",
+      "completed_at": "2026-09-14T23:00:01.000Z",
+      "task_execution": {
+        "execution_id": "inv_idem_8e4f567dc9d74f3385f2020353253a1e779fa866ccd3606adf975f3ac31ac9c7/1",
+        "run_id": "run",
+        "step_id": "step",
+        "dispatch_id": "journal-key",
+        "deadline": "2026-09-15T23:00:01.052Z",
+        "worker_generation": "fixture-generation",
+        "accepted_at": "2026-09-14T23:00:01.055Z",
+        "accounting": {
+          "tokens_input": 7,
+          "tokens_output": 3
+        }
+      }
+    }
+  },
+  "wire": {
+    "invoke": {
+      "v": 1,
+      "type": "action.invoke",
+      "invocation_id": "inv_idem_8e4f567dc9d74f3385f2020353253a1e779fa866ccd3606adf975f3ac31ac9c7",
+      "action": "task.run",
+      "input": {
+        "cli": "claude",
+        "task": "return output",
+        "task_context": {
+          "run_id": "run",
+          "step_id": "step",
+          "dispatch_id": "journal-key",
+          "timeout_ms": 86400000
+        }
+      },
+      "task_execution": {
+        "execution_id": "inv_idem_8e4f567dc9d74f3385f2020353253a1e779fa866ccd3606adf975f3ac31ac9c7/1",
+        "run_id": "run",
+        "step_id": "step",
+        "dispatch_id": "journal-key",
+        "deadline": "2026-09-15T23:00:01.052Z"
+      }
+    },
+    "accept": {
+      "v": 1,
+      "id": "accept",
+      "type": "action.accept",
+      "invocation_id": "inv_idem_8e4f567dc9d74f3385f2020353253a1e779fa866ccd3606adf975f3ac31ac9c7",
+      "execution_id": "inv_idem_8e4f567dc9d74f3385f2020353253a1e779fa866ccd3606adf975f3ac31ac9c7/1",
+      "worker_generation": "fixture-generation"
+    },
+    "result": {
+      "v": 1,
+      "id": "final",
+      "type": "action.result",
+      "invocation_id": "inv_idem_8e4f567dc9d74f3385f2020353253a1e779fa866ccd3606adf975f3ac31ac9c7",
+      "execution_id": "inv_idem_8e4f567dc9d74f3385f2020353253a1e779fa866ccd3606adf975f3ac31ac9c7/1",
+      "worker_generation": "fixture-generation",
+      "final": true,
+      "output": {
+        "answer": 42
+      },
+      "accounting": {
+        "tokens_input": 7,
+        "tokens_output": 3
+      }
+    }
+  }
+}

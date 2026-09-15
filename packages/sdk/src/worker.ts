@@ -112,7 +112,8 @@ export class AgentWorker extends EventEmitter {
           onReady: this.options.onPtyReady, onDrive: () => { humanIntervention = true; },
         }, typeof spec.cwd === 'string' ? spec.cwd : undefined,
           spec.transport === 'relay' ? 'relay' : 'direct',
-          { runId: dispatch.run_id, stepId: dispatch.step_id })
+          { runId: dispatch.run_id, stepId: dispatch.step_id, idempotencyKey: dispatch.idempotency_key,
+            dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema })
         : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
     const { result, usage } = workerSpend(completed, spec.model);
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
@@ -130,7 +131,8 @@ export class AgentWorker extends EventEmitter {
     // emitting an error JSON with exit 0. `completionReason` is
     // derived from exit code, so a CLI that exits 0 while emitting
     // `{"error":...}` will report success with an error payload.
-    const output = parseJsonOutput(result.stdout_tail) ?? result;
+    const output = result.relay_task?.status === 'completed' && result.exit_code === 0
+      ? result.relay_task.output : parseJsonOutput(result.stdout_tail) ?? result;
 
     await this.client.stepComplete(
       dispatch.run_id,
@@ -140,6 +142,10 @@ export class AgentWorker extends EventEmitter {
       completionReason,
       {
         output,
+        ...(result.relay_task === undefined ? {} : { trajectory_tail: { relay_task: {
+          invocation_id: result.relay_task.invocation_id, status: result.relay_task.status,
+          task_execution: result.relay_task.task_execution, error: result.relay_task.error,
+        } } }),
         ...(humanIntervention ? { human_intervention: true } : {}),
         ...(usage !== undefined ? { usage } : {}),
         started_pins: dispatch.pins,

@@ -15,8 +15,7 @@ import {
 } from './wrapper-session.js';
 import { wrapperEnvironment } from './wrapper-runtime.js';
 import {
-  agentRelaySpawn,
-  deriveAgentName,
+  runAgentRelayTask,
   AgentRelayTransportError,
   type AgentTransport,
 } from './agent-relay-transport.js';
@@ -32,6 +31,7 @@ export const WAKE_CONTEXT_ENV = 'RELAYFLOW_WAKE_CONTEXT';
 export const MODEL_ENV = 'RELAYFLOW_MODEL';
 
 export interface WorkerCliResult {
+  relay_task?: import('./agent-relay-receipt.js').RelayTaskReceipt;
   tokens_input?: number;
   tokens_output?: number;
   exit_code: number | null;
@@ -40,12 +40,14 @@ export interface WorkerCliResult {
 }
 
 /**
- * Optional identity threaded through so the relay transport can derive a
- * stable, DM-addressable agent name (flows#385).
+ * Journal identity and durable dispatch storage used by the Relay task transport.
  */
 export interface AgentRelayContext {
   runId: string;
   stepId: string;
+  idempotencyKey: string;
+  dataDir?: string;
+  resultSchema?: unknown;
 }
 
 export async function runAgentCli(
@@ -67,6 +69,10 @@ export async function runAgentCli(
   }
   const kind = cliAdapterKind(cli);
 
+  if (mode === 'agent' && transport === 'relay') {
+    return runViaAgentRelay(kind, instruction, wakeContext, model, relayContext, cwd, signal);
+  }
+
   if (kind === 'relayflows-wrapper-v1') {
     return requirePricedUsage(decodeWrapperResult(await runWrapperSession(
       cli,
@@ -77,10 +83,6 @@ export async function runAgentCli(
       wrapperLimits,
       signal,
     )), model);
-  }
-
-  if (mode === 'agent' && transport === 'relay') {
-    return runViaAgentRelay(kind, instruction, model, relayContext, cwd);
   }
 
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -107,54 +109,46 @@ export async function runAgentCli(
   return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd), kind), model);
 }
 
-/**
- * Relay-transport path (flows#385). Fires an agent-relay spawn HTTP request
- * that registers the CLI as a first-class workspace participant DMs can
- * steer, then reports the spawn outcome as a WorkerCliResult. Streaming
- * completion tracking is a follow-up — this initial slice proves the
- * transport wire and returns quickly with the registered name in stdout.
- */
+/** Wait under the same worker lease for an authoritative task receipt. */
 async function runViaAgentRelay(
-  kind: CliAdapterKind,
-  instruction: string,
-  model: string | undefined,
-  relayContext: AgentRelayContext | undefined,
-  worker_cwd: string | undefined,
+  kind: CliAdapterKind, instruction: string, wakeContext: unknown,
+  model: string | undefined, context: AgentRelayContext | undefined,
+  worker_cwd: string | undefined, signal: AbortSignal | undefined,
 ): Promise<WorkerCliResult> {
-  if (kind === 'relayflows-wrapper-v1') {
-    return {
-      exit_code: null,
-      stdout_tail: '',
-      stderr_tail: 'agent-relay transport does not support the relayflows-wrapper-v1 same-process session.',
-    };
-  }
-  if (relayContext === undefined) {
-    return {
-      exit_code: null,
-      stdout_tail: '',
-      stderr_tail: 'agent-relay transport requires a relayContext (runId, stepId); the caller did not thread it through.',
-    };
-  }
-  const name = deriveAgentName(relayContext.runId, relayContext.stepId);
   try {
-    const handle = await agentRelaySpawn({
-      name,
-      cli: kind,
-      task: instruction,
-      ...(model === undefined ? {} : { model }),
-      ...(worker_cwd === undefined ? {} : { worker_cwd }),
-    });
-    return {
-      exit_code: 0,
-      stdout_tail: JSON.stringify({ registeredName: handle.registeredName, invocationId: handle.invocationId }),
-      stderr_tail: '',
+    if (kind === 'relayflows-wrapper-v1') throw new Error('Relay task transport does not support same-process wrappers.');
+    if (!context?.dataDir) throw new Error('Relay task transport requires a durable data directory and journal dispatch identity.');
+    const task = instruction + (wakeContext === undefined ? '' : `\n\nWake context (journaled):\n${JSON.stringify(wakeContext)}`)
+      + '\n\nReport the final task output with the injected agent_result tool and final=true. Wait for its successful durable acknowledgment before exiting.';
+    const received = await runAgentRelayTask({
+      cli: kind, task, model, worker_cwd, result_schema: context.resultSchema,
+      runId: context.runId, stepId: context.stepId, idempotencyKey: context.idempotencyKey,
+      dataDir: context.dataDir,
+    }, { signal });
+    const receipt = { ...received, error: received.error === null ? null : redactRelayError(received.error) };
+    const accounting = receipt.task_execution.accounting;
+    const result: WorkerCliResult = {
+      relay_task: receipt, exit_code: receipt.status === 'completed' ? 0 : 1,
+      stdout_tail: receipt.status === 'completed' ? JSON.stringify(receipt.output) : '',
+      stderr_tail: receipt.status === 'failed' ? `Relay task failed: ${receipt.error}` : '',
+      ...(accounting?.tokens_input === undefined ? {} : { tokens_input: accounting.tokens_input }),
+      ...(accounting?.tokens_output === undefined ? {} : { tokens_output: accounting.tokens_output }),
     };
+    return requirePricedUsage(result, model);
   } catch (error) {
-    const detail = error instanceof AgentRelayTransportError
-      ? error.message
-      : `agent-relay spawn failed: ${(error as Error).message ?? String(error)}`;
-    return { exit_code: null, stdout_tail: '', stderr_tail: detail };
+    signal?.throwIfAborted();
+    const detail = error instanceof AgentRelayTransportError ? error.message
+      : error instanceof Error ? error.message : 'Relay task transport failed';
+    return { exit_code: null, stdout_tail: '', stderr_tail: redactRelayError(detail) };
   }
+}
+
+function redactRelayError(message: string): string {
+  for (const key of ['RELAY_AGENT_TOKEN', 'RELAY_API_KEY']) {
+    const secret = process.env[key];
+    if (secret) message = message.replaceAll(secret, '[redacted]');
+  }
+  return message.replace(/\b(?:at|rk|nt|ot|br|arr)_(?:live_)?[A-Za-z0-9_-]+/g, '[redacted]');
 }
 
 async function spawnInvocation(
