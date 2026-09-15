@@ -32,15 +32,41 @@ describe('budget preflight', () => {
     expect(result.diagnostics.map(d => d.kind)).toEqual(['budget_syntax_invalid']);
     expect(o.probes.cli).not.toHaveBeenCalled();
   });
-  it('refuses an unpriced declared model before probing', () => {
+  it('warns, never refuses, on an unpriced declared model and still probes', () => {
     const o = options();
     const result = preflight(spec('$20/run', 'unknown'), o);
-    expect(result.diagnostics.map(d => d.kind)).toEqual(['budget_missing_price']);
-    expect(o.probes.cli).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([expect.objectContaining({
+      severity: 'warning', kind: 'budget_unmetered', stepId: 'ask',
+      message: expect.stringContaining('model "unknown" has no frozen price'),
+    })]);
+    expect(o.probes.cli).toHaveBeenCalledWith('claude', 'step', 'unknown');
   });
   it('retains frozen pricing when checking a compiled artifact', () => {
-    expect(preflight(kernelToAuthoring(toKernelSpec(compileSpec(spec('$20/run', 'unknown')))), options()).diagnostics)
-      .toEqual(expect.arrayContaining([expect.objectContaining({kind: 'budget_missing_price'})]));
+    const result = preflight(kernelToAuthoring(toKernelSpec(compileSpec(spec('$20/run', 'unknown')))), options());
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({severity: 'warning', kind: 'budget_unmetered'}),
+    ]));
+  });
+  it('emits no budget warning for priced steps or for token-only budgets', () => {
+    expect(preflight(spec('$20/run'), options()).diagnostics).toEqual([]);
+    expect(preflight(spec({ tokens: 100 }, 'unknown'), options()).diagnostics).toEqual([]);
+  });
+  it('lets a Codex step without a model run unmetered beside a priced Claude step (burn#539)', () => {
+    const o = options();
+    const result = preflight({ version: '0.1.0', budget: '$8/run', steps: [
+      { id: 'planner', type: 'agent', cli: 'claude', instruction: 'Plan.' },
+      { id: 'plan-reviewer', type: 'agent', cli: 'codex', instruction: 'Review.', dependsOn: ['planner'] },
+    ] }, o);
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics.filter(d => d.severity === 'refusal')).toEqual([]);
+    expect(result.diagnostics).toEqual([expect.objectContaining({
+      severity: 'warning', kind: 'budget_unmetered', stepId: 'plan-reviewer',
+      message: expect.stringContaining('Codex selects its own model'),
+    })]);
+    expect(o.probes.cli).toHaveBeenCalledWith('claude', 'step', 'claude-opus-5');
+    expect(o.probes.cli).toHaveBeenCalledWith('codex', 'step', undefined);
   });
   it('prices and probes the Claude default when a dollar-budgeted step omits model', () => {
     const input = spec('$20/run');
@@ -53,19 +79,33 @@ describe('budget preflight', () => {
     }));
     expect(o.probes.cli).toHaveBeenCalledWith('claude', 'step', 'claude-opus-5');
   });
-  it.each(['codex', 'team-wrapper'])('still requires a model for registered/custom CLI %s with no default under a dollar budget', cli => {
+  it.each([
+    ['codex', 'Codex selects its own model'],
+    ['team-wrapper', 'no model is declared'],
+  ])('runs registered/custom CLI %s with no default model unmetered under a dollar budget', (cli, reason) => {
     const input = spec('$20/run');
     const { model, ...step } = input.steps[0]!;
-    expect(preflight({...input, steps:[{...step, cli}]}, options()).diagnostics)
-      .toEqual(expect.arrayContaining([expect.objectContaining({kind: 'budget_missing_price', stepId: 'ask'})]));
+    const result = preflight({...input, steps:[{...step, cli}]}, options());
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([expect.objectContaining({
+      severity: 'warning', kind: 'budget_unmetered', stepId: 'ask', message: expect.stringContaining(reason),
+    })]);
   });
-  it('refuses an unpriced adapter default under a frozen dollar budget', () => {
+  it('does not require Codex model ids to be priced', () => {
+    const input = compileSpec(spec('$20/run'));
+    const { model, ...step } = input.steps[0]!;
+    expect(budgetDiagnostics({...input, steps:[{...step, cli: 'codex'}]}, new Map([
+      ['ask', { cli: 'codex', model: 'gpt-5.2-codex' }],
+    ]))).toEqual([expect.objectContaining({ severity: 'warning', kind: 'budget_unmetered', stepId: 'ask' })]);
+  });
+  it('warns on an unpriced adapter default under a frozen dollar budget', () => {
     const input = compileSpec(spec('$20/run'));
     const { model, ...step } = input.steps[0]!;
     expect(budgetDiagnostics({...input, steps:[step]}, new Map([
-      ['ask', { model: 'future-default', source: 'adapter' as const }],
+      ['ask', { cli: 'claude', model: 'future-default' }],
     ]))).toEqual([expect.objectContaining({
-      kind: 'budget_missing_price', stepId: 'ask', model: 'future-default',
+      severity: 'warning', kind: 'budget_unmetered', stepId: 'ask',
+      message: expect.stringContaining('"future-default"'),
     })]);
   });
   it('resolves and probes the adapter default without requiring price for a token-only budget', () => {

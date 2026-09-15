@@ -8,9 +8,13 @@ Limits are non-negative; dollars support up to six decimal places.
 
 A day is a UTC calendar day within a run. Completed spend resets for admission
 at the next UTC day; unrelated runs do not share a global account. Header
-syntax errors refuse as `budget_syntax_invalid`. Declared models without a
-frozen price refuse as `budget_missing_price`; dollar budgets also require a
-model on each worker step. Existing project model allowlist checks still apply.
+syntax errors refuse as `budget_syntax_invalid`. Pricing is light enforcement
+and never refuses a run: under a dollar budget, an LLM/agent step with no
+model, or a model without a frozen price, warns as `budget_unmetered`, runs,
+and contributes no dollars. Codex selects its own model, so a Codex step
+without a declared model is expected to be unmetered. Priced steps still
+accrue dollars and a crossed limit still stops the run as described below.
+Existing project model allowlist checks still apply.
 
 Every newly written `step.completed` includes:
 

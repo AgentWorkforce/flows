@@ -14,7 +14,6 @@ const PREFLIGHT_ENVIRONMENT_FAILURE_KINDS = [
   'mcp_undeclared_server',
   'mcp_unreachable',
   'budget_syntax_invalid',
-  'budget_missing_price',
   'cli_missing',
   'cli_unauthenticated',
   'cli_unresolved',
@@ -61,12 +60,17 @@ export const CHECK_FAILURE_KINDS = [
  * `vacuous_gate` is the same principle applied to a declared gate that judges
  * nothing: `schema: {}` and `schema: true` are legal and accepted, but a gate
  * accepting every output must not be reported as if it constrained one.
+ *
+ * `budget_unmetered` names an LLM/agent step under a dollar budget whose model
+ * has no frozen price (including Codex, which selects its own model). Pricing
+ * is light enforcement: the step runs and simply contributes no dollars.
  */
 export const PREFLIGHT_WARNING_KINDS = [
   'unprovable_effects',
   'command_unresolved',
   'command_unprovable',
   'vacuous_gate',
+  'budget_unmetered',
 ] as const;
 
 /**

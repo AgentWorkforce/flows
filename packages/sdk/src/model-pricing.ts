@@ -16,10 +16,9 @@ export function hasPricing(model: string | undefined): boolean {
  *
  * Returns `undefined` for unpriced models — callers should omit `usage`
  * from the journal payload rather than sending nulls that break the kernel
- * wire schema. The refusal for a declared dollar budget against an unpriced
- * model is `budgetDiagnostics` at preflight (before any CLI dispatches).
- * Throwing here after usage decode would waste the CLI invocation that
- * preflight was meant to prevent.
+ * wire schema. An unpriced step is unmetered, not refused: it contributes no
+ * dollars to a budget, and `budgetDiagnostics` warns about it at preflight.
+ * Codex model ids need no entry here; Codex selects its own model.
  */
 export function pricedUsage(model: string | undefined, input = 0, output = 0):
   | { tokens_in: number; tokens_out: number; dollars: string }

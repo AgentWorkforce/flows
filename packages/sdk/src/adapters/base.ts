@@ -34,8 +34,8 @@ export interface HeadlessAdapter {
 
   /**
    * Stable model used only when neither the step nor its selected named agent
-   * declares one. Explicit authoring always wins. A default used with frozen
-   * dollar budgets must also have an entry in MODEL_PRICING.
+   * declares one. Explicit authoring always wins. A default without an entry
+   * in MODEL_PRICING runs unmetered under a dollar budget (a warning).
    */
   readonly defaultModel?: string;
 
