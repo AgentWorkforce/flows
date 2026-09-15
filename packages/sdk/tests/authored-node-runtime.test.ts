@@ -106,7 +106,7 @@ describe('Bun 1.4.0 standalone → native Node authored lifecycle', () => {
     expect(output.journalSteps.map((s:{id:string})=>s.id)).toEqual(['agent-1','run-2','run-3','run-4','complete-5']);
   }, 90_000);
 
-  it('stops on parent death and replays completed children under the same unfinished root', async () => {
+  it.each(['SIGKILL', 'SIGTERM'] as const)('stops on parent %s and replays completed children under the same unfinished root', async signal => {
     const f=fixture(sequential + `
 if(!existsSync('resume-ready')){
   writeFileSync('node-pid',String(process.pid));
@@ -134,7 +134,7 @@ f.done('success');`);
         if(journal[0]?.payload['spec']?.steps?.[0]?.id==='authored-root')rootId=id;
       }
       expect(rootId).toBeDefined();
-      child.kill('SIGKILL');await closed;
+      child.kill(signal);await closed;
       let alive=true;
       for(let attempt=0;attempt<100;attempt++){
         try{process.kill(nodePid,0);}catch(error){

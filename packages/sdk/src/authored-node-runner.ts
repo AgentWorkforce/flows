@@ -87,9 +87,8 @@ export async function runAuthoredInNode(
       const abort = (): void => stop(new Error('authored root execution was aborted'));
       options.signal?.addEventListener('abort', abort, { once: true });
       if (options.signal?.aborted) abort();
-      const onSigint = (): void => { child.kill('SIGINT'); };
-      const onSigterm = (): void => { child.kill('SIGTERM'); };
-      process.on('SIGINT', onSigint); process.on('SIGTERM', onSigterm);
+      // Do not intercept the parent's signals: its normal exit keeps the root
+      // recoverable. The child observes parent EOF (and shared process-group signals).
       const startupTimer = setTimeout(() => stop(new Error('authored runtime readiness timed out')), 10_000);
       startupTimer.unref();
       const pipe = child.stdio[3] as Readable;
@@ -129,7 +128,6 @@ export async function runAuthoredInNode(
         clearTimeout(startupTimer);
         if (killTimer !== undefined) clearTimeout(killTimer);
         options.signal?.removeEventListener('abort', abort);
-        process.off('SIGINT', onSigint); process.off('SIGTERM', onSigterm);
         if (failure) reject(failure);
         else if (code !== 0 || !ready || result === undefined || buffer.length > 0) reject(new Error('authored runtime exited without a complete result'));
         else resolve(result);
