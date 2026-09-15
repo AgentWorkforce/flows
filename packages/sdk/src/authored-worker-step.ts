@@ -11,6 +11,7 @@ import { SPEC_SCHEMA_VERSION, type FlowSpec, type StepSpec } from './spec.js';
 import { isSurfaceCompletionReason, readCompletedStepOutput, readSuccessfulOutput } from './authored-step-output.js';
 import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import { snapshotJsonValue } from './json-value.js';
+import { authoredChildAdmissionKey } from './authored-admission.js';
 
 const WORKSPACE_PERMISSION_ANNOTATION = /:\s*(readonly|readwrite)\s*$/i;
 
@@ -19,6 +20,7 @@ export function authoredWorkerRunner(
   definition: { name: string }, journal: JournalClient, flowPath: string,
   journalSteps: AuthoredFlowJournalStep[], waitOptions: RunLifecycleOptions,
   localAgentStream?: string, budget?: AuthoredBudget, headerBudget?: unknown,
+  rootRunId?: string,
 ) {
   async function run(step: StepSpec): Promise<unknown> {
     const id = step.id;
@@ -79,7 +81,10 @@ export function authoredWorkerRunner(
     }
     return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps);
     };
-    return budget === undefined ? consume(await journal.runStart(spec)) : budget.execute(journal, spec, consume);
+    const admissionKey = authoredChildAdmissionKey(rootRunId, id);
+    return budget === undefined
+      ? consume(await journal.runStart(spec, undefined, admissionKey))
+      : budget.execute(journal, spec, consume, admissionKey);
   }
 
   return {
@@ -164,6 +169,7 @@ export function authoredWorkerRunner(
 /** Deterministic commands execute inline under their per-invocation lease. */
 export function authoredDeterministicRunner(
   name: string, journal: JournalClient, journalSteps: AuthoredFlowJournalStep[], budget: AuthoredBudget,
+  rootRunId?: string,
 ) {
   return async (id: string, command: string, terminal = false, leaseMs?: number, verification?: NamedGate): Promise<string> => {
     const spec = toKernelSpec(compileSpec({
@@ -175,7 +181,12 @@ export function authoredDeterministicRunner(
         ...(verification === undefined ? {} : { verification }),
       }],
     }));
-    if (terminal) return readSuccessfulOutput(journal, await journal.runStart(spec), id, journalSteps);
-    return budget.execute(journal, spec, outcome => readSuccessfulOutput(journal, outcome, id, journalSteps));
+    const admissionKey = authoredChildAdmissionKey(rootRunId, id);
+    if (terminal) return readSuccessfulOutput(
+      journal, await journal.runStart(spec, undefined, admissionKey), id, journalSteps,
+    );
+    return budget.execute(
+      journal, spec, outcome => readSuccessfulOutput(journal, outcome, id, journalSteps), admissionKey,
+    );
   };
 }

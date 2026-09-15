@@ -1,4 +1,5 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -6,7 +7,7 @@ import { runCli } from '../src/cli.js';
 import { runInCloud, getCloudFlowRun, waitForCloudFlowRun } from '../src/cloud-run.js';
 import { cloudConnection } from '../src/cloud-http.js';
 import { compileSpec, toKernelSpec } from '../src/compile.js';
-import { specHash } from '../src/canonical.js';
+import { canonicalize, specHash } from '../src/canonical.js';
 import type { FlowSpec } from '../src/spec.js';
 
 const flow: FlowSpec = {
@@ -50,12 +51,45 @@ describe('hosted v2 submission', () => {
     expect(JSON.parse(body.workflow).steps[0]).toMatchObject({ id: 'gate', type: 'deterministic', command: 'printf verified' });
   });
 
-  it('refuses invalid specs and unsupported hosted TS before any HTTP request', async () => {
+  it('refuses invalid specs and unsupported source extensions before any HTTP request', async () => {
     const fetch = vi.spyOn(globalThis, 'fetch');
     const options = { token: 'test-token' };
     await expect(runInCloud({ ...flow, steps: [] }, options)).rejects.toThrow();
-    await expect(runInCloud({ path: 'example.flow.ts' }, options)).rejects.toMatchObject({ code: 'unsupported_source' });
+    await expect(runInCloud({ path: 'example.txt' }, options)).rejects.toMatchObject({ code: 'unsupported_source' });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('submits exact authored UTF-8 bytes with source and pinned Surface authority', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-authored-'));
+    dirs.push(dir);
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'flagship.flow.ts');
+    const source = "import { flow } from '@relayflows/surface';\n"
+      + "// exact UTF-8 boundary: 🛰️\n"
+      + "export default flow('cloud-authored', async f => f.done('success'));\n";
+    await writeFile(path, source);
+    let request: { workflow: string; fileType: string; relayflowVersion: string;
+      authoredAuthority: { sourceSha256: string; byteLength: number;
+        surface: { packageName: string; version: string; packageSha256: string; runtimeSha256: string } } } | undefined;
+    const options = await cloud((_url, body) => {
+      request = body as typeof request;
+      return { runId: 'authored-run', status: 'pending' };
+    });
+
+    const receipt = await runInCloud({ path }, options);
+
+    expect(request).toMatchObject({ workflow: source, fileType: 'ts', relayflowVersion: 'v2' });
+    expect(request!.authoredAuthority).toMatchObject({
+      sourceSha256: createHash('sha256').update(Buffer.from(source)).digest('hex'),
+      byteLength: Buffer.byteLength(source),
+      surface: { packageName: '@relayflows/surface', version: '2.0.10' },
+    });
+    expect(request!.authoredAuthority.surface.packageSha256).toMatch(/^[a-f0-9]{64}$/u);
+    expect(request!.authoredAuthority.surface.runtimeSha256).toMatch(/^[a-f0-9]{64}$/u);
+    expect(receipt).toMatchObject({ runId: 'authored-run', status: 'pending' });
+    expect(receipt.specHash).toBe(createHash('sha256')
+      .update(canonicalize(request!.authoredAuthority))
+      .digest('hex'));
   });
 
   it('accepts compiled kernel JSON using the existing compiler conversion', async () => {

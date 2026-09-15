@@ -10,6 +10,7 @@ import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import { readCompletedStepOutput } from './authored-step-output.js';
 import { withWorkerLease } from './worker-lease.js';
+import { authoredChildAdmissionKey } from './authored-admission.js';
 
 export class PluginStepError extends AuthoredFlowExecutionError {
   constructor(readonly diagnostic: string, runId: string) {
@@ -24,12 +25,14 @@ export class PluginStepError extends AuthoredFlowExecutionError {
 export async function runPluginEffect(
   journal: JournalClient, flowName: string, id: string, plugin: LoadedPlugin, verb: PluginVerb,
   args: unknown, journalSteps: AuthoredFlowJournalStep[], budget: AuthoredBudget,
+  rootRunId?: string,
 ): Promise<unknown> {
   const server = verb.namespace;
   const tool = verb.method;
   const idempotencyKey = `plugin:${server}:${tool}:${createHash('sha256').update(JSON.stringify(args)).digest('hex')}`;
   const surfacePath = `/plugins/${pathPart(server)}/${pathPart(tool)}`;
-  const stream = `plugin-worker-${randomUUID()}`;
+  const admissionKey = authoredChildAdmissionKey(rootRunId, id);
+  const stream = `plugin-worker-${admissionKey?.slice(-32) ?? randomUUID()}`;
   const instruction = JSON.stringify({ type: 'effect', server, tool, input: args });
   const peer = journal.createPeer();
   let diagnostic: string | undefined;
@@ -120,7 +123,7 @@ export async function runPluginEffect(
       childRunId = outcome.run_id;
       // run.start may answer after the deadline and the outer cleanup.
       if (dispatchExpired) await cancelChildRun();
-      await completed;
+      if (outcome.status !== 'completed') await completed;
       if (diagnostic !== undefined) {
         try { await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps); }
         catch (error) {
@@ -130,7 +133,7 @@ export async function runPluginEffect(
       }
       const receipt = await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps) as { output: unknown };
       return receipt.output;
-    }), deadline]);
+    }, admissionKey), deadline]);
   } finally {
     clearTimeout(timer);
     finishDeadline();

@@ -70,6 +70,75 @@ fn start_llm_run(data_dir: &Path, hub: &Arc<ProtocolHub>) -> String {
         .to_owned()
 }
 
+#[test]
+fn run_start_admission_key_recovers_the_same_run_and_refuses_spec_drift() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, _peer) = shared_writer();
+    let first = request(
+        data_dir,
+        &hub,
+        1,
+        &writer,
+        &json!({"id":"one","verb":"run.start","params":{
+            "admission_key":"authored-root:fixture",
+            "spec":{"name":"root","steps":[]}
+        }})
+        .to_string(),
+    );
+    assert!(first.ok, "first admission failed: {:?}", first.error);
+    let run_id = first.result.unwrap()["run_id"].as_str().unwrap().to_owned();
+
+    let retried = request(
+        data_dir,
+        &hub,
+        1,
+        &writer,
+        &json!({"id":"two","verb":"run.start","params":{
+            "admission_key":"authored-root:fixture",
+            "spec":{"name":"root","steps":[]}
+        }})
+        .to_string(),
+    );
+    assert!(retried.ok, "retry failed: {:?}", retried.error);
+    assert_eq!(retried.result.unwrap()["run_id"], run_id);
+
+    let drifted = request(
+        data_dir,
+        &hub,
+        1,
+        &writer,
+        &json!({"id":"three","verb":"run.start","params":{
+            "admission_key":"authored-root:fixture",
+            "spec":{"name":"different","steps":[]}
+        }})
+        .to_string(),
+    );
+    assert!(!drifted.ok);
+    assert_eq!(drifted.error.unwrap().code, "run_admission_conflict");
+}
+
+#[test]
+fn run_start_refuses_invalid_admission_keys() {
+    let directory = tempdir().unwrap();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, _peer) = shared_writer();
+    let response = request(
+        directory.path(),
+        &hub,
+        1,
+        &writer,
+        &json!({"id":"one","verb":"run.start","params":{
+            "admission_key":"spaces are not an identity",
+            "spec":{"name":"root","steps":[]}
+        }})
+        .to_string(),
+    );
+    assert!(!response.ok);
+    assert_eq!(response.error.unwrap().code, "invalid_admission_key");
+}
+
 fn read_frame(reader: &mut BufReader<UnixStream>) -> Value {
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();

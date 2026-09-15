@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flow } from '@relayflows/surface';
 import { executeAuthoredFlow, AuthoredFlowExecutionError } from '../src/authored-flow-executor.js';
 import { attachLocalAgent } from '../src/local-agent.js';
@@ -15,7 +15,10 @@ import { chainFixture, shellWord } from './flow-chain-fixture.js';
 
 const schema = { type: 'object', required: ['message'], properties: { message: { type: 'string' } } };
 const closes: Array<() => Promise<void>> = [];
-afterEach(async () => { for (const close of closes.splice(0).reverse()) await close(); });
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  for (const close of closes.splice(0).reverse()) await close();
+});
 
 async function setup(output?: string) {
   const fixture = chainFixture(output);
@@ -112,19 +115,29 @@ describe('flow executor LLM and output-binding chain', () => {
     expect(existsSync(fixture.calls)).toBe(false);
   });
 
-  it('runs the authored LLM path through the built flows CLI', async () => {
+  it('runs the exact authored flagship f.llm -> f.agent -> f.run path through the durable CLI root', async () => {
     const fixture = chainFixture();
     closes.push(() => fixture.close());
     await fixture.connect();
+    vi.stubEnv('RELAYFLOW_AUTHORED_ADMISSION_KEY', 'flagship-lost-ack-fixture');
+    const artifact = join(fixture.root, 'cli-flagship.txt');
     writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
-export default flow('cli-llm', async f => {
+export default flow('cli-flagship', async f => {
   const value = await f.llm('EXTRACT', { output: ${JSON.stringify(schema)} });
   if (JSON.stringify(value) !== '{"message":"hello from llm"}') throw new Error('wrong output');
+  const drafted = await f.agent('draft', { task: 'Draft from ' + JSON.stringify(value) });
+  if (drafted.summary !== '{"message":"hello from llm"}') throw new Error('wrong draft');
+  await f.run(${JSON.stringify(`printf x >> ${shellWord(artifact)}`)});
   f.done('success');
 });`);
-    const result = fixture.invoke('run', fixture.flowPath, '--input', '{}', '--local-agent', '--data-dir', fixture.data, '--json');
-    expect(result.status, result.stderr + result.stdout).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({ completionReason: 'success', completedSteps: 2 });
+    const first = fixture.invoke('run', fixture.flowPath, '--input', '{}', '--local-agent', '--data-dir', fixture.data, '--json');
+    expect(first.status, first.stderr + first.stdout).toBe(0);
+    const admitted = JSON.parse(first.stdout);
+    expect(admitted).toMatchObject({ completionReason: 'success', completedSteps: 4 });
+    const retried = fixture.invoke('run', fixture.flowPath, '--input', '{}', '--local-agent', '--data-dir', fixture.data, '--json');
+    expect(retried.status, retried.stderr + retried.stdout).toBe(0);
+    expect(JSON.parse(retried.stdout)).toMatchObject({ runId: admitted.runId, completedSteps: 4 });
+    expect(readFileSync(artifact, 'utf8')).toBe('x');
   });
 
   it('passes a declarative verified value through an agent into a deterministic artifact', async () => {

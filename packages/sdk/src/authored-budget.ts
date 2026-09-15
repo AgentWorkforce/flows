@@ -20,8 +20,9 @@ export class AuthoredBudget {
     }
   }
 
-  async execute<T>(journal: JournalClient, spec: KernelRunSpec, consume: (outcome: RunOutcome) => Promise<T>): Promise<T> {
-    if (this.limit === undefined) return consume(await journal.runStart(spec));
+  async execute<T>(journal: JournalClient, spec: KernelRunSpec,
+    consume: (outcome: RunOutcome) => Promise<T>, admissionKey?: string): Promise<T> {
+    if (this.limit === undefined) return consume(await journal.runStart(spec, undefined, admissionKey));
     const previous = this.tail;
     let release!: () => void;
     this.tail = new Promise<void>(resolve => { release = resolve; });
@@ -38,7 +39,7 @@ export class AuthoredBudget {
         tokens_in: exactNumber(total.input), tokens_out: exactNumber(total.output),
         dollars: `${total.micro / 1_000_000n}.${String(total.micro % 1_000_000n).padStart(6, '0')}`,
         wallclock_ms: exactNumber(total.ms), ...(this.limit.window === 'day' && day !== undefined ? { day } : {}),
-      } } });
+      } } }, undefined, admissionKey);
       try {
         if (outcome.completion_reason === 'budget_exceeded') throw new AuthoredFlowExecutionError('step_failed', 'Flow budget exceeded before the next step.', 'budget_exceeded', outcome.run_id);
         return await consume(outcome);

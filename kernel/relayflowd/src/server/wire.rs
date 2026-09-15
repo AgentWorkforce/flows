@@ -40,6 +40,7 @@ pub(super) struct HelloParams {
 pub(super) struct RunStartParams {
     pub spec: Value,
     pub reuse_from_run_id: Option<String>,
+    pub admission_key: Option<String>,
 }
 
 #[derive(Deserialize)]

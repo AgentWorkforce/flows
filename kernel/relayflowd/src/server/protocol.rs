@@ -65,6 +65,16 @@ fn mutation_error(error: anyhow::Error) -> (&'static str, String) {
 pub(super) fn run_start_error(error: anyhow::Error) -> (&'static str, String) {
     if let Some(reuse) = error.downcast_ref::<crate::engine::ReuseError>() {
         (reuse.code, reuse.detail.clone())
+    } else if error
+        .downcast_ref::<crate::engine::RunAdmissionConflict>()
+        .is_some()
+    {
+        ("run_admission_conflict", error.to_string())
+    } else if error
+        .downcast_ref::<crate::engine::RunAdmissionInvalid>()
+        .is_some()
+    {
+        ("invalid_admission_key", error.to_string())
     } else if error.downcast_ref::<SpecError>().is_some() {
         ("invalid_spec", format!("{error:#}"))
     } else {
