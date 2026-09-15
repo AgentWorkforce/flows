@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -105,6 +105,57 @@ describe('Bun 1.4.0 standalone → native Node authored lifecycle', () => {
     expect(output.executionRuntime.payloadSha256).toMatch(/^[a-f0-9]{64}$/);
     expect(output.journalSteps.map((s:{id:string})=>s.id)).toEqual(['agent-1','run-2','run-3','run-4','complete-5']);
   }, 90_000);
+
+  it('stops on parent death and replays completed children under the same unfinished root', async () => {
+    const f=fixture(sequential + `
+if(!existsSync('resume-ready')){
+  writeFileSync('node-pid',String(process.pid));
+  writeFileSync('resume-ready','yes');
+  await new Promise(()=>{});
+}
+f.done('success');`);
+    const child=spawn(cli,['run','case.flow.ts','--input','{}',...f.flags],{
+      cwd:f.directory,env:f.env,stdio:['ignore','pipe','pipe'],
+    });
+    let logs='';child.stdout.on('data',bytes=>{logs+=bytes});child.stderr.on('data',bytes=>{logs+=bytes});
+    const closed=new Promise<void>(resolve=>child.once('close',()=>resolve()));
+    let nodePid:number|undefined;
+    try {
+      const deadline=Date.now()+15_000;
+      while(!existsSync(join(f.directory,'resume-ready')) && Date.now()<deadline){
+        if(child.exitCode!==null)throw new Error(logs);
+        await new Promise(r=>setTimeout(r,50));
+      }
+      expect(existsSync(join(f.directory,'resume-ready')),logs).toBe(true);
+      nodePid=Number(readFileSync(join(f.directory,'node-pid'),'utf8'));
+      let rootId:string|undefined;
+      for(const file of readdirSync(join(f.directory,'data/runs')).filter(name=>name.endsWith('.sqlite3'))){
+        const id=file.slice(0,-8);const journal=await entries(f.directory,id);
+        if(journal[0]?.payload['spec']?.steps?.[0]?.id==='authored-root')rootId=id;
+      }
+      expect(rootId).toBeDefined();
+      child.kill('SIGKILL');await closed;
+      let alive=true;
+      for(let attempt=0;attempt<100;attempt++){
+        try{process.kill(nodePid,0);}catch(error){
+          if((error as NodeJS.ErrnoException).code==='ESRCH'){alive=false;break;}throw error;
+        }
+        await new Promise(r=>setTimeout(r,20));
+      }
+      expect(alive,'lease-owning parent loss must terminate Node body').toBe(false);nodePid=undefined;
+      const resumed=f.invoke(['resume',rootId!]);expect(resumed.status,resumed.stderr+resumed.stdout).toBe(0);
+      expect(JSON.parse(resumed.stdout).runId).toBe(rootId);
+      expect(readFileSync(join(f.directory,'agent-effects'),'utf8')).toBe('once\n');
+      expect(readFileSync(join(f.directory,'run-effects'),'utf8')).toBe('onetwothree');
+      const rootJournal=await entries(f.directory,rootId!);
+      expect(rootJournal.filter(e=>e.entry_type==='step.attempt.started')).toHaveLength(2);
+      expect(rootJournal.filter(e=>e.entry_type==='run.completed')).toHaveLength(1);
+      expect(rootJournal.at(-1)?.payload['completionReason']).toBe('success');
+    } finally {
+      child.kill('SIGKILL');
+      if(nodePid!==undefined){try{process.kill(nodePid,'SIGKILL');}catch(error){if((error as NodeJS.ErrnoException).code!=='ESRCH')throw error;}}
+    }
+  },60_000);
 
   it.each([
     ['unawaited', `f.run("printf ignored >> forbidden-effects");f.done('success');`],
