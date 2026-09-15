@@ -68,6 +68,41 @@ fn the_kernel_parses_the_rung_c_agent_spec_and_stamps_the_same_hash() {
 }
 
 #[test]
+fn the_kernel_round_trips_declared_agent_transports_and_rejects_unknown_values() {
+    for transport in ["direct", "relay"] {
+        let value = serde_json::json!({
+            "steps": [{
+                "id": "agent",
+                "type": "agent",
+                "instruction": "work",
+                "transport": transport,
+            }],
+        });
+        let parsed = RunSpec::parse(&value).expect("declared agent transport must parse");
+        parsed
+            .validate()
+            .expect("declared agent transport must validate");
+        assert_eq!(
+            serde_json::to_value(parsed).unwrap()["steps"][0]["transport"],
+            transport
+        );
+    }
+
+    let unknown = serde_json::json!({
+        "steps": [{
+            "id": "agent",
+            "type": "agent",
+            "instruction": "work",
+            "transport": "telepathy",
+        }],
+    });
+    assert!(
+        RunSpec::parse(&unknown).is_err(),
+        "unknown transport must fail closed"
+    );
+}
+
+#[test]
 fn the_kernel_parses_the_event_triggered_spec_and_stamps_the_same_hash() {
     assert_parity(
         include_str!(concat!(
