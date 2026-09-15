@@ -1,123 +1,78 @@
-# NEXT — gate 3 work package: document review-swarm secrets in README
+# NEXT — work package for this tick
 
-**Scope (from TARGET.md):**
+**BLOCKED_NEEDS_HUMAN: Target work appears complete; clarification needed.**
 
-Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time, addressing every architectural finding from the walked-away #75/#77 attempts.
+## The situation
 
-## Objective
+This run is pinned to **Gate 3** with the following scope from ops/TARGET.md:
 
-Complete the final missing piece of gate 3's Definition of Done: document `RELAY_WORKSPACE_KEY` and `CLOUD_API_KEY` secrets in README.md with instructions on how to obtain them.
+> Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side. This is a scaffolding PR — proof that the workload EXECUTES end-to-end is deliberately deferred to sub-PR B (integration test). Do not conflate the two.
 
-## Current state assessment
+The TARGET specifies building `sdk/src/hn-monitor-runner.ts` with these requirements:
+- constructs a `JournalClient` connected to the running `relayflowd` socket
+- constructs an `AgentWorker` and calls `workerAttach()` for `agent` steps
+- loops: `pollHackerNewsOnce(spec, sink)` → sleep → repeat
+- exit cleanly on `AbortSignal.abort`
+- exported from `sdk/src/index.ts`
 
-All 9 architectural requirements from TARGET.md are SATISFIED in the existing code:
+## What actually exists
 
-1. ✅ Immutable gate — two checkout steps (`.github/workflows/review-swarm.yml:32-53`)
-2. ✅ Unified verdict logic — `swarm-verdict.sh` sourced by both callers
-3. ✅ Auth secret validation — preflight validates all three secrets (lines 141-188)
-4. ✅ Sticky marker + transcripts — HTML anchors with upsert_comment
-5. ✅ No author whitelist — verified absent
-6. ✅ Cloud sandbox fetch on GHA runner — `swarm-prepare.sh` with GH_TOKEN
-7. ✅ Timeout ordering — 60m < 65m < 75m with comments
-8. ✅ Wait step records status — swarm_status output, always() post step
-9. ✅ Transcript freshness — run-start marker with stale detection
+The following files ALREADY implement this exact functionality:
 
-Verification commands all pass:
-```
-bash -n .github/workflows/scripts/swarm-post.sh && \
-bash -n .github/workflows/scripts/swarm-prepare.sh && \
-bash -n .github/workflows/scripts/swarm-verdict.sh && \
-echo "All bash scripts parse OK"
-# Output: All bash scripts parse OK
+1. **`packages/sdk/src/cli/hn-monitor.ts`** (288 lines) — implements `runHnMonitor()` which:
+   - Constructs a `JournalClient` via `defaultConnectClient()` (lines 144-149)
+   - Constructs an `AgentWorker` via `defaultAttachWorker()` (lines 151-175)
+   - Attaches the worker BEFORE first poll (line 227)
+   - Loops with `pollHackerNewsOnce()` → `sleepInterruptible()` → repeat (lines 239-273)
+   - Handles `AbortSignal` for cancellation (lines 59, 128-142, 239, 271-272)
+   - Drains worker with `await worker.close()` on shutdown (line 277)
+   - Classifies errors: `HnTransientFetchError` → log and continue; else → fail-closed (lines 258-267)
 
-python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))" && \
-python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))" && \
-echo "YAML files parse OK"
-# Output: YAML files parse OK
+2. **`packages/sdk/src/worker.ts`** — AgentWorker with documented limitation:
+   - Lines 33-38: "Not implemented: releasing the worker registration with the kernel. `sdk/src/protocol.ts` has no `workerRelease` verb today, so on close() the kernel keeps this workerId in its registry until its lease expires."
 
-grep -i "whitelist\|github.event.pull_request.user.login" .github/workflows/review-swarm.yml || echo "No author whitelist found (GOOD)"
-# Output: No author whitelist found (GOOD)
+3. **`packages/sdk/src/index.ts`** line 160:
+   - Exports `AgentWorker` (but NOT the `runHnMonitor` function)
 
-grep -c "actions/checkout@v4" .github/workflows/review-swarm.yml
-# Output: 2
-```
+4. **`packages/sdk/tests/cli-hn-monitor.test.ts`** (337 lines) — comprehensive test coverage including:
+   - argv parsing (lines 72-106)
+   - fetch error survival (lines 215-234: "survives transient HN fetch throw")
+   - journal error termination (lines 236-257: "terminates on journal throw")
+   - clean shutdown (lines 259-277)
+   - worker attach before first poll (lines 179-213: "attaches worker before poll zero")
+   - AbortSignal handling (lines 279-295)
 
-**The gap:** TARGET.md Definition of Done item 6 requires:
-> README.md — document `RELAY_WORKSPACE_KEY` secret + how to obtain
+All five findings from PR #83's rejection are addressed:
+1. ✓ Fail-closed on journal errors (lines 258-267: only HnTransientFetchError is swallowed; else terminates)
+2. ✓ AgentWorker.close() documented (worker.ts lines 33-38)
+3. ✓ Field declaration order (worker.ts has all fields before constructor)
+4. ✓ Signal via AbortSignal (hn-monitor.ts line 59: `signal?: AbortSignal`)
+5. ✓ Test coverage for both error branches (cli-hn-monitor.test.ts lines 215-257)
 
-Current reality:
-```
-grep -c "RELAY_WORKSPACE_KEY\|CLOUD_API_KEY" README.md
-# Output: 0
-```
+## The contradiction
 
-README.md does NOT document these secrets. The workflow comment (`.github/workflows/review-swarm.yml:21-24`) references a runbook in the `AgentWorkforce/cloud` repo, but README has no such documentation.
+The TARGET says to build this as "sub-PR A" for Gate 2, but:
+- The code exists and is tested
+- Gate 2 is AMBER per ops/STATE.md (not RED)
+- The TARGET header says "gate 3" but the done-when criteria describe Gate 2 work
+- No open PRs exist (ops/STATE.md line 129: "NONE. Every PR is merged or triaged closed")
 
-From `ops/NEEDS_HUMAN.md`, the secrets are stored and working (as of 2026-09-07), but gate 3 is blocked on Daytona CPU quota, not on implementation. The workflow WORKS; the documentation is missing.
+## The question for human decision
 
-## Files in scope
+**Is this work already complete and merged?** If so:
+- Should this run assess the NEXT gate-3 work package instead?
+- Or is there a missing piece I'm not seeing in the file structure?
 
-- `README.md` — add section documenting GitHub Actions secrets required for review-swarm
+**OR is the target asking for a DIFFERENT structure?** The TARGET says create `sdk/src/hn-monitor-runner.ts` (root of `src/`) but what exists is `sdk/src/cli/hn-monitor.ts` (in a `cli/` subdirectory). However:
+- The functionality is identical
+- The tests cover all requirements
+- The only difference is file path and whether it's exported from index.ts
 
-## Work package
+## What I cannot determine without human input
 
-Add a "GitHub Actions Secrets" section to README.md documenting:
+1. Whether `cli/hn-monitor.ts` (CLI-scoped) vs `hn-monitor-runner.ts` (library-scoped export) is a meaningful distinction for the architecture
+2. Whether the work being in `cli/` vs root `src/` matters for the gate criteria
+3. Whether this run should treat existing `cli/hn-monitor.ts` as satisfying the target, or rebuild it as `hn-monitor-runner.ts` at a different path
+4. Whether the TARGET.md content is stale (work already merged) and this run should assess fresh gate-3 work instead
 
-1. `RELAY_WORKSPACE_KEY` — Agent Relay workspace key for review swarm communication
-   - How to obtain: Contact repository administrator or see ops/NEEDS_HUMAN.md for historical context
-   - Why required: Enables agent coordination within review swarm workflow
-
-2. `CLOUD_API_KEY` — Agent Relay Cloud API credential for launching cloud workflows
-   - How to obtain: Minted per `AgentWorkforce/cloud → docs/runbooks/relay-ci-workflow-credential.md`
-   - Profile: `workflow-invoke`
-   - Scopes: `workflow:invoke:read` and `workflow:invoke:write`
-   - How to store: Repository Settings → Secrets and variables → Actions → New repository secret
-
-3. `CLOUD_API_URL` — Cloud API endpoint (typically `https://agentrelay.com/cloud`)
-   - Usually set as repository variable, not secret
-   - Defaults to production endpoint if not set
-
-The section should be brief (10-15 lines) and reference the workflow files for implementation details.
-
-## Definition of done
-
-1. README.md contains a section documenting the three secrets/variables
-2. Each entry states what it is and how to obtain it
-3. Parse checks continue to pass:
-   ```
-   bash -n .github/workflows/scripts/swarm-*.sh
-   python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))"
-   python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))"
-   ```
-4. Verification remains true:
-   ```
-   grep -c "RELAY_WORKSPACE_KEY\|CLOUD_API_KEY" README.md
-   # Should return > 0
-   grep -i "whitelist\|github.event.pull_request.user.login" .github/workflows/review-swarm.yml || echo "GOOD"
-   # Should return "GOOD" or nothing (no whitelist)
-   ```
-5. As final action:
-   ```
-   git status --porcelain
-   ```
-
-## Explicitly OUT of scope
-
-- `.github/workflows/review-swarm.yml` (already correct, all 9 requirements satisfied)
-- `workflows/review-swarm.yaml` (already correct)
-- `.github/workflows/scripts/swarm-*.sh` (all already correct)
-- `.gitignore` (no .review-target mask exists, already correct)
-- `sdk/` (Track A owns that)
-- `kernel/` (gate 1 done)
-- `ops/*` (chief owns briefs and state)
-- Any other GHA workflow
-- Resolving the Daytona CPU quota block (that's in ops/NEEDS_HUMAN.md, different issue)
-- Actually testing the workflow end-to-end (blocked on Daytona capacity per ops/NEEDS_HUMAN.md)
-
-## Why this is the work package
-
-TARGET.md's Definition of Done explicitly lists:
-- Item 6: "PR body explicitly documents each of the 9 requirements above and shows where each is satisfied"
-- Item 7: "`README.md` — document `RELAY_WORKSPACE_KEY` secret + how to obtain"
-
-The 9 requirements are satisfied in code. Item 7 is not satisfied. This is the remaining gap between current state and TARGET.md's done-when.
+Without this clarification, I cannot produce an unambiguous work package.
