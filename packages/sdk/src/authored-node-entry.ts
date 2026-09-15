@@ -38,6 +38,10 @@ const watchdog = new Worker(`
   function check(){if(process.ppid!==workerData.parentPid)process.kill(process.pid,'SIGKILL');}
   check();setInterval(check,50);parentPort.postMessage('ready');
 `, { eval: true, workerData: { parentPid } });
+// Enforcement must not silently disappear after the readiness Promise settles.
+const watchdogLost = (): void => { if (!finished) process.kill(process.pid, 'SIGKILL'); };
+watchdog.on('error', watchdogLost);
+watchdog.on('exit', watchdogLost);
 let client: JournalClient | undefined;
 try {
   assertAuthoredNodeVersion();
