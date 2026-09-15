@@ -25,7 +25,7 @@ export interface CloudRunReceipt {
   apiUrl: string;
 }
 export type CloudRunState =
-  | { runId: string; status: 'pending' | 'running' }
+  | { runId: string; status: 'pending' | 'launching' | 'running' }
   | { runId: string; status: 'completed' | 'failed' | 'cancelled'; completionReason: RunCompletionReason };
 
 /**
@@ -92,10 +92,12 @@ export async function getCloudFlowRun(
   const result = await cloudRequest(`/api/v1/workflows/runs/${runId}`, options);
   if (!isCloudRecord(result) || result.runId !== runId || result.relayflowVersion !== 'v2'
     || typeof result.status !== 'string'
-    || !['pending', 'running', 'completed', 'failed', 'cancelled'].includes(result.status)) {
+    || !['pending', 'launching', 'running', 'completed', 'failed', 'cancelled'].includes(result.status)) {
     throw new CloudFlowError('invalid_response', 'Cloud returned an invalid v2 run record.');
   }
-  if (result.status === 'pending' || result.status === 'running') return { runId, status: result.status };
+  if (result.status === 'pending' || result.status === 'launching' || result.status === 'running') {
+    return { runId, status: result.status };
+  }
   const report = result.result;
   const reason = isCloudRecord(report) ? report.completionReason : undefined;
   if (typeof reason !== 'string' || !(RUN_COMPLETION_REASONS as readonly string[]).includes(reason)
@@ -122,7 +124,7 @@ export async function waitForCloudFlowRun(
     try {
       const run = await getCloudFlowRun(runId, options);
       failures = 0;
-      if (run.status !== 'pending' && run.status !== 'running') return run;
+      if (run.status !== 'pending' && run.status !== 'launching' && run.status !== 'running') return run;
     } catch (error) {
       options.signal?.throwIfAborted();
       const transient = error instanceof CloudFlowError && (error.code === 'transient_error'
