@@ -200,6 +200,50 @@ describe("durable Relay task transport", () => {
     expect(f.posts()).toHaveLength(1);
     expect(f.reads).toBe(1);
   });
+  it("reconciles a confirmed POST through delayed GET visibility", async () => {
+    const f = await fixture();
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    let firstRead = true;
+    const fetchMock = vi.fn(
+      async (url: string | URL | Request, init?: RequestInit) => {
+        const response = await f.fetchMock(url, init);
+        if (String(url).includes("/invocations/") && firstRead) {
+          firstRead = false;
+          now += 31_000;
+          return new Response("", { status: 404 });
+        }
+        return response;
+      },
+    );
+    const receipt = await runAgentRelayTask(f.request, {
+      agentToken: "fixture-agent-token",
+      fetch: fetchMock as typeof fetch,
+      pollMs: 1,
+    });
+    expect(receipt.status).toBe("completed");
+    expect(f.posts()).toHaveLength(1);
+    expect(f.reads).toBe(2);
+  });
+  it("bounds caller identity resolution before a durable claim exists", async () => {
+    const f = await fixture();
+    let now = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => {
+      const current = now;
+      now += 31_000;
+      return current;
+    });
+    const fetchMock = vi.fn(async () => new Response("", { status: 503 }));
+    await expect(
+      runAgentRelayTask(f.request, {
+        agentToken: "fixture-agent-token",
+        fetch: fetchMock as typeof fetch,
+        pollMs: 1,
+      }),
+    ).rejects.toThrow(/reconciliation deadline/);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(f.posts()).toHaveLength(0);
+  });
   it("reopens the durable dispatch after interruption and reads the original task", async () => {
     const f = await fixture();
     f.setStatus("running");

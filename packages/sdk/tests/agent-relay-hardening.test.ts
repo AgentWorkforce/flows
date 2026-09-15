@@ -59,6 +59,23 @@ describe("Relay credential origin", () => {
 });
 
 describe("Relay acceptance identity", () => {
+  for (const status of ["pending", "dispatched", "running"] as const) {
+    for (const [field, invalid] of [
+      ["error", 7],
+      ["completed_at", { forged: true }],
+    ] as const) {
+      it(`refuses ${field} with the wrong type on ${status} receipts`, () => {
+        const receipt = structuredClone(
+          status === "running" ? wire.running.data : wire.dispatched.data,
+        );
+        receipt.status = status;
+        receipt[field] = invalid;
+        expect(() => readTaskReceipt(receipt, id, wire.input)).toThrow(
+          /invalid field types/,
+        );
+      });
+    }
+  }
   it("allows generation and acceptance time to appear once on the same execution", () => {
     const pending = readTaskReceipt(wire.dispatched.data, id, wire.input);
     expect(

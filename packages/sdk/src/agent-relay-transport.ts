@@ -107,7 +107,9 @@ export async function runAgentRelayTask(
     throw new AgentRelayTransportError("Invalid Relay task polling interval");
   const doFetch = options.fetch ?? globalThis.fetch;
   const outer = options.signal ?? new AbortController().signal;
-  let deadline = Date.now() + timeoutMs + 30_000;
+  // No durable claim exists while caller identity is being resolved. Bound
+  // that read independently of the task's (potentially day-long) deadline.
+  let deadline = Date.now() + 30_000;
   let missingDeadline = Date.now() + 30_000;
   async function http(
     path: string,
@@ -253,6 +255,10 @@ export async function runAgentRelayTask(
         "Relay task acknowledgment has mismatched invocation or input",
       );
     }
+    // A matching acknowledgment proves the POST committed. GET may still lag
+    // briefly, but the durable claim forbids another POST, so reconcile until
+    // the task deadline instead of applying the ambiguous-POST cutoff.
+    if (Object.keys(ack).length) missingDeadline = deadline;
   }
   let previous: RelayTaskReceipt | undefined;
   for (;;) {

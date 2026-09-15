@@ -95,6 +95,12 @@ export function readTaskReceipt(
     throw new Error("Relay task receipt has invalid accounting");
   }
   if (
+    (value.error !== null && typeof value.error !== "string") ||
+    (value.completed_at !== null && typeof value.completed_at !== "string")
+  ) {
+    throw new Error("Relay task receipt has invalid field types");
+  }
+  if (
     value.status === "completed" &&
     (!Object.hasOwn(value, "output") ||
       value.error !== null ||
