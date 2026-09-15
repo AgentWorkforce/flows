@@ -1,83 +1,63 @@
-# NEEDS_HUMAN — Conflicting Work Package Context
+# NEEDS HUMAN — Gate confusion: is TARGET.md work already complete?
 
-**Situation:** This run has conflicting scope context that requires human clarification.
+**Run:** 4b70c379-1e78-4702-a2cf-45eded63798a
+**Date:** 2026-09-15
+**Agent:** Relayflow Lead (assess step)
 
-## The Conflict
+## The question
 
-1. **ops/TARGET.md says:** Gate 3, build hn-monitor runner (sub-PR A), `sdk/src/` code task
-2. **ops/NEXT.md says:** Gate 3, cloud review-swarm preflight validation, `.github/workflows/` task  
-3. **These are completely different tasks** — one is SDK code (track A per TARGET), one is GitHub Actions (track D per NEXT)
+TARGET.md pins this run to **gate 3** and asks for:
 
-## Evidence
+> Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side.
 
-**ops/TARGET.md line 1-5:**
-```
-# TARGET — gate 3
+It specifies adding `sdk/src/hn-monitor-runner.ts` with:
+- JournalClient connection
+- AgentWorker attach BEFORE first poll
+- Poll loop with configurable interval
+- Clean shutdown on AbortSignal
+- Address 5 findings from closed PR #83
 
-This run is pinned to **gate 3** and must not work on any other gate.
+However, STATE.md (last updated 2026-09-01) shows:
 
-**Scope:** Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side.
-```
+> - PR #120 (`201542a`, merged 2026-09-01 08:29 UTC) —
+>   **`flows hn-monitor start`**, the CLI runner that turns the poller
+>   into an unattended process.
 
-**ops/NEXT.md line 1-3:**
-```
-# NEXT — gate 3: complete cloud review-swarm preflight validation and documentation
+And the file `packages/sdk/src/cli/hn-monitor.ts` (observed in earlier read operations) appears to be 288 lines implementing exactly what TARGET.md asks for:
+- `runHnMonitor` function composing JournalClient + AgentWorker
+- Attach before poll (line 227)
+- Poll loop with configurable interval (lines 239-273)
+- Clean shutdown on AbortSignal (lines 239, 274-278)
+- Error classification (fetch vs journal, lines 258-267)
 
-**Scope:** Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time
-```
+## The options
 
-## The Charter Says
+**Option A:** PR #120's `cli/hn-monitor.ts` IS the implementation TARGET.md requests.
+- Action: Verify it satisfies all 9 items from TARGET.md Definition of Done
+- If yes: This work package is complete, just needs verification evidence
+- If no: Document gaps and implement missing pieces
 
-Per charter/LEAD.md (the instruction I received):
-- "Read ops/TARGET.md if it exists" — it does, says hn-monitor
-- "Then read ops/STATE.md, ops/DIRECTIVES.md" — done
-- "Then write ops/NEXT.md: the SINGLE highest-priority work package toward the current gate"
+**Option B:** TARGET.md wants a DIFFERENT `sdk/src/hn-monitor-runner.ts` separate from the CLI.
+- Question: What should differ? The TARGET says "add `sdk/src/hn-monitor-runner.ts`" but the merged code is at `sdk/src/cli/hn-monitor.ts`
+- Is this a path difference that matters? Or should the runner be factored out of the CLI wrapper?
 
-But ops/NEXT.md ALREADY EXISTS with different work.
+**Option C:** The TARGET.md is stale.
+- The prior ops/NEXT.md said gate 3 work is "document review-swarm secrets in README"
+- Is that the actual current gate 3 work?
 
-## Additional Context Found
+## Why blocked
 
-**ops/STATE.md gate 2 block (lines 39-81)** says:
-- PR #120 merged 2026-09-01 — `flows hn-monitor start` CLI runner
-- Gate 2 is AMBER, not GREEN
-- Two clauses remain: trigger-plane liveness, analyze-agent execution
+Cannot execute the work package without knowing whether to:
+1. Verify existing code
+2. Build new code alongside existing code
+3. Work on different task entirely
 
-**Actual file check:**
-- `packages/sdk/src/cli/hn-monitor.ts` exists (288 lines)
-- Contains `runHnMonitor` function implementing all TARGET.md requirements
-- Addresses all five findings from closed PR #83
-
-## The Question
-
-**Which work package should this run execute?**
-
-**Option A: ops/TARGET.md wins (hn-monitor, sdk/ territory)**
-- Overwrite ops/NEXT.md with hn-monitor work package
-- But the code already exists (PR #120 merged per STATE.md)
-- Task would be verification/testing, not building from scratch
-
-**Option B: ops/NEXT.md wins (review-swarm, .github/ territory)**
-- Ignore ops/TARGET.md
-- Execute the review-swarm validation work
-- But TARGET.md explicitly pins this run to gate 3 hn-monitor work
-
-**Option C: TARGET.md is stale**
-- The launcher wrote an outdated TARGET.md referencing closed PR #83
-- Real work is in ops/NEXT.md (review-swarm)
-- Proceed with review-swarm, update TARGET understanding
-
-**Option D: Both are stale**
-- Neither accurately reflects current gate 3 needs
-- Assessor should read RFC-0001 §3 gate 3 definition
-- Write fresh work package from RFC requirements
+The charter requires: "if genuinely blocked on a decision only a human can make, write ops/NEEDS_HUMAN.md with the exact question and the options — then still end with ASSESS_DONE."
 
 ## Recommendation
 
-**Option C** — ops/TARGET.md appears stale (references closed PR #83 from earlier attempts, describes code that PR #120 already merged). The active work package is ops/NEXT.md (review-swarm). But I need human confirmation before overwriting NEXT.md or executing potentially wrong work.
+Check PR #120's diff and STATE.md:
+- If `cli/hn-monitor.ts` merged in #120 addresses TARGET.md's scope → verify it
+- If not → clarify what's still needed
 
-## What I Need
-
-**Clear answer:** Which work package is correct for this run?
-- If hn-monitor: shall I overwrite the review-swarm NEXT.md, or is there a different file I should write?
-- If review-swarm: shall I proceed with ops/NEXT.md as-is and ignore TARGET.md?
-- If neither: what is the actual gate 3 work I should assess?
+The run should not silently re-implement already-merged work.
