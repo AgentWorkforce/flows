@@ -115,11 +115,12 @@ describe('hosted v2 submission', () => {
 });
 
 describe('hosted observation', () => {
-  it('polls running records until a validated terminal reason arrives', async () => {
+  it('polls launching and running records until a validated terminal reason arrives', async () => {
     let calls = 0;
     const options = await cloud(() => {
       calls++;
-      return { runId: 'long-run', relayflowVersion: 'v2', status: calls < 3 ? 'running' : 'failed', result: { completionReason: 'step_failed' } };
+      const status = calls === 1 ? 'launching' : calls === 2 ? 'running' : 'failed';
+      return { runId: 'long-run', relayflowVersion: 'v2', status, result: { completionReason: 'step_failed' } };
     });
     expect(await waitForCloudFlowRun('long-run', { ...options, pollIntervalMs: 1 })).toEqual({ runId: 'long-run', status: 'failed', completionReason: 'step_failed' });
     expect(calls).toBe(3);
