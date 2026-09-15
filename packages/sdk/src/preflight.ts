@@ -342,6 +342,7 @@ function unknownModelDiagnostics(
   for (const step of flow.steps) {
     if (step.type === 'deterministic' || step.model === undefined) continue;
     if (isKnownModel(step.model, options.models)) continue;
+    if (!enforceRegistry) continue;
     const resolution = resolveCli(step, flow, options.projectCli);
     diagnostics.push({
       severity: 'refusal',

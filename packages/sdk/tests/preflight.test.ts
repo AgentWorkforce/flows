@@ -389,7 +389,9 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => ({ exists: true, supported: false, authenticated: false }) }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p' }), { probes: probes() }),
       preflight(flow({ id: 'a', type: 'deterministic', command: './missing' }), { probes: probes({ command: () => false }) }),
-      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x', model: 'typo-model' }), { models: ['known-model'], probes: probes() }),
+      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x', model: 'typo-model' }), {
+        models: ['known-model'], modelRegistryPath: '/project/flows.json', probes: probes(),
+      }),
       preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x', model: 'known-model' }), { models: ['known-model'], probes: probes({ cli: () => ({ exists: true, authenticated: true, modelAvailable: false }) }) }),
       preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }), triggers: [{ id: 't', executor: 'e' }] }, { probes: probes({ executor: () => false, command: () => false }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => { throw new Error('raw secret'); } }) }),
@@ -493,7 +495,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
   it('reports every model and CLI static refusal on the same step', () => {
     const result = preflight(
       flow({ id: 'a', type: 'agent', instruction: 'i', model: 'typo-model' }),
-      { models: ['known-model'], probes: probes() },
+      { models: ['known-model'], modelRegistryPath: '/project/flows.json', probes: probes() },
     );
 
     expect(result.diagnostics.map((diagnostic) => diagnostic.kind)).toEqual([
@@ -525,6 +527,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       triggers: [{ id: 'trigger', executor: 'must-not-probe' }],
     }, {
       models: ['known-model'],
+      modelRegistryPath: '/project/flows.json',
       probes: {
         cli: () => { calls.push('cli'); throw new Error('PROBE_CALLED'); },
         command: () => { calls.push('command'); throw new Error('PROBE_CALLED'); },
@@ -644,6 +647,35 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       model: 'claude-sonnet-5',
     }]);
     // The probe still ran: model authority does not skip auth verification.
+    expect(probeCalls).toBe(1);
+  });
+
+  it('accepts an inline step model when no flows.json registry is found', () => {
+    let probeCalls = 0;
+    const result = preflight(flow({
+      id: 'draft',
+      type: 'agent',
+      cli: 'claude',
+      model: 'claude-sonnet-5',
+      instruction: 'Draft.',
+    }), {
+      models: [],
+      probes: probes({
+        cli: () => {
+          probeCalls += 1;
+          return { exists: true, authenticated: true, modelAvailable: true };
+        },
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.resolutions).toEqual([{
+      stepId: 'draft',
+      cli: 'claude',
+      source: 'step',
+      model: 'claude-sonnet-5',
+    }]);
     expect(probeCalls).toBe(1);
   });
 
