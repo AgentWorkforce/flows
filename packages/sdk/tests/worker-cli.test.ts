@@ -2,6 +2,7 @@ import {
   chmodSync,
   existsSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -55,6 +56,28 @@ async function withEnvironment<T>(
     }
   }
 }
+
+describe('registered CLI model defaults', () => {
+  it('passes the same priced Claude default to the real provider invocation', async () => {
+    const directory = makeDirectory();
+    const calls = join(directory, 'calls.json');
+    const claude = makeWrapper(directory, 'claude', `
+const fs = require('node:fs');
+fs.writeFileSync(${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2)));
+process.stdout.write(JSON.stringify({ type: 'result', result: 'default-model-ok',
+  usage: { input_tokens: 2, output_tokens: 1 } }) + '\\n');
+`);
+
+    const result = await runAgentCli(claude, 'do the task', undefined);
+
+    expect(result).toMatchObject({ exit_code: 0, stdout_tail: 'default-model-ok',
+      tokens_input: 2, tokens_output: 1 });
+    expect(JSON.parse(readFileSync(calls, 'utf8'))).toEqual([
+      '-p', '--dangerously-skip-permissions', '--model', 'claude-opus-5',
+      '--output-format', 'json', 'do the task',
+    ]);
+  });
+});
 
 describe('custom wrapper execution identity', () => {
   it('passes an explicit safe environment at identification and execution', async () => {

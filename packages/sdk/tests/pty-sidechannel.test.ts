@@ -47,7 +47,7 @@ setTimeout(() => process.exit(0), 450);
   client.emit('step.dispatch', {
     run_id: 'r', step_id: 's', step_type: 'agent', attempt: 1,
     idempotency_key: 'k', lease_id: 'lease', lease_deadline_ms: Date.now() + 60_000,
-    pins: { workspace: [], streams: [] }, spec: { cli, instruction: 'test' },
+    pins: { workspace: [], streams: [] }, spec: { cli, model: 'pty-test-model', instruction: 'test' },
   });
   try {
     const args = await done;
@@ -84,7 +84,7 @@ process.stdin.on('end', () => { clearTimeout(watchdog); process.stdout.write('eo
   let peer: Socket | undefined;
   let driven = false;
   try {
-    const result = await runAgentCli(cli, 'test', undefined, undefined, undefined, undefined, 'agent', {
+    const result = await runAgentCli(cli, 'test', undefined, 'pty-test-model', undefined, undefined, 'agent', {
       dataDir, runId: 'r', stepId: 's', onDrive: () => { driven = true; },
       onReady(path) {
         if (mode === 'none') return;
@@ -112,7 +112,7 @@ process.stdin.on('end', () => {
   let attempted = false;
   let rejectedBeforeExit = false;
   try {
-    const result = await runAgentCli(cli, 'test', undefined, undefined, undefined, undefined, 'agent', {
+    const result = await runAgentCli(cli, 'test', undefined, 'pty-test-model', undefined, undefined, 'agent', {
       dataDir, runId: 'r', stepId: 's', onDrive: () => { driven = true; },
       onReady(path) {
         peer = connect(path, () => peer!.write('HELLO view\n'));
@@ -154,7 +154,7 @@ setTimeout(() => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 4000);
   try {
-    const result = await runAgentCli(cli, 'test', undefined, undefined, undefined, controller.signal, 'agent', {
+    const result = await runAgentCli(cli, 'test', undefined, 'pty-test-model', undefined, controller.signal, 'agent', {
       dataDir, runId: 'r', stepId: 's', onDrive() {},
       onReady(path) {
         peer = connect(path, () => { peer!.write('HELLO drive\n'); peer!.write(payload); });

@@ -144,13 +144,14 @@ No process runs between events: the handler wakes, executes to its next await, p
    the existing per-step `cli` and `model` fields. The validated selector and
    map remain authoring metadata through `flows check`, so unused and
    step-shadowed declarations are linted too; both are removed at the kernel
-   boundary. Explicit step values win independently:
-   step `cli`/`model` → named declaration → the existing flow/project CLI
-   default. Model has no flow/project default. An inline step that selects no
-   named declaration keeps the existing optional-model behavior. The worker
-   explicitly removes ambient `RELAYFLOW_MODEL`; raw provider adapters use a
-   model flag, while at worker execution a custom wrapper receives the model
-   only inside its identified same-process session when the step declares one.
+   boundary. CLI and model resolve independently. CLI priority is step → named
+   declaration → flow → project config. Model priority is step → named
+   declaration → registered adapter default. Claude's adapter default is
+   `claude-opus-5`; Codex and custom wrappers have no default. A frozen dollar
+   budget refuses before execution when the selected model has no frozen price.
+   The worker explicitly removes ambient `RELAYFLOW_MODEL`; raw provider
+   adapters use a model flag, while a custom wrapper receives an explicitly
+   declared model only inside its identified same-process session.
 
    **Anonymous resolution law:** `f.agent\`task\`` with no name is the *default agent*, resolved (never guessed) in order: step options → flow header → project config (`flows.json`) → platform default. *The platform-default rung is declared but not yet implemented: no platform default is provisioned as of gate 1, so a flow that reaches this rung refuses with `cli_unresolved` rather than guessing. `flows check` never invents an implicit default.* `flows check` prints each resolved step CLI and its declaration source, validates it before submission, and refuses a missing or unauthenticated resolution before the checked flow is submitted, never at minute 27. Gate 1 does not make this guarantee for callers that bypass `flows check`: the journal client's direct `run.start` path does not invoke surface preflight.
 

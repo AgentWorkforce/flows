@@ -5,6 +5,7 @@ import type { JournalClient } from './journal-client.js';
 import type { CompletionReason, StepDispatchEvent } from './protocol.js';
 import type { KernelLlmStep } from './spec.js';
 import { runAgentCli } from './worker-cli.js';
+import { resolveCliModel } from './cli-adapter.js';
 import { withWorkerLease } from './worker-lease.js';
 import { workerInstruction } from './worker-input.js';
 import { jsonSchemaOutputError } from './json-schema.js';
@@ -49,11 +50,12 @@ export class LlmWorker extends EventEmitter {
     const schema = spec.verification?.json_schema;
     const prompt = schema === undefined ? spec.prompt
       : `${spec.prompt}\n\nReturn only a JSON value matching this JSON Schema (no Markdown fences):\n${JSON.stringify(schema)}`;
+    const effectiveModel = typeof spec.cli === 'string' ? resolveCliModel(spec.cli, spec.model) : spec.model;
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       typeof spec.cli === 'string' && typeof spec.prompt === 'string'
-        ? runAgentCli(spec.cli, workerInstruction(prompt, dispatch), dispatch.wake_context, spec.model, undefined, signal, 'llm')
+        ? runAgentCli(spec.cli, workerInstruction(prompt, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'llm')
         : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'llm step has no declared CLI' }));
-    const { result, usage } = workerSpend(completed, spec.model);
+    const { result, usage } = workerSpend(completed, effectiveModel);
     let reason: CompletionReason = result.exit_code === 0 ? 'success' : 'worker_error';
     let output: unknown = result.stdout_tail;
     let detail = result.stderr_tail;
