@@ -1,7 +1,10 @@
 {
   "permissions": {
-    "allow": [
-      "mcp__relaycast__*"
-    ]
-  }
+    "allow": []
+  },
+  "deniedMcpServers": [
+    {
+      "serverName": "agent-relay"
+    }
+  ]
 }
