@@ -182,6 +182,9 @@ workflows:
           type: output_contains
           value: ASSESS_DONE
         timeoutMs: 1800000
+        errorHandling:
+          strategy: retry
+          retryDelayMs: 60000
 
       - name: assess-gate
         type: deterministic
@@ -284,6 +287,9 @@ workflows:
           type: output_contains
           value: BUILD_DONE
         timeoutMs: 5400000
+        errorHandling:
+          strategy: retry
+          retryDelayMs: 60000
 
       - name: verify
         type: deterministic
@@ -506,6 +512,9 @@ workflows:
           value: "REVIEW_"
         maxIterations: 1
         timeoutMs: 1800000
+        errorHandling:
+          strategy: retry
+          retryDelayMs: 60000
 
       - name: verdict
         type: deterministic
@@ -596,3 +605,6 @@ workflows:
           type: output_contains
           value: TICK_LOGGED
         timeoutMs: 900000
+        errorHandling:
+          strategy: retry
+          retryDelayMs: 60000
