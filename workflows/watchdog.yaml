@@ -29,3 +29,6 @@ workflows:
           type: output_contains
           value: WATCHDOG_DONE
         timeoutMs: 1200000
+        errorHandling:
+          strategy: retry
+          retryDelayMs: 60000
