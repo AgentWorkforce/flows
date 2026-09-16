@@ -1,123 +1,112 @@
-# NEXT — gate 3 work package: document review-swarm secrets in README
+# NEXT — gate 2: split wake-context resolution failure by cause (the rest of D1)
 
-**Scope (from TARGET.md):**
-
-Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time, addressing every architectural finding from the walked-away #75/#77 attempts.
+**Scope.** The next gate is **gate 2**, by Khaliq's decision on 2026-09-16.
+Not gate 3. If you are reading a target that says gate 3, it is stale — the
+launcher used to synthesise "gate 3" over a gate-2 brief, which is the
+contradiction that wedged the loop for four days.
 
 ## Objective
 
-Complete the final missing piece of gate 3's Definition of Done: document `RELAY_WORKSPACE_KEY` and `CLOUD_API_KEY` secrets in README.md with instructions on how to obtain them.
+Close the remainder of **deviation D1** in
+`docs/RFC-0001-everything-is-a-relayflow.md`. That document names it a
+binding obligation, in these words:
 
-## Current state assessment
-
-All 9 architectural requirements from TARGET.md are SATISFIED in the existing code:
-
-1. ✅ Immutable gate — two checkout steps (`.github/workflows/review-swarm.yml:32-53`)
-2. ✅ Unified verdict logic — `swarm-verdict.sh` sourced by both callers
-3. ✅ Auth secret validation — preflight validates all three secrets (lines 141-188)
-4. ✅ Sticky marker + transcripts — HTML anchors with upsert_comment
-5. ✅ No author whitelist — verified absent
-6. ✅ Cloud sandbox fetch on GHA runner — `swarm-prepare.sh` with GH_TOKEN
-7. ✅ Timeout ordering — 60m < 65m < 75m with comments
-8. ✅ Wait step records status — swarm_status output, always() post step
-9. ✅ Transcript freshness — run-start marker with stale detection
-
-Verification commands all pass:
 ```
-bash -n .github/workflows/scripts/swarm-post.sh && \
-bash -n .github/workflows/scripts/swarm-prepare.sh && \
-bash -n .github/workflows/scripts/swarm-verdict.sh && \
-echo "All bash scripts parse OK"
-# Output: All bash scripts parse OK
-
-python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))" && \
-python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))" && \
-echo "YAML files parse OK"
-# Output: YAML files parse OK
-
-grep -i "whitelist\|github.event.pull_request.user.login" .github/workflows/review-swarm.yml || echo "No author whitelist found (GOOD)"
-# Output: No author whitelist found (GOOD)
-
-grep -c "actions/checkout@v4" .github/workflows/review-swarm.yml
-# Output: 2
+gate 2 cannot go green until D1 and D2 are closed
 ```
 
-**The gap:** TARGET.md Definition of Done item 6 requires:
-> README.md — document `RELAY_WORKSPACE_KEY` secret + how to obtain
+D1 is half done. PR #252 stopped the resume path swallowing a journal scan
+error into `wake_context: None`, so the error now propagates out of
+`resolve_wake_context` in `kernel/relayflowd/src/engine/drive.rs`. That
+function's own doc comment says what is still missing, in its own words:
 
-Current reality:
-```
-grep -c "RELAY_WORKSPACE_KEY\|CLOUD_API_KEY" README.md
-# Output: 0
-```
+> That is deliberately narrower than the eventual contract. The intended
+> end state classifies the failure and journals it (transient → retry the
+> attempt under its budget; permanent → park `needs_human`), and none of
+> that classification exists yet.
 
-README.md does NOT document these secrets. The workflow comment (`.github/workflows/review-swarm.yml:21-24`) references a runbook in the `AgentWorkforce/cloud` repo, but README has no such documentation.
+The classification still does not exist. `wake_context_unresolved` — the
+journal entry RFC rule 10a requires, and the entry rule 11c makes the gate
+assert on — appears nowhere in the kernel. Today an unreadable segment
+aborts the dispatch before any attempt is recorded, and recovery only
+arrives when the lease expires and a later drive abandons the attempt as
+`Crashed`. Nothing in the journal says the wake context was the reason.
 
-From `ops/NEEDS_HUMAN.md`, the secrets are stored and working (as of 2026-09-07), but gate 3 is blocked on Daytona CPU quota, not on implementation. The workflow WORKS; the documentation is missing.
+## What RFC rule 10a requires
+
+Resolution failure splits by cause, because transient I/O and permanent
+corruption deserve opposite handling:
+
+- **Transient** (segment unreadable right now: I/O error, lock contention, a
+  truncated tail still being written) — fail the attempt, **retryable**,
+  under the step's ordinary retry budget. Journal `wake_context_unresolved`
+  with `reason: "transient"` and the underlying error.
+- **Permanent** (the run is open on a wake, the current segment reads
+  cleanly, and no wake context is present) — fail the step and park as
+  **`needs_human`**, not retryable. Journal `wake_context_unresolved` with
+  `reason: "absent"`.
+
+Neither case may fall back to `wake_context: None`. Dispatching with no
+context is reserved for runs that were never woken.
 
 ## Files in scope
 
-- `README.md` — add section documenting GitHub Actions secrets required for review-swarm
+- `kernel/relayflowd-core/src/entry.rs` — add the `WakeContextUnresolved`
+  entry type and its `wake_context_unresolved` wire string, beside the
+  existing `SubscriptionMatched` / `subscription.matched` pair.
+- `kernel/relayflowd/src/engine/drive.rs` — classify the failure at the
+  `resolve_wake_context` call site and journal it, instead of aborting the
+  dispatch before anything is recorded. Update the doc comment: it currently
+  describes the classification as absent, and that must stop being true.
+- A new kernel integration test under kernel/relayflowd/tests/ asserting on
+  the two journal shapes rule 11c names. Model it on
+  `kernel/relayflowd/tests/event_wake.rs`, which already builds a woken run
+  and reads `SubscriptionMatched` back out of the journal.
 
-## Work package
-
-Add a "GitHub Actions Secrets" section to README.md documenting:
-
-1. `RELAY_WORKSPACE_KEY` — Agent Relay workspace key for review swarm communication
-   - How to obtain: Contact repository administrator or see ops/NEEDS_HUMAN.md for historical context
-   - Why required: Enables agent coordination within review swarm workflow
-
-2. `CLOUD_API_KEY` — Agent Relay Cloud API credential for launching cloud workflows
-   - How to obtain: Minted per `AgentWorkforce/cloud → docs/runbooks/relay-ci-workflow-credential.md`
-   - Profile: `workflow-invoke`
-   - Scopes: `workflow:invoke:read` and `workflow:invoke:write`
-   - How to store: Repository Settings → Secrets and variables → Actions → New repository secret
-
-3. `CLOUD_API_URL` — Cloud API endpoint (typically `https://agentrelay.com/cloud`)
-   - Usually set as repository variable, not secret
-   - Defaults to production endpoint if not set
-
-The section should be brief (10-15 lines) and reference the workflow files for implementation details.
+**The permanent case is reachable today.** A run that was woken, whose
+`subscription.matched` entry carries no `wake_context` key, currently
+resolves to `Ok(None)` and is indistinguishable from never-woken. That is
+the shape to detect: open on a wake, clean read, no context.
 
 ## Definition of done
 
-1. README.md contains a section documenting the three secrets/variables
-2. Each entry states what it is and how to obtain it
-3. Parse checks continue to pass:
+1. `wake_context_unresolved` exists as a typed journal entry with a `reason`
+   of `transient` or `absent`, and the kernel writes it at the classification
+   site — not only in a test.
+2. A transient failure fails the attempt and stays retryable under the step's
+   ordinary budget. A permanent failure parks the run as `needs_human` and is
+   not retried.
+3. A new test asserts on the two journal shapes from RFC rule 11c: *never
+   woken* is the ABSENCE of any `wake_context_unresolved` entry alongside a
+   dispatch with no wake context; *failed to resolve* is the PRESENCE of that
+   entry naming its reason, with no dispatch for that attempt. Assert on
+   journal entries, not on log text.
+4. Every new test must be confirmed to FAIL against current code before the
+   fix — revert the source change, watch it fail, and paste the literal
+   failing output into your summary. A test that has never been observed
+   failing pins nothing.
+5. `cargo test --workspace` must be green, run from the kernel directory:
    ```
-   bash -n .github/workflows/scripts/swarm-*.sh
-   python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))"
-   python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))"
+   cd kernel && sh ../ops/cargo.sh test --workspace
    ```
-4. Verification remains true:
-   ```
-   grep -c "RELAY_WORKSPACE_KEY\|CLOUD_API_KEY" README.md
-   # Should return > 0
-   grep -i "whitelist\|github.event.pull_request.user.login" .github/workflows/review-swarm.yml || echo "GOOD"
-   # Should return "GOOD" or nothing (no whitelist)
-   ```
-5. As final action:
-   ```
-   git status --porcelain
-   ```
+6. As your last action, run `git status --porcelain` and paste it.
 
 ## Explicitly OUT of scope
 
-- `.github/workflows/review-swarm.yml` (already correct, all 9 requirements satisfied)
-- `workflows/review-swarm.yaml` (already correct)
-- `.github/workflows/scripts/swarm-*.sh` (all already correct)
-- `.gitignore` (no .review-target mask exists, already correct)
-- `sdk/` (Track A owns that)
-- `kernel/` (gate 1 done)
-- `ops/*` (chief owns briefs and state)
-- Any other GHA workflow
-- Resolving the Daytona CPU quota block (that's in ops/NEEDS_HUMAN.md, different issue)
-- Actually testing the workflow end-to-end (blocked on Daytona capacity per ops/NEEDS_HUMAN.md)
-
-## Why this is the work package
-
-TARGET.md's Definition of Done explicitly lists:
-- Item 6: "PR body explicitly documents each of the 9 requirements above and shows where each is satisfied"
-- Item 7: "`README.md` — document `RELAY_WORKSPACE_KEY` secret + how to obtain"
-
-The 9 requirements are satisfied in code. Item 7 is not satisfied. This is the remaining gap between current state and TARGET.md's done-when.
+- **D2 and epoch rollover.** The RFC sequences this as engine-side epoch
+  rollover → D2 → gate 2 and states that D2 is not implementable in
+  isolation: every construction of `EpochSummaryPayload` in the kernel is
+  inside a test, so there is no site at which to add the carry-forward.
+  Adding the field first would be "the appearance of a fix, not one". Do not
+  start it here.
+- **Trigger-plane liveness.** Already shipped in PR #122 —
+  `kernel/relayflowd/src/server/liveness.rs` with
+  `kernel/relayflowd/tests/subscription_liveness.rs`. Do not rebuild it.
+- **The hn-monitor runner.** Already shipped in PR #120 —
+  `packages/sdk/src/cli/hn-monitor.ts`. Three separate escalations have now
+  proposed rebuilding it. Do not.
+- **Flipping the gate-2 verdict.** That is Khaliq's read, not a run's. See
+  `ops/STATE.md`.
+- **The analyze-agent clause.** Whether it is gate-2 or gate-4 scope is an
+  open question for Khaliq, recorded in `ops/STATE.md`.
+- `.github/workflows/*`, `packages/sdk/*`, and `ops/*` other than this file.

@@ -112,7 +112,13 @@ while [ ! -f "$STOP_FILE" ]; do
       sleep "$INTERVAL"
       continue
     fi
-    out=$(sh ops/launch-gate.sh 3 "$brief" 2>&1)
+    # The gate number must match the brief. This read `3` while
+    # ops/AUTODRIVE_BRIEF.md described GATE 2 work, so ops/launch-gate.sh
+    # synthesised "TARGET — gate 3" over a gate-2 brief and every assessor
+    # that read both correctly reported a contradiction it could not resolve.
+    # That is the conflict seven consecutive runs escalated about. Khaliq's
+    # decision on 2026-09-16: the next gate is 2, not 3.
+    out=$(sh ops/launch-gate.sh 2 "$brief" 2>&1)
     rid=$(echo "$out" | sed -n 's/^Run created: //p' | head -1)
     if [ -n "$rid" ]; then
       say "launched ${rid%%-*}"

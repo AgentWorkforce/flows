@@ -46,8 +46,8 @@ workflows:
       \ that already has one\n# (laptop, fleet node). Both shapes are supported below; neither is\n# assumed,\
       \ and an unmaterialized sandbox fails closed and typed\n# rather than failing later as an unexplained\
       \ tool error.\nset -eu\necho \"SYNC_WORKDIR=$(pwd)\"\n\nmissing=\"\"\nfor required in AGENTS.md\
-      \ docs/RFC-0001-everything-is-a-relayflow.md ops/DIRECTIVES.md kernel packages/sdk; do\n  [ -e \"$required\"\
-      \ ] || missing=\"$missing $required\"\ndone\nif [ -n \"$missing\" ]; then\n  echo \"SYNC_FAIL_NOT_MATERIALIZED:\
+      \ docs/RFC-0001-everything-is-a-relayflow.md ops/DIRECTIVES.md kernel packages/sdk; do\n  [ -e \"\
+      $required\" ] || missing=\"$missing $required\"\ndone\nif [ -n \"$missing\" ]; then\n  echo \"SYNC_FAIL_NOT_MATERIALIZED:\
       \ the repo is not present in this execution environment.\" >&2\n  echo \"  missing:$missing\" >&2\n\
       \  echo \"  cwd: $(pwd)\" >&2\n  echo \"  A cloud run must upload the working tree: \\`agent-relay\
       \ cloud run\\`\" >&2\n  echo \"  syncs code by default; \\`--no-sync-code\\` produces exactly this\
@@ -101,14 +101,14 @@ workflows:
       \ the known\nsandbox faults that are NOT reasons to block. Then read\nops/DIRECTIVES.md \u2014 standing\
       \ human directives outrank the backlog;\nif one is unsatisfied, it IS the work package.\nThen read\
       \ docs/bootstrap-report.md and ops/DRIVE-LOG.md if they exist,\n`git log --oneline -15`, `gh pr\
-      \ list --state open` and open PR review\nstate, kernel/ and packages/sdk/ test status. Then write ops/NEXT.md:\
-      \ the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until its done-when\
-      \ in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must include passing\
-      \ commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\nawaiting fixes\
-      \ from review, the work package is fixing it \u2014 never\nstart new work over unfinished work.\
-      \ If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question and\
-      \ the\noptions \u2014 and then STILL end with ASSESS_DONE.\n\nCOMMIT YOUR WORK PACKAGE BEFORE YOU\
-      \ FINISH:\n  git add -A && git commit -m \"assess: work package for this tick\"\nEach step runs\
+      \ list --state open` and open PR review\nstate, kernel/ and packages/sdk/ test status. Then write\
+      \ ops/NEXT.md: the\nSINGLE highest-priority work package toward the current gate\n(gate 1 until\
+      \ its done-when in RFC-0001 \xA73 holds), with: objective,\nfiles in scope, definition of done (must\
+      \ include passing commands),\nand what is explicitly OUT of scope for this tick. If an open PR is\n\
+      awaiting fixes from review, the work package is fixing it \u2014 never\nstart new work over unfinished\
+      \ work. If work is blocked on a human\ndecision, write ops/NEEDS_HUMAN.md stating the exact question\
+      \ and the\noptions \u2014 and then STILL end with ASSESS_DONE.\n\nCOMMIT YOUR WORK PACKAGE BEFORE\
+      \ YOU FINISH:\n  git add -A && git commit -m \"assess: work package for this tick\"\nEach step runs\
       \ in its OWN sandbox and files reach the next step only\nthrough the executor's propagation, which\
       \ is lossy: on runs a2089144\nand 2560e02d your predecessor wrote ops/NEXT.md, said so truthfully,\n\
       and the file never arrived \u2014 one of those runs finished with a\nzero-file patch. Committing\
@@ -129,24 +129,59 @@ workflows:
     - assess-1
     command: "# A typed park, not a crash. The assess step cannot express \"blocked\"\n# in its final\
       \ token (its gate only recognises ASSESS_DONE), so the\n# Lead writes ops/NEEDS_HUMAN.md instead\
-      \ and this step reads it.\nset -u\nif [ -f ops/NEEDS_HUMAN.md ]; then\n  echo \"ASSESS_BLOCKED_NEEDS_HUMAN:\
-      \ the Lead escalated a decision it cannot make.\"\n  echo \"--- ops/NEEDS_HUMAN.md ---\"\n  cat\
-      \ ops/NEEDS_HUMAN.md\n  exit 75\nfi\nif [ ! -f ops/NEXT.md ]; then\n  echo \"ASSESS_FAIL: no ops/NEXT.md\
-      \ \u2014 an assessment that named no work package did not assess\"\n  exit 1\nfi\n# The assessment\
-      \ must have WRITTEN this tick's package, not merely\n# left the previous one in place. On run 457a6102\
-      \ assess reported\n# \"The work package is written to ops/NEXT.md\" and the very next step\n# read\
-      \ the OLD file \u2014 the logs carry the reason:\n#   \"relayfile flush failed after the command\
-      \ succeeded (exit 1);\n#    a later agent step may see stale files\"\n# The builder then correctly\
-      \ refused to invent scope, but only after\n# a whole build step had been spent. Catch it here instead:\
-      \ if\n# ops/NEXT.md is identical to the base, the assessment did not land,\n# whoever is at fault.\n\
-      # Look for the package in the working tree OR in a commit made this\n# tick. Propagation between\
-      \ per-step sandboxes is lossy, so a package\n# that exists only as a loose file may not arrive;\
-      \ one committed by\n# the assess step travels in git history instead.\nif git log --oneline main..HEAD\
-      \ -- ops/NEXT.md 2>/dev/null | grep -q .; then\n  echo \"ASSESS_PACKAGE_COMMITTED: found ops/NEXT.md\
-      \ change in this tick's history\"\nelif git diff --quiet main -- ops/NEXT.md 2>/dev/null; then\n\
-      \  # Warn, do not fail. This was fatal, and it killed four runs in six\n  # while the loop produced\
-      \ nothing \u2014 a worse outcome than the risk\n  # it guarded against.\n  #\n  # The risk it guarded\
-      \ was \"the builder gets scope nobody wrote this\n  # tick\". But scope does not actually come from\
+      \ and this step reads it.\nset -u\n# An escalation is trusted only when TWO INDEPENDENT SIGNALS\
+      \ AGREE:\n# the file exists AND this tick is what wrote it.\n#\n# Existence alone is not a signal.\
+      \ ops/NEEDS_HUMAN.md was committed to\n# main on 2026-09-06 (082c62aa) and nothing in this repo\
+      \ has ever\n# deleted it \u2014 no `rm`, no `git rm`, and `git log --diff-filter=D`\n# over that\
+      \ path is empty. ops/launch-gate.sh builds each run's\n# worktree from origin/main and does not\
+      \ strip it, so every tick from\n# 2026-09-12 onward escalated here before doing any work, on a\n\
+      # question a human had already answered. PRs #417, #420, #422, #424,\n# #426, #427 and #428 are\
+      \ seven consecutive cloud runs whose entire\n# diff is this file and ops/NEXT.md, re-litigating\
+      \ the same conflict.\n# None merged. A full cloud run was burned on each.\n#\n# A stale file must\
+      \ never be able to masquerade as a live escalation.\n# \"This tick\" is the same test the ops/NEXT.md\
+      \ freshness check below\n# uses \u2014 a commit in `main..HEAD` \u2014 widened by the uncommitted\
+      \ case,\n# because propagation between per-step sandboxes is lossy and assess\n# may write the file\
+      \ and fail to commit it. Losing a live escalation\n# is the worse error of the two, so an unproven-fresh\
+      \ file that is\n# dirty in the working tree still parks the run.\n#\n# The default is to TRUST the\
+      \ escalation. Only a positive, SUCCESSFUL\n# answer from git may downgrade it to stale, because\
+      \ \"git printed\n# nothing\" and \"git could not answer\" look identical otherwise \u2014 and\n\
+      # a sandbox is exactly where git cannot answer. SYNC_MODE=snapshot\n# runs `git init` over an extracted\
+      \ tarball, so a step that runs\n# before main exists, a missing .git, or any git failure would\n\
+      # silently classify a LIVE escalation as stale and walk the builder\n# straight past a human decision.\
+      \ That inverts the tradeoff above,\n# so an unprovable escalation parks the run.\nif [ -f ops/NEEDS_HUMAN.md\
+      \ ]; then\n  escalation=unprovable\n  if git rev-parse --git-dir >/dev/null 2>&1 \\\n     && git\
+      \ rev-parse --verify --quiet main >/dev/null 2>&1; then\n    tick_log=$(git log --oneline main..HEAD\
+      \ -- ops/NEEDS_HUMAN.md 2>/dev/null)\n    if [ $? -ne 0 ]; then\n      escalation=unprovable\n \
+      \   elif [ -n \"$tick_log\" ]; then\n      escalation=this_tick_committed\n    else\n      tick_dirty=$(git\
+      \ status --porcelain -- ops/NEEDS_HUMAN.md 2>/dev/null)\n      if [ $? -ne 0 ]; then\n        escalation=unprovable\n\
+      \      elif [ -n \"$tick_dirty\" ]; then\n        escalation=this_tick_uncommitted\n      else\n\
+      \        escalation=stale\n      fi\n    fi\n  fi\n  if [ \"$escalation\" = stale ]; then\n    echo\
+      \ \"ASSESS_STALE_NEEDS_HUMAN_IGNORED: ops/NEEDS_HUMAN.md exists but this tick did not write it.\"\
+      \n    echo \"  It is the committed record of an escalation that has already been answered,\"\n \
+      \   echo \"  not a live one, so it does not park this run. Delete it from main once its\"\n    echo\
+      \ \"  question is resolved \u2014 a resolved escalation left in the tree is a lie the\"\n    echo\
+      \ \"  next assessor has to spend a run disproving.\"\n  else\n    if [ \"$escalation\" = unprovable\
+      \ ]; then\n      echo \"ASSESS_ESCALATION_FRESHNESS_UNPROVABLE: git could not say whether this tick\"\
+      \n      echo \"  wrote ops/NEEDS_HUMAN.md (no repo, no main, or git failed). Failing safe and\"\n\
+      \      echo \"  treating it as live: ignoring a real escalation is the worse of the two errors.\"\
+      \n    fi\n    echo \"ASSESS_BLOCKED_NEEDS_HUMAN: the Lead escalated a decision it cannot make ($escalation).\"\
+      \n    echo \"--- ops/NEEDS_HUMAN.md ---\"\n    cat ops/NEEDS_HUMAN.md\n    exit 75\n  fi\nfi\nif\
+      \ [ ! -f ops/NEXT.md ]; then\n  echo \"ASSESS_FAIL: no ops/NEXT.md \u2014 an assessment that named\
+      \ no work package did not assess\"\n  exit 1\nfi\n# The assessment must have WRITTEN this tick's\
+      \ package, not merely\n# left the previous one in place. On run 457a6102 assess reported\n# \"The\
+      \ work package is written to ops/NEXT.md\" and the very next step\n# read the OLD file \u2014 the\
+      \ logs carry the reason:\n#   \"relayfile flush failed after the command succeeded (exit 1);\n#\
+      \    a later agent step may see stale files\"\n# The builder then correctly refused to invent scope,\
+      \ but only after\n# a whole build step had been spent. Catch it here instead: if\n# ops/NEXT.md\
+      \ is identical to the base, the assessment did not land,\n# whoever is at fault.\n# Look for the\
+      \ package in the working tree OR in a commit made this\n# tick. Propagation between per-step sandboxes\
+      \ is lossy, so a package\n# that exists only as a loose file may not arrive; one committed by\n\
+      # the assess step travels in git history instead.\nif git log --oneline main..HEAD -- ops/NEXT.md\
+      \ 2>/dev/null | grep -q .; then\n  echo \"ASSESS_PACKAGE_COMMITTED: found ops/NEXT.md change in\
+      \ this tick's history\"\nelif git diff --quiet main -- ops/NEXT.md 2>/dev/null; then\n  # Warn,\
+      \ do not fail. This was fatal, and it killed four runs in six\n  # while the loop produced nothing\
+      \ \u2014 a worse outcome than the risk\n  # it guarded against.\n  #\n  # The risk it guarded was\
+      \ \"the builder gets scope nobody wrote this\n  # tick\". But scope does not actually come from\
       \ ops/NEXT.md: it comes\n  # from ops/TARGET.md, which the launcher COMMITS into the uploaded\n\
       \  # tree, so it is present in every per-step sandbox and cannot be\n  # lost to the propagation\
       \ fault. NEXT.md refines the target; it does\n  # not define it.\n  echo \"ASSESS_WARN_STALE_NEXT:\
@@ -221,66 +256,67 @@ workflows:
       \ test --workspace 2>&1); rc=$?\n  echo \"$out\" | tail -8; ran=1\n  if [ $rc -eq 124 ]; then\n\
       \    echo \"VERIFY_SUITE_TIMEOUT: the kernel suite exceeded ${VERIFY_SUITE_TIMEOUT:-900}s and was\
       \ killed.\"\n    echo \"  A hanging test is a defect, not a pass \u2014 recording it as a failure.\"\
-      \n  fi\n  [ $rc -eq 0 ] || ok=1\nfi\nif [ -f packages/sdk/package.json ]; then\n  # node_modules is not in\
-      \ `git ls-files`, so a sandbox has none.\n  # Install before testing, and treat a failed install\
-      \ as a failed\n  # verify rather than letting `npm test` report a confusing error.\n  if [ ! -d\
-      \ packages/sdk/node_modules ]; then\n    echo \"VERIFY_INSTALL: packages/sdk/node_modules absent \u2014 installing\"\
-      \n    out=$(cd packages/sdk && run_bounded \"npm ci\" npm ci 2>&1); rc=$?\n    if [ $rc -ne 0 ]; then\n \
-      \     echo \"$out\" | tail -12\n      echo \"VERIFY_FAIL: npm ci failed \u2014 cannot test what\
-      \ did not install\"\n      exit 1\n    fi\n  fi\n  # Restore exec bits. `npm ci` reported success\
-      \ (96 packages) and\n  # esbuild still failed with EACCES on run 909e18f6, so the mount\n  # this\
-      \ installs onto does not carry the executable bit. That is\n  # the same fault that left ops/cargo.sh\
-      \ non-executable. Which\n  # layer drops it is NOT established; this repairs the symptom\n  # where\
-      \ it is observed and is a no-op where the bit survives.\n  chmod -R +x packages/sdk/node_modules/.bin 2>/dev/null\
-      \ || true\n  find packages/sdk/node_modules -type d -name bin -path \"*esbuild*\" \\\n    -exec chmod -R\
-      \ +x {} + 2>/dev/null || true\n  out=$(cd packages/sdk && run_bounded \"sdk suite\" npm test 2>&1); rc=$?\n\
-      \  echo \"$out\" | tail -8; ran=1\n  if [ $rc -eq 124 ]; then\n    echo \"VERIFY_SUITE_TIMEOUT:\
-      \ the sdk suite exceeded ${VERIFY_SUITE_TIMEOUT:-900}s and was killed.\"\n  fi\n  [ $rc -eq 0 ]\
-      \ || ok=1\nfi\nif [ \"$ran\" -eq 0 ]; then\n  echo \"VERIFY_FAIL: no suite found \u2014 a verify\
-      \ that runs nothing cannot pass\"; exit 1\nfi\n# Enforce the NEXT.md contract instead of asking\
-      \ for it.\n#\n# The assess prompt has told runs since PR #19 to quote their scope\n# rather than\
-      \ cite ops/TARGET.md, because that file lives only in the\n# throwaway launch worktree and is not\
-      \ in the delivered diff. Runs\n# kept citing it anyway \u2014 reviewers filed the same finding again\
-      \ on\n# #35, #40 and #48. Four recurrences after the warning is enough\n# evidence that prose does\
-      \ not hold and a check does.\n#\n# Same for unevidenced test claims: \"all three tests pass\" with\
-      \ no\n# transcript. validateNextWorkPackage refuses both shapes.\n#\n# Runs BEFORE the node_modules\
-      \ cleanup below, which needs packages/sdk/dist.\nif [ -f ops/NEXT.md ] && [ -f packages/sdk/dist/index.js ]; then\n\
-      \  nextout=$(node -e '\n    const fs = require(\"node:fs\");\n    const { validateNextWorkPackage\
-      \ } = require(\"./packages/sdk/dist/index.js\");\n    const verdict = validateNextWorkPackage(\n      fs.readFileSync(\"\
-      ops/NEXT.md\", \"utf8\"),\n      (p) => fs.existsSync(p),\n    );\n    if (!verdict.accepted) {\n\
-      \      console.log(\"NEXT_REFUSED \" + verdict.reason);\n      process.exit(1);\n    }\n    console.log(\"\
-      NEXT_OK\");\n  ' 2>&1) || true\n  echo \"$nextout\" | tail -2\n  case \"$nextout\" in\n    *NEXT_REFUSED*)\n\
-      \      echo \"VERIFY_FAIL: ops/NEXT.md was refused \u2014 quote your scope instead of citing\"\n\
-      \      echo \"  ops/TARGET.md (it is not in the delivered diff), and paste the literal\"\n     \
-      \ echo \"  command output for anything you claim passes.\"\n      ok=1\n      ;;\n  esac\nfi\n\n\
-      # Shrink the tree before the flush that matters.\n#\n# The relayfile mount flush fails on a large\
-      \ tree \u2014 http 413, or a\n# timeout waiting for the daemon to ack \u2014 and the failure is\n\
-      # NON-FATAL, so the run reports success while later steps read stale\n# files and the delivered\
-      \ patch silently loses the work. Five runs\n# were lost this way. PR #38 took kernel/target out\
-      \ (4914 paths ->\n# 0), which was not enough on its own: run 5ecf7078 still flushed\n# 1932 files\
-      \ and still hit 413.\n#\n# Dependency and compiler outputs are already gitignored, and nothing\n\
-      # downstream of here reads them: the suites and NEXT validation have\n# finished by this line, while\
-      \ commit/handoff touch tracked files.\n# Removing them after the gates run costs nothing and keeps\
-      \ them out\n# of every flush from here on.\n#\n# Runs on pass AND fail. The first version only slimmed\
-      \ on a green\n# verify, to keep a failing run's tree intact for diagnosis. That\n# defeated the\
-      \ fix: run ae982aaa ended VERIFY_FAIL_NONFATAL, so the\n# cleanup was skipped, the tree stayed at\
-      \ 1842 files and the flush\n# failed with three 413s \u2014 and the run still committed and delivered\n\
-      # a PR. A run that delivers needs its flush to work whether or not\n# its gates passed, and node_modules\
-      \ is reinstallable, so there was\n# never anything to preserve for diagnosis here.\n#\n# Guarded\
-      \ with || true and placed AFTER the pass/fail decision is\n# computed, so a cleanup problem can\
-      \ never change the verdict.\nrm -rf packages/sdk/node_modules packages/sdk/dist packages/surface/dist 2>/dev/null || true\n\
-      echo \"VERIFY_TREE_SLIMMED: removed packages/sdk/node_modules and generated dist trees before flush (ok=$ok)\"\
-      \n\n# Measure the tree instead of guessing at it.\n#\n# The relayfile flush keeps failing (http\
-      \ 413) and three successive\n# hypotheses about WHY were wrong: kernel/target was removed and the\n\
-      # count barely moved; node_modules was removed and it still failed;\n# HOME turned out to be /home/daytona,\
-      \ outside the tree, so the\n# toolchain was never in it. Meanwhile the bootstrap reports ~1900\n\
-      # changed files against a repo of only 257 tracked ones, and the\n# delivered patch is 12 files.\
-      \ Nothing in the log says what the rest\n# are, so this prints it rather than inviting a fourth\
-      \ guess.\necho \"TREE_CENSUS: top directories by file count\"\nfind . -type f -not -path './.git/*'\
-      \ 2>/dev/null \\\n  | sed -E 's|^\\./||; s|/[^/]*$||' \\\n  | cut -d/ -f1-2 \\\n  | sort | uniq\
-      \ -c | sort -rn | head -12 || true\necho \"TREE_CENSUS_TOTAL: $(find . -type f -not -path './.git/*'\
-      \ 2>/dev/null | wc -l | tr -d ' ')\"\n[ \"$ok\" -eq 0 ] && echo VERIFY_PASS || echo \"VERIFY_FAIL_NONFATAL:\
-      \ recorded; the next cycle must address it\"\n"
+      \n  fi\n  [ $rc -eq 0 ] || ok=1\nfi\nif [ -f packages/sdk/package.json ]; then\n  # node_modules\
+      \ is not in `git ls-files`, so a sandbox has none.\n  # Install before testing, and treat a failed\
+      \ install as a failed\n  # verify rather than letting `npm test` report a confusing error.\n  if\
+      \ [ ! -d packages/sdk/node_modules ]; then\n    echo \"VERIFY_INSTALL: packages/sdk/node_modules\
+      \ absent \u2014 installing\"\n    out=$(cd packages/sdk && run_bounded \"npm ci\" npm ci 2>&1);\
+      \ rc=$?\n    if [ $rc -ne 0 ]; then\n      echo \"$out\" | tail -12\n      echo \"VERIFY_FAIL: npm\
+      \ ci failed \u2014 cannot test what did not install\"\n      exit 1\n    fi\n  fi\n  # Restore exec\
+      \ bits. `npm ci` reported success (96 packages) and\n  # esbuild still failed with EACCES on run\
+      \ 909e18f6, so the mount\n  # this installs onto does not carry the executable bit. That is\n  #\
+      \ the same fault that left ops/cargo.sh non-executable. Which\n  # layer drops it is NOT established;\
+      \ this repairs the symptom\n  # where it is observed and is a no-op where the bit survives.\n  chmod\
+      \ -R +x packages/sdk/node_modules/.bin 2>/dev/null || true\n  find packages/sdk/node_modules -type\
+      \ d -name bin -path \"*esbuild*\" \\\n    -exec chmod -R +x {} + 2>/dev/null || true\n  out=$(cd\
+      \ packages/sdk && run_bounded \"sdk suite\" npm test 2>&1); rc=$?\n  echo \"$out\" | tail -8; ran=1\n\
+      \  if [ $rc -eq 124 ]; then\n    echo \"VERIFY_SUITE_TIMEOUT: the sdk suite exceeded ${VERIFY_SUITE_TIMEOUT:-900}s\
+      \ and was killed.\"\n  fi\n  [ $rc -eq 0 ] || ok=1\nfi\nif [ \"$ran\" -eq 0 ]; then\n  echo \"VERIFY_FAIL:\
+      \ no suite found \u2014 a verify that runs nothing cannot pass\"; exit 1\nfi\n# Enforce the NEXT.md\
+      \ contract instead of asking for it.\n#\n# The assess prompt has told runs since PR #19 to quote\
+      \ their scope\n# rather than cite ops/TARGET.md, because that file lives only in the\n# throwaway\
+      \ launch worktree and is not in the delivered diff. Runs\n# kept citing it anyway \u2014 reviewers\
+      \ filed the same finding again on\n# #35, #40 and #48. Four recurrences after the warning is enough\n\
+      # evidence that prose does not hold and a check does.\n#\n# Same for unevidenced test claims: \"\
+      all three tests pass\" with no\n# transcript. validateNextWorkPackage refuses both shapes.\n#\n\
+      # Runs BEFORE the node_modules cleanup below, which needs packages/sdk/dist.\nif [ -f ops/NEXT.md\
+      \ ] && [ -f packages/sdk/dist/index.js ]; then\n  nextout=$(node -e '\n    const fs = require(\"\
+      node:fs\");\n    const { validateNextWorkPackage } = require(\"./packages/sdk/dist/index.js\");\n\
+      \    const verdict = validateNextWorkPackage(\n      fs.readFileSync(\"ops/NEXT.md\", \"utf8\"),\n\
+      \      (p) => fs.existsSync(p),\n    );\n    if (!verdict.accepted) {\n      console.log(\"NEXT_REFUSED\
+      \ \" + verdict.reason);\n      process.exit(1);\n    }\n    console.log(\"NEXT_OK\");\n  ' 2>&1)\
+      \ || true\n  echo \"$nextout\" | tail -2\n  case \"$nextout\" in\n    *NEXT_REFUSED*)\n      echo\
+      \ \"VERIFY_FAIL: ops/NEXT.md was refused \u2014 quote your scope instead of citing\"\n      echo\
+      \ \"  ops/TARGET.md (it is not in the delivered diff), and paste the literal\"\n      echo \"  command\
+      \ output for anything you claim passes.\"\n      ok=1\n      ;;\n  esac\nfi\n\n# Shrink the tree\
+      \ before the flush that matters.\n#\n# The relayfile mount flush fails on a large tree \u2014 http\
+      \ 413, or a\n# timeout waiting for the daemon to ack \u2014 and the failure is\n# NON-FATAL, so\
+      \ the run reports success while later steps read stale\n# files and the delivered patch silently\
+      \ loses the work. Five runs\n# were lost this way. PR #38 took kernel/target out (4914 paths ->\n\
+      # 0), which was not enough on its own: run 5ecf7078 still flushed\n# 1932 files and still hit 413.\n\
+      #\n# Dependency and compiler outputs are already gitignored, and nothing\n# downstream of here reads\
+      \ them: the suites and NEXT validation have\n# finished by this line, while commit/handoff touch\
+      \ tracked files.\n# Removing them after the gates run costs nothing and keeps them out\n# of every\
+      \ flush from here on.\n#\n# Runs on pass AND fail. The first version only slimmed on a green\n#\
+      \ verify, to keep a failing run's tree intact for diagnosis. That\n# defeated the fix: run ae982aaa\
+      \ ended VERIFY_FAIL_NONFATAL, so the\n# cleanup was skipped, the tree stayed at 1842 files and the\
+      \ flush\n# failed with three 413s \u2014 and the run still committed and delivered\n# a PR. A run\
+      \ that delivers needs its flush to work whether or not\n# its gates passed, and node_modules is\
+      \ reinstallable, so there was\n# never anything to preserve for diagnosis here.\n#\n# Guarded with\
+      \ || true and placed AFTER the pass/fail decision is\n# computed, so a cleanup problem can never\
+      \ change the verdict.\nrm -rf packages/sdk/node_modules packages/sdk/dist packages/surface/dist\
+      \ 2>/dev/null || true\necho \"VERIFY_TREE_SLIMMED: removed packages/sdk/node_modules and generated\
+      \ dist trees before flush (ok=$ok)\"\n\n# Measure the tree instead of guessing at it.\n#\n# The\
+      \ relayfile flush keeps failing (http 413) and three successive\n# hypotheses about WHY were wrong:\
+      \ kernel/target was removed and the\n# count barely moved; node_modules was removed and it still\
+      \ failed;\n# HOME turned out to be /home/daytona, outside the tree, so the\n# toolchain was never\
+      \ in it. Meanwhile the bootstrap reports ~1900\n# changed files against a repo of only 257 tracked\
+      \ ones, and the\n# delivered patch is 12 files. Nothing in the log says what the rest\n# are, so\
+      \ this prints it rather than inviting a fourth guess.\necho \"TREE_CENSUS: top directories by file\
+      \ count\"\nfind . -type f -not -path './.git/*' 2>/dev/null \\\n  | sed -E 's|^\\./||; s|/[^/]*$||'\
+      \ \\\n  | cut -d/ -f1-2 \\\n  | sort | uniq -c | sort -rn | head -12 || true\necho \"TREE_CENSUS_TOTAL:\
+      \ $(find . -type f -not -path './.git/*' 2>/dev/null | wc -l | tr -d ' ')\"\n[ \"$ok\" -eq 0 ] &&\
+      \ echo VERIFY_PASS || echo \"VERIFY_FAIL_NONFATAL: recorded; the next cycle must address it\"\n"
     timeoutMs: 1200000
   - name: commit-1
     type: deterministic

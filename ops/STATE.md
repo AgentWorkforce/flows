@@ -8,7 +8,11 @@ it is authoritative when history is unavailable.
 **Keep it current. A stale STATE.md is worse than none:** it does not merely
 fail to help, it actively misleads an assessor that cannot check it.
 
-Last updated: 2026-09-01 10:16 UTC, by the Relayflow Lead (flows-lead-1 on sf-mini), on `main`. **STATE.md gate-2 block rewritten; verdict unchanged (still AMBER).** A new evidence file — `ops/reviews/20260901-1050-gate2-live-run.md` — is cited from the gate-2 block; AMBER→GREEN is Khaliq's read on the enclosed evidence.
+Last updated: 2026-09-16, on `main`, unwedging the drive loop. **Gate-2 clause 1
+corrected — it had been stale for two weeks (PR #122 closed it); deviations D1/D2
+recorded as clause 3; the 2026-09-16 escalation resolved and its content preserved
+below. Verdict unchanged (still AMBER).** Prior entry: 2026-09-01 10:16 UTC, by the
+Relayflow Lead (flows-lead-1 on sf-mini). **STATE.md gate-2 block rewritten; verdict unchanged (still AMBER).** A new evidence file — `ops/reviews/20260901-1050-gate2-live-run.md` — is cited from the gate-2 block; AMBER→GREEN is Khaliq's read on the enclosed evidence.
 
 ## Where the program is
 
@@ -56,21 +60,36 @@ Last updated: 2026-09-01 10:16 UTC, by the Relayflow Lead (flows-lead-1 on sf-mi
   rather than restating specific numbers here (STATE.md counts drift, an
   evidence transcript does not).
 
-  **Why AMBER, not GREEN.** RFC-0001 §3 gate 2 has two clauses this
-  evidence does NOT close:
-  1. **Trigger plane liveness-checked** (RFC-0001 §3 gate 2, the paragraph
-     ending "Native's silent-death problem"). RelayCron's deterministic-id
-     single-winner claim + `stale_after` sweep is the pattern. Not
-     implemented inside `relayflowd`. The poller runs; the kernel does not
-     yet notice if it stops. The same section calls this "a requirement,
-     not an option" — it is a stated done-when clause, not follow-up
-     hardening.
+  **Why AMBER, not GREEN.** RFC-0001 §3 gate 2 had two clauses this
+  evidence did NOT close. **Clause 1 has since closed; clause 2 has not,
+  and a third was always open.**
+  1. **Trigger plane liveness-checked — CLOSED by PR #122 (`a774d880`).**
+     This block used to say "Not implemented inside `relayflowd`", and that
+     was true when it was written on 2026-09-01. It stopped being true when
+     #122 landed `kernel/relayflowd/src/server/liveness.rs` (the background
+     sweep: `detect_stale` + `latch_stale`, single-winner claim bucketed by
+     sweep id, `subscription.stale` journalled and emitted) wired end to end
+     by `kernel/relayflowd/tests/subscription_liveness.rs`. The stale entry
+     stood for two weeks and is exactly the failure this file warns about in
+     its own header: a stale STATE.md does not merely fail to help, it sends
+     an assessor to build something that already exists.
   2. **The analyze-agent step actually executing.** In the recorded run,
      every step ended in `worker_error` because `hn-monitor start`'s
      AgentWorker has no user-supplied step handler. The dispatch loop
      works; the analyzer does not. Whether this reads as gate-2 scope
      ("runs succeed") or gate-4 scope ("chief-as-relayflow supplies
      the runtime") is Khaliq's call.
+
+  3. **RFC-0001's own deviations D1 and D2** ("gate 2 cannot go green until
+     D1 and D2 are closed"). D1 is half closed: PR #252 (`97c886d2`) stopped
+     the resume path swallowing a journal scan error into
+     `wake_context: None`, but rule 10a's split by cause is not implemented —
+     `wake_context_unresolved` appears nowhere in the kernel, so transient
+     and permanent resolution failures are still handled identically. D2 is
+     blocked upstream: the RFC sequences it **engine-side epoch rollover →
+     D2 → gate 2** and says plainly that rollover, not D2, is the next
+     action. **The remainder of D1 is the current work package** — see
+     ops/NEXT.md.
 
   **AMBER → GREEN is Khaliq's read** on the enclosed evidence, per this
   block's prior wording ("that is a judgement, not a missing part") and
@@ -79,6 +98,43 @@ Last updated: 2026-09-01 10:16 UTC, by the Relayflow Lead (flows-lead-1 on sf-mi
   covenant 3 governs declared human-in-the-loop *gates within a flow*,
   which is a different thing). This session prepared evidence and left
   the flip pending.
+
+## 2026-09-16 — the drive loop was wedged for four days, and why
+
+Recorded here because the escalation file that carried it has been deleted,
+and this is the file an assessor with no git history reads instead.
+
+**Khaliq's decision: the next gate is GATE 2, not gate 3.** That settles the
+question seven consecutive runs escalated about (PRs #417, #420, #422, #424,
+#426, #427, #428 — every one of them a diff touching only ops/NEEDS_HUMAN.md
+and ops/NEXT.md; none merged). It confirms what ops/AUTODRIVE_BRIEF.md
+already said and what the gate ladder above already implied.
+
+**What the escalation actually said**, and what was true in it: an assessor
+found ops/TARGET.md pinned to "gate 3" while describing gate-2 hn-monitor
+work that PR #120 had already merged, and ops/NEXT.md describing unrelated
+gate-3 review-swarm documentation. It could not tell which was real. It was
+right to be confused — both sources were wrong, and it had no way to know.
+
+**Root cause, now fixed:** `ops/autodrive.sh` launched every run with
+`ops/launch-gate.sh 3` while passing it the gate-2 brief, so the synthesised
+target contradicted the brief inside it on every single tick. The assessors
+were reporting a real defect in the launcher, once per run, for four days.
+
+**Two things that made it unrecoverable, both now fixed:**
+- The escalation was sticky. `assess-gate` escalated on the mere EXISTENCE of
+  ops/NEEDS_HUMAN.md, which is committed on main and which nothing ever
+  deletes, so every future tick died at the gate on a question already
+  answered. The gate now requires two independent signals — the file exists
+  AND this tick wrote it. Pinned by ops/drive-assess-gate.test.mjs.
+- The escalation cited evidence no human could inspect. ops/TARGET.md is
+  synthesised per run into a throwaway worktree by ops/launch-gate.sh and is
+  never in the delivered diff, so a reviewer sees quotations from a file that
+  does not exist. Review lenses failed PRs #422 and #428 for exactly this.
+  **Still open as a design question** — the drive.yaml assess task already
+  instructs the Lead to quote the target rather than cite its path, and that
+  instruction is evidently not enough. Whoever next touches the launcher
+  should consider committing the target into the delivered diff instead.
 
 ## HANDOFF (2026-08-30 03:05 UTC) — a lead is LIVE on sf-mini
 

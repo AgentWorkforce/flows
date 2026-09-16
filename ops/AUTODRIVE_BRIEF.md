@@ -1,82 +1,36 @@
-Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side. This is a scaffolding PR — proof that the workload EXECUTES end-to-end is deliberately deferred to sub-PR B (integration test). Do not conflate the two.
+Close the rest of RFC-0001 deviation D1: classify a wake-context resolution failure by cause and journal it. GATE 2. CODE task, `kernel/`-side (Rust).
 
-**Context:** RFC-0001 §3 gate 2 is done when "hn-monitor runs as a relayflow in production, triggered by its real events, with zero bespoke persistence." Every primitive already exists in this repo — event triggers (PR #14, `kernel/relayflowd/tests/event_wake.rs`), the flow spec (`testdata/hn-monitor.flow.yaml`), the poller (`sdk/src/hn-poller.ts`), the agent worker (`sdk/src/worker.ts` from PR #53), a one-shot demo (`sdk/src/demo-hn-monitor.ts`) — but nothing has ever run them together as a continuous workload. This PR fixes that.
+**Retargeted 2026-09-16.** This brief previously asked for a new hn-monitor runner module in the SDK, as a gate-2 scaffolding PR. PR #120 shipped that work on 2026-09-01 as `packages/sdk/src/cli/hn-monitor.ts`. The brief outlived its work package by two weeks, and because `ops/autodrive.sh` also launched it under a hardcoded "gate 3", every assessor that read both correctly reported a contradiction and escalated instead of building. Seven consecutive runs (#417, #420, #422, #424, #426, #427, #428) produced nothing but escalation notes. **Do not rebuild the hn-monitor runner. It exists.**
 
-**Prior attempt (PR #83, closed):** produced a functional runner but was rejected by the swarm on five real findings. Address them in this attempt:
+**Context:** RFC-0001 states that gate 2 stays RED until deviations D1 and D2 are both closed. D2 is blocked upstream on engine-side epoch rollover — the RFC sequences it rollover → D2 → gate 2 and says D2 is not implementable in isolation, because every construction of `EpochSummaryPayload` in the kernel is inside a test. That leaves D1 as the actionable half, and it is already half done: PR #252 stopped `resolve_wake_context` in `kernel/relayflowd/src/engine/drive.rs` swallowing a journal scan error into `wake_context: None`. What remains is the classification that function's own doc comment says is missing — "transient → retry the attempt under its budget; permanent → park `needs_human`, and none of that classification exists yet".
 
-1. **Fail-closed on journal errors.** #83's `catch (err) { onPollError(err) }` swallowed EVERY error including `eventSubmit` journal failures — violates covenant 2 (fail-closed) and RFC-0001 §1. Only fetch-level errors (network flakiness, HN API rate limits) may be swallowed; a journal write failure MUST throw and terminate the runner. Split: `try { fetch } catch { onFetchError }` around the network call, `try { eventSubmit } catch { rethrow }` around the journal call.
+**The task.** Implement RFC rule 10a:
 
-2. **AgentWorker.close() must release the worker (or explicitly document it does not).** #83 added `await worker.close()` to shutdown but the current `close()` only drains local promises — it does NOT tell the kernel to release the worker registration. Either:
-   - Add a `workerRelease` verb to `sdk/src/protocol.ts` and call it from `close()` (preferred — completes the shutdown contract), OR
-   - Add a one-line comment on `close()` naming exactly what shutdown intentionally does NOT do
+  - a **transient** failure (I/O error, lock contention, a truncated tail still being written) fails the attempt and stays **retryable** under the step's ordinary retry budget, journalling `wake_context_unresolved` with `reason: "transient"` and the underlying error
+  - a **permanent** failure (the run is open on a wake, the current segment reads cleanly, and no wake context is present) fails the step and parks as **`needs_human`**, not retryable, journalling `wake_context_unresolved` with `reason: "absent"`
+  - neither may fall back to `wake_context: None` — dispatching with no context is reserved for runs that were never woken
 
-3. **Class field declaration order.** #83 declared `private readonly fetcher` AFTER the constructor. Works today because of ES2022 hoisting semantics but breaks silently if someone adds `= someDefault` to a declaration. Declare ALL fields at the top of the class body, before the constructor.
+`wake_context_unresolved` does not exist anywhere in the kernel today, so it needs a typed entry beside `SubscriptionMatched` in `kernel/relayflowd-core/src/entry.rs`.
 
-4. **Signal handlers must be opt-in via AbortSignal.** #83 registered `SIGTERM`/`SIGINT` handlers on the process directly with no opt-out. A library user embedding this can't cancel one runner without affecting others. Accept `signal?: AbortSignal` in options; the CLI wrapper (sub-PR C) can create + wire a process-signal-driven AbortController.
+**The gate is a journal shape, not a log line.** RFC rule 11c: *never woken* is the ABSENCE of any `wake_context_unresolved` entry alongside a dispatch carrying no wake context; *failed to resolve* is the PRESENCE of that entry naming its `reason`, with no dispatch for that attempt. Assert on those two shapes. `kernel/relayflowd/tests/event_wake.rs` already builds a woken run and reads entries back out of the journal — model the new test on it.
 
-5. **Test coverage for pollError branch.** #83's tests never asserted the loop survives a fetcher throw AND the loop TERMINATES on a journal throw. Add both cases; without them, someone regresses `onPollError` to a no-op and every test still passes.
+**Definition of done, all of it**
 
-## Do not re-do these
-
-Merged and closed; a PR redoing any will be closed:
-  - picker actionability (#42), unterminated backticks (#45)
-  - deterministic-command preflight refusal (#47) — do not touch preflight
-  - gate-1 race regression test (#48) — do not touch `kernel/relayflowd/src/server/tests.rs` or `server.rs`
-  - ops/NEXT.md validation (#50) — do not touch `sdk/src/work-package-validator.ts`
-  - SDK agent worker (#53) — `sdk/src/worker.ts` is done; you MAY modify `close()` per finding #2 above, but do NOT rewrite the attach/dispatch/complete flow
-  - SDK pretest hook (#69) — `sdk/package.json` builds the kernel before `npm test`; don't touch
-
-## The task
-
-Add `sdk/src/hn-monitor-runner.ts`. It composes the existing pieces into a continuous runner:
-
-  - constructs a `JournalClient` connected to the running `relayflowd` socket
-  - constructs an `AgentWorker` (from `sdk/src/worker.ts`) and calls `workerAttach()` for `agent` steps — attach BEFORE first poll (a run parked because no worker attached is only revived by `run.resume`; the live-kernel suite pins this)
-  - loops: `pollHackerNewsOnce(spec, sink)` → sleep `POLL_INTERVAL_MS` (env-configurable, default 60000 = 60s) → repeat
-  - exit cleanly on `AbortSignal.abort` (drain in-flight steps, close client, release worker per finding #2)
-  - exported from `sdk/src/index.ts`
-
-Keep it small and honest:
-  - the worker must attach BEFORE the first poll
-  - the poller layer handles single-fetch failures with a typed error; the loop just moves to the next tick — but journal errors MUST fail the runner (finding #1)
-  - no scheduling logic beyond the sleep (the kernel owns retry and dedupe policy)
-  - no LLM calls; the runner is glue, not a reviewer
-
-## Explicit non-goals for THIS PR (belongs to later sub-PRs)
-
-  - Proving the workload actually executes end-to-end (dispatch → step complete). That is sub-PR B (integration test with real relayflowd + fake HN fetch + assert step reaches `done`). This PR ONLY proves the runner assembles and its unit tests hold.
-  - CLI wrapper (`flows hn-monitor start`). That is sub-PR C.
-  - Ops/STATE.md gate-2 GREEN declaration. That is sub-PR D.
-
-Say all three explicitly in the PR body so the history lens doesn't reject on "runner doesn't prove workload runs."
-
-## Definition of done, all of it
-
-  - `sdk/src/hn-monitor-runner.ts` exists, exports `HnMonitorRunner` from `sdk/src/index.ts`
-  - `sdk/src/worker.ts` — either `close()` calls `workerRelease` (add to protocol.ts if missing), OR a one-line comment names what close() intentionally does NOT do
-  - `sdk/src/protocol.ts` — if you added `workerRelease`, matching request/response definitions
-  - `sdk/tests/hn-monitor-runner.test.ts` covers ALL of these:
-    - fake fetch + mock journal client → runner submits an event on each tick
-    - abort signal triggers clean shutdown within one tick (worker released or documented)
-    - worker attach happens before first poll
-    - **fetch throw → loop survives** (onPollError called, next tick still runs)
-    - **journal throw → loop TERMINATES** (runner.run() rejects with the error)
-  - `cd sdk && npm test` green (pretest hook builds the kernel automatically)
-  - EVERY new test confirmed to FAIL against current code (comment out the source; the test fails), with the literal failing output pasted in your summary
-  - PR body explicitly names the non-goals (test-actually-runs is sub-PR B; CLI is sub-PR C; gate-2 declaration is sub-PR D)
-  - ops/NEXT.md correctly says Gate 2, not Gate 3 (the assessor on #83 confused itself)
+  - `wake_context_unresolved` is a typed journal entry carrying `reason`, written by the kernel at the classification site rather than only by a test
+  - transient fails the attempt and retries under the ordinary budget; permanent parks `needs_human` and does not retry
+  - a new kernel test asserts both journal shapes from rule 11c
+  - the `resolve_wake_context` doc comment no longer describes the classification as absent — it currently does, at length, and a stale comment that contradicts the code is worse than none
+  - EVERY new test confirmed to FAIL against current code (revert the source change; watch it fail), with the literal failing output pasted in your summary
+  - `cd kernel && sh ../ops/cargo.sh test --workspace` must be green, with the output pasted
   - as your LAST action, run `git status --porcelain` and paste it
 
-## Out of scope for THIS tick — DO NOT TOUCH
+**Out of scope for THIS tick — DO NOT TOUCH**
 
+  - D2, `EpochSummaryPayload`, and engine-side epoch rollover — blocked upstream, and the RFC says adding the field ahead of its producer is "the appearance of a fix, not one"
+  - trigger-plane liveness — shipped in PR #122 (`kernel/relayflowd/src/server/liveness.rs`)
+  - the hn-monitor runner or CLI — shipped in PR #120
+  - flipping the gate-2 verdict in `ops/STATE.md` — Khaliq's read, never a run's
   - `.github/workflows/*` — no GHA changes
-  - `kernel/*` — the kernel side of gate 2 already works via PR #14
-  - `workflows/*.yaml` — those are for later sub-PRs
-  - `ops/AUTODRIVE_BRIEF.md` — chief owns this file, not the drive loop
-  - CLI wrapper — sub-PR C, separate PR
-  - end-to-end integration test with real relayflowd — sub-PR B, separate PR
-  - ops/STATE.md gate-2 declaration — sub-PR D, separate PR
+  - `packages/sdk/*` — this is a kernel task
 
-## If you cannot finish
-
-Say so and file what you learned. A minimal runner with an honest gap description beats a complete-looking one that doesn't shut down cleanly or leaks journal errors.
+**If you cannot finish.** Say so and file what you learned. A partial classification with an honest gap description beats a complete-looking one that cannot tell transient from permanent — conflating those two is the exact defect D1 exists to name.
