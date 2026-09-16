@@ -231,6 +231,14 @@ export async function resumeFlow(
       return { exitCode: 2, report: { ...base, runId, socketPath,
         diagnostics: [{ severity: 'refusal', kind: error.code, message: error.message }] } };
     }
+    // Same classification the run path gets. Resuming an authored root whose
+    // `f.agent` step failed is a step failure, not a protocol failure, and
+    // leaving it on `protocolFailure` meant `flows run` printed the evidence
+    // while `flows resume` still printed `protocol_error` and
+    // `RUN <id> unknown` for the identical failure.
+    if (error instanceof AuthoredFlowExecutionError && error.code === 'step_failed') {
+      return authoredStepFailure('resume', base, socketPath, error, runId);
+    }
     if (!(error instanceof JournalProtocolError) || error.code !== 'run_not_found') {
       return protocolFailure('resume', base, socketPath, error, runId);
     }
@@ -256,6 +264,49 @@ export async function resumeFlow(
       client.close();
     }
   }
+}
+
+/**
+ * A step that ran and failed, reported as the run failure it is.
+ *
+ * Shared by `runDirectFlow` and `resumeFlow` on purpose. The first cut of this
+ * fix classified the run path and left resume on `protocolFailure`, so `flows
+ * run` became diagnosable while `flows resume` still printed `protocol_error`
+ * and `RUN <id> unknown` for the same failed step — and the surface doc claimed
+ * both were fixed. One function is what stops the two paths drifting again.
+ *
+ * `protocolFailure` is wrong here twice over: it blames the daemon for a run it
+ * drove correctly, and it produces a report with no `status`, which is the
+ * whole of what `RUN <id> unknown` ever meant.
+ */
+export function authoredStepFailure(
+  command: RunCommand,
+  base: CheckReport | RunReport,
+  socketPath: string,
+  error: AuthoredFlowExecutionError,
+  fallbackRunId?: string,
+): RunExecution {
+  // The failing step runs as its own kernel run, so the error's run id is the
+  // one whose journal holds the evidence. The resume target is the fallback.
+  const runId = error.runId ?? fallbackRunId;
+  return {
+    exitCode: 1,
+    report: {
+      ...fromBase(command, base),
+      ok: false,
+      ...(runId === undefined ? {} : { runId }),
+      socketPath,
+      status: 'failed',
+      completionReason: 'step_failed',
+      diagnostics: [...base.diagnostics, {
+        severity: 'failure',
+        kind: 'step_failed',
+        // The `step_failed: ` prefix `AuthoredFlowExecutionError` adds is
+        // redundant once the diagnostic is labelled `[step_failed]`.
+        message: error.message.replace(/^step_failed: /, ''),
+      }],
+    },
+  };
 }
 
 /**
