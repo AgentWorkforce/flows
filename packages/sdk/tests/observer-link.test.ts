@@ -472,7 +472,7 @@ describe('finalizeObserverLine', () => {
     await finalizeObserverLine(mint, output.io, 100);
     expect(output.stdout).toEqual([]);
     expect(output.stderr).toEqual([
-      '[observer] token mint failed: mint API returned HTTP 500; skipping observer link',
+      '[observer] token mint failed: mint API returned HTTP 500; continuing without an observer link (the run is unaffected)',
     ]);
   });
 
@@ -485,7 +485,7 @@ describe('finalizeObserverLine', () => {
     await finalizeObserverLine(hung, output.io, 20);
     expect(output.stdout).toEqual([]);
     expect(output.stderr).toEqual([
-      '[observer] mint did not complete in time; skipping observer link',
+      '[observer] mint did not complete in time; continuing without an observer link (the run is unaffected)',
     ]);
   });
 

@@ -190,6 +190,34 @@ export async function runDirectFlow(
         },
       };
     }
+    // A step that ran and failed is a run failure, not a protocol failure.
+    // Routing it through `protocolFailure` reported `relayflowd could not
+    // complete the run request` — which says the daemon broke — and left the
+    // report with no `status`, so the summary line printed `RUN <id> unknown`
+    // about a run whose outcome was known exactly. The diagnostic carried up
+    // from `classifyOutcome` already names the step, its exit code and its
+    // output tail; this branch is what lets it reach the terminal. Mirrors
+    // the `McpStepError` branch above, which had this shape all along.
+    if (error instanceof AuthoredFlowExecutionError && error.code === 'step_failed') {
+      return {
+        exitCode: 1,
+        report: {
+          ...base,
+          ok: false,
+          runId: error.runId,
+          socketPath,
+          status: 'failed',
+          completionReason: 'step_failed',
+          diagnostics: [...base.diagnostics, {
+            severity: 'failure',
+            kind: 'step_failed',
+            // The `code: ` prefix `AuthoredFlowExecutionError` adds is
+            // redundant once the diagnostic is labelled `[step_failed]`.
+            message: error.message.replace(/^step_failed: /, ''),
+          }],
+        },
+      };
+    }
     const runId = error instanceof AuthoredFlowExecutionError ? error.runId : undefined;
     return protocolFailure('run', base, socketPath, error, runId);
   } finally {

@@ -11,7 +11,7 @@ import { ensureDaemon, type EnsureDaemonOptions } from '../daemon-lifecycle.js';
 import { isAuthoredFlowPath } from '../direct-input.js';
 import { daemonRefusal } from './daemon-refusal.js';
 import type { RunFailureKind, RunWarningKind, StepFailedDetails } from '../failure-kinds.js';
-import { deterministicFailureDetails } from './deterministic-failure.js';
+import { inspectionHint, stepFailureDetails } from './step-failure.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
 import { attachLocalAgent } from '../local-agent.js';
 import { LlmWorker } from '../llm-worker.js';
@@ -81,6 +81,14 @@ export interface RunLifecycleOptions {
   signal?: AbortSignal;
   onWait?: (progress: RunProgress) => void;
   /**
+   * The daemon data dir, carried so a failure diagnostic can name the journal
+   * holding the evidence (`<dataDir>/runs/<runId>.sqlite3`) and emit a
+   * `flows replay` invocation that will actually resolve. Each verb sets it
+   * from its own `--data-dir`; absent only where no data dir exists, and the
+   * diagnostic then omits the path rather than guessing one.
+   */
+  dataDir?: string;
+  /**
    * Attach-or-spawn policy for the daemon this command needs
    * (kernel/DAEMON-LIFECYCLE.md §3). `{ spawn: false }` is `--no-spawn`:
    * refuse instead of starting one, which is today's exact behavior.
@@ -123,7 +131,7 @@ async function executeCheckedFlow(
     // advertises its existing pins; the daemon still owns surface matching.
     if (options.localAgent) localAgent = await attachLocalAgent(client, dataDir, options.onPtyReady);
     const outcome = await client.runStart(spec, options.reuseFromRunId);
-    const execution = await classifyOutcome(client, 'run', outcome, base, socketPath, options);
+    const execution = await classifyOutcome(client, 'run', outcome, base, socketPath, { ...options, dataDir });
     if (options.reuseFromRunId !== undefined) {
       execution.report.reuse = await reuseSummary(client, outcome.run_id, options.reuseFromRunId);
     }
@@ -207,7 +215,7 @@ export async function resumeFlow(
     if (await resumeHelperEffect(client, runId, dataDir)) {
       outcome = await client.runResume(runId, options.allowHumanInfluenced);
     }
-    return await classifyOutcome(client, 'resume', outcome, base, socketPath, options);
+    return await classifyOutcome(client, 'resume', outcome, base, socketPath, { ...options, dataDir });
   } catch (error) {
     if (error instanceof JournalProtocolError && error.code === 'human_influenced_run') {
       return { exitCode: 2, report: { ...base, runId, socketPath,
@@ -409,18 +417,24 @@ export async function classifyOutcome(
       message: `Run "${current.run_id}" failed with completionReason: ${current.completion_reason}.`,
     };
     if (current.completion_reason === 'step_failed') {
+      let details: StepFailedDetails | undefined;
       try {
-        const details = await deterministicFailureDetails(client, current.run_id);
-        if (details !== undefined) {
-          Object.assign(diagnostic, details);
-          diagnostic.message += ` Step ${JSON.stringify(details.stepId)} exit=${details.exitCode}.`
-            + (details.stderrTail ? `\nStderr (last 1,024 bytes):\n${details.stderrTail}` : '')
-            + `\nInspect: ${details.hint}`;
-        }
+        details = await stepFailureDetails(client, current.run_id);
       } catch (error) {
         // Inspection must not erase the already known run failure.
-        diagnostic.message += ` Could not inspect command failure: ${errorMessage(error)}`;
+        diagnostic.message += ` Could not inspect the failed step: ${errorMessage(error)}`;
       }
+      if (details !== undefined) {
+        Object.assign(diagnostic, details);
+        diagnostic.message += renderStepEvidence(details);
+      }
+      // Appended whatever the inspection found — including nothing. A failure
+      // shape this reader does not recognise, or a journal it could not read,
+      // must still end with somewhere to go rather than with a dead end.
+      const where = inspectionHint(current.run_id, details?.stepId, options.dataDir);
+      Object.assign(diagnostic, where);
+      diagnostic.message += `\nInspect: ${where.hint}`
+        + (where.journalPath === undefined ? '' : `\nJournal: ${where.journalPath}`);
     }
     return {
       exitCode: 1,
@@ -607,6 +621,24 @@ export function socketFor(dataDir: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'unknown protocol error';
+}
+
+/**
+ * The evidence half of a `step_failed` diagnostic; `inspectionHint` adds the
+ * rest. Each field is printed only when the journal actually carried it — an
+ * agent step has no exit code to report, and inventing `exit=undefined` (which
+ * is what the deterministic-only version printed for one) is worse than
+ * silence on that field.
+ */
+function renderStepEvidence(details: StepFailedDetails): string {
+  return ` Step ${JSON.stringify(details.stepId)}`
+    + (details.stepType === undefined ? '' : ` (${details.stepType})`)
+    + ` completionReason: ${details.completionReason}`
+    + (details.exitCode === undefined ? '' : ` exit=${details.exitCode}`)
+    + '.'
+    + (details.detail === undefined ? '' : `\nDetail: ${details.detail}`)
+    + (details.stdoutTail ? `\nStdout (last 1,024 bytes):\n${details.stdoutTail}` : '')
+    + (details.stderrTail ? `\nStderr (last 1,024 bytes):\n${details.stderrTail}` : '');
 }
 
 function throwIfCanceled(signal: AbortSignal | undefined, stepId: string): void {

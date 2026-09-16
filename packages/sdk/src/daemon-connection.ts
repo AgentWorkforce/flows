@@ -41,6 +41,14 @@ export const CONNECTION_FILE = 'connection.json';
 export const SOCKET_FILE = 'relayflowd.sock';
 export const DAEMON_LOG_FILE = 'relayflowd.log';
 
+/**
+ * The data dir every verb defaults to. It lives here, next to the other paths
+ * derived from it, so the CLI's `--data-dir` default and the failure
+ * diagnostic that decides whether to echo `--data-dir` back at an operator
+ * cannot drift apart.
+ */
+export const DEFAULT_DATA_DIR = '.relayflowd';
+
 /** `<data-dir>/connection.json`, exactly the shape in §1. */
 export interface DaemonConnection {
   socket_path: string;

@@ -36,6 +36,28 @@ it.each([
   expect(JSON.stringify(result.report)).not.toContain('worker transport closed');
   if (exitCode !== 2) expect(result.report.runId).toBe('durable-run');
 });
+it('reports an authored step failure as step_failed with a known status, not protocol_error', async () => {
+  vi.mocked(executeDurableAuthoredFlow).mockRejectedValueOnce(new AuthoredFlowExecutionError(
+    'step_failed',
+    'Run "child-run" failed with completionReason: step_failed. Step "agent-2" (agent) '
+      + 'completionReason: worker_error exit=1.\nStderr (last 1,024 bytes):\nno such model',
+    undefined,
+    'child-run',
+  ));
+  const result = await runDirectFlow('flow.ts', '{}', '/tmp/unused', { localAgent: true });
+  expect(result.exitCode).toBe(1);
+  // A step that ran and failed is a run failure. Reporting it as a daemon
+  // protocol failure blamed the wrong component, and left the report with no
+  // status — which is what printed `RUN <id> unknown` about a known outcome.
+  expect(result.report.status).toBe('failed');
+  expect(result.report.completionReason).toBe('step_failed');
+  const kinds = result.report.diagnostics.map(diagnostic => diagnostic.kind);
+  expect(kinds).toContain('step_failed');
+  expect(kinds).not.toContain('protocol_error');
+  expect(JSON.stringify(result.report)).not.toContain('could not complete the run request');
+  // The evidence carried up from classifyOutcome must survive the hand-off.
+  expect(JSON.stringify(result.report)).toContain('no such model');
+});
 it('uses the worker cause when the authored executor only saw a generic disconnect', async () => {
   vi.mocked(executeDurableAuthoredFlow).mockRejectedValueOnce(new Error('connection closed'));
   const result = await runDirectFlow('flow.ts', '{}', '/tmp/unused', { localAgent: true });

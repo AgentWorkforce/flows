@@ -30,6 +30,7 @@ import { parseDigestReference } from './bundle-transport.js';
 import { parseBuildArgs, runBuild, type BuildArgs } from './cli/build.js';
 import { runHnMonitor } from './cli/hn-monitor.js';
 import { runTickRunner } from './cli/tick-runner.js';
+import { DEFAULT_DATA_DIR } from './daemon-connection.js';
 import {
   mintObserverUrl,
   resolveObserverLinkEnv,
@@ -60,7 +61,6 @@ type ParsedArgs =
       intervalMs: number; epochMs: number | undefined; maxCatchUp: number | undefined;
       pollIntervalMs: number | undefined };
 
-const DEFAULT_DATA_DIR = '.relayflowd';
 const USAGE = [
   'Usage:',
   'flows add <helper-name|@flows/helper-name>',
@@ -299,7 +299,7 @@ async function observerUrlFrom(
   if (mint === undefined) return undefined;
   const outcome = await mint;
   if (outcome.warning !== undefined) {
-    io.stderr(`[observer] token mint failed: ${outcome.warning}; skipping observer link`);
+    io.stderr(`[observer] token mint failed: ${outcome.warning}; continuing without an observer link (the run is unaffected)`);
   }
   return outcome.observerUrl;
 }
@@ -394,11 +394,11 @@ export async function finalizeObserverLine(
   const outcome = await Promise.race([mint, timeout]);
   if (timer !== undefined) clearTimeout(timer);
   if (outcome === TIMED_OUT) {
-    io.stderr('[observer] mint did not complete in time; skipping observer link');
+    io.stderr('[observer] mint did not complete in time; continuing without an observer link (the run is unaffected)');
     return;
   }
   if (outcome.warning !== undefined) {
-    io.stderr(`[observer] token mint failed: ${outcome.warning}; skipping observer link`);
+    io.stderr(`[observer] token mint failed: ${outcome.warning}; continuing without an observer link (the run is unaffected)`);
     return;
   }
   if (outcome.observerUrl !== undefined) io.stdout(`Observer: ${outcome.observerUrl}`);

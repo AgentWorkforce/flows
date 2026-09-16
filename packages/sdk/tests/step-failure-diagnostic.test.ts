@@ -46,7 +46,7 @@ async function diagnosticFor(stderr: string) {
   return (await classify(client)).report.diagnostics.at(-1) as RunDiagnostic;
 }
 
-describe('deterministic failure diagnostic', () => {
+describe('step failure diagnostic', () => {
   it.each([false, true])('surfaces command exit, stderr and replay hint through the CLI (json=%s)', async json => {
     const dir = mkdtempSync(join(tmpdir(), 'flows-failure-'));
     directories.push(dir);
@@ -80,9 +80,13 @@ describe('deterministic failure diagnostic', () => {
     if (json) {
       const report = JSON.parse(stdout.join('\n')) as RunReport;
       expect(report.diagnostics).toContainEqual(expect.objectContaining({
-        kind: 'step_failed', stepId: 'fail-command', exitCode: 7,
+        kind: 'step_failed', stepId: 'fail-command', stepType: 'deterministic',
+        completionReason: 'verification_failed', exitCode: 7,
         stderrTail: 'shakedown intentional failure',
-        hint: 'flows replay run-failed --at fail-command',
+        // The hint has to name the non-default data dir, or replaying it from
+        // the operator's shell would look in the wrong place.
+        hint: `flows replay run-failed --at fail-command --data-dir '${dir}'`,
+        journalPath: join(dir, 'runs', 'run-failed.sqlite3'),
       }));
     } else {
       const output = stderr.join('\n');
@@ -90,6 +94,7 @@ describe('deterministic failure diagnostic', () => {
       expect(output).toContain('exit=7');
       expect(output).toContain('shakedown intentional failure');
       expect(output).toContain('flows replay run-failed --at fail-command');
+      expect(output).toContain(join(dir, 'runs', 'run-failed.sqlite3'));
     }
   });
 
@@ -137,13 +142,65 @@ describe('deterministic failure diagnostic', () => {
     expect((await classify(client)).report.diagnostics.at(-1)).not.toHaveProperty('exitCode');
   });
 
-  it.each(['agent', 'llm'] as const)('leaves %s failure diagnostics unchanged', async type => {
-    const { client, journalRead } = stub([[completion(1, 'worker stderr')]], type);
-    expect((await classify(client)).report.diagnostics.at(-1)).toEqual({
-      severity: 'failure', kind: 'step_failed',
-      message: 'Run "run-failed" failed with completionReason: step_failed.',
+  it.each(['agent', 'llm'] as const)('surfaces %s evidence the kernel kept in verification.detail', async type => {
+    // This test used to assert the opposite — that the CLI read nothing for a
+    // non-deterministic step — and so it pinned the bug rather than a
+    // behaviour: a failed `f.agent` reported `step_failed` and discarded every
+    // account of why. The kernel nulls `output` on a failed non-deterministic
+    // completion (`preserve_failure_output`, relayflowd-core/src/machine.rs)
+    // and keeps the worker's report only as the bounded render in
+    // `verification.detail`, so that is where the reader has to look.
+    const { client, journalRead } = stub([[{
+      seq: 1, entry_type: 'step.completed', step_id: 'fail-command',
+      payload: {
+        completionReason: 'worker_error', disposition: 'step_done', output: null,
+        verification: {
+          gate: 'execution', verdict: 'fail',
+          detail: '{"exit_code":1,"stdout_tail":"boot failed","stderr_tail":"no such model"}',
+        },
+      },
+    }]], type);
+    const diagnostic = (await classify(client)).report.diagnostics.at(-1) as RunDiagnostic;
+    expect(journalRead).toHaveBeenCalled();
+    expect(diagnostic).toMatchObject({
+      kind: 'step_failed', stepId: 'fail-command', stepType: type,
+      completionReason: 'worker_error', exitCode: 1,
+      stdoutTail: 'boot failed', stderrTail: 'no such model',
     });
-    expect(journalRead).not.toHaveBeenCalled();
+    expect(diagnostic.message).toContain('no such model');
+    expect(diagnostic.message).toContain('exit=1');
+  });
+
+  it('keeps an unparseable daemon detail verbatim rather than dropping it', async () => {
+    // `worker_failure_detail` renders a bare string as a bare string, and
+    // truncates a long render past the point where it would still parse. Both
+    // arrive here as prose, and prose is still an account of the failure.
+    const { client } = stub([[{
+      seq: 1, entry_type: 'step.completed', step_id: 'fail-command',
+      payload: {
+        completionReason: 'worker_error', disposition: 'step_done', output: null,
+        verification: { gate: 'execution', verdict: 'fail', detail: 'analyzer exited 1: no such model' },
+      },
+    }]], 'agent');
+    const diagnostic = (await classify(client)).report.diagnostics.at(-1) as RunDiagnostic;
+    expect(diagnostic.detail).toBe('analyzer exited 1: no such model');
+    expect(diagnostic).not.toHaveProperty('exitCode');
+    expect(diagnostic.message).toContain('analyzer exited 1: no such model');
+  });
+
+  it('says where to look without inventing evidence it does not have', async () => {
+    const { client } = stub([[{
+      seq: 1, entry_type: 'step.completed', step_id: 'fail-command',
+      payload: { completionReason: 'crashed', disposition: 'step_done', output: null },
+    }]], 'agent');
+    const diagnostic = (await classify(client)).report.diagnostics.at(-1) as RunDiagnostic;
+    // Nothing was journaled beyond the reason, so nothing beyond it is claimed.
+    expect(diagnostic).not.toHaveProperty('exitCode');
+    expect(diagnostic).not.toHaveProperty('stderrTail');
+    expect(diagnostic).not.toHaveProperty('detail');
+    expect(diagnostic.completionReason).toBe('crashed');
+    expect(diagnostic.message).toContain('completionReason: crashed');
+    expect(diagnostic.message).toContain('Inspect: flows replay run-failed --at fail-command');
   });
 
   it('does not inspect the journal or change diagnostics on success', async () => {
@@ -155,14 +212,17 @@ describe('deterministic failure diagnostic', () => {
     expect(journalRead).not.toHaveBeenCalled();
   });
 
-  it('preserves step_failed and explains failed journal inspection', async () => {
+  it('preserves step_failed, explains failed inspection, and still says where to look', async () => {
     const { client, journalRead } = stub([]);
     journalRead.mockRejectedValueOnce(new Error('journal unavailable'));
     const execution = await classify(client);
     expect(execution.exitCode).toBe(1);
-    expect(execution.report.diagnostics.at(-1)).toMatchObject({
-      kind: 'step_failed', message: expect.stringContaining('Could not inspect command failure: journal unavailable'),
-    });
+    const diagnostic = execution.report.diagnostics.at(-1) as RunDiagnostic;
+    expect(diagnostic.kind).toBe('step_failed');
+    expect(diagnostic.message).toContain('Could not inspect the failed step: journal unavailable');
+    // The footer comes from the run id alone, which is why it survives exactly
+    // the case where the evidence itself could not be read.
+    expect(diagnostic.message).toContain('Inspect: flows replay run-failed');
   });
 
   it('stops on non-advancing journal pages', async () => {
