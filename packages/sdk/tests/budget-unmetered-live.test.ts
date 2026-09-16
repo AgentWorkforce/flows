@@ -7,7 +7,7 @@ import { checkAuthoredFlow } from '../src/cli/check.js';
 import { JournalClient } from '../src/journal-client.js';
 import { LlmWorker } from '../src/llm-worker.js';
 import { socketPathFor } from '../src/daemon-connection.js';
-import { SPEC_SCHEMA_VERSION } from '../src/spec.js';
+import { SPEC_SCHEMA_VERSION, type KernelRunSpec } from '../src/spec.js';
 import { chainFixture } from './flow-chain-fixture.js';
 
 // F9 for #421: preflight warning -> worker usage -> kernel enforcement, through
@@ -60,6 +60,14 @@ describe('unmetered budget spend through the live kernel', () => {
       await f.run('printf after-unmetered');
       f.done('success');
     });
+    // Capture each child run's spec: the carry-forward contract is what the
+    // executor sends, not only what the kernel journals back.
+    const starts: KernelRunSpec[] = [];
+    const start = client.runStart.bind(client);
+    client.runStart = (async (...args: Parameters<JournalClient['runStart']>) => {
+      starts.push(args[0]);
+      return start(...args);
+    }) as JournalClient['runStart'];
     const result = await executeAuthoredFlow(handle, client, undefined, { flowPath: fixture.flowPath });
     expect(result.completionReason).toBe('success');
     expect(result.journalSteps.map(step => step.id)).toEqual(['llm-1', 'run-2', 'complete-3']);
@@ -70,6 +78,16 @@ describe('unmetered budget spend through the live kernel', () => {
     expect(completed.payload.budget).toEqual({ tokens_in: 500, tokens_out: 500, dollars: '0', dollars_unmetered: true });
     expect(completed.payload.spend).toMatchObject({ tokens_input: 500, tokens_output: 500, dollars: 0, dollars_unmetered: true });
     expect(llmRun.find(e => e.entry_type === 'run.completed')!.payload.budget_total).toMatchObject({ dollars_unmetered: true });
+
+    // The carry-forward boundary. The first child run starts fully metered;
+    // the deterministic step that follows inherits the unknown dollar cost,
+    // and its own cumulative total still reports it rather than a measured
+    // zero. The run still succeeds, so unknown cost has not become enforceable.
+    expect(starts[0]!.budget!.prior_spend).not.toHaveProperty('dollars_unmetered');
+    expect(starts[1]!.budget!.prior_spend).toMatchObject({ tokens_in: 500, tokens_out: 500, dollars_unmetered: true });
+    const laterRun = await entries(client, result.journalSteps[1]!.runId);
+    expect(laterRun.find(e => e.entry_type === 'run.completed')!.payload.budget_total)
+      .toMatchObject({ tokens_in: 500, tokens_out: 500, dollars: '0', dollars_unmetered: true });
     expect(failures).toEqual([]);
   });
 

@@ -673,6 +673,50 @@
       ],
       "additionalProperties": false
     },
+    "KernelPriorSpend": {
+      "title": "KernelPriorSpend",
+      "description": "Accounting carried into a run that continues an earlier one. The authored\nexecutor lowers each step to its own kernel run and sends the previous run's\ntotals here. It mirrors the kernel's `PriorSpend` field for field, so the\nhandoff cannot quietly narrow what a carried budget can express.",
+      "type": "object",
+      "properties": {
+        "tokens_in": {
+          "title": "tokens_in",
+          "description": "tokens_in in the Relayflows spec.",
+          "type": "number"
+        },
+        "tokens_out": {
+          "title": "tokens_out",
+          "description": "tokens_out in the Relayflows spec.",
+          "type": "number"
+        },
+        "dollars": {
+          "title": "dollars",
+          "description": "Metered dollars only; a lower bound when `dollars_unmetered` is set.",
+          "type": "string"
+        },
+        "wallclock_ms": {
+          "title": "wallclock_ms",
+          "description": "wallclock_ms in the Relayflows spec.",
+          "type": "number"
+        },
+        "day": {
+          "title": "day",
+          "description": "day in the Relayflows spec.",
+          "type": "number"
+        },
+        "dollars_unmetered": {
+          "title": "dollars_unmetered",
+          "description": "At least one carried charge spent tokens of unknown dollar cost, so\n`dollars` is a lower bound rather than a measured total. Omitted when\nfalse, so a fully metered flow's payload keeps its exact bytes and a\nkernel that predates the key never receives it.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "tokens_in",
+        "tokens_out",
+        "dollars",
+        "wallclock_ms"
+      ],
+      "additionalProperties": false
+    },
     "KernelBudgetSpec": {
       "title": "KernelBudgetSpec",
       "description": "KernelBudgetSpec in the Relayflows spec.",
@@ -687,41 +731,7 @@
         "prior_spend": {
           "title": "prior_spend",
           "description": "prior_spend in the Relayflows spec.",
-          "type": "object",
-          "properties": {
-            "tokens_in": {
-              "title": "tokens_in",
-              "description": "tokens_in in the Relayflows spec.",
-              "type": "number"
-            },
-            "tokens_out": {
-              "title": "tokens_out",
-              "description": "tokens_out in the Relayflows spec.",
-              "type": "number"
-            },
-            "dollars": {
-              "title": "dollars",
-              "description": "dollars in the Relayflows spec.",
-              "type": "string"
-            },
-            "wallclock_ms": {
-              "title": "wallclock_ms",
-              "description": "wallclock_ms in the Relayflows spec.",
-              "type": "number"
-            },
-            "day": {
-              "title": "day",
-              "description": "day in the Relayflows spec.",
-              "type": "number"
-            }
-          },
-          "required": [
-            "tokens_in",
-            "tokens_out",
-            "dollars",
-            "wallclock_ms"
-          ],
-          "additionalProperties": false
+          "$ref": "#/$defs/KernelPriorSpend"
         },
         "max_tokens": {
           "title": "max_tokens",

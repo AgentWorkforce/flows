@@ -595,15 +595,59 @@ pub enum BudgetPricing {
     Frozen,
 }
 
+/// Accounting imported into a run that continues an earlier one. The authored
+/// TypeScript executor lowers each step to its own kernel run and carries the
+/// previous run's totals here, so this shape must express everything a carried
+/// [`Budget`](crate::entry::Budget) expresses — see the `From` impl below.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PriorSpend {
     pub tokens_in: u64,
     pub tokens_out: u64,
+    /// Metered dollars only; a lower bound when `dollars_unmetered` is set.
     pub dollars: String,
     pub wallclock_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub day: Option<i64>,
+    /// At least one carried charge spent tokens of unknown dollar cost, so
+    /// `dollars` above is a lower bound rather than a measured total. This
+    /// keeps `Budget::dollars_unmetered` sticky across the child-run boundary:
+    /// without it an unpriced step followed by another step carried its tokens
+    /// and a metered zero, and the later run's total looked fully measured.
+    ///
+    /// Compatibility is deliberate in both directions, and `PriorSpend` keeps
+    /// `deny_unknown_fields`:
+    ///
+    /// - A **newer kernel** reading a payload **without** the key defaults it
+    ///   to `false` — the pre-existing meaning — so an older SDK keeps working
+    ///   unchanged.
+    /// - An **older kernel** reading a payload **with** the key refuses the
+    ///   spec as malformed. Because the key is omitted when false, that can
+    ///   only happen for a flow that actually carried unknown cost, which is
+    ///   exactly the case where silently dropping it would under-report the
+    ///   total. A loud refusal is the fail-closed answer (AGENTS.md rule 4);
+    ///   accepting and ignoring the key would be the fail-open bug this field
+    ///   exists to prevent.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub dollars_unmetered: bool,
+}
+
+impl From<&PriorSpend> for crate::entry::Budget {
+    /// Lossless by construction: every `Budget` field is named here and there
+    /// is no `..Default::default()`, so a future accounting field fails to
+    /// compile at this boundary instead of silently importing as zero/false.
+    fn from(prior: &PriorSpend) -> Self {
+        crate::entry::Budget {
+            tokens_in: prior.tokens_in,
+            tokens_out: prior.tokens_out,
+            dollars: prior.dollars.clone(),
+            dollars_unmetered: prior.dollars_unmetered,
+        }
+    }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// v0 verification gates (kernel DESIGN.md §4): `exit_code == 0` is implicit
