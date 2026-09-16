@@ -1,83 +1,144 @@
-# NEEDS_HUMAN — Conflicting Work Package Context
+# NEEDS_HUMAN — Scope Conflict: Work Appears Complete
 
-**Situation:** This run has conflicting scope context that requires human clarification.
+## The Situation
 
-## The Conflict
+This run was given a scope (build hn-monitor runner addressing 5 findings from PR #83), but that work appears to be already complete per ops/STATE.md (PR #120 merged 2026-09-01).
 
-1. **ops/TARGET.md says:** Gate 3, build hn-monitor runner (sub-PR A), `sdk/src/` code task
-2. **ops/NEXT.md says:** Gate 3, cloud review-swarm preflight validation, `.github/workflows/` task  
-3. **These are completely different tasks** — one is SDK code (track A per TARGET), one is GitHub Actions (track D per NEXT)
+## The Evidence
 
-## Evidence
+**From TARGET.md (launcher's scope):**
+- Build `sdk/src/hn-monitor-runner.ts` (or similar) addressing 5 specific findings from closed PR #83
+- Gate labeled as "3" but work described is gate 2 (hn-monitor is gate 2's acceptance workload per RFC-0001 §3)
 
-**ops/TARGET.md line 1-5:**
+**From ops/STATE.md (ground truth):**
 ```
-# TARGET — gate 3
-
-This run is pinned to **gate 3** and must not work on any other gate.
-
-**Scope:** Build sub-PR A of the Gate 2 push: a real `hn-monitor` polling runner in the SDK. CODE task, `sdk/src/`-side.
+- PR #120 (`201542a`, merged 2026-09-01 08:29 UTC) —
+  **`flows hn-monitor start`**, the CLI runner that turns the poller
+  into an unattended process.
 ```
 
-**ops/NEXT.md line 1-3:**
+**From filesystem:**
 ```
-# NEXT — gate 3: complete cloud review-swarm preflight validation and documentation
+$ ls -la packages/sdk/src/cli/hn-monitor.ts
+-rw-r--r-- 1 daytona daytona 12726 Sep 16 08:55 packages/sdk/src/cli/hn-monitor.ts
 
-**Scope:** Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time
+$ wc -l packages/sdk/src/cli/hn-monitor.ts
+287 packages/sdk/src/cli/hn-monitor.ts
+
+$ head -20 packages/sdk/src/cli/hn-monitor.ts
+/**
+ * `flows hn-monitor start` — CLI-inlined proactive workload for gate 2.
+ *
+ * runHnMonitor is a public function (not a class) that composes the
+ * primitives directly: connect journal → hello → attach agent worker →
+ * loop pollHackerNewsOnce → drain on abort → close.
+ *
+ * Poll errors classify into two shapes only:
+ *   - `instanceof HnTransientFetchError` → log and continue next tick.
+ *   - anything else → non-transient (journal failure OR programmer
+ *     error); log with the actual class name and terminate (fail-closed
+ *     per covenant 2).
+ */
 ```
 
-## The Charter Says
+The file exists and implements exactly what TARGET.md describes: a continuous hn-monitor polling runner.
 
-Per charter/LEAD.md (the instruction I received):
-- "Read ops/TARGET.md if it exists" — it does, says hn-monitor
-- "Then read ops/STATE.md, ops/DIRECTIVES.md" — done
-- "Then write ops/NEXT.md: the SINGLE highest-priority work package toward the current gate"
+## The Charter Conflict
 
-But ops/NEXT.md ALREADY EXISTS with different work.
+My charter (instruction I received as Relayflow Lead) says:
 
-## Additional Context Found
+> "YOUR SCOPE IS THE TASK YOU WERE GIVEN... it is the operator's scoping decision and it overrides your own judgement about priority — several runs execute in parallel, each pinned to a different gate, and a run that wanders outside its target will collide with a sibling. Stay inside it or, if the target is genuinely unreachable, say so in ops/NEEDS_HUMAN.md rather than silently choosing different work."
 
-**ops/STATE.md gate 2 block (lines 39-81)** says:
-- PR #120 merged 2026-09-01 — `flows hn-monitor start` CLI runner
-- Gate 2 is AMBER, not GREEN
-- Two clauses remain: trigger-plane liveness, analyze-agent execution
+The scope I was given describes work that STATE.md says is merged. I cannot determine whether:
 
-**Actual file check:**
-- `packages/sdk/src/cli/hn-monitor.ts` exists (288 lines)
-- Contains `runHnMonitor` function implementing all TARGET.md requirements
-- Addresses all five findings from closed PR #83
+1. **The scope is stale** — TARGET.md references closed PR #83 but PR #120 superseded it
+2. **Verification is needed** — the work exists but needs verification that all 5 findings were properly addressed
+3. **Follow-up work exists** — integration tests (sub-PR B) or other follow-ups
+4. **The gate number is wrong** — this is gate 2 work mislabeled as gate 3
 
 ## The Question
 
-**Which work package should this run execute?**
+**What should this run do?**
 
-**Option A: ops/TARGET.md wins (hn-monitor, sdk/ territory)**
-- Overwrite ops/NEXT.md with hn-monitor work package
-- But the code already exists (PR #120 merged per STATE.md)
-- Task would be verification/testing, not building from scratch
+### Option A: Verify PR #120 addressed all 5 findings
+- Read `packages/sdk/src/cli/hn-monitor.ts` in detail
+- Check that each of the 5 findings from TARGET.md was addressed:
+  1. Fail-closed on journal errors (fetch errors swallowed, journal errors rethrow)
+  2. AgentWorker.close() releases worker or documents it doesn't
+  3. Class fields declared before constructor
+  4. Signal handlers opt-in via AbortSignal
+  5. Test coverage for pollError branch survival AND journal error termination
+- Write evidence document confirming or identifying gaps
+- Work package is **verification**, not implementation
 
-**Option B: ops/NEXT.md wins (review-swarm, .github/ territory)**
-- Ignore ops/TARGET.md
-- Execute the review-swarm validation work
-- But TARGET.md explicitly pins this run to gate 3 hn-monitor work
+### Option B: Assess real gate 3 work (Software Garden)
+- Ignore the hn-monitor scope as stale
+- Read RFC-0001 §3 gate 3: "a labeled issue flows to a reviewed PR end-to-end"
+- Assess what actually needs to be built for Software Garden
+- Write that work package instead
+- **Violates charter's "stay inside your scope" rule**
 
-**Option C: TARGET.md is stale**
-- The launcher wrote an outdated TARGET.md referencing closed PR #83
-- Real work is in ops/NEXT.md (review-swarm)
-- Proceed with review-swarm, update TARGET understanding
+### Option C: Assess what gate 2 work remains
+- Gate 2 is AMBER per STATE.md, not GREEN
+- Two clauses remain: trigger-plane liveness-check, analyze-agent step actually executing
+- Write work package for those gaps
+- **Also violates "stay inside your scope" rule** (scope is hn-monitor runner, not gate 2 generally)
 
-**Option D: Both are stale**
-- Neither accurately reflects current gate 3 needs
-- Assessor should read RFC-0001 §3 gate 3 definition
-- Write fresh work package from RFC requirements
+### Option D: Stop with scope unreachable
+- The described work (build hn-monitor runner) is complete
+- Target is unreachable because it's already reached
+- No work package can be written for "build X" when X exists and is merged
+- This ticket should be closed as redundant
+
+## My Assessment
+
+**Option A is most likely correct.** The scope says "Address the 5 findings from PR #83 in this attempt" — if PR #120 claimed to address them, verification that it actually did is a valid interpretation of the scope.
+
+But I cannot be certain without human judgment because:
+- If #120 was a complete replacement for #83, verification may be trivial
+- If #120 had its own review and was merged, verification is redundant
+- The gate number mismatch (TARGET says "gate 3", work is gate 2) suggests possible staleness
+
+## What I Did
+
+1. ✅ Read ops/TARGET.md (the scope)
+2. ✅ Read ops/STATE.md (ground truth)
+3. ✅ Read ops/DIRECTIVES.md (empty except header - no standing directives)
+4. ✅ Read charter/LEAD.md (my role)
+5. ✅ Read docs/bootstrap-report.md
+6. ✅ Checked git log (FAILED - git not functional in this worktree per ops/STATE.md known fault #1)
+7. ✅ Checked gh pr list (FAILED - gh not available per STATE.md known fault #1)
+8. ✅ Checked filesystem for evidence of described work
+9. ✅ Wrote ops/NEXT.md documenting the assessment
+10. ⚠️ ATTEMPTED git commit (FAILED - git worktree link broken, known fault)
+11. ✅ Wrote this ops/NEEDS_HUMAN.md per charter requirement
+12. → Ending with ASSESS_DONE per charter requirement
+
+## Git Commit Failure
+
+Per charter: "If the commit fails, say so in your output rather than finishing silently."
+
+**Git commit failed:**
+```
+$ git add -A && git commit -m "assess: work package assessment for this tick - scope appears complete"
+fatal: not a git repository: /home/daytona/.project-git
+```
+
+The .git file points to `/home/daytona/.project-git` which does not exist. This is ops/STATE.md known fault #1: "No `.git`, no `gh`. `sync` runs in `SYNC_MODE=snapshot`."
+
+ops/NEXT.md was written but NOT committed to git. It exists in the working tree only.
 
 ## Recommendation
 
-**Option C** — ops/TARGET.md appears stale (references closed PR #83 from earlier attempts, describes code that PR #120 already merged). The active work package is ops/NEXT.md (review-swarm). But I need human confirmation before overwriting NEXT.md or executing potentially wrong work.
+**Human should:**
 
-## What I Need
+1. **Clarify which option (A/B/C/D) is correct for this run**
+2. **If Option A**: Confirm verification scope and whether PR #120's existing review is sufficient
+3. **If Option B or C**: Acknowledge this overrides the given scope
+4. **If Option D**: Close this run as redundant; scope already satisfied by PR #120
 
-**Clear answer:** Which work package is correct for this run?
-- If hn-monitor: shall I overwrite the review-swarm NEXT.md, or is there a different file I should write?
-- If review-swarm: shall I proceed with ops/NEXT.md as-is and ignore TARGET.md?
-- If neither: what is the actual gate 3 work I should assess?
+**Until clarified, I cannot proceed** — I am blocked on interpreting a scope that describes complete work.
+
+---
+
+This ticket is BLOCKED_NEEDS_HUMAN, not failed. The assessment is complete and honest; the next step requires human judgment I am not authorized to make.
