@@ -125,13 +125,32 @@ export type PreflightWarningKind = (typeof PREFLIGHT_WARNING_KINDS)[number];
 export type RunFailureKind = (typeof RUN_FAILURE_KINDS)[number];
 export type RunWarningKind = (typeof RUN_WARNING_KINDS)[number];
 
-/** Optional evidence on the existing step_failed diagnostic, not a new kind. */
+/**
+ * Optional evidence on the existing step_failed diagnostic, not a new kind.
+ *
+ * Every field is optional because a failure must be reportable on whatever it
+ * left behind. A deterministic step leaves `exitCode` plus output tails; an
+ * agent or llm step leaves `completionReason` and whatever the daemon captured
+ * into `detail` (see cli/step-failure.ts). Absent means "not journaled", never
+ * "zero" — an exit code is only ever reported when one was actually recorded.
+ */
 export interface StepFailedDetails {
   stepId?: string;
+  /** `deterministic` | `llm` | `agent`, when the run snapshot named one. */
+  stepType?: string;
+  /** The kernel's per-step reason, e.g. `worker_error`, `retries_exhausted`. */
+  completionReason?: string;
   exitCode?: number;
   /** Terminal-safe UTF-8 excerpt, at most 1,024 bytes. */
+  stdoutTail?: string;
+  /** Terminal-safe UTF-8 excerpt, at most 1,024 bytes. */
   stderrTail?: string;
+  /** The daemon's own account, when it was not a render of the fields above. */
+  detail?: string;
+  /** A runnable `flows replay` invocation for this run. */
   hint?: string;
+  /** The on-disk journal for this run, when the data dir is known. */
+  journalPath?: string;
 }
 
 const CHECK_FAILURE_KIND_SET: ReadonlySet<string> = new Set(CHECK_FAILURE_KINDS);

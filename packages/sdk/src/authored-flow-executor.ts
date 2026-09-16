@@ -148,6 +148,11 @@ export async function executeAuthoredFlow<Input = undefined>(
   const onProgress = options.onProgress;
   const flowPath = options.flowPath ?? join(process.cwd(), 'flow.ts');
   const waitOptions: RunLifecycleOptions = {
+    // Carried so a failed `f.agent` can name the journal that holds its
+    // evidence. Each authored worker call runs as its own kernel run, and
+    // without the data dir the diagnostic can name the run id but not where
+    // on disk to read it.
+    ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
     ...(options.signal !== undefined ? { signal: options.signal } : {}),
     ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
   };

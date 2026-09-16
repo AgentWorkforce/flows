@@ -649,6 +649,18 @@ socket is opened, no `relayflowd` binary is invoked, the data dir is not
 touched. Refusals (`no workspace key configured`, mint failure) print
 `REFUSED [observer_link_unavailable] <reason>` on stderr and exit 2.
 
+Inside `flows run` and `flows resume` that same mint is fire-and-forget. It is
+issued **once per invocation**, before the run, and its outcome reaches nothing
+but stdout/stderr. A failed mint — including the `HTTP 429` a busy workspace
+can return, since the mint shares one per-workspace, per-minute rate bucket
+with every other Relaycast call — prints `[observer] token mint failed:
+<reason>; continuing without an observer link (the run is unaffected)` and
+changes nothing else. It cannot fail a step, alter an exit code, or affect
+worker attach: per RFC-0001 settled decision 7 the observer link is a
+projection, not a source of truth. The line says the run is unaffected
+explicitly because it lands on stderr beside real failures, where the previous
+wording (`skipping observer link`) read like a cause and cost debugging time.
+
 `check` compiles and preflights without starting a run. `run` performs that
 same preflight before contacting `relayflowd`, then submits the compiled spec
 to `<data-dir>/relayflowd.sock`; `resume` asks that daemon to continue an
@@ -706,7 +718,7 @@ The exit codes are part of the surface contract:
 | Exit | Outcome |
 |---:|---|
 | `0` | The run completed with `completionReason: success`. |
-| `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. |
+| `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. |
 | `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
 | `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. |
 
@@ -727,6 +739,19 @@ typed `run_not_found` refusal. A dropped connection, request failure, or
 `journal_write_failed` response exits 1 as `protocol_error`, because the
 journal may already have changed and the CLI cannot honestly claim the resume
 was refused before a write.
+
+A step that ran and failed is **not** one of those. It reports `step_failed`
+with `status: failed`, for every step type and for authored TypeScript flows
+as well as declarative ones. `protocol_error` is reserved for an outcome the
+CLI genuinely could not establish; using it for a known step failure both
+blamed the daemon for a healthy run and left the report with no `status`, so
+the summary line read `RUN <id> unknown` about a run whose outcome was exact.
+
+Every `step_failed` report ends with the `flows replay` invocation for that run
+and, when a data dir is known, the path of the journal holding it. That footer
+is derived from the run id alone, so it is present even when the evidence could
+not be read or the failure shape was not recognised — a failure the CLI cannot
+explain still says where the record is rather than ending the trail.
 
 ## 6. The gate contract, and remaining open surface questions
 
