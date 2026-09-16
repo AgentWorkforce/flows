@@ -142,16 +142,29 @@ workflows:
       \ freshness check below\n# uses \u2014 a commit in `main..HEAD` \u2014 widened by the uncommitted\
       \ case,\n# because propagation between per-step sandboxes is lossy and assess\n# may write the file\
       \ and fail to commit it. Losing a live escalation\n# is the worse error of the two, so an unproven-fresh\
-      \ file that is\n# dirty in the working tree still parks the run.\nif [ -f ops/NEEDS_HUMAN.md ];\
-      \ then\n  escalation=stale\n  if git log --oneline main..HEAD -- ops/NEEDS_HUMAN.md 2>/dev/null\
-      \ | grep -q .; then\n    escalation=this_tick_committed\n  elif [ -n \"$(git status --porcelain\
-      \ -- ops/NEEDS_HUMAN.md 2>/dev/null)\" ]; then\n    escalation=this_tick_uncommitted\n  fi\n  if\
-      \ [ \"$escalation\" = stale ]; then\n    echo \"ASSESS_STALE_NEEDS_HUMAN_IGNORED: ops/NEEDS_HUMAN.md\
-      \ exists but this tick did not write it.\"\n    echo \"  It is the committed record of an escalation\
-      \ that has already been answered,\"\n    echo \"  not a live one, so it does not park this run.\
-      \ Delete it from main once its\"\n    echo \"  question is resolved \u2014 a resolved escalation\
-      \ left in the tree is a lie the\"\n    echo \"  next assessor has to spend a run disproving.\"\n\
-      \  else\n    echo \"ASSESS_BLOCKED_NEEDS_HUMAN: the Lead escalated a decision it cannot make ($escalation).\"\
+      \ file that is\n# dirty in the working tree still parks the run.\n#\n# The default is to TRUST the\
+      \ escalation. Only a positive, SUCCESSFUL\n# answer from git may downgrade it to stale, because\
+      \ \"git printed\n# nothing\" and \"git could not answer\" look identical otherwise \u2014 and\n\
+      # a sandbox is exactly where git cannot answer. SYNC_MODE=snapshot\n# runs `git init` over an extracted\
+      \ tarball, so a step that runs\n# before main exists, a missing .git, or any git failure would\n\
+      # silently classify a LIVE escalation as stale and walk the builder\n# straight past a human decision.\
+      \ That inverts the tradeoff above,\n# so an unprovable escalation parks the run.\nif [ -f ops/NEEDS_HUMAN.md\
+      \ ]; then\n  escalation=unprovable\n  if git rev-parse --git-dir >/dev/null 2>&1 \\\n     && git\
+      \ rev-parse --verify --quiet main >/dev/null 2>&1; then\n    tick_log=$(git log --oneline main..HEAD\
+      \ -- ops/NEEDS_HUMAN.md 2>/dev/null)\n    if [ $? -ne 0 ]; then\n      escalation=unprovable\n \
+      \   elif [ -n \"$tick_log\" ]; then\n      escalation=this_tick_committed\n    else\n      tick_dirty=$(git\
+      \ status --porcelain -- ops/NEEDS_HUMAN.md 2>/dev/null)\n      if [ $? -ne 0 ]; then\n        escalation=unprovable\n\
+      \      elif [ -n \"$tick_dirty\" ]; then\n        escalation=this_tick_uncommitted\n      else\n\
+      \        escalation=stale\n      fi\n    fi\n  fi\n  if [ \"$escalation\" = stale ]; then\n    echo\
+      \ \"ASSESS_STALE_NEEDS_HUMAN_IGNORED: ops/NEEDS_HUMAN.md exists but this tick did not write it.\"\
+      \n    echo \"  It is the committed record of an escalation that has already been answered,\"\n \
+      \   echo \"  not a live one, so it does not park this run. Delete it from main once its\"\n    echo\
+      \ \"  question is resolved \u2014 a resolved escalation left in the tree is a lie the\"\n    echo\
+      \ \"  next assessor has to spend a run disproving.\"\n  else\n    if [ \"$escalation\" = unprovable\
+      \ ]; then\n      echo \"ASSESS_ESCALATION_FRESHNESS_UNPROVABLE: git could not say whether this tick\"\
+      \n      echo \"  wrote ops/NEEDS_HUMAN.md (no repo, no main, or git failed). Failing safe and\"\n\
+      \      echo \"  treating it as live: ignoring a real escalation is the worse of the two errors.\"\
+      \n    fi\n    echo \"ASSESS_BLOCKED_NEEDS_HUMAN: the Lead escalated a decision it cannot make ($escalation).\"\
       \n    echo \"--- ops/NEEDS_HUMAN.md ---\"\n    cat ops/NEEDS_HUMAN.md\n    exit 75\n  fi\nfi\nif\
       \ [ ! -f ops/NEXT.md ]; then\n  echo \"ASSESS_FAIL: no ops/NEXT.md \u2014 an assessment that named\
       \ no work package did not assess\"\n  exit 1\nfi\n# The assessment must have WRITTEN this tick's\

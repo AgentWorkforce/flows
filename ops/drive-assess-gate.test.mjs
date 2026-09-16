@@ -117,6 +117,50 @@ test('an uncommitted escalation from this tick still parks the run', (t) => {
   assert.match(out, /ASSESS_BLOCKED_NEEDS_HUMAN/);
 });
 
+/**
+ * A tree carrying a live escalation that git cannot describe. `initGit: true`
+ * gives a real repo whose branch is not `main`; otherwise there is no repo at
+ * all. Both are shapes a sandbox actually produces — SYNC_MODE=snapshot runs
+ * `git init` over an extracted tarball, so `main` does not exist until sync
+ * creates it.
+ */
+function unprovableTick(t, { initGit = false } = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'assess-gate-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  execFileSync('mkdir', ['-p', join(root, 'ops')]);
+  writeFileSync(join(root, 'ops/NEXT.md'), NEXT_MD);
+  writeFileSync(join(root, 'ops/NEEDS_HUMAN.md'), '# NEEDS_HUMAN — live, on a tree git cannot describe\n');
+  if (initGit) {
+    git(root, 'init', '-q', '-b', 'work');
+    git(root, 'config', 'user.email', 'test@relayflows.local');
+    git(root, 'config', 'user.name', 'Gate Test');
+    git(root, 'config', 'commit.gpgsign', 'false');
+    git(root, 'add', '-A');
+    git(root, 'commit', '-qm', 'base on a branch that is not main');
+  }
+  return root;
+}
+
+test('a live escalation parks the run when there is no git repo at all', (t) => {
+  const root = unprovableTick(t);
+  const { code, out } = runGate(root);
+  assert.equal(code, 75, `freshness was unprovable but the run continued:\n${out}`);
+  assert.match(out, /ASSESS_ESCALATION_FRESHNESS_UNPROVABLE/);
+  assert.match(out, /ASSESS_BLOCKED_NEEDS_HUMAN/);
+  assert.doesNotMatch(out, /ASSESS_STALE_NEEDS_HUMAN_IGNORED/);
+});
+
+test('a live escalation parks the run when main does not exist', (t) => {
+  // The escalation is COMMITTED here, so a naive `git log main..HEAD` prints
+  // nothing and the file looks stale — the precise shape that would drop a
+  // live escalation in a snapshot sandbox.
+  const root = unprovableTick(t, { initGit: true });
+  const { code, out } = runGate(root);
+  assert.equal(code, 75, `main was missing but the run continued:\n${out}`);
+  assert.match(out, /ASSESS_ESCALATION_FRESHNESS_UNPROVABLE/);
+  assert.match(out, /ASSESS_BLOCKED_NEEDS_HUMAN/);
+});
+
 test('a tick with no escalation at all passes the gate', (t) => {
   const root = tick(t);
   writeFileSync(join(root, 'ops/NEXT.md'), `${NEXT_MD}\nthis tick's package\n`);
