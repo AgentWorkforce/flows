@@ -191,11 +191,46 @@ workflows:
           # in its final token (its gate only recognises ASSESS_DONE), so the
           # Lead writes ops/NEEDS_HUMAN.md instead and this step reads it.
           set -u
+          # An escalation is trusted only when TWO INDEPENDENT SIGNALS AGREE:
+          # the file exists AND this tick is what wrote it.
+          #
+          # Existence alone is not a signal. ops/NEEDS_HUMAN.md was committed to
+          # main on 2026-09-06 (082c62aa) and nothing in this repo has ever
+          # deleted it — no `rm`, no `git rm`, and `git log --diff-filter=D`
+          # over that path is empty. ops/launch-gate.sh builds each run's
+          # worktree from origin/main and does not strip it, so every tick from
+          # 2026-09-12 onward escalated here before doing any work, on a
+          # question a human had already answered. PRs #417, #420, #422, #424,
+          # #426, #427 and #428 are seven consecutive cloud runs whose entire
+          # diff is this file and ops/NEXT.md, re-litigating the same conflict.
+          # None merged. A full cloud run was burned on each.
+          #
+          # A stale file must never be able to masquerade as a live escalation.
+          # "This tick" is the same test the ops/NEXT.md freshness check below
+          # uses — a commit in `main..HEAD` — widened by the uncommitted case,
+          # because propagation between per-step sandboxes is lossy and assess
+          # may write the file and fail to commit it. Losing a live escalation
+          # is the worse error of the two, so an unproven-fresh file that is
+          # dirty in the working tree still parks the run.
           if [ -f ops/NEEDS_HUMAN.md ]; then
-            echo "ASSESS_BLOCKED_NEEDS_HUMAN: the Lead escalated a decision it cannot make."
-            echo "--- ops/NEEDS_HUMAN.md ---"
-            cat ops/NEEDS_HUMAN.md
-            exit 75
+            escalation=stale
+            if git log --oneline main..HEAD -- ops/NEEDS_HUMAN.md 2>/dev/null | grep -q .; then
+              escalation=this_tick_committed
+            elif [ -n "$(git status --porcelain -- ops/NEEDS_HUMAN.md 2>/dev/null)" ]; then
+              escalation=this_tick_uncommitted
+            fi
+            if [ "$escalation" = stale ]; then
+              echo "ASSESS_STALE_NEEDS_HUMAN_IGNORED: ops/NEEDS_HUMAN.md exists but this tick did not write it."
+              echo "  It is the committed record of an escalation that has already been answered,"
+              echo "  not a live one, so it does not park this run. Delete it from main once its"
+              echo "  question is resolved — a resolved escalation left in the tree is a lie the"
+              echo "  next assessor has to spend a run disproving."
+            else
+              echo "ASSESS_BLOCKED_NEEDS_HUMAN: the Lead escalated a decision it cannot make ($escalation)."
+              echo "--- ops/NEEDS_HUMAN.md ---"
+              cat ops/NEEDS_HUMAN.md
+              exit 75
+            fi
           fi
           if [ ! -f ops/NEXT.md ]; then
             echo "ASSESS_FAIL: no ops/NEXT.md — an assessment that named no work package did not assess"
