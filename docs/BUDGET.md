@@ -40,8 +40,10 @@ Every newly written `step.completed` includes:
 An unmetered step adds `"dollars_unmetered": true` to `spend` and to its
 `budget`; its `dollars` then counts only metered cost (zero), a lower bound
 rather than a measured amount. The flag is sticky on run totals
-(`budget_total`, `budget_spent`), so a run report can say its dollar total is
-incomplete. The key is omitted when false, and readers must ignore it if they
+(`budget_total`, `budget_spent`) and is carried into a continuing run through
+`budget.prior_spend`, so a run report can say its dollar total is incomplete
+even when the unpriced step ran earlier in the flow. The key is omitted when
+false, and readers must ignore it if they
 do not know it. Journals written before this flag existed, including #421's
 builds that journaled unpriced steps as `dollars: "0.000000"`, cannot be told
 apart from metered zero-cost steps.
@@ -62,9 +64,21 @@ journal, including retries and prior epochs.
 
 The internal TypeScript executor currently lowers each authored step to its
 own kernel run. For budgeted flows it serializes admission and carries exact
-journaled costs into the next run's `budget.prior_spend`. Its generated terminal
-marker does not consume the author's step budget. This does not add a durable
-TypeScript root or change that runner's existing resume contract.
+journaled costs into the next run's `budget.prior_spend`, including
+`dollars_unmetered` once any carried charge was unmetered. The kernel
+initializes the continuing run's `Budget` from that record field for field, so
+an unpriced step early in a flow still makes every later step's cumulative
+total say its dollars are incomplete instead of a measured zero. Its generated
+terminal marker does not consume the author's step budget. This does not add a
+durable TypeScript root or change that runner's existing resume contract.
+
+`prior_spend` stays additive in one direction only, deliberately. It still
+rejects unknown keys, and `dollars_unmetered` is omitted when false: a kernel
+older than the key therefore sees an unchanged payload for every fully metered
+flow, and refuses the spec outright only for a flow that really did carry
+unknown cost — the one case where ignoring the key would silently under-report
+the total. A kernel newer than the key reads a payload without it as metered,
+which is what it meant before.
 
 Raw Claude/Codex adapters request structured output to extract usage. A custom
 wrapper may return an explicit result envelope after its execution handshake:

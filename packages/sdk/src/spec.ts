@@ -452,9 +452,31 @@ export interface KernelAgentStep extends KernelStepCommon {
 
 export type KernelStepSpec = KernelDeterministicStep | KernelLlmStep | KernelAgentStep;
 
+/**
+ * Accounting carried into a run that continues an earlier one. The authored
+ * executor lowers each step to its own kernel run and sends the previous run's
+ * totals here. It mirrors the kernel's `PriorSpend` field for field, so the
+ * handoff cannot quietly narrow what a carried budget can express.
+ */
+export interface KernelPriorSpend {
+  tokens_in: number;
+  tokens_out: number;
+  /** Metered dollars only; a lower bound when `dollars_unmetered` is set. */
+  dollars: string;
+  wallclock_ms: number;
+  day?: number;
+  /**
+   * At least one carried charge spent tokens of unknown dollar cost, so
+   * `dollars` is a lower bound rather than a measured total. Omitted when
+   * false, so a fully metered flow's payload keeps its exact bytes and a
+   * kernel that predates the key never receives it.
+   */
+  dollars_unmetered?: boolean;
+}
+
 export interface KernelBudgetSpec {
   pricing?: 'frozen';
-  prior_spend?: { tokens_in: number; tokens_out: number; dollars: string; wallclock_ms: number; day?: number };
+  prior_spend?: KernelPriorSpend;
   max_tokens?: number;
   max_wallclock_ms?: number;
   window?: 'day';

@@ -131,12 +131,11 @@ impl RunState {
             .as_ref()
             .and_then(|b| b.prior_spend.as_ref())
         {
-            state.budget = Budget {
-                tokens_in: prior.tokens_in,
-                tokens_out: prior.tokens_out,
-                dollars: prior.dollars.clone(),
-                ..Budget::default()
-            };
+            // Explicit lossless conversion, not `..Budget::default()`: the
+            // carried totals include `dollars_unmetered`, and defaulting it
+            // here reset an earlier unpriced step's unknown cost to a measured
+            // zero in every later authored child run.
+            state.budget = Budget::from(prior);
             state.wallclock_ms = prior.wallclock_ms;
             state.budget_day = prior.day;
             state.daily_budget = state.budget.clone();

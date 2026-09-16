@@ -48,6 +48,23 @@ describe('budget attribution', () => {
     const spec = {version:'0.1.0', steps:[]};
     await budget.execute(client as unknown as JournalClient, spec, async () => 'answer');
     await budget.execute(client as unknown as JournalClient, spec, async () => 'answer');
-    expect((client.runStart.mock.calls as unknown as [{budget:unknown}][])[1]?.[0].budget).toMatchObject({max_dollars:'0.001', prior_spend:{tokens_in:1000, tokens_out:200, dollars:'0.006000', wallclock_ms:25}});
+    const calls = client.runStart.mock.calls as unknown as [{budget:{prior_spend:Record<string, unknown>}}][];
+    expect(calls[1]?.[0].budget).toMatchObject({max_dollars:'0.001', prior_spend:{tokens_in:1000, tokens_out:200, dollars:'0.006000', wallclock_ms:25}});
+    // A fully metered carry omits the key, so an older kernel sees the payload it always saw.
+    expect(calls[1]?.[0].budget.prior_spend).not.toHaveProperty('dollars_unmetered');
+  });
+  it('carries dollar-unmetered uncertainty into the next authored step kernel run', async () => {
+    // An unpriced step journals tokens with no known dollars. Carrying only the
+    // numbers made the next run's cumulative total look like a measured zero.
+    const budget = new AuthoredBudget('$0.001/run');
+    const client = {runStart: vi.fn(async () => ({run_id:'r', status:'completed', completion_reason:'success', completed_steps:1})),
+      journalRead: vi.fn(async (_run: string, seq: number) => ({entries: seq === 1 ? [{seq:1, entry_type:'step.completed', at_ms:0,
+        payload:{budget:{tokens_in:500, tokens_out:500, dollars:'0', dollars_unmetered:true}, spend:{wallclock_ms:5}}}] : []}))};
+    const spec = {version:'0.1.0', steps:[]};
+    await budget.execute(client as unknown as JournalClient, spec, async () => 'answer');
+    await budget.execute(client as unknown as JournalClient, spec, async () => 'answer');
+    const calls = client.runStart.mock.calls as unknown as [{budget:{prior_spend:Record<string, unknown>}}][];
+    expect(calls[0]?.[0].budget.prior_spend).not.toHaveProperty('dollars_unmetered');
+    expect(calls[1]?.[0].budget.prior_spend).toMatchObject({tokens_in:500, tokens_out:500, dollars:'0.000000', wallclock_ms:5, dollars_unmetered:true});
   });
 });

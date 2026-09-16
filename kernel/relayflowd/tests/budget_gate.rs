@@ -317,3 +317,114 @@ fn metering_flag_is_additive_on_the_wire() {
             .unwrap();
     assert_eq!(wire, unmetered(1, 2));
 }
+
+#[test]
+fn carried_prior_spend_keeps_unknown_dollar_cost_unmetered() {
+    // The authored executor lowers each step to its own kernel run and carries
+    // the previous run's totals in `budget.prior_spend`. An earlier unpriced
+    // step's unknown cost has to survive that boundary: before this, the
+    // import defaulted the flag to false and the later run's cumulative total
+    // read as a measured zero. Enforcement is unchanged — the carried unknown
+    // cost still cannot cross the dollar ceiling.
+    let dir = tempfile::tempdir().unwrap();
+    let worker = Arc::new(Worker::default());
+    let engine = Engine::with_runtime(dir.path(), worker.clone(), worker.clone());
+    let spec = RunSpec::parse(&json!({"budget":{"max_dollars":"0.001","prior_spend":{
+        "tokens_in":500,"tokens_out":500,"dollars":"0.000000","wallclock_ms":5,"dollars_unmetered":true}},
+        "steps":[{"id":"first","type":"deterministic","command":"printf ran"}]}))
+    .unwrap();
+    let started = engine.start(spec, "test", None).unwrap();
+    assert_eq!(
+        started.completion_reason,
+        Some(RunCompletionReason::Success)
+    );
+
+    let entries = Engine::new(dir.path())
+        .journal_entries(&started.run_id, 1, 100)
+        .unwrap();
+    let run = entries
+        .iter()
+        .find(|e| e.entry_type == EntryType::RunCompleted)
+        .unwrap();
+    assert_eq!(run.payload["budget_total"]["tokens_in"], 500);
+    assert_eq!(run.payload["budget_total"]["tokens_out"], 500);
+    assert_eq!(run.payload["budget_total"]["dollars_unmetered"], true);
+}
+
+#[test]
+fn carried_metered_dollars_still_stop_the_continuing_run() {
+    // The other half of "enforcement unchanged": metered dollars carried over
+    // the ceiling refuse the continuing run exactly as in-run dollars do.
+    let dir = tempfile::tempdir().unwrap();
+    let worker = Arc::new(Worker::default());
+    let engine = Engine::with_runtime(dir.path(), worker.clone(), worker.clone());
+    let spec = RunSpec::parse(&json!({"budget":{"max_dollars":"0.001","prior_spend":{
+        "tokens_in":1,"tokens_out":1,"dollars":"0.002000","wallclock_ms":5}},
+        "steps":[{"id":"first","type":"deterministic","command":"printf must-not-run"}]}))
+    .unwrap();
+    let started = engine.start(spec, "test", None).unwrap();
+    assert_eq!(
+        started.completion_reason,
+        Some(RunCompletionReason::BudgetExceeded)
+    );
+    let entries = Engine::new(dir.path())
+        .journal_entries(&started.run_id, 1, 100)
+        .unwrap();
+    assert!(
+        !entries
+            .iter()
+            .any(|e| e.entry_type == EntryType::StepAttemptStarted)
+    );
+}
+
+#[test]
+fn prior_spend_metering_flag_is_additive_and_fails_closed_for_older_kernels() {
+    use relayflowd_core::PriorSpend;
+
+    // Newer kernel, older payload: no key means metered, the pre-existing
+    // meaning. A metered record also serializes without the key, so a kernel
+    // that predates it receives byte-identical specs for metered flows.
+    let legacy: PriorSpend = serde_json::from_value(
+        json!({"tokens_in":1,"tokens_out":2,"dollars":"0.5","wallclock_ms":3}),
+    )
+    .unwrap();
+    assert!(!legacy.dollars_unmetered);
+    assert!(
+        serde_json::to_value(&legacy)
+            .unwrap()
+            .get("dollars_unmetered")
+            .is_none()
+    );
+    assert_eq!(
+        Budget::from(&legacy),
+        Budget {
+            tokens_in: 1,
+            tokens_out: 2,
+            dollars: "0.5".into(),
+            dollars_unmetered: false,
+        }
+    );
+
+    // Carried uncertainty round-trips and converts losslessly into the
+    // continuing run's Budget.
+    let carried: PriorSpend = serde_json::from_value(
+        json!({"tokens_in":1,"tokens_out":2,"dollars":"0","wallclock_ms":3,"dollars_unmetered":true}),
+    )
+    .unwrap();
+    assert!(carried.dollars_unmetered);
+    assert_eq!(
+        serde_json::to_value(&carried).unwrap()["dollars_unmetered"],
+        true
+    );
+    assert_eq!(Budget::from(&carried), unmetered(1, 2));
+
+    // `prior_spend` still denies unknown fields. That is what makes the
+    // older-kernel direction fail closed rather than silently importing
+    // carried unknown cost as fully metered.
+    assert!(
+        RunSpec::parse(&json!({"budget":{"prior_spend":{
+            "tokens_in":1,"tokens_out":1,"dollars":"0","wallclock_ms":1,"dollars_unmeterd":true}},
+            "steps":[{"id":"first","type":"deterministic","command":"printf ran"}]}))
+        .is_err()
+    );
+}
