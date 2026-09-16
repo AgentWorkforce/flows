@@ -135,6 +135,7 @@ impl RunState {
                 tokens_in: prior.tokens_in,
                 tokens_out: prior.tokens_out,
                 dollars: prior.dollars.clone(),
+                ..Budget::default()
             };
             state.wallclock_ms = prior.wallclock_ms;
             state.budget_day = prior.day;

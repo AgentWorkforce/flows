@@ -17,9 +17,9 @@ describe('pricedUsage', () => {
   it('returns undefined for an unpriced model rather than throwing after decode', () => {
     // Regression for the Cursor Bugbot HIGH finding "Unlisted models fail
     // after usage decode": the runtime previously threw here after the CLI
-    // had already spent tokens. Preflight now owns the refusal; the runtime
-    // path is permissive so an unpriced-model step wastes nothing on the
-    // pricing check itself.
+    // had already spent tokens. Preflight warns `budget_unmetered` instead, and
+    // `workerSpend` turns this undefined into unmetered usage, so an
+    // unpriced-model step wastes nothing on the pricing check itself.
     expect(pricedUsage('unlisted-model', 100, 50)).toBeUndefined();
     expect(pricedUsage('unlisted-model', 0, 0)).toBeUndefined();
   });
@@ -53,18 +53,20 @@ describe('workerSpend', () => {
     // The step still succeeded — an unpriced model is a preflight warning
     // when a dollar budget is declared, not a runtime failure. Its tokens must
     // still reach the kernel so token budgets see the step.
+    // Its dollars are unknown, so usage says so instead of claiming $0.
     for (const model of ['unlisted-model', undefined]) {
       const spent = workerSpend(priced, model);
-      expect(spent.usage).toEqual({ tokens_in: 100, tokens_out: 50, dollars: '0.000000' });
+      expect(spent.usage).toEqual({ tokens_in: 100, tokens_out: 50, dollars_unmetered: true });
+      expect(spent.usage).not.toHaveProperty('dollars');
       expect(spent.result.exit_code).toBe(0);
       expect(spent.result.stderr_tail).toBe('');
     }
   });
 
-  it('attaches no usage for an unpriced model whose CLI reported no tokens', () => {
+  it('still marks an unpriced step unmetered when its CLI reported no tokens', () => {
     const unreported = { exit_code: 0, stdout_tail: '', stderr_tail: '' };
-    expect(workerSpend(unreported, 'unlisted-model').usage).toBeUndefined();
-    expect(workerSpend(unreported).usage).toBeUndefined();
+    expect(workerSpend(unreported, 'unlisted-model').usage).toEqual({ tokens_in: 0, tokens_out: 0, dollars_unmetered: true });
+    expect(workerSpend(unreported).usage).toEqual({ tokens_in: 0, tokens_out: 0, dollars_unmetered: true });
   });
 
   it('journals invalid token counts as worker_error, projecting clamped counts', () => {

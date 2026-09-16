@@ -75,7 +75,7 @@ Payload:
 | `end_pins` | agent steps: `{workspace: [{surface, revision_id}], streams: [{stream, read_offset}]}` — Appendix A rule 6: the next step's starting state **is** this |
 | `effects` | list of `{surface_path, idempotency_key}` dedupe keys recorded this attempt |
 | `trajectory_tail` | agent failure only: worker-supplied tail injected into an `inspect` retry; `step.complete` rejects one over 16 KiB of canonical JSON |
-| `budget` | `{tokens_in, tokens_out, dollars}` — exact; zero for memoized replay by construction (no entry is written on replay) |
+| `budget` | `{tokens_in, tokens_out, dollars, dollars_unmetered?}` — exact; zero for memoized replay by construction (no entry is written on replay). `dollars_unmetered: true` (omitted when false) marks tokens of unknown dollar cost: `dollars` is then metered cost only, dollar ceilings ignore the unknown part, token ceilings count it |
 | `completed_by` | `kernel` \| worker id — out-of-band completion uses the same entry, same discipline |
 | `next_attempt_at_ms` | when `disposition=retry`: computed backoff+jitter wake time |
 
@@ -146,7 +146,7 @@ only the current segment, so this restates everything live. Payload:
 | `open_waits` | restated 1.4–1.6 payloads keyed by `wait_id` |
 | `stream_state` | `{stream: {length, consumers: {consumer_id: offset}}}` |
 | `pinned_revisions` | `{surface: revision_id}` current chain head |
-| `budget_spent` | `{tokens_in, tokens_out, dollars}` run total |
+| `budget_spent` | `{tokens_in, tokens_out, dollars, dollars_unmetered?}` run total; the flag is sticky once any charge was unmetered |
 
 ### 1.11 `segment.closed`
 Last entry of a segment (so closing is an append, never an update). Payload:

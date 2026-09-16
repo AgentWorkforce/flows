@@ -66,6 +66,7 @@ fn budget_decimal_strings_add_without_floats() {
             tokens_in: 2,
             tokens_out: 3,
             dollars: "0.015".to_owned(),
+            dollars_unmetered: false,
         },
     )
     .unwrap();
@@ -75,6 +76,7 @@ fn budget_decimal_strings_add_without_floats() {
             tokens_in: 1,
             tokens_out: 1,
             dollars: "1.2".to_owned(),
+            dollars_unmetered: false,
         },
     )
     .unwrap();

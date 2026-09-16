@@ -72,9 +72,22 @@ export interface HelloResult {
 export interface StepSpend {
   tokens_input: number;
   tokens_output: number;
+  /** Metered dollars; a lower bound when `dollars_unmetered` is set. */
   dollars: number;
+  /** Present (true) only when the step spent tokens of unknown dollar cost. */
+  dollars_unmetered?: true;
   wallclock_ms: number;
 }
+
+/**
+ * Worker-reported `step.complete` usage. A priced step reports exact
+ * `dollars`; a step whose model has no frozen price reports its tokens with
+ * `dollars_unmetered: true` and no dollar amount, so unknown cost is never
+ * journaled as a measured $0. See `workerSpend` for the full contract.
+ */
+export type StepUsage =
+  | { tokens_in: number; tokens_out: number; dollars: string; dollars_unmetered?: never }
+  | { tokens_in: number; tokens_out: number; dollars_unmetered: true; dollars?: never };
 
 export interface RunStartParams {
   /** Caller-owned retry identity. Reuse with a different spec is refused. */
@@ -130,7 +143,7 @@ export interface RunGetResult {
   run_id: string;
   status: RunStatus;
   steps: Record<string, StepSnapshot>;
-  budget: { tokens_in: number; tokens_out: number; dollars: string };
+  budget: { tokens_in: number; tokens_out: number; dollars: string; dollars_unmetered?: true };
 }
 
 export interface RunWatchParams {
@@ -307,7 +320,7 @@ export interface StepCompleteParams {
   idempotency_key: string;
   completionReason: CompletionReason;
   output?: unknown;
-  usage?: { tokens_in: number; tokens_out: number; dollars: string };
+  usage?: StepUsage;
   started_pins?: Pins;
   end_pins?: Pins;
   effects?: EffectRef[];

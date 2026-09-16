@@ -31,6 +31,10 @@ export async function runDeploy(args: DeployArgs, io: CliIo): Promise<0 | 1 | 2>
       for (const diagnostic of checked.report.diagnostics) io.stderr(`${diagnostic.severity.toUpperCase()} [${diagnostic.kind}] ${diagnostic.message}`);
       return 2;
     }
+    // `ok` may still carry warnings (e.g. `budget_unmetered`); report them.
+    for (const diagnostic of checked.report.diagnostics) {
+      if (diagnostic.severity === 'warning') io.stderr(`WARNING [${diagnostic.kind}] ${diagnostic.message}`);
+    }
     const target = bucketDirectory(args.to, ref);
     if (await exists(target)) {
       await verifyDigest(target, ref.digest);
