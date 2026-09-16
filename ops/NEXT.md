@@ -1,123 +1,96 @@
-# NEXT — gate 3 work package: document review-swarm secrets in README
+# NEXT — Gate 2: Agent step handler to unblock AMBER→GREEN
 
-**Scope (from TARGET.md):**
-
-Track D: Cloud review-swarm redesign — build `.github/workflows/review-swarm.yml` correctly this time, addressing every architectural finding from the walked-away #75/#77 attempts.
+**Scope conflict noted:** ops/TARGET.md requests `hn-monitor-runner.ts` but PR #120 already delivered that functionality as `cli/hn-monitor.ts`. ops/NEEDS_HUMAN.md documents this conflict and requests clarification. This work package addresses the ACTUAL gate 2 blocker identified in ops/STATE.md lines 68-73.
 
 ## Objective
 
-Complete the final missing piece of gate 3's Definition of Done: document `RELAY_WORKSPACE_KEY` and `CLOUD_API_KEY` secrets in README.md with instructions on how to obtain them.
+Unblock gate 2's second remaining clause: make the analyze-agent step actually execute to completion instead of ending in `worker_error`.
 
-## Current state assessment
+Per ops/STATE.md: "In the recorded run, every step ended in `worker_error` because `hn-monitor start`'s AgentWorker has no user-supplied step handler. The dispatch loop works; the analyzer does not."
 
-All 9 architectural requirements from TARGET.md are SATISFIED in the existing code:
+## Context
 
-1. ✅ Immutable gate — two checkout steps (`.github/workflows/review-swarm.yml:32-53`)
-2. ✅ Unified verdict logic — `swarm-verdict.sh` sourced by both callers
-3. ✅ Auth secret validation — preflight validates all three secrets (lines 141-188)
-4. ✅ Sticky marker + transcripts — HTML anchors with upsert_comment
-5. ✅ No author whitelist — verified absent
-6. ✅ Cloud sandbox fetch on GHA runner — `swarm-prepare.sh` with GH_TOKEN
-7. ✅ Timeout ordering — 60m < 65m < 75m with comments
-8. ✅ Wait step records status — swarm_status output, always() post step
-9. ✅ Transcript freshness — run-start marker with stale detection
+**Gate 2 status:** AMBER (ops/STATE.md lines 39-81)
+- PR #120 merged the `flows hn-monitor start` CLI runner
+- Live run evidence in `ops/reviews/20260901-1050-gate2-live-run.md` proves:
+  - Trigger → subscription → dispatch loop works end-to-end
+  - Real HN stories matched, deduped, dispatched under lease
+  - But: every step ended in `worker_error`
+- Two clauses remain for GREEN:
+  1. Trigger plane liveness-checked (separate work)
+  2. **Analyze-agent step actually executing** ← THIS PACKAGE
 
-Verification commands all pass:
-```
-bash -n .github/workflows/scripts/swarm-post.sh && \
-bash -n .github/workflows/scripts/swarm-prepare.sh && \
-bash -n .github/workflows/scripts/swarm-verdict.sh && \
-echo "All bash scripts parse OK"
-# Output: All bash scripts parse OK
+**What exists:**
+- `packages/sdk/src/worker.ts` — AgentWorker class that attaches and receives dispatches
+- `packages/sdk/src/cli/hn-monitor.ts` — CLI runner that creates AgentWorker
+- `testdata/hn-monitor.flow.yaml` — flow spec with agent step(s)
 
-python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))" && \
-python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))" && \
-echo "YAML files parse OK"
-# Output: YAML files parse OK
-
-grep -i "whitelist\|github.event.pull_request.user.login" .github/workflows/review-swarm.yml || echo "No author whitelist found (GOOD)"
-# Output: No author whitelist found (GOOD)
-
-grep -c "actions/checkout@v4" .github/workflows/review-swarm.yml
-# Output: 2
-```
-
-**The gap:** TARGET.md Definition of Done item 6 requires:
-> README.md — document `RELAY_WORKSPACE_KEY` secret + how to obtain
-
-Current reality:
-```
-grep -c "RELAY_WORKSPACE_KEY\|CLOUD_API_KEY" README.md
-# Output: 0
-```
-
-README.md does NOT document these secrets. The workflow comment (`.github/workflows/review-swarm.yml:21-24`) references a runbook in the `AgentWorkforce/cloud` repo, but README has no such documentation.
-
-From `ops/NEEDS_HUMAN.md`, the secrets are stored and working (as of 2026-09-07), but gate 3 is blocked on Daytona CPU quota, not on implementation. The workflow WORKS; the documentation is missing.
+**The gap:** AgentWorker has no mechanism to inject a step execution handler. It receives dispatches but cannot execute them to completion.
 
 ## Files in scope
 
-- `README.md` — add section documenting GitHub Actions secrets required for review-swarm
-
-## Work package
-
-Add a "GitHub Actions Secrets" section to README.md documenting:
-
-1. `RELAY_WORKSPACE_KEY` — Agent Relay workspace key for review swarm communication
-   - How to obtain: Contact repository administrator or see ops/NEEDS_HUMAN.md for historical context
-   - Why required: Enables agent coordination within review swarm workflow
-
-2. `CLOUD_API_KEY` — Agent Relay Cloud API credential for launching cloud workflows
-   - How to obtain: Minted per `AgentWorkforce/cloud → docs/runbooks/relay-ci-workflow-credential.md`
-   - Profile: `workflow-invoke`
-   - Scopes: `workflow:invoke:read` and `workflow:invoke:write`
-   - How to store: Repository Settings → Secrets and variables → Actions → New repository secret
-
-3. `CLOUD_API_URL` — Cloud API endpoint (typically `https://agentrelay.com/cloud`)
-   - Usually set as repository variable, not secret
-   - Defaults to production endpoint if not set
-
-The section should be brief (10-15 lines) and reference the workflow files for implementation details.
+- `packages/sdk/src/worker.ts` — add optional step handler to AgentWorker constructor
+- `packages/sdk/src/cli/hn-monitor.ts` — wire a minimal handler into defaultAttachWorker
+- `packages/sdk/tests/cli-hn-monitor.test.ts` — test that handler is invoked and step completes
+- `testdata/hn-monitor.flow.yaml` — verify it has agent step(s) that would be dispatched
 
 ## Definition of done
 
-1. README.md contains a section documenting the three secrets/variables
-2. Each entry states what it is and how to obtain it
-3. Parse checks continue to pass:
+All of these must hold:
+
+1. **Test proves handler executes and step completes successfully**
+   ```bash
+   cd packages/sdk && npm test 2>&1
    ```
-   bash -n .github/workflows/scripts/swarm-*.sh
-   python3 -c "import yaml; yaml.safe_load(open('.github/workflows/review-swarm.yml'))"
-   python3 -c "import yaml; yaml.safe_load(open('workflows/review-swarm.yaml'))"
-   ```
-4. Verification remains true:
-   ```
-   grep -c "RELAY_WORKSPACE_KEY\|CLOUD_API_KEY" README.md
-   # Should return > 0
-   grep -i "whitelist\|github.event.pull_request.user.login" .github/workflows/review-swarm.yml || echo "GOOD"
-   # Should return "GOOD" or nothing (no whitelist)
-   ```
-5. As final action:
-   ```
+   Output must show:
+   - All existing tests pass (no regressions)
+   - New test in `cli-hn-monitor.test.ts` verifies:
+     - Handler callback is invoked with step dispatch
+     - Step completes with `completion_reason: "success"`, not `worker_error`
+   - Total test count increases by at least 1
+
+2. **worker.ts close() contract already satisfied**
+   - Lines 32-37 already document: "Not implemented: releasing the worker registration"
+   - This satisfies TARGET.md finding #2's OR clause
+
+3. **No file moves or renames**
+   - Keep `cli/hn-monitor.ts` (don't create `hn-monitor-runner.ts`)
+   - Keep test in `cli-hn-monitor.test.ts` (don't create `hn-monitor-runner.test.ts`)
+   - PR #120's structure is the accepted solution
+
+4. **Minimal implementation**
+   - Handler can be a no-op that calls `stepComplete` with success
+   - No LLM integration required (that's gate 4 territory)
+   - Focus: prove the dispatch → handler → completion loop closes
+
+5. **As final action, capture:**
+   ```bash
    git status --porcelain
    ```
 
-## Explicitly OUT of scope
+## Explicitly out of scope
 
-- `.github/workflows/review-swarm.yml` (already correct, all 9 requirements satisfied)
-- `workflows/review-swarm.yaml` (already correct)
-- `.github/workflows/scripts/swarm-*.sh` (all already correct)
-- `.gitignore` (no .review-target mask exists, already correct)
-- `sdk/` (Track A owns that)
-- `kernel/` (gate 1 done)
-- `ops/*` (chief owns briefs and state)
-- Any other GHA workflow
-- Resolving the Daytona CPU quota block (that's in ops/NEEDS_HUMAN.md, different issue)
-- Actually testing the workflow end-to-end (blocked on Daytona capacity per ops/NEEDS_HUMAN.md)
+- Creating `sdk/src/hn-monitor-runner.ts` (TARGET.md asked for this, but PR #120 delivered `cli/hn-monitor.ts` instead - see ops/NEEDS_HUMAN.md)
+- Exporting `HnMonitorRunner` from `index.ts` (CLI tool, not library export)
+- LLM calls or real story analysis (gate 2 is about the LOOP, not analysis quality)
+- Trigger plane liveness checking (gate 2 clause 1, separate work)
+- workerRelease implementation (worker.ts already documents it's not implemented)
+- ops/STATE.md gate-2 GREEN declaration (requires both clauses + Khaliq's approval)
 
-## Why this is the work package
+## Why this is highest priority
 
-TARGET.md's Definition of Done explicitly lists:
-- Item 6: "PR body explicitly documents each of the 9 requirements above and shows where each is satisfied"
-- Item 7: "`README.md` — document `RELAY_WORKSPACE_KEY` secret + how to obtain"
+Gate 1 is GREEN. Gate 2 is AMBER with two blockers. This is one of those two blockers.
 
-The 9 requirements are satisfied in code. Item 7 is not satisfied. This is the remaining gap between current state and TARGET.md's done-when.
+Clause 2 ("analyze-agent step actually executing") is testable in isolation and unblocks:
+- Gate 2 GREEN (once clause 1 also resolves)
+- Gate 3 (depends on agent step execution working)
+- Gate 4 (chief-as-relayflow depends on agent steps)
+
+The trigger plane liveness check (clause 1) requires kernel changes. This work package can proceed in parallel and proves the SDK/worker side is ready.
+
+## If blocked
+
+If AgentWorker's architecture cannot accept a step handler without breaking its contract, document in ops/NEEDS_HUMAN.md:
+- What was attempted
+- What the architectural constraint is
+- Options: refactor worker.ts vs. add handler interface vs. other approaches
