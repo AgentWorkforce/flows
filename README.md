@@ -43,7 +43,7 @@ flows deploy examples/pr-review-pipeline/pr-review-pipeline.flow.ts \
   --repo acme/api --on github:events=pull_request --approver you
 ```
 
-[![Deploy to Cloud](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https://github.com/AgentWorkforce/flows/blob/main/examples/pr-review-pipeline/pr-review-pipeline.flow.ts&on=github:events=pull_request)
+[![Deploy Flow](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https%3A%2F%2Fgithub.com%2FAgentWorkforce%2Fflows%2Fblob%2Fmain%2Fexamples%2Fpr-review-pipeline%2Fpr-review-pipeline.flow.ts&on=github%3Aevents%3Dpull_request)
 
 - **Software Factory:** an issue in Linear kicks off an implementation agent, a deterministic test
   run, an adversarial review agent, and finishes with a pull request opened for you —
@@ -54,7 +54,7 @@ flows deploy examples/software-factory/software-factory.flow.ts \
   --repo acme/api --on linear:team=ENG --approver you
 ```
 
-[![Deploy to Cloud](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https://github.com/AgentWorkforce/flows/blob/main/examples/software-factory/software-factory.flow.ts&on=linear)
+[![Deploy Flow](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https%3A%2F%2Fgithub.com%2FAgentWorkforce%2Fflows%2Fblob%2Fmain%2Fexamples%2Fsoftware-factory%2Fsoftware-factory.flow.ts&on=linear%3Ateam%3DENG)
 
 `--on` takes `github`, `linear`, `jira`, `shortcut` or `slack` with optional filters
 (`github:labels=agent`, `jira:project=OPS`, `slack:channel=#eng`). `flows deployments` lists what is
