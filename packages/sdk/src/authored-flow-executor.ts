@@ -227,27 +227,33 @@ export async function executeAuthoredFlow<Input = undefined>(
    */
   const PREDICATE_STREAM = 'predicate-gates';
   interface PredicateRecord { gate: 'predicate'; step: string; verdict: 'pass' | 'fail'; because?: string; threw?: string }
-  let recordedVerdicts: Map<string, PredicateRecord> | undefined;
+  // The stream is read once per execution; concurrent gates (Promise.all)
+  // share the single in-flight load, so none of them can observe an empty
+  // map while the read is still pending and re-run a closure whose verdict
+  // was already recorded.
+  let recordedVerdicts: Promise<Map<string, PredicateRecord>> | undefined;
+  async function loadRecordedVerdicts(rootRunId: string): Promise<Map<string, PredicateRecord>> {
+    const verdicts = new Map<string, PredicateRecord>();
+    let offset = 0;
+    for (;;) {
+      const page = await journal.streamRead(rootRunId, PREDICATE_STREAM, offset, 1000);
+      for (const message of page.messages) {
+        const record = (message as { message?: unknown }).message ?? message;
+        if (typeof record === 'object' && record !== null && (record as PredicateRecord).gate === 'predicate'
+          && typeof (record as PredicateRecord).step === 'string'
+          && ((record as PredicateRecord).verdict === 'pass' || (record as PredicateRecord).verdict === 'fail')) {
+          verdicts.set((record as PredicateRecord).step, record as PredicateRecord);
+        }
+      }
+      if (page.messages.length === 0 || page.next_offset <= offset) break;
+      offset = page.next_offset;
+    }
+    return verdicts;
+  }
   async function recordedVerdict(id: string): Promise<PredicateRecord | undefined> {
     if (options.rootRunId === undefined) return undefined;
-    if (recordedVerdicts === undefined) {
-      recordedVerdicts = new Map();
-      let offset = 0;
-      for (;;) {
-        const page = await journal.streamRead(options.rootRunId, PREDICATE_STREAM, offset, 1000);
-        for (const message of page.messages) {
-          const record = (message as { message?: unknown }).message ?? message;
-          if (typeof record === 'object' && record !== null && (record as PredicateRecord).gate === 'predicate'
-            && typeof (record as PredicateRecord).step === 'string'
-            && ((record as PredicateRecord).verdict === 'pass' || (record as PredicateRecord).verdict === 'fail')) {
-            recordedVerdicts.set((record as PredicateRecord).step, record as PredicateRecord);
-          }
-        }
-        if (page.messages.length === 0 || page.next_offset <= offset) break;
-        offset = page.next_offset;
-      }
-    }
-    return recordedVerdicts.get(id);
+    recordedVerdicts ??= loadRecordedVerdicts(options.rootRunId);
+    return (await recordedVerdicts).get(id);
   }
   async function applyPredicateGate<T>(operation: { id: string; predicateGate: unknown }, value: T): Promise<T> {
     const gate = operation.predicateGate as { predicate: (value: T) => boolean; because?: string } | undefined;
@@ -270,7 +276,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       };
       if (options.rootRunId !== undefined) {
         await journal.streamAppend(options.rootRunId, PREDICATE_STREAM, record);
-        recordedVerdicts?.set(id, record);
+        (await recordedVerdicts)?.set(id, record);
       }
     }
     const literal = `'${JSON.stringify(record).replaceAll("'", "'\\''")}'`;

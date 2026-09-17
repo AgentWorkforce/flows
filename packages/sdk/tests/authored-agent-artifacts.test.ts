@@ -171,3 +171,74 @@ describe('f.agent artifacts (local-agent path)', () => {
     }
   });
 });
+
+describe('predicate verdicts recorded on the root run', () => {
+  let server: Server | undefined;
+  let path: string | undefined;
+  afterEach(async () => {
+    if (server !== undefined) await new Promise<void>(resolve => server!.close(() => resolve()));
+    if (path !== undefined) rmSync(path, { force: true });
+    server = undefined; path = undefined;
+  });
+
+  it('concurrent gates on resume share one stream load, reuse the recorded verdicts and never re-run a closure', async () => {
+    path = sockPath();
+    // A root run that already carries verdicts for both gates; the stream
+    // read is answered slowly so both gates are in flight before it resolves.
+    const recorded = [
+      { gate: 'predicate', step: 'run-1', verdict: 'pass', because: 'first' },
+      { gate: 'predicate', step: 'run-2', verdict: 'pass', because: 'second' },
+    ];
+    let streamReads = 0;
+    const appended: unknown[] = [];
+    let nextRun = 1;
+    const specs = new Map<string, string>();
+    server = startLoopback(path, {
+      hello: ctx => sendOk(ctx),
+      'stream.read': (ctx, params) => {
+        streamReads += 1;
+        const from = params.from_offset as number;
+        setTimeout(() => sendResult(ctx, from === 0
+          ? { messages: recorded.map(message => ({ message })), next_offset: recorded.length }
+          : { messages: [], next_offset: from }), 50);
+      },
+      'stream.append': (ctx, params) => { appended.push(params.message); sendResult(ctx, { offset: appended.length }); },
+      'run.start': (ctx, params) => {
+        const spec = params.spec as { steps: Array<{ id: string; command?: string }> };
+        const runId = `resume-run-${nextRun++}`;
+        specs.set(runId, spec.steps[0]!.id + '|' + (spec.steps[0]!.command ?? ''));
+        sendResult(ctx, { run_id: runId, status: 'completed', completion_reason: 'success', completed_steps: 1 });
+      },
+      'journal.read': (ctx, params) => {
+        const [id] = specs.get(params.run_id as string)!.split('|');
+        sendResult(ctx, { entries: [{ entry_type: 'step.completed', step_id: id, payload: {
+          completionReason: 'success', disposition: 'step_done', output: { exit_code: 0, stdout_tail: 'x', stderr_tail: '' } } }] });
+      },
+    });
+    const client = new JournalClient(path, { requestTimeoutMs: 2000 });
+    await client.connect();
+    await client.hello('predicate-resume-test');
+    let closureCalls = 0;
+    try {
+      const handle = flow('predicate-resume', async (f) => {
+        await Promise.all([
+          f.run('echo a').gate(() => { closureCalls += 1; return false; }, 'first'),
+          f.run('echo b').gate(() => { closureCalls += 1; return false; }, 'second'),
+        ]);
+        f.done('success');
+      });
+      const result = await executeAuthoredFlow(handle, client, undefined, { rootRunId: 'root-1' });
+      expect(result.completionReason).toBe('success');
+    } finally {
+      client.close();
+    }
+    // The closures would have said "fail"; the recorded "pass" verdicts won,
+    // through a single stream load, and nothing new was appended.
+    expect(closureCalls).toBe(0);
+    expect(streamReads).toBeLessThanOrEqual(2);
+    expect(appended).toEqual([]);
+    const gateSpecs = [...specs.values()].filter(s => s.includes('.gate|'));
+    expect(gateSpecs).toHaveLength(2);
+    for (const spec of gateSpecs) expect(spec).toContain('"verdict":"pass"');
+  });
+});
