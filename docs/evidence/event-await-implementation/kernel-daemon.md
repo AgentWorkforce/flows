@@ -6,6 +6,8 @@ Implementation commits:
   (`feat(kernel): add durable event activities`)
 - `d06eabdf422430d977604374e1530e7c6f6ec18e`
   (`fix(daemon): restrict activity close reasons`)
+- `c5f547332b975a6e68a9789b995aa8c576b42035`
+  (`fix(daemon): reserve subscription streams`)
 
 ## Scope and transport boundary
 
@@ -31,7 +33,9 @@ transport boundary is:
    completes the close without reopening the cursor.
 
 No tenant id, provider SDK, installation lookup, or authorization policy was
-added to the kernel.
+added to the kernel. The public generic `stream.append` endpoint refuses the
+reserved `subscription/` namespace, so it cannot bypass the bounded,
+delivery-id-aware router append path.
 
 ## Focused coverage
 
