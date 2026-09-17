@@ -25,6 +25,21 @@ pub enum EntryType {
     /// "Native silent-death" answer at the journal level.
     #[serde(rename = "subscription.stale")]
     SubscriptionStale,
+    /// A body-local event cursor. This is distinct from trigger-plane
+    /// `subscription.registered`: it never creates a run.
+    #[serde(rename = "subscription.opened")]
+    SubscriptionOpened,
+    #[serde(rename = "subscription.closed")]
+    SubscriptionClosed,
+    /// Local durable mirror of the router's `closing: overflow` fence. Cloud
+    /// owns its provider binding; recovery uses this journal fact to finish
+    /// the already-submitted close without ever reopening the cursor.
+    #[serde(rename = "subscription.overflow.fenced")]
+    SubscriptionOverflowFenced,
+    /// The body has observed a normal activity wake. This advances only that
+    /// cursor's unread boundary; it is not a provider acknowledgement.
+    #[serde(rename = "subscription.acknowledged")]
+    SubscriptionAcknowledged,
     #[serde(rename = "step.routed")]
     StepRouted,
     #[serde(rename = "step.attempt.started")]
@@ -70,6 +85,10 @@ impl EntryType {
             Self::SubscriptionRegistered => "subscription.registered",
             Self::SubscriptionMatched => "subscription.matched",
             Self::SubscriptionStale => "subscription.stale",
+            Self::SubscriptionOpened => "subscription.opened",
+            Self::SubscriptionClosed => "subscription.closed",
+            Self::SubscriptionOverflowFenced => "subscription.overflow.fenced",
+            Self::SubscriptionAcknowledged => "subscription.acknowledged",
             Self::StepRouted => "step.routed",
             Self::StepAttemptStarted => "step.attempt.started",
             Self::StepCompleted => "step.completed",
@@ -98,6 +117,10 @@ impl EntryType {
             "subscription.registered" => Self::SubscriptionRegistered,
             "subscription.matched" => Self::SubscriptionMatched,
             "subscription.stale" => Self::SubscriptionStale,
+            "subscription.opened" => Self::SubscriptionOpened,
+            "subscription.closed" => Self::SubscriptionClosed,
+            "subscription.overflow.fenced" => Self::SubscriptionOverflowFenced,
+            "subscription.acknowledged" => Self::SubscriptionAcknowledged,
             "step.routed" => Self::StepRouted,
             "step.attempt.started" => Self::StepAttemptStarted,
             "step.completed" => Self::StepCompleted,
@@ -436,6 +459,18 @@ pub struct WaitEventPayload {
     pub wait_id: String,
     pub event_key: String,
     pub timeout_at_ms: Option<i64>,
+    /// Body activities use a stream cursor; old exact-match event waits leave
+    /// these additive fields absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_offset: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settle_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline_at_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -472,6 +507,65 @@ pub struct StreamAppendedPayload {
     pub offset: u64,
     pub producer: String,
     pub message: Value,
+    /// Provider delivery id for body-subscription frames. It is optional so
+    /// existing generic streams retain their protocol shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_delivery_id: Option<String>,
+}
+
+/// The kernel records the immutable, tenant-neutral part of an activity
+/// opening. Cloud owns the provider installation/resource binding and fences
+/// it before asking the cell to append this fact; `router_binding` is an opaque
+/// receipt, never policy interpreted by the kernel.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SubscriptionOpenedPayload {
+    pub subscription_id: String,
+    pub event_types: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<Value>,
+    pub stream: String,
+    pub settle_ms: i64,
+    pub idle_ms: i64,
+    pub deadline_at_ms: i64,
+    pub include_self: bool,
+    #[serde(default)]
+    pub ingress_offset: u64,
+    #[serde(default)]
+    pub router_binding: Value,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SubscriptionCompletionReason {
+    Closed,
+    RunCompleted,
+    Canceled,
+    Deadline,
+    Overflow,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SubscriptionClosedPayload {
+    pub subscription_id: String,
+    #[serde(rename = "completionReason")]
+    pub completion_reason: SubscriptionCompletionReason,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SubscriptionOverflowFencedPayload {
+    pub subscription_id: String,
+    pub retained: u64,
+    pub bytes: u64,
+    pub from: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SubscriptionAcknowledgedPayload {
+    pub subscription_id: String,
+    pub wait_id: String,
+    /// Present only for an event wake; idle has no stream range to advance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<u64>,
 }
 
 /// Appendix A rule 5. The record *elects* one attempt to perform the

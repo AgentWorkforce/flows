@@ -27,6 +27,8 @@ export type AuthoredFlowExecutionErrorCode =
   | 'unsettled_derived_work'
   | 'unsupported_promise_lifecycle'
   | 'unsupported_workspace_permission'
+  | 'unbounded_subscription'
+  | 'activity_closed'
   | 'unawaited_step'
   | 'unsupported_verb';
 

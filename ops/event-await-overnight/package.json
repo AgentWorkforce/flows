@@ -1,0 +1,8 @@
+{
+  "name": "event-await-overnight",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@relayflows/surface": "2.0.14"
+  }
+}

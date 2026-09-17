@@ -465,7 +465,13 @@ fn handle_request(
             let _guard = lock.lock().expect("run lock");
             ensure_mutable(&engine, &params.run_id)?;
             let matched = engine
-                .emit_event(&params.run_id, &params.event_key, params.payload)
+                .emit_event(
+                    &params.run_id,
+                    &params.event_key,
+                    params.payload,
+                    params.delivery_id.as_deref(),
+                    params.actor.as_deref(),
+                )
                 .map_err(internal_error)?;
             Ok(json!({"matched": matched}))
         }
@@ -479,11 +485,64 @@ fn handle_request(
                     .map_err(internal_error)?,
             )
         }
+        "subscription.open" => {
+            let params: SubscriptionOpenParams = decode_params(request.params)?;
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            ensure_mutable(&engine, &params.run_id)?;
+            let (stream, deadline_at_ms) = engine
+                .open_subscription(
+                    &params.run_id, &params.subscription_id, params.event_types, params.pattern,
+                    params.settle_ms, params.idle_ms, params.deadline_ms, params.include_self,
+                )
+                .map_err(internal_error)?;
+            Ok(json!({"subscription_id": params.subscription_id, "stream": stream, "deadline_at_ms": deadline_at_ms}))
+        }
+        "subscription.next" => {
+            let params: SubscriptionNextParams = decode_params(request.params)?;
+            // Do not hold the per-run mutex while parked: a router append on a
+            // second connection must be able to commit and wake this request.
+            let (wake, acknowledge_wait_id) = engine.next_subscription_after_ack_with_receipt(
+                &params.run_id,
+                &params.subscription_id,
+                params.acknowledge_wait_id.as_deref(),
+            ).map_err(internal_error)?;
+            let mut result = to_value(wake)?;
+            if let Some(acknowledge_wait_id) = acknowledge_wait_id {
+                result.as_object_mut().expect("subscription wake serializes as object")
+                    .insert("acknowledge_wait_id".to_owned(), Value::String(acknowledge_wait_id));
+            }
+            Ok(result)
+        }
+        "subscription.close" => {
+            let params: SubscriptionCloseParams = decode_params(request.params)?;
+            if matches!(
+                params.completion_reason,
+                relayflowd_core::SubscriptionCompletionReason::Deadline
+                    | relayflowd_core::SubscriptionCompletionReason::Overflow
+            ) {
+                return Err((
+                    "bad_request",
+                    "subscription.close accepts only closed, run_completed, or canceled"
+                        .to_owned(),
+                ));
+            }
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            let changed = engine.close_subscription(&params.run_id, &params.subscription_id, params.completion_reason).map_err(internal_error)?;
+            Ok(json!({"closed": if changed { params.subscription_id } else { String::new() }}))
+        }
         "channel.append" | "channel.receive" | "channel.ack" => {
             channels::handle(&engine, hub, connection_id, &request.verb, request.params)
         }
         "stream.append" => {
             let params: StreamAppendParams = decode_params(request.params)?;
+            if params.stream.starts_with("subscription/") {
+                return Err((
+                    "bad_request",
+                    "subscription streams are reserved for the fenced event router".to_owned(),
+                ));
+            }
             let lock = hub.run_lock(&params.run_id);
             let _guard = lock.lock().expect("run lock");
             ensure_mutable(&engine, &params.run_id)?;

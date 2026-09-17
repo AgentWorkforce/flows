@@ -13,7 +13,7 @@ import { EventEmitter } from 'node:events';
 export { walkJournal, JournalReadError, type JournalEvent, type JournalReadFailure } from './journal-reader.js';
 import { randomUUID } from 'node:crypto';
 import { createConnection, type Socket } from 'node:net';
-import type { VerbContract, EventSubmitParams } from './protocol.js';
+import type { VerbContract, EventEmitParams, EventSubmitParams } from './protocol.js';
 import {
   PROTOCOL_VERSION,
   type CompletionReason,
@@ -386,8 +386,13 @@ export class JournalClient extends EventEmitter {
   }
 
   /** Satisfy `wait.event`; a human response arrives here too. */
-  eventEmit(runId: string, eventKey: string, payload: unknown): Promise<VerbContract['event.emit']['result']> {
-    return this.request('event.emit', { run_id: runId, event_key: eventKey, payload });
+  eventEmit(
+    runId: string,
+    eventKey: string,
+    payload: unknown,
+    options: Pick<EventEmitParams, 'delivery_id' | 'actor'> = {},
+  ): Promise<VerbContract['event.emit']['result']> {
+    return this.request('event.emit', { run_id: runId, event_key: eventKey, payload, ...options });
   }
 
   /**
@@ -399,6 +404,21 @@ export class JournalClient extends EventEmitter {
    */
   eventSubmit(spec: unknown, event: EventSubmitParams['event']): Promise<VerbContract['event.submit']['result']> {
     return this.request('event.submit', { spec, event });
+  }
+
+  /** Open a fenced body subscription. A successful reply makes the Activity visible to its body. */
+  subscriptionOpen(params: VerbContract['subscription.open']['params']): Promise<VerbContract['subscription.open']['result']> {
+    return this.request('subscription.open', params, null);
+  }
+
+  /** Park for the next journaled subscription wake. */
+  subscriptionNext(params: VerbContract['subscription.next']['params']): Promise<VerbContract['subscription.next']['result']> {
+    return this.request('subscription.next', params, null);
+  }
+
+  /** Close a body subscription; the server refuses later external appends. */
+  subscriptionClose(params: VerbContract['subscription.close']['params']): Promise<VerbContract['subscription.close']['result']> {
+    return this.request('subscription.close', params, null);
   }
 
   /** Durable channel write; journals `stream.appended`. */

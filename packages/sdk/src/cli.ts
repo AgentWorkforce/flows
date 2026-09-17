@@ -2,6 +2,7 @@
 import { addPlugin } from './cli/add.js';
 import { watchCheck } from './cli-watch.js';
 import { checkHelperBody } from './cli/check-helper-body.js';
+import { checkAuthoredActivities } from './cli/check-activities.js';
 
 import { renderProgress, type ProgressEvent } from './progress.js';
 import { realpathSync } from 'node:fs';
@@ -242,6 +243,8 @@ export async function runCli(
 async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckReport }> {
   const helper = await checkHelperBody(path);
   if (!helper.report.ok) return helper;
+  const activities = await checkAuthoredActivities(path);
+  if (!activities.report.ok) return activities;
   const mcp = await checkTypeScriptFlow(path);
   const triggers = isAuthoredFlowPath(path)
     ? await checkAuthoredTriggers(path)
@@ -251,8 +254,8 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
   return {
     report: {
       ...mcp.report,
-      diagnostics: [...helper.report.diagnostics, ...mcp.report.diagnostics, ...triggerDiagnostics],
-      ok: helper.report.ok && mcp.report.ok && triggerOk,
+      diagnostics: [...helper.report.diagnostics, ...activities.report.diagnostics, ...mcp.report.diagnostics, ...triggerDiagnostics],
+      ok: helper.report.ok && activities.report.ok && mcp.report.ok && triggerOk,
     },
   };
 }
