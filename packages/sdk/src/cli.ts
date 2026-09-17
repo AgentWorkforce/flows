@@ -26,6 +26,7 @@ import { checkTypeScriptFlow } from './cli/check-typescript.js';
 import { runCloudCli } from './cli/cloud-run.js';
 import { runCloudSyncCli } from './cli/cloud-sync.js';
 import { parseCloudDeployArgs, runCloudDeployCli, runCloudDeploymentsCli, runCloudUndeployCli, type CloudDeployArgs } from './cli/cloud-deploy.js';
+import { parseCloudScheduleArgs, runCloudScheduleCli, runCloudSchedulesCli, runCloudUnscheduleCli, type CloudScheduleArgs } from './cli/cloud-schedule.js';
 import { isAuthoredFlowPath } from './direct-input.js';
 import { parseDeployArgs, runDeploy, type DeployArgs } from './cli/deploy.js';
 import { parseDigestReference } from './bundle-transport.js';
@@ -58,6 +59,9 @@ type ParsedArgs =
   | CloudDeployArgs
   | { command: 'deployments'; json: boolean }
   | { command: 'undeploy'; agentId: string; json: boolean }
+  | CloudScheduleArgs
+  | { command: 'schedules'; json: boolean }
+  | { command: 'unschedule'; scheduleId: string; json: boolean }
   | { command: 'check'; json: boolean; watch: boolean; value: string }
   | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'resume'; localAgent: boolean; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
@@ -75,6 +79,9 @@ const USAGE = [
   'flows deploy <flow.ts> --repo <owner/name> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--json]',
   'flows deployments [--json]',
   'flows undeploy [--json] <deployment-id>',
+  'flows schedule <flow.yaml|flow.ts> [--cron "<expr>" | --every <n><s|m|h|d>] [--tz <IANA>] [--input <inline-json-or-file>] [--name <name>] [--json]',
+  'flows schedules [--json]',
+  'flows unschedule [--json] <schedule-id>',
   'flows deploy <flow>@sha256:<digest> --to <file-bucket-uri>',
   'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json]',
   'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
@@ -131,6 +138,9 @@ export async function runCli(
   if (parsed.command === 'cloud-deploy') return runCloudDeployCli(parsed, io);
   if (parsed.command === 'deployments') return runCloudDeploymentsCli(parsed, io);
   if (parsed.command === 'undeploy') return runCloudUndeployCli(parsed, io);
+  if (parsed.command === 'schedule') return runCloudScheduleCli(parsed, io);
+  if (parsed.command === 'schedules') return runCloudSchedulesCli(parsed, io);
+  if (parsed.command === 'unschedule') return runCloudUnscheduleCli(parsed, io);
   if (parsed.command === 'replay') return replayJournal(parsed, io);
   if (parsed.command === 'build') return runBuild(parsed, io);
   if (parsed.command === 'deploy') return runDeploy(parsed, io);
@@ -266,6 +276,7 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
   return {
     report: {
       ...mcp.report,
+      ...(triggers?.report.schedules === undefined ? {} : { schedules: triggers.report.schedules }),
       diagnostics: [...helper.report.diagnostics, ...mcp.report.diagnostics, ...triggerDiagnostics],
       ok: helper.report.ok && mcp.report.ok && triggerOk,
     },
@@ -439,6 +450,18 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     // listener; a digest reference copies a sealed bundle into a file bucket.
     const source = args.slice(1).find(a => !a.startsWith('-') && isAuthoredFlowPath(a));
     return source !== undefined ? parseCloudDeployArgs(args.slice(1)) : parseDeployArgs(args.slice(1));
+  }
+  if (command === 'schedule') return parseCloudScheduleArgs(args.slice(1));
+  if (command === 'schedules') {
+    const rest = args.slice(1);
+    if (rest.length > 1 || (rest.length === 1 && rest[0] !== '--json')) return undefined;
+    return { command: 'schedules', json: rest.length === 1 };
+  }
+  if (command === 'unschedule') {
+    const rest = args.slice(1).filter(a => a !== '--json');
+    const json = args.length - 1 - rest.length;
+    if (json > 1 || rest.length !== 1 || rest[0]!.startsWith('-')) return undefined;
+    return { command: 'unschedule', scheduleId: rest[0]!, json: json === 1 };
   }
   if (command === 'undeploy') {
     const rest = args.slice(1).filter(a => a !== '--json');
@@ -750,6 +773,15 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
     // gate that judges something.
     const vacuous = gate.acceptsAnyOutput === true ? ' [json_schema accepts any output]' : '';
     io.stdout(`GATE step "${gate.stepId}" ${gate.checks.join('+')} from data (kernel, journal-replayable)${vacuous}`);
+  }
+  for (const schedule of report.schedules ?? []) {
+    const declared = schedule.cron !== undefined
+      ? `cron "${schedule.cron}"${schedule.tz === undefined ? '' : ` tz ${schedule.tz}`}`
+      : `every ${schedule.intervalMs}ms`;
+    const local = schedule.localUnsupported !== undefined
+      ? `Cloud only: ${schedule.localUnsupported}`
+      : `local: flows tick start --schedule-id ${schedule.scheduleId} --interval-ms ${schedule.intervalMs}`;
+    io.stdout(`SCHEDULE handler ${schedule.handler} ${declared} -> flows.tick schedule_id ${schedule.scheduleId} [${local}]`);
   }
   for (const resolution of report.resolutions) {
     const config = resolution.source === 'project' && report.projectConfigPath !== undefined

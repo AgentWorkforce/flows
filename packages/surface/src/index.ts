@@ -41,7 +41,11 @@ export {
 } from "./slack.js";
 export type { Helpers } from "./helpers/index.js";
 export type { MemoryHelper, MemoryFinding, MemoryRecallOptions, HistoryEntry, TrajectoryEntry } from "./memory.js";
-export { webhook, type TriggerSource, type WebhookFilter, type WebhookValue } from "./triggers.js";
+export { webhook, type TriggerSource, type WebhookTriggerSource, type WebhookFilter, type WebhookValue } from "./triggers.js";
+export {
+  schedule, scheduleIdFor, parseCron, cronFixedIntervalMs, everyToMs,
+  type ScheduleTriggerSource, type ScheduleCronOptions, type CronFields,
+} from "./schedule.js";
 export * from "./triggers/index.js";
 export type { ProviderTriggerSource } from "./provider-trigger.js";
 export type { PluginMethod, PluginPrimitive } from './plugin-contract.js';

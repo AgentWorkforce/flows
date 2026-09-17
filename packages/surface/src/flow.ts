@@ -3,6 +3,7 @@ import type { Helpers } from "./helpers/index.js";
 type HelperTools = Partial<Record<keyof Helpers, boolean>>;
 import type { Ctx } from "./context.js";
 import { webhook, type TriggerSource } from "./triggers.js";
+import { schedule } from "./schedule.js";
 
 /** Optional escalation header; the empty header is the common case. */
 export interface FlowHeader {
@@ -91,9 +92,20 @@ function makeHandle(definition: AuthoredFlowDefinition): FlowHandle {
     value: <Event>(trigger: TriggerSource, body: FlowBody<Event>): TriggeredFlowHandle => {
       if (typeof body !== "function") throw new TypeError("trigger handler requires a body");
       assertHeaderObject(trigger, "trigger");
-      assertKnownKeys(trigger, ["kind", "name", "filter"], "trigger");
-      if (trigger.kind !== "webhook") throw new TypeError("unsupported trigger kind");
-      const source = webhook(trigger.name, trigger.filter);
+      let source: TriggerSource;
+      if (trigger.kind === "schedule") {
+        assertKnownKeys(trigger, ["kind", "name", "cron", "tz", "intervalMs"], "trigger");
+        // Re-derive from the declaration rather than trusting the object: the
+        // parsed form is what the SDK lowers, so it must be one this module made.
+        source = trigger.cron !== undefined
+          ? schedule.cron(trigger.cron, trigger.tz === undefined ? {} : { tz: trigger.tz })
+          : schedule.every(`${Math.round((trigger.intervalMs ?? 0) / 1000)}s`);
+        if (source.intervalMs !== trigger.intervalMs) throw new TypeError("schedule trigger intervalMs does not match its declaration");
+      } else {
+        assertKnownKeys(trigger, ["kind", "name", "filter"], "trigger");
+        if (trigger.kind !== "webhook") throw new TypeError("unsupported trigger kind");
+        source = webhook(trigger.name, trigger.filter);
+      }
       return makeHandle(Object.freeze({
         ...definition,
         handlers: Object.freeze([...definition.handlers, Object.freeze({ trigger: source, body: body as FlowBody })]),

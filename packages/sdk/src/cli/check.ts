@@ -45,7 +45,20 @@ export interface CheckReport {
   projectConfigPath?: string;
   gates: StepGateInspection[];
   resolutions: CliResolution[];
+  /** Authored `schedule.*` handlers and the `flows.tick` subscription each lowers to. */
+  schedules?: ScheduleInspection[];
   diagnostics: Array<PreflightDiagnostic | CheckInputDiagnostic | CheckWarningDiagnostic>;
+}
+
+export interface ScheduleInspection {
+  /** Position among the flow's handlers, so two identical declarations stay distinct. */
+  handler: number;
+  cron?: string;
+  tz?: string;
+  intervalMs?: number;
+  scheduleId: string;
+  /** Present when the local tick runner cannot drive it (only a cron-aware runner can). */
+  localUnsupported?: string;
 }
 
 export interface CheckWarningDiagnostic {

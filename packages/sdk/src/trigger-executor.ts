@@ -3,7 +3,7 @@ import type { TriggerSpec } from './spec.js';
 
 /** Lower a surface subscription to the existing inbox executor contract. */
 export function webhookTriggerSpec(id: string, source: TriggerSource): TriggerSpec {
-  if (source.kind !== 'webhook') throw new TypeError('unsupported trigger kind');
+  if (source.kind !== 'webhook') throw new TypeError('unsupported trigger kind: use scheduleTriggerSpec for schedule sources');
   const trigger = webhook(source.name, source.filter);
   return {
     id,

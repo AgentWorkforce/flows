@@ -133,7 +133,9 @@ export function preflightWebhookTriggers(
   triggers: readonly TriggerSource[],
   executors: readonly string[],
 ): PreflightRefusal[] {
-  return [...new Set(triggers.map(trigger => trigger.name))]
+  // Schedule sources are driven by the CLI's own tick runner, not an inbox
+  // executor, so they need no flows.json registration.
+  return [...new Set(triggers.filter(trigger => trigger.kind === 'webhook').map(trigger => trigger.name))]
     .filter(name => !executors.includes(name))
     .map(name => ({
       severity: 'refusal',

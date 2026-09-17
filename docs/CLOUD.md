@@ -186,6 +186,41 @@ cancellation without a journal report; those records cannot supply an attested
 execution outcome through this API. Step-level journal evidence is not exposed
 by this endpoint and is not synthesized by the SDK.
 
+## Schedules
+
+```sh
+flows schedule nightly.flow.ts --input '{"topic":"release"}'          # uses the flow's schedule.* declaration
+flows schedule monitor.flow.yaml --every 15m
+flows schedule report.flow.ts --cron "0 9 * * 1-5" --tz Europe/Oslo --input '{}' --name "Morning report"
+flows schedules
+flows unschedule <schedule-id>
+```
+
+`flows schedule` registers a cron on Cloud: `POST /api/v1/workflows/schedules`
+with `schedule_type: cron`, `cron_expression`, `timezone` and, as
+`workflowRequest`, **exactly the body `flows run --cloud` would send** —
+`workflow`, `fileType`, `relayflowVersion: v2`, and for an authored flow its
+pinned `authoredAuthority` and the `--input` value. Each fire replays that
+stored request through the same run admission a CLI submission takes, so what
+runs on the cron is the source you scheduled, not a re-read of your checkout.
+Nothing runs at schedule time. Code sync and repository grants are refused on
+schedules: both name one specific upload or base commit, which a second fire
+would find stale.
+
+The cron comes from, in order: `--cron`, `--every` (only intervals cron can
+express exactly — divisors of an hour, `1h`, divisors of a day, `1d`), or the
+flow's own `schedule.cron(...)` / `schedule.every(...)` handler when it
+declares exactly one. Both the expression and `--tz` are validated before any
+request. The routes need the interactive `cli:auth` login, as deployments do.
+`--every` and `schedule.every` are refused where no exact cron exists (`7m`):
+say what you mean with `--cron`.
+
+Authored `.on(schedule.*, body)` handlers are the declaration; the hosted fire
+runs the flow's **default body** with `input`, as deployments do. Until
+handler dispatch lands (flows #301), write the scheduled work in the default
+body and use the handler to declare when — `flows check` prints the
+declaration and its `flows.tick` lowering either way.
+
 ## Current limits and scope
 
 - An authored `.flow.ts` is submitted as one self-contained source. Local
