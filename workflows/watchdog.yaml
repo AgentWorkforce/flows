@@ -5,6 +5,13 @@ swarm:
   pattern: pipeline
   channel: flows-drive
   timeoutMs: 1800000
+
+# This legacy workflow runner reads reliability policy from the document root.
+# Retain the runner's retry budget and set only the workspace_busy backoff.
+errorHandling:
+  strategy: retry
+  retryDelayMs: 60000
+
 agents:
   - name: watchdog
     cli: claude
@@ -29,6 +36,3 @@ workflows:
           type: output_contains
           value: WATCHDOG_DONE
         timeoutMs: 1200000
-        errorHandling:
-          strategy: retry
-          retryDelayMs: 60000

@@ -19,6 +19,9 @@ swarm:
   pattern: dag
   channel: flows-drive-cloud
   timeoutMs: 3600000
+errorHandling:
+  strategy: retry
+  retryDelayMs: 60000
 agents:
 - name: lead
   cli: claude
@@ -123,9 +126,6 @@ workflows:
       type: output_contains
       value: ASSESS_DONE
     timeoutMs: 1800000
-    errorHandling:
-      strategy: retry
-      retryDelayMs: 60000
   - name: assess-gate-1
     type: deterministic
     dependsOn:
@@ -190,9 +190,6 @@ workflows:
       type: output_contains
       value: BUILD_DONE
     timeoutMs: 5400000
-    errorHandling:
-      strategy: retry
-      retryDelayMs: 60000
   - name: verify-1
     type: deterministic
     dependsOn:
