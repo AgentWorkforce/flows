@@ -12,6 +12,7 @@ import { isSurfaceCompletionReason, readCompletedStepOutput, readSuccessfulOutpu
 import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import { snapshotJsonValue } from './json-value.js';
 import { authoredChildAdmissionKey } from './authored-admission.js';
+import { diffWorkspaceFiles, snapshotWorkspaceFiles } from './agent-artifacts.js';
 
 const WORKSPACE_PERMISSION_ANNOTATION = /:\s*(readonly|readwrite)\s*$/i;
 
@@ -129,6 +130,16 @@ export function authoredWorkerRunner(
           `f.agent options.transport must be 'direct' or 'relay' (got ${JSON.stringify(options.transport)}).`,
         );
       }
+      // Artifact detection only tells the truth for the local-agent path: that
+      // is the only worker attachment that runs in this same process, on this
+      // same filesystem, so `options.cwd` (or `process.cwd()`) is provably
+      // where the CLI actually wrote — a workspace-scoped step never reaches
+      // here with a local agent attached (refused above). Any other worker
+      // attachment may execute on a different host entirely; snapshotting
+      // this process's filesystem for that case would be a guess, not a
+      // fact, so `artifacts` stays `[]` there, exactly as before this fix.
+      const artifactRoot = localAgentStream === undefined ? undefined : options.cwd ?? process.cwd();
+      const before = artifactRoot === undefined ? undefined : await snapshotWorkspaceFiles(artifactRoot);
       const output = await run({
         id, type: 'agent', instruction: options.task,
         ...(localAgentStream === undefined ? {} : { surfaces: { streams: [{ stream: localAgentStream }] } }),
@@ -143,7 +154,10 @@ export function authoredWorkerRunner(
         throw new AuthoredFlowExecutionError('journal_protocol_violation', `step "${id}" produced a non-object output`);
       }
       const stdout = 'stdout_tail' in output ? output.stdout_tail : undefined;
-      return { summary: typeof stdout === 'string' ? stdout : JSON.stringify(output), artifacts: [] };
+      const artifacts = before === undefined || artifactRoot === undefined
+        ? []
+        : diffWorkspaceFiles(before, await snapshotWorkspaceFiles(artifactRoot));
+      return { summary: typeof stdout === 'string' ? stdout : JSON.stringify(output), artifacts };
     },
     async llm(id: string, prompt: string, options?: LlmOptions, verification?: NamedGate): Promise<unknown> {
       if (options !== undefined && (typeof options !== 'object' || options === null || options.output === undefined)) {
