@@ -23,6 +23,7 @@ describe("trigger namespaces for every relayfile adapter", () => {
         if (provider === "slack" && event === "app_mention") continue;
         const method = namespace[identifier(event)];
         expect(typeof method, `${provider}.${identifier(event)}`).toBe("function");
+        if (method === undefined) continue;
         const source = method();
         expect(source.name).toBe(provider);
         expect(source.filter).toMatchObject({ provider, type: event });
