@@ -159,12 +159,13 @@ describe('authored flow journal executor', () => {
   it('refuses a workspace permission annotation f.agent cannot enforce, before contacting the journal', async () => {
     const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
 
-    for (const workspace of ['src/**: readonly', 'src/**: readwrite', 'src/**:readonly']) {
+    for (const workspace of ['src/**: readonly', 'src/**: readwrite', 'src/**:readonly', 'src/**:  READONLY  ', 'src/**:\treadwrite\t']) {
       await expect(executeAuthoredFlow(flow('workspace-permission-not-enforced', async (f) => {
         await f.agent('worker', { task: 'must not dispatch', workspace });
         f.done('success');
       }), disconnectedJournal)).rejects.toMatchObject({
         code: 'unsupported_workspace_permission',
+        message: expect.stringMatching(/f\.agent's permissions option.*not currently enforced/),
       });
     }
 

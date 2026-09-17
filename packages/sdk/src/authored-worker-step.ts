@@ -7,7 +7,7 @@ import { classifyOutcome, type RunLifecycleOptions } from './cli/run.js';
 import type { PreflightDiagnostic } from './preflight.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import type { JournalClient } from './journal-client.js';
-import { SPEC_SCHEMA_VERSION, type FlowSpec, type StepSpec } from './spec.js';
+import { SPEC_SCHEMA_VERSION, type FlowSpec, type PermissionsSpec, type StepSpec } from './spec.js';
 import { isSurfaceCompletionReason, readCompletedStepOutput, readSuccessfulOutput } from './authored-step-output.js';
 import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import { snapshotJsonValue } from './json-value.js';
@@ -97,13 +97,10 @@ export function authoredWorkerRunner(
       if (options.workspace !== undefined && WORKSPACE_PERMISSION_ANNOTATION.test(options.workspace)) {
         throw new AuthoredFlowExecutionError(
           'unsupported_workspace_permission',
-          `flow "${definition.name}" step "${id}": workspace "${options.workspace}" declares a `
-            + 'permission annotation ("...: readonly" / "...: readwrite"), but nothing enforces it — '
-            + 'no parser anywhere in this package turns that annotation into a real restriction '
-            + '(kernel/DAEMON-LIFECYCLE.md\'s permission model is untouched by f.agent). '
-            + 'Silently accepting and ignoring it would let a flow believe a restriction is in effect '
-            + "when it is not. Declare a bare surface name (no trailing \": readonly\"/\": readwrite\") "
-            + 'if you do not need enforcement, or use the declarative spec\'s `permissions` field, which is real.',
+          `flow "${definition.name}" step "${id}": workspace "${options.workspace}": `
+            + "Workspace permission suffixes are unsupported. Use a bare workspace name and f.agent's "
+            + "permissions option, for example permissions: { fileGlobs: ['src/**'], accessPreset: 'readonly' }. "
+            + 'This declaration is validated and recorded with the step spec; it is not currently enforced (gate 8 / #442).',
         );
       }
       if (options.cli !== undefined && typeof options.cli !== 'string') {
@@ -130,6 +127,9 @@ export function authoredWorkerRunner(
           `f.agent options.transport must be 'direct' or 'relay' (got ${JSON.stringify(options.transport)}).`,
         );
       }
+      const permissions = options.permissions;
+      const permissionsSnapshot = permissions === undefined ? undefined
+        : snapshotJsonValue(permissions, 'f.agent options.permissions') as unknown as PermissionsSpec;
       // Artifact detection only tells the truth for the local-agent DIRECT
       // path: that is the only case that runs in this same process, on this
       // same filesystem, so `options.cwd` (or `process.cwd()`) is provably
@@ -146,6 +146,7 @@ export function authoredWorkerRunner(
       const before = artifactRoot === undefined ? undefined : await snapshotWorkspaceFiles(artifactRoot);
       const output = await run({
         id, type: 'agent', instruction: options.task,
+        ...(permissionsSnapshot === undefined ? {} : { permissions: permissionsSnapshot }),
         ...(localAgentStream === undefined ? {} : { surfaces: { streams: [{ stream: localAgentStream }] } }),
         ...(options.workspace === undefined ? {} : { surfaces: { workspace: [{ surface: options.workspace }] } }),
         ...(options.cli === undefined ? {} : { cli: options.cli }),
