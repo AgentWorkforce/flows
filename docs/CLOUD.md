@@ -36,7 +36,51 @@ pinned runtime must be enabled by that deployment's operator.
 ```sh
 flows run --cloud examples/cloud-gates/cloud-gates.flow.yaml
 flows run --cloud --wait --json examples/cloud-gates/cloud-gates.flow.yaml
+flows run --cloud --input '{}' review.flow.ts
 ```
+
+An authored `.flow.ts` takes `--input` exactly as a local direct run does (an
+existing JSON file, otherwise inline JSON), and travels as one self-contained
+source with its pinned Surface authority.
+
+## Code sync
+
+```sh
+cd <your-repo>
+flows run --cloud --sync-code --wait review.flow.ts --input '{"pr": 7}'
+flows sync <run-id>            # apply the run's changes to this checkout
+```
+
+`--sync-code` uploads the invoking directory before submission, so the hosted
+run — every `f.run` and every `f.agent` — executes inside that tree, the way
+v1's `agent-relay cloud run --sync-code` did. Inside a Git checkout the upload
+is `git ls-files --cached --others --exclude-standard`: `.gitignore` governs,
+untracked files ride along, `.git` and `node_modules` never do. Outside Git,
+every file except those two directories. The limit is 256 MiB uncompressed.
+The flow source itself is still sent in the request body, so it must stay
+self-contained; sibling imports inside the tree are not resolved by the hosted
+runner.
+
+The transport is the Cloud API only. `POST /api/v1/workflows/prepare` must
+answer with a `cloud-api` workflow-storage backend (Cloud's R2), the archive
+is `PUT` to `/api/v1/workflows/runs/<run>/storage/<key>` with the run-scoped
+credential that receipt carries, and the run is submitted against that
+prepared run ID. A `prepare` that offers any other backend is refused as
+`unsupported_storage_backend` before a byte is uploaded; this SDK carries no
+AWS client and never uploads to a bucket directly. Sync happens before
+submission, so a refused backend or failed upload never leaves a launched run
+pointing at a tree Cloud does not hold.
+
+`flows sync <run-id>` fetches the sandbox's post-run diff from
+`/api/v1/workflows/runs/<run>/patch` and applies it with `git apply` after a
+`--check` pass, so a conflicting patch leaves the tree untouched
+(`patch_conflict`, exit 2). Runs that declared several mounted paths carry one
+patch per path and are refused here (`sync_unsupported`). `--dir <path>`
+targets a checkout other than the current directory.
+
+A synced run and a Cloud repository grant are mutually exclusive on the
+server: `--sync-code` is the local-driven development loop, and
+webhook-triggered deployments keep cloning through the grant.
 
 Without `--wait`, exit 0 means the server accepted the run. With `--wait`, it
 means Cloud reported `completed` with a validated `success` completion reason.
@@ -72,10 +116,10 @@ by this endpoint and is not synthesized by the SDK.
 
 ## Current limits and scope
 
-- Cloud's v2 bootstrap explicitly rejects authored `.flow.ts` files. The SDK
-  refuses those before HTTP rather than uploading code that cannot run. Inputs,
-  local imports, CLI configuration files, and workspace files are not bundled
-  or uploaded by this path.
+- An authored `.flow.ts` is submitted as one self-contained source. Local
+  imports and `use:` dependencies are refused before HTTP. With `--sync-code`
+  the working tree is uploaded for the run to execute in, but the runner still
+  loads the flow from the request body, not from the tree.
 - SDK observation has no fixed execution deadline. The merged authored-agent
   executor follows worker leases rather than the former 30-second limit.
   Cloud's separate `relayflow-v2-executor.ts` still has a one-hour execution

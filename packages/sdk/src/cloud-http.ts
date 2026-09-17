@@ -10,7 +10,9 @@ export interface CloudConnectionOptions {
 
 export class CloudFlowError extends Error {
   constructor(
-    readonly code: 'configuration' | 'unsupported_source' | 'invalid_input' | 'invalid_response' | 'http_error' | 'transport_error' | 'transient_error',
+    readonly code: 'configuration' | 'unsupported_source' | 'invalid_input' | 'invalid_response' | 'http_error'
+      | 'transport_error' | 'transient_error' | 'unsupported_storage_backend' | 'sync_too_large' | 'sync_unsupported'
+      | 'patch_conflict',
     message: string,
     readonly status?: number,
   ) {
@@ -44,18 +46,48 @@ export async function cloudRequest(
   options: CloudConnectionOptions,
   body?: unknown,
 ): Promise<unknown> {
+  return cloudFetch(path, options, body === undefined
+    ? { method: 'GET' }
+    : { method: 'POST', body: JSON.stringify(body), contentType: 'application/json' });
+}
+
+export interface CloudFetchInit {
+  method: 'GET' | 'POST' | 'PUT';
+  body?: string | Uint8Array;
+  contentType?: string;
+  /**
+   * A run-scoped token issued by Cloud for one upload (the `prepare` receipt's
+   * storage credential). Used instead of the configured token for that request
+   * only; it is never persisted or logged.
+   */
+  bearerToken?: string;
+}
+
+/** One authenticated Cloud request. Every transport error is typed; no retries. */
+export async function cloudFetch(
+  path: string,
+  options: CloudConnectionOptions,
+  init: CloudFetchInit,
+): Promise<unknown> {
   const { baseUrl, token } = cloudConnection(options);
   const timeout = options.requestTimeoutMs ?? 30_000;
   if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2_147_483_647) {
     throw new CloudFlowError('configuration', 'requestTimeoutMs must be a positive 32-bit integer.');
   }
+  const bearer = init.bearerToken ?? token;
+  if (/[\r\n]/u.test(bearer) || !bearer.trim()) {
+    throw new CloudFlowError('invalid_response', 'Cloud issued an unusable storage credential.');
+  }
   const deadline = AbortSignal.timeout(timeout);
   let response: Response;
   try {
     response = await fetch(`${baseUrl}${path}`, {
-      method: body === undefined ? 'GET' : 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      method: init.method,
+      headers: {
+        authorization: `Bearer ${bearer}`,
+        'content-type': init.contentType ?? 'application/json',
+      },
+      ...(init.body === undefined ? {} : { body: typeof init.body === 'string' ? init.body : new Blob([init.body]) }),
       signal: options.signal ? AbortSignal.any([options.signal, deadline]) : deadline,
       // A redirect must never carry the credential to a different origin.
       redirect: 'error',

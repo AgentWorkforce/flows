@@ -63,6 +63,10 @@ export {
   runInCloud, getCloudFlowRun, waitForCloudFlowRun,
   type CloudFlowSource, type RunInCloudOptions, type CloudRunReceipt, type CloudRunState,
 } from './cloud-run.js';
+export {
+  downloadCloudPatch, applyCloudPatch, packWorkingTree, MAX_SYNC_BYTES,
+  type CloudPatch, type PackedTree,
+} from './cloud-sync.js';
 
 export { canonicalize, specHash } from './canonical.js';
 export {

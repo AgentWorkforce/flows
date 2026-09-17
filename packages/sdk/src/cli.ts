@@ -24,6 +24,7 @@ import { runDirectFlow } from './cli/direct-run.js';
 import { parseReplayArgs, replayJournal, type ReplayArgs } from './cli/replay.js';
 import { checkTypeScriptFlow } from './cli/check-typescript.js';
 import { runCloudCli } from './cli/cloud-run.js';
+import { runCloudSyncCli } from './cli/cloud-sync.js';
 import { isAuthoredFlowPath } from './direct-input.js';
 import { parseDeployArgs, runDeploy, type DeployArgs } from './cli/deploy.js';
 import { parseDigestReference } from './bundle-transport.js';
@@ -51,7 +52,8 @@ type ParsedArgs =
   | BuildArgs
   | DeployArgs
   | { command: 'serve-webhook'; dataDir: string; port: number; admitted?: readonly string[] }
-  | { command: 'cloud-run'; value: string; json: boolean; wait: boolean }
+  | { command: 'cloud-run'; value: string; json: boolean; wait: boolean; input: string | undefined; syncCode: boolean }
+  | { command: 'sync'; runId: string; json: boolean; root: string }
   | { command: 'check'; json: boolean; watch: boolean; value: string }
   | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'resume'; localAgent: boolean; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
@@ -71,7 +73,9 @@ const USAGE = [
   'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
   'flows serve-webhook --data-dir <dir> --port <p> [--allow <name>[,<name>]]',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] [--reuse-from <run-id>] <flow.yaml|spec.json>',
-  'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
+  'flows run --cloud [--json] [--wait] [--sync-code] <flow.yaml|spec.json>',
+  'flows run --cloud [--json] [--wait] [--sync-code] <flow.ts> --input <inline-json-or-file>',
+  'flows sync [--json] [--dir <path>] <run-id>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <run-id>',
@@ -116,6 +120,7 @@ export async function runCli(
   if (parsed.command === 'serve-webhook') return runServeWebhook(parsed, io);
 
   if (parsed.command === 'cloud-run') return runCloudCli(parsed, io);
+  if (parsed.command === 'sync') return runCloudSyncCli(parsed, io);
   if (parsed.command === 'replay') return replayJournal(parsed, io);
   if (parsed.command === 'build') return runBuild(parsed, io);
   if (parsed.command === 'deploy') return runDeploy(parsed, io);
@@ -424,12 +429,14 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (command === 'hn-monitor') return parseHnMonitorArgs(args.slice(1));
   if (command === 'tick') return parseTickArgs(args.slice(1));
   if (command === 'observer') return parseObserverArgs(args.slice(1));
+  if (command === 'sync') return parseSyncArgs(args.slice(1));
   if (command !== 'check' && command !== 'run' && command !== 'resume') return undefined;
 
   let json = false;
   let watch = false;
   let cloud = false;
   let wait = false;
+  let syncCode = false;
   let localAgent = false;
   let allowHumanInfluenced = false;
   let dataDir = DEFAULT_DATA_DIR;
@@ -443,10 +450,11 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   const positionals: string[] = [];
   for (let index = 1; index < args.length; index += 1) {
     const argument = args[index]!;
-    if (argument === '--cloud' || argument === '--wait') {
-      if (command !== 'run' || (argument === '--cloud' ? cloud : wait)) return undefined;
+    if (argument === '--cloud' || argument === '--wait' || argument === '--sync-code') {
+      if (command !== 'run' || (argument === '--cloud' ? cloud : argument === '--wait' ? wait : syncCode)) return undefined;
       if (argument === '--cloud') cloud = true;
-      else wait = true;
+      else if (argument === '--wait') wait = true;
+      else syncCode = true;
       continue;
     }
     if (argument === '--allow-human-influenced') {
@@ -520,13 +528,15 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (bucket !== undefined && (cloud || !parseDigestReference(positionals[0]!))) return undefined;
   if (cloud) {
     // `--cloud` submits the spec to Cloud, so every flag that only describes a
-    // local run -- an inline input, a data dir, a suppressed daemon, a local
-    // agent, a local observer-link opt-out -- describes nothing there and is
-    // refused rather than ignored.
-    if (allowHumanInfluenced || sawInput || sawDataDir || !spawn || localAgent || noObserverLink || reuseFromRunId !== undefined) return undefined;
-    return { command: 'cloud-run', value: positionals[0]!, json, wait };
+    // local run -- a data dir, a suppressed daemon, a local agent, a local
+    // observer-link opt-out -- describes nothing there and is refused rather
+    // than ignored. `--input` is the authored body's argument and travels with
+    // the source, so it is accepted exactly where a local run accepts it.
+    if (allowHumanInfluenced || sawDataDir || !spawn || localAgent || noObserverLink || reuseFromRunId !== undefined) return undefined;
+    if (sawInput && !isAuthoredFlowPath(positionals[0]!)) return undefined;
+    return { command: 'cloud-run', value: positionals[0]!, json, wait, input, syncCode };
   }
-  if (wait) return undefined;
+  if (wait || syncCode) return undefined;
   if (reuseFromRunId !== undefined && isAuthoredFlowPath(positionals[0]!)) return undefined;
 
   if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!)) return undefined;
@@ -579,6 +589,32 @@ function parseHnMonitorArgs(rest: readonly string[]): ParsedArgs | undefined {
  * directory at all -- the mint is a pure Relaycast API round-trip. No
  * positional argument, no other flags.
  */
+/** `flows sync [--json] [--dir <path>] <run-id>`: apply a hosted run's patch to a local tree. */
+function parseSyncArgs(args: readonly string[]): ParsedArgs | undefined {
+  let json = false;
+  let root: string | undefined;
+  const positionals: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!;
+    if (argument === '--json') {
+      if (json) return undefined;
+      json = true;
+      continue;
+    }
+    if (argument === '--dir') {
+      const value = args[index + 1];
+      if (root !== undefined || value === undefined || value.startsWith('-')) return undefined;
+      root = value;
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith('-')) return undefined;
+    positionals.push(argument);
+  }
+  if (positionals.length !== 1) return undefined;
+  return { command: 'sync', runId: positionals[0]!, json, root: root ?? '.' };
+}
+
 function parseObserverArgs(rest: readonly string[]): ParsedArgs | undefined {
   let dataDir = DEFAULT_DATA_DIR;
   let sawDataDir = false;
