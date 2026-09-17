@@ -1,6 +1,7 @@
 import { dirname, resolve } from 'node:path';
 import { loadAuthoredFlow, type LoadedAuthoredFlow } from '../authored-flow-loader.js';
 import { preflightWebhookTriggers } from '../preflight.js';
+import { preflightProviderTriggers } from '../provider-trigger-contract.js';
 import { checkSlackHelpers } from '../slack-preflight.js';
 import { inputFailureReport, readProjectConfig, type CheckReport } from './check.js';
 
@@ -19,15 +20,23 @@ export async function checkAuthoredTriggers(path: string): Promise<{
     const loaded = await loadAuthoredFlow(path);
     const definition = loaded.getDefinition(loaded.handle);
     const config = readProjectConfig(dirname(resolve(path)));
-    const triggerDiagnostics = preflightWebhookTriggers(
-      (definition.handlers ?? []).map(handler => handler.trigger), config.executors,
-    );
+    const triggers = (definition.handlers ?? []).map(handler => handler.trigger);
+    const triggerDiagnostics = preflightWebhookTriggers(triggers, config.executors);
+    // Registration answers "may this inbox run here"; the provider contract
+    // answers "can this subscription ever be delivered". A provider trigger
+    // that passes the first and fails the second used to reach ingress and be
+    // refused there, on the first real event.
+    const providerDiagnostics = preflightProviderTriggers(triggers);
     const helperReport = checkSlackHelpers(definition);
-    const diagnostics = [...triggerDiagnostics, ...helperReport.diagnostics];
+    const diagnostics = [
+      ...triggerDiagnostics, ...providerDiagnostics, ...helperReport.diagnostics,
+    ];
     return {
       loaded,
       report: {
-        ok: diagnostics.length === 0, path, gates: [], resolutions: [], diagnostics,
+        // Severity, not emptiness: a warning must never refuse a flow.
+        ok: !diagnostics.some(diagnostic => diagnostic.severity === 'refusal'),
+        path, gates: [], resolutions: [], diagnostics,
         ...(config.path === undefined ? {} : { projectConfigPath: config.path }),
       },
     };

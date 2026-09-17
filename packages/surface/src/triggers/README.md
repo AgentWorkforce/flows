@@ -15,6 +15,15 @@ webhook sources: their executor/inbox name is the provider, and their filter
 matches the provider, event type, and requested payload fields. Register those
 provider names in `flows.json`'s `executors` array for preflight.
 
+Registration and deliverability are separate checks. `flows check` also refuses
+a provider subscription that can never be delivered — an inbox with no generated
+module (`provider_unknown`), a filter naming a different provider than its inbox
+(`provider_mismatch`), or an event type the provider does not publish
+(`provider_event_unknown`) — using this same generated vocabulary, so the
+refusal arrives while authoring rather than from ingress on the first real
+event. The generated namespaces above can only produce valid declarations; these
+refusals exist for hand-written `webhook(provider, { provider, type })` sources.
+
 `slack.mention(channel)` subscribes to Slack's `app_mention` event;
 `slack.reaction(emoji)` subscribes to `reaction_added`. Arguments match provider
 values exactly: use the channel ID and reaction name from the incoming event.
