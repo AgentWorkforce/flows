@@ -148,10 +148,15 @@ body-level `on` without both, with `unbounded_subscription`.
    identity. Cloud's integration-watch dispatcher already applies this guard to
    PR reviewer personas.
 6. **Time and delivery order are journaled, not recomputed.** Each `next()`
-   journals the absolute instants it will wake at. The router's append and the
-   scheduler's timer claim serialize through one per-subscription journal
-   order: for `idle`, an append committed before its timer claim wins and
-   returns the buffered batch; at an exact `deadline` tie the deadline wins.
+   journals the absolute instants it will wake at. Router appends, scheduler
+   timer claims, and overflow-close commands serialize through one
+   per-subscription journal order. For `idle`, an append committed before its
+   timer claim wins and returns the buffered batch; at an exact `deadline` tie
+   the deadline wins. A router overflow fence blocks new external appends but
+   does not settle a wait itself: it submits the overflow-close command to this
+   same sequencer. If a normal completion already committed first, it is
+   delivered once and the following `next()` observes overflow; once the
+   overflow command commits, no later settle, idle, or deadline claim can win.
    Resume re-arms those instants against the real clock (kernel DESIGN §3 step
    4); an instant that passed while the cell slept fires immediately.
 7. **Waiting is free.** A parked `next()` holds no lease, no sandbox, and no
@@ -191,17 +196,19 @@ No new step kind and no new verb. The kernel vocabulary stays closed
    offset; consumed prefixes are eligible for normal journal compaction and do
    not count against the next batch. On a would-exceed append, closure uses the
    converse of the open handshake: the router first durably fences the binding
-   as `closing: overflow` and refuses further appends. The same serialized
-   transaction settles any open `wait.event` with
-   `event_received` / `result: { wake: "overflow", retained, bytes, from }`;
-   the surface maps that terminal result to `Wake.overflow`, so no later settle,
-   idle, or deadline claim can win it. The journal then appends
-   `subscription.closed(overflow)`, and only then is the binding removed. If a
-   cell dies between those records, recovery completes the idempotent close and
-   wait settlement from the fenced binding; it never restores that generation
-   as open. The would-exceed frame is unappended and the next `next()` returns
-   `overflow` with the retained range. Events for a closed or unknown
-   subscription are refused, not buffered.
+   as `closing: overflow` and refuses further appends. It then submits an
+   overflow-close command to the same per-subscription journal sequencer as
+   append and timer claims. When that command wins, it atomically settles any
+   open `wait.event` with `event_received` /
+   `result: { wake: "overflow", retained, bytes, from }`, appends
+   `subscription.closed(overflow)`, and makes the surface return
+   `Wake.overflow`; only then is the binding removed. A normal completion that
+   committed before the close command remains valid once, and the following
+   `next()` observes the closed overflow state. If a cell dies between these
+   records, recovery submits/completes the same idempotent close command from
+   the fenced binding; it never restores that generation as open. The
+   would-exceed frame is unappended. Events for a closed or unknown subscription
+   are refused, not buffered.
 4. **`wait.event` extension** — alongside `event_key`, a wait may name
    `stream`, `from_offset`, `settle_ms`, `idle_at_ms`, and `deadline_at_ms`.
    It completes with `event_received` and `result: { from_offset, next_offset }`
@@ -275,8 +282,14 @@ implementation proves:
     range.
 14. `kill -9` after the router fences an overflow but before
     `subscription.closed(overflow)` commits, then resume: recovery completes
-    the overflow close and any open `next()` as `overflow`; it never restores
-    the prior binding as open or re-arms its settle, idle, or deadline timer.
+    the idempotent overflow-close command. It never restores the prior binding
+    as open; a normal wait result committed before that command remains valid
+    once, while an open or later `next()` receives `overflow` and no later
+    settle, idle, or deadline claim can win.
+15. An overflow close, a stream append, and a timer claim submitted
+    concurrently are serialized in one journal order. The single earlier
+    normal completion, if any, is preserved; after overflow commits, the
+    subscription cannot produce another normal wake.
 
 ## 8. Open questions
 
