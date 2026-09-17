@@ -20,6 +20,16 @@ interface BatchInput {
   issues: IssueBrief[];
 }
 
+interface NeedsHumanResult {
+  outcome: 'needs_human';
+  inspectionUrl?: string;
+}
+
+function isNeedsHuman(result: unknown): result is NeedsHumanResult {
+  return typeof result === 'object' && result !== null &&
+    (result as { outcome?: unknown }).outcome === 'needs_human';
+}
+
 export default flow(async (f, input: BatchInput) => {
 
   // A single implementer's failure must not sink the batch. The catch
@@ -30,6 +40,14 @@ export default flow(async (f, input: BatchInput) => {
     input.issues.map(async (brief) => {
       try {
         const result = await implementIssue(f, brief);
+        if (isNeedsHuman(result)) {
+          return {
+            issue: brief.issue,
+            repo: brief.repo,
+            outcome: 'needs_human' as const,
+            inspectionUrl: result.inspectionUrl ?? null,
+          };
+        }
         return {
           issue: brief.issue,
           repo: brief.repo,
@@ -60,10 +78,11 @@ export default flow(async (f, input: BatchInput) => {
       type: 'json_schema',
       schema: {
         type: 'object',
-        required: ['delivered', 'failed', 'items'],
-        properties: {
-          delivered: { type: 'number' },
-          failed: { type: 'number' },
+          required: ['delivered', 'needsHuman', 'failed', 'items'],
+          properties: {
+            delivered: { type: 'number' },
+            needsHuman: { type: 'number' },
+            failed: { type: 'number' },
           items: {
             type: 'array',
             items: {

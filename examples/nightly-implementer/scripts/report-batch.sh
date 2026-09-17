@@ -2,7 +2,7 @@
 # report-batch.sh — deterministic batch summary.
 #
 # Reads the per-issue outcomes from --outcomes (a JSON array produced by
-# the batch flow) and emits {delivered, failed, items} on stdout. Counts
+# the batch flow) and emits {delivered, needsHuman, failed, items} on stdout. Counts
 # are mechanical: no LLM adjudicates which run "really" succeeded.
 set -euo pipefail
 
@@ -19,6 +19,7 @@ done
 
 jq -n --argjson items "$outcomes_json" '{
   delivered: ($items | map(select(.outcome == "delivered")) | length),
+  needsHuman: ($items | map(select(.outcome == "needs_human")) | length),
   failed:    ($items | map(select(.outcome == "failed"))    | length),
   items:     $items
 }'

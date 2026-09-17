@@ -22,7 +22,7 @@ sdk="packages/sdk"
 
 # Capture tsc separately so a compile error is a distinct signal from
 # a test failure. Both go to stderr for a human tail; the JSON is stdout.
-if (cd "$sdk" && npx tsc --noEmit 2>&1 >&2); then
+if (cd "$sdk" && npx tsc --noEmit >&2); then
   tsc_ok=true
 else
   tsc_ok=false
@@ -38,7 +38,7 @@ fi
 # corrupt the JSON payload.
 report=$(mktemp)
 trap 'rm -f "$report"' EXIT
-(cd "$sdk" && npx vitest run --reporter=json --outputFile="$report" 2>&1 >&2) || true
+(cd "$sdk" && npx vitest run --reporter=json --outputFile="$report" >&2) || true
 
 num_passed=$(jq '.numPassedTests // 0' "$report")
 num_failed=$(jq '.numFailedTests // 0' "$report")

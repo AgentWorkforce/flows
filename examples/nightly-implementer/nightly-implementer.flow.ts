@@ -56,15 +56,14 @@ export default flow(async (f, input: ImplementerInput) => {
   // 1. DETERMINISTIC SETUP — pinned base worktree, verified fresh state.
   //
   // The base commit is pinned by `output.baseSha` so every downstream step
-  // that references the worktree observes the same tree. A crash resume
-  // does NOT re-checkout: the runner materializes the same commit from
-  // its journal, matching gate-1's covenant.
+  // that references the worktree observes the same tree. Each execution gets
+  // a new atomically-created directory: retries never delete or reuse a
+  // registered worktree from a prior attempt.
   const worktree = await f.deterministic({
     id: 'worktree',
     command: `
       set -euo pipefail
-      dir=/tmp/impl-${input.issue}
-      rm -rf "$dir"
+      dir=$(mktemp -d "${TMPDIR:-/tmp}/relayflows-impl.XXXXXX")
       git worktree add "$dir" origin/main
       cd "$dir"
       printf '{"path":"%s","baseSha":"%s"}\n' "$dir" "$(git rev-parse HEAD)"
@@ -276,9 +275,12 @@ export default flow(async (f, input: ImplementerInput) => {
     return await f.deterministic({
       id: 'report-blocked',
       command:
-        `./scripts/report-blocked.sh --issue ${input.issue} ` +
+        `./scripts/report-blocked.sh --repo "$REPOSITORY" --issue ${input.issue} ` +
         `--iterations ${iteration} --blockers "$BLOCKERS"`,
-      input: { BLOCKERS: { step: `aggregate-${iteration}`, path: ['blockers'] } },
+      input: {
+        REPOSITORY: input.repo,
+        BLOCKERS: { step: `aggregate-${iteration}`, path: ['blockers'] },
+      },
       // The reported outcome should surface as needs_human, not step_failed.
       // The script exits with an inspection-friendly diagnostic and a
       // non-zero code the runner recognizes as gate-5 hand-off.

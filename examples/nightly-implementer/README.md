@@ -43,7 +43,7 @@ Stage by stage:
    exhausts its budget without unanimous approval, the run terminates in
    `needs_human` (RFC-0001 gate 5, flows#251), not `step_failed`. The
    iteration count and every accumulated blocker survive on the outcome
-   for a human tail.
+   for a human tail. The batch reports these separately from delivered PRs.
 5. **`open-pr` — agent step declaring `surfaces.external`**. Drops a JSON
    file at the relayfile mount's PR-creation path. Gate 6 elects one
    attempt via `effect.record`, journals the write, confirms via
@@ -103,6 +103,15 @@ flows run --local-agent examples/nightly-implementer/nightly-batch.flow.ts \
 The `Observer:` line on stdout is the shareable live view (flows#269 /
 #286). The final `RUN <id> completed` carries the aggregate summary
 including per-issue outcomes.
+
+## Verify the deterministic pieces
+
+The future surface primitives prevent an end-to-end run today, but the shell
+gates and their flow wiring are pinned locally:
+
+```
+bash examples/nightly-implementer/tests/verify.sh
+```
 
 ## Provenance
 

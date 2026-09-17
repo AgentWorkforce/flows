@@ -17,14 +17,17 @@
 # fix (flows#284) needs so no accumulated reviewer bias can approve broken code.
 set -euo pipefail
 
-input="${FLOWS_INPUT:-{}}"
+input="${FLOWS_INPUT:-}"
+[ -n "$input" ] || input='{}'
 
-blocked_count=0
-blockers=$(jq -c --argjson zero 0 '
+blockers=$(jq -c '
   def lens($name; $obj):
-    if ($obj.blocked // true) then
-      ($obj.reasons // ["\($name): blocked with no reasons — treat as blocked"])
-        | map("[\($name)] \(.)")
+    if ($obj.blocked != false) then
+      if (($obj.reasons // []) | type != "array" or length == 0) then
+        ["[\($name)] blocked with no reasons — treat as blocked"]
+      else
+        $obj.reasons | map("[\($name)] \(.)")
+      end
     else [] end;
   ( lens("correctness"; .correctness)
   + lens("regression"; .regression)

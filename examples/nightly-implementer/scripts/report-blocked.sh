@@ -11,11 +11,13 @@
 set -euo pipefail
 
 issue=""
+repo=""
 iterations=""
 blockers=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --repo) repo="$2"; shift 2 ;;
     --issue) issue="$2"; shift 2 ;;
     --iterations) iterations="$2"; shift 2 ;;
     --blockers) blockers="$2"; shift 2 ;;
@@ -24,9 +26,10 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$issue" ] || { echo "--issue is required" >&2; exit 2; }
+[ -n "$repo" ] || { echo "--repo is required" >&2; exit 2; }
 [ -n "$iterations" ] || { echo "--iterations is required" >&2; exit 2; }
 
-inspection_url="https://github.com/AgentWorkforce/flows/issues/${issue}"
+inspection_url="https://github.com/${repo}/issues/${issue}"
 
 # Blockers arrive as a JSON array (produced by aggregate-review.sh). Fold
 # them into a single ordered list per iteration, preserved literally so
