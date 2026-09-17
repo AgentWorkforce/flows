@@ -1,6 +1,9 @@
 # Event Await — Surface and SDK slice
 
-Commit: `73f32ad13abc0d99c79f14f8b99fbce3de03d82f` (`feat(surface): add bounded event activities`)
+Implementation commits:
+
+- `73f32ad13abc0d99c79f14f8b99fbce3de03d82f` (`feat(surface): add bounded event activities`)
+- `ee3f3452ba377aaaafcacfd4923d477342a2d68d` (`fix(sdk): open activities before body work`)
 
 Scope: the authored TypeScript surface and direct-run adapter only. This adds
 `Ctx.on(source, options): Activity`, required `idle` and `deadline` typing and
@@ -63,9 +66,9 @@ cd packages/sdk && npm run typecheck && npx vitest run tests/authored-flow.test.
 
  RUN  v2.1.9 .../packages/sdk
 
- ✓ tests/activity-preflight.test.ts (1 test) 6ms
- ✓ tests/authored-activity.test.ts (8 tests) 20ms
- ✓ tests/authored-flow.test.ts (25 tests) 686ms
+ ✓ tests/activity-preflight.test.ts (1 test) 7ms
+ ✓ tests/authored-activity.test.ts (8 tests) 18ms
+ ✓ tests/authored-flow.test.ts (25 tests) 689ms
 
  Test Files  3 passed (3)
       Tests  34 passed (34)
