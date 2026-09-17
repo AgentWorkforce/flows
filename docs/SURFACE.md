@@ -879,15 +879,34 @@ author predicate. The v1 `verification:` shape remains supported and compiles
 to the same kernel fields; no kernel verb or verification field is added by
 this decision.
 
-TypeScript may additionally accept a callback such as
+TypeScript additionally accepts a callback such as
 `.gate(value => value.length < 200, "keep the summary short")`. That callback
 is author code: `flows check` cannot prove it, YAML cannot serialize it, and
-the journal cannot replay the closure. A TypeScript runtime must execute it as
-runtime control flow and journal the resulting step outcome before dependents
-continue. It must never stringify the function into a spec or silently label
-it preflightable. Authors who need portable, inspectable gates use a named data
-check; plugins may contribute named checks only by compiling them to existing
-kernel primitives.
+the journal cannot replay the closure. The authored runtime executes it as
+runtime control flow — once, in the authoring process, on the value read back
+from the step's `step.completed` — and journals the verdict as a lowered
+`<step>.gate` deterministic step: a passing predicate journals
+`{"gate":"predicate","step":"<id>","verdict":"pass","because":…}` as that
+step's stdout with exit 0; a failing one (or one that throws) journals
+`"verdict":"fail"` on stderr with exit 1, and the run fails as `gate_failed`
+naming the step and the author's reason. Dependents therefore wait on a
+journaled fact, and resume/replay read that fact rather than re-running the
+closure. The function is never stringified into a spec, and `flows check`
+prints no gate line for it — a predicate is runtime-only and unprovable
+before execution, by construction. A step takes one `.gate()`. Authors who
+need portable, inspectable gates use a named data check; plugins may
+contribute named checks only by compiling them to existing kernel primitives.
+
+`artifact_exists` is the named gate for "the agent wrote this file":
+`.gate({ type: 'artifact_exists', path: 'review/security.md' })`. The worker
+that spawned the agent CLI snapshots the agent's working directory before the
+run and content-diffs it after, and journals the changed paths as
+`output.artifacts` on the agent's `step.completed`; `AgentResult.artifacts`
+is read from that journal entry, never from a later look at the disk, and the
+gate lowers to a deterministic step that checks the journaled list. An agent
+whose final message is a JSON object owns its output shape and journals no
+artifacts; gate such a step on a deterministic check instead. The relay
+transport journals none, because the agent ran on another host.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.

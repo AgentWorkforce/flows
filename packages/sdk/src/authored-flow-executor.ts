@@ -211,6 +211,93 @@ export async function executeAuthoredFlow<Input = undefined>(
     localAgentStream, budget, definition.header.budget, options.rootRunId,
   );
 
+  /**
+   * Predicate gates (docs/SURFACE.md §6). The closure runs here, once, on the
+   * value the journal handed back; the VERDICT is then journaled as a lowered
+   * `<id>.gate` deterministic step that succeeds or fails, so a resume or
+   * replay reads the recorded verdict and never re-runs author code. A false
+   * verdict fails the step as `gate_failed`, carrying the author's reason.
+   *
+   * Durability across a resume: the verdict is appended to the root run's
+   * `predicate-gates` stream BEFORE the gate run is opened. A resumed body
+   * re-executes and reaches the same gate; it finds the recorded verdict and
+   * reuses it, so the gate run's spec (which embeds the verdict) is identical
+   * under its admission key and the closure is never re-run. Without a root
+   * run there is nothing to resume, and the closure simply runs.
+   */
+  const PREDICATE_STREAM = 'predicate-gates';
+  interface PredicateRecord { gate: 'predicate'; step: string; verdict: 'pass' | 'fail'; because?: string; threw?: string }
+  // The stream is read once per execution; concurrent gates (Promise.all)
+  // share the single in-flight load, so none of them can observe an empty
+  // map while the read is still pending and re-run a closure whose verdict
+  // was already recorded.
+  let recordedVerdicts: Promise<Map<string, PredicateRecord>> | undefined;
+  async function loadRecordedVerdicts(rootRunId: string): Promise<Map<string, PredicateRecord>> {
+    const verdicts = new Map<string, PredicateRecord>();
+    let offset = 0;
+    for (;;) {
+      const page = await journal.streamRead(rootRunId, PREDICATE_STREAM, offset, 1000);
+      for (const message of page.messages) {
+        const record = (message as { message?: unknown }).message ?? message;
+        if (typeof record === 'object' && record !== null && (record as PredicateRecord).gate === 'predicate'
+          && typeof (record as PredicateRecord).step === 'string'
+          && ((record as PredicateRecord).verdict === 'pass' || (record as PredicateRecord).verdict === 'fail')) {
+          verdicts.set((record as PredicateRecord).step, record as PredicateRecord);
+        }
+      }
+      if (page.messages.length === 0 || page.next_offset <= offset) break;
+      offset = page.next_offset;
+    }
+    return verdicts;
+  }
+  async function recordedVerdict(id: string): Promise<PredicateRecord | undefined> {
+    if (options.rootRunId === undefined) return undefined;
+    recordedVerdicts ??= loadRecordedVerdicts(options.rootRunId);
+    return (await recordedVerdicts).get(id);
+  }
+  async function applyPredicateGate<T>(operation: { id: string; predicateGate: unknown }, value: T): Promise<T> {
+    const gate = operation.predicateGate as { predicate: (value: T) => boolean; because?: string } | undefined;
+    if (gate === undefined) return value;
+    const id = operation.id;
+    let record = await recordedVerdict(id);
+    if (record === undefined) {
+      let verdict: boolean;
+      let detail: string | undefined;
+      try {
+        verdict = gate.predicate(value) === true;
+      } catch (error) {
+        verdict = false;
+        detail = error instanceof Error ? error.message : String(error);
+      }
+      record = {
+        gate: 'predicate', step: id, verdict: verdict ? 'pass' : 'fail',
+        ...(gate.because === undefined ? {} : { because: gate.because }),
+        ...(detail === undefined ? {} : { threw: detail }),
+      };
+      if (options.rootRunId !== undefined) {
+        await journal.streamAppend(options.rootRunId, PREDICATE_STREAM, record);
+        (await recordedVerdicts)?.set(id, record);
+      }
+    }
+    const literal = `'${JSON.stringify(record).replaceAll("'", "'\\''")}'`;
+    const command = record.verdict === 'pass' ? `printf '%s' ${literal}` : `printf '%s' ${literal} >&2; exit 1`;
+    try {
+      await observeStep(`${id}.gate`, 'deterministic', () => lowerDeterministic(`${id}.gate`, command, false), options.onProgress);
+    } catch (error) {
+      if (record.verdict === 'pass') throw error;
+      throw new AuthoredFlowExecutionError(
+        'gate_failed',
+        `step "${id}" failed its predicate gate`
+          + (record.because === undefined ? '' : `: ${record.because}`)
+          + (record.threw === undefined ? '' : ` (predicate threw: ${record.threw})`),
+        'verification_failed',
+        error instanceof AuthoredFlowExecutionError ? error.runId : undefined,
+      );
+    }
+    return value;
+  }
+  lifecycle.applyPredicateGate = applyPredicateGate;
+
   function llmOperation(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
   function llmOperation(prompt: string, options: LlmOptions): Step<unknown>;
   function llmOperation(prompt: string | TemplateStringsArray, ...values: unknown[]): Step<unknown> {

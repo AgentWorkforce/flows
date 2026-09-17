@@ -111,6 +111,8 @@ export const RUN_FAILURE_KINDS = [
   'run_parked',
   'run_declined',
   'run_unavailable',
+  /** A predicate `.gate(fn)` judged false; the verdict is journaled as `<step>.gate`. */
+  'gate_failed',
 ] as const;
 
 /**

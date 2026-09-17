@@ -109,6 +109,20 @@ describe('Bun 1.4.0 standalone → native Node authored lifecycle', () => {
     expect(output.journalSteps.map((s:{id:string})=>s.id)).toEqual(['agent-1','run-2','run-3','run-4','complete-5']);
   }, 90_000);
 
+  it('accepts a predicate-gated flow: the `<step>.gate` child is journaled, verified, and not counted as an authored step', async () => {
+    const f = fixture(`await f.run("printf one").gate(out => out === 'one', 'echo says one');
+await f.run("printf two").gate({ type: 'word_count_bounds', min: 1, max: 1 });
+f.done('success');`);
+    const first = f.run(); expect(first.status, first.stderr + first.stdout).toBe(0);
+    const report = JSON.parse(first.stdout); expect(report).toMatchObject({ok:true,completionReason:'success'});
+    const rootEntries = await entries(f.directory, report.runId);
+    const output = rootEntries.find(e=>e.entry_type==='step.completed')!.payload['output'];
+    // The predicate gate is its own child run (`run-1.gate`); the named gate
+    // lowers inside `run-2`'s spec; `complete-3` counts the two authored steps.
+    expect(output.journalSteps.map((s:{id:string})=>s.id)).toEqual(['run-1','run-1.gate','run-2','complete-3']);
+    const resumed = f.invoke(['resume', report.runId]); expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+  }, 90_000);
+
   it.each([
     ['SIGKILL', 'success'], ['SIGTERM', 'success'], ['blocked-SIGKILL', 'success'],
     ['SIGKILL', 'declined'],
