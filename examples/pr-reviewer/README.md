@@ -60,12 +60,40 @@ resolve sibling imports, so the helpers live below the flow.
 
 - `approvers` — logins whose approval event merges. Empty: any approval.
 - `reviewAuthors` — only review PRs by these logins. Empty: everyone.
-- `reviewerCli` — `claude` (default), `codex`, or a custom wrapper path.
+- `reviewerCli` — `claude` (default), `codex`, or a custom wrapper path. The
+  operator chooses it, as they choose the flow: `flows check` resolves and
+  probes it before anything runs, and a wrapper must identify itself with the
+  `relayflows-agent-cli-v1` handshake or is refused `cli_unsupported`.
+- `testCommand` — the verification command, default `npm test`. Pinned from
+  input **before** the agent runs and never read from the checkout, so an
+  agent edit to `package.json` cannot redefine "green".
 - `githubTransport` — `helper` (default) uses the journaled `f.github` effect,
   which needs a relayfile GitHub mount (Cloud has one). `curl` posts through
   the REST API with `$GH_TOKEN` from a deterministic step, for a local
   checkout without a mount.
 - `event` — a GitHub webhook payload, when one launched the run.
+
+## What the flow will and will not push
+
+Before any push, deterministically: the pinned test command was green; the
+agent did not touch a **protected path** (`package.json`, lockfiles, test
+files and directories, test-runner and TypeScript config, `.github/`,
+`Makefile`, `Cargo.toml`/`go.mod`/`pyproject.toml` — the verification's own
+inputs and the tests themselves, which are human-owned); and the PR head lives
+in this repository (a fork's head is another repo, so fixes for fork PRs are
+posted as advisory, not pushed). A protected-path edit also vetoes READY,
+because a green run that came with a rewritten test script proves nothing.
+Beyond that, "mechanical only" is the prompt's contract, as it was in v4 —
+the review lists every changed path, and the push is a normal commit a human
+can revert.
+
+Merging on an approval is the one irreversible step, so it needs: an approval
+from an allowlisted approver (empty `approvers` = anyone, the upstream
+default — set it), the approval's `commit_id` equal to the current head (or
+no `commit_id` at all), the live state green and mergeable, and the merge
+call carries that head SHA so GitHub refuses if the head moves in between.
+A webhook payload may enrich the configured coordinates (author, head, labels)
+but never redirect them: an event naming a different PR is refused.
 
 ## Run it locally
 
@@ -106,15 +134,20 @@ bare scratch `origin` with `refs/pull/7/head`.
 
 | Path | Result |
 | --- | --- |
-| happy: tests green | 17 steps `success`; review commit pushed to the PR branch ([origin-feature-after.txt](evidence/origin-feature-after.txt)); comment posted with the READY sentinel stripped and the `:white_check_mark:` line present ([api-calls-success.txt](evidence/api-calls-success.txt)) |
-| red: `npm test` exits 1 | 14 steps `success`; PR branch untouched; edits discarded; advisory section posted; **no** ready line ([api-calls-red.txt](evidence/api-calls-red.txt)) |
+| happy: tests green | 18 steps `success`; review commit pushed to the PR branch ([origin-feature-after.txt](evidence/origin-feature-after.txt)); comment posted with the READY sentinel stripped and the `:white_check_mark:` line present; check runs **and** commit statuses read ([api-calls-success.txt](evidence/api-calls-success.txt)) |
+| red: `npm test` exits 1 | 15 steps `success`; PR branch untouched; edits discarded; advisory posted; **no** ready line ([api-calls-red.txt](evidence/api-calls-red.txt)) |
+| fork PR (`head.repo` ≠ base) | 19 steps `success`; base repo's branch untouched; advisory names the fork ([api-calls-fork.txt](evidence/api-calls-fork.txt)) |
+| protected path: the agent rewrites `package.json`'s test script so tests "pass" | 15 steps `success`; nothing pushed; advisory names `package.json`; **no** ready line despite the green run ([api-calls-protected.txt](evidence/api-calls-protected.txt)) |
 | draft PR | 3 steps `success`; one API read, no checkout, no agent, no comment ([api-calls-draft.txt](evidence/api-calls-draft.txt)) |
 
-Three bugs the proof caught before anyone else could: `checkout FETCH_HEAD`
+Bugs the proof caught before anyone else could: `checkout FETCH_HEAD`
 after a two-ref fetch silently took the base branch (now a named
 `refs/remotes/origin/pr-N`); `git add -A ':!.workforce'` exits 1 when the
 directory is gitignored (now `add -A` + `reset -- .workforce`); and the READY
-sentinel survived into the posted body without a `trimEnd()`.
+sentinel survived into the posted body without a `trimEnd()`. Review bots
+then caught that `flow(...).on(...)` returns a *new* handle, so three
+discarded `.on` calls registered nothing (now chained), and that a green run
+with an agent-edited test script was being trusted (now vetoed).
 
 Not proven here, honestly: a real Claude session writing a real review (the
 wrapper stands in for it), the `helper` transport (needs a relayfile GitHub

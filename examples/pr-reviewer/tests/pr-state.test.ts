@@ -22,6 +22,11 @@ import {
   prReadyStateAllowsHumanReview,
   prReviewStateFromRest,
   prFromInput,
+  mergeRefusal,
+  approvedCommit,
+  protectedPathRefusal,
+  testCommand,
+  reviewer,
   readPr,
   resolveAuthorLogin,
   reviewHarnessPrompt,
@@ -30,6 +35,7 @@ import {
   shouldSkipReview,
   shellWord,
 } from "../pr-reviewer.flow.ts";
+import { getFlowDefinition } from "@relayflows/surface/runtime";
 
 test('reviewAuthorAllowlistDecision lets configured authors through', () => {
   assert.equal(reviewAuthorAllowlistDecision(new Set(['willwashburn']), 'willwashburn'), null);
@@ -606,4 +612,60 @@ test("HARNESS_RESOURCE_ENV holds the test run to one worker under the sandbox he
   assert.equal(HARNESS_RESOURCE_ENV.JEST_MAX_WORKERS, "1");
   const heapMib = Number(/--max-old-space-size=(\d+)/.exec(HARNESS_RESOURCE_ENV.NODE_OPTIONS ?? "")?.[1]);
   assert.ok(heapMib <= 8192 - 2048);
+});
+
+test("prFromInput refuses an event that names a different PR than the configured one", () => {
+  const event = { pull_request: { number: 9, user: { login: "opener" } }, repository: { name: "other", owner: { login: "o" } } };
+  assert.throws(() => prFromInput({ owner: "o", repo: "r", number: 9, approvers: "", event }), /names o\/other#9, not the configured o\/r#9/);
+  assert.throws(() => prFromInput({ owner: "o", repo: "r", number: 3, approvers: "", event: { ...event, repository: { name: "r", owner: { login: "o" } } } }), /#9, not the configured o\/r#3/);
+  // Agreeing coordinates enrich the PR with the payload's author.
+  assert.equal(prFromInput({ owner: "O", repo: "R", number: 9, approvers: "", event: { ...event, repository: { name: "r", owner: { login: "o" } } } }).author, "opener");
+});
+
+test("mergeRefusal only lets an approval merge the approved, green, mergeable head", () => {
+  const pr = { owner: "o", repo: "r", number: 1, url: "u", author: "a" };
+  const green = prReviewStateFromRest({ state: "open", mergeable: true, mergeable_state: "clean", head: { sha: "abc" } },
+    { check_runs: [{ name: "ci", status: "completed", conclusion: "success" }] }, []);
+  assert.equal(mergeRefusal(green, pr, "abc"), undefined);
+  assert.equal(pr.headSha, "abc");
+  assert.match(mergeRefusal(green, pr, "def") ?? "", /approval was for def, but the head is now abc/);
+  assert.match(mergeRefusal({ ...green, headRefOid: undefined }, pr, undefined) ?? "", /head SHA could not be read/);
+  const red = prReviewStateFromRest({ state: "open", mergeable: true, mergeable_state: "clean", head: { sha: "abc" } },
+    { check_runs: [{ name: "ci", status: "completed", conclusion: "failure" }] }, []);
+  assert.match(mergeRefusal(red, pr, "abc") ?? "", /check=ci/);
+  // An approval without a commit id merges only when the head is green (no stale check possible).
+  assert.equal(mergeRefusal(green, pr, undefined), undefined);
+  assert.equal(approvedCommit({ review: { commit_id: "0123abc" } }), "0123abc");
+  assert.equal(approvedCommit({ review: { commit_id: "not a sha" } }), undefined);
+});
+
+test("commit statuses count toward READY alongside check runs", () => {
+  const meta = { state: "open", mergeable: true, mergeable_state: "clean", head: { sha: "abc" } };
+  const checks = { check_runs: [{ name: "unit", status: "completed", conclusion: "success" }] };
+  assert.equal(prReadyStateAllowsHumanReview(prReviewStateFromRest(meta, checks, [], { statuses: [] })), true);
+  const pendingPreview = { statuses: [{ context: "deploy-preview", state: "pending" }] };
+  assert.equal(prReadyStateAllowsHumanReview(prReviewStateFromRest(meta, checks, [], pendingPreview)), false);
+  const failedPreview = { statuses: [{ context: "deploy-preview", state: "failure" }] };
+  assert.equal(prReadyStateAllowsHumanReview(prReviewStateFromRest(meta, checks, [], failedPreview)), false);
+  assert.equal(prReadyStateAllowsHumanReview(prReviewStateFromRest(meta, checks, [], { statuses: [{ context: "x", state: "success" }] })), true);
+});
+
+test("protectedPathRefusal names the first human-owned path and lets ordinary sources through", () => {
+  assert.equal(protectedPathRefusal(["src/a.ts", "README.md"]), undefined);
+  for (const path of ["package.json", "pkg/package.json", "package-lock.json", "yarn.lock", ".github/workflows/ci.yml",
+    "tests/a.test.ts", "src/__tests__/b.ts", "src/c.spec.tsx", "vitest.config.ts", "tsconfig.json", "Cargo.toml", "foo_test.go", "Makefile"]) {
+    assert.match(protectedPathRefusal(["src/ok.ts", path]) ?? "", new RegExp(`touched ${path.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}`), path);
+  }
+});
+
+test("testCommand is pinned from input, defaults to npm test, and must be one line", () => {
+  assert.equal(testCommand({}), "npm test");
+  assert.equal(testCommand({ testCommand: " cargo test --locked " }), "cargo test --locked");
+  assert.throws(() => testCommand({ testCommand: "npm test\nrm -rf /" }), /single shell line/);
+});
+
+test("the exported handle carries the three PR trigger handlers", () => {
+  const definition = getFlowDefinition(reviewer);
+  assert.equal(definition.name, "pr-reviewer");
+  assert.equal(definition.handlers.length, 3);
 });

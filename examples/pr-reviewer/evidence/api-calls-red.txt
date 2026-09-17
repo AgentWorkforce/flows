@@ -8,4 +8,9 @@ Looks fine.
 - none
 
 ## Advisory
-The reviewer's edits were discarded: the repository's test command was red in the review sandbox (see .workforce/test.log). The proposed changes are described above; nothing was pushed."}
+The reviewer's edits were discarded because the repository's test command was red in the review sandbox (see .workforce/test.log). Nothing was pushed. What it proposed:
+
+```
+a.js | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```"}

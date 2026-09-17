@@ -7,6 +7,6 @@ if (request) {
   if (!existsSync('.workforce/pr.diff')) { console.error('no diff materialized'); process.exit(3); }
   mkdirSync('.workforce', { recursive: true });
   writeFileSync('.workforce/review.md', '## Review\nLooks fine.\n\n## Addressed comments\n- none\nREADY\n');
-  writeFileSync('a.js', 'export const a = 2; // reviewed\n'); // a "mechanical" edit
+  writeFileSync('a.js', 'export const a = 2; // reviewed\n'); if (existsSync('../touch-pkg')) writeFileSync('package.json', '{"name":"proof","type":"module","scripts":{"test":"true"}}\n'); // a "mechanical" edit
   console.log('review-written'); process.exit(0);
 }

@@ -58,6 +58,12 @@ export interface Input {
   githubTransport?: "helper" | "curl";
   /** The coding-agent CLI that writes the review. Default `claude`; `codex`, or a custom wrapper path. */
   reviewerCli?: string;
+  /**
+   * The repository's verification command, pinned by the operator BEFORE the
+   * agent runs. Default `npm test`. It is never read from the checkout, so an
+   * agent edit to package.json cannot redefine what "green" means.
+   */
+  testCommand?: string;
   /** A GitHub webhook payload, when this run was launched by one. */
   event?: unknown;
 }
@@ -67,7 +73,7 @@ export const DEFAULT_SKIP_LABEL = "no-agent-relay-review";
 
 // ── the flow ────────────────────────────────────────────────────────────────
 
-const reviewer = flow<Input>(
+const reviewerBody = flow<Input>(
   "pr-reviewer",
   { budget: { dollars: 8, wallclock: "45m" } },
   async (f, input) => {
@@ -75,11 +81,19 @@ const reviewer = flow<Input>(
     const api = (path: string) =>
       f.run(`curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(`https://api.github.com/repos/${pr.owner}/${pr.repo}${path}`)}`);
 
-    // An approval from an allowlisted approver ends the loop: merge and stop.
+    // An approval from an allowlisted approver ends the loop: merge and stop —
+    // but only the head that was approved, and only when the PR is green and
+    // mergeable right now. Merging is the one irreversible step here.
     if (input.event !== undefined && isApproval(input.event) && isAuthorizedApprover(input.approvers, input.event)) {
+      const state = await readPrReviewState(api, pr);
+      const refusal = mergeRefusal(state, pr, approvedCommit(input.event));
+      if (refusal) {
+        await f.run(`printf '%s\\n' ${shellWord(`pr-reviewer did not merge #${pr.number}: ${refusal}`)}`);
+        return f.done("success");
+      }
       const merged = await mergePullRequest(f, input, pr);
       // The journal is the log: record the outcome as a step, not stdout.
-      await f.run(`printf '%s\\n' ${shellWord(merged ? `merged #${pr.number}` : `GitHub did not confirm the merge of #${pr.number}`)}`);
+      await f.run(`printf '%s\\n' ${shellWord(merged ? `merged #${pr.number} at ${pr.headSha}` : `GitHub did not confirm the merge of #${pr.number}`)}`);
       return f.done(merged ? "success" : "step_failed");
     }
 
@@ -94,6 +108,10 @@ const reviewer = flow<Input>(
     }
     const headRef = readString(meta.head?.ref) ?? `pull/${pr.number}/head`;
     const baseRef = readString(meta.base?.ref) ?? "main";
+    // A fork's head lives in another repository; `git push origin` would write
+    // a stray branch on the base repo. Fixes for fork PRs are posted, not pushed.
+    const headRepo = readString(meta.head?.repo?.full_name)?.toLowerCase();
+    const sameRepo = headRepo === undefined || headRepo === `${pr.owner}/${pr.repo}`.toLowerCase();
 
     // ── materialize what the agent reads: checkout at the PR head, the diff,
     // the metadata. All deterministic, all journaled. ──
@@ -117,7 +135,7 @@ const reviewer = flow<Input>(
 
     // ── verification, outside the agent. The exit code is the kernel's. ──
     const verified = await f.run(
-      `if ${HARNESS_RESOURCE_ENV_SHELL} npm test > .workforce/test.log 2>&1; then echo PASS; else echo FAIL; fi`,
+      `if ${HARNESS_RESOURCE_ENV_SHELL} ${testCommand(input)} > .workforce/test.log 2>&1; then echo PASS; else echo FAIL; fi`,
       { timeout: "15m" },
     );
     // trimEnd before the sentinel check: `stripLastLine` on a trailing newline
@@ -129,19 +147,36 @@ const reviewer = flow<Input>(
     // `.workforce/` is the flow's scratch, never the PR's: stage everything,
     // then unstage it (an exclude pathspec exits 1 when the dir is gitignored).
     const changed = (await f.run(`git add -A && git reset -q -- .workforce && git diff --cached --name-only`)).trim();
-    if (changed && verified.trim() === "PASS") {
-      // Mechanical fixes, verified by the full test command, go to the PR.
+    const changedPaths = changed ? changed.split("\n") : [];
+    // A green run is evidence only if the agent left the verification's own
+    // inputs alone: a rewritten test script or test file can make anything
+    // pass. Protected paths therefore veto both the push and READY.
+    const protectedHit = protectedPathRefusal(changedPaths);
+    const trustedGreen = verified.trim() === "PASS" && protectedHit === undefined;
+    // Deterministic, before anything is pushed: the tests were green and
+    // trustworthy, the PR head is in this repository. "Mechanical only"
+    // beyond that is the prompt's contract, and the review says what was
+    // changed either way.
+    const pushRefusal = changedPaths.length === 0 ? undefined
+      : protectedHit !== undefined ? protectedHit
+      : verified.trim() !== "PASS" ? "the repository's test command was red in the review sandbox (see .workforce/test.log)"
+      : !sameRepo ? `the PR head lives in ${headRepo}, not in ${pr.owner}/${pr.repo}, and this flow only pushes to its own repository`
+      : undefined;
+    if (changedPaths.length > 0 && pushRefusal === undefined) {
+      // Mechanical fixes, verified by the pinned test command, go to the PR.
       await f.run(`git -c user.name=Relayflow -c user.email=noreply@agentrelay.com commit -q -m "review: mechanical fixes" && git push origin ${shellWord(`HEAD:refs/heads/${headRef}`)}`, { timeout: "5m" });
-    } else if (changed) {
-      // An unverified push is worse than no push: discard, and say so.
+    } else if (changedPaths.length > 0) {
+      // An unverified or out-of-bounds push is worse than no push: keep the
+      // diff for the review, discard the edits, and say so.
+      const proposed = await f.run(`git diff --cached --stat | tail -n 20`);
       await f.run(`git reset -q && git checkout -- . && git clean -fdq -e .workforce`);
-      review += "\n\n## Advisory\nThe reviewer's edits were discarded: the repository's test command was red in the review sandbox (see .workforce/test.log). The proposed changes are described above; nothing was pushed.";
+      review += `\n\n## Advisory\nThe reviewer's edits were discarded because ${pushRefusal}. Nothing was pushed. What it proposed:\n\n\`\`\`\n${proposed.trim()}\n\`\`\``;
     }
 
     // Only call it a human's turn when it actually is: the agent said READY,
     // the tests this flow ran were green (a signal the v4 agent never had),
     // and GitHub's live state agrees.
-    const ready = harnessReady && verified.trim() === "PASS" && prReadyStateAllowsHumanReview(await readPrReviewState(api, pr));
+    const ready = harnessReady && trustedGreen && prReadyStateAllowsHumanReview(await readPrReviewState(api, pr));
     const body = ready ? `${review}\n\n:white_check_mark: This PR is ready for your review.` : review;
     await postComment(f, input, pr, body);
     f.done("success");
@@ -149,12 +184,16 @@ const reviewer = flow<Input>(
 );
 
 // The trigger path, declared for when Cloud dispatches PR events to a flow
-// (today it launches the default body with the issue-shaped input). Each
-// handler reads the PR from the payload and runs the same body.
-reviewer.on(github.pull_request("opened"), async (f) => { f.done("success"); });
-reviewer.on(github.pull_request("synchronize"), async (f) => { f.done("success"); });
-reviewer.on(github.pull_request_review({ action: "submitted" }), async (f) => { f.done("success"); });
+// (today it launches the default body with the issue-shaped input). Handles
+// are immutable — each `.on` returns a new one — so the chained result is what
+// gets exported. Each handler currently acknowledges; when dispatch lands
+// they read the PR from the payload and run the same body.
+const reviewer = reviewerBody
+  .on(github.pull_request("opened"), async (f) => { f.done("success"); })
+  .on(github.pull_request("synchronize"), async (f) => { f.done("success"); })
+  .on(github.pull_request_review({ action: "submitted" }), async (f) => { f.done("success"); });
 
+export { reviewer };
 export default reviewer;
 
 // ── GitHub writes ───────────────────────────────────────────────────────────
@@ -176,13 +215,33 @@ async function postComment(f: Ctx, input: Input, pr: Pr, body: string): Promise<
 
 async function mergePullRequest(f: Ctx, input: Input, pr: Pr): Promise<boolean> {
   if (input.githubTransport === "curl") {
-    const out = await f.run(`curl -sf -X PUT -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(`https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/merge`)} -d ${shellWord(JSON.stringify({ merge_method: "squash", ...(pr.headSha ? { sha: pr.headSha } : {}) }))}`);
+    const out = await f.run(`curl -sf -X PUT -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(`https://api.github.com/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/merge`)} -d ${shellWord(JSON.stringify({ merge_method: "squash", sha: pr.headSha }))}`);
     return (JSON.parse(out) as { merged?: unknown }).merged === true;
   }
+  // `mergeRefusal` has already established `pr.headSha`; the SHA guard makes
+  // GitHub refuse if the head moved between the check and the merge.
   const result = await f.github.mergePullRequest({
-    owner: pr.owner, repo: pr.repo, number: pr.number, method: "squash", ...(pr.headSha ? { sha: pr.headSha } : {}),
+    owner: pr.owner, repo: pr.repo, number: pr.number, method: "squash", sha: pr.headSha!,
   });
   return result.merged === true;
+}
+
+/** Why an approval must not merge right now, or undefined to proceed. */
+export function mergeRefusal(state: PullRequestReadyState, pr: Pr, approvedSha: string | undefined): string | undefined {
+  const headSha = readString(state.headRefOid);
+  if (headSha === undefined) return "the PR head SHA could not be read";
+  if (approvedSha !== undefined && approvedSha !== headSha) {
+    return `the approval was for ${approvedSha}, but the head is now ${headSha}`;
+  }
+  if (!prReadyStateAllowsHumanReview(state)) return describeNotReadyState(state);
+  pr.headSha = headSha;
+  return undefined;
+}
+
+/** The commit an approval review was submitted against. */
+export function approvedCommit(payload: unknown): string | undefined {
+  const sha = (payload as { review?: { commit_id?: unknown } } | null)?.review?.commit_id;
+  return typeof sha === "string" && /^[a-f0-9]{7,40}$/.test(sha) ? sha : undefined;
 }
 
 // ── PR state from the REST API (the v4 agent read the relayfile VFS) ────────
@@ -192,15 +251,27 @@ async function readPrReviewState(api: (path: string) => PromiseLike<string>, pr:
   const headSha = readString(meta.head?.sha);
   const checks = headSha === undefined ? undefined
     : JSON.parse(await api(`/commits/${headSha}/check-runs?per_page=100`)) as { check_runs?: unknown };
+  // Legacy commit statuses (deploy previews, external CI) are a separate
+  // endpoint from check runs; READY must see both.
+  const statuses = headSha === undefined ? undefined
+    : JSON.parse(await api(`/commits/${headSha}/status`)) as { statuses?: unknown };
   const reviews = JSON.parse(await api(`/pulls/${pr.number}/reviews?per_page=100`)) as unknown;
   if (headSha !== undefined) pr.headSha = headSha;
-  return prReviewStateFromRest(meta, checks, reviews);
+  return prReviewStateFromRest(meta, checks, reviews, statuses);
 }
 
 /** The same `PullRequestReadyState` the v4 gates consumed, built from REST responses. */
-export function prReviewStateFromRest(meta: PrMeta, checks: { check_runs?: unknown } | undefined, reviews: unknown): PullRequestReadyState {
+export function prReviewStateFromRest(
+  meta: PrMeta, checks: { check_runs?: unknown } | undefined, reviews: unknown, statuses?: { statuses?: unknown },
+): PullRequestReadyState {
   const latestReviews = Array.isArray(reviews) ? reviews.filter((r): r is Record<string, unknown> => r !== null && typeof r === "object") : [];
-  const checkRuns = Array.isArray(checks?.check_runs) ? checks.check_runs : [];
+  const checkRuns = [
+    ...(Array.isArray(checks?.check_runs) ? checks.check_runs : []),
+    // A status context has `state` (pending/success/failure/error) and no
+    // `status`/`conclusion`; `checkPassedAndComplete` reads `state` first.
+    ...(Array.isArray(statuses?.statuses) ? statuses.statuses.map((s) =>
+      s !== null && typeof s === "object" ? { name: (s as { context?: unknown }).context, state: (s as { state?: unknown }).state } : s) : []),
+  ];
   return {
     state: typeof meta.state === "string" ? meta.state : undefined,
     isDraft: meta.draft === true,
@@ -241,7 +312,7 @@ export interface PrMeta {
   author?: string | { login?: string };
   user?: { login?: string };
   labels?: unknown;
-  head?: { sha?: string; ref?: string };
+  head?: { sha?: string; ref?: string; repo?: { full_name?: string } | null };
   base?: { ref?: string };
   html_url?: string;
   title?: string;
@@ -280,8 +351,38 @@ export function prFromInput(input: Input): Pr {
   if (!owner || !repo || number === undefined || !/^[A-Za-z0-9-]{1,39}$/.test(owner) || !/^[A-Za-z0-9_.-]{1,100}$/.test(repo)) {
     throw new Error("pr-reviewer input needs owner, repo and an integer number (or a PR-shaped event).");
   }
-  return fromEvent && fromEvent.number === number ? fromEvent
-    : { owner, repo, number, url: `https://github.com/${owner}/${repo}/pull/${number}`, author: "unknown" };
+  // The configured coordinates are the authority. A payload may enrich them
+  // (author, head SHA, labels) but never redirect them: the same event shape
+  // that launches a run could otherwise point a merge at another repository.
+  if (fromEvent && (fromEvent.owner.toLowerCase() !== owner.toLowerCase() || fromEvent.repo.toLowerCase() !== repo.toLowerCase() || fromEvent.number !== number)) {
+    throw new Error(`pr-reviewer event names ${fromEvent.owner}/${fromEvent.repo}#${fromEvent.number}, not the configured ${owner}/${repo}#${number}.`);
+  }
+  return fromEvent ?? { owner, repo, number, url: `https://github.com/${owner}/${repo}/pull/${number}`, author: "unknown" };
+}
+
+/** The pinned verification command, quoted for `/bin/sh -c`. Never read from the checkout. */
+export function testCommand(input: Pick<Input, "testCommand">): string {
+  const command = input.testCommand?.trim() || "npm test";
+  if (command.includes("\0") || command.includes("\n")) throw new Error("testCommand must be a single shell line.");
+  return command;
+}
+
+/**
+ * Paths the reviewer may never push, whatever the tests said: the test
+ * command's own inputs and the tests themselves (an edit there could be what
+ * made the run green), lockfiles, and CI/workflow configuration.
+ */
+export const PROTECTED_PATHS: readonly RegExp[] = [
+  /(^|\/)package\.json$/, /(^|\/)package-lock\.json$/, /(^|\/)yarn\.lock$/, /(^|\/)pnpm-lock\.yaml$/,
+  /(^|\/)Cargo\.(toml|lock)$/, /(^|\/)go\.(mod|sum)$/, /(^|\/)pyproject\.toml$/, /(^|\/)requirements[^/]*\.txt$/,
+  /(^|\/)turbo\.json$/, /(^|\/)(vitest|jest|playwright)\.config\.[cm]?[jt]s$/, /(^|\/)tsconfig[^/]*\.json$/,
+  /^\.github\//, /^\.gitlab-ci\.yml$/, /(^|\/)Makefile$/,
+  /(^|\/)(tests?|__tests__|spec)\//, /\.(test|spec)\.[cm]?[jt]sx?$/, /_test\.(go|py|rs)$/,
+];
+
+export function protectedPathRefusal(paths: readonly string[]): string | undefined {
+  const hit = paths.find((path) => PROTECTED_PATHS.some((pattern) => pattern.test(path)));
+  return hit === undefined ? undefined : `it touched ${hit}, which the reviewer may not change (tests, their runner configuration, lockfiles and CI are human-owned)`;
 }
 
 function reviewContext(meta: PrMeta, pr: Pr): Record<string, unknown> {

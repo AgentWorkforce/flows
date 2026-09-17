@@ -11,4 +11,12 @@ Looks fine.
 ## Addressed comments
 - none
 
+## Advisory
+The reviewer's edits were discarded because the PR head lives in someone/r, not in o/r, and this flow only pushes to its own repository. Nothing was pushed. What it proposed:
+
+```
+a.js | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
 :white_check_mark: This PR is ready for your review."}
