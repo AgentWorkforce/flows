@@ -4,6 +4,12 @@ import { providerTrigger, triggerArgument } from "../provider-trigger.js";
 import type { WebhookFilter } from "../triggers.js";
 
 export const github = Object.freeze({
+  check_run(action?: string) {
+    return providerTrigger("github", "check_run", action === undefined ? undefined : { action: triggerArgument(action, "action") });
+  },
+  issue_comment(action?: string) {
+    return providerTrigger("github", "issue_comment", action === undefined ? undefined : { action: triggerArgument(action, "action") });
+  },
   issues(filter?: WebhookFilter) {
     return providerTrigger("github", "issues", filter);
   },

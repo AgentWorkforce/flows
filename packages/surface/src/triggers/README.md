@@ -33,8 +33,13 @@ filter names that same provider, and the filter pins an event type.
 values exactly: use the channel ID and reaction name from the incoming event.
 `github.pull_request(action)` filters `payload.action`; omitting the action
 accepts every pull request event. Upstream mappings do not declare action enums,
-so the action parameter is a string. Other generated methods accept an optional
-recursive payload filter, for example `github.push({ ref: 'refs/heads/main' })`.
+so the action parameter is a string. `github.check_run(action)` (a CI check
+finished: `completed`, with `check_run.conclusion` in the payload) and
+`github.issue_comment(action)` (a comment on an issue or pull-request
+conversation: `created`, `edited`, `deleted`) take an action the same way — the
+two events a PR reviewer needs for merge-on-green and comment-driven directives.
+Other generated methods accept an optional recursive payload filter, for
+example `github.push({ ref: 'refs/heads/main' })`.
 
 The receiver accepts `POST /providers/slack` with this JSON:
 
