@@ -122,6 +122,10 @@ fn overflow_of_a_parked_next_returns_overflow_after_recovery() {
     assert_eq!(resumed.next_subscription(&run_id, "pr-42").unwrap(), SubscriptionWake::Overflow {
         retained: 0, bytes: 0, from: 0,
     });
+    let completion = resumed.journal_entries(&run_id, 1, 100).unwrap().into_iter()
+        .find(|entry| entry.entry_type == EntryType::WaitCompleted).unwrap();
+    assert_eq!(serde_json::from_value::<relayflowd_core::WaitCompletedPayload>(completion.payload).unwrap().completion_reason,
+        relayflowd_core::WaitCompletionReason::EventReceived);
 }
 
 #[test]
@@ -133,7 +137,8 @@ fn immediate_event_wakes_have_durable_distinct_wait_boundaries() {
 
     for (delivery, number) in [("one", 1), ("two", 2)] {
         assert!(engine.append_subscription_frame(&run_id, "pr-42", delivery, json!({"type":"github.pull_request", "n": number})).unwrap());
-        assert!(matches!(engine.next_subscription(&run_id, "pr-42").unwrap(), SubscriptionWake::Events { .. }));
+        let prior = (number > 1).then(|| "pr-42/next/0");
+        assert!(matches!(engine.next_subscription_after_ack(&run_id, "pr-42", prior).unwrap(), SubscriptionWake::Events { .. }));
     }
 
     let waits = engine.journal_entries(&run_id, 1, 100).unwrap().into_iter()
@@ -184,9 +189,9 @@ fn remaining_event_await_acceptance_cases_use_the_real_journal() {
     clock.set(8);
     assert!(matches!(engine.next_subscription(&run_id, "timed").unwrap(), SubscriptionWake::Events { offset: 3, .. }));
     clock.set(18);
-    assert_eq!(engine.next_subscription(&run_id, "timed").unwrap(), SubscriptionWake::Idle);
+    assert_eq!(engine.next_subscription_after_ack(&run_id, "timed", Some("timed/next/0")).unwrap(), SubscriptionWake::Idle);
     clock.set(20);
-    assert!(matches!(engine.next_subscription(&run_id, "timed").unwrap(), SubscriptionWake::Deadline { .. }));
+    assert!(matches!(engine.next_subscription_after_ack(&run_id, "timed", Some("timed/next/1")).unwrap(), SubscriptionWake::Deadline { .. }));
 
     // Case 3: a parked idle wait is recovered from the SQLite journal after
     // its instant passes while the owning engine is absent.
@@ -218,7 +223,7 @@ fn remaining_event_await_acceptance_cases_use_the_real_journal() {
     assert!(matches!(engine.next_subscription(&run_id, "pr-42").unwrap(), SubscriptionWake::Events { .. }));
     engine.fence_subscription_overflow(&run_id, "pr-42").unwrap();
     assert_eq!(engine.claim_subscription_timeouts(&run_id).unwrap(), 1);
-    assert!(matches!(engine.next_subscription(&run_id, "pr-42").unwrap(), SubscriptionWake::Overflow { .. }));
+    assert!(matches!(engine.next_subscription_after_ack(&run_id, "pr-42", Some("pr-42/next/0")).unwrap(), SubscriptionWake::Overflow { .. }));
     let bytes_run = parked_run(&engine);
     engine.open_subscription(&bytes_run, "bytes", vec!["github.pull_request".into()], None, 0, 10, 10_000, false).unwrap();
     assert!(!engine.append_subscription_frame(&bytes_run, "bytes", "too-big", json!("x".repeat(1_024 * 1_024))).unwrap());
@@ -232,4 +237,28 @@ fn remaining_event_await_acceptance_cases_use_the_real_journal() {
     }
     drop(journal);
     assert!(engine.append_subscription_frame(&keeps_up, "keeps-up", "kept-final", json!({"type":"github.pull_request"})).unwrap());
+}
+
+#[test]
+fn normal_wake_is_not_acknowledged_until_the_following_next() {
+    let directory = tempfile::tempdir().unwrap();
+    let engine = Engine::with_clock(directory.path(), SimClock::new(0));
+    let run_id = parked_run(&engine);
+    open(&engine, &run_id, 10_000);
+    assert!(engine.append_subscription_frame(&run_id, "pr-42", "first", json!({"type":"github.pull_request", "n": 1})).unwrap());
+
+    assert!(matches!(engine.next_subscription(&run_id, "pr-42").unwrap(), SubscriptionWake::Events { offset: 1, .. }));
+    let entries = engine.journal_entries(&run_id, 1, 100).unwrap();
+    assert!(!entries.iter().any(|entry| entry.entry_type == EntryType::SubscriptionAcknowledged));
+
+    // A restart before the body asks for another wake retains the committed
+    // normal completion instead of advancing its cursor behind the caller.
+    let resumed = Engine::with_clock(directory.path(), SimClock::new(0));
+    assert!(matches!(resumed.next_subscription(&run_id, "pr-42").unwrap(), SubscriptionWake::Events { offset: 1, .. }));
+    assert!(resumed.append_subscription_frame(&run_id, "pr-42", "second", json!({"type":"github.pull_request", "n": 2})).unwrap());
+    assert_eq!(resumed.next_subscription_after_ack(&run_id, "pr-42", Some("pr-42/next/0")).unwrap(), SubscriptionWake::Events {
+        events: vec![json!({"type":"github.pull_request", "n": 2})], offset: 2,
+    });
+    let entries = resumed.journal_entries(&run_id, 1, 100).unwrap();
+    assert_eq!(entries.iter().filter(|entry| entry.entry_type == EntryType::SubscriptionAcknowledged).count(), 1);
 }

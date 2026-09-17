@@ -185,6 +185,8 @@ pub(super) struct SubscriptionOpenParams {
 pub(super) struct SubscriptionNextParams {
     pub run_id: String,
     pub subscription_id: String,
+    #[serde(default)]
+    pub acknowledge_wait_id: Option<String>,
 }
 
 #[derive(Deserialize)]

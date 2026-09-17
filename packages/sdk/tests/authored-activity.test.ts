@@ -98,6 +98,34 @@ describe('authored event activities', () => {
     } finally { journal.close(); }
   });
 
+  it('acknowledges a normal wake only with the following pull', async () => {
+    calls.length = 0;
+    const journal = new JournalClient(path, { requestTimeoutMs: 2_000 });
+    await journal.connect();
+    await journal.hello('authored-activity-ack-test');
+    try {
+      await executeAuthoredFlow(flow('ack-activity', async (f) => {
+        const activity = f.on(webhook('pull_request'), { idle: '1h', deadline: '1d' });
+        await activity.next();
+        await activity.next();
+        f.done('success');
+      }), journal, undefined, { rootRunId: 'root-ack' });
+      expect(calls).toEqual([
+        { verb: 'subscription.open', params: {
+          run_id: 'root-ack', subscription_id: 'activity-1', event_types: ['pull_request'],
+          settle_ms: 0, idle_ms: 3_600_000, deadline_ms: 86_400_000, include_self: false,
+        } },
+        { verb: 'subscription.next', params: { run_id: 'root-ack', subscription_id: 'activity-1' } },
+        { verb: 'subscription.next', params: {
+          run_id: 'root-ack', subscription_id: 'activity-1', acknowledge_wait_id: 'activity-1/next/0',
+        } },
+        { verb: 'subscription.close', params: {
+          run_id: 'root-ack', subscription_id: 'activity-1', completion_reason: 'run_completed',
+        } },
+      ]);
+    } finally { journal.close(); }
+  });
+
   it('cancels an opened cursor when the body fails completion validation', async () => {
     calls.length = 0;
     const journal = new JournalClient(path, { requestTimeoutMs: 2_000 });

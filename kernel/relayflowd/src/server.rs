@@ -502,7 +502,17 @@ fn handle_request(
             let params: SubscriptionNextParams = decode_params(request.params)?;
             // Do not hold the per-run mutex while parked: a router append on a
             // second connection must be able to commit and wake this request.
-            to_value(engine.next_subscription(&params.run_id, &params.subscription_id).map_err(internal_error)?)
+            let (wake, acknowledge_wait_id) = engine.next_subscription_after_ack_with_receipt(
+                &params.run_id,
+                &params.subscription_id,
+                params.acknowledge_wait_id.as_deref(),
+            ).map_err(internal_error)?;
+            let mut result = to_value(wake)?;
+            if let Some(acknowledge_wait_id) = acknowledge_wait_id {
+                result.as_object_mut().expect("subscription wake serializes as object")
+                    .insert("acknowledge_wait_id".to_owned(), Value::String(acknowledge_wait_id));
+            }
+            Ok(result)
         }
         "subscription.close" => {
             let params: SubscriptionCloseParams = decode_params(request.params)?;

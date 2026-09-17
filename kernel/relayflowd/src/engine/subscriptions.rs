@@ -214,20 +214,50 @@ impl<C: Clock> Engine<C> {
     /// Block only at the daemon edge. Every wait boundary and wake result is
     /// journaled first, so a restarted caller observes the same state.
     pub fn next_subscription(&self, run_id: &str, subscription_id: &str) -> Result<SubscriptionWake> {
+        self.next_subscription_after_ack(run_id, subscription_id, None)
+    }
+
+    /// Return the next durable wake, optionally acknowledging the prior wake
+    /// first. A normal wake deliberately stays unacknowledged until the body
+    /// asks for another one: committing an acknowledgement before the socket
+    /// reply can lose a wake if the daemon dies in that hand-off window.
+    pub fn next_subscription_after_ack(
+        &self,
+        run_id: &str,
+        subscription_id: &str,
+        acknowledge_wait_id: Option<&str>,
+    ) -> Result<SubscriptionWake> {
+        self.next_subscription_after_ack_with_receipt(run_id, subscription_id, acknowledge_wait_id)
+            .map(|(wake, _)| wake)
+    }
+
+    /// Same as [`Self::next_subscription_after_ack`], retaining the opaque
+    /// receipt id needed by a protocol client to acknowledge a recovered wake
+    /// whose durable sequence predates that client process.
+    pub fn next_subscription_after_ack_with_receipt(
+        &self,
+        run_id: &str,
+        subscription_id: &str,
+        acknowledge_wait_id: Option<&str>,
+    ) -> Result<(SubscriptionWake, Option<String>)> {
+        let mut acknowledge_wait_id = acknowledge_wait_id;
         loop {
             self.claim_subscription_timeouts(run_id)?;
             let mut journal = self.open_run(run_id)?;
             let states = subscriptions(&journal)?;
             let state = states.get(subscription_id).context("unknown subscription")?;
             let now = self.clock.now_ms();
+            if let Some(wait_id) = acknowledge_wait_id.take() {
+                self.acknowledge_normal_wake(&mut journal, state, wait_id, now)?;
+                continue;
+            }
             if let Some(completed) = &state.ready {
                 let wake = wake_from_completed(&journal, state, completed)?;
-                if matches!(wake, SubscriptionWake::Events { .. } | SubscriptionWake::Idle) {
-                    self.acknowledge_normal_wake(&mut journal, state, completed, now)?;
-                }
-                return Ok(wake);
+                let receipt = matches!(wake, SubscriptionWake::Events { .. } | SubscriptionWake::Idle)
+                    .then(|| completed.wait_id.clone());
+                return Ok((wake, receipt));
             }
-            if let Some(reason) = state.closed { return self.closed_wake(&journal, state, reason); }
+            if let Some(reason) = state.closed { return self.closed_wake(&journal, state, reason).map(|wake| (wake, None)); }
             let entries = journal.scan_all()?;
             let unread = unread_frames(&entries, state)?;
             if !unread.is_empty() {
@@ -246,11 +276,7 @@ impl<C: Clock> Engine<C> {
                         ))?;
                     }
                     self.complete_events(&mut journal, state, &wait, &unread, now)?;
-                    self.acknowledge_normal_wake(&mut journal, state, &WaitCompletedPayload {
-                        wait_id: wait.wait_id, completion_reason: WaitCompletionReason::EventReceived,
-                        result: json!({"next_offset": unread.last().expect("nonempty").1.offset.saturating_add(1)}),
-                    }, now)?;
-                    return events_wake(&unread);
+                    return events_wake(&unread).map(|wake| (wake, Some(wait.wait_id)));
                 }
             }
             if let Some(wait) = &state.active_wait {
@@ -276,7 +302,12 @@ impl<C: Clock> Engine<C> {
                 SubscriptionCompletionReason::Deadline => json!({"subscription_id": subscription_id, "timeout": "deadline", "pending": pending(&unread_frames(&journal.scan_all()?, state)?) }),
                 _ => json!({"subscription_id": subscription_id, "closed": true}),
             };
-            self.complete_wait(journal, wait, WaitCompletionReason::Timeout, result, now)?;
+            let completion_reason = if reason == SubscriptionCompletionReason::Overflow {
+                WaitCompletionReason::EventReceived
+            } else {
+                WaitCompletionReason::Timeout
+            };
+            self.complete_wait(journal, wait, completion_reason, result, now)?;
         }
         self.append(journal, &JournalEntry::new(EntryType::SubscriptionClosed, journal.run_id(), None, None, now,
             SubscriptionClosedPayload { subscription_id: subscription_id.to_owned(), completion_reason: reason }))?;
@@ -348,9 +379,24 @@ impl<C: Clock> Engine<C> {
         Ok(())
     }
 
-    fn acknowledge_normal_wake(&self, journal: &mut SqliteJournal, state: &SubscriptionState, completed: &WaitCompletedPayload, now: i64) -> Result<()> {
-        self.append(journal, &JournalEntry::new(EntryType::SubscriptionAcknowledged, journal.run_id(), None, None, now,
-            SubscriptionAcknowledgedPayload { subscription_id: state.opened.subscription_id.clone(), wait_id: completed.wait_id.clone(), next_offset: completed.result.get("next_offset").and_then(Value::as_u64) }))?;
+    fn acknowledge_normal_wake(&self, journal: &mut SqliteJournal, state: &SubscriptionState, wait_id: &str, now: i64) -> Result<()> {
+        if state.ready.as_ref().is_some_and(|ready| ready.wait_id == wait_id) {
+            let completed = state.ready.as_ref().expect("checked ready wake");
+            if !matches!(wake_from_completed(journal, state, completed)?, SubscriptionWake::Events { .. } | SubscriptionWake::Idle) {
+                bail!("subscription {} cannot acknowledge terminal wake {}", state.opened.subscription_id, wait_id);
+            }
+            self.append(journal, &JournalEntry::new(EntryType::SubscriptionAcknowledged, journal.run_id(), None, None, now,
+                SubscriptionAcknowledgedPayload { subscription_id: state.opened.subscription_id.clone(), wait_id: wait_id.to_owned(), next_offset: completed.result.get("next_offset").and_then(Value::as_u64) }))?;
+            return Ok(());
+        }
+        let already_acknowledged = journal.scan_all()?.into_iter().any(|entry| {
+            entry.entry_type == EntryType::SubscriptionAcknowledged
+                && serde_json::from_value::<SubscriptionAcknowledgedPayload>(entry.payload)
+                    .is_ok_and(|ack| ack.subscription_id == state.opened.subscription_id && ack.wait_id == wait_id)
+        });
+        if !already_acknowledged {
+            bail!("subscription {} has no normal wake {} to acknowledge", state.opened.subscription_id, wait_id);
+        }
         Ok(())
     }
 
@@ -406,7 +452,6 @@ fn subscriptions(journal: &SqliteJournal) -> Result<BTreeMap<String, Subscriptio
                         state.active_wait = None;
                         state.last_wake_at_ms = entry.at_ms;
                         state.ready = Some(completed.clone());
-                        if let Some(next) = completed.result.get("next_offset").and_then(Value::as_u64) { state.acknowledged_offset = next; }
                     }
                 }
             }

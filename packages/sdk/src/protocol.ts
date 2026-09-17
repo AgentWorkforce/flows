@@ -386,10 +386,12 @@ export interface SubscriptionOpenResult {
 export interface SubscriptionNextParams {
   run_id: string;
   subscription_id: string;
+  /** Internal durable receipt for the prior normal wake, supplied with the next pull. */
+  acknowledge_wait_id?: string;
 }
 export type SubscriptionNextResult =
-  | { kind: 'events'; events: unknown[]; offset: number }
-  | { kind: 'idle' }
+  | { kind: 'events'; events: unknown[]; offset: number; acknowledge_wait_id?: string }
+  | { kind: 'idle'; acknowledge_wait_id?: string }
   | { kind: 'deadline'; pending: { from: number; to: number } | null }
   | { kind: 'overflow'; retained: number; bytes: number; from: number };
 

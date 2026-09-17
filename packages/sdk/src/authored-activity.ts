@@ -45,6 +45,8 @@ class JournalActivity implements OpenActivity {
   readonly activity: Activity;
   private readonly openPromise: Promise<void>;
   private closed = false;
+  private nextSequence = 0;
+  private acknowledgeWaitId: string | undefined;
 
   constructor(
     private readonly journal: JournalClient,
@@ -78,11 +80,18 @@ class JournalActivity implements OpenActivity {
   private async next(): Promise<Wake> {
     if (this.closed) throw new AuthoredFlowExecutionError('activity_closed', 'activity is already closed');
     await this.ensureOpen();
-    const wake = decodeWake(await this.journal.subscriptionNext({
+    const result = await this.journal.subscriptionNext({
       run_id: this.runId,
       subscription_id: this.subscriptionId,
-    }));
-    if (wake.kind === 'deadline' || wake.kind === 'overflow') this.closed = true;
+      ...(this.acknowledgeWaitId === undefined ? {} : { acknowledge_wait_id: this.acknowledgeWaitId }),
+    });
+    const wake = decodeWake(result);
+    if (wake.kind === 'deadline' || wake.kind === 'overflow') {
+      this.closed = true;
+    } else {
+      this.acknowledgeWaitId = receiptId(result) ?? `${this.subscriptionId}/next/${this.nextSequence++}`;
+      this.nextSequence += 1;
+    }
     return wake;
   }
 
@@ -102,6 +111,11 @@ class JournalActivity implements OpenActivity {
       include_self: this.options.includeSelf,
     });
   }
+}
+
+function receiptId(result: SubscriptionNextResult): string | undefined {
+  const receipt = (result as { acknowledge_wait_id?: unknown }).acknowledge_wait_id;
+  return typeof receipt === 'string' && receipt.length > 0 ? receipt : undefined;
 }
 
 interface NormalizedActivityOptions {

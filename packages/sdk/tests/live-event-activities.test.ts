@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, mkdtempSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, expect, it } from 'vitest';
 import { flow, webhook } from '@relayflows/surface';
@@ -10,9 +10,10 @@ import { socketPathFor } from '../src/daemon-connection.js';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { JournalClient } from '../src/journal-client.js';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const worktreeKey = execFileSync('sh', ['-c', 'printf %s "$1" | cksum | cut -d" " -f1', 'sh', ROOT], { encoding: 'utf8' }).trim();
 const RELAYFLOWD = resolve(process.env['RELAYFLOWD_BIN'] ?? join(
-  process.env['CARGO_TARGET_DIR'] ?? join(homedir(), '.relayflows-toolchain', 'target', '1398563233'),
+  process.env['CARGO_TARGET_DIR'] ?? join(homedir(), '.relayflows-toolchain', 'target', worktreeKey),
   'debug', 'relayflowd',
 ));
 const daemons: ChildProcess[] = [];
@@ -64,7 +65,7 @@ steps:
   await expect(execution).resolves.toMatchObject({ completionReason: 'success' });
   const entries = await routerClient.journalRead(root.run_id, 1, 100);
   expect((entries.entries as Array<{ entry_type?: string }>).map(entry => entry.entry_type)).toEqual(expect.arrayContaining([
-    'subscription.opened', 'stream.appended', 'wait.completed', 'subscription.acknowledged', 'subscription.closed',
+    'subscription.opened', 'stream.appended', 'wait.completed', 'subscription.closed',
   ]));
 }, 20_000);
 
@@ -93,6 +94,7 @@ steps:
   const after = await client(dataDir);
   await expect(after.subscriptionNext({ run_id: root.run_id, subscription_id: 'restart' })).resolves.toEqual({
     kind: 'events', events: [{ type: 'github_pull_request', payload: { number: 99 } }], offset: 1,
+    acknowledge_wait_id: 'restart/next/0',
   });
   const entries = await after.journalRead(root.run_id, 1, 100);
   expect((entries.entries as Array<{ entry_type?: string }>).filter(entry => entry.entry_type === 'stream.appended')).toHaveLength(1);
