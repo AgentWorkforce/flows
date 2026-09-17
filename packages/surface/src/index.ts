@@ -8,6 +8,7 @@ export type {
   CloudHelper,
 } from "./cloud.js";
 export type { AgentOptions, AgentResult, LlmOptions, Ctx } from "./context.js";
+export type { Activity, ActivityDuration, ActivityOptions, EventFrame, Wake } from "./activity.js";
 export {
   COMPLETION_REASONS,
   RUN_COMPLETION_REASONS,

@@ -3,6 +3,8 @@ import type { MemoryHelper } from "./memory.js";
 import type { CloudHelper } from "./cloud.js";
 import type { FlowCompletionReason } from "./completion.js";
 import type { Step } from "./step.js";
+import type { Activity, ActivityOptions } from "./activity.js";
+import type { TriggerSource } from "./triggers.js";
 
 export interface AgentResult {
   summary: string;
@@ -45,6 +47,8 @@ export interface Ctx extends Helpers {
   /** JSON Schema validates the value at runtime; narrow unknown in author code. */
   llm(prompt: string, options: LlmOptions): Step<unknown>;
   agent(name: string, options: AgentOptions): Step<AgentResult>;
+  /** Open a durable, bounded event subscription for this running body. */
+  on(source: TriggerSource, options: ActivityOptions): Activity;
   human(question: string, options: { to: string }): Promise<boolean>;
   dispatch<T>(flow: string, input: unknown): Promise<T>;
   done(reason: FlowCompletionReason): void;

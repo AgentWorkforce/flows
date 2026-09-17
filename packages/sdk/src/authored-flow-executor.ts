@@ -40,6 +40,7 @@ import {
   verifyAuthoredOperations,
 } from './authored-flow-operation.js';
 import { AuthoredFlowLifecycle } from './authored-flow-lifecycle.js';
+import { AuthoredActivities } from './authored-activity.js';
 import { JournalClient } from './journal-client.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
@@ -188,6 +189,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   const journalSteps: AuthoredFlowJournalStep[] = [];
   const authoredSteps: AuthoredFlowOperation<unknown>[] = [];
   const lifecycle = new AuthoredFlowLifecycle();
+  const activities = new AuthoredActivities(journal, options.rootRunId);
   let nextStep = 1;
   let requestedCompletion: FlowCompletionReason | undefined;
 
@@ -308,6 +310,10 @@ export async function executeAuthoredFlow<Input = undefined>(
       );
       return trackStep(authoredSteps, agentOp);
     },
+    on(source, activityOptions) {
+      assertOperationAllowed('on', definition.name, requestedCompletion);
+      return activities.open(source, activityOptions);
+    },
     human() {
       assertOperationAllowed('human', definition.name, requestedCompletion);
       throw unsupportedVerb('human');
@@ -368,6 +374,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   if (bodyFailed) {
     try {
       await stopAuthoredOperations(authoredSteps, bodyFailure);
+      await activities.closeAll('canceled');
     } finally {
       lifecycle.close();
     }
@@ -401,6 +408,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   }
   try {
     await verifyAuthoredOperations(definition.name, authoredSteps, lifecycle);
+    await activities.closeAll('run_completed');
   } finally {
     lifecycle.close();
   }

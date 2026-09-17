@@ -401,6 +401,21 @@ export class JournalClient extends EventEmitter {
     return this.request('event.submit', { spec, event });
   }
 
+  /** Open a fenced body subscription. A successful reply makes the Activity visible to its body. */
+  subscriptionOpen(params: VerbContract['subscription.open']['params']): Promise<VerbContract['subscription.open']['result']> {
+    return this.request('subscription.open', params, null);
+  }
+
+  /** Park for the next journaled subscription wake. */
+  subscriptionNext(params: VerbContract['subscription.next']['params']): Promise<VerbContract['subscription.next']['result']> {
+    return this.request('subscription.next', params, null);
+  }
+
+  /** Close a body subscription; the server refuses later external appends. */
+  subscriptionClose(params: VerbContract['subscription.close']['params']): Promise<VerbContract['subscription.close']['result']> {
+    return this.request('subscription.close', params, null);
+  }
+
   /** Durable channel write; journals `stream.appended`. */
   streamAppend(runId: string, stream: string, message: unknown): Promise<VerbContract['stream.append']['result']> {
     return this.request('stream.append', { run_id: runId, stream, message });

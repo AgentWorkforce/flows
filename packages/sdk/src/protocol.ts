@@ -54,6 +54,9 @@ export type Verb =
   | 'step.complete'
   | 'event.emit'
   | 'event.submit'
+  | 'subscription.open'
+  | 'subscription.next'
+  | 'subscription.close'
   | 'stream.append'
   | 'stream.read'
   | 'journal.read';
@@ -359,6 +362,42 @@ export interface EventSubmitResult {
   run?: unknown;
 }
 
+/** Body-level activity open; the server acknowledges only after its fenced binding is durable. */
+export interface SubscriptionOpenParams {
+  run_id: string;
+  subscription_id: string;
+  event_types: string[];
+  pattern?: Record<string, unknown>;
+  settle_ms: number;
+  idle_ms: number;
+  deadline_ms: number;
+  include_self: boolean;
+}
+export interface SubscriptionOpenResult {
+  subscription_id: string;
+  stream: string;
+  deadline_at_ms: number;
+}
+
+export interface SubscriptionNextParams {
+  run_id: string;
+  subscription_id: string;
+}
+export type SubscriptionNextResult =
+  | { kind: 'events'; events: unknown[]; offset: number }
+  | { kind: 'idle' }
+  | { kind: 'deadline'; pending: { from: number; to: number } | null }
+  | { kind: 'overflow'; retained: number; bytes: number; from: number };
+
+export interface SubscriptionCloseParams {
+  run_id: string;
+  subscription_id: string;
+  completion_reason: 'closed' | 'run_completed' | 'canceled';
+}
+export interface SubscriptionCloseResult {
+  closed: string;
+}
+
 export interface StreamAppendParams {
   run_id: string;
   stream: string;
@@ -403,6 +442,9 @@ export interface VerbContract {
   'step.complete': { params: StepCompleteParams; result: StepCompleteResult };
   'event.emit': { params: EventEmitParams; result: EventEmitResult };
   'event.submit': { params: EventSubmitParams; result: EventSubmitResult };
+  'subscription.open': { params: SubscriptionOpenParams; result: SubscriptionOpenResult };
+  'subscription.next': { params: SubscriptionNextParams; result: SubscriptionNextResult };
+  'subscription.close': { params: SubscriptionCloseParams; result: SubscriptionCloseResult };
   'stream.append': { params: StreamAppendParams; result: StreamAppendResult };
   'stream.read': { params: StreamReadParams; result: StreamReadResult };
   'journal.read': { params: JournalReadParams; result: JournalReadResult };
