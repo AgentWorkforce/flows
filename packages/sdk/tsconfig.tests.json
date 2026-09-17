@@ -27,6 +27,7 @@
     "tests/authored-flow.test.ts",
     "tests/authored-activity.test.ts",
     "tests/activity-preflight.test.ts",
+    "tests/live-event-activities.test.ts",
     "tests/flow-executor-chain.test.ts",
     "tests/input-binding.test.ts",
     "tests/journal-client-loopback.ts",

@@ -295,7 +295,14 @@ impl Engine<WallClock> {
         Ok((messages, next_offset))
     }
 
-    pub fn emit_event(&self, run_id: &str, event_key: &str, payload: Value) -> Result<usize> {
+    pub fn emit_event(
+        &self,
+        run_id: &str,
+        event_key: &str,
+        payload: Value,
+        delivery_id: Option<&str>,
+        actor: Option<&str>,
+    ) -> Result<usize> {
         let mut journal = self.open_run(run_id)?;
         let spec = journal.run_spec().context("read run spec")?;
         let entries = journal.scan_all().context("read event waits")?;
@@ -328,10 +335,17 @@ impl Engine<WallClock> {
                 ),
             )?;
         }
+        let activity_matches = self.append_local_subscription_event(
+            run_id,
+            event_key,
+            payload.clone(),
+            delivery_id,
+            actor,
+        )?;
         if !open.is_empty() {
             let _ = self.drive(journal, spec, DriveOptions::default())?;
         }
-        Ok(open.len())
+        Ok(open.len() + activity_matches)
     }
 }
 

@@ -336,6 +336,10 @@ export interface EventEmitParams {
   run_id: string;
   event_key: string;
   payload: unknown;
+  /** Provider delivery id for body activities. Required by Cloud; optional for legacy exact waits. */
+  delivery_id?: string;
+  /** Provider actor identity, used by the local router adapter for self filtering. */
+  actor?: string;
 }
 export interface EventEmitResult {
   matched: number;

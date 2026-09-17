@@ -1,4 +1,6 @@
-use relayflowd_core::{Budget, CompletionReason, EffectRef, Pins, StepType, SubscriptionCompletionReason};
+use relayflowd_core::{
+    Budget, CompletionReason, EffectRef, Pins, StepType, SubscriptionCompletionReason,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -134,6 +136,10 @@ pub(super) struct EventEmitParams {
     pub run_id: String,
     pub event_key: String,
     pub payload: Value,
+    #[serde(default)]
+    pub delivery_id: Option<String>,
+    #[serde(default)]
+    pub actor: Option<String>,
 }
 
 #[derive(Deserialize)]

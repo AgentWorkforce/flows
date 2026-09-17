@@ -465,7 +465,13 @@ fn handle_request(
             let _guard = lock.lock().expect("run lock");
             ensure_mutable(&engine, &params.run_id)?;
             let matched = engine
-                .emit_event(&params.run_id, &params.event_key, params.payload)
+                .emit_event(
+                    &params.run_id,
+                    &params.event_key,
+                    params.payload,
+                    params.delivery_id.as_deref(),
+                    params.actor.as_deref(),
+                )
                 .map_err(internal_error)?;
             Ok(json!({"matched": matched}))
         }

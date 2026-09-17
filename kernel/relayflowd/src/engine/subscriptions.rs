@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result, bail};
 use relayflowd_core::{
-    Clock, EntryType, JournalEntry, StreamAppendedPayload, SubscriptionClosedPayload,
+    Clock, EntryType, JournalEntry, RunSpawnedPayload, StreamAppendedPayload, SubscriptionAcknowledgedPayload, SubscriptionClosedPayload,
     SubscriptionCompletionReason, SubscriptionOpenedPayload, WaitCompletedPayload,
     SubscriptionOverflowFencedPayload, WaitCompletionReason, WaitEventPayload,
 };
@@ -52,6 +52,30 @@ impl SubscriptionState {
 }
 
 impl<C: Clock> Engine<C> {
+    /// Repository-owned local router adapter. Cloud performs the corresponding
+    /// binding and authorization work outside this tenant-unaware kernel.
+    #[doc(hidden)]
+    pub fn append_local_subscription_event(&self, run_id: &str, event_type: &str, payload: Value, delivery_id: Option<&str>, actor: Option<&str>) -> Result<usize> {
+        let journal = self.open_run(run_id)?;
+        let entries = journal.scan_all()?;
+        let run_identity = entries.iter().find(|entry| entry.entry_type == EntryType::RunSpawned)
+            .map(|entry| serde_json::from_value::<RunSpawnedPayload>(entry.payload.clone())).transpose()?
+            .map(|spawned| spawned.created_by);
+        let matched = subscriptions(&journal)?.into_iter().filter_map(|(id, state)| {
+            (state.closed.is_none() && state.overflow_fence.is_none()
+                && state.opened.event_types.iter().any(|kind| kind == event_type)
+                && state.opened.pattern.as_ref().is_none_or(|pattern| relayflowd_core::event::matches(pattern, &payload))
+                && (state.opened.include_self || actor != run_identity.as_deref())).then_some(id)
+        }).collect::<Vec<_>>();
+        drop(journal);
+        if matched.is_empty() { return Ok(0); }
+        let delivery_id = delivery_id.filter(|id| !id.is_empty()).context("body subscription frame requires a provider delivery id")?;
+        let frame = json!({"type": event_type, "payload": payload});
+        let mut appended = 0;
+        for id in matched { if self.append_subscription_frame(run_id, &id, delivery_id, frame.clone())? { appended += 1; } }
+        Ok(appended)
+    }
+
     pub(super) fn close_subscriptions_for_terminal(&self, journal: &mut SqliteJournal, reason: SubscriptionCompletionReason, now: i64) -> Result<()> {
         let ids = subscriptions(journal)?.into_iter().filter_map(|(id, state)| state.closed.is_none().then_some(id)).collect::<Vec<_>>();
         for id in ids { self.close_subscription_in_journal(journal, &id, reason, now)?; }
@@ -182,6 +206,7 @@ impl<C: Clock> Engine<C> {
                 claimed += 1;
             }
         }
+        claimed += self.claim_non_activity_wait_timeouts_in_journal(&mut journal, now)?;
         Ok(claimed)
     }
 
@@ -193,21 +218,25 @@ impl<C: Clock> Engine<C> {
             let mut journal = self.open_run(run_id)?;
             let states = subscriptions(&journal)?;
             let state = states.get(subscription_id).context("unknown subscription")?;
-            if let Some(reason) = state.closed {
-                return self.closed_wake(&journal, state, reason);
-            }
+            let now = self.clock.now_ms();
             if let Some(completed) = &state.ready {
-                return wake_from_completed(&journal, state, completed);
+                let wake = wake_from_completed(&journal, state, completed)?;
+                self.acknowledge_normal_wake(&mut journal, state, completed, now)?;
+                return Ok(wake);
             }
+            if let Some(reason) = state.closed { return self.closed_wake(&journal, state, reason); }
             let entries = journal.scan_all()?;
             let unread = unread_frames(&entries, state)?;
-            let now = self.clock.now_ms();
             if !unread.is_empty() {
                 let newest_at = unread.last().unwrap().0.at_ms;
                 if now >= newest_at.saturating_add(state.opened.settle_ms)
                     || now >= state.last_wake_at_ms.saturating_add(state.opened.idle_ms) {
                     let wait = state.active_wait.clone().unwrap_or_else(|| activity_wait(state, now));
                     self.complete_events(&mut journal, state, &wait, &unread, now)?;
+                    self.acknowledge_normal_wake(&mut journal, state, &WaitCompletedPayload {
+                        wait_id: wait.wait_id, completion_reason: WaitCompletionReason::EventReceived,
+                        result: json!({"next_offset": unread.last().expect("nonempty").1.offset.saturating_add(1)}),
+                    }, now)?;
                     return events_wake(&unread);
                 }
             }
@@ -269,6 +298,30 @@ impl<C: Clock> Engine<C> {
         Ok(fenced.len())
     }
 
+    fn claim_non_activity_wait_timeouts_in_journal(&self, journal: &mut SqliteJournal, now: i64) -> Result<usize> {
+        let mut open = BTreeMap::<String, (Option<String>, Option<u32>, i64)>::new();
+        for entry in journal.scan_all()? {
+            match entry.entry_type {
+                EntryType::WaitHuman => {
+                    let wait: relayflowd_core::WaitHumanPayload = serde_json::from_value(entry.payload)?;
+                    if let Some(timeout) = wait.timeout_at_ms { open.insert(wait.wait_id, (entry.step_id, entry.attempt, timeout)); }
+                }
+                EntryType::WaitEvent => {
+                    let wait: WaitEventPayload = serde_json::from_value(entry.payload)?;
+                    if wait.stream.is_none() && let Some(timeout) = wait.timeout_at_ms { open.insert(wait.wait_id, (entry.step_id, entry.attempt, timeout)); }
+                }
+                EntryType::WaitCompleted => { open.remove(&serde_json::from_value::<WaitCompletedPayload>(entry.payload)?.wait_id); }
+                _ => {}
+            }
+        }
+        let due = open.into_iter().filter(|(_, (_, _, timeout))| *timeout <= now).collect::<Vec<_>>();
+        for (wait_id, (step_id, attempt, _)) in &due {
+            self.append(journal, &JournalEntry::new(EntryType::WaitCompleted, journal.run_id(), step_id.clone(), *attempt, now,
+                WaitCompletedPayload { wait_id: wait_id.clone(), completion_reason: WaitCompletionReason::Timeout, result: json!({"timeout": "timeout"}) }))?;
+        }
+        Ok(due.len())
+    }
+
     fn complete_events(&self, journal: &mut SqliteJournal, state: &SubscriptionState, wait: &WaitEventPayload, unread: &[(JournalEntry, StreamAppendedPayload)], now: i64) -> Result<()> {
         let from = state.acknowledged_offset;
         let next = unread.last().expect("nonempty").1.offset.saturating_add(1);
@@ -279,6 +332,12 @@ impl<C: Clock> Engine<C> {
     fn complete_wait(&self, journal: &mut SqliteJournal, wait: &WaitEventPayload, reason: WaitCompletionReason, result: Value, now: i64) -> Result<()> {
         self.append(journal, &JournalEntry::new(EntryType::WaitCompleted, journal.run_id(), None, None, now,
             WaitCompletedPayload { wait_id: wait.wait_id.clone(), completion_reason: reason, result }))?;
+        Ok(())
+    }
+
+    fn acknowledge_normal_wake(&self, journal: &mut SqliteJournal, state: &SubscriptionState, completed: &WaitCompletedPayload, now: i64) -> Result<()> {
+        self.append(journal, &JournalEntry::new(EntryType::SubscriptionAcknowledged, journal.run_id(), None, None, now,
+            SubscriptionAcknowledgedPayload { subscription_id: state.opened.subscription_id.clone(), wait_id: completed.wait_id.clone(), next_offset: completed.result.get("next_offset").and_then(Value::as_u64) }))?;
         Ok(())
     }
 
@@ -310,6 +369,13 @@ fn subscriptions(journal: &SqliteJournal) -> Result<BTreeMap<String, Subscriptio
             EntryType::SubscriptionOverflowFenced => {
                 let fence: SubscriptionOverflowFencedPayload = serde_json::from_value(entry.payload)?;
                 if let Some(state) = states.get_mut(&fence.subscription_id) { state.overflow_fence = Some(fence); }
+            }
+            EntryType::SubscriptionAcknowledged => {
+                let acknowledged: SubscriptionAcknowledgedPayload = serde_json::from_value(entry.payload)?;
+                if let Some(state) = states.get_mut(&acknowledged.subscription_id) {
+                    state.ready = state.ready.take().filter(|ready| ready.wait_id != acknowledged.wait_id);
+                    if let Some(next) = acknowledged.next_offset { state.acknowledged_offset = state.acknowledged_offset.max(next); }
+                }
             }
             EntryType::WaitEvent => {
                 let wait: WaitEventPayload = serde_json::from_value(entry.payload)?;

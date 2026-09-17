@@ -13,7 +13,7 @@ import { EventEmitter } from 'node:events';
 export { walkJournal, JournalReadError, type JournalEvent, type JournalReadFailure } from './journal-reader.js';
 import { randomUUID } from 'node:crypto';
 import { createConnection, type Socket } from 'node:net';
-import type { VerbContract, EventSubmitParams } from './protocol.js';
+import type { VerbContract, EventEmitParams, EventSubmitParams } from './protocol.js';
 import {
   PROTOCOL_VERSION,
   type CompletionReason,
@@ -386,8 +386,13 @@ export class JournalClient extends EventEmitter {
   }
 
   /** Satisfy `wait.event`; a human response arrives here too. */
-  eventEmit(runId: string, eventKey: string, payload: unknown): Promise<VerbContract['event.emit']['result']> {
-    return this.request('event.emit', { run_id: runId, event_key: eventKey, payload });
+  eventEmit(
+    runId: string,
+    eventKey: string,
+    payload: unknown,
+    options: Pick<EventEmitParams, 'delivery_id' | 'actor'> = {},
+  ): Promise<VerbContract['event.emit']['result']> {
+    return this.request('event.emit', { run_id: runId, event_key: eventKey, payload, ...options });
   }
 
   /**

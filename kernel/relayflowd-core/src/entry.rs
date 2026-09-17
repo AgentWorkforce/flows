@@ -36,6 +36,10 @@ pub enum EntryType {
     /// the already-submitted close without ever reopening the cursor.
     #[serde(rename = "subscription.overflow.fenced")]
     SubscriptionOverflowFenced,
+    /// The body has observed a normal activity wake. This advances only that
+    /// cursor's unread boundary; it is not a provider acknowledgement.
+    #[serde(rename = "subscription.acknowledged")]
+    SubscriptionAcknowledged,
     #[serde(rename = "step.routed")]
     StepRouted,
     #[serde(rename = "step.attempt.started")]
@@ -84,6 +88,7 @@ impl EntryType {
             Self::SubscriptionOpened => "subscription.opened",
             Self::SubscriptionClosed => "subscription.closed",
             Self::SubscriptionOverflowFenced => "subscription.overflow.fenced",
+            Self::SubscriptionAcknowledged => "subscription.acknowledged",
             Self::StepRouted => "step.routed",
             Self::StepAttemptStarted => "step.attempt.started",
             Self::StepCompleted => "step.completed",
@@ -115,6 +120,7 @@ impl EntryType {
             "subscription.opened" => Self::SubscriptionOpened,
             "subscription.closed" => Self::SubscriptionClosed,
             "subscription.overflow.fenced" => Self::SubscriptionOverflowFenced,
+            "subscription.acknowledged" => Self::SubscriptionAcknowledged,
             "step.routed" => Self::StepRouted,
             "step.attempt.started" => Self::StepAttemptStarted,
             "step.completed" => Self::StepCompleted,
@@ -551,6 +557,15 @@ pub struct SubscriptionOverflowFencedPayload {
     pub retained: u64,
     pub bytes: u64,
     pub from: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SubscriptionAcknowledgedPayload {
+    pub subscription_id: String,
+    pub wait_id: String,
+    /// Present only for an event wake; idle has no stream range to advance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<u64>,
 }
 
 /// Appendix A rule 5. The record *elects* one attempt to perform the

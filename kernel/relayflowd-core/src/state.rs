@@ -224,6 +224,7 @@ impl RunState {
                 | EntryType::SubscriptionOpened
                 | EntryType::SubscriptionClosed
                 | EntryType::SubscriptionOverflowFenced
+                | EntryType::SubscriptionAcknowledged
                 | EntryType::ChannelAppended
                 | EntryType::ChannelDelivered
                 | EntryType::ChannelAcknowledged
