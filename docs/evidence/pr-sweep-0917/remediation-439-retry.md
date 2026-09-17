@@ -534,3 +534,8 @@ git diff --check origin/main...HEAD
 ```
 
 Output will be recorded after the source and this evidence file are committed.
+The committed validation command emitted no diagnostics and exited zero:
+
+```text
+git_diff_check_exit=0
+```
