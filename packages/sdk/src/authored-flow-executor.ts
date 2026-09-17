@@ -83,12 +83,22 @@ export interface AuthoredFlowExecutionResult {
   readonly executionRuntime?: AuthoredExecutionRuntime;
   readonly rootRunId?: string;
   readonly name: string;
-  readonly completionReason: FlowCompletionReason;
+  readonly completionReason: LoweredCompletionReason;
   readonly journalSteps: readonly AuthoredFlowJournalStep[];
 }
 
-type ExecutionResultUsesFlowCompletionReason = Assert<
-  Equal<AuthoredFlowExecutionResult['completionReason'], FlowCompletionReason>
+// The authoring SURFACE stays wide: `done()` accepts every
+// `FlowCompletionReason` and refuses the kernel-owned ones at runtime with a
+// diagnostic that names the alternative. The RESULT is narrow, because `done()`
+// cannot store a reason this executor does not lower.
+//
+// Pinning the narrow type here is load-bearing, not cosmetic. Every reader of
+// this result — the CLI report, the durable root, the IPC verifier — would
+// otherwise have to re-derive "can this really be `canceled`?" and answer it
+// by hand. Those hand-written answers disagreeing is the exact defect this
+// change exists to close; a widening here re-opens it at compile time instead.
+type ExecutionResultUsesLoweredCompletionReason = Assert<
+  Equal<AuthoredFlowExecutionResult['completionReason'], LoweredCompletionReason>
 >;
 type JournalStepUsesStepCompletionReason = Assert<
   Equal<AuthoredFlowJournalStep['completionReason'], ProtocolCompletionReason>
@@ -100,7 +110,8 @@ type JournalStepUsesStepCompletionReason = Assert<
  * This is deliberately not exported by the SDK package: without a durable
  * authored root, it is not a resumable public runner. The seam is narrow: an
  * flow with an optional budget may await `f.run`, `f.llm`, and `f.agent` steps and must
- * finish with `f.done("success")` or `f.done("needs_human")`. Each step and the terminal marker is
+ * finish with one of the lowered completions — `f.done("success")`,
+ * `f.done("needs_human")` or `f.done("step_failed")`. Each step and the terminal marker is
  * a compiled spec submitted through
  * `JournalClient`; values are read back from `step.completed` journal entries.
  * Unsupported headers, verbs, gates, or completion lowering fail closed.
@@ -189,7 +200,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   const authoredSteps: AuthoredFlowOperation<unknown>[] = [];
   const lifecycle = new AuthoredFlowLifecycle();
   let nextStep = 1;
-  let requestedCompletion: FlowCompletionReason | undefined;
+  let requestedCompletion: LoweredCompletionReason | undefined;
 
   const lowerDeterministic = authoredDeterministicRunner(
     definition.name, journal, journalSteps, budget, options.rootRunId,
@@ -329,10 +340,23 @@ export async function executeAuthoredFlow<Input = undefined>(
           `flow "${definition.name}" called done() more than once`,
         );
       }
-      if (reason !== 'success' && reason !== 'needs_human') {
+      // `step_failed` is a verdict about the flow's OWN work — "the checks I
+      // ran did not pass" — and an authored body is authoritative about that.
+      // `canceled` and `budget_exceeded` are control-plane facts the kernel
+      // owns: cancellation arrives through `run.cancel`, budget exhaustion
+      // through the enforced budget (authored-budget.ts). A body that declared
+      // either would be asserting a kernel fact that never happened, so they
+      // stay refused — with a reason, not with "this executor cannot yet".
+      // `canceled` has no terminal shape to lower into either: there is no
+      // `cancelled` RunStatus in the local protocol, and Cloud accepts that
+      // completionReason only under a `cancelled` status this CLI never reports.
+      if (!isLoweredCompletion(reason)) {
         throw new AuthoredFlowExecutionError(
           'unsupported_completion',
-          `the initial authored executor cannot lower done("${reason}")`,
+          `done("${reason}") is a kernel outcome, not an authored verdict: the kernel `
+            + 'records it when it cancels a run or exhausts its budget, so a flow body '
+            + 'cannot declare it. Use done("step_failed") to declare that the flow\'s own '
+            + 'checks did not pass.',
           reason,
         );
       }
@@ -405,11 +429,12 @@ export async function executeAuthoredFlow<Input = undefined>(
     lifecycle.close();
   }
 
-  // The authored runner has no durable root yet. Record the handoff as a
-  // successful effect containing the authored outcome, not a fabricated kernel
-  // run.completed reason. The CLI reports this outcome as parked (exit 3).
-  await lowerDeterministic(`complete-${nextStep}`, requestedCompletion === 'needs_human'
-    ? `printf '%s' '{"completionReason":"needs_human"}'` : ':', true);
+  // Record the authored verdict as a SUCCESSFUL effect carrying that verdict,
+  // not as a fabricated kernel run.completed reason. The marker step reports
+  // what the body decided; it is not itself a step that failed. The CLI turns
+  // the verdict into the exit code (success 0, needs_human 3, step_failed 1).
+  await lowerDeterministic(`complete-${nextStep}`,
+    completionMarker(requestedCompletion), true);
   return Object.freeze({
     ...(options.rootRunId === undefined ? {} : { rootRunId: options.rootRunId }),
     name: definition.name,
@@ -431,6 +456,43 @@ function unsupportedVerb(verb: string): AuthoredFlowExecutionError {
     'unsupported_verb',
     `the initial authored executor does not lower f.${verb}`,
   );
+}
+
+/**
+ * The completion reasons an authored body may declare and this executor lowers.
+ *
+ * `FlowCompletionReason` is wider than this on purpose — it is the journal's
+ * run vocabulary plus `needs_human` — but the two sets drifting silently is
+ * exactly what made a type-valid `done("step_failed")` die at runtime as
+ * `unsupported_completion`. Every gate that asks "is this a completion this
+ * runtime can lower?" now asks this one function, so a reason cannot be
+ * accepted in one place and rejected in another.
+ *
+ * These three are internal cross-module helpers for the authored seam (the
+ * executor, the durable root, the IPC verifier and the CLI report), NOT public
+ * SDK surface. `src/index.ts` deliberately re-exports nothing from this module
+ * — keep it that way, or the whole authored seam leaks with them.
+ */
+export const LOWERED_COMPLETIONS = ['success', 'needs_human', 'step_failed'] as const;
+export type LoweredCompletionReason = (typeof LOWERED_COMPLETIONS)[number];
+
+export function isLoweredCompletion(value: unknown): value is LoweredCompletionReason {
+  return typeof value === 'string' && (LOWERED_COMPLETIONS as readonly string[]).includes(value);
+}
+
+/**
+ * The deterministic command that carries an authored verdict into the journal.
+ *
+ * `success` lowers to `:` because success needs no marker: the marker run's own
+ * kernel `success` already IS that record. Every other lowered verdict is
+ * something the kernel's completion vocabulary cannot express on a step that
+ * *succeeded*, so it travels as data on stdout and is read back from
+ * `step.completed`. It is deliberately not lowered as a failing command: no
+ * step failed here, and a fabricated failure would put bogus evidence in the
+ * journal for a flow whose steps all ran correctly.
+ */
+export function completionMarker(reason: LoweredCompletionReason): string {
+  return reason === 'success' ? ':' : `printf '%s' '{"completionReason":"${reason}"}'`;
 }
 
 function assertOperationAllowed(

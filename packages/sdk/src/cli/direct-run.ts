@@ -14,6 +14,7 @@ import { JournalClient } from '../journal-client.js';
 import { inputFailureReport } from './check.js';
 import { checkAuthoredTriggers } from './check-triggers.js';
 import {
+  authoredCompletion,
   authoredStepFailure,
   connect,
   emptyReport,
@@ -99,31 +100,7 @@ export async function runDirectFlow(
         `authored flow "${result.name}" completed without a journal step`,
       ));
     }
-    if (result.completionReason === 'needs_human') {
-      return {
-        exitCode: 3,
-        report: {
-          ...base, ok: false, runId: result.rootRunId, socketPath, status: 'parked',
-          completedSteps: result.journalSteps.length,
-          diagnostics: [...base.diagnostics, {
-            severity: 'parked', kind: 'run_parked',
-            message: `Flow "${result.name}" needs_human; see the journal for accumulated blockers.`,
-          }],
-        },
-      };
-    }
-    return {
-      exitCode: 0,
-      report: {
-        ...base,
-        ok: true,
-        runId: result.rootRunId,
-        socketPath,
-        status: 'completed',
-        completionReason: result.completionReason,
-        completedSteps: result.journalSteps.length,
-      },
-    };
+    return authoredCompletion('run', base, socketPath, result, result.rootRunId);
   } catch (caught) {
     if (caught instanceof McpPreflightError) return {
       exitCode: 2, report: fromCheckReport('run', caught.report),
