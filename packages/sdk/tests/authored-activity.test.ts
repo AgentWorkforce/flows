@@ -52,6 +52,8 @@ describe('authored event activities', () => {
     try {
       const result = await executeAuthoredFlow(flow('activity', async (f) => {
         const activity = f.on(webhook('pull_request'), { settle: '2m', idle: '72h', deadline: '14d' });
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        expect(calls.map(call => call.verb)).toEqual(['subscription.open']);
         const wake = await activity.next();
         expect(wake).toEqual({ kind: 'events', events: [{ type: 'pull_request', payload: { number: 42 } }], offset: 1 });
         f.done('success');

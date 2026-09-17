@@ -43,7 +43,7 @@ export class AuthoredActivities {
 
 class JournalActivity implements OpenActivity {
   readonly activity: Activity;
-  private opened = false;
+  private readonly openPromise: Promise<void>;
   private closed = false;
 
   constructor(
@@ -57,6 +57,11 @@ class JournalActivity implements OpenActivity {
       next: () => this.next(),
       close: () => this.close('closed'),
     });
+    // Opening starts at f.on(), rather than at the first next(), so frames
+    // arriving while the body reads state or runs another step are inside the
+    // router's binding window. next()/close() await this same handshake.
+    this.openPromise = this.openNow();
+    void this.openPromise.catch(() => undefined);
   }
 
   async close(reason: CloseReason): Promise<void> {
@@ -82,7 +87,10 @@ class JournalActivity implements OpenActivity {
   }
 
   private async ensureOpen(): Promise<void> {
-    if (this.opened) return;
+    await this.openPromise;
+  }
+
+  private async openNow(): Promise<void> {
     await this.journal.subscriptionOpen({
       run_id: this.runId,
       subscription_id: this.subscriptionId,
@@ -93,7 +101,6 @@ class JournalActivity implements OpenActivity {
       deadline_ms: this.options.deadlineMs,
       include_self: this.options.includeSelf,
     });
-    this.opened = true;
   }
 }
 
