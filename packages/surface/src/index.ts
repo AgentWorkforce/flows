@@ -7,7 +7,7 @@ export type {
   WorkerSummary,
   CloudHelper,
 } from "./cloud.js";
-export type { AgentOptions, AgentResult, LlmOptions, Ctx } from "./context.js";
+export type { AgentOptions, AgentResult, PermissionsSpec, LlmOptions, Ctx } from "./context.js";
 export {
   COMPLETION_REASONS,
   RUN_COMPLETION_REASONS,

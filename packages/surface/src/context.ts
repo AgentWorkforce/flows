@@ -16,9 +16,20 @@ export interface AgentResult {
   artifacts: string[];
 }
 
+/** Per-step declarations: validated and recorded, not currently enforced (gate 8 / #442).
+ * Separate from flow-wide FlowHeader.workspace / tools.fs scopes.
+ */
+export interface PermissionsSpec {
+  fileGlobs?: string[];
+  networkAllowlist?: string[];
+  accessPreset?: 'readonly' | 'readwrite';
+}
+
 export interface AgentOptions {
   task: string;
   workspace?: string;
+  /** Validated declaration only; not currently enforced (gate 8 / #442). */
+  permissions?: PermissionsSpec;
   cli?: string;
   model?: string;
   /** Working directory for the CLI subprocess; defaults to the flow-runner's cwd. */
