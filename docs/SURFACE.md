@@ -821,6 +821,7 @@ kernel primitives.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.
+- `on` inside a running body (subscribe after start, buffer events while a step runs, end on `idle`/`deadline`). Proposed in [`docs/EVENT-AWAIT.md`](EVENT-AWAIT.md); motivating case is a flow that babysits the PR it opened.
 
 ## 7. Broker transport covenant
 

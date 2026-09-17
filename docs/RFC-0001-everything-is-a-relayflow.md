@@ -222,6 +222,7 @@ The gates exist to be sold, not admired. The consumer list, in order of proof va
 
 - **Spec / journal / protocol versioning.** Three artifacts version independently: the **journal format** (additive-only entry fields, `journal_version` stamped per segment; readers read every past version, writers write only the newest), the **spec schema** (semver; compilers always emit latest; the kernel supports a window), and the **SDK protocol** (versioned handshake, N−1 compatibility). Proposed unifying policy: **upgrades apply only at epoch boundaries, and epochs are cheap** (decision #8) — a resident flow finishes its current epoch on the versions it started with; the next epoch opens on the new ones. Because the journal replays results, not code, an old segment ever needs only an old *reader*, never old *code* — that is the structural escape from Temporal's versioning hell. Stays open until a real kernel upgrade has been executed under a live resident run.
 
+- **Ending a resident wait.** Decision 13 makes `on` a resident verb, but nothing says how a body subscribes after it starts, keeps events that arrive while a step runs, or ends a wait when events stop. There is no signal for "no more feedback": a flow ends on provider state and uses time only as a backstop. Proposed: body-level `on` opens a buffered subscription whose `next()` wakes with events, `idle`, or `deadline`, both bounds required at preflight — `docs/EVENT-AWAIT.md`.
 
 ## 8. What this replaces in the charter
 
