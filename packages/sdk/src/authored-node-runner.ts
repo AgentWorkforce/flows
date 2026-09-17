@@ -161,30 +161,44 @@ export async function verifyAuthoredNodeResult(
   result: AuthoredFlowExecutionResult, metadata: AuthoredRootMetadata,
   rootRunId: string, socketPath: string,
 ): Promise<void> {
-  const invalid = (): never => { throw new Error('authored runtime result has no matching durable completion'); };
+  const invalid = (why = ''): never => { throw new Error(`authored runtime result has no matching durable completion${process.env['FLOWS_VERIFIER_DEBUG'] && why ? ` (${why})` : ''}`); };
   if (result.rootRunId !== rootRunId || result.name !== metadata.flowName
     || !isLoweredCompletion(result.completionReason)
-    || !Array.isArray(result.journalSteps) || result.journalSteps.length === 0) invalid();
+    || !Array.isArray(result.journalSteps) || result.journalSteps.length === 0) invalid('frame');
   const terminal = result.journalSteps.at(-1)!;
-  if (!terminal || !/^complete-[1-9][0-9]*$/.test(terminal.id)) invalid();
+  if (!terminal || !/^complete-[1-9][0-9]*$/.test(terminal.id)) invalid('terminal');
   const count = Number(terminal.id.slice('complete-'.length));
-  if (!Number.isSafeInteger(count) || result.journalSteps.length !== count) invalid();
+  // A predicate gate is journaled as `<step>.gate`: a child run subordinate
+  // to the authored step it judges, in the same `<step>.gate` shape a named
+  // gate lowers to inside its step's own spec. Neither consumes an ordinal —
+  // `complete-N` counts the operations the author wrote (SURFACE.md §6) —
+  // so gates are set aside from the count and the contiguity check, and
+  // verified separately: every gate must name a claimed parent, and is then
+  // held to the same durable-completion evidence as any other child run.
+  const isGate = (id: string): boolean => /\.gate$/.test(id);
+  const authored = result.journalSteps.filter(step => typeof step?.id === 'string' && !isGate(step.id));
+  const gates = result.journalSteps.filter(step => typeof step?.id === 'string' && isGate(step.id));
+  if (!Number.isSafeInteger(count) || authored.length !== count || isGate(terminal.id)) invalid(`count ${authored.length}!=${count}`);
   const ordinal = (id: string): number => Number(/-([1-9][0-9]*)$/.exec(id)?.[1]);
   // Parallel awaits may finish in either order; validate a copy in declaration order.
-  const ordered = [...result.journalSteps].sort((a,b)=>ordinal(a.id)-ordinal(b.id));
+  const ordered = [...authored].sort((a,b)=>ordinal(a.id)-ordinal(b.id));
+  const authoredIds = new Set(ordered.map(step => step.id));
+  for (const gate of gates) {
+    if (!authoredIds.has(gate.id.slice(0, -'.gate'.length))) invalid(`orphan ${gate.id}`);
+  }
   const runs = new Set<string>();
   const journal = new JournalClient(socketPath);
   await journal.connect();
   try {
     await journal.hello('flows-authored-result-verifier');
-    for (const [index, claimed] of ordered.entries()) {
+    for (const [index, claimed] of [...ordered, ...gates].entries()) {
       if (!claimed || typeof claimed.id !== 'string' || typeof claimed.runId !== 'string'
-        || ordinal(claimed.id) !== index+1 || claimed.completionReason !== 'success'
-        || runs.has(claimed.runId)) invalid();
+        || (index < ordered.length && ordinal(claimed.id) !== index+1) || claimed.completionReason !== 'success'
+        || runs.has(claimed.runId)) invalid(`claim ${claimed?.id}`);
       runs.add(claimed.runId);
       const state = await journal.runGet(claimed.runId);
       if (state.run_id !== claimed.runId || state.status !== 'completed'
-        || state.steps[claimed.id]?.state !== 'done') invalid();
+        || state.steps[claimed.id]?.state !== 'done') invalid(`state ${claimed.id} ${state.status} ${state.steps[claimed.id]?.state}`);
       const entries: Array<{
         seq: number; entry_type: string; step_id?: string; payload?: {
           completionReason?: string; spec?: { name?: string; steps?: Array<{id?:string;type?:string;command?:string}> };
@@ -196,7 +210,7 @@ export async function verifyAuthoredNodeResult(
         if (page.length === 0) break;
         for (const raw of page) {
           const entry = raw as typeof entries[number];
-          if (!Number.isSafeInteger(entry?.seq) || entry.seq < fromSeq) invalid();
+          if (!Number.isSafeInteger(entry?.seq) || entry.seq < fromSeq) invalid('seq');
           fromSeq = entry.seq + 1;
           // Keep only completion evidence; streaming logs can span many pages.
           if (['run.spawned', 'step.completed', 'run.completed'].includes(entry.entry_type)) entries.push(entry);
@@ -204,12 +218,20 @@ export async function verifyAuthoredNodeResult(
       }
       const spec = entries.find(entry => entry.entry_type === 'run.spawned')?.payload?.spec;
       const step = spec?.steps?.[0];
+      // A named gate lowers INTO the step's own spec as a second, dependent
+      // `<id>.gate` step (named-gate-lowering.ts); that is the only other
+      // step a child spec may carry, and it must have completed too.
+      const lowered = spec?.steps ?? [];
+      const specShape = lowered.length === 1 || (lowered.length === 2 && lowered[1]?.id === `${claimed.id}.gate`);
       const completed = entries.filter(entry => entry.entry_type === 'step.completed' && entry.step_id === claimed.id);
+      const gateCompleted = lowered.length === 2
+        ? entries.filter(entry => entry.entry_type === 'step.completed' && entry.step_id === `${claimed.id}.gate`) : [];
       const terminalFacts = entries.filter(entry => entry.entry_type === 'run.completed');
-      if (spec?.name !== `${metadata.flowName}/${claimed.id}` || spec?.steps?.length !== 1
+      if (spec?.name !== `${metadata.flowName}/${claimed.id}` || !specShape
         || step?.id !== claimed.id || completed.length !== 1
         || completed[0]?.payload?.completionReason !== 'success'
-        || terminalFacts.length !== 1 || terminalFacts[0]?.payload?.completionReason !== 'success') invalid();
+        || (lowered.length === 2 && (gateCompleted.length !== 1 || gateCompleted[0]?.payload?.completionReason !== 'success'))
+        || terminalFacts.length !== 1 || terminalFacts[0]?.payload?.completionReason !== 'success') invalid(`evidence ${claimed.id} spec=${spec?.name} step=${step?.id} completed=${completed.length}`);
       if (claimed === terminal) {
         // The claimed verdict must match the marker the journal actually
         // recorded, so an IPC frame cannot claim `success` over a run whose
@@ -219,7 +241,7 @@ export async function verifyAuthoredNodeResult(
         // the runtime validation of untrusted IPC, and it is why nothing has
         // to be re-asserted here just to satisfy the type.
         if (step?.type !== 'deterministic'
-          || step.command !== completionMarker(result.completionReason)) invalid();
+          || step.command !== completionMarker(result.completionReason)) invalid('marker');
       }
     }
   } finally { journal.close(); }
