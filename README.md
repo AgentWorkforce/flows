@@ -1,10 +1,9 @@
 # relay(Flows)
 
-**Turn a coding-agent task into steps you can inspect and verify.**
+**Stop babysitting agents. Script them.**
 
-A flow combines shell commands and coding agents with a journal that records
-what each step did and why it completed. Start with a small local flow; add
-verification as the task grows.
+Define complex sequences of tasks for agents instead of hoping they follow the rules in your prompt.
+Predictable, auditable, and dependable.
 
 ```ts
 import { flow } from '@relayflows/surface';
@@ -20,71 +19,56 @@ export default flow('hello', async (f) => {
 });
 ```
 
-The new scaffolder in this branch creates the flow, `flows.json`, and an npm
-project, then installs its dependencies:
+# What Can You Do With This?
 
-```sh
-npx create-flow@latest my-flow
-cd my-flow
-npm start
+Every flow below is a single `.flow.ts` file. Run it from a checkout, or deploy it to
+[Agent Relay Cloud](https://agentrelay.com/cloud) where it listens for tickets, PRs, or a
+schedule and every run is observable and replayable.
+
+- **Automations:** on a schedule, iterate over all the issues in your repo, decide which are stale
+  or need attention, and send a Slack digest — [`examples/stale-issues/`](examples/stale-issues/)
+
+```bash
+flows schedule examples/stale-issues/stale-issues.flow.ts \
+  --cron "0 9 * * 1-5" --tz Europe/Oslo \
+  --input '{"repo":"acme/api","channel":"#eng","staleDays":14}'
 ```
 
-**Release status:** `create-flow` is not published yet. The commands above are
-the intended released entry point; use the [candidate artifact procedure](docs/evidence/ws13/README.md)
-to try this branch. The [clone + deterministic starter measurement](docs/evidence/ws13/cold-clone-direct.txt)
-completed in **49.975 seconds** in a fresh Linux container with Node and Git
-provisioned before the timer. The [real Claude command](docs/evidence/ws13/agent-run.txt)
-completed in **132.637 seconds** on an authenticated development host; its
-agent step took 28.95 seconds, including the provider round trip. The total
-also includes CLI startup and preflight, whose costs were not separately
-measured.
+- **Review:** when a PR is opened, three agents review it from three perspectives — security,
+  correctness, performance — and a fourth reconciles their findings —
+  [`examples/pr-review-pipeline/`](examples/pr-review-pipeline/)
 
-The agent starter requires Node 22.18+ and an installed, authenticated Claude
-CLI. Use `--cli codex` to select Codex, or `--template deterministic` for a
-starter that needs no model credentials. The generated command is
-`flows run my-flow.flow.ts --local-agent --input '{}'`.
-
-`--local-agent` attaches the existing SDK agent worker to the local daemon.
-For YAML or JSON flows, use `flows run my-flow.flow.yaml --local-agent`;
-the worker uses the CLI and model resolved by `flows check`.
-YAML steps with declared workspace or stream surfaces require a worker holding
-those pins.
-It accepts stream-only agent steps and runs the chosen CLI with its existing
-local access. Workspace revision pins and isolation require a worker that
-provides those capabilities. Authored TypeScript bodies are not yet durably
-resumable as a whole; each lowered step has its own journal run.
-
-For SDK callers, the CLI is optional:
-
-```ts
-import { createFlow } from '@relayflows/sdk/create-flow';
-import { renderProgress } from '@relayflows/sdk/progress';
-
-await createFlow('./my-flow', { cli: 'claude' });
-// renderProgress(events) returns terminal lines; callers own event delivery.
+```bash
+flows deploy examples/pr-review-pipeline/pr-review-pipeline.flow.ts \
+  --repo acme/api --on github:events=pull_request --approver you
 ```
 
-See the [example gallery and individual run results](examples/README.md).
-[Watch the captured agent run](docs/evidence/ws13/agent-run.cast)
-([text transcript](docs/evidence/ws13/agent-run.txt)).
+[![Deploy to Cloud](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https://github.com/AgentWorkforce/flows/blob/main/examples/pr-review-pipeline/pr-review-pipeline.flow.ts&on=github:events=pull_request)
 
-The gallery reports each requested example as PASS or BLOCKED, with its
-command, output, timing, and any capability or provider requirement still missing.
+- **Software Factory:** an issue in Linear kicks off an implementation agent, a deterministic test
+  run, an adversarial review agent, and finishes with a pull request opened for you —
+  [`examples/software-factory/`](examples/software-factory/)
 
-Give your agent a skill to write a flow:
-
-```sh
-npx skills add https://github.com/agentworkforce/skills --skill writing-relayflows
+```bash
+flows deploy examples/software-factory/software-factory.flow.ts \
+  --repo acme/api --on linear:team=ENG --approver you
 ```
 
-## GitHub Actions Secrets
+[![Deploy to Cloud](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https://github.com/AgentWorkforce/flows/blob/main/examples/software-factory/software-factory.flow.ts&on=linear)
 
-The `.github/workflows/review-swarm.yml` workflow requires the following secrets and variables to be configured in repository settings:
+`--on` takes `github`, `linear`, `jira`, `shortcut` or `slack` with optional filters
+(`github:labels=agent`, `jira:project=OPS`, `slack:channel=#eng`). `flows deployments` lists what is
+listening; `flows undeploy <id>` stops it. Sign in once with `agent-relay cloud login`.
 
-- **`CLOUD_API_KEY`** (secret) — Agent Relay Cloud API credential for launching cloud workflows. Mint per `AgentWorkforce/cloud → docs/runbooks/relay-ci-workflow-credential.md` with profile `workflow-invoke` and scopes `workflow:invoke:read` and `workflow:invoke:write`. Store in Repository Settings → Secrets and variables → Actions → New repository secret.
+# How Can I Run It?
 
-- **`RELAY_WORKSPACE_KEY`** (secret) — Agent Relay workspace key for review swarm communication. Contact repository administrator for the workspace key.
+A flow can be run locally or in the cloud. If run in the cloud it can run on a schedule, or via a trigger, or ad hoc. It can
+run using your LLM subscription or using an API key.
 
-- **`CLOUD_API_URL`** (variable) — Cloud API endpoint, typically `https://agentrelay.com/cloud`. Set as a repository variable. Defaults to production endpoint if not set.
+Install:
+```bash
+npm install -g relayflows
+npm install --save-dev @relayflows/surface
+```
 
-See `.github/workflows/review-swarm.yml` for implementation details.
+Try on the cloud right now: [https://agentrelay.com/flows](https://agentrelay.com/flows)
