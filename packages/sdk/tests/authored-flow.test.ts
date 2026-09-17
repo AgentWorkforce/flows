@@ -140,9 +140,21 @@ describe('authored flow journal executor', () => {
       async (f) => f.done('success'),
     ), disconnectedJournal)).rejects.toMatchObject({ code: 'unsupported_header' });
 
-    // Predicate .gate(fn) still refuses — JS closures can't be journaled.
-    await expect(executeAuthoredFlow(flow('gate-predicate-not-lowered', async (f) => {
+    // Predicate .gate(fn) is accepted (its VERDICT is journaled as a lowered
+    // `<step>.gate` run once the step completes), so with a disconnected
+    // journal it refuses on the run.start path like any other step. What is
+    // still refused as `unsupported_gate`: a second gate on one step, and a
+    // `because` that is not a string.
+    await expect(executeAuthoredFlow(flow('gate-predicate-lowered', async (f) => {
       await f.run('true').gate(Boolean);
+      f.done('success');
+    }), disconnectedJournal)).rejects.not.toMatchObject({ code: 'unsupported_gate' });
+    await expect(executeAuthoredFlow(flow('gate-twice', async (f) => {
+      await f.run('true').gate(Boolean).gate({ type: 'regex_match', pattern: 'x' });
+      f.done('success');
+    }), disconnectedJournal)).rejects.toMatchObject({ code: 'unsupported_gate' });
+    await expect(executeAuthoredFlow(flow('gate-bad-because', async (f) => {
+      await f.run('true').gate(Boolean, 42 as unknown as string);
       f.done('success');
     }), disconnectedJournal)).rejects.toMatchObject({ code: 'unsupported_gate' });
 
@@ -159,12 +171,13 @@ describe('authored flow journal executor', () => {
   it('refuses a workspace permission annotation f.agent cannot enforce, before contacting the journal', async () => {
     const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
 
-    for (const workspace of ['src/**: readonly', 'src/**: readwrite', 'src/**:readonly']) {
+    for (const workspace of ['src/**: readonly', 'src/**: readwrite', 'src/**:readonly', 'src/**:  READONLY  ', 'src/**:\treadwrite\t']) {
       await expect(executeAuthoredFlow(flow('workspace-permission-not-enforced', async (f) => {
         await f.agent('worker', { task: 'must not dispatch', workspace });
         f.done('success');
       }), disconnectedJournal)).rejects.toMatchObject({
         code: 'unsupported_workspace_permission',
+        message: expect.stringMatching(/f\.agent's permissions option.*not currently enforced/),
       });
     }
 

@@ -223,7 +223,7 @@ export async function resumeFlow(
     // leaving it on `protocolFailure` meant `flows run` printed the evidence
     // while `flows resume` still printed `protocol_error` and
     // `RUN <id> unknown` for the identical failure.
-    if (error instanceof AuthoredFlowExecutionError && error.code === 'step_failed') {
+    if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
       return authoredStepFailure('resume', base, socketPath, error, runId);
     }
     if (!(error instanceof JournalProtocolError) || error.code !== 'run_not_found') {
@@ -287,10 +287,12 @@ export function authoredStepFailure(
       completionReason: 'step_failed',
       diagnostics: [...base.diagnostics, {
         severity: 'failure',
-        kind: 'step_failed',
+        // A predicate gate that judged false is a run failure with its own
+        // name, so the report says which kind of check the body did not pass.
+        kind: error.code === 'gate_failed' ? 'gate_failed' : 'step_failed',
         // The `step_failed: ` prefix `AuthoredFlowExecutionError` adds is
         // redundant once the diagnostic is labelled `[step_failed]`.
-        message: error.message.replace(/^step_failed: /, ''),
+        message: error.message.replace(/^(?:step_failed|gate_failed): /, ''),
       }],
     },
   };

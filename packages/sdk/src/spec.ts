@@ -82,7 +82,18 @@ export interface RegexMatchGate {
   flags?: string;
 }
 
-export type NamedDataGate = ReferencesInputGate | SubprocessGate | WordCountBoundsGate | RegexMatchGate;
+/**
+ * Passes when the step's journaled `output.artifacts` lists `path`: a file the
+ * agent's worker measured as created or changed under its working directory.
+ * Reads the journal, never the disk, so replay and resume see the same verdict.
+ */
+export interface ArtifactExistsGate {
+  type: 'artifact_exists';
+  /** Working-directory-relative POSIX path, as the worker journals it. */
+  path: string;
+}
+
+export type NamedDataGate = ReferencesInputGate | SubprocessGate | WordCountBoundsGate | RegexMatchGate | ArtifactExistsGate;
 export type OutputVerificationSpec = OutputContainsGate | JsonSchemaGate | NamedDataGate;
 export type VerificationSpec = ExitCodeGate | OutputVerificationSpec;
 

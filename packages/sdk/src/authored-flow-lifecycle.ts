@@ -109,6 +109,13 @@ function collectMembers(values: Iterable<unknown>): unknown[] | undefined {
  * called the operation's then method.
  */
 export class AuthoredFlowLifecycle {
+  /**
+   * Installed by the executor: runs an operation's predicate gate (if any) on
+   * its resolved value before the operation fulfills. Lives on the lifecycle
+   * so EVERY authored operation — core steps, helpers, MCP, plugins — passes
+   * through it; a gate accepted on a Step must never be silently ignored.
+   */
+  applyPredicateGate: (<T>(operation: { id: string; predicateGate: unknown }, value: T) => Promise<T>) | undefined = undefined;
   private readonly graph: AuthoredPromiseGraph;
   private readonly activeResolverProbes: ResolverProbe[] = [];
   private readonly invocations = new Map<OperationToken, AuthoredOperationInvocation[]>();

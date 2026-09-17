@@ -1,0 +1,9 @@
+{
+  "name": "@relayflows/pr-reviewer-flow",
+  "private": true,
+  "type": "module",
+  "description": "The pr-reviewer example: the wepost PR reviewer as a v2 relayflow. `npm test` runs its node:test suite against the exported pure functions; `flows check pr-reviewer.flow.ts` preflights the flow. Marks the directory as ESM so node --experimental-strip-types runs it without reparsing.",
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
+  }
+}

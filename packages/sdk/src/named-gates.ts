@@ -2,7 +2,7 @@ import { RE2JS } from 're2js';
 import type { NamedDataGate, VerificationSpec } from './spec.js';
 
 export const NAMED_GATE_FAILURE_KINDS = [
-  'unknown_gate_kind', 'gate_pattern_invalid', 'gate_command_missing', 'gate_bound_invalid',
+  'unknown_gate_kind', 'gate_pattern_invalid', 'gate_command_missing', 'gate_bound_invalid', 'gate_path_invalid',
 ] as const;
 export type NamedGateFailureKind = typeof NAMED_GATE_FAILURE_KINDS[number];
 
@@ -11,6 +11,7 @@ export const NAMED_GATE_KEYS: Record<NamedDataGate['type'], readonly string[]> =
   subprocess_gate: ['type', 'command', 'from_output'],
   word_count_bounds: ['type', 'min', 'max'],
   regex_match: ['type', 'pattern', 'in_output_at', 'flags'],
+  artifact_exists: ['type', 'path'],
 };
 
 export function isNamedGate(gate: VerificationSpec | undefined): gate is NamedDataGate {
@@ -45,6 +46,15 @@ export function namedGateErrors(gate: Record<string, unknown>, input: unknown, a
         errors.push(`${at}.command: gate_command_missing: expected a non-empty shell command`);
       }
       break;
+    case 'artifact_exists': {
+      const path = gate.path;
+      const segments = typeof path === 'string' ? path.split('/') : [];
+      if (typeof path !== 'string' || !path.trim() || path.includes('\0') || path.startsWith('/')
+        || path !== path.trim() || segments.some(segment => segment === '' || segment === '.' || segment === '..')) {
+        errors.push(`${at}.path: gate_path_invalid: expected a relative POSIX path without empty, "." or ".." segments`);
+      }
+      break;
+    }
     case 'word_count_bounds': {
       const { min, max } = gate;
       if ([min, max].some(n => n !== undefined && (!Number.isSafeInteger(n) || (n as number) < 0))

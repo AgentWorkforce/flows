@@ -1,0 +1,4 @@
+ACCEPTED 83a6a6af-c0d4-4f0b-8da6-1e6f8dfce3a1 (pending)
+https://agentrelay.com/cloud/api/v1/workflows/runs/83a6a6af-c0d4-4f0b-8da6-1e6f8dfce3a1
+SYNCED 6 files (71073 bytes); pull changes with: flows sync 83a6a6af-c0d4-4f0b-8da6-1e6f8dfce3a1
+COMPLETED 83a6a6af-c0d4-4f0b-8da6-1e6f8dfce3a1 completionReason: success

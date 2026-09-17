@@ -6,12 +6,30 @@ import type { Step } from "./step.js";
 
 export interface AgentResult {
   summary: string;
+  /**
+   * Files the agent created or changed under its working directory,
+   * cwd-relative POSIX paths, sorted — as journaled by the worker that spawned
+   * the CLI on the step's `step.completed`, never re-measured later. Empty
+   * for the relay transport (the agent ran elsewhere) and for an agent whose
+   * final message is a JSON object (that object is the output, unmodified).
+   */
   artifacts: string[];
+}
+
+/** Per-step declarations: validated and recorded, not currently enforced (gate 8 / #442).
+ * Separate from flow-wide FlowHeader.workspace / tools.fs scopes.
+ */
+export interface PermissionsSpec {
+  fileGlobs?: string[];
+  networkAllowlist?: string[];
+  accessPreset?: 'readonly' | 'readwrite';
 }
 
 export interface AgentOptions {
   task: string;
   workspace?: string;
+  /** Validated declaration only; not currently enforced (gate 8 / #442). */
+  permissions?: PermissionsSpec;
   cli?: string;
   model?: string;
   /** Working directory for the CLI subprocess; defaults to the flow-runner's cwd. */

@@ -1,0 +1,16 @@
+-sf -H Authorization: Bearer <token> -H Accept: application/vnd.github+json https://api.github.com/repos/o/r/pulls/8
+-sf -H Authorization: Bearer <token> -H Accept: application/vnd.github+json https://api.github.com/repos/o/r/pulls/8/comments?per_page=100
+-sf -H Authorization: Bearer <token> -H Accept: application/vnd.github+json https://api.github.com/repos/o/r/pulls/8/reviews?per_page=100
+-sf -X POST -H Authorization: Bearer <token> -H Accept: application/vnd.github+json https://api.github.com/repos/o/r/issues/8/comments -d {"body":"## Review
+Looks fine.
+
+## Addressed comments
+- none
+
+## Advisory
+The reviewer's edits were discarded because the repository's test command was red in the review sandbox (see .workforce/test.log). Nothing was pushed. What it proposed:
+
+```
+a.js | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```"}

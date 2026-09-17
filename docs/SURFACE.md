@@ -42,7 +42,8 @@ export default flow("chief", {
 
   const plan = await f.agent("planner", {
     task: `Research and plan: ${intent}`,
-    workspace: "acme/api: readonly",          // compiles to relayauth path scopes
+    workspace: "acme/api",
+    permissions: { accessPreset: "readonly" }, // validated declaration; currently unenforced
   });
 
   const ok = await f.human(`Ship this?\n${plan.summary}`, { to: "khaliq" });
@@ -289,6 +290,33 @@ returns `unknown`, which author code narrows after runtime verification.
 The authoring surface deliberately narrows `steps: []`: `flows check` refuses
 it as `invalid_spec`, while the kernel accepts it. This is a chosen
 authoring-time narrowing, not a kernel guarantee.
+
+### Per-agent permissions in TypeScript
+
+Supported `f.agent` calls accept an optional `permissions` declaration:
+
+```ts
+const draft = await f.agent("writer", {
+  task: "Write drafts/post.md.",
+  permissions: { fileGlobs: ["drafts/**"], accessPreset: "readwrite" },
+});
+const review = await f.agent("reviewer", {
+  task: "Review drafts/post.md and flag issues; do not edit it.",
+  permissions: { fileGlobs: ["drafts/**"], accessPreset: "readonly" },
+});
+```
+
+The exported `PermissionsSpec` has three optional camelCase fields:
+`fileGlobs?: string[]`, `networkAllowlist?: string[]`, and
+`accessPreset?: "readonly" | "readwrite"`. Array elements must be nonempty
+strings. Empty or partial declarations are accepted without inferred defaults;
+no workspace is required. Workspace names must not carry permission suffixes.
+
+These per-step permissions are validated and recorded in the compiled step spec
+but are **not currently enforced** (gate 8 / #442). They are separate from
+flow-wide `FlowHeader.workspace` / `tools.fs` scopes. The chief harness above
+remains an aspirational example; this option does not make that entire harness
+executable today.
 
 ### Supported TypeScript LLM calls
 
@@ -760,9 +788,15 @@ The exit codes are part of the surface contract:
 
 Without an attached worker, reaching an `llm` or `agent` step returns a durable
 parked outcome. For authored TypeScript, `--local-agent` attaches both local
-workers as described above. Event, schedule, deployed-digest, HTTP, SDK-call, and
+workers as described above. Event, deployed-digest, HTTP, SDK-call, and
 flow-to-flow invocation remain later-gate surface work; they are not shipped
-by this CLI.
+by this CLI. Schedules are: `schedule.cron(...)` / `schedule.every(...)` are
+declared on a flow, lowered to the `flows.tick` subscription, printed by
+`flows check` with the `flows tick start` invocation that drives a fixed
+interval locally, and registered on Cloud by `flows schedule` (see
+[`packages/surface/src/triggers/README.md`](../packages/surface/src/triggers/README.md)
+and [CLOUD.md](CLOUD.md#schedules)). Dispatching the authored handler body
+itself, locally or hosted, is still #301: the hosted fire runs the default body.
 
 When a worker is attached, the CLI follows the typed snapshot while its lease
 is live and prints `WAITING [worker_lease]` with the step and lease deadline.
@@ -845,15 +879,34 @@ author predicate. The v1 `verification:` shape remains supported and compiles
 to the same kernel fields; no kernel verb or verification field is added by
 this decision.
 
-TypeScript may additionally accept a callback such as
+TypeScript additionally accepts a callback such as
 `.gate(value => value.length < 200, "keep the summary short")`. That callback
 is author code: `flows check` cannot prove it, YAML cannot serialize it, and
-the journal cannot replay the closure. A TypeScript runtime must execute it as
-runtime control flow and journal the resulting step outcome before dependents
-continue. It must never stringify the function into a spec or silently label
-it preflightable. Authors who need portable, inspectable gates use a named data
-check; plugins may contribute named checks only by compiling them to existing
-kernel primitives.
+the journal cannot replay the closure. The authored runtime executes it as
+runtime control flow — once, in the authoring process, on the value read back
+from the step's `step.completed` — and journals the verdict as a lowered
+`<step>.gate` deterministic step: a passing predicate journals
+`{"gate":"predicate","step":"<id>","verdict":"pass","because":…}` as that
+step's stdout with exit 0; a failing one (or one that throws) journals
+`"verdict":"fail"` on stderr with exit 1, and the run fails as `gate_failed`
+naming the step and the author's reason. Dependents therefore wait on a
+journaled fact, and resume/replay read that fact rather than re-running the
+closure. The function is never stringified into a spec, and `flows check`
+prints no gate line for it — a predicate is runtime-only and unprovable
+before execution, by construction. A step takes one `.gate()`. Authors who
+need portable, inspectable gates use a named data check; plugins may
+contribute named checks only by compiling them to existing kernel primitives.
+
+`artifact_exists` is the named gate for "the agent wrote this file":
+`.gate({ type: 'artifact_exists', path: 'review/security.md' })`. The worker
+that spawned the agent CLI snapshots the agent's working directory before the
+run and content-diffs it after, and journals the changed paths as
+`output.artifacts` on the agent's `step.completed`; `AgentResult.artifacts`
+is read from that journal entry, never from a later look at the disk, and the
+gate lowers to a deterministic step that checks the journaled list. An agent
+whose final message is a JSON object owns its output shape and journals no
+artifacts; gate such a step on a deterministic check instead. The relay
+transport journals none, because the agent ran on another host.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.
