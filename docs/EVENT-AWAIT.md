@@ -175,10 +175,13 @@ No new step kind and no new verb. The kernel vocabulary stays closed
    durable ingress offset. Opening is a two-party handshake: Cloud first
    records the fenced binding at that ingress offset, then the journal appends
    `subscription.opened`; `f.on()` is not visible to the body until both have
-   completed. Recovery removes a prepared binding that has no matching journal
-   entry, and otherwise restores the same generation and replays ingress after
-   its offset before acknowledging the body. This closes the journal-to-router
-   race without delivering frames that predate opening.
+   completed. Recovery first honors any durable `closing: overflow` fence for
+   that generation: it completes the close and its active wait, never restores
+   or replays the binding. Absent that fence, recovery removes a prepared
+   binding that has no matching journal entry, and otherwise restores the same
+   generation and replays ingress after its offset before acknowledging the
+   body. This closes the journal-to-router race without delivering frames that
+   predate opening.
 2. **`subscription.closed`** — `subscription_id`, `completionReason`
    (`closed` \| `run_completed` \| `canceled` \| `deadline` \| `overflow`).
 3. **Buffered delivery** — matching events become `stream.appended` on the
@@ -188,13 +191,17 @@ No new step kind and no new verb. The kernel vocabulary stays closed
    offset; consumed prefixes are eligible for normal journal compaction and do
    not count against the next batch. On a would-exceed append, closure uses the
    converse of the open handshake: the router first durably fences the binding
-   as `closing: overflow` and refuses further appends, the journal appends
+   as `closing: overflow` and refuses further appends. The same serialized
+   transaction settles any open `wait.event` with
+   `event_received` / `result: { wake: "overflow", retained, bytes, from }`;
+   the surface maps that terminal result to `Wake.overflow`, so no later settle,
+   idle, or deadline claim can win it. The journal then appends
    `subscription.closed(overflow)`, and only then is the binding removed. If a
-   cell dies between those records, recovery completes the idempotent close
-   from the fenced binding; it never restores that generation as open. The
-   would-exceed frame is unappended and the next `next()` returns `overflow`
-   with the retained range. Events for a closed or unknown subscription are
-   refused, not buffered.
+   cell dies between those records, recovery completes the idempotent close and
+   wait settlement from the fenced binding; it never restores that generation
+   as open. The would-exceed frame is unappended and the next `next()` returns
+   `overflow` with the retained range. Events for a closed or unknown
+   subscription are refused, not buffered.
 4. **`wait.event` extension** — alongside `event_key`, a wait may name
    `stream`, `from_offset`, `settle_ms`, `idle_at_ms`, and `deadline_at_ms`.
    It completes with `event_received` and `result: { from_offset, next_offset }`
@@ -268,7 +275,8 @@ implementation proves:
     range.
 14. `kill -9` after the router fences an overflow but before
     `subscription.closed(overflow)` commits, then resume: recovery completes
-    the overflow close and never restores the prior binding as open.
+    the overflow close and any open `next()` as `overflow`; it never restores
+    the prior binding as open or re-arms its settle, idle, or deadline timer.
 
 ## 8. Open questions
 
