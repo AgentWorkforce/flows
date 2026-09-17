@@ -10,16 +10,21 @@ export default flow('triage')
 ```
 
 Every provider a relayfile adapter can deliver has a namespace — 47 today,
-502 events; see [PROVIDERS.md](PROVIDERS.md) (generated) for the full table.
+570 events; see [PROVIDERS.md](PROVIDERS.md) (generated) for the full table.
 Hyphenated providers become identifiers: `azure-blob` → `azure_blob`,
 `google-drive` → `google_drive`; the inbox name and event type keep the
 upstream spelling, so `azure_blob.file_created()` lowers to
 `{ provider: 'azure-blob', type: 'file.created' }`. Namespaces come from two
 sources: an adapter's `webhooks:` mapping block, which carries payload shape
 (`github.pull_request(action?)` takes an action because the mapping extracts
-one), or — for adapters that ship no mapping YAML (linear, jira, hubspot, …) —
-the trigger catalog (`@relayfile/adapter-core/triggers`), which carries event
-names only and yields the plain `(filter?)` signature.
+one), and the trigger catalog (`@relayfile/adapter-core/triggers`, every adapter's
+`supportedEvents()`), which is the full set an adapter delivers and yields the
+plain `(filter?)` signature. The two are unioned per provider: a mapping
+covers payload shape for some events, never the whole set (gitlab maps 8 of
+53). Where two upstream names share an identifier (`reaction.added` and
+`reaction_added`), the mapping-declared one owns the method and the other
+stays subscribable via `webhook(provider, { provider, type })`; PROVIDERS.md
+lists them.
 
 Provider namespaces also export from `@relayflows/surface/triggers` and
 `@relayflows/surface/triggers/slack` (or `/github`, `/notion`, …). Declarations are immutable

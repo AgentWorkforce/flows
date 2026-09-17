@@ -13,15 +13,6 @@ export const teams = Object.freeze({
   channel_updated(filter?: WebhookFilter) {
     return providerTrigger("teams", "channel.updated", filter);
   },
-  chat_created(filter?: WebhookFilter) {
-    return providerTrigger("teams", "chat.created", filter);
-  },
-  chat_deleted(filter?: WebhookFilter) {
-    return providerTrigger("teams", "chat.deleted", filter);
-  },
-  chat_updated(filter?: WebhookFilter) {
-    return providerTrigger("teams", "chat.updated", filter);
-  },
   chat_message_created(filter?: WebhookFilter) {
     return providerTrigger("teams", "chat_message.created", filter);
   },
@@ -30,6 +21,15 @@ export const teams = Object.freeze({
   },
   chat_message_updated(filter?: WebhookFilter) {
     return providerTrigger("teams", "chat_message.updated", filter);
+  },
+  chat_created(filter?: WebhookFilter) {
+    return providerTrigger("teams", "chat.created", filter);
+  },
+  chat_deleted(filter?: WebhookFilter) {
+    return providerTrigger("teams", "chat.deleted", filter);
+  },
+  chat_updated(filter?: WebhookFilter) {
+    return providerTrigger("teams", "chat.updated", filter);
   },
   member_created(filter?: WebhookFilter) {
     return providerTrigger("teams", "member.created", filter);

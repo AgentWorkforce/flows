@@ -37,14 +37,14 @@ export const github = Object.freeze({
   pull_request(action?: string) {
     return providerTrigger("github", "pull_request", action === undefined ? undefined : { action: triggerArgument(action, "action") });
   },
-  pull_request_edited(action?: string) {
-    return providerTrigger("github", "pull_request.edited", action === undefined ? undefined : { action: triggerArgument(action, "action") });
-  },
-  pull_request_reopened(action?: string) {
-    return providerTrigger("github", "pull_request.reopened", action === undefined ? undefined : { action: triggerArgument(action, "action") });
-  },
   pull_request_review(filter?: WebhookFilter) {
     return providerTrigger("github", "pull_request_review", filter);
+  },
+  pull_request_review_comment_created(filter?: WebhookFilter) {
+    return providerTrigger("github", "pull_request_review_comment.created", filter);
+  },
+  pull_request_review_thread_resolved(filter?: WebhookFilter) {
+    return providerTrigger("github", "pull_request_review_thread.resolved", filter);
   },
   pull_request_review_dismissed(filter?: WebhookFilter) {
     return providerTrigger("github", "pull_request_review.dismissed", filter);
@@ -55,16 +55,31 @@ export const github = Object.freeze({
   pull_request_review_submitted(filter?: WebhookFilter) {
     return providerTrigger("github", "pull_request_review.submitted", filter);
   },
-  pull_request_review_comment_created(filter?: WebhookFilter) {
-    return providerTrigger("github", "pull_request_review_comment.created", filter);
+  pull_request_edited(action?: string) {
+    return providerTrigger("github", "pull_request.edited", action === undefined ? undefined : { action: triggerArgument(action, "action") });
   },
-  pull_request_review_thread_resolved(filter?: WebhookFilter) {
-    return providerTrigger("github", "pull_request_review_thread.resolved", filter);
+  pull_request_reopened(action?: string) {
+    return providerTrigger("github", "pull_request.reopened", action === undefined ? undefined : { action: triggerArgument(action, "action") });
   },
   push(filter?: WebhookFilter) {
     return providerTrigger("github", "push", filter);
   },
   status(filter?: WebhookFilter) {
     return providerTrigger("github", "status", filter);
+  },
+  issues_closed(filter?: WebhookFilter) {
+    return providerTrigger("github", "issues.closed", filter);
+  },
+  issues_opened(filter?: WebhookFilter) {
+    return providerTrigger("github", "issues.opened", filter);
+  },
+  pull_request_closed(filter?: WebhookFilter) {
+    return providerTrigger("github", "pull_request.closed", filter);
+  },
+  pull_request_opened(filter?: WebhookFilter) {
+    return providerTrigger("github", "pull_request.opened", filter);
+  },
+  pull_request_synchronize(filter?: WebhookFilter) {
+    return providerTrigger("github", "pull_request.synchronize", filter);
   },
 });

@@ -26,15 +26,19 @@ const { values } = parseArgs({ options: {
  *    keeps its `extract`-derived signature.
  * 3. The trigger catalog (`@relayfile/adapter-core/triggers`,
  *    `KNOWN_TRIGGER_CATALOG`), which every adapter feeds through
- *    `supportedEvents()` even when it ships no mapping YAML (linear, jira,
- *    hubspot, …). It is consulted only for providers that declared no
- *    `webhooks:` block anywhere, and yields the plain `(filter?)` signature
- *    because the catalog carries event names, not payload shapes.
+ *    `supportedEvents()` — the events the adapter actually delivers, whether
+ *    or not it ships mapping YAML. A mapping's `webhooks:` block describes
+ *    payload shape for some of those events, not the full set (gitlab maps
+ *    8 of the 47 it delivers), so catalog events are added to every provider
+ *    with the plain `(filter?)` signature, and an event the mapping also
+ *    declares keeps the mapping's `extract`-aware signature.
  *
- * Every provider a relayfile adapter can deliver therefore gets a namespace;
- * the YAML-backed ones keep their richer, `extract`-aware methods.
+ * Every provider a relayfile adapter can deliver therefore gets a namespace
+ * covering everything ingress will accept for it.
  */
 const mappings = new Map();
+/** provider → events declared by a mapping (they own their method names). */
+const declared = new Map();
 const catalogProviders = new Set();
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const identifier = value => value.replaceAll(/[^A-Za-z0-9_$]/g, '_');
@@ -57,7 +61,8 @@ function readMappings(directory) {
         && definition.extract.every(field => typeof field === 'string')), `Invalid extract: ${name}/${event}`);
     }
     // Adapter-local mappings supersede the core's fallback mappings as a whole.
-    mappings.set(provider, mapping.webhooks);
+    mappings.set(provider, { ...mapping.webhooks });
+    declared.set(provider, new Set(Object.keys(mapping.webhooks)));
   }
 }
 
@@ -67,11 +72,14 @@ function readCatalog(catalog) {
     assert(/^[a-z][a-z0-9-]*$/.test(provider), `Invalid catalog provider: ${provider}`);
     assert(Array.isArray(events) && events.every(event => typeof event === 'string' && event.length > 0),
       `Invalid catalog events: ${provider}`);
-    // A provider with a `webhooks:` block keeps its mapping-defined vocabulary.
-    if (mappings.has(provider) && Object.keys(mappings.get(provider)).length) continue;
     if (!events.length) continue;
-    mappings.set(provider, Object.fromEntries([...new Set(events)].sort().map(event => [event, {}])));
-    catalogProviders.add(provider);
+    const merged = mappings.get(provider) ?? {};
+    const hadMapping = Object.keys(merged).length > 0;
+    // Union: a mapping-declared event keeps its signature; the rest of what
+    // the adapter delivers is added with the plain filter signature.
+    for (const event of events) if (!Object.hasOwn(merged, event)) merged[event] = {};
+    mappings.set(provider, merged);
+    if (!hadMapping) catalogProviders.add(provider);
   }
 }
 
@@ -114,9 +122,20 @@ for (const [provider, events] of [...mappings].sort(([a], [b]) => a.localeCompar
     names.add(name);
     methods.push(code);
   };
-  for (const event of eventNames) {
+  // Two upstream names can mangle to one identifier (slack publishes both
+  // `reaction.added` and `reaction_added`). A mapping-declared event owns the
+  // method; a catalog event that would collide with it gets no method but
+  // stays in the registry, so `flows check` and ingress still accept
+  // `webhook(provider, { provider, type })` for it. Two mapping-declared
+  // events colliding is still an error, as before.
+  const methodless = [];
+  const owned = declared.get(provider) ?? new Set();
+  // Mapping-declared events first so they win any identifier collision.
+  const ordered = [...eventNames].sort((a, b) => (owned.has(b) ? 1 : 0) - (owned.has(a) ? 1 : 0) || a.localeCompare(b));
+  for (const event of ordered) {
     const name = identifier(event);
     assert(/^[A-Za-z_$]/.test(name), `Invalid event identifier: ${event}`);
+    if (names.has(name) && !owned.has(event)) { methodless.push(event); continue; }
     const prefix = `providerTrigger(${JSON.stringify(provider)}, ${JSON.stringify(event)}`;
     if (events[event].extract?.includes('action')) {
       add(name, `  ${name}(action?: string) {\n    return ${prefix}, action === undefined ? undefined : { action: triggerArgument(action, "action") });\n  },`);
@@ -140,7 +159,7 @@ for (const [provider, events] of [...mappings].sort(([a], [b]) => a.localeCompar
     + `\nexport const ${namespace} = Object.freeze({\n${methods.join('\n')}\n});\n`);
   exports.push(`export { ${namespace} } from "./${provider}.js";`);
   registry[provider] = eventNames.sort();
-  summary.push({ provider, namespace, events: eventNames.length, source: catalogProviders.has(provider) ? 'catalog' : 'mapping' });
+  summary.push({ provider, namespace, events: eventNames.length, source: catalogProviders.has(provider) ? 'catalog' : 'mapping', methodless });
 }
 files.set('index.ts', `${header}\n${exports.join('\n')}\n\n`
   + '/** Exact upstream event names, plus the generated Slack mention shorthand. */\n'
@@ -149,9 +168,10 @@ files.set('index.ts', `${header}\n${exports.join('\n')}\n\n`
 files.set('PROVIDERS.md', `${mdHeader}# Provider trigger namespaces\n\n`
   + `${summary.length} providers, ${summary.reduce((n, s) => n + s.events, 0)} events. `
   + '`mapping` rows come from the adapter\'s `webhooks:` block (payload-aware signatures); '
-  + '`catalog` rows come from `KNOWN_TRIGGER_CATALOG` (`supportedEvents()`), which carries names only.\n\n'
-  + '| Provider | Namespace | Events | Source |\n|---|---|---:|---|\n'
-  + summary.map(s => `| \`${s.provider}\` | \`${s.namespace}\` | ${s.events} | ${s.source} |`).join('\n') + '\n');
+  + '`catalog` rows come from `KNOWN_TRIGGER_CATALOG` (`supportedEvents()`) only. Every provider also includes its catalog events, so the count is what ingress delivers.\n\n'
+  + '| Provider | Namespace | Events | Source | Registry-only events |\n|---|---|---:|---|---|\n'
+  + summary.map(s => `| \`${s.provider}\` | \`${s.namespace}\` | ${s.events} | ${s.source} | ${s.methodless.map(e => `\`${e}\``).join(', ')} |`).join('\n')
+  + '\n\nRegistry-only events share an identifier with another event of the same provider; subscribe with `webhook(provider, { provider, type })`.\n');
 
 const destination = resolve(values['out-dir']);
 const generated = name => /\.(?:ts|md)$/.test(name) && name !== 'README.md';

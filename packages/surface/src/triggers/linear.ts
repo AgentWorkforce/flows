@@ -34,12 +34,6 @@ export const linear = Object.freeze({
   AppUserNotification_issueUnassignedFromYou(filter?: WebhookFilter) {
     return providerTrigger("linear", "AppUserNotification.issueUnassignedFromYou", filter);
   },
-  OAuthApp_revoked(filter?: WebhookFilter) {
-    return providerTrigger("linear", "OAuthApp.revoked", filter);
-  },
-  PermissionChange_teamAccessChanged(filter?: WebhookFilter) {
-    return providerTrigger("linear", "PermissionChange.teamAccessChanged", filter);
-  },
   comment_create(filter?: WebhookFilter) {
     return providerTrigger("linear", "comment.create", filter);
   },
@@ -84,6 +78,12 @@ export const linear = Object.freeze({
   },
   milestone_update(filter?: WebhookFilter) {
     return providerTrigger("linear", "milestone.update", filter);
+  },
+  OAuthApp_revoked(filter?: WebhookFilter) {
+    return providerTrigger("linear", "OAuthApp.revoked", filter);
+  },
+  PermissionChange_teamAccessChanged(filter?: WebhookFilter) {
+    return providerTrigger("linear", "PermissionChange.teamAccessChanged", filter);
   },
   project_create(filter?: WebhookFilter) {
     return providerTrigger("linear", "project.create", filter);

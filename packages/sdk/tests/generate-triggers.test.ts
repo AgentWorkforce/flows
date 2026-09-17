@@ -67,12 +67,12 @@ function catalog(root: string, value: unknown): void {
   writeFileSync(join(target, 'catalog.generated.json'), JSON.stringify(value));
 }
 
-it('adds catalog-only providers with the plain signature and never overrides a mapping-backed one', () => {
+it('unions catalog events into every provider with the plain signature and never overrides a mapping-declared one', () => {
   const root = temporary();
   const out = join(root, 'generated');
   mapping(root, 'github', { adapter: { name: 'github' }, webhooks: { pull_request: { extract: ['action'] } } });
   catalog(root, {
-    github: ['pull_request.opened', 'pull_request.closed'],   // ignored: github has a webhooks block
+    github: ['pull_request', 'pull_request.opened'],   // union: mapping keeps its signature, the rest is added plain
     linear: ['issue.created', 'issue.updated'],
     'google-drive': ['file.created'],
     empty: [],
@@ -81,7 +81,7 @@ it('adds catalog-only providers with the plain signature and never overrides a m
   expect(readdirSync(out).sort()).toEqual(['PROVIDERS.md', 'github.ts', 'google-drive.ts', 'index.ts', 'linear.ts']);
   const github = readFileSync(join(out, 'github.ts'), 'utf8');
   expect(github).toContain('pull_request(action?: string)');
-  expect(github).not.toContain('pull_request_opened');
+  expect(github).toContain('pull_request_opened(filter?: WebhookFilter)');
   const linear = readFileSync(join(out, 'linear.ts'), 'utf8');
   expect(linear).toContain('export const linear');
   expect(linear).toContain('issue_created(filter?: WebhookFilter)');
@@ -89,9 +89,9 @@ it('adds catalog-only providers with the plain signature and never overrides a m
   expect(readFileSync(join(out, 'google-drive.ts'), 'utf8')).toContain('export const google_drive');
   const index = readFileSync(join(out, 'index.ts'), 'utf8');
   expect(index).toContain('"linear": Object.freeze(["issue.created","issue.updated"] as const)');
-  expect(index).toContain('"github": Object.freeze(["pull_request"] as const)');
+  expect(index).toContain('"github": Object.freeze(["pull_request","pull_request.opened"] as const)');
   const providers = readFileSync(join(out, 'PROVIDERS.md'), 'utf8');
-  expect(providers).toContain('| `github` | `github` | 1 | mapping |');
+  expect(providers).toContain('| `github` | `github` | 2 | mapping |');
   expect(providers).toContain('| `linear` | `linear` | 2 | catalog |');
   generate('--adapters-dir', root, '--out-dir', out, '--check');
   writeFileSync(join(out, 'PROVIDERS.md'), 'stale');
@@ -105,4 +105,18 @@ it('refuses a provider whose namespace would shadow a surface export', () => {
   const other = temporary();
   catalog(other, { schedule: ['due'] });
   expect(() => generate('--adapters-dir', other, '--out-dir', join(other, 'out'))).toThrow(/collision/);
+});
+
+it('lets a mapping-declared event own a colliding identifier and keeps the other in the registry', () => {
+  const root = temporary();
+  const out = join(root, 'generated');
+  mapping(root, 'chat', { provider: 'chat', webhooks: { reaction_added: {} } });
+  catalog(root, { chat: ['reaction.added', 'reaction_added', 'reaction.removed'] });
+  generate('--adapters-dir', root, '--out-dir', out);
+  const chat = readFileSync(join(out, 'chat.ts'), 'utf8');
+  expect(chat).toContain('providerTrigger("chat", "reaction_added", filter)');
+  expect(chat).not.toContain('"reaction.added"');
+  expect(chat).toContain('providerTrigger("chat", "reaction.removed", filter)');
+  expect(readFileSync(join(out, 'index.ts'), 'utf8')).toContain('"chat": Object.freeze(["reaction.added","reaction.removed","reaction_added"] as const)');
+  expect(readFileSync(join(out, 'PROVIDERS.md'), 'utf8')).toContain('| `chat` | `chat` | 3 | mapping | `reaction.added` |');
 });

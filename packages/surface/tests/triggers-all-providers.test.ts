@@ -18,15 +18,23 @@ describe("trigger namespaces for every relayfile adapter", () => {
       const namespace = (triggers as Record<string, unknown>)[identifier(provider)] as Record<string, (arg?: unknown) => { name: string; filter?: Record<string, unknown> }>;
       expect(namespace, provider).toBeDefined();
       expect(Object.isFrozen(namespace), provider).toBe(true);
+      const seen = new Map<string, string>();
       for (const event of events) {
         // Slack's `app_mention` is reachable through the `mention(channel)` shorthand only.
         if (provider === "slack" && event === "app_mention") continue;
-        const method = namespace[identifier(event)];
-        expect(typeof method, `${provider}.${identifier(event)}`).toBe("function");
+        const name = identifier(event);
+        const method = namespace[name];
+        expect(typeof method, `${provider}.${name}`).toBe("function");
         if (method === undefined) continue;
         const source = method();
         expect(source.name).toBe(provider);
-        expect(source.filter).toMatchObject({ provider, type: event });
+        // Two upstream names can share an identifier (`reaction.added` vs
+        // `reaction_added`); the method belongs to exactly one of them, and the
+        // other stays subscribable through the registry.
+        const owner = seen.get(name) ?? (source.filter as { type: string }).type;
+        seen.set(name, owner);
+        expect([event, owner]).toContain((source.filter as { type: string }).type);
+        expect(source.filter).toMatchObject({ provider, type: owner });
       }
     }
   });
