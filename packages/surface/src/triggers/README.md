@@ -16,13 +16,17 @@ matches the provider, event type, and requested payload fields. Register those
 provider names in `flows.json`'s `executors` array for preflight.
 
 Registration and deliverability are separate checks. `flows check` also refuses
-a provider subscription that can never be delivered — an inbox with no generated
-module (`provider_unknown`), a filter naming a different provider than its inbox
-(`provider_mismatch`), or an event type the provider does not publish
-(`provider_event_unknown`) — using this same generated vocabulary, so the
-refusal arrives while authoring rather than from ingress on the first real
-event. The generated namespaces above can only produce valid declarations; these
-refusals exist for hand-written `webhook(provider, { provider, type })` sources.
+a subscription on a provider inbox that pins an event type the provider does not
+publish, reading this same generated vocabulary, so the refusal arrives while
+authoring rather than from ingress on the first real event. The generated
+namespaces above can only produce valid declarations; the refusal exists for
+hand-written `webhook(provider, { provider, type })` sources.
+
+It is deliberately narrow. A provider trigger *is* a webhook, so a filter alone
+cannot prove intent: `webhook('deploys', { provider: 'aws' })` is a valid generic
+inbox matching a payload field that happens to be named `provider`. A source is
+read as a provider subscription only when its inbox is a generated provider, the
+filter names that same provider, and the filter pins an event type.
 
 `slack.mention(channel)` subscribes to Slack's `app_mention` event;
 `slack.reaction(emoji)` subscribes to `reaction_added`. Arguments match provider

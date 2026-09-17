@@ -19,52 +19,51 @@ async function temporary(): Promise<string> {
 }
 
 describe('provider trigger contract', () => {
-  it('accepts every generated declaration and never inspects a plain webhook', () => {
+  it('accepts every generated declaration', () => {
     expect(preflightProviderTriggers([
       github.issues(), github.pull_request('opened'), github.push({ ref: 'refs/heads/main' }),
       slack.mention('C123'), slack.reaction('eyes'), slack.message(),
-      webhook('release'), webhook('release', { tag: 'v1' }),
     ])).toEqual([]);
-    // A plain webhook carries no `filter.provider`, so it is not a provider
-    // subscription and this contract must stay out of its way entirely.
-    expect(providerDeclaration(webhook('release'))).toBeUndefined();
-    expect(providerDeclaration(webhook('release', { tag: 'v1' }))).toBeUndefined();
     expect(providerDeclaration(slack.mention('C123')))
-      .toEqual({ inbox: 'slack', provider: 'slack', type: 'app_mention' });
-    // `filter.provider` with no pinned type subscribes to every event on that
-    // inbox. That is legal, so it must not refuse.
-    expect(preflightProviderTriggers([webhook('github', { provider: 'github' })])).toEqual([]);
+      .toEqual({ provider: 'slack', type: 'app_mention', events: expect.arrayContaining(['app_mention']) });
   });
 
-  it('refuses at author time exactly what provider ingress refuses at delivery', () => {
-    // Each case pairs the check-time refusal with the ingress throw it
-    // predicts. If these two ever disagree, the trapdoor is back: a flow that
-    // passes `flows check` and dies on its first real event.
-    const unknownProvider = webhook('notion', { provider: 'notion', type: 'page', payload: {} });
-    expect(preflightProviderTriggers([unknownProvider])).toEqual([expect.objectContaining({
-      severity: 'refusal', kind: 'provider_unknown', executor: 'notion',
-    })]);
-    expect(() => providerInboxEvent('notion', { type: 'page', payload: {} }))
-      .toThrow(/unknown provider/);
+  it('never reads a generic webhook as a provider subscription', () => {
+    // A provider trigger IS a webhook, so the filter alone cannot prove intent.
+    // Each of these is a valid generic inbox delivered by `POST /<name>`, and
+    // refusing any of them would refuse a working flow.
+    const generic = [
+      webhook('release'),
+      webhook('release', { tag: 'v1' }),
+      // A payload field that merely happens to be called `provider`.
+      webhook('deploys', { provider: 'aws' }),
+      webhook('deploys', { provider: 'aws', type: 'stack.updated' }),
+      // Names a provider other than its own inbox: still a generic match.
+      webhook('github', { provider: 'slack', type: 'app_mention' }),
+      // A real provider inbox, but no pinned type: subscribes to every event.
+      webhook('github', { provider: 'github' }),
+      // A pinned type that is not a string cannot be compared to one.
+      webhook('slack', { provider: 'slack', type: 42 }),
+    ];
+    for (const source of generic) expect(providerDeclaration(source)).toBeUndefined();
+    expect(preflightProviderTriggers(generic)).toEqual([]);
+  });
 
-    const unknownEvent = webhook('slack', { provider: 'slack', type: 'pull_request', payload: {} });
-    const [eventRefusal] = preflightProviderTriggers([unknownEvent]);
-    expect(eventRefusal).toEqual(expect.objectContaining({
-      severity: 'refusal', kind: 'provider_event_unknown', executor: 'slack',
+  it('refuses at author time what provider ingress refuses at delivery', () => {
+    // The refusal is paired with the `providerInboxEvent` throw it predicts.
+    // If these two ever disagree the trapdoor is back: a flow that passes
+    // `flows check` and dies on its first real event.
+    const undeliverable = webhook('slack', { provider: 'slack', type: 'pull_request', payload: {} });
+    const [refusal] = preflightProviderTriggers([undeliverable]);
+    expect(refusal).toEqual(expect.objectContaining({
+      severity: 'refusal', kind: 'invalid_spec', executor: 'slack',
     }));
     // The message has to name what IS accepted; "invalid" alone sends the
     // author back to the adapter mappings to find out.
-    expect(eventRefusal!.message).toContain('app_mention');
-    expect(eventRefusal!.message).toContain('pull_request');
+    expect(refusal!.message).toContain('pull_request');
+    expect(refusal!.message).toContain('app_mention');
     expect(() => providerInboxEvent('slack', { type: 'pull_request', payload: {} }))
       .toThrow(/unknown event type/);
-
-    const mismatched = webhook('github', { provider: 'slack', type: 'issues', payload: {} });
-    expect(preflightProviderTriggers([mismatched])).toEqual([expect.objectContaining({
-      severity: 'refusal', kind: 'provider_mismatch', executor: 'github',
-    })]);
-    expect(() => providerInboxEvent('github', { provider: 'slack', type: 'issues', payload: {} }))
-      .toThrow(/does not match/);
   });
 
   it('reports one refusal per distinct declaration, not per handler', () => {
@@ -106,7 +105,7 @@ describe('provider trigger contract', () => {
       + "export default flow('test').on(webhook('slack', { provider: 'slack', type: 'nope', payload: {} }), "
       + "async () => { throw new Error('handler ran'); });");
     expect(await runCli(['check', '--json', undeliverable], io)).toBe(2);
-    expect(reports.join('\n')).toContain('provider_event_unknown');
+    expect(reports.join('\n')).toContain('does not publish');
 
     reports.length = 0;
     await writeFile(deliverable, "import { flow, slack } from '@relayflows/surface';\n"
