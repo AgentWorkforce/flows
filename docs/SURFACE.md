@@ -460,8 +460,9 @@ vocabulary:
    source text is never treated as proof of anything.
 2. **A step's failure is yours whether or not you catch it.** A root failure is
    recorded before author code can reach the operation, so a `catch` cannot hide
-   it. At this gate the executor only lowers `done("success")`, so there is no
-   expressible recovery from a failed step yet.
+   it. `done("step_failed")` does not change that: it declares a verdict about
+   checks the body ran and read for itself, and is not a way to continue past a
+   step that failed.
 3. **Finish your derived work before `done()`.** If a handler chained onto a step
    is still in flight when the body returns, the run is refused with
    `unsettled_derived_work` rather than recorded as a success nobody can prove.
@@ -713,12 +714,29 @@ JavaScript control flow observes the output read from `step.completed`.
 Unsupported headers, verbs, gates, and completion reasons fail closed rather
 than running through a second speculative compiler.
 
+An authored body ends at one of three lowered completions. `done("success")`
+completes the run; `done("needs_human")` parks it for a human; and
+`done("step_failed")` declares that the flow's own checks did not pass — the
+adversary review found problems, the tests did not go green — and reports a
+failed run. The first lowers to a no-op terminal marker, because the marker
+run's own `success` is already the record; the other two lower to a
+deterministic step that writes `{"completionReason":"<reason>"}` to stdout, so
+the verdict is a durable journal fact rather than an inference. All three
+terminal markers are steps that SUCCEED: `done("step_failed")` is the body's
+verdict, not a step that failed, so the journal is not given a fabricated
+failure for a flow whose steps all ran correctly.
+
+`canceled` and `budget_exceeded` are in the type but are refused with
+`unsupported_completion`. They are kernel outcomes, not authored verdicts: the
+kernel records them when it cancels a run or exhausts its budget, and a body
+that declared one would be asserting a kernel fact that never happened.
+
 The exit codes are part of the surface contract:
 
 | Exit | Outcome |
 |---:|---|
 | `0` | The run completed with `completionReason: success`. |
-| `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. |
+| `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. An authored `done("step_failed")` exits `1` as well, and says so without naming a step, because no step failed — the body declared the verdict. |
 | `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
 | `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. |
 

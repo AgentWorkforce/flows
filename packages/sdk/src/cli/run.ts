@@ -22,6 +22,7 @@ import type {
   RunStatus,
 } from '../protocol.js';
 import type { StepType } from '../spec.js';
+import type { FlowCompletionReason } from '@relayflows/surface';
 import {
   checkFlow,
   type CheckReport,
@@ -191,21 +192,7 @@ export async function resumeFlow(
         lifecycle: options,
       });
       if (result === undefined) throw new Error('authored root disappeared during resume');
-      return {
-        exitCode: result.completionReason === 'needs_human' ? 3 : 0,
-        report: {
-          ...base,
-          ok: result.completionReason === 'success',
-          runId,
-          socketPath,
-          status: result.completionReason === 'needs_human' ? 'parked' : 'completed',
-          ...(result.completionReason === 'success'
-            ? { completionReason: 'success' as const }
-            : { diagnostics: [{ severity: 'parked' as const, kind: 'run_parked' as const,
-              message: `Flow "${result.name}" needs_human; see the journal for accumulated blockers.` }] }),
-          completedSteps: result.journalSteps.length,
-        },
-      };
+      return authoredCompletion('resume', base, socketPath, result, runId);
     }
     // resumeHelperEffect subsumes the old resumeSlackEffect: it handles the
     // slack effect resume plus every other provider from N's codegen. The
@@ -304,6 +291,69 @@ export function authoredStepFailure(
         // The `step_failed: ` prefix `AuthoredFlowExecutionError` adds is
         // redundant once the diagnostic is labelled `[step_failed]`.
         message: error.message.replace(/^step_failed: /, ''),
+      }],
+    },
+  };
+}
+
+/**
+ * An authored body that returned its own terminal verdict, reported as that verdict.
+ *
+ * Shared by `runDirectFlow` and `resumeFlow` for the reason `authoredStepFailure`
+ * is shared: the run and resume paths had already drifted once, and the
+ * `needs_human` report was duplicated verbatim in both files.
+ *
+ * This is NOT `authoredStepFailure`, even though a `step_failed` verdict lands
+ * on the same exit code and report shape. That function describes a step that
+ * ran and failed, and carries the failing step's evidence. Here every step
+ * succeeded and the BODY declared the outcome, so there is no failing step to
+ * name — routing this through the other helper would invent one.
+ */
+export function authoredCompletion(
+  command: RunCommand,
+  base: RunReport,
+  socketPath: string,
+  result: { name: string; completionReason: FlowCompletionReason; journalSteps: readonly unknown[] },
+  runId: string | undefined,
+): RunExecution {
+  const reason = result.completionReason;
+  const common: RunReport = {
+    ...fromBase(command, base),
+    ...(runId === undefined ? {} : { runId }),
+    socketPath,
+    completedSteps: result.journalSteps.length,
+  };
+  if (reason === 'success') {
+    return {
+      exitCode: 0,
+      report: { ...common, ok: true, status: 'completed', completionReason: 'success' },
+    };
+  }
+  if (reason === 'needs_human') {
+    return {
+      exitCode: 3,
+      report: {
+        ...common, ok: false, status: 'parked',
+        diagnostics: [...base.diagnostics, {
+          severity: 'parked', kind: 'run_parked',
+          message: `Flow "${result.name}" needs_human; see the journal for accumulated blockers.`,
+        }],
+      },
+    };
+  }
+  // A declared run failure. Exit 1, not the parked 3: nothing here is waiting
+  // for a human to recover it, and exit 3 is the local kit's manual-approval
+  // stop. `status: failed` with this `completionReason` is also the only
+  // terminal shape Cloud accepts for a non-success run (see cloud-run.ts).
+  return {
+    exitCode: 1,
+    report: {
+      ...common, ok: false, status: 'failed', completionReason: reason,
+      diagnostics: [...base.diagnostics, {
+        severity: 'failure', kind: reason,
+        message: `Flow "${result.name}" declared done("${reason}"): its own checks did not pass. `
+          + 'No step failed, so there is no step-level evidence to inspect; the journal holds '
+          + 'every step the flow ran before it decided.',
       }],
     },
   };

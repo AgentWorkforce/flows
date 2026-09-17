@@ -8,6 +8,7 @@ import { isAbsolute, join } from 'node:path';
 import type { Readable } from 'node:stream';
 import type { AuthoredRootMetadata } from './authored-root.js';
 import type { AuthoredExecutionRuntime, AuthoredFlowExecutionResult, ExecuteAuthoredFlowOptions } from './authored-flow-executor.js';
+import { completionMarker, isLoweredCompletion } from './authored-flow-executor.js';
 import { AuthoredFlowExecutionError, type AuthoredFlowExecutionErrorCode } from './authored-flow-error.js';
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
 
@@ -162,7 +163,7 @@ export async function verifyAuthoredNodeResult(
 ): Promise<void> {
   const invalid = (): never => { throw new Error('authored runtime result has no matching durable completion'); };
   if (result.rootRunId !== rootRunId || result.name !== metadata.flowName
-    || !['success', 'needs_human'].includes(result.completionReason)
+    || !isLoweredCompletion(result.completionReason)
     || !Array.isArray(result.journalSteps) || result.journalSteps.length === 0) invalid();
   const terminal = result.journalSteps.at(-1)!;
   if (!terminal || !/^complete-[1-9][0-9]*$/.test(terminal.id)) invalid();
@@ -210,8 +211,11 @@ export async function verifyAuthoredNodeResult(
         || completed[0]?.payload?.completionReason !== 'success'
         || terminalFacts.length !== 1 || terminalFacts[0]?.payload?.completionReason !== 'success') invalid();
       if (claimed === terminal) {
-        const command = result.completionReason === 'needs_human'
-          ? `printf '%s' '{"completionReason":"needs_human"}'` : ':';
+        // The claimed verdict must match the marker the journal actually
+        // recorded, so an IPC frame cannot claim `success` over a run whose
+        // durable terminal says `step_failed` (or the reverse).
+        if (!isLoweredCompletion(result.completionReason)) invalid();
+        const command = completionMarker(result.completionReason);
         if (step?.type !== 'deterministic' || step.command !== command) invalid();
       }
     }

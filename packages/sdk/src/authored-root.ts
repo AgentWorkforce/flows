@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { canonicalize } from './canonical.js';
 import { compileSpec, toKernelSpec } from './compile.js';
-import { executeAuthoredFlow, type AuthoredFlowExecutionResult } from './authored-flow-executor.js';
+import { executeAuthoredFlow, isLoweredCompletion, type AuthoredFlowExecutionResult } from './authored-flow-executor.js';
 import {
   loadAuthoredFlow,
   type LoadedAuthoredFlow,
@@ -340,7 +340,7 @@ function isCompletedRootOutput(value: unknown): value is Omit<AuthoredFlowExecut
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const output = value as Partial<AuthoredFlowExecutionResult>;
   return typeof output.name === 'string'
-    && (output.completionReason === 'success' || output.completionReason === 'needs_human')
+    && isLoweredCompletion(output.completionReason)
     && Array.isArray(output.journalSteps)
     && output.journalSteps.every(step => typeof step === 'object' && step !== null
       && typeof step.id === 'string' && typeof step.runId === 'string'
