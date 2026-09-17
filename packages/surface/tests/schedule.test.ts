@@ -72,7 +72,7 @@ describe("schedule.cron", () => {
     expect(cronMaxGapMs(parseCron("0 0 * * 5/1"))).toBe(5 * 24 * h);     // Fri Sat Sun
     expect(cronMaxGapMs(parseCron("0 0 * * 0/3"))).toBe(3 * 24 * h);     // Sun Wed Sat (Sat→Sun is 1 d)
     expect(cronMaxGapMs(parseCron("0 0 * * 6/1"))).toBe(6 * 24 * h);     // Sat Sun
-    expect(cronMaxGapMs(parseCron("0 30/15 * * *"))).toBe(23.5 * h);      // :30 and :45 each hour → 23h30 overnight gap
+    expect(cronMaxGapMs(parseCron("30/15 * * * *"))).toBe(45 * 60_000);    // :30 and :45 each hour → :45→:30 is 45 min
   });
 });
 
