@@ -137,7 +137,11 @@ for (const [provider, events] of [...mappings].sort(([a], [b]) => a.localeCompar
     assert(/^[A-Za-z_$]/.test(name), `Invalid event identifier: ${event}`);
     if (names.has(name) && !owned.has(event)) { methodless.push(event); continue; }
     const prefix = `providerTrigger(${JSON.stringify(provider)}, ${JSON.stringify(event)}`;
-    if (events[event].extract?.includes('action')) {
+    // An aggregate event (`pull_request`) whose mapping extracts `action`
+    // takes the action as its argument. An action-qualified name
+    // (`pull_request.edited`) already pins it, so it takes a plain filter even
+    // when the mapping extracts `action` for that variant too.
+    if (events[event].extract?.includes('action') && !event.includes('.')) {
       add(name, `  ${name}(action?: string) {\n    return ${prefix}, action === undefined ? undefined : { action: triggerArgument(action, "action") });\n  },`);
     } else {
       add(name, `  ${name}(filter?: WebhookFilter) {\n    return ${prefix}, filter);\n  },`);

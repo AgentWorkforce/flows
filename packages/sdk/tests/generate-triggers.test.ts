@@ -120,3 +120,16 @@ it('lets a mapping-declared event own a colliding identifier and keeps the other
   expect(readFileSync(join(out, 'index.ts'), 'utf8')).toContain('"chat": Object.freeze(["reaction.added","reaction.removed","reaction_added"] as const)');
   expect(readFileSync(join(out, 'PROVIDERS.md'), 'utf8')).toContain('| `chat` | `chat` | 3 | mapping | `reaction.added` |');
 });
+
+it('gives action-qualified events a plain filter even when the mapping extracts action', () => {
+  const root = temporary();
+  const out = join(root, 'generated');
+  mapping(root, 'github', { adapter: { name: 'github' }, webhooks: {
+    pull_request: { extract: ['action'] }, 'pull_request.edited': { extract: ['action', 'number'] },
+  } });
+  generate('--adapters-dir', root, '--out-dir', out);
+  const github = readFileSync(join(out, 'github.ts'), 'utf8');
+  expect(github).toContain('pull_request(action?: string)');
+  expect(github).toContain('pull_request_edited(filter?: WebhookFilter)');
+  expect(github).not.toContain('pull_request_edited(action');
+});

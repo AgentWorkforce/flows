@@ -49,7 +49,14 @@ filter names that same provider, and the filter pins an event type.
 `slack.reaction(emoji)` subscribes to `reaction_added`. Arguments match provider
 values exactly: use the channel ID and reaction name from the incoming event.
 `github.pull_request(action)` filters `payload.action`; omitting the action
-accepts every pull request event. Upstream mappings do not declare action enums,
+accepts every pull request event. GitHub (and some other providers) appear in
+two spellings because two ingresses deliver them: the aggregate event with the
+action in the payload (`pull_request` + `payload.action`) is what a raw GitHub
+delivery and this package's `POST /providers/github` receiver carry, while the
+action-qualified name (`pull_request.opened`) is what relayfile's Cloud
+ingress normalizes to and what the adapter catalog lists. Subscribe in the
+spelling of the ingress that will deliver to you; action-qualified methods
+take only a payload filter, never a second action. Upstream mappings do not declare action enums,
 so the action parameter is a string. `github.check_run(action)` (a CI check
 finished: `completed`, with `check_run.conclusion` in the payload) and
 `github.issue_comment(action)` (a comment on an issue or pull-request
