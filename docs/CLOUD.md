@@ -36,7 +36,123 @@ pinned runtime must be enabled by that deployment's operator.
 ```sh
 flows run --cloud examples/cloud-gates/cloud-gates.flow.yaml
 flows run --cloud --wait --json examples/cloud-gates/cloud-gates.flow.yaml
+flows run --cloud --input '{}' review.flow.ts
 ```
+
+An authored `.flow.ts` takes `--input` exactly as a local direct run does (an
+existing JSON file, otherwise inline JSON), and travels as one self-contained
+source with its pinned Surface authority.
+
+## Code sync
+
+```sh
+cd <your-repo>
+flows run --cloud --sync-code --wait review.flow.ts --input '{"pr": 7}'
+flows sync <run-id>            # apply the run's changes to this checkout
+```
+
+`--sync-code` uploads the invoking directory before submission, so the hosted
+run — every `f.run` and every `f.agent` — executes inside that tree, the way
+v1's `agent-relay cloud run --sync-code` did. Inside a Git checkout the upload
+is `git ls-files --cached --others --exclude-standard`: `.gitignore` governs,
+untracked files ride along, `.git` and `node_modules` never do. A checkout
+whose `git` fails for any other reason (a corrupt `.git`, a locked index, no
+`git` on PATH) is refused as `sync_unsupported` rather than widened to a plain
+walk, so an ignored `.env` never reaches Cloud because Git was unavailable.
+Outside Git, every file except those two directories — there is no ignore
+rule there, so keep secrets out of such a tree. Executable bits are preserved;
+symlinks whose target resolves outside the tree are dropped and listed as
+`sync_link_skipped` warnings. The archive is streamed to a temporary file, so
+packing costs one file plus the compressor's window, not the tree. The limit is
+256 MiB uncompressed. The flow source itself is still sent in the request
+body, so it must stay self-contained; sibling imports inside the tree are not
+resolved by the hosted runner.
+
+Interrupting before the run request — during prepare, packing or upload —
+reports `submission_aborted`: nothing was admitted and rerunning is safe. Only
+an interrupted submission itself reports `admission_unknown`.
+
+The transport is the Cloud API only. `POST /api/v1/workflows/prepare` must
+answer with a `cloud-api` workflow-storage backend (Cloud's R2), the archive
+is `PUT` to `/api/v1/workflows/runs/<run>/storage/<key>` with the run-scoped
+credential that receipt carries, and the run is submitted against that
+prepared run ID. A `prepare` that offers any other backend is refused as
+`unsupported_storage_backend` before a byte is uploaded; this SDK carries no
+AWS client and never uploads to a bucket directly. Sync happens before
+submission, so a refused backend or failed upload never leaves a launched run
+pointing at a tree Cloud does not hold.
+
+`flows sync <run-id>` fetches the sandbox's post-run diff from
+`/api/v1/workflows/runs/<run>/patch` and applies it with `git apply` after a
+`--check` pass, so a conflicting patch leaves the tree untouched
+(`patch_conflict`, exit 2). The patch lands in the working tree uncommitted
+and every touched path is listed, deletions included: what the run changed —
+it is your own flow's output, but it is agent output — is reviewed with
+`git diff` before any of it is kept, the same contract v1's `cloud sync` had.
+Runs that declared several mounted paths carry one patch per path and are
+refused here (`sync_unsupported`). `--dir <path>` targets a checkout other
+than the current directory.
+
+A synced run and a Cloud repository grant are mutually exclusive on the
+server: `--sync-code` is the local-driven development loop, and
+webhook-triggered deployments keep cloning through the grant.
+
+## Credentials
+
+Every hosted verb resolves its credential the same way: the `token` option,
+then `FLOWS_CLOUD_TOKEN`, then the `agent-relay cloud login` store
+(`~/.agentworkforce/relay/cloud-auth.json`, or `AGENT_RELAY_HOME`). The login
+store also supplies the base URL unless `FLOWS_CLOUD_URL` overrides it, so a
+login against one deployment never sends its token to another. An expired
+login is refused with the re-login remedy rather than sent.
+
+Running and syncing work with either kind of token. Deploying, listing and
+removing listeners need the interactive `cli:auth` credential the login
+produces; a deployment (CI) token gets `session_required` and the CLI says so.
+
+## Listener deployments
+
+```sh
+flows deploy issue-triage.flow.ts \
+  --repo AgentWorkforce/flows \
+  --on github:labels=agent \
+  --approver khaliqgant
+flows deployments
+flows undeploy <deployment-id>
+```
+
+Optional flags: `--agents claude,codex`, `--name "Issue triage"`, `--draft`,
+`--json`, and further `--on` sources.
+
+`flows deploy <flow.ts>` is the CLI form of the agentrelay.com onboarding's
+deploy wizard: `POST /api/v1/flows/deploy` stores one self-contained authored
+source and creates a proactive listener whose watch rules match the chosen
+ticket sources. There is no webhook to register. The workspace's GitHub App
+installation (or Slack, Linear, Jira or Shortcut connection) is the ingress;
+Cloud ingests events into the workspace's relayfile projection and the
+listener's rules match them there. The digest form,
+`flows deploy <flow>@sha256:… --to file://…`, is unchanged; the positional
+decides which form is meant.
+
+`--on <provider>[:key=value,…]` takes `github` (`repository`, `labels`,
+`contains`), `slack` (`channel`, `contains`), `linear` (`team`, `contains`),
+`jira` (`project`, `contains`) or `shortcut` (`workspace`, `contains`), each
+at most once. A GitHub source without `repository` is scoped to `--repo`.
+Today a GitHub listener wakes on `issues.opened` and `issues.labeled` only;
+pull-request and comment events are filtered out before launch.
+
+Each matching ticket launches one run of the stored source. Cloud clones
+`--repo` at its default branch onto a fresh `relayflow/<name>-<id>` branch,
+runs `flows run --local-agent` there, and passes the flow body
+`{ approver, issue: { source, title, body, labels, repository, url, … }, event }`
+as its input. The flow must therefore be the default body,
+`flow<Input>(name, header, async (f, input) => …)`; `.on(github.issues(…))`
+handlers are checked but are not what Cloud dispatches. `--agents` names the
+coding-agent harnesses the flow uses (default `claude`); activation checks
+their credentials are connected and refuses with `flow_model_not_connected`
+otherwise. `--draft` saves the flow without activating it and skips those
+checks. The deploy routes answer refusals as `{ code, error }`, and the CLI
+names them (`flow_repository_not_connected`, `flow_name_taken`, …).
 
 Without `--wait`, exit 0 means the server accepted the run. With `--wait`, it
 means Cloud reported `completed` with a validated `success` completion reason.
@@ -72,10 +188,10 @@ by this endpoint and is not synthesized by the SDK.
 
 ## Current limits and scope
 
-- Cloud's v2 bootstrap explicitly rejects authored `.flow.ts` files. The SDK
-  refuses those before HTTP rather than uploading code that cannot run. Inputs,
-  local imports, CLI configuration files, and workspace files are not bundled
-  or uploaded by this path.
+- An authored `.flow.ts` is submitted as one self-contained source. Local
+  imports and `use:` dependencies are refused before HTTP. With `--sync-code`
+  the working tree is uploaded for the run to execute in, but the runner still
+  loads the flow from the request body, not from the tree.
 - SDK observation has no fixed execution deadline. The merged authored-agent
   executor follows worker leases rather than the former 30-second limit.
   Cloud's separate `relayflow-v2-executor.ts` still has a one-hour execution

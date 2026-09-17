@@ -13,6 +13,7 @@ import {
   CloudFlowError, cloudConnection, cloudRequest, cloudRunId, isCloudRecord,
   type CloudConnectionOptions,
 } from './cloud-http.js';
+import { packWorkingTree, prepareCloudSync, uploadCloudCode } from './cloud-sync.js';
 
 export type CloudFlowSource = FlowSpec | { path: string };
 export interface RunInCloudOptions extends CloudConnectionOptions {
@@ -20,6 +21,21 @@ export interface RunInCloudOptions extends CloudConnectionOptions {
   workspaceId?: string;
   /** Exact JSON input. Required at runtime for authored .flow.ts; refused for declarative source. */
   input?: JsonValue;
+  /**
+   * Upload this working tree before submission so the hosted run executes
+   * inside it (v1's `--sync-code`). Cloud-API storage only; see cloud-sync.ts.
+   * The submitted flow still travels as source in the request body, so it
+   * must remain self-contained: sibling imports inside the tree are not
+   * resolved by the hosted runner.
+   */
+  syncCode?: { root: string };
+  /**
+   * Called immediately before the one non-idempotent request, the run
+   * submission. Everything before it (prepare, pack, upload) is safe to
+   * retry, so a caller classifying an interruption can tell "nothing was
+   * admitted" from "admission unknown".
+   */
+  onSubmit?: () => void;
 }
 export interface CloudRunReceipt {
   runId: string;
@@ -28,6 +44,8 @@ export interface CloudRunReceipt {
   specHash: string;
   /** Authenticated run API resource; this is not a public sharing URL. */
   apiUrl: string;
+  /** Present when a working tree was synced: what was uploaded, by count and size. */
+  synced?: { files: number; bytes: number; skippedLinks: string[] };
 }
 export interface CloudAuthoredAuthority {
   readonly schemaVersion: 1;
@@ -118,6 +136,26 @@ export async function runInCloud(
         authority: authored.authority,
         input: authoredInput,
       })).digest('hex');
+  // Sync before submission: `prepare` reserves the run ID and the upload lands
+  // under it, so the run request below names code Cloud already holds. A
+  // refused backend or failed upload therefore never leaves a launched run
+  // pointing at a tree that is not there.
+  let synced: { runId: string; codeKey: string; files: number; bytes: number; skippedLinks: string[] } | undefined;
+  if (options.syncCode !== undefined) {
+    const prepared = await prepareCloudSync(options);
+    options.signal?.throwIfAborted();
+    const packed = await packWorkingTree(options.syncCode.root);
+    try {
+      options.signal?.throwIfAborted();
+      await uploadCloudCode(prepared, packed, options);
+    } finally {
+      packed.dispose();
+    }
+    synced = { runId: prepared.runId, codeKey: prepared.codeKey, files: packed.files.length, bytes: packed.bytes,
+      skippedLinks: packed.skippedLinks };
+  }
+  options.signal?.throwIfAborted();
+  options.onSubmit?.();
   const result = await cloudRequest('/api/v1/workflows/run', options, {
     // JSON is a YAML subset. Sending canonical data preserves the exact spec
     // while using the server's existing YAML-to-config admission path.
@@ -127,12 +165,20 @@ export async function runInCloud(
     ...(authored === undefined ? {} : { authoredAuthority: authored.authority }),
     ...(authored === undefined ? {} : { inputs: authoredInput }),
     ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
+    ...(synced === undefined ? {} : { runId: synced.runId, s3CodeKey: synced.codeKey }),
   });
   if (!isCloudRecord(result) || (result.status !== 'pending' && result.status !== 'running')) {
     throw new CloudFlowError('invalid_response', 'Cloud did not return an accepted run.');
   }
   const runId = cloudRunId(result.runId);
-  return { runId, status: result.status, specHash: hash, apiUrl: `${baseUrl}/api/v1/workflows/runs/${runId}` };
+  if (synced !== undefined && runId !== synced.runId) {
+    throw new CloudFlowError('invalid_response',
+      `Cloud accepted run ${runId} but the synced code was uploaded for ${synced.runId}.`);
+  }
+  return {
+    runId, status: result.status, specHash: hash, apiUrl: `${baseUrl}/api/v1/workflows/runs/${runId}`,
+    ...(synced === undefined ? {} : { synced: { files: synced.files, bytes: synced.bytes, skippedLinks: synced.skippedLinks } }),
+  };
 }
 
 export async function getCloudFlowRun(
