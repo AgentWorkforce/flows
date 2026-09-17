@@ -42,7 +42,8 @@ export default flow("chief", {
 
   const plan = await f.agent("planner", {
     task: `Research and plan: ${intent}`,
-    workspace: "acme/api: readonly",          // compiles to relayauth path scopes
+    workspace: "acme/api",
+    permissions: { accessPreset: "readonly" }, // validated declaration; currently unenforced
   });
 
   const ok = await f.human(`Ship this?\n${plan.summary}`, { to: "khaliq" });
@@ -289,6 +290,33 @@ returns `unknown`, which author code narrows after runtime verification.
 The authoring surface deliberately narrows `steps: []`: `flows check` refuses
 it as `invalid_spec`, while the kernel accepts it. This is a chosen
 authoring-time narrowing, not a kernel guarantee.
+
+### Per-agent permissions in TypeScript
+
+Supported `f.agent` calls accept an optional `permissions` declaration:
+
+```ts
+const draft = await f.agent("writer", {
+  task: "Write drafts/post.md.",
+  permissions: { fileGlobs: ["drafts/**"], accessPreset: "readwrite" },
+});
+const review = await f.agent("reviewer", {
+  task: "Review drafts/post.md and flag issues; do not edit it.",
+  permissions: { fileGlobs: ["drafts/**"], accessPreset: "readonly" },
+});
+```
+
+The exported `PermissionsSpec` has three optional camelCase fields:
+`fileGlobs?: string[]`, `networkAllowlist?: string[]`, and
+`accessPreset?: "readonly" | "readwrite"`. Array elements must be nonempty
+strings. Empty or partial declarations are accepted without inferred defaults;
+no workspace is required. Workspace names must not carry permission suffixes.
+
+These per-step permissions are validated and recorded in the compiled step spec
+but are **not currently enforced** (gate 8 / #442). They are separate from
+flow-wide `FlowHeader.workspace` / `tools.fs` scopes. The chief harness above
+remains an aspirational example; this option does not make that entire harness
+executable today.
 
 ### Supported TypeScript LLM calls
 
