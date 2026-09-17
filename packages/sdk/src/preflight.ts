@@ -46,7 +46,12 @@ export type CliProbeFailureDetail =
   | `timeout:${number}ms`
   | `signal:${string}`;
 
+import { CliProbeError } from './preflight-probe-error.js';
 export { CliProbeError } from './preflight-probe-error.js';
+
+type CliProbeOutcome =
+  | { result: CliProbeResult }
+  | { failure: CliProbeFailureDetail | null };
 
 /**
  * Environment facts are injected; this module performs no I/O. A probe may

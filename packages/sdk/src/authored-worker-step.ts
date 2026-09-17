@@ -50,6 +50,9 @@ export function authoredWorkerRunner(
         refusal?.message
           ?? `flow "${definition.name}" step "${id}": no CLI could be resolved for f.${step.type} `
             + `(searched for flows.json from "${flowPath}")`,
+        undefined,
+        undefined,
+        refusal?.kind,
       );
     }
     const spec = toKernelSpec(resolved);

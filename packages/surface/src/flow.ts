@@ -170,7 +170,10 @@ function snapshotHeader(value: unknown, at = "header", ancestors = new Set<objec
   try {
     if (Array.isArray(value)) {
       const entries = ownDataEntries(value as unknown as Record<string, unknown>, at);
-      const result: unknown[] = [];
+      // Preserve sparse-array length so the later closed-header validation
+      // refuses holes instead of treating Array(1) as an empty declaration.
+      const length = entries.find(([key]) => key === "length")?.[1];
+      const result: unknown[] = new Array(typeof length === "number" ? length : 0);
       for (const [key, item] of entries) {
         if (key === "length") continue;
         Object.defineProperty(result, key, {

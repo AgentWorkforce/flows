@@ -105,8 +105,8 @@ export function checkFlow(path: string): CheckExecution {
 }
 
 /** Preflight a validated authored flow through the same path as YAML/JSON. */
-export function checkAuthoredFlow(authoring: FlowSpec, path: string): CheckExecution {
-  return createAuthoredFlowChecker(path).check(authoring);
+export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConfig?: ProjectConfig): CheckExecution {
+  return createAuthoredFlowChecker(path, projectConfig).check(authoring);
 }
 
 export interface AuthoredFlowChecker {
@@ -157,7 +157,7 @@ export function createAuthoredFlowChecker(path: string, projectConfig?: ProjectC
   });
   const check = (authoring: FlowSpec): CheckExecution => {
       try {
-        const result = preflight(authoring, options);
+        const result = preflight(authoring, options) as PreflightResult;
         const flow = result.ok
           ? bindResolvedCliPaths(compileSpec(authoring), result.resolutions, directory, config.directory)
           : undefined;
