@@ -521,6 +521,12 @@ fn handle_request(
         }
         "stream.append" => {
             let params: StreamAppendParams = decode_params(request.params)?;
+            if params.stream.starts_with("subscription/") {
+                return Err((
+                    "bad_request",
+                    "subscription streams are reserved for the fenced event router".to_owned(),
+                ));
+            }
             let lock = hub.run_lock(&params.run_id);
             let _guard = lock.lock().expect("run lock");
             ensure_mutable(&engine, &params.run_id)?;
