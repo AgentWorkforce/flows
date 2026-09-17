@@ -221,6 +221,7 @@ impl RunState {
                 // state machine — it never affects run/step state, so state
                 // folding ignores it here.
                 | EntryType::SubscriptionStale
+                | EntryType::SubscriptionPrepared
                 | EntryType::SubscriptionOpened
                 | EntryType::SubscriptionClosed
                 | EntryType::SubscriptionOverflowFenced

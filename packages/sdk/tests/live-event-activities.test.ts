@@ -47,18 +47,31 @@ steps:
     instruction: park for activity
 `)));
 
-  const execution = executeAuthoredFlow(flow('surface-activity', async (f) => {
+  const definition = flow('surface-activity', async (f) => {
     const activity = f.on(webhook('github_pull_request'), { idle: '1h', deadline: '1d' });
     const wake = await activity.next();
     expect(wake).toEqual({
       kind: 'events', events: [{ type: 'github_pull_request', payload: { number: 42 } }], offset: 1,
     });
     f.done('success');
-  }), bodyClient, undefined, { rootRunId: root.run_id });
+  });
+
+  // The first body attempt writes only subscription.prepared and releases
+  // itself. The local test adapter performs the Cloud-owned binding handoff,
+  // then a resumed attempt sees the active cursor.
+  const preparedAttempt = executeAuthoredFlow(definition, bodyClient, undefined, { rootRunId: root.run_id });
+  void preparedAttempt.catch(() => undefined);
 
   await waitFor(() => routerClient.journalRead(root.run_id, 1, 100).then(({ entries }) =>
-    (entries as Array<{ entry_type?: string }>).some(entry => entry.entry_type === 'subscription.opened'),
+    (entries as Array<{ entry_type?: string }>).some(entry => entry.entry_type === 'subscription.prepared'),
   ));
+  await expect(preparedAttempt).rejects.toMatchObject({ code: 'subscription_suspended' });
+  await routerClient.subscriptionActivate({
+    run_id: root.run_id, subscription_id: 'activity-1', ingress_offset: 0,
+    router_binding: { transport: 'local-test-router', generation: 'test' },
+  });
+  const execution = executeAuthoredFlow(definition, bodyClient, undefined, { rootRunId: root.run_id });
+  void execution.catch(() => undefined);
   expect((await routerClient.eventEmit(
     root.run_id, 'github_pull_request', { number: 42 }, { delivery_id: 'live-event-42', actor: 'reviewer' },
   )).matched).toBe(1);
@@ -84,6 +97,10 @@ steps:
   await before.subscriptionOpen({
     run_id: root.run_id, subscription_id: 'restart', event_types: ['github_pull_request'],
     settle_ms: 0, idle_ms: 60_000, deadline_ms: 86_400_000, include_self: false,
+  });
+  await before.subscriptionActivate({
+    run_id: root.run_id, subscription_id: 'restart', ingress_offset: 0,
+    router_binding: { transport: 'local-test-router', generation: 'test' },
   });
   expect((await before.eventEmit(
     root.run_id, 'github_pull_request', { number: 99 }, { delivery_id: 'kill-window-99', actor: 'reviewer' },

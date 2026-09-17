@@ -66,7 +66,7 @@ if(request){appendFileSync('agent-effects','once\\n');await new Promise(r=>setTi
 `);
   chmodSync(wrapper, 0o755);
   writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli: wrapper }));
-  writeFileSync(join(directory, 'case.flow.ts'), `import {flow} from '@relayflows/surface';
+  writeFileSync(join(directory, 'case.flow.ts'), `import {flow,webhook} from '@relayflows/surface';
 import {appendFileSync,existsSync,writeFileSync,writeSync} from 'node:fs';
 export default flow('runtime-case',async f=>{${body}});
 `);
@@ -92,6 +92,16 @@ async function entries(directory: string, runId: string) {
 }
 
 describe('Bun 1.4.0 standalone → native Node authored lifecycle', () => {
+  it('serializes the immutable prepared binding facts through the Node and CLI boundary', () => {
+    const f = fixture(`const activity=f.on(webhook('github_pull_request',{action:'opened',repository:{id:7}}),{settle:'2m',idle:'1h',deadline:'1d',includeSelf:true});await activity.next();f.done('success');`);
+    const result = f.run(); expect(result.status, result.stderr + result.stdout).toBe(4);
+    expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, status: 'suspended', suspension: {
+      kind: 'activation', subscriptionId: 'activity-1', eventTypes: ['github_pull_request'],
+      pattern: { action: 'opened', repository: { id: 7 } }, settleMs: 120_000,
+      idleMs: 3_600_000, includeSelf: true,
+    } });
+  }, 60_000);
+
   it('awaits agent plus three run steps and resumes without repeating effects', async () => {
     const f = fixture(sequential + `f.done('success');`);
     const first = f.run(); expect(first.status, first.stderr + first.stdout).toBe(0);

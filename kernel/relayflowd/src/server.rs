@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use relayflowd_core::{CompletionReason, PROTOCOL_VERSION, RunSpec, StepType};
 use serde_json::{Value, json};
 
+use crate::engine::SubscriptionNext;
 use crate::{Engine, OutOfBandCompletion};
 
 #[cfg(unix)]
@@ -490,24 +491,37 @@ fn handle_request(
             let lock = hub.run_lock(&params.run_id);
             let _guard = lock.lock().expect("run lock");
             ensure_mutable(&engine, &params.run_id)?;
-            let (stream, deadline_at_ms) = engine
+            let opened = engine
                 .open_subscription(
                     &params.run_id, &params.subscription_id, params.event_types, params.pattern,
                     params.settle_ms, params.idle_ms, params.deadline_ms, params.include_self,
                 )
                 .map_err(internal_error)?;
-            Ok(json!({"subscription_id": params.subscription_id, "stream": stream, "deadline_at_ms": deadline_at_ms}))
+            to_value(opened)
+        }
+        "subscription.activate" => {
+            let params: SubscriptionActivateParams = decode_params(request.params)?;
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            ensure_mutable(&engine, &params.run_id)?;
+            to_value(engine.activate_subscription(
+                &params.run_id, &params.subscription_id, params.ingress_offset, params.router_binding,
+            ).map_err(internal_error)?)
         }
         "subscription.next" => {
             let params: SubscriptionNextParams = decode_params(request.params)?;
             // Do not hold the per-run mutex while parked: a router append on a
             // second connection must be able to commit and wake this request.
-            let (wake, acknowledge_wait_id) = engine.next_subscription_after_ack_with_receipt(
+            let (outcome, acknowledge_wait_id) = engine.next_subscription_outcome(
                 &params.run_id,
                 &params.subscription_id,
                 params.acknowledge_wait_id.as_deref(),
             ).map_err(internal_error)?;
-            let mut result = to_value(wake)?;
+            let mut result = match outcome {
+                SubscriptionNext::Wake(wake) => to_value(wake)?,
+                SubscriptionNext::Suspended { subscription_id, stream, deadline_at_ms } =>
+                    json!({"kind": "suspended", "subscription_id": subscription_id, "stream": stream, "deadline_at_ms": deadline_at_ms}),
+            };
             if let Some(acknowledge_wait_id) = acknowledge_wait_id {
                 result.as_object_mut().expect("subscription wake serializes as object")
                     .insert("acknowledge_wait_id".to_owned(), Value::String(acknowledge_wait_id));

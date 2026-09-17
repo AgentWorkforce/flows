@@ -406,12 +406,17 @@ export class JournalClient extends EventEmitter {
     return this.request('event.submit', { spec, event });
   }
 
-  /** Open a fenced body subscription. A successful reply makes the Activity visible to its body. */
+  /** Prepare a body subscription. Cloud must activate the returned request before a body can observe it. */
   subscriptionOpen(params: VerbContract['subscription.open']['params']): Promise<VerbContract['subscription.open']['result']> {
     return this.request('subscription.open', params, null);
   }
 
-  /** Park for the next journaled subscription wake. */
+  /** Commit Cloud's durable binding receipt and ingress fence. */
+  subscriptionActivate(params: VerbContract['subscription.activate']['params']): Promise<VerbContract['subscription.activate']['result']> {
+    return this.request('subscription.activate', params, null);
+  }
+
+  /** Return a durable wake, or an explicit suspension with no daemon-side sleep. */
   subscriptionNext(params: VerbContract['subscription.next']['params']): Promise<VerbContract['subscription.next']['result']> {
     return this.request('subscription.next', params, null);
   }

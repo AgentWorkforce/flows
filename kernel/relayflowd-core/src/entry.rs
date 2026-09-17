@@ -25,6 +25,11 @@ pub enum EntryType {
     /// "Native silent-death" answer at the journal level.
     #[serde(rename = "subscription.stale")]
     SubscriptionStale,
+    /// The cell has recorded the exact subscription request but Cloud has not
+    /// yet fenced its provider binding.  A prepared record is intentionally
+    /// invisible to the authored body and never accepts frames.
+    #[serde(rename = "subscription.prepared")]
+    SubscriptionPrepared,
     /// A body-local event cursor. This is distinct from trigger-plane
     /// `subscription.registered`: it never creates a run.
     #[serde(rename = "subscription.opened")]
@@ -85,6 +90,7 @@ impl EntryType {
             Self::SubscriptionRegistered => "subscription.registered",
             Self::SubscriptionMatched => "subscription.matched",
             Self::SubscriptionStale => "subscription.stale",
+            Self::SubscriptionPrepared => "subscription.prepared",
             Self::SubscriptionOpened => "subscription.opened",
             Self::SubscriptionClosed => "subscription.closed",
             Self::SubscriptionOverflowFenced => "subscription.overflow.fenced",
@@ -117,6 +123,7 @@ impl EntryType {
             "subscription.registered" => Self::SubscriptionRegistered,
             "subscription.matched" => Self::SubscriptionMatched,
             "subscription.stale" => Self::SubscriptionStale,
+            "subscription.prepared" => Self::SubscriptionPrepared,
             "subscription.opened" => Self::SubscriptionOpened,
             "subscription.closed" => Self::SubscriptionClosed,
             "subscription.overflow.fenced" => Self::SubscriptionOverflowFenced,
@@ -532,6 +539,22 @@ pub struct SubscriptionOpenedPayload {
     pub ingress_offset: u64,
     #[serde(default)]
     pub router_binding: Value,
+}
+
+/// Immutable request handed to the Cloud router before it creates the
+/// provider binding.  `subscription.opened` is appended only after Cloud
+/// returns its fenced binding receipt and ingress offset.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SubscriptionPreparedPayload {
+    pub subscription_id: String,
+    pub event_types: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<Value>,
+    pub stream: String,
+    pub settle_ms: i64,
+    pub idle_ms: i64,
+    pub deadline_at_ms: i64,
+    pub include_self: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

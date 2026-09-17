@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { canonicalize } from './canonical.js';
 import { compileSpec, toKernelSpec } from './compile.js';
-import { executeAuthoredFlow, type AuthoredFlowExecutionResult } from './authored-flow-executor.js';
+import { executeAuthoredFlow, type AuthoredFlowExecutionResult, type AuthoredFlowSuspendedResult } from './authored-flow-executor.js';
 import {
   loadAuthoredFlow,
   type LoadedAuthoredFlow,
@@ -16,6 +16,11 @@ import { SPEC_SCHEMA_VERSION } from './spec.js';
 import type { RunLifecycleOptions } from './cli/run.js';
 import { withWorkerLease } from './worker-lease.js';
 import { isSurfaceCompletionReason } from './authored-step-output.js';
+import { AuthoredFlowExecutionError } from './authored-flow-error.js';
+
+export type DurableAuthoredFlowResult =
+  | (AuthoredFlowExecutionResult & { readonly rootRunId: string })
+  | (AuthoredFlowSuspendedResult & { readonly rootRunId: string });
 
 const ROOT_KIND = 'relayflows.authored-root.v1';
 
@@ -50,7 +55,7 @@ export async function executeDurableAuthoredFlow(
   journal: JournalClient,
   input: unknown,
   options: DurableAuthoredOptions,
-): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
+): Promise<DurableAuthoredFlowResult> {
   assertAuthoredRuntimeAvailable();
   const source = await readFile(loaded.sourcePath);
   const sources = await Promise.all(loaded.graph.map(async node => Object.freeze({
@@ -108,7 +113,7 @@ export async function resumeDurableAuthoredFlow(
   rootRunId: string,
   journal: JournalClient,
   options: Omit<DurableAuthoredOptions, 'admissionKey'>,
-): Promise<(AuthoredFlowExecutionResult & { readonly rootRunId: string }) | undefined> {
+): Promise<DurableAuthoredFlowResult | undefined> {
   const metadata = await readAuthoredRootMetadata(journal, rootRunId);
   if (metadata === undefined) return undefined;
   assertAuthoredRuntimeAvailable();
@@ -167,7 +172,7 @@ async function driveRoot(
   peer: JournalClient,
   dispatch: StepDispatchEvent,
   options: Omit<DurableAuthoredOptions, 'admissionKey'>,
-): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
+): Promise<DurableAuthoredFlowResult> {
   try {
     const result = await withWorkerLease(peer, dispatch, async rootSignal => {
       const callerSignal = options.lifecycle?.signal;
@@ -206,6 +211,15 @@ async function driveRoot(
     );
     return Object.freeze({ ...result, rootRunId: dispatch.run_id });
   } catch (error) {
+    if (error instanceof AuthoredFlowExecutionError
+      && error.code === 'subscription_suspended'
+      && error.suspension !== undefined) {
+      // Do not complete the root step: its durable running state is the
+      // resume token.  The worker lease ends with this process, and Cloud
+      // publishes the journal before activating or waking it.
+      return Object.freeze({ state: 'suspended' as const, name: metadata.flowName,
+        suspension: error.suspension, journalSteps: Object.freeze([]), rootRunId: dispatch.run_id });
+    }
     await terminalizeRootFailure(peer, dispatch, error);
     throw error;
   }

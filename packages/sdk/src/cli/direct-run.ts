@@ -19,6 +19,7 @@ import {
   emptyReport,
   fromCheckReport,
   protocolFailure,
+  suspendedExecution,
   socketFor,
   type RunExecution,
   type RunLifecycleOptions,
@@ -93,6 +94,9 @@ export async function runDirectFlow(
         },
       },
     );
+    if (result.state === 'suspended') {
+      return suspendedExecution('run', base, socketPath, result.rootRunId, result);
+    }
     const terminal = result.journalSteps.at(-1);
     if (terminal === undefined) {
       return protocolFailure('run', base, socketPath, new Error(
