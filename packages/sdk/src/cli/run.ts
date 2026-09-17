@@ -22,7 +22,7 @@ import type {
   RunStatus,
 } from '../protocol.js';
 import type { StepType } from '../spec.js';
-import type { FlowCompletionReason } from '@relayflows/surface';
+import type { LoweredCompletionReason } from '../authored-flow-executor.js';
 import {
   checkFlow,
   type CheckReport,
@@ -313,50 +313,59 @@ export function authoredCompletion(
   command: RunCommand,
   base: RunReport,
   socketPath: string,
-  result: { name: string; completionReason: FlowCompletionReason; journalSteps: readonly unknown[] },
+  result: { name: string; completionReason: LoweredCompletionReason; journalSteps: readonly unknown[] },
   runId: string | undefined,
 ): RunExecution {
-  const reason = result.completionReason;
   const common: RunReport = {
     ...fromBase(command, base),
     ...(runId === undefined ? {} : { runId }),
     socketPath,
     completedSteps: result.journalSteps.length,
   };
-  if (reason === 'success') {
-    return {
-      exitCode: 0,
-      report: { ...common, ok: true, status: 'completed', completionReason: 'success' },
-    };
+  switch (result.completionReason) {
+    case 'success':
+      return {
+        exitCode: 0,
+        report: { ...common, ok: true, status: 'completed', completionReason: 'success' },
+      };
+    case 'needs_human':
+      return {
+        exitCode: 3,
+        report: {
+          ...common, ok: false, status: 'parked',
+          diagnostics: [...base.diagnostics, {
+            severity: 'parked', kind: 'run_parked',
+            message: `Flow "${result.name}" needs_human; see the journal for accumulated blockers.`,
+          }],
+        },
+      };
+    case 'step_failed':
+      // A declared run failure. Exit 1, not the parked 3: nothing here is
+      // waiting for a human to recover it, and exit 3 is the local kit's
+      // manual-approval stop. `status: failed` with this `completionReason` is
+      // also the only terminal shape Cloud accepts for a non-success run
+      // (see cloud-run.ts).
+      return {
+        exitCode: 1,
+        report: {
+          ...common, ok: false, status: 'failed', completionReason: 'step_failed',
+          diagnostics: [...base.diagnostics, {
+            severity: 'failure', kind: 'step_failed',
+            message: `Flow "${result.name}" declared done("step_failed"): its own checks did not pass. `
+              + 'No step failed, so there is no step-level evidence to inspect; the journal holds '
+              + 'every step the flow ran before it decided.',
+          }],
+        },
+      };
   }
-  if (reason === 'needs_human') {
-    return {
-      exitCode: 3,
-      report: {
-        ...common, ok: false, status: 'parked',
-        diagnostics: [...base.diagnostics, {
-          severity: 'parked', kind: 'run_parked',
-          message: `Flow "${result.name}" needs_human; see the journal for accumulated blockers.`,
-        }],
-      },
-    };
-  }
-  // A declared run failure. Exit 1, not the parked 3: nothing here is waiting
-  // for a human to recover it, and exit 3 is the local kit's manual-approval
-  // stop. `status: failed` with this `completionReason` is also the only
-  // terminal shape Cloud accepts for a non-success run (see cloud-run.ts).
-  return {
-    exitCode: 1,
-    report: {
-      ...common, ok: false, status: 'failed', completionReason: reason,
-      diagnostics: [...base.diagnostics, {
-        severity: 'failure', kind: reason,
-        message: `Flow "${result.name}" declared done("${reason}"): its own checks did not pass. `
-          + 'No step failed, so there is no step-level evidence to inspect; the journal holds '
-          + 'every step the flow ran before it decided.',
-      }],
-    },
-  };
+  // Exhaustive by construction. A fourth lowered completion has to choose its
+  // own exit code and wording here; it must not inherit "its own checks did not
+  // pass", which would state something the body never declared. Letting an
+  // unlisted reason fall through to the failure branch is how a reporting-side
+  // copy of the same vocabulary drifts from the executor's — the defect this
+  // change exists to close — so it is a compile error, not a wrong report.
+  const unreachable: never = result.completionReason;
+  throw new Error(`unreachable authored completion: ${String(unreachable)}`);
 }
 
 /**

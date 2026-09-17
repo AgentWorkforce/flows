@@ -83,12 +83,22 @@ export interface AuthoredFlowExecutionResult {
   readonly executionRuntime?: AuthoredExecutionRuntime;
   readonly rootRunId?: string;
   readonly name: string;
-  readonly completionReason: FlowCompletionReason;
+  readonly completionReason: LoweredCompletionReason;
   readonly journalSteps: readonly AuthoredFlowJournalStep[];
 }
 
-type ExecutionResultUsesFlowCompletionReason = Assert<
-  Equal<AuthoredFlowExecutionResult['completionReason'], FlowCompletionReason>
+// The authoring SURFACE stays wide: `done()` accepts every
+// `FlowCompletionReason` and refuses the kernel-owned ones at runtime with a
+// diagnostic that names the alternative. The RESULT is narrow, because `done()`
+// cannot store a reason this executor does not lower.
+//
+// Pinning the narrow type here is load-bearing, not cosmetic. Every reader of
+// this result — the CLI report, the durable root, the IPC verifier — would
+// otherwise have to re-derive "can this really be `canceled`?" and answer it
+// by hand. Those hand-written answers disagreeing is the exact defect this
+// change exists to close; a widening here re-opens it at compile time instead.
+type ExecutionResultUsesLoweredCompletionReason = Assert<
+  Equal<AuthoredFlowExecutionResult['completionReason'], LoweredCompletionReason>
 >;
 type JournalStepUsesStepCompletionReason = Assert<
   Equal<AuthoredFlowJournalStep['completionReason'], ProtocolCompletionReason>
@@ -457,6 +467,11 @@ function unsupportedVerb(verb: string): AuthoredFlowExecutionError {
  * `unsupported_completion`. Every gate that asks "is this a completion this
  * runtime can lower?" now asks this one function, so a reason cannot be
  * accepted in one place and rejected in another.
+ *
+ * These three are internal cross-module helpers for the authored seam (the
+ * executor, the durable root, the IPC verifier and the CLI report), NOT public
+ * SDK surface. `src/index.ts` deliberately re-exports nothing from this module
+ * — keep it that way, or the whole authored seam leaks with them.
  */
 export const LOWERED_COMPLETIONS = ['success', 'needs_human', 'step_failed'] as const;
 export type LoweredCompletionReason = (typeof LOWERED_COMPLETIONS)[number];

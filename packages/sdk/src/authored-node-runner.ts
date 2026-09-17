@@ -213,11 +213,12 @@ export async function verifyAuthoredNodeResult(
       if (claimed === terminal) {
         // The claimed verdict must match the marker the journal actually
         // recorded, so an IPC frame cannot claim `success` over a run whose
-        // durable terminal says `step_failed` (or the reverse). The guard is
-        // repeated inside this `||` chain because `invalid()` returns `never`
-        // without narrowing `result.completionReason` for the reader below.
-        if (!isLoweredCompletion(result.completionReason)
-          || step?.type !== 'deterministic'
+        // durable terminal says `step_failed` (or the reverse). The
+        // `isLoweredCompletion` check at the top of this function already
+        // rejected a frame whose reason is not lowerable at all — that one is
+        // the runtime validation of untrusted IPC, and it is why nothing has
+        // to be re-asserted here just to satisfy the type.
+        if (step?.type !== 'deterministic'
           || step.command !== completionMarker(result.completionReason)) invalid();
       }
     }
