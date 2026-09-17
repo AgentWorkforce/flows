@@ -183,11 +183,18 @@ No new step kind and no new verb. The kernel vocabulary stays closed
    (`closed` \| `run_completed` \| `canceled` \| `deadline` \| `overflow`).
 3. **Buffered delivery** — matching events become `stream.appended` on the
    subscription's stream, carrying the provider delivery id as the idempotency
-   key. A stream holds at most **1,000 frames or 1 MiB of encoded frame bytes**,
-   whichever is reached first. On a would-exceed append, the router atomically
-   records closure with `overflow`, removes the binding, and leaves the frame
-   unappended; the next `next()` returns `overflow` with the retained range.
-   Events for a closed or unknown subscription are refused, not buffered.
+   key. A stream holds at most **1,000 unread frames or 1 MiB of unread encoded
+   frame bytes**, measured after this subscription consumer's acknowledged
+   offset; consumed prefixes are eligible for normal journal compaction and do
+   not count against the next batch. On a would-exceed append, closure uses the
+   converse of the open handshake: the router first durably fences the binding
+   as `closing: overflow` and refuses further appends, the journal appends
+   `subscription.closed(overflow)`, and only then is the binding removed. If a
+   cell dies between those records, recovery completes the idempotent close
+   from the fenced binding; it never restores that generation as open. The
+   would-exceed frame is unappended and the next `next()` returns `overflow`
+   with the retained range. Events for a closed or unknown subscription are
+   refused, not buffered.
 4. **`wait.event` extension** — alongside `event_key`, a wait may name
    `stream`, `from_offset`, `settle_ms`, `idle_at_ms`, and `deadline_at_ms`.
    It completes with `event_received` and `result: { from_offset, next_offset }`
@@ -251,12 +258,17 @@ implementation proves:
     a crash at either side of that handoff produces neither a ghost binding nor
     a missed post-open frame.
 12. The 1,001st frame or first byte beyond 1 MiB closes the subscription and
-    returns `overflow`; no frame is silently dropped and later matching frames
-    are refused until the body explicitly opens a fresh subscription.
+    returns `overflow` when that many **unread** frames or bytes are pending;
+    a consumer that keeps up does not overflow on lifetime volume. No frame is
+    silently dropped and later matching frames are refused until the body
+    explicitly opens a fresh subscription.
 13. A frame racing an idle timer follows the serialized append/timer order;
     a non-empty batch at idle ends settle as `events`. A frame at the exact
     deadline loses to `deadline`, whose result reports any durable unread
     range.
+14. `kill -9` after the router fences an overflow but before
+    `subscription.closed(overflow)` commits, then resume: recovery completes
+    the overflow close and never restores the prior binding as open.
 
 ## 8. Open questions
 
