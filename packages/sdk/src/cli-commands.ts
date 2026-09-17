@@ -215,6 +215,7 @@ export const CLI_VERBS = [
     args: [{ name: 'run-id', description: 'Hosted run id whose patch to apply', required: true }],
     options: [
       JSON_OPTION,
+      { flags: '--dry-run', description: 'Print the patch and apply nothing' },
       { flags: '--dir <path>', description: 'Tree to apply the patch to', defaultValue: '.' },
     ],
     variants: ['sync'],

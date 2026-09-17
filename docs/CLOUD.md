@@ -89,9 +89,33 @@ pointing at a tree Cloud does not hold.
 and every touched path is listed, deletions included: what the run changed —
 it is your own flow's output, but it is agent output — is reviewed with
 `git diff` before any of it is kept, the same contract v1's `cloud sync` had.
-Runs that declared several mounted paths carry one patch per path and are
-refused here (`sync_unsupported`). `--dir <path>` targets a checkout other
-than the current directory.
+`--dir <path>` targets a checkout other than the current directory.
+
+The agent runtime's own bookkeeping inside the synced tree is never written.
+The sandbox commits its baseline before the run, so `.agent-bin/**`,
+`.relayfile.acl`, `.relayfile-mount-state.json` and its `.tmp-*` temporaries,
+`.trajectories/**` and `.workflow-context/**` all show up in the post-run diff;
+applying them verbatim would drag trajectory records and mount state into your
+checkout, and overwrite the mount state of the tree being synced into. They are
+dropped with `git apply --exclude`, listed as `SKIPPED` (`excluded` under
+`--json`), and — because the exclusions are a property of the patch that lands —
+the `--check` pass carries the identical arguments: a conflict in a hunk that is
+never applied is not a refusal. The patterns are anchored at the patch root, so
+a vendored `packages/x/.agent-bin/tool` belongs to a different tree and rides
+along. `CLOUD_SYNC_PATCH_EXCLUDES` is the list's single home; `applyCloudPatch`
+takes an `exclude` option, and `[]` applies a patch whole.
+
+`--dry-run` prints the patch and applies nothing, reporting which paths it would
+write and which it would skip. Under `--json` the diff travels in the payload's
+`patch` field rather than loose on stdout beside it, so one object still parses.
+
+A run that declared several mounted paths carries one patch per path, keyed by
+path name. `flows sync --dry-run` shows each of them; applying is refused
+(`sync_unsupported`, exit 2), because they target different repositories and no
+single `--dir` is the right destination — inspect them, then apply each in its
+own repository. This is not a v1 shape: the `/patch` route branches on the run's
+`paths`, not on `relayflowVersion`, so a v2 `--sync-code` run that submits
+several paths answers the same way.
 
 A synced run and a Cloud repository grant are mutually exclusive on the
 server: `--sync-code` is the local-driven development loop, and

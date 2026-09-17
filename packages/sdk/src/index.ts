@@ -64,8 +64,10 @@ export {
   type CloudFlowSource, type RunInCloudOptions, type CloudRunReceipt, type CloudRunState,
 } from './cloud-run.js';
 export {
-  downloadCloudPatch, applyCloudPatch, packWorkingTree, patchedPaths, MAX_SYNC_BYTES,
-  type CloudPatch, type PackedTree,
+  downloadCloudPatch, downloadCloudPatchSet, applyCloudPatch, packWorkingTree, patchedPaths,
+  excludedPatchPaths, CLOUD_SYNC_PATCH_EXCLUDES, MAX_SYNC_BYTES,
+  type CloudPatch, type CloudPathPatch, type CloudPatchSet, type PackedTree,
+  type ApplyCloudPatchOptions, type AppliedCloudPatch,
 } from './cloud-sync.js';
 export {
   deployToCloud, listCloudDeployments, undeployFromCloud, parseRepository, parseTriggerSource, FLOW_TRIGGER_PROVIDERS,

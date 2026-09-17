@@ -60,7 +60,7 @@ export type ParsedArgs =
   | DeployArgs
   | { command: 'serve-webhook'; dataDir: string; port: number; admitted?: readonly string[] }
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean; input: string | undefined; syncCode: boolean }
-  | { command: 'sync'; runId: string; json: boolean; root: string }
+  | { command: 'sync'; runId: string; json: boolean; root: string; dryRun: boolean }
   | CloudDeployArgs
   | { command: 'deployments'; json: boolean }
   | { command: 'undeploy'; agentId: string; json: boolean }
@@ -88,7 +88,7 @@ const USAGE = [
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] <flow.ts> --input <inline-json-or-file>',
-  'flows sync [--json] [--dir <path>] <run-id>',
+  'flows sync [--json] [--dry-run] [--dir <path>] <run-id>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <run-id>',
@@ -653,9 +653,13 @@ function parseHnMonitorArgs(rest: readonly string[]): ParsedArgs | undefined {
  * directory at all -- the mint is a pure Relaycast API round-trip. No
  * positional argument, no other flags.
  */
-/** `flows sync [--json] [--dir <path>] <run-id>`: apply a hosted run's patch to a local tree. */
+/**
+ * `flows sync [--json] [--dry-run] [--dir <path>] <run-id>`: apply a hosted
+ * run's patch to a local tree, or with `--dry-run` print it and apply nothing.
+ */
 function parseSyncArgs(args: readonly string[]): ParsedArgs | undefined {
   let json = false;
+  let dryRun = false;
   let root: string | undefined;
   const positionals: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
@@ -663,6 +667,11 @@ function parseSyncArgs(args: readonly string[]): ParsedArgs | undefined {
     if (argument === '--json') {
       if (json) return undefined;
       json = true;
+      continue;
+    }
+    if (argument === '--dry-run') {
+      if (dryRun) return undefined;
+      dryRun = true;
       continue;
     }
     if (argument === '--dir') {
@@ -676,7 +685,7 @@ function parseSyncArgs(args: readonly string[]): ParsedArgs | undefined {
     positionals.push(argument);
   }
   if (positionals.length !== 1) return undefined;
-  return { command: 'sync', runId: positionals[0]!, json, root: root ?? '.' };
+  return { command: 'sync', runId: positionals[0]!, json, dryRun, root: root ?? '.' };
 }
 
 function parseObserverArgs(rest: readonly string[]): ParsedArgs | undefined {

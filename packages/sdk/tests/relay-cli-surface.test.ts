@@ -76,6 +76,7 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
     variant: 'serve-webhook',
   },
   { verb: 'sync', argv: ['sync', RUN_ID], variant: 'sync' },
+  { verb: 'sync', argv: ['sync', '--dry-run', '--json', RUN_ID], variant: 'sync' },
   {
     verb: 'tick',
     argv: ['tick', 'start', '--schedule-id', 'nightly', '--interval-ms', '60000', 'spec.json'],
@@ -155,6 +156,51 @@ describe('relay-cli surface: drift between `commands` and `run`', () => {
     const reached = new Set(INVOCATIONS.map((invocation) => invocation.variant));
 
     expect(reached).toEqual(claimed);
+  });
+
+  it('declares no flag the parser refuses everywhere', () => {
+    // The other half of command drift: a verb can be declared correctly and
+    // still advertise a switch nothing accepts. Every declared boolean option
+    // has to be accepted by at least one of that verb's sample invocations --
+    // "at least one", because some flags are only valid in combination
+    // (`run --wait` needs `--cloud`, `deploy --draft` only the hosted form).
+    // Value-taking options are left out: their placeholder is not an argv token.
+    const declaredFlags = (CLI_VERBS as readonly CliVerbSpec[]).flatMap((verb) => [
+      ...(verb.options ?? []).map((option) => option.flags),
+      ...(verb.subcommands ?? []).flatMap((sub) => (sub.options ?? []).map((option) => option.flags)),
+    ].filter((flags) => !flags.includes('<')).map((flags) => ({ verb: verb.name, flags })));
+
+    // A real table always has some; an empty list would make this test vacuous.
+    expect(declaredFlags.length).toBeGreaterThan(0);
+
+    for (const { verb, flags } of declaredFlags) {
+      const samples = INVOCATIONS.filter((invocation) => invocation.verb === verb);
+      expect(samples.length, `${verb} has a sample invocation`).toBeGreaterThan(0);
+
+      const accepted = samples.some(({ argv }) => {
+        // A sample that already carries the flag has answered the question;
+        // adding it a second time is a duplicate, which every verb refuses.
+        if (argv.includes(flags)) return parseCliArgs(argv) !== undefined;
+        // Otherwise: after the verb, and after its subcommand token where there is one.
+        const at = (CLI_VERBS as readonly CliVerbSpec[])
+          .find((entry) => entry.name === verb)!.subcommands?.length ? 2 : 1;
+        return parseCliArgs([...argv.slice(0, at), flags, ...argv.slice(at)]) !== undefined;
+      });
+
+      expect(accepted, `\`flows ${verb} ${flags}\` is accepted by the parser`).toBe(true);
+    }
+  });
+
+  it('refuses a flag it does not declare', () => {
+    // And the converse, spot-checked where the table is most likely to go
+    // stale: an undeclared switch is a parse failure, not a silent no-op.
+    const declared = new Set(
+      (CLI_VERBS.find((verb) => verb.name === 'sync')!.options ?? []).map((option) => option.flags),
+    );
+
+    expect(declared).toEqual(new Set(['--json', '--dry-run', '--dir <path>']));
+    expect(parseCliArgs(['sync', '--dry', RUN_ID])).toBeUndefined();
+    expect(parseCliArgs(['sync', '--exclude', '.trajectories/**', RUN_ID])).toBeUndefined();
   });
 
   it('declares each subcommand under the name the parser actually requires', () => {
