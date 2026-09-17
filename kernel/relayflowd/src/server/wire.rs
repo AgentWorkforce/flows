@@ -1,4 +1,4 @@
-use relayflowd_core::{Budget, CompletionReason, EffectRef, Pins, StepType};
+use relayflowd_core::{Budget, CompletionReason, EffectRef, Pins, StepType, SubscriptionCompletionReason};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -158,6 +158,35 @@ pub(super) struct StreamReadParams {
     pub stream: String,
     pub from_offset: u64,
     pub limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SubscriptionOpenParams {
+    pub run_id: String,
+    pub subscription_id: String,
+    pub event_types: Vec<String>,
+    #[serde(default)]
+    pub pattern: Option<Value>,
+    pub settle_ms: i64,
+    pub idle_ms: i64,
+    pub deadline_ms: i64,
+    pub include_self: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SubscriptionNextParams {
+    pub run_id: String,
+    pub subscription_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SubscriptionCloseParams {
+    pub run_id: String,
+    pub subscription_id: String,
+    pub completion_reason: SubscriptionCompletionReason,
 }
 
 #[derive(Deserialize)]

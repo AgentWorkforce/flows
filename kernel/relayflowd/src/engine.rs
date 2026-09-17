@@ -88,6 +88,8 @@ mod memory;
 mod model;
 mod placement;
 mod remote;
+mod subscriptions;
+pub use subscriptions::{PendingRange, SubscriptionWake};
 mod wake;
 pub use channels::ChannelCommandError;
 pub use model::{RunOutcome, RunSnapshot, RunStatus, StepSnapshot, StepStatus};
@@ -342,7 +344,7 @@ impl<C: Clock> Engine<C> {
         options: DriveOptions,
         lease_is_active: &dyn Fn(&str, u32) -> bool,
     ) -> Result<RunOutcome> {
-        let mut journal = self.open_run(run_id)?;
+        let journal = self.open_run(run_id)?;
         if !options.allow_human_influenced {
             for entry in journal.scan_all()? {
                 if entry.entry_type == EntryType::StepCompleted
@@ -366,6 +368,12 @@ impl<C: Clock> Engine<C> {
                 .context("repair missing run registry entry")?;
         }
         let spec = journal.run_spec().context("read run spec")?;
+        // Activity timers are independent of step leases. Claim their durable
+        // instants before ordinary recovery so a timer that passed while this
+        // cell was down wakes immediately without re-running prior work.
+        drop(journal);
+        self.claim_subscription_timeouts(run_id)?;
+        let mut journal = self.open_run(run_id)?;
         let state = self.load_state(&journal, spec.clone())?;
         for action in recovery_actions_filtered(&state, self.clock.now_ms(), lease_is_active) {
             self.persist_only(&mut journal, action)?;

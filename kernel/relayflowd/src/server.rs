@@ -479,6 +479,32 @@ fn handle_request(
                     .map_err(internal_error)?,
             )
         }
+        "subscription.open" => {
+            let params: SubscriptionOpenParams = decode_params(request.params)?;
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            ensure_mutable(&engine, &params.run_id)?;
+            let (stream, deadline_at_ms) = engine
+                .open_subscription(
+                    &params.run_id, &params.subscription_id, params.event_types, params.pattern,
+                    params.settle_ms, params.idle_ms, params.deadline_ms, params.include_self,
+                )
+                .map_err(internal_error)?;
+            Ok(json!({"subscription_id": params.subscription_id, "stream": stream, "deadline_at_ms": deadline_at_ms}))
+        }
+        "subscription.next" => {
+            let params: SubscriptionNextParams = decode_params(request.params)?;
+            // Do not hold the per-run mutex while parked: a router append on a
+            // second connection must be able to commit and wake this request.
+            to_value(engine.next_subscription(&params.run_id, &params.subscription_id).map_err(internal_error)?)
+        }
+        "subscription.close" => {
+            let params: SubscriptionCloseParams = decode_params(request.params)?;
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            let changed = engine.close_subscription(&params.run_id, &params.subscription_id, params.completion_reason).map_err(internal_error)?;
+            Ok(json!({"closed": if changed { params.subscription_id } else { String::new() }}))
+        }
         "channel.append" | "channel.receive" | "channel.ack" => {
             channels::handle(&engine, hub, connection_id, &request.verb, request.params)
         }

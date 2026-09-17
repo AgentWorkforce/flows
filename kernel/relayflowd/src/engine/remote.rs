@@ -265,6 +265,7 @@ impl Engine<WallClock> {
                     offset,
                     producer: producer.to_owned(),
                     message,
+                    provider_delivery_id: None,
                 },
             ),
         )?;

@@ -176,9 +176,14 @@ impl RunState {
                 }
                 EntryType::WaitEvent => {
                     let payload: crate::entry::WaitEventPayload = decode(entry)?;
-                    state.step_mut(entry)?.state = StepState::Waiting {
-                        wait_id: payload.wait_id,
-                    };
+                    // Body-level activities are run-local cursors rather than
+                    // steps. Their `wait.event` fact intentionally has no
+                    // step id, so it must not be folded as a step transition.
+                    if entry.step_id.is_some() {
+                        state.step_mut(entry)?.state = StepState::Waiting {
+                            wait_id: payload.wait_id,
+                        };
+                    }
                 }
                 EntryType::WaitHuman => {
                     let payload: crate::entry::WaitHumanPayload = decode(entry)?;
@@ -188,15 +193,17 @@ impl RunState {
                 }
                 EntryType::WaitCompleted => {
                     let payload: WaitCompletedPayload = decode(entry)?;
-                    let step = state.step_mut(entry)?;
-                    step.state = if payload.completion_reason == WaitCompletionReason::Canceled {
-                        StepState::Done {
-                            completion_reason: CompletionReason::Canceled,
-                            output: Value::Null,
-                        }
-                    } else {
-                        StepState::Runnable
-                    };
+                    if entry.step_id.is_some() {
+                        let step = state.step_mut(entry)?;
+                        step.state = if payload.completion_reason == WaitCompletionReason::Canceled {
+                            StepState::Done {
+                                completion_reason: CompletionReason::Canceled,
+                                output: Value::Null,
+                            }
+                        } else {
+                            StepState::Runnable
+                        };
+                    }
                 }
                 EntryType::RunCompleted => {
                     let payload: RunCompletedPayload = decode(entry)?;
@@ -214,6 +221,9 @@ impl RunState {
                 // state machine — it never affects run/step state, so state
                 // folding ignores it here.
                 | EntryType::SubscriptionStale
+                | EntryType::SubscriptionOpened
+                | EntryType::SubscriptionClosed
+                | EntryType::SubscriptionOverflowFenced
                 | EntryType::ChannelAppended
                 | EntryType::ChannelDelivered
                 | EntryType::ChannelAcknowledged
