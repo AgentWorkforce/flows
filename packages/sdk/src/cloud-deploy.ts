@@ -104,8 +104,14 @@ export function parseTriggerSource(value: string): FlowTriggerSource {
       if (!setting || setting.length > MAX_SETTING_LENGTH || key in settings) {
         throw new CloudFlowError('invalid_input', `Trigger setting "${key}" must be given once with a non-empty value.`);
       }
-      if (key === 'events' && !['issues', 'pull_request'].includes(setting.toLowerCase())) {
-        throw new CloudFlowError('invalid_input', `github events must be "issues" or "pull_request", got "${setting}".`);
+      if (key === 'events') {
+        // Cloud's enum is lowercase; send it that way whatever the shell typed.
+        const events = setting.toLowerCase();
+        if (!['issues', 'pull_request'].includes(events)) {
+          throw new CloudFlowError('invalid_input', `github events must be "issues" or "pull_request", got "${setting}".`);
+        }
+        settings[key] = events;
+        continue;
       }
       settings[key] = setting;
     }
