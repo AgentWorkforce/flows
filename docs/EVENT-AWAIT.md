@@ -95,18 +95,27 @@ cancel. It is never left open past the run.
 type Wake =
   | { kind: "events"; events: readonly EventFrame[]; offset: number }
   | { kind: "idle" }       // idle budget elapsed with no matching event
-  | { kind: "deadline" };  // subscription deadline reached
+  | { kind: "deadline"; pending: { from: number; to: number } | null }
+  | { kind: "overflow"; retained: number; bytes: number; from: number };
+                              // the bounded stream closed before dropping a frame
 ```
 
 `events` is every event buffered since the previous `next()`, in arrival
-order, after `settle` has elapsed with no newer arrival. The flow decides what
-a timeout means; the kernel never turns one into a failure.
+order, after `settle` has elapsed with no newer arrival. `idle` also ends a
+still-active settle window: when the idle instant is reached with buffered
+frames, `next()` returns that one batch as `events`, rather than extending a
+burst forever. `deadline` is different: it is a hard cap and wins at or after
+its recorded instant; `pending` makes any durable unread range visible rather
+than silently discarding it. `overflow` closes the subscription before the
+would-exceed frame is appended; the body re-reads provider state and may open
+a fresh bounded subscription. The flow decides what an `idle`, `deadline`, or
+`overflow` means; the kernel never turns one into a failure.
 
 ### Options
 
 | option | default | meaning |
 |---|---|---|
-| `settle` | `0` | after the first buffered event, wait until no further event has arrived for this long before waking; bounded by `idle` and `deadline` |
+| `settle` | `0` | after the first buffered event, wait until no further event has arrived for this long before waking; an `idle` instant with a non-empty batch ends settle and returns that batch, while `deadline` remains a hard cap |
 | `idle` | required | per `next()`: wake with `idle` if no event has been buffered for this long, measured from the later of subscription open and the previous wake |
 | `deadline` | required | absolute cap fixed when the subscription opens; every later `next()` wakes with `deadline` at that instant, however recently events arrived |
 | `includeSelf` | `false` | deliver events caused by this run's own identity (gate 8) |
@@ -125,7 +134,9 @@ body-level `on` without both, with `unbounded_subscription`.
    PR state itself on every wake.
 2. **Nothing matching is lost while the subscription is open.** Events that
    arrive while the body runs another step are buffered and delivered by the
-   next `next()`.
+   next `next()`. The one bounded exception is an explicit `overflow`: the
+   subscription closes before the would-exceed frame is accepted, and the
+   body receives `overflow` rather than a silently truncated batch.
 3. **Open, then read.** Events that happened before the subscription opened
    are not delivered. A body closes that gap by opening the subscription and
    then reading state, which law 1 already requires.
@@ -136,10 +147,13 @@ body-level `on` without both, with `unbounded_subscription`.
    react to itself. The router compares the event actor with the run's
    identity. Cloud's integration-watch dispatcher already applies this guard to
    PR reviewer personas.
-6. **Time is journaled, not recomputed.** Each `next()` journals the absolute
-   instants it will wake at. Resume re-arms those instants against the real
-   clock (kernel DESIGN §3 step 4); an instant that passed while the cell slept
-   fires immediately.
+6. **Time and delivery order are journaled, not recomputed.** Each `next()`
+   journals the absolute instants it will wake at. The router's append and the
+   scheduler's timer claim serialize through one per-subscription journal
+   order: for `idle`, an append committed before its timer claim wins and
+   returns the buffered batch; at an exact `deadline` tie the deadline wins.
+   Resume re-arms those instants against the real clock (kernel DESIGN §3 step
+   4); an instant that passed while the cell slept fires immediately.
 7. **Waiting is free.** A parked `next()` holds no lease, no sandbox, and no
    process, and spends zero tokens. `deadline` is the cost bound; the author's
    loop cap bounds rounds of agent work.
@@ -155,20 +169,36 @@ No new step kind and no new verb. The kernel vocabulary stays closed
 1. **`subscription.opened`** — `subscription_id` (deterministic from run id,
    step id and declaration), `event_types`, `pattern` (the recursive-subset
    match already used by `TriggerSpec.pattern`), `stream`
-   (`subscription/<subscription_id>`), `deadline_at_ms`, `include_self`.
+   (`subscription/<subscription_id>`), `deadline_at_ms`, `include_self`, and
+   the immutable provider binding: integration installation, canonical
+   resource scope, authorization snapshot, router binding generation, and
+   durable ingress offset. Opening is a two-party handshake: Cloud first
+   records the fenced binding at that ingress offset, then the journal appends
+   `subscription.opened`; `f.on()` is not visible to the body until both have
+   completed. Recovery removes a prepared binding that has no matching journal
+   entry, and otherwise restores the same generation and replays ingress after
+   its offset before acknowledging the body. This closes the journal-to-router
+   race without delivering frames that predate opening.
 2. **`subscription.closed`** — `subscription_id`, `completionReason`
-   (`closed` \| `run_completed` \| `canceled` \| `deadline`).
+   (`closed` \| `run_completed` \| `canceled` \| `deadline` \| `overflow`).
 3. **Buffered delivery** — matching events become `stream.appended` on the
    subscription's stream, carrying the provider delivery id as the idempotency
-   key. Events for a closed or unknown subscription are refused, not buffered.
+   key. A stream holds at most **1,000 frames or 1 MiB of encoded frame bytes**,
+   whichever is reached first. On a would-exceed append, the router atomically
+   records closure with `overflow`, removes the binding, and leaves the frame
+   unappended; the next `next()` returns `overflow` with the retained range.
+   Events for a closed or unknown subscription are refused, not buffered.
 4. **`wait.event` extension** — alongside `event_key`, a wait may name
    `stream`, `from_offset`, `settle_ms`, `idle_at_ms`, and `deadline_at_ms`.
    It completes with `event_received` and `result: { from_offset, next_offset }`
    once the stream has entries at or past `from_offset` and `settle_ms` has
-   passed since the newest of them; otherwise with `timeout` and
-   `result: { timeout: "idle" | "deadline" }` at the earlier of the two
-   instants. Adding result fields keeps `wait.completed`'s reason enum
-   unchanged.
+   passed since the newest of them. An idle claim with a non-empty unsettled
+   batch completes the same way, so continuous arrivals cannot extend settle
+   forever. An exact or later deadline claim completes with `timeout` and
+   `result: { timeout: "deadline", pending }`, even when unread entries
+   exist; idle completes with `result: { timeout: "idle" }` only when no
+   buffered entries won the serialized race. Adding result fields keeps
+   `wait.completed`'s reason enum unchanged.
 5. **Timeouts are enforced.** The scheduler arms `timeout_at_ms`,
    `idle_at_ms`, and `deadline_at_ms` as durable timers for every open wait,
    including `wait.human`. This closes the gap in §2 for existing waits too.
@@ -180,12 +210,18 @@ No new step kind and no new verb. The kernel vocabulary stays closed
 The event router is Cloud's, not the kernel's (decision 15: the kernel is
 tenant-unaware).
 
-- A `subscription.opened` entry is projected to the router as a binding of
-  `(run_id, subscription_id)` to its event types and pattern. It is removed on
-  `subscription.closed`.
+- A `subscription.opened` entry is projected to the router as a fenced binding
+  of `(run_id, subscription_id, generation, ingress_offset)` to its event
+  types, pattern, provider installation, and canonical resource scope. It is
+  removed on `subscription.closed`. The open handshake records the binding and
+  ingress offset before the body can observe the subscription; recovery
+  replays ingress strictly after that offset before acknowledging the binding.
 - The router matches incoming `EventFrameV1` frames against open bindings,
-  applies the self-actor filter, and calls `stream.append` with the provider
-  delivery id. A matching frame for a sleeping cell wakes the cell.
+  first proving the frame came through the bound installation and is within
+  the bound resource scope. It then applies the self-actor filter and calls
+  `stream.append` with the provider delivery id. A user-authored pattern never
+  broadens that installation or resource scope. A matching frame for a
+  sleeping cell wakes the cell.
 - The router never decides whether the flow is done. It only delivers.
 
 ## 7. Acceptance
@@ -210,16 +246,23 @@ implementation proves:
 9. A body-level `on` without `idle` or `deadline` fails `flows check` with
    `unbounded_subscription`.
 10. `wait.human` with `timeout_at_ms` completes with `timeout` at that instant.
+11. A frame that arrives after the router binding is prepared but before the
+    body can observe `f.on()` is replayed from the recorded ingress offset;
+    a crash at either side of that handoff produces neither a ghost binding nor
+    a missed post-open frame.
+12. The 1,001st frame or first byte beyond 1 MiB closes the subscription and
+    returns `overflow`; no frame is silently dropped and later matching frames
+    are refused until the body explicitly opens a fresh subscription.
+13. A frame racing an idle timer follows the serialized append/timer order;
+    a non-empty batch at idle ends settle as `events`. A frame at the exact
+    deadline loses to `deadline`, whose result reports any durable unread
+    range.
 
 ## 8. Open questions
 
 - **Pattern language.** v0 `wait.event` is exact-match; triggers already carry
   a recursive-subset `pattern`. Leaning: reuse `pattern` for subscriptions and
   keep `event_key` for exact-match waits.
-- **Buffer bound.** A noisy PR could append thousands of frames between wakes.
-  Leaning: cap buffered frames per subscription and deliver a
-  `truncated: true` marker. Law 1 means the body loses nothing it needs, since
-  it re-reads state anyway.
 - **Relationship to `f.human`.** #400 needs a durable approval wait. Leaning:
   `f.human(question, { to, timeout })` lowers to `wait.human` with the timers
   from §5.5, and resolves to `false` on timeout.
