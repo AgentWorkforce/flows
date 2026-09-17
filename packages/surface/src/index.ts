@@ -11,6 +11,7 @@ export type { AgentOptions, AgentResult, LlmOptions, Ctx } from "./context.js";
 export {
   COMPLETION_REASONS,
   RUN_COMPLETION_REASONS,
+  FLOW_COMPLETION_REASONS,
   type CompletionReason,
   type RunCompletionReason,
   type FlowCompletionReason,

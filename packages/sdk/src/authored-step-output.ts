@@ -1,4 +1,4 @@
-import { COMPLETION_REASONS, RUN_COMPLETION_REASONS } from '@relayflows/surface';
+import { COMPLETION_REASONS, RUN_COMPLETION_REASONS, FLOW_COMPLETION_REASONS, type FlowCompletionReason } from '@relayflows/surface';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import type { JournalClient } from './journal-client.js';
 import type { CompletionReason as ProtocolCompletionReason, RunCompletionReason as ProtocolRunCompletionReason, RunOutcome } from './protocol.js';
@@ -91,6 +91,11 @@ export function isSurfaceCompletionReason(value: unknown): value is ProtocolComp
 export function isSurfaceRunCompletionReason(value: unknown): value is ProtocolRunCompletionReason {
   return typeof value === 'string'
     && (RUN_COMPLETION_REASONS as readonly string[]).includes(value);
+}
+
+export function isSurfaceFlowCompletionReason(value: unknown): value is FlowCompletionReason {
+  return typeof value === 'string'
+    && (FLOW_COMPLETION_REASONS as readonly string[]).includes(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

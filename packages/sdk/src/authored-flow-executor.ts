@@ -12,7 +12,7 @@ import { buildMcpProxy, runMcpEffect } from './authored-mcp.js';
 import { AuthoredBudget } from './authored-budget.js';
 import { assertMemoryReachable, authoredMemory, scriptMemoryScope } from './authored-memory.js';
 import { authoredDeterministicRunner, authoredWorkerRunner } from './authored-worker-step.js';
-import { isSurfaceRunCompletionReason } from './authored-step-output.js';
+import { isSurfaceFlowCompletionReason, isSurfaceRunCompletionReason } from './authored-step-output.js';
 import {
   type AgentResult,
   type LlmOptions,
@@ -111,7 +111,7 @@ type JournalStepUsesStepCompletionReason = Assert<
  * authored root, it is not a resumable public runner. The seam is narrow: an
  * flow with an optional budget may await `f.run`, `f.llm`, and `f.agent` steps and must
  * finish with one of the lowered completions — `f.done("success")`,
- * `f.done("needs_human")` or `f.done("step_failed")`. Each step and the terminal marker is
+ * `f.done("needs_human")`, `f.done("step_failed")` or `f.done("declined")`. Each step and the terminal marker is
  * a compiled spec submitted through
  * `JournalClient`; values are read back from `step.completed` journal entries.
  * Unsupported headers, verbs, gates, or completion lowering fail closed.
@@ -328,7 +328,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       throw unsupportedVerb('dispatch');
     },
     done(reason) {
-      if (reason !== 'needs_human' && !isSurfaceRunCompletionReason(reason)) {
+      if (!isSurfaceFlowCompletionReason(reason)) {
         throw new AuthoredFlowExecutionError(
           'unsupported_completion',
           `unknown completion reason: ${String(reason)}`,
@@ -356,7 +356,7 @@ export async function executeAuthoredFlow<Input = undefined>(
           `done("${reason}") is a kernel outcome, not an authored verdict: the kernel `
             + 'records it when it cancels a run or exhausts its budget, so a flow body '
             + 'cannot declare it. Use done("step_failed") to declare that the flow\'s own '
-            + 'checks did not pass.',
+            + 'checks did not pass, or done("declined") to deliberately choose not to act.',
           reason,
         );
       }
@@ -432,7 +432,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   // Record the authored verdict as a SUCCESSFUL effect carrying that verdict,
   // not as a fabricated kernel run.completed reason. The marker step reports
   // what the body decided; it is not itself a step that failed. The CLI turns
-  // the verdict into the exit code (success 0, needs_human 3, step_failed 1).
+  // the verdict into the exit code (success/declined 0, needs_human 3, step_failed 1).
   await lowerDeterministic(`complete-${nextStep}`,
     completionMarker(requestedCompletion), true);
   return Object.freeze({
@@ -462,7 +462,7 @@ function unsupportedVerb(verb: string): AuthoredFlowExecutionError {
  * The completion reasons an authored body may declare and this executor lowers.
  *
  * `FlowCompletionReason` is wider than this on purpose — it is the journal's
- * run vocabulary plus `needs_human` — but the two sets drifting silently is
+ * run vocabulary plus authored verdicts — but the two sets drifting silently is
  * exactly what made a type-valid `done("step_failed")` die at runtime as
  * `unsupported_completion`. Every gate that asks "is this a completion this
  * runtime can lower?" now asks this one function, so a reason cannot be
@@ -473,7 +473,7 @@ function unsupportedVerb(verb: string): AuthoredFlowExecutionError {
  * SDK surface. `src/index.ts` deliberately re-exports nothing from this module
  * — keep it that way, or the whole authored seam leaks with them.
  */
-export const LOWERED_COMPLETIONS = ['success', 'needs_human', 'step_failed'] as const;
+export const LOWERED_COMPLETIONS = ['success', 'needs_human', 'step_failed', 'declined'] as const;
 export type LoweredCompletionReason = (typeof LOWERED_COMPLETIONS)[number];
 
 export function isLoweredCompletion(value: unknown): value is LoweredCompletionReason {
@@ -504,7 +504,7 @@ function assertOperationAllowed(
     throw new AuthoredFlowExecutionError(
       'operation_after_completion',
       `flow "${flowName}" called f.${verb} after done()`,
-      completion === 'needs_human' ? undefined : completion,
+      isSurfaceRunCompletionReason(completion) ? completion : undefined,
     );
   }
 }

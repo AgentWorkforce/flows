@@ -41,6 +41,18 @@ describe('authored IPC result durable verification',()=>{
     expect(mocks.runGet).toHaveBeenCalledTimes(2);expect(mocks.journalRead).toHaveBeenCalledWith('child-2',1,100);
     expect(mocks.close).toHaveBeenCalledOnce();
   });
+  it.each([
+    ['declined', 'declined', true],
+    ['declined', 'success', false],
+    ['success', 'declined', false],
+  ] as const)('attests claimed %s against durable %s', async (claimedReason, durableReason, accepted) => {
+    const claimed = { ...result(), completionReason: claimedReason };
+    records.set('child-2', entries(durableReason === 'success' ? ':' :
+      `printf '%s' '{"completionReason":"declined"}'`));
+    const verified = verifyAuthoredNodeResult(claimed, metadata, 'root', 'socket');
+    if (accepted) await expect(verified).resolves.toBeUndefined();
+    else await expect(verified).rejects.toThrow('no matching durable completion');
+  });
   it('reads successful terminal evidence beyond 100-entry journal pages',async()=>{
     const original=records.get('child-1')!;
     records.set('child-1',[original[0]!,...Array.from({length:248},()=>({entry_type:'worker.stream'})),...original.slice(1)]);

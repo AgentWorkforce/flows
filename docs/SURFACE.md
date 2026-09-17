@@ -38,7 +38,7 @@ export default flow("chief", {
 .on(slack.mention("#exec"), async (f, event) => {          // gate 2 — trigger = entry condition
   const intent = await f.llm`Extract the work request, if any: ${event.text}`
     .gate(isActionable);
-  if (!intent) return f.done("success"); // no work is an outcome; execution succeeded
+  if (!intent) return f.done("declined"); // nothing actionable to act on; the run still succeeds
 
   const plan = await f.agent("planner", {
     task: `Research and plan: ${intent}`,
@@ -46,7 +46,7 @@ export default flow("chief", {
   });
 
   const ok = await f.human(`Ship this?\n${plan.summary}`, { to: "khaliq" });
-  if (!ok) return f.done("canceled");
+  if (!ok) return f.done("declined"); // choose not to proceed after a negative answer
 
   const pr = await f.dispatch("garden/implement", plan);   // gate 3 — child flow
   await f.slack.reply(event, `Shipped: ${pr.url}`);
@@ -714,28 +714,46 @@ JavaScript control flow observes the output read from `step.completed`.
 Unsupported headers, verbs, gates, and completion reasons fail closed rather
 than running through a second speculative compiler.
 
-An authored body ends at one of three lowered completions. `done("success")`
+An authored body ends at one of four lowered completions. `done("success")`
 completes the run; `done("needs_human")` parks it for a human; and
 `done("step_failed")` declares that the flow's own checks did not pass — the
 adversary review found problems, the tests did not go green — and reports a
-failed run. The first lowers to a no-op terminal marker, because the marker
-run's own `success` is already the record; the other two lower to a
+failed run. `done("declined")` deliberately chooses not to act on the input.
+The first lowers to a no-op terminal marker, because the marker
+run's own `success` is already the record; the other three lower to a
 deterministic step that writes `{"completionReason":"<reason>"}` to stdout, so
-the verdict is a durable journal fact rather than an inference. All three
+the verdict is a durable journal fact rather than an inference. All four
 terminal markers are steps that SUCCEED: `done("step_failed")` is the body's
-verdict, not a step that failed, so the journal is not given a fabricated
-failure for a flow whose steps all ran correctly.
+verdict, not a step that failed, so the terminal marker does not fabricate a
+failing step. Actual step failures still take precedence over authored verdicts.
 
 `canceled` and `budget_exceeded` are in the type but are refused with
 `unsupported_completion`. They are kernel outcomes, not authored verdicts: the
 kernel records them when it cancels a run or exhausts its budget, and a body
 that declared one would be asserting a kernel fact that never happened.
 
+Use `if (!input.ticket) return f.done("declined")` for a no-input guard.
+Declination describes a decision, not a promise of zero prior effects: inspection
+or notification may already have happened. It cannot conceal an actual failed step.
+
+Declination exits 0 with a completed, ok report and kernel
+`completionReason: success`. The local report adds severity `declined`, kind
+`run_declined` (text: `DECLINED [run_declined]`). The marker stdout and
+authored-root output retain `completionReason: declined`; kernel step and run
+reasons remain `success`. Cloud's client validator accepts this report shape,
+but its current projection drops diagnostics: `getCloudFlowRun`,
+`waitForCloudFlowRun`, and `--cloud --wait --json` cannot distinguish it from
+ordinary success. This is not verification of a deployed Cloud runtime.
+
+Consumer examples must wait for matching Surface/SDK releases, updated consumer
+pins, and a Cloud runtime artifact that executes this vocabulary. The onboarding
+guards in agentrelay.com require a separate rollout and verification.
+
 The exit codes are part of the surface contract:
 
 | Exit | Outcome |
 |---:|---|
-| `0` | The run completed with `completionReason: success`. |
+| `0` | The run completed with `completionReason: success`; deliberate declination also carries a `run_declined` diagnostic locally. |
 | `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. An authored `done("step_failed")` exits `1` as well, and says so without naming a step, because no step failed — the body declared the verdict. |
 | `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
 | `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. |
