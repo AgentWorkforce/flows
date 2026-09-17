@@ -18,6 +18,8 @@
   },
   "include": [
     "social-post-pipeline/*.ts",
+    "software-factory/*.ts",
+    "stale-issues/*.ts",
     "pr-review-pipeline/*.ts",
     "pr-reviewer/*.ts",
     "dependency-upgrade-bot/*.ts"
