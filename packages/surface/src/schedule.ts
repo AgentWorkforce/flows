@@ -225,10 +225,23 @@ export const schedule = Object.freeze({
   },
 });
 
+/** UTF-8 code units of a string, without TextEncoder: this package compiles against no DOM or Node lib. */
+function utf8Bytes(text: string): number[] {
+  const bytes: number[] = [];
+  for (const char of text) {
+    const cp = char.codePointAt(0)!;
+    if (cp < 0x80) bytes.push(cp);
+    else if (cp < 0x800) bytes.push(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f));
+    else if (cp < 0x10000) bytes.push(0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+    else bytes.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+  }
+  return bytes;
+}
+
 /** 64-bit FNV-1a over UTF-8, as 16 hex characters. Dependency-free; not a security hash, an identity. */
 function fnv1a64(text: string): string {
   let hi = 0xcbf29ce4, lo = 0x84222325;
-  for (const byte of new TextEncoder().encode(text)) {
+  for (const byte of utf8Bytes(text)) {
     lo ^= byte;
     // (hi:lo) * 0x100000001b3 mod 2^64, in 16-bit limbs to stay exact in doubles.
     const l0 = lo & 0xffff, l1 = lo >>> 16, h0 = hi & 0xffff, h1 = hi >>> 16;
