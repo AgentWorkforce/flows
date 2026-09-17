@@ -67,6 +67,10 @@ export {
   downloadCloudPatch, applyCloudPatch, packWorkingTree, MAX_SYNC_BYTES,
   type CloudPatch, type PackedTree,
 } from './cloud-sync.js';
+export {
+  deployToCloud, listCloudDeployments, undeployFromCloud, parseRepository, parseTriggerSource, FLOW_TRIGGER_PROVIDERS,
+  type DeployToCloudInput, type CloudDeployment, type CloudDeploymentSummary, type FlowTriggerSource, type FlowTriggerProvider,
+} from './cloud-deploy.js';
 
 export { canonicalize, specHash } from './canonical.js';
 export {

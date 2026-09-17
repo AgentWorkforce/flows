@@ -25,6 +25,7 @@ import { parseReplayArgs, replayJournal, type ReplayArgs } from './cli/replay.js
 import { checkTypeScriptFlow } from './cli/check-typescript.js';
 import { runCloudCli } from './cli/cloud-run.js';
 import { runCloudSyncCli } from './cli/cloud-sync.js';
+import { parseCloudDeployArgs, runCloudDeployCli, runCloudDeploymentsCli, runCloudUndeployCli, type CloudDeployArgs } from './cli/cloud-deploy.js';
 import { isAuthoredFlowPath } from './direct-input.js';
 import { parseDeployArgs, runDeploy, type DeployArgs } from './cli/deploy.js';
 import { parseDigestReference } from './bundle-transport.js';
@@ -54,6 +55,9 @@ type ParsedArgs =
   | { command: 'serve-webhook'; dataDir: string; port: number; admitted?: readonly string[] }
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean; input: string | undefined; syncCode: boolean }
   | { command: 'sync'; runId: string; json: boolean; root: string }
+  | CloudDeployArgs
+  | { command: 'deployments'; json: boolean }
+  | { command: 'undeploy'; agentId: string; json: boolean }
   | { command: 'check'; json: boolean; watch: boolean; value: string }
   | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'resume'; localAgent: boolean; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
@@ -68,6 +72,9 @@ const USAGE = [
   'flows add <helper-name|@flows/helper-name>',
   'flows build [--out <dir>] <flow.yaml|flow.ts>',
   'flows build --verify <bundle-dir>',
+  'flows deploy <flow.ts> --repo <owner/name> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--json]',
+  'flows deployments [--json]',
+  'flows undeploy [--json] <deployment-id>',
   'flows deploy <flow>@sha256:<digest> --to <file-bucket-uri>',
   'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json]',
   'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
@@ -121,6 +128,9 @@ export async function runCli(
 
   if (parsed.command === 'cloud-run') return runCloudCli(parsed, io);
   if (parsed.command === 'sync') return runCloudSyncCli(parsed, io);
+  if (parsed.command === 'cloud-deploy') return runCloudDeployCli(parsed, io);
+  if (parsed.command === 'deployments') return runCloudDeploymentsCli(parsed, io);
+  if (parsed.command === 'undeploy') return runCloudUndeployCli(parsed, io);
   if (parsed.command === 'replay') return replayJournal(parsed, io);
   if (parsed.command === 'build') return runBuild(parsed, io);
   if (parsed.command === 'deploy') return runDeploy(parsed, io);
@@ -424,7 +434,23 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (command === 'add') return args.length === 2 ? { command: 'add', value: args[1]! } : undefined;
   if (command === 'replay') return parseReplayArgs(args.slice(1));
   if (command === 'build') return parseBuildArgs(args.slice(1));
-  if (command === 'deploy') return parseDeployArgs(args.slice(1));
+  if (command === 'deploy') {
+    // The positional decides the form: an authored source deploys a hosted
+    // listener; a digest reference copies a sealed bundle into a file bucket.
+    const source = args.slice(1).find(a => !a.startsWith('-') && isAuthoredFlowPath(a));
+    return source !== undefined ? parseCloudDeployArgs(args.slice(1)) : parseDeployArgs(args.slice(1));
+  }
+  if (command === 'undeploy') {
+    const rest = args.slice(1).filter(a => a !== '--json');
+    const json = args.length - 1 - rest.length;
+    if (json > 1 || rest.length !== 1 || rest[0]!.startsWith('-')) return undefined;
+    return { command: 'undeploy', agentId: rest[0]!, json: json === 1 };
+  }
+  if (command === 'deployments') {
+    const rest = args.slice(1);
+    if (rest.length > 1 || (rest.length === 1 && rest[0] !== '--json')) return undefined;
+    return { command: 'deployments', json: rest.length === 1 };
+  }
   if (command === 'serve-webhook') return parseWebhookArgs(args.slice(1));
   if (command === 'hn-monitor') return parseHnMonitorArgs(args.slice(1));
   if (command === 'tick') return parseTickArgs(args.slice(1));

@@ -82,6 +82,60 @@ A synced run and a Cloud repository grant are mutually exclusive on the
 server: `--sync-code` is the local-driven development loop, and
 webhook-triggered deployments keep cloning through the grant.
 
+## Credentials
+
+Every hosted verb resolves its credential the same way: the `token` option,
+then `FLOWS_CLOUD_TOKEN`, then the `agent-relay cloud login` store
+(`~/.agentworkforce/relay/cloud-auth.json`, or `AGENT_RELAY_HOME`). The login
+store also supplies the base URL unless `FLOWS_CLOUD_URL` overrides it, so a
+login against one deployment never sends its token to another. An expired
+login is refused with the re-login remedy rather than sent.
+
+Running and syncing work with either kind of token. Deploying, listing and
+removing listeners need the interactive `cli:auth` credential the login
+produces; a deployment (CI) token gets `session_required` and the CLI says so.
+
+## Listener deployments
+
+```sh
+flows deploy issue-triage.flow.ts \
+  --repo AgentWorkforce/flows \
+  --on github:labels=agent \
+  --approver khaliqgant [--agents claude,codex] [--name "Issue triage"] [--draft]
+flows deployments
+flows undeploy <deployment-id>
+```
+
+`flows deploy <flow.ts>` is the CLI form of the agentrelay.com onboarding's
+deploy wizard: `POST /api/v1/flows/deploy` stores one self-contained authored
+source and creates a proactive listener whose watch rules match the chosen
+ticket sources. There is no webhook to register. The workspace's GitHub App
+installation (or Slack, Linear, Jira or Shortcut connection) is the ingress;
+Cloud ingests events into the workspace's relayfile projection and the
+listener's rules match them there. The digest form,
+`flows deploy <flow>@sha256:… --to file://…`, is unchanged; the positional
+decides which form is meant.
+
+`--on <provider>[:key=value,…]` takes `github` (`repository`, `labels`,
+`contains`), `slack` (`channel`, `contains`), `linear` (`team`, `contains`),
+`jira` (`project`, `contains`) or `shortcut` (`workspace`, `contains`), each
+at most once. A GitHub source without `repository` is scoped to `--repo`.
+Today a GitHub listener wakes on `issues.opened` and `issues.labeled` only;
+pull-request and comment events are filtered out before launch.
+
+Each matching ticket launches one run of the stored source. Cloud clones
+`--repo` at its default branch onto a fresh `relayflow/<name>-<id>` branch,
+runs `flows run --local-agent` there, and passes the flow body
+`{ approver, issue: { source, title, body, labels, repository, url, … }, event }`
+as its input. The flow must therefore be the default body,
+`flow<Input>(name, header, async (f, input) => …)`; `.on(github.issues(…))`
+handlers are checked but are not what Cloud dispatches. `--agents` names the
+coding-agent harnesses the flow uses (default `claude`); activation checks
+their credentials are connected and refuses with `flow_model_not_connected`
+otherwise. `--draft` saves the flow without activating it and skips those
+checks. The deploy routes answer refusals as `{ code, error }`, and the CLI
+names them (`flow_repository_not_connected`, `flow_name_taken`, …).
+
 Without `--wait`, exit 0 means the server accepted the run. With `--wait`, it
 means Cloud reported `completed` with a validated `success` completion reason.
 Failed/cancelled runs and observation/transport failures return 1. Local input,

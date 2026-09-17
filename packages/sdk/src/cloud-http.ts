@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
 export interface CloudConnectionOptions {
   /** Cloud application base URL; defaults to https://agentrelay.com/cloud. */
   apiUrl?: string;
@@ -21,16 +25,66 @@ export class CloudFlowError extends Error {
   }
 }
 
+/**
+ * The `agent-relay cloud login` credential store. Read only when neither the
+ * `token` option nor `FLOWS_CLOUD_TOKEN` is set, so an explicit credential
+ * always wins and this file can change shape without breaking a configured
+ * caller. Its `apiUrl` becomes the default base URL for the same reason: a
+ * login against one deployment must not send its token to another.
+ */
+export function agentRelayCloudAuthPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(env['AGENT_RELAY_HOME'] ?? join(homedir(), '.agentworkforce/relay'), 'cloud-auth.json');
+}
+
+export interface AgentRelayCloudLogin {
+  apiUrl: string;
+  accessToken: string;
+  /** ISO-8601; the store carries it, so an expired login refuses with a real reason. */
+  accessTokenExpiresAt?: string;
+}
+
+export function readAgentRelayCloudLogin(
+  env: NodeJS.ProcessEnv = process.env,
+  read: (path: string) => string = path => readFileSync(path, 'utf8'),
+): AgentRelayCloudLogin | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(read(agentRelayCloudAuthPath(env)));
+  } catch {
+    return undefined;
+  }
+  if (!isCloudRecord(parsed) || typeof parsed.apiUrl !== 'string' || typeof parsed.accessToken !== 'string'
+    || !parsed.accessToken.trim()) return undefined;
+  return {
+    apiUrl: parsed.apiUrl, accessToken: parsed.accessToken,
+    ...(typeof parsed.accessTokenExpiresAt === 'string' ? { accessTokenExpiresAt: parsed.accessTokenExpiresAt } : {}),
+  };
+}
+
 export function cloudConnection(options: CloudConnectionOptions): { baseUrl: string; token: string } {
-  const rawToken = options.token ?? process.env['FLOWS_CLOUD_TOKEN'];
+  let rawToken = options.token ?? process.env['FLOWS_CLOUD_TOKEN'];
+  let loginApiUrl: string | undefined;
+  if (rawToken === undefined) {
+    const login = readAgentRelayCloudLogin();
+    if (login !== undefined) {
+      const expiresAt = login.accessTokenExpiresAt === undefined ? Number.NaN : Date.parse(login.accessTokenExpiresAt);
+      if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
+        throw new CloudFlowError('configuration',
+          'The agent-relay cloud login has expired. Run `agent-relay cloud login` again, or set FLOWS_CLOUD_TOKEN.');
+      }
+      rawToken = login.accessToken;
+      loginApiUrl = login.apiUrl;
+    }
+  }
   const token = rawToken?.trim();
   if (!token || /[\r\n]/u.test(rawToken!) || /^(?:rk|ot)_live_/u.test(token)) {
     throw new CloudFlowError('configuration',
-      'Set FLOWS_CLOUD_TOKEN to a scoped Cloud API token (workflow:invoke:write and workflow:runs:read).');
+      'Set FLOWS_CLOUD_TOKEN to a scoped Cloud API token (workflow:invoke:write and workflow:runs:read), '
+      + 'or sign in with `agent-relay cloud login`.');
   }
   let url: URL;
   try {
-    url = new URL(options.apiUrl ?? process.env['FLOWS_CLOUD_URL'] ?? 'https://agentrelay.com/cloud');
+    url = new URL(options.apiUrl ?? process.env['FLOWS_CLOUD_URL'] ?? loginApiUrl ?? 'https://agentrelay.com/cloud');
   } catch {
     throw new CloudFlowError('configuration', 'FLOWS_CLOUD_URL must be an absolute Cloud application base URL.');
   }
@@ -52,7 +106,7 @@ export async function cloudRequest(
 }
 
 export interface CloudFetchInit {
-  method: 'GET' | 'POST' | 'PUT';
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
   body?: string | Uint8Array;
   contentType?: string;
   /**
@@ -61,6 +115,13 @@ export interface CloudFetchInit {
    * only; it is never persisted or logged.
    */
   bearerToken?: string;
+  /**
+   * On a non-2xx response, read a `{ code, error }` refusal from the body and
+   * name it. Only those two string fields are ever surfaced, so a route that
+   * answers with structured refusals (the deploy routes) can explain itself
+   * without this client echoing arbitrary response bodies.
+   */
+  detail?: boolean;
 }
 
 /** One authenticated Cloud request. Every transport error is typed; no retries. */
@@ -98,7 +159,10 @@ export async function cloudFetch(
   }
   if (!response.ok) {
     // Do not echo server response bodies: they may contain credentials or source.
-    throw new CloudFlowError('http_error', `Cloud request failed with HTTP ${response.status}.`, response.status);
+    const refusal = init.detail ? await structuredRefusal(response) : undefined;
+    throw new CloudFlowError('http_error', refusal === undefined
+      ? `Cloud request failed with HTTP ${response.status}.`
+      : `Cloud refused (${refusal.code}): ${refusal.error}`, response.status);
   }
   try {
     return await response.json();
@@ -107,6 +171,14 @@ export async function cloudFetch(
     if (!(error instanceof SyntaxError)) throw transportError(deadline.aborted ? deadline.reason : error);
     throw new CloudFlowError('invalid_response', 'Cloud returned a non-JSON response.');
   }
+}
+
+async function structuredRefusal(response: Response): Promise<{ code: string; error: string } | undefined> {
+  let body: unknown;
+  try { body = await response.json(); } catch { return undefined; }
+  if (!isCloudRecord(body) || typeof body.code !== 'string' || typeof body.error !== 'string') return undefined;
+  if (!/^[a-z0-9_]{1,64}$/u.test(body.code) || body.error.length > 500) return undefined;
+  return { code: body.code, error: body.error };
 }
 
 // Defensive path-segment constraint; accepting a new server ID format needs an SDK change.
