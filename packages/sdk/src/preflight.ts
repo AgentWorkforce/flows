@@ -586,8 +586,8 @@ function warnOnUnprovableEffects(
   diagnostics: PreflightDiagnostic[],
 ): void {
   if (step.type !== 'deterministic') return;
-  const binary = firstCommandWord(step.command);
-  if (binary === undefined) {
+  const first = firstCommandWordDetailed(step.command);
+  if (first === undefined) {
     diagnostics.push({
       severity: 'warning',
       kind: 'command_unprovable',
@@ -596,6 +596,19 @@ function warnOnUnprovableEffects(
     });
     return;
   }
+  if (first.shell) {
+    // `set -e`, `if …`, `cd …`: the shell supplies these, so there is nothing
+    // to resolve on PATH — and nothing to refuse. What they go on to run is
+    // the rest of the script, whose effects preflight never claimed to prove.
+    diagnostics.push({
+      severity: 'warning',
+      kind: 'unprovable_effects',
+      stepId: step.id,
+      message: `Step "${step.id}" starts with the shell ${first.kind} "${first.word}", whose effects cannot be proven before execution.`,
+    });
+    return;
+  }
+  const binary = first.word;
   let exists: boolean;
   try {
     exists = probes.command(binary);
@@ -630,7 +643,54 @@ function warnOnUnprovableEffects(
     });
 }
 
+/** POSIX special builtins and reserved words: the shell supplies them, PATH never does. */
+const SHELL_SPECIAL_BUILTINS = new Set([
+  '.', ':', 'break', 'continue', 'eval', 'exec', 'exit', 'export', 'readonly', 'return', 'set',
+  'shift', 'times', 'trap', 'unset',
+  // Regular builtins that no sane flow ships as an executable.
+  'cd', 'alias', 'unalias', 'local', 'source', 'wait', 'umask', 'ulimit', 'read', 'command', 'type',
+]);
+const SHELL_RESERVED_WORDS = new Set([
+  'if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'until', 'do', 'done', 'case', 'esac', 'in',
+  'function', 'select', 'time', '{', '}', '(', ')', '!', '[[', ']]',
+]);
+
+interface FirstCommandWord {
+  word: string;
+  /** True when the shell itself provides the word, so there is nothing to look up. */
+  shell: boolean;
+  kind: 'command' | 'builtin' | 'reserved word';
+}
+
 function firstCommandWord(command: string): string | undefined {
+  return firstCommandWordDetailed(command)?.word;
+}
+
+function firstCommandWordDetailed(command: string): FirstCommandWord | undefined {
+  // The first line that is not blank, a `#` comment, or only assignments and
+  // redirections is where the script starts; a leading comment is not a
+  // command named "#" and `FOO=1` on its own line names nothing (cloud#3777).
+  let firstLine: string | undefined;
+  for (const raw of command.split('\n')) {
+    const line = raw.trim();
+    if (line === '' || line.startsWith('#')) continue;
+    const remainder = stripShellPrefixes(line);
+    if (remainder === '') continue;
+    firstLine = remainder;
+    break;
+  }
+  if (firstLine === undefined) return undefined;
+  const match = firstLine.match(/^(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
+  const word = match?.[1] ?? match?.[2] ?? match?.[3];
+  if (word === undefined) return undefined;
+  // A trailing `;` after a builtin is the shell's business too.
+  const bare = word.replace(/;$/, '');
+  if (SHELL_SPECIAL_BUILTINS.has(bare)) return { word: bare, shell: true, kind: 'builtin' };
+  if (SHELL_RESERVED_WORDS.has(bare)) return { word: bare, shell: true, kind: 'reserved word' };
+  return { word, shell: false, kind: 'command' };
+}
+
+function stripShellPrefixes(line: string): string {
   // Skip the shell prefixes that can legally precede the command word.
   //
   // Review caught this on PR #47: the new path-like refusal keys on the first
@@ -642,14 +702,13 @@ function firstCommandWord(command: string): string | undefined {
   //
   // An assignment is NAME=value with a shell-legal name; a redirection starts
   // with < or > (optionally with a leading fd number). Neither is the command.
-  let rest = command.trim();
+  let rest = line;
   for (;;) {
-    const prefix = rest.match(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]*)|[0-9]*[<>]{1,2}\s*[^\s]+)\s+/);
+    const prefix = rest.match(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]*)|[0-9]*[<>]{1,2}\s*[^\s]+)(?:\s+|;?$)/);
     if (prefix === null) break;
     rest = rest.slice(prefix[0].length);
   }
-  const match = rest.match(/^(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
-  return match?.[1] ?? match?.[2] ?? match?.[3];
+  return rest.trim();
 }
 
 function probeNamedGate(step: StepSpec, probes: PreflightProbes, diagnostics: PreflightDiagnostic[]): void {

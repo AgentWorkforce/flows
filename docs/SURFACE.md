@@ -248,8 +248,11 @@ No process runs between events: the handler wakes, executes to its next await, p
    **Accepted deterministic-command limitation (Codex P1):** `flows check`
    warns with `command_unresolved`, rather than refusing, when a deterministic
    command's first word cannot be resolved. A bare word is not provably absent
-   under `/bin/sh -c` because it may be a shell builtin, function, or
-   assignment. The narrower path-like missing-command refusal is also not yet
+   under `/bin/sh -c` because it may be a shell function. The probe looks past
+   blank lines, `#` comments, `NAME=value` assignments and redirections to the
+   first real command word; a POSIX special builtin or reserved word there
+   (`set`, `export`, `cd`, `if`, `for`, `{`, `!`, …) is the shell's own and
+   warns `unprovable_effects` instead, never `command_unresolved`. The narrower path-like missing-command refusal is also not yet
    implemented; it is tracked in `ops/BACKLOG.md` under “Close the
    deterministic-command preflight gap.” Consequently, `cli_missing` applies
    to declared `llm` and `agent` CLIs, not deterministic command words.

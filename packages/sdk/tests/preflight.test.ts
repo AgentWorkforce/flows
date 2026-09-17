@@ -324,6 +324,58 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     ]);
   });
 
+  // A leading comment is not a command named "#", `set -e` is the shell's, and
+  // a script that opens with `if` names no executable at all. Each of these
+  // tripped `command_unresolved` on every step of a real flow (cloud#3777).
+  it.each([
+    ['a leading comment line', '# sync the tree\ngit fetch origin', 'git'],
+    ['blank lines before the command', '\n\n  npm test', 'npm'],
+    ['an assignment then a comment then the command', 'FOO=1\n# note\nprintf ok', 'printf'],
+  ])('probes the first real command word past %s', (_label, command, expected) => {
+    const probed: string[] = [];
+    const result = preflight(flow({ id: 's', type: 'deterministic', command }), {
+      probes: probes({ command: (word) => { probed.push(word); return true; } }),
+    });
+    expect(probed).toEqual([expected]);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'warning', kind: 'unprovable_effects', stepId: 's' }),
+    ]);
+  });
+
+  it.each([
+    ['set -e\nnpm test', 'set', 'builtin'],
+    ['export FOO=1; ./run.sh', 'export', 'builtin'],
+    ['cd packages/sdk && npm test', 'cd', 'builtin'],
+    ['if [ -f x ]; then echo y; fi', 'if', 'reserved word'],
+    ['for f in *.md; do cat "$f"; done', 'for', 'reserved word'],
+    ['{ printf a; printf b; } > out', '{', 'reserved word'],
+    ['! test -e missing', '!', 'reserved word'],
+    ['( cd sub && make )', '(', 'reserved word'],
+  ])('treats a shell-provided first word as unprovable, never unresolved: %s', (command, word, kind) => {
+    const probed: string[] = [];
+    const result = preflight(flow({ id: 's', type: 'deterministic', command }), {
+      probes: probes({ command: (name) => { probed.push(name); return false; } }),
+    });
+    expect(probed).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning', kind: 'unprovable_effects', stepId: 's',
+        message: expect.stringContaining(`shell ${kind} "${word}"`),
+      }),
+    ]);
+  });
+
+  it('still refuses a missing path-like command that follows a comment', () => {
+    const result = preflight(flow({ id: 's', type: 'deterministic', command: '# run it\n./ops/nonexistent.sh' }), {
+      probes: probes({ command: () => false }),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'refusal', kind: 'command_missing', stepId: 's' }),
+    ]);
+  });
+
   // Covenant 2 permits refusing *or* warning, but not silence. A deterministic
   // step that resolves, one that does not, and one that cannot be probed must
   // each leave a declared warning behind — and none of them may refuse.
