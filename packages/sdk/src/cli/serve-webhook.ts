@@ -4,6 +4,7 @@ import { createServer, type Server, type ServerResponse } from 'node:http';
 import { join, resolve } from 'node:path';
 import { TextDecoder } from 'node:util';
 import type { CliIo } from '../cli.js';
+import { DEFAULT_DATA_DIR } from '../daemon-connection.js';
 import { providerInboxEvent } from '../trigger-executor.js';
 import { verifySignature, schemeFor } from '../webhook-signature.js';
 import { TokenBucketLimiter, keyFor, type RateLimitConfig } from '../webhook-rate-limit.js';
@@ -24,9 +25,12 @@ export function parseWebhookArgs(args: readonly string[]): {
       || !value || value.startsWith('-')) return undefined;
     values.set(flag, value);
   }
-  const dataDir = values.get('--data-dir');
+  // `--data-dir` is optional here as it is on every other verb, and defaults to
+  // the same directory: the command surface advertises that default, so a
+  // receiver started without the flag has to run rather than exit 2.
+  const dataDir = values.get('--data-dir') ?? DEFAULT_DATA_DIR;
   const portText = values.get('--port');
-  if (!dataDir || !portText || !/^\d+$/.test(portText)) return undefined;
+  if (!portText || !/^\d+$/.test(portText)) return undefined;
   const port = Number(portText);
   if (!Number.isInteger(port) || port < 0 || port > 65535) return undefined;
   const allow = values.get('--allow');

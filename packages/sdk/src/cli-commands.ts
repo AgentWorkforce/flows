@@ -102,7 +102,7 @@ export const CLI_VERBS = [
     description: 'Compile a flow into a sealed, content-addressed bundle',
     args: [{ name: 'source', description: 'flow.yaml, flow.ts, or a bundle directory with --verify', required: true }],
     options: [
-      { flags: '--out <dir>', description: 'Directory to write the bundle into' },
+      { flags: '--out <dir>', description: 'Directory to write the bundle into; not valid with --verify' },
       { flags: '--verify', description: 'Verify an existing bundle directory instead of building' },
       JSON_OPTION,
     ],
@@ -204,7 +204,7 @@ export const CLI_VERBS = [
     description: 'Run the local webhook receiver that writes provider deliveries into the trigger inbox',
     options: [
       DATA_DIR_OPTION,
-      { flags: '--port <port>', description: 'Port to listen on, bound to 127.0.0.1' },
+      { flags: '--port <port>', description: 'Port to listen on, bound to 127.0.0.1; required' },
       { flags: '--allow <names>', description: 'Comma-separated flow names this receiver admits' },
     ],
     variants: ['serve-webhook'],

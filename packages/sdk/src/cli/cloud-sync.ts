@@ -22,7 +22,13 @@ export async function runCloudSyncCli(
 ): Promise<0 | 1 | 2> {
   try {
     const set = await downloadCloudPatchSet(runId, {});
-    if (!set.hasChanges) {
+    // A single-tree run can answer `hasChanges: true` with an empty body. The
+    // multi-path branch already discounts those (`patch.trim() !== ''` in
+    // `downloadCloudPatchSet`), and so did `agent-relay cloud sync`, which this
+    // command replaces. Without the same guard an empty patch reaches `git
+    // apply`, which fails as `patch_conflict` instead of reporting NO CHANGES.
+    const hasChanges = set.kind === 'single' ? set.hasChanges && set.patch.trim() !== '' : set.hasChanges;
+    if (!hasChanges) {
       if (json) io.stdout(JSON.stringify({ ok: true, runId, hasChanges: false, applied: false }));
       else io.stdout(`NO CHANGES ${runId}`);
       return 0;

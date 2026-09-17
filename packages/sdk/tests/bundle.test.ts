@@ -76,6 +76,29 @@ describe('immutable bundles', () => {
     await expect(seal(out)).rejects.toThrow('spec.canonical.json');
   });
 
+  it('verifies with --verify in any position and answers --json with one object', async () => {
+    // The surface lists --verify beside --out and --json, so every order help
+    // implies has to parse: --verify was a leading mode token that refused
+    // both `build <dir> --verify` and `build --verify --json <dir>` (#451).
+    const bundle = await seal(await temp());
+    const digest = `sha256:${await verifyBundle(bundle)}`;
+
+    const trailing = invoke([bundle, '--verify']);
+    expect(trailing.status, trailing.stderr).toBe(0);
+    expect(trailing.stdout.trim()).toBe(`VERIFIED ${digest}`);
+
+    const json = invoke(['--verify', '--json', bundle]);
+    expect(json.status, json.stderr).toBe(0);
+    expect(JSON.parse(json.stdout)).toEqual({ ok: true, verified: true, bundle, digest });
+  });
+
+  it('refuses --out with --verify rather than ignoring the destination', async () => {
+    // The one combination the surface narrows instead: a verify builds nothing,
+    // so a destination for its output would describe nothing.
+    const bundle = await seal(await temp());
+    expect(invoke(['--verify', '--out', 'dist', bundle]).status).toBe(2);
+  });
+
   it.each(['identity.json', 'manifest.json'])('detects tampered %s', async file => {
     const bundle = await seal(await temp());
     await writeFile(join(bundle, file), '{}');

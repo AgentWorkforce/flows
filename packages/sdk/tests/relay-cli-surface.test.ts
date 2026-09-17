@@ -11,7 +11,7 @@ import {
 } from '@agent-relay/cli-surface';
 
 import { createRelayCliSurface } from '../src/relay-cli.js';
-import { CLI_VERBS, type CliVerbSpec } from '../src/cli-commands.js';
+import { CLI_VERBS, type CliCommandSpec, type CliOptionSpec, type CliVerbSpec } from '../src/cli-commands.js';
 import { parseCliArgs, runCli, type ParsedArgs } from '../src/cli.js';
 
 const temporaryDirectories: string[] = [];
@@ -39,6 +39,7 @@ function capture(): RelayCliIo & { out: string; err: string } {
 }
 
 const DIGEST = `hello@sha256:${'a'.repeat(64)}`;
+const BUNDLE_DIR = `dist/flows/${DIGEST}`;
 const RUN_ID = '01JABCDEFGHJKMNPQRSTVWXYZ0';
 
 /**
@@ -52,38 +53,121 @@ const RUN_ID = '01JABCDEFGHJKMNPQRSTVWXYZ0';
 const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: ParsedArgs['command'] }[] = [
   { verb: 'add', argv: ['add', 'my-helper'], variant: 'add' },
   { verb: 'build', argv: ['build', 'flow.yaml'], variant: 'build' },
-  { verb: 'build', argv: ['build', '--out', 'dist', 'flow.yaml'], variant: 'build' },
+  { verb: 'build', argv: ['build', '--out', 'dist', '--json', 'flow.yaml'], variant: 'build' },
+  // `--verify` is a flag like any other: both orders help implies must parse.
+  { verb: 'build', argv: ['build', '--verify', '--json', BUNDLE_DIR], variant: 'build' },
+  { verb: 'build', argv: ['build', BUNDLE_DIR, '--verify'], variant: 'build' },
   { verb: 'check', argv: ['check', 'flow.yaml'], variant: 'check' },
   { verb: 'check', argv: ['check', '--watch', '--json', 'flow.yaml'], variant: 'check' },
   // Both `deploy` forms: the positional decides which variant the verb produces.
   { verb: 'deploy', argv: ['deploy', DIGEST, '--to', 'file:///tmp/bucket'], variant: 'deploy' },
+  { verb: 'deploy', argv: ['deploy', DIGEST, '--to', 'file:///tmp/bucket', '--json'], variant: 'deploy' },
   {
     verb: 'deploy',
     argv: ['deploy', 'review.flow.ts', '--repo', 'owner/name', '--on', 'github', '--approver', 'someone'],
     variant: 'cloud-deploy',
   },
+  {
+    verb: 'deploy',
+    argv: ['deploy', 'review.flow.ts', '--repo', 'owner/name', '--on', 'github:label=review',
+      '--approver', 'someone', '--name', 'review-listener', '--agents', 'claude,codex', '--draft', '--json'],
+    variant: 'cloud-deploy',
+  },
   { verb: 'deployments', argv: ['deployments', '--json'], variant: 'deployments' },
   { verb: 'hn-monitor', argv: ['hn-monitor', 'start', 'spec.json'], variant: 'hn-monitor' },
+  {
+    verb: 'hn-monitor',
+    argv: ['hn-monitor', 'start', '--data-dir', '.relayflowd', '--poll-interval-ms', '1000', 'spec.json'],
+    variant: 'hn-monitor',
+  },
   { verb: 'observer', argv: ['observer'], variant: 'observer' },
+  { verb: 'observer', argv: ['observer', '--data-dir', '.relayflowd'], variant: 'observer' },
   { verb: 'replay', argv: ['replay', RUN_ID], variant: 'replay' },
+  {
+    verb: 'replay',
+    argv: ['replay', '--json', '--data-dir', '.relayflowd', '--at', 'step-1',
+      '--allow-human-influenced', RUN_ID],
+    variant: 'replay',
+  },
   { verb: 'resume', argv: ['resume', RUN_ID], variant: 'resume' },
+  {
+    verb: 'resume',
+    argv: ['resume', '--json', '--data-dir', '.relayflowd', '--local-agent', '--no-spawn',
+      '--no-observer-link', '--allow-human-influenced', RUN_ID],
+    variant: 'resume',
+  },
   { verb: 'run', argv: ['run', 'flow.yaml'], variant: 'run' },
+  {
+    verb: 'run',
+    argv: ['run', '--json', '--data-dir', '.relayflowd', '--local-agent', '--no-spawn',
+      '--no-observer-link', '--allow-human-influenced', '--input', '{"a":1}', 'review.flow.ts'],
+    variant: 'run',
+  },
+  // `--input` is the authored body's argument and `--reuse-from` memoizes a
+  // declarative run, so they belong to different sources rather than one argv.
+  { verb: 'run', argv: ['run', '--reuse-from', RUN_ID, 'flow.yaml'], variant: 'run' },
+  { verb: 'run', argv: ['run', '--bucket', 'file:///tmp/bucket', DIGEST], variant: 'run' },
   // `--cloud` is the second variant of the same verb.
   { verb: 'run', argv: ['run', '--cloud', '--wait', 'flow.yaml'], variant: 'cloud-run' },
+  { verb: 'run', argv: ['run', '--cloud', '--sync-code', 'review.flow.ts'], variant: 'cloud-run' },
   {
     verb: 'serve-webhook',
-    argv: ['serve-webhook', '--data-dir', '/tmp/inbox', '--port', '8080'],
+    argv: ['serve-webhook', '--data-dir', '/tmp/inbox', '--port', '8080', '--allow', 'review,triage'],
     variant: 'serve-webhook',
   },
+  // `--data-dir` carries a default in the tree, so the receiver has to start without it.
+  { verb: 'serve-webhook', argv: ['serve-webhook', '--port', '8080'], variant: 'serve-webhook' },
   { verb: 'sync', argv: ['sync', RUN_ID], variant: 'sync' },
-  { verb: 'sync', argv: ['sync', '--dry-run', '--json', RUN_ID], variant: 'sync' },
+  { verb: 'sync', argv: ['sync', '--dry-run', '--json', '--dir', '.', RUN_ID], variant: 'sync' },
   {
     verb: 'tick',
     argv: ['tick', 'start', '--schedule-id', 'nightly', '--interval-ms', '60000', 'spec.json'],
     variant: 'tick',
   },
+  {
+    verb: 'tick',
+    argv: ['tick', 'start', '--data-dir', '.relayflowd', '--schedule-id', 'nightly',
+      '--interval-ms', '60000', '--epoch-ms', '0', '--max-catch-up', '3',
+      '--poll-interval-ms', '1000', 'spec.json'],
+    variant: 'tick',
+  },
   { verb: 'undeploy', argv: ['undeploy', 'dep_123'], variant: 'undeploy' },
+  { verb: 'undeploy', argv: ['undeploy', '--json', 'dep_123'], variant: 'undeploy' },
 ];
+
+/** Every command in the declared tree, with the argv tokens that reach it. */
+function declaredCommands(): { command: CliCommandSpec; path: readonly string[] }[] {
+  return (CLI_VERBS as readonly CliVerbSpec[]).flatMap((verb) => [
+    { command: verb as CliCommandSpec, path: [verb.name] },
+    ...(verb.subcommands ?? []).map((sub) => ({ command: sub, path: [verb.name, sub.name] })),
+  ]);
+}
+
+/** `'--out <dir>'` -> `'--out'`: the token a user actually types. */
+function flagToken(option: CliOptionSpec): string {
+  return option.flags.split(' ')[0]!;
+}
+
+function reaches(argv: readonly string[], path: readonly string[]): boolean {
+  return path.every((token, index) => argv[index] === token);
+}
+
+/**
+ * Where the positionals are in an invocation of `command`, reading the declared
+ * options to know which tokens are flag values rather than arguments.
+ */
+function positionalIndices(command: CliCommandSpec, argv: readonly string[], start: number): number[] {
+  const takesValue = new Set(
+    (command.options ?? []).filter((option) => option.flags.includes('<')).map(flagToken),
+  );
+  const indices: number[] = [];
+  for (let index = start; index < argv.length; index++) {
+    const token = argv[index]!;
+    if (!token.startsWith('-')) indices.push(index);
+    else if (takesValue.has(token)) index += 1;
+  }
+  return indices;
+}
 
 describe('relay-cli surface: contract conformance', () => {
   it('satisfies the structural contract from @agent-relay/cli-surface', () => {
@@ -188,6 +272,85 @@ describe('relay-cli surface: drift between `commands` and `run`', () => {
       });
 
       expect(accepted, `\`flows ${verb} ${flags}\` is accepted by the parser`).toBe(true);
+    }
+  });
+
+  it('carries every declared flag on an invocation that parses', () => {
+    // The stronger half of the same guard. Inserting a flag into one sample
+    // only proves it is tolerated in that position; this proves every declared
+    // option -- value-taking ones included, which the insertion check has to
+    // skip -- is carried by a real invocation of its own command, and the
+    // routing test above proves each of those invocations parses.
+    //
+    // This is what `build --json`, `build <dir> --verify` and `deploy --json`
+    // failed: help listed them, no invocation could carry them.
+    const uncarried: string[] = [];
+
+    for (const { command, path } of declaredCommands()) {
+      for (const option of command.options ?? []) {
+        const flag = flagToken(option);
+        const carried = INVOCATIONS.some(
+          ({ argv }) => reaches(argv, path) && argv.includes(flag) && parseCliArgs(argv) !== undefined,
+        );
+        if (!carried) uncarried.push(`flows ${path.join(' ')} ${flag}`);
+      }
+    }
+
+    expect(uncarried).toEqual([]);
+  });
+
+  it('lets every option that declares a default be omitted', () => {
+    // A `defaultValue` in the tree is help telling the reader the flag is
+    // optional. `serve-webhook` advertised `--data-dir` with `.relayflowd` and
+    // then exited 2 without it; a default the parser does not honour is the
+    // same drift as a flag it refuses.
+    const undefaulted: string[] = [];
+
+    for (const { command, path } of declaredCommands()) {
+      for (const option of command.options ?? []) {
+        if (option.defaultValue === undefined) continue;
+        const flag = flagToken(option);
+        const omitted = INVOCATIONS.some(
+          ({ argv }) => reaches(argv, path) && !argv.includes(flag) && parseCliArgs(argv) !== undefined,
+        );
+        if (!omitted) undefaulted.push(`flows ${path.join(' ')} without ${flag}`);
+      }
+    }
+
+    expect(undefaulted).toEqual([]);
+  });
+
+  it('parses exactly the positional arity each command declares', () => {
+    // The third way help can lie: the right flags on the wrong number of
+    // arguments. Every sample must carry exactly the declared positionals, and
+    // a positional declared `required: true` must actually be required.
+    for (const { command, path } of declaredCommands()) {
+      // A verb that routes on a subcommand declares no positionals of its own;
+      // its arguments belong to the subcommand entry, checked on its own turn.
+      if (command.subcommands?.length) continue;
+
+      const required = (command.args ?? []).filter((arg) => arg.required).length;
+      const variadic = (command.args ?? []).some((arg) => arg.variadic);
+      const samples = INVOCATIONS.filter(({ argv }) => reaches(argv, path));
+
+      expect(samples.length, `flows ${path.join(' ')} has a sample invocation`).toBeGreaterThan(0);
+
+      for (const { argv } of samples) {
+        const positionals = positionalIndices(command, argv, path.length);
+        const rendered = `flows ${argv.join(' ')}`;
+        if (variadic) expect(positionals.length, rendered).toBeGreaterThanOrEqual(required);
+        else expect(positionals.length, rendered).toBe(required);
+      }
+
+      if (required === 0) continue;
+
+      // And dropping the last declared positional is refused, so `required`
+      // means required rather than "documented".
+      const { argv } = samples[0]!;
+      const last = positionalIndices(command, argv, path.length).at(-1)!;
+      const short = [...argv.slice(0, last), ...argv.slice(last + 1)];
+
+      expect(parseCliArgs(short), `\`flows ${short.join(' ')}\` is refused`).toBeUndefined();
     }
   });
 

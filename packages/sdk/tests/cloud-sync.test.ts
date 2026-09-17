@@ -377,6 +377,36 @@ describe('flows run --cloud --sync-code / flows sync', () => {
     expect(output).toEqual(['NO CHANGES quiet']);
   });
 
+  it('reports no changes for an empty single-tree patch the server flags as changed', async () => {
+    // A single-tree run can answer hasChanges: true with an empty body. The
+    // multi-path branch discounts those, and so did `agent-relay cloud sync`;
+    // without the same guard the empty patch reaches `git apply` and fails as
+    // patch_conflict instead of reporting NO CHANGES.
+    const root = await tempDir('cloud-sync-empty-');
+    git(root, 'init', '-q');
+    cloud({ '/api/v1/workflows/runs/empty/patch': () => ({ patch: '  \n', hasChanges: true }) });
+    const output: string[] = [];
+    const errors: string[] = [];
+    expect(await runCli(['sync', '--dir', root, 'empty'],
+      { stdout: line => output.push(line), stderr: line => errors.push(line) })).toBe(0);
+    expect(output).toEqual(['NO CHANGES empty']);
+    expect(errors).toEqual([]);
+  });
+
+  it('reports an empty single-tree patch as no changes under --json and --dry-run', async () => {
+    const root = await tempDir('cloud-sync-empty-json-');
+    cloud({ '/api/v1/workflows/runs/empty/patch': () => ({ patch: '', hasChanges: true }) });
+    const output: string[] = [];
+    const io = { stdout: (line: string) => output.push(line), stderr: () => {} };
+
+    expect(await runCli(['sync', '--json', '--dir', root, 'empty'], io)).toBe(0);
+    expect(JSON.parse(output[0]!)).toEqual({ ok: true, runId: 'empty', hasChanges: false, applied: false });
+
+    output.length = 0;
+    expect(await runCli(['sync', '--dry-run', '--dir', root, 'empty'], io)).toBe(0);
+    expect(output).toEqual(['NO CHANGES empty']);
+  });
+
   it('refuses multi-path patches and conflicting patches without partial application', async () => {
     const root = await tempDir('cloud-sync-conflict-');
     git(root, 'init', '-q');
