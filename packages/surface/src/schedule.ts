@@ -150,11 +150,13 @@ function cronFieldMatches(field: string, value: number, index: number): boolean 
     const stride = step === undefined ? 1 : Number(step);
     let from: number;
     let to: number;
+    // `N/step` runs from N to the field's maximum — for weekdays that is 7,
+    // so `1/2` reaches Sunday-as-7 and the normalisation below applies.
     if (range === "*") { from = low; to = index === 4 ? 6 : high; }
     else {
       const bounds = range!.split("-").map(named);
       from = bounds[0]!;
-      to = bounds.length === 2 ? bounds[1]! : step === undefined ? bounds[0]! : (index === 4 ? 6 : high);
+      to = bounds.length === 2 ? bounds[1]! : step === undefined ? bounds[0]! : high;
     }
     // Weekday 7 is Sunday, as 0 is. A lone `7` or a range ending in 7 is
     // tested against Sunday-as-0 as well, so a stride counted from the
