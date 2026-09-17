@@ -1,6 +1,7 @@
 # Event-await local implementation evidence
 
-Implementation commit: `ec4345a8c474bbe16b9727e5a0d2dd874e399569`.
+Implementation commits: `ec4345a8c474bbe16b9727e5a0d2dd874e399569` and
+`6e8c3cb697e911ddcba89999bd58bf3b0f603228`.
 
 ## Scope and acceptance map
 
@@ -30,18 +31,20 @@ PATH=/Users/khaliqgant/.relayflows-toolchain/rustup/toolchains/local/bin:$PATH C
 Captured output:
 
 ```text
-Finished `test` profile [unoptimized + debuginfo] target(s) in 1.35s
+Compiling relayflowd-core, relayflowd-journal, and relayflowd
+Finished `test` profile [unoptimized + debuginfo] target(s) in 3.82s
 Running tests/event_activities.rs (/Users/khaliqgant/.relayflows-toolchain/target/1398563233/debug/deps/event_activities-54b0211a77a95d2a)
 
 running 6 tests
 test exact_deadline_tie_wins_and_reports_unread_range ... ok
 test cancel_closes_an_open_activity_before_the_terminal_run_record ... ok
-test accepted_append_is_buffered_deduplicated_and_survives_a_restart_before_next ... ok
+test exact_deadline_tie_wins_and_reports_unread_range ... ok
 test idle_wait_is_durable_and_fires_without_an_event ... ok
+test accepted_append_is_buffered_deduplicated_and_survives_a_restart_before_next ... ok
 test remaining_event_await_acceptance_cases_use_the_real_journal ... ok
 test overflow_closes_before_the_1001st_unread_frame_and_recovery_never_reopens_it ... ok
 
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.99s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.91s
 
 EXIT=0
 ```
