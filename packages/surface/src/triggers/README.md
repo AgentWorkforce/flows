@@ -9,8 +9,20 @@ export default flow('triage')
   .on(github.pull_request('opened'), async (f, event) => { f.done('success'); });
 ```
 
+Every provider a relayfile adapter can deliver has a namespace — 47 today,
+502 events; see [PROVIDERS.md](PROVIDERS.md) (generated) for the full table.
+Hyphenated providers become identifiers: `azure-blob` → `azure_blob`,
+`google-drive` → `google_drive`; the inbox name and event type keep the
+upstream spelling, so `azure_blob.file_created()` lowers to
+`{ provider: 'azure-blob', type: 'file.created' }`. Namespaces come from two
+sources: an adapter's `webhooks:` mapping block, which carries payload shape
+(`github.pull_request(action?)` takes an action because the mapping extracts
+one), or — for adapters that ship no mapping YAML (linear, jira, hubspot, …) —
+the trigger catalog (`@relayfile/adapter-core/triggers`), which carries event
+names only and yields the plain `(filter?)` signature.
+
 Provider namespaces also export from `@relayflows/surface/triggers` and
-`@relayflows/surface/triggers/slack` (or `/github`). Declarations are immutable
+`@relayflows/surface/triggers/slack` (or `/github`, `/notion`, …). Declarations are immutable
 webhook sources: their executor/inbox name is the provider, and their filter
 matches the provider, event type, and requested payload fields. Register those
 provider names in `flows.json`'s `executors` array for preflight.
@@ -78,8 +90,10 @@ inbox contract; deploying TypeScript handler bodies remains the separate #301
 binding step.
 
 Generation requires the SDK's development dependencies. The default input is
-the mapping YAML shipped in the pinned `@relayfile/adapter-core` dependency
-(currently Slack and GitHub). A checkout supplies additional providers:
+the pinned `@relayfile/adapter-core` dependency: its `mappings/` fallbacks,
+its `mappings/adapters/` bundle (every adapter's own mapping, adapter-core
+≥ 0.5.26), and its trigger catalog. A checkout supplies the same three from
+source:
 
 ```sh
 node scripts/generate-triggers.mjs
@@ -88,6 +102,7 @@ node scripts/generate-triggers.mjs --adapters-dir /path/to/relayfile-adapters
 ```
 
 The generator reads `packages/core/mappings/*.mapping.yaml`, then each adapter's
-`packages/<adapter>/*.mapping.yaml`; adapter-local mappings take precedence.
-Only adapters with a nonempty `webhooks:` section produce modules. It never
+`packages/<adapter>/*.mapping.yaml` (adapter-local mappings take precedence),
+then `packages/core/src/triggers/catalog.generated.json` for providers with no
+`webhooks:` block. Only providers with at least one event produce modules. It never
 imports or executes adapter code. Rebuild the surface and SDK after regeneration.
