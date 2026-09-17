@@ -59,6 +59,7 @@
     "yaml": "^2.5.1"
   },
   "devDependencies": {
+    "@agent-relay/cli-surface": "^12.2.2",
     "@types/node": "^22.7.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
