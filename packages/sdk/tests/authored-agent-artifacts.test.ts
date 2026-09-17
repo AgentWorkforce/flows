@@ -111,6 +111,33 @@ describe('f.agent artifacts (local-agent path)', () => {
     }
   });
 
+  it('reports no artifacts for transport: relay even with a local agent stream attached', async () => {
+    ({ root } = setupProject());
+    path = sockPath();
+    server = startArtifactServer(path, root);
+    const client = new JournalClient(path, { requestTimeoutMs: 2000 });
+    await client.connect();
+    await client.hello('authored-artifacts-test-relay');
+    try {
+      const handle = flow('artifact-test-relay', async (f) => {
+        // The fake server still performs its "the agent wrote a file" side
+        // effect for any agent-type step, but a relay-transport step ran on
+        // a remote host — this process's filesystem is not where it wrote,
+        // so the local snapshot must not be trusted here.
+        const result = await f.agent('writer', { task: 'write research/notes.md', cwd: root!, transport: 'relay' });
+        expect(result.artifacts).toEqual([]);
+        f.done('success');
+      });
+      const result = await executeAuthoredFlow(handle, client, undefined, {
+        flowPath: join(root!, 'artifact-test-relay.flow.ts'),
+        localAgentStream: 'test-stream',
+      });
+      expect(result.completionReason).toBe('success');
+    } finally {
+      client.close();
+    }
+  });
+
   it('reports no artifacts when no local agent is attached', async () => {
     ({ root } = setupProject());
     path = sockPath();

@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 
+function isEnoent(error: unknown): boolean {
+  return error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
 const SKIPPED_DIR_NAMES = new Set(['node_modules']);
 
 /**
@@ -14,7 +18,11 @@ const SKIPPED_DIR_NAMES = new Set(['node_modules']);
  * (`.git`, the kernel's own `.relayflowd` data dir, editor swap files, ...)
  * are never agent-authored content and are skipped, as is `node_modules`.
  * A missing `dir` (an agent step whose cwd does not exist yet) yields an
- * empty snapshot rather than throwing.
+ * empty snapshot rather than throwing. Only a vanished path (`ENOENT`) is
+ * ever swallowed this way; any other filesystem error (permissions,
+ * `ENOTDIR`, `EISDIR`, ...) propagates, because a step whose artifact scan
+ * silently dropped files it could not read must not report a successful,
+ * incomplete `artifacts` list as if it were the truth.
  */
 export async function snapshotWorkspaceFiles(dir: string): Promise<Map<string, string>> {
   const out = new Map<string, string>();
@@ -26,8 +34,9 @@ async function walk(root: string, current: string, out: Map<string, string>): Pr
   let entries;
   try {
     entries = await readdir(current, { withFileTypes: true });
-  } catch {
-    return;
+  } catch (error) {
+    if (isEnoent(error)) return;
+    throw error;
   }
   for (const entry of entries) {
     if (entry.name.startsWith('.') || SKIPPED_DIR_NAMES.has(entry.name)) continue;
@@ -37,14 +46,23 @@ async function walk(root: string, current: string, out: Map<string, string>): Pr
       continue;
     }
     if (!entry.isFile()) continue;
-    // A file can vanish between readdir and read (a CLI's own temp file);
-    // that is not an artifact and must not surface as an error after the
-    // step already spent its tokens.
-    const info = await stat(path).catch(() => undefined);
-    const bytes = info !== undefined ? await readFile(path).catch(() => undefined) : undefined;
-    if (info !== undefined && bytes !== undefined) {
-      out.set(relative(root, path).split(sep).join('/'), `${info.size}:${createHash('sha256').update(bytes).digest('hex')}`);
+    let info;
+    try {
+      info = await stat(path);
+    } catch (error) {
+      // A file can vanish between readdir and stat (a CLI's own temp file);
+      // that is not an artifact, not a scan failure.
+      if (isEnoent(error)) continue;
+      throw error;
     }
+    let bytes;
+    try {
+      bytes = await readFile(path);
+    } catch (error) {
+      if (isEnoent(error)) continue;
+      throw error;
+    }
+    out.set(relative(root, path).split(sep).join('/'), `${info.size}:${createHash('sha256').update(bytes).digest('hex')}`);
   }
 }
 

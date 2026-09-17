@@ -130,15 +130,19 @@ export function authoredWorkerRunner(
           `f.agent options.transport must be 'direct' or 'relay' (got ${JSON.stringify(options.transport)}).`,
         );
       }
-      // Artifact detection only tells the truth for the local-agent path: that
-      // is the only worker attachment that runs in this same process, on this
+      // Artifact detection only tells the truth for the local-agent DIRECT
+      // path: that is the only case that runs in this same process, on this
       // same filesystem, so `options.cwd` (or `process.cwd()`) is provably
       // where the CLI actually wrote — a workspace-scoped step never reaches
-      // here with a local agent attached (refused above). Any other worker
-      // attachment may execute on a different host entirely; snapshotting
-      // this process's filesystem for that case would be a guess, not a
-      // fact, so `artifacts` stays `[]` there, exactly as before this fix.
-      const artifactRoot = localAgentStream === undefined ? undefined : options.cwd ?? process.cwd();
+      // here with a local agent attached (refused above). `transport: 'relay'`
+      // dispatches to agent-relay, which executes on a remote host even
+      // though a local agent stream is still attached, so it gets no local
+      // snapshot either. Any other worker attachment may execute on a
+      // different host entirely; snapshotting this process's filesystem for
+      // that case would be a guess, not a fact, so `artifacts` stays `[]`
+      // there, exactly as before this fix.
+      const artifactRoot = localAgentStream === undefined || options.transport === 'relay'
+        ? undefined : options.cwd ?? process.cwd();
       const before = artifactRoot === undefined ? undefined : await snapshotWorkspaceFiles(artifactRoot);
       const output = await run({
         id, type: 'agent', instruction: options.task,

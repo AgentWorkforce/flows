@@ -1,4 +1,5 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -54,5 +55,19 @@ describe('snapshotWorkspaceFiles / diffWorkspaceFiles', () => {
   it('yields an empty snapshot for a directory that does not exist yet', async () => {
     const dir = join(tempDir(), 'does-not-exist');
     expect(await snapshotWorkspaceFiles(dir)).toEqual(new Map());
+  });
+
+  it('propagates a non-ENOENT scan failure instead of silently omitting files', async () => {
+    if (process.getuid?.() === 0) return; // root bypasses permission bits; nothing to assert
+    const dir = tempDir();
+    const locked = join(dir, 'locked');
+    mkdirSync(locked);
+    writeFileSync(join(locked, 'secret.txt'), 'x');
+    try {
+      await chmod(locked, 0o000);
+      await expect(snapshotWorkspaceFiles(dir)).rejects.toMatchObject({ code: 'EACCES' });
+    } finally {
+      await chmod(locked, 0o755);
+    }
   });
 });
