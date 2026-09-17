@@ -100,6 +100,50 @@ fn overflow_closes_before_the_1001st_unread_frame_and_recovery_never_reopens_it(
 }
 
 #[test]
+fn overflow_of_a_parked_next_returns_overflow_after_recovery() {
+    let directory = tempfile::tempdir().unwrap();
+    let clock = TestClock::new(0);
+    let engine = Engine::with_clock(directory.path(), clock.clone());
+    let run_id = parked_run(&engine);
+    open(&engine, &run_id, 10_000);
+
+    // This is the durable boundary of a parked next(). The fence/close then
+    // races it just as a router overflow does while the body is asleep.
+    let mut journal = SqliteJournal::open(directory.path().join("runs").join(format!("{run_id}.sqlite3"))).unwrap();
+    journal.append(&JournalEntry::new(EntryType::WaitEvent, &run_id, None, None, 0, relayflowd_core::WaitEventPayload {
+        wait_id: "pr-42/next/0".into(), event_key: "pr-42".into(), timeout_at_ms: Some(10_000),
+        stream: Some("subscription/pr-42".into()), from_offset: Some(0), settle_ms: Some(0), idle_at_ms: Some(10), deadline_at_ms: Some(10_000),
+    })).unwrap();
+    drop(journal);
+    engine.fence_subscription_overflow(&run_id, "pr-42").unwrap();
+
+    let resumed = Engine::with_clock(directory.path(), clock);
+    assert_eq!(resumed.claim_subscription_timeouts(&run_id).unwrap(), 1);
+    assert_eq!(resumed.next_subscription(&run_id, "pr-42").unwrap(), SubscriptionWake::Overflow {
+        retained: 0, bytes: 0, from: 0,
+    });
+}
+
+#[test]
+fn immediate_event_wakes_have_durable_distinct_wait_boundaries() {
+    let directory = tempfile::tempdir().unwrap();
+    let engine = Engine::with_clock(directory.path(), SimClock::new(0));
+    let run_id = parked_run(&engine);
+    open(&engine, &run_id, 10_000);
+
+    for (delivery, number) in [("one", 1), ("two", 2)] {
+        assert!(engine.append_subscription_frame(&run_id, "pr-42", delivery, json!({"type":"github.pull_request", "n": number})).unwrap());
+        assert!(matches!(engine.next_subscription(&run_id, "pr-42").unwrap(), SubscriptionWake::Events { .. }));
+    }
+
+    let waits = engine.journal_entries(&run_id, 1, 100).unwrap().into_iter()
+        .filter(|entry| entry.entry_type == EntryType::WaitEvent)
+        .map(|entry| serde_json::from_value::<relayflowd_core::WaitEventPayload>(entry.payload).unwrap().wait_id)
+        .collect::<Vec<_>>();
+    assert_eq!(waits, vec!["pr-42/next/0", "pr-42/next/1"]);
+}
+
+#[test]
 fn cancel_closes_an_open_activity_before_the_terminal_run_record() {
     let directory = tempfile::tempdir().unwrap();
     let engine = Engine::with_clock(directory.path(), SimClock::new(0));

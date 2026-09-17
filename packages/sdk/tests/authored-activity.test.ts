@@ -52,8 +52,8 @@ describe('authored event activities', () => {
     try {
       const result = await executeAuthoredFlow(flow('activity', async (f) => {
         const activity = f.on(webhook('pull_request'), { settle: '2m', idle: '72h', deadline: '14d' });
-        await new Promise<void>(resolve => setTimeout(resolve, 0));
-        expect(calls.map(call => call.verb)).toEqual(['subscription.open']);
+        await expect.poll(() => calls.map(call => call.verb), { timeout: 2_000 })
+          .toEqual(['subscription.open']);
         const wake = await activity.next();
         expect(wake).toEqual({ kind: 'events', events: [{ type: 'pull_request', payload: { number: 42 } }], offset: 1 });
         f.done('success');
@@ -93,6 +93,25 @@ describe('authored event activities', () => {
       expect(calls.filter(call => call.verb === 'subscription.close')).toEqual([
         { verb: 'subscription.close', params: {
           run_id: 'root-closed-activity', subscription_id: 'activity-1', completion_reason: 'closed',
+        } },
+      ]);
+    } finally { journal.close(); }
+  });
+
+  it('cancels an opened cursor when the body fails completion validation', async () => {
+    calls.length = 0;
+    const journal = new JournalClient(path, { requestTimeoutMs: 2_000 });
+    await journal.connect();
+    await journal.hello('authored-activity-missing-completion-test');
+    try {
+      await expect(executeAuthoredFlow(flow('missing-activity-completion', async (f) => {
+        f.on(webhook('pull_request'), { idle: '1h', deadline: '1d' });
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+      }), journal, undefined, { rootRunId: 'root-missing-activity-completion' }))
+        .rejects.toMatchObject({ code: 'missing_completion' });
+      expect(calls.filter(call => call.verb === 'subscription.close')).toEqual([
+        { verb: 'subscription.close', params: {
+          run_id: 'root-missing-activity-completion', subscription_id: 'activity-1', completion_reason: 'canceled',
         } },
       ]);
     } finally { journal.close(); }

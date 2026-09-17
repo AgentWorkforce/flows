@@ -401,6 +401,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     );
     try {
       await stopAuthoredOperations(authoredSteps, missingCompletion);
+      await activities.closeAll('canceled');
     } finally {
       lifecycle.close();
     }
@@ -408,6 +409,15 @@ export async function executeAuthoredFlow<Input = undefined>(
   }
   try {
     await verifyAuthoredOperations(definition.name, authoredSteps, lifecycle);
+  } catch (error) {
+    try {
+      await activities.closeAll('canceled');
+    } finally {
+      lifecycle.close();
+    }
+    throw error;
+  }
+  try {
     await activities.closeAll('run_completed');
   } finally {
     lifecycle.close();

@@ -45,6 +45,7 @@ struct SubscriptionState {
     active_wait: Option<WaitEventPayload>,
     ready: Option<WaitCompletedPayload>,
     overflow_fence: Option<SubscriptionOverflowFencedPayload>,
+    next_wait_sequence: u64,
 }
 
 impl SubscriptionState {
@@ -221,7 +222,9 @@ impl<C: Clock> Engine<C> {
             let now = self.clock.now_ms();
             if let Some(completed) = &state.ready {
                 let wake = wake_from_completed(&journal, state, completed)?;
-                self.acknowledge_normal_wake(&mut journal, state, completed, now)?;
+                if matches!(wake, SubscriptionWake::Events { .. } | SubscriptionWake::Idle) {
+                    self.acknowledge_normal_wake(&mut journal, state, completed, now)?;
+                }
                 return Ok(wake);
             }
             if let Some(reason) = state.closed { return self.closed_wake(&journal, state, reason); }
@@ -232,6 +235,16 @@ impl<C: Clock> Engine<C> {
                 if now >= newest_at.saturating_add(state.opened.settle_ms)
                     || now >= state.last_wake_at_ms.saturating_add(state.opened.idle_ms) {
                     let wait = state.active_wait.clone().unwrap_or_else(|| activity_wait(state, now));
+                    // A completion without its preceding wait cannot be
+                    // recovered: after a crash the fold has no activity to
+                    // associate it with and would offer the same frames
+                    // again. Persist the wait first even when a ready batch
+                    // lets this call complete without parking.
+                    if state.active_wait.is_none() {
+                        self.append(&mut journal, &JournalEntry::new(
+                            EntryType::WaitEvent, run_id, None, None, now, wait.clone(),
+                        ))?;
+                    }
                     self.complete_events(&mut journal, state, &wait, &unread, now)?;
                     self.acknowledge_normal_wake(&mut journal, state, &WaitCompletedPayload {
                         wait_id: wait.wait_id, completion_reason: WaitCompletionReason::EventReceived,
@@ -360,7 +373,7 @@ fn subscriptions(journal: &SqliteJournal) -> Result<BTreeMap<String, Subscriptio
         match entry.entry_type {
             EntryType::SubscriptionOpened => {
                 let opened: SubscriptionOpenedPayload = serde_json::from_value(entry.payload)?;
-                states.insert(opened.subscription_id.clone(), SubscriptionState { opened, closed: None, acknowledged_offset: 0, last_wake_at_ms: entry.at_ms, active_wait: None, ready: None, overflow_fence: None });
+                states.insert(opened.subscription_id.clone(), SubscriptionState { opened, closed: None, acknowledged_offset: 0, last_wake_at_ms: entry.at_ms, active_wait: None, ready: None, overflow_fence: None, next_wait_sequence: 0 });
             }
             EntryType::SubscriptionClosed => {
                 let closed: SubscriptionClosedPayload = serde_json::from_value(entry.payload)?;
@@ -380,7 +393,10 @@ fn subscriptions(journal: &SqliteJournal) -> Result<BTreeMap<String, Subscriptio
             EntryType::WaitEvent => {
                 let wait: WaitEventPayload = serde_json::from_value(entry.payload)?;
                 if let Some(stream) = &wait.stream {
-                    if let Some(state) = states.values_mut().find(|state| state.stream() == stream) { state.active_wait = Some(wait); }
+                    if let Some(state) = states.values_mut().find(|state| state.stream() == stream) {
+                        state.active_wait = Some(wait);
+                        state.next_wait_sequence = state.next_wait_sequence.saturating_add(1);
+                    }
                 }
             }
             EntryType::WaitCompleted => {
@@ -400,10 +416,10 @@ fn subscriptions(journal: &SqliteJournal) -> Result<BTreeMap<String, Subscriptio
     Ok(states)
 }
 
-fn activity_wait(state: &SubscriptionState, now: i64) -> WaitEventPayload {
+fn activity_wait(state: &SubscriptionState, _now: i64) -> WaitEventPayload {
     let idle_at_ms = state.last_wake_at_ms.saturating_add(state.opened.idle_ms);
     WaitEventPayload {
-        wait_id: format!("{}/next/{}", state.opened.subscription_id, now), event_key: state.opened.subscription_id.clone(), timeout_at_ms: Some(state.opened.deadline_at_ms),
+        wait_id: format!("{}/next/{}", state.opened.subscription_id, state.next_wait_sequence), event_key: state.opened.subscription_id.clone(), timeout_at_ms: Some(state.opened.deadline_at_ms),
         stream: Some(state.stream().to_owned()), from_offset: Some(state.acknowledged_offset), settle_ms: Some(state.opened.settle_ms), idle_at_ms: Some(idle_at_ms), deadline_at_ms: Some(state.opened.deadline_at_ms),
     }
 }
@@ -428,6 +444,15 @@ fn events_wake(unread: &[(JournalEntry, StreamAppendedPayload)]) -> Result<Subsc
     Ok(SubscriptionWake::Events { events: unread.iter().map(|(_, append)| append.message.clone()).collect(), offset: unread.last().context("nonempty")?.1.offset.saturating_add(1) })
 }
 fn wake_from_completed(journal: &SqliteJournal, state: &SubscriptionState, completed: &WaitCompletedPayload) -> Result<SubscriptionWake> {
+    if completed.result.get("wake").and_then(Value::as_str) == Some("overflow") {
+        let unread = unread_frames(&journal.scan_all()?, state)?;
+        let fence = state.overflow_fence.as_ref();
+        return Ok(SubscriptionWake::Overflow {
+            retained: fence.map_or(unread.len() as u64, |fence| fence.retained),
+            bytes: fence.map_or(unread_bytes(&unread) as u64, |fence| fence.bytes),
+            from: fence.map_or(state.acknowledged_offset, |fence| fence.from),
+        });
+    }
     match completed.result.get("timeout").and_then(Value::as_str) {
         Some("idle") => return Ok(SubscriptionWake::Idle),
         Some("deadline") => return Ok(SubscriptionWake::Deadline { pending: completed.result.get("pending").cloned().and_then(|value| serde_json::from_value(value).ok()) }),
