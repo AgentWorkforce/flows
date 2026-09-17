@@ -4,7 +4,7 @@
 
 use relayflowd::Engine;
 use relayflowd::engine::{PendingRange, SubscriptionWake};
-use relayflowd_core::{Clock, EntryType, Journal, JournalEntry, RunSpec, SimClock, WaitHumanPayload};
+use relayflowd_core::{Clock, EntryType, Journal, JournalEntry, RunSpec, SimClock, StreamAppendedPayload, SubscriptionAcknowledgedPayload, WaitHumanPayload};
 use relayflowd_journal::SqliteJournal;
 use serde_json::json;
 use std::sync::{Arc, atomic::{AtomicI64, Ordering}};
@@ -179,4 +179,13 @@ fn remaining_event_await_acceptance_cases_use_the_real_journal() {
     engine.open_subscription(&bytes_run, "bytes", vec!["github.pull_request".into()], None, 0, 10, 10_000, false).unwrap();
     assert!(!engine.append_subscription_frame(&bytes_run, "bytes", "too-big", json!("x".repeat(1_024 * 1_024))).unwrap());
     assert!(matches!(engine.next_subscription(&bytes_run, "bytes").unwrap(), SubscriptionWake::Overflow { retained: 0, bytes: 0, from: 0 }));
+    let keeps_up = parked_run(&engine);
+    engine.open_subscription(&keeps_up, "keeps-up", vec!["github.pull_request".into()], None, 0, 10, 10_000, false).unwrap();
+    let mut journal = SqliteJournal::open(directory.path().join("runs").join(format!("{keeps_up}.sqlite3"))).unwrap();
+    for offset in 0..1_001_u64 {
+        journal.append(&JournalEntry::new(EntryType::StreamAppended, &keeps_up, None, None, 0, StreamAppendedPayload { stream: "subscription/keeps-up".into(), offset, producer: "event-router".into(), message: json!({"type":"github.pull_request"}), provider_delivery_id: Some(format!("kept-{offset}")) })).unwrap();
+        journal.append(&JournalEntry::new(EntryType::SubscriptionAcknowledged, &keeps_up, None, None, 0, SubscriptionAcknowledgedPayload { subscription_id: "keeps-up".into(), wait_id: format!("wake-{offset}"), next_offset: Some(offset + 1) })).unwrap();
+    }
+    drop(journal);
+    assert!(engine.append_subscription_frame(&keeps_up, "keeps-up", "kept-final", json!({"type":"github.pull_request"})).unwrap());
 }
