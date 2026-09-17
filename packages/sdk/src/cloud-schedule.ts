@@ -1,4 +1,4 @@
-import { cronFixedIntervalMs, everyToMs, parseCron, type ScheduleTriggerSource } from '@relayflows/surface';
+import { cronGrid, everyToMs, parseCron, type ScheduleTriggerSource } from '@relayflows/surface';
 import { CloudFlowError, cloudFetch, cloudRequest, isCloudRecord, type CloudConnectionOptions } from './cloud-http.js';
 import { cloudSubmissionBody, prepareCloudSubmission, type CloudFlowSource } from './cloud-run.js';
 import type { JsonValue } from './json-value.js';
@@ -152,7 +152,7 @@ export async function unscheduleInCloud(scheduleId: string, options: CloudConnec
   }
 }
 
-/** Exposed for `flows check`-style previews: the interval a cron amounts to, if fixed. */
+/** Exposed for previews: the tick grid a UTC cron amounts to, if it is exactly one. */
 export function cronIntervalMs(cron: string): number | undefined {
-  return cronFixedIntervalMs(parseCron(cron));
+  return cronGrid(parseCron(cron))?.intervalMs;
 }

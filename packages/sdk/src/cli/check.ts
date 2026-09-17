@@ -56,6 +56,8 @@ export interface ScheduleInspection {
   cron?: string;
   tz?: string;
   intervalMs?: number;
+  epochMs?: number;
+  staleAfterMs?: number;
   scheduleId: string;
   /** Present when the local tick runner cannot drive it (only a cron-aware runner can). */
   localUnsupported?: string;

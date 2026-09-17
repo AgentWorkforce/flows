@@ -94,16 +94,27 @@ dedupe key, and a three-slot silence budget — with a deterministic
 `flows check` prints each one:
 
 ```
-SCHEDULE handler 0 every 300000ms -> flows.tick schedule_id nightly-every-300000ms [local: flows tick start --schedule-id nightly-every-300000ms --interval-ms 300000]
-SCHEDULE handler 1 cron "0 9 * * 1-5" tz Europe/Oslo -> flows.tick schedule_id nightly-cron-0-9-1-5-europe-oslo [Cloud only: ...]
+SCHEDULE handler 0 every 300000ms -> flows.tick schedule_id nightly-every-300000ms-33a704f768702f7d [local: flows tick start --schedule-id nightly-every-300000ms-33a704f768702f7d --interval-ms 300000 --epoch-ms 0]
+SCHEDULE handler 1 cron "0 9 * * 1-5" tz Europe/Oslo -> flows.tick schedule_id nightly-cron-0-9-1-5-europe-oslo-41f5a267fd758564 [Cloud only: ...]
 ```
 
-Locally the tick runner drives fixed intervals only — `every(...)` and crons
-that are one (`*/N * * * *`, `M */N * * *`, `M * * * *`). A cron that is not a
-fixed interval (a daily instant, weekdays, lists) is reported as Cloud-only
-rather than approximated; `flows schedule` registers it on Cloud's cron-aware
-runner. Schedules need no `flows.json` executor entry: the tick source ships
-with the CLI.
+The id is a readable slug plus a hash of the exact declaration, so `1-5` and
+`1,5`, two zones, or two long names never share a tick stream (the kernel
+dispatches an event to its first matching subscription only).
+
+Locally the tick runner fires at `epoch + k·interval`, so it drives a cron
+only when that grid reproduces it **exactly**: `every(...)`; `*/N * * * *`
+with `N` dividing 60; `M */N * * *` with `N` dividing 24 (phase `M`
+minutes); `M H * * *` daily (phase `H:M`) — all in UTC. `*/7 * * * *` is not
+a grid (cron restarts the count each hour, a grid drifts), nor is anything
+with day, month or weekday constraints, lists, ranges, or a non-UTC zone.
+Those are reported as Cloud-only rather than approximated; `flows schedule`
+registers them on Cloud's cron-aware runner. Every schedule declares its own
+silence budget — three intervals for a grid, three times the cron's longest
+quiet period otherwise (`cronMaxGapMs`) — so a weekday-morning cron is not
+journaled stale on Monday at 09:05 by the kernel's five-minute default.
+Schedules need no `flows.json` executor entry: the tick source ships with
+the CLI.
 
 Generation requires the SDK's development dependencies. The default input is
 the mapping YAML shipped in the pinned `@relayfile/adapter-core` dependency

@@ -94,13 +94,15 @@ function makeHandle(definition: AuthoredFlowDefinition): FlowHandle {
       assertHeaderObject(trigger, "trigger");
       let source: TriggerSource;
       if (trigger.kind === "schedule") {
-        assertKnownKeys(trigger, ["kind", "name", "cron", "tz", "intervalMs"], "trigger");
+        assertKnownKeys(trigger, ["kind", "name", "cron", "tz", "intervalMs", "epochMs"], "trigger");
         // Re-derive from the declaration rather than trusting the object: the
         // parsed form is what the SDK lowers, so it must be one this module made.
         source = trigger.cron !== undefined
           ? schedule.cron(trigger.cron, trigger.tz === undefined ? {} : { tz: trigger.tz })
           : schedule.every(`${Math.round((trigger.intervalMs ?? 0) / 1000)}s`);
-        if (source.intervalMs !== trigger.intervalMs) throw new TypeError("schedule trigger intervalMs does not match its declaration");
+        if (source.intervalMs !== trigger.intervalMs || source.epochMs !== trigger.epochMs) {
+          throw new TypeError("schedule trigger grid does not match its declaration");
+        }
       } else {
         assertKnownKeys(trigger, ["kind", "name", "filter"], "trigger");
         if (trigger.kind !== "webhook") throw new TypeError("unsupported trigger kind");

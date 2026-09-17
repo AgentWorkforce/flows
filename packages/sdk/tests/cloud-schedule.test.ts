@@ -1,7 +1,7 @@
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { schedule } from '@relayflows/surface';
+import { schedule, scheduleIdFor } from '@relayflows/surface';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.js';
 import { declaredScheduleCron, everyToCron, scheduleInCloud } from '../src/cloud-schedule.js';
@@ -55,30 +55,40 @@ async function authoredFlow(body: string, name = 'nightly'): Promise<string> {
 }
 
 describe('schedule lowering', () => {
-  it('lowers every() and */N crons to the flows.tick subscription the tick runner drives', () => {
-    const spec = scheduleTriggerSpec('nightly-0', 'nightly report', schedule.every('5m'));
+  it('lowers every() and grid crons to the flows.tick subscription the tick runner drives', () => {
+    const every5 = schedule.every('5m');
+    const id = scheduleIdFor('nightly report', every5);
+    const spec = scheduleTriggerSpec('nightly-0', 'nightly report', every5);
     expect(spec).toEqual({
       id: 'nightly-0', executor: SCHEDULE_EXECUTOR, eventType: TICK_EVENT_TYPE,
-      pattern: { schedule_id: 'nightly-report-every-300000ms' },
+      pattern: { schedule_id: id },
       dedupeKeyTemplate: TICK_DEDUPE_KEY_TEMPLATE, staleAfterMs: 900_000,
     });
-    expect(scheduleLowering('nightly', schedule.cron('*/10 * * * *'))).toEqual({
-      scheduleId: 'nightly-cron-10', cron: '*/10 * * * *', intervalMs: 600_000,
+    const quarterPast = schedule.cron('15 * * * *');
+    expect(scheduleLowering('nightly', quarterPast)).toEqual({
+      scheduleId: scheduleIdFor('nightly', quarterPast), cron: '15 * * * *',
+      intervalMs: 3_600_000, epochMs: 900_000, staleAfterMs: 10_800_000,
     });
     // It compiles as a real trigger, so a YAML author gets the same subscription.
     const kernel = toKernelSpec(compileSpec({
       version: '0.1.0', name: 'nightly', triggers: [spec],
       steps: [{ id: 'ack', type: 'deterministic', command: 'printf tick' }],
     }));
-    expect(kernel.triggers?.[0]).toMatchObject({ event_type: 'flows.tick', pattern: { schedule_id: 'nightly-report-every-300000ms' }, stale_after_ms: 900_000 });
+    expect(kernel.triggers?.[0]).toMatchObject({ event_type: 'flows.tick', pattern: { schedule_id: id }, stale_after_ms: 900_000 });
   });
 
-  it('marks a non-interval cron as Cloud-only rather than approximating it', () => {
-    const lowering = scheduleLowering('nightly', schedule.cron('0 9 * * 1-5', { tz: 'Europe/Oslo' }));
-    expect(lowering).toMatchObject({ scheduleId: 'nightly-cron-0-9-1-5-europe-oslo', cron: '0 9 * * 1-5', tz: 'Europe/Oslo' });
+  it('marks a non-grid cron as Cloud-only rather than approximating it, with a silence budget from its own cadence', () => {
+    const weekdays = schedule.cron('0 9 * * 1-5', { tz: 'Europe/Oslo' });
+    const lowering = scheduleLowering('nightly', weekdays);
+    expect(lowering).toMatchObject({ scheduleId: scheduleIdFor('nightly', weekdays), cron: '0 9 * * 1-5', tz: 'Europe/Oslo' });
     expect(lowering.intervalMs).toBeUndefined();
-    expect(lowering.localUnsupported).toContain('not a fixed interval');
-    expect(scheduleTriggerSpec('n-0', 'nightly', schedule.cron('0 9 * * 1-5')).staleAfterMs).toBeUndefined();
+    expect(lowering.epochMs).toBeUndefined();
+    expect(lowering.localUnsupported).toContain('not a UTC tick grid');
+    // Friday 09:00 → Monday 09:00 is 72 h; three of those, never the kernel's 5-minute default.
+    expect(lowering.staleAfterMs).toBe(3 * 72 * 3_600_000);
+    expect(scheduleTriggerSpec('n-0', 'nightly', schedule.cron('0 9 * * 1-5')).staleAfterMs).toBe(3 * 72 * 3_600_000);
+    // */7 is not a grid either: cron restarts the count each hour.
+    expect(scheduleLowering('n', schedule.cron('*/7 * * * *')).localUnsupported).toBeDefined();
   });
 });
 
@@ -106,8 +116,10 @@ describe('flows check prints declared schedules', () => {
     const out: string[] = [];
     const code = await runCli(['check', path], { stdout: line => out.push(line), stderr: line => out.push(`ERR ${line}`) });
     expect(code, out.join('\n')).toBe(0);
-    expect(out).toContainEqual('SCHEDULE handler 0 every 300000ms -> flows.tick schedule_id nightly-every-300000ms [local: flows tick start --schedule-id nightly-every-300000ms --interval-ms 300000]');
-    expect(out.find(l => l.startsWith('SCHEDULE handler 1'))).toMatch(/cron "0 9 \* \* 1-5" tz Europe\/Oslo -> flows\.tick schedule_id nightly-cron-0-9-1-5-europe-oslo \[Cloud only: /u);
+    const everyId = scheduleIdFor('nightly', schedule.every('5m'));
+    const cronId = scheduleIdFor('nightly', schedule.cron('0 9 * * 1-5', { tz: 'Europe/Oslo' }));
+    expect(out).toContainEqual(`SCHEDULE handler 0 every 300000ms -> flows.tick schedule_id ${everyId} [local: flows tick start --schedule-id ${everyId} --interval-ms 300000 --epoch-ms 0]`);
+    expect(out.find(l => l.includes(cronId))).toMatch(/^SCHEDULE handler 1 cron "0 9 \* \* 1-5" tz Europe\/Oslo -> flows\.tick schedule_id .* \[Cloud only: /u);
     expect(out.some(l => l.includes('no_executor'))).toBe(false);
     const json: string[] = [];
     expect(await runCli(['check', '--json', path], { stdout: line => json.push(line), stderr: () => {} })).toBe(0);

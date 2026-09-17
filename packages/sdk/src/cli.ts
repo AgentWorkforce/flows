@@ -780,7 +780,7 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
       : `every ${schedule.intervalMs}ms`;
     const local = schedule.localUnsupported !== undefined
       ? `Cloud only: ${schedule.localUnsupported}`
-      : `local: flows tick start --schedule-id ${schedule.scheduleId} --interval-ms ${schedule.intervalMs}`;
+      : `local: flows tick start --schedule-id ${schedule.scheduleId} --interval-ms ${schedule.intervalMs} --epoch-ms ${schedule.epochMs}`;
     io.stdout(`SCHEDULE handler ${schedule.handler} ${declared} -> flows.tick schedule_id ${schedule.scheduleId} [${local}]`);
   }
   for (const resolution of report.resolutions) {
