@@ -116,10 +116,13 @@ produces; a deployment (CI) token gets `session_required` and the CLI says so.
 flows deploy issue-triage.flow.ts \
   --repo AgentWorkforce/flows \
   --on github:labels=agent \
-  --approver khaliqgant [--agents claude,codex] [--name "Issue triage"] [--draft]
+  --approver khaliqgant
 flows deployments
 flows undeploy <deployment-id>
 ```
+
+Optional flags: `--agents claude,codex`, `--name "Issue triage"`, `--draft`,
+`--json`, and further `--on` sources.
 
 `flows deploy <flow.ts>` is the CLI form of the agentrelay.com onboarding's
 deploy wizard: `POST /api/v1/flows/deploy` stores one self-contained authored

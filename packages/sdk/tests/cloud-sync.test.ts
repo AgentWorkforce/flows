@@ -144,6 +144,37 @@ describe('packWorkingTree', () => {
     }
   });
 
+  it('keeps in-tree symlinks whose names merely start with dots, and refuses git-less subdirectories of a checkout', async () => {
+    const root = await tempDir('cloud-sync-dotlink-');
+    await mkdir(join(root, '..cache'));
+    await writeFile(join(root, '..cache/file'), 'cached');
+    await symlink('..cache/file', join(root, 'dotlink'));
+    const packed = await pack(root);
+    expect(packed.files).toEqual(['..cache/file', 'dotlink']);
+    expect(packed.skippedLinks).toEqual([]);
+
+    // A subdirectory of a broken checkout has no .git of its own; the parent's
+    // unreadable one must still stop the walk from uploading ignored files.
+    const repo = await tempDir('cloud-sync-broken-parent-');
+    await mkdir(join(repo, '.git'));
+    await writeFile(join(repo, '.git/HEAD'), 'garbage\n');
+    await mkdir(join(repo, 'sub'));
+    await writeFile(join(repo, 'sub/.env'), 'SECRET=1\n');
+    await expect(pack(join(repo, 'sub'))).rejects.toMatchObject({ code: 'sync_unsupported' });
+
+    // Without git at all, a tree with a .git anywhere above is refused; a plain one walks.
+    const path = process.env['PATH'];
+    vi.stubEnv('PATH', '/nonexistent');
+    try {
+      const plain = await tempDir('cloud-sync-nogit-plain-');
+      await writeFile(join(plain, 'a.txt'), 'a');
+      expect((await pack(plain)).files).toEqual(['a.txt']);
+      await expect(pack(join(repo, 'sub'))).rejects.toMatchObject({ code: 'sync_unsupported' });
+    } finally {
+      vi.stubEnv('PATH', path ?? '');
+    }
+  });
+
   it('packs a plain directory by walking it, skipping node_modules and nested .git entries', async () => {
     const root = await tempDir('cloud-sync-plain-');
     await mkdir(join(root, 'lib'));

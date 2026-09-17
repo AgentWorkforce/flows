@@ -100,8 +100,8 @@ export async function packWorkingTree(root: string): Promise<PackedTree> {
       const stat = lstatSync(absolute);
       if (stat.isSymbolicLink()) {
         const target = readlinkSync(absolute);
-        const resolved = resolve(dirname(absolute), target);
-        if (isAbsolute(target) || relative(absoluteRoot, resolved).startsWith('..')) {
+        const relativeTarget = relative(absoluteRoot, resolve(dirname(absolute), target));
+        if (isAbsolute(target) || relativeTarget === '..' || relativeTarget.startsWith(`..${sep}`)) {
           skippedLinks.push(path);
           continue;
         }
@@ -140,18 +140,41 @@ async function* flatten(source: AsyncGenerator<Buffer | NodeJS.ReadableStream>):
   }
 }
 
+/** The nearest `.git` entry at `root` or any ancestor — the checkout a .gitignore would belong to. */
+function nearestGitEntry(root: string): string | undefined {
+  let directory = root;
+  while (true) {
+    if (existsSync(join(directory, '.git'))) return join(directory, '.git');
+    const parent = dirname(directory);
+    if (parent === directory) return undefined;
+    directory = parent;
+  }
+}
+
 function listTreeFiles(root: string): string[] {
   const inside = spawnSync('git', ['-C', root, 'rev-parse', '--is-inside-work-tree'], { encoding: 'utf8' });
+  if (inside.error !== undefined) {
+    // Without git there is no way to honour a .gitignore, so a tree that has
+    // one anywhere above it cannot be described honestly; a tree with none is
+    // a plain directory and can be walked.
+    const entry = nearestGitEntry(root);
+    if (entry !== undefined) {
+      throw new CloudFlowError('sync_unsupported',
+        `git is not available (${summarize(inside.error.message)}) but ${entry} exists; `
+        + 'refusing to upload a checkout without its .gitignore.');
+    }
+  }
   const notARepository = inside.error !== undefined
     || (inside.status !== 0 && /not a git repository/iu.test(inside.stderr));
   let candidates: string[];
   if (notARepository) {
-    // A `.git` that git itself cannot read is a broken checkout, not a plain
-    // directory: its .gitignore was meant to apply, so walking would upload
-    // exactly what it excluded.
-    if (existsSync(join(root, '.git'))) {
+    // A `.git` that git itself cannot read — here or in a parent — is a broken
+    // checkout, not a plain directory: its .gitignore was meant to apply, so
+    // walking would upload exactly what it excluded.
+    const entry = nearestGitEntry(root);
+    if (entry !== undefined) {
       throw new CloudFlowError('sync_unsupported',
-        `${root} has a .git entry but git cannot read it (${summarize(inside.stderr ?? inside.error?.message)}); `
+        `${entry} exists but git cannot read it (${summarize(inside.stderr ?? inside.error?.message)}); `
         + 'refusing to upload a checkout without its .gitignore.');
     }
     candidates = [];

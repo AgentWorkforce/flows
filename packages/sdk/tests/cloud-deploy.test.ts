@@ -105,6 +105,22 @@ describe('deployToCloud', () => {
     expect(deployment.sourceSha256).toMatch(/^[a-f0-9]{64}$/u);
   });
 
+  it('reports a missing or unloadable source as an input refusal (exit 2), before HTTP', async () => {
+    const calls = cloud({});
+    const base = { repository: { owner: 'o', name: 'r' }, sources: [parseTriggerSource('github')], approver: 'k' };
+    await expect(deployToCloud({ ...base, path: join(await tempDir('cloud-deploy-missing-'), 'nope.flow.ts') }))
+      .rejects.toMatchObject({ code: 'invalid_input' });
+    const dir = await tempDir('cloud-deploy-broken-');
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    await writeFile(join(dir, 'broken.flow.ts'), 'export default 42;\n');
+    await expect(deployToCloud({ ...base, path: join(dir, 'broken.flow.ts') }))
+      .rejects.toMatchObject({ code: 'unsupported_source' });
+    const errors: string[] = [];
+    expect(await runCli(['deploy', join(dir, 'broken.flow.ts'), '--repo', 'o/r', '--on', 'github', '--approver', 'k'],
+      { stdout: () => {}, stderr: line => errors.push(line) })).toBe(2);
+    expect(calls).toHaveLength(0);
+  });
+
   it('refuses non-authored sources, empty sources, duplicate providers and a blank approver before HTTP', async () => {
     const path = await authoredFlow();
     const calls = cloud({});
@@ -238,6 +254,15 @@ describe('agent-relay cloud login fallback', () => {
     await loginStore({ apiUrl: 'https://login.example/cloud', accessToken: 'login-token',
       accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString() });
     expect(cloudConnection({})).toEqual({ baseUrl: 'https://login.example/cloud', token: 'login-token' });
+  });
+
+  it('never sends the login token to a deployment other than the one that issued it', async () => {
+    await loginStore({ apiUrl: 'https://login.example/cloud', accessToken: 'login-token' });
+    vi.stubEnv('FLOWS_CLOUD_URL', 'https://other.example/cloud');
+    expect(() => cloudConnection({})).toThrow(expect.objectContaining({ code: 'configuration' }));
+    expect(() => cloudConnection({ apiUrl: 'https://other.example/cloud' })).toThrow(/issued for https:\/\/login\.example\/cloud/u);
+    // The same deployment spelled with a trailing slash is still the same deployment.
+    expect(cloudConnection({ apiUrl: 'https://login.example/cloud/' })).toEqual({ baseUrl: 'https://login.example/cloud', token: 'login-token' });
   });
 
   it('lets FLOWS_CLOUD_TOKEN win over the login store', async () => {

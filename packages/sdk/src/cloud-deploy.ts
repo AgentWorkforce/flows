@@ -114,7 +114,13 @@ export async function deployToCloud(
   if (!/\.flow\.ts$/iu.test(input.path)) {
     throw new CloudFlowError('unsupported_source', 'flows deploy takes one authored .flow.ts source.');
   }
-  const bytes = await readFile(input.path);
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(input.path);
+  } catch (error) {
+    throw new CloudFlowError('invalid_input',
+      `Cannot read ${input.path}: ${(error as NodeJS.ErrnoException).code ?? (error as Error).message}.`);
+  }
   const source = bytes.toString('utf8');
   if (!bytes.length || Buffer.from(source, 'utf8').compare(bytes) !== 0) {
     throw new CloudFlowError('invalid_input', 'Authored source must be nonempty, lossless UTF-8.');
@@ -122,8 +128,17 @@ export async function deployToCloud(
   if (bytes.length > MAX_SOURCE_BYTES) {
     throw new CloudFlowError('invalid_input', `Authored source exceeds Cloud's ${MAX_SOURCE_BYTES}-byte deploy limit.`);
   }
-  const loaded = await loadAuthoredFlow(input.path);
-  const definition = loaded.getDefinition(loaded.handle);
+  let loaded: Awaited<ReturnType<typeof loadAuthoredFlow>>;
+  let definition: ReturnType<typeof loaded.getDefinition>;
+  try {
+    loaded = await loadAuthoredFlow(input.path);
+    definition = loaded.getDefinition(loaded.handle);
+  } catch (error) {
+    if (error instanceof CloudFlowError) throw error;
+    // A source that does not load is an authoring problem, refused before HTTP.
+    throw new CloudFlowError('unsupported_source',
+      `${input.path} is not a loadable authored flow: ${error instanceof Error ? error.message : String(error)}`);
+  }
   if (loaded.graph.length !== 1) {
     throw new CloudFlowError('unsupported_source',
       'Cloud deploys one self-contained .flow.ts source without use dependencies.');

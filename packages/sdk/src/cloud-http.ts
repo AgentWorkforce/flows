@@ -92,7 +92,23 @@ export function cloudConnection(options: CloudConnectionOptions): { baseUrl: str
     || url.username || url.password || url.search || url.hash || !/^\/[A-Za-z0-9/_-]*$/u.test(url.pathname)) {
     throw new CloudFlowError('configuration', 'Cloud URL must use HTTPS and a plain base path.');
   }
-  return { baseUrl: `${url.origin}${url.pathname.replace(/\/+$/u, '')}`, token };
+  const baseUrl = `${url.origin}${url.pathname.replace(/\/+$/u, '')}`;
+  // A login-store token is bound to the deployment that issued it. An explicit
+  // URL that names another deployment gets no token at all — set
+  // FLOWS_CLOUD_TOKEN for that deployment instead.
+  if (loginApiUrl !== undefined) {
+    let issued: string | undefined;
+    try {
+      const login = new URL(loginApiUrl);
+      issued = `${login.origin}${login.pathname.replace(/\/+$/u, '')}`;
+    } catch { issued = undefined; }
+    if (issued !== baseUrl) {
+      throw new CloudFlowError('configuration',
+        `The agent-relay cloud login was issued for ${loginApiUrl}, not ${baseUrl}. `
+        + 'Set FLOWS_CLOUD_TOKEN for that deployment, or unset FLOWS_CLOUD_URL to use the login.');
+    }
+  }
+  return { baseUrl, token };
 }
 
 export async function cloudRequest(
