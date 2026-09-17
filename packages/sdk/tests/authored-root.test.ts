@@ -145,6 +145,20 @@ describe('durable authored root', () => {
     expect(journal.peer.completions).toEqual([]);
   });
 
+  it('recovers declined from the completed root without executing the body', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    journal.startStatus = outcome(journal.runId, 'completed', 'success');
+    journal.entries = [completedEntry('declined')];
+    const result = await executeDurableAuthoredFlow(
+      loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'declined' },
+    );
+    expect(result).toMatchObject({ rootRunId: 'root-run', completionReason: 'declined' });
+    expect(journal.starts).toHaveLength(1);
+    expect(journal.peer.completions).toEqual([]);
+  });
+
   it('fails closed on a malformed completed root result', async () => {
     const loaded = await fixture();
     const journal = new RootJournal();
@@ -288,11 +302,11 @@ function spawnedEntry(loaded: LoadedAuthoredFlow): Record<string, unknown> {
   };
 }
 
-function completedEntry(): Record<string, unknown> {
+function completedEntry(reason = 'success'): Record<string, unknown> {
   return {
     entry_type: 'step.completed', step_id: 'authored-root',
     payload: { completionReason: 'success', output: {
-      name: 'flagship', completionReason: 'success', journalSteps: [],
+      name: 'flagship', completionReason: reason, journalSteps: [],
     } },
   };
 }

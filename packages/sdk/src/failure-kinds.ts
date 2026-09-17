@@ -102,6 +102,7 @@ export const RUN_FAILURE_KINDS = [
   'relayflowd_not_found',
   'protocol_error',
   'run_parked',
+  'run_declined',
   'run_unavailable',
 ] as const;
 

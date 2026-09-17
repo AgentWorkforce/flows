@@ -109,14 +109,17 @@ describe('Bun 1.4.0 standalone → native Node authored lifecycle', () => {
     expect(output.journalSteps.map((s:{id:string})=>s.id)).toEqual(['agent-1','run-2','run-3','run-4','complete-5']);
   }, 90_000);
 
-  it.each(['SIGKILL', 'SIGTERM', 'blocked-SIGKILL'] as const)('stops on parent %s and replays completed children under the same unfinished root', async signal => {
+  it.each([
+    ['SIGKILL', 'success'], ['SIGTERM', 'success'], ['blocked-SIGKILL', 'success'],
+    ['SIGKILL', 'declined'],
+  ] as const)('stops on parent %s and replays completed children before %s', async (signal, reason) => {
     const f=fixture(sequential + `
 if(!existsSync('resume-ready')){
   writeFileSync('node-pid',String(process.pid));
   writeFileSync('resume-ready','yes');
   ${signal === 'blocked-SIGKILL' ? 'while(true){}' : 'await new Promise(()=>{});'}
 }
-f.done('success');`);
+f.done('${reason}');`);
     const child=spawn(cli,['run','case.flow.ts','--input','{}',...f.flags],{
       cwd:f.directory,env:f.env,stdio:['ignore','pipe','pipe'],
     });
@@ -155,6 +158,14 @@ f.done('success');`);
       expect(rootJournal.filter(e=>e.entry_type==='step.attempt.started')).toHaveLength(2);
       expect(rootJournal.filter(e=>e.entry_type==='run.completed')).toHaveLength(1);
       expect(rootJournal.at(-1)?.payload['completionReason']).toBe('success');
+      const output = rootJournal.find(e => e.entry_type === 'step.completed'
+        && e.payload['completionReason'] === 'success')!.payload['output'];
+      expect(output.completionReason).toBe(reason);
+      if (reason === 'declined') {
+        expect(JSON.parse(resumed.stdout).diagnostics).toContainEqual(expect.objectContaining({
+          severity: 'declined', kind: 'run_declined',
+        }));
+      }
       bodySucceeded = true;
     } finally {
       child.kill('SIGKILL');

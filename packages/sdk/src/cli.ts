@@ -750,6 +750,7 @@ function diagnosticLabel(severity: string): string {
     case 'warning': return 'WARNING';
     case 'failure': return 'FAILED';
     case 'parked': return 'PARKED';
+    case 'declined': return 'DECLINED';
     default: return 'REFUSED';
   }
 }

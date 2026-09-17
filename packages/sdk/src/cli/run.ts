@@ -37,7 +37,7 @@ export interface ParkedStep {
 }
 
 export interface RunDiagnostic extends StepFailedDetails {
-  severity: 'refusal' | 'failure' | 'parked' | 'warning';
+  severity: 'refusal' | 'failure' | 'parked' | 'warning' | 'declined';
   kind: RunFailureKind | RunWarningKind | RunCompletionReason;
   message: string;
 }
@@ -328,6 +328,17 @@ export function authoredCompletion(
         exitCode: 0,
         report: { ...common, ok: true, status: 'completed', completionReason: 'success' },
       };
+    case 'declined':
+      return {
+        exitCode: 0,
+        report: {
+          ...common, ok: true, status: 'completed', completionReason: 'success',
+          diagnostics: [...base.diagnostics, {
+            severity: 'declined', kind: 'run_declined',
+            message: 'Flow deliberately chose not to act on this input.',
+          }],
+        },
+      };
     case 'needs_human':
       return {
         exitCode: 3,
@@ -358,7 +369,7 @@ export function authoredCompletion(
         },
       };
   }
-  // Exhaustive by construction. A fourth lowered completion has to choose its
+  // Exhaustive by construction. A new lowered completion has to choose its
   // own exit code and wording here; it must not inherit "its own checks did not
   // pass", which would state something the body never declared. Letting an
   // unlisted reason fall through to the failure branch is how a reporting-side

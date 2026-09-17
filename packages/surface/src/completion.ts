@@ -23,5 +23,11 @@ export const RUN_COMPLETION_REASONS = [
 
 export type RunCompletionReason = (typeof RUN_COMPLETION_REASONS)[number];
 
-/** Authored outcomes include a human handoff; it is not a kernel terminal reason. */
-export type FlowCompletionReason = RunCompletionReason | 'needs_human';
+/** Authored verdicts include handoff and declination without widening kernel facts. */
+export const FLOW_COMPLETION_REASONS = [
+  ...RUN_COMPLETION_REASONS,
+  'needs_human',
+  'declined',
+] as const;
+
+export type FlowCompletionReason = (typeof FLOW_COMPLETION_REASONS)[number];
