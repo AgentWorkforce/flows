@@ -5,6 +5,9 @@ fixes recorded below. Scope was every event-await commit after `c8c68315`:
 `73f32ad1`, `ee3f3452`, `5742029e`, `d06eabdf`, `c5f54733`, `ec4345a8`, and
 `6e8c3cb6`, together with their evidence-only commits.
 
+Fix commit: `3236011f20f918aa347a576426b6530a3e52e107`
+(`fix(event-await): preserve durable activity wake recovery`).
+
 ## Fixed findings
 
 1. **F1 — immediate event completion was not recoverable.**
