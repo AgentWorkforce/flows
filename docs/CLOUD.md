@@ -135,11 +135,17 @@ listener's rules match them there. The digest form,
 decides which form is meant.
 
 `--on <provider>[:key=value,…]` takes `github` (`repository`, `labels`,
-`contains`), `slack` (`channel`, `contains`), `linear` (`team`, `contains`),
-`jira` (`project`, `contains`) or `shortcut` (`workspace`, `contains`), each
-at most once. A GitHub source without `repository` is scoped to `--repo`.
-Today a GitHub listener wakes on `issues.opened` and `issues.labeled` only;
-pull-request and comment events are filtered out before launch.
+`contains`, `events`), `slack` (`channel`, `contains`), `linear` (`team`,
+`contains`), `jira` (`project`, `contains`) or `shortcut` (`workspace`,
+`contains`), each at most once. A GitHub source without `repository` is
+scoped to `--repo`. `events` is `issues` (the default: `issues.opened` and
+`issues.labeled`) or `pull_request`, which wakes on a pull request being
+opened, receiving commits, being reopened, or being reviewed; a
+pull-request run checks out the pull request's own head and receives
+`input.pullRequest` (`number`, `title`, `body`, `headRef`, `headSha`,
+`baseRef`, `author`, `draft`, `labels`, `url`, and `review` for a submitted
+review) beside `input.issue` and `input.event`. Comment and check-run
+events are not wake sources yet.
 
 Each matching ticket launches one run of the stored source. Cloud clones
 `--repo` at its default branch onto a fresh `relayflow/<name>-<id>` branch,

@@ -21,7 +21,9 @@ export type FlowTriggerProvider = (typeof FLOW_TRIGGER_PROVIDERS)[number];
 
 /** Settings Cloud's launcher prefilter reads per provider (`flow-trigger-sources.ts`). */
 const PROVIDER_SETTINGS: Record<FlowTriggerProvider, readonly string[]> = {
-  github: ['repository', 'labels', 'contains'],
+  // `events`: `issues` (default) or `pull_request` — which GitHub records
+  // wake the listener (AgentWorkforce/cloud#3772).
+  github: ['repository', 'labels', 'contains', 'events'],
   slack: ['channel', 'contains'],
   linear: ['team', 'contains'],
   jira: ['project', 'contains'],
@@ -101,6 +103,15 @@ export function parseTriggerSource(value: string): FlowTriggerSource {
       }
       if (!setting || setting.length > MAX_SETTING_LENGTH || key in settings) {
         throw new CloudFlowError('invalid_input', `Trigger setting "${key}" must be given once with a non-empty value.`);
+      }
+      if (key === 'events') {
+        // Cloud's enum is lowercase; send it that way whatever the shell typed.
+        const events = setting.toLowerCase();
+        if (!['issues', 'pull_request'].includes(events)) {
+          throw new CloudFlowError('invalid_input', `github events must be "issues" or "pull_request", got "${setting}".`);
+        }
+        settings[key] = events;
+        continue;
       }
       settings[key] = setting;
     }

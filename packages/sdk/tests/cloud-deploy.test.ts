@@ -59,11 +59,13 @@ describe('trigger source and repository parsing', () => {
     ['github:labels=agent,contains=urgent', { provider: 'github', settings: { labels: 'agent', contains: 'urgent' } }],
     ['slack:channel=#eng', { provider: 'slack', settings: { channel: '#eng' } }],
     ['linear:team=ENG', { provider: 'linear', settings: { team: 'ENG' } }],
+    ['github:events=pull_request,labels=agent', { provider: 'github', settings: { events: 'pull_request', labels: 'agent' } }],
+    ['github:events=PULL_REQUEST', { provider: 'github', settings: { events: 'pull_request' } }],
   ])('parses %s', (value, expected) => {
     expect(parseTriggerSource(value)).toEqual(expected);
   });
 
-  it.each(['gitlab', 'github:channel=x', 'github:labels=', 'github:labels=a,labels=b', 'slack:labels=x'])
+  it.each(['gitlab', 'github:channel=x', 'github:labels=', 'github:labels=a,labels=b', 'slack:labels=x', 'github:events=releases'])
   ('refuses %s', (value) => {
     expect(() => parseTriggerSource(value)).toThrow(expect.objectContaining({ code: 'invalid_input' }));
   });
@@ -91,6 +93,8 @@ describe('deployToCloud', () => {
     });
     expect(calls.map(c => [c.method, c.path])).toEqual([['GET', '/api/v1/auth/whoami'], ['POST', '/api/v1/flows/deploy']]);
     const body = calls[1]!.body as Record<string, unknown>;
+    // The serialized body carries Cloud's lowercase enum whatever the shell typed.
+    expect(parseTriggerSource('github:events=Pull_Request').settings.events).toBe('pull_request');
     expect(body).toMatchObject({
       workspaceId: 'ws-1', mode: 'activate', name: 'issue-triage', workflow: 'flows-cli',
       inputs: { approver: 'khaliqgant', agents: ['claude'] }, repository: { owner: 'AgentWorkforce', name: 'flows' },

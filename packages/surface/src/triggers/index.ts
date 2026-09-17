@@ -5,6 +5,6 @@ export { slack } from "./slack.js";
 
 /** Exact upstream event names, plus the generated Slack mention shorthand. */
 export const providerEventTypes = Object.freeze({
-  "github": Object.freeze(["issues","pull_request","pull_request_review","push"] as const),
+  "github": Object.freeze(["check_run","issue_comment","issues","pull_request","pull_request_review","push"] as const),
   "slack": Object.freeze(["app_mention","message","reaction_added"] as const),
 });
