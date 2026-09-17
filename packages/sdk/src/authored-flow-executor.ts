@@ -217,40 +217,80 @@ export async function executeAuthoredFlow<Input = undefined>(
    * `<id>.gate` deterministic step that succeeds or fails, so a resume or
    * replay reads the recorded verdict and never re-runs author code. A false
    * verdict fails the step as `gate_failed`, carrying the author's reason.
+   *
+   * Durability across a resume: the verdict is appended to the root run's
+   * `predicate-gates` stream BEFORE the gate run is opened. A resumed body
+   * re-executes and reaches the same gate; it finds the recorded verdict and
+   * reuses it, so the gate run's spec (which embeds the verdict) is identical
+   * under its admission key and the closure is never re-run. Without a root
+   * run there is nothing to resume, and the closure simply runs.
    */
-  async function applyPredicateGate<T>(operation: AuthoredFlowOperation<T>, id: string, value: T): Promise<T> {
-    const gate = operation.predicateGate;
-    if (gate === undefined) return value;
-    let verdict: boolean;
-    let detail: string | undefined;
-    try {
-      verdict = gate.predicate(value) === true;
-    } catch (error) {
-      verdict = false;
-      detail = error instanceof Error ? error.message : String(error);
+  const PREDICATE_STREAM = 'predicate-gates';
+  interface PredicateRecord { gate: 'predicate'; step: string; verdict: 'pass' | 'fail'; because?: string; threw?: string }
+  let recordedVerdicts: Map<string, PredicateRecord> | undefined;
+  async function recordedVerdict(id: string): Promise<PredicateRecord | undefined> {
+    if (options.rootRunId === undefined) return undefined;
+    if (recordedVerdicts === undefined) {
+      recordedVerdicts = new Map();
+      let offset = 0;
+      for (;;) {
+        const page = await journal.streamRead(options.rootRunId, PREDICATE_STREAM, offset, 1000);
+        for (const message of page.messages) {
+          const record = (message as { message?: unknown }).message ?? message;
+          if (typeof record === 'object' && record !== null && (record as PredicateRecord).gate === 'predicate'
+            && typeof (record as PredicateRecord).step === 'string'
+            && ((record as PredicateRecord).verdict === 'pass' || (record as PredicateRecord).verdict === 'fail')) {
+            recordedVerdicts.set((record as PredicateRecord).step, record as PredicateRecord);
+          }
+        }
+        if (page.messages.length === 0 || page.next_offset <= offset) break;
+        offset = page.next_offset;
+      }
     }
-    const record = JSON.stringify({
-      gate: 'predicate', step: id, verdict: verdict ? 'pass' : 'fail',
-      ...(gate.because === undefined ? {} : { because: gate.because }),
-      ...(detail === undefined ? {} : { threw: detail }),
-    });
-    const literal = `'${record.replaceAll("'", "'\\''")}'`;
-    const command = verdict ? `printf '%s' ${literal}` : `printf '%s' ${literal} >&2; exit 1`;
+    return recordedVerdicts.get(id);
+  }
+  async function applyPredicateGate<T>(operation: { id: string; predicateGate: unknown }, value: T): Promise<T> {
+    const gate = operation.predicateGate as { predicate: (value: T) => boolean; because?: string } | undefined;
+    if (gate === undefined) return value;
+    const id = operation.id;
+    let record = await recordedVerdict(id);
+    if (record === undefined) {
+      let verdict: boolean;
+      let detail: string | undefined;
+      try {
+        verdict = gate.predicate(value) === true;
+      } catch (error) {
+        verdict = false;
+        detail = error instanceof Error ? error.message : String(error);
+      }
+      record = {
+        gate: 'predicate', step: id, verdict: verdict ? 'pass' : 'fail',
+        ...(gate.because === undefined ? {} : { because: gate.because }),
+        ...(detail === undefined ? {} : { threw: detail }),
+      };
+      if (options.rootRunId !== undefined) {
+        await journal.streamAppend(options.rootRunId, PREDICATE_STREAM, record);
+        recordedVerdicts?.set(id, record);
+      }
+    }
+    const literal = `'${JSON.stringify(record).replaceAll("'", "'\\''")}'`;
+    const command = record.verdict === 'pass' ? `printf '%s' ${literal}` : `printf '%s' ${literal} >&2; exit 1`;
     try {
       await observeStep(`${id}.gate`, 'deterministic', () => lowerDeterministic(`${id}.gate`, command, false), options.onProgress);
     } catch (error) {
-      if (verdict) throw error;
+      if (record.verdict === 'pass') throw error;
       throw new AuthoredFlowExecutionError(
         'gate_failed',
         `step "${id}" failed its predicate gate`
-          + (gate.because === undefined ? '' : `: ${gate.because}`)
-          + (detail === undefined ? '' : ` (predicate threw: ${detail})`),
+          + (record.because === undefined ? '' : `: ${record.because}`)
+          + (record.threw === undefined ? '' : ` (predicate threw: ${record.threw})`),
         'verification_failed',
         error instanceof AuthoredFlowExecutionError ? error.runId : undefined,
       );
     }
     return value;
   }
+  lifecycle.applyPredicateGate = applyPredicateGate;
 
   function llmOperation(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
   function llmOperation(prompt: string, options: LlmOptions): Step<unknown>;
@@ -264,7 +304,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     llmOp = new AuthoredFlowOperation(
       id, 'llm',
       () => assertOperationAllowed('llm', definition.name, requestedCompletion),
-      async () => applyPredicateGate(llmOp, id, await observeStep(id, 'llm', () => {
+      () => observeStep(id, 'llm', () => {
         if (typeof prompt === 'string') {
           if (values.length !== 1 || values[0] === undefined) {
             throw new AuthoredFlowExecutionError('llm_cli_unresolved', 'f.llm(prompt, options) requires an output JSON Schema.');
@@ -274,7 +314,7 @@ export async function executeAuthoredFlow<Input = undefined>(
         const text = prompt.reduce((result, part, index) => result + part
           + (index < values.length ? String(values[index]) : ''), '');
         return worker.llm(id, text, undefined, llmOp.namedGate);
-      }, onProgress)),
+      }, onProgress),
       lifecycle,
     );
     return trackStep(authoredSteps, llmOp);
@@ -340,8 +380,7 @@ export async function executeAuthoredFlow<Input = undefined>(
         id,
         'run',
         () => assertOperationAllowed('run', definition.name, requestedCompletion),
-        async () => applyPredicateGate(runOp, id,
-          await observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate), options.onProgress)),
+        () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate), options.onProgress),
         lifecycle,
       );
       return trackStep(authoredSteps, runOp);
@@ -356,7 +395,7 @@ export async function executeAuthoredFlow<Input = undefined>(
         id,
         'agent',
         () => assertOperationAllowed('agent', definition.name, requestedCompletion),
-        async () => applyPredicateGate(agentOp, id, await observeStep(id, 'agent', () => worker.agent(id, options, agentOp.namedGate), onProgress)),
+        () => observeStep(id, 'agent', () => worker.agent(id, options, agentOp.namedGate), onProgress),
         lifecycle,
       );
       return trackStep(authoredSteps, agentOp);

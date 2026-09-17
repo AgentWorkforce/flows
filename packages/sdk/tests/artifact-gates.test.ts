@@ -76,6 +76,25 @@ describe('worker-side artifacts', () => {
   });
 });
 
+describe('worker-side artifacts: concurrency', () => {
+  it('serializes overlapping executions in one cwd so writes are attributed to the agent that made them', async () => {
+    const cwd = tempDir();
+    let calls = 0;
+    onSpawn = (dir) => {
+      calls += 1;
+      // Only the first execution writes; the second must not see that file
+      // as its own artifact even though both were started together.
+      if (calls === 1) writeFileSync(join(dir!, 'first.md'), 'first');
+    };
+    const [a, b] = await Promise.all([
+      runAgentCli('claude', 'one', undefined, 'claude-opus-5', undefined, undefined, 'agent', undefined, cwd),
+      runAgentCli('claude', 'two', undefined, 'claude-opus-5', undefined, undefined, 'agent', undefined, cwd),
+    ]);
+    expect(a.artifacts).toEqual(['first.md']);
+    expect(b.artifacts).toEqual([]);
+  });
+});
+
 describe('artifact_exists named gate', () => {
   it('validates a relative POSIX path and refuses escapes, absolute paths and NUL', () => {
     expect(namedGateErrors({ type: 'artifact_exists', path: 'review/security.md' }, undefined, 'g')).toEqual([]);

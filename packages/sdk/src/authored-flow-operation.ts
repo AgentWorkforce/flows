@@ -161,7 +161,15 @@ export class AuthoredFlowOperation<T> {
     try {
       this.assertCanStart();
       this.state = 'running';
-      const value = await this.start();
+      const started = await this.start();
+      // The predicate gate, when present, is applied here for every kind of
+      // operation, so a helper or plugin step cannot carry a gate that never
+      // runs. The executor installs the applier; without one, a predicate
+      // gate is refused rather than skipped.
+      const value = this.predicateGate === undefined ? started
+        : this.scope.applyPredicateGate === undefined
+          ? (() => { throw new AuthoredFlowExecutionError('unsupported_gate', 'this runtime cannot apply predicate gates'); })()
+          : await this.scope.applyPredicateGate(this as unknown as { id: string; predicateGate: unknown }, started);
       this.state = 'fulfilled';
       this.resolve(value);
     } catch (error) {

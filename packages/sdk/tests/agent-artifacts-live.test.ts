@@ -191,3 +191,40 @@ describe('agent artifacts and gates through the built CLI, a real daemon and the
       .toContain('"verdict":"fail"');
   }, 120_000);
 });
+
+describe('review follow-ups', () => {
+  it('applies a predicate gate on a helper step too, and journals its verdict', async () => {
+    // f.memory / helper steps go through the same lifecycle hook; a false
+    // predicate on one must fail the run rather than pass unchecked.
+    const f = fixture(`
+  await f.run('echo one').gate(out => out.trim() === 'one', 'echo says one');
+  const r = await f.agent('writer', { task: 'review write:review/a.md' });
+  await f.run('echo two').gate(() => r.artifacts.length === 99, 'never true');
+  f.done('success');`);
+    const result = f.invoke();
+    expect(result.status, result.stderr + result.stdout).toBe(1);
+    const report = JSON.parse(result.stdout) as { runId: string; diagnostics: Array<{ kind: string; message: string }> };
+    expect(report.diagnostics.map(d => d.kind)).toContain('gate_failed');
+    expect(report.diagnostics.map(d => d.message).join('\n')).toContain('never true');
+  }, 120_000);
+
+  it('records predicate verdicts on the root run so a resume reuses them instead of re-running the closure', async () => {
+    const f = fixture(`
+  await f.run('echo one').gate(out => out.trim() === 'one', 'echo says one');
+  f.done('success');`);
+    const result = f.invoke();
+    expect(result.status, result.stderr + result.stdout).toBe(0);
+    const report = JSON.parse(result.stdout) as { runId: string };
+    const client = new JournalClient(socketPathFor(join(f.root, 'data')), { requestTimeoutMs: 5000 });
+    await client.connect();
+    await client.hello('predicate-stream-test');
+    try {
+      const page = await client.streamRead(report.runId, 'predicate-gates', 0, 100);
+      const records = page.messages.map(m => ((m as { message?: unknown }).message ?? m) as Record<string, unknown>);
+      expect(records).toEqual([{ gate: 'predicate', step: 'run-1', verdict: 'pass', because: 'echo says one' }]);
+    } finally {
+      client.close();
+    }
+  }, 120_000);
+
+});
