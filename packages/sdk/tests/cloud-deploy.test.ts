@@ -59,11 +59,12 @@ describe('trigger source and repository parsing', () => {
     ['github:labels=agent,contains=urgent', { provider: 'github', settings: { labels: 'agent', contains: 'urgent' } }],
     ['slack:channel=#eng', { provider: 'slack', settings: { channel: '#eng' } }],
     ['linear:team=ENG', { provider: 'linear', settings: { team: 'ENG' } }],
+    ['github:events=pull_request,labels=agent', { provider: 'github', settings: { events: 'pull_request', labels: 'agent' } }],
   ])('parses %s', (value, expected) => {
     expect(parseTriggerSource(value)).toEqual(expected);
   });
 
-  it.each(['gitlab', 'github:channel=x', 'github:labels=', 'github:labels=a,labels=b', 'slack:labels=x'])
+  it.each(['gitlab', 'github:channel=x', 'github:labels=', 'github:labels=a,labels=b', 'slack:labels=x', 'github:events=releases'])
   ('refuses %s', (value) => {
     expect(() => parseTriggerSource(value)).toThrow(expect.objectContaining({ code: 'invalid_input' }));
   });
