@@ -340,7 +340,12 @@ function systemProbes(flowDirectory: string, config: ProjectConfig): PreflightPr
     helper: helperReady,
     cli: (cli, source, model) => probeCli(cli, source === 'project' ? config.directory : flowDirectory, model),
     executor: (trigger) => config.executors.includes(trigger.executor),
-    command: (binary) => executableExists(binary, flowDirectory),
+    // A deterministic step runs in the daemon's working directory — the
+    // directory `flows run` was invoked from, or Cloud's code mount — not in
+    // the flow file's. Probing `./x` against the flow's directory answered a
+    // question the kernel never asks, and refused a Cloud run whose synced
+    // tree held the script while its source sat in the state directory.
+    command: (binary) => executableExists(binary, process.cwd()),
   };
 }
 

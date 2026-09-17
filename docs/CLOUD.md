@@ -55,11 +55,22 @@ flows sync <run-id>            # apply the run's changes to this checkout
 run — every `f.run` and every `f.agent` — executes inside that tree, the way
 v1's `agent-relay cloud run --sync-code` did. Inside a Git checkout the upload
 is `git ls-files --cached --others --exclude-standard`: `.gitignore` governs,
-untracked files ride along, `.git` and `node_modules` never do. Outside Git,
-every file except those two directories. The limit is 256 MiB uncompressed.
-The flow source itself is still sent in the request body, so it must stay
-self-contained; sibling imports inside the tree are not resolved by the hosted
-runner.
+untracked files ride along, `.git` and `node_modules` never do. A checkout
+whose `git` fails for any other reason (a corrupt `.git`, a locked index, no
+`git` on PATH) is refused as `sync_unsupported` rather than widened to a plain
+walk, so an ignored `.env` never reaches Cloud because Git was unavailable.
+Outside Git, every file except those two directories — there is no ignore
+rule there, so keep secrets out of such a tree. Executable bits are preserved;
+symlinks whose target resolves outside the tree are dropped and listed as
+`sync_link_skipped` warnings. The archive is streamed to a temporary file, so
+packing costs one file plus the compressor's window, not the tree. The limit is
+256 MiB uncompressed. The flow source itself is still sent in the request
+body, so it must stay self-contained; sibling imports inside the tree are not
+resolved by the hosted runner.
+
+Interrupting before the run request — during prepare, packing or upload —
+reports `submission_aborted`: nothing was admitted and rerunning is safe. Only
+an interrupted submission itself reports `admission_unknown`.
 
 The transport is the Cloud API only. `POST /api/v1/workflows/prepare` must
 answer with a `cloud-api` workflow-storage backend (Cloud's R2), the archive
@@ -74,9 +85,13 @@ pointing at a tree Cloud does not hold.
 `flows sync <run-id>` fetches the sandbox's post-run diff from
 `/api/v1/workflows/runs/<run>/patch` and applies it with `git apply` after a
 `--check` pass, so a conflicting patch leaves the tree untouched
-(`patch_conflict`, exit 2). Runs that declared several mounted paths carry one
-patch per path and are refused here (`sync_unsupported`). `--dir <path>`
-targets a checkout other than the current directory.
+(`patch_conflict`, exit 2). The patch lands in the working tree uncommitted
+and every touched path is listed, deletions included: what the run changed —
+it is your own flow's output, but it is agent output — is reviewed with
+`git diff` before any of it is kept, the same contract v1's `cloud sync` had.
+Runs that declared several mounted paths carry one patch per path and are
+refused here (`sync_unsupported`). `--dir <path>` targets a checkout other
+than the current directory.
 
 A synced run and a Cloud repository grant are mutually exclusive on the
 server: `--sync-code` is the local-driven development loop, and

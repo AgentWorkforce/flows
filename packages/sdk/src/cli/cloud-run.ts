@@ -16,8 +16,12 @@ export async function runCloudCli(
   process.once('SIGINT', abort);
   process.once('SIGTERM', abort);
   let runId: string | undefined;
+  // Flips at the run submission. An interruption before it — during prepare,
+  // packing or upload — admitted nothing and is safe to retry; only an
+  // interrupted submission has unknown admission.
+  let submitting = false;
   try {
-    const options: RunInCloudOptions = { signal: controller.signal };
+    const options: RunInCloudOptions = { signal: controller.signal, onSubmit: () => { submitting = true; } };
     if (isAuthoredFlowPath(path)) {
       // Same parse as a local direct run, so a file-or-inline argument means
       // the same thing on both sides of `--cloud`.
@@ -38,6 +42,9 @@ export async function runCloudCli(
       io.stdout(receipt.apiUrl);
       if (receipt.synced) {
         io.stdout(`SYNCED ${receipt.synced.files} files (${receipt.synced.bytes} bytes); pull changes with: flows sync ${receipt.runId}`);
+        for (const link of receipt.synced.skippedLinks) {
+          io.stderr(`WARNING [sync_link_skipped] ${link} points outside the synced tree and was not uploaded`);
+        }
       }
     }
     if (!wait) {
@@ -50,11 +57,14 @@ export async function runCloudCli(
     else io.stdout(`${run.status.toUpperCase()} ${run.runId} completionReason: ${'completionReason' in run ? run.completionReason : 'unavailable'}`);
     return ok ? 0 : 1;
   } catch (error) {
-    const code = controller.signal.aborted ? (runId ? 'observation_aborted' : 'admission_unknown')
+    const code = controller.signal.aborted
+      ? runId ? 'observation_aborted' : submitting ? 'admission_unknown' : 'submission_aborted'
       : error instanceof CloudFlowError ? error.code : 'cloud_run_failed';
     const message = controller.signal.aborted
       ? runId ? 'Stopped observing; the hosted run has not been cancelled.'
-        : 'Submission interrupted before a receipt was received. Admission is unknown; Cloud may have started the run. Do not resubmit blindly.'
+        : submitting
+          ? 'Submission interrupted before a receipt was received. Admission is unknown; Cloud may have started the run. Do not resubmit blindly.'
+          : 'Interrupted before the run was submitted; nothing was admitted. Safe to run again.'
       : error instanceof Error ? error.message : 'Cloud run failed.';
     if (json) io.stdout(JSON.stringify({ ok: false, code, message, ...(runId ? { runId } : {}) }));
     else io.stderr(`${code}: ${message}${runId ? ` (run ${runId})` : ''}`);

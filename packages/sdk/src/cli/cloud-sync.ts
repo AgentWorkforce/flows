@@ -1,5 +1,5 @@
 import { CloudFlowError } from '../cloud-http.js';
-import { applyCloudPatch, downloadCloudPatch } from '../cloud-sync.js';
+import { applyCloudPatch, downloadCloudPatch, patchedPaths } from '../cloud-sync.js';
 import type { CliIo } from '../cli.js';
 
 /**
@@ -20,9 +20,12 @@ export async function runCloudSyncCli(
       return 0;
     }
     applyCloudPatch(root, patch);
-    const files = [...patch.matchAll(/^\+\+\+ b\/(.+)$/gmu)].map(match => match[1]!);
+    const files = patchedPaths(patch);
     if (json) io.stdout(JSON.stringify({ ok: true, runId, hasChanges: true, applied: true, files }));
-    else io.stdout(`APPLIED ${runId}: ${files.length} file${files.length === 1 ? '' : 's'}${files.length ? `\n  ${files.join('\n  ')}` : ''}`);
+    else {
+      io.stdout(`APPLIED ${runId}: ${files.length} file${files.length === 1 ? '' : 's'}${files.length ? `\n  ${files.join('\n  ')}` : ''}`);
+      io.stdout('Applied to the working tree, uncommitted: review with git diff before keeping it.');
+    }
     return 0;
   } catch (error) {
     const code = error instanceof CloudFlowError ? error.code : 'cloud_sync_failed';

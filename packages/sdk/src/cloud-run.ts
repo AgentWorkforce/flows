@@ -29,6 +29,13 @@ export interface RunInCloudOptions extends CloudConnectionOptions {
    * resolved by the hosted runner.
    */
   syncCode?: { root: string };
+  /**
+   * Called immediately before the one non-idempotent request, the run
+   * submission. Everything before it (prepare, pack, upload) is safe to
+   * retry, so a caller classifying an interruption can tell "nothing was
+   * admitted" from "admission unknown".
+   */
+  onSubmit?: () => void;
 }
 export interface CloudRunReceipt {
   runId: string;
@@ -38,7 +45,7 @@ export interface CloudRunReceipt {
   /** Authenticated run API resource; this is not a public sharing URL. */
   apiUrl: string;
   /** Present when a working tree was synced: what was uploaded, by count and size. */
-  synced?: { files: number; bytes: number };
+  synced?: { files: number; bytes: number; skippedLinks: string[] };
 }
 export interface CloudAuthoredAuthority {
   readonly schemaVersion: 1;
@@ -133,14 +140,22 @@ export async function runInCloud(
   // under it, so the run request below names code Cloud already holds. A
   // refused backend or failed upload therefore never leaves a launched run
   // pointing at a tree that is not there.
-  let synced: { runId: string; codeKey: string; files: number; bytes: number } | undefined;
+  let synced: { runId: string; codeKey: string; files: number; bytes: number; skippedLinks: string[] } | undefined;
   if (options.syncCode !== undefined) {
     const prepared = await prepareCloudSync(options);
     options.signal?.throwIfAborted();
-    const packed = packWorkingTree(options.syncCode.root);
-    await uploadCloudCode(prepared, packed.tarball, options);
-    synced = { runId: prepared.runId, codeKey: prepared.codeKey, files: packed.files.length, bytes: packed.bytes };
+    const packed = await packWorkingTree(options.syncCode.root);
+    try {
+      options.signal?.throwIfAborted();
+      await uploadCloudCode(prepared, packed, options);
+    } finally {
+      packed.dispose();
+    }
+    synced = { runId: prepared.runId, codeKey: prepared.codeKey, files: packed.files.length, bytes: packed.bytes,
+      skippedLinks: packed.skippedLinks };
   }
+  options.signal?.throwIfAborted();
+  options.onSubmit?.();
   const result = await cloudRequest('/api/v1/workflows/run', options, {
     // JSON is a YAML subset. Sending canonical data preserves the exact spec
     // while using the server's existing YAML-to-config admission path.
@@ -162,7 +177,7 @@ export async function runInCloud(
   }
   return {
     runId, status: result.status, specHash: hash, apiUrl: `${baseUrl}/api/v1/workflows/runs/${runId}`,
-    ...(synced === undefined ? {} : { synced: { files: synced.files, bytes: synced.bytes } }),
+    ...(synced === undefined ? {} : { synced: { files: synced.files, bytes: synced.bytes, skippedLinks: synced.skippedLinks } }),
   };
 }
 

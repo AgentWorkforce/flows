@@ -1,12 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.js';
 import { runInCloud } from '../src/cloud-run.js';
-import { applyCloudPatch, packWorkingTree, prepareCloudSync } from '../src/cloud-sync.js';
+import { applyCloudPatch, packWorkingTree, patchedPaths, prepareCloudSync } from '../src/cloud-sync.js';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -63,10 +65,20 @@ const PREPARED = {
 async function untar(tarball: Buffer): Promise<{ dir: string; members: string[] }> {
   const dir = await tempDir('cloud-sync-extract-');
   await writeFile(join(dir, 'code.tar.gz'), tarball);
-  const members = execFileSync('tar', ['-tzf', join(dir, 'code.tar.gz')], { encoding: 'utf8' }).trim().split('\n').sort();
+  const members = execFileSync('tar', ['-tzf', join(dir, 'code.tar.gz')], { encoding: 'utf8' }).trim().split('\n').filter(Boolean).sort();
   await mkdir(join(dir, 'out'));
   execFileSync('tar', ['-xzf', join(dir, 'code.tar.gz'), '-C', join(dir, 'out')]);
   return { dir: join(dir, 'out'), members };
+}
+
+/** Pack, read the spooled archive once, and dispose it, as the upload path does. */
+async function pack(root: string) {
+  const packed = await packWorkingTree(root);
+  try {
+    return { ...packed, tarball: await readFile(packed.archivePath) };
+  } finally {
+    packed.dispose();
+  }
 }
 
 describe('packWorkingTree', () => {
@@ -82,39 +94,85 @@ describe('packWorkingTree', () => {
     await writeFile(join(root, 'dist/build.js'), 'ignored\n');
     await writeFile(join(root, 'debug.log'), 'ignored\n');
     await symlink('src/deep/a.ts', join(root, 'link.ts'));
-    git(root, 'add', '.gitignore', 'src');
+    await symlink('/etc/hosts', join(root, 'escape-abs'));
+    await symlink('../../outside', join(root, 'escape-rel'));
+    await writeFile(join(root, 'run.sh'), '#!/bin/sh\necho ok\n');
+    await chmod(join(root, 'run.sh'), 0o755);
+    git(root, 'add', '.gitignore', 'src', 'run.sh');
     git(root, 'commit', '-q', '-m', 'baseline');
     await writeFile(join(root, 'untracked.md'), 'rides along\n');
 
-    const packed = packWorkingTree(root);
-    expect(packed.files).toEqual(['.gitignore', 'link.ts', 'src/deep/a.ts', 'untracked.md']);
-    expect(packed.bytes).toBe(Buffer.byteLength('dist/\n*.log\n') + Buffer.byteLength('export const a = 1;\n') + Buffer.byteLength('rides along\n'));
+    const packed = await pack(root);
+    expect(packed.files).toEqual(['.gitignore', 'link.ts', 'run.sh', 'src/deep/a.ts', 'untracked.md']);
+    expect(packed.skippedLinks).toEqual(['escape-abs', 'escape-rel']);
+    expect(packed.bytes).toBe(Buffer.byteLength('dist/\n*.log\n') + Buffer.byteLength('export const a = 1;\n')
+      + Buffer.byteLength('#!/bin/sh\necho ok\n') + Buffer.byteLength('rides along\n'));
 
     const { dir, members } = await untar(packed.tarball);
-    expect(members).toEqual(['.gitignore', 'link.ts', 'src/deep/a.ts', 'untracked.md']);
+    expect(members).toEqual(['.gitignore', 'link.ts', 'run.sh', 'src/deep/a.ts', 'untracked.md']);
     expect(await readFile(join(dir, 'src/deep/a.ts'), 'utf8')).toBe('export const a = 1;\n');
     expect(await readFile(join(dir, 'link.ts'), 'utf8')).toBe('export const a = 1;\n');
+    // Executable bits survive the round trip; plain files stay 0644.
+    expect((await stat(join(dir, 'run.sh'))).mode & 0o111).not.toBe(0);
+    expect((await stat(join(dir, 'src/deep/a.ts'))).mode & 0o111).toBe(0);
+    expect((await promisify(execFile)(join(dir, 'run.sh'))).stdout).toBe('ok\n');
     expect(await readdir(dir)).not.toContain('node_modules');
+    expect(await readdir(dir)).not.toContain('escape-abs');
   });
 
-  it('packs a plain directory by walking it, skipping only .git and node_modules', async () => {
+  it('refuses to widen to a walk when git fails inside a checkout', async () => {
+    const root = await tempDir('cloud-sync-gitfail-');
+    git(root, 'init', '-q');
+    await writeFile(join(root, '.gitignore'), '.env\n');
+    await writeFile(join(root, '.env'), 'SECRET=1\n');
+    await writeFile(join(root, 'ok.txt'), 'ok\n');
+    // A locked index makes ls-files fail while rev-parse still says "inside".
+    await writeFile(join(root, '.git/index.lock'), '');
+    const broken = await tempDir('cloud-sync-gitbroken-');
+    await mkdir(join(broken, '.git'));
+    await writeFile(join(broken, '.git/HEAD'), 'garbage\n');
+    await writeFile(join(broken, '.env'), 'SECRET=1\n');
+    // A corrupt .git is refused outright. A locked index is refused where git
+    // refuses ls-files; a git that tolerates the lock must still honour .gitignore.
+    await expect(pack(broken)).rejects.toMatchObject({ code: 'sync_unsupported' });
+    let error: unknown;
+    try { await pack(root); } catch (e) { error = e; }
+    if (error === undefined) expect((await pack(root)).files).not.toContain('.env');
+    else {
+      expect(error).toMatchObject({ code: 'sync_unsupported' });
+      expect(String((error as Error).message)).not.toContain('SECRET');
+    }
+  });
+
+  it('packs a plain directory by walking it, skipping node_modules and nested .git entries', async () => {
     const root = await tempDir('cloud-sync-plain-');
     await mkdir(join(root, 'lib'));
     await mkdir(join(root, 'node_modules'));
-    await mkdir(join(root, '.git'));
+    // A vendored checkout inside a plain directory: its .git is skipped, its files ride along.
+    await mkdir(join(root, 'vendor/.git'), { recursive: true });
     await writeFile(join(root, 'lib/x.txt'), 'x');
     await writeFile(join(root, 'node_modules/y.txt'), 'y');
-    await writeFile(join(root, '.git/HEAD'), 'ref');
+    await writeFile(join(root, 'vendor/.git/HEAD'), 'ref');
+    await writeFile(join(root, 'vendor/v.txt'), 'v');
     await writeFile(join(root, 'top.txt'), 'top');
-    const packed = packWorkingTree(root);
-    expect(packed.files).toEqual(['lib/x.txt', 'top.txt']);
-    expect((await untar(packed.tarball)).members).toEqual(['lib/x.txt', 'top.txt']);
+    const packed = await pack(root);
+    expect(packed.files).toEqual(['lib/x.txt', 'top.txt', 'vendor/v.txt']);
+    expect((await untar(packed.tarball)).members).toEqual(['lib/x.txt', 'top.txt', 'vendor/v.txt']);
   });
 
   it('is deterministic for the same tree', async () => {
     const root = await tempDir('cloud-sync-det-');
     await writeFile(join(root, 'a'), 'a');
-    expect(packWorkingTree(root).tarball.equals(packWorkingTree(root).tarball)).toBe(true);
+    expect((await pack(root)).tarball.equals((await pack(root)).tarball)).toBe(true);
+  });
+
+  it('disposes its spool file after packing', async () => {
+    const root = await tempDir('cloud-sync-spool-');
+    await writeFile(join(root, 'a'), 'a');
+    const packed = await packWorkingTree(root);
+    expect((await stat(packed.archivePath)).size).toBeGreaterThan(0);
+    packed.dispose();
+    await expect(stat(packed.archivePath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
 
@@ -239,14 +297,40 @@ describe('flows run --cloud --sync-code / flows sync', () => {
     await writeFile(join(root, 'a.txt'), 'one\n');
     git(root, 'add', 'a.txt');
     git(root, 'commit', '-q', '-m', 'baseline');
+    await writeFile(join(root, 'gone.txt'), 'bye\n');
+    git(root, 'add', 'gone.txt');
+    git(root, 'commit', '-q', '-m', 'add gone');
     const patch = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n one\n+two\n'
-      + 'diff --git a/b.txt b/b.txt\nnew file mode 100644\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1 @@\n+fresh\n';
+      + 'diff --git a/b.txt b/b.txt\nnew file mode 100644\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1 @@\n+fresh\n'
+      + 'diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\n--- a/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-bye\n';
     cloud({ '/api/v1/workflows/runs/done-run/patch': () => ({ patch, hasChanges: true }) });
     const output: string[] = [];
     expect(await runCli(['sync', '--json', '--dir', root, 'done-run'], { stdout: line => output.push(line), stderr: line => output.push(line) })).toBe(0);
-    expect(JSON.parse(output[0]!)).toEqual({ ok: true, runId: 'done-run', hasChanges: true, applied: true, files: ['a.txt', 'b.txt'] });
+    expect(JSON.parse(output[0]!)).toEqual({ ok: true, runId: 'done-run', hasChanges: true, applied: true, files: ['a.txt', 'b.txt', 'gone.txt'] });
     expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('one\ntwo\n');
     expect(await readFile(join(root, 'b.txt'), 'utf8')).toBe('fresh\n');
+    await expect(stat(join(root, 'gone.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(patchedPaths(patch)).toEqual(['a.txt', 'b.txt', 'gone.txt']);
+  });
+
+  it('classifies an interruption during upload as pre-admission, not admission_unknown', async () => {
+    const root = await tempDir('cloud-sync-abort-');
+    await writeFile(join(root, 'flow.yaml'), JSON.stringify({
+      version: '0.1.0', name: 'synced', steps: [{ id: 'ls', type: 'deterministic', command: 'ls' }],
+    }));
+    const { calls } = cloud({
+      '/api/v1/workflows/prepare': () => { process.emit('SIGINT'); return PREPARED; },
+      '/api/v1/workflows/runs/prepared-run/storage/code.tar.gz': () => ({ ok: true }),
+      '/api/v1/workflows/run': () => ({ runId: 'prepared-run', status: 'pending' }),
+    });
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
+    const output: string[] = [];
+    const code = await runCli(['run', '--cloud', '--sync-code', '--json', join(root, 'flow.yaml')],
+      { stdout: line => output.push(line), stderr: () => {} });
+    cwd.mockRestore();
+    expect(code).toBe(1);
+    expect(JSON.parse(output[0]!)).toMatchObject({ ok: false, code: 'submission_aborted' });
+    expect(calls.map(c => c.path)).not.toContain('/api/v1/workflows/run');
   });
 
   it('reports no changes without touching the tree', async () => {
