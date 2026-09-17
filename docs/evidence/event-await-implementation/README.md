@@ -1,6 +1,6 @@
 # Event-await local implementation evidence
 
-Commit: pending local commit at the time this evidence was written.
+Implementation commit: `ec4345a8c474bbe16b9727e5a0d2dd874e399569`.
 
 ## Scope and acceptance map
 
