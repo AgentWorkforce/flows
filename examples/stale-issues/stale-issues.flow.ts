@@ -22,7 +22,9 @@ const REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
 // under node, not the shell: the repository name never touches /bin/sh
 // unquoted, and it is validated before it gets here at all.
 const FETCH_ISSUES = `node -e '
-const [repo] = process.argv.slice(1);
+// Under node -e, argv[1] is "[eval]"; the repository is the last argument.
+
+const repo = process.argv.at(-1);
 const headers = { authorization: "Bearer " + process.env.GH_TOKEN, "user-agent": "relayflows-stale-issues", accept: "application/vnd.github+json" };
 (async () => {
   const out = []; const now = Date.now();
