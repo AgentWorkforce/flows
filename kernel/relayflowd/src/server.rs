@@ -500,6 +500,17 @@ fn handle_request(
         }
         "subscription.close" => {
             let params: SubscriptionCloseParams = decode_params(request.params)?;
+            if matches!(
+                params.completion_reason,
+                relayflowd_core::SubscriptionCompletionReason::Deadline
+                    | relayflowd_core::SubscriptionCompletionReason::Overflow
+            ) {
+                return Err((
+                    "bad_request",
+                    "subscription.close accepts only closed, run_completed, or canceled"
+                        .to_owned(),
+                ));
+            }
             let lock = hub.run_lock(&params.run_id);
             let _guard = lock.lock().expect("run lock");
             let changed = engine.close_subscription(&params.run_id, &params.subscription_id, params.completion_reason).map_err(internal_error)?;
