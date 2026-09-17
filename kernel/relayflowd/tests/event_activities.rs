@@ -45,6 +45,28 @@ fn activate<C: relayflowd_core::Clock>(engine: &Engine<C>, run_id: &str, subscri
 }
 
 #[test]
+fn prepared_open_response_replays_the_immutable_binding_snapshot() {
+    let directory = tempfile::tempdir().unwrap();
+    let engine = Engine::with_clock(directory.path(), TestClock::new(100));
+    let run_id = parked_run(&engine);
+    let prepared = engine.open_subscription(
+        &run_id, "immutable", vec!["github.pull_request".into(), "github.issue".into()],
+        Some(json!({"action": "opened", "repository": {"id": 7}})), 50, 10, 1_000, true,
+    ).unwrap();
+    assert_eq!(prepared, SubscriptionOpen::Prepared {
+        subscription_id: "immutable".into(), event_types: vec!["github.pull_request".into(), "github.issue".into()],
+        pattern: Some(json!({"action": "opened", "repository": {"id": 7}})), stream: "subscription/immutable".into(),
+        settle_ms: 50, idle_ms: 10, deadline_at_ms: 1_100, include_self: true,
+    });
+
+    // A process retry cannot silently substitute new authored source facts for
+    // the prepared record Cloud is about to bind.
+    assert_eq!(engine.open_subscription(
+        &run_id, "immutable", vec!["wrong.event".into()], None, 0, 99, 9_999, false,
+    ).unwrap(), prepared);
+}
+
+#[test]
 fn prepared_binding_stays_invisible_across_a_crash_until_activation_then_next_suspends() {
     let directory = tempfile::tempdir().unwrap();
     let clock = TestClock::new(100);

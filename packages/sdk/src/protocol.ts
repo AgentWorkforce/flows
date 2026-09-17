@@ -380,10 +380,16 @@ export interface SubscriptionOpenParams {
 }
 export type SubscriptionOpenResult =
   | {
+    /** Immutable snapshot from the durable `subscription.prepared` entry. */
     state: 'prepared';
     subscription_id: string;
+    event_types: string[];
+    pattern?: Record<string, unknown>;
     stream: string;
+    settle_ms: number;
+    idle_ms: number;
     deadline_at_ms: number;
+    include_self: boolean;
   }
   | {
     state: 'active';

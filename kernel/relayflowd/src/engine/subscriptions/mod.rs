@@ -46,7 +46,20 @@ pub enum SubscriptionNext {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum SubscriptionOpen {
-    Prepared { subscription_id: String, stream: String, deadline_at_ms: i64 },
+    /// The exact immutable request that Cloud must bind before the body can
+    /// resume. These fields come from `subscription.prepared`, never from the
+    /// authored source on a retry, so Cloud need not parse a sandbox journal.
+    Prepared {
+        subscription_id: String,
+        event_types: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pattern: Option<Value>,
+        stream: String,
+        settle_ms: i64,
+        idle_ms: i64,
+        deadline_at_ms: i64,
+        include_self: bool,
+    },
     Active { subscription_id: String, stream: String, deadline_at_ms: i64 },
 }
 
@@ -129,19 +142,29 @@ impl<C: Clock> Engine<C> {
             bail!("subscription {subscription_id} is closed")
         }
         if let Some(prepared) = prepared_subscriptions(&journal)?.remove(subscription_id) {
-            return Ok(SubscriptionOpen::Prepared { subscription_id: subscription_id.to_owned(), stream: prepared.stream, deadline_at_ms: prepared.deadline_at_ms });
+            return Ok(SubscriptionOpen::Prepared {
+                subscription_id: subscription_id.to_owned(), event_types: prepared.event_types,
+                pattern: prepared.pattern, stream: prepared.stream, settle_ms: prepared.settle_ms,
+                idle_ms: prepared.idle_ms, deadline_at_ms: prepared.deadline_at_ms,
+                include_self: prepared.include_self,
+            });
         }
         let now = self.clock.now_ms();
         let deadline_at_ms = now.checked_add(deadline_ms).context("subscription deadline overflow")?;
         let stream = format!("subscription/{subscription_id}");
+        let prepared = SubscriptionPreparedPayload {
+            subscription_id: subscription_id.to_owned(), event_types, pattern, stream,
+            settle_ms, idle_ms, deadline_at_ms, include_self,
+        };
         self.append(&mut journal, &JournalEntry::new(
-            EntryType::SubscriptionPrepared, run_id, None, None, now,
-            SubscriptionPreparedPayload {
-                subscription_id: subscription_id.to_owned(), event_types, pattern, stream: stream.clone(),
-                settle_ms, idle_ms, deadline_at_ms, include_self,
-            },
+            EntryType::SubscriptionPrepared, run_id, None, None, now, prepared.clone(),
         ))?;
-        Ok(SubscriptionOpen::Prepared { subscription_id: subscription_id.to_owned(), stream, deadline_at_ms })
+        Ok(SubscriptionOpen::Prepared {
+            subscription_id: prepared.subscription_id, event_types: prepared.event_types,
+            pattern: prepared.pattern, stream: prepared.stream, settle_ms: prepared.settle_ms,
+            idle_ms: prepared.idle_ms, deadline_at_ms: prepared.deadline_at_ms,
+            include_self: prepared.include_self,
+        })
     }
 
     /// Commit the second half of the open handshake after Cloud has persisted

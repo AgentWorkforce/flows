@@ -175,10 +175,15 @@ closed (decision 13).
 1. **`subscription.prepared`** — `subscription_id` (deterministic from run id,
    step id and declaration), `event_types`, `pattern` (the recursive-subset
    match already used by `TriggerSpec.pattern`), `stream`
-   (`subscription/<subscription_id>`), `deadline_at_ms`, and `include_self`.
-   It is an immutable request, never an open cursor and never eligible for
-   ingress. The daemon returns a `suspended` outcome at this boundary, so no
-   resident daemon thread waits for a Cloud binding.
+   (`subscription/<subscription_id>`), `settle_ms`, `idle_ms`,
+   `deadline_at_ms`, and `include_self`. It is an immutable request, never an
+   open cursor and never eligible for ingress. The daemon returns a `suspended`
+   outcome at this boundary, carrying this exact prepared snapshot to Cloud
+   (`eventTypes`, canonical `pattern`, bounds, and `includeSelf`); Cloud never
+   parses the sandbox SQLite journal. Cloud assigns the binding generation and
+   ingress cursor after persisting its registry row, so those receipts are not
+   author-controlled suspension fields. No resident daemon thread waits for a
+   Cloud binding.
 2. **`subscription.opened`** — the prepared request plus immutable provider
    binding: integration installation, canonical resource scope, authorization
    snapshot, router binding generation, and durable ingress offset. Cloud must

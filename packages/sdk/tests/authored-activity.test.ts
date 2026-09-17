@@ -20,7 +20,12 @@ describe('authored event activities', () => {
       'subscription.open': (ctx, params) => {
         calls.push({ verb: 'subscription.open', params });
         if (params.run_id === 'root-prepared') {
-          sendResult(ctx, { state: 'prepared', subscription_id: params.subscription_id, stream: 'subscription/activity-1', deadline_at_ms: 99 });
+          sendResult(ctx, {
+            state: 'prepared', subscription_id: params.subscription_id,
+            event_types: params.event_types, ...(params.pattern === undefined ? {} : { pattern: params.pattern }),
+            stream: 'subscription/activity-1', settle_ms: params.settle_ms, idle_ms: params.idle_ms,
+            deadline_at_ms: 99, include_self: params.include_self,
+          });
           return;
         }
         sendResult(ctx, { state: 'active', subscription_id: params.subscription_id, stream: 'subscription/activity-1', deadline_at_ms: 99 });
@@ -89,12 +94,16 @@ describe('authored event activities', () => {
     await journal.hello('authored-activity-prepared-test');
     try {
       await expect(executeAuthoredFlow(flow('prepared-activity', async (f) => {
-        const activity = f.on(webhook('pull_request'), { idle: '1h', deadline: '1d' });
+        const activity = f.on(webhook('pull_request', { action: 'opened', repository: { id: 7 } }), {
+          settle: '2m', idle: '1h', deadline: '1d', includeSelf: true,
+        });
         await activity.next();
         f.done('success');
       }), journal, undefined, { rootRunId: 'root-prepared' }))
         .rejects.toMatchObject({ code: 'subscription_suspended', suspension: {
-          kind: 'activation', subscriptionId: 'activity-1', stream: 'subscription/activity-1', deadlineAtMs: 99,
+          kind: 'activation', subscriptionId: 'activity-1', eventTypes: ['pull_request'],
+          pattern: { action: 'opened', repository: { id: 7 } }, stream: 'subscription/activity-1',
+          settleMs: 120_000, idleMs: 3_600_000, deadlineAtMs: 99, includeSelf: true,
         } });
       expect(calls.map(call => call.verb)).toEqual(['subscription.open']);
     } finally { journal.close(); }

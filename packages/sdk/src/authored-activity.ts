@@ -119,7 +119,10 @@ class JournalActivity implements OpenActivity {
     if (result.state === 'prepared') {
       throw suspended({
         kind: 'activation', subscriptionId: result.subscription_id,
-        stream: result.stream, deadlineAtMs: result.deadline_at_ms,
+        eventTypes: Object.freeze([...result.event_types]),
+        ...(result.pattern === undefined ? {} : { pattern: Object.freeze({ ...result.pattern }) }),
+        stream: result.stream, settleMs: result.settle_ms, idleMs: result.idle_ms,
+        deadlineAtMs: result.deadline_at_ms, includeSelf: result.include_self,
       }, this.runId);
     }
   }
