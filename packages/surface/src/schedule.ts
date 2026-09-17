@@ -150,15 +150,21 @@ function cronFieldMatches(field: string, value: number, index: number): boolean 
     const stride = step === undefined ? 1 : Number(step);
     let from: number;
     let to: number;
-    if (range === "*") { from = low; to = high; }
+    if (range === "*") { from = low; to = index === 4 ? 6 : high; }
     else {
       const bounds = range!.split("-").map(named);
       from = bounds[0]!;
-      to = bounds.length === 2 ? bounds[1]! : step === undefined ? bounds[0]! : high;
+      to = bounds.length === 2 ? bounds[1]! : step === undefined ? bounds[0]! : (index === 4 ? 6 : high);
     }
-    // Weekday 7 is Sunday, as 0 is.
-    const candidate = index === 4 && value === 0 && (from === 7 || to === 7) ? 7 : value;
-    return candidate >= from && candidate <= to && (candidate - from) % stride === 0;
+    // Weekday 7 is Sunday, as 0 is. A lone `7` or a range ending in 7 is
+    // tested against Sunday-as-0 as well, so a stride counted from the
+    // range start still lands on it: `1-7/2` fires Mon, Wed, Fri, Sun.
+    if (index === 4 && to === 7) {
+      if (from === 7) return value === 0;
+      if (value === 0 && (7 - from) % stride === 0) return true;
+      to = 6;
+    }
+    return value >= from && value <= to && (value - from) % stride === 0;
   });
 }
 

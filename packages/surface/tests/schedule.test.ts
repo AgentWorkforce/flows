@@ -62,6 +62,11 @@ describe("schedule.cron", () => {
     expect(cronMaxGapMs(parseCron("0 0 * * sun"))).toBe(7 * 24 * h);
     // Both day fields restricted: POSIX fires when either matches.
     expect(cronMaxGapMs(parseCron("0 0 1 * mon"))).toBeLessThanOrEqual(7 * 24 * h);
+    // Sunday as 7: a stepped range ending in 7 still lands on Sunday.
+    expect(cronMaxGapMs(parseCron("0 0 * * 1-7/2"))).toBe(2 * 24 * h);   // Mon Wed Fri Sun
+    expect(cronMaxGapMs(parseCron("0 0 * * 7"))).toBe(7 * 24 * h);
+    expect(cronMaxGapMs(parseCron("0 0 * * 5-7"))).toBe(5 * 24 * h);     // Fri Sat Sun → next Fri
+    expect(cronMaxGapMs(parseCron("0 0 * * */2"))).toBe(2 * 24 * h);     // Sun Tue Thu Sat
   });
 });
 
