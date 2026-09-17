@@ -22,6 +22,7 @@ export type CliResolutionSource = 'step' | 'named' | 'flow' | 'project';
 export interface CliResolution {
   stepId: string;
   cli: string;
+  /** Relative CLI base: project config for project; flow file for all others. */
   source: CliResolutionSource;
   /** Effective model probed with the CLI. */
   model?: string;
@@ -45,11 +46,8 @@ export type CliProbeFailureDetail =
   | `timeout:${number}ms`
   | `signal:${string}`;
 
-export class CliProbeError extends Error {
-  constructor(readonly detail: CliProbeFailureDetail) {
-    super('CLI probe failed');
-  }
-}
+import { CliProbeError } from './preflight-probe-error.js';
+export { CliProbeError } from './preflight-probe-error.js';
 
 type CliProbeOutcome =
   | { result: CliProbeResult }
@@ -84,6 +82,11 @@ export interface PreflightOptions {
   projectSearchStart?: string;
   /** Exact, project-owned model allowlist from the nearest flows.json. */
   models?: readonly string[];
+  /**
+   * Presence enables named-agent allowlist enforcement; an absent/empty models
+   * list then allows no models. Absence means no project policy for named
+   * declarations. Explicit step models still require allowlist membership.
+   */
   modelRegistryPath?: string;
   probes: PreflightProbes;
 }
@@ -525,7 +528,6 @@ function probeFailedMessage(
   }
   return `${prefix}: the probe timed out after ${detail.slice('timeout:'.length)}.`;
 }
-
 function probeTrigger(
   trigger: TriggerSpec,
   probes: PreflightProbes,

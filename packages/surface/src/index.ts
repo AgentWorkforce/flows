@@ -28,6 +28,7 @@ export {
   type FlowHandle,
   type TriggeredFlowHandle,
   type FlowHeader,
+  type NamedAgentDeclaration,
 } from "./flow.js";
 export {
   flowRunWritebackIdempotency,

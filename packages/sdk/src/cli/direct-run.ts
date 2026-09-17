@@ -136,6 +136,17 @@ export async function runDirectFlow(
           || error.code === 'agent_cli_unresolved'
           || error.code === 'llm_cli_unresolved'
           || error.code === 'unsupported_workspace_permission'))) {
+      // `agent_cli_unresolved` carries the real preflight refusal kind
+      // (cli_missing, model_unknown, model_unavailable, ...) it was wrapped
+      // from, so a caller inspecting `report.diagnostics[].kind` gets the
+      // same closed taxonomy `flows check` gives the declarative dialect
+      // instead of every refusal collapsing into one generic 'invalid_spec'.
+      // `unsupported_header`/`unsupported_workspace_permission` have no
+      // preflight-diagnostic counterpart — they're authoring-level refusals
+      // intrinsic to the TS executor — so 'invalid_spec' remains accurate for those.
+      const kind = error instanceof AuthoredFlowExecutionError
+        ? error.refusalKind ?? 'invalid_spec'
+        : 'invalid_spec';
       return {
         exitCode: 2,
         report: {
@@ -144,7 +155,7 @@ export async function runDirectFlow(
               error.code === 'helper_slack.credential_missing'
               || error.code === 'helper_slack.mount_required'
               || error.code === 'budget_syntax_invalid'
-            ) ? error.code : 'invalid_spec',
+            ) ? error.code : kind,
             message: error.message,
           }, path)),
           socketPath,

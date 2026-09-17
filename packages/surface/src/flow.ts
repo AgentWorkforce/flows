@@ -4,6 +4,17 @@ type HelperTools = Partial<Record<keyof Helpers, boolean>>;
 import type { Ctx } from "./context.js";
 import { webhook, type TriggerSource } from "./triggers.js";
 
+/**
+ * A reusable agent CLI/model pair, selectable by name from `f.agent(name, ...)`.
+ * Both fields are required so selecting a named agent can never inherit a
+ * host model — mirrors the kernel-spec dialect's `NamedAgentSpec`
+ * (`packages/sdk/src/spec.ts`), which this compiles into.
+ */
+export interface NamedAgentDeclaration {
+  cli: string;
+  model: string;
+}
+
 /** Optional escalation header; the empty header is the common case. */
 export interface FlowHeader {
   /** Relative paths to reusable authored flows composed by this body. */
@@ -13,6 +24,7 @@ export interface FlowHeader {
   budget?: string | { tokens?: number; dollars?: number; wallclock?: string };
   tools?: HelperTools & { relayfile?: string[]; mcp?: string[] };
   workspace?: string;
+  agents?: Record<string, NamedAgentDeclaration>;
 }
 
 export type FlowBody<Input = unknown> = (f: Ctx, input: Input) => Promise<void>;
@@ -28,6 +40,7 @@ export interface ReadonlyFlowHeader {
     mcp?: readonly string[];
   }>;
   readonly workspace?: string;
+  readonly agents?: Readonly<Record<string, Readonly<NamedAgentDeclaration>>>;
 }
 
 /** Immutable definition retained for the SDK's journal-backed runtime. */
@@ -66,7 +79,7 @@ export function flow<Input = unknown>(
   body?: FlowBody<Input>,
 ): FlowHandle {
   const flowBody = typeof headerOrBody === "function" ? headerOrBody : body;
-  const header = typeof headerOrBody === "function" ? {} : headerOrBody;
+  const header = snapshotHeader(typeof headerOrBody === "function" ? {} : headerOrBody, `unsupported_header: flow "${name}" header`);
 
   if (name.trim().length === 0) {
     throw new TypeError("flow name must not be empty");
@@ -149,6 +162,35 @@ function isStoredDefinition(
     && Object.isFrozen(value);
 }
 
+/** Capture descriptor values once; validation and freezing only see inert data. */
+function snapshotHeader(value: unknown, at = "header", ancestors = new Set<object>()): FlowHeader {
+  if (typeof value !== "object" || value === null) return value as FlowHeader;
+  if (ancestors.has(value)) throw new TypeError(`${at}: circular header data`);
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const entries = ownDataEntries(value as unknown as Record<string, unknown>, at);
+      // Preserve sparse-array length so the later closed-header validation
+      // refuses holes instead of treating Array(1) as an empty declaration.
+      const length = entries.find(([key]) => key === "length")?.[1];
+      const result: unknown[] = new Array(typeof length === "number" ? length : 0);
+      for (const [key, item] of entries) {
+        if (key === "length") continue;
+        Object.defineProperty(result, key, {
+          value: snapshotHeader(item, `${at}.${key}`, ancestors), enumerable: true,
+        });
+      }
+      return result as unknown as FlowHeader;
+    }
+    assertHeaderObject(value, at);
+    return Object.fromEntries(ownDataEntries(value, at).map(([key, item]) => [
+      key, snapshotHeader(item, `${at}.${key}`, ancestors),
+    ]));
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
 function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
   const unknownFields = Object.keys(header).filter((field) => ![
     "use",
@@ -157,6 +199,7 @@ function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
     "budget",
     "tools",
     "workspace",
+    "agents",
   ].includes(field));
   if (unknownFields.length > 0) {
     throw new TypeError(`flow header has unknown fields: ${unknownFields.join(", ")}`);
@@ -176,6 +219,16 @@ function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
           ? {}
           : { mcp: Object.freeze([...header.tools.mcp]) }),
       });
+  const agents = header.agents === undefined
+    ? undefined
+    : Object.freeze(
+        Object.fromEntries(
+          ownDataEntries(header.agents, "header.agents").map(([name, declaration]) => {
+            const record = declaration as NamedAgentDeclaration;
+            return [name, Object.freeze({ cli: record.cli, model: record.model })];
+          }),
+        ),
+      );
   return Object.freeze({
     ...(header.use === undefined ? {} : { use: Object.freeze([...header.use]) }),
     ...(header.identity === undefined ? {} : { identity: header.identity }),
@@ -183,6 +236,7 @@ function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
     ...(header.budget === undefined ? {} : { budget: typeof header.budget === "string" ? header.budget : Object.freeze({ ...header.budget }) }),
     ...(tools === undefined ? {} : { tools }),
     ...(header.workspace === undefined ? {} : { workspace: header.workspace }),
+    ...(agents === undefined ? {} : { agents }),
   });
 }
 
@@ -191,7 +245,7 @@ function assertFlowHeader(value: unknown, flowName: string): asserts value is Fl
   assertHeaderObject(value, at);
   assertKnownKeys(
     value,
-    ["use", "identity", "memory", "budget", "tools", "workspace"],
+    ["use", "identity", "memory", "budget", "tools", "workspace", "agents"],
     at,
   );
   assertOptionalString(value, "identity", at);
@@ -235,6 +289,48 @@ function assertFlowHeader(value: unknown, flowName: string): asserts value is Fl
     assertOptionalStringArray(value.tools, "relayfile", `${at}.tools`);
     assertOptionalStringArray(value.tools, "mcp", `${at}.tools`);
   }
+
+  if (value.agents !== undefined) {
+    assertHeaderObject(value.agents, `${at}.agents`);
+    for (const [name, declaration] of ownDataEntries(value.agents, `${at}.agents`)) {
+      if (name !== name.trim() || name.length === 0) {
+        throw new TypeError(`${at}.agents: agent name ${JSON.stringify(name)} must be a non-empty, trimmed string`);
+      }
+      const declarationAt = `${at}.agents.${name}`;
+      assertHeaderObject(declaration, declarationAt);
+      assertKnownKeys(declaration, ["cli", "model"], declarationAt);
+      assertRequiredTrimmedString(declaration, "cli", declarationAt);
+      assertRequiredTrimmedString(declaration, "model", declarationAt);
+    }
+  }
+}
+
+/**
+ * Reads every own property of `value` via its descriptor rather than
+ * `Object.entries`/property access, so an accessor (getter) property is
+ * REJECTED — never invoked — instead of being enumerated as if it were
+ * ordinary data. `Object.entries` would call the getter, and a stateful
+ * getter can legally answer validation with one value and a second,
+ * unvalidated read (e.g. during freezing) with a different one — the closed
+ * declaration contract must not depend on a property being well-behaved
+ * across two separate reads.
+ */
+function ownDataEntries(
+  value: Record<string, unknown>,
+  at: string,
+): [string, unknown][] {
+  const entries: [string, unknown][] = [];
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string") {
+      throw new TypeError(`${at}: unknown field ${JSON.stringify(String(key))}`);
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !("value" in descriptor)) {
+      throw new TypeError(`${at}.${key}: expected a data property`);
+    }
+    entries.push([key, descriptor.value]);
+  }
+  return entries;
 }
 
 function assertHeaderObject(
@@ -274,6 +370,27 @@ function assertOptionalString(
 ): void {
   if (value[key] !== undefined && typeof value[key] !== "string") {
     throw new TypeError(`${at}.${key}: expected a string`);
+  }
+}
+
+/**
+ * Requires a trimmed, non-empty string — not merely non-empty-after-trim.
+ * The SDK's own project-config schema only accepts already-trimmed model/cli
+ * strings (`readProjectConfig`, cli/check.ts); accepting untrimmed values
+ * here would let a flow author declare " claude " and have it validate at
+ * authoring time but fail later at f.agent preflight, moving a defect from
+ * authoring to execution instead of catching it up front.
+ */
+function assertRequiredTrimmedString(
+  value: Record<string, unknown>,
+  key: string,
+  at: string,
+): void {
+  if (typeof value[key] !== "string" || value[key].length === 0) {
+    throw new TypeError(`${at}.${key}: expected a non-empty string`);
+  }
+  if (value[key] !== value[key].trim()) {
+    throw new TypeError(`${at}.${key}: must not have leading or trailing whitespace`);
   }
 }
 
