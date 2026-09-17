@@ -24,6 +24,10 @@
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js"
+    },
+    "./relay-cli": {
+      "types": "./dist/relay-cli.d.ts",
+      "import": "./dist/relay-cli.js"
     }
   },
   "files": [

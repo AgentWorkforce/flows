@@ -7,7 +7,17 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "rootDir": ".",
-    "types": ["node", "vitest"]
+    "types": ["node", "vitest"],
+    // The relay CLI-surface contract, resolved dev-only. Deliberately NOT a
+    // package.json devDependency: npm would write a `file:`/`..` entry into
+    // package-lock.json, and `checkInstalledVersions` in bundle-typescript.ts
+    // rejects exactly that, so every standalone TS bundle would stop building.
+    // A path mapping gives the tests the real contract types with no lockfile
+    // entry, and the published package keeps no dependency on it at all.
+    // Mirrored by `resolve.alias` in vitest.config.ts for the runtime helpers.
+    "paths": {
+      "@agent-relay/cli-surface": ["../../../relay/packages/cli-surface/dist/index.d.ts"]
+    }
   },
   "include": [
     "src/**/*.ts",
@@ -40,7 +50,9 @@
     "tests/webhook-hardening.test.ts",
     "tests/adapters/claude.test.ts",
     "tests/adapters/codex.test.ts",
-    "tests/adapters/registry.test.ts"
+    "tests/adapters/registry.test.ts",
+    "tests/relay-cli-surface.test.ts",
+    "tests/relay-cli-surface-live.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

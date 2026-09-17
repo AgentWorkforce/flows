@@ -215,6 +215,12 @@ async function directory(path: string): Promise<void> {
 
 export async function runServeWebhook(
   options: { dataDir: string; port: number; admitted?: readonly string[] }, io: CliIo,
+  /**
+   * Shutdown, owned by the caller. `runCli` supplies either the embedder's
+   * signal or one it drives from SIGINT/SIGTERM, so the receiver installs no
+   * process-wide handler of its own.
+   */
+  signal: AbortSignal,
 ): Promise<0 | 1> {
   try {
     const admittedNames = options.admitted === undefined ? undefined : new Set(options.admitted);
@@ -231,12 +237,9 @@ export async function runServeWebhook(
         server.closeAllConnections();
       };
       server.once('error', reject);
-      process.once('SIGINT', stop);
-      process.once('SIGTERM', stop);
-      server.once('close', () => {
-        process.off('SIGINT', stop);
-        process.off('SIGTERM', stop);
-      });
+      if (signal.aborted) { stop(); return; }
+      signal.addEventListener('abort', stop, { once: true });
+      server.once('close', () => signal.removeEventListener('abort', stop));
     });
     return 0;
   } catch (error) {
