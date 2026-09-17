@@ -1,0 +1,22 @@
+-sf -H Authorization: Bearer <token> -H Accept: application/vnd.github+json https://api.github.com/repos/o/r/pulls/7
+-sf -H Authorization: Bearer <token> -H Accept: application/vnd.github+json https://api.github.com/repos/o/r/pulls/7/comments?per_page=100
+-sf -H Authorization: Bearer <token> -H Accept: application/vnd.github+json https://api.github.com/repos/o/r/pulls/7/reviews?per_page=100
+-sf -H Authorization: Bearer <token> -H Accept: application/vnd.github+json https://api.github.com/repos/o/r/pulls/7
+-sf -H Authorization: Bearer <token> -H Accept: application/vnd.github+json https://api.github.com/repos/o/r/commits/6dee8f6fa764906cf2c7039ff217a991a6eb315b/check-runs?per_page=100
+-sf -H Authorization: Bearer <token> -H Accept: application/vnd.github+json https://api.github.com/repos/o/r/commits/6dee8f6fa764906cf2c7039ff217a991a6eb315b/status
+-sf -H Authorization: Bearer <token> -H Accept: application/vnd.github+json https://api.github.com/repos/o/r/pulls/7/reviews?per_page=100
+-sf -X POST -H Authorization: Bearer <token> -H Accept: application/vnd.github+json https://api.github.com/repos/o/r/issues/7/comments -d {"body":"## Review
+Looks fine.
+
+## Addressed comments
+- none
+
+## Advisory
+The reviewer's edits were discarded because the PR head lives in someone/r, not in o/r, and this flow only pushes to its own repository. Nothing was pushed. What it proposed:
+
+```
+a.js | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+:white_check_mark: This PR is ready for your review."}
