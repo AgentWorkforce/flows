@@ -55,6 +55,7 @@ export type Verb =
   | 'event.emit'
   | 'event.submit'
   | 'subscription.open'
+  | 'subscription.activate'
   | 'subscription.next'
   | 'subscription.close'
   | 'stream.append'
@@ -377,7 +378,29 @@ export interface SubscriptionOpenParams {
   deadline_ms: number;
   include_self: boolean;
 }
-export interface SubscriptionOpenResult {
+export type SubscriptionOpenResult =
+  | {
+    state: 'prepared';
+    subscription_id: string;
+    stream: string;
+    deadline_at_ms: number;
+  }
+  | {
+    state: 'active';
+    subscription_id: string;
+    stream: string;
+    deadline_at_ms: number;
+  };
+
+/** Cloud supplies this receipt only after it has durably fenced its binding. */
+export interface SubscriptionActivateParams {
+  run_id: string;
+  subscription_id: string;
+  ingress_offset: number;
+  router_binding: Record<string, unknown>;
+}
+export interface SubscriptionActivateResult {
+  state: 'active';
   subscription_id: string;
   stream: string;
   deadline_at_ms: number;
@@ -390,6 +413,7 @@ export interface SubscriptionNextParams {
   acknowledge_wait_id?: string;
 }
 export type SubscriptionNextResult =
+  | { kind: 'suspended'; subscription_id: string; stream: string; deadline_at_ms: number }
   | { kind: 'events'; events: unknown[]; offset: number; acknowledge_wait_id?: string }
   | { kind: 'idle'; acknowledge_wait_id?: string }
   | { kind: 'deadline'; pending: { from: number; to: number } | null }
@@ -449,6 +473,7 @@ export interface VerbContract {
   'event.emit': { params: EventEmitParams; result: EventEmitResult };
   'event.submit': { params: EventSubmitParams; result: EventSubmitResult };
   'subscription.open': { params: SubscriptionOpenParams; result: SubscriptionOpenResult };
+  'subscription.activate': { params: SubscriptionActivateParams; result: SubscriptionActivateResult };
   'subscription.next': { params: SubscriptionNextParams; result: SubscriptionNextResult };
   'subscription.close': { params: SubscriptionCloseParams; result: SubscriptionCloseResult };
   'stream.append': { params: StreamAppendParams; result: StreamAppendResult };

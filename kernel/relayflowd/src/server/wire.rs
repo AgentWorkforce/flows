@@ -191,6 +191,15 @@ pub(super) struct SubscriptionNextParams {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(super) struct SubscriptionActivateParams {
+    pub run_id: String,
+    pub subscription_id: String,
+    pub ingress_offset: u64,
+    pub router_binding: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct SubscriptionCloseParams {
     pub run_id: String,
     pub subscription_id: String,

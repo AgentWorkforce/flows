@@ -45,7 +45,7 @@ export interface CliIo {
   stderr(line: string): void;
 }
 
-type CliExitCode = 0 | 1 | 2 | 3;
+type CliExitCode = 0 | 1 | 2 | 3 | 4;
 type ParsedArgs =
   | { command: 'add'; value: string }
   | ReplayArgs

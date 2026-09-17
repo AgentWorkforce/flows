@@ -7,7 +7,7 @@ import type {
   Wake,
 } from '@relayflows/surface';
 import type { SubscriptionNextResult } from './protocol.js';
-import { AuthoredFlowExecutionError } from './authored-flow-error.js';
+import { AuthoredFlowExecutionError, type AuthoredFlowSuspension } from './authored-flow-error.js';
 import { JournalClient } from './journal-client.js';
 
 type CloseReason = 'closed' | 'run_completed' | 'canceled';
@@ -85,6 +85,12 @@ class JournalActivity implements OpenActivity {
       subscription_id: this.subscriptionId,
       ...(this.acknowledgeWaitId === undefined ? {} : { acknowledge_wait_id: this.acknowledgeWaitId }),
     });
+    if (result.kind === 'suspended') {
+      throw suspended({
+        kind: 'event_wait', subscriptionId: result.subscription_id,
+        stream: result.stream, deadlineAtMs: result.deadline_at_ms,
+      }, this.runId);
+    }
     const wake = decodeWake(result);
     if (wake.kind === 'deadline' || wake.kind === 'overflow') {
       this.closed = true;
@@ -100,7 +106,7 @@ class JournalActivity implements OpenActivity {
   }
 
   private async openNow(): Promise<void> {
-    await this.journal.subscriptionOpen({
+    const result = await this.journal.subscriptionOpen({
       run_id: this.runId,
       subscription_id: this.subscriptionId,
       event_types: [this.source.name],
@@ -110,7 +116,23 @@ class JournalActivity implements OpenActivity {
       deadline_ms: this.options.deadlineMs,
       include_self: this.options.includeSelf,
     });
+    if (result.state === 'prepared') {
+      throw suspended({
+        kind: 'activation', subscriptionId: result.subscription_id,
+        stream: result.stream, deadlineAtMs: result.deadline_at_ms,
+      }, this.runId);
+    }
   }
+}
+
+function suspended(value: AuthoredFlowSuspension, runId: string): AuthoredFlowExecutionError {
+  return new AuthoredFlowExecutionError(
+    'subscription_suspended',
+    `subscription ${value.subscriptionId} is durably suspended for ${value.kind}`,
+    undefined,
+    runId,
+    value,
+  );
 }
 
 function receiptId(result: SubscriptionNextResult): string | undefined {

@@ -29,6 +29,7 @@ export type AuthoredFlowExecutionErrorCode =
   | 'unsupported_workspace_permission'
   | 'unbounded_subscription'
   | 'activity_closed'
+  | 'subscription_suspended'
   | 'unawaited_step'
   | 'unsupported_verb';
 
@@ -38,8 +39,17 @@ export class AuthoredFlowExecutionError extends Error {
     message: string,
     readonly completionReason?: ProtocolCompletionReason | ProtocolRunCompletionReason,
     readonly runId?: string,
+    readonly suspension?: AuthoredFlowSuspension,
   ) {
     super(`${code}: ${message}`);
     this.name = 'AuthoredFlowExecutionError';
   }
 }
+
+/** Serialized into the CLI report so Cloud can atomically finish activation or wait for a wake. */
+export type AuthoredFlowSuspension = {
+  readonly kind: 'activation' | 'event_wait';
+  readonly subscriptionId: string;
+  readonly stream: string;
+  readonly deadlineAtMs: number;
+};

@@ -3,7 +3,7 @@
 //! matters; no mock bypasses recovery.
 
 use relayflowd::Engine;
-use relayflowd::engine::{PendingRange, SubscriptionWake};
+use relayflowd::engine::{PendingRange, SubscriptionNext, SubscriptionOpen, SubscriptionWake};
 use relayflowd_core::{Clock, EntryType, Journal, JournalEntry, RunSpec, SimClock, StreamAppendedPayload, SubscriptionAcknowledgedPayload, WaitHumanPayload};
 use relayflowd_journal::SqliteJournal;
 use serde_json::json;
@@ -29,6 +29,64 @@ fn open<C: relayflowd_core::Clock>(engine: &Engine<C>, run_id: &str, deadline_ms
         run_id, "pr-42", vec!["github.pull_request".to_owned()], None,
         0, 10, deadline_ms, false,
     ).unwrap();
+    activate(engine, run_id, "pr-42");
+}
+
+/// Unit coverage uses a local stand-in for Cloud's durable router registry.
+/// Production must persist this receipt and ingress fence before making the
+/// body visible again through `subscription.activate`.
+fn activate<C: relayflowd_core::Clock>(engine: &Engine<C>, run_id: &str, subscription_id: &str) {
+    engine.activate_subscription(
+        run_id,
+        subscription_id,
+        0,
+        json!({"transport": "test-router", "generation": "test"}),
+    ).unwrap();
+}
+
+#[test]
+fn prepared_binding_stays_invisible_across_a_crash_until_activation_then_next_suspends() {
+    let directory = tempfile::tempdir().unwrap();
+    let clock = TestClock::new(100);
+    let engine = Engine::with_clock(directory.path(), clock.clone());
+    let run_id = parked_run(&engine);
+
+    assert!(matches!(engine.open_subscription(
+        &run_id, "handoff", vec!["github.pull_request".into()], None, 0, 10, 1_000, false,
+    ).unwrap(), SubscriptionOpen::Prepared { .. }));
+    assert_eq!(engine.append_local_subscription_event(
+        &run_id, "github.pull_request", json!({"number": 1}), Some("before-activate"), Some("reviewer"),
+    ).unwrap(), 0);
+
+    let resumed = Engine::with_clock(directory.path(), clock);
+    assert!(matches!(resumed.open_subscription(
+        &run_id, "handoff", vec!["github.pull_request".into()], None, 0, 10, 1_000, false,
+    ).unwrap(), SubscriptionOpen::Prepared { .. }));
+    assert!(matches!(resumed.activate_subscription(
+        &run_id, "handoff", 41, json!({"binding_id": "binding-1", "generation": 7}),
+    ).unwrap(), SubscriptionOpen::Active { .. }));
+    assert!(matches!(resumed.activate_subscription(
+        &run_id, "handoff", 41, json!({"binding_id": "ignored-on-retry"}),
+    ).unwrap(), SubscriptionOpen::Active { .. }));
+
+    assert!(matches!(resumed.next_subscription_outcome(&run_id, "handoff", None).unwrap().0,
+        SubscriptionNext::Suspended { ref subscription_id, ref stream, deadline_at_ms: 1_100 }
+        if subscription_id == "handoff" && stream == "subscription/handoff"));
+    let entries = resumed.journal_entries(&run_id, 1, 100).unwrap();
+    assert_eq!(entries.iter().filter(|entry| entry.entry_type == EntryType::SubscriptionPrepared).count(), 1);
+    assert_eq!(entries.iter().filter(|entry| entry.entry_type == EntryType::SubscriptionOpened).count(), 1);
+    assert_eq!(entries.iter().filter(|entry| entry.entry_type == EntryType::WaitEvent).count(), 1);
+
+    let recovered = Engine::with_clock(directory.path(), TestClock::new(100));
+    assert!(matches!(recovered.next_subscription_outcome(&run_id, "handoff", None).unwrap().0,
+        SubscriptionNext::Suspended { .. }));
+    assert_eq!(recovered.journal_entries(&run_id, 1, 100).unwrap().iter()
+        .filter(|entry| entry.entry_type == EntryType::WaitEvent).count(), 1);
+    assert!(recovered.append_subscription_frame(
+        &run_id, "handoff", "after-activate", json!({"type": "github.pull_request", "number": 2}),
+    ).unwrap());
+    assert!(matches!(recovered.next_subscription_outcome(&run_id, "handoff", None).unwrap().0,
+        SubscriptionNext::Wake(SubscriptionWake::Events { offset: 1, .. })));
 }
 
 #[test]
@@ -55,9 +113,15 @@ fn accepted_append_is_buffered_deduplicated_and_survives_a_restart_before_next()
 #[test]
 fn idle_wait_is_durable_and_fires_without_an_event() {
     let directory = tempfile::tempdir().unwrap();
-    let engine = Engine::new(directory.path());
+    let clock = TestClock::new(0);
+    let engine = Engine::with_clock(directory.path(), clock.clone());
     let run_id = parked_run(&engine);
     engine.open_subscription(&run_id, "quiet", vec!["github.pull_request".to_owned()], None, 0, 1, 100, false).unwrap();
+    activate(&engine, &run_id, "quiet");
+    assert!(matches!(engine.next_subscription_outcome(&run_id, "quiet", None).unwrap().0,
+        SubscriptionNext::Suspended { .. }));
+    clock.set(1);
+    assert_eq!(engine.claim_subscription_timeouts(&run_id).unwrap(), 1);
     assert_eq!(engine.next_subscription(&run_id, "quiet").unwrap(), SubscriptionWake::Idle);
     assert!(engine.journal_entries(&run_id, 1, 100).unwrap().iter().any(|entry| entry.entry_type == EntryType::WaitCompleted));
 }
@@ -176,6 +240,7 @@ fn remaining_event_await_acceptance_cases_use_the_real_journal() {
 
     let self_run = parked_run(&engine);
     engine.open_subscription(&self_run, "self", vec!["github.pull_request".into()], None, 0, 10, 100, false).unwrap();
+    activate(&engine, &self_run, "self");
     assert_eq!(engine.append_local_subscription_event(&self_run, "github.pull_request", json!({}), Some("self"), Some("event-activity-test")).unwrap(), 0);
 
     // Cases 4 and 5: a settle burst yields one ordered wake; after that wake
@@ -185,11 +250,15 @@ fn remaining_event_await_acceptance_cases_use_the_real_journal() {
     let engine = Engine::with_clock(directory.path(), clock.clone());
     let run_id = parked_run(&engine);
     engine.open_subscription(&run_id, "timed", vec!["github.pull_request".into()], None, 5, 10, 20, false).unwrap();
+    activate(&engine, &run_id, "timed");
     for (at, n) in [(1, 1), (2, 2), (3, 3)] { clock.set(at); assert!(engine.append_subscription_frame(&run_id, "timed", &format!("d{n}"), json!({"type":"github.pull_request", "n":n})).unwrap()); }
     clock.set(8);
     assert!(matches!(engine.next_subscription(&run_id, "timed").unwrap(), SubscriptionWake::Events { offset: 3, .. }));
+    assert!(matches!(engine.next_subscription_outcome(&run_id, "timed", Some("timed/next/0")).unwrap().0,
+        SubscriptionNext::Suspended { .. }));
     clock.set(18);
-    assert_eq!(engine.next_subscription_after_ack(&run_id, "timed", Some("timed/next/0")).unwrap(), SubscriptionWake::Idle);
+    assert_eq!(engine.claim_subscription_timeouts(&run_id).unwrap(), 1);
+    assert_eq!(engine.next_subscription(&run_id, "timed").unwrap(), SubscriptionWake::Idle);
     clock.set(20);
     assert!(matches!(engine.next_subscription_after_ack(&run_id, "timed", Some("timed/next/1")).unwrap(), SubscriptionWake::Deadline { .. }));
 
@@ -200,6 +269,7 @@ fn remaining_event_await_acceptance_cases_use_the_real_journal() {
     let engine = Engine::with_clock(directory.path(), clock.clone());
     let run_id = parked_run(&engine);
     engine.open_subscription(&run_id, "idle-restart", vec!["github.pull_request".into()], None, 0, 10, 100, false).unwrap();
+    activate(&engine, &run_id, "idle-restart");
     let mut journal = SqliteJournal::open(directory.path().join("runs").join(format!("{run_id}.sqlite3"))).unwrap();
     journal.append(&JournalEntry::new(EntryType::WaitEvent, &run_id, None, None, 0, relayflowd_core::WaitEventPayload { wait_id: "idle-restart/next/0".into(), event_key: "idle-restart".into(), timeout_at_ms: Some(100), stream: Some("subscription/idle-restart".into()), from_offset: Some(0), settle_ms: Some(0), idle_at_ms: Some(10), deadline_at_ms: Some(100) })).unwrap();
     drop(journal); clock.set(10);
@@ -226,10 +296,12 @@ fn remaining_event_await_acceptance_cases_use_the_real_journal() {
     assert!(matches!(engine.next_subscription_after_ack(&run_id, "pr-42", Some("pr-42/next/0")).unwrap(), SubscriptionWake::Overflow { .. }));
     let bytes_run = parked_run(&engine);
     engine.open_subscription(&bytes_run, "bytes", vec!["github.pull_request".into()], None, 0, 10, 10_000, false).unwrap();
+    activate(&engine, &bytes_run, "bytes");
     assert!(!engine.append_subscription_frame(&bytes_run, "bytes", "too-big", json!("x".repeat(1_024 * 1_024))).unwrap());
     assert!(matches!(engine.next_subscription(&bytes_run, "bytes").unwrap(), SubscriptionWake::Overflow { retained: 0, bytes: 0, from: 0 }));
     let keeps_up = parked_run(&engine);
     engine.open_subscription(&keeps_up, "keeps-up", vec!["github.pull_request".into()], None, 0, 10, 10_000, false).unwrap();
+    activate(&engine, &keeps_up, "keeps-up");
     let mut journal = SqliteJournal::open(directory.path().join("runs").join(format!("{keeps_up}.sqlite3"))).unwrap();
     for offset in 0..1_001_u64 {
         journal.append(&JournalEntry::new(EntryType::StreamAppended, &keeps_up, None, None, 0, StreamAppendedPayload { stream: "subscription/keeps-up".into(), offset, producer: "event-router".into(), message: json!({"type":"github.pull_request"}), provider_delivery_id: Some(format!("kept-{offset}")) })).unwrap();

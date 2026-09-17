@@ -32,6 +32,7 @@ import type { GetFlowDefinition } from './authored-flow-loader.js';
 import type { RunLifecycleOptions } from './cli/run.js';
 import {
   AuthoredFlowExecutionError,
+  type AuthoredFlowSuspension,
   type AuthoredFlowExecutionErrorCode,
 } from './authored-flow-error.js';
 import {
@@ -81,10 +82,19 @@ export interface AuthoredExecutionRuntime {
 }
 
 export interface AuthoredFlowExecutionResult {
+  readonly state?: undefined;
   readonly executionRuntime?: AuthoredExecutionRuntime;
   readonly rootRunId?: string;
   readonly name: string;
   readonly completionReason: FlowCompletionReason;
+  readonly journalSteps: readonly AuthoredFlowJournalStep[];
+}
+
+/** A body reached a durable event boundary and released its worker lease. */
+export interface AuthoredFlowSuspendedResult {
+  readonly state: 'suspended';
+  readonly name: string;
+  readonly suspension: AuthoredFlowSuspension;
   readonly journalSteps: readonly AuthoredFlowJournalStep[];
 }
 

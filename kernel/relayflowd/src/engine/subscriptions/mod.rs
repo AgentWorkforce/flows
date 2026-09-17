@@ -1,15 +1,16 @@
 //! Body-local event activities: durable cursors over journal streams.
 //!
-//! Provider bindings are deliberately not implemented here. Cloud fences its
-//! tenant/provider binding, then calls `subscription.open`; this module owns
-//! only the cell-local journal ordering, cursor, and timers.
+//! Provider bindings are deliberately not implemented here. Cloud first
+//! records a prepared request, then fences its tenant/provider binding and
+//! calls `subscription.activate`; this module owns only journal ordering,
+//! cursor state, and timers.
 
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result, bail};
 use relayflowd_core::{
     Clock, EntryType, JournalEntry, RunSpawnedPayload, StreamAppendedPayload, SubscriptionAcknowledgedPayload, SubscriptionClosedPayload,
-    SubscriptionCompletionReason, SubscriptionOpenedPayload, WaitCompletedPayload,
+    SubscriptionCompletionReason, SubscriptionOpenedPayload, SubscriptionPreparedPayload, WaitCompletedPayload,
     SubscriptionOverflowFencedPayload, WaitCompletionReason, WaitEventPayload,
 };
 use relayflowd_journal::SqliteJournal;
@@ -17,6 +18,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::Engine;
+
+mod state;
+use state::*;
 
 const MAX_UNREAD_FRAMES: usize = 1_000;
 const MAX_UNREAD_BYTES: usize = 1_024 * 1_024;
@@ -30,6 +34,22 @@ pub enum SubscriptionWake {
     Overflow { retained: u64, bytes: u64, from: u64 },
 }
 
+/// A daemon response never sleeps while waiting for an external event. The
+/// caller publishes this durable boundary and returns to its control plane.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SubscriptionNext {
+    Wake(SubscriptionWake),
+    Suspended { subscription_id: String, stream: String, deadline_at_ms: i64 },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum SubscriptionOpen {
+    Prepared { subscription_id: String, stream: String, deadline_at_ms: i64 },
+    Active { subscription_id: String, stream: String, deadline_at_ms: i64 },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PendingRange {
     pub from: u64,
@@ -37,19 +57,19 @@ pub struct PendingRange {
 }
 
 #[derive(Debug, Clone)]
-struct SubscriptionState {
-    opened: SubscriptionOpenedPayload,
-    closed: Option<SubscriptionCompletionReason>,
-    acknowledged_offset: u64,
-    last_wake_at_ms: i64,
-    active_wait: Option<WaitEventPayload>,
-    ready: Option<WaitCompletedPayload>,
-    overflow_fence: Option<SubscriptionOverflowFencedPayload>,
-    next_wait_sequence: u64,
+pub(super) struct SubscriptionState {
+    pub(super) opened: SubscriptionOpenedPayload,
+    pub(super) closed: Option<SubscriptionCompletionReason>,
+    pub(super) acknowledged_offset: u64,
+    pub(super) last_wake_at_ms: i64,
+    pub(super) active_wait: Option<WaitEventPayload>,
+    pub(super) ready: Option<WaitCompletedPayload>,
+    pub(super) overflow_fence: Option<SubscriptionOverflowFencedPayload>,
+    pub(super) next_wait_sequence: u64,
 }
 
 impl SubscriptionState {
-    fn stream(&self) -> &str { &self.opened.stream }
+    pub(super) fn stream(&self) -> &str { &self.opened.stream }
 }
 
 impl<C: Clock> Engine<C> {
@@ -93,7 +113,7 @@ impl<C: Clock> Engine<C> {
         idle_ms: i64,
         deadline_ms: i64,
         include_self: bool,
-    ) -> Result<(String, i64)> {
+    ) -> Result<SubscriptionOpen> {
         if subscription_id.is_empty() || event_types.is_empty() || event_types.iter().any(String::is_empty)
             || settle_ms < 0 || idle_ms <= 0 || deadline_ms <= 0 {
             bail!("invalid durable subscription bounds or identity")
@@ -104,24 +124,53 @@ impl<C: Clock> Engine<C> {
         let existing = current.remove(subscription_id);
         if let Some(existing) = existing {
             if existing.closed.is_none() {
-                return Ok((existing.opened.stream, existing.opened.deadline_at_ms));
+                return Ok(SubscriptionOpen::Active { subscription_id: subscription_id.to_owned(), stream: existing.opened.stream, deadline_at_ms: existing.opened.deadline_at_ms });
             }
             bail!("subscription {subscription_id} is closed")
+        }
+        if let Some(prepared) = prepared_subscriptions(&journal)?.remove(subscription_id) {
+            return Ok(SubscriptionOpen::Prepared { subscription_id: subscription_id.to_owned(), stream: prepared.stream, deadline_at_ms: prepared.deadline_at_ms });
         }
         let now = self.clock.now_ms();
         let deadline_at_ms = now.checked_add(deadline_ms).context("subscription deadline overflow")?;
         let stream = format!("subscription/{subscription_id}");
         self.append(&mut journal, &JournalEntry::new(
-            EntryType::SubscriptionOpened, run_id, None, None, now,
-            SubscriptionOpenedPayload {
+            EntryType::SubscriptionPrepared, run_id, None, None, now,
+            SubscriptionPreparedPayload {
                 subscription_id: subscription_id.to_owned(), event_types, pattern, stream: stream.clone(),
-                settle_ms, idle_ms, deadline_at_ms, include_self, ingress_offset: 0,
-                // The local daemon is not a provider router. Cloud replaces
-                // this neutral receipt after it durably fenced its binding.
-                router_binding: json!({"transport": "local-daemon"}),
+                settle_ms, idle_ms, deadline_at_ms, include_self,
             },
         ))?;
-        Ok((stream, deadline_at_ms))
+        Ok(SubscriptionOpen::Prepared { subscription_id: subscription_id.to_owned(), stream, deadline_at_ms })
+    }
+
+    /// Commit the second half of the open handshake after Cloud has persisted
+    /// its binding receipt and ingress cursor. Retries are idempotent.
+    pub fn activate_subscription(
+        &self, run_id: &str, subscription_id: &str, ingress_offset: u64, router_binding: Value,
+    ) -> Result<SubscriptionOpen> {
+        let mut journal = self.open_run(run_id)?;
+        if let Some(active) = subscriptions(&journal)?.remove(subscription_id) {
+            return Ok(SubscriptionOpen::Active { subscription_id: subscription_id.to_owned(), stream: active.opened.stream, deadline_at_ms: active.opened.deadline_at_ms });
+        }
+        let prepared = prepared_subscriptions(&journal)?.remove(subscription_id)
+            .context("subscription activation requires a prepared binding")?;
+        self.append(&mut journal, &JournalEntry::new(
+            EntryType::SubscriptionOpened, run_id, None, None, self.clock.now_ms(),
+            SubscriptionOpenedPayload {
+                subscription_id: prepared.subscription_id,
+                event_types: prepared.event_types,
+                pattern: prepared.pattern,
+                stream: prepared.stream.clone(),
+                settle_ms: prepared.settle_ms,
+                idle_ms: prepared.idle_ms,
+                deadline_at_ms: prepared.deadline_at_ms,
+                include_self: prepared.include_self,
+                ingress_offset,
+                router_binding,
+            },
+        ))?;
+        Ok(SubscriptionOpen::Active { subscription_id: subscription_id.to_owned(), stream: prepared.stream, deadline_at_ms: prepared.deadline_at_ms })
     }
 
     pub fn close_subscription(
@@ -211,8 +260,8 @@ impl<C: Clock> Engine<C> {
         Ok(claimed)
     }
 
-    /// Block only at the daemon edge. Every wait boundary and wake result is
-    /// journaled first, so a restarted caller observes the same state.
+    /// Return only a durable wake. Callers that need to wait must hand the
+    /// suspended outcome to their control plane rather than occupying a daemon.
     pub fn next_subscription(&self, run_id: &str, subscription_id: &str) -> Result<SubscriptionWake> {
         self.next_subscription_after_ack(run_id, subscription_id, None)
     }
@@ -240,6 +289,18 @@ impl<C: Clock> Engine<C> {
         subscription_id: &str,
         acknowledge_wait_id: Option<&str>,
     ) -> Result<(SubscriptionWake, Option<String>)> {
+        match self.next_subscription_outcome(run_id, subscription_id, acknowledge_wait_id)? {
+            (SubscriptionNext::Wake(wake), receipt) => Ok((wake, receipt)),
+            (SubscriptionNext::Suspended { subscription_id, .. }, _) => bail!("subscription {subscription_id} is durably suspended"),
+        }
+    }
+
+    pub fn next_subscription_outcome(
+        &self,
+        run_id: &str,
+        subscription_id: &str,
+        acknowledge_wait_id: Option<&str>,
+    ) -> Result<(SubscriptionNext, Option<String>)> {
         let mut acknowledge_wait_id = acknowledge_wait_id;
         loop {
             self.claim_subscription_timeouts(run_id)?;
@@ -255,9 +316,9 @@ impl<C: Clock> Engine<C> {
                 let wake = wake_from_completed(&journal, state, completed)?;
                 let receipt = matches!(wake, SubscriptionWake::Events { .. } | SubscriptionWake::Idle)
                     .then(|| completed.wait_id.clone());
-                return Ok((wake, receipt));
+                return Ok((SubscriptionNext::Wake(wake), receipt));
             }
-            if let Some(reason) = state.closed { return self.closed_wake(&journal, state, reason).map(|wake| (wake, None)); }
+            if let Some(reason) = state.closed { return self.closed_wake(&journal, state, reason).map(|wake| (SubscriptionNext::Wake(wake), None)); }
             let entries = journal.scan_all()?;
             let unread = unread_frames(&entries, state)?;
             if !unread.is_empty() {
@@ -276,19 +337,15 @@ impl<C: Clock> Engine<C> {
                         ))?;
                     }
                     self.complete_events(&mut journal, state, &wait, &unread, now)?;
-                    return events_wake(&unread).map(|wake| (wake, Some(wait.wait_id)));
+                    return events_wake(&unread).map(|wake| (SubscriptionNext::Wake(wake), Some(wait.wait_id)));
                 }
             }
             if let Some(wait) = &state.active_wait {
-                // A completed wait is reconstructed by the timer claimant on
-                // the next loop iteration. Leave it durable while parked.
-                let sleep_ms = wait.deadline_at_ms.unwrap_or(state.opened.deadline_at_ms).saturating_sub(now).clamp(1, 10);
-                drop(journal);
-                std::thread::sleep(std::time::Duration::from_millis(sleep_ms as u64));
-                continue;
+                return Ok((SubscriptionNext::Suspended { subscription_id: subscription_id.to_owned(), stream: state.stream().to_owned(), deadline_at_ms: wait.deadline_at_ms.unwrap_or(state.opened.deadline_at_ms) }, None));
             }
             let wait = activity_wait(state, now);
             self.append(&mut journal, &JournalEntry::new(EntryType::WaitEvent, run_id, None, None, now, wait))?;
+            return Ok((SubscriptionNext::Suspended { subscription_id: subscription_id.to_owned(), stream: state.stream().to_owned(), deadline_at_ms: state.opened.deadline_at_ms }, None));
         }
     }
 
@@ -412,101 +469,3 @@ impl<C: Clock> Engine<C> {
         })
     }
 }
-
-fn subscriptions(journal: &SqliteJournal) -> Result<BTreeMap<String, SubscriptionState>> {
-    let mut states = BTreeMap::new();
-    for entry in journal.scan_all()? {
-        match entry.entry_type {
-            EntryType::SubscriptionOpened => {
-                let opened: SubscriptionOpenedPayload = serde_json::from_value(entry.payload)?;
-                states.insert(opened.subscription_id.clone(), SubscriptionState { opened, closed: None, acknowledged_offset: 0, last_wake_at_ms: entry.at_ms, active_wait: None, ready: None, overflow_fence: None, next_wait_sequence: 0 });
-            }
-            EntryType::SubscriptionClosed => {
-                let closed: SubscriptionClosedPayload = serde_json::from_value(entry.payload)?;
-                if let Some(state) = states.get_mut(&closed.subscription_id) { state.closed = Some(closed.completion_reason); }
-            }
-            EntryType::SubscriptionOverflowFenced => {
-                let fence: SubscriptionOverflowFencedPayload = serde_json::from_value(entry.payload)?;
-                if let Some(state) = states.get_mut(&fence.subscription_id) { state.overflow_fence = Some(fence); }
-            }
-            EntryType::SubscriptionAcknowledged => {
-                let acknowledged: SubscriptionAcknowledgedPayload = serde_json::from_value(entry.payload)?;
-                if let Some(state) = states.get_mut(&acknowledged.subscription_id) {
-                    state.ready = state.ready.take().filter(|ready| ready.wait_id != acknowledged.wait_id);
-                    if let Some(next) = acknowledged.next_offset { state.acknowledged_offset = state.acknowledged_offset.max(next); }
-                }
-            }
-            EntryType::WaitEvent => {
-                let wait: WaitEventPayload = serde_json::from_value(entry.payload)?;
-                if let Some(stream) = &wait.stream {
-                    if let Some(state) = states.values_mut().find(|state| state.stream() == stream) {
-                        state.active_wait = Some(wait);
-                        state.next_wait_sequence = state.next_wait_sequence.saturating_add(1);
-                    }
-                }
-            }
-            EntryType::WaitCompleted => {
-                let completed: WaitCompletedPayload = serde_json::from_value(entry.payload)?;
-                for state in states.values_mut() {
-                    if state.active_wait.as_ref().is_some_and(|wait| wait.wait_id == completed.wait_id) {
-                        state.active_wait = None;
-                        state.last_wake_at_ms = entry.at_ms;
-                        state.ready = Some(completed.clone());
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(states)
-}
-
-fn activity_wait(state: &SubscriptionState, _now: i64) -> WaitEventPayload {
-    let idle_at_ms = state.last_wake_at_ms.saturating_add(state.opened.idle_ms);
-    WaitEventPayload {
-        wait_id: format!("{}/next/{}", state.opened.subscription_id, state.next_wait_sequence), event_key: state.opened.subscription_id.clone(), timeout_at_ms: Some(state.opened.deadline_at_ms),
-        stream: Some(state.stream().to_owned()), from_offset: Some(state.acknowledged_offset), settle_ms: Some(state.opened.settle_ms), idle_at_ms: Some(idle_at_ms), deadline_at_ms: Some(state.opened.deadline_at_ms),
-    }
-}
-
-fn unread_frames(entries: &[JournalEntry], state: &SubscriptionState) -> Result<Vec<(JournalEntry, StreamAppendedPayload)>> {
-    let mut unread = Vec::new();
-    for entry in entries.iter().filter(|entry| entry.entry_type == EntryType::StreamAppended) {
-        let append: StreamAppendedPayload = serde_json::from_value(entry.payload.clone())
-            .context("decode stream.appended while reading subscription")?;
-        if append.stream == state.stream() && append.offset >= state.acknowledged_offset {
-            unread.push((entry.clone(), append));
-        }
-    }
-    Ok(unread)
-}
-
-fn next_stream_offset(entries: &[JournalEntry], stream: &str) -> u64 {
-    entries.iter().filter(|entry| entry.entry_type == EntryType::StreamAppended).filter_map(|entry| serde_json::from_value::<StreamAppendedPayload>(entry.payload.clone()).ok()).filter(|append| append.stream == stream).map(|append| append.offset.saturating_add(1)).max().unwrap_or(0)
-}
-
-fn events_wake(unread: &[(JournalEntry, StreamAppendedPayload)]) -> Result<SubscriptionWake> {
-    Ok(SubscriptionWake::Events { events: unread.iter().map(|(_, append)| append.message.clone()).collect(), offset: unread.last().context("nonempty")?.1.offset.saturating_add(1) })
-}
-fn wake_from_completed(journal: &SqliteJournal, state: &SubscriptionState, completed: &WaitCompletedPayload) -> Result<SubscriptionWake> {
-    if completed.result.get("wake").and_then(Value::as_str) == Some("overflow") {
-        let unread = unread_frames(&journal.scan_all()?, state)?;
-        let fence = state.overflow_fence.as_ref();
-        return Ok(SubscriptionWake::Overflow {
-            retained: fence.map_or(unread.len() as u64, |fence| fence.retained),
-            bytes: fence.map_or(unread_bytes(&unread) as u64, |fence| fence.bytes),
-            from: fence.map_or(state.acknowledged_offset, |fence| fence.from),
-        });
-    }
-    match completed.result.get("timeout").and_then(Value::as_str) {
-        Some("idle") => return Ok(SubscriptionWake::Idle),
-        Some("deadline") => return Ok(SubscriptionWake::Deadline { pending: completed.result.get("pending").cloned().and_then(|value| serde_json::from_value(value).ok()) }),
-        _ => {}
-    }
-    let from = completed.result.get("from_offset").and_then(Value::as_u64).context("activity event completion lacks from_offset")?;
-    let next = completed.result.get("next_offset").and_then(Value::as_u64).context("activity event completion lacks next_offset")?;
-    let events = journal.scan_all()?.into_iter().filter(|entry| entry.entry_type == EntryType::StreamAppended).filter_map(|entry| serde_json::from_value::<StreamAppendedPayload>(entry.payload).ok()).filter(|append| append.stream == state.stream() && append.offset >= from && append.offset < next).map(|append| append.message).collect();
-    Ok(SubscriptionWake::Events { events, offset: next })
-}
-fn unread_bytes(unread: &[(JournalEntry, StreamAppendedPayload)]) -> usize { unread.iter().filter_map(|(_, append)| serde_json::to_vec(&append.message).ok()).map(|bytes| bytes.len()).sum() }
-fn pending(unread: &[(JournalEntry, StreamAppendedPayload)]) -> Option<PendingRange> { Some(PendingRange { from: unread.first()?.1.offset, to: unread.last()?.1.offset.saturating_add(1) }) }

@@ -16,6 +16,7 @@ import { JournalClient, JournalProtocolError } from '../journal-client.js';
 import { attachLocalAgent } from '../local-agent.js';
 import { LlmWorker } from '../llm-worker.js';
 import { readAuthoredRootMetadata, resumeDurableAuthoredFlow } from '../authored-root.js';
+import type { AuthoredFlowSuspendedResult } from '../authored-flow-executor.js';
 import type {
   RunCompletionReason,
   RunOutcome,
@@ -27,7 +28,7 @@ import {
   type CheckReport,
 } from './check.js';
 
-export type RunExitCode = 0 | 1 | 2 | 3;
+export type RunExitCode = 0 | 1 | 2 | 3 | 4;
 export type RunCommand = 'run' | 'resume';
 
 export interface ParkedStep {
@@ -37,7 +38,7 @@ export interface ParkedStep {
 
 export interface RunDiagnostic extends StepFailedDetails {
   severity: 'refusal' | 'failure' | 'parked' | 'warning';
-  kind: RunFailureKind | RunWarningKind | RunCompletionReason;
+  kind: RunFailureKind | RunWarningKind | RunCompletionReason | 'subscription_suspended';
   message: string;
 }
 
@@ -47,7 +48,9 @@ export interface RunReport {
   path?: string;
   runId?: string;
   socketPath?: string;
-  status?: RunStatus;
+  status?: RunStatus | 'suspended';
+  /** Cloud consumes this exact durable boundary before launching a resume. */
+  suspension?: AuthoredFlowSuspendedResult['suspension'];
   completionReason?: RunCompletionReason;
   completedSteps?: number;
   reuse?: { fromRunId: string; reusedSteps: number; executedSteps: number };
@@ -60,6 +63,26 @@ export interface RunReport {
 export interface RunExecution {
   exitCode: RunExitCode;
   report: RunReport;
+}
+
+export function suspendedExecution(
+  command: RunCommand,
+  base: CheckReport | RunReport,
+  socketPath: string,
+  runId: string,
+  result: AuthoredFlowSuspendedResult & { readonly rootRunId: string },
+): RunExecution {
+  return {
+    exitCode: 4,
+    report: {
+      ...fromBase(command, base), ok: false, runId, socketPath, status: 'suspended',
+      suspension: result.suspension, completedSteps: result.journalSteps.length,
+      diagnostics: [...base.diagnostics, {
+        severity: 'warning', kind: 'subscription_suspended',
+        message: `Flow "${result.name}" suspended for ${result.suspension.kind}.`,
+      }],
+    },
+  };
 }
 
 export interface RunProgress {
@@ -191,6 +214,9 @@ export async function resumeFlow(
         lifecycle: options,
       });
       if (result === undefined) throw new Error('authored root disappeared during resume');
+      if (result.state === 'suspended') {
+        return suspendedExecution('resume', base, socketPath, runId, result);
+      }
       return {
         exitCode: result.completionReason === 'needs_human' ? 3 : 0,
         report: {

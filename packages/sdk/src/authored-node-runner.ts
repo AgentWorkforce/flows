@@ -132,7 +132,8 @@ export async function runAuthoredInNode(
             else if (message.type === 'error') {
               failure = typeof message.code === 'string'
                 ? new AuthoredFlowExecutionError(message.code as AuthoredFlowExecutionErrorCode,
-                  message.message, message.completionReason, message.runId)
+                  message.message, message.completionReason, message.runId,
+                  isSuspension(message.suspension) ? message.suspension : undefined)
                 : new Error(message.message);
             } else throw new Error('unknown authored runtime message');
           } catch (error) { stop(error instanceof Error ? error : new Error('invalid authored runtime message')); }
@@ -153,6 +154,14 @@ export async function runAuthoredInNode(
     await verifyAuthoredNodeResult(result, metadata, rootRunId, socketPath);
     return result;
   } finally { await rm(directory, { recursive: true, force: true }); }
+}
+
+function isSuspension(value: unknown): value is import('./authored-flow-error.js').AuthoredFlowSuspension {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    && ((value as { kind?: unknown }).kind === 'activation' || (value as { kind?: unknown }).kind === 'event_wait')
+    && typeof (value as { subscriptionId?: unknown }).subscriptionId === 'string'
+    && typeof (value as { stream?: unknown }).stream === 'string'
+    && typeof (value as { deadlineAtMs?: unknown }).deadlineAtMs === 'number';
 }
 
 /** The IPC frame is a claim, not a durable terminal fact or a sandbox boundary. */
