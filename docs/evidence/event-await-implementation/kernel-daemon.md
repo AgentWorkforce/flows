@@ -1,7 +1,11 @@
 # Event Await — Kernel and local daemon slice
 
-Implementation commit: `5742029e02ac66d306cc19d1267fe92f2e6ba6c4`
-(`feat(kernel): add durable event activities`).
+Implementation commits:
+
+- `5742029e02ac66d306cc19d1267fe92f2e6ba6c4`
+  (`feat(kernel): add durable event activities`)
+- `d06eabdf422430d977604374e1530e7c6f6ec18e`
+  (`fix(daemon): restrict activity close reasons`)
 
 ## Scope and transport boundary
 
