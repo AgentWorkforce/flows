@@ -85,6 +85,13 @@ export const PREFLIGHT_WARNING_KINDS = [
  * serving and this invocation was told not to start one" (`--no-spawn`), while
  * a spawn that was attempted and did not produce a serving daemon names which
  * step failed. All of them are still exit 2 — refused before a journal write.
+ *
+ * Despite the name, this list is the run-outcome diagnostic vocabulary rather
+ * than failures alone. `run_parked` has always sat here and exits 3 under
+ * severity `parked`; `run_declined` joins it, exiting 0 under severity
+ * `declined`. The mismatch between the constant's name and its non-failure
+ * members is pre-existing — renaming it is a separate change, and neither this
+ * list nor `RunDiagnostic` is exported from the package index.
  */
 export const RUN_FAILURE_KINDS = [
   'bucket_unconfigured',
