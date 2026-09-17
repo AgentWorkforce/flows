@@ -83,6 +83,8 @@ inputs and the tests themselves, which are human-owned); and the PR head lives
 in this repository (a fork's head is another repo, so fixes for fork PRs are
 posted as advisory, not pushed). A protected-path edit also vetoes READY,
 because a green run that came with a rewritten test script proves nothing.
+So does a push: the new head's CI has not run yet, so the comment says the PR
+will be re-checked and the next `synchronize` pass judges the new head.
 Beyond that, "mechanical only" is the prompt's contract, as it was in v4 —
 the review lists every changed path, and the push is a normal commit a human
 can revert.
@@ -92,6 +94,9 @@ from an allowlisted approver (empty `approvers` = anyone, the upstream
 default — set it), the approval's `commit_id` equal to the current head (or
 no `commit_id` at all), the live state green and mergeable, and the merge
 call carries that head SHA so GitHub refuses if the head moves in between.
+A conflict-resolution command (`@relay fix conflicts`, not yet wired) is
+taken only from the PR author or a listed approver/reviewer — with no lists
+configured it fails closed to the author, unlike v4's open default.
 A webhook payload may enrich the configured coordinates (author, head, labels)
 but never redirect them: an event naming a different PR is refused.
 
@@ -134,7 +139,9 @@ bare scratch `origin` with `refs/pull/7/head`.
 
 | Path | Result |
 | --- | --- |
-| happy: tests green | 18 steps `success`; review commit pushed to the PR branch ([origin-feature-after.txt](evidence/origin-feature-after.txt)); comment posted with the READY sentinel stripped and the `:white_check_mark:` line present; check runs **and** commit statuses read ([api-calls-success.txt](evidence/api-calls-success.txt)) |
+| happy: tests green, agent made a mechanical edit | 14 steps `success`; review commit pushed to the PR branch ([origin-feature-after.txt](evidence/origin-feature-after.txt)); comment posted with the sentinel stripped and **no** ready line — a push means the new head is unverified — plus the re-check note ([api-calls-success.txt](evidence/api-calls-success.txt)) |
+| no edit, checks green | 17 steps `success`; nothing pushed; check runs **and** commit statuses read for the head; `:white_check_mark:` line present ([api-calls-ready.txt](evidence/api-calls-ready.txt)) |
+| no edit, a check `in_progress` | 17 steps `success`; comment posted, **no** ready line ([api-calls-pending.txt](evidence/api-calls-pending.txt)) |
 | red: `npm test` exits 1 | 15 steps `success`; PR branch untouched; edits discarded; advisory posted; **no** ready line ([api-calls-red.txt](evidence/api-calls-red.txt)) |
 | fork PR (`head.repo` ≠ base) | 19 steps `success`; base repo's branch untouched; advisory names the fork ([api-calls-fork.txt](evidence/api-calls-fork.txt)) |
 | protected path: the agent rewrites `package.json`'s test script so tests "pass" | 15 steps `success`; nothing pushed; advisory names `package.json`; **no** ready line despite the green run ([api-calls-protected.txt](evidence/api-calls-protected.txt)) |

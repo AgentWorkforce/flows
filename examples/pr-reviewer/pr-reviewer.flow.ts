@@ -162,9 +162,11 @@ const reviewerBody = flow<Input>(
       : verified.trim() !== "PASS" ? "the repository's test command was red in the review sandbox (see .workforce/test.log)"
       : !sameRepo ? `the PR head lives in ${headRepo}, not in ${pr.owner}/${pr.repo}, and this flow only pushes to its own repository`
       : undefined;
+    let pushed = false;
     if (changedPaths.length > 0 && pushRefusal === undefined) {
       // Mechanical fixes, verified by the pinned test command, go to the PR.
       await f.run(`git -c user.name=Relayflow -c user.email=noreply@agentrelay.com commit -q -m "review: mechanical fixes" && git push origin ${shellWord(`HEAD:refs/heads/${headRef}`)}`, { timeout: "5m" });
+      pushed = true;
     } else if (changedPaths.length > 0) {
       // An unverified or out-of-bounds push is worse than no push: keep the
       // diff for the review, discard the edits, and say so.
@@ -175,9 +177,11 @@ const reviewerBody = flow<Input>(
 
     // Only call it a human's turn when it actually is: the agent said READY,
     // the tests this flow ran were green (a signal the v4 agent never had),
-    // and GitHub's live state agrees.
-    const ready = harnessReady && trustedGreen && prReadyStateAllowsHumanReview(await readPrReviewState(api, pr));
-    const body = ready ? `${review}\n\n:white_check_mark: This PR is ready for your review.` : review;
+    // nothing was just pushed (a new head's CI has not run — the next
+    // `synchronize` pass judges it), and GitHub's live state agrees.
+    const ready = harnessReady && trustedGreen && !pushed && prReadyStateAllowsHumanReview(await readPrReviewState(api, pr));
+    const body = ready ? `${review}\n\n:white_check_mark: This PR is ready for your review.`
+      : pushed ? `${review}\n\nMechanical fixes were pushed; this PR will be re-checked once CI runs on the new head.` : review;
     await postComment(f, input, pr, body);
     f.done("success");
   },
@@ -929,9 +933,10 @@ export function matchesConflictDirective(body: string): boolean {
 }
 
 /**
- * Who may command a conflict resolution. A bot never qualifies, and when
- * approvers/reviewAuthors are configured the commenter must be the PR's own
- * author or appear on one of those lists. With neither list set, anyone.
+ * Who may command a conflict resolution — it force-updates the PR branch, so
+ * the order is taken only from the PR's own author or someone on a trust
+ * list. A bot never qualifies. Unlike v4 (open to everyone with no lists
+ * set), an empty configuration fails closed to the author alone.
  */
 export function isAuthorizedConflictCommander(
   config: { approvers?: string | undefined; reviewAuthors?: string | undefined },
@@ -939,11 +944,8 @@ export function isAuthorizedConflictCommander(
   pr: Pr,
 ): boolean {
   if (!commander || commander.endsWith("[bot]")) return false;
-  const approvers = [...commaSet(config.approvers)];
-  const reviewAuthors = commaSet(config.reviewAuthors);
-  if (approvers.length === 0 && reviewAuthors.size === 0) return true;
   if (commander === (pr.author ?? "").trim().toLowerCase()) return true;
-  return approvers.includes(commander) || reviewAuthors.has(commander);
+  return commaSet(config.approvers).has(commander) || commaSet(config.reviewAuthors).has(commander);
 }
 
 export function isApproval(payload: unknown): boolean {

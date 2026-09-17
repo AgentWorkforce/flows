@@ -199,9 +199,10 @@ test('isAuthorizedConflictCommander never takes the order from a bot', () => {
   assert.equal(isAuthorizedConflictCommander({}, '', pr), false);
 });
 
-test('isAuthorizedConflictCommander is open when no trust lists are configured', () => {
+test('isAuthorizedConflictCommander fails closed to the PR author when no trust lists are configured', () => {
   const pr = { owner: 'AgentWorkforce', repo: 'agents', number: 1, author: 'willwashburn' };
-  assert.equal(isAuthorizedConflictCommander({}, 'anyone', pr), true);
+  assert.equal(isAuthorizedConflictCommander({}, 'anyone', pr), false);
+  assert.equal(isAuthorizedConflictCommander({}, 'willwashburn', pr), true);
 });
 
 test('isAuthorizedConflictCommander gates on APPROVERS/REVIEW_AUTHORS and the PR author', () => {

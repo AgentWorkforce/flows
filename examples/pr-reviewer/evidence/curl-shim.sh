@@ -8,7 +8,7 @@ case "$url" in
   */pulls/[0-9]*/comments*) printf '[]' ;;
   */pulls/[0-9]*/reviews*) printf '[]' ;;
   */pulls/[0-9]*) printf '{"state":"open","draft":%s,"merged":false,"mergeable":true,"mergeable_state":"clean","user":{"login":"octocat"},"labels":[],"head":{"sha":"%s","ref":"%s","repo":{"full_name":"%s"}},"base":{"ref":"main"},"html_url":"https://github.com/o/r/pull/7","title":"feature"}' "$draft" "$PRPROOF_HEAD" "$PRPROOF_REF" "${PRPROOF_HEAD_REPO:-o/r}" ;;
-  */commits/*/check-runs*) printf '{"check_runs":[{"name":"ci","status":"completed","conclusion":"success"}]}' ;;
+  */commits/*/check-runs*) printf '{"check_runs":[{"name":"ci","status":"%s","conclusion":%s}]}' "${PRPROOF_CHECK_STATUS:-completed}" "$( [ "${PRPROOF_CHECK_STATUS:-completed}" = completed ] && echo '"success"' || echo null )" ;;
   */commits/*/status) printf '{"state":"success","statuses":[]}' ;;
   */issues/[0-9]*/comments) printf '{"id":1}' ;;
   *) echo "unexpected $url" >&2; exit 22 ;;
