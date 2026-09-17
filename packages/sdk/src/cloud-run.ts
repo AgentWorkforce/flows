@@ -1,4 +1,4 @@
-import { RUN_COMPLETION_REASONS } from '@relayflows/surface';
+import { RUN_COMPLETION_REASONS, type ScheduleTriggerSource } from '@relayflows/surface';
 import type { RunCompletionReason } from './protocol.js';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -53,6 +53,17 @@ export interface CloudAuthoredAuthority {
   readonly byteLength: number;
   readonly surface: SurfaceModuleAuthority;
 }
+/** The request-body fields a submission contributes; identical for a run and a schedule. */
+export function cloudSubmissionBody(submission: CloudSubmission): Record<string, unknown> {
+  return {
+    workflow: submission.workflow,
+    fileType: submission.fileType,
+    relayflowVersion: 'v2',
+    ...(submission.authoredAuthority === undefined ? {} : { authoredAuthority: submission.authoredAuthority }),
+    ...(submission.inputPresent ? { inputs: submission.inputs } : {}),
+  };
+}
+
 export type CloudRunState =
   | { runId: string; status: 'pending' | 'launching' | 'running' }
   | { runId: string; status: 'completed' | 'failed' | 'cancelled'; completionReason: RunCompletionReason };
@@ -62,13 +73,31 @@ export type CloudRunState =
  * happens here; Cloud owns provisioning and the Rust engine owns execution.
  * Returns acceptance, not completion. No local daemon, CLI probe, or node up.
  */
-export async function runInCloud(
+/**
+ * What a Cloud submission carries, before any request: the exact source or
+ * canonical spec, the pinned authority for authored source, the input, and a
+ * local correlation hash. Shared by `runInCloud` and `scheduleInCloud`, so a
+ * schedule stores exactly what a run would send.
+ */
+export interface CloudSubmission {
+  readonly workflow: string;
+  readonly fileType: 'yaml' | 'ts';
+  readonly authoredAuthority?: CloudAuthoredAuthority;
+  readonly inputs?: JsonValue;
+  readonly inputPresent: boolean;
+  readonly specHash: string;
+  /** The authored flow's declared name, or the spec name. */
+  readonly name: string;
+  /** Authored `schedule.*` handlers, for `flows schedule` to pick up. */
+  readonly schedules: readonly ScheduleTriggerSource[];
+}
+
+export async function prepareCloudSubmission(
   flow: CloudFlowSource,
-  options: RunInCloudOptions = {},
-): Promise<CloudRunReceipt> {
-  const { baseUrl } = cloudConnection(options);
+  options: { input?: JsonValue; signal?: AbortSignal } = {},
+): Promise<CloudSubmission> {
   let spec: FlowSpec | undefined;
-  let authored: { source: string; authority: CloudAuthoredAuthority } | undefined;
+  let authored: { source: string; authority: CloudAuthoredAuthority; name: string; schedules: ScheduleTriggerSource[] } | undefined;
   const inputPresent = Object.prototype.hasOwnProperty.call(options, 'input');
   let authoredInput: JsonValue | undefined;
   try {
@@ -81,13 +110,15 @@ export async function runInCloud(
           throw new CloudFlowError('invalid_input', 'Authored source must be nonempty, lossless UTF-8.');
         }
         const loaded = await loadAuthoredFlow(flow.path);
-        loaded.getDefinition(loaded.handle);
+        const definition = loaded.getDefinition(loaded.handle);
         if (loaded.graph.length !== 1) {
           throw new CloudFlowError('unsupported_source',
             'Cloud authored submission currently accepts one self-contained .flow.ts source without use dependencies.');
         }
         authored = {
           source,
+          name: definition.name,
+          schedules: definition.handlers.flatMap(h => h.trigger.kind === 'schedule' ? [h.trigger] : []),
           authority: Object.freeze({
             schemaVersion: 1,
             sourceSha256: createHash('sha256').update(bytes).digest('hex'),
@@ -130,12 +161,32 @@ export async function runInCloud(
     throw new CloudFlowError('invalid_input', 'Cannot read or compile the declarative flow. Check the file path and YAML/JSON spec.');
   }
   options.signal?.throwIfAborted();
-  const hash = authored === undefined
-    ? specHash(toKernelSpec(spec!))
-    : createHash('sha256').update(canonicalize({
-        authority: authored.authority,
-        input: authoredInput,
-      })).digest('hex');
+  if (authored === undefined) {
+    const kernel = toKernelSpec(spec!);
+    // JSON is a YAML subset. Sending canonical data preserves the exact spec
+    // while using the server's existing YAML-to-config admission path.
+    return { workflow: canonicalize(spec), fileType: 'yaml', inputPresent: false, specHash: specHash(kernel),
+      name: spec!.name ?? "flow", schedules: [] };
+  }
+  return {
+    workflow: authored.source, fileType: 'ts', authoredAuthority: authored.authority,
+    inputs: authoredInput, inputPresent: true, name: authored.name, schedules: authored.schedules,
+    specHash: createHash('sha256').update(canonicalize({ authority: authored.authority, input: authoredInput })).digest('hex'),
+  };
+}
+
+/**
+ * Submit a declarative flow to Cloud's pinned v2 runtime. Compilation only
+ * happens here; Cloud owns provisioning and the Rust engine owns execution.
+ * Returns acceptance, not completion. No local daemon, CLI probe, or node up.
+ */
+export async function runInCloud(
+  flow: CloudFlowSource,
+  options: RunInCloudOptions = {},
+): Promise<CloudRunReceipt> {
+  const { baseUrl } = cloudConnection(options);
+  const submission = await prepareCloudSubmission(flow, options);
+  const hash = submission.specHash;
   // Sync before submission: `prepare` reserves the run ID and the upload lands
   // under it, so the run request below names code Cloud already holds. A
   // refused backend or failed upload therefore never leaves a launched run
@@ -157,13 +208,7 @@ export async function runInCloud(
   options.signal?.throwIfAborted();
   options.onSubmit?.();
   const result = await cloudRequest('/api/v1/workflows/run', options, {
-    // JSON is a YAML subset. Sending canonical data preserves the exact spec
-    // while using the server's existing YAML-to-config admission path.
-    workflow: authored?.source ?? canonicalize(spec),
-    fileType: authored === undefined ? 'yaml' : 'ts',
-    relayflowVersion: 'v2',
-    ...(authored === undefined ? {} : { authoredAuthority: authored.authority }),
-    ...(authored === undefined ? {} : { inputs: authoredInput }),
+    ...cloudSubmissionBody(submission),
     ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
     ...(synced === undefined ? {} : { runId: synced.runId, s3CodeKey: synced.codeKey }),
   });

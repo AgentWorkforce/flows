@@ -788,9 +788,15 @@ The exit codes are part of the surface contract:
 
 Without an attached worker, reaching an `llm` or `agent` step returns a durable
 parked outcome. For authored TypeScript, `--local-agent` attaches both local
-workers as described above. Event, schedule, deployed-digest, HTTP, SDK-call, and
+workers as described above. Event, deployed-digest, HTTP, SDK-call, and
 flow-to-flow invocation remain later-gate surface work; they are not shipped
-by this CLI.
+by this CLI. Schedules are: `schedule.cron(...)` / `schedule.every(...)` are
+declared on a flow, lowered to the `flows.tick` subscription, printed by
+`flows check` with the `flows tick start` invocation that drives a fixed
+interval locally, and registered on Cloud by `flows schedule` (see
+[`packages/surface/src/triggers/README.md`](../packages/surface/src/triggers/README.md)
+and [CLOUD.md](CLOUD.md#schedules)). Dispatching the authored handler body
+itself, locally or hosted, is still #301: the hosted fire runs the default body.
 
 When a worker is attached, the CLI follows the typed snapshot while its lease
 is live and prints `WAITING [worker_lease]` with the step and lease deadline.

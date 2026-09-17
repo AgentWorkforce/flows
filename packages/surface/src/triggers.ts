@@ -1,17 +1,22 @@
+import type { ScheduleTriggerSource } from "./schedule.js";
+
 export type WebhookValue = null | boolean | number | string
   | readonly WebhookValue[] | { readonly [key: string]: WebhookValue };
 
 /** Recursive object subset; array and scalar leaves match exactly. */
 export type WebhookFilter = { readonly [key: string]: WebhookValue };
 
-export interface TriggerSource {
+export interface WebhookTriggerSource {
   readonly kind: "webhook";
   readonly name: string;
   readonly filter?: WebhookFilter;
 }
 
+/** A webhook inbox subscription, or a `schedule.*` tick subscription. */
+export type TriggerSource = WebhookTriggerSource | ScheduleTriggerSource;
+
 /** Plain, immutable data. Constructing a source opens no receiver. */
-export function webhook(name: string, filter?: WebhookFilter): TriggerSource {
+export function webhook(name: string, filter?: WebhookFilter): WebhookTriggerSource {
   if (typeof name !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(name)) {
     throw new TypeError("webhook name must be 1-128 letters, digits, underscores or hyphens, starting with a letter or digit");
   }
