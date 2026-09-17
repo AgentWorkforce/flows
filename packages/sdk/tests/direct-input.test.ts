@@ -80,6 +80,65 @@ describe('direct .flow.ts input through the built CLI and live runtime', () => {
     } finally { client.close(); }
   });
 
+  it('returns exit 1 for an authored step_failed verdict and persists its outcome', async () => {
+    const dataDir = join(temporaryDirectory(), 'data');
+    await startDaemon(dataDir);
+    const result = invokeCli([
+      'run', join(ROOT, 'packages/sdk/tests/fixtures/step-failed.flow.ts'), '--input', '{}', '--data-dir', dataDir, '--json',
+    ]);
+    // Exit 1, not the parked 3: nothing is waiting for a human here. This is
+    // the exact invocation that used to die as
+    // `protocol_error: unsupported_completion`.
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stderr).toContain('FAILED [step_failed]');
+    expect(result.stderr).not.toContain('protocol_error');
+    const report = JSON.parse(result.stdout);
+    expect(report.status).toBe('failed');
+    expect(report.ok).toBe(false);
+    expect(report.completionReason).toBe('step_failed');
+    const client = new JournalClient(socketPathFor(dataDir));
+    try {
+      await client.connect();
+      await client.hello('step-failed-evidence');
+      const journal = await client.journalRead(report.runId, 1);
+      const rootCompletion = (journal.entries as Array<Record<string, unknown>>)
+        .find(entry => entry['entry_type'] === 'step.completed'
+          && entry['step_id'] === 'authored-root');
+      // The root step itself SUCCEEDED; the adverse verdict is its output.
+      expect(rootCompletion).toEqual(expect.objectContaining({
+        entry_type: 'step.completed', payload: expect.objectContaining({
+          completionReason: 'success',
+          output: expect.objectContaining({ completionReason: 'step_failed' }),
+        }),
+      }));
+      const output = (rootCompletion!['payload'] as { output: unknown }).output as {
+        journalSteps: Array<{ id: string; runId: string; completionReason: string }>;
+      };
+      // Every lowered step succeeded, terminal marker included.
+      expect(output.journalSteps.map(step => step.completionReason))
+        .toEqual(['success', 'success', 'success']);
+      const terminal = output.journalSteps.find(step => step.id.startsWith('complete-'))!;
+      const child = await client.journalRead(terminal.runId, 1);
+      expect(child.entries).toContainEqual(expect.objectContaining({
+        entry_type: 'step.completed', payload: expect.objectContaining({
+          completionReason: 'success',
+          output: expect.objectContaining({ stdout_tail: '{"completionReason":"step_failed"}' }),
+        }),
+      }));
+      // The pull request opened before the verdict is still readable. An
+      // adverse verdict truncates nothing that came before it.
+      const opened = output.journalSteps.find(step => step.id === 'run-1')!;
+      const openedJournal = await client.journalRead(opened.runId, 1);
+      expect(openedJournal.entries).toContainEqual(expect.objectContaining({
+        entry_type: 'step.completed', payload: expect.objectContaining({
+          output: expect.objectContaining({
+            stdout_tail: 'https://github.com/AgentWorkforce/cloud-e2e-sandbox/pull/25',
+          }),
+        }),
+      }));
+    } finally { client.close(); }
+  });
+
   it('executes inline and file JSON input through relayflowd', async () => {
     const directory = temporaryDirectory();
     const dataDir = join(directory, 'data');
