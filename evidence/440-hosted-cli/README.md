@@ -21,6 +21,8 @@ production S3 stage bucket by cloud run 35269932515; the R2 publication
 not on the production environment yet. Previous pin, for rollback:
 [pin-before.txt](pin-before.txt).
 
+`issue-echo.flow.ts` as recorded here single-quotes the issue text (review fix on #444); the smoke listener ran the pre-fix body, which interpolated the title through `JSON.stringify` — same behaviour for the benign title #443 carried, but an injection surface, hence the correction.
+
 Cloud-side observations, not fixed here: a deployment-launched run's record
 carries top-level `completionReason: null` although every step and the
 `workflow.completed` event say `success`; the runs API exposes no step stdout.
