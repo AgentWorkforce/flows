@@ -83,6 +83,12 @@ Payload:
 Step parks on an external event. Payload: `wait_id` (ULID), `event_key`
 (exact-match string in v0), `timeout_at_ms` (nullable).
 
+Proposed additive extension (`docs/EVENT-AWAIT.md` §5): buffered
+subscriptions (`subscription.opened` / `subscription.closed` over a durable
+stream) and stream-backed waits with `settle_ms`, `idle_at_ms`, and
+`deadline_at_ms`. As of v2.0.14 no step produces `wait.event`, and
+`timeout_at_ms` is not yet enforced for either `wait.event` or `wait.human`.
+
 ### 1.5 `wait.human`
 Durable human await. Payload: `wait_id`, `prompt` (what is being asked),
 `requested_of` (identity string), `options` (nullable list),
