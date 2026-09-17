@@ -23,6 +23,7 @@ export type AuthoredFlowExecutionErrorCode =
   | 'lease_exceeded'
   | 'unsupported_completion'
   | 'unsupported_gate'
+  | 'gate_failed'
   | 'unsupported_header'
   | 'unsettled_derived_work'
   | 'unsupported_promise_lifecycle'

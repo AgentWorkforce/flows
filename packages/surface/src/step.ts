@@ -8,11 +8,14 @@ export interface Step<T> extends PromiseLike<T> {
    */
   gate(config: NamedGate): Step<T>;
   /**
-   * Predicate gates cannot be journaled — the JavaScript closure would not
-   * survive replay — so the executor refuses this branch with
-   * `unsupported_gate`. Use a `NamedGate` config-object gate above, or the
-   * declarative `verification:` field on the compiled step spec, when you
-   * need journal-honest verification.
+   * Predicate gate: author code, run once by the runtime after the step
+   * completes, on the value the journal handed back. The closure itself is
+   * never serialized; its VERDICT is journaled as a lowered `<step>.gate`
+   * deterministic step that succeeds or fails, so resume and replay read the
+   * recorded verdict and never re-run the function. A false verdict fails the
+   * run as `gate_failed`, carrying `because`. `flows check` cannot prove a
+   * predicate (docs/SURFACE.md §6); use a `NamedGate` when the check must be
+   * inspectable before execution. One `.gate()` per step.
    */
   gate(predicate: (value: T) => boolean, because?: string): Step<T>;
 }
@@ -27,7 +30,20 @@ export type NamedGate =
   | ReferencesInputNamedGate
   | SubprocessNamedGate
   | WordCountBoundsNamedGate
-  | RegexMatchNamedGate;
+  | RegexMatchNamedGate
+  | ArtifactExistsNamedGate;
+
+/**
+ * Passes when the step's journaled `artifacts` lists `path` — a file the
+ * agent's worker measured as created or changed under its working directory.
+ * The check reads the journal, so replay and resume see the verdict that was
+ * recorded, never a fresh look at the disk.
+ */
+export interface ArtifactExistsNamedGate {
+  type: 'artifact_exists';
+  /** Working-directory-relative POSIX path, e.g. `review/security.md`. */
+  path: string;
+}
 
 export interface ReferencesInputNamedGate {
   type: 'references_input';

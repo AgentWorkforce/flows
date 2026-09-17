@@ -1,3 +1,4 @@
+import { diffWorkspaceFiles, snapshotWorkspaceFiles } from './agent-artifacts.js';
 import { decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
 import { openSidechannel, type SidechannelContext } from './pty-sidechannel.js';
 import { spawn } from 'node:child_process';
@@ -38,6 +39,16 @@ export interface WorkerCliResult {
   exit_code: number | null;
   stdout_tail: string;
   stderr_tail: string;
+  /**
+   * Files the agent created or changed under its working directory,
+   * cwd-relative POSIX paths, sorted. Measured by the worker that spawned the
+   * CLI — the one process provably sharing the agent's filesystem — as a
+   * content-hash diff of the directory before and after the run, so it is a
+   * journaled fact rather than a later guess. Present for every direct agent
+   * execution; absent for `llm` mode and for the relay transport, where the
+   * agent runs on another host.
+   */
+  artifacts?: string[];
 }
 
 /**
@@ -75,8 +86,19 @@ export async function runAgentCli(
     return runViaAgentRelay(kind, instruction, wakeContext, effectiveModel, relayContext, cwd, signal);
   }
 
+  // Artifact detection brackets the spawn: the directory the CLI runs in is
+  // snapshotted before and diffed after, by this process, on this
+  // filesystem. Only an agent execution writes artifacts; an llm step has no
+  // workspace to change.
+  const artifactRoot = mode === 'agent' ? (cwd ?? process.cwd()) : undefined;
+  const before = artifactRoot === undefined ? undefined : await snapshotWorkspaceFiles(artifactRoot);
+  const withArtifacts = async (result: WorkerCliResult): Promise<WorkerCliResult> => {
+    if (before === undefined || artifactRoot === undefined) return result;
+    return { ...result, artifacts: diffWorkspaceFiles(before, await snapshotWorkspaceFiles(artifactRoot)) };
+  };
+
   if (kind === 'relayflows-wrapper-v1') {
-    return requirePricedUsage(decodeWrapperResult(await runWrapperSession(
+    return withArtifacts(requirePricedUsage(decodeWrapperResult(await runWrapperSession(
       cli,
       instruction,
       wakeContext,
@@ -84,7 +106,7 @@ export async function runAgentCli(
       wrapperEnvironment(process.env),
       wrapperLimits,
       signal,
-    )), effectiveModel);
+    )), effectiveModel));
   }
 
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -108,7 +130,7 @@ export async function runAgentCli(
   // Structured provider output carries the authoritative token counts.
   const args = [...invocation.args];
   args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'json'] : ['--json']));
-  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd), kind), effectiveModel);
+  return withArtifacts(requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd), kind), effectiveModel));
 }
 
 /** Wait under the same worker lease for an authoritative task receipt. */

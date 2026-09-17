@@ -6,6 +6,13 @@ import type { Step } from "./step.js";
 
 export interface AgentResult {
   summary: string;
+  /**
+   * Files the agent created or changed under its working directory,
+   * cwd-relative POSIX paths, sorted — as journaled by the worker that spawned
+   * the CLI on the step's `step.completed`, never re-measured later. Empty
+   * for the relay transport (the agent ran elsewhere) and for an agent whose
+   * final message is a JSON object (that object is the output, unmodified).
+   */
   artifacts: string[];
 }
 

@@ -446,7 +446,7 @@ class Validator {
     } else if (Object.hasOwn(NAMED_GATE_KEYS, gate.type)) {
       for (const error of namedGateErrors(v, input, at)) this.fail(error);
     } else {
-      this.fail(`${at}.type: unknown_gate_kind: expected exit_code | output_contains | json_schema | references_input | subprocess_gate | word_count_bounds | regex_match`);
+      this.fail(`${at}.type: unknown_gate_kind: expected exit_code | output_contains | json_schema | references_input | subprocess_gate | word_count_bounds | regex_match | artifact_exists`);
     }
   }
 

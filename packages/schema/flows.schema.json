@@ -153,7 +153,8 @@
         "references_input",
         "subprocess_gate",
         "word_count_bounds",
-        "regex_match"
+        "regex_match",
+        "artifact_exists"
       ]
     },
     "ExitCodeGate": {
@@ -390,6 +391,29 @@
       ],
       "additionalProperties": false
     },
+    "ArtifactExistsGate": {
+      "title": "ArtifactExistsGate",
+      "description": "Passes when the step's journaled `output.artifacts` lists `path`: a file the\nagent's worker measured as created or changed under its working directory.\nReads the journal, never the disk, so replay and resume see the same verdict.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "artifact_exists"
+        },
+        "path": {
+          "title": "path",
+          "description": "Working-directory-relative POSIX path, as the worker journals it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "path"
+      ],
+      "additionalProperties": false
+    },
     "NamedDataGate": {
       "title": "NamedDataGate",
       "description": "NamedDataGate in the Relayflows spec.",
@@ -413,6 +437,11 @@
           "$ref": "#/$defs/RegexMatchGate",
           "title": "NamedDataGate alternative 4",
           "description": "See RegexMatchGate."
+        },
+        {
+          "$ref": "#/$defs/ArtifactExistsGate",
+          "title": "NamedDataGate alternative 5",
+          "description": "See ArtifactExistsGate."
         }
       ]
     },

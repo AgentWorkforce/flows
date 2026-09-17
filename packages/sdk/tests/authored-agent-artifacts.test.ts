@@ -35,23 +35,28 @@ function setupProject(): { root: string } {
 }
 
 /**
- * A fake kernel that completes every run it is sent immediately: an agent
- * step "writes" its file as a side effect of `run.start` (standing in for a
- * real CLI, which nothing here spawns — no local-agent worker is attached),
- * and every other step type (the executor's own synthetic `f.done()` marker
- * step included) completes as a trivial deterministic success.
+ * A fake kernel that completes every run it is sent immediately. For an agent
+ * step it journals what a real AgentWorker journals: the CLI wrapper output
+ * with the worker-measured `artifacts` list (the worker that spawned the CLI
+ * diffed its cwd; nothing here spawns anything). Every other step type (the
+ * executor's own synthetic `f.done()` marker step included) completes as a
+ * trivial deterministic success. `artifactsFor` decides what the journal says
+ * for the agent step — the disk is never consulted by the authored runtime.
  */
-function startArtifactServer(sock: string, root: string): Server {
+function startArtifactServer(sock: string, root: string, artifactsFor: (transport: unknown) => string[] | undefined = () => ['research/notes.md']): Server {
   let nextRun = 1;
-  const stepByRun = new Map<string, { id: string; type: string }>();
+  const stepByRun = new Map<string, { id: string; type: string; artifacts: string[] | undefined }>();
   return startLoopback(sock, {
     hello: ctx => sendOk(ctx),
     'run.start': (ctx, params) => {
       const spec = params.spec as Record<string, unknown>;
       const step = (spec['steps'] as Record<string, unknown>[])[0]!;
       const runId = `authored-artifact-run-${nextRun++}`;
-      stepByRun.set(runId, { id: step['id'] as string, type: step['type'] as string });
+      stepByRun.set(runId, { id: step['id'] as string, type: step['type'] as string,
+        artifacts: step['type'] === 'agent' ? artifactsFor(step['transport']) : undefined });
       if (step['type'] === 'agent') {
+        // The agent "wrote" a file; the disk state is irrelevant to the
+        // authored runtime, which must read the journal instead.
         mkdirSync(join(root, 'research'), { recursive: true });
         writeFileSync(join(root, 'research', 'notes.md'), 'facts, with sources');
       }
@@ -67,7 +72,8 @@ function startArtifactServer(sock: string, root: string): Server {
             completionReason: 'success',
             disposition: 'step_done',
             output: step.type === 'agent'
-              ? { exit_code: 0, stdout_tail: 'wrote research/notes.md', stderr_tail: '' }
+              ? { exit_code: 0, stdout_tail: 'wrote research/notes.md', stderr_tail: '',
+                  ...(step.artifacts === undefined ? {} : { artifacts: step.artifacts }) }
               : { exit_code: 0, stdout_tail: '', stderr_tail: '' },
           },
         }],
@@ -88,7 +94,7 @@ describe('f.agent artifacts (local-agent path)', () => {
     server = undefined; path = undefined; root = undefined;
   });
 
-  it('reports a file the agent step wrote under its cwd', async () => {
+  it('reports the artifacts the worker journaled for the agent step', async () => {
     ({ root } = setupProject());
     path = sockPath();
     server = startArtifactServer(path, root);
@@ -111,10 +117,10 @@ describe('f.agent artifacts (local-agent path)', () => {
     }
   });
 
-  it('reports no artifacts for transport: relay even with a local agent stream attached', async () => {
+  it('reports no artifacts for transport: relay — the worker journals none for a remote agent', async () => {
     ({ root } = setupProject());
     path = sockPath();
-    server = startArtifactServer(path, root);
+    server = startArtifactServer(path, root, transport => transport === 'relay' ? undefined : ['research/notes.md']);
     const client = new JournalClient(path, { requestTimeoutMs: 2000 });
     await client.connect();
     await client.hello('authored-artifacts-test-relay');
@@ -138,17 +144,22 @@ describe('f.agent artifacts (local-agent path)', () => {
     }
   });
 
-  it('reports no artifacts when no local agent is attached', async () => {
+  it('reports the journaled artifacts whatever worker ran the step, and [] when it journaled none', async () => {
     ({ root } = setupProject());
     path = sockPath();
-    server = startArtifactServer(path, root);
+    // A worker other than the local agent (a workspace-pinned one here)
+    // journals its own measurement; a malformed or absent list reads as [].
+    let calls = 0;
+    server = startArtifactServer(path, root, () => (calls++ === 0 ? ['research/notes.md'] : undefined));
     const client = new JournalClient(path, { requestTimeoutMs: 2000 });
     await client.connect();
     await client.hello('authored-artifacts-test-2');
     try {
       const handle = flow('artifact-test-no-local', async (f) => {
-        const result = await f.agent('writer', { task: 'write research/notes.md', cwd: root!, workspace: 'research' });
-        expect(result.artifacts).toEqual([]);
+        const first = await f.agent('writer', { task: 'write research/notes.md', cwd: root!, workspace: 'research' });
+        expect(first.artifacts).toEqual(['research/notes.md']);
+        const second = await f.agent('writer-again', { task: 'write nothing', cwd: root!, workspace: 'research' });
+        expect(second.artifacts).toEqual([]);
         f.done('success');
       });
       const result = await executeAuthoredFlow(handle, client, undefined, {

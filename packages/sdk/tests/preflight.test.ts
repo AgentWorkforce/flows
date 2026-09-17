@@ -422,6 +422,8 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x',
         verification: { type: 'subprocess_gate', command: '/nonexistent-gate-binary-xxx' } }),
         { probes: probes({ command: (c) => c !== '/nonexistent-gate-binary-xxx' }) }),
+      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x',
+        verification: { type: 'artifact_exists', path: '../escape.md' } }), { probes: probes() }),
       // `scope_syntax_invalid`: grant string doesn't match "mount/path: mode".
       preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }),
         workspace: 'not-a-grant' } as FlowSpec, { probes: probes() }),

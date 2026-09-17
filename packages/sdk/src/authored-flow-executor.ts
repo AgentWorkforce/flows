@@ -211,6 +211,47 @@ export async function executeAuthoredFlow<Input = undefined>(
     localAgentStream, budget, definition.header.budget, options.rootRunId,
   );
 
+  /**
+   * Predicate gates (docs/SURFACE.md §6). The closure runs here, once, on the
+   * value the journal handed back; the VERDICT is then journaled as a lowered
+   * `<id>.gate` deterministic step that succeeds or fails, so a resume or
+   * replay reads the recorded verdict and never re-runs author code. A false
+   * verdict fails the step as `gate_failed`, carrying the author's reason.
+   */
+  async function applyPredicateGate<T>(operation: AuthoredFlowOperation<T>, id: string, value: T): Promise<T> {
+    const gate = operation.predicateGate;
+    if (gate === undefined) return value;
+    let verdict: boolean;
+    let detail: string | undefined;
+    try {
+      verdict = gate.predicate(value) === true;
+    } catch (error) {
+      verdict = false;
+      detail = error instanceof Error ? error.message : String(error);
+    }
+    const record = JSON.stringify({
+      gate: 'predicate', step: id, verdict: verdict ? 'pass' : 'fail',
+      ...(gate.because === undefined ? {} : { because: gate.because }),
+      ...(detail === undefined ? {} : { threw: detail }),
+    });
+    const literal = `'${record.replaceAll("'", "'\\''")}'`;
+    const command = verdict ? `printf '%s' ${literal}` : `printf '%s' ${literal} >&2; exit 1`;
+    try {
+      await observeStep(`${id}.gate`, 'deterministic', () => lowerDeterministic(`${id}.gate`, command, false), options.onProgress);
+    } catch (error) {
+      if (verdict) throw error;
+      throw new AuthoredFlowExecutionError(
+        'gate_failed',
+        `step "${id}" failed its predicate gate`
+          + (gate.because === undefined ? '' : `: ${gate.because}`)
+          + (detail === undefined ? '' : ` (predicate threw: ${detail})`),
+        'verification_failed',
+        error instanceof AuthoredFlowExecutionError ? error.runId : undefined,
+      );
+    }
+    return value;
+  }
+
   function llmOperation(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
   function llmOperation(prompt: string, options: LlmOptions): Step<unknown>;
   function llmOperation(prompt: string | TemplateStringsArray, ...values: unknown[]): Step<unknown> {
@@ -223,7 +264,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     llmOp = new AuthoredFlowOperation(
       id, 'llm',
       () => assertOperationAllowed('llm', definition.name, requestedCompletion),
-      () => observeStep(id, 'llm', () => {
+      async () => applyPredicateGate(llmOp, id, await observeStep(id, 'llm', () => {
         if (typeof prompt === 'string') {
           if (values.length !== 1 || values[0] === undefined) {
             throw new AuthoredFlowExecutionError('llm_cli_unresolved', 'f.llm(prompt, options) requires an output JSON Schema.');
@@ -233,7 +274,7 @@ export async function executeAuthoredFlow<Input = undefined>(
         const text = prompt.reduce((result, part, index) => result + part
           + (index < values.length ? String(values[index]) : ''), '');
         return worker.llm(id, text, undefined, llmOp.namedGate);
-      }, onProgress),
+      }, onProgress)),
       lifecycle,
     );
     return trackStep(authoredSteps, llmOp);
@@ -299,7 +340,8 @@ export async function executeAuthoredFlow<Input = undefined>(
         id,
         'run',
         () => assertOperationAllowed('run', definition.name, requestedCompletion),
-        () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate), options.onProgress),
+        async () => applyPredicateGate(runOp, id,
+          await observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate), options.onProgress)),
         lifecycle,
       );
       return trackStep(authoredSteps, runOp);
@@ -314,7 +356,7 @@ export async function executeAuthoredFlow<Input = undefined>(
         id,
         'agent',
         () => assertOperationAllowed('agent', definition.name, requestedCompletion),
-        () => observeStep(id, 'agent', () => worker.agent(id, options, agentOp.namedGate), onProgress),
+        async () => applyPredicateGate(agentOp, id, await observeStep(id, 'agent', () => worker.agent(id, options, agentOp.namedGate), onProgress)),
         lifecycle,
       );
       return trackStep(authoredSteps, agentOp);
