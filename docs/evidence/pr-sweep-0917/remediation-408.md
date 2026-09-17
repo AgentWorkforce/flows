@@ -104,3 +104,26 @@ Final exact branch head for the remediation changes:
 
 The evidence-record commit is created separately after this record is written;
 it contains no workflow behavior change.
+
+## Pre-push remote-head check
+
+Before any push, both the PR source branch and the pull ref were fetched again
+and required to equal the sweep head:
+
+```console
+$ set -euo pipefail
+$ starting_head=d9634429a626f24f6ff5d3e54b58ae938866cec7
+$ git fetch --no-tags origin refs/heads/cloud/run-f06e1c98:refs/remotes/origin/cloud/run-f06e1c98 refs/pull/408/head:refs/remotes/origin/pr-408
+$ remote_branch_head=$(git rev-parse refs/remotes/origin/cloud/run-f06e1c98)
+$ remote_pull_head=$(git rev-parse refs/remotes/origin/pr-408)
+$ printf 'remote branch head: %s\n' "$remote_branch_head"
+remote branch head: d9634429a626f24f6ff5d3e54b58ae938866cec7
+$ printf 'remote pull head: %s\n' "$remote_pull_head"
+remote pull head: d9634429a626f24f6ff5d3e54b58ae938866cec7
+$ printf 'starting head: %s\n' "$starting_head"
+starting head: d9634429a626f24f6ff5d3e54b58ae938866cec7
+$ test "$remote_branch_head" = "$starting_head"
+$ test "$remote_pull_head" = "$starting_head"
+$ printf 'REMOTE_HEAD_UNCHANGED\n'
+REMOTE_HEAD_UNCHANGED
+```
