@@ -910,7 +910,7 @@ info: default toolchain set to stable-x86_64-unknown-linux-gnu
 
 Rust is installed now. Great!
 
-To get started you need Cargo's bin directory 
+To get started you need Cargo's bin directory
 (/home/daytona/.relayflows-toolchain/cargo/bin) in your PATH
 environment variable. This has not been done automatically.
 
@@ -918,7 +918,7 @@ To configure your current shell, you need to source
 the corresponding env file under /home/daytona/.relayflows-toolchain/cargo.
 
 Consider running the right command for your shell (note the leading DOT):
-. "/home/daytona/.relayflows-toolchain/cargo/env" # For 
+. "/home/daytona/.relayflows-toolchain/cargo/env" # For
 sh/ash/dash/pdksh/bash/zsh
 cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
 CC_x86_64-unknown-linux-gnu = None
@@ -2804,7 +2804,7 @@ TypeError: Cannot read properties of null (reading 'story_title')
     891|     expect(stepCompleted!.payload.output.story_title).toBe(`echoed:${s…
        |                                          ^
     892|     expect(stepCompleted!.payload.output.reasoning).toContain(String(s…
-    893| 
+    893|
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/12]⎯
 
@@ -2815,7 +2815,7 @@ TypeError: Cannot read properties of null (reading 'env_present')
     957|     expect(completed).toBeDefined();
     958|     expect(completed!.payload.output.env_present).toBe(false);
        |                                      ^
-    959| 
+    959|
     960|     delete process.env.RELAYFLOW_WAKE_CONTEXT;
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/12]⎯
@@ -2827,7 +2827,7 @@ TypeError: Cannot read properties of null (reading 'story_title')
     1193|     // UNSET, not EMPTY and not the leaked parent value.
     1194|     expect(completed!.payload.output.story_title).toBe('model:UNSET');
        |                                      ^
-    1195| 
+    1195|
     1196|     delete process.env.RELAYFLOW_MODEL;
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/12]⎯
@@ -2835,7 +2835,7 @@ TypeError: Cannot read properties of null (reading 'story_title')
  FAIL  tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant
 AssertionError: expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
 
-- Expected: 
+- Expected:
 Object {
   "lag_ms": 43000,
   "schedule_id": "heartbeat-1m",
@@ -2843,7 +2843,7 @@ Object {
   "slot": 29400000,
 }
 
-+ Received: 
++ Received:
 null
 
  ❯ tests/live-kernel.test.ts:1665:39
@@ -3095,7 +3095,7 @@ TypeError: Cannot read properties of null (reading 'story_title')
     891|     expect(stepCompleted!.payload.output.story_title).toBe(`echoed:${s…
        |                                          ^
     892|     expect(stepCompleted!.payload.output.reasoning).toContain(String(s…
-    893| 
+    893|
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
 
@@ -3106,7 +3106,7 @@ TypeError: Cannot read properties of null (reading 'env_present')
     957|     expect(completed).toBeDefined();
     958|     expect(completed!.payload.output.env_present).toBe(false);
        |                                      ^
-    959| 
+    959|
     960|     delete process.env.RELAYFLOW_WAKE_CONTEXT;
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
@@ -3118,7 +3118,7 @@ TypeError: Cannot read properties of null (reading 'story_title')
     1193|     // UNSET, not EMPTY and not the leaked parent value.
     1194|     expect(completed!.payload.output.story_title).toBe('model:UNSET');
        |                                      ^
-    1195| 
+    1195|
     1196|     delete process.env.RELAYFLOW_MODEL;
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
@@ -3126,7 +3126,7 @@ TypeError: Cannot read properties of null (reading 'story_title')
  FAIL  tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant
 AssertionError: expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
 
-- Expected: 
+- Expected:
 Object {
   "lag_ms": 43000,
   "schedule_id": "heartbeat-1m",
@@ -3134,7 +3134,7 @@ Object {
   "slot": 29400000,
 }
 
-+ Received: 
++ Received:
 null
 
  ❯ tests/live-kernel.test.ts:1665:39
@@ -3558,7 +3558,7 @@ TypeError: Cannot read properties of null (reading 'story_title')
     891|     expect(stepCompleted!.payload.output.story_title).toBe(`echoed:${s…
        |                                          ^
     892|     expect(stepCompleted!.payload.output.reasoning).toContain(String(s…
-    893| 
+    893|
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
 
@@ -3569,7 +3569,7 @@ TypeError: Cannot read properties of null (reading 'env_present')
     957|     expect(completed).toBeDefined();
     958|     expect(completed!.payload.output.env_present).toBe(false);
        |                                      ^
-    959| 
+    959|
     960|     delete process.env.RELAYFLOW_WAKE_CONTEXT;
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
@@ -3581,7 +3581,7 @@ TypeError: Cannot read properties of null (reading 'story_title')
     1193|     // UNSET, not EMPTY and not the leaked parent value.
     1194|     expect(completed!.payload.output.story_title).toBe('model:UNSET');
        |                                      ^
-    1195| 
+    1195|
     1196|     delete process.env.RELAYFLOW_MODEL;
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
@@ -3589,7 +3589,7 @@ TypeError: Cannot read properties of null (reading 'story_title')
  FAIL  tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant
 AssertionError: expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
 
-- Expected: 
+- Expected:
 Object {
   "lag_ms": 43000,
   "schedule_id": "heartbeat-1m",
@@ -3597,7 +3597,7 @@ Object {
   "slot": 29400000,
 }
 
-+ Received: 
++ Received:
 null
 
  ❯ tests/live-kernel.test.ts:1665:39
@@ -3676,7 +3676,7 @@ print("All seven failure messages and assertion diffs match the dependency base.
  tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant
 AssertionError: expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
 
-- Expected: 
+- Expected:
 Object {
   "lag_ms": 43000,
   "schedule_id": "heartbeat-1m",
@@ -3684,7 +3684,7 @@ Object {
   "slot": 29400000,
 }
 
-+ Received: 
++ Received:
 null
  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite)
 TypeError: Cannot read properties of null (reading 'story_title')
