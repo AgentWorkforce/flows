@@ -213,10 +213,12 @@ export async function verifyAuthoredNodeResult(
       if (claimed === terminal) {
         // The claimed verdict must match the marker the journal actually
         // recorded, so an IPC frame cannot claim `success` over a run whose
-        // durable terminal says `step_failed` (or the reverse).
-        if (!isLoweredCompletion(result.completionReason)) invalid();
-        const command = completionMarker(result.completionReason);
-        if (step?.type !== 'deterministic' || step.command !== command) invalid();
+        // durable terminal says `step_failed` (or the reverse). The guard is
+        // repeated inside this `||` chain because `invalid()` returns `never`
+        // without narrowing `result.completionReason` for the reader below.
+        if (!isLoweredCompletion(result.completionReason)
+          || step?.type !== 'deterministic'
+          || step.command !== completionMarker(result.completionReason)) invalid();
       }
     }
   } finally { journal.close(); }
