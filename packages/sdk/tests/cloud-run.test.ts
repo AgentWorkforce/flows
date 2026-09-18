@@ -434,3 +434,33 @@ describe('authored submission refusals are named (flows#461)', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('refusal bodies keep transport classification', () => {
+  it('reports an abort during a refusal-body read as an abort, not http_error', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-refusal-abort-'));
+    dirs.push(dir);
+    await writeFile(join(dir, 'flow.yaml'), JSON.stringify(flow));
+    const controller = new AbortController();
+    // A real fetch rejects the body read when its signal aborts; the mock does the same.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(new ReadableStream({
+      start(stream) {
+        controller.signal.addEventListener('abort', () => stream.error(new DOMException('The operation was aborted.', 'AbortError')));
+      },
+      pull() { controller.abort(); },
+    }), { status: 400, headers: { 'content-type': 'application/json' } }));
+    const error = await runInCloud({ path: join(dir, 'flow.yaml') },
+      { apiUrl: 'https://cloud-contract.example', token: 'test-scoped-cloud-token', signal: controller.signal })
+      .then(() => undefined, (e: unknown) => e as Error & { code?: string });
+    expect(error?.name).toBe('AbortError');
+    expect(error?.code).not.toBe('http_error');
+  });
+
+  it('treats a non-JSON refusal body as a bare HTTP failure', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-refusal-html-'));
+    dirs.push(dir);
+    await writeFile(join(dir, 'flow.yaml'), JSON.stringify(flow));
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('<html>502</html>', { status: 502, headers: { 'content-type': 'text/html' } }));
+    await expect(runInCloud({ path: join(dir, 'flow.yaml') }, { apiUrl: 'https://cloud-contract.example', token: 'test-scoped-cloud-token' }))
+      .rejects.toMatchObject({ code: 'http_error', status: 502, message: 'Cloud request failed with HTTP 502.' });
+  });
+});

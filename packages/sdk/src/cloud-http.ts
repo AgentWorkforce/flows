@@ -185,7 +185,17 @@ export async function cloudFetch(
   }
   if (!response.ok) {
     // Do not echo server response bodies: they may contain credentials or source.
-    const refusal = init.detail ? await structuredRefusal(response) : undefined;
+    // Reading the body is itself a transport step: a cancellation or timeout
+    // there keeps its own classification instead of becoming an http_error.
+    let refusal: CloudRefusal | undefined;
+    if (init.detail) {
+      try {
+        refusal = await structuredRefusal(response);
+      } catch (error) {
+        options.signal?.throwIfAborted();
+        throw transportError(deadline.aborted ? deadline.reason : error);
+      }
+    }
     throw new CloudFlowError('http_error', refusal === undefined
       ? `Cloud request failed with HTTP ${response.status}.`
       : `Cloud refused (${refusal.code}): ${refusal.error}`, response.status, refusal);
@@ -208,7 +218,14 @@ const REFUSAL_CODE = /^[a-z0-9_]{1,64}$/u;
  */
 async function structuredRefusal(response: Response): Promise<CloudRefusal | undefined> {
   let body: unknown;
-  try { body = await response.json(); } catch { return undefined; }
+  try {
+    body = await response.json();
+  } catch (error) {
+    // Only a body that is not JSON is "no structured refusal"; an aborted or
+    // timed-out read is a transport failure and propagates.
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  }
   if (!isCloudRecord(body) || typeof body.error !== 'string' || body.error.length > 500) return undefined;
   const code = typeof body.code === 'string' ? body.code : body.error;
   if (!REFUSAL_CODE.test(code)) return undefined;
