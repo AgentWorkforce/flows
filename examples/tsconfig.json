@@ -17,6 +17,7 @@
     "types": []
   },
   "include": [
+    "../workflows/*.flow.ts",
     "social-post-pipeline/*.ts",
     "software-factory/*.ts",
     "stale-issues/*.ts",
