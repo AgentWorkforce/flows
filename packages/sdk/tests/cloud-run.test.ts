@@ -7,7 +7,7 @@ import { runCli } from '../src/cli.js';
 import {
   runInCloud, getCloudFlowRun, waitForCloudFlowRun, type RunInCloudOptions,
 } from '../src/cloud-run.js';
-import { cloudConnection } from '../src/cloud-http.js';
+import { cloudConnection, type CloudFlowError } from '../src/cloud-http.js';
 import { compileSpec, toKernelSpec } from '../src/compile.js';
 import { canonicalize, specHash } from '../src/canonical.js';
 import type { FlowSpec } from '../src/spec.js';
@@ -381,5 +381,56 @@ describe('review regressions', () => {
   ])('refuses terminal records without consistent protocol evidence %j', async (record) => {
     const options = await cloud(() => ({ runId: 'terminal', relayflowVersion: 'v2', ...record }));
     await expect(getCloudFlowRun('terminal', options)).rejects.toMatchObject({ code: 'invalid_response' });
+  });
+});
+
+describe('authored submission refusals are named (flows#461)', () => {
+  it('turns relayflow_v2_authored_authority_invalid into a version-naming unsupported_source', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-authority-'));
+    dirs.push(dir);
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'pinned.flow.ts');
+    await writeFile(path, "import { flow } from '@relayflows/surface';\nexport default flow('pinned', async f => f.done('success'));\n");
+    const surface = JSON.parse(await readFile(join(process.cwd(), 'node_modules/@relayflows/surface/package.json'), 'utf8')) as { version: string };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      error: 'relayflow_v2_authored_authority_invalid',
+      expected: { packageName: '@relayflows/surface', version: '2.0.11', packageSha256: 'never-read' },
+      received: { packageName: '@relayflows/surface', version: surface.version },
+    }), { status: 400, headers: { 'content-type': 'application/json' } }));
+    const error = await runInCloud({ path }, { apiUrl: 'https://cloud-contract.example', token: 'test-scoped-cloud-token', input: {} })
+      .then(() => undefined, (e: unknown) => e as CloudFlowError);
+    expect(error).toMatchObject({ code: 'unsupported_source', status: 400 });
+    expect(error!.message).toContain('runs @relayflows/surface 2.0.11');
+    expect(error!.message).toContain(`authored against ${surface.version}`);
+    expect(error!.message).toContain('flows deploy');
+    expect(error!.refusal).toEqual({ code: 'relayflow_v2_authored_authority_invalid', error: 'relayflow_v2_authored_authority_invalid',
+      expected: { packageName: '@relayflows/surface', version: '2.0.11' }, received: { packageName: '@relayflows/surface', version: surface.version } });
+  });
+
+  it('reads a bare { error: "<code>" } refusal from the run route', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-refusal-'));
+    dirs.push(dir);
+    await writeFile(join(dir, 'flow.yaml'), JSON.stringify(flow));
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ error: 'relayflow_v2_repository_contract_required' }),
+      { status: 400, headers: { 'content-type': 'application/json' } }));
+    const error = await runInCloud({ path: join(dir, 'flow.yaml') }, { apiUrl: 'https://cloud-contract.example', token: 'test-scoped-cloud-token' })
+      .then(() => undefined, (e: unknown) => e as CloudFlowError);
+    expect(error).toMatchObject({ code: 'http_error', status: 400 });
+    expect(error!.message).toBe('Cloud refused (relayflow_v2_repository_contract_required): relayflow_v2_repository_contract_required');
+  });
+
+  it('names an authored source that does not load instead of calling it a declarative spec', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-unloadable-'));
+    dirs.push(dir);
+    // No node_modules symlink: @relayflows/surface is not resolvable from here.
+    const path = join(dir, 'lonely.flow.ts');
+    await writeFile(path, "import { flow } from '@relayflows/surface';\nexport default flow('lonely', async f => f.done('success'));\n");
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const error = await runInCloud({ path }, { apiUrl: 'https://cloud-contract.example', token: 'test-scoped-cloud-token', input: {} })
+      .then(() => undefined, (e: unknown) => e as CloudFlowError);
+    expect(error).toMatchObject({ code: 'unsupported_source' });
+    expect(error!.message).toContain('not a loadable authored flow');
+    expect(error!.message).not.toContain('declarative');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

@@ -10,7 +10,7 @@ import type { FlowSpec } from './spec.js';
 import { snapshotJsonValue, type JsonValue } from './json-value.js';
 import { loadAuthoredFlow, type SurfaceModuleAuthority } from './authored-flow-loader.js';
 import {
-  CloudFlowError, cloudConnection, cloudRequest, cloudRunId, isCloudRecord,
+  CloudFlowError, cloudConnection, cloudFetch, cloudRequest, cloudRunId, isCloudRecord,
   type CloudConnectionOptions,
 } from './cloud-http.js';
 import { packWorkingTree, prepareCloudSync, uploadCloudCode } from './cloud-sync.js';
@@ -109,8 +109,19 @@ export async function prepareCloudSubmission(
         if (!bytes.length || Buffer.from(source, 'utf8').compare(bytes) !== 0) {
           throw new CloudFlowError('invalid_input', 'Authored source must be nonempty, lossless UTF-8.');
         }
-        const loaded = await loadAuthoredFlow(flow.path);
-        const definition = loaded.getDefinition(loaded.handle);
+        let loaded: Awaited<ReturnType<typeof loadAuthoredFlow>>;
+        let definition: ReturnType<typeof loaded.getDefinition>;
+        try {
+          loaded = await loadAuthoredFlow(flow.path);
+          definition = loaded.getDefinition(loaded.handle);
+        } catch (error) {
+          // An authored source that does not load is an authoring problem, and
+          // the most common one is `@relayflows/surface` not being resolvable
+          // from the flow's directory. Name it; do not call it a spec problem.
+          throw new CloudFlowError('unsupported_source',
+            `${flow.path} is not a loadable authored flow: ${error instanceof Error ? error.message : String(error)}. `
+            + 'Run `flows check` on it from the same directory.');
+        }
         if (loaded.graph.length !== 1) {
           throw new CloudFlowError('unsupported_source',
             'Cloud authored submission currently accepts one self-contained .flow.ts source without use dependencies.');
@@ -207,11 +218,28 @@ export async function runInCloud(
   }
   options.signal?.throwIfAborted();
   options.onSubmit?.();
-  const result = await cloudRequest('/api/v1/workflows/run', options, {
-    ...cloudSubmissionBody(submission),
-    ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
-    ...(synced === undefined ? {} : { runId: synced.runId, s3CodeKey: synced.codeKey }),
-  });
+  let result: unknown;
+  try {
+    result = await cloudFetch('/api/v1/workflows/run', options, { method: 'POST', detail: true, body: JSON.stringify({
+      ...cloudSubmissionBody(submission),
+      ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
+      ...(synced === undefined ? {} : { runId: synced.runId, s3CodeKey: synced.codeKey }),
+    }) });
+  } catch (error) {
+    // Cloud accepts exactly one authored Surface (the one its sandbox runs).
+    // A CLI on another release is refused with this code; say which side is
+    // which instead of leaving the user with a bare 400 (flows#461).
+    if (error instanceof CloudFlowError && submission.authoredAuthority !== undefined
+      && error.refusal?.code === 'relayflow_v2_authored_authority_invalid') {
+      const expected = error.refusal.expected?.version;
+      throw new CloudFlowError('unsupported_source',
+        `Cloud refused this authored flow's Surface: it runs @relayflows/surface ${expected ?? '(version not reported)'} `
+        + `and this CLI authored against ${submission.authoredAuthority.surface.version}. `
+        + 'Install the matching relayflows release, or deploy the flow with `flows deploy`, which uses Cloud\'s own Surface.',
+        error.status, error.refusal);
+    }
+    throw error;
+  }
   if (!isCloudRecord(result) || (result.status !== 'pending' && result.status !== 'running')) {
     throw new CloudFlowError('invalid_response', 'Cloud did not return an accepted run.');
   }
