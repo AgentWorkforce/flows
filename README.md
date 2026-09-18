@@ -76,6 +76,9 @@ Try on the cloud right now: [https://agentrelay.com/flows](https://agentrelay.co
 Install the skill and hand it to your agent to write, run, and deploy your flow:
 
 ```bash
+# with prpm
 npx prpm install @agent-relay/writing-relayflows
-npx skills add https://github.com/agentworkforce/skills --skill writing-relayflows
+
+# with skills.sh
+npx skills add https://github.com/AgentWorkforce/skills --skill writing-relayflows
 ```

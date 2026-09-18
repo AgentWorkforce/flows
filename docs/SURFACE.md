@@ -630,6 +630,7 @@ flows check [--watch] [--json] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>
 flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>
+flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>
 flows observer [--data-dir <dir>]
 ```
 
@@ -787,7 +788,7 @@ The exit codes are part of the surface contract:
 | `0` | The run completed with `completionReason: success`; deliberate declination also carries a `run_declined` diagnostic locally. |
 | `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. An authored `done("step_failed")` exits `1` as well, and says so without naming a step, because no step failed — the body declared the verdict. |
 | `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
-| `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. |
+| `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. An authored body parked on `f.human` reports the question, who it is for, and the `flows answer` invocation that records the decision (see *Human gates* below). |
 
 Without an attached worker, reaching an `llm` or `agent` step returns a durable
 parked outcome. For authored TypeScript, `--local-agent` attaches both local
@@ -806,6 +807,49 @@ is live and prints `WAITING [worker_lease]` with the step and lease deadline.
 If the lease expires without a completion, the command fails closed instead of
 polling forever. A manual-recovery agent whose worker dies parks in
 `needs_human`; the same exit-3 report says it is waiting for human recovery.
+
+### Human gates: `f.human`
+
+```ts
+const ok = await f.human(`Ship this?\n${plan.summary}`, { to: "khaliq" });
+if (!ok) return f.done("declined");
+```
+
+`f.human(question, { to })` is the declared approval gate of RFC covenant 3.
+It is not a child run. When the body reaches it with no answer on record, the
+ROOT attempt parks on the kernel's durable `wait.human` (DESIGN.md §1.5) under
+the call's own ordinal (`human-N`, counted with every other authored
+operation), the lease is released, and the run is `parked` — exit 3, with a
+`humanWait` field in the JSON report and a diagnostic that reads:
+
+```
+PARKED [run_parked] Run "<run-id>" is waiting for khaliq to answer human-2: "Ship this?\n…"
+Answer with: flows answer <run-id> human-2 yes|no
+Then continue with: flows resume <run-id>
+```
+
+No process waits. `flows answer <run-id> <wait-id> yes|no [--note <text>]
+[--by <identity>]` records the decision as the answer contract `{ answer:
+boolean, note?, answeredBy }` (`answeredBy` is `--by`, else the OS user; the
+kernel refuses an unattributed answer, journals `attribution: client_asserted`
+because the socket — not the kernel — authenticated the caller, and stamps
+`at_ms` from its own clock, dropping any client-supplied time) — an `event.emit` keyed by the wait id, which the kernel
+journals as `wait.completed{human_responded}` and closes the wait once: a
+second answer is refused (`human_wait_unknown`), as is a wait the run is not
+asking. `flows resume` then re-runs the body; every step before the gate is
+memoized under its admission key, so nothing upstream repeats, and `f.human`
+resolves from the journaled answer. The boolean the author branches on is
+lowered as a `human-N` deterministic step carrying the answer on stdout, so it
+is journal evidence in the same shape as every other authored step. A `no` is
+a value the body decides on — `done("declined")` exits 0 — never a failure.
+
+`to` names who is asked and is recorded with the question; the local kit does
+not deliver it anywhere (that is the channel-delivery work in RFC covenant 3
+and `ops/BACKLOG.md`). Authority is the journal socket: whoever can reach the
+daemon can answer, and `answeredBy` records the OS user who did. On Cloud the
+same wait is answered through the run's answer route with the caller's
+identity. `timeout` is not yet enforced (DESIGN.md §1.4). `f.dispatch` still
+fails closed as `unsupported_verb`.
 
 `flows resume` reports `run_unavailable` only when relayflowd returns the
 typed `run_not_found` refusal. A dropped connection, request failure, or

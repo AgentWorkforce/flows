@@ -8,7 +8,8 @@ pub mod trigger_watcher;
 pub mod worker;
 
 pub use engine::{
-    CancelOptions, DriveOptions, Engine, OutOfBandCompletion, RunOutcome, RunSnapshot, RunStatus,
+    CancelOptions, DriveOptions, Engine, OutOfBandCompletion, OutOfBandHumanWait, RunOutcome,
+    RunSnapshot, RunStatus,
     StepSnapshot, StepStatus,
 };
 

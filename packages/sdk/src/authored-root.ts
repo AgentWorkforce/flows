@@ -15,6 +15,8 @@ import type { RunOutcome, StepDispatchEvent } from './protocol.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import type { RunLifecycleOptions } from './cli/run.js';
 import { withWorkerLease } from './worker-lease.js';
+import { AuthoredHumanParked } from './authored-flow-error.js';
+import { readOpenHumanWaits } from './authored-human.js';
 import { isSurfaceCompletionReason } from './authored-step-output.js';
 
 const ROOT_KIND = 'relayflows.authored-root.v1';
@@ -94,7 +96,8 @@ export async function executeDurableAuthoredFlow(
     // active run but receives no second dispatch from start itself. Resume is
     // safe for the first caller too: the daemon preserves a live lease and
     // redelivers only when the former worker connection is gone.
-    await journal.runResume(outcome.run_id);
+    const resumed = await journal.runResume(outcome.run_id);
+    await assertNoOpenHumanWait(journal, resumed);
     const dispatch = await dispatchWait.promise;
     return await driveRoot(loaded, metadata, journal, peer, dispatch, options);
   } finally {
@@ -133,12 +136,24 @@ export async function resumeDurableAuthoredFlow(
       return await completedRootResult(journal, rootRunId);
     }
     assertRootCanDispatch(outcome);
+    await assertNoOpenHumanWait(journal, outcome);
     const dispatch = await dispatchWait.promise;
     return await driveRoot(loaded, metadata, journal, peer, dispatch, options);
   } finally {
     cancelDispatch();
     peer.close();
   }
+}
+
+/**
+ * A root parked on an unanswered `f.human` will not be dispatched: the
+ * kernel holds it in `needs_human` until `event.emit` closes the wait. Report
+ * the open question instead of waiting for a dispatch that cannot arrive.
+ */
+async function assertNoOpenHumanWait(journal: JournalClient, outcome: RunOutcome): Promise<void> {
+  if (outcome.status !== 'parked') return;
+  const [open] = await readOpenHumanWaits(journal, outcome.run_id);
+  if (open !== undefined) throw new AuthoredHumanParked(open, outcome.run_id);
 }
 
 export async function readAuthoredRootMetadata(
@@ -206,6 +221,18 @@ async function driveRoot(
     );
     return Object.freeze({ ...result, rootRunId: dispatch.run_id });
   } catch (error) {
+    if (error instanceof AuthoredHumanParked) {
+      // Not a failure: the body reached a question nobody has answered. Park
+      // THIS attempt on the kernel's `wait.human` under the body's own wait
+      // id, so the answer (`event.emit` keyed by it) re-dispatches the root
+      // and the re-run body finds it. The lease is released by the verb; the
+      // signal propagates so the CLI reports the question with exit 3.
+      await peer.stepWait(dispatch.run_id, dispatch.step_id, dispatch.attempt, dispatch.idempotency_key, {
+        wait_id: error.wait.waitId, prompt: error.wait.question, requested_of: error.wait.to,
+        options: ['yes', 'no'],
+      });
+      throw error;
+    }
     await terminalizeRootFailure(peer, dispatch, error);
     throw error;
   }

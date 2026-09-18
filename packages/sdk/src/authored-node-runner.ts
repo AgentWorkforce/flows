@@ -9,7 +9,11 @@ import type { Readable } from 'node:stream';
 import type { AuthoredRootMetadata } from './authored-root.js';
 import type { AuthoredExecutionRuntime, AuthoredFlowExecutionResult, ExecuteAuthoredFlowOptions } from './authored-flow-executor.js';
 import { completionMarker, isLoweredCompletion } from './authored-flow-executor.js';
-import { AuthoredFlowExecutionError, type AuthoredFlowExecutionErrorCode } from './authored-flow-error.js';
+import {
+  AuthoredFlowExecutionError, AuthoredHumanParked,
+  type AuthoredFlowExecutionErrorCode, type AuthoredHumanWait,
+} from './authored-flow-error.js';
+import { HUMAN_WAIT_ID } from './authored-human.js';
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
 
 let embeddedSource: string | undefined;
@@ -131,10 +135,12 @@ export async function runAuthoredInNode(
             else if (message.type === 'wait') options.onWait?.(message.event);
             else if (message.type === 'result') result = { ...message.result, executionRuntime: runtime };
             else if (message.type === 'error') {
-              failure = typeof message.code === 'string'
-                ? new AuthoredFlowExecutionError(message.code as AuthoredFlowExecutionErrorCode,
-                  message.message, message.completionReason, message.runId)
-                : new Error(message.message);
+              failure = message.code === 'human_parked' && isHumanWaitFrame(message.wait) && message.runId === rootRunId
+                ? new AuthoredHumanParked(message.wait, rootRunId)
+                : typeof message.code === 'string'
+                  ? new AuthoredFlowExecutionError(message.code as AuthoredFlowExecutionErrorCode,
+                    message.message, message.completionReason, message.runId)
+                  : new Error(message.message);
             } else throw new Error('unknown authored runtime message');
           } catch (error) { stop(error instanceof Error ? error : new Error('invalid authored runtime message')); }
         }
@@ -154,6 +160,15 @@ export async function runAuthoredInNode(
     await verifyAuthoredNodeResult(result, metadata, rootRunId, socketPath);
     return result;
   } finally { await rm(directory, { recursive: true, force: true }); }
+}
+
+/** A park signal from the child names the question the parent must journal. */
+function isHumanWaitFrame(value: unknown): value is AuthoredHumanWait {
+  const wait = value as Partial<AuthoredHumanWait> | null;
+  return typeof wait === 'object' && wait !== null
+    && typeof wait.waitId === 'string' && HUMAN_WAIT_ID.test(wait.waitId)
+    && typeof wait.question === 'string' && wait.question !== ''
+    && typeof wait.to === 'string' && wait.to !== '';
 }
 
 /** The IPC frame is a claim, not a durable terminal fact or a sandbox boundary. */

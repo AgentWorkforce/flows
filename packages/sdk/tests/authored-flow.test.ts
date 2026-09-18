@@ -264,10 +264,6 @@ describe('authored flow journal executor', () => {
   it('refuses unsupported promise verbs synchronously even when their results are ignored', async () => {
     const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
     const cases = [
-      flow('unawaited-human', async (f) => {
-        f.human('approve?', { to: 'owner' });
-        f.done('success');
-      }),
       flow('unawaited-dispatch', async (f) => {
         f.dispatch('child', {});
         f.done('success');

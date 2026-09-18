@@ -32,8 +32,10 @@ import type { GetFlowDefinition } from './authored-flow-loader.js';
 import type { RunLifecycleOptions } from './cli/run.js';
 import {
   AuthoredFlowExecutionError,
+  AuthoredHumanParked,
   type AuthoredFlowExecutionErrorCode,
 } from './authored-flow-error.js';
+import { readHumanAnswer } from './authored-human.js';
 import {
   AuthoredFlowOperation,
   stopAuthoredOperations,
@@ -406,9 +408,59 @@ export async function executeAuthoredFlow<Input = undefined>(
       );
       return trackStep(authoredSteps, agentOp);
     },
-    human() {
+    /**
+     * `f.human` (docs/SURFACE.md §1, §7). The question is not a child run: it
+     * is the ROOT attempt parking on the kernel's `wait.human`. The body
+     * cannot park itself — it holds no lease — so when no answer is journaled
+     * it throws `AuthoredHumanParked`, the durable root turns that into
+     * `step.wait`, and the CLI reports the question with exit 3.
+     *
+     * The wait id is the operation's ordinal (`human-N`), so a resumed body
+     * re-executes to the same call and finds the recorded
+     * `wait.completed{human_responded}`. The ANSWER is then lowered as a
+     * `human-N` deterministic step carrying `{"answer":…}` on stdout: the
+     * boolean the author's code branches on is a journaled, memoized fact in
+     * the same shape as every other authored step, so the IPC verifier and a
+     * later replay hold it to the same evidence.
+     */
+    human(question, humanOptions) {
       assertOperationAllowed('human', definition.name, requestedCompletion);
-      throw unsupportedVerb('human');
+      if (typeof question !== 'string' || question.trim() === '') {
+        throw new AuthoredFlowExecutionError('human_answer_invalid', 'f.human requires a non-empty question');
+      }
+      if (typeof humanOptions?.to !== 'string' || humanOptions.to.trim() === '') {
+        throw new AuthoredFlowExecutionError('human_answer_invalid', 'f.human requires { to } naming who answers');
+      }
+      const id = `human-${nextStep++}`;
+      const to = humanOptions.to;
+      // Hoisted like `llmOp`/`runOp`: the start closure reads the caller's
+      // `.gate(config)` at spec-build time, so a named gate on the answer is
+      // lowered into the `human-N` step's `verification` like any other step's.
+      let humanOp!: AuthoredFlowOperation<boolean>;
+      humanOp = new AuthoredFlowOperation<boolean>(
+        id, 'human',
+        () => assertOperationAllowed('human', definition.name, requestedCompletion),
+        () => observeStep(id, 'deterministic', async () => {
+          const rootRunId = options.rootRunId;
+          if (rootRunId === undefined) {
+            throw new AuthoredFlowExecutionError(
+              'unsupported_verb',
+              `f.human needs a durable root to park in; "${id}" has no run to wait on. Run the flow with flows run.`,
+            );
+          }
+          const recorded = await readHumanAnswer(journal, rootRunId, id);
+          if (recorded === undefined) throw new AuthoredHumanParked({ waitId: id, question, to }, rootRunId);
+          const record = { human: id, to, answer: recorded.answer,
+            ...(recorded.note === undefined ? {} : { note: recorded.note }),
+            answeredBy: recorded.answeredBy,
+            ...(recorded.atMs === undefined ? {} : { at: new Date(recorded.atMs).toISOString() }) };
+          const literal = `'${JSON.stringify(record).replaceAll("'", "'\\''")}'`;
+          await lowerDeterministic(id, `printf '%s' ${literal}`, false, undefined, humanOp.namedGate);
+          return recorded.answer;
+        }, options.onProgress),
+        lifecycle,
+      );
+      return trackStep(authoredSteps, humanOp);
     },
     dispatch<T>() {
       assertOperationAllowed('dispatch', definition.name, requestedCompletion);

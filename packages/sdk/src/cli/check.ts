@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { parse as parseYaml } from 'yaml';
 import { CompileError, compileSpec, kernelToAuthoring } from '../compile.js';
 import { helperReady } from '../yaml-helper-effect.js';
+import { flowRequirements, type FlowRequirements } from '../flow-requirements.js';
 import {
   adapterIdentification,
   authenticationProbe,
@@ -55,6 +56,8 @@ export interface CheckReport {
   resolutions: CliResolution[];
   /** Authored `schedule.*` handlers and the `flows.tick` subscription each lowers to. */
   schedules?: ScheduleInspection[];
+  /** Integrations, harnesses and MCP servers the flow declares it needs (`flow-requirements.ts`). */
+  requirements?: FlowRequirements;
   diagnostics: Array<PreflightDiagnostic | CheckInputDiagnostic | CheckWarningDiagnostic>;
 }
 
@@ -125,6 +128,15 @@ export function checkFlow(path: string): CheckExecution {
   }
 }
 
+/** Requirements never turn a preflight refusal into an unrelated exception. */
+function safeRequirements(authoring: FlowSpec, projectCli: string | undefined): FlowRequirements | undefined {
+  try {
+    return flowRequirements(authoring, projectCli === undefined ? {} : { projectCli });
+  } catch {
+    return undefined;
+  }
+}
+
 /** Preflight a validated authored flow through the same path as YAML/JSON. */
 export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConfig?: ProjectConfig): CheckExecution {
   const absolutePath = resolve(path);
@@ -155,6 +167,7 @@ export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConf
         gates: result.gates,
         resolutions: result.resolutions,
         diagnostics: result.diagnostics,
+        requirements: safeRequirements(authoring, config.cli),
       },
       ...(flow !== undefined ? { flow } : {}),
     };
