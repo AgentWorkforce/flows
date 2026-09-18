@@ -196,7 +196,6 @@ const token = process.env.GH_TOKEN;
 if (!token) { console.error("GH_TOKEN is not set; cannot post the review"); process.exit(1); }
 const fs = require("fs");
 const MARK = "<!-- flows-pr-review";
-const marker = MARK + " " + headSha + " -->";
 const api = "https://api.github.com/repos/" + owner + "/" + repo;
 const headers = { Authorization: "Bearer " + token, Accept: "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "flows-pr-review" };
 async function gh(method, url, body) {
@@ -205,36 +204,60 @@ async function gh(method, url, body) {
   const text = await res.text();
   return text ? JSON.parse(text) : null;
 }
-(async () => {
-  // Collect every marker comment (legacy runs left one per wake).
+// Marker: "<!-- flows-pr-review <sha> by:<login> -->". A comment is ours only
+// when its author IS the login its own marker names: anyone can type the
+// marker text, nobody else can post as our identity.
+const parseMark = (c) => { const m = typeof c.body === "string" && c.body.match(/^<!-- flows-pr-review ([0-9a-f]{40}) by:(\S+) -->/); return m && c.user && c.user.login === m[2] ? { sha: m[1], login: m[2] } : null; };
+const markerFor = (login) => MARK + " " + headSha + " by:" + login + " -->";
+async function ours() {
   const found = [];
   for (let page = 1; page <= 50; page += 1) {
     const list = await gh("GET", api + "/issues/" + number + "/comments?per_page=100&page=" + page);
-    for (const c of list) if (typeof c.body === "string" && c.body.startsWith(MARK)) found.push(c);
+    for (const c of list) { const m = parseMark(c); if (m) found.push({ c, m }); }
     if (list.length < 100) break;
     if (page === 50) { console.error("more than 5000 comments; refusing to post without a complete scan"); process.exit(1); }
   }
+  return found;
+}
+async function committerDate(sha) { const c = await gh("GET", api + "/commits/" + sha); return Date.parse(c.commit.committer.date); }
+// true when the comment's commit should keep the comment (it is not older than ours).
+async function theirsWins(theirSha) {
+  if (theirSha === headSha) return true;
+  const cmp = await gh("GET", api + "/compare/" + headSha + "..." + theirSha);
+  if (!cmp) return true;
+  if (cmp.status === "ahead" || cmp.status === "identical") return true;
+  if (cmp.status === "behind") return false;
+  // diverged (rebase / force-push): the more recently committed head owns the comment.
+  return (await committerDate(theirSha)) >= (await committerDate(headSha));
+}
+(async () => {
+  let found = await ours();
+  // Converge legacy duplicates to one comment without discarding a newer
+  // verdict: keep the one for our SHA, else the most recently updated.
+  if (found.length > 1) {
+    found.sort((x, y) => (x.m.sha === headSha ? -1 : y.m.sha === headSha ? 1 : Date.parse(y.c.updated_at) - Date.parse(x.c.updated_at)));
+    for (const dup of found.slice(1)) { await gh("DELETE", api + "/issues/comments/" + dup.c.id); console.log("deleted duplicate comment " + dup.c.id); }
+    found = [found[0]];
+  }
   const existing = found[0];
-  for (const dup of found.slice(1)) { await gh("DELETE", api + "/issues/comments/" + dup.id); console.log("deleted duplicate comment " + dup.id); }
-  const shaOf = (c) => ((c.body.match(/^<!-- flows-pr-review ([0-9a-f]{40}) -->/) || [])[1]);
-  if (existing && shaOf(existing) === headSha) { console.log("already posted for " + headSha); return; }
   let text = fs.readFileSync(bodyPath, "utf8");
   if (Buffer.byteLength(text) > 60000) text = Buffer.from(text).subarray(0, 60000).toString() + "\n\n_…truncated; the full review is in the run artifacts._\n";
-  const body = marker + "\n" + text;
-  if (!existing) { const c = await gh("POST", api + "/issues/" + number + "/comments", { body }); console.log("posted comment " + c.id + " for " + headSha); return; }
-  // Overlapping wakes: a run for an older head must never overwrite a newer
-  // verdict. Re-read right before writing; if the comment carries a commit
-  // that is *ahead* of ours (GitHub's compare, so it works without local
-  // history), the newer wake owns the comment and we leave it.
-  const fresh = await gh("GET", api + "/issues/comments/" + existing.id);
-  const current = shaOf(fresh) || "";
-  if (current === headSha) { console.log("already posted for " + headSha); return; }
-  if (current) {
-    const cmp = await gh("GET", api + "/compare/" + headSha + "..." + current);
-    if (cmp && cmp.status === "ahead") { console.log("comment already carries newer " + current + "; not overwriting with " + headSha); return; }
+  if (!existing) {
+    const posted = await gh("POST", api + "/issues/" + number + "/comments", { body: MARK + " " + headSha + " by:pending -->\n" + text });
+    // Stamp our real login into the marker now that we know it.
+    await gh("PATCH", api + "/issues/comments/" + posted.id, { body: markerFor(posted.user.login) + "\n" + text });
+    // Two wakes can both scan-then-create; converge to the lowest id.
+    const again = await ours();
+    const lowest = again.reduce((a, b) => (a && a.c.id < b.c.id ? a : b), null);
+    if (lowest && lowest.c.id !== posted.id) { await gh("DELETE", api + "/issues/comments/" + posted.id); console.log("raced: kept " + lowest.c.id + ", deleted ours " + posted.id); return; }
+    console.log("posted comment " + posted.id + " for " + headSha); return;
   }
-  await gh("PATCH", api + "/issues/comments/" + existing.id, { body });
-  console.log("updated comment " + existing.id + " for " + headSha);
+  // Re-read right before writing; never overwrite a verdict for a newer head.
+  const fresh = await gh("GET", api + "/issues/comments/" + existing.c.id);
+  const cur = parseMark(fresh);
+  if (cur && (await theirsWins(cur.sha))) { console.log("comment already carries " + cur.sha + "; not overwriting with " + headSha); return; }
+  await gh("PATCH", api + "/issues/comments/" + existing.c.id, { body: markerFor(existing.m.login) + "\n" + text });
+  console.log("updated comment " + existing.c.id + " for " + headSha);
 })();
 `;
 async function postComment(f: Ctx, pr: Pr): Promise<void> {
