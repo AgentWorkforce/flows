@@ -38,15 +38,16 @@ export default flow("chief", {
 .on(slack.mention("#exec"), async (f, event) => {          // gate 2 — trigger = entry condition
   const intent = await f.llm`Extract the work request, if any: ${event.text}`
     .gate(isActionable);
-  if (!intent) return f.done("success"); // no work is an outcome; execution succeeded
+  if (!intent) return f.done("declined"); // nothing actionable to act on; the run still succeeds
 
   const plan = await f.agent("planner", {
     task: `Research and plan: ${intent}`,
-    workspace: "acme/api: readonly",          // compiles to relayauth path scopes
+    workspace: "acme/api",
+    permissions: { accessPreset: "readonly" }, // validated declaration; currently unenforced
   });
 
   const ok = await f.human(`Ship this?\n${plan.summary}`, { to: "khaliq" });
-  if (!ok) return f.done("canceled");
+  if (!ok) return f.done("declined"); // choose not to proceed after a negative answer
 
   const pr = await f.dispatch("garden/implement", plan);   // gate 3 — child flow
   await f.slack.reply(event, `Shipped: ${pr.url}`);
@@ -247,8 +248,11 @@ No process runs between events: the handler wakes, executes to its next await, p
    **Accepted deterministic-command limitation (Codex P1):** `flows check`
    warns with `command_unresolved`, rather than refusing, when a deterministic
    command's first word cannot be resolved. A bare word is not provably absent
-   under `/bin/sh -c` because it may be a shell builtin, function, or
-   assignment. The narrower path-like missing-command refusal is also not yet
+   under `/bin/sh -c` because it may be a shell function. The probe looks past
+   blank lines, `#` comments, `NAME=value` assignments and redirections to the
+   first real command word; a POSIX special builtin or reserved word there
+   (`set`, `export`, `cd`, `if`, `for`, `{`, `!`, …) is the shell's own and
+   warns `unprovable_effects` instead, never `command_unresolved`. The narrower path-like missing-command refusal is also not yet
    implemented; it is tracked in `ops/BACKLOG.md` under “Close the
    deterministic-command preflight gap.” Consequently, `cli_missing` applies
    to declared `llm` and `agent` CLIs, not deterministic command words.
@@ -289,6 +293,33 @@ returns `unknown`, which author code narrows after runtime verification.
 The authoring surface deliberately narrows `steps: []`: `flows check` refuses
 it as `invalid_spec`, while the kernel accepts it. This is a chosen
 authoring-time narrowing, not a kernel guarantee.
+
+### Per-agent permissions in TypeScript
+
+Supported `f.agent` calls accept an optional `permissions` declaration:
+
+```ts
+const draft = await f.agent("writer", {
+  task: "Write drafts/post.md.",
+  permissions: { fileGlobs: ["drafts/**"], accessPreset: "readwrite" },
+});
+const review = await f.agent("reviewer", {
+  task: "Review drafts/post.md and flag issues; do not edit it.",
+  permissions: { fileGlobs: ["drafts/**"], accessPreset: "readonly" },
+});
+```
+
+The exported `PermissionsSpec` has three optional camelCase fields:
+`fileGlobs?: string[]`, `networkAllowlist?: string[]`, and
+`accessPreset?: "readonly" | "readwrite"`. Array elements must be nonempty
+strings. Empty or partial declarations are accepted without inferred defaults;
+no workspace is required. Workspace names must not carry permission suffixes.
+
+These per-step permissions are validated and recorded in the compiled step spec
+but are **not currently enforced** (gate 8 / #442). They are separate from
+flow-wide `FlowHeader.workspace` / `tools.fs` scopes. The chief harness above
+remains an aspirational example; this option does not make that entire harness
+executable today.
 
 ### Supported TypeScript LLM calls
 
@@ -714,37 +745,61 @@ JavaScript control flow observes the output read from `step.completed`.
 Unsupported headers, verbs, gates, and completion reasons fail closed rather
 than running through a second speculative compiler.
 
-An authored body ends at one of three lowered completions. `done("success")`
+An authored body ends at one of four lowered completions. `done("success")`
 completes the run; `done("needs_human")` parks it for a human; and
 `done("step_failed")` declares that the flow's own checks did not pass — the
 adversary review found problems, the tests did not go green — and reports a
-failed run. The first lowers to a no-op terminal marker, because the marker
-run's own `success` is already the record; the other two lower to a
+failed run. `done("declined")` deliberately chooses not to act on the input.
+The first lowers to a no-op terminal marker, because the marker
+run's own `success` is already the record; the other three lower to a
 deterministic step that writes `{"completionReason":"<reason>"}` to stdout, so
-the verdict is a durable journal fact rather than an inference. All three
+the verdict is a durable journal fact rather than an inference. All four
 terminal markers are steps that SUCCEED: `done("step_failed")` is the body's
-verdict, not a step that failed, so the journal is not given a fabricated
-failure for a flow whose steps all ran correctly.
+verdict, not a step that failed, so the terminal marker does not fabricate a
+failing step. Actual step failures still take precedence over authored verdicts.
 
 `canceled` and `budget_exceeded` are in the type but are refused with
 `unsupported_completion`. They are kernel outcomes, not authored verdicts: the
 kernel records them when it cancels a run or exhausts its budget, and a body
 that declared one would be asserting a kernel fact that never happened.
 
+Use `if (!input.ticket) return f.done("declined")` for a no-input guard.
+Declination describes a decision, not a promise of zero prior effects: inspection
+or notification may already have happened. It cannot conceal an actual failed step.
+
+Declination exits 0 with a completed, ok report and kernel
+`completionReason: success`. The local report adds severity `declined`, kind
+`run_declined` (text: `DECLINED [run_declined]`). The marker stdout and
+authored-root output retain `completionReason: declined`; kernel step and run
+reasons remain `success`. Cloud's client validator accepts this report shape,
+but its current projection drops diagnostics: `getCloudFlowRun`,
+`waitForCloudFlowRun`, and `--cloud --wait --json` cannot distinguish it from
+ordinary success. This is not verification of a deployed Cloud runtime.
+
+Consumer examples must wait for matching Surface/SDK releases, updated consumer
+pins, and a Cloud runtime artifact that executes this vocabulary. The onboarding
+guards in agentrelay.com require a separate rollout and verification.
+
 The exit codes are part of the surface contract:
 
 | Exit | Outcome |
 |---:|---|
-| `0` | The run completed with `completionReason: success`. |
+| `0` | The run completed with `completionReason: success`; deliberate declination also carries a `run_declined` diagnostic locally. |
 | `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. An authored `done("step_failed")` exits `1` as well, and says so without naming a step, because no step failed — the body declared the verdict. |
 | `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
 | `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. |
 
 Without an attached worker, reaching an `llm` or `agent` step returns a durable
 parked outcome. For authored TypeScript, `--local-agent` attaches both local
-workers as described above. Event, schedule, deployed-digest, HTTP, SDK-call, and
+workers as described above. Event, deployed-digest, HTTP, SDK-call, and
 flow-to-flow invocation remain later-gate surface work; they are not shipped
-by this CLI.
+by this CLI. Schedules are: `schedule.cron(...)` / `schedule.every(...)` are
+declared on a flow, lowered to the `flows.tick` subscription, printed by
+`flows check` with the `flows tick start` invocation that drives a fixed
+interval locally, and registered on Cloud by `flows schedule` (see
+[`packages/surface/src/triggers/README.md`](../packages/surface/src/triggers/README.md)
+and [CLOUD.md](CLOUD.md#schedules)). Dispatching the authored handler body
+itself, locally or hosted, is still #301: the hosted fire runs the default body.
 
 When a worker is attached, the CLI follows the typed snapshot while its lease
 is live and prints `WAITING [worker_lease]` with the step and lease deadline.
@@ -827,15 +882,34 @@ author predicate. The v1 `verification:` shape remains supported and compiles
 to the same kernel fields; no kernel verb or verification field is added by
 this decision.
 
-TypeScript may additionally accept a callback such as
+TypeScript additionally accepts a callback such as
 `.gate(value => value.length < 200, "keep the summary short")`. That callback
 is author code: `flows check` cannot prove it, YAML cannot serialize it, and
-the journal cannot replay the closure. A TypeScript runtime must execute it as
-runtime control flow and journal the resulting step outcome before dependents
-continue. It must never stringify the function into a spec or silently label
-it preflightable. Authors who need portable, inspectable gates use a named data
-check; plugins may contribute named checks only by compiling them to existing
-kernel primitives.
+the journal cannot replay the closure. The authored runtime executes it as
+runtime control flow — once, in the authoring process, on the value read back
+from the step's `step.completed` — and journals the verdict as a lowered
+`<step>.gate` deterministic step: a passing predicate journals
+`{"gate":"predicate","step":"<id>","verdict":"pass","because":…}` as that
+step's stdout with exit 0; a failing one (or one that throws) journals
+`"verdict":"fail"` on stderr with exit 1, and the run fails as `gate_failed`
+naming the step and the author's reason. Dependents therefore wait on a
+journaled fact, and resume/replay read that fact rather than re-running the
+closure. The function is never stringified into a spec, and `flows check`
+prints no gate line for it — a predicate is runtime-only and unprovable
+before execution, by construction. A step takes one `.gate()`. Authors who
+need portable, inspectable gates use a named data check; plugins may
+contribute named checks only by compiling them to existing kernel primitives.
+
+`artifact_exists` is the named gate for "the agent wrote this file":
+`.gate({ type: 'artifact_exists', path: 'review/security.md' })`. The worker
+that spawned the agent CLI snapshots the agent's working directory before the
+run and content-diffs it after, and journals the changed paths as
+`output.artifacts` on the agent's `step.completed`; `AgentResult.artifacts`
+is read from that journal entry, never from a later look at the disk, and the
+gate lowers to a deterministic step that checks the journaled list. An agent
+whose final message is a JSON object owns its output shape and journals no
+artifacts; gate such a step on a deterministic check instead. The relay
+transport journals none, because the agent ran on another host.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.

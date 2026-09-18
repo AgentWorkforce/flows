@@ -1,7 +1,7 @@
-import { webhook, type TriggerSource, type WebhookFilter } from "./triggers.js";
+import { webhook, type WebhookTriggerSource, type WebhookFilter } from "./triggers.js";
 
 /** A provider inbox subscription over an envelope's type and payload. */
-export interface ProviderTriggerSource<Provider extends string, Event extends string> extends TriggerSource {
+export interface ProviderTriggerSource<Provider extends string, Event extends string> extends WebhookTriggerSource {
   readonly name: Provider;
   readonly filter: WebhookFilter & { readonly provider: Provider; readonly type: Event };
 }

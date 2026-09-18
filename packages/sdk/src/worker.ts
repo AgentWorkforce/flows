@@ -133,6 +133,15 @@ export class AgentWorker extends EventEmitter {
     // emitting an error JSON with exit 0. `completionReason` is
     // derived from exit code, so a CLI that exits 0 while emitting
     // `{"error":...}` will report success with an error payload.
+    //
+    // `artifacts` (worker-cli.ts) rides inside the CliResult wrapper, so on
+    // the wrapper path it is journaled in `output`, where the kernel's output
+    // binding — and therefore an `artifact_exists` gate — can read it. On the
+    // JSON path the author's object IS the output and is left exactly as the
+    // agent emitted it: no key is added that a schema, a downstream binding
+    // or `summary` never asked for. An agent that answers with a JSON object
+    // therefore journals no artifacts; gate such a step on a deterministic
+    // check instead. The relay transport reports none (the agent ran elsewhere).
     const output = result.relay_task?.status === 'completed' && result.exit_code === 0
       ? result.relay_task.output : parseJsonOutput(result.stdout_tail) ?? result;
 

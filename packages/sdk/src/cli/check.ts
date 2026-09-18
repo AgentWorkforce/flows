@@ -45,7 +45,22 @@ export interface CheckReport {
   projectConfigPath?: string;
   gates: StepGateInspection[];
   resolutions: CliResolution[];
+  /** Authored `schedule.*` handlers and the `flows.tick` subscription each lowers to. */
+  schedules?: ScheduleInspection[];
   diagnostics: Array<PreflightDiagnostic | CheckInputDiagnostic | CheckWarningDiagnostic>;
+}
+
+export interface ScheduleInspection {
+  /** Position among the flow's handlers, so two identical declarations stay distinct. */
+  handler: number;
+  cron?: string;
+  tz?: string;
+  intervalMs?: number;
+  epochMs?: number;
+  staleAfterMs?: number;
+  scheduleId: string;
+  /** Present when the local tick runner cannot drive it (only a cron-aware runner can). */
+  localUnsupported?: string;
 }
 
 export interface CheckWarningDiagnostic {
@@ -340,7 +355,12 @@ function systemProbes(flowDirectory: string, config: ProjectConfig): PreflightPr
     helper: helperReady,
     cli: (cli, source, model) => probeCli(cli, source === 'project' ? config.directory : flowDirectory, model),
     executor: (trigger) => config.executors.includes(trigger.executor),
-    command: (binary) => executableExists(binary, flowDirectory),
+    // A deterministic step runs in the daemon's working directory — the
+    // directory `flows run` was invoked from, or Cloud's code mount — not in
+    // the flow file's. Probing `./x` against the flow's directory answered a
+    // question the kernel never asks, and refused a Cloud run whose synced
+    // tree held the script while its source sat in the state directory.
+    command: (binary) => executableExists(binary, process.cwd()),
   };
 }
 

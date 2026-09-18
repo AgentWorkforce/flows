@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+import { diffWorkspaceFiles, snapshotWorkspaceFiles } from './agent-artifacts.js';
 import { decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
 import { openSidechannel, type SidechannelContext } from './pty-sidechannel.js';
 import { spawn } from 'node:child_process';
@@ -38,6 +40,16 @@ export interface WorkerCliResult {
   exit_code: number | null;
   stdout_tail: string;
   stderr_tail: string;
+  /**
+   * Files the agent created or changed under its working directory,
+   * cwd-relative POSIX paths, sorted. Measured by the worker that spawned the
+   * CLI — the one process provably sharing the agent's filesystem — as a
+   * content-hash diff of the directory before and after the run, so it is a
+   * journaled fact rather than a later guess. Present for every direct agent
+   * execution; absent for `llm` mode and for the relay transport, where the
+   * agent runs on another host.
+   */
+  artifacts?: string[];
 }
 
 /**
@@ -75,6 +87,22 @@ export async function runAgentCli(
     return runViaAgentRelay(kind, instruction, wakeContext, effectiveModel, relayContext, cwd, signal);
   }
 
+  // Artifact detection brackets the spawn: the directory the CLI runs in is
+  // snapshotted before and diffed after, by this process, on this
+  // filesystem. Only an agent execution writes artifacts; an llm step has no
+  // workspace to change. Executions sharing a working directory are
+  // serialized around their snapshot-spawn-snapshot interval, so one agent's
+  // writes are never attributed to a concurrent one in the same directory.
+  const artifactRoot = mode === 'agent' ? resolve(cwd ?? process.cwd()) : undefined;
+  return artifactRoot === undefined
+    ? execute()
+    : serializedByDirectory(artifactRoot, async () => {
+      const before = await snapshotWorkspaceFiles(artifactRoot);
+      const result = await execute();
+      return { ...result, artifacts: diffWorkspaceFiles(before, await snapshotWorkspaceFiles(artifactRoot)) };
+    });
+
+  async function execute(): Promise<WorkerCliResult> {
   if (kind === 'relayflows-wrapper-v1') {
     return requirePricedUsage(decodeWrapperResult(await runWrapperSession(
       cli,
@@ -84,6 +112,7 @@ export async function runAgentCli(
       wrapperEnvironment(process.env),
       wrapperLimits,
       signal,
+      cwd,
     )), effectiveModel);
   }
 
@@ -109,6 +138,18 @@ export async function runAgentCli(
   const args = [...invocation.args];
   args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'json'] : ['--json']));
   return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd), kind), effectiveModel);
+  }
+}
+
+/** One agent at a time per canonical working directory, for the artifact interval. */
+const directoryQueues = new Map<string, Promise<unknown>>();
+function serializedByDirectory<T>(directory: string, task: () => Promise<T>): Promise<T> {
+  const previous = directoryQueues.get(directory) ?? Promise.resolve();
+  const run = previous.then(task, task);
+  const settled = run.then(() => undefined, () => undefined);
+  directoryQueues.set(directory, settled);
+  void settled.then(() => { if (directoryQueues.get(directory) === settled) directoryQueues.delete(directory); });
+  return run;
 }
 
 /** Wait under the same worker lease for an authoritative task receipt. */

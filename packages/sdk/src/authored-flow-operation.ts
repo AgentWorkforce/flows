@@ -8,7 +8,7 @@ import {
 
 /** Slice-P kinds the surface `.gate(config)` accepts and the SDK lowers. */
 const NAMED_GATE_KINDS = new Set([
-  'references_input', 'subprocess_gate', 'word_count_bounds', 'regex_match',
+  'references_input', 'subprocess_gate', 'word_count_bounds', 'regex_match', 'artifact_exists',
 ]);
 
 function isNamedGateConfig(candidate: unknown): candidate is NamedGate {
@@ -31,6 +31,14 @@ export class AuthoredFlowOperation<T> {
    * still throws `unsupported_gate` and never sets this field.
    */
   namedGate: NamedGate | undefined = undefined;
+  /**
+   * Predicate gate attached via `.gate(fn, because?)`. Author code: it runs
+   * in this process after the step completes, and its verdict is journaled as
+   * a lowered `<id>.gate` deterministic step (docs/SURFACE.md §6), so replay
+   * and resume see the recorded verdict and never re-run the closure. The
+   * function itself is never serialized. `flows check` cannot prove it.
+   */
+  predicateGate: { predicate: (value: T) => boolean; because?: string } | undefined = undefined;
   private state: OperationState = 'created';
   private thenInvoked = false;
   private rootFailureRecorded = false;
@@ -61,20 +69,29 @@ export class AuthoredFlowOperation<T> {
     const operation = this;
     const step: Step<T> = {
       gate(configOrPredicate: NamedGate | ((value: T) => boolean), _because?: string): Step<T> {
+        if (operation.namedGate !== undefined || operation.predicateGate !== undefined) {
+          throw new AuthoredFlowExecutionError('unsupported_gate', 'a step takes one .gate().');
+        }
         if (isNamedGateConfig(configOrPredicate)) {
           // Config-object gate: lowers into the compiled StepSpec's
           // `verification:` field via slice-P named-gate lowering.
           operation.namedGate = configOrPredicate;
           return step;
         }
-        // Predicate gate: closures cannot be journaled (covenant 1
-        // journal-as-truth). Refuse — authors should use a config-object
-        // gate or the declarative `verification:` block.
-        throw new AuthoredFlowExecutionError(
-          'unsupported_gate',
-          'postfix .gate(predicate) closures cannot be journaled; '
-            + 'use .gate({type: "…", …}) with a slice-P named gate instead.',
-        );
+        // Predicate gate: runtime control flow. The closure cannot be
+        // journaled, but its VERDICT can — the executor runs it once after
+        // the step completes and records pass/fail as a `<id>.gate` step.
+        if (typeof configOrPredicate !== 'function') {
+          throw new AuthoredFlowExecutionError(
+            'unsupported_gate',
+            '.gate() takes a named gate config ({type: "…", …}) or a predicate function.',
+          );
+        }
+        if (_because !== undefined && typeof _because !== 'string') {
+          throw new AuthoredFlowExecutionError('unsupported_gate', '.gate(predicate, because) takes a string reason.');
+        }
+        operation.predicateGate = { predicate: configOrPredicate, ...(_because === undefined ? {} : { because: _because }) };
+        return step;
       },
       then<TResult1 = T, TResult2 = never>(
         onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
@@ -144,7 +161,15 @@ export class AuthoredFlowOperation<T> {
     try {
       this.assertCanStart();
       this.state = 'running';
-      const value = await this.start();
+      const started = await this.start();
+      // The predicate gate, when present, is applied here for every kind of
+      // operation, so a helper or plugin step cannot carry a gate that never
+      // runs. The executor installs the applier; without one, a predicate
+      // gate is refused rather than skipped.
+      const value = this.predicateGate === undefined ? started
+        : this.scope.applyPredicateGate === undefined
+          ? (() => { throw new AuthoredFlowExecutionError('unsupported_gate', 'this runtime cannot apply predicate gates'); })()
+          : await this.scope.applyPredicateGate(this as unknown as { id: string; predicateGate: unknown }, started);
       this.state = 'fulfilled';
       this.resolve(value);
     } catch (error) {

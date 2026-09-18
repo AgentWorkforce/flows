@@ -1,0 +1,3782 @@
+
+$ node --version && bun --version && git rev-parse HEAD
+v22.23.2
+1.4.0
+e86118c28e014d4a1b327876c03193d03a16c752
+
+Exit status: 0
+
+$ bash scripts/surface-package-gate.sh
+bun install v1.4.0 (34cbb9a40)
+
++ @types/node@22.20.2
++ typescript@5.9.3
++ vitest@2.1.9
++ ai-hist@0.4.1
++ @relayfile/relay-helpers@0.4.11
+
+183 packages installed [321.00ms]
+$ tsc
+$ bun run build && tsc -p tsconfig.test.json && vitest run
+$ tsc
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/surface
+
+ ✓ tests/slack-block-kit.test.ts (5 tests) 3ms
+ ✓ tests/provider-triggers.test.ts (3 tests) 6ms
+ ✓ tests/flow.test.ts (20 tests) 9ms
+ ✓ tests/declined.test.ts (1 test) 2ms
+ ✓ tests/triggers.test.ts (4 tests) 5ms
+ ✓ tests/helpers.snapshot.test.ts (1 test) 233ms
+
+ Test Files  6 passed (6)
+      Tests  34 passed (34)
+   Start at  07:09:09
+   Duration  704ms (transform 203ms, setup 0ms, collect 627ms, tests 257ms, environment 1ms, prepare 269ms)
+
+$ tsc -p ../../regressions/tsconfig.json && tsc -p tsconfig.test.json && node scripts/check-generated-helpers.mjs
+HELPERS_GENERATED_OK airtable.ts, asana.ts, azure-blob.ts, box.ts, calendly.ts, clickup.ts, clients.ts, cloudflare.ts, confluence.ts, daytona.ts, docker-hub.ts, dropbox.ts, fathom.ts, gcp.ts, gcs.ts, github.ts, gitlab.ts, gmail.ts, google-calendar.ts, google-drive.ts, granola.ts, hubspot.ts, index.ts, intercom.ts, jira.ts, linear.ts, mailgun.ts, mixpanel.ts, neon.ts, notion.ts, onedrive.ts, pipedrive.ts, postgres.ts, posthog.ts, providers.ts, ramp.ts, recall.ts, reddit.ts, redis.ts, s3.ts, salesforce.ts, segment.ts, sendgrid.ts, sharepoint.ts, shopify.ts, shortcut.ts, slack.ts, stripe.ts, teams.ts, telegram.ts, webhook-server.ts, x.ts, zendesk.ts
+bun pack v1.4.0 (34cbb9a40)
+$ bun run build
+$ tsc
+
+packed 1.79KB package.json
+packed 2.90KB README.md
+packed 2.50KB dist/cloud.d.ts
+packed 2.30KB dist/cloud.d.ts.map
+packed 44B dist/cloud.js
+packed 102B dist/cloud.js.map
+packed 0.94KB dist/completion.d.ts
+packed 463B dist/completion.d.ts.map
+packed 0.71KB dist/completion.js
+packed 458B dist/completion.js.map
+packed 2.14KB dist/context.d.ts
+packed 1.73KB dist/context.d.ts.map
+packed 46B dist/context.js
+packed 106B dist/context.js.map
+packed 1.31KB dist/effect-transport.d.ts
+packed 1.40KB dist/effect-transport.d.ts.map
+packed 2.0KB dist/effect-transport.js
+packed 2.27KB dist/effect-transport.js.map
+packed 2.63KB dist/flow.d.ts
+packed 2.54KB dist/flow.d.ts.map
+packed 9.00KB dist/flow.js
+packed 9.31KB dist/flow.js.map
+packed 3.32KB dist/helper-clients.d.ts
+packed 0.94KB dist/helper-clients.d.ts.map
+packed 1.75KB dist/helper-clients.js
+packed 1.63KB dist/helper-clients.js.map
+packed 265B dist/helpers/airtable.d.ts
+packed 281B dist/helpers/airtable.d.ts.map
+packed 319B dist/helpers/airtable.js
+packed 293B dist/helpers/airtable.js.map
+packed 333B dist/helpers/asana.d.ts
+packed 348B dist/helpers/asana.d.ts.map
+packed 368B dist/helpers/asana.js
+packed 329B dist/helpers/asana.js.map
+packed 358B dist/helpers/azure-blob.d.ts
+packed 357B dist/helpers/azure-blob.d.ts.map
+packed 390B dist/helpers/azure-blob.js
+packed 340B dist/helpers/azure-blob.js.map
+packed 321B dist/helpers/box.d.ts
+packed 342B dist/helpers/box.d.ts.map
+packed 358B dist/helpers/box.js
+packed 323B dist/helpers/box.js.map
+packed 351B dist/helpers/calendly.d.ts
+packed 354B dist/helpers/calendly.d.ts.map
+packed 383B dist/helpers/calendly.js
+packed 336B dist/helpers/calendly.js.map
+packed 345B dist/helpers/clickup.d.ts
+packed 352B dist/helpers/clickup.d.ts.map
+packed 378B dist/helpers/clickup.js
+packed 334B dist/helpers/clickup.js.map
+packed 175B dist/helpers/clients.d.ts
+packed 243B dist/helpers/clients.d.ts.map
+packed 1.86KB dist/helpers/clients.js
+packed 1.53KB dist/helpers/clients.js.map
+packed 363B dist/helpers/cloudflare.d.ts
+packed 364B dist/helpers/cloudflare.d.ts.map
+packed 393B dist/helpers/cloudflare.js
+packed 344B dist/helpers/cloudflare.js.map
+packed 363B dist/helpers/confluence.d.ts
+packed 364B dist/helpers/confluence.d.ts.map
+packed 393B dist/helpers/confluence.js
+packed 344B dist/helpers/confluence.js.map
+packed 345B dist/helpers/daytona.d.ts
+packed 352B dist/helpers/daytona.d.ts.map
+packed 378B dist/helpers/daytona.js
+packed 334B dist/helpers/daytona.js.map
+packed 270B dist/helpers/docker-hub.d.ts
+packed 285B dist/helpers/docker-hub.d.ts.map
+packed 324B dist/helpers/docker-hub.js
+packed 297B dist/helpers/docker-hub.js.map
+packed 345B dist/helpers/dropbox.d.ts
+packed 352B dist/helpers/dropbox.d.ts.map
+packed 378B dist/helpers/dropbox.js
+packed 334B dist/helpers/dropbox.js.map
+packed 257B dist/helpers/fathom.d.ts
+packed 277B dist/helpers/fathom.d.ts.map
+packed 313B dist/helpers/fathom.js
+packed 289B dist/helpers/fathom.js.map
+packed 245B dist/helpers/gcp.d.ts
+packed 269B dist/helpers/gcp.d.ts.map
+packed 304B dist/helpers/gcp.js
+packed 280B dist/helpers/gcp.js.map
+packed 321B dist/helpers/gcs.d.ts
+packed 342B dist/helpers/gcs.d.ts.map
+packed 358B dist/helpers/gcs.js
+packed 323B dist/helpers/gcs.js.map
+packed 335B dist/helpers/github.d.ts
+packed 350B dist/helpers/github.d.ts.map
+packed 369B dist/helpers/github.js
+packed 332B dist/helpers/github.js.map
+packed 339B dist/helpers/gitlab.d.ts
+packed 350B dist/helpers/gitlab.d.ts.map
+packed 373B dist/helpers/gitlab.js
+packed 332B dist/helpers/gitlab.js.map
+packed 333B dist/helpers/gmail.d.ts
+packed 348B dist/helpers/gmail.d.ts.map
+packed 368B dist/helpers/gmail.js
+packed 329B dist/helpers/gmail.js.map
+packed 388B dist/helpers/google-calendar.d.ts
+packed 374B dist/helpers/google-calendar.d.ts.map
+packed 415B dist/helpers/google-calendar.js
+packed 356B dist/helpers/google-calendar.js.map
+packed 370B dist/helpers/google-drive.d.ts
+packed 368B dist/helpers/google-drive.d.ts.map
+packed 400B dist/helpers/google-drive.js
+packed 348B dist/helpers/google-drive.js.map
+packed 345B dist/helpers/granola.d.ts
+packed 352B dist/helpers/granola.d.ts.map
+packed 378B dist/helpers/granola.js
+packed 334B dist/helpers/granola.js.map
+packed 345B dist/helpers/hubspot.d.ts
+packed 352B dist/helpers/hubspot.d.ts.map
+packed 378B dist/helpers/hubspot.js
+packed 334B dist/helpers/hubspot.js.map
+packed 6.69KB dist/helpers/index.d.ts
+packed 6.0KB dist/helpers/index.d.ts.map
+packed 5.12KB dist/helpers/index.js
+packed 4.22KB dist/helpers/index.js.map
+packed 351B dist/helpers/intercom.d.ts
+packed 354B dist/helpers/intercom.d.ts.map
+packed 383B dist/helpers/intercom.js
+packed 336B dist/helpers/intercom.js.map
+packed 327B dist/helpers/jira.d.ts
+packed 346B dist/helpers/jira.d.ts.map
+packed 363B dist/helpers/jira.js
+packed 327B dist/helpers/jira.js.map
+packed 339B dist/helpers/linear.d.ts
+packed 350B dist/helpers/linear.d.ts.map
+packed 373B dist/helpers/linear.js
+packed 332B dist/helpers/linear.js.map
+packed 345B dist/helpers/mailgun.d.ts
+packed 352B dist/helpers/mailgun.d.ts.map
+packed 378B dist/helpers/mailgun.js
+packed 334B dist/helpers/mailgun.js.map
+packed 351B dist/helpers/mixpanel.d.ts
+packed 354B dist/helpers/mixpanel.d.ts.map
+packed 383B dist/helpers/mixpanel.js
+packed 336B dist/helpers/mixpanel.js.map
+packed 249B dist/helpers/neon.d.ts
+packed 273B dist/helpers/neon.d.ts.map
+packed 307B dist/helpers/neon.js
+packed 284B dist/helpers/neon.js.map
+packed 335B dist/helpers/notion.d.ts
+packed 350B dist/helpers/notion.d.ts.map
+packed 369B dist/helpers/notion.js
+packed 332B dist/helpers/notion.js.map
+packed 351B dist/helpers/onedrive.d.ts
+packed 354B dist/helpers/onedrive.d.ts.map
+packed 383B dist/helpers/onedrive.js
+packed 336B dist/helpers/onedrive.js.map
+packed 357B dist/helpers/pipedrive.d.ts
+packed 355B dist/helpers/pipedrive.d.ts.map
+packed 388B dist/helpers/pipedrive.js
+packed 338B dist/helpers/pipedrive.js.map
+packed 351B dist/helpers/postgres.d.ts
+packed 354B dist/helpers/postgres.d.ts.map
+packed 383B dist/helpers/postgres.js
+packed 336B dist/helpers/postgres.js.map
+packed 261B dist/helpers/posthog.d.ts
+packed 279B dist/helpers/posthog.d.ts.map
+packed 316B dist/helpers/posthog.js
+packed 291B dist/helpers/posthog.js.map
+packed 7.74KB dist/helpers/providers.d.ts
+packed 403B dist/helpers/providers.d.ts.map
+packed 7.61KB dist/helpers/providers.js
+packed 4.99KB dist/helpers/providers.js.map
+packed 479B dist/helpers/ramp.d.ts
+packed 403B dist/helpers/ramp.d.ts.map
+packed 432B dist/helpers/ramp.js
+packed 409B dist/helpers/ramp.js.map
+packed 339B dist/helpers/recall.d.ts
+packed 350B dist/helpers/recall.d.ts.map
+packed 373B dist/helpers/recall.js
+packed 332B dist/helpers/recall.js.map
+packed 339B dist/helpers/reddit.d.ts
+packed 350B dist/helpers/reddit.d.ts.map
+packed 373B dist/helpers/reddit.js
+packed 332B dist/helpers/reddit.js.map
+packed 333B dist/helpers/redis.d.ts
+packed 348B dist/helpers/redis.d.ts.map
+packed 368B dist/helpers/redis.js
+packed 329B dist/helpers/redis.js.map
+packed 315B dist/helpers/s3.d.ts
+packed 340B dist/helpers/s3.d.ts.map
+packed 353B dist/helpers/s3.js
+packed 321B dist/helpers/s3.js.map
+packed 363B dist/helpers/salesforce.d.ts
+packed 364B dist/helpers/salesforce.d.ts.map
+packed 393B dist/helpers/salesforce.js
+packed 344B dist/helpers/salesforce.js.map
+packed 261B dist/helpers/segment.d.ts
+packed 279B dist/helpers/segment.d.ts.map
+packed 316B dist/helpers/segment.js
+packed 291B dist/helpers/segment.js.map
+packed 351B dist/helpers/sendgrid.d.ts
+packed 354B dist/helpers/sendgrid.d.ts.map
+packed 383B dist/helpers/sendgrid.js
+packed 336B dist/helpers/sendgrid.js.map
+packed 363B dist/helpers/sharepoint.d.ts
+packed 364B dist/helpers/sharepoint.d.ts.map
+packed 393B dist/helpers/sharepoint.js
+packed 344B dist/helpers/sharepoint.js.map
+packed 261B dist/helpers/shopify.d.ts
+packed 279B dist/helpers/shopify.d.ts.map
+packed 316B dist/helpers/shopify.js
+packed 291B dist/helpers/shopify.js.map
+packed 351B dist/helpers/shortcut.d.ts
+packed 354B dist/helpers/shortcut.d.ts.map
+packed 383B dist/helpers/shortcut.js
+packed 336B dist/helpers/shortcut.js.map
+packed 0.82KB dist/helpers/slack.d.ts
+packed 0.85KB dist/helpers/slack.d.ts.map
+packed 179B dist/helpers/slack.js
+packed 137B dist/helpers/slack.js.map
+packed 335B dist/helpers/stripe.d.ts
+packed 350B dist/helpers/stripe.d.ts.map
+packed 369B dist/helpers/stripe.js
+packed 332B dist/helpers/stripe.js.map
+packed 333B dist/helpers/teams.d.ts
+packed 348B dist/helpers/teams.d.ts.map
+packed 368B dist/helpers/teams.js
+packed 329B dist/helpers/teams.js.map
+packed 351B dist/helpers/telegram.d.ts
+packed 354B dist/helpers/telegram.d.ts.map
+packed 383B dist/helpers/telegram.js
+packed 336B dist/helpers/telegram.js.map
+packed 286B dist/helpers/webhook-server.d.ts
+packed 296B dist/helpers/webhook-server.d.ts.map
+packed 336B dist/helpers/webhook-server.js
+packed 307B dist/helpers/webhook-server.js.map
+packed 237B dist/helpers/x.d.ts
+packed 265B dist/helpers/x.d.ts.map
+packed 298B dist/helpers/x.js
+packed 276B dist/helpers/x.js.map
+packed 345B dist/helpers/zendesk.d.ts
+packed 352B dist/helpers/zendesk.d.ts.map
+packed 378B dist/helpers/zendesk.js
+packed 334B dist/helpers/zendesk.js.map
+packed 1.30KB dist/index.d.ts
+packed 1.1KB dist/index.d.ts.map
+packed 309B dist/index.js
+packed 322B dist/index.js.map
+packed 0.87KB dist/memory.d.ts
+packed 0.72KB dist/memory.d.ts.map
+packed 45B dist/memory.js
+packed 104B dist/memory.js.map
+packed 321B dist/plugin-contract.d.ts
+packed 363B dist/plugin-contract.d.ts.map
+packed 54B dist/plugin-contract.js
+packed 122B dist/plugin-contract.js.map
+packed 0.74KB dist/provider-trigger.d.ts
+packed 0.69KB dist/provider-trigger.d.ts.map
+packed 0.81KB dist/provider-trigger.js
+packed 0.82KB dist/provider-trigger.js.map
+packed 497B dist/runtime.d.ts
+packed 478B dist/runtime.d.ts.map
+packed 345B dist/runtime.js
+packed 362B dist/runtime.js.map
+packed 1.47KB dist/slack.d.ts
+packed 1.33KB dist/slack.d.ts.map
+packed 0.78KB dist/slack.js
+packed 0.91KB dist/slack.js.map
+packed 1.98KB dist/step.d.ts
+packed 1.0KB dist/step.d.ts.map
+packed 43B dist/step.js
+packed 100B dist/step.js.map
+packed 0.60KB dist/triggers.d.ts
+packed 0.57KB dist/triggers.d.ts.map
+packed 2.20KB dist/triggers.js
+packed 2.23KB dist/triggers.js.map
+packed 0.61KB dist/triggers/github.d.ts
+packed 241B dist/triggers/github.d.ts.map
+packed 0.67KB dist/triggers/github.js
+packed 0.70KB dist/triggers/github.js.map
+packed 390B dist/triggers/index.d.ts
+packed 245B dist/triggers/index.d.ts.map
+packed 465B dist/triggers/index.js
+packed 455B dist/triggers/index.js.map
+packed 0.59KB dist/triggers/slack.d.ts
+packed 239B dist/triggers/slack.d.ts.map
+packed 0.68KB dist/triggers/slack.js
+packed 0.69KB dist/triggers/slack.js.map
+packed 2.0KB src/cloud.ts
+packed 0.89KB src/completion.ts
+packed 2.0KB src/context.ts
+packed 3.0KB src/effect-transport.ts
+packed 11.42KB src/flow.ts
+packed 2.0KB src/helper-clients.ts
+packed 2.74KB src/helpers/README.md
+packed 437B src/helpers/airtable.ts
+packed 487B src/helpers/asana.ts
+packed 0.52KB src/helpers/azure-blob.ts
+packed 473B src/helpers/box.ts
+packed 508B src/helpers/calendly.ts
+packed 501B src/helpers/clickup.ts
+packed 1.85KB src/helpers/clients.ts
+packed 0.52KB src/helpers/cloudflare.ts
+packed 0.52KB src/helpers/confluence.ts
+packed 501B src/helpers/daytona.ts
+packed 442B src/helpers/docker-hub.ts
+packed 501B src/helpers/dropbox.ts
+packed 429B src/helpers/fathom.ts
+packed 417B src/helpers/gcp.ts
+packed 473B src/helpers/gcs.ts
+packed 490B src/helpers/github.ts
+packed 494B src/helpers/gitlab.ts
+packed 487B src/helpers/gmail.ts
+packed 0.55KB src/helpers/google-calendar.ts
+packed 0.53KB src/helpers/google-drive.ts
+packed 501B src/helpers/granola.ts
+packed 501B src/helpers/hubspot.ts
+packed 9.88KB src/helpers/index.ts
+packed 508B src/helpers/intercom.ts
+packed 480B src/helpers/jira.ts
+packed 494B src/helpers/linear.ts
+packed 501B src/helpers/mailgun.ts
+packed 508B src/helpers/mixpanel.ts
+packed 421B src/helpers/neon.ts
+packed 490B src/helpers/notion.ts
+packed 508B src/helpers/onedrive.ts
+packed 0.52KB src/helpers/pipedrive.ts
+packed 508B src/helpers/postgres.ts
+packed 433B src/helpers/posthog.ts
+packed 6.58KB src/helpers/providers.ts
+packed 0.65KB src/helpers/ramp.ts
+packed 494B src/helpers/recall.ts
+packed 494B src/helpers/reddit.ts
+packed 487B src/helpers/redis.ts
+packed 466B src/helpers/s3.ts
+packed 0.52KB src/helpers/salesforce.ts
+packed 433B src/helpers/segment.ts
+packed 508B src/helpers/sendgrid.ts
+packed 0.52KB src/helpers/sharepoint.ts
+packed 433B src/helpers/shopify.ts
+packed 508B src/helpers/shortcut.ts
+packed 0.91KB src/helpers/slack.ts
+packed 490B src/helpers/stripe.ts
+packed 487B src/helpers/teams.ts
+packed 508B src/helpers/telegram.ts
+packed 458B src/helpers/webhook-server.ts
+packed 409B src/helpers/x.ts
+packed 501B src/helpers/zendesk.ts
+packed 1.32KB src/index.ts
+packed 0.81KB src/memory.ts
+packed 277B src/plugin-contract.ts
+packed 1.23KB src/provider-trigger.ts
+packed 475B src/runtime.ts
+packed 1.83KB src/slack.ts
+packed 1.91KB src/step.ts
+packed 2.54KB src/triggers.ts
+packed 3.76KB src/triggers/README.md
+packed 0.72KB src/triggers/github.ts
+packed 443B src/triggers/index.ts
+packed 0.71KB src/triggers/slack.ts
+
+/tmp/relayflows-surface-pack.SZRrZ8/relayflows-surface-2.0.14.tgz
+
+Total files: 354
+Shasum: cab163b95cd5f7b4e602f41784808a5a83c6496b
+Integrity: sha512-+5yjvF85tHMvD[...]HVKzHOwObWl2A==
+Unpacked size: 0.28MB
+Packed size: 57.70KB
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+
+added 192 packages, and audited 193 packages in 2s
+
+65 packages are looking for funding
+  run `npm fund` for details
+
+6 vulnerabilities (4 moderate, 1 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+changed 1 package, and audited 193 packages in 771ms
+
+65 packages are looking for funding
+  run `npm fund` for details
+
+6 vulnerabilities (4 moderate, 1 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> @relayflows/sdk@2.0.14 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+src/authored-flow-executor.ts(507,7): error TS2345: Argument of type '"success" | "step_failed" | "canceled" | "budget_exceeded" | "declined" | undefined' is not assignable to parameter of type '"success" | "step_failed" | "canceled" | "budget_exceeded" | "verification_failed" | "retries_exhausted" | "lease_expired" | "crashed" | "timeout" | "worker_error" | undefined'.
+  Type '"declined"' is not assignable to type '"success" | "step_failed" | "canceled" | "budget_exceeded" | "verification_failed" | "retries_exhausted" | "lease_expired" | "crashed" | "timeout" | "worker_error" | undefined'.
+
+Exit status: 2
+
+$ bash scripts/surface-package-gate.sh
+bun install v1.4.0 (34cbb9a40)
+
+Checked 186 installs across 233 packages (no changes) [6.00ms]
+$ tsc
+$ bun run build && tsc -p tsconfig.test.json && vitest run
+$ tsc
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/surface
+
+ ✓ tests/slack-block-kit.test.ts (5 tests) 3ms
+ ✓ tests/provider-triggers.test.ts (3 tests) 4ms
+ ✓ tests/flow.test.ts (20 tests) 10ms
+ ✓ tests/declined.test.ts (1 test) 2ms
+ ✓ tests/triggers.test.ts (4 tests) 5ms
+ ✓ tests/helpers.snapshot.test.ts (1 test) 248ms
+
+ Test Files  6 passed (6)
+      Tests  34 passed (34)
+   Start at  07:10:27
+   Duration  819ms (transform 175ms, setup 0ms, collect 699ms, tests 272ms, environment 1ms, prepare 390ms)
+
+$ tsc -p ../../regressions/tsconfig.json && tsc -p tsconfig.test.json && node scripts/check-generated-helpers.mjs
+HELPERS_GENERATED_OK airtable.ts, asana.ts, azure-blob.ts, box.ts, calendly.ts, clickup.ts, clients.ts, cloudflare.ts, confluence.ts, daytona.ts, docker-hub.ts, dropbox.ts, fathom.ts, gcp.ts, gcs.ts, github.ts, gitlab.ts, gmail.ts, google-calendar.ts, google-drive.ts, granola.ts, hubspot.ts, index.ts, intercom.ts, jira.ts, linear.ts, mailgun.ts, mixpanel.ts, neon.ts, notion.ts, onedrive.ts, pipedrive.ts, postgres.ts, posthog.ts, providers.ts, ramp.ts, recall.ts, reddit.ts, redis.ts, s3.ts, salesforce.ts, segment.ts, sendgrid.ts, sharepoint.ts, shopify.ts, shortcut.ts, slack.ts, stripe.ts, teams.ts, telegram.ts, webhook-server.ts, x.ts, zendesk.ts
+bun pack v1.4.0 (34cbb9a40)
+$ bun run build
+$ tsc
+
+packed 1.79KB package.json
+packed 2.90KB README.md
+packed 2.50KB dist/cloud.d.ts
+packed 2.30KB dist/cloud.d.ts.map
+packed 44B dist/cloud.js
+packed 102B dist/cloud.js.map
+packed 0.94KB dist/completion.d.ts
+packed 463B dist/completion.d.ts.map
+packed 0.71KB dist/completion.js
+packed 458B dist/completion.js.map
+packed 2.14KB dist/context.d.ts
+packed 1.73KB dist/context.d.ts.map
+packed 46B dist/context.js
+packed 106B dist/context.js.map
+packed 1.31KB dist/effect-transport.d.ts
+packed 1.40KB dist/effect-transport.d.ts.map
+packed 2.0KB dist/effect-transport.js
+packed 2.27KB dist/effect-transport.js.map
+packed 2.63KB dist/flow.d.ts
+packed 2.54KB dist/flow.d.ts.map
+packed 9.00KB dist/flow.js
+packed 9.31KB dist/flow.js.map
+packed 3.32KB dist/helper-clients.d.ts
+packed 0.94KB dist/helper-clients.d.ts.map
+packed 1.75KB dist/helper-clients.js
+packed 1.63KB dist/helper-clients.js.map
+packed 265B dist/helpers/airtable.d.ts
+packed 281B dist/helpers/airtable.d.ts.map
+packed 319B dist/helpers/airtable.js
+packed 293B dist/helpers/airtable.js.map
+packed 333B dist/helpers/asana.d.ts
+packed 348B dist/helpers/asana.d.ts.map
+packed 368B dist/helpers/asana.js
+packed 329B dist/helpers/asana.js.map
+packed 358B dist/helpers/azure-blob.d.ts
+packed 357B dist/helpers/azure-blob.d.ts.map
+packed 390B dist/helpers/azure-blob.js
+packed 340B dist/helpers/azure-blob.js.map
+packed 321B dist/helpers/box.d.ts
+packed 342B dist/helpers/box.d.ts.map
+packed 358B dist/helpers/box.js
+packed 323B dist/helpers/box.js.map
+packed 351B dist/helpers/calendly.d.ts
+packed 354B dist/helpers/calendly.d.ts.map
+packed 383B dist/helpers/calendly.js
+packed 336B dist/helpers/calendly.js.map
+packed 345B dist/helpers/clickup.d.ts
+packed 352B dist/helpers/clickup.d.ts.map
+packed 378B dist/helpers/clickup.js
+packed 334B dist/helpers/clickup.js.map
+packed 175B dist/helpers/clients.d.ts
+packed 243B dist/helpers/clients.d.ts.map
+packed 1.86KB dist/helpers/clients.js
+packed 1.53KB dist/helpers/clients.js.map
+packed 363B dist/helpers/cloudflare.d.ts
+packed 364B dist/helpers/cloudflare.d.ts.map
+packed 393B dist/helpers/cloudflare.js
+packed 344B dist/helpers/cloudflare.js.map
+packed 363B dist/helpers/confluence.d.ts
+packed 364B dist/helpers/confluence.d.ts.map
+packed 393B dist/helpers/confluence.js
+packed 344B dist/helpers/confluence.js.map
+packed 345B dist/helpers/daytona.d.ts
+packed 352B dist/helpers/daytona.d.ts.map
+packed 378B dist/helpers/daytona.js
+packed 334B dist/helpers/daytona.js.map
+packed 270B dist/helpers/docker-hub.d.ts
+packed 285B dist/helpers/docker-hub.d.ts.map
+packed 324B dist/helpers/docker-hub.js
+packed 297B dist/helpers/docker-hub.js.map
+packed 345B dist/helpers/dropbox.d.ts
+packed 352B dist/helpers/dropbox.d.ts.map
+packed 378B dist/helpers/dropbox.js
+packed 334B dist/helpers/dropbox.js.map
+packed 257B dist/helpers/fathom.d.ts
+packed 277B dist/helpers/fathom.d.ts.map
+packed 313B dist/helpers/fathom.js
+packed 289B dist/helpers/fathom.js.map
+packed 245B dist/helpers/gcp.d.ts
+packed 269B dist/helpers/gcp.d.ts.map
+packed 304B dist/helpers/gcp.js
+packed 280B dist/helpers/gcp.js.map
+packed 321B dist/helpers/gcs.d.ts
+packed 342B dist/helpers/gcs.d.ts.map
+packed 358B dist/helpers/gcs.js
+packed 323B dist/helpers/gcs.js.map
+packed 335B dist/helpers/github.d.ts
+packed 350B dist/helpers/github.d.ts.map
+packed 369B dist/helpers/github.js
+packed 332B dist/helpers/github.js.map
+packed 339B dist/helpers/gitlab.d.ts
+packed 350B dist/helpers/gitlab.d.ts.map
+packed 373B dist/helpers/gitlab.js
+packed 332B dist/helpers/gitlab.js.map
+packed 333B dist/helpers/gmail.d.ts
+packed 348B dist/helpers/gmail.d.ts.map
+packed 368B dist/helpers/gmail.js
+packed 329B dist/helpers/gmail.js.map
+packed 388B dist/helpers/google-calendar.d.ts
+packed 374B dist/helpers/google-calendar.d.ts.map
+packed 415B dist/helpers/google-calendar.js
+packed 356B dist/helpers/google-calendar.js.map
+packed 370B dist/helpers/google-drive.d.ts
+packed 368B dist/helpers/google-drive.d.ts.map
+packed 400B dist/helpers/google-drive.js
+packed 348B dist/helpers/google-drive.js.map
+packed 345B dist/helpers/granola.d.ts
+packed 352B dist/helpers/granola.d.ts.map
+packed 378B dist/helpers/granola.js
+packed 334B dist/helpers/granola.js.map
+packed 345B dist/helpers/hubspot.d.ts
+packed 352B dist/helpers/hubspot.d.ts.map
+packed 378B dist/helpers/hubspot.js
+packed 334B dist/helpers/hubspot.js.map
+packed 6.69KB dist/helpers/index.d.ts
+packed 6.0KB dist/helpers/index.d.ts.map
+packed 5.12KB dist/helpers/index.js
+packed 4.22KB dist/helpers/index.js.map
+packed 351B dist/helpers/intercom.d.ts
+packed 354B dist/helpers/intercom.d.ts.map
+packed 383B dist/helpers/intercom.js
+packed 336B dist/helpers/intercom.js.map
+packed 327B dist/helpers/jira.d.ts
+packed 346B dist/helpers/jira.d.ts.map
+packed 363B dist/helpers/jira.js
+packed 327B dist/helpers/jira.js.map
+packed 339B dist/helpers/linear.d.ts
+packed 350B dist/helpers/linear.d.ts.map
+packed 373B dist/helpers/linear.js
+packed 332B dist/helpers/linear.js.map
+packed 345B dist/helpers/mailgun.d.ts
+packed 352B dist/helpers/mailgun.d.ts.map
+packed 378B dist/helpers/mailgun.js
+packed 334B dist/helpers/mailgun.js.map
+packed 351B dist/helpers/mixpanel.d.ts
+packed 354B dist/helpers/mixpanel.d.ts.map
+packed 383B dist/helpers/mixpanel.js
+packed 336B dist/helpers/mixpanel.js.map
+packed 249B dist/helpers/neon.d.ts
+packed 273B dist/helpers/neon.d.ts.map
+packed 307B dist/helpers/neon.js
+packed 284B dist/helpers/neon.js.map
+packed 335B dist/helpers/notion.d.ts
+packed 350B dist/helpers/notion.d.ts.map
+packed 369B dist/helpers/notion.js
+packed 332B dist/helpers/notion.js.map
+packed 351B dist/helpers/onedrive.d.ts
+packed 354B dist/helpers/onedrive.d.ts.map
+packed 383B dist/helpers/onedrive.js
+packed 336B dist/helpers/onedrive.js.map
+packed 357B dist/helpers/pipedrive.d.ts
+packed 355B dist/helpers/pipedrive.d.ts.map
+packed 388B dist/helpers/pipedrive.js
+packed 338B dist/helpers/pipedrive.js.map
+packed 351B dist/helpers/postgres.d.ts
+packed 354B dist/helpers/postgres.d.ts.map
+packed 383B dist/helpers/postgres.js
+packed 336B dist/helpers/postgres.js.map
+packed 261B dist/helpers/posthog.d.ts
+packed 279B dist/helpers/posthog.d.ts.map
+packed 316B dist/helpers/posthog.js
+packed 291B dist/helpers/posthog.js.map
+packed 7.74KB dist/helpers/providers.d.ts
+packed 403B dist/helpers/providers.d.ts.map
+packed 7.61KB dist/helpers/providers.js
+packed 4.99KB dist/helpers/providers.js.map
+packed 479B dist/helpers/ramp.d.ts
+packed 403B dist/helpers/ramp.d.ts.map
+packed 432B dist/helpers/ramp.js
+packed 409B dist/helpers/ramp.js.map
+packed 339B dist/helpers/recall.d.ts
+packed 350B dist/helpers/recall.d.ts.map
+packed 373B dist/helpers/recall.js
+packed 332B dist/helpers/recall.js.map
+packed 339B dist/helpers/reddit.d.ts
+packed 350B dist/helpers/reddit.d.ts.map
+packed 373B dist/helpers/reddit.js
+packed 332B dist/helpers/reddit.js.map
+packed 333B dist/helpers/redis.d.ts
+packed 348B dist/helpers/redis.d.ts.map
+packed 368B dist/helpers/redis.js
+packed 329B dist/helpers/redis.js.map
+packed 315B dist/helpers/s3.d.ts
+packed 340B dist/helpers/s3.d.ts.map
+packed 353B dist/helpers/s3.js
+packed 321B dist/helpers/s3.js.map
+packed 363B dist/helpers/salesforce.d.ts
+packed 364B dist/helpers/salesforce.d.ts.map
+packed 393B dist/helpers/salesforce.js
+packed 344B dist/helpers/salesforce.js.map
+packed 261B dist/helpers/segment.d.ts
+packed 279B dist/helpers/segment.d.ts.map
+packed 316B dist/helpers/segment.js
+packed 291B dist/helpers/segment.js.map
+packed 351B dist/helpers/sendgrid.d.ts
+packed 354B dist/helpers/sendgrid.d.ts.map
+packed 383B dist/helpers/sendgrid.js
+packed 336B dist/helpers/sendgrid.js.map
+packed 363B dist/helpers/sharepoint.d.ts
+packed 364B dist/helpers/sharepoint.d.ts.map
+packed 393B dist/helpers/sharepoint.js
+packed 344B dist/helpers/sharepoint.js.map
+packed 261B dist/helpers/shopify.d.ts
+packed 279B dist/helpers/shopify.d.ts.map
+packed 316B dist/helpers/shopify.js
+packed 291B dist/helpers/shopify.js.map
+packed 351B dist/helpers/shortcut.d.ts
+packed 354B dist/helpers/shortcut.d.ts.map
+packed 383B dist/helpers/shortcut.js
+packed 336B dist/helpers/shortcut.js.map
+packed 0.82KB dist/helpers/slack.d.ts
+packed 0.85KB dist/helpers/slack.d.ts.map
+packed 179B dist/helpers/slack.js
+packed 137B dist/helpers/slack.js.map
+packed 335B dist/helpers/stripe.d.ts
+packed 350B dist/helpers/stripe.d.ts.map
+packed 369B dist/helpers/stripe.js
+packed 332B dist/helpers/stripe.js.map
+packed 333B dist/helpers/teams.d.ts
+packed 348B dist/helpers/teams.d.ts.map
+packed 368B dist/helpers/teams.js
+packed 329B dist/helpers/teams.js.map
+packed 351B dist/helpers/telegram.d.ts
+packed 354B dist/helpers/telegram.d.ts.map
+packed 383B dist/helpers/telegram.js
+packed 336B dist/helpers/telegram.js.map
+packed 286B dist/helpers/webhook-server.d.ts
+packed 296B dist/helpers/webhook-server.d.ts.map
+packed 336B dist/helpers/webhook-server.js
+packed 307B dist/helpers/webhook-server.js.map
+packed 237B dist/helpers/x.d.ts
+packed 265B dist/helpers/x.d.ts.map
+packed 298B dist/helpers/x.js
+packed 276B dist/helpers/x.js.map
+packed 345B dist/helpers/zendesk.d.ts
+packed 352B dist/helpers/zendesk.d.ts.map
+packed 378B dist/helpers/zendesk.js
+packed 334B dist/helpers/zendesk.js.map
+packed 1.30KB dist/index.d.ts
+packed 1.1KB dist/index.d.ts.map
+packed 309B dist/index.js
+packed 322B dist/index.js.map
+packed 0.87KB dist/memory.d.ts
+packed 0.72KB dist/memory.d.ts.map
+packed 45B dist/memory.js
+packed 104B dist/memory.js.map
+packed 321B dist/plugin-contract.d.ts
+packed 363B dist/plugin-contract.d.ts.map
+packed 54B dist/plugin-contract.js
+packed 122B dist/plugin-contract.js.map
+packed 0.74KB dist/provider-trigger.d.ts
+packed 0.69KB dist/provider-trigger.d.ts.map
+packed 0.81KB dist/provider-trigger.js
+packed 0.82KB dist/provider-trigger.js.map
+packed 497B dist/runtime.d.ts
+packed 478B dist/runtime.d.ts.map
+packed 345B dist/runtime.js
+packed 362B dist/runtime.js.map
+packed 1.47KB dist/slack.d.ts
+packed 1.33KB dist/slack.d.ts.map
+packed 0.78KB dist/slack.js
+packed 0.91KB dist/slack.js.map
+packed 1.98KB dist/step.d.ts
+packed 1.0KB dist/step.d.ts.map
+packed 43B dist/step.js
+packed 100B dist/step.js.map
+packed 0.60KB dist/triggers.d.ts
+packed 0.57KB dist/triggers.d.ts.map
+packed 2.20KB dist/triggers.js
+packed 2.23KB dist/triggers.js.map
+packed 0.61KB dist/triggers/github.d.ts
+packed 241B dist/triggers/github.d.ts.map
+packed 0.67KB dist/triggers/github.js
+packed 0.70KB dist/triggers/github.js.map
+packed 390B dist/triggers/index.d.ts
+packed 245B dist/triggers/index.d.ts.map
+packed 465B dist/triggers/index.js
+packed 455B dist/triggers/index.js.map
+packed 0.59KB dist/triggers/slack.d.ts
+packed 239B dist/triggers/slack.d.ts.map
+packed 0.68KB dist/triggers/slack.js
+packed 0.69KB dist/triggers/slack.js.map
+packed 2.0KB src/cloud.ts
+packed 0.89KB src/completion.ts
+packed 2.0KB src/context.ts
+packed 3.0KB src/effect-transport.ts
+packed 11.42KB src/flow.ts
+packed 2.0KB src/helper-clients.ts
+packed 2.74KB src/helpers/README.md
+packed 437B src/helpers/airtable.ts
+packed 487B src/helpers/asana.ts
+packed 0.52KB src/helpers/azure-blob.ts
+packed 473B src/helpers/box.ts
+packed 508B src/helpers/calendly.ts
+packed 501B src/helpers/clickup.ts
+packed 1.85KB src/helpers/clients.ts
+packed 0.52KB src/helpers/cloudflare.ts
+packed 0.52KB src/helpers/confluence.ts
+packed 501B src/helpers/daytona.ts
+packed 442B src/helpers/docker-hub.ts
+packed 501B src/helpers/dropbox.ts
+packed 429B src/helpers/fathom.ts
+packed 417B src/helpers/gcp.ts
+packed 473B src/helpers/gcs.ts
+packed 490B src/helpers/github.ts
+packed 494B src/helpers/gitlab.ts
+packed 487B src/helpers/gmail.ts
+packed 0.55KB src/helpers/google-calendar.ts
+packed 0.53KB src/helpers/google-drive.ts
+packed 501B src/helpers/granola.ts
+packed 501B src/helpers/hubspot.ts
+packed 9.88KB src/helpers/index.ts
+packed 508B src/helpers/intercom.ts
+packed 480B src/helpers/jira.ts
+packed 494B src/helpers/linear.ts
+packed 501B src/helpers/mailgun.ts
+packed 508B src/helpers/mixpanel.ts
+packed 421B src/helpers/neon.ts
+packed 490B src/helpers/notion.ts
+packed 508B src/helpers/onedrive.ts
+packed 0.52KB src/helpers/pipedrive.ts
+packed 508B src/helpers/postgres.ts
+packed 433B src/helpers/posthog.ts
+packed 6.58KB src/helpers/providers.ts
+packed 0.65KB src/helpers/ramp.ts
+packed 494B src/helpers/recall.ts
+packed 494B src/helpers/reddit.ts
+packed 487B src/helpers/redis.ts
+packed 466B src/helpers/s3.ts
+packed 0.52KB src/helpers/salesforce.ts
+packed 433B src/helpers/segment.ts
+packed 508B src/helpers/sendgrid.ts
+packed 0.52KB src/helpers/sharepoint.ts
+packed 433B src/helpers/shopify.ts
+packed 508B src/helpers/shortcut.ts
+packed 0.91KB src/helpers/slack.ts
+packed 490B src/helpers/stripe.ts
+packed 487B src/helpers/teams.ts
+packed 508B src/helpers/telegram.ts
+packed 458B src/helpers/webhook-server.ts
+packed 409B src/helpers/x.ts
+packed 501B src/helpers/zendesk.ts
+packed 1.32KB src/index.ts
+packed 0.81KB src/memory.ts
+packed 277B src/plugin-contract.ts
+packed 1.23KB src/provider-trigger.ts
+packed 475B src/runtime.ts
+packed 1.83KB src/slack.ts
+packed 1.91KB src/step.ts
+packed 2.54KB src/triggers.ts
+packed 3.76KB src/triggers/README.md
+packed 0.72KB src/triggers/github.ts
+packed 443B src/triggers/index.ts
+packed 0.71KB src/triggers/slack.ts
+
+/tmp/relayflows-surface-pack.zgWOWH/relayflows-surface-2.0.14.tgz
+
+Total files: 354
+Shasum: cab163b95cd5f7b4e602f41784808a5a83c6496b
+Integrity: sha512-+5yjvF85tHMvD[...]HVKzHOwObWl2A==
+Unpacked size: 0.28MB
+Packed size: 57.70KB
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+
+added 192 packages, and audited 193 packages in 2s
+
+65 packages are looking for funding
+  run `npm fund` for details
+
+6 vulnerabilities (4 moderate, 1 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+changed 1 package, and audited 193 packages in 607ms
+
+65 packages are looking for funding
+  run `npm fund` for details
+
+6 vulnerabilities (4 moderate, 1 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> @relayflows/sdk@2.0.14 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+bun add v1.4.0 (34cbb9a40)
+Resolving dependencies
+Resolved, downloaded and extracted [292]
+Saved lockfile
+
+installed @relayflows/surface@/tmp/relayflows-surface-pack.zgWOWH/relayflows-surface-2.0.14.tgz
+
+138 packages installed [1.55s]
+PACKED_RUNTIME_OK name=packed-runtime-consumer completionReason=success
+PACKED_RUNTIME_REFUSAL_OK invalidHeaders=9 forgedHandle=refused
+PACKED_TYPESCRIPT_OK
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/authored-flow.test.ts (25 tests) 782ms
+
+ Test Files  1 passed (1)
+      Tests  25 passed (25)
+   Start at  07:10:42
+   Duration  2.14s (transform 495ms, setup 0ms, collect 1.12s, tests 782ms, environment 0ms, prepare 37ms)
+
+
+Exit status: 0
+
+$ npm --prefix packages/sdk run test:prep
+
+> @relayflows/sdk@2.0.14 test:prep
+> ( cd ../../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../../testdata/preflight ] || find ../../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )
+
+CARGO_BOOTSTRAP: no toolchain found — installing rustup into /home/daytona/.relayflows-toolchain
+info: downloading installer
+info: profile set to minimal
+info: default host tuple is x86_64-unknown-linux-gnu
+info: syncing channel updates for stable-x86_64-unknown-linux-gnu
+info: latest update on 2026-09-03 for version 1.98.1 (48a229cea 2026-09-01)
+info: downloading 3 components
+info: default toolchain set to stable-x86_64-unknown-linux-gnu
+
+  stable-x86_64-unknown-linux-gnu installed - rustc 1.98.1 (48a229cea 2026-09-01)
+
+
+Rust is installed now. Great!
+
+To get started you need Cargo's bin directory
+(/home/daytona/.relayflows-toolchain/cargo/bin) in your PATH
+environment variable. This has not been done automatically.
+
+To configure your current shell, you need to source
+the corresponding env file under /home/daytona/.relayflows-toolchain/cargo.
+
+Consider running the right command for your shell (note the leading DOT):
+. "/home/daytona/.relayflows-toolchain/cargo/env" # For
+sh/ash/dash/pdksh/bash/zsh
+cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
+CC_x86_64-unknown-linux-gnu = None
+cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
+CC_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=HOST_CC
+HOST_CC = None
+cargo:rerun-if-env-changed=CC
+CC = None
+cargo:rerun-if-env-changed=CC_ENABLE_DEBUG_OUTPUT
+cargo:rerun-if-env-changed=CRATE_CC_NO_DEFAULTS
+CRATE_CC_NO_DEFAULTS = None
+cargo:rerun-if-env-changed=CFLAGS
+CFLAGS = None
+cargo:rerun-if-env-changed=HOST_CFLAGS
+HOST_CFLAGS = None
+cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
+CFLAGS_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
+CFLAGS_x86_64-unknown-linux-gnu = None
+CARGO_BOOTSTRAP_OK: cargo 1.98.1 (797e8a9bc 2026-08-05)
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded anstream v1.0.0
+  Downloaded anstyle v1.0.14
+  Downloaded anstyle-parse v1.0.0
+  Downloaded ahash v0.8.12
+  Downloaded icu_provider v2.3.1
+  Downloaded typenum v1.20.1
+  Downloaded aho-corasick v1.1.5
+  Downloaded fraction v0.15.4
+  Downloaded uuid-simd v0.8.0
+  Downloaded utf8_iter v1.0.4
+  Downloaded unicode-ident v1.0.24
+  Downloaded vsimd v0.8.0
+  Downloaded regex-automata v0.4.18
+  Downloaded zmij v1.0.23
+  Downloaded cc v1.4.4
+  Downloaded crypto-common v0.1.7
+  Downloaded utf8parse v0.2.2
+  Downloaded yoke-derive v0.8.2
+  Downloaded zerofrom v0.1.8
+  Downloaded zerotrie v0.2.5
+  Downloaded anstyle-query v1.1.5
+  Downloaded anyhow v1.0.104
+  Downloaded bit-set v0.8.0
+  Downloaded cpufeatures v0.2.17
+  Downloaded version_check v0.9.5
+  Downloaded wait-timeout v0.2.1
+  Downloaded clap_derive v4.6.4
+  Downloaded bit-vec v0.8.0
+  Downloaded thiserror-impl v2.0.20
+  Downloaded tinystr v0.8.4
+  Downloaded ulid v1.2.1
+  Downloaded zerovec-derive v0.11.6
+  Downloaded yoke v0.8.3
+  Downloaded icu_properties v2.3.0
+  Downloaded clap v4.6.6
+  Downloaded zerofrom-derive v0.1.7
+  Downloaded base64 v0.22.1
+  Downloaded uuid v1.26.0
+  Downloaded clap_builder v4.6.6
+  Downloaded clap_lex v1.1.0
+  Downloaded displaydoc v0.2.7
+  Downloaded fallible-streaming-iterator v0.1.9
+  Downloaded outref v0.5.2
+  Downloaded zerovec v0.11.8
+  Downloaded fallible-iterator v0.3.0
+  Downloaded zerocopy v0.8.56
+  Downloaded vcpkg v0.2.15
+  Downloaded num v0.4.3
+  Downloaded ref-cast-impl v1.0.27
+  Downloaded strsim v0.11.1
+  Downloaded writeable v0.6.4
+  Downloaded bytecount v0.6.9
+  Downloaded itoa v1.0.18
+  Downloaded generic-array v0.14.7
+  Downloaded is_terminal_polyfill v1.70.2
+  Downloaded ref-cast v1.0.27
+  Downloaded stable_deref_trait v1.2.1
+  Downloaded borrow-or-share v0.2.4
+  Downloaded cfg-if v1.0.4
+  Downloaded heck v0.5.0
+  Downloaded num-cmp v0.1.0
+  Downloaded num-iter v0.1.46
+  Downloaded block-buffer v0.10.4
+  Downloaded num-complex v0.4.6
+  Downloaded percent-encoding v2.3.2
+  Downloaded potential_utf v0.1.6
+  Downloaded lazy_static v1.5.0
+  Downloaded scopeguard v1.2.0
+  Downloaded email_address v0.2.9
+  Downloaded lock_api v0.4.14
+  Downloaded num-integer v0.1.47
+  Downloaded rand_chacha v0.9.0
+  Downloaded rand_core v0.9.5
+  Downloaded synstructure v0.13.2
+  Downloaded autocfg v1.5.1
+  Downloaded hashlink v0.10.0
+  Downloaded idna_adapter v1.2.2
+  Downloaded num-rational v0.4.2
+  Downloaded sha2 v0.10.9
+  Downloaded ppv-lite86 v0.2.21
+  Downloaded colorchoice v1.0.5
+  Downloaded digest v0.10.7
+  Downloaded foldhash v0.1.5
+  Downloaded pkg-config v0.3.34
+  Downloaded thiserror v2.0.20
+  Downloaded quote v1.0.47
+  Downloaded find-msvc-tools v0.1.11
+  Downloaded parking_lot v0.12.5
+  Downloaded parking_lot_core v0.9.12
+  Downloaded smallvec v1.15.2
+  Downloaded fluent-uri v0.3.2
+  Downloaded litemap v0.8.3
+  Downloaded once_cell v1.21.4
+  Downloaded shlex v2.0.1
+  Downloaded num-bigint v0.4.8
+  Downloaded num-traits v0.2.19
+  Downloaded referencing v0.33.0
+  Downloaded proc-macro2 v1.0.107
+  Downloaded bitflags v2.13.1
+  Downloaded getrandom v0.3.4
+  Downloaded serde_core v1.0.229
+  Downloaded ryu-js v1.0.3
+  Downloaded serde v1.0.229
+  Downloaded serde_derive v1.0.229
+  Downloaded icu_collections v2.3.0
+  Downloaded icu_locale_core v2.3.0
+  Downloaded icu_normalizer_data v2.3.0
+  Downloaded memchr v2.8.3
+  Downloaded rand v0.9.5
+  Downloaded fancy-regex v0.16.2
+  Downloaded idna v1.1.0
+  Downloaded hashbrown v0.15.5
+  Downloaded regex v1.13.1
+  Downloaded jsonschema v0.33.0
+  Downloaded icu_properties_data v2.3.0
+  Downloaded serde_json v1.0.151
+  Downloaded rusqlite v0.37.0
+  Downloaded syn v2.0.119
+  Downloaded syn v3.0.4
+  Downloaded regex-syntax v0.8.11
+  Downloaded icu_normalizer v2.3.0
+  Downloaded libc v0.2.189
+  Downloaded libsqlite3-sys v0.35.0
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling libc v0.2.189
+   Compiling stable_deref_trait v1.2.1
+   Compiling version_check v0.9.5
+   Compiling autocfg v1.5.1
+   Compiling cfg-if v1.0.4
+   Compiling serde_core v1.0.229
+   Compiling num-traits v0.2.19
+   Compiling getrandom v0.3.4
+   Compiling zerocopy v0.8.56
+   Compiling syn v3.0.4
+   Compiling syn v2.0.119
+   Compiling serde v1.0.229
+   Compiling smallvec v1.15.2
+   Compiling synstructure v0.13.2
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling zerofrom v0.1.8
+   Compiling memchr v2.8.3
+   Compiling yoke v0.8.3
+   Compiling litemap v0.8.3
+   Compiling writeable v0.6.4
+   Compiling num-integer v0.1.47
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling generic-array v0.14.7
+   Compiling utf8_iter v1.0.4
+   Compiling icu_properties_data v2.3.0
+   Compiling icu_normalizer_data v2.3.0
+   Compiling zerotrie v0.2.5
+   Compiling ref-cast v1.0.27
+   Compiling zerovec v0.11.8
+   Compiling typenum v1.20.1
+   Compiling parking_lot_core v0.9.12
+   Compiling zmij v1.0.23
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_collections v2.3.0
+   Compiling num-bigint v0.4.8
+   Compiling ref-cast-impl v1.0.27
+   Compiling icu_provider v2.3.1
+   Compiling aho-corasick v1.1.5
+   Compiling ahash v0.8.12
+   Compiling find-msvc-tools v0.1.11
+   Compiling regex-syntax v0.8.11
+   Compiling scopeguard v1.2.0
+   Compiling serde_json v1.0.151
+   Compiling shlex v2.0.1
+   Compiling lock_api v0.4.14
+   Compiling cc v1.4.4
+   Compiling num-rational v0.4.2
+   Compiling icu_properties v2.3.0
+   Compiling regex-automata v0.4.18
+   Compiling icu_normalizer v2.3.0
+   Compiling num-iter v0.1.46
+   Compiling ppv-lite86 v0.2.21
+   Compiling rand_core v0.9.5
+   Compiling num-complex v0.4.6
+   Compiling pkg-config v0.3.34
+   Compiling borrow-or-share v0.2.4
+   Compiling itoa v1.0.18
+   Compiling bit-vec v0.8.0
+   Compiling vcpkg v0.2.15
+   Compiling once_cell v1.21.4
+   Compiling bit-set v0.8.0
+   Compiling num v0.4.3
+   Compiling fluent-uri v0.3.2
+   Compiling libsqlite3-sys v0.35.0
+   Compiling rand_chacha v0.9.0
+   Compiling parking_lot v0.12.5
+   Compiling idna_adapter v1.2.2
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling outref v0.5.2
+   Compiling foldhash v0.1.5
+   Compiling utf8parse v0.2.2
+   Compiling vsimd v0.8.0
+   Compiling uuid v1.26.0
+   Compiling percent-encoding v2.3.2
+   Compiling lazy_static v1.5.0
+   Compiling thiserror v2.0.20
+   Compiling uuid-simd v0.8.0
+   Compiling fraction v0.15.4
+   Compiling referencing v0.33.0
+   Compiling hashbrown v0.15.5
+   Compiling anstyle-parse v1.0.0
+   Compiling digest v0.10.7
+   Compiling fancy-regex v0.16.2
+   Compiling regex v1.13.1
+   Compiling idna v1.1.0
+   Compiling rand v0.9.5
+   Compiling email_address v0.2.9
+   Compiling thiserror-impl v2.0.20
+   Compiling anstyle-query v1.1.5
+   Compiling bytecount v0.6.9
+   Compiling base64 v0.22.1
+   Compiling cpufeatures v0.2.17
+   Compiling anstyle v1.0.14
+   Compiling num-cmp v0.1.0
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling colorchoice v1.0.5
+   Compiling jsonschema v0.33.0
+   Compiling anstream v1.0.0
+   Compiling sha2 v0.10.9
+   Compiling ulid v1.2.1
+   Compiling hashlink v0.10.0
+   Compiling ryu-js v1.0.3
+   Compiling fallible-iterator v0.3.0
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling bitflags v2.13.1
+   Compiling clap_lex v1.1.0
+   Compiling heck v0.5.0
+   Compiling anyhow v1.0.104
+   Compiling strsim v0.11.1
+   Compiling clap_builder v4.6.6
+   Compiling clap_derive v4.6.4
+   Compiling relayflowd-core v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd-core)
+   Compiling clap v4.6.6
+   Compiling wait-timeout v0.2.1
+   Compiling rusqlite v0.37.0
+   Compiling relayflowd-journal v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.27s
+
+Exit status: 0
+
+$ npm --prefix packages/sdk run typecheck && npm --prefix packages/sdk run build && npm --prefix packages/sdk run typecheck:tests
+
+> @relayflows/sdk@2.0.14 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.14 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+> @relayflows/sdk@2.0.14 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+Exit status: 0
+
+$ cd kernel && sh ../ops/cargo.sh test --workspace
+ Downloading crates ...
+  Downloaded errno v0.3.14
+  Downloaded fastrand v2.5.0
+  Downloaded getrandom v0.4.3
+  Downloaded tempfile v3.27.0
+  Downloaded rustix v1.1.4
+  Downloaded linux-raw-sys v0.12.1
+   Compiling bitflags v2.13.1
+   Compiling rustix v1.1.4
+   Compiling getrandom v0.4.3
+   Compiling linux-raw-sys v0.12.1
+   Compiling rusqlite v0.37.0
+   Compiling fastrand v2.5.0
+   Compiling relayflowd-core v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd-core)
+   Compiling relayflowd-journal v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd)
+   Compiling tempfile v3.27.0
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.17s
+     Running unittests src/lib.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/relayflowd-f043db0bb3534a16)
+
+running 49 tests
+test engine::remote::worker_failure_detail_tests::a_non_string_output_is_rendered_rather_than_dropped ... ok
+test engine::remote::worker_failure_detail_tests::a_null_or_blank_output_yields_no_detail ... ok
+test engine::remote::worker_failure_detail_tests::a_string_output_is_carried_verbatim_and_trimmed ... ok
+test engine::remote::worker_failure_detail_tests::an_output_at_the_boundary_is_not_truncated ... ok
+test engine::boot_identity_tests::every_engine_in_this_process_shares_one_boot_id ... ok
+test engine::remote::worker_failure_detail_tests::render_is_bounded_before_allocation_for_hostile_string ... ok
+test engine::remote::worker_failure_detail_tests::truncation_does_not_split_a_multi_byte_char ... ok
+test engine::wake::claim_guard_tests::a_disarmed_guard_leaves_the_claim_alone ... ok
+test engine::remote::worker_failure_detail_tests::render_is_bounded_before_allocation_for_hostile_json ... ok
+test engine::wake::claim_guard_tests::a_guard_only_releases_its_own_run ... ok
+test engine::wake::claim_guard_tests::a_panic_between_claim_and_register_still_releases ... ok
+test exec_det::tests::captures_deterministic_output ... ok
+test exec_det::tests::failed_command_evidence_survives_completion ... ok
+test engine::boot_identity_tests::prior_boot_registered_undriven_admission_is_recovered_by_start_retry ... ok
+test engine::wake::claim_guard_tests::an_armed_guard_releases_the_claim_when_dropped ... ok
+test exec_det::tests::timeout_has_an_explicit_completion_reason ... ok
+test server::channels::tests::unknown_verb_never_falls_through_to_receive ... ok
+test server::client::tests::resume_waits_while_the_heartbeat_renewed_lease_is_live ... ok
+test server::liveness::tests::sweep_id_buckets_by_the_interval ... ok
+test exec_det::tests::lease_override_bounds_execution_and_preserves_command_timeout ... ok
+test server::liveness::tests::sweep_pass_healthy_subscription_is_a_noop ... ok
+test engine::boot_identity_tests::failure_after_workspace_binding_releases_admission_without_exposing_effects ... ok
+test server::liveness::tests::sweep_pass_latches_after_journaling_and_next_bucket_is_empty ... ok
+test server::tests::agent::contract::agent_without_a_compatible_worker_parks_without_starting ... ok
+test server::tests::agent::contract::an_agent_worker_attaching_without_pins_is_refused_at_attach ... ok
+test server::tests::a_failed_disconnect_journal_append_is_retained_and_retried_not_dropped ... ok
+test server::tests::agent::contract::a_replacement_worker_that_never_reported_the_pinned_surface_is_not_dispatched_to ... ok
+test server::tests::agent::contract::an_oversized_trajectory_tail_is_refused_at_step_complete ... ok
+test server::tests::agent::contract::an_agent_worker_missing_a_declared_surface_parks_the_run_instead_of_erroring ... ok
+test server::tests::agent::contract::an_llm_completion_claiming_an_effect_fails_closed_with_the_reason_journaled ... ok
+test server::tests::agent::contract::human_intervention_is_durable_and_resume_requires_explicit_override ... ok
+test server::tests::agent::pins::reset_worker_reporting_a_revision_other_than_its_pin_fails_closed_as_worker_error ... ok
+test server::tests::agent::pins::consecutive_agent_steps_on_different_surfaces_each_start_from_their_own_pins ... ok
+test server::tests::hello_enforces_protocol_version ... ok
+test server::tests::run_resume_adopts_a_real_journal_whose_registry_row_is_missing ... ok
+test server::tests::run_resume_asks_the_registry_instead_of_treating_an_orphan_file_as_a_run ... ok
+test server::tests::run_resume_refuses_a_journal_that_never_recorded_its_run ... ok
+test server::tests::run_resume_refuses_a_valid_journal_that_belongs_to_another_run ... ok
+test server::tests::run_start_admission_key_recovers_the_same_run_and_refuses_spec_drift ... ok
+test server::tests::run_start_fails_closed_on_an_unknown_verification_key ... ok
+test server::tests::run_start_refuses_invalid_admission_keys ... ok
+test server::tests::stopped_heartbeats_past_the_deadline_journal_lease_expired_and_release_the_step ... ok
+test socket_path::tests::deep_data_dir_produces_short_socket_path ... ok
+test socket_path::tests::different_data_dirs_yield_different_sockets ... ok
+test socket_path::tests::relative_and_absolute_data_dirs_agree ... ok
+test socket_path::tests::same_data_dir_yields_same_socket ... ok
+test exec_det::tests::timeout_kills_the_whole_process_group ... ok
+test server::tests::agent::pins::a_replacement_worker_at_a_different_revision_is_not_dispatched_the_stale_pins ... ok
+test server::tests::an_entry_appended_during_watch_registration_is_delivered_exactly_once ... ok
+
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+
+     Running unittests src/main.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/relayflowd-6e3681176306c99e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/budget_gate.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/budget_gate-9607ae7c2db11b74)
+
+running 10 tests
+test daily_windows_reset_and_exact_limits_do_not_refuse ... ok
+test carried_metered_dollars_still_stop_the_continuing_run ... ok
+test metering_flag_is_additive_on_the_wire ... ok
+test prior_spend_metering_flag_is_additive_and_fails_closed_for_older_kernels ... ok
+test carried_prior_spend_keeps_unknown_dollar_cost_unmetered ... ok
+test crossing_completion_is_durable_and_next_step_is_refused ... ok
+test deterministic_spend_and_wallclock_limit_gate_parallel_batch_starts ... ok
+test unmetered_tokens_still_cross_a_token_ceiling ... ok
+test unmetered_spend_is_journaled_as_unknown_and_never_crosses_a_dollar_ceiling ... ok
+test unmetered_usage_may_not_claim_priced_dollars ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/crash_resume.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/crash_resume-d2d102ec3e89b705)
+
+running 40 tests
+test agent::resume_without_a_worker_parks_immediately_instead_of_timing_out ... ok
+test agent::rung_c_sigkill_after_final_effect_replays_results_without_redispatch ... ok
+test agent::rung_c_crash_between_effect_election_and_the_provider_call_performs_it_exactly_once ... ok
+test agent::rung_c_reset_sigkill_mid_edit_restores_pins_dedupes_effect_and_explains_attempts ... ok
+test agent::rung_c_sigkill_between_agent_completion_and_final_effect_memoizes_the_agent ... ok
+test channels::channels_reject_foreign_workers_stale_attempts_and_invalid_acknowledgements ... ok
+test concurrency::cancel_and_completion_race_has_one_terminal_fact ... ok
+test agent::rung_c_sigkill_boundaries_resume_only_unfinished_steps_via_real_cli ... ok
+test concurrency::cancel_closes_the_lease_and_rejects_a_late_completion ... ok
+test concurrency::run_start_dispatches_every_independent_lane_before_any_completion ... ok
+test concurrency::concurrent_resumes_lease_exactly_one_attempt ... ok
+test concurrency::live_resume_leaves_an_active_lease_running ... ok
+test concurrency::server_restart_recovers_every_parallel_lease_without_duplicate_success ... ok
+test llm::failing_llm_verification_schedules_a_durable_retry_and_succeeds ... ok
+test llm::completed_llm_output_is_memoized_when_serve_dies_during_the_next_step ... ok
+test llm::llm_verification_exhaustion_is_a_declared_failure_kind ... ok
+test llm::serve_plumbs_watch_events_and_replayable_stream_verbs ... ok
+test llm::sigkill_after_the_final_rung_b_effect_resumes_without_redispatching_llm ... ok
+test channels::channels_sigkill_resume_redelivers_unacked_messages_with_exactly_once_effects ... ok
+test llm::sigkill_under_serve_mid_llm_releases_the_lease_and_finishes_via_cli_resume ... ok
+test llm::worker_killed_while_holding_a_lease_is_explained_and_released_on_cli_resume ... ok
+test memory::memory_sigkill_after_injection_replays_pack_and_charges_it_once ... ok
+test llm::sigkill_sweep_covers_before_and_between_the_rung_b_steps ... ok
+test parallel_lifecycle::terminal_failure_drains_or_explains_every_live_sibling ... ok
+test parallel_lifecycle::overlapping_agent_conflict_survives_server_crash_and_resume ... ok
+test pin_projection::rejected_completion_cannot_forge_inspect_retry_pins_over_the_real_socket ... ok
+test placement::declared_placement_keeps_one_source_tree_across_resume ... ok
+test parallel_lifecycle::overlapping_agent_lanes_serialize_while_disjoint_lanes_merge_in_either_order ... ok
+test placement::sigkill_before_first_step_preserves_the_submitted_workspace ... ok
+test protocol_admission::every_mutating_run_verb_refuses_terminal_before_changing_state ... ok
+test placement::sigkill_mid_step_keeps_the_route_and_source_tree ... ok
+test sigkill_after_cancel_request_resumes_to_one_canceled_fact ... ok
+test sigkill_mid_step_replaces_and_explains_the_dead_attempt ... ok
+test sigkill_under_serve_resumes_the_socket_started_run ... ok
+test surface_identity::aliases_are_rejected_and_external_ancestors_serialize_over_real_sockets ... ok
+test sigkill_sweep_covers_every_hello_step_boundary ... ok
+test worker_capacity::two_workers_receive_a_deterministic_fair_capacity_bounded_batch ... ok
+test worker_capacity::default_capacity_one_reopens_only_after_durable_completion_or_crash ... ok
+test workspace_identity::workspace_aliases_are_refused_and_canonical_subtrees_serialize_over_real_sockets ... ok
+test parallel_lifecycle::renewed_parallel_leases_survive_the_original_grant_and_remain_distinct ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 37.21s
+
+     Running tests/daemon_lifecycle.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/daemon_lifecycle-b705da9761b2a254)
+
+running 6 tests
+test clean_shutdown_removes_advertisement_and_socket ... ok
+test connection_file_is_published_only_after_the_socket_is_live ... ok
+test a_second_serve_on_a_served_data_dir_refuses_and_the_first_keeps_serving ... ok
+test a_sigkilled_daemons_successor_starts_cleanly ... ok
+test sigkill_leaves_a_stale_file_with_a_dead_pid ... ok
+test deep_data_dir_still_binds ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/event_wake.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/event_wake-b98778c1ad4de872)
+
+running 3 tests
+test two_racing_deliveries_of_one_event_produce_exactly_one_run ... ok
+test matching_event_wakes_once_with_fresh_context ... ok
+test a_resumed_run_dispatches_the_original_wake_context ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/hn_monitor_integration.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/hn_monitor_integration-059c38eb4828898f)
+
+running 1 test
+test hn_story_event_wakes_monitor_once_with_story_context ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/input_binding.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/input_binding-4f132e6302508de8)
+
+running 2 tests
+test binding_schema_is_additive_and_fails_closed ... ok
+test sigkill_before_consumer_resolves_original_journal_output_without_reexecuting_source ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/invalid_schema_preflight.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/invalid_schema_preflight-9c08869ea58d283f)
+
+running 3 tests
+test invalid_json_schema_is_refused_before_journal_or_command ... ok
+test unbounded_json_schema_is_refused_before_journal_or_command ... ok
+test legitimately_recursive_json_schema_still_starts ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.49s
+
+     Running tests/memoization.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/memoization-e5537edfeea8b814)
+
+running 3 tests
+test refuses_missing_wrong_flow_and_unreadable_journal_before_creating_run ... ok
+test reused_prefix_survives_restart_without_source_and_never_mutates_prior ... ok
+test actual_changed_input_invalidates_consumer_even_with_identical_consumer_spec ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/memory.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/memory-fe5dbc6738ee15ff)
+
+running 5 tests
+test rejected_journal_fact_releases_reservation_and_never_dispatches ... ok
+test llm_dispatch_receives_same_pack_after_resume_without_provider ... ok
+test replay_and_resume_need_no_provider_and_script_receives_recorded_pack ... ok
+test over_budget_and_provider_errors_fail_without_dispatch_or_charge ... ok
+test semantic_retry_reuses_memory_without_a_second_charge ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/memory_epoch.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/memory_epoch-627e50d1c86c39e4)
+
+running 1 test
+test epoch_carries_pack_and_exact_charge_and_refuses_duplicate_injection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/parallel_driver.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/parallel_driver-7a554ae88aa529f9)
+
+running 4 tests
+test stop_after_one_holds_for_an_independent_deterministic_batch ... ok
+test pause_before_second_independent_step_holds_the_driver_boundary ... ok
+test backpressured_or_mismatched_lane_does_not_drop_a_later_dispatch ... ok
+test crash_boundaries_resume_the_real_driver_with_one_effect_per_lane ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/placement_pins.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/placement_pins-839e136752b4e5af)
+
+running 3 tests
+test unsupported_local_pty_is_refused_before_an_earlier_step_can_run ... ok
+test default_worker_pins_the_declared_worktree_base_commit_and_refuses_missing_source ... ok
+test a_resumed_attempt_keeps_the_original_pin_after_the_worktree_head_moves ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/placement_routing.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/placement_routing-9cb694324a7d7bf1)
+
+running 3 tests
+test a_failed_routing_append_never_starts_or_dispatches_work ... ok
+test crash_between_routing_and_start_does_not_redecide ... ok
+test worker_retry_consumes_the_original_routing_fact ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/routing_diagnostics.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/routing_diagnostics-7807262e1a1167ec)
+
+running 2 tests
+test duplicate_routes_have_a_distinct_diagnostic_and_leave_the_original_fact_intact ... ok
+test malformed_routes_name_the_same_field_at_append_replay_and_epoch_replay ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/spec_review_routing.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/spec_review_routing-032df51688a72750)
+
+running 4 tests
+test attempt_scoped_route_is_rejected_at_append_and_replay ... ok
+test malformed_epoch_routes_are_rejected_before_commit ... ok
+test epoch_cannot_drop_or_replace_a_durable_route ... ok
+test workspace_pin_peels_tags_and_refuses_non_commit_objects ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/subscription_liveness.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/subscription_liveness-c3bbfd58dcafb336)
+
+running 3 tests
+test submit_event_upserts_subscription_row_and_sweep_flags_it_stale_after_budget ... ok
+test stale_transition_is_journaled_as_subscription_stale_entry_in_the_last_known_run ... ok
+test a_fresh_arrival_re_arms_the_latch_and_the_next_silence_can_stale_again ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/trigger_watcher.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/trigger_watcher-0504d7ed791030e6)
+
+running 3 tests
+test retains_bad_and_unregistered_events_while_consuming_filter_nonmatches ... ok
+test failed_archive_retries_the_same_durable_run ... ok
+test journals_payload_and_filename_key_then_archives_and_dedupes_replay ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/relayflowd_core-e734d1d7b8cb7b12)
+
+running 65 tests
+test channel::tests::send_retry_is_stable_and_conflicting_content_is_rejected ... ok
+test channel::tests::forged_deliveries_and_acknowledgements_fail_closed ... ok
+test channel::tests::malformed_payloads_and_invalid_new_channel_appends_leave_state_unchanged ... ok
+test channel::tests::delivery_replay_and_independent_acknowledged_offsets ... ok
+test clock::tests::simulated_clock_is_explicitly_advanced ... ok
+test entry::completion_reason_tests::every_journal_label_matches_serialized ... ok
+test entry::completion_reason_tests::all_covers_every_serialized_label ... ok
+test journal::tests::memory_journal_assigns_sequences_and_rolls_epochs ... ok
+test machine::parallel_tests::external_ancestor_and_descendant_paths_conflict_but_siblings_do_not ... ok
+test machine::parallel_tests::every_declared_mutable_surface_participates_in_conflict_selection ... ok
+test machine::parallel_tests::crash_resume_preserves_each_parallel_lease_exactly_once ... ok
+test machine::parallel_tests::disjoint_agent_lanes_merge_pins_in_either_completion_order ... ok
+test machine::parallel_tests::machine_starts_every_runnable_step_in_authored_order ... ok
+test machine::parallel_tests::failed_run_drains_open_siblings_before_terminal_entry ... ok
+test machine::parallel_tests::overlapping_agent_surfaces_are_serialized_in_authored_order ... ok
+test machine::parallel_tests::parallel_lanes_do_not_cross_the_dependency_barrier_early ... ok
+test machine::tests::all_backing_off_steps_return_timers ... ok
+test machine::parallel_tests::workspace_ancestor_and_descendant_paths_conflict_but_siblings_do_not ... ok
+test machine::tests::deterministic_lease_rejects_invalid_and_foreign_fields ... ok
+test machine::tests::cancel_request_closes_the_active_lease_before_the_terminal_fact ... ok
+test machine::tests::deterministic_lease_override_and_default_are_journaled ... ok
+test machine::tests::crashed_attempt_does_not_consume_an_iteration ... ok
+test machine::tests::every_reason_label_matches_its_serialized_form ... ok
+test machine::tests::durable_cancel_request_outranks_crash_recovery ... ok
+test machine::tests::failed_deterministic_completion_preserves_exit_code_and_stderr ... ok
+test machine::tests::machine_starts_runnable_step_with_stable_effect_key ... ok
+test machine::tests::repeated_cancel_request_is_idempotent ... ok
+test machine::tests::every_failed_run_terminates_with_declared_completion_reasons ... ok
+test machine::tests::inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail ... ok
+test machine::tests::manual_recovery_parks_needs_human_and_never_redispatches ... ok
+test machine::tests::successful_memo_is_never_scheduled_again ... ok
+test machine::tests::verification_failure_schedules_a_durable_retry ... ok
+test machine::tests::worker_reported_failure_without_detail_still_records_a_verification ... ok
+test memory::tests::caps_compare_exact_decimals_and_each_token_dimension ... ok
+test retry::tests::jitter_is_repeatable_and_bounded ... ok
+test machine::tests::reset_recovery_dispatches_the_original_pinned_revision ... ok
+test schema::tests::a_property_named_ref_is_not_a_reference ... ok
+test schema::tests::in_document_uri_references_resolve_to_the_node_they_name ... ok
+test schema::tests::references_the_bound_leaves_opaque_are_refused_by_the_engine ... ok
+test schema::tests::refusal_names_the_cycle_it_found ... ok
+test schema::tests::shared_declarations_and_boolean_schemas_are_validated ... ok
+test spec::tests::a_misspelled_step_level_key_is_a_parse_error ... ok
+test spec::tests::a_misspelled_verification_gate_key_is_a_parse_error_not_a_dropped_gate ... ok
+test spec::tests::cycles_are_rejected ... ok
+test spec::tests::external_surface_paths_must_have_one_canonical_spelling ... ok
+test spec::tests::preflight_data_is_fail_closed ... ok
+test schema::tests::every_accepted_corpus_schema_is_accepted ... ok
+test schema::tests::every_refused_corpus_schema_compiles_but_is_refused_by_the_bound ... ok
+test spec::tests::spec_version_is_semver_and_gated ... ok
+test spec::tests::the_full_ladder_parses_in_the_one_dialect ... ok
+test spec::tests::unknown_root_and_nested_fields_are_rejected ... ok
+test spec::tests::workspace_mounts_and_worktrees_must_have_one_canonical_spelling ... ok
+test spec::tests::zero_agent_flow_is_valid ... ok
+test state::budget::tests::adds_costs_exactly_beyond_machine_decimal_precision ... ok
+test state::budget::tests::overflow_and_malformed_cost_leave_total_unchanged ... ok
+test state::tests::a_completion_that_omits_a_surface_does_not_drop_it_from_the_pin_chain ... ok
+test state::tests::budget_decimal_strings_add_without_floats ... ok
+test state::tests::end_pin_chain_is_enforced_and_a_broken_chain_is_a_hard_error ... ok
+test state::tests::journal_replays_data_gate_verdict_without_rerunning_completed_code ... ok
+test verify::tests::an_unbounded_schema_in_a_journal_fails_its_gate_instead_of_aborting ... ok
+test verify::tests::deterministic_output_requires_successful_exit_and_content ... ok
+test verify::tests::json_schema_is_a_control_gate ... ok
+test spec::tests::sdk_boundary_accepts_a_valid_10_000_step_reverse_chain ... ok
+test spec::tests::sdk_boundary_rejects_a_10_000_step_cycle_with_a_typed_error ... ok
+test schema::tests::deeply_nested_schemas_do_not_overflow_the_checker ... ok
+
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s
+
+     Running tests/memoization.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/memoization-79f552e4cb727501)
+
+running 4 tests
+test distinct_large_kernel_integers_do_not_alias_through_float_rounding ... ok
+test match_reuses_output_with_provenance_and_zero_cost_without_dispatch ... ok
+test changed_spec_or_input_dispatches_and_legacy_or_failed_records_miss ... ok
+test canonical_corpus_agrees_with_typescript_and_key_permutations ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/spec_parity.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/spec_parity-a9966affd5aca87f)
+
+running 10 tests
+test placement_requirements_have_identical_canonical_bytes_and_hash ... ok
+test step_memory_has_identical_canonical_bytes_and_hash ... ok
+test memory_declaration_acceptance_matches_the_sdk_corpus ... ok
+test the_kernel_parses_the_deterministic_rung_and_stamps_the_same_hash ... ok
+test the_kernel_parses_the_event_triggered_spec_and_stamps_the_same_hash ... ok
+test placement_declaration_acceptance_matches_the_sdk_corpus ... ok
+test the_kernel_round_trips_declared_agent_transports_and_rejects_unknown_values ... ok
+test the_kernel_parses_the_rung_c_agent_spec_and_stamps_the_same_hash ... ok
+test the_kernel_parses_the_sdk_compiled_spec_and_stamps_the_same_hash ... ok
+test the_kernel_parses_the_rung_b_spec_and_stamps_the_same_hash ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/relayflowd_journal-0286edd157fee7d6)
+
+running 32 tests
+test channel::tests::stale_attempts_and_raw_forged_acknowledgements_cannot_change_offsets ... ok
+test channel::tests::channels_cross_segment_boundaries_and_terminal_runs_reject_mutations ... ok
+test registry::tests::a_pre_migration_registry_gains_boot_id_and_its_claims_are_repairable ... ok
+test registry::tests::a_previous_boots_claim_with_no_run_is_repaired ... ok
+test channel::tests::failed_channel_writes_never_expose_delivery_or_advance_acknowledged_offset ... ok
+test registry::tests::a_registered_run_dedupes_across_boots ... ok
+test registry::tests::a_same_boot_claim_with_no_run_yet_is_a_duplicate_not_wreckage ... ok
+test registry::tests::concurrent_new_boot_retries_have_one_recovery_owner ... ok
+test registry::tests::prior_boot_unregistered_run_admission_is_repaired ... ok
+test registry::tests::concurrent_same_boot_run_admissions_have_one_owner ... ok
+test registry::tests::registry_is_a_rebuildable_run_locator ... ok
+test registry::tests::releasing_a_claim_lets_the_same_boot_retry ... ok
+test registry::tests::releasing_is_scoped_to_the_claiming_run ... ok
+test registry::tests::run_admission_reuses_registered_run_and_rejects_spec_drift ... ok
+test subscriptions::tests::detect_without_latch_stays_available_for_the_next_sweep ... ok
+test subscriptions::tests::last_run_for_subscription_returns_none_before_first_arrival ... ok
+test subscriptions::tests::last_run_for_subscription_returns_the_lex_greatest_ulid_regardless_of_insertion ... ok
+test subscriptions::tests::prune_sweep_claims_deletes_only_rows_older_than_cutoff ... ok
+test subscriptions::tests::latch_is_a_no_op_if_a_fresh_event_arrived_between_detect_and_latch ... ok
+test subscriptions::tests::sweep_does_not_re_emit_the_same_stale_row_on_a_later_tick ... ok
+test subscriptions::tests::sweep_election_gives_the_first_caller_the_result_and_second_gets_empty ... ok
+test subscriptions::tests::sweep_ignores_subscriptions_whose_silence_is_still_within_budget ... ok
+test subscriptions::tests::sweep_marks_row_stale_when_silence_exceeds_budget ... ok
+test subscriptions::tests::upsert_after_stale_re_arms_and_next_silence_can_re_emit ... ok
+test subscriptions::tests::upsert_is_idempotent_across_bumps_and_preserves_event_type_updates ... ok
+test tests::an_unconfirmed_election_is_reclaimed_by_the_next_attempt_not_treated_as_done ... ok
+test tests::append_is_durable_and_monotonic_after_reopen ... ok
+test tests::effects_are_deduplicated_at_the_journal_boundary ... ok
+test tests::failed_commit_is_returned_not_swallowed ... ok
+test tests::rollover_is_atomic_scaffolding_for_epoch_resume ... ok
+test tests::terminal_run_refuses_every_later_entry_atomically ... ok
+test channel::tests::independent_connections_serialize_send_receive_and_acknowledgement ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+   Doc-tests relayflowd
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests relayflowd_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests relayflowd_journal
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+Exit status: 0
+
+$ cd packages/schema && bun run test
+$ bun test tests
+bun test v1.4.0 (34cbb9a40)
+
+tests/parity.test.ts:
+(pass) flows check fixture parity: backlog-picker.flow.yaml [26.68ms]
+(pass) flows check fixture parity: budget-guarded.flow.yaml [4.26ms]
+(pass) flows check fixture parity: dir-watcher.flow.yaml [32.49ms]
+(pass) flows check fixture parity: hello-agent.flow.yaml [14.69ms]
+(pass) flows check fixture parity: hello-deterministic.flow.yaml [4.68ms]
+(pass) flows check fixture parity: hello-ladder.flow.yaml [26.07ms]
+(pass) flows check fixture parity: hello-llm.flow.yaml [27.89ms]
+(pass) flows check fixture parity: hn-monitor.flow.yaml [41.85ms]
+(pass) flows check fixture parity: json-schema-invalid.flow.yaml [9.09ms]
+(pass) flows check fixture parity: step-memory.flow.yaml [7.76ms]
+(pass) flows check fixture parity: step-placement.flow.yaml [2.64ms]
+(pass) flows check fixture parity: tick-heartbeat.flow.yaml [41.57ms]
+(pass) structural parity: unknown root key [0.77ms]
+(pass) structural parity: unsupported version [0.07ms]
+(pass) structural parity: no steps [0.02ms]
+(pass) structural parity: step typo [0.19ms]
+(pass) structural parity: empty command [0.05ms]
+(pass) structural parity: positive timeout [0.08ms]
+(pass) structural parity: fractional retry [0.11ms]
+(pass) structural parity: wrong step field [0.14ms]
+(pass) structural parity: nonzero exit gate [0.27ms]
+(pass) structural parity: legacy zero exit gate [0.10ms]
+(pass) structural parity: boolean schema [0.91ms]
+(pass) structural parity: nested invalid schema [8.38ms]
+(pass) structural parity: bad memory budget [0.21ms]
+(pass) structural parity: unsafe memory budget [0.08ms]
+(pass) structural parity: empty memory query [0.06ms]
+(pass) structural parity: unsafe duration [0.17ms]
+(pass) structural parity: bad money [0.08ms]
+(pass) structural parity: bad input index [0.18ms]
+(pass) structural parity: blank input name [0.17ms]
+(pass) structural parity: trigger silence budget [0.08ms]
+(pass) structural parity: workspace: single grant [0.11ms]
+(pass) structural parity: tools.fs: single grant [0.07ms]
+(pass) structural parity: workspace: grant array [0.05ms]
+(pass) structural parity: tools.fs: grant array [0.05ms]
+(pass) structural parity: workspace: non-string item [0.05ms]
+(pass) structural parity: tools.fs: non-string item [0.06ms]
+(pass) structural parity: workspace: nested array [0.05ms]
+(pass) structural parity: tools.fs: nested array [0.04ms]
+(pass) structural parity: llm: output object [16.22ms]
+(pass) structural parity: llm: boolean output [0.16ms]
+(pass) structural parity: llm: output and verification [6.93ms]
+(pass) structural parity: llm: exit gate [0.19ms]
+(pass) structural parity: llm: trimmed model [0.10ms]
+(pass) structural parity: llm: control in model [0.07ms]
+(pass) structural parity: agent: output object [15.66ms]
+(pass) structural parity: agent: boolean output [0.17ms]
+(pass) structural parity: agent: output and verification [6.88ms]
+(pass) structural parity: agent: exit gate [0.13ms]
+(pass) structural parity: agent: trimmed model [0.07ms]
+(pass) structural parity: agent: control in model [0.05ms]
+(pass) step examples compile and validate [0.31ms]
+(pass) generated schema satisfies the existing bounded-reference rule [5.17ms]
+(pass) semantic checks remain explicit runtime responsibilities [0.53ms]
+(pass) embedded dialect http://json-schema.org/draft-04/schema# [9.79ms]
+(pass) embedded dialect http://json-schema.org/draft-06/schema# [12.98ms]
+(pass) embedded dialect http://json-schema.org/draft-07/schema# [8.61ms]
+(pass) embedded dialect https://json-schema.org/draft/2019-09/schema [20.51ms]
+(pass) embedded dialect https://json-schema.org/draft/2020-12/schema [13.90ms]
+(pass) header hint is warning-only, first-line aware, and never edits input [14.08ms]
+(pass) canonical surface parity: "repo" [0.25ms]
+(pass) canonical surface parity: "/repo/src" [0.09ms]
+(pass) canonical surface parity: "pr://github/example" [0.05ms]
+(pass) canonical surface parity: "/" [0.04ms]
+(pass) canonical surface parity: "pr://" [0.03ms]
+(pass) canonical surface parity: "" [0.07ms]
+(pass) canonical surface parity: " repo" [0.05ms]
+(pass) canonical surface parity: "repo " [0.03ms]
+(pass) canonical surface parity: "repo//src" [0.04ms]
+(pass) canonical surface parity: "repo/../src" [0.04ms]
+(pass) canonical surface parity: "repo/." [0.05ms]
+(pass) canonical surface parity: ":/bad//path" [0.04ms]
+(pass) named declarations and selected input paths use authoring shapes [45.79ms]
+
+tests/smoke.test.ts:
+(pass) all exported spec type nodes have documented definitions [26.06ms]
+(pass) regeneration is byte-stable and committed schema has not drifted [411.21ms]
+(pass) npm tarball contains only data and documentation with no runtime dependencies [261.48ms]
+
+ 77 pass
+ 0 fail
+ 3895 expect() calls
+Ran 77 tests across 2 files. [1.73s]
+
+Exit status: 0
+
+$ cd packages/sdk && RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd ./node_modules/.bin/vitest run tests/authored-declined*.test.ts tests/authored-root.test.ts tests/authored-node-result.test.ts tests/authored-node-runtime.test.ts tests/authored-flow-lifecycle-executor.test.ts tests/direct-input.test.ts tests/cloud-run.test.ts tests/authored-step-failed*.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/cloud-run.test.ts (53 tests) 377ms
+ ✓ tests/authored-flow-lifecycle-executor.test.ts (27 tests) 703ms
+ ✓ tests/authored-root.test.ts (9 tests) 139ms
+ ✓ tests/authored-step-failed.test.ts (10 tests) 87ms
+ ✓ tests/authored-node-result.test.ts (22 tests) 55ms
+ ✓ tests/authored-declined.test.ts (13 tests) 96ms
+ ✓ tests/authored-step-failed-exit.test.ts (3 tests) 6ms
+ ✓ tests/direct-input.test.ts (6 tests) 8150ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > returns exit 3 for an authored human handoff and persists its outcome 501ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > returns exit 1 for an authored step_failed verdict and persists its outcome 483ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > executes inline and file JSON input through relayflowd 3159ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses missing and malformed input before contacting relayflowd 2434ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > does not run the authored body before daemon availability 797ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses oversized file input before contacting relayflowd 775ms
+ ❯ tests/authored-declined-live.test.ts (1 test | 1 failed) 1899ms
+   × runs an input guard and resumes its completed declined root without repeated effects 1898ms
+     → expected { ok: true, command: 'resume', …(7) } to match object { ok: true, command: 'resume', …(8) }
+ ❯ tests/authored-declined-report.test.ts (6 tests | 1 failed) 50ms
+   × reports deliberate declination on resume with prior diagnostics 43ms
+     → expected { exitCode: +0, report: { …(9) } } to deeply equal { exitCode: +0, report: { …(9) } }
+ ✓ tests/authored-node-runtime.test.ts (10 tests) 70062ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > awaits agent plus three run steps and resumes without repeating effects 3116ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children under the same unfinished root 4131ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGTERM and replays completed children under the same unfinished root 4799ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent blocked-SIGKILL and replays completed children under the same unfinished root 3274ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses unawaited rather than reporting terminal success 12350ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses manual then rather than reporting terminal success 12823ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > loads captured graph bytes before preserving the unsupported-use refusal 13825ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > rejects a forged result frame without durable completion 14421ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-declined-live.test.ts > runs an input guard and resumes its completed declined root without repeated effects
+AssertionError: expected { ok: true, command: 'resume', …(7) } to match object { ok: true, command: 'resume', …(8) }
+
+- Expected
++ Received
+
+  Object {
+    "command": "resume",
+    "completedSteps": 2,
+    "completionReason": "success",
+    "diagnostics": Array [
+      Object {
+        "kind": "run_declined",
+        "message": "Flow deliberately chose not to act on this input.",
+        "severity": "declined",
+      },
+    ],
+    "ok": true,
+-   "path": "/tmp/flows-chain-4GaMgR/chain.flow.ts",
+    "resolutions": Array [],
+    "runId": "01M2Q39HK58S52VSJK47Y8G9T1",
+    "socketPath": "/tmp/relayflowd-cd30fa9dd5c6.sock",
+    "status": "completed",
+  }
+
+ ❯ tests/authored-declined-live.test.ts:46:38
+     44|   const resumed = runtime.invoke('resume', report.runId, ...flags, '--…
+     45|   expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+     46|   expect(JSON.parse(resumed.stdout)).toMatchObject({ ...report, comman…
+       |                                      ^
+     47|   const plain = runtime.invoke('resume', report.runId, ...flags);
+     48|   expect(plain.status, plain.stderr + plain.stdout).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/authored-declined-report.test.ts > reports deliberate declination on resume with prior diagnostics
+AssertionError: expected { exitCode: +0, report: { …(9) } } to deeply equal { exitCode: +0, report: { …(9) } }
+
+- Expected
++ Received
+
+  Object {
+    "exitCode": 0,
+    "report": Object {
+-     "command": "resume",
++     "command": "run",
+      "completedSteps": 2,
+      "completionReason": "success",
+      "diagnostics": Array [
+        Object {
+          "kind": "connection_file_stale",
+          "message": "Prior diagnostic",
+          "severity": "warning",
+        },
+        Object {
+          "kind": "run_declined",
+          "message": "Flow deliberately chose not to act on this input.",
+          "severity": "declined",
+        },
+      ],
+      "ok": true,
+      "resolutions": Array [],
+      "runId": "root",
+      "socketPath": "/sock",
+      "status": "completed",
+    },
+  }
+
+ ❯ tests/authored-declined-report.test.ts:12:21
+     10| it.each(['run', 'resume'] as const)('reports deliberate declination on…
+     11|   const execution = authoredCompletion(command, base, '/sock', result,…
+     12|   expect(execution).toEqual({ exitCode: 0, report: {
+       |                     ^
+     13|     ...base, command, socketPath: '/sock', runId: 'root', completedSte…
+     14|     ok: true, status: 'completed', completionReason: 'success',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  2 failed | 9 passed (11)
+      Tests  2 failed | 158 passed (160)
+   Start at  07:11:21
+   Duration  72.29s (transform 848ms, setup 0ms, collect 6.30s, tests 81.62s, environment 1ms, prepare 618ms)
+
+
+Exit status: 1
+
+$ cd /tmp/declined-base/packages/sdk && git rev-parse HEAD && ./node_modules/.bin/vitest run tests/close-pr-flow.test.ts
+e86118c28e014d4a1b327876c03193d03a16c752
+
+ RUN  v2.1.9 /tmp/declined-base/packages/sdk
+
+ ❯ tests/close-pr-flow.test.ts (28 tests | 1 failed) 241ms
+   × close-pr journaled repair loop > executes the deterministic commit and force-push steps against a local Git remote, including a no-op repair 67ms
+     → fatal: transport 'file' not allowed
+: expected 128 to be +0 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/close-pr-flow.test.ts > close-pr journaled repair loop > executes the deterministic commit and force-push steps against a local Git remote, including a no-op repair
+AssertionError: fatal: transport 'file' not allowed
+: expected 128 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 128
+
+ ❯ git tests/close-pr-flow.test.ts:245:44
+    243|     const git = (args: string[], cwd = dir) => {
+    244|       const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+    245|       expect(result.status, result.stderr).toBe(0);
+       |                                            ^
+    246|       return result.stdout.trim();
+    247|     };
+ ❯ tests/close-pr-flow.test.ts:254:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 27 passed (28)
+   Start at  07:14:09
+   Duration  1.61s (transform 646ms, setup 0ms, collect 1.10s, tests 241ms, environment 0ms, prepare 91ms)
+
+
+Exit status: 1
+
+$ npm --prefix packages/sdk run typecheck:tests && cd packages/sdk && RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd ./node_modules/.bin/vitest run tests/authored-declined*.test.ts tests/authored-node-runtime.test.ts
+
+> @relayflows/sdk@2.0.14 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/authored-declined.test.ts (13 tests) 51ms
+ ✓ tests/authored-declined-report.test.ts (6 tests) 6ms
+ ✓ tests/authored-declined-live.test.ts (1 test) 1351ms
+   ✓ runs an input guard and resumes its completed declined root without repeated effects 1350ms
+ ❯ tests/authored-node-runtime.test.ts (11 tests | 4 failed) 68667ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > awaits agent plus three run steps and resumes without repeating effects 1675ms
+   × Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before success 2296ms
+     → Cannot read properties of null (reading 'completionReason')
+   × Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGTERM and replays completed children before success 2258ms
+     → Cannot read properties of null (reading 'completionReason')
+   × Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent blocked-SIGKILL and replays completed children before success 2360ms
+     → Cannot read properties of null (reading 'completionReason')
+   × Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before declined 2365ms
+     → Cannot read properties of null (reading 'completionReason')
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses unawaited rather than reporting terminal success 14896ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses manual then rather than reporting terminal success 14094ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > loads captured graph bytes before preserving the unsupported-use refusal 12666ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > rejects a forged result frame without durable completion 14988ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-node-runtime.test.ts > Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before success
+ FAIL  tests/authored-node-runtime.test.ts > Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGTERM and replays completed children before success
+ FAIL  tests/authored-node-runtime.test.ts > Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent blocked-SIGKILL and replays completed children before success
+ FAIL  tests/authored-node-runtime.test.ts > Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before declined
+TypeError: Cannot read properties of null (reading 'completionReason')
+ ❯ tests/authored-node-runtime.test.ts:162:21
+    160|       expect(rootJournal.at(-1)?.payload['completionReason']).toBe('su…
+    161|       const output = rootJournal.find(e => e.entry_type === 'step.comp…
+    162|       expect(output.completionReason).toBe(reason);
+       |                     ^
+    163|       if (reason === 'declined') {
+    164|         expect(JSON.parse(resumed.stdout).diagnostics).toContainEqual(…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  4 failed | 27 passed (31)
+   Start at  07:13:07
+   Duration  69.47s (transform 497ms, setup 0ms, collect 1.71s, tests 70.07s, environment 0ms, prepare 186ms)
+
+
+Exit status: 1
+
+$ cd /tmp/declined-base/packages/sdk && npm run build && RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 ./node_modules/.bin/vitest run tests/live-kernel.test.ts
+
+> @relayflows/sdk@2.0.14 build
+> tsc && node scripts/make-cli-executable.mjs
+
+src/authored-flow-executor.ts(507,7): error TS2345: Argument of type '"success" | "step_failed" | "canceled" | "budget_exceeded" | "declined" | undefined' is not assignable to parameter of type '"success" | "step_failed" | "canceled" | "budget_exceeded" | "verification_failed" | "retries_exhausted" | "lease_expired" | "crashed" | "timeout" | "worker_error" | undefined'.
+  Type '"declined"' is not assignable to type '"success" | "step_failed" | "canceled" | "budget_exceeded" | "verification_failed" | "retries_exhausted" | "lease_expired" | "crashed" | "timeout" | "worker_error" | undefined'.
+
+Exit status: 2
+
+$ cd /tmp/declined-base && npm --prefix packages/surface run build && npm pack ./packages/surface --pack-destination /tmp --ignore-scripts && npm --prefix packages/sdk install /tmp/relayflows-surface-2.0.14.tgz --no-save --ignore-scripts && npm --prefix packages/sdk run build && cd packages/sdk && RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 ./node_modules/.bin/vitest run tests/live-kernel.test.ts tests/close-pr-flow.test.ts
+
+> @relayflows/surface@2.0.14 build
+> tsc
+
+npm notice
+npm notice 📦  @relayflows/surface@2.0.14
+npm notice Tarball Contents
+npm notice 2.9kB README.md
+npm notice 2.5kB dist/cloud.d.ts
+npm notice 2.3kB dist/cloud.d.ts.map
+npm notice 44B dist/cloud.js
+npm notice 102B dist/cloud.js.map
+npm notice 790B dist/completion.d.ts
+npm notice 409B dist/completion.d.ts.map
+npm notice 513B dist/completion.js
+npm notice 364B dist/completion.js.map
+npm notice 2.1kB dist/context.d.ts
+npm notice 1.7kB dist/context.d.ts.map
+npm notice 46B dist/context.js
+npm notice 106B dist/context.js.map
+npm notice 1.3kB dist/effect-transport.d.ts
+npm notice 1.4kB dist/effect-transport.d.ts.map
+npm notice 2.0kB dist/effect-transport.js
+npm notice 2.3kB dist/effect-transport.js.map
+npm notice 2.6kB dist/flow.d.ts
+npm notice 2.5kB dist/flow.d.ts.map
+npm notice 9.0kB dist/flow.js
+npm notice 9.3kB dist/flow.js.map
+npm notice 3.3kB dist/helper-clients.d.ts
+npm notice 944B dist/helper-clients.d.ts.map
+npm notice 1.7kB dist/helper-clients.js
+npm notice 1.6kB dist/helper-clients.js.map
+npm notice 265B dist/helpers/airtable.d.ts
+npm notice 281B dist/helpers/airtable.d.ts.map
+npm notice 319B dist/helpers/airtable.js
+npm notice 293B dist/helpers/airtable.js.map
+npm notice 333B dist/helpers/asana.d.ts
+npm notice 348B dist/helpers/asana.d.ts.map
+npm notice 368B dist/helpers/asana.js
+npm notice 329B dist/helpers/asana.js.map
+npm notice 358B dist/helpers/azure-blob.d.ts
+npm notice 357B dist/helpers/azure-blob.d.ts.map
+npm notice 390B dist/helpers/azure-blob.js
+npm notice 340B dist/helpers/azure-blob.js.map
+npm notice 321B dist/helpers/box.d.ts
+npm notice 342B dist/helpers/box.d.ts.map
+npm notice 358B dist/helpers/box.js
+npm notice 323B dist/helpers/box.js.map
+npm notice 351B dist/helpers/calendly.d.ts
+npm notice 354B dist/helpers/calendly.d.ts.map
+npm notice 383B dist/helpers/calendly.js
+npm notice 336B dist/helpers/calendly.js.map
+npm notice 345B dist/helpers/clickup.d.ts
+npm notice 352B dist/helpers/clickup.d.ts.map
+npm notice 378B dist/helpers/clickup.js
+npm notice 334B dist/helpers/clickup.js.map
+npm notice 175B dist/helpers/clients.d.ts
+npm notice 243B dist/helpers/clients.d.ts.map
+npm notice 1.9kB dist/helpers/clients.js
+npm notice 1.5kB dist/helpers/clients.js.map
+npm notice 363B dist/helpers/cloudflare.d.ts
+npm notice 364B dist/helpers/cloudflare.d.ts.map
+npm notice 393B dist/helpers/cloudflare.js
+npm notice 344B dist/helpers/cloudflare.js.map
+npm notice 363B dist/helpers/confluence.d.ts
+npm notice 364B dist/helpers/confluence.d.ts.map
+npm notice 393B dist/helpers/confluence.js
+npm notice 344B dist/helpers/confluence.js.map
+npm notice 345B dist/helpers/daytona.d.ts
+npm notice 352B dist/helpers/daytona.d.ts.map
+npm notice 378B dist/helpers/daytona.js
+npm notice 334B dist/helpers/daytona.js.map
+npm notice 270B dist/helpers/docker-hub.d.ts
+npm notice 285B dist/helpers/docker-hub.d.ts.map
+npm notice 324B dist/helpers/docker-hub.js
+npm notice 297B dist/helpers/docker-hub.js.map
+npm notice 345B dist/helpers/dropbox.d.ts
+npm notice 352B dist/helpers/dropbox.d.ts.map
+npm notice 378B dist/helpers/dropbox.js
+npm notice 334B dist/helpers/dropbox.js.map
+npm notice 257B dist/helpers/fathom.d.ts
+npm notice 277B dist/helpers/fathom.d.ts.map
+npm notice 313B dist/helpers/fathom.js
+npm notice 289B dist/helpers/fathom.js.map
+npm notice 245B dist/helpers/gcp.d.ts
+npm notice 269B dist/helpers/gcp.d.ts.map
+npm notice 304B dist/helpers/gcp.js
+npm notice 280B dist/helpers/gcp.js.map
+npm notice 321B dist/helpers/gcs.d.ts
+npm notice 342B dist/helpers/gcs.d.ts.map
+npm notice 358B dist/helpers/gcs.js
+npm notice 323B dist/helpers/gcs.js.map
+npm notice 335B dist/helpers/github.d.ts
+npm notice 350B dist/helpers/github.d.ts.map
+npm notice 369B dist/helpers/github.js
+npm notice 332B dist/helpers/github.js.map
+npm notice 339B dist/helpers/gitlab.d.ts
+npm notice 350B dist/helpers/gitlab.d.ts.map
+npm notice 373B dist/helpers/gitlab.js
+npm notice 332B dist/helpers/gitlab.js.map
+npm notice 333B dist/helpers/gmail.d.ts
+npm notice 348B dist/helpers/gmail.d.ts.map
+npm notice 368B dist/helpers/gmail.js
+npm notice 329B dist/helpers/gmail.js.map
+npm notice 388B dist/helpers/google-calendar.d.ts
+npm notice 374B dist/helpers/google-calendar.d.ts.map
+npm notice 415B dist/helpers/google-calendar.js
+npm notice 356B dist/helpers/google-calendar.js.map
+npm notice 370B dist/helpers/google-drive.d.ts
+npm notice 368B dist/helpers/google-drive.d.ts.map
+npm notice 400B dist/helpers/google-drive.js
+npm notice 348B dist/helpers/google-drive.js.map
+npm notice 345B dist/helpers/granola.d.ts
+npm notice 352B dist/helpers/granola.d.ts.map
+npm notice 378B dist/helpers/granola.js
+npm notice 334B dist/helpers/granola.js.map
+npm notice 345B dist/helpers/hubspot.d.ts
+npm notice 352B dist/helpers/hubspot.d.ts.map
+npm notice 378B dist/helpers/hubspot.js
+npm notice 334B dist/helpers/hubspot.js.map
+npm notice 6.7kB dist/helpers/index.d.ts
+npm notice 6.0kB dist/helpers/index.d.ts.map
+npm notice 5.1kB dist/helpers/index.js
+npm notice 4.2kB dist/helpers/index.js.map
+npm notice 351B dist/helpers/intercom.d.ts
+npm notice 354B dist/helpers/intercom.d.ts.map
+npm notice 383B dist/helpers/intercom.js
+npm notice 336B dist/helpers/intercom.js.map
+npm notice 327B dist/helpers/jira.d.ts
+npm notice 346B dist/helpers/jira.d.ts.map
+npm notice 363B dist/helpers/jira.js
+npm notice 327B dist/helpers/jira.js.map
+npm notice 339B dist/helpers/linear.d.ts
+npm notice 350B dist/helpers/linear.d.ts.map
+npm notice 373B dist/helpers/linear.js
+npm notice 332B dist/helpers/linear.js.map
+npm notice 345B dist/helpers/mailgun.d.ts
+npm notice 352B dist/helpers/mailgun.d.ts.map
+npm notice 378B dist/helpers/mailgun.js
+npm notice 334B dist/helpers/mailgun.js.map
+npm notice 351B dist/helpers/mixpanel.d.ts
+npm notice 354B dist/helpers/mixpanel.d.ts.map
+npm notice 383B dist/helpers/mixpanel.js
+npm notice 336B dist/helpers/mixpanel.js.map
+npm notice 249B dist/helpers/neon.d.ts
+npm notice 273B dist/helpers/neon.d.ts.map
+npm notice 307B dist/helpers/neon.js
+npm notice 284B dist/helpers/neon.js.map
+npm notice 335B dist/helpers/notion.d.ts
+npm notice 350B dist/helpers/notion.d.ts.map
+npm notice 369B dist/helpers/notion.js
+npm notice 332B dist/helpers/notion.js.map
+npm notice 351B dist/helpers/onedrive.d.ts
+npm notice 354B dist/helpers/onedrive.d.ts.map
+npm notice 383B dist/helpers/onedrive.js
+npm notice 336B dist/helpers/onedrive.js.map
+npm notice 357B dist/helpers/pipedrive.d.ts
+npm notice 355B dist/helpers/pipedrive.d.ts.map
+npm notice 388B dist/helpers/pipedrive.js
+npm notice 338B dist/helpers/pipedrive.js.map
+npm notice 351B dist/helpers/postgres.d.ts
+npm notice 354B dist/helpers/postgres.d.ts.map
+npm notice 383B dist/helpers/postgres.js
+npm notice 336B dist/helpers/postgres.js.map
+npm notice 261B dist/helpers/posthog.d.ts
+npm notice 279B dist/helpers/posthog.d.ts.map
+npm notice 316B dist/helpers/posthog.js
+npm notice 291B dist/helpers/posthog.js.map
+npm notice 7.7kB dist/helpers/providers.d.ts
+npm notice 403B dist/helpers/providers.d.ts.map
+npm notice 7.6kB dist/helpers/providers.js
+npm notice 5.0kB dist/helpers/providers.js.map
+npm notice 479B dist/helpers/ramp.d.ts
+npm notice 403B dist/helpers/ramp.d.ts.map
+npm notice 432B dist/helpers/ramp.js
+npm notice 409B dist/helpers/ramp.js.map
+npm notice 339B dist/helpers/recall.d.ts
+npm notice 350B dist/helpers/recall.d.ts.map
+npm notice 373B dist/helpers/recall.js
+npm notice 332B dist/helpers/recall.js.map
+npm notice 339B dist/helpers/reddit.d.ts
+npm notice 350B dist/helpers/reddit.d.ts.map
+npm notice 373B dist/helpers/reddit.js
+npm notice 332B dist/helpers/reddit.js.map
+npm notice 333B dist/helpers/redis.d.ts
+npm notice 348B dist/helpers/redis.d.ts.map
+npm notice 368B dist/helpers/redis.js
+npm notice 329B dist/helpers/redis.js.map
+npm notice 315B dist/helpers/s3.d.ts
+npm notice 340B dist/helpers/s3.d.ts.map
+npm notice 353B dist/helpers/s3.js
+npm notice 321B dist/helpers/s3.js.map
+npm notice 363B dist/helpers/salesforce.d.ts
+npm notice 364B dist/helpers/salesforce.d.ts.map
+npm notice 393B dist/helpers/salesforce.js
+npm notice 344B dist/helpers/salesforce.js.map
+npm notice 261B dist/helpers/segment.d.ts
+npm notice 279B dist/helpers/segment.d.ts.map
+npm notice 316B dist/helpers/segment.js
+npm notice 291B dist/helpers/segment.js.map
+npm notice 351B dist/helpers/sendgrid.d.ts
+npm notice 354B dist/helpers/sendgrid.d.ts.map
+npm notice 383B dist/helpers/sendgrid.js
+npm notice 336B dist/helpers/sendgrid.js.map
+npm notice 363B dist/helpers/sharepoint.d.ts
+npm notice 364B dist/helpers/sharepoint.d.ts.map
+npm notice 393B dist/helpers/sharepoint.js
+npm notice 344B dist/helpers/sharepoint.js.map
+npm notice 261B dist/helpers/shopify.d.ts
+npm notice 279B dist/helpers/shopify.d.ts.map
+npm notice 316B dist/helpers/shopify.js
+npm notice 291B dist/helpers/shopify.js.map
+npm notice 351B dist/helpers/shortcut.d.ts
+npm notice 354B dist/helpers/shortcut.d.ts.map
+npm notice 383B dist/helpers/shortcut.js
+npm notice 336B dist/helpers/shortcut.js.map
+npm notice 822B dist/helpers/slack.d.ts
+npm notice 850B dist/helpers/slack.d.ts.map
+npm notice 179B dist/helpers/slack.js
+npm notice 137B dist/helpers/slack.js.map
+npm notice 335B dist/helpers/stripe.d.ts
+npm notice 350B dist/helpers/stripe.d.ts.map
+npm notice 369B dist/helpers/stripe.js
+npm notice 332B dist/helpers/stripe.js.map
+npm notice 333B dist/helpers/teams.d.ts
+npm notice 348B dist/helpers/teams.d.ts.map
+npm notice 368B dist/helpers/teams.js
+npm notice 329B dist/helpers/teams.js.map
+npm notice 351B dist/helpers/telegram.d.ts
+npm notice 354B dist/helpers/telegram.d.ts.map
+npm notice 383B dist/helpers/telegram.js
+npm notice 336B dist/helpers/telegram.js.map
+npm notice 286B dist/helpers/webhook-server.d.ts
+npm notice 296B dist/helpers/webhook-server.d.ts.map
+npm notice 336B dist/helpers/webhook-server.js
+npm notice 307B dist/helpers/webhook-server.js.map
+npm notice 237B dist/helpers/x.d.ts
+npm notice 265B dist/helpers/x.d.ts.map
+npm notice 298B dist/helpers/x.js
+npm notice 276B dist/helpers/x.js.map
+npm notice 345B dist/helpers/zendesk.d.ts
+npm notice 352B dist/helpers/zendesk.d.ts.map
+npm notice 378B dist/helpers/zendesk.js
+npm notice 334B dist/helpers/zendesk.js.map
+npm notice 1.3kB dist/index.d.ts
+npm notice 1.1kB dist/index.d.ts.map
+npm notice 284B dist/index.js
+npm notice 309B dist/index.js.map
+npm notice 866B dist/memory.d.ts
+npm notice 722B dist/memory.d.ts.map
+npm notice 45B dist/memory.js
+npm notice 104B dist/memory.js.map
+npm notice 321B dist/plugin-contract.d.ts
+npm notice 363B dist/plugin-contract.d.ts.map
+npm notice 54B dist/plugin-contract.js
+npm notice 122B dist/plugin-contract.js.map
+npm notice 744B dist/provider-trigger.d.ts
+npm notice 687B dist/provider-trigger.d.ts.map
+npm notice 808B dist/provider-trigger.js
+npm notice 817B dist/provider-trigger.js.map
+npm notice 497B dist/runtime.d.ts
+npm notice 478B dist/runtime.d.ts.map
+npm notice 345B dist/runtime.js
+npm notice 362B dist/runtime.js.map
+npm notice 1.5kB dist/slack.d.ts
+npm notice 1.3kB dist/slack.d.ts.map
+npm notice 784B dist/slack.js
+npm notice 907B dist/slack.js.map
+npm notice 2.0kB dist/step.d.ts
+npm notice 1.0kB dist/step.d.ts.map
+npm notice 43B dist/step.js
+npm notice 100B dist/step.js.map
+npm notice 605B dist/triggers.d.ts
+npm notice 575B dist/triggers.d.ts.map
+npm notice 2.2kB dist/triggers.js
+npm notice 2.2kB dist/triggers.js.map
+npm notice 608B dist/triggers/github.d.ts
+npm notice 241B dist/triggers/github.d.ts.map
+npm notice 674B dist/triggers/github.js
+npm notice 697B dist/triggers/github.js.map
+npm notice 390B dist/triggers/index.d.ts
+npm notice 245B dist/triggers/index.d.ts.map
+npm notice 465B dist/triggers/index.js
+npm notice 455B dist/triggers/index.js.map
+npm notice 593B dist/triggers/slack.d.ts
+npm notice 239B dist/triggers/slack.d.ts.map
+npm notice 675B dist/triggers/slack.js
+npm notice 689B dist/triggers/slack.js.map
+npm notice 1.8kB package.json
+npm notice 2.0kB src/cloud.ts
+npm notice 772B src/completion.ts
+npm notice 2.0kB src/context.ts
+npm notice 3.0kB src/effect-transport.ts
+npm notice 11.4kB src/flow.ts
+npm notice 2.0kB src/helper-clients.ts
+npm notice 437B src/helpers/airtable.ts
+npm notice 487B src/helpers/asana.ts
+npm notice 516B src/helpers/azure-blob.ts
+npm notice 473B src/helpers/box.ts
+npm notice 508B src/helpers/calendly.ts
+npm notice 501B src/helpers/clickup.ts
+npm notice 1.9kB src/helpers/clients.ts
+npm notice 522B src/helpers/cloudflare.ts
+npm notice 522B src/helpers/confluence.ts
+npm notice 501B src/helpers/daytona.ts
+npm notice 442B src/helpers/docker-hub.ts
+npm notice 501B src/helpers/dropbox.ts
+npm notice 429B src/helpers/fathom.ts
+npm notice 417B src/helpers/gcp.ts
+npm notice 473B src/helpers/gcs.ts
+npm notice 490B src/helpers/github.ts
+npm notice 494B src/helpers/gitlab.ts
+npm notice 487B src/helpers/gmail.ts
+npm notice 551B src/helpers/google-calendar.ts
+npm notice 530B src/helpers/google-drive.ts
+npm notice 501B src/helpers/granola.ts
+npm notice 501B src/helpers/hubspot.ts
+npm notice 9.9kB src/helpers/index.ts
+npm notice 508B src/helpers/intercom.ts
+npm notice 480B src/helpers/jira.ts
+npm notice 494B src/helpers/linear.ts
+npm notice 501B src/helpers/mailgun.ts
+npm notice 508B src/helpers/mixpanel.ts
+npm notice 421B src/helpers/neon.ts
+npm notice 490B src/helpers/notion.ts
+npm notice 508B src/helpers/onedrive.ts
+npm notice 515B src/helpers/pipedrive.ts
+npm notice 508B src/helpers/postgres.ts
+npm notice 433B src/helpers/posthog.ts
+npm notice 6.6kB src/helpers/providers.ts
+npm notice 647B src/helpers/ramp.ts
+npm notice 2.7kB src/helpers/README.md
+npm notice 494B src/helpers/recall.ts
+npm notice 494B src/helpers/reddit.ts
+npm notice 487B src/helpers/redis.ts
+npm notice 466B src/helpers/s3.ts
+npm notice 522B src/helpers/salesforce.ts
+npm notice 433B src/helpers/segment.ts
+npm notice 508B src/helpers/sendgrid.ts
+npm notice 522B src/helpers/sharepoint.ts
+npm notice 433B src/helpers/shopify.ts
+npm notice 508B src/helpers/shortcut.ts
+npm notice 905B src/helpers/slack.ts
+npm notice 490B src/helpers/stripe.ts
+npm notice 487B src/helpers/teams.ts
+npm notice 508B src/helpers/telegram.ts
+npm notice 458B src/helpers/webhook-server.ts
+npm notice 409B src/helpers/x.ts
+npm notice 501B src/helpers/zendesk.ts
+npm notice 1.3kB src/index.ts
+npm notice 812B src/memory.ts
+npm notice 277B src/plugin-contract.ts
+npm notice 1.2kB src/provider-trigger.ts
+npm notice 475B src/runtime.ts
+npm notice 1.8kB src/slack.ts
+npm notice 1.9kB src/step.ts
+npm notice 2.5kB src/triggers.ts
+npm notice 720B src/triggers/github.ts
+npm notice 443B src/triggers/index.ts
+npm notice 3.8kB src/triggers/README.md
+npm notice 713B src/triggers/slack.ts
+npm notice Tarball Details
+npm notice name: @relayflows/surface
+npm notice version: 2.0.14
+npm notice filename: relayflows-surface-2.0.14.tgz
+npm notice package size: 53.3 kB
+npm notice unpacked size: 282.0 kB
+npm notice shasum: 33c662996e936aefcc3e263409b2b0ee416353c1
+npm notice integrity: sha512-p3F5KN0LWjMJk[...]U/iGzqe/ACFKQ==
+npm notice total files: 354
+npm notice
+relayflows-surface-2.0.14.tgz
+
+up to date, audited 193 packages in 1s
+
+65 packages are looking for funding
+  run `npm fund` for details
+
+6 vulnerabilities (4 moderate, 1 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> @relayflows/sdk@2.0.14 build
+> tsc && node scripts/make-cli-executable.mjs
+
+src/authored-flow-executor.ts(507,7): error TS2345: Argument of type '"success" | "step_failed" | "canceled" | "budget_exceeded" | "declined" | undefined' is not assignable to parameter of type '"success" | "step_failed" | "canceled" | "budget_exceeded" | "verification_failed" | "retries_exhausted" | "lease_expired" | "crashed" | "timeout" | "worker_error" | undefined'.
+  Type '"declined"' is not assignable to type '"success" | "step_failed" | "canceled" | "budget_exceeded" | "verification_failed" | "retries_exhausted" | "lease_expired" | "crashed" | "timeout" | "worker_error" | undefined'.
+
+Exit status: 2
+
+$ RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 npm --prefix packages/sdk test
+
+> @relayflows/sdk@2.0.14 test
+> sh scripts/test.sh
+
+
+> @relayflows/sdk@2.0.14 test:prep
+> ( cd ../../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../../testdata/preflight ] || find ../../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+
+> @relayflows/sdk@2.0.14 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.14 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+> @relayflows/sdk@2.0.14 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd
+LIVE_KERNEL flows=/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js
+
+ ✓ tests/preflight.test.ts (28 tests) 63ms
+ ✓ tests/observer-link.test.ts (39 tests) 124ms
+ ✓ tests/cli.test.ts (64 tests) 934ms
+ ✓ tests/daemon-lifecycle.test.ts (42 tests) 37ms
+ ✓ tests/cloud-run.test.ts (53 tests) 363ms
+ ✓ tests/authored-flow.test.ts (25 tests) 729ms
+ ✓ tests/worker-cli.test.ts (14 tests) 18031ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 1573ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 1573ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3254ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11256ms
+ ❯ tests/close-pr-flow.test.ts (28 tests | 1 failed) 198ms
+   × close-pr journaled repair loop > executes the deterministic commit and force-push steps against a local Git remote, including a no-op repair 44ms
+     → fatal: transport 'file' not allowed
+: expected 128 to be +0 // Object.is equality
+ ✓ tests/journal-client.test.ts (15 tests) 78ms
+ ✓ tests/validate.test.ts (68 tests) 32ms
+ ✓ tests/verb-field-lint.test.ts (96 tests) 284ms
+ ✓ tests/mcp.test.ts (30 tests) 20183ms
+   ✓ MCP preflight and transports > flows check refuses an undeclared server with exit 2 and no daemon 434ms
+   ✓ MCP preflight and transports > flows check reports a refusing server and leaves no PID 453ms
+   ✓ MCP preflight and transports > kills a SIGTERM-resistant silent child after a parent-owned handshake deadline 1309ms
+   ✓ MCP preflight and transports > reaps a SIGTERM-resistant descendant with inherit stdio before cleanup finishes 1102ms
+   ✓ MCP preflight and transports > reaps a SIGTERM-resistant descendant with ignore stdio before cleanup finishes 2056ms
+   ✓ MCP preflight and transports > reports malformed connection configuration as config_invalid 411ms
+   ✓ authored MCP effects against the real kernel > reports a dropped tool connection as a failed CLI run 13689ms
+ ✓ tests/tick-source.test.ts (33 tests) 24ms
+ ✓ tests/agent-relay-transport.test.ts (16 tests) 1274ms
+   ✓ Relay completion at the journal boundary > does not complete at readiness and journals exact output, receipt, and priced accounting 1007ms
+ ✓ tests/authored-flow-lifecycle-executor.test.ts (27 tests) 560ms
+(node:17475) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/cli-replay.test.ts (37 tests) 967ms
+   ✓ flows replay > --json is byte-identical across two CLI invocations (diff) 633ms
+ ✓ tests/authored-flow-slack.test.ts (7 tests) 1367ms
+   ✓ authored Slack helper effects > replays after SIGKILL before confirm with the same token and one successful completion 438ms
+   ✓ authored Slack helper effects > replays after SIGKILL before complete with the same token and one successful completion 436ms
+ ✓ tests/flow-executor-chain.test.ts (14 tests) 7407ms
+   ✓ flow executor LLM and output-binding chain > runs f.llm -> f.agent -> f.run with schema-verified journal output and the exact allowed model 432ms
+   ✓ flow executor LLM and output-binding chain > runs the exact authored flagship f.llm -> f.agent -> f.run path through the durable CLI root 1210ms
+   ✓ flow executor LLM and output-binding chain > resumes an interrupted durable authored root without replaying completed flagship effects 2936ms
+   ✓ flow executor LLM and output-binding chain > passes a declarative verified value through an agent into a deterministic artifact 314ms
+   ✓ flow executor LLM and output-binding chain > flows run consumes YAML bindings and resume reuses the original journal output 836ms
+ ✓ tests/tick-runner.test.ts (22 tests) 1850ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms fractional as an invocation error 301ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms exponent notation as an invocation error 306ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms hex as an invocation error 304ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms empty as an invocation error 310ms
+ ✓ tests/gate-contract.test.ts (20 tests) 106ms
+ ✓ tests/stop-process-group.test.ts (6 tests) 4934ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after an execution-timeout stop 469ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after a protocol terminate stop 1337ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after an execution-timeout stop 1716ms
+   ✓ every stop reaches the process group, not just the direct child > holds the loop open long enough for the escalation to run 1071ms
+ ✓ tests/direct-input.test.ts (6 tests) 4275ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > returns exit 3 for an authored human handoff and persists its outcome 464ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > returns exit 1 for an authored step_failed verdict and persists its outcome 471ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > executes inline and file JSON input through relayflowd 1417ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses missing and malformed input before contacting relayflowd 1213ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > does not run the authored body before daemon availability 385ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses oversized file input before contacting relayflowd 323ms
+ ✓ tests/step-failure-diagnostic.test.ts (16 tests) 35ms
+ ✓ tests/cli-hn-monitor.test.ts (16 tests) 96ms
+ ✓ tests/bundle.test.ts (21 tests) 6742ms
+   ✓ immutable bundles > returns exit 2 naming a byte-flipped payload and refuses to reuse corruption 301ms
+   ✓ immutable bundles > builds and verifies the canonical YAML fixture through the compiled CLI 965ms
+   ✓ immutable bundles > emits the ephemeral warning on CLI stderr and uses the default output directory 622ms
+   ✓ immutable bundles > refuses build-provable CLI resolution errors without environment probes 318ms
+   ✓ immutable bundles > builds a standalone TS fixture twice with identical executable hashes 2195ms
+   ✓ immutable bundles > refuses to label installed dependency drift with lockfile pins 309ms
+   ✓ immutable bundles > refuses invalid CLI arguments %j 316ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--out" 318ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 339ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 494ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--out" 493ms
+stderr | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER_UNAVAILABLE: "/home/daytona/.relayflow-v2-supervisor/durable/repository/testdata/preflight/analyze-story-claude-cli" does not identify as relayflows-agent-cli-v1 — SKIPPING. This skip is diagnostics, not gate-2 acceptance evidence.
+
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=19952 run=01M2Q3EGYA7HP5A9Y1ZA7G52W4 while step=two state=Running
+
+ ❯ tests/live-kernel.test.ts (31 tests | 7 failed | 1 skipped) 47352ms
+   ✓ built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 1865ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 2163ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32395ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 519ms
+   ✓ built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5578ms
+   ✓ built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 446ms
+   × built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo) 212ms
+     → expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+   × built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields 185ms
+     → expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+   × built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text 156ms
+     → expected null not to be null
+   × built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite) 153ms
+     → Cannot read properties of null (reading 'story_title')
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin) 93ms
+     → Cannot read properties of null (reading 'env_present')
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model 88ms
+     → Cannot read properties of null (reading 'story_title')
+   ✓ built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket 793ms
+   ✓ built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir 429ms
+   ✓ surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 736ms
+   × a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant 123ms
+     → expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+ ✓ tests/authored-root.test.ts (9 tests) 138ms
+ ✓ tests/daemon-lifecycle-live.test.ts (9 tests) 5964ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > cold start spawns exactly one daemon, the run succeeds, and the daemon outlives the CLI 530ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > polls, bounded, for a daemon that holds the lock before it binds 1391ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > attaches to a serving daemon that has not published a connection file 398ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > a second run attaches to the daemon the first one started, spawning nothing 719ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > detects a stale connection file left by a hard kill and starts a fresh daemon 787ms
+   ✓ concurrent invocations against one empty data dir (§6 test 15) > ends with exactly one daemon owning the socket, and both runs succeed 1048ms
+   ✓ refusals from a spawn that cannot produce a daemon > names relayflowd_not_found rather than falling through to PATH 327ms
+   ✓ refusals from a spawn that cannot produce a daemon > names daemon_start_failed and quotes the daemon log when startup dies 383ms
+   ✓ refusals from a spawn that cannot produce a daemon > refuses a daemon speaking another protocol version instead of binding over it 379ms
+ ✓ tests/backlog-picker.test.ts (14 tests) 44ms
+ ✓ tests/backlog-picker-flow.test.ts (6 tests) 238ms
+ ✓ tests/authored-helpers.test.ts (6 tests) 2959ms
+   ✓ runs every available provider through the real kernel and resumes completed effects without a second write 1611ms
+   ✓ replays after SIGKILL before confirm with the same token and one successful completion 472ms
+   ✓ replays after SIGKILL before complete with the same token and one successful completion 457ms
+ ✓ tests/webhook.test.ts (9 tests) 309ms
+ ✓ tests/webhook-live.test.ts (6 tests) 9296ms
+   ✓ executes and deduplicates 'app_mention' only for its provider and matching payload 1405ms
+   ✓ executes and deduplicates 'reaction_added' only for its provider and matching payload 1365ms
+   ✓ executes and deduplicates 'pull_request' only for its provider and matching payload 1368ms
+   ✓ flows serve-webhook writes JSON before the daemon starts, then journals and archives exactly once 1376ms
+   ✓ replays a dropped file after SIGKILL before spawn 385ms
+   ✓ resumes the same journal after SIGKILL after spawn and before acknowledgement 3396ms
+ ✓ tests/authored-step-failed.test.ts (10 tests) 37ms
+ ✓ tests/authored-flow-operation.test.ts (23 tests) 372ms
+ ✓ tests/budget-preflight.test.ts (25 tests) 18ms
+ ✓ tests/budget-unmetered-live.test.ts (3 tests) 878ms
+   ✓ unmetered budget spend through the live kernel > runs an unpriced step under a dollar budget without tripping it, journaling unknown dollars 422ms
+ ✓ tests/work-package-consumer.test.ts (13 tests) 91ms
+ ✓ tests/spec-parity.test.ts (31 tests) 357ms
+ ✓ tests/helpers-fanout.test.ts (96 tests) 152ms
+ ✓ tests/cli-watch.test.ts (10 tests) 13541ms
+   ✓ flows check --watch > rechecks syntax errors, clears once, and returns the last refusal on Ctrl-C 1154ms
+   ✓ flows check --watch > streams JSON lines without ANSI, recovers after atomic saves, and exits zero after repair 1556ms
+   ✓ flows check --watch > coalesces 20 concurrent saves into at most two rechecks 1610ms
+   ✓ flows check --watch > watches transitive relative use imports, cycles, and nearest config changes 2005ms
+   ✓ flows check --watch > refreshes the import graph and notices missing imports being created 2016ms
+   ✓ flows check --watch > reloads authored TypeScript instead of reusing the first imported definition 1290ms
+   ✓ flows check --watch > detects a nearer config appearing and falls back after it is deleted 1558ms
+   ✓ flows check --watch > keeps watching after the target is deleted and recreated 1579ms
+   ✓ flows check --watch > queues changes during a slow check without overlapping checks 771ms
+ ✓ tests/webhook-hardening.test.ts (11 tests) 56ms
+ ✓ tests/plugin-loader.test.ts (9 tests) 175ms
+ ✓ tests/pty-sidechannel.test.ts (11 tests) 2606ms
+   ✓ view attach preserves worker completion and marks only drive 480ms
+   ✓ passthrough attach preserves worker completion and marks only drive 481ms
+   ✓ none attach preserves worker completion and marks only drive 476ms
+   ✓ rejects drive after EOF without marking human intervention 410ms
+ ✓ tests/worker-lease.test.ts (7 tests) 10ms
+ ✓ tests/yaml-helpers.test.ts (33 tests) 74ms
+ ✓ tests/typed-output.test.ts (14 tests) 205ms
+ ✓ tests/budget-attribution.test.ts (5 tests) 5ms
+ ✓ tests/json-schema-bound.test.ts (71 tests) 3026ms
+   ✓ JSON Schema termination bound > walks a deep schema with an explicit stack rather than recursion 2418ms
+ ✓ tests/effect-channel.test.ts (5 tests) 339ms
+ ✓ tests/mcp-lifecycle.test.ts (4 tests) 12ms
+ ✓ tests/model-selection.test.ts (10 tests) 17ms
+ ✓ tests/f-memory.test.ts (7 tests) 837ms
+ ✓ tests/authored-node-result.test.ts (22 tests) 10ms
+ ✓ tests/relayflowd-path.test.ts (10 tests) 5ms
+ ❯ tests/authored-node-runtime.test.ts (11 tests | 4 failed) 67705ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > awaits agent plus three run steps and resumes without repeating effects 1673ms
+   × Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before success 2360ms
+     → Cannot read properties of null (reading 'completionReason')
+   × Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGTERM and replays completed children before success 2351ms
+     → Cannot read properties of null (reading 'completionReason')
+   × Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent blocked-SIGKILL and replays completed children before success 2901ms
+     → Cannot read properties of null (reading 'completionReason')
+   × Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before declined 2355ms
+     → Cannot read properties of null (reading 'completionReason')
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses unawaited rather than reporting terminal success 13177ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses manual then rather than reporting terminal success 12820ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > loads captured graph bytes before preserving the unsupported-use refusal 15112ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > rejects a forged result frame without durable completion 13954ms
+ ✓ tests/authored-plugin-effect.test.ts (6 tests) 55ms
+ ✓ tests/deploy.test.ts (9 tests) 3232ms
+   ✓ flows deploy file buckets > publishes the full signed layout byte-for-byte and redeploys as a noop 661ms
+   ✓ flows deploy file buckets > refuses a missing local bundle before creating the bucket 304ms
+   ✓ flows deploy file buckets > refuses an unreachable bucket before copying 326ms
+   ✓ flows deploy file buckets > refuses an unwritable bucket 326ms
+   ✓ flows deploy file buckets > refuses local tampering of spec.canonical.json 316ms
+   ✓ flows deploy file buckets > refuses local tampering of identity.json 310ms
+   ✓ flows deploy file buckets > refuses asset bundles instead of using daemon-relative files 311ms
+   ✓ flows deploy file buckets > never labels a corrupt existing deployment as a noop 656ms
+ ✓ tests/yaml-local-agent-live.test.ts (7 tests) 3356ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked step CLI and model and journals done 501ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked named CLI and model and journals done 506ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked flow CLI and model and journals done 498ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked project CLI and model and journals done 501ms
+   ✓ YAML --local-agent through the built CLI and real daemon > still parks without --local-agent 433ms
+   ✓ YAML --local-agent through the built CLI and real daemon > reports the agent process failure 489ms
+   ✓ YAML --local-agent through the built CLI and real daemon > preserves declared workspace surfaces that the local worker cannot pin 427ms
+ ✓ tests/local-dev-ux.test.ts (8 tests) 13ms
+ ✓ tests/authored-declined.test.ts (13 tests) 47ms
+ ✓ tests/dependency-validation.test.ts (6 tests) 482ms
+ ✓ tests/resume-failure.test.ts (2 tests) 5ms
+ ✓ tests/input-binding.test.ts (12 tests) 195ms
+ ✓ tests/yaml-helper-effect.test.ts (4 tests) 74ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 53ms
+ ✓ tests/scope-preflight.test.ts (6 tests) 8ms
+ ✓ tests/bin.test.ts (7 tests) 1900ms
+   ✓ built flows binary > refuses through a symlink to the built artifact 317ms
+   ✓ built flows binary > refuses through a symlinked directory component 303ms
+   ✓ built flows binary > classifies a signal-terminated auth probe as probe_failed 318ms
+   ✓ built flows binary > classifies an unavailable PATH resolver as probe_failed 317ms
+   ✓ built flows binary > does not describe a present non-executable CLI as missing 313ms
+   ✓ built flows binary > runs one auth probe for three steps sharing a flow CLI 330ms
+ ✓ tests/build-gate.test.ts (3 tests) 966ms
+   ✓ flows build gates on flows check green (#318) > refuses a flow with an unresolvable named-agent CLI and leaves no artifacts 314ms
+   ✓ flows build gates on flows check green (#318) > --json emits one CheckReport object on stdout on refusal, exits 2, no artifacts 328ms
+   ✓ flows build gates on flows check green (#318) > builds the bundle on success (regression: gate must not block valid flows) 323ms
+ ✓ tests/scope-compiler.test.ts (25 tests) 10ms
+ ✓ tests/run-from-digest.test.ts (6 tests) 3539ms
+   ✓ flows run digest input > submits the sealed canonical spec through the normal journal path without checkout 344ms
+   ✓ flows run digest input > uses a verified cache hit even after the bucket is removed 349ms
+   ✓ flows run digest input > resolves deploy.bucket from flows.json and honors explicit override 948ms
+   ✓ flows run digest input > refuses an unconfigured bucket 641ms
+   ✓ flows run digest input > refuses tampered spec.canonical.json before creating run data 625ms
+   ✓ flows run digest input > refuses tampered identity.json before creating run data 630ms
+ ✓ tests/hn-poller.test.ts (6 tests) 5ms
+ ✓ tests/plugin-add.test.ts (7 tests) 1104ms
+   ✓ typechecks the augmented verb and rejects unknown namespaces 824ms
+ ✓ tests/authored-step-failed-exit.test.ts (3 tests) 6ms
+ ✓ tests/dir-watcher-poller.test.ts (6 tests) 4ms
+ ✓ tests/model-pricing.test.ts (10 tests) 5ms
+ ✓ tests/yaml-helper-live.test.ts (1 test) 761ms
+   ✓ runs compiled YAML helpers through the built CLI and kernel effect journal 761ms
+ ✓ tests/provider-trigger-executor.test.ts (4 tests) 205ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 17ms
+ ✓ tests/direct-run-failure.test.ts (7 tests) 8ms
+ ✓ tests/cli-adapter.test.ts (4 tests) 5ms
+ ✓ tests/generate-triggers.test.ts (3 tests) 541ms
+   ✓ discovers new adapters, preserves exact event names, and prefers adapter-local mappings 316ms
+ ✓ tests/work-package-validator.test.ts (7 tests) 5ms
+ ✓ tests/authored-use-loader.test.ts (5 tests) 366ms
+ ✓ tests/authored-declined-live.test.ts (1 test) 1198ms
+   ✓ runs an input guard and resumes its completed declined root without repeated effects 1197ms
+ ✓ tests/bundle-preflight.test.ts (4 tests) 710ms
+   ✓ bundle execution preflight > ignores surrounding cache configuration on a verified cache hit 356ms
+   ✓ bundle execution preflight > uses the built alias for a nameless flow even in a digest-only cache directory 337ms
+ ✓ tests/agent-relay-hardening.test.ts (12 tests) 12ms
+ ✓ tests/classify-outcome.test.ts (2 tests) 2159ms
+   ✓ classifyOutcome > gives up and reports when a running run never becomes classifiable 2006ms
+ ↓ tests/real-cli-adapters.test.ts (3 tests | 3 skipped)
+ ✓ tests/step-lease.test.ts (36 tests) 66378ms
+   ✓ f.run leases against the live kernel > enforces 10000 ms for 'sleep 5; printf ok' 5060ms
+   ✓ f.run leases against the live kernel > enforces 40000 ms for 'sleep 31; printf ok' 31056ms
+   ✓ f.run leases against the live kernel > enforces 30000 ms for 'sleep 31; printf ok' 30078ms
+ ✓ tests/memoization.test.ts (57 tests) 48ms
+ ✓ tests/parse-json-output.test.ts (7 tests) 3ms
+ ✓ tests/journal-client-completion.test.ts (4 tests) 100ms
+ ✓ tests/budget-authored-live.test.ts (2 tests) 146ms
+ ✓ tests/slack-writeback.test.ts (1 test) 256ms
+ ✓ tests/authored-surface-authority.test.ts (2 tests) 16ms
+ ✓ tests/adapters/claude.test.ts (7 tests) 4ms
+ ✓ tests/worker-cli-cwd.test.ts (2 tests) 5ms
+ ✓ tests/worker-cli-abort.test.ts (2 tests) 1905ms
+   ✓ stops claude and its process group when lease ownership is lost 950ms
+   ✓ stops wrapper.mjs and its process group when lease ownership is lost 954ms
+ ✓ tests/adapters/codex.test.ts (7 tests) 4ms
+ ✓ tests/adapters/registry.test.ts (4 tests) 4ms
+ ✓ tests/slack-block-kit.test.ts (5 tests) 13ms
+ ✓ tests/authored-declined-report.test.ts (6 tests) 7ms
+ ✓ tests/cli-progress-wait.test.ts (2 tests) 3ms
+ ✓ tests/run-digest-live.test.ts (1 test) 891ms
+   ✓ executes a deployed digest on the real kernel after deleting the authoring tree 890ms
+ ✓ tests/placement.test.ts (54 tests) 17ms
+ ✓ tests/bundle-transport.test.ts (20 tests) 2630ms
+   ✓ digest references > accepts and deploys the build output for hello 480ms
+   ✓ digest references > accepts and deploys the build output for Hello 500ms
+   ✓ digest references > accepts and deploys the build output for hello.world 425ms
+   ✓ digest references > accepts and deploys the build output for hello_world 402ms
+   ✓ digest references > accepts and deploys the build output for 123 344ms
+   ✓ digest references > accepts and deploys the build output for A_b.c-1 476ms
+ ✓ tests/authored-admission.test.ts (2 tests) 3ms
+ ✓ tests/local-agent-live.test.ts (5 tests) 64410ms
+   ✓ built CLI local agent against a real daemon > dispatches through the wrapper and keeps --json stdout report-shaped 632ms
+   ✓ built CLI local agent against a real daemon > runs beyond the initial 30-second lease without a second invocation 35665ms
+   ✓ built CLI local agent against a real daemon > renders actual agent completion in text output 620ms
+   ✓ built CLI local agent against a real daemon > returns a failed run when the agent process fails 13596ms
+   ✓ built CLI local agent against a real daemon > refuses a workspace it cannot pin before invoking the agent 13896ms
+ ✓ tests/memory.test.ts (18 tests) 8ms
+ ✓ tests/worker-platform.test.ts (1 test) 3ms
+ ✓ tests/run-digest.test.ts (4 tests) 1590ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {invalid json 485ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {"deploy":{}} 452ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {"deploy":{"bucket":123}} 330ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {"deploy":{"bucket":""}} 323ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 12 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-node-runtime.test.ts > Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before success
+ FAIL  tests/authored-node-runtime.test.ts > Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGTERM and replays completed children before success
+ FAIL  tests/authored-node-runtime.test.ts > Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent blocked-SIGKILL and replays completed children before success
+ FAIL  tests/authored-node-runtime.test.ts > Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before declined
+TypeError: Cannot read properties of null (reading 'completionReason')
+ ❯ tests/authored-node-runtime.test.ts:162:21
+    160|       expect(rootJournal.at(-1)?.payload['completionReason']).toBe('su…
+    161|       const output = rootJournal.find(e => e.entry_type === 'step.comp…
+    162|         && e.payload['completionReason'] === 'success')!.payload['outp…
+       |                     ^
+    163|       expect(output.completionReason).toBe(reason);
+    164|       if (reason === 'declined') {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/12]⎯
+
+ FAIL  tests/close-pr-flow.test.ts > close-pr journaled repair loop > executes the deterministic commit and force-push steps against a local Git remote, including a no-op repair
+AssertionError: fatal: transport 'file' not allowed
+: expected 128 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 128
+
+ ❯ git tests/close-pr-flow.test.ts:245:44
+    243|     const git = (args: string[], cwd = dir) => {
+    244|       const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+    245|       expect(result.status, result.stderr).toBe(0);
+       |                                            ^
+    246|       return result.stdout.trim();
+    247|     };
+ ❯ tests/close-pr-flow.test.ts:254:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/12]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo)
+AssertionError: expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "output": Object {
+-     "reasoning": "stub agent runtime — deterministic output for gate-2 clause-2 demo",
+-     "relevance_score": 5,
+-     "story_title": "stub",
+-   },
++   "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
+-     "verdict": "pass",
++     "gate": "execution",
++     "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:657:36
+    655|         && (entry as { step_id?: string }).step_id === 'analyze-story',
+    656|     ) as { payload: { output: unknown; verification: unknown } } | und…
+    657|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    658|       output: {
+    659|         story_title: 'stub',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/12]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields
+AssertionError: expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "completionReason": "retries_exhausted",
++   "completionReason": "worker_error",
+    "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
++     "gate": "execution",
+      "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:752:36
+    750|     // its verification record names the json_schema rejection. The re…
+    751|     // parsed value is nulled before the completion is persisted.
+    752|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    753|       completionReason: 'retries_exhausted',
+    754|       output: null,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/12]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text
+AssertionError: expected null not to be null
+ ❯ tests/live-kernel.test.ts:823:24
+    821|     // here (parseJsonOutput returned null on non-JSON stdout) and
+    822|     // these assertions would all fail.
+    823|     expect(output).not.toBeNull();
+       |                        ^
+    824|     expect(output.exit_code).toBe(0);
+    825|     expect(output.stdout_tail).toContain('looked at the story');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/12]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite)
+TypeError: Cannot read properties of null (reading 'story_title')
+ ❯ tests/live-kernel.test.ts:891:42
+    889|     ) as { payload: { output: { story_title: string; reasoning: string…
+    890|     expect(stepCompleted).toBeDefined();
+    891|     expect(stepCompleted!.payload.output.story_title).toBe(`echoed:${s…
+       |                                          ^
+    892|     expect(stepCompleted!.payload.output.reasoning).toContain(String(s…
+    893|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/12]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin)
+TypeError: Cannot read properties of null (reading 'env_present')
+ ❯ tests/live-kernel.test.ts:958:38
+    956|     ) as { payload: { output: { env_present: boolean } } } | undefined;
+    957|     expect(completed).toBeDefined();
+    958|     expect(completed!.payload.output.env_present).toBe(false);
+       |                                      ^
+    959|
+    960|     delete process.env.RELAYFLOW_WAKE_CONTEXT;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/12]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model
+TypeError: Cannot read properties of null (reading 'story_title')
+ ❯ tests/live-kernel.test.ts:1194:38
+    1192|     expect(completed).toBeDefined();
+    1193|     // UNSET, not EMPTY and not the leaked parent value.
+    1194|     expect(completed!.payload.output.story_title).toBe('model:UNSET');
+       |                                      ^
+    1195|
+    1196|     delete process.env.RELAYFLOW_MODEL;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/12]⎯
+
+ FAIL  tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant
+AssertionError: expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+
+- Expected:
+Object {
+  "lag_ms": 43000,
+  "schedule_id": "heartbeat-1m",
+  "scheduled_for_ms": 1764000000000,
+  "slot": 29400000,
+}
+
++ Received:
+null
+
+ ❯ tests/live-kernel.test.ts:1665:39
+    1663|     // The bound: the run reports the grid instant and its own lag, so…
+    1664|     // backfilled run can tell it is running for a slot from the past.
+    1665|     expect(completed!.payload.output).toEqual({
+       |                                       ^
+    1666|       schedule_id: 'heartbeat-1m',
+    1667|       slot: 29_400_000,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/12]⎯
+
+ Test Files  3 failed | 108 passed | 1 skipped (112)
+      Tests  12 failed | 1716 passed | 4 skipped (1732)
+   Start at  07:13:25
+   Duration  142.38s (transform 1.57s, setup 0ms, collect 23.22s, tests 387.01s, environment 13ms, prepare 4.49s)
+
+
+Exit status: 1
+
+$ cd /tmp/declined-base && npm --prefix packages/sdk install /tmp/relayflows-surface-2.0.14.tgz --no-save --ignore-scripts && npm --prefix packages/sdk run build && cd packages/sdk && RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 ./node_modules/.bin/vitest run tests/live-kernel.test.ts tests/close-pr-flow.test.ts
+
+added 1 package, and audited 193 packages in 629ms
+
+65 packages are looking for funding
+  run `npm fund` for details
+
+6 vulnerabilities (4 moderate, 1 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> @relayflows/sdk@2.0.14 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+ RUN  v2.1.9 /tmp/declined-base/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd
+LIVE_KERNEL flows=/tmp/declined-base/packages/sdk/dist/cli.js
+
+ ❯ tests/close-pr-flow.test.ts (28 tests | 1 failed) 208ms
+   × close-pr journaled repair loop > executes the deterministic commit and force-push steps against a local Git remote, including a no-op repair 41ms
+     → fatal: transport 'file' not allowed
+: expected 128 to be +0 // Object.is equality
+stdout | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER ready: claude -p --model claude-haiku-4-5-20251001 round-trip OK
+
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=27232 run=01M2Q3JX2W4AGE2NGTT9BMFP9H while step=two state=Running
+
+ ❯ tests/live-kernel.test.ts (31 tests | 1 failed) 50073ms
+   ✓ built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 1806ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 2066ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32360ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 590ms
+   ✓ built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5577ms
+   ✓ built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 359ms
+   × built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI 3448ms
+     → expected { …(3) } to match object { Object (gate, verdict) }
+(1 matching property omitted from actual)
+   ✓ built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket 636ms
+   ✓ built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir 392ms
+   ✓ surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 710ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/close-pr-flow.test.ts > close-pr journaled repair loop > executes the deterministic commit and force-push steps against a local Git remote, including a no-op repair
+AssertionError: fatal: transport 'file' not allowed
+: expected 128 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 128
+
+ ❯ git tests/close-pr-flow.test.ts:245:44
+    243|     const git = (args: string[], cwd = dir) => {
+    244|       const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+    245|       expect(result.status, result.stderr).toBe(0);
+       |                                            ^
+    246|       return result.stdout.trim();
+    247|     };
+ ❯ tests/close-pr-flow.test.ts:254:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+AssertionError: expected { …(3) } to match object { Object (gate, verdict) }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "gate": "json_schema",
+-   "verdict": "pass",
++   "gate": "execution",
++   "verdict": "fail",
+  }
+
+ ❯ tests/live-kernel.test.ts:1317:49
+    1315|     // the promoted output, not the test re-deriving it: the spec is
+    1316|     // the unmodified canonical one, so this record is the gate.
+    1317|     expect(stepCompleted!.payload.verification).toMatchObject({
+       |                                                 ^
+    1318|       gate: 'json_schema',
+    1319|       verdict: 'pass',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 57 passed (59)
+   Start at  07:15:45
+   Duration  51.43s (transform 808ms, setup 0ms, collect 2.31s, tests 50.28s, environment 0ms, prepare 86ms)
+
+
+Exit status: 1
+
+$ cd /home/daytona/declined-base/packages/sdk && git rev-parse HEAD && RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always ./node_modules/.bin/vitest run tests/live-kernel.test.ts tests/close-pr-flow.test.ts
+e86118c28e014d4a1b327876c03193d03a16c752
+
+ RUN  v2.1.9 /home/daytona/declined-base/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd
+LIVE_KERNEL flows=/home/daytona/declined-base/packages/sdk/dist/cli.js
+
+ ✓ tests/close-pr-flow.test.ts (28 tests) 359ms
+stderr | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER_UNAVAILABLE: "/home/daytona/declined-base/testdata/preflight/analyze-story-claude-cli" does not identify as relayflows-agent-cli-v1 — SKIPPING. This skip is diagnostics, not gate-2 acceptance evidence.
+
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=33510 run=01M2Q3N31Z5M6Q08MP73SX6PPK while step=two state=Running
+
+ ❯ tests/live-kernel.test.ts (31 tests | 7 failed | 1 skipped) 46839ms
+   ✓ built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 1951ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 2217ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32436ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 505ms
+   ✓ built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5578ms
+   ✓ built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 339ms
+   × built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo) 130ms
+     → expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+   × built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields 127ms
+     → expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+   × built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text 92ms
+     → expected null not to be null
+   × built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite) 121ms
+     → Cannot read properties of null (reading 'story_title')
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin) 86ms
+     → Cannot read properties of null (reading 'env_present')
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model 84ms
+     → Cannot read properties of null (reading 'story_title')
+   ✓ built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket 643ms
+   ✓ built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir 386ms
+   ✓ surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 713ms
+   × a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant 122ms
+     → expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo)
+AssertionError: expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "output": Object {
+-     "reasoning": "stub agent runtime — deterministic output for gate-2 clause-2 demo",
+-     "relevance_score": 5,
+-     "story_title": "stub",
+-   },
++   "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
+-     "verdict": "pass",
++     "gate": "execution",
++     "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:657:36
+    655|         && (entry as { step_id?: string }).step_id === 'analyze-story',
+    656|     ) as { payload: { output: unknown; verification: unknown } } | und…
+    657|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    658|       output: {
+    659|         story_title: 'stub',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields
+AssertionError: expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "completionReason": "retries_exhausted",
++   "completionReason": "worker_error",
+    "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
++     "gate": "execution",
+      "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:752:36
+    750|     // its verification record names the json_schema rejection. The re…
+    751|     // parsed value is nulled before the completion is persisted.
+    752|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    753|       completionReason: 'retries_exhausted',
+    754|       output: null,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text
+AssertionError: expected null not to be null
+ ❯ tests/live-kernel.test.ts:823:24
+    821|     // here (parseJsonOutput returned null on non-JSON stdout) and
+    822|     // these assertions would all fail.
+    823|     expect(output).not.toBeNull();
+       |                        ^
+    824|     expect(output.exit_code).toBe(0);
+    825|     expect(output.stdout_tail).toContain('looked at the story');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite)
+TypeError: Cannot read properties of null (reading 'story_title')
+ ❯ tests/live-kernel.test.ts:891:42
+    889|     ) as { payload: { output: { story_title: string; reasoning: string…
+    890|     expect(stepCompleted).toBeDefined();
+    891|     expect(stepCompleted!.payload.output.story_title).toBe(`echoed:${s…
+       |                                          ^
+    892|     expect(stepCompleted!.payload.output.reasoning).toContain(String(s…
+    893|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin)
+TypeError: Cannot read properties of null (reading 'env_present')
+ ❯ tests/live-kernel.test.ts:958:38
+    956|     ) as { payload: { output: { env_present: boolean } } } | undefined;
+    957|     expect(completed).toBeDefined();
+    958|     expect(completed!.payload.output.env_present).toBe(false);
+       |                                      ^
+    959|
+    960|     delete process.env.RELAYFLOW_WAKE_CONTEXT;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model
+TypeError: Cannot read properties of null (reading 'story_title')
+ ❯ tests/live-kernel.test.ts:1194:38
+    1192|     expect(completed).toBeDefined();
+    1193|     // UNSET, not EMPTY and not the leaked parent value.
+    1194|     expect(completed!.payload.output.story_title).toBe('model:UNSET');
+       |                                      ^
+    1195|
+    1196|     delete process.env.RELAYFLOW_MODEL;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant
+AssertionError: expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+
+- Expected:
+Object {
+  "lag_ms": 43000,
+  "schedule_id": "heartbeat-1m",
+  "scheduled_for_ms": 1764000000000,
+  "slot": 29400000,
+}
+
++ Received:
+null
+
+ ❯ tests/live-kernel.test.ts:1665:39
+    1663|     // The bound: the run reports the grid instant and its own lag, so…
+    1664|     // backfilled run can tell it is running for a slot from the past.
+    1665|     expect(completed!.payload.output).toEqual({
+       |                                       ^
+    1666|       schedule_id: 'heartbeat-1m',
+    1667|       slot: 29_400_000,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  7 failed | 51 passed | 1 skipped (59)
+   Start at  07:17:00
+   Duration  48.02s (transform 698ms, setup 0ms, collect 1.93s, tests 47.20s, environment 1ms, prepare 146ms)
+
+
+Exit status: 1
+
+$ RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.file.allow GIT_CONFIG_VALUE_0=always npm --prefix packages/sdk test
+
+> @relayflows/sdk@2.0.14 test
+> sh scripts/test.sh
+
+
+> @relayflows/sdk@2.0.14 test:prep
+> ( cd ../../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../../testdata/preflight ] || find ../../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+
+> @relayflows/sdk@2.0.14 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.14 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+> @relayflows/sdk@2.0.14 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd
+LIVE_KERNEL flows=/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js
+
+ ✓ tests/preflight.test.ts (28 tests) 66ms
+ ✓ tests/observer-link.test.ts (39 tests) 133ms
+ ✓ tests/cli.test.ts (64 tests) 965ms
+ ✓ tests/daemon-lifecycle.test.ts (42 tests) 35ms
+ ✓ tests/cloud-run.test.ts (53 tests) 319ms
+ ✓ tests/authored-flow.test.ts (25 tests) 739ms
+ ✓ tests/worker-cli.test.ts (14 tests) 18013ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 1573ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 1574ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3254ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11255ms
+ ✓ tests/close-pr-flow.test.ts (28 tests) 262ms
+ ✓ tests/mcp.test.ts (30 tests) 18650ms
+   ✓ MCP preflight and transports > flows check refuses an undeclared server with exit 2 and no daemon 427ms
+   ✓ MCP preflight and transports > flows check reports a refusing server and leaves no PID 447ms
+   ✓ MCP preflight and transports > kills a SIGTERM-resistant silent child after a parent-owned handshake deadline 1309ms
+   ✓ MCP preflight and transports > reaps a SIGTERM-resistant descendant with inherit stdio before cleanup finishes 1103ms
+   ✓ MCP preflight and transports > reaps a SIGTERM-resistant descendant with ignore stdio before cleanup finishes 2057ms
+   ✓ MCP preflight and transports > reports malformed connection configuration as config_invalid 425ms
+   ✓ authored MCP effects against the real kernel > reports a dropped tool connection as a failed CLI run 12142ms
+ ✓ tests/journal-client.test.ts (15 tests) 78ms
+ ✓ tests/validate.test.ts (68 tests) 25ms
+ ✓ tests/verb-field-lint.test.ts (96 tests) 368ms
+ ✓ tests/tick-source.test.ts (33 tests) 23ms
+ ✓ tests/agent-relay-transport.test.ts (16 tests) 1260ms
+   ✓ Relay completion at the journal boundary > does not complete at readiness and journals exact output, receipt, and priced accounting 1004ms
+ ✓ tests/authored-flow-lifecycle-executor.test.ts (27 tests) 561ms
+(node:28090) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/cli-replay.test.ts (37 tests) 952ms
+   ✓ flows replay > --json is byte-identical across two CLI invocations (diff) 640ms
+ ✓ tests/authored-flow-slack.test.ts (7 tests) 1392ms
+   ✓ authored Slack helper effects > replays after SIGKILL before confirm with the same token and one successful completion 460ms
+   ✓ authored Slack helper effects > replays after SIGKILL before complete with the same token and one successful completion 446ms
+ ✓ tests/flow-executor-chain.test.ts (14 tests) 7383ms
+   ✓ flow executor LLM and output-binding chain > runs f.llm -> f.agent -> f.run with schema-verified journal output and the exact allowed model 407ms
+   ✓ flow executor LLM and output-binding chain > runs the exact authored flagship f.llm -> f.agent -> f.run path through the durable CLI root 1185ms
+   ✓ flow executor LLM and output-binding chain > resumes an interrupted durable authored root without replaying completed flagship effects 2952ms
+   ✓ flow executor LLM and output-binding chain > passes a declarative verified value through an agent into a deterministic artifact 311ms
+   ✓ flow executor LLM and output-binding chain > flows run consumes YAML bindings and resume reuses the original journal output 842ms
+ ✓ tests/tick-runner.test.ts (22 tests) 1879ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms fractional as an invocation error 305ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms exponent notation as an invocation error 304ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms hex as an invocation error 304ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms trailing text as an invocation error 317ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms empty as an invocation error 312ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > accepts an exact integer and proceeds past parsing 306ms
+ ✓ tests/gate-contract.test.ts (20 tests) 119ms
+ ✓ tests/stop-process-group.test.ts (6 tests) 4938ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after an execution-timeout stop 471ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after a protocol terminate stop 1337ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after an execution-timeout stop 1715ms
+   ✓ every stop reaches the process group, not just the direct child > holds the loop open long enough for the escalation to run 1076ms
+ ✓ tests/direct-input.test.ts (6 tests) 4316ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > returns exit 3 for an authored human handoff and persists its outcome 466ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > returns exit 1 for an authored step_failed verdict and persists its outcome 473ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > executes inline and file JSON input through relayflowd 1426ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses missing and malformed input before contacting relayflowd 1242ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > does not run the authored body before daemon availability 385ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses oversized file input before contacting relayflowd 323ms
+ ✓ tests/step-failure-diagnostic.test.ts (16 tests) 38ms
+ ✓ tests/cli-hn-monitor.test.ts (16 tests) 94ms
+ ✓ tests/bundle.test.ts (21 tests) 6761ms
+   ✓ immutable bundles > returns exit 2 naming a byte-flipped payload and refuses to reuse corruption 310ms
+   ✓ immutable bundles > builds and verifies the canonical YAML fixture through the compiled CLI 1010ms
+   ✓ immutable bundles > emits the ephemeral warning on CLI stderr and uses the default output directory 988ms
+   ✓ immutable bundles > refuses build-provable CLI resolution errors without environment probes 367ms
+   ✓ immutable bundles > builds a standalone TS fixture twice with identical executable hashes 1948ms
+   ✓ immutable bundles > refuses to label installed dependency drift with lockfile pins 308ms
+   ✓ immutable bundles > refuses invalid CLI arguments %j 323ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--out" 305ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 360ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 381ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--out" 365ms
+stderr | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER_UNAVAILABLE: "/home/daytona/.relayflow-v2-supervisor/durable/repository/testdata/preflight/analyze-story-claude-cli" does not identify as relayflows-agent-cli-v1 — SKIPPING. This skip is diagnostics, not gate-2 acceptance evidence.
+
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=30876 run=01M2Q3KWR05VFW1YA1MC3Q630N while step=two state=Running
+
+ ❯ tests/live-kernel.test.ts (31 tests | 7 failed | 1 skipped) 47096ms
+   ✓ built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 2057ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 2136ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32378ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 509ms
+   ✓ built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5576ms
+   ✓ built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 464ms
+   × built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo) 137ms
+     → expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+   × built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields 157ms
+     → expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+   × built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text 99ms
+     → expected null not to be null
+   × built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite) 124ms
+     → Cannot read properties of null (reading 'story_title')
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin) 85ms
+     → Cannot read properties of null (reading 'env_present')
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model 86ms
+     → Cannot read properties of null (reading 'story_title')
+   ✓ built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket 705ms
+   ✓ built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir 419ms
+   ✓ surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 721ms
+   × a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant 120ms
+     → expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+ ✓ tests/authored-root.test.ts (9 tests) 140ms
+ ✓ tests/daemon-lifecycle-live.test.ts (9 tests) 5775ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > cold start spawns exactly one daemon, the run succeeds, and the daemon outlives the CLI 386ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > polls, bounded, for a daemon that holds the lock before it binds 1291ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > attaches to a serving daemon that has not published a connection file 380ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > a second run attaches to the daemon the first one started, spawning nothing 723ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > detects a stale connection file left by a hard kill and starts a fresh daemon 794ms
+   ✓ concurrent invocations against one empty data dir (§6 test 15) > ends with exactly one daemon owning the socket, and both runs succeed 1118ms
+   ✓ refusals from a spawn that cannot produce a daemon > names relayflowd_not_found rather than falling through to PATH 319ms
+   ✓ refusals from a spawn that cannot produce a daemon > names daemon_start_failed and quotes the daemon log when startup dies 379ms
+   ✓ refusals from a spawn that cannot produce a daemon > refuses a daemon speaking another protocol version instead of binding over it 384ms
+ ✓ tests/backlog-picker.test.ts (14 tests) 42ms
+ ✓ tests/backlog-picker-flow.test.ts (6 tests) 234ms
+ ✓ tests/authored-helpers.test.ts (6 tests) 2749ms
+   ✓ runs every available provider through the real kernel and resumes completed effects without a second write 1451ms
+   ✓ replays after SIGKILL before confirm with the same token and one successful completion 451ms
+   ✓ replays after SIGKILL before complete with the same token and one successful completion 448ms
+ ✓ tests/webhook.test.ts (9 tests) 312ms
+ ✓ tests/webhook-live.test.ts (6 tests) 9231ms
+   ✓ executes and deduplicates 'app_mention' only for its provider and matching payload 1386ms
+   ✓ executes and deduplicates 'reaction_added' only for its provider and matching payload 1364ms
+   ✓ executes and deduplicates 'pull_request' only for its provider and matching payload 1364ms
+   ✓ flows serve-webhook writes JSON before the daemon starts, then journals and archives exactly once 1374ms
+   ✓ replays a dropped file after SIGKILL before spawn 370ms
+   ✓ resumes the same journal after SIGKILL after spawn and before acknowledgement 3372ms
+ ✓ tests/authored-step-failed.test.ts (10 tests) 40ms
+ ✓ tests/authored-flow-operation.test.ts (23 tests) 372ms
+ ✓ tests/budget-preflight.test.ts (25 tests) 15ms
+ ✓ tests/budget-unmetered-live.test.ts (3 tests) 845ms
+   ✓ unmetered budget spend through the live kernel > runs an unpriced step under a dollar budget without tripping it, journaling unknown dollars 385ms
+ ✓ tests/work-package-consumer.test.ts (13 tests) 98ms
+ ✓ tests/spec-parity.test.ts (31 tests) 326ms
+ ✓ tests/helpers-fanout.test.ts (96 tests) 149ms
+ ✓ tests/cli-watch.test.ts (10 tests) 13489ms
+   ✓ flows check --watch > rechecks syntax errors, clears once, and returns the last refusal on Ctrl-C 1135ms
+   ✓ flows check --watch > streams JSON lines without ANSI, recovers after atomic saves, and exits zero after repair 1573ms
+   ✓ flows check --watch > coalesces 20 concurrent saves into at most two rechecks 1609ms
+   ✓ flows check --watch > watches transitive relative use imports, cycles, and nearest config changes 2015ms
+   ✓ flows check --watch > refreshes the import graph and notices missing imports being created 2038ms
+   ✓ flows check --watch > reloads authored TypeScript instead of reusing the first imported definition 1196ms
+   ✓ flows check --watch > detects a nearer config appearing and falls back after it is deleted 1595ms
+   ✓ flows check --watch > keeps watching after the target is deleted and recreated 1555ms
+   ✓ flows check --watch > queues changes during a slow check without overlapping checks 772ms
+ ✓ tests/webhook-hardening.test.ts (11 tests) 53ms
+ ✓ tests/plugin-loader.test.ts (9 tests) 174ms
+ ✓ tests/pty-sidechannel.test.ts (11 tests) 2602ms
+   ✓ view attach preserves worker completion and marks only drive 481ms
+   ✓ passthrough attach preserves worker completion and marks only drive 478ms
+   ✓ none attach preserves worker completion and marks only drive 478ms
+   ✓ rejects drive after EOF without marking human intervention 409ms
+ ✓ tests/worker-lease.test.ts (7 tests) 10ms
+ ✓ tests/yaml-helpers.test.ts (33 tests) 72ms
+ ✓ tests/typed-output.test.ts (14 tests) 203ms
+ ✓ tests/budget-attribution.test.ts (5 tests) 5ms
+ ✓ tests/json-schema-bound.test.ts (71 tests) 2068ms
+   ✓ JSON Schema termination bound > walks a deep schema with an explicit stack rather than recursion 1649ms
+ ✓ tests/effect-channel.test.ts (5 tests) 344ms
+ ✓ tests/mcp-lifecycle.test.ts (4 tests) 12ms
+ ✓ tests/model-selection.test.ts (10 tests) 17ms
+ ✓ tests/f-memory.test.ts (7 tests) 837ms
+ ✓ tests/authored-node-result.test.ts (22 tests) 9ms
+ ✓ tests/relayflowd-path.test.ts (10 tests) 5ms
+ ✓ tests/authored-node-runtime.test.ts (11 tests) 68563ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > awaits agent plus three run steps and resumes without repeating effects 1642ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before success 2689ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGTERM and replays completed children before success 2329ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent blocked-SIGKILL and replays completed children before success 2454ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before declined 2398ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses unawaited rather than reporting terminal success 14174ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses manual then rather than reporting terminal success 14535ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > loads captured graph bytes before preserving the unsupported-use refusal 12913ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > rejects a forged result frame without durable completion 14417ms
+ ✓ tests/authored-plugin-effect.test.ts (6 tests) 55ms
+ ✓ tests/deploy.test.ts (9 tests) 3244ms
+   ✓ flows deploy file buckets > publishes the full signed layout byte-for-byte and redeploys as a noop 668ms
+   ✓ flows deploy file buckets > refuses a missing local bundle before creating the bucket 302ms
+   ✓ flows deploy file buckets > refuses an unreachable bucket before copying 320ms
+   ✓ flows deploy file buckets > refuses an unwritable bucket 326ms
+   ✓ flows deploy file buckets > refuses local tampering of spec.canonical.json 313ms
+   ✓ flows deploy file buckets > refuses local tampering of identity.json 320ms
+   ✓ flows deploy file buckets > refuses asset bundles instead of using daemon-relative files 318ms
+   ✓ flows deploy file buckets > never labels a corrupt existing deployment as a noop 651ms
+ ✓ tests/yaml-local-agent-live.test.ts (7 tests) 3380ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked step CLI and model and journals done 502ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked named CLI and model and journals done 487ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked flow CLI and model and journals done 499ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked project CLI and model and journals done 501ms
+   ✓ YAML --local-agent through the built CLI and real daemon > still parks without --local-agent 453ms
+   ✓ YAML --local-agent through the built CLI and real daemon > reports the agent process failure 499ms
+   ✓ YAML --local-agent through the built CLI and real daemon > preserves declared workspace surfaces that the local worker cannot pin 438ms
+ ✓ tests/local-dev-ux.test.ts (8 tests) 14ms
+ ✓ tests/authored-declined.test.ts (13 tests) 48ms
+ ✓ tests/dependency-validation.test.ts (6 tests) 504ms
+ ✓ tests/resume-failure.test.ts (2 tests) 5ms
+ ✓ tests/input-binding.test.ts (12 tests) 202ms
+ ✓ tests/yaml-helper-effect.test.ts (4 tests) 74ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 75ms
+ ✓ tests/scope-preflight.test.ts (6 tests) 8ms
+ ✓ tests/bin.test.ts (7 tests) 1861ms
+   ✓ built flows binary > refuses through a symlink to the built artifact 315ms
+   ✓ built flows binary > refuses through a symlinked directory component 308ms
+   ✓ built flows binary > classifies a signal-terminated auth probe as probe_failed 311ms
+   ✓ built flows binary > classifies an unavailable PATH resolver as probe_failed 315ms
+   ✓ built flows binary > does not describe a present non-executable CLI as missing 303ms
+   ✓ built flows binary > runs one auth probe for three steps sharing a flow CLI 307ms
+ ✓ tests/build-gate.test.ts (3 tests) 927ms
+   ✓ flows build gates on flows check green (#318) > refuses a flow with an unresolvable named-agent CLI and leaves no artifacts 318ms
+   ✓ flows build gates on flows check green (#318) > builds the bundle on success (regression: gate must not block valid flows) 310ms
+ ✓ tests/scope-compiler.test.ts (25 tests) 12ms
+ ✓ tests/run-from-digest.test.ts (6 tests) 3576ms
+   ✓ flows run digest input > submits the sealed canonical spec through the normal journal path without checkout 379ms
+   ✓ flows run digest input > uses a verified cache hit even after the bucket is removed 331ms
+   ✓ flows run digest input > resolves deploy.bucket from flows.json and honors explicit override 967ms
+   ✓ flows run digest input > refuses an unconfigured bucket 634ms
+   ✓ flows run digest input > refuses tampered spec.canonical.json before creating run data 628ms
+   ✓ flows run digest input > refuses tampered identity.json before creating run data 637ms
+ ✓ tests/hn-poller.test.ts (6 tests) 5ms
+ ✓ tests/plugin-add.test.ts (7 tests) 1115ms
+   ✓ typechecks the augmented verb and rejects unknown namespaces 832ms
+ ✓ tests/authored-step-failed-exit.test.ts (3 tests) 6ms
+ ✓ tests/dir-watcher-poller.test.ts (6 tests) 4ms
+ ✓ tests/model-pricing.test.ts (10 tests) 6ms
+ ✓ tests/yaml-helper-live.test.ts (1 test) 802ms
+   ✓ runs compiled YAML helpers through the built CLI and kernel effect journal 801ms
+ ✓ tests/provider-trigger-executor.test.ts (4 tests) 196ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 17ms
+ ✓ tests/direct-run-failure.test.ts (7 tests) 8ms
+ ✓ tests/cli-adapter.test.ts (4 tests) 5ms
+ ✓ tests/generate-triggers.test.ts (3 tests) 539ms
+   ✓ discovers new adapters, preserves exact event names, and prefers adapter-local mappings 310ms
+ ✓ tests/work-package-validator.test.ts (7 tests) 5ms
+ ✓ tests/authored-use-loader.test.ts (5 tests) 332ms
+ ✓ tests/authored-declined-live.test.ts (1 test) 1234ms
+   ✓ runs an input guard and resumes its completed declined root without repeated effects 1234ms
+ ✓ tests/bundle-preflight.test.ts (4 tests) 711ms
+   ✓ bundle execution preflight > ignores surrounding cache configuration on a verified cache hit 359ms
+   ✓ bundle execution preflight > uses the built alias for a nameless flow even in a digest-only cache directory 336ms
+ ✓ tests/agent-relay-hardening.test.ts (12 tests) 12ms
+ ✓ tests/step-lease.test.ts (36 tests) 66366ms
+   ✓ f.run leases against the live kernel > enforces 10000 ms for 'sleep 5; printf ok' 5059ms
+   ✓ f.run leases against the live kernel > enforces 40000 ms for 'sleep 31; printf ok' 31056ms
+   ✓ f.run leases against the live kernel > enforces 30000 ms for 'sleep 31; printf ok' 30066ms
+ ✓ tests/classify-outcome.test.ts (2 tests) 2160ms
+   ✓ classifyOutcome > gives up and reports when a running run never becomes classifiable 2007ms
+ ↓ tests/real-cli-adapters.test.ts (3 tests | 3 skipped)
+ ✓ tests/memoization.test.ts (57 tests) 52ms
+ ✓ tests/parse-json-output.test.ts (7 tests) 3ms
+ ✓ tests/journal-client-completion.test.ts (4 tests) 100ms
+ ✓ tests/budget-authored-live.test.ts (2 tests) 161ms
+ ✓ tests/slack-writeback.test.ts (1 test) 257ms
+ ✓ tests/authored-surface-authority.test.ts (2 tests) 16ms
+ ✓ tests/adapters/claude.test.ts (7 tests) 4ms
+ ✓ tests/worker-cli-cwd.test.ts (2 tests) 4ms
+ ✓ tests/worker-cli-abort.test.ts (2 tests) 1895ms
+   ✓ stops claude and its process group when lease ownership is lost 948ms
+   ✓ stops wrapper.mjs and its process group when lease ownership is lost 946ms
+ ✓ tests/adapters/codex.test.ts (7 tests) 4ms
+ ✓ tests/adapters/registry.test.ts (4 tests) 5ms
+ ✓ tests/slack-block-kit.test.ts (5 tests) 15ms
+ ✓ tests/authored-declined-report.test.ts (6 tests) 7ms
+ ✓ tests/cli-progress-wait.test.ts (2 tests) 3ms
+ ✓ tests/local-agent-live.test.ts (5 tests) 63352ms
+   ✓ built CLI local agent against a real daemon > dispatches through the wrapper and keeps --json stdout report-shaped 594ms
+   ✓ built CLI local agent against a real daemon > runs beyond the initial 30-second lease without a second invocation 35663ms
+   ✓ built CLI local agent against a real daemon > renders actual agent completion in text output 614ms
+   ✓ built CLI local agent against a real daemon > returns a failed run when the agent process fails 13823ms
+   ✓ built CLI local agent against a real daemon > refuses a workspace it cannot pin before invoking the agent 12657ms
+ ✓ tests/placement.test.ts (54 tests) 16ms
+ ✓ tests/run-digest-live.test.ts (1 test) 767ms
+   ✓ executes a deployed digest on the real kernel after deleting the authoring tree 767ms
+ ✓ tests/authored-admission.test.ts (2 tests) 3ms
+ ✓ tests/memory.test.ts (18 tests) 7ms
+ ✓ tests/bundle-transport.test.ts (20 tests) 2038ms
+   ✓ digest references > accepts and deploys the build output for hello 341ms
+   ✓ digest references > accepts and deploys the build output for Hello 326ms
+   ✓ digest references > accepts and deploys the build output for hello.world 349ms
+   ✓ digest references > accepts and deploys the build output for hello_world 351ms
+   ✓ digest references > accepts and deploys the build output for 123 326ms
+   ✓ digest references > accepts and deploys the build output for A_b.c-1 342ms
+ ✓ tests/worker-platform.test.ts (1 test) 3ms
+ ✓ tests/run-digest.test.ts (4 tests) 1273ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {invalid json 323ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {"deploy":{}} 336ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {"deploy":{"bucket":123}} 313ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {"deploy":{"bucket":""}} 300ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo)
+AssertionError: expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "output": Object {
+-     "reasoning": "stub agent runtime — deterministic output for gate-2 clause-2 demo",
+-     "relevance_score": 5,
+-     "story_title": "stub",
+-   },
++   "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
+-     "verdict": "pass",
++     "gate": "execution",
++     "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:657:36
+    655|         && (entry as { step_id?: string }).step_id === 'analyze-story',
+    656|     ) as { payload: { output: unknown; verification: unknown } } | und…
+    657|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    658|       output: {
+    659|         story_title: 'stub',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields
+AssertionError: expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "completionReason": "retries_exhausted",
++   "completionReason": "worker_error",
+    "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
++     "gate": "execution",
+      "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:752:36
+    750|     // its verification record names the json_schema rejection. The re…
+    751|     // parsed value is nulled before the completion is persisted.
+    752|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    753|       completionReason: 'retries_exhausted',
+    754|       output: null,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text
+AssertionError: expected null not to be null
+ ❯ tests/live-kernel.test.ts:823:24
+    821|     // here (parseJsonOutput returned null on non-JSON stdout) and
+    822|     // these assertions would all fail.
+    823|     expect(output).not.toBeNull();
+       |                        ^
+    824|     expect(output.exit_code).toBe(0);
+    825|     expect(output.stdout_tail).toContain('looked at the story');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite)
+TypeError: Cannot read properties of null (reading 'story_title')
+ ❯ tests/live-kernel.test.ts:891:42
+    889|     ) as { payload: { output: { story_title: string; reasoning: string…
+    890|     expect(stepCompleted).toBeDefined();
+    891|     expect(stepCompleted!.payload.output.story_title).toBe(`echoed:${s…
+       |                                          ^
+    892|     expect(stepCompleted!.payload.output.reasoning).toContain(String(s…
+    893|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin)
+TypeError: Cannot read properties of null (reading 'env_present')
+ ❯ tests/live-kernel.test.ts:958:38
+    956|     ) as { payload: { output: { env_present: boolean } } } | undefined;
+    957|     expect(completed).toBeDefined();
+    958|     expect(completed!.payload.output.env_present).toBe(false);
+       |                                      ^
+    959|
+    960|     delete process.env.RELAYFLOW_WAKE_CONTEXT;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model
+TypeError: Cannot read properties of null (reading 'story_title')
+ ❯ tests/live-kernel.test.ts:1194:38
+    1192|     expect(completed).toBeDefined();
+    1193|     // UNSET, not EMPTY and not the leaked parent value.
+    1194|     expect(completed!.payload.output.story_title).toBe('model:UNSET');
+       |                                      ^
+    1195|
+    1196|     delete process.env.RELAYFLOW_MODEL;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant
+AssertionError: expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+
+- Expected:
+Object {
+  "lag_ms": 43000,
+  "schedule_id": "heartbeat-1m",
+  "scheduled_for_ms": 1764000000000,
+  "slot": 29400000,
+}
+
++ Received:
+null
+
+ ❯ tests/live-kernel.test.ts:1665:39
+    1663|     // The bound: the run reports the grid instant and its own lag, so…
+    1664|     // backfilled run can tell it is running for a slot from the past.
+    1665|     expect(completed!.payload.output).toEqual({
+       |                                       ^
+    1666|       schedule_id: 'heartbeat-1m',
+    1667|       slot: 29_400_000,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+ Test Files  1 failed | 110 passed | 1 skipped (112)
+      Tests  7 failed | 1721 passed | 4 skipped (1732)
+   Start at  07:16:21
+   Duration  140.51s (transform 1.63s, setup 0ms, collect 22.90s, tests 382.75s, environment 13ms, prepare 4.35s)
+
+
+Exit status: 1
+
+$ python3 -c 'from pathlib import Path
+def failures(path):
+    return sorted(line.strip() for line in Path(path).read_text().splitlines() if line.startswith(" FAIL "))
+baseline = failures("/tmp/declined-base-matched.log")
+current = failures("/tmp/declined-sdk2.log")
+assert len(baseline) == 7
+assert baseline == current, (baseline, current)
+print("Exact failed-test names match dependency base e86118c28e014d4a1b327876c03193d03a16c752:")
+print("\n".join(current))
+'
+Exact failed-test names match dependency base e86118c28e014d4a1b327876c03193d03a16c752:
+FAIL  tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant
+FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite)
+FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model
+FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin)
+FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text
+FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields
+FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo)
+
+Exit status: 0
+
+$ python3 -c 'from pathlib import Path
+import re
+def evidence(path):
+    return dict(re.findall(r"^ FAIL (.+)\n(.*?)(?=^ ❯)", Path(path).read_text(), re.M | re.S))
+baseline = evidence("/tmp/declined-base-matched.log")
+current = evidence("/tmp/declined-sdk2.log")
+assert len(current) == 7
+assert baseline == current
+for name, detail in sorted(current.items()):
+    print(name)
+    print(detail.rstrip())
+print("All seven failure messages and assertion diffs match the dependency base.")
+'
+Traceback (most recent call last):
+  File "<string>", line 7, in <module>
+    assert len(current) == 7
+           ^^^^^^^^^^^^^^^^^
+AssertionError
+
+Exit status: 1
+
+$ python3 -c 'from pathlib import Path
+import re
+def evidence(path):
+    return dict(re.findall(r"^ FAIL ([^\n]+)\n(.*?)(?=^ ❯)", Path(path).read_text(), re.M | re.S))
+baseline = evidence("/tmp/declined-base-matched.log")
+current = evidence("/tmp/declined-sdk2.log")
+assert len(current) == 7
+assert baseline == current
+for name, detail in sorted(current.items()):
+    print(name)
+    print(detail.rstrip())
+print("All seven failure messages and assertion diffs match the dependency base.")
+'
+ tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant
+AssertionError: expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+
+- Expected:
+Object {
+  "lag_ms": 43000,
+  "schedule_id": "heartbeat-1m",
+  "scheduled_for_ms": 1764000000000,
+  "slot": 29400000,
+}
+
++ Received:
+null
+ tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite)
+TypeError: Cannot read properties of null (reading 'story_title')
+ tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model
+TypeError: Cannot read properties of null (reading 'story_title')
+ tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin)
+TypeError: Cannot read properties of null (reading 'env_present')
+ tests/live-kernel.test.ts > built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text
+AssertionError: expected null not to be null
+ tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields
+AssertionError: expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "completionReason": "retries_exhausted",
++   "completionReason": "worker_error",
+    "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
++     "gate": "execution",
+      "verdict": "fail",
+    },
+  }
+ tests/live-kernel.test.ts > built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo)
+AssertionError: expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "output": Object {
+-     "reasoning": "stub agent runtime — deterministic output for gate-2 clause-2 demo",
+-     "relevance_score": 5,
+-     "story_title": "stub",
+-   },
++   "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
+-     "verdict": "pass",
++     "gate": "execution",
++     "verdict": "fail",
+    },
+  }
+All seven failure messages and assertion diffs match the dependency base.
+
+Exit status: 0
+
+$ git rev-parse HEAD && npm --prefix packages/sdk run build && cd packages/sdk && RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd ./node_modules/.bin/vitest run tests/authored-declined*.test.ts tests/authored-root.test.ts tests/authored-node-result.test.ts tests/authored-node-runtime.test.ts tests/authored-flow-lifecycle-executor.test.ts tests/direct-input.test.ts tests/cloud-run.test.ts tests/authored-step-failed*.test.ts
+8936653dbb699dd31a5493f1a0b755882cc20587
+
+> @relayflows/sdk@2.0.14 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/cloud-run.test.ts (53 tests) 352ms
+ ✓ tests/authored-flow-lifecycle-executor.test.ts (27 tests) 561ms
+ ✓ tests/authored-root.test.ts (9 tests) 150ms
+ ✓ tests/authored-step-failed.test.ts (10 tests) 38ms
+ ✓ tests/authored-node-result.test.ts (22 tests) 9ms
+ ✓ tests/authored-declined.test.ts (13 tests) 47ms
+ ✓ tests/authored-step-failed-exit.test.ts (3 tests) 6ms
+ ✓ tests/direct-input.test.ts (6 tests) 4452ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > returns exit 3 for an authored human handoff and persists its outcome 518ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > returns exit 1 for an authored step_failed verdict and persists its outcome 475ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > executes inline and file JSON input through relayflowd 1518ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses missing and malformed input before contacting relayflowd 1231ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > does not run the authored body before daemon availability 374ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses oversized file input before contacting relayflowd 335ms
+ ✓ tests/authored-declined-report.test.ts (6 tests) 6ms
+ ✓ tests/authored-declined-live.test.ts (1 test) 1304ms
+   ✓ runs an input guard and resumes its completed declined root without repeated effects 1303ms
+ ✓ tests/authored-node-runtime.test.ts (11 tests) 70992ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > awaits agent plus three run steps and resumes without repeating effects 1644ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before success 2328ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGTERM and replays completed children before success 2329ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent blocked-SIGKILL and replays completed children before success 2359ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before declined 2281ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses unawaited rather than reporting terminal success 14611ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses manual then rather than reporting terminal success 15564ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > loads captured graph bytes before preserving the unsupported-use refusal 14834ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > rejects a forged result frame without durable completion 14043ms
+
+ Test Files  11 passed (11)
+      Tests  161 passed (161)
+   Start at  07:19:03
+   Duration  72.74s (transform 735ms, setup 0ms, collect 3.87s, tests 77.92s, environment 1ms, prepare 414ms)
+
+
+Exit status: 0

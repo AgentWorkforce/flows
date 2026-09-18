@@ -10,6 +10,57 @@ export const slack = Object.freeze({
   reaction_added(filter?: WebhookFilter) {
     return providerTrigger("slack", "reaction_added", filter);
   },
+  channel_archived(filter?: WebhookFilter) {
+    return providerTrigger("slack", "channel.archived", filter);
+  },
+  channel_created(filter?: WebhookFilter) {
+    return providerTrigger("slack", "channel.created", filter);
+  },
+  channel_deleted(filter?: WebhookFilter) {
+    return providerTrigger("slack", "channel.deleted", filter);
+  },
+  channel_member_joined(filter?: WebhookFilter) {
+    return providerTrigger("slack", "channel.member_joined", filter);
+  },
+  channel_member_left(filter?: WebhookFilter) {
+    return providerTrigger("slack", "channel.member_left", filter);
+  },
+  channel_renamed(filter?: WebhookFilter) {
+    return providerTrigger("slack", "channel.renamed", filter);
+  },
+  channel_unarchived(filter?: WebhookFilter) {
+    return providerTrigger("slack", "channel.unarchived", filter);
+  },
+  group_archived(filter?: WebhookFilter) {
+    return providerTrigger("slack", "group.archived", filter);
+  },
+  group_deleted(filter?: WebhookFilter) {
+    return providerTrigger("slack", "group.deleted", filter);
+  },
+  group_renamed(filter?: WebhookFilter) {
+    return providerTrigger("slack", "group.renamed", filter);
+  },
+  group_unarchived(filter?: WebhookFilter) {
+    return providerTrigger("slack", "group.unarchived", filter);
+  },
+  message_created(filter?: WebhookFilter) {
+    return providerTrigger("slack", "message.created", filter);
+  },
+  message_deleted(filter?: WebhookFilter) {
+    return providerTrigger("slack", "message.deleted", filter);
+  },
+  message_updated(filter?: WebhookFilter) {
+    return providerTrigger("slack", "message.updated", filter);
+  },
+  reaction_removed(filter?: WebhookFilter) {
+    return providerTrigger("slack", "reaction.removed", filter);
+  },
+  user_changed(filter?: WebhookFilter) {
+    return providerTrigger("slack", "user.changed", filter);
+  },
+  user_joined(filter?: WebhookFilter) {
+    return providerTrigger("slack", "user.joined", filter);
+  },
   mention(channel: string) {
     return providerTrigger("slack", "app_mention", { channel: triggerArgument(channel, "channel") });
   },

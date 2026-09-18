@@ -24,6 +24,9 @@ import { runDirectFlow } from './cli/direct-run.js';
 import { parseReplayArgs, replayJournal, type ReplayArgs } from './cli/replay.js';
 import { checkTypeScriptFlow } from './cli/check-typescript.js';
 import { runCloudCli } from './cli/cloud-run.js';
+import { runCloudSyncCli } from './cli/cloud-sync.js';
+import { parseCloudDeployArgs, runCloudDeployCli, runCloudDeploymentsCli, runCloudUndeployCli, type CloudDeployArgs } from './cli/cloud-deploy.js';
+import { parseCloudScheduleArgs, runCloudScheduleCli, runCloudSchedulesCli, runCloudUnscheduleCli, type CloudScheduleArgs } from './cli/cloud-schedule.js';
 import { isAuthoredFlowPath } from './direct-input.js';
 import { parseDeployArgs, runDeploy, type DeployArgs } from './cli/deploy.js';
 import { parseDigestReference } from './bundle-transport.js';
@@ -51,7 +54,14 @@ type ParsedArgs =
   | BuildArgs
   | DeployArgs
   | { command: 'serve-webhook'; dataDir: string; port: number; admitted?: readonly string[] }
-  | { command: 'cloud-run'; value: string; json: boolean; wait: boolean }
+  | { command: 'cloud-run'; value: string; json: boolean; wait: boolean; input: string | undefined; syncCode: boolean }
+  | { command: 'sync'; runId: string; json: boolean; root: string }
+  | CloudDeployArgs
+  | { command: 'deployments'; json: boolean }
+  | { command: 'undeploy'; agentId: string; json: boolean }
+  | CloudScheduleArgs
+  | { command: 'schedules'; json: boolean }
+  | { command: 'unschedule'; scheduleId: string; json: boolean }
   | { command: 'check'; json: boolean; watch: boolean; value: string }
   | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'resume'; localAgent: boolean; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
@@ -66,12 +76,20 @@ const USAGE = [
   'flows add <helper-name|@flows/helper-name>',
   'flows build [--out <dir>] <flow.yaml|flow.ts>',
   'flows build --verify <bundle-dir>',
+  'flows deploy <flow.ts> --repo <owner/name> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--json]',
+  'flows deployments [--json]',
+  'flows undeploy [--json] <deployment-id>',
+  'flows schedule <flow.yaml|flow.ts> [--cron "<expr>" | --every <n><s|m|h|d>] [--tz <IANA>] [--input <inline-json-or-file>] [--name <name>] [--json]',
+  'flows schedules [--json]',
+  'flows unschedule [--json] <schedule-id>',
   'flows deploy <flow>@sha256:<digest> --to <file-bucket-uri>',
   'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json]',
   'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
   'flows serve-webhook --data-dir <dir> --port <p> [--allow <name>[,<name>]]',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] [--reuse-from <run-id>] <flow.yaml|spec.json>',
-  'flows run --cloud [--json] [--wait] <flow.yaml|spec.json>',
+  'flows run --cloud [--json] [--wait] [--sync-code] <flow.yaml|spec.json>',
+  'flows run --cloud [--json] [--wait] [--sync-code] <flow.ts> --input <inline-json-or-file>',
+  'flows sync [--json] [--dir <path>] <run-id>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <run-id>',
@@ -116,6 +134,13 @@ export async function runCli(
   if (parsed.command === 'serve-webhook') return runServeWebhook(parsed, io);
 
   if (parsed.command === 'cloud-run') return runCloudCli(parsed, io);
+  if (parsed.command === 'sync') return runCloudSyncCli(parsed, io);
+  if (parsed.command === 'cloud-deploy') return runCloudDeployCli(parsed, io);
+  if (parsed.command === 'deployments') return runCloudDeploymentsCli(parsed, io);
+  if (parsed.command === 'undeploy') return runCloudUndeployCli(parsed, io);
+  if (parsed.command === 'schedule') return runCloudScheduleCli(parsed, io);
+  if (parsed.command === 'schedules') return runCloudSchedulesCli(parsed, io);
+  if (parsed.command === 'unschedule') return runCloudUnscheduleCli(parsed, io);
   if (parsed.command === 'replay') return replayJournal(parsed, io);
   if (parsed.command === 'build') return runBuild(parsed, io);
   if (parsed.command === 'deploy') return runDeploy(parsed, io);
@@ -251,6 +276,7 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
   return {
     report: {
       ...mcp.report,
+      ...(triggers?.report.schedules === undefined ? {} : { schedules: triggers.report.schedules }),
       diagnostics: [...helper.report.diagnostics, ...mcp.report.diagnostics, ...triggerDiagnostics],
       ok: helper.report.ok && mcp.report.ok && triggerOk,
     },
@@ -419,17 +445,47 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (command === 'add') return args.length === 2 ? { command: 'add', value: args[1]! } : undefined;
   if (command === 'replay') return parseReplayArgs(args.slice(1));
   if (command === 'build') return parseBuildArgs(args.slice(1));
-  if (command === 'deploy') return parseDeployArgs(args.slice(1));
+  if (command === 'deploy') {
+    // The positional decides the form: an authored source deploys a hosted
+    // listener; a digest reference copies a sealed bundle into a file bucket.
+    const source = args.slice(1).find(a => !a.startsWith('-') && isAuthoredFlowPath(a));
+    return source !== undefined ? parseCloudDeployArgs(args.slice(1)) : parseDeployArgs(args.slice(1));
+  }
+  if (command === 'schedule') return parseCloudScheduleArgs(args.slice(1));
+  if (command === 'schedules') {
+    const rest = args.slice(1);
+    if (rest.length > 1 || (rest.length === 1 && rest[0] !== '--json')) return undefined;
+    return { command: 'schedules', json: rest.length === 1 };
+  }
+  if (command === 'unschedule') {
+    const rest = args.slice(1).filter(a => a !== '--json');
+    const json = args.length - 1 - rest.length;
+    if (json > 1 || rest.length !== 1 || rest[0]!.startsWith('-')) return undefined;
+    return { command: 'unschedule', scheduleId: rest[0]!, json: json === 1 };
+  }
+  if (command === 'undeploy') {
+    const rest = args.slice(1).filter(a => a !== '--json');
+    const json = args.length - 1 - rest.length;
+    if (json > 1 || rest.length !== 1 || rest[0]!.startsWith('-')) return undefined;
+    return { command: 'undeploy', agentId: rest[0]!, json: json === 1 };
+  }
+  if (command === 'deployments') {
+    const rest = args.slice(1);
+    if (rest.length > 1 || (rest.length === 1 && rest[0] !== '--json')) return undefined;
+    return { command: 'deployments', json: rest.length === 1 };
+  }
   if (command === 'serve-webhook') return parseWebhookArgs(args.slice(1));
   if (command === 'hn-monitor') return parseHnMonitorArgs(args.slice(1));
   if (command === 'tick') return parseTickArgs(args.slice(1));
   if (command === 'observer') return parseObserverArgs(args.slice(1));
+  if (command === 'sync') return parseSyncArgs(args.slice(1));
   if (command !== 'check' && command !== 'run' && command !== 'resume') return undefined;
 
   let json = false;
   let watch = false;
   let cloud = false;
   let wait = false;
+  let syncCode = false;
   let localAgent = false;
   let allowHumanInfluenced = false;
   let dataDir = DEFAULT_DATA_DIR;
@@ -443,10 +499,11 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   const positionals: string[] = [];
   for (let index = 1; index < args.length; index += 1) {
     const argument = args[index]!;
-    if (argument === '--cloud' || argument === '--wait') {
-      if (command !== 'run' || (argument === '--cloud' ? cloud : wait)) return undefined;
+    if (argument === '--cloud' || argument === '--wait' || argument === '--sync-code') {
+      if (command !== 'run' || (argument === '--cloud' ? cloud : argument === '--wait' ? wait : syncCode)) return undefined;
       if (argument === '--cloud') cloud = true;
-      else wait = true;
+      else if (argument === '--wait') wait = true;
+      else syncCode = true;
       continue;
     }
     if (argument === '--allow-human-influenced') {
@@ -520,13 +577,15 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (bucket !== undefined && (cloud || !parseDigestReference(positionals[0]!))) return undefined;
   if (cloud) {
     // `--cloud` submits the spec to Cloud, so every flag that only describes a
-    // local run -- an inline input, a data dir, a suppressed daemon, a local
-    // agent, a local observer-link opt-out -- describes nothing there and is
-    // refused rather than ignored.
-    if (allowHumanInfluenced || sawInput || sawDataDir || !spawn || localAgent || noObserverLink || reuseFromRunId !== undefined) return undefined;
-    return { command: 'cloud-run', value: positionals[0]!, json, wait };
+    // local run -- a data dir, a suppressed daemon, a local agent, a local
+    // observer-link opt-out -- describes nothing there and is refused rather
+    // than ignored. `--input` is the authored body's argument and travels with
+    // the source, so it is accepted exactly where a local run accepts it.
+    if (allowHumanInfluenced || sawDataDir || !spawn || localAgent || noObserverLink || reuseFromRunId !== undefined) return undefined;
+    if (sawInput && !isAuthoredFlowPath(positionals[0]!)) return undefined;
+    return { command: 'cloud-run', value: positionals[0]!, json, wait, input, syncCode };
   }
-  if (wait) return undefined;
+  if (wait || syncCode) return undefined;
   if (reuseFromRunId !== undefined && isAuthoredFlowPath(positionals[0]!)) return undefined;
 
   if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!)) return undefined;
@@ -579,6 +638,32 @@ function parseHnMonitorArgs(rest: readonly string[]): ParsedArgs | undefined {
  * directory at all -- the mint is a pure Relaycast API round-trip. No
  * positional argument, no other flags.
  */
+/** `flows sync [--json] [--dir <path>] <run-id>`: apply a hosted run's patch to a local tree. */
+function parseSyncArgs(args: readonly string[]): ParsedArgs | undefined {
+  let json = false;
+  let root: string | undefined;
+  const positionals: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!;
+    if (argument === '--json') {
+      if (json) return undefined;
+      json = true;
+      continue;
+    }
+    if (argument === '--dir') {
+      const value = args[index + 1];
+      if (root !== undefined || value === undefined || value.startsWith('-')) return undefined;
+      root = value;
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith('-')) return undefined;
+    positionals.push(argument);
+  }
+  if (positionals.length !== 1) return undefined;
+  return { command: 'sync', runId: positionals[0]!, json, root: root ?? '.' };
+}
+
 function parseObserverArgs(rest: readonly string[]): ParsedArgs | undefined {
   let dataDir = DEFAULT_DATA_DIR;
   let sawDataDir = false;
@@ -689,6 +774,15 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
     const vacuous = gate.acceptsAnyOutput === true ? ' [json_schema accepts any output]' : '';
     io.stdout(`GATE step "${gate.stepId}" ${gate.checks.join('+')} from data (kernel, journal-replayable)${vacuous}`);
   }
+  for (const schedule of report.schedules ?? []) {
+    const declared = schedule.cron !== undefined
+      ? `cron "${schedule.cron}"${schedule.tz === undefined ? '' : ` tz ${schedule.tz}`}`
+      : `every ${schedule.intervalMs}ms`;
+    const local = schedule.localUnsupported !== undefined
+      ? `Cloud only: ${schedule.localUnsupported}`
+      : `local: flows tick start --schedule-id ${schedule.scheduleId} --interval-ms ${schedule.intervalMs} --epoch-ms ${schedule.epochMs}`;
+    io.stdout(`SCHEDULE handler ${schedule.handler} ${declared} -> flows.tick schedule_id ${schedule.scheduleId} [${local}]`);
+  }
   for (const resolution of report.resolutions) {
     const config = resolution.source === 'project' && report.projectConfigPath !== undefined
       ? ` (${report.projectConfigPath})`
@@ -750,6 +844,7 @@ function diagnosticLabel(severity: string): string {
     case 'warning': return 'WARNING';
     case 'failure': return 'FAILED';
     case 'parked': return 'PARKED';
+    case 'declined': return 'DECLINED';
     default: return 'REFUSED';
   }
 }
