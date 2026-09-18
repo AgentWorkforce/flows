@@ -78,7 +78,8 @@ export function flowRequirements(
 
   if (isCompiledSpec(flow)) {
     for (const step of flow.steps) {
-      if (step.type !== 'llm' && step.type !== 'agent') continue;
+      // Preflight owns shape refusals; a malformed step is simply not a worker step here.
+      if (typeof step !== 'object' || step === null || (step.type !== 'llm' && step.type !== 'agent')) continue;
       const named = step.type === 'agent' && step.agent !== undefined ? flow.agents?.[step.agent]?.cli : undefined;
       const cli = step.cli ?? named ?? flow.cli;
       need(cli === undefined ? fallback : harnessFromCli(cli), `step "${step.id}"`);

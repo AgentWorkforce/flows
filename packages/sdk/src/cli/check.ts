@@ -120,6 +120,15 @@ export function checkFlow(path: string): CheckExecution {
   }
 }
 
+/** Requirements never turn a preflight refusal into an unrelated exception. */
+function safeRequirements(authoring: FlowSpec, projectCli: string | undefined): FlowRequirements | undefined {
+  try {
+    return flowRequirements(authoring, projectCli === undefined ? {} : { projectCli });
+  } catch {
+    return undefined;
+  }
+}
+
 /** Preflight a validated authored flow through the same path as YAML/JSON. */
 export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConfig?: ProjectConfig): CheckExecution {
   const absolutePath = resolve(path);
@@ -150,7 +159,7 @@ export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConf
         gates: result.gates,
         resolutions: result.resolutions,
         diagnostics: result.diagnostics,
-        requirements: flowRequirements(authoring, { projectCli: config.cli }),
+        requirements: safeRequirements(authoring, config.cli),
       },
       ...(flow !== undefined ? { flow } : {}),
     };
