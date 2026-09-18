@@ -72,3 +72,12 @@ npm install --save-dev @relayflows/surface
 ```
 
 Try on the cloud right now: [https://agentrelay.com/flows](https://agentrelay.com/flows)
+
+# For Agents
+
+Install the skill and hand it to your agent to write, run, and deploy your flow:
+
+```bash
+npx prpm install @agent-relay/writing-relayflows
+npx skills add https://github.com/agentworkforce/skills --skill writing-relayflows
+```
