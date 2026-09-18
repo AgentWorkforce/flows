@@ -1,5 +1,9 @@
 # pr-review-pipeline
 
+[![Deploy Flow](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https%3A%2F%2Fgithub.com%2FAgentWorkforce%2Fflows%2Fblob%2Fmain%2Fexamples%2Fpr-review-pipeline%2Fpr-review-pipeline.flow.ts&on=github%3Aevents%3Dpull_request)
+
+One click deploys this flow to [Agent Relay Cloud](https://agentrelay.com/cloud), running on every pull request.
+
 Runs locally and on Cloud. From a checkout with a `flows.json` naming the
 agent CLI (`{"cli": "claude"}` is enough — see *Running it* below):
 
@@ -7,7 +11,9 @@ agent CLI (`{"cli": "claude"}` is enough — see *Running it* below):
 flows run pr-review-pipeline.flow.ts --local-agent --input '{"diffRange":"origin/main...HEAD"}'
 ```
 
-To have it review every pull request of a repo on Cloud:
+To have it review every pull request of a repo on Cloud (no `diffRange` needed:
+a `pull_request` run checks out the PR head and passes `input.pullRequest`, and
+the flow fetches the base and diffs `FETCH_HEAD...<headSha>`):
 
 ```sh
 flows deploy pr-review-pipeline.flow.ts --repo acme/api --on github:events=pull_request --approver you

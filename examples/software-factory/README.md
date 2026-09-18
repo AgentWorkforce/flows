@@ -1,5 +1,9 @@
 # software-factory
 
+[![Deploy Flow](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https%3A%2F%2Fgithub.com%2FAgentWorkforce%2Fflows%2Fblob%2Fmain%2Fexamples%2Fsoftware-factory%2Fsoftware-factory.flow.ts&on=linear%3Ateam%3DENG)
+
+One click deploys this flow to [Agent Relay Cloud](https://agentrelay.com/cloud), running on every new Linear issue in team `ENG`.
+
 A ticket becomes a pull request: implementation agent → deterministic tests →
 adversarial review agent → PR opened for a human. The review verdict is a file
 the agent must write (`review.passed`), and the tests run outside any agent, so
