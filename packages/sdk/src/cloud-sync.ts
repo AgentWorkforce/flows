@@ -272,37 +272,188 @@ export interface CloudPatch {
   hasChanges: boolean;
 }
 
-/** The sandbox's post-run diff. Multi-path runs carry several patches and are refused here. */
-export async function downloadCloudPatch(runId: string, options: CloudConnectionOptions): Promise<CloudPatch> {
+/** One entry of a multi-path run's patch map: the mounted path's name and its diff. */
+export interface CloudPathPatch extends CloudPatch {
+  name: string;
+}
+
+/**
+ * What `/patch` answered, in both shapes the endpoint can produce.
+ *
+ * A run that declared mounted `paths` gets one `changes-<name>.patch` per path
+ * and the route answers `{ patches: { <name>: { patch, hasChanges } } }`; every
+ * other run gets `changes.patch` and the flat `{ patch, hasChanges }`. The
+ * multi-path shape is not a v1 relic -- `paths` is orthogonal to
+ * `relayflowVersion`, so a v2 run that submits several paths returns it too.
+ */
+export type CloudPatchSet =
+  | { kind: 'single'; patch: string; hasChanges: boolean }
+  | { kind: 'multi-path'; patches: readonly CloudPathPatch[]; hasChanges: boolean };
+
+/**
+ * The sandbox's post-run diff, in whichever shape the run produced.
+ *
+ * Both shapes are modelled rather than one refused at the transport, so a
+ * caller can show a multi-path run's patches (`flows sync --dry-run`) before
+ * deciding what to do with them. Applying them is still the caller's refusal
+ * to make: they target different repositories and no single tree is the right
+ * destination.
+ */
+export async function downloadCloudPatchSet(
+  runId: string, options: CloudConnectionOptions,
+): Promise<CloudPatchSet> {
   const payload = await cloudRequest(`/api/v1/workflows/runs/${encodeURIComponent(cloudRunId(runId))}/patch`, options);
   if (!isCloudRecord(payload)) throw new CloudFlowError('invalid_response', 'Cloud patch response was not an object.');
   if (isCloudRecord(payload.patches)) {
-    const names = Object.keys(payload.patches);
-    throw new CloudFlowError('sync_unsupported',
-      `Run ${runId} produced ${names.length} path-scoped patches (${names.join(', ')}); flows sync applies single-tree runs only.`);
+    const patches: CloudPathPatch[] = [];
+    for (const [name, entry] of Object.entries(payload.patches)) {
+      if (!isCloudRecord(entry) || typeof entry.patch !== 'string' || typeof entry.hasChanges !== 'boolean') {
+        throw new CloudFlowError('invalid_response', `Cloud patch response has an unusable entry for path "${name}".`);
+      }
+      patches.push({ name, patch: entry.patch, hasChanges: entry.hasChanges });
+    }
+    return { kind: 'multi-path', patches, hasChanges: patches.some(entry => entry.hasChanges && entry.patch.trim() !== '') };
   }
   if (typeof payload.patch !== 'string' || typeof payload.hasChanges !== 'boolean') {
     throw new CloudFlowError('invalid_response', 'Cloud patch response is missing patch or hasChanges.');
   }
-  return { patch: payload.patch, hasChanges: payload.hasChanges };
+  return { kind: 'single', patch: payload.patch, hasChanges: payload.hasChanges };
+}
+
+/** The sandbox's post-run diff. Multi-path runs carry several patches and are refused here. */
+export async function downloadCloudPatch(runId: string, options: CloudConnectionOptions): Promise<CloudPatch> {
+  const set = await downloadCloudPatchSet(runId, options);
+  if (set.kind === 'multi-path') {
+    const names = set.patches.map(entry => entry.name);
+    throw new CloudFlowError('sync_unsupported',
+      `Run ${runId} produced ${names.length} path-scoped patches (${names.join(', ')}); flows sync applies single-tree runs only.`);
+  }
+  return { patch: set.patch, hasChanges: set.hasChanges };
+}
+
+/**
+ * Paths a synced patch must never write, the single home for the list.
+ *
+ * These are the agent runtime's own bookkeeping inside a synced tree: helper
+ * binaries staged for the sandbox, the relayfile mount's ACL and state files
+ * (including the temporaries a mid-write state leaves behind), trajectory
+ * records and workflow context. The sandbox commits its baseline before the
+ * run, so every one of them shows up in the post-run diff as a creation or a
+ * modification -- applying that diff verbatim drags the run's own plumbing into
+ * the user's checkout, where at best it is noise in `git diff` and at worst it
+ * overwrites the mount state of the tree being synced into.
+ *
+ * `git apply --exclude` matches these with wildmatch, anchored at the patch
+ * root and with `*` stopping at a `/`: `.agent-bin/**` drops
+ * `.agent-bin/nested/tool` but deliberately not `packages/x/.agent-bin/tool`,
+ * which belongs to a different tree than the one being synced.
+ */
+export const CLOUD_SYNC_PATCH_EXCLUDES = [
+  '.agent-bin/**',
+  '.relayfile.acl',
+  '.relayfile-mount-state.json',
+  '.relayfile-mount-state.json.tmp-*',
+  '.trajectories/**',
+  '.workflow-context/**',
+] as const;
+
+/** The `a/` and `b/` sides of every `diff --git` header, in file order. */
+function patchHeaders(patch: string): { old: string; new: string }[] {
+  const headers: { old: string; new: string }[] = [];
+  for (const match of patch.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gmu)) {
+    headers.push({ old: match[1]!, new: match[2]! });
+  }
+  return headers;
 }
 
 /** Every path a unified diff touches, deletions included, in order of first appearance. */
 export function patchedPaths(patch: string): string[] {
   const paths: string[] = [];
-  for (const match of patch.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gmu)) {
-    for (const path of [match[1]!, match[2]!]) if (!paths.includes(path)) paths.push(path);
+  for (const header of patchHeaders(patch)) {
+    for (const path of [header.old, header.new]) if (!paths.includes(path)) paths.push(path);
   }
   return paths;
 }
 
 /**
+ * `git apply --exclude`'s wildmatch, as a matcher over a patch's own paths.
+ *
+ * Anchored at the patch root, `**` crosses `/` and `*`/`?` do not -- the subset
+ * of wildmatch {@link CLOUD_SYNC_PATCH_EXCLUDES} uses. Kept honest by a test
+ * that runs the same patterns through `git apply --numstat` and requires the
+ * two answers to agree, so a divergence fails here rather than silently
+ * reporting a path as dropped that git actually wrote.
+ */
+function matchesExclude(path: string, pattern: string): boolean {
+  let expression = '^';
+  for (let index = 0; index < pattern.length; index += 1) {
+    const character = pattern[index]!;
+    if (character === '*') {
+      if (pattern[index + 1] === '*') { expression += '.*'; index += 1; continue; }
+      expression += '[^/]*';
+      continue;
+    }
+    expression += character === '?' ? '[^/]' : character.replace(/[.+^${}()|[\]\\]/gu, '\\$&');
+  }
+  return new RegExp(`${expression}$`, 'u').test(path);
+}
+
+/**
+ * The subset of a patch's paths `exclude` drops, in order of first appearance.
+ *
+ * Decided per `diff --git` header on its `b/` side, which is the name `git
+ * apply` itself tests -- so a rename is dropped or kept whole, never half. A
+ * deletion names the same path on both sides, so it is covered by the same rule.
+ */
+export function excludedPatchPaths(
+  patch: string, exclude: readonly string[] = CLOUD_SYNC_PATCH_EXCLUDES,
+): string[] {
+  const paths: string[] = [];
+  for (const header of patchHeaders(patch)) {
+    if (!exclude.some(pattern => matchesExclude(header.new, pattern))) continue;
+    for (const path of [header.old, header.new]) if (!paths.includes(path)) paths.push(path);
+  }
+  return paths;
+}
+
+/** Options for {@link applyCloudPatch}. */
+export interface ApplyCloudPatchOptions {
+  /**
+   * Path patterns to drop, defaulting to {@link CLOUD_SYNC_PATCH_EXCLUDES}.
+   * Pass `[]` to apply a patch whole -- including the runtime artifacts the
+   * default list exists to keep out of a working tree.
+   */
+  exclude?: readonly string[];
+}
+
+/** What {@link applyCloudPatch} wrote, and what it dropped on the way. */
+export interface AppliedCloudPatch {
+  /** Paths the apply wrote, in order of first appearance in the patch. */
+  files: string[];
+  /** Paths `exclude` dropped, in order of first appearance in the patch. */
+  excluded: string[];
+}
+
+/**
  * `git apply --check` then `git apply`; a conflict leaves the tree untouched.
  * The patch lands in the working tree uncommitted, so what the run changed is
- * reviewed with `git diff` before anything is kept — the same contract as v1.
+ * reviewed with `git diff` before anything is kept -- the same contract as v1.
+ *
+ * Both invocations carry the identical `--exclude` arguments. A check run
+ * without them is a different question than the apply answers: it can pass on
+ * an excluded hunk that the apply then never writes, or fail on one and refuse
+ * a patch whose applied part was clean. The exclusions are a property of the
+ * patch that lands, so they belong to both halves or neither.
+ *
+ * A patch whose every path is excluded is a no-op, not a failure: `git apply`
+ * exits 0 having written nothing, and the returned `files` is empty.
  */
-export function applyCloudPatch(root: string, patch: string): void {
-  const args = ['-C', resolve(root), 'apply', '--whitespace=nowarn'];
+export function applyCloudPatch(
+  root: string, patch: string, options: ApplyCloudPatchOptions = {},
+): AppliedCloudPatch {
+  const exclude = options.exclude ?? CLOUD_SYNC_PATCH_EXCLUDES;
+  const args = ['-C', resolve(root), 'apply', '--whitespace=nowarn',
+    ...exclude.map(pattern => `--exclude=${pattern}`)];
   const check = spawnSync('git', [...args, '--check'], { input: patch, encoding: 'utf8' });
   if (check.status !== 0) {
     throw new CloudFlowError('patch_conflict',
@@ -312,4 +463,6 @@ export function applyCloudPatch(root: string, patch: string): void {
   if (apply.status !== 0) {
     throw new CloudFlowError('patch_conflict', `git apply failed:\n${apply.stderr.trim()}`);
   }
+  const excluded = excludedPatchPaths(patch, exclude);
+  return { files: patchedPaths(patch).filter(path => !excluded.includes(path)), excluded };
 }

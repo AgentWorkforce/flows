@@ -36,6 +36,7 @@ import { parseBuildArgs, runBuild, type BuildArgs } from './cli/build.js';
 import { runHnMonitor } from './cli/hn-monitor.js';
 import { runTickRunner } from './cli/tick-runner.js';
 import { DEFAULT_DATA_DIR } from './daemon-connection.js';
+import { CLI_VERB_NAMES } from './cli-commands.js';
 import {
   mintObserverUrl,
   resolveObserverLinkEnv,
@@ -50,14 +51,19 @@ export interface CliIo {
 }
 
 type CliExitCode = 0 | 1 | 2 | 3;
-type ParsedArgs =
+
+/**
+ * Every shape `parseArgs` can produce. Exported for `cli-commands.ts`, whose
+ * table must claim each variant or fail to compile.
+ */
+export type ParsedArgs =
   | { command: 'add'; value: string }
   | ReplayArgs
   | BuildArgs
   | DeployArgs
   | { command: 'serve-webhook'; dataDir: string; port: number; admitted?: readonly string[] }
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean; input: string | undefined; syncCode: boolean; noConnect: boolean }
-  | { command: 'sync'; runId: string; json: boolean; root: string }
+  | { command: 'sync'; runId: string; json: boolean; root: string; dryRun: boolean }
   | CloudDeployArgs
   | { command: 'deployments'; json: boolean }
   | { command: 'undeploy'; agentId: string; json: boolean }
@@ -92,7 +98,7 @@ const USAGE = [
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.ts> --input <inline-json-or-file>',
-  'flows sync [--json] [--dir <path>] <run-id>',
+  'flows sync [--json] [--dry-run] [--dir <path>] <run-id>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <run-id>',
@@ -117,9 +123,48 @@ const PROCESS_IO: CliIo = {
   stderr: (line) => process.stderr.write(`${line}\n`),
 };
 
+/** Optional knobs for an embedded caller. `bin/flows.js` passes none. */
+export interface RunCliOptions {
+  /**
+   * Cancellation for the long-running verbs (`run --cloud`, `check --watch`,
+   * `serve-webhook`, `hn-monitor start`, `tick start`).
+   *
+   * Supply one and `runCli` installs **no** process signal handlers -- required
+   * of a CLI surface mounted into another host, which owns SIGINT itself.
+   * Omit it and the standalone `flows` binary keeps today's behaviour exactly:
+   * SIGINT/SIGTERM are handled here, for the duration of that verb only.
+   */
+  signal?: AbortSignal;
+}
+
+/**
+ * Run one long-running verb under a cancellation signal.
+ *
+ * With a caller-supplied signal this installs nothing. Without one it owns
+ * SIGINT/SIGTERM for the duration of `body` and removes the handlers after --
+ * the pre-existing standalone behaviour, unchanged.
+ */
+async function withInterrupt<T>(
+  provided: AbortSignal | undefined,
+  body: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  if (provided !== undefined) return body(provided);
+  const controller = new AbortController();
+  const onSignal = (): void => controller.abort();
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
+  try {
+    return await body(controller.signal);
+  } finally {
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
+  }
+}
+
 export async function runCli(
   args: readonly string[],
   io: CliIo = PROCESS_IO,
+  options: RunCliOptions = {},
 ): Promise<CliExitCode> {
   if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
     io.stdout(USAGE);
@@ -135,9 +180,13 @@ export async function runCli(
 
   if (parsed.command === 'add') return addPlugin(parsed.value, io);
 
-  if (parsed.command === 'serve-webhook') return runServeWebhook(parsed, io);
+  if (parsed.command === 'serve-webhook') {
+    return withInterrupt(options.signal, (signal) => runServeWebhook(parsed, io, signal));
+  }
 
-  if (parsed.command === 'cloud-run') return runCloudCli(parsed, io);
+  if (parsed.command === 'cloud-run') {
+    return withInterrupt(options.signal, (signal) => runCloudCli(parsed, io, signal));
+  }
   if (parsed.command === 'sync') return runCloudSyncCli(parsed, io);
   if (parsed.command === 'cloud-deploy') return runCloudDeployCli(parsed, io);
   if (parsed.command === 'deployments') return runCloudDeploymentsCli(parsed, io);
@@ -159,7 +208,9 @@ export async function runCli(
   if (parsed.command === 'deploy') return runDeploy(parsed, io);
 
   if (parsed.command === 'check') {
-    if (parsed.watch) return watchCheck(parsed.value, parsed.json, io);
+    if (parsed.watch) {
+      return withInterrupt(options.signal, (signal) => watchCheck(parsed.value, parsed.json, io, signal));
+    }
     // Deliberately daemon-free (kernel/DAEMON-LIFECYCLE.md §4). `checkFlow` is
     // a compile-and-preflight that opens no daemon socket, and the parser
     // refuses `--data-dir` on `check`, so there is no data dir to attach to.
@@ -174,45 +225,27 @@ export async function runCli(
   if (parsed.command === 'observer') return runObserverCommand(io);
 
   if (parsed.command === 'hn-monitor') {
-    const controller = new AbortController();
-    const onSignal = (): void => controller.abort();
-    process.once('SIGINT', onSignal);
-    process.once('SIGTERM', onSignal);
-    try {
-      return await runHnMonitor({
-        dataDir: parsed.dataDir,
-        specPath: parsed.specPath,
-        pollIntervalMs: parsed.pollIntervalMs,
-        signal: controller.signal,
-      }, io);
-    } finally {
-      process.off('SIGINT', onSignal);
-      process.off('SIGTERM', onSignal);
-    }
+    return withInterrupt(options.signal, (signal) => runHnMonitor({
+      dataDir: parsed.dataDir,
+      specPath: parsed.specPath,
+      pollIntervalMs: parsed.pollIntervalMs,
+      signal,
+    }, io));
   }
 
   if (parsed.command === 'tick') {
-    const controller = new AbortController();
-    const onSignal = (): void => controller.abort();
-    process.once('SIGINT', onSignal);
-    process.once('SIGTERM', onSignal);
-    try {
-      return await runTickRunner({
-        dataDir: parsed.dataDir,
-        specPath: parsed.specPath,
-        schedule: {
-          scheduleId: parsed.scheduleId,
-          intervalMs: parsed.intervalMs,
-          ...(parsed.epochMs === undefined ? {} : { epochMs: parsed.epochMs }),
-          ...(parsed.maxCatchUp === undefined ? {} : { maxCatchUp: parsed.maxCatchUp }),
-        },
-        pollIntervalMs: parsed.pollIntervalMs,
-        signal: controller.signal,
-      }, io) as CliExitCode;
-    } finally {
-      process.off('SIGINT', onSignal);
-      process.off('SIGTERM', onSignal);
-    }
+    return withInterrupt(options.signal, async (signal) => await runTickRunner({
+      dataDir: parsed.dataDir,
+      specPath: parsed.specPath,
+      schedule: {
+        scheduleId: parsed.scheduleId,
+        intervalMs: parsed.intervalMs,
+        ...(parsed.epochMs === undefined ? {} : { epochMs: parsed.epochMs }),
+        ...(parsed.maxCatchUp === undefined ? {} : { maxCatchUp: parsed.maxCatchUp }),
+      },
+      pollIntervalMs: parsed.pollIntervalMs,
+      signal,
+    }, io) as CliExitCode);
   }
 
   // Attach-or-spawn runs inside `runFlow`/`resumeFlow`/`runDirectFlow`, at the
@@ -458,6 +491,11 @@ function emitWait(
 
 function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   const command = args[0];
+  // The verb set lives in exactly one place -- `CLI_VERBS` in cli-commands.ts --
+  // which is also what `createRelayCliSurface` projects into `commands`. Gating
+  // dispatch on it means a token the surface does not declare can never reach a
+  // parser, so the declared tree and the dispatched tree cannot drift apart.
+  if (command === undefined || !CLI_VERB_NAMES.has(command)) return undefined;
   if (command === 'add') return args.length === 2 ? { command: 'add', value: args[1]! } : undefined;
   if (command === 'replay') return parseReplayArgs(args.slice(1));
   if (command === 'build') return parseBuildArgs(args.slice(1));
@@ -718,9 +756,13 @@ function parseHnMonitorArgs(rest: readonly string[]): ParsedArgs | undefined {
  * directory at all -- the mint is a pure Relaycast API round-trip. No
  * positional argument, no other flags.
  */
-/** `flows sync [--json] [--dir <path>] <run-id>`: apply a hosted run's patch to a local tree. */
+/**
+ * `flows sync [--json] [--dry-run] [--dir <path>] <run-id>`: apply a hosted
+ * run's patch to a local tree, or with `--dry-run` print it and apply nothing.
+ */
 function parseSyncArgs(args: readonly string[]): ParsedArgs | undefined {
   let json = false;
+  let dryRun = false;
   let root: string | undefined;
   const positionals: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
@@ -728,6 +770,11 @@ function parseSyncArgs(args: readonly string[]): ParsedArgs | undefined {
     if (argument === '--json') {
       if (json) return undefined;
       json = true;
+      continue;
+    }
+    if (argument === '--dry-run') {
+      if (dryRun) return undefined;
+      dryRun = true;
       continue;
     }
     if (argument === '--dir') {
@@ -741,7 +788,7 @@ function parseSyncArgs(args: readonly string[]): ParsedArgs | undefined {
     positionals.push(argument);
   }
   if (positionals.length !== 1) return undefined;
-  return { command: 'sync', runId: positionals[0]!, json, root: root ?? '.' };
+  return { command: 'sync', runId: positionals[0]!, json, dryRun, root: root ?? '.' };
 }
 
 function parseObserverArgs(rest: readonly string[]): ParsedArgs | undefined {
@@ -956,3 +1003,15 @@ if (isDirectInvocation(process.argv[1])) {
     process.exitCode = exitCode;
   });
 }
+
+/**
+ * The argv parser, exported for the CLI-surface drift test.
+ *
+ * The drift test must prove that every command `cli-commands.ts` declares
+ * actually routes to a `ParsedArgs` variant, and that every variant is
+ * reachable from some declared command. Observing that through `runCli` would
+ * mean executing the commands. Not part of the package's public API --
+ * `@relayflows/sdk/cli` exports `runCli`, and `@relayflows/sdk/relay-cli`
+ * exports the surface.
+ */
+export { parseArgs as parseCliArgs };

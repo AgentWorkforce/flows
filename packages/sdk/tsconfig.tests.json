@@ -41,7 +41,9 @@
     "tests/webhook-hardening.test.ts",
     "tests/adapters/claude.test.ts",
     "tests/adapters/codex.test.ts",
-    "tests/adapters/registry.test.ts"
+    "tests/adapters/registry.test.ts",
+    "tests/relay-cli-surface.test.ts",
+    "tests/relay-cli-surface-live.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
