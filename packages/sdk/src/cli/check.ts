@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { parse as parseYaml } from 'yaml';
 import { CompileError, compileSpec, kernelToAuthoring } from '../compile.js';
 import { helperReady } from '../yaml-helper-effect.js';
+import { flowRequirements, type FlowRequirements } from '../flow-requirements.js';
 import {
   adapterIdentification,
   authenticationProbe,
@@ -33,7 +34,15 @@ export interface ProjectConfig {
   mcp?: Record<string, McpServerConfig>;
   cli?: string;
   executors: string[];
+  /**
+   * Exact model allowlist. Only a flows.json that DECLARES `models` is a
+   * registry that preflight enforces: `{"cli":"claude"}` alone names the CLI
+   * and leaves model policy to the adapter defaults, exactly as no flows.json
+   * would. Otherwise every scaffolded project (`flows create` writes only
+   * `cli`) refuses its adapter's own default model as "not listed".
+   */
   models: string[];
+  modelRegistryPath?: string;
   directory: string;
   path?: string;
 }
@@ -45,7 +54,24 @@ export interface CheckReport {
   projectConfigPath?: string;
   gates: StepGateInspection[];
   resolutions: CliResolution[];
+  /** Authored `schedule.*` handlers and the `flows.tick` subscription each lowers to. */
+  schedules?: ScheduleInspection[];
+  /** Integrations, harnesses and MCP servers the flow declares it needs (`flow-requirements.ts`). */
+  requirements?: FlowRequirements;
   diagnostics: Array<PreflightDiagnostic | CheckInputDiagnostic | CheckWarningDiagnostic>;
+}
+
+export interface ScheduleInspection {
+  /** Position among the flow's handlers, so two identical declarations stay distinct. */
+  handler: number;
+  cron?: string;
+  tz?: string;
+  intervalMs?: number;
+  epochMs?: number;
+  staleAfterMs?: number;
+  scheduleId: string;
+  /** Present when the local tick runner cannot drive it (only a cron-aware runner can). */
+  localUnsupported?: string;
 }
 
 export interface CheckWarningDiagnostic {
@@ -102,6 +128,15 @@ export function checkFlow(path: string): CheckExecution {
   }
 }
 
+/** Requirements never turn a preflight refusal into an unrelated exception. */
+function safeRequirements(authoring: FlowSpec, projectCli: string | undefined): FlowRequirements | undefined {
+  try {
+    return flowRequirements(authoring, projectCli === undefined ? {} : { projectCli });
+  } catch {
+    return undefined;
+  }
+}
+
 /** Preflight a validated authored flow through the same path as YAML/JSON. */
 export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConfig?: ProjectConfig): CheckExecution {
   const absolutePath = resolve(path);
@@ -113,7 +148,7 @@ export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConf
       projectConfigPath: config.path,
       projectSearchStart: dirname(absolutePath),
       models: config.models,
-      ...(config.path !== undefined ? { modelRegistryPath: config.path } : {}),
+      ...(config.modelRegistryPath !== undefined ? { modelRegistryPath: config.modelRegistryPath } : {}),
       probes,
     });
     const flow = result.ok
@@ -132,6 +167,7 @@ export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConf
         gates: result.gates,
         resolutions: result.resolutions,
         diagnostics: result.diagnostics,
+        requirements: safeRequirements(authoring, config.cli),
       },
       ...(flow !== undefined ? { flow } : {}),
     };
@@ -181,7 +217,7 @@ export async function checkBuildableFlow(path: string): Promise<CheckExecution> 
       ...(config.path !== undefined ? { projectConfigPath: config.path } : {}),
       projectSearchStart: dirname(absolutePath),
       models: config.models,
-      ...(config.path !== undefined ? { modelRegistryPath: config.path } : {}),
+      ...(config.modelRegistryPath !== undefined ? { modelRegistryPath: config.modelRegistryPath } : {}),
       probes: deferred,
     });
     // Refusals rooted in build-machine environment probes (`probe_failed`)
@@ -314,6 +350,7 @@ export function readProjectConfig(start: string): ProjectConfig {
     ...(value['cli'] !== undefined ? { cli: value['cli'] as string } : {}),
     executors: (value['executors'] as string[] | undefined) ?? [],
     models: (value['models'] as string[] | undefined) ?? [],
+    ...(value['models'] !== undefined ? { modelRegistryPath: configPath } : {}),
     directory: dirname(configPath),
     path: configPath,
   };

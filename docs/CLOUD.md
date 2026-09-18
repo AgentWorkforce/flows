@@ -146,7 +146,7 @@ flows undeploy <deployment-id>
 ```
 
 Optional flags: `--agents claude,codex`, `--name "Issue triage"`, `--draft`,
-`--json`, and further `--on` sources.
+`--no-connect`, `--json`, and further `--on` sources.
 
 `flows deploy <flow.ts>` is the CLI form of the agentrelay.com onboarding's
 deploy wizard: `POST /api/v1/flows/deploy` stores one self-contained authored
@@ -159,11 +159,17 @@ listener's rules match them there. The digest form,
 decides which form is meant.
 
 `--on <provider>[:key=value,…]` takes `github` (`repository`, `labels`,
-`contains`), `slack` (`channel`, `contains`), `linear` (`team`, `contains`),
-`jira` (`project`, `contains`) or `shortcut` (`workspace`, `contains`), each
-at most once. A GitHub source without `repository` is scoped to `--repo`.
-Today a GitHub listener wakes on `issues.opened` and `issues.labeled` only;
-pull-request and comment events are filtered out before launch.
+`contains`, `events`), `slack` (`channel`, `contains`), `linear` (`team`,
+`contains`), `jira` (`project`, `contains`) or `shortcut` (`workspace`,
+`contains`), each at most once. A GitHub source without `repository` is
+scoped to `--repo`. `events` is `issues` (the default: `issues.opened` and
+`issues.labeled`) or `pull_request`, which wakes on a pull request being
+opened, receiving commits, being reopened, or being reviewed; a
+pull-request run checks out the pull request's own head and receives
+`input.pullRequest` (`number`, `title`, `body`, `headRef`, `headSha`,
+`baseRef`, `author`, `draft`, `labels`, `url`, and `review` for a submitted
+review) beside `input.issue` and `input.event`. Comment and check-run
+events are not wake sources yet.
 
 Each matching ticket launches one run of the stored source. Cloud clones
 `--repo` at its default branch onto a fresh `relayflow/<name>-<id>` branch,
@@ -172,11 +178,59 @@ runs `flows run --local-agent` there, and passes the flow body
 as its input. The flow must therefore be the default body,
 `flow<Input>(name, header, async (f, input) => …)`; `.on(github.issues(…))`
 handlers are checked but are not what Cloud dispatches. `--agents` names the
-coding-agent harnesses the flow uses (default `claude`); activation checks
+coding-agent harnesses the flow uses; it defaults to the `cli:` declarations
+the source carries (`flowRequirements`), else `claude`. Activation checks
 their credentials are connected and refuses with `flow_model_not_connected`
-otherwise. `--draft` saves the flow without activating it and skips those
+otherwise, and the CLI appends the remedy (`agent-relay cloud connect
+<harness>`). `--draft` saves the flow without activating it and skips those
 checks. The deploy routes answer refusals as `{ code, error }`, and the CLI
 names them (`flow_repository_not_connected`, `flow_name_taken`, …).
+
+## Integrations a flow requires
+
+`flows check` prints what a flow needs from the workspace it will run in:
+
+```
+REQUIRES slack (tools.slack), github (deploy target), claude (agent "review")
+```
+
+The list is derived from inert declarations only (`flowRequirements` in the
+SDK; the same function reads a compiled YAML spec, where a helper step such as
+`slack: { post: … }` names its provider): `tools.<helper>: true` flags and
+`tools.relayfile` mounts in the header, `f.<helper>` use in the default body
+(recognised exactly as helper preflight recognises it), provider triggers
+(`.on(github.issues())`), the `--on` sources and the deploy target (every
+launched run lands in `--repo`, so GitHub is always required), the `cli:` of
+each `f.agent`/`f.llm` call in the default body (else the nearest `flows.json`
+`cli`, else `claude`), and `tools.mcp`. Handler bodies are not scanned: hosted
+dispatch runs the default body (flows #301), so only a handler's trigger is a
+requirement. The deploy body carries the same list as `requirements` for
+Cloud to cross-check, and a declared harness Cloud cannot run yet (`gemini`)
+refuses the deploy unless `--agents` overrides it.
+
+Before `flows deploy`, `flows schedule` and `flows run --cloud` submit anything,
+each required integration is checked against the workspace
+(`GET /api/v1/workspaces/<id>/integrations/<provider>/status?scope=workspace`).
+A missing one is offered in the terminal, the way `agentworkforce deploy`
+connects a proactive agent's integrations:
+
+```
+This flow needs Slack (tools.slack), which is not connected to this workspace.
+Connect Slack now? (opens browser) [Y/n]
+Opening https://agentrelay.com/cloud/…/connect
+Slack connected.
+```
+
+Yes opens a relayfile connect session (`POST …/integrations/connect-session`
+with `{ allowedIntegrations: ["slack"], scope: { kind: "workspace" } }`) in
+the browser and polls the status until it is ready (five minutes at most);
+`FLOWS_NO_BROWSER=1` prints the link instead of opening it. No answer, `--json`,
+a non-interactive stdin, or `--no-connect` refuses with
+`integration_not_connected` (exit 2), naming the provider, the declaration that
+needs it, and the two ways to connect it. `--draft` deploys skip the check,
+as Cloud does. Coding-agent credentials have no status route; Cloud refuses
+them on activation or launch and the CLI names `agent-relay cloud connect
+<harness>` then. A flow that requires no integration contacts nothing extra.
 
 Without `--wait`, exit 0 means the server accepted the run. With `--wait`, it
 means Cloud reported `completed` with a validated `success` completion reason.
@@ -209,6 +263,41 @@ closed as `invalid_response`. Cloud can record provisioning failures or
 cancellation without a journal report; those records cannot supply an attested
 execution outcome through this API. Step-level journal evidence is not exposed
 by this endpoint and is not synthesized by the SDK.
+
+## Schedules
+
+```sh
+flows schedule nightly.flow.ts --input '{"topic":"release"}'          # uses the flow's schedule.* declaration
+flows schedule monitor.flow.yaml --every 15m
+flows schedule report.flow.ts --cron "0 9 * * 1-5" --tz Europe/Oslo --input '{}' --name "Morning report"
+flows schedules
+flows unschedule <schedule-id>
+```
+
+`flows schedule` registers a cron on Cloud: `POST /api/v1/workflows/schedules`
+with `schedule_type: cron`, `cron_expression`, `timezone` and, as
+`workflowRequest`, **exactly the body `flows run --cloud` would send** —
+`workflow`, `fileType`, `relayflowVersion: v2`, and for an authored flow its
+pinned `authoredAuthority` and the `--input` value. Each fire replays that
+stored request through the same run admission a CLI submission takes, so what
+runs on the cron is the source you scheduled, not a re-read of your checkout.
+Nothing runs at schedule time. Code sync and repository grants are refused on
+schedules: both name one specific upload or base commit, which a second fire
+would find stale.
+
+The cron comes from, in order: `--cron`, `--every` (only intervals cron can
+express exactly — divisors of an hour, `1h`, divisors of a day, `1d`), or the
+flow's own `schedule.cron(...)` / `schedule.every(...)` handler when it
+declares exactly one. Both the expression and `--tz` are validated before any
+request. The routes need the interactive `cli:auth` login, as deployments do.
+`--every` and `schedule.every` are refused where no exact cron exists (`7m`):
+say what you mean with `--cron`.
+
+Authored `.on(schedule.*, body)` handlers are the declaration; the hosted fire
+runs the flow's **default body** with `input`, as deployments do. Until
+handler dispatch lands (flows #301), write the scheduled work in the default
+body and use the handler to declare when — `flows check` prints the
+declaration and its `flows.tick` lowering either way.
 
 ## Current limits and scope
 

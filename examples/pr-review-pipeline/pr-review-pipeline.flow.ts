@@ -9,11 +9,16 @@
 // looks specifically for conflicting verdicts rather than just concatenating
 // opinions.
 //
-// STATUS: typechecks against the real `@relayflows/surface` package (see
-// ../tsconfig.json / `npm --prefix packages/surface run typecheck:examples`)
-// but does not run yet — `f.agent` parks without an attached worker. Unlike
-// the other two examples, this one never calls `f.human`, so nothing here
-// depends on that verb being wired up.
+// STATUS: runs with `flows run pr-review-pipeline.flow.ts --local-agent
+// --input '{"diffRange":"main...HEAD"}'` from a checkout with a `flows.json`
+// naming the agent CLI. Each lens is gated on a journaled `artifact_exists`
+// check — the worker that spawned the agent journals the files it wrote, and
+// the gate reads that journal — and the consensus step on a predicate whose
+// verdict is journaled as `agent-N.gate`. The steps run in the invoking
+// directory (no `workspace:` scoping: the local agent worker accepts
+// stream-only steps, and a "...: readwrite" annotation is refused because
+// nothing enforces it). Unlike the other two examples, this one never calls
+// `f.human`, so nothing here depends on that verb being wired up.
 
 import { flow } from "@relayflows/surface";
 
@@ -36,6 +41,7 @@ export default flow<PrReviewInput>(
     const diff = await f
       .run(`git diff ${input.diffRange}`)
       .gate((out) => out.trim().length > 0, "nothing to review — the diff is empty");
+    await f.run("mkdir -p review");
 
     await Promise.all(
       LENSES.map((lens) =>
@@ -45,12 +51,10 @@ export default flow<PrReviewInput>(
               `Review this diff for ${lens} issues ONLY — ignore everything else. ` +
               `Write every finding, or an explicit "no issues found", to ` +
               `${findingsPath(lens)}.\n\n${diff}`,
-            workspace: "review/: readwrite",
           })
-          .gate(
-            (r) => r.artifacts.includes(findingsPath(lens)),
-            `the ${lens} reviewer must write ${findingsPath(lens)}, even to report nothing`,
-          ),
+          // A named gate: preflightable by `flows check`, evaluated against
+          // the artifacts the worker journaled for this step, never the disk.
+          .gate({ type: "artifact_exists", path: findingsPath(lens) }),
       ),
     );
 
@@ -65,8 +69,9 @@ export default flow<PrReviewInput>(
           `reached opposite verdicts on the same spot in the diff, resolve it ` +
           `or mark it UNRESOLVED with both positions. Write your reconciled ` +
           `verdict to review/consensus.json.`,
-        workspace: "review/: readwrite",
       })
+      // A predicate gate: author code, run once on the journaled result; its
+      // verdict is journaled as `agent-N.gate` so resume/replay never re-run it.
       .gate(
         (r) => r.artifacts.includes("review/consensus.json"),
         "the consensus step must write review/consensus.json",

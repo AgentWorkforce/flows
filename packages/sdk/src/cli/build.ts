@@ -126,7 +126,7 @@ export async function buildFlow(path: string, out: string, warn: (line: string) 
     ...(config.path !== undefined ? { projectConfigPath: config.path } : {}),
     projectSearchStart: directory,
     models: config.models,
-    ...(config.path !== undefined ? { modelRegistryPath: config.path } : {}),
+    ...(config.modelRegistryPath !== undefined ? { modelRegistryPath: config.modelRegistryPath } : {}),
     probes: {
       cli: () => { throw new Error('deferred to deployment'); },
       executor: () => { throw new Error('deferred to deployment'); },

@@ -70,9 +70,22 @@ export {
   type ApplyCloudPatchOptions, type AppliedCloudPatch,
 } from './cloud-sync.js';
 export {
+  scheduleInCloud, listCloudSchedules, unscheduleInCloud, everyToCron, declaredScheduleCron,
+  type ScheduleInCloudInput, type CloudSchedule,
+} from './cloud-schedule.js';
+export { prepareCloudSubmission, cloudSubmissionBody, type CloudSubmission } from './cloud-run.js';
+export {
   deployToCloud, listCloudDeployments, undeployFromCloud, parseRepository, parseTriggerSource, FLOW_TRIGGER_PROVIDERS,
   type DeployToCloudInput, type CloudDeployment, type CloudDeploymentSummary, type FlowTriggerSource, type FlowTriggerProvider,
 } from './cloud-deploy.js';
+export {
+  ensureIntegrationsConnected, integrationConnected, providerLabel,
+  type ConnectPrompt, type EnsureConnectionsOptions, type ConnectionsOutcome,
+} from './cloud-connect.js';
+export {
+  flowRequirements, describeFlowRequirements, harnessFromCli, FLOW_HARNESSES,
+  type FlowRequirements, type FlowRequirementsContext, type FlowIntegrationRequirement, type FlowHarnessRequirement, type FlowHarness,
+} from './flow-requirements.js';
 
 export { canonicalize, specHash } from './canonical.js';
 export {
@@ -235,3 +248,4 @@ export { createFlow, type CreateFlowOptions, type CreatedFlow } from './create-f
 
 export { renderProgress, type ProgressEvent } from './progress.js';
 export { webhookTriggerSpec } from './trigger-executor.js';
+export { scheduleTriggerSpec, scheduleLowering, SCHEDULE_EXECUTOR, type ScheduleLowering } from './schedule-trigger.js';

@@ -128,6 +128,25 @@ pub(super) struct EffectConfirmParams {
     pub surface_path: String,
 }
 
+/// A lease holder parks its running attempt on a durable human question
+/// (`wait.human`, DESIGN.md §1.5). The lease is released once the wait is
+/// journaled; the answer arrives through `event.emit` keyed by `wait_id`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct StepWaitParams {
+    pub run_id: String,
+    pub step_id: String,
+    pub attempt: u32,
+    pub idempotency_key: String,
+    pub wait_id: String,
+    pub prompt: String,
+    pub requested_of: String,
+    #[serde(default)]
+    pub options: Option<Vec<String>>,
+    #[serde(default)]
+    pub timeout_at_ms: Option<i64>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct EventEmitParams {

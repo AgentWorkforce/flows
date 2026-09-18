@@ -7,7 +7,7 @@ export type {
   WorkerSummary,
   CloudHelper,
 } from "./cloud.js";
-export type { AgentOptions, AgentResult, LlmOptions, Ctx } from "./context.js";
+export type { AgentOptions, AgentResult, PermissionsSpec, LlmOptions, Ctx } from "./context.js";
 export {
   COMPLETION_REASONS,
   RUN_COMPLETION_REASONS,
@@ -41,7 +41,11 @@ export {
 } from "./slack.js";
 export type { Helpers } from "./helpers/index.js";
 export type { MemoryHelper, MemoryFinding, MemoryRecallOptions, HistoryEntry, TrajectoryEntry } from "./memory.js";
-export { webhook, type TriggerSource, type WebhookFilter, type WebhookValue } from "./triggers.js";
+export { webhook, type TriggerSource, type WebhookTriggerSource, type WebhookFilter, type WebhookValue } from "./triggers.js";
+export {
+  schedule, scheduleIdFor, parseCron, cronGrid, cronFixedIntervalMs, cronMaxGapMs, everyToMs,
+  type ScheduleTriggerSource, type ScheduleCronOptions, type CronFields, type CronGrid,
+} from "./schedule.js";
 export * from "./triggers/index.js";
 export type { ProviderTriggerSource } from "./provider-trigger.js";
 export type { PluginMethod, PluginPrimitive } from './plugin-contract.js';

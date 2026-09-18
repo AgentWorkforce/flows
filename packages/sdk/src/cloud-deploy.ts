@@ -1,9 +1,13 @@
 import { randomBytes, createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import { loadAuthoredFlow } from './authored-flow-loader.js';
+import { ensureIntegrationsConnected, type ConnectPrompt } from './cloud-connect.js';
 import {
   CloudFlowError, cloudFetch, cloudRequest, isCloudRecord, type CloudConnectionOptions,
 } from './cloud-http.js';
+import { flowRequirements, type FlowRequirements } from './flow-requirements.js';
+import { readProjectConfig } from './cli/check.js';
 
 /**
  * Hosted listener deployment: the CLI form of the agentrelay.com onboarding's
@@ -21,7 +25,9 @@ export type FlowTriggerProvider = (typeof FLOW_TRIGGER_PROVIDERS)[number];
 
 /** Settings Cloud's launcher prefilter reads per provider (`flow-trigger-sources.ts`). */
 const PROVIDER_SETTINGS: Record<FlowTriggerProvider, readonly string[]> = {
-  github: ['repository', 'labels', 'contains'],
+  // `events`: `issues` (default) or `pull_request` — which GitHub records
+  // wake the listener (AgentWorkforce/cloud#3772).
+  github: ['repository', 'labels', 'contains', 'events'],
   slack: ['channel', 'contains'],
   linear: ['team', 'contains'],
   jira: ['project', 'contains'],
@@ -45,10 +51,22 @@ export interface DeployToCloudInput {
   approver: string;
   /** Defaults to the flow's declared name. */
   name?: string;
-  /** Coding-agent harnesses the flow uses; Cloud checks their credentials are connected. Default `["claude"]`. */
+  /**
+   * Coding-agent harnesses the flow uses; Cloud checks their credentials are
+   * connected. Defaults to the `cli:` declarations the source carries
+   * (`flowRequirements`), else `["claude"]`.
+   */
   agents?: FlowAgentHarness[];
   /** Save without activating: no connection checks, no listener until activated. */
   draft?: boolean;
+  /**
+   * How a missing integration is connected before activation. Omitted, a
+   * missing one refuses with `integration_not_connected` (the `--no-connect`
+   * and non-interactive behaviour); given, each is offered a browser connect.
+   */
+  connect?: ConnectPrompt;
+  /** Skip the pre-submission integration check entirely (Cloud still checks on activation). */
+  checkConnections?: boolean;
 }
 
 export const FLOW_AGENT_HARNESSES = ['claude', 'codex'] as const;
@@ -70,6 +88,10 @@ export interface CloudDeployment {
   repository: { owner: string; name: string };
   sources: FlowTriggerSource[];
   sourceSha256: string;
+  /** What the source declared it needs; the harnesses became `inputs.agents` unless `agents` was given. */
+  requirements: FlowRequirements;
+  /** Integrations connected through the prompt during this deploy. */
+  connected: string[];
 }
 
 export function parseRepository(value: string): { owner: string; name: string } {
@@ -101,6 +123,15 @@ export function parseTriggerSource(value: string): FlowTriggerSource {
       }
       if (!setting || setting.length > MAX_SETTING_LENGTH || key in settings) {
         throw new CloudFlowError('invalid_input', `Trigger setting "${key}" must be given once with a non-empty value.`);
+      }
+      if (key === 'events') {
+        // Cloud's enum is lowercase; send it that way whatever the shell typed.
+        const events = setting.toLowerCase();
+        if (!['issues', 'pull_request'].includes(events)) {
+          throw new CloudFlowError('invalid_input', `github events must be "issues" or "pull_request", got "${setting}".`);
+        }
+        settings[key] = events;
+        continue;
       }
       settings[key] = setting;
     }
@@ -143,6 +174,12 @@ export async function deployToCloud(
     throw new CloudFlowError('unsupported_source',
       'Cloud deploys one self-contained .flow.ts source without use dependencies.');
   }
+  let projectCli: string | undefined;
+  try {
+    projectCli = readProjectConfig(dirname(resolve(input.path))).cli;
+  } catch {
+    projectCli = undefined;
+  }
   if (input.sources.length === 0 || input.sources.length > 10) {
     throw new CloudFlowError('invalid_input', 'Give between one and ten --on trigger sources.');
   }
@@ -165,7 +202,30 @@ export async function deployToCloud(
   if (workspace === undefined || typeof workspace.id !== 'string' || !workspace.id) {
     throw new CloudFlowError('invalid_response', 'Cloud did not report a current workspace for this credential.');
   }
-  const agents = input.agents ?? ['claude'];
+  // Every launched run lands in the deployment's repository, so GitHub is
+  // required even when no GitHub source wakes it.
+  const requirements = flowRequirements(definition, {
+    sources, repository: input.repository, ...(projectCli === undefined ? {} : { projectCli }),
+  });
+  // The declared harnesses become `inputs.agents`; one Cloud cannot run is
+  // refused here rather than silently replaced by Claude, which activation
+  // would then check while the deployed runs still call the declared CLI.
+  const unsupported = requirements.harnesses.filter(harness => !(FLOW_AGENT_HARNESSES as readonly string[]).includes(harness));
+  if (input.agents === undefined && unsupported.length > 0) {
+    const uses = requirements.harnessUses.filter(use => unsupported.includes(use.harness));
+    throw new CloudFlowError('unsupported_source',
+      `This flow declares ${uses.map(use => `${use.harness} (${use.detail})`).join(', ')}, which Cloud deployments cannot run yet; `
+      + `Cloud runs ${FLOW_AGENT_HARNESSES.join(' and ')}. Change the declaration, or pass --agents to deploy it anyway.`);
+  }
+  const declaredAgents = requirements.harnesses.filter((harness): harness is FlowAgentHarness => !unsupported.includes(harness));
+  const agents = input.agents ?? (declaredAgents.length > 0 ? declaredAgents : ['claude']);
+  // A draft activates nothing, so Cloud checks nothing; match it here.
+  const connected = input.draft || input.checkConnections === false
+    ? []
+    : (await ensureIntegrationsConnected(requirements, {
+        ...options, workspaceId: workspace.id, ...(input.connect === undefined ? {} : { prompt: input.connect }),
+      })).connected;
+  options.signal?.throwIfAborted();
   const result = await cloudFetch('/api/v1/flows/deploy', options, { method: 'POST', detail: true, body: JSON.stringify({
     workspaceId: workspace.id,
     mode: input.draft ? 'draft' : 'activate',
@@ -177,6 +237,11 @@ export async function deployToCloud(
     inputs: { approver, agents },
     repository: input.repository,
     sources,
+    requirements: {
+      integrations: requirements.integrations.map(i => i.provider),
+      harnesses: requirements.harnesses,
+      mcp: requirements.mcp,
+    },
   }) });
   if (!isCloudRecord(result) || typeof result.agentId !== 'string' || typeof result.status !== 'string') {
     throw new CloudFlowError('invalid_response', 'Cloud did not return a deployment.');
@@ -185,6 +250,7 @@ export async function deployToCloud(
     agentId: result.agentId, name, status: result.status,
     repository: input.repository, sources,
     sourceSha256: createHash('sha256').update(bytes).digest('hex'),
+    requirements, connected,
   };
 }
 

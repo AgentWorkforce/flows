@@ -60,6 +60,15 @@ export function lowerNamedGates(steps: readonly StepSpec[]): StepSpec[] {
 }
 
 function gateCommand(gate: NamedDataGate, deterministic: boolean): string {
+  if (gate.type === 'artifact_exists') {
+    // The whole output envelope is bound; the verdict is whether the worker's
+    // journaled `artifacts` list names the path. Nothing on disk is consulted,
+    // so the journal alone reproduces the verdict on replay and resume.
+    return `node -e ${quote(`const input=JSON.parse(process.env.FLOWS_INPUT);
+const output=input.output;
+const artifacts=output!==null&&typeof output==='object'&&Array.isArray(output.artifacts)?output.artifacts:[];
+process.exit(artifacts.includes(${JSON.stringify(gate.path)})?0:1);`)}`;
+  }
   const path = gate.type === 'subprocess_gate' ? gate.from_output
     : gate.type === 'word_count_bounds' ? undefined : gate.in_output_at;
   // Only compiler-owned code is serialized. Author strings are JSON literals;

@@ -42,7 +42,8 @@ export default flow("chief", {
 
   const plan = await f.agent("planner", {
     task: `Research and plan: ${intent}`,
-    workspace: "acme/api: readonly",          // compiles to relayauth path scopes
+    workspace: "acme/api",
+    permissions: { accessPreset: "readonly" }, // validated declaration; currently unenforced
   });
 
   const ok = await f.human(`Ship this?\n${plan.summary}`, { to: "khaliq" });
@@ -247,8 +248,11 @@ No process runs between events: the handler wakes, executes to its next await, p
    **Accepted deterministic-command limitation (Codex P1):** `flows check`
    warns with `command_unresolved`, rather than refusing, when a deterministic
    command's first word cannot be resolved. A bare word is not provably absent
-   under `/bin/sh -c` because it may be a shell builtin, function, or
-   assignment. The narrower path-like missing-command refusal is also not yet
+   under `/bin/sh -c` because it may be a shell function. The probe looks past
+   blank lines, `#` comments, `NAME=value` assignments and redirections to the
+   first real command word; a POSIX special builtin or reserved word there
+   (`set`, `export`, `cd`, `if`, `for`, `{`, `!`, …) is the shell's own and
+   warns `unprovable_effects` instead, never `command_unresolved`. The narrower path-like missing-command refusal is also not yet
    implemented; it is tracked in `ops/BACKLOG.md` under “Close the
    deterministic-command preflight gap.” Consequently, `cli_missing` applies
    to declared `llm` and `agent` CLIs, not deterministic command words.
@@ -289,6 +293,33 @@ returns `unknown`, which author code narrows after runtime verification.
 The authoring surface deliberately narrows `steps: []`: `flows check` refuses
 it as `invalid_spec`, while the kernel accepts it. This is a chosen
 authoring-time narrowing, not a kernel guarantee.
+
+### Per-agent permissions in TypeScript
+
+Supported `f.agent` calls accept an optional `permissions` declaration:
+
+```ts
+const draft = await f.agent("writer", {
+  task: "Write drafts/post.md.",
+  permissions: { fileGlobs: ["drafts/**"], accessPreset: "readwrite" },
+});
+const review = await f.agent("reviewer", {
+  task: "Review drafts/post.md and flag issues; do not edit it.",
+  permissions: { fileGlobs: ["drafts/**"], accessPreset: "readonly" },
+});
+```
+
+The exported `PermissionsSpec` has three optional camelCase fields:
+`fileGlobs?: string[]`, `networkAllowlist?: string[]`, and
+`accessPreset?: "readonly" | "readwrite"`. Array elements must be nonempty
+strings. Empty or partial declarations are accepted without inferred defaults;
+no workspace is required. Workspace names must not carry permission suffixes.
+
+These per-step permissions are validated and recorded in the compiled step spec
+but are **not currently enforced** (gate 8 / #442). They are separate from
+flow-wide `FlowHeader.workspace` / `tools.fs` scopes. The chief harness above
+remains an aspirational example; this option does not make that entire harness
+executable today.
 
 ### Supported TypeScript LLM calls
 
@@ -599,6 +630,7 @@ flows check [--watch] [--json] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>
 flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>
+flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>
 flows observer [--data-dir <dir>]
 ```
 
@@ -756,19 +788,68 @@ The exit codes are part of the surface contract:
 | `0` | The run completed with `completionReason: success`; deliberate declination also carries a `run_declined` diagnostic locally. |
 | `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. An authored `done("step_failed")` exits `1` as well, and says so without naming a step, because no step failed — the body declared the verdict. |
 | `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
-| `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. |
+| `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. An authored body parked on `f.human` reports the question, who it is for, and the `flows answer` invocation that records the decision (see *Human gates* below). |
 
 Without an attached worker, reaching an `llm` or `agent` step returns a durable
 parked outcome. For authored TypeScript, `--local-agent` attaches both local
-workers as described above. Event, schedule, deployed-digest, HTTP, SDK-call, and
+workers as described above. Event, deployed-digest, HTTP, SDK-call, and
 flow-to-flow invocation remain later-gate surface work; they are not shipped
-by this CLI.
+by this CLI. Schedules are: `schedule.cron(...)` / `schedule.every(...)` are
+declared on a flow, lowered to the `flows.tick` subscription, printed by
+`flows check` with the `flows tick start` invocation that drives a fixed
+interval locally, and registered on Cloud by `flows schedule` (see
+[`packages/surface/src/triggers/README.md`](../packages/surface/src/triggers/README.md)
+and [CLOUD.md](CLOUD.md#schedules)). Dispatching the authored handler body
+itself, locally or hosted, is still #301: the hosted fire runs the default body.
 
 When a worker is attached, the CLI follows the typed snapshot while its lease
 is live and prints `WAITING [worker_lease]` with the step and lease deadline.
 If the lease expires without a completion, the command fails closed instead of
 polling forever. A manual-recovery agent whose worker dies parks in
 `needs_human`; the same exit-3 report says it is waiting for human recovery.
+
+### Human gates: `f.human`
+
+```ts
+const ok = await f.human(`Ship this?\n${plan.summary}`, { to: "khaliq" });
+if (!ok) return f.done("declined");
+```
+
+`f.human(question, { to })` is the declared approval gate of RFC covenant 3.
+It is not a child run. When the body reaches it with no answer on record, the
+ROOT attempt parks on the kernel's durable `wait.human` (DESIGN.md §1.5) under
+the call's own ordinal (`human-N`, counted with every other authored
+operation), the lease is released, and the run is `parked` — exit 3, with a
+`humanWait` field in the JSON report and a diagnostic that reads:
+
+```
+PARKED [run_parked] Run "<run-id>" is waiting for khaliq to answer human-2: "Ship this?\n…"
+Answer with: flows answer <run-id> human-2 yes|no
+Then continue with: flows resume <run-id>
+```
+
+No process waits. `flows answer <run-id> <wait-id> yes|no [--note <text>]
+[--by <identity>]` records the decision as the answer contract `{ answer:
+boolean, note?, answeredBy }` (`answeredBy` is `--by`, else the OS user; the
+kernel refuses an unattributed answer, journals `attribution: client_asserted`
+because the socket — not the kernel — authenticated the caller, and stamps
+`at_ms` from its own clock, dropping any client-supplied time) — an `event.emit` keyed by the wait id, which the kernel
+journals as `wait.completed{human_responded}` and closes the wait once: a
+second answer is refused (`human_wait_unknown`), as is a wait the run is not
+asking. `flows resume` then re-runs the body; every step before the gate is
+memoized under its admission key, so nothing upstream repeats, and `f.human`
+resolves from the journaled answer. The boolean the author branches on is
+lowered as a `human-N` deterministic step carrying the answer on stdout, so it
+is journal evidence in the same shape as every other authored step. A `no` is
+a value the body decides on — `done("declined")` exits 0 — never a failure.
+
+`to` names who is asked and is recorded with the question; the local kit does
+not deliver it anywhere (that is the channel-delivery work in RFC covenant 3
+and `ops/BACKLOG.md`). Authority is the journal socket: whoever can reach the
+daemon can answer, and `answeredBy` records the OS user who did. On Cloud the
+same wait is answered through the run's answer route with the caller's
+identity. `timeout` is not yet enforced (DESIGN.md §1.4). `f.dispatch` still
+fails closed as `unsupported_verb`.
 
 `flows resume` reports `run_unavailable` only when relayflowd returns the
 typed `run_not_found` refusal. A dropped connection, request failure, or
@@ -845,15 +926,34 @@ author predicate. The v1 `verification:` shape remains supported and compiles
 to the same kernel fields; no kernel verb or verification field is added by
 this decision.
 
-TypeScript may additionally accept a callback such as
+TypeScript additionally accepts a callback such as
 `.gate(value => value.length < 200, "keep the summary short")`. That callback
 is author code: `flows check` cannot prove it, YAML cannot serialize it, and
-the journal cannot replay the closure. A TypeScript runtime must execute it as
-runtime control flow and journal the resulting step outcome before dependents
-continue. It must never stringify the function into a spec or silently label
-it preflightable. Authors who need portable, inspectable gates use a named data
-check; plugins may contribute named checks only by compiling them to existing
-kernel primitives.
+the journal cannot replay the closure. The authored runtime executes it as
+runtime control flow — once, in the authoring process, on the value read back
+from the step's `step.completed` — and journals the verdict as a lowered
+`<step>.gate` deterministic step: a passing predicate journals
+`{"gate":"predicate","step":"<id>","verdict":"pass","because":…}` as that
+step's stdout with exit 0; a failing one (or one that throws) journals
+`"verdict":"fail"` on stderr with exit 1, and the run fails as `gate_failed`
+naming the step and the author's reason. Dependents therefore wait on a
+journaled fact, and resume/replay read that fact rather than re-running the
+closure. The function is never stringified into a spec, and `flows check`
+prints no gate line for it — a predicate is runtime-only and unprovable
+before execution, by construction. A step takes one `.gate()`. Authors who
+need portable, inspectable gates use a named data check; plugins may
+contribute named checks only by compiling them to existing kernel primitives.
+
+`artifact_exists` is the named gate for "the agent wrote this file":
+`.gate({ type: 'artifact_exists', path: 'review/security.md' })`. The worker
+that spawned the agent CLI snapshots the agent's working directory before the
+run and content-diffs it after, and journals the changed paths as
+`output.artifacts` on the agent's `step.completed`; `AgentResult.artifacts`
+is read from that journal entry, never from a later look at the disk, and the
+gate lowers to a deterministic step that checks the journaled list. An agent
+whose final message is a JSON object owns its output shape and journals no
+artifacts; gate such a step on a deterministic check instead. The relay
+transport journals none, because the agent ran on another host.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.

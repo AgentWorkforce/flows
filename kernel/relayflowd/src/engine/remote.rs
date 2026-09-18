@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use relayflowd_core::{
     AttemptResult, Budget, Clock, CompletionReason, EffectRef, EntryType, JournalEntry, Pins,
     StepKind, StepState, StreamAppendedPayload, WaitCompletedPayload, WaitCompletionReason,
-    WaitEventPayload, abandonment_actions, completion_actions,
+    WaitEventPayload, WaitHumanPayload, abandonment_actions, completion_actions,
 };
 use relayflowd_journal::SqliteJournal;
 use serde_json::Value;
@@ -30,7 +30,88 @@ pub struct OutOfBandCompletion {
     pub trajectory_tail: Option<Value>,
 }
 
+/// A human question a leased attempt parks on. The worker names the wait so
+/// its own replay can find the answer; the kernel refuses a reused name.
+#[derive(Debug, Clone)]
+pub struct OutOfBandHumanWait {
+    pub attempt: u32,
+    pub idempotency_key: String,
+    pub wait_id: String,
+    pub prompt: String,
+    pub requested_of: String,
+    pub options: Option<Vec<String>>,
+    pub timeout_at_ms: Option<i64>,
+}
+
 impl Engine<WallClock> {
+    /// Park a currently leased step on a durable `wait.human` (DESIGN.md §1.5).
+    ///
+    /// The attempt is not completed: no `step.completed` is appended and no
+    /// semantic iteration is charged, because the attempt produced nothing a
+    /// gate could judge — it asked a question. The step folds to `NeedsHuman`,
+    /// the run parks, and the answer arrives through `emit_event` keyed by
+    /// `wait_id`, which folds the step back to `Runnable` for a fresh attempt.
+    pub fn wait_human_out_of_band(
+        &self,
+        run_id: &str,
+        step_id: &str,
+        wait: OutOfBandHumanWait,
+    ) -> Result<RunOutcome> {
+        if wait.wait_id.is_empty() || wait.prompt.is_empty() || wait.requested_of.is_empty() {
+            bail!("step wait requires a non-empty wait_id, prompt and requested_of");
+        }
+        let mut journal = self.open_run(run_id)?;
+        let spec = journal.run_spec().context("read run spec")?;
+        let state = self.load_state(&journal, spec.clone())?;
+        if state.cancel_requested.is_some() || state.completion.is_some() {
+            bail!("run {run_id} no longer accepts step waits")
+        }
+        if spec.step(step_id).is_none() {
+            bail!("run {run_id} has no step {step_id}")
+        }
+        let StepState::Running {
+            attempt,
+            ref idempotency_key,
+            ..
+        } = state.steps[step_id].state
+        else {
+            bail!("step {step_id} has no active lease")
+        };
+        if attempt != wait.attempt || idempotency_key != &wait.idempotency_key {
+            bail!("step {step_id} wait does not match its active lease")
+        }
+        // A wait id names one question for the life of the run. A second
+        // `wait.human` under the same id would let one answer close both, so
+        // the reuse is refused rather than journaled.
+        for entry in journal.scan_all().context("read prior waits")? {
+            if entry.entry_type == EntryType::WaitHuman {
+                let prior: WaitHumanPayload = serde_json::from_value(entry.payload)?;
+                if prior.wait_id == wait.wait_id {
+                    bail!("wait {} was already asked in run {run_id}", wait.wait_id)
+                }
+            }
+        }
+        self.append(
+            &mut journal,
+            &JournalEntry::new(
+                EntryType::WaitHuman,
+                run_id,
+                Some(step_id.to_owned()),
+                Some(attempt),
+                self.clock.now_ms(),
+                WaitHumanPayload {
+                    wait_id: wait.wait_id,
+                    prompt: wait.prompt,
+                    requested_of: wait.requested_of,
+                    options: wait.options,
+                    timeout_at_ms: wait.timeout_at_ms,
+                    diff_ref: None,
+                },
+            ),
+        )?;
+        self.drive(journal, spec, DriveOptions::default())
+    }
+
     /// Complete a currently leased step through the same verification/retry
     /// state-machine path used by in-process deterministic execution.
     pub fn complete_out_of_band(
@@ -298,19 +379,69 @@ impl Engine<WallClock> {
         let mut journal = self.open_run(run_id)?;
         let spec = journal.run_spec().context("read run spec")?;
         let entries = journal.scan_all().context("read event waits")?;
+        // `wait.event` matches on its `event_key`; `wait.human` has none, so a
+        // human response is addressed to the wait itself: `event_key` is the
+        // `wait_id` (DESIGN.md §5, `event.emit`). Each open wait remembers
+        // which reason closes it.
         let mut open = Vec::new();
         for entry in &entries {
             if entry.entry_type == EntryType::WaitEvent {
                 let wait: WaitEventPayload = serde_json::from_value(entry.payload.clone())?;
                 if wait.event_key == event_key {
-                    open.push((wait.wait_id, entry.step_id.clone(), entry.attempt));
+                    open.push((
+                        wait.wait_id,
+                        entry.step_id.clone(),
+                        entry.attempt,
+                        WaitCompletionReason::EventReceived,
+                    ));
+                }
+            } else if entry.entry_type == EntryType::WaitHuman {
+                let wait: WaitHumanPayload = serde_json::from_value(entry.payload.clone())?;
+                if wait.wait_id == event_key {
+                    open.push((
+                        wait.wait_id,
+                        entry.step_id.clone(),
+                        entry.attempt,
+                        WaitCompletionReason::HumanResponded,
+                    ));
                 }
             } else if entry.entry_type == EntryType::WaitCompleted {
                 let done: WaitCompletedPayload = serde_json::from_value(entry.payload.clone())?;
-                open.retain(|(wait_id, _, _)| wait_id != &done.wait_id);
+                open.retain(|(wait_id, _, _, _)| wait_id != &done.wait_id);
             }
         }
-        for (wait_id, step_id, attempt) in &open {
+        // A human response must say who gave it, and the journal — not the
+        // client — says when. The kernel cannot verify the identity a daemon
+        // client asserts (the socket is the trust boundary; Cloud's answer
+        // route authenticates the caller before it reaches here), so the
+        // result records the attribution as client-asserted and stamps the
+        // entry's own clock as `at_ms`, dropping any client-supplied time.
+        let answers_human = open
+            .iter()
+            .any(|(_, _, _, reason)| *reason == WaitCompletionReason::HumanResponded);
+        if answers_human {
+            let attributed = payload
+                .get("answeredBy")
+                .and_then(Value::as_str)
+                .is_some_and(|who| !who.trim().is_empty());
+            if !attributed {
+                bail!("a human response to {event_key} must carry a non-empty answeredBy")
+            }
+        }
+        for (wait_id, step_id, attempt, completion_reason) in &open {
+            let now_ms = self.clock.now_ms();
+            let result = if *completion_reason == WaitCompletionReason::HumanResponded {
+                let mut answer = payload.as_object().cloned().unwrap_or_default();
+                answer.remove("at");
+                answer.insert("at_ms".to_owned(), Value::from(now_ms));
+                answer.insert(
+                    "attribution".to_owned(),
+                    Value::from("client_asserted"),
+                );
+                Value::Object(answer)
+            } else {
+                payload.clone()
+            };
             self.append(
                 &mut journal,
                 &JournalEntry::new(
@@ -318,11 +449,11 @@ impl Engine<WallClock> {
                     run_id,
                     step_id.clone(),
                     *attempt,
-                    self.clock.now_ms(),
+                    now_ms,
                     WaitCompletedPayload {
                         wait_id: wait_id.clone(),
-                        completion_reason: WaitCompletionReason::EventReceived,
-                        result: payload.clone(),
+                        completion_reason: *completion_reason,
+                        result,
                     },
                 ),
             )?;

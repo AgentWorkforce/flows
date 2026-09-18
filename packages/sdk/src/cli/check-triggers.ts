@@ -2,7 +2,9 @@ import { dirname, resolve } from 'node:path';
 import { loadAuthoredFlow, type LoadedAuthoredFlow } from '../authored-flow-loader.js';
 import { preflightWebhookTriggers } from '../preflight.js';
 import { preflightProviderTriggers } from '../provider-trigger-contract.js';
+import { scheduleLowering } from '../schedule-trigger.js';
 import { checkSlackHelpers } from '../slack-preflight.js';
+import { flowRequirements } from '../flow-requirements.js';
 import { inputFailureReport, readProjectConfig, type CheckReport } from './check.js';
 
 /**
@@ -31,12 +33,21 @@ export async function checkAuthoredTriggers(path: string): Promise<{
     const diagnostics = [
       ...triggerDiagnostics, ...providerDiagnostics, ...helperReport.diagnostics,
     ];
+    // A schedule is inspectable data: print what it lowers to, and say plainly
+    // when the local runner cannot drive it. Neither is a refusal — Cloud can.
+    const schedules = triggers.flatMap((trigger, handler) => {
+      if (trigger.kind !== 'schedule') return [];
+      const lowering = scheduleLowering(definition.name, trigger);
+      return [{ handler, ...lowering }];
+    });
     return {
       loaded,
       report: {
         // Severity, not emptiness: a warning must never refuse a flow.
         ok: !diagnostics.some(diagnostic => diagnostic.severity === 'refusal'),
         path, gates: [], resolutions: [], diagnostics,
+        ...(schedules.length === 0 ? {} : { schedules }),
+        requirements: flowRequirements(definition, { projectCli: config.cli }),
         ...(config.path === undefined ? {} : { projectConfigPath: config.path }),
       },
     };
