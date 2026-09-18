@@ -586,8 +586,8 @@ function warnOnUnprovableEffects(
   diagnostics: PreflightDiagnostic[],
 ): void {
   if (step.type !== 'deterministic') return;
-  const binary = firstCommandWord(step.command);
-  if (binary === undefined) {
+  const first = firstCommandWordDetailed(step.command);
+  if (first === undefined) {
     diagnostics.push({
       severity: 'warning',
       kind: 'command_unprovable',
@@ -596,6 +596,19 @@ function warnOnUnprovableEffects(
     });
     return;
   }
+  if (first.shell) {
+    // `set -e`, `if …`, `cd …`: the shell supplies these, so there is nothing
+    // to resolve on PATH — and nothing to refuse. What they go on to run is
+    // the rest of the script, whose effects preflight never claimed to prove.
+    diagnostics.push({
+      severity: 'warning',
+      kind: 'unprovable_effects',
+      stepId: step.id,
+      message: `Step "${step.id}" starts with the shell ${first.kind} "${first.word}", whose effects cannot be proven before execution.`,
+    });
+    return;
+  }
+  const binary = first.word;
   let exists: boolean;
   try {
     exists = probes.command(binary);
@@ -630,7 +643,115 @@ function warnOnUnprovableEffects(
     });
 }
 
+/** POSIX special builtins and reserved words: the shell supplies them, PATH never does. */
+const SHELL_SPECIAL_BUILTINS = new Set([
+  '.', ':', 'break', 'continue', 'eval', 'exec', 'exit', 'export', 'readonly', 'return', 'set',
+  'shift', 'times', 'trap', 'unset',
+  // Regular builtins that no sane flow ships as an executable.
+  'cd', 'alias', 'unalias', 'local', 'source', 'wait', 'umask', 'ulimit', 'read', 'command', 'type',
+]);
+const SHELL_RESERVED_WORDS = new Set([
+  'if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'until', 'do', 'done', 'case', 'esac', 'in',
+  'function', 'select', 'time', '{', '}', '(', ')', '!', '[[', ']]',
+]);
+
+interface FirstCommandWord {
+  word: string;
+  /** True when the shell itself provides the word, so there is nothing to look up. */
+  shell: boolean;
+  kind: 'command' | 'builtin' | 'reserved word';
+}
+
 function firstCommandWord(command: string): string | undefined {
+  return firstCommandWordDetailed(command)?.word;
+}
+
+function firstCommandWordDetailed(command: string): FirstCommandWord | undefined {
+  // A lightweight lexical pass — not a shell parser. It walks the script once,
+  // quote-aware: comments outside quotes are dropped, quoted text is opaque
+  // (an apostrophe in `# don't` or a `<<EOF` inside `VALUE='<<EOF'` is data),
+  // and the script is split into simple-command segments on unquoted `;`,
+  // `&&`, `||`, `|` and newlines. The first segment that is not only
+  // assignments and redirections holds the command word (cloud#3777).
+  //
+  // A heredoc opener or a quote left open at the end of the script means the
+  // following text is data the shell never executes; if no command word was
+  // found before it, the answer is "cannot be proven", not "missing".
+  const segments = lexSimpleCommands(command);
+  if (segments === undefined) return undefined;
+  for (const segment of segments) {
+    const remainder = stripShellPrefixes(segment);
+    if (remainder === '') continue;
+    const match = remainder.match(/^(?:"([^"]*)"|'([^']*)'|([^\s]+))/);
+    const word = match?.[1] ?? match?.[2] ?? match?.[3];
+    if (word === undefined || word === '') continue;
+    if (SHELL_SPECIAL_BUILTINS.has(word)) return { word, shell: true, kind: 'builtin' };
+    if (SHELL_RESERVED_WORDS.has(word)) return { word, shell: true, kind: 'reserved word' };
+    return { word, shell: false, kind: 'command' };
+  }
+  return undefined;
+}
+
+/**
+ * Split a script into simple-command segments, comments removed, quotes kept.
+ * Returns undefined when a heredoc or an unclosed quote begins before any
+ * segment could be completed past it — the rest is data.
+ */
+function lexSimpleCommands(script: string): string[] | undefined {
+  const segments: string[] = [];
+  let current = '';
+  let quote: string | undefined;
+  let heredoc = false;
+  const flush = (): void => {
+    if (current.trim() !== '') segments.push(current.trim());
+    current = '';
+  };
+  for (let i = 0; i < script.length; i += 1) {
+    const char = script[i]!;
+    if (quote !== undefined) {
+      current += char;
+      if (char === '\\' && quote === '"' && i + 1 < script.length) { current += script[++i]; continue; }
+      if (char === quote) quote = undefined;
+      continue;
+    }
+    if (char === '\\' && i + 1 < script.length) { current += char + script[++i]; continue; }
+    if (char === '"' || char === "'") { quote = char; current += char; continue; }
+    if (char === '#' && (current === '' || /\s$/.test(current))) {
+      // Comment to end of line, outside quotes only.
+      while (i + 1 < script.length && script[i + 1] !== '\n') i += 1;
+      continue;
+    }
+    if (char === '<' && script[i + 1] === '<') {
+      // A heredoc: everything after this line is its body, so the current
+      // segment is the last one the shell reads as a command.
+      heredoc = true;
+      while (i + 1 < script.length && script[i + 1] !== '\n') i += 1;
+      flush();
+      break;
+    }
+    if (char === '\n' || char === ';') { flush(); continue; }
+    if ((char === '&' && script[i + 1] === '&') || (char === '|' && script[i + 1] === '|')) { flush(); i += 1; continue; }
+    if (char === '|') { flush(); continue; }
+    if (char === '&') {
+      // `&` is a boundary only as a background operator. In `2>&1`, `>&2`,
+      // `<&0` and `&>file` it is part of a redirection: the `&` after a `>`
+      // or `<` (with an optional fd number before that), or the `&` that
+      // starts `&>`.
+      const afterRedirect = /[<>]\s*$/.test(current);
+      if (afterRedirect || script[i + 1] === '>') { current += char; continue; }
+      flush();
+      continue;
+    }
+    current += char;
+  }
+  if (!heredoc && quote === undefined) flush();
+  // Whatever was accumulated when a heredoc or an open quote cut the scan is
+  // not a complete command; only the segments closed before it count.
+  if (segments.length === 0 && (heredoc || quote !== undefined)) return undefined;
+  return segments;
+}
+
+function stripShellPrefixes(segment: string): string {
   // Skip the shell prefixes that can legally precede the command word.
   //
   // Review caught this on PR #47: the new path-like refusal keys on the first
@@ -640,16 +761,16 @@ function firstCommandWord(command: string): string | undefined {
   // which is exactly the "refusing would reject valid flows" failure the warn
   // behaviour exists to avoid.
   //
-  // An assignment is NAME=value with a shell-legal name; a redirection starts
-  // with < or > (optionally with a leading fd number). Neither is the command.
-  let rest = command.trim();
+  // An assignment is NAME=value with a shell-legal name and an opaque quoted
+  // value; a redirection starts with < or > (optionally with a leading fd
+  // number). Neither is the command. Segments never contain `;`/newlines.
+  let rest = segment;
   for (;;) {
-    const prefix = rest.match(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]*)|[0-9]*[<>]{1,2}\s*[^\s]+)\s+/);
+    const prefix = rest.match(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"(?:[^"\\]|\\.)*"|'[^']*'|[^\s]*)|(?:[0-9]*[<>]{1,2}&?|&>>?)\s*[^\s]+)(?:\s+|$)/);
     if (prefix === null) break;
     rest = rest.slice(prefix[0].length);
   }
-  const match = rest.match(/^(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
-  return match?.[1] ?? match?.[2] ?? match?.[3];
+  return rest.trim();
 }
 
 function probeNamedGate(step: StepSpec, probes: PreflightProbes, diagnostics: PreflightDiagnostic[]): void {
