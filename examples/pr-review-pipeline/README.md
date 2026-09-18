@@ -5,7 +5,7 @@
 One click deploys this flow to [Agent Relay Cloud](https://agentrelay.com/cloud), running on every pull request.
 
 Runs locally and on Cloud. From a checkout with a `flows.json` naming the
-agent CLI (`{"cli": "claude"}` is enough — see *Running it* below):
+agent CLI, or none at all — the agents pin `cli: "claude"`, which is what a Cloud sandbox (no `flows.json`) needs:
 
 ```sh
 flows run pr-review-pipeline.flow.ts --local-agent --input '{"diffRange":"origin/main...HEAD"}'
