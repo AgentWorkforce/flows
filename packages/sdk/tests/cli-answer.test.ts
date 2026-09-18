@@ -20,6 +20,8 @@ describe('flows answer invocation', () => {
     ['--note without text', ['answer', 'run-1', 'human-1', 'yes', '--note']],
     ['--note followed by a flag', ['answer', 'run-1', 'human-1', 'yes', '--note', '--json']],
     ['--data-dir without a path', ['answer', 'run-1', 'human-1', 'yes', '--data-dir']],
+    ['--by without an identity', ['answer', 'run-1', 'human-1', 'yes', '--by']],
+    ['--by followed by a flag', ['answer', 'run-1', 'human-1', 'yes', '--by', '--json']],
     ['a repeated --json', ['answer', '--json', '--json', 'run-1', 'human-1', 'yes']],
     ['worker flags that mean nothing here', ['answer', 'run-1', 'human-1', 'yes', '--local-agent']],
     ['--allow-human-influenced', ['answer', 'run-1', 'human-1', 'yes', '--allow-human-influenced']],
@@ -27,7 +29,7 @@ describe('flows answer invocation', () => {
     const output = capture();
     expect(await runCli(args, output.io)).toBe(2);
     expect(output.stderr.join('\n')).toContain('[invalid_invocation]');
-    expect(output.stderr.join('\n')).toContain('flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] <run-id> <wait-id> <yes|no>');
+    expect(output.stderr.join('\n')).toContain('flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>');
   });
 
   it('refuses a wait id that is not human-<n> before contacting any daemon', async () => {

@@ -7,6 +7,8 @@ import { connect, emptyReport, protocolFailure, socketFor, type RunExecution } f
 
 export interface AnswerOptions {
   readonly note?: string;
+  /** Who answered, when relaying a person's decision; defaults to the OS user. */
+  readonly answeredBy?: string;
   readonly daemon?: EnsureDaemonOptions;
 }
 
@@ -51,7 +53,7 @@ export async function answerFlow(
     }
     const payload = humanAnswerPayload(answer, {
       ...(options.note === undefined ? {} : { note: options.note }),
-      answeredBy: safeUsername(),
+      answeredBy: options.answeredBy ?? safeUsername(),
     });
     const emitted = await client.eventEmit(runId, waitId, payload);
     if (emitted.matched !== 1) {

@@ -107,7 +107,7 @@ describe('f.human against a real daemon', () => {
     const garbage = f.answer(runId, 'human-2', 'maybe');
     expect(garbage.status).toBe(2);
 
-    const answered = f.answer(runId, 'human-2', 'yes', '--note', 'looks good');
+    const answered = f.answer(runId, 'human-2', 'yes', '--note', 'looks good', '--by', 'khaliq@agent-relay.com');
     expect(answered.status, answered.stderr + answered.stdout).toBe(0);
     expect(JSON.parse(answered.stdout)).toMatchObject({ ok: true, command: 'answer', runId,
       answer: { waitId: 'human-2', answer: true, note: 'looks good' } });
@@ -127,7 +127,7 @@ describe('f.human against a real daemon', () => {
       'step.attempt.started@1', 'wait.human@1', 'wait.completed@1', 'step.attempt.started@2', 'step.completed@2',
     ]);
     expect(closed[2]!.payload).toMatchObject({ wait_id: 'human-2', completionReason: 'human_responded',
-      result: { answer: true, note: 'looks good' } });
+      result: { answer: true, note: 'looks good', answeredBy: 'khaliq@agent-relay.com' } });
     expect(closed[4]!.payload).toMatchObject({ completionReason: 'success' });
     // A resume after completion replays nothing and reports the durable result.
     const again = f.resume(runId);

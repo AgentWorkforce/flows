@@ -630,7 +630,7 @@ flows check [--watch] [--json] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>
 flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>
-flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] <run-id> <wait-id> <yes|no>
+flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>
 flows observer [--data-dir <dir>]
 ```
 
@@ -828,9 +828,9 @@ Answer with: flows answer <run-id> human-2 yes|no
 Then continue with: flows resume <run-id>
 ```
 
-No process waits. `flows answer <run-id> <wait-id> yes|no [--note <text>]`
-records the decision as the answer contract `{ answer: boolean, note?,
-answeredBy?, at }` — an `event.emit` keyed by the wait id, which the kernel
+No process waits. `flows answer <run-id> <wait-id> yes|no [--note <text>]
+[--by <identity>]` records the decision as the answer contract `{ answer:
+boolean, note?, answeredBy?, at }` (`answeredBy` is `--by`, else the OS user) — an `event.emit` keyed by the wait id, which the kernel
 journals as `wait.completed{human_responded}` and closes the wait once: a
 second answer is refused (`human_wait_unknown`), as is a wait the run is not
 asking. `flows resume` then re-runs the body; every step before the gate is
