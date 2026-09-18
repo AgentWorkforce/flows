@@ -1,3 +1,4 @@
+import type { HumanRecipient } from './human-to.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
@@ -52,6 +53,8 @@ export interface AuthoredHumanWait {
   readonly waitId: string;
   readonly question: string;
   readonly to: string;
+  /** `to` parsed into its delivery form (human-to.ts); Cloud delivers by it. */
+  readonly recipient?: HumanRecipient;
 }
 
 /**

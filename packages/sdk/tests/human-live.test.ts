@@ -84,7 +84,8 @@ describe('f.human against a real daemon', () => {
     const parked = JSON.parse(first.stdout);
     expect(parked).toMatchObject({ ok: false, status: 'parked',
       parkedStep: { id: 'authored-root', type: 'agent' },
-      humanWait: { waitId: 'human-2', question: 'Ship this?\nplan: v2', to: 'khaliq' } });
+      humanWait: { waitId: 'human-2', question: 'Ship this?\nplan: v2', to: 'khaliq',
+        recipient: { provider: 'approver', kind: 'user', target: 'khaliq' } } });
     const runId: string = parked.runId;
     expect(parked.diagnostics.at(-1)).toMatchObject({ severity: 'parked', kind: 'run_parked' });
     expect(parked.diagnostics.at(-1).message).toContain(`flows answer --data-dir ${f.dataDir} ${runId} human-2 yes|no`);

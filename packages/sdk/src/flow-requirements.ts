@@ -1,3 +1,4 @@
+import { humanRecipientProvider } from './human-to.js';
 import { helperProviders } from '@relayflows/surface/runtime';
 import type { TriggerSource } from '@relayflows/surface';
 import { providerDeclaration } from './provider-trigger-contract.js';
@@ -26,8 +27,8 @@ export interface FlowIntegrationRequirement {
   /** Cloud integration provider id (`slack`, `github`, `linear`, …). */
   provider: string;
   /** `tools`: a header declaration; `source`: a trigger or deploy target; `helper`: body use without a flag, or a YAML helper step. */
-  from: 'tools' | 'source' | 'helper';
-  /** The declaration that requires it, as a reader would name it: `tools.slack`, `--on github`, `f.slack`. */
+  from: 'tools' | 'source' | 'helper' | 'human';
+  /** The declaration that requires it, as a reader would name it: `tools.slack`, `--on github`, `f.slack`, `f.human to`. */
   detail: string;
 }
 
@@ -119,6 +120,14 @@ export function flowRequirements(
         if (helperReference(root, namespace).test(text)) declare({ provider, from: 'helper', detail: `f.${namespace}` });
       }
       for (const use of workerCalls(root, text)) need(use.cli === undefined ? fallback : harnessFromCli(use.cli), use.detail);
+      // `f.human(q, { to: "slack:#eng" })` is delivered by Cloud through that
+      // provider, so the deploy must have it connected. Only a literal `to`
+      // can be read here; a computed one (`input.approver`) is resolved by
+      // Cloud at park time against the run's own trigger channel.
+      for (const to of humanRecipients(root, text)) {
+        const provider = humanRecipientProvider(to);
+        if (provider !== undefined) declare({ provider, from: 'human', detail: 'f.human to' });
+      }
     }
   }
 
@@ -178,6 +187,17 @@ function contextParameter(body: string): string | undefined {
 /** Same recognition as `preflightHelpers`: `f.slack`, `f .slack`, `f["slack"]`. */
 function helperReference(root: string, namespace: string): RegExp {
   return new RegExp(`(?:^|[^\\w$.])${root}\\s*(?:\\.\\s*${namespace}\\b|\\[\\s*['"]${namespace}['"]\\s*\\])`, 'u');
+}
+
+/** The literal `to` of each `f.human(question, { to: "…" })` call in the body. */
+function humanRecipients(root: string, body: string): string[] {
+  const call = new RegExp(`(?:^|[^\\w$.])${root}\\s*\\.\\s*human\\s*\\(`, 'gu');
+  const starts = [...body.matchAll(call)];
+  return starts.flatMap((match, index) => {
+    const slice = body.slice(match.index! + match[0].length, starts[index + 1]?.index ?? body.length);
+    const to = slice.match(/(?:^|[^\w$])to\s*:\s*(['"`])([^'"`]*)\1/u)?.[2];
+    return to === undefined ? [] : [to];
+  });
 }
 
 interface WorkerCall { detail: string; cli?: string }
