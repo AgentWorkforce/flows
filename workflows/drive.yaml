@@ -80,7 +80,14 @@ workflows:
             # and a private-repo failure must surface loudly here rather than
             # hang waiting for credentials that a sandbox will never supply.
             export GIT_TERMINAL_PROMPT=0
-            git rev-parse --git-dir >/dev/null 2>&1 || git init -q
+            # The checkout must be rooted HERE: `git rev-parse --git-dir` also succeeds
+            # inside a parent repository, which would send fetch/checkout into the
+            # parent (scheduled steps run under /project/workflows/schedules/<id>), and
+            # a leftover `.git` gitfile would make `git init` fail.
+            if [ "$(git rev-parse --show-toplevel 2>/dev/null)" != "$(pwd -P)" ]; then
+              if [ -f .git ]; then mv .git ".git.stale.$$"; fi
+              git init -q
+            fi
             git remote get-url origin >/dev/null 2>&1 || git remote add origin "$repo_url"
             if git fetch --quiet --depth=1 origin main; then
               git checkout --quiet -f -B main FETCH_HEAD
@@ -133,7 +140,14 @@ workflows:
             fi
           fi
 
-          git rev-parse --git-dir >/dev/null 2>&1 || git init -q
+          # The checkout must be rooted HERE: `git rev-parse --git-dir` also succeeds
+          # inside a parent repository, which would send fetch/checkout into the
+          # parent (scheduled steps run under /project/workflows/schedules/<id>), and
+          # a leftover `.git` gitfile would make `git init` fail.
+          if [ "$(git rev-parse --show-toplevel 2>/dev/null)" != "$(pwd -P)" ]; then
+            if [ -f .git ]; then mv .git ".git.stale.$$"; fi
+            git init -q
+          fi
           git config user.email "lead@relayflows.local"
           git config user.name "Relayflow Lead"
 
