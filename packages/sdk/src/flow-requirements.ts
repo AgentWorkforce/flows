@@ -189,15 +189,117 @@ function helperReference(root: string, namespace: string): RegExp {
   return new RegExp(`(?:^|[^\\w$.])${root}\\s*(?:\\.\\s*${namespace}\\b|\\[\\s*['"]${namespace}['"]\\s*\\])`, 'u');
 }
 
-/** The literal `to` of each `f.human(question, { to: "…" })` call in the body. */
+/**
+ * The literal `to` of each `f.human(question, { to: "…" })` call in the body.
+ *
+ * Bounded to the call's OWN argument list — the text between its `(` and the
+ * matching `)`, string- and nesting-aware — and within that to the top level
+ * of its options object, so a `to:` in a later call, in a nested object, in
+ * the question string, or in an unrelated `{ to }` of the surrounding code is
+ * never read as this call's recipient. Only a plain string literal counts; a
+ * template with interpolation or an identifier is a computed `to`, resolved
+ * by Cloud at park time.
+ */
 function humanRecipients(root: string, body: string): string[] {
   const call = new RegExp(`(?:^|[^\\w$.])${root}\\s*\\.\\s*human\\s*\\(`, 'gu');
-  const starts = [...body.matchAll(call)];
-  return starts.flatMap((match, index) => {
-    const slice = body.slice(match.index! + match[0].length, starts[index + 1]?.index ?? body.length);
-    const to = slice.match(/(?:^|[^\w$])to\s*:\s*(['"`])([^'"`]*)\1/u)?.[2];
-    return to === undefined ? [] : [to];
-  });
+  const found: string[] = [];
+  for (const match of body.matchAll(call)) {
+    const open = match.index! + match[0].length - 1;
+    const close = matchingClose(body, open);
+    if (close === -1) continue;
+    const args = body.slice(open + 1, close);
+    const options = secondArgumentObject(args);
+    if (options === undefined) continue;
+    const to = topLevelStringProperty(options, 'to');
+    if (to !== undefined) found.push(to);
+  }
+  return found;
+}
+
+/** Index of the `)`/`}`/`]` closing the bracket at `open`, skipping strings, templates and comments; -1 if unbalanced. */
+function matchingClose(text: string, open: number): number {
+  const pairs: Record<string, string> = { '(': ')', '{': '}', '[': ']' };
+  const stack: string[] = [pairs[text[open]!]!];
+  let i = open + 1;
+  while (i < text.length && stack.length > 0) {
+    const ch = text[i]!;
+    const next = text[i + 1];
+    if (ch === '/' && next === '/') { i = text.indexOf('\n', i); if (i === -1) return -1; continue; }
+    if (ch === '/' && next === '*') { const end = text.indexOf('*/', i + 2); if (end === -1) return -1; i = end + 2; continue; }
+    if (ch === '"' || ch === "'" || ch === '`') { i = stringEnd(text, i); if (i === -1) return -1; i += 1; continue; }
+    if (ch in pairs) stack.push(pairs[ch]!);
+    else if (ch === ')' || ch === '}' || ch === ']') { if (stack.pop() !== ch) return -1; }
+    i += 1;
+  }
+  return stack.length === 0 ? i - 1 : -1;
+}
+
+/** Index of the quote closing the string opening at `start` (template `${…}` skipped); -1 if unterminated. */
+function stringEnd(text: string, start: number): number {
+  const quote = text[start]!;
+  let i = start + 1;
+  while (i < text.length) {
+    const ch = text[i]!;
+    if (ch === '\\') { i += 2; continue; }
+    if (ch === quote) return i;
+    if (quote === '`' && ch === '$' && text[i + 1] === '{') {
+      const end = matchingClose(text, i + 1);
+      if (end === -1) return -1;
+      i = end + 1;
+      continue;
+    }
+    i += 1;
+  }
+  return -1;
+}
+
+/** The `{ … }` that is the call's second top-level argument, or undefined. */
+function secondArgumentObject(args: string): string | undefined {
+  let depth = 0;
+  let i = 0;
+  let commas = 0;
+  while (i < args.length) {
+    const ch = args[i]!;
+    if (ch === '"' || ch === "'" || ch === '`') { i = stringEnd(args, i); if (i === -1) return undefined; i += 1; continue; }
+    if (ch === '(' || ch === '{' || ch === '[') {
+      if (depth === 0 && commas === 1 && ch === '{') {
+        const close = matchingClose(args, i);
+        return close === -1 ? undefined : args.slice(i, close + 1);
+      }
+      depth += 1;
+    } else if (ch === ')' || ch === '}' || ch === ']') depth -= 1;
+    else if (ch === ',' && depth === 0) commas += 1;
+    i += 1;
+  }
+  return undefined;
+}
+
+/** The plain string literal value of `name:` at the top level of an object literal, else undefined. */
+function topLevelStringProperty(object: string, name: string): string | undefined {
+  let depth = 0;
+  let i = 1; // past the opening brace
+  const end = object.length - 1;
+  while (i < end) {
+    const ch = object[i]!;
+    if (ch === '"' || ch === "'" || ch === '`') { i = stringEnd(object, i); if (i === -1) return undefined; i += 1; continue; }
+    if (ch === '(' || ch === '{' || ch === '[') { depth += 1; i += 1; continue; }
+    if (ch === ')' || ch === '}' || ch === ']') { depth -= 1; i += 1; continue; }
+    if (depth === 0 && (i === 1 || /[\s,{]/u.test(object[i - 1]!))) {
+      const key = new RegExp(`^(?:${name}|'${name}'|"${name}")\\s*:\\s*`, 'u').exec(object.slice(i));
+      if (key !== null) {
+        const valueStart = i + key[0].length;
+        const quote = object[valueStart];
+        if (quote !== '"' && quote !== "'" && quote !== '`') return undefined;
+        const valueEnd = stringEnd(object, valueStart);
+        if (valueEnd === -1) return undefined;
+        const raw = object.slice(valueStart + 1, valueEnd);
+        // An interpolated template is computed; a plain one is a literal.
+        return quote === '`' && /\$\{/u.test(raw) ? undefined : raw.replace(/\\(.)/gu, '$1');
+      }
+    }
+    i += 1;
+  }
+  return undefined;
 }
 
 interface WorkerCall { detail: string; cli?: string }

@@ -86,7 +86,7 @@ export {
   flowRequirements, describeFlowRequirements, harnessFromCli, FLOW_HARNESSES,
   type FlowRequirements, type FlowRequirementsContext, type FlowIntegrationRequirement, type FlowHarnessRequirement, type FlowHarness,
 } from './flow-requirements.js';
-export { parseHumanRecipient, humanRecipientProvider, type HumanRecipient } from './human-to.js';
+export { parseHumanTo, parseHumanRecipient, humanRecipientProvider, type HumanRecipient, type HumanRecipientParse } from './human-to.js';
 
 export { canonicalize, specHash } from './canonical.js';
 export {

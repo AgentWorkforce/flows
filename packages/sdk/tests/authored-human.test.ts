@@ -204,6 +204,16 @@ describe('f.human lowering', () => {
     }
   });
 
+  it('refuses a malformed `to` as human_to_invalid before consuming an ordinal or touching the journal', async () => {
+    const journal = new JournalClient('/journal-must-not-be-contacted');
+    for (const to of ['slack:', 'github:#eng', 'email:khaliq', 'slack:@two words', 'slack:#', '@']) {
+      const handle = flow('bad-to', async f => { await f.human('Ship it?', { to }); f.done('success'); });
+      const failure = await executeAuthoredFlow(handle, journal, undefined, { rootRunId: ROOT }).catch(error => error);
+      expect(failure, to).toMatchObject({ code: 'human_to_invalid' });
+      expect(String(failure.message), to).toContain('f.human to');
+    }
+  });
+
   it('needs a durable root to park in', async () => {
     const journal = await client();
     try {

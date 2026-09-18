@@ -854,6 +854,11 @@ Cloud acts on (the local kit records it and delivers nothing):
 | `"github:@khaliq"`| a comment on the triggering issue / PR, mentioning them     | that user               |
 | `"khaliq"`        | the deploy's approver, on the channel the run was triggered from (the Slack thread, or the GitHub issue / PR) | that user |
 
+Anything else — `slack:` with no target, `github:#eng`, an unknown provider,
+a handle with spaces — is refused at the call as `human_to_invalid`, before an
+ordinal is consumed or anything is journaled, rather than parking the run on a
+question that can reach no one.
+
 The person answers **where they were asked** — `yes` / `no` as a reply in the
 Slack thread (or ✅ / ❌ on the message), or `@relay yes` / `@relay no` as a
 comment on the issue — and Cloud records it as the run's answer and resumes
