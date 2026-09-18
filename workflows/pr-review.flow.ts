@@ -165,28 +165,44 @@ export default flow<PrReviewInput>(
     if (pr !== undefined) {
       // headSha is the wake's snapshot. If the PR moved while the agents ran,
       // a newer wake is reviewing the new commit; don't post a stale verdict.
-      const head = await f.run(`git ls-remote origin ${shellWord(`refs/pull/${pr.number}/head`)} | cut -f1`, { timeout: "1m" });
-      if (head.trim() !== pr.headSha) return f.done("declined");
-      // f.run returns the kernel's stdout *tail* (64 KiB), which would drop the
-      // verdict at the top of a long review. Bound the body from the front
-      // instead, under GitHub's 65,536-char comment limit, and say so.
-      const body = await f.run(
-        `if [ "$(wc -c < ${CONSENSUS})" -gt 60000 ]; then head -c 60000 ${CONSENSUS}; `
-          + `printf '\n\n_…truncated; the full review is in the run artifacts (${CONSENSUS})._\n'; `
-          + `else cat ${CONSENSUS}; fi`,
+      // A lookup failure or blank result is a step failure (the run can be
+      // resumed), never a reason to drop a finished review.
+      const head = await f.run(
+        `h=$(git ls-remote --exit-code origin ${shellWord(`refs/pull/${pr.number}/head`)} | cut -f1) && `
+          + `printf '%s' "$h" | grep -Eq '^[0-9a-f]{40}$' && printf '%s' "$h"`,
+        { timeout: "1m" },
       );
-      await postComment(f, pr, body);
+      if (head.trim() !== pr.headSha) return f.done("declined");
+      await postComment(f, pr);
     }
     f.done("success");
   },
 );
 
-// Kept outside the body on purpose (as examples/pr-reviewer does): `flows
-// check` discovers `f.github` by reading the body's source, and a local
-// checkout without a relayfile GitHub mount would otherwise be refused before
-// running at all. On Cloud the workspace's GitHub connection backs the helper.
-// Each triggering event posts a fresh comment; a PR accumulates one per wake.
-type Ctx = Parameters<Parameters<typeof flow<PrReviewInput>>[2]>[0];
-async function postComment(f: Ctx, pr: Pr, body: string): Promise<void> {
-  await f.github.comment({ owner: REPO.owner, repo: REPO.repo, number: pr.number }, body);
+// The comment goes through the REST API with the repository token Cloud puts
+// in the sandbox as GH_TOKEN (the same credential git uses there). The
+// relayfile GitHub mount behind `f.github.*` is not attached to authored
+// runs on Cloud — its first live run failed with
+// helper_provider.mount_required at exactly this step. A deterministic step
+// is not exactly-once, so the post is idempotent: the marker carries the
+// head SHA and an existing comment for it means a re-dispatched step skips.
+// The body is bounded from the front (f.run returns a 64 KiB stdout *tail*,
+// which would drop the verdict) under GitHub's 65,536-char comment limit.
+const shellNum = (n: number): string => String(n);
+async function postComment(f: Ctx, pr: Pr): Promise<void> {
+  const api = `https://api.github.com/repos/${REPO.owner}/${REPO.repo}/issues/${shellNum(pr.number)}/comments`;
+  const marker = `<!-- flows-pr-review ${pr.headSha} -->`;
+  await f.run(
+    `[ -n "$GH_TOKEN" ] || { echo "GH_TOKEN is not set; cannot post the review" >&2; exit 1; }; `
+      // Walk every page of comments (busy PRs exceed one page) before posting.
+      + `page=1; while :; do out=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(`${api}?per_page=100&page=`)}"$page") || exit 1; `
+      + `if printf '%s' "$out" | grep -qF ${shellWord(marker)}; then echo "already posted for ${pr.headSha}"; exit 0; fi; `
+      // The page is one JSON line: count occurrences, not lines.
+      + `[ "$(printf '%s' "$out" | grep -o '"node_id"' | wc -l)" -ge 100 ] || break; page=$((page+1)); [ "$page" -le 50 ] || { echo "more than 5000 comments; refusing to post without a complete marker scan" >&2; exit 1; }; done; `
+      + `{ printf '%s\n' ${shellWord(marker)}; if [ "$(wc -c < ${CONSENSUS})" -gt 60000 ]; then head -c 60000 ${CONSENSUS}; printf '\n\n_…truncated; the full review is in the run artifacts (${CONSENSUS})._\n'; else cat ${CONSENSUS}; fi; } > review/comment.md && `
+      + `node -e 'const fs=require("fs");process.stdout.write(JSON.stringify({body:fs.readFileSync("review/comment.md","utf8")}))' > review/comment.json && `
+      + `curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(api)} --data-binary @review/comment.json > /dev/null`,
+    { timeout: "2m" },
+  );
 }
+type Ctx = Parameters<Parameters<typeof flow<PrReviewInput>>[2]>[0];
