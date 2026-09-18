@@ -42,7 +42,7 @@ export async function runCloudCli(
     // arguments must not first open a browser.
     const connections = await ensureFlowConnections({
       path, prompt: cliConnectPrompt(io, { noConnect, json }),
-    }, { signal: controller.signal });
+    }, { signal });
     harnesses = connections?.requirements.harnesses ?? [];
     for (const provider of connections?.outcome.connected ?? []) if (!json) io.stdout(`CONNECTED ${provider}`);
     // The tree is the invoking directory, as with v1: the flow path is where
