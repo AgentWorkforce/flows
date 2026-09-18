@@ -77,6 +77,10 @@ export {
   type DeployToCloudInput, type CloudDeployment, type CloudDeploymentSummary, type FlowTriggerSource, type FlowTriggerProvider,
 } from './cloud-deploy.js';
 export {
+  ensureIntegrationsConnected, integrationConnected, providerLabel,
+  type ConnectPrompt, type EnsureConnectionsOptions, type ConnectionsOutcome,
+} from './cloud-connect.js';
+export {
   flowRequirements, describeFlowRequirements, harnessFromCli, FLOW_HARNESSES,
   type FlowRequirements, type FlowRequirementsContext, type FlowIntegrationRequirement, type FlowHarnessRequirement, type FlowHarness,
 } from './flow-requirements.js';

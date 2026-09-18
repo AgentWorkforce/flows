@@ -122,7 +122,7 @@ flows undeploy <deployment-id>
 ```
 
 Optional flags: `--agents claude,codex`, `--name "Issue triage"`, `--draft`,
-`--json`, and further `--on` sources.
+`--no-connect`, `--json`, and further `--on` sources.
 
 `flows deploy <flow.ts>` is the CLI form of the agentrelay.com onboarding's
 deploy wizard: `POST /api/v1/flows/deploy` stores one self-contained authored
@@ -154,11 +154,55 @@ runs `flows run --local-agent` there, and passes the flow body
 as its input. The flow must therefore be the default body,
 `flow<Input>(name, header, async (f, input) => …)`; `.on(github.issues(…))`
 handlers are checked but are not what Cloud dispatches. `--agents` names the
-coding-agent harnesses the flow uses (default `claude`); activation checks
+coding-agent harnesses the flow uses; it defaults to the `cli:` declarations
+the source carries (`flowRequirements`), else `claude`. Activation checks
 their credentials are connected and refuses with `flow_model_not_connected`
-otherwise. `--draft` saves the flow without activating it and skips those
+otherwise, and the CLI appends the remedy (`agent-relay cloud connect
+<harness>`). `--draft` saves the flow without activating it and skips those
 checks. The deploy routes answer refusals as `{ code, error }`, and the CLI
 names them (`flow_repository_not_connected`, `flow_name_taken`, …).
+
+## Integrations a flow requires
+
+`flows check` prints what a flow needs from the workspace it will run in:
+
+```
+REQUIRES slack (tools.slack), github (deploy target), claude (agent "review")
+```
+
+The list is derived from inert declarations only (`flowRequirements` in the
+SDK; the same function reads a compiled YAML spec): `tools.<helper>: true`
+flags and `tools.relayfile` mounts in the header, `f.<helper>` use in the body
+(recognised exactly as helper preflight recognises it), provider triggers
+(`.on(github.issues())`), the `--on` sources and the deploy target (every
+launched run lands in `--repo`, so GitHub is always required), the `cli:` of
+each `f.agent`/`f.llm` call (else the nearest `flows.json` `cli`, else
+`claude`), and `tools.mcp`. The deploy body carries the same list as
+`requirements` for Cloud to cross-check.
+
+Before `flows deploy`, `flows schedule` and `flows run --cloud` submit anything,
+each required integration is checked against the workspace
+(`GET /api/v1/workspaces/<id>/integrations/<provider>/status?scope=workspace`).
+A missing one is offered in the terminal, the way `agentworkforce deploy`
+connects a proactive agent's integrations:
+
+```
+This flow needs Slack (tools.slack), which is not connected to this workspace.
+Connect Slack now? (opens browser) [Y/n]
+Opening https://agentrelay.com/cloud/…/connect
+Slack connected.
+```
+
+Yes opens a relayfile connect session (`POST …/integrations/connect-session`
+with `{ allowedIntegrations: ["slack"], scope: { kind: "workspace" } }`) in
+the browser and polls the status until it is ready (five minutes at most);
+`FLOWS_NO_BROWSER=1` prints the link instead of opening it. No answer, `--json`,
+a non-interactive stdin, or `--no-connect` refuses with
+`integration_not_connected` (exit 2), naming the provider, the declaration that
+needs it, and the two ways to connect it. `--draft` deploys skip the check,
+as Cloud does. Coding-agent credentials have no status route; Cloud refuses
+them on activation or launch and the CLI names `agent-relay cloud connect
+<harness>` then. A flow that requires no integration contacts nothing extra.
 
 Without `--wait`, exit 0 means the server accepted the run. With `--wait`, it
 means Cloud reported `completed` with a validated `success` completion reason.

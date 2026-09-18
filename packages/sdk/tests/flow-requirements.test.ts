@@ -1,16 +1,20 @@
-import { copyFile, mkdtemp, rm, symlink } from 'node:fs/promises';
+import { copyFile, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { flow, github, schedule, webhook } from '@relayflows/surface';
 import { getFlowDefinition } from '@relayflows/surface/runtime';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { runCli } from '../src/cli.js';
 import { loadAuthoredFlow } from '../src/authored-flow-loader.js';
 import { describeFlowRequirements, flowRequirements, harnessFromCli } from '../src/flow-requirements.js';
 import type { FlowSpec } from '../src/spec.js';
 
 const EXAMPLES = resolve(process.cwd(), '../../examples');
 const dirs: string[] = [];
-afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true });
+});
 
 /** The shipped example, loaded from a directory that resolves @relayflows/surface. */
 async function example(name: string) {
@@ -125,5 +129,30 @@ describe('flowRequirements on the shipped examples', () => {
     const requirements = flowRequirements(await example('pr-review-pipeline'), { sources: [{ provider: 'github' }] });
     expect(requirements.integrations).toEqual([{ provider: 'github', from: 'source', detail: '--on github' }]);
     expect(requirements.harnesses).toEqual(['claude']);
+  });
+});
+
+describe('flows check prints REQUIRES', () => {
+  it('names the helper, the harness and the mcp server of an authored flow', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'flow-requirements-check-'));
+    dirs.push(dir);
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'digest.flow.ts');
+    await writeFile(path, "import { flow } from '@relayflows/surface';\n"
+      + "export default flow('digest', { tools: { slack: true } }, async (f) => {\n"
+      + "  await f.agent('review', { task: 'look', cli: 'claude' });\n  await f.slack.post('#eng', 'hi');\n  f.done('success');\n});\n");
+    vi.stubEnv('RELAYFLOWS_SLACK_MOCK', '1');
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const code = await runCli(['check', path], { stdout: line => stdout.push(line), stderr: line => stderr.push(line) });
+    expect(stderr.filter(line => line.startsWith('REFUSED'))).toEqual([]);
+    expect(code).toBe(0);
+    expect(stdout).toContain('REQUIRES slack (tools.slack), claude (agent "review")');
+    stdout.length = 0;
+    await runCli(['check', '--json', path], { stdout: line => stdout.push(line), stderr: () => {} });
+    expect(JSON.parse(stdout.at(-1)!).requirements).toEqual({
+      integrations: [{ provider: 'slack', from: 'tools', detail: 'tools.slack' }],
+      harnesses: ['claude'], harnessUses: [{ harness: 'claude', detail: 'agent "review"' }], mcp: [],
+    });
   });
 });

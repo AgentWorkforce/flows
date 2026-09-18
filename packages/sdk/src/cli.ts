@@ -55,7 +55,7 @@ type ParsedArgs =
   | BuildArgs
   | DeployArgs
   | { command: 'serve-webhook'; dataDir: string; port: number; admitted?: readonly string[] }
-  | { command: 'cloud-run'; value: string; json: boolean; wait: boolean; input: string | undefined; syncCode: boolean }
+  | { command: 'cloud-run'; value: string; json: boolean; wait: boolean; input: string | undefined; syncCode: boolean; noConnect: boolean }
   | { command: 'sync'; runId: string; json: boolean; root: string }
   | CloudDeployArgs
   | { command: 'deployments'; json: boolean }
@@ -77,10 +77,10 @@ const USAGE = [
   'flows add <helper-name|@flows/helper-name>',
   'flows build [--out <dir>] <flow.yaml|flow.ts>',
   'flows build --verify <bundle-dir>',
-  'flows deploy <flow.ts> --repo <owner/name> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--json]',
+  'flows deploy <flow.ts> --repo <owner/name> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--no-connect] [--json]',
   'flows deployments [--json]',
   'flows undeploy [--json] <deployment-id>',
-  'flows schedule <flow.yaml|flow.ts> [--cron "<expr>" | --every <n><s|m|h|d>] [--tz <IANA>] [--input <inline-json-or-file>] [--name <name>] [--json]',
+  'flows schedule <flow.yaml|flow.ts> [--cron "<expr>" | --every <n><s|m|h|d>] [--tz <IANA>] [--input <inline-json-or-file>] [--name <name>] [--no-connect] [--json]',
   'flows schedules [--json]',
   'flows unschedule [--json] <schedule-id>',
   'flows deploy <flow>@sha256:<digest> --to <file-bucket-uri>',
@@ -88,8 +88,8 @@ const USAGE = [
   'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
   'flows serve-webhook --data-dir <dir> --port <p> [--allow <name>[,<name>]]',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] [--reuse-from <run-id>] <flow.yaml|spec.json>',
-  'flows run --cloud [--json] [--wait] [--sync-code] <flow.yaml|spec.json>',
-  'flows run --cloud [--json] [--wait] [--sync-code] <flow.ts> --input <inline-json-or-file>',
+  'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.yaml|spec.json>',
+  'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.ts> --input <inline-json-or-file>',
   'flows sync [--json] [--dir <path>] <run-id>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
@@ -490,6 +490,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let cloud = false;
   let wait = false;
   let syncCode = false;
+  let noConnect = false;
   let localAgent = false;
   let allowHumanInfluenced = false;
   let dataDir = DEFAULT_DATA_DIR;
@@ -503,11 +504,13 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   const positionals: string[] = [];
   for (let index = 1; index < args.length; index += 1) {
     const argument = args[index]!;
-    if (argument === '--cloud' || argument === '--wait' || argument === '--sync-code') {
-      if (command !== 'run' || (argument === '--cloud' ? cloud : argument === '--wait' ? wait : syncCode)) return undefined;
+    if (argument === '--cloud' || argument === '--wait' || argument === '--sync-code' || argument === '--no-connect') {
+      if (command !== 'run') return undefined;
+      if (argument === '--cloud' ? cloud : argument === '--wait' ? wait : argument === '--sync-code' ? syncCode : noConnect) return undefined;
       if (argument === '--cloud') cloud = true;
       else if (argument === '--wait') wait = true;
-      else syncCode = true;
+      else if (argument === '--sync-code') syncCode = true;
+      else noConnect = true;
       continue;
     }
     if (argument === '--allow-human-influenced') {
@@ -587,9 +590,9 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     // the source, so it is accepted exactly where a local run accepts it.
     if (allowHumanInfluenced || sawDataDir || !spawn || localAgent || noObserverLink || reuseFromRunId !== undefined) return undefined;
     if (sawInput && !isAuthoredFlowPath(positionals[0]!)) return undefined;
-    return { command: 'cloud-run', value: positionals[0]!, json, wait, input, syncCode };
+    return { command: 'cloud-run', value: positionals[0]!, json, wait, input, syncCode, noConnect };
   }
-  if (wait || syncCode) return undefined;
+  if (wait || syncCode || noConnect) return undefined;
   if (reuseFromRunId !== undefined && isAuthoredFlowPath(positionals[0]!)) return undefined;
 
   if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!)) return undefined;

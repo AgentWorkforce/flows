@@ -30,6 +30,10 @@ function cloud(routes: Record<string, (call: Call) => { status?: number; body: u
       body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined };
     calls.push(call);
     const route = routes[path];
+    // Unless a test says otherwise, every integration the workspace is asked about is connected.
+    if (!route && /\/integrations\/[^/]+\/status$/u.test(path)) {
+      return new Response(JSON.stringify({ ready: true, state: 'ready' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     if (!route) return new Response('{"error":"not found"}', { status: 404 });
     const answer = route(call);
     const { status, body } = answer !== null && typeof answer === 'object' && 'status' in answer && 'body' in answer
@@ -91,8 +95,16 @@ describe('deployToCloud', () => {
       sources: [parseTriggerSource('github:labels=agent'), parseTriggerSource('slack:channel=C123')],
       approver: 'khaliqgant',
     });
-    expect(calls.map(c => [c.method, c.path])).toEqual([['GET', '/api/v1/auth/whoami'], ['POST', '/api/v1/flows/deploy']]);
-    const body = calls[1]!.body as Record<string, unknown>;
+    // The workspace first, then each required integration's status (the
+    // deploy target's GitHub and the Slack source), then the deploy itself.
+    expect(calls.map(c => [c.method, c.path])).toEqual([
+      ['GET', '/api/v1/auth/whoami'],
+      ['GET', '/api/v1/workspaces/ws-1/integrations/github/status'],
+      ['GET', '/api/v1/workspaces/ws-1/integrations/slack/status'],
+      ['POST', '/api/v1/flows/deploy'],
+    ]);
+    expect(new URL(String(vi.mocked(fetch).mock.calls[1]![0])).searchParams.get('scope')).toBe('workspace');
+    const body = calls[3]!.body as Record<string, unknown>;
     // The serialized body carries Cloud's lowercase enum whatever the shell typed.
     expect(parseTriggerSource('github:events=Pull_Request').settings.events).toBe('pull_request');
     expect(body).toMatchObject({
@@ -102,10 +114,12 @@ describe('deployToCloud', () => {
         { provider: 'github', settings: { labels: 'agent', repository: 'AgentWorkforce/flows' } },
         { provider: 'slack', settings: { channel: 'C123' } },
       ],
+      requirements: { integrations: ['github', 'slack'], harnesses: [], mcp: [] },
     });
     expect(body.handoffId).toMatch(/^flows-cli-[a-f0-9]{16}$/u);
     expect(body.source).toContain("flow<{ issue: { title: string }; approver: string }>('issue-triage'");
-    expect(deployment).toMatchObject({ agentId: 'agent-1', status: 'listening', name: 'issue-triage' });
+    expect(deployment).toMatchObject({ agentId: 'agent-1', status: 'listening', name: 'issue-triage', connected: [] });
+    expect(deployment.requirements.integrations.map(i => `${i.provider} (${i.detail})`)).toEqual(['github (--on github)', 'slack (--on slack)']);
     expect(deployment.sourceSha256).toMatch(/^[a-f0-9]{64}$/u);
   });
 

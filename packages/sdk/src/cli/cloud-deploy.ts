@@ -3,6 +3,8 @@ import {
   deployToCloud, listCloudDeployments, parseAgentHarnesses, parseRepository, parseTriggerSource, undeployFromCloud,
   type FlowTriggerSource,
 } from '../cloud-deploy.js';
+import { describeFlowRequirements } from '../flow-requirements.js';
+import { cliConnectPrompt, harnessRemedy } from './cloud-connect-cli.js';
 import type { CliIo } from '../cli.js';
 
 export interface CloudDeployArgs {
@@ -14,12 +16,14 @@ export interface CloudDeployArgs {
   name: string | undefined;
   agents: string | undefined;
   draft: boolean;
+  /** Refuse a missing integration instead of offering to connect it. */
+  noConnect: boolean;
   json: boolean;
 }
 
 /**
  * `flows deploy <flow.ts> --repo <owner/name> --on <provider>[:k=v,…] [--on …]
- *   --approver <handle> [--name <n>] [--json]`
+ *   --approver <handle> [--name <n>] [--agents <list>] [--draft] [--no-connect] [--json]`
  *
  * Parsed here rather than in `parseDeployArgs` because the two `deploy` forms
  * share nothing but the word: the digest form copies a sealed bundle into a
@@ -32,6 +36,7 @@ export function parseCloudDeployArgs(args: readonly string[]): CloudDeployArgs |
   let name: string | undefined;
   let agents: string | undefined;
   let draft = false;
+  let noConnect = false;
   let json = false;
   const on: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -44,6 +49,11 @@ export function parseCloudDeployArgs(args: readonly string[]): CloudDeployArgs |
     if (arg === '--draft') {
       if (draft) return undefined;
       draft = true;
+      continue;
+    }
+    if (arg === '--no-connect') {
+      if (noConnect) return undefined;
+      noConnect = true;
       continue;
     }
     if (arg === '--agents') {
@@ -68,7 +78,7 @@ export function parseCloudDeployArgs(args: readonly string[]): CloudDeployArgs |
     value = arg;
   }
   if (value === undefined || repo === undefined || on.length === 0) return undefined;
-  return { command: 'cloud-deploy', value, repo, on, approver, name, agents, draft, json };
+  return { command: 'cloud-deploy', value, repo, on, approver, name, agents, draft, noConnect, json };
 }
 
 function describeSource(source: FlowTriggerSource): string {
@@ -77,11 +87,14 @@ function describeSource(source: FlowTriggerSource): string {
 }
 
 export async function runCloudDeployCli(args: CloudDeployArgs, io: CliIo): Promise<0 | 1 | 2> {
+  const agents = args.agents === undefined ? undefined : parseAgentHarnessesOr(args.agents);
   try {
     if (args.approver === undefined) {
       throw new CloudFlowError('invalid_input',
         '--approver <handle> is required: every launched run receives it as input.approver for f.human.');
     }
+    if (agents instanceof CloudFlowError) throw agents;
+    const connect = cliConnectPrompt(io, { noConnect: args.noConnect, json: args.json });
     const deployment = await deployToCloud({
       path: args.value,
       repository: parseRepository(args.repo),
@@ -89,7 +102,8 @@ export async function runCloudDeployCli(args: CloudDeployArgs, io: CliIo): Promi
       approver: args.approver,
       draft: args.draft,
       ...(args.name === undefined ? {} : { name: args.name }),
-      ...(args.agents === undefined ? {} : { agents: parseAgentHarnesses(args.agents) }),
+      ...(agents === undefined ? {} : { agents }),
+      ...(connect === undefined ? {} : { connect }),
     });
     if (args.json) {
       io.stdout(JSON.stringify({ ok: true, ...deployment }));
@@ -99,12 +113,24 @@ export async function runCloudDeployCli(args: CloudDeployArgs, io: CliIo): Promi
     io.stdout(`  flow: ${deployment.name} (${args.value}, sha256 ${deployment.sourceSha256.slice(0, 12)})`);
     io.stdout(`  repository: ${deployment.repository.owner}/${deployment.repository.name}`);
     for (const source of deployment.sources) io.stdout(`  on: ${describeSource(source)}`);
+    const requires = describeFlowRequirements(deployment.requirements);
+    if (requires) io.stdout(`  requires: ${requires}`);
+    for (const provider of deployment.connected) io.stdout(`  connected: ${provider}`);
     io.stdout(deployment.status === 'draft'
       ? 'Saved without activating; activate it from the Cloud dashboard, or redeploy without --draft.'
       : 'Each matching ticket launches a run of this source in a fresh branch; list with: flows deployments');
     return 0;
   } catch (error) {
-    return reportCloudFailure(error, args.json, io);
+    return reportCloudFailure(error, args.json, io, agents instanceof CloudFlowError ? [] : agents ?? []);
+  }
+}
+
+function parseAgentHarnessesOr(value: string): ReturnType<typeof parseAgentHarnesses> | CloudFlowError {
+  try {
+    return parseAgentHarnesses(value);
+  } catch (error) {
+    if (error instanceof CloudFlowError) return error;
+    throw error;
   }
 }
 
@@ -140,9 +166,11 @@ export async function runCloudUndeployCli({ agentId, json }: { agentId: string; 
   }
 }
 
-function reportCloudFailure(error: unknown, json: boolean, io: CliIo): 1 | 2 {
+function reportCloudFailure(error: unknown, json: boolean, io: CliIo, harnesses: readonly string[] = []): 1 | 2 {
   const code = error instanceof CloudFlowError ? error.code : 'cloud_deploy_failed';
   let message = error instanceof Error ? error.message : 'Cloud deploy failed.';
+  // Cloud names the missing coding-agent credential on activation; say how it is connected.
+  message += harnessRemedy(error, harnesses);
   // The deploy routes take a browser session or a `cli:auth` token. A
   // deployment (CI) token gets 403 `session_required`; say what fixes it.
   if (error instanceof CloudFlowError && error.status === 403) {
@@ -152,6 +180,7 @@ function reportCloudFailure(error: unknown, json: boolean, io: CliIo): 1 | 2 {
   if (json) io.stdout(JSON.stringify({ ok: false, code, message }));
   else io.stderr(`${code}: ${message}`);
   return error instanceof CloudFlowError
-    && (['configuration', 'unsupported_source', 'invalid_input'].includes(error.code) || error.status === 403 || error.status === 401)
+    && (['configuration', 'unsupported_source', 'invalid_input', 'integration_not_connected'].includes(error.code)
+      || error.status === 403 || error.status === 401)
     ? 2 : 1;
 }
