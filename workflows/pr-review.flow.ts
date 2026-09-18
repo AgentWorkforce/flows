@@ -11,8 +11,13 @@
 //
 // Local: flows run workflows/pr-review.flow.ts --local-agent \
 //          --input '{"diffRange":"origin/main...HEAD"}'
-// (needs a flows.json naming the agent CLI; the comment step is skipped
-// without a pull request).
+// (the comment step is skipped without a pull request). The agent CLI is
+// pinned to `claude` below, so no flows.json is needed.
+//
+// This file reviewed its own first version (run 01M2TQC0JF1WB1RAS9PTBXJK32,
+// 2026-09-18): the findings directory, the diff transport, the CLI pin, the
+// comment transport, the fetch loop bound and the re-run behaviour below all
+// come from that review.
 
 import { flow } from "@relayflows/surface";
 
@@ -22,9 +27,29 @@ export interface PrReviewInput {
   /** Local runs: e.g. "origin/main...HEAD". Cloud runs derive it from pullRequest. */
   diffRange?: string;
   /** Present on Cloud `--on github:events=pull_request` runs (docs/CLOUD.md). */
-  pullRequest?: { number: number; baseRef: string; headSha: string; draft?: boolean; title?: string };
+  pullRequest?: {
+    number: number; baseRef: string; headSha: string; draft?: boolean; title?: string;
+    /** Present when the wake was a submitted review (docs/CLOUD.md); we do not re-review on those. */
+    review?: unknown;
+  };
   approver?: string;
 }
+
+interface Pr { number: number; baseRef: string; headSha: string; draft: boolean; reviewWake: boolean }
+
+// `flow<Input>` is type-only; the listener input crosses a network boundary,
+// and baseRef/headSha reach a shell, so validate before either does.
+function prFromInput(input: PrReviewInput): Pr | undefined {
+  const pr = input.pullRequest;
+  if (pr === undefined) return undefined;
+  if (!Number.isSafeInteger(pr.number) || pr.number <= 0) throw new Error(`flows-pr-review: pullRequest.number is not a positive integer: ${JSON.stringify(pr.number)}`);
+  if (typeof pr.baseRef !== "string" || pr.baseRef.length === 0 || pr.baseRef.startsWith("-")) throw new Error("flows-pr-review: pullRequest.baseRef must be a non-empty ref name");
+  if (typeof pr.headSha !== "string" || !/^[0-9a-f]{40}$/u.test(pr.headSha)) throw new Error("flows-pr-review: pullRequest.headSha must be a 40-hex commit");
+  return { number: pr.number, baseRef: pr.baseRef, headSha: pr.headSha, draft: pr.draft === true, reviewWake: pr.review !== undefined };
+}
+
+const REPO = { owner: "AgentWorkforce", repo: "flows" } as const;
+const CLI = "claude";
 
 const LENSES = {
   kernel:
@@ -45,16 +70,30 @@ const LENSES = {
     "must match what the diff (and the code it touches) actually does; flag " +
     "stale status lines, commands that would not run, and inputs the example " +
     "would not receive on Cloud",
+  repo:
+    "everything the other lenses do not own: .github/workflows (publish, " +
+    "runtime artifact, review swarm, guards), scripts/, ops/, workflows/, " +
+    "testdata/, package manifests and lockfiles, tsconfigs, and generated " +
+    "files — release and pin safety, CI that would silently stop running, " +
+    "secrets or tokens in the diff, and files that should not be committed",
 } as const;
 type Lens = keyof typeof LENSES;
-const findingsPath = (lens: Lens): string => `.relayflow/review/${lens}.md`;
+const findingsPath = (lens: Lens): string => `review/${lens}.md`;
+const DIFF = "review/diff.patch";
+const CONSENSUS = "review/consensus.md";
 
 export default flow<PrReviewInput>(
   "flows-pr-review",
   { budget: "$4/run" },
   async (f, input) => {
-    const pr = input.pullRequest;
-    if (pr?.draft) return f.done("declined"); // drafts are reviewed once marked ready
+    const pr = prFromInput(input);
+    // Cloud wakes on opened / new commits / reopened / reviewed, not on
+    // ready_for_review: a draft is reviewed at its next push, reopen or review
+    // after being marked ready.
+    if (pr?.draft) return f.done("declined");
+    // The same listener wakes when a review is submitted; a reviewer's
+    // comment on the PR is not a reason to review the code again.
+    if (pr?.reviewWake) return f.done("declined");
 
     let range = input.diffRange;
     if (range === undefined) {
@@ -62,35 +101,47 @@ export default flow<PrReviewInput>(
         throw new Error("flows-pr-review needs diffRange (local) or input.pullRequest (a pull_request trigger)");
       }
       // Cloud clones at the PR head; fetch the base tip and deepen until the
-      // merge base exists so the three-dot diff is the PR's own change.
+      // merge base exists so the three-dot diff is the PR's own change. The
+      // loop is bounded: on a full clone --deepen is a no-op, and an unrelated
+      // head would otherwise spin until the lease expired.
+      const base = shellWord(`refs/heads/${pr.baseRef}`);
       await f.run(
-        `git fetch --no-tags --depth=200 origin ${shellWord(pr.baseRef)} && `
+        `git fetch --no-tags --depth=200 origin ${base} && n=0; `
           + `until git merge-base FETCH_HEAD ${shellWord(pr.headSha)} >/dev/null 2>&1; do `
-          + `git fetch --no-tags --deepen=500 origin ${shellWord(pr.baseRef)} || exit 1; done`,
+          + `n=$((n+1)); [ "$n" -le 5 ] || { echo "no merge base with ${pr.baseRef} after 5 deepens" >&2; exit 1; }; `
+          + `git fetch --no-tags --deepen=500 origin ${base} || exit 1; done`,
         { timeout: "5m" },
       );
       range = `FETCH_HEAD...${pr.headSha}`;
     }
 
-    // Evidence transcripts and generated docs are noise for a reviewer.
-    const diff = await f
+    // `review/` is not a dot-directory on purpose: the worker journals the
+    // artifacts it finds by scanning the tree, and that scan skips dot
+    // entries. It is recreated per run because `artifact_exists` records
+    // presence on content change, so a re-run writing the same "No findings"
+    // text into a leftover file would fail its gate.
+    await f.run("rm -rf review && mkdir -p review");
+    // The diff goes through a file, not through f.run's return value: that
+    // value is the kernel's stdout tail (64 KiB) and a task string is one
+    // argv entry, so a large PR would be reviewed from a silently truncated
+    // tail. Evidence transcripts and lockfiles are noise for a reviewer.
+    await f
       .run(
-        `git diff ${shellWord(range)} -- . ':!docs/evidence/**' ':!evidence/**' ':!**/*.lock' ':!package-lock.json'`,
+        `git diff ${shellWord(range)} -- . ':!docs/evidence/**' ':!evidence/**' ':(glob)**/*.lock' ':!package-lock.json' > ${DIFF} && test -s ${DIFF}`,
         { timeout: "2m" },
-      )
-      .gate((out) => out.trim().length > 0, "nothing to review — the diff is empty");
-    await f.run("mkdir -p .relayflow/review");
+      );
 
     await Promise.all(
       (Object.keys(LENSES) as Lens[]).map((lens) =>
         f
           .agent(`${lens}-reviewer`, {
+            cli: CLI,
             task:
               `You are reviewing a pull request to AgentWorkforce/flows through ONE lens: ${LENSES[lens]}. ` +
-              `Ignore everything outside that lens. Read the surrounding code where the diff is not self-explanatory. ` +
-              `Write every finding to ${findingsPath(lens)} as a Markdown list — each item: file:line, severity ` +
-              `(blocker / should-fix / nit), what is wrong, and the concrete fix. If there is nothing, write exactly ` +
-              `"No ${lens} findings." Do not modify any other file.\n\n${diff}`,
+              `Ignore everything outside that lens. The diff is in ${DIFF} (read it; do not run git). Read the ` +
+              `surrounding code where the diff is not self-explanatory. Write every finding to ${findingsPath(lens)} ` +
+              `as a Markdown list — each item: file:line, severity (blocker / should-fix / nit), what is wrong, and ` +
+              `the concrete fix. If there is nothing, write exactly "No ${lens} findings." Do not modify any other file.`,
           })
           .gate({ type: "artifact_exists", path: findingsPath(lens) }),
       ),
@@ -98,27 +149,31 @@ export default flow<PrReviewInput>(
 
     await f
       .agent("consensus", {
+        cli: CLI,
         task:
-          `Read ${(Object.keys(LENSES) as Lens[]).map(findingsPath).join(", ")}. Produce ONE review comment for the ` +
-          `pull request in .relayflow/review/consensus.md: a one-line verdict (APPROVE / REQUEST CHANGES / COMMENT), ` +
-          `then the blockers, then should-fixes, each with file:line. Where two lenses reached opposite conclusions ` +
-          `about the same spot, resolve it with a reason or list it under "Unresolved" with both positions — never ` +
-          `let one silently win. Drop nits unless there are no other findings. Start the file with ` +
-          `"<!-- flows-pr-review -->" so re-runs can be recognised. Do not modify any other file.`,
+          `Read ${(Object.keys(LENSES) as Lens[]).map(findingsPath).join(", ")} (the diff they reviewed is in ${DIFF}). ` +
+          `Produce ONE review comment for the pull request in ${CONSENSUS}: a one-line verdict (APPROVE / REQUEST ` +
+          `CHANGES / COMMENT), then the blockers, then should-fixes, each with file:line. Where two lenses reached ` +
+          `opposite conclusions about the same spot, resolve it with a reason or list it under "Unresolved" with ` +
+          `both positions — never let one silently win. Drop nits unless there are no other findings. Start the ` +
+          `file with "<!-- flows-pr-review -->". Do not modify any other file.`,
       })
-      .gate(
-        (r) => r.artifacts.includes(".relayflow/review/consensus.md"),
-        "the consensus step must write .relayflow/review/consensus.md",
-      );
+      .gate((r) => r.artifacts.includes(CONSENSUS), `the consensus step must write ${CONSENSUS}`);
 
     if (pr !== undefined) {
-      // The GitHub mount Cloud provides authenticates gh; the comment is the
-      // deliverable, so its failure fails the run rather than hiding.
-      await f.run(
-        `gh pr comment ${pr.number} --repo AgentWorkforce/flows --body-file .relayflow/review/consensus.md`,
-        { timeout: "2m" },
-      );
+      const body = await f.run(`cat ${CONSENSUS}`);
+      await postComment(f, pr, body);
     }
     f.done("success");
   },
 );
+
+// Kept outside the body on purpose (as examples/pr-reviewer does): `flows
+// check` discovers `f.github` by reading the body's source, and a local
+// checkout without a relayfile GitHub mount would otherwise be refused before
+// running at all. On Cloud the workspace's GitHub connection backs the helper.
+// Each triggering event posts a fresh comment; a PR accumulates one per wake.
+type Ctx = Parameters<Parameters<typeof flow<PrReviewInput>>[2]>[0];
+async function postComment(f: Ctx, pr: Pr, body: string): Promise<void> {
+  await f.github.comment({ owner: REPO.owner, repo: REPO.repo, number: pr.number }, body);
+}
