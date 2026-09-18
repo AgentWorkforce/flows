@@ -202,22 +202,39 @@ const headers = { Authorization: "Bearer " + token, Accept: "application/vnd.git
 async function gh(method, url, body) {
   const res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   if (!res.ok) { console.error(method + " " + url + " -> " + res.status + " " + (await res.text()).slice(0, 300)); process.exit(1); }
-  return res.json();
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 (async () => {
-  let existing;
+  // Collect every marker comment (legacy runs left one per wake).
+  const found = [];
   for (let page = 1; page <= 50; page += 1) {
     const list = await gh("GET", api + "/issues/" + number + "/comments?per_page=100&page=" + page);
-    existing = list.find((c) => typeof c.body === "string" && c.body.startsWith(MARK));
-    if (existing || list.length < 100) break;
+    for (const c of list) if (typeof c.body === "string" && c.body.startsWith(MARK)) found.push(c);
+    if (list.length < 100) break;
     if (page === 50) { console.error("more than 5000 comments; refusing to post without a complete scan"); process.exit(1); }
   }
-  if (existing && existing.body.startsWith(marker)) { console.log("already posted for " + headSha); return; }
+  const existing = found[0];
+  for (const dup of found.slice(1)) { await gh("DELETE", api + "/issues/comments/" + dup.id); console.log("deleted duplicate comment " + dup.id); }
+  const shaOf = (c) => ((c.body.match(/^<!-- flows-pr-review ([0-9a-f]{40}) -->/) || [])[1]);
+  if (existing && shaOf(existing) === headSha) { console.log("already posted for " + headSha); return; }
   let text = fs.readFileSync(bodyPath, "utf8");
   if (Buffer.byteLength(text) > 60000) text = Buffer.from(text).subarray(0, 60000).toString() + "\n\n_…truncated; the full review is in the run artifacts._\n";
   const body = marker + "\n" + text;
-  if (existing) { await gh("PATCH", api + "/issues/comments/" + existing.id, { body }); console.log("updated comment " + existing.id + " for " + headSha); }
-  else { const c = await gh("POST", api + "/issues/" + number + "/comments", { body }); console.log("posted comment " + c.id + " for " + headSha); }
+  if (!existing) { const c = await gh("POST", api + "/issues/" + number + "/comments", { body }); console.log("posted comment " + c.id + " for " + headSha); return; }
+  // Overlapping wakes: a run for an older head must never overwrite a newer
+  // verdict. Re-read right before writing; if the comment carries a commit
+  // that is *ahead* of ours (GitHub's compare, so it works without local
+  // history), the newer wake owns the comment and we leave it.
+  const fresh = await gh("GET", api + "/issues/comments/" + existing.id);
+  const current = shaOf(fresh) || "";
+  if (current === headSha) { console.log("already posted for " + headSha); return; }
+  if (current) {
+    const cmp = await gh("GET", api + "/compare/" + headSha + "..." + current);
+    if (cmp && cmp.status === "ahead") { console.log("comment already carries newer " + current + "; not overwriting with " + headSha); return; }
+  }
+  await gh("PATCH", api + "/issues/comments/" + existing.id, { body });
+  console.log("updated comment " + existing.id + " for " + headSha);
 })();
 `;
 async function postComment(f: Ctx, pr: Pr): Promise<void> {
