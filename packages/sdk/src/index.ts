@@ -76,6 +76,10 @@ export {
   deployToCloud, listCloudDeployments, undeployFromCloud, parseRepository, parseTriggerSource, FLOW_TRIGGER_PROVIDERS,
   type DeployToCloudInput, type CloudDeployment, type CloudDeploymentSummary, type FlowTriggerSource, type FlowTriggerProvider,
 } from './cloud-deploy.js';
+export {
+  flowRequirements, describeFlowRequirements, harnessFromCli, FLOW_HARNESSES,
+  type FlowRequirements, type FlowRequirementsContext, type FlowIntegrationRequirement, type FlowHarnessRequirement, type FlowHarness,
+} from './flow-requirements.js';
 
 export { canonicalize, specHash } from './canonical.js';
 export {

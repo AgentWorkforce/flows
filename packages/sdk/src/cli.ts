@@ -2,6 +2,7 @@
 import { addPlugin } from './cli/add.js';
 import { watchCheck } from './cli-watch.js';
 import { checkHelperBody } from './cli/check-helper-body.js';
+import { describeFlowRequirements } from './flow-requirements.js';
 
 import { renderProgress, type ProgressEvent } from './progress.js';
 import { realpathSync } from 'node:fs';
@@ -277,6 +278,9 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
     report: {
       ...mcp.report,
       ...(triggers?.report.schedules === undefined ? {} : { schedules: triggers.report.schedules }),
+      // The authored definition sees helper flags, body use and `cli:`
+      // declarations; the compiled view underneath knows only its steps.
+      ...(triggers?.report.requirements === undefined ? {} : { requirements: triggers.report.requirements }),
       diagnostics: [...helper.report.diagnostics, ...mcp.report.diagnostics, ...triggerDiagnostics],
       ok: helper.report.ok && mcp.report.ok && triggerOk,
     },
@@ -790,6 +794,10 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
     const model = resolution.model === undefined ? '' : ` model "${resolution.model}"`;
     io.stdout(`RESOLVED step "${resolution.stepId}" cli "${resolution.cli}"${model} from ${resolution.source}${config}`);
   }
+  // What the workspace must have connected before this flow can run there;
+  // the hosted verbs check the same list against Cloud before submitting.
+  const requires = report.requirements === undefined ? '' : describeFlowRequirements(report.requirements);
+  if (requires) io.stdout(`REQUIRES ${requires}`);
   if (report.ok) io.stdout(`CHECK PASSED ${report.path ?? ''}`.trimEnd());
 }
 
