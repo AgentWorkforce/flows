@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { github, slack, webhook } from '@relayflows/surface';
+import { github, gitlab, linear, notion, slack, webhook } from '@relayflows/surface';
 import { preflightProviderTriggers, providerDeclaration } from '../src/provider-trigger-contract.js';
 import { providerInboxEvent } from '../src/trigger-executor.js';
 import { preflightWebhookTriggers } from '../src/preflight.js';
@@ -83,6 +83,36 @@ describe('provider trigger contract', () => {
     expect(preflightProviderTriggers([bad])).toHaveLength(1);
     expect(preflightWebhookTriggers([slack.mention('C123')], [])).toHaveLength(1);
     expect(preflightProviderTriggers([slack.mention('C123')])).toEqual([]);
+  });
+
+  it('accepts one subscription from each of five providers and refuses a bogus event on any of them', async () => {
+    expect(preflightProviderTriggers([
+      github.pull_request('opened'), slack.mention('C123'),
+      linear[Object.keys(linear)[0] as keyof typeof linear]!(),
+      notion[Object.keys(notion)[0] as keyof typeof notion]!(),
+      gitlab[Object.keys(gitlab)[0] as keyof typeof gitlab]!(),
+    ])).toEqual([]);
+    for (const provider of ['linear', 'notion', 'gitlab', 'cloudflare', 'ramp']) {
+      const [refusal] = preflightProviderTriggers([webhook(provider, { provider, type: 'no.such.event' })]);
+      expect(refusal, provider).toMatchObject({ severity: 'refusal' });
+      expect(refusal!.message).toContain('does not publish');
+    }
+    const dir = await temporary();
+    await symlink(resolve('node_modules'), join(dir, 'node_modules'), 'dir');
+    await writeFile(join(dir, 'package.json'), '{"type":"module"}');
+    await writeFile(join(dir, 'flows.json'), '{"executors":["github","slack","linear","notion","gitlab"]}');
+    const path = join(dir, 'five.flow.ts');
+    await writeFile(path, "import { flow, github, slack, linear, notion, gitlab } from '@relayflows/surface';\n"
+      + "const first = (ns: Record<string, (f?: unknown) => unknown>) => Object.values(ns)[0]!() as never;\n"
+      + "export default flow('five')\n"
+      + "  .on(github.pull_request('opened'), async f => f.done('success'))\n"
+      + "  .on(slack.mention('C123'), async f => f.done('success'))\n"
+      + "  .on(first(linear), async f => f.done('success'))\n"
+      + "  .on(first(notion), async f => f.done('success'))\n"
+      + "  .on(first(gitlab), async f => f.done('success'));\n");
+    const reports: string[] = [];
+    const io = { stdout: (line: string) => reports.push(line), stderr: (line: string) => reports.push(line) };
+    expect(await runCli(['check', '--json', path], io), reports.join('\n')).toBe(0);
   });
 
   it('fails `flows check` before deployment and passes once the event is real', async () => {

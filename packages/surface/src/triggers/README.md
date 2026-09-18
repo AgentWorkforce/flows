@@ -9,8 +9,25 @@ export default flow('triage')
   .on(github.pull_request('opened'), async (f, event) => { f.done('success'); });
 ```
 
+Every provider a relayfile adapter can deliver has a namespace — 47 today,
+570 events; see [PROVIDERS.md](PROVIDERS.md) (generated) for the full table.
+Hyphenated providers become identifiers: `azure-blob` → `azure_blob`,
+`google-drive` → `google_drive`; the inbox name and event type keep the
+upstream spelling, so `azure_blob.file_created()` lowers to
+`{ provider: 'azure-blob', type: 'file.created' }`. Namespaces come from two
+sources: an adapter's `webhooks:` mapping block, which carries payload shape
+(`github.pull_request(action?)` takes an action because the mapping extracts
+one), and the trigger catalog (`@relayfile/adapter-core/triggers`, every adapter's
+`supportedEvents()`), which is the full set an adapter delivers and yields the
+plain `(filter?)` signature. The two are unioned per provider: a mapping
+covers payload shape for some events, never the whole set (gitlab maps 8 of
+53). Where two upstream names share an identifier (`reaction.added` and
+`reaction_added`), the mapping-declared one owns the method and the other
+stays subscribable via `webhook(provider, { provider, type })`; PROVIDERS.md
+lists them.
+
 Provider namespaces also export from `@relayflows/surface/triggers` and
-`@relayflows/surface/triggers/slack` (or `/github`). Declarations are immutable
+`@relayflows/surface/triggers/slack` (or `/github`, `/notion`, …). Declarations are immutable
 webhook sources: their executor/inbox name is the provider, and their filter
 matches the provider, event type, and requested payload fields. Register those
 provider names in `flows.json`'s `executors` array for preflight.
@@ -32,7 +49,14 @@ filter names that same provider, and the filter pins an event type.
 `slack.reaction(emoji)` subscribes to `reaction_added`. Arguments match provider
 values exactly: use the channel ID and reaction name from the incoming event.
 `github.pull_request(action)` filters `payload.action`; omitting the action
-accepts every pull request event. Upstream mappings do not declare action enums,
+accepts every pull request event. GitHub (and some other providers) appear in
+two spellings because two ingresses deliver them: the aggregate event with the
+action in the payload (`pull_request` + `payload.action`) is what a raw GitHub
+delivery and this package's `POST /providers/github` receiver carry, while the
+action-qualified name (`pull_request.opened`) is what relayfile's Cloud
+ingress normalizes to and what the adapter catalog lists. Subscribe in the
+spelling of the ingress that will deliver to you; action-qualified methods
+take only a payload filter, never a second action. Upstream mappings do not declare action enums,
 so the action parameter is a string. `github.check_run(action)` (a CI check
 finished: `completed`, with `check_run.conclusion` in the payload) and
 `github.issue_comment(action)` (a comment on an issue or pull-request
@@ -122,8 +146,10 @@ Schedules need no `flows.json` executor entry: the tick source ships with
 the CLI.
 
 Generation requires the SDK's development dependencies. The default input is
-the mapping YAML shipped in the pinned `@relayfile/adapter-core` dependency
-(currently Slack and GitHub). A checkout supplies additional providers:
+the pinned `@relayfile/adapter-core` dependency: its `mappings/` fallbacks,
+its `mappings/adapters/` bundle (every adapter's own mapping, adapter-core
+≥ 0.5.26), and its trigger catalog. A checkout supplies the same three from
+source:
 
 ```sh
 node scripts/generate-triggers.mjs
@@ -132,6 +158,7 @@ node scripts/generate-triggers.mjs --adapters-dir /path/to/relayfile-adapters
 ```
 
 The generator reads `packages/core/mappings/*.mapping.yaml`, then each adapter's
-`packages/<adapter>/*.mapping.yaml`; adapter-local mappings take precedence.
-Only adapters with a nonempty `webhooks:` section produce modules. It never
+`packages/<adapter>/*.mapping.yaml` (adapter-local mappings take precedence),
+then `packages/core/src/triggers/catalog.generated.json` for providers with no
+`webhooks:` block. Only providers with at least one event produce modules. It never
 imports or executes adapter code. Rebuild the surface and SDK after regeneration.
