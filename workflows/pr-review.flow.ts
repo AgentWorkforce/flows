@@ -182,26 +182,48 @@ export default flow<PrReviewInput>(
 // The comment goes through the REST API with the repository token Cloud puts
 // in the sandbox as GH_TOKEN (the same credential git uses there). The
 // relayfile GitHub mount behind `f.github.*` is not attached to authored
-// runs on Cloud — its first live run failed with
-// helper_provider.mount_required at exactly this step. A deterministic step
-// is not exactly-once, so the post is idempotent: the marker carries the
-// head SHA and an existing comment for it means a re-dispatched step skips.
-// The body is bounded from the front (f.run returns a 64 KiB stdout *tail*,
-// which would drop the verdict) under GitHub's 65,536-char comment limit.
-const shellNum = (n: number): string => String(n);
+// runs on Cloud (cloud #3812) — its first live run failed with
+// helper_provider.mount_required at exactly this step.
+//
+// One review comment per PR, edited in place: the marker names the head SHA
+// reviewed; an existing marker comment is PATCHed (skipped when it already
+// carries this SHA, so a re-dispatched step never double-posts), else one is
+// POSTed. The body is bounded from the front (f.run returns a 64 KiB stdout
+// *tail*, which would drop the verdict) under GitHub's 65,536-char limit.
+const POST_SCRIPT = String.raw`
+const [owner, repo, number, headSha, bodyPath] = process.argv.slice(2);
+const token = process.env.GH_TOKEN;
+if (!token) { console.error("GH_TOKEN is not set; cannot post the review"); process.exit(1); }
+const fs = require("fs");
+const MARK = "<!-- flows-pr-review";
+const marker = MARK + " " + headSha + " -->";
+const api = "https://api.github.com/repos/" + owner + "/" + repo;
+const headers = { Authorization: "Bearer " + token, Accept: "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "flows-pr-review" };
+async function gh(method, url, body) {
+  const res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (!res.ok) { console.error(method + " " + url + " -> " + res.status + " " + (await res.text()).slice(0, 300)); process.exit(1); }
+  return res.json();
+}
+(async () => {
+  let existing;
+  for (let page = 1; page <= 50; page += 1) {
+    const list = await gh("GET", api + "/issues/" + number + "/comments?per_page=100&page=" + page);
+    existing = list.find((c) => typeof c.body === "string" && c.body.startsWith(MARK));
+    if (existing || list.length < 100) break;
+    if (page === 50) { console.error("more than 5000 comments; refusing to post without a complete scan"); process.exit(1); }
+  }
+  if (existing && existing.body.startsWith(marker)) { console.log("already posted for " + headSha); return; }
+  let text = fs.readFileSync(bodyPath, "utf8");
+  if (Buffer.byteLength(text) > 60000) text = Buffer.from(text).subarray(0, 60000).toString() + "\n\n_…truncated; the full review is in the run artifacts._\n";
+  const body = marker + "\n" + text;
+  if (existing) { await gh("PATCH", api + "/issues/comments/" + existing.id, { body }); console.log("updated comment " + existing.id + " for " + headSha); }
+  else { const c = await gh("POST", api + "/issues/" + number + "/comments", { body }); console.log("posted comment " + c.id + " for " + headSha); }
+})();
+`;
 async function postComment(f: Ctx, pr: Pr): Promise<void> {
-  const api = `https://api.github.com/repos/${REPO.owner}/${REPO.repo}/issues/${shellNum(pr.number)}/comments`;
-  const marker = `<!-- flows-pr-review ${pr.headSha} -->`;
+  await f.run("cat > review/post.cjs <<'EOF'\n" + POST_SCRIPT + "\nEOF\n");
   await f.run(
-    `[ -n "$GH_TOKEN" ] || { echo "GH_TOKEN is not set; cannot post the review" >&2; exit 1; }; `
-      // Walk every page of comments (busy PRs exceed one page) before posting.
-      + `page=1; while :; do out=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(`${api}?per_page=100&page=`)}"$page") || exit 1; `
-      + `if printf '%s' "$out" | grep -qF ${shellWord(marker)}; then echo "already posted for ${pr.headSha}"; exit 0; fi; `
-      // The page is one JSON line: count occurrences, not lines.
-      + `[ "$(printf '%s' "$out" | grep -o '"node_id"' | wc -l)" -ge 100 ] || break; page=$((page+1)); [ "$page" -le 50 ] || { echo "more than 5000 comments; refusing to post without a complete marker scan" >&2; exit 1; }; done; `
-      + `{ printf '%s\n' ${shellWord(marker)}; if [ "$(wc -c < ${CONSENSUS})" -gt 60000 ]; then head -c 60000 ${CONSENSUS}; printf '\n\n_…truncated; the full review is in the run artifacts (${CONSENSUS})._\n'; else cat ${CONSENSUS}; fi; } > review/comment.md && `
-      + `node -e 'const fs=require("fs");process.stdout.write(JSON.stringify({body:fs.readFileSync("review/comment.md","utf8")}))' > review/comment.json && `
-      + `curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(api)} --data-binary @review/comment.json > /dev/null`,
+    `node review/post.cjs ${shellWord(REPO.owner)} ${shellWord(REPO.repo)} ${shellWord(String(pr.number))} ${shellWord(pr.headSha)} ${shellWord(CONSENSUS)}`,
     { timeout: "2m" },
   );
 }
