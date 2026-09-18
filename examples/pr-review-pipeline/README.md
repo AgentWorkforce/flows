@@ -72,3 +72,5 @@ cd packages/surface && npm run typecheck:examples
 `--local-agent` attaches a stream-only worker on this machine: no workspace
 isolation, the CLI's own access. Workspace permission annotations
 (`"...: readwrite"`) are still refused because nothing enforces them yet.
+
+<!-- proof: pr-review-pipeline listener 2026-09-18 -->
