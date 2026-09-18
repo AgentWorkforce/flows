@@ -71,10 +71,16 @@ See the [example gallery and individual run results](examples/README.md).
 The gallery reports each requested example as PASS or BLOCKED, with its
 command, output, timing, and any capability or provider requirement still missing.
 
-Give your agent a skill to write a flow:
+Give your agent a skill to write a flow — covers the step ladder, which
+verification gates actually run today, `flows.json`, parallel agents, and the
+real refusal shapes, kept current against each release:
 
 ```sh
-npx skills add https://github.com/agentworkforce/skills --skill writing-relayflows
+# with prpm
+npx prpm install @agent-relay/writing-relayflows
+
+# with skills.sh
+npx skills add https://github.com/AgentWorkforce/skills --skill writing-relayflows
 ```
 
 ## GitHub Actions Secrets
