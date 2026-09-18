@@ -12,6 +12,15 @@ export interface CloudConnectionOptions {
   requestTimeoutMs?: number;
 }
 
+/** A refusal Cloud answered as JSON: only these fields are ever read. */
+export interface CloudRefusal {
+  code: string;
+  error: string;
+  /** Version-only descriptions, when a route names what it wanted vs. got. */
+  expected?: { packageName?: string; version?: string };
+  received?: { packageName?: string; version?: string };
+}
+
 export class CloudFlowError extends Error {
   constructor(
     readonly code: 'configuration' | 'unsupported_source' | 'invalid_input' | 'invalid_response' | 'http_error'
@@ -19,6 +28,7 @@ export class CloudFlowError extends Error {
       | 'patch_conflict',
     message: string,
     readonly status?: number,
+    readonly refusal?: CloudRefusal,
   ) {
     super(message);
     this.name = 'CloudFlowError';
@@ -175,10 +185,20 @@ export async function cloudFetch(
   }
   if (!response.ok) {
     // Do not echo server response bodies: they may contain credentials or source.
-    const refusal = init.detail ? await structuredRefusal(response) : undefined;
+    // Reading the body is itself a transport step: a cancellation or timeout
+    // there keeps its own classification instead of becoming an http_error.
+    let refusal: CloudRefusal | undefined;
+    if (init.detail) {
+      try {
+        refusal = await structuredRefusal(response);
+      } catch (error) {
+        options.signal?.throwIfAborted();
+        throw transportError(deadline.aborted ? deadline.reason : error);
+      }
+    }
     throw new CloudFlowError('http_error', refusal === undefined
       ? `Cloud request failed with HTTP ${response.status}.`
-      : `Cloud refused (${refusal.code}): ${refusal.error}`, response.status);
+      : `Cloud refused (${refusal.code}): ${refusal.error}`, response.status, refusal);
   }
   try {
     return await response.json();
@@ -189,12 +209,36 @@ export async function cloudFetch(
   }
 }
 
-async function structuredRefusal(response: Response): Promise<{ code: string; error: string } | undefined> {
+const REFUSAL_CODE = /^[a-z0-9_]{1,64}$/u;
+
+/**
+ * Routes answer either `{ code, error }` or a bare `{ error: "<code>" }`;
+ * both are read, and an optional `expected`/`received` pair is reduced to
+ * package name and version. Nothing else in the body is looked at.
+ */
+async function structuredRefusal(response: Response): Promise<CloudRefusal | undefined> {
   let body: unknown;
-  try { body = await response.json(); } catch { return undefined; }
-  if (!isCloudRecord(body) || typeof body.code !== 'string' || typeof body.error !== 'string') return undefined;
-  if (!/^[a-z0-9_]{1,64}$/u.test(body.code) || body.error.length > 500) return undefined;
-  return { code: body.code, error: body.error };
+  try {
+    body = await response.json();
+  } catch (error) {
+    // Only a body that is not JSON is "no structured refusal"; an aborted or
+    // timed-out read is a transport failure and propagates.
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  }
+  if (!isCloudRecord(body) || typeof body.error !== 'string' || body.error.length > 500) return undefined;
+  const code = typeof body.code === 'string' ? body.code : body.error;
+  if (!REFUSAL_CODE.test(code)) return undefined;
+  const versionOnly = (value: unknown): CloudRefusal['expected'] => {
+    if (!isCloudRecord(value)) return undefined;
+    const out: { packageName?: string; version?: string } = {};
+    if (typeof value.packageName === 'string' && value.packageName.length <= 100) out.packageName = value.packageName;
+    if (typeof value.version === 'string' && /^[0-9A-Za-z.+-]{1,64}$/u.test(value.version)) out.version = value.version;
+    return out;
+  };
+  const expected = versionOnly(body.expected);
+  const received = versionOnly(body.received);
+  return { code, error: body.error, ...(expected ? { expected } : {}), ...(received ? { received } : {}) };
 }
 
 // Defensive path-segment constraint; accepting a new server ID format needs an SDK change.
