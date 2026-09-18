@@ -34,7 +34,15 @@ export interface ProjectConfig {
   mcp?: Record<string, McpServerConfig>;
   cli?: string;
   executors: string[];
+  /**
+   * Exact model allowlist. Only a flows.json that DECLARES `models` is a
+   * registry that preflight enforces: `{"cli":"claude"}` alone names the CLI
+   * and leaves model policy to the adapter defaults, exactly as no flows.json
+   * would. Otherwise every scaffolded project (`flows create` writes only
+   * `cli`) refuses its adapter's own default model as "not listed".
+   */
   models: string[];
+  modelRegistryPath?: string;
   directory: string;
   path?: string;
 }
@@ -140,7 +148,7 @@ export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConf
       projectConfigPath: config.path,
       projectSearchStart: dirname(absolutePath),
       models: config.models,
-      ...(config.path !== undefined ? { modelRegistryPath: config.path } : {}),
+      ...(config.modelRegistryPath !== undefined ? { modelRegistryPath: config.modelRegistryPath } : {}),
       probes,
     });
     const flow = result.ok
@@ -209,7 +217,7 @@ export async function checkBuildableFlow(path: string): Promise<CheckExecution> 
       ...(config.path !== undefined ? { projectConfigPath: config.path } : {}),
       projectSearchStart: dirname(absolutePath),
       models: config.models,
-      ...(config.path !== undefined ? { modelRegistryPath: config.path } : {}),
+      ...(config.modelRegistryPath !== undefined ? { modelRegistryPath: config.modelRegistryPath } : {}),
       probes: deferred,
     });
     // Refusals rooted in build-machine environment probes (`probe_failed`)
@@ -342,6 +350,7 @@ export function readProjectConfig(start: string): ProjectConfig {
     ...(value['cli'] !== undefined ? { cli: value['cli'] as string } : {}),
     executors: (value['executors'] as string[] | undefined) ?? [],
     models: (value['models'] as string[] | undefined) ?? [],
+    ...(value['models'] !== undefined ? { modelRegistryPath: configPath } : {}),
     directory: dirname(configPath),
     path: configPath,
   };

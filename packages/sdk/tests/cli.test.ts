@@ -326,6 +326,27 @@ steps:
     expect(existsSync(fixture.probeLog)).toBe(false);
   });
 
+  it('treats a flows.json that only names the cli as no model registry', async () => {
+    // `flows create` scaffolds exactly `{"cli": ...}`; the examples' READMEs
+    // ask for the same. That file selects the CLI and says nothing about
+    // model policy, so an inline model must resolve just as it does with no
+    // flows.json at all. An explicit `models: []` is a real (empty) policy
+    // and still refuses.
+    const fixture = namedAgentProject('available-model', []);
+    writeFileSync(join(fixture.directory, 'flows.json'), JSON.stringify({ cli: './model-cli' }));
+
+    const accepted = await run(fixture.flowPath);
+    expect(accepted.code).toBe(0);
+    expect(accepted.stdout.join('\n')).toContain('model "available-model"');
+    expect(readFileSync(fixture.probeLog, 'utf8')).toBe('available-model\n');
+
+    writeFileSync(join(fixture.directory, 'flows.json'), JSON.stringify({ cli: './model-cli', models: [] }));
+    const refused = await run(fixture.flowPath);
+    expect(refused.code).toBe(2);
+    expect(refused.stderr.join('\n')).toContain('REFUSED [model_unknown]');
+    expect(refused.stderr.join('\n')).toContain('project model registry');
+  });
+
   it('distinguishes an allowlisted but inaccessible model from broken auth', async () => {
     const fixture = namedAgentProject('denied-model', ['denied-model']);
     const result = await run(fixture.flowPath);
