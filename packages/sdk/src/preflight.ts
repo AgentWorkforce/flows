@@ -667,52 +667,81 @@ function firstCommandWord(command: string): string | undefined {
 }
 
 function firstCommandWordDetailed(command: string): FirstCommandWord | undefined {
-  // The first line that is not blank, a `#` comment, or only assignments and
-  // redirections is where the script starts; a leading comment is not a
-  // command named "#" and `FOO=1` on its own line names nothing (cloud#3777).
-  let firstLine: string | undefined;
-  for (const raw of command.split('\n')) {
-    const line = raw.trim();
-    if (line === '' || line.startsWith('#')) continue;
-    const remainder = stripShellPrefixes(line);
-    // A comment after a prefix (`FOO=1 # note`) is still a comment.
-    if (remainder === '' || remainder.startsWith('#')) {
-      // The lines after a heredoc opener or an unclosed quote are data, not
-      // commands: scanning on would probe (or refuse) words the shell never
-      // executes. That is "cannot be proven", not "missing".
-      if (/<<-?\s*['"]?\w/.test(line) || hasUnbalancedQuote(line)) return undefined;
+  // A lightweight lexical pass — not a shell parser. It walks the script once,
+  // quote-aware: comments outside quotes are dropped, quoted text is opaque
+  // (an apostrophe in `# don't` or a `<<EOF` inside `VALUE='<<EOF'` is data),
+  // and the script is split into simple-command segments on unquoted `;`,
+  // `&&`, `||`, `|` and newlines. The first segment that is not only
+  // assignments and redirections holds the command word (cloud#3777).
+  //
+  // A heredoc opener or a quote left open at the end of the script means the
+  // following text is data the shell never executes; if no command word was
+  // found before it, the answer is "cannot be proven", not "missing".
+  const segments = lexSimpleCommands(command);
+  if (segments === undefined) return undefined;
+  for (const segment of segments) {
+    const remainder = stripShellPrefixes(segment);
+    if (remainder === '') continue;
+    const match = remainder.match(/^(?:"([^"]*)"|'([^']*)'|([^\s]+))/);
+    const word = match?.[1] ?? match?.[2] ?? match?.[3];
+    if (word === undefined || word === '') continue;
+    if (SHELL_SPECIAL_BUILTINS.has(word)) return { word, shell: true, kind: 'builtin' };
+    if (SHELL_RESERVED_WORDS.has(word)) return { word, shell: true, kind: 'reserved word' };
+    return { word, shell: false, kind: 'command' };
+  }
+  return undefined;
+}
+
+/**
+ * Split a script into simple-command segments, comments removed, quotes kept.
+ * Returns undefined when a heredoc or an unclosed quote begins before any
+ * segment could be completed past it — the rest is data.
+ */
+function lexSimpleCommands(script: string): string[] | undefined {
+  const segments: string[] = [];
+  let current = '';
+  let quote: string | undefined;
+  let heredoc = false;
+  const flush = (): void => {
+    if (current.trim() !== '') segments.push(current.trim());
+    current = '';
+  };
+  for (let i = 0; i < script.length; i += 1) {
+    const char = script[i]!;
+    if (quote !== undefined) {
+      current += char;
+      if (char === '\\' && quote === '"' && i + 1 < script.length) { current += script[++i]; continue; }
+      if (char === quote) quote = undefined;
       continue;
     }
-    firstLine = remainder;
-    break;
-  }
-  if (firstLine === undefined) return undefined;
-  const match = firstLine.match(/^(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
-  const word = match?.[1] ?? match?.[2] ?? match?.[3];
-  if (word === undefined) return undefined;
-  // A trailing `;` after a builtin is the shell's business too.
-  const bare = word.replace(/;$/, '');
-  if (SHELL_SPECIAL_BUILTINS.has(bare)) return { word: bare, shell: true, kind: 'builtin' };
-  if (SHELL_RESERVED_WORDS.has(bare)) return { word: bare, shell: true, kind: 'reserved word' };
-  return { word, shell: false, kind: 'command' };
-}
-
-/** True when a `'` or `"` opened on this line is not closed on it. */
-function hasUnbalancedQuote(line: string): boolean {
-  let quote: string | undefined;
-  for (let i = 0; i < line.length; i += 1) {
-    const char = line[i];
-    if (char === '\\' && quote !== "'") { i += 1; continue; }
-    if (quote === undefined) {
-      if (char === '"' || char === "'") quote = char;
-    } else if (char === quote) {
-      quote = undefined;
+    if (char === '\\' && i + 1 < script.length) { current += char + script[++i]; continue; }
+    if (char === '"' || char === "'") { quote = char; current += char; continue; }
+    if (char === '#' && (current === '' || /\s$/.test(current))) {
+      // Comment to end of line, outside quotes only.
+      while (i + 1 < script.length && script[i + 1] !== '\n') i += 1;
+      continue;
     }
+    if (char === '<' && script[i + 1] === '<') {
+      // A heredoc: everything after this line is its body, so the current
+      // segment is the last one the shell reads as a command.
+      heredoc = true;
+      while (i + 1 < script.length && script[i + 1] !== '\n') i += 1;
+      flush();
+      break;
+    }
+    if (char === '\n' || char === ';') { flush(); continue; }
+    if ((char === '&' && script[i + 1] === '&') || (char === '|' && script[i + 1] === '|')) { flush(); i += 1; continue; }
+    if (char === '|' || char === '&') { flush(); continue; }
+    current += char;
   }
-  return quote !== undefined;
+  if (!heredoc && quote === undefined) flush();
+  // Whatever was accumulated when a heredoc or an open quote cut the scan is
+  // not a complete command; only the segments closed before it count.
+  if (segments.length === 0 && (heredoc || quote !== undefined)) return undefined;
+  return segments;
 }
 
-function stripShellPrefixes(line: string): string {
+function stripShellPrefixes(segment: string): string {
   // Skip the shell prefixes that can legally precede the command word.
   //
   // Review caught this on PR #47: the new path-like refusal keys on the first
@@ -722,11 +751,12 @@ function stripShellPrefixes(line: string): string {
   // which is exactly the "refusing would reject valid flows" failure the warn
   // behaviour exists to avoid.
   //
-  // An assignment is NAME=value with a shell-legal name; a redirection starts
-  // with < or > (optionally with a leading fd number). Neither is the command.
-  let rest = line;
+  // An assignment is NAME=value with a shell-legal name and an opaque quoted
+  // value; a redirection starts with < or > (optionally with a leading fd
+  // number). Neither is the command. Segments never contain `;`/newlines.
+  let rest = segment;
   for (;;) {
-    const prefix = rest.match(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]*)|[0-9]*[<>]{1,2}\s*[^\s]+)(?:\s+|;?$)/);
+    const prefix = rest.match(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"(?:[^"\\]|\\.)*"|'[^']*'|[^\s]*)|[0-9]*[<>]{1,2}\s*[^\s]+)(?:\s+|$)/);
     if (prefix === null) break;
     rest = rest.slice(prefix[0].length);
   }

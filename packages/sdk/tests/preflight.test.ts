@@ -377,9 +377,17 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(probed).toEqual([expected]);
   });
 
+  it('reads through a quoted multi-line assignment to the real command', () => {
+    const probed: string[] = [];
+    preflight(flow({ id: 's', type: 'deterministic', command: 'MSG="first\n./missing"\nprintf ok' }), {
+      probes: probes({ command: (word) => { probed.push(word); return true; } }),
+    });
+    expect(probed).toEqual(['printf']);
+  });
+
   it.each([
     ['a heredoc body', "> out <<EOF\n./missing\nEOF"],
-    ['a quoted multi-line assignment', 'MSG="first\n./missing"\nprintf ok'],
+    ['an unclosed quote', 'MSG="first\n./missing'],
   ])('never probes %s as a command: warns unprovable instead of refusing', (_label, command) => {
     const probed: string[] = [];
     const result = preflight(flow({ id: 's', type: 'deterministic', command }), {
@@ -390,6 +398,30 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(result.diagnostics).toEqual([
       expect.objectContaining({ severity: 'warning', kind: 'command_unprovable', stepId: 's' }),
     ]);
+  });
+
+  it.each([
+    ['an apostrophe in a trailing comment', "FOO=1 # don't\n./ops/missing"],
+    ['a heredoc marker inside a quoted assignment value', "VALUE='<<EOF'\n./ops/missing"],
+    ['an && after an assignment', 'FOO=1 && ./ops/missing'],
+    ['a ; directly after an assignment', 'FOO=1;./ops/missing'],
+    ['a || after a redirection', '> out.log || ./ops/missing'],
+  ])('reaches the path-like command through %s and refuses it', (_label, command) => {
+    const result = preflight(flow({ id: 's', type: 'deterministic', command }), {
+      probes: probes({ command: () => false }),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'refusal', kind: 'command_missing', stepId: 's' }),
+    ]);
+  });
+
+  it('splits on unquoted operators only: a quoted && is data', () => {
+    const probed: string[] = [];
+    preflight(flow({ id: 's', type: 'deterministic', command: 'printf "a && b" && ./ops/next' }), {
+      probes: probes({ command: (word) => { probed.push(word); return true; } }),
+    });
+    expect(probed).toEqual(['printf']);
   });
 
   it('still refuses a missing path-like command that follows a comment', () => {
