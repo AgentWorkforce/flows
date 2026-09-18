@@ -11,7 +11,9 @@ agent CLI (`{"cli": "claude"}` is enough — see *Running it* below):
 flows run pr-review-pipeline.flow.ts --local-agent --input '{"diffRange":"origin/main...HEAD"}'
 ```
 
-To have it review every pull request of a repo on Cloud:
+To have it review every pull request of a repo on Cloud (no `diffRange` needed:
+a `pull_request` run checks out the PR head and passes `input.pullRequest`, and
+the flow fetches the base and diffs `FETCH_HEAD...<headSha>`):
 
 ```sh
 flows deploy pr-review-pipeline.flow.ts --repo acme/api --on github:events=pull_request --approver you

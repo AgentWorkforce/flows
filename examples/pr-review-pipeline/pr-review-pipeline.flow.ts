@@ -26,9 +26,16 @@ const LENSES = ["security", "correctness", "performance"] as const;
 type Lens = (typeof LENSES)[number];
 
 export interface PrReviewInput {
-  /** e.g. "origin/main...HEAD", or a PR's merge-base range. */
-  diffRange: string;
+  /**
+   * Local runs: e.g. "origin/main...HEAD". A Cloud `--on github:events=pull_request`
+   * run passes no diffRange; it checks out the pull request's head and passes
+   * `pullRequest` (docs/CLOUD.md), from which the range is derived.
+   */
+  diffRange?: string;
+  pullRequest?: { baseRef: string; headSha: string };
 }
+
+const shellWord = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 
 function findingsPath(lens: Lens): string {
   return `review/${lens}.json`;
@@ -38,8 +45,19 @@ export default flow<PrReviewInput>(
   "pr-review-pipeline",
   { budget: "$3/run" },
   async (f, input) => {
+    // Cloud clones the repo at the pull request's head, so the base is only
+    // reachable after a fetch; FETCH_HEAD...<head> is the PR's merge-base diff.
+    let range = input.diffRange;
+    if (range === undefined) {
+      const pr = input.pullRequest;
+      if (pr === undefined) {
+        throw new Error("pr-review-pipeline needs diffRange (local) or input.pullRequest (a pull_request trigger)");
+      }
+      await f.run(`git fetch --no-tags origin ${shellWord(pr.baseRef)}`);
+      range = `FETCH_HEAD...${pr.headSha}`;
+    }
     const diff = await f
-      .run(`git diff ${input.diffRange}`)
+      .run(`git diff ${shellWord(range)}`)
       .gate((out) => out.trim().length > 0, "nothing to review — the diff is empty");
     await f.run("mkdir -p review");
 
