@@ -1,8 +1,26 @@
 name: Review swarm
 
+# PARKED. Does not run. Port tracked in AgentWorkforce/flows#470.
+#
+# This failed on every open PR (#451, #455, #441) in its own posting step --
+# "No changes to sync -- the workflow did not modify any files" -- rather than
+# on any code verdict. Reproducible across reruns with fresh swarm ids. A check
+# that fails on every PR can neither approve nor block, so it was merged over
+# in practice; leaving it on `pull_request` only trained people to ignore a red
+# check.
+#
+# The failure is the v1 design showing through: this gate assumes a review's
+# product is a patch to sync back, so a review that correctly proposes no code
+# change reads as a failure. It also drives RelayFlow v1 (`agent-relay cloud
+# run`), which relay#1783 deprecated. Both argue for the v2 port rather than a
+# repair here.
+#
+# `workflow_dispatch` is the parking trigger, not a working manual path: every
+# step below reads `github.event.pull_request.*`, which is empty off a
+# `pull_request` event. Wiring that up is deliberately not done -- it is work
+# spent on the surface #470 retires.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
 
 permissions:
   contents: read
