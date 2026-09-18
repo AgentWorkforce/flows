@@ -172,7 +172,10 @@ mount), and the merge path (needs an approval event).
   (`evaluateMergeOnGreenState`, `matchesConflictDirective`,
   `isAuthorizedConflictCommander`) and tested, but the generated trigger
   vocabulary has no such events yet.
-- **`artifact_exists`.** The review step is gated with
-  `{ type: "subprocess_gate", command: "test -s .workforce/review.md" }`.
-  When the `artifact_exists` named gate lands, the swap is one line:
-  `.gate({ type: "artifact_exists", path: REVIEW_FILE })`.
+- **Why `subprocess_gate`, not `artifact_exists`.** The review step is gated
+  with `{ type: "subprocess_gate", command: "test -s .workforce/review.md" }`
+  on purpose. `artifact_exists` judges the worker's journaled artifact list,
+  and that scanner skips dot-directories, so a file under `.workforce/` is
+  never listed; it also records path presence on content change only, so an
+  empty file would pass and a rerun writing identical text would fail. The
+  shell test requires a non-empty file and is idempotent.

@@ -24,9 +24,12 @@
 // receives a single authored source and does not resolve sibling imports, so
 // the pure functions live below the flow and are exported for the tests.
 //
-// TODO(flows#434 follow-up): once the `artifact_exists` named gate lands,
-// replace the `subprocess_gate` on the review step with
-// `.gate({ type: "artifact_exists", path: REVIEW_FILE })`.
+// The review step is deliberately gated with a shell test, not the
+// `artifact_exists` named gate (flows#449): the worker's artifact scanner
+// skips dot-directories, so `.workforce/review.md` is never journaled; and
+// `test -s` also demands a non-empty file and passes on a rerun that rewrites
+// identical text, which `artifact_exists` (path present, content changed)
+// would not.
 //
 // Not yet wired, deliberately: the `check_run.completed` (merge-on-green) and
 // `issue_comment.created` (`@relay fix conflicts`) events are not in the
@@ -130,7 +133,6 @@ const reviewerBody = flow<Input>(
         cli: input.reviewerCli ?? "claude",
         task: reviewHarnessPrompt(pr) + `\nWrite the review to ${REVIEW_FILE}. Read .workforce/threads.json for the existing bot and reviewer comments.`,
       })
-      // TODO: `.gate({ type: "artifact_exists", path: REVIEW_FILE })` once flows#434's follow-up lands.
       .gate({ type: "subprocess_gate", command: `test -s ${REVIEW_FILE}` });
 
     // ── verification, outside the agent. The exit code is the kernel's. ──
