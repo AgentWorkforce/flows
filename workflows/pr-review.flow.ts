@@ -165,7 +165,13 @@ export default flow<PrReviewInput>(
     if (pr !== undefined) {
       // headSha is the wake's snapshot. If the PR moved while the agents ran,
       // a newer wake is reviewing the new commit; don't post a stale verdict.
-      const head = await f.run(`git ls-remote origin ${shellWord(`refs/pull/${pr.number}/head`)} | cut -f1`, { timeout: "1m" });
+      // A lookup failure or blank result is a step failure (the run can be
+      // resumed), never a reason to drop a finished review.
+      const head = await f.run(
+        `h=$(git ls-remote --exit-code origin ${shellWord(`refs/pull/${pr.number}/head`)} | cut -f1) && `
+          + `printf '%s' "$h" | grep -Eq '^[0-9a-f]{40}$' && printf '%s' "$h"`,
+        { timeout: "1m" },
+      );
       if (head.trim() !== pr.headSha) return f.done("declined");
       // f.run returns the kernel's stdout *tail* (64 KiB), which would drop the
       // verdict at the top of a long review. Bound the body from the front
