@@ -216,17 +216,31 @@ function humanRecipients(root: string, body: string): string[] {
   return found;
 }
 
+/**
+ * Skip the comment or string starting at `i`, returning the index just past
+ * it; `i` itself when nothing skippable starts there; -1 when unterminated.
+ * Every walker below steps through this, so a `,`, `to:` or bracket inside a
+ * comment or string is never read as syntax.
+ */
+function skipCommentOrString(text: string, i: number): number {
+  const ch = text[i]!;
+  const next = text[i + 1];
+  if (ch === '/' && next === '/') { const end = text.indexOf('\n', i); return end === -1 ? text.length : end + 1; }
+  if (ch === '/' && next === '*') { const end = text.indexOf('*/', i + 2); return end === -1 ? -1 : end + 2; }
+  if (ch === '"' || ch === "'" || ch === '`') { const end = stringEnd(text, i); return end === -1 ? -1 : end + 1; }
+  return i;
+}
+
 /** Index of the `)`/`}`/`]` closing the bracket at `open`, skipping strings, templates and comments; -1 if unbalanced. */
 function matchingClose(text: string, open: number): number {
   const pairs: Record<string, string> = { '(': ')', '{': '}', '[': ']' };
   const stack: string[] = [pairs[text[open]!]!];
   let i = open + 1;
   while (i < text.length && stack.length > 0) {
+    const skipped = skipCommentOrString(text, i);
+    if (skipped === -1) return -1;
+    if (skipped !== i) { i = skipped; continue; }
     const ch = text[i]!;
-    const next = text[i + 1];
-    if (ch === '/' && next === '/') { i = text.indexOf('\n', i); if (i === -1) return -1; continue; }
-    if (ch === '/' && next === '*') { const end = text.indexOf('*/', i + 2); if (end === -1) return -1; i = end + 2; continue; }
-    if (ch === '"' || ch === "'" || ch === '`') { i = stringEnd(text, i); if (i === -1) return -1; i += 1; continue; }
     if (ch in pairs) stack.push(pairs[ch]!);
     else if (ch === ')' || ch === '}' || ch === ']') { if (stack.pop() !== ch) return -1; }
     i += 1;
@@ -259,8 +273,10 @@ function secondArgumentObject(args: string): string | undefined {
   let i = 0;
   let commas = 0;
   while (i < args.length) {
+    const skipped = skipCommentOrString(args, i);
+    if (skipped === -1) return undefined;
+    if (skipped !== i) { i = skipped; continue; }
     const ch = args[i]!;
-    if (ch === '"' || ch === "'" || ch === '`') { i = stringEnd(args, i); if (i === -1) return undefined; i += 1; continue; }
     if (ch === '(' || ch === '{' || ch === '[') {
       if (depth === 0 && commas === 1 && ch === '{') {
         const close = matchingClose(args, i);
@@ -276,18 +292,21 @@ function secondArgumentObject(args: string): string | undefined {
 
 /** The plain string literal value of `name:` at the top level of an object literal, else undefined. */
 function topLevelStringProperty(object: string, name: string): string | undefined {
+  const key = new RegExp(`^(?:${name}|'${name}'|"${name}")\\s*:\\s*`, 'u');
   let depth = 0;
   let i = 1; // past the opening brace
   const end = object.length - 1;
   while (i < end) {
+    const skipped = skipCommentOrString(object, i);
+    if (skipped === -1) return undefined;
+    if (skipped !== i) { i = skipped; continue; }
     const ch = object[i]!;
-    if (ch === '"' || ch === "'" || ch === '`') { i = stringEnd(object, i); if (i === -1) return undefined; i += 1; continue; }
     if (ch === '(' || ch === '{' || ch === '[') { depth += 1; i += 1; continue; }
     if (ch === ')' || ch === '}' || ch === ']') { depth -= 1; i += 1; continue; }
-    if (depth === 0 && (i === 1 || /[\s,{]/u.test(object[i - 1]!))) {
-      const key = new RegExp(`^(?:${name}|'${name}'|"${name}")\\s*:\\s*`, 'u').exec(object.slice(i));
-      if (key !== null) {
-        const valueStart = i + key[0].length;
+    if (depth === 0 && (i === 1 || /[\s,{/]/u.test(object[i - 1]!))) {
+      const match = key.exec(object.slice(i));
+      if (match !== null) {
+        const valueStart = i + match[0].length;
         const quote = object[valueStart];
         if (quote !== '"' && quote !== "'" && quote !== '`') return undefined;
         const valueEnd = stringEnd(object, valueStart);

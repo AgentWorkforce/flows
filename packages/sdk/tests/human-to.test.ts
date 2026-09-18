@@ -103,6 +103,35 @@ describe('flowRequirements reads f.human to', () => {
     ]);
   });
 
+  it('ignores commas, brackets and `to:` inside comments on the call itself', () => {
+    const definition = getFlowDefinition(flow('ship', async (f) => {
+      // The bodies below keep their comments: Function.prototype.toString
+      // preserves them, so the scanner meets them as text.
+      await f.human(
+        'Ship?', // to: "github:@in-line-comment", { extra: 1 },
+        /* to: 'slack:#in-block-comment', */ { to: 'slack:#releases' /* , to: "github:@trailing" */ },
+      );
+      await f.human('Again?', {
+        // to: "github:@commented-property",
+        to: 'slack:@khaliq',
+      });
+      f.done('success');
+    }));
+    expect(flowRequirements(definition).integrations).toEqual([
+      { provider: 'slack', from: 'human', detail: 'f.human to' },
+    ]);
+    const commentedOut = getFlowDefinition(flow('ship', async (f) => {
+      await f.human('Ship?', {
+        // to: "slack:#no",
+        to: 'github:@khaliq',
+      });
+      f.done('success');
+    }));
+    expect(flowRequirements(commentedOut).integrations).toEqual([
+      { provider: 'github', from: 'human', detail: 'f.human to' },
+    ]);
+  });
+
   it('keeps a helper requirement the body already declares ahead of f.human', () => {
     const definition = getFlowDefinition(flow('ship', async (f) => {
       await f.slack.post('#eng', 'hi');
