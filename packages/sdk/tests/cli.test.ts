@@ -488,6 +488,8 @@ steps:
       }],
       resolutions: [{ stepId: 'answer', cli: './authenticated-cli', source: 'step' }],
       diagnostics: [editorHint],
+      // A wrapper CLI is not a Cloud harness, so nothing is required of the workspace.
+      requirements: { integrations: [], harnesses: [], harnessUses: [], mcp: [] },
     });
 
     const refusalPath = join(PREFLIGHT, 'cli-missing.flow.yaml');
@@ -518,6 +520,7 @@ steps:
         cli: './missing-cli',
         message: 'Step "answer" declares CLI "./missing-cli", but it does not resolve as an executable.',
       }, editorHint],
+      requirements: { integrations: [], harnesses: [], harnessUses: [], mcp: [] },
     });
     expect(report.diagnostics.filter((entry) => entry.severity === 'refusal').every((entry) => isCheckFailureKind(entry.kind))).toBe(true);
   });

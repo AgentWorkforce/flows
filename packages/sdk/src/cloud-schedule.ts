@@ -69,12 +69,29 @@ function assertTimeZone(tz: string): string {
   return tz;
 }
 
-export async function scheduleInCloud(
-  input: ScheduleInCloudInput, options: CloudConnectionOptions = {},
-): Promise<CloudSchedule> {
+/**
+ * The argument checks `scheduleInCloud` makes before it reads the flow, so a
+ * caller can refuse a bad cron, interval or zone before any side effect (the
+ * CLI connects integrations in between). Declared-schedule resolution needs
+ * the flow and stays in `scheduleInCloud`.
+ */
+export function validateScheduleArgs(input: Pick<ScheduleInCloudInput, 'cron' | 'every' | 'tz'>): void {
   if (input.cron !== undefined && input.every !== undefined) {
     throw new CloudFlowError('invalid_input', 'Give --cron or --every, not both.');
   }
+  if (input.cron !== undefined) {
+    try { parseCron(input.cron); } catch (error) {
+      throw new CloudFlowError('invalid_input', `--cron: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  if (input.every !== undefined) everyToCron(input.every);
+  if (input.tz !== undefined) assertTimeZone(input.tz);
+}
+
+export async function scheduleInCloud(
+  input: ScheduleInCloudInput, options: CloudConnectionOptions = {},
+): Promise<CloudSchedule> {
+  validateScheduleArgs(input);
   const submission = await prepareCloudSubmission(input.flow, {
     ...(Object.prototype.hasOwnProperty.call(input, 'input') ? { input: input.input } : {}),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
