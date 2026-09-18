@@ -125,11 +125,13 @@ export default flow<PrReviewInput>(
     // value is the kernel's stdout tail (64 KiB) and a task string is one
     // argv entry, so a large PR would be reviewed from a silently truncated
     // tail. Evidence transcripts and lockfiles are noise for a reviewer.
-    await f
-      .run(
-        `git diff ${shellWord(range)} -- . ':(exclude)docs/evidence/**' ':(exclude)evidence/**' ':(exclude,glob)**/*.lock' ':(exclude)package-lock.json' > ${DIFF} && test -s ${DIFF}`,
-        { timeout: "2m" },
-      );
+    const diffBytes = await f.run(
+      `git diff ${shellWord(range)} -- . ':(exclude)docs/evidence/**' ':(exclude)evidence/**' ':(exclude,glob)**/*.lock' ':(exclude)package-lock.json' > ${DIFF} && wc -c < ${DIFF}`,
+      { timeout: "2m" },
+    );
+    // The listener has no path filter, so a PR that only touches excluded
+    // paths is a valid wake with nothing to review — decline, don't fail.
+    if (Number(diffBytes.trim()) === 0) return f.done("declined");
 
     await Promise.all(
       (Object.keys(LENSES) as Lens[]).map((lens) =>
@@ -161,6 +163,10 @@ export default flow<PrReviewInput>(
       .gate((r) => r.artifacts.includes(CONSENSUS), `the consensus step must write ${CONSENSUS}`);
 
     if (pr !== undefined) {
+      // headSha is the wake's snapshot. If the PR moved while the agents ran,
+      // a newer wake is reviewing the new commit; don't post a stale verdict.
+      const head = await f.run(`git ls-remote origin ${shellWord(`refs/pull/${pr.number}/head`)} | cut -f1`, { timeout: "1m" });
+      if (head.trim() !== pr.headSha) return f.done("declined");
       // f.run returns the kernel's stdout *tail* (64 KiB), which would drop the
       // verdict at the top of a long review. Bound the body from the front
       // instead, under GitHub's 65,536-char comment limit, and say so.
