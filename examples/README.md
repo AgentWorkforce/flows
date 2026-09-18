@@ -9,7 +9,7 @@ For a working local starting point, use the [small agent starter](../README.md)
 | Example | Status | Observed result | Elapsed |
 |---|---|---|---:|
 | [dependency-upgrade-bot](dependency-upgrade-bot/) | **BLOCKED** | SDK refuses unsupported `budget` header before entering the body; exit 2 | [5.138s](../docs/evidence/ws13/review/gallery/gallery-dependency-upgrade-bot.txt) |
-| [pr-review-pipeline](pr-review-pipeline/) | **RUNNABLE** | `budget:` headers have been accepted since #306; agent artifacts are journaled by the worker and both gate forms (`artifact_exists`, predicate) are lowered — see `packages/sdk/tests/agent-artifacts-live.test.ts` for the same shape through the built CLI and a real daemon. Needs a `flows.json` naming an authenticated agent CLI. | — |
+| [pr-review-pipeline](pr-review-pipeline/) | **PASS (local, real agents)** | Fresh directory, `@relayflows/surface@2.0.17`, `flows.json` = `{"cli":"claude"}`: 9 steps completed, three parallel lens agents each gated on their journaled `review/<lens>.json`, consensus predicate gate passed, exit 0, `completionReason: success`. Needed the SDK fix that stops a `flows.json` without `models` from acting as an empty model allowlist. | 74s |
 | [pr-reviewer](pr-reviewer/) | **PASS (local, stand-ins)** | The wepost PR reviewer as a v2 flow: 17 journaled steps end to end through the real kernel with a wrapper agent and an API shim; happy, red-tests and draft paths proven. See its README. | — |
 | [research](research/) | **PASS** | All model probes passed; three lane reports and synthesis produced; exit 0, `completionReason: synthesized` | [690.935s](../docs/evidence/ws13/followup/default-budget/gallery-research.txt) |
 
