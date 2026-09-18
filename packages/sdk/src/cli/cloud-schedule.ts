@@ -1,5 +1,5 @@
 import { CloudFlowError } from '../cloud-http.js';
-import { listCloudSchedules, scheduleInCloud, unscheduleInCloud, type CloudSchedule } from '../cloud-schedule.js';
+import { listCloudSchedules, scheduleInCloud, unscheduleInCloud, validateScheduleArgs, type CloudSchedule } from '../cloud-schedule.js';
 import { DirectInputError, isAuthoredFlowPath, parseDirectInput } from '../direct-input.js';
 import { snapshotJsonValue, type JsonValue } from '../json-value.js';
 import { cliConnectPrompt, ensureFlowConnections, harnessRemedy } from './cloud-connect-cli.js';
@@ -72,12 +72,6 @@ function describe(schedule: CloudSchedule): string {
 export async function runCloudScheduleCli(args: CloudScheduleArgs, io: CliIo): Promise<0 | 1 | 2> {
   let harnesses: readonly string[] = [];
   try {
-    // Each fire runs the flow as this workspace, so what it needs connected
-    // is checked once here, before the schedule exists.
-    const connections = await ensureFlowConnections({
-      path: args.value, prompt: cliConnectPrompt(io, { noConnect: args.noConnect, json: args.json }),
-    });
-    harnesses = connections?.requirements.harnesses ?? [];
     let input: JsonValue | undefined;
     let inputPresent = false;
     if (isAuthoredFlowPath(args.value)) {
@@ -89,6 +83,18 @@ export async function runCloudScheduleCli(args: CloudScheduleArgs, io: CliIo): P
         throw error;
       }
     }
+    validateScheduleArgs({
+      ...(args.cron === undefined ? {} : { cron: args.cron }),
+      ...(args.every === undefined ? {} : { every: args.every }),
+      ...(args.tz === undefined ? {} : { tz: args.tz }),
+    });
+    // Each fire runs the flow as this workspace, so what it needs connected
+    // is checked once here — after the arguments are known to be good, so a
+    // refused command never opens a browser first — and before the schedule exists.
+    const connections = await ensureFlowConnections({
+      path: args.value, prompt: cliConnectPrompt(io, { noConnect: args.noConnect, json: args.json }),
+    });
+    harnesses = connections?.requirements.harnesses ?? [];
     const schedule = await scheduleInCloud({
       flow: { path: args.value },
       ...(args.cron === undefined ? {} : { cron: args.cron }),

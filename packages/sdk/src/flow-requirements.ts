@@ -2,6 +2,7 @@ import { helperProviders } from '@relayflows/surface/runtime';
 import type { TriggerSource } from '@relayflows/surface';
 import { providerDeclaration } from './provider-trigger-contract.js';
 import type { FlowSpec } from './spec.js';
+import { helperCall } from './yaml-helpers.js';
 
 /**
  * What a flow needs from the workspace it deploys into, read from inert
@@ -24,7 +25,7 @@ export type FlowHarness = (typeof FLOW_HARNESSES)[number];
 export interface FlowIntegrationRequirement {
   /** Cloud integration provider id (`slack`, `github`, `linear`, …). */
   provider: string;
-  /** `tools`: a header declaration; `source`: a trigger or deploy target; `helper`: body use without a flag. */
+  /** `tools`: a header declaration; `source`: a trigger or deploy target; `helper`: body use without a flag, or a YAML helper step. */
   from: 'tools' | 'source' | 'helper';
   /** The declaration that requires it, as a reader would name it: `tools.slack`, `--on github`, `f.slack`. */
   detail: string;
@@ -58,7 +59,7 @@ export interface FlowRequirementsContext {
 export interface RequirementsFlowDefinition {
   readonly header?: { readonly tools?: Readonly<Record<string, unknown>> };
   readonly body?: Function;
-  readonly handlers?: readonly { readonly trigger: TriggerSource; readonly body?: Function }[];
+  readonly handlers?: readonly { readonly trigger: TriggerSource }[];
 }
 
 export function flowRequirements(
@@ -80,6 +81,13 @@ export function flowRequirements(
     for (const step of flow.steps) {
       // Preflight owns shape refusals; a malformed step is simply not a worker step here.
       if (typeof step !== 'object' || step === null || (step.type !== 'llm' && step.type !== 'agent')) continue;
+      // A YAML helper step (`slack: { post: … }`) compiles to an agent step
+      // carrying a helper envelope: it needs the provider's mount, not a harness.
+      const helper = step.type === 'agent' ? compiledHelper(step) : undefined;
+      if (helper !== undefined) {
+        declare({ provider: helper, from: 'helper', detail: `step "${step.id}"` });
+        continue;
+      }
       const named = step.type === 'agent' && step.agent !== undefined ? flow.agents?.[step.agent]?.cli : undefined;
       const cli = step.cli ?? named ?? flow.cli;
       need(cli === undefined ? fallback : harnessFromCli(cli), `step "${step.id}"`);
@@ -100,11 +108,13 @@ export function flowRequirements(
         declare({ provider: declaration.provider, from: 'source', detail: `on ${declaration.provider} ${declaration.type}` });
       }
     }
-    const bodies = [flow.body, ...(flow.handlers ?? []).map(handler => handler.body)]
-      .flatMap(body => typeof body === 'function' ? [Function.prototype.toString.call(body)] : []);
-    for (const text of bodies) {
-      const root = contextParameter(text);
-      if (root === undefined) continue;
+    // Only the default body is scanned for helper and worker calls: hosted
+    // deployments and schedules dispatch the default body with the trigger's
+    // payload as input, and handler bodies are not dispatched yet (flows #301).
+    // A handler's *trigger* is still a requirement — it is what wakes the flow.
+    const text = typeof flow.body === 'function' ? Function.prototype.toString.call(flow.body) : '';
+    const root = contextParameter(text);
+    if (root !== undefined) {
       for (const { provider, namespace } of helperProviders) {
         if (helperReference(root, namespace).test(text)) declare({ provider, from: 'helper', detail: `f.${namespace}` });
       }
@@ -140,6 +150,15 @@ export function harnessFromCli(cli: string | undefined): FlowHarness | undefined
   if (cli === undefined) return undefined;
   const base = cli.trim().split(/[\\/]/u).pop()?.replace(/\.(?:exe|cmd|bat)$/iu, '').toLowerCase();
   return (FLOW_HARNESSES as readonly string[]).includes(base ?? '') ? base as FlowHarness : undefined;
+}
+
+/** The provider of a compiled YAML helper step, or undefined for an ordinary agent step or a malformed envelope. */
+function compiledHelper(step: Parameters<typeof helperCall>[0]): string | undefined {
+  try {
+    return helperCall(step)?.provider;
+  } catch {
+    return undefined;
+  }
 }
 
 function isCompiledSpec(flow: RequirementsFlowDefinition | FlowSpec): flow is FlowSpec {

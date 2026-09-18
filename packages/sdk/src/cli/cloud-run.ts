@@ -24,13 +24,6 @@ export async function runCloudCli(
   let harnesses: readonly string[] = [];
   try {
     const options: RunInCloudOptions = { signal: controller.signal, onSubmit: () => { submitting = true; } };
-    // Before anything is packed or uploaded: a helper the run would call
-    // against an unconnected integration is connected here, or refused here.
-    const connections = await ensureFlowConnections({
-      path, prompt: cliConnectPrompt(io, { noConnect, json }),
-    }, { signal: controller.signal });
-    harnesses = connections?.requirements.harnesses ?? [];
-    for (const provider of connections?.outcome.connected ?? []) if (!json) io.stdout(`CONNECTED ${provider}`);
     if (isAuthoredFlowPath(path)) {
       // Same parse as a local direct run, so a file-or-inline argument means
       // the same thing on both sides of `--cloud`.
@@ -41,6 +34,15 @@ export async function runCloudCli(
         throw error;
       }
     }
+    // After local validation, before anything is packed or uploaded: a helper
+    // the run would call against an unconnected integration is connected
+    // here, or refused here. A command that is going to be refused for its
+    // arguments must not first open a browser.
+    const connections = await ensureFlowConnections({
+      path, prompt: cliConnectPrompt(io, { noConnect, json }),
+    }, { signal: controller.signal });
+    harnesses = connections?.requirements.harnesses ?? [];
+    for (const provider of connections?.outcome.connected ?? []) if (!json) io.stdout(`CONNECTED ${provider}`);
     // The tree is the invoking directory, as with v1: the flow path is where
     // the body lives, not the boundary of what the run may read.
     if (syncCode) options.syncCode = { root: process.cwd() };

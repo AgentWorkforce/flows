@@ -171,14 +171,18 @@ REQUIRES slack (tools.slack), github (deploy target), claude (agent "review")
 ```
 
 The list is derived from inert declarations only (`flowRequirements` in the
-SDK; the same function reads a compiled YAML spec): `tools.<helper>: true`
-flags and `tools.relayfile` mounts in the header, `f.<helper>` use in the body
+SDK; the same function reads a compiled YAML spec, where a helper step such as
+`slack: { post: … }` names its provider): `tools.<helper>: true` flags and
+`tools.relayfile` mounts in the header, `f.<helper>` use in the default body
 (recognised exactly as helper preflight recognises it), provider triggers
 (`.on(github.issues())`), the `--on` sources and the deploy target (every
 launched run lands in `--repo`, so GitHub is always required), the `cli:` of
-each `f.agent`/`f.llm` call (else the nearest `flows.json` `cli`, else
-`claude`), and `tools.mcp`. The deploy body carries the same list as
-`requirements` for Cloud to cross-check.
+each `f.agent`/`f.llm` call in the default body (else the nearest `flows.json`
+`cli`, else `claude`), and `tools.mcp`. Handler bodies are not scanned: hosted
+dispatch runs the default body (flows #301), so only a handler's trigger is a
+requirement. The deploy body carries the same list as `requirements` for
+Cloud to cross-check, and a declared harness Cloud cannot run yet (`gemini`)
+refuses the deploy unless `--agents` overrides it.
 
 Before `flows deploy`, `flows schedule` and `flows run --cloud` submit anything,
 each required integration is checked against the workspace

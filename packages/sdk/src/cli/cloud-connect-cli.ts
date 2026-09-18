@@ -75,13 +75,16 @@ export async function currentWorkspaceId(options: CloudConnectionOptions): Promi
 /**
  * Connects (or refuses on) every integration `path` requires. Nothing is
  * contacted when the flow requires no integration, so a flow with no
- * helpers, sources or repository submits exactly as before.
+ * helpers, sources or repository submits exactly as before; the derived
+ * requirements still come back so a later harness refusal can name its remedy.
+ * `undefined` only when the source does not load — the submission says why.
  */
 export async function ensureFlowConnections(
   input: FlowConnectionsInput, options: CloudConnectionOptions = {},
 ): Promise<{ requirements: FlowRequirements; outcome: ConnectionsOutcome } | undefined> {
   const requirements = await flowRequirementsForPath(input.path, input);
-  if (requirements === undefined || requirements.integrations.length === 0) return undefined;
+  if (requirements === undefined) return undefined;
+  if (requirements.integrations.length === 0) return { requirements, outcome: { ready: [], connected: [] } };
   const workspaceId = input.workspaceId ?? await currentWorkspaceId(options);
   const outcome = await ensureIntegrationsConnected(requirements, {
     ...options, workspaceId, ...(input.prompt === undefined ? {} : { prompt: input.prompt }),

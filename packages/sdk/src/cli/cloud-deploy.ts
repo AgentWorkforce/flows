@@ -4,7 +4,7 @@ import {
   type FlowTriggerSource,
 } from '../cloud-deploy.js';
 import { describeFlowRequirements } from '../flow-requirements.js';
-import { cliConnectPrompt, harnessRemedy } from './cloud-connect-cli.js';
+import { cliConnectPrompt, flowRequirementsForPath, harnessRemedy } from './cloud-connect-cli.js';
 import type { CliIo } from '../cli.js';
 
 export interface CloudDeployArgs {
@@ -88,6 +88,10 @@ function describeSource(source: FlowTriggerSource): string {
 
 export async function runCloudDeployCli(args: CloudDeployArgs, io: CliIo): Promise<0 | 1 | 2> {
   const agents = args.agents === undefined ? undefined : parseAgentHarnessesOr(args.agents);
+  // What the source declares, so a harness refusal names the right remedy
+  // even when `--agents` was not given; the loader's own failure is reported
+  // by deployToCloud, not here.
+  let harnesses: readonly string[] = agents instanceof CloudFlowError ? [] : agents ?? [];
   try {
     if (args.approver === undefined) {
       throw new CloudFlowError('invalid_input',
@@ -95,6 +99,7 @@ export async function runCloudDeployCli(args: CloudDeployArgs, io: CliIo): Promi
     }
     if (agents instanceof CloudFlowError) throw agents;
     const connect = cliConnectPrompt(io, { noConnect: args.noConnect, json: args.json });
+    if (agents === undefined) harnesses = (await flowRequirementsForPath(args.value))?.harnesses ?? [];
     const deployment = await deployToCloud({
       path: args.value,
       repository: parseRepository(args.repo),
@@ -121,7 +126,7 @@ export async function runCloudDeployCli(args: CloudDeployArgs, io: CliIo): Promi
       : 'Each matching ticket launches a run of this source in a fresh branch; list with: flows deployments');
     return 0;
   } catch (error) {
-    return reportCloudFailure(error, args.json, io, agents instanceof CloudFlowError ? [] : agents ?? []);
+    return reportCloudFailure(error, args.json, io, harnesses);
   }
 }
 

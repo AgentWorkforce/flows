@@ -291,6 +291,29 @@ describe('hosted verbs connect before they submit', () => {
     expect(calls.map(c => c.path)).toEqual(['/api/v1/auth/whoami', STATUS]);
   });
 
+  it('refuses bad arguments before it connects anything', async () => {
+    const path = await slackFlow();
+    const calls = cloud({ '/api/v1/auth/whoami': () => WHOAMI, [STATUS]: () => ({ ready: false }) });
+    const io = { stdout: () => {}, stderr: () => {} };
+    expect(await runCli(['run', '--cloud', path, '--input', '{not json'], io)).toBe(2);
+    expect(await runCli(['schedule', path, '--every', '7m', '--input', '{}'], io)).toBe(2);
+    expect(await runCli(['schedule', path, '--cron', 'not a cron', '--input', '{}'], io)).toBe(2);
+    expect(await runCli(['schedule', path, '--every', '5m', '--tz', 'Mars/Olympus', '--input', '{}'], io)).toBe(2);
+    expect(calls).toEqual([]);
+  });
+
+  it('names the declared harness in a remedy even when the flow needs no integration', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-connect-codex-'));
+    dirs.push(dir);
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'codex.flow.ts');
+    await writeFile(path, "import { flow } from '@relayflows/surface';\nexport default flow('codex', async (f) => { await f.agent('do', { task: 't', cli: 'codex' }); f.done('success'); });\n");
+    cloud({ '/api/v1/workflows/run': () => ({ status: 400, body: { code: 'cli_credentials_missing', error: 'No credentials are connected.' } }) });
+    const stderr: string[] = [];
+    expect(await runCli(['run', '--cloud', path, '--input', '{}'], { stdout: () => {}, stderr: l => stderr.push(l) })).toBe(1);
+    expect(stderr[0]).toContain('Connect it with: agent-relay cloud connect codex.');
+  });
+
   it('a flow with no integrations contacts nothing extra', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'cloud-connect-plain-'));
     dirs.push(dir);

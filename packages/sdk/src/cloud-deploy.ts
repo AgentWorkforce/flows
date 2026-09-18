@@ -207,8 +207,17 @@ export async function deployToCloud(
   const requirements = flowRequirements(definition, {
     sources, repository: input.repository, ...(projectCli === undefined ? {} : { projectCli }),
   });
-  const declaredAgents = requirements.harnesses
-    .filter((harness): harness is FlowAgentHarness => (FLOW_AGENT_HARNESSES as readonly string[]).includes(harness));
+  // The declared harnesses become `inputs.agents`; one Cloud cannot run is
+  // refused here rather than silently replaced by Claude, which activation
+  // would then check while the deployed runs still call the declared CLI.
+  const unsupported = requirements.harnesses.filter(harness => !(FLOW_AGENT_HARNESSES as readonly string[]).includes(harness));
+  if (input.agents === undefined && unsupported.length > 0) {
+    const uses = requirements.harnessUses.filter(use => unsupported.includes(use.harness));
+    throw new CloudFlowError('unsupported_source',
+      `This flow declares ${uses.map(use => `${use.harness} (${use.detail})`).join(', ')}, which Cloud deployments cannot run yet; `
+      + `Cloud runs ${FLOW_AGENT_HARNESSES.join(' and ')}. Change the declaration, or pass --agents to deploy it anyway.`);
+  }
+  const declaredAgents = requirements.harnesses.filter((harness): harness is FlowAgentHarness => !unsupported.includes(harness));
   const agents = input.agents ?? (declaredAgents.length > 0 ? declaredAgents : ['claude']);
   // A draft activates nothing, so Cloud checks nothing; match it here.
   const connected = input.draft || input.checkConnections === false

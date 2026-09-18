@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.js';
 import { loadAuthoredFlow } from '../src/authored-flow-loader.js';
 import { describeFlowRequirements, flowRequirements, harnessFromCli } from '../src/flow-requirements.js';
+import { compileSpec } from '../src/compile.js';
 import type { FlowSpec } from '../src/spec.js';
 
 const EXAMPLES = resolve(process.cwd(), '../../examples');
@@ -73,6 +74,14 @@ describe('flowRequirements on an authored definition', () => {
     expect(flowRequirements(getFlowDefinition(flow('plain', async (f) => { await f.run('true'); }))).harnesses).toEqual([]);
   });
 
+  it('scans the default body only: a handler body is not what Cloud dispatches, its trigger still is', () => {
+    const definition = getFlowDefinition(flow('digest', async (f) => { await f.run('true'); })
+      .on(github.issues(), async (f) => { await f.slack.post('#eng', 'hi'); await f.agent('x', { task: 't', cli: 'codex' }); }));
+    const requirements = flowRequirements(definition);
+    expect(requirements.integrations).toEqual([{ provider: 'github', from: 'source', detail: 'on github issues' }]);
+    expect(requirements.harnesses).toEqual([]);
+  });
+
   it('keeps the same provider once, first declaration wins', () => {
     const definition = getFlowDefinition(flow('digest', { tools: { slack: true } }, async (f) => { await f.slack.post('#a', 'b'); }));
     expect(flowRequirements(definition, { sources: [{ provider: 'slack' }] }).integrations)
@@ -91,6 +100,17 @@ describe('flowRequirements on an authored definition', () => {
       harnesses: ['codex', 'gemini', 'claude'],
       harnessUses: [{ harness: 'codex', detail: 'step "b"' }, { harness: 'gemini', detail: 'step "c"' }, { harness: 'claude', detail: 'step "d"' }],
       mcp: [],
+    });
+  });
+
+  it('reads a YAML helper step as its provider, never as a harness', () => {
+    const spec = compileSpec({ version: '0.1.0', name: 'notify', steps: [
+      { id: 'notify', slack: { post: { channel: '#eng', text: 'hi' } } },
+      { id: 'draft', type: 'llm', prompt: 'p', cli: 'codex' },
+    ] });
+    expect(flowRequirements(spec)).toEqual({
+      integrations: [{ provider: 'slack', from: 'helper', detail: 'step "notify"' }],
+      harnesses: ['codex'], harnessUses: [{ harness: 'codex', detail: 'step "draft"' }], mcp: [],
     });
   });
 

@@ -123,6 +123,41 @@ describe('deployToCloud', () => {
     expect(deployment.sourceSha256).toMatch(/^[a-f0-9]{64}$/u);
   });
 
+  it('refuses a declared harness Cloud cannot run instead of substituting Claude, unless --agents says so', async () => {
+    const dir = await tempDir('cloud-deploy-gemini-');
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'gemini.flow.ts');
+    await writeFile(path, "import { flow } from '@relayflows/surface';\n"
+      + "export default flow('gemini', async (f) => { await f.agent('review', { task: 't', cli: 'gemini' }); f.done('success'); });\n");
+    const calls = cloud({
+      '/api/v1/auth/whoami': () => WHOAMI,
+      '/api/v1/flows/deploy': () => ({ status: 201, body: { agentId: 'agent-1', status: 'listening' } }),
+    });
+    const base = { path, repository: { owner: 'o', name: 'r' }, sources: [parseTriggerSource('github')], approver: 'k' };
+    await expect(deployToCloud(base)).rejects.toMatchObject({
+      code: 'unsupported_source', message: expect.stringContaining('gemini (agent "review")'),
+    });
+    expect(calls.filter(c => c.path === '/api/v1/flows/deploy')).toEqual([]);
+    await deployToCloud({ ...base, agents: ['claude'] });
+    expect((calls.at(-1)!.body as { inputs: { agents: string[] } }).inputs.agents).toEqual(['claude']);
+  });
+
+  it('defaults --agents to the harnesses the source declares', async () => {
+    const dir = await tempDir('cloud-deploy-codex-');
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'codex.flow.ts');
+    await writeFile(path, "import { flow } from '@relayflows/surface';\n"
+      + "export default flow('codex', async (f) => { await f.agent('review', { task: 't', cli: 'codex' }); await f.llm('x', { output: {}, cli: 'claude' }); f.done('success'); });\n");
+    const calls = cloud({
+      '/api/v1/auth/whoami': () => WHOAMI,
+      '/api/v1/flows/deploy': () => ({ status: 201, body: { agentId: 'agent-1', status: 'listening' } }),
+    });
+    await deployToCloud({ path, repository: { owner: 'o', name: 'r' }, sources: [parseTriggerSource('github')], approver: 'k' });
+    const body = calls.at(-1)!.body as { inputs: { agents: string[] }; requirements: { harnesses: string[] } };
+    expect(body.inputs.agents).toEqual(['codex', 'claude']);
+    expect(body.requirements.harnesses).toEqual(['codex', 'claude']);
+  });
+
   it('reports a missing or unloadable source as an input refusal (exit 2), before HTTP', async () => {
     const calls = cloud({});
     const base = { repository: { owner: 'o', name: 'r' }, sources: [parseTriggerSource('github')], approver: 'k' };
