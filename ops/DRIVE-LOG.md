@@ -10363,3 +10363,65 @@ Read the DRIVE-LOG + chief-inbox in full. State entering session:
 
 Time from `date -u` per -0903's correction.
 
+
+### 2026-09-18 — scheduled `flows-drive-cloud` fixed: sync self-materializes when the platform ships no tree
+
+Not a drive tick. Targeted fix for the Cloud schedule `flows-v2-lead-tick-0903`
+(cron `23 * * * *`), which launches the v1 workflow `flows-drive-cloud` and
+failed every hour at the `sync` gate with `SYNC_FAIL_NOT_MATERIALIZED` (dev run
+1c6179c9): `cwd: /project/workflows/schedules/<id>`, no working tree.
+
+**Root cause (evidence, relay + cloud repos):**
+- A synced `agent-relay cloud run` uploads the tree — the CLI tars `git ls-files`
+  and the bootstrap extracts it (relay `packages/cloud/src/workflows.ts`
+  `createTarball`; `shouldSyncCodeByDefault` → true).
+- `agent-relay cloud schedule` stores only the workflow **text**; the schedule
+  request carries no `runId`/`s3CodeKey` (relay `workflows.ts` `scheduleWorkflow`,
+  test `workflows.test.ts` "creates a cron schedule without one-time code sync
+  fields"). Cloud then **rejects** an s3CodeKey on a scheduled request
+  (`packages/web/lib/workflow-schedules/request.ts`: "scheduled workflows cannot
+  provide s3CodeKey"). So the fired sandbox boots EMPTY and `bootstrap-inner.mjs`
+  skips `downloadAndExtractCode()` (`S3_CODE_KEY=""`).
+- A scheduled v1 sandbox also gets **no** GH_TOKEN / repositoryGrant / git
+  credential: the orchestrator injects only S3 + workspace tokens, and the
+  credential proxy brokers LLM keys (openai/anthropic/openrouter), not GitHub.
+  GH_TOKEN injection is v2/repository-grant-only, and schedules cannot provide a
+  repositoryGrant.
+
+**Smallest correct fix (flows-side, option a):** `AgentWorkforce/flows` is a
+**public** repo (`git ls-remote` succeeds with credential helpers/prompt
+disabled; unauth API 200). So the `sync` step now self-materializes when no
+working tree is present: it clones the public repo (`FLOWS_REPO_URL` override for
+tests, default `https://github.com/AgentWorkforce/flows.git`), with
+`GIT_TERMINAL_PROMPT=0` and no token read — precisely the credential a scheduled
+sandbox legitimately has: none. It re-verifies the required paths and still fails
+closed (exit 78) if the fetch fails or returns the wrong tree. Edited the shared
+`sync` in `workflows/drive.yaml` (single source of truth; also latently fixes a
+scheduled `flows-drive`) and regenerated `workflows/drive-cloud.yaml` via
+`ops/gen-drive-cloud.py`. Only the `sync` command changed; all other steps and
+top-level fields are byte-identical.
+
+**Verify (own checks):**
+- `node --test ops/drive-sync.test.mjs` — 3/3 pass (self-materialize; present-tree
+  never cloned over; fail-closed when unreachable). New test extracts the step
+  from `drive.yaml`, same technique as `ops/drive-assess-gate.test.mjs`.
+- `node --test ops/drive-assess-gate.test.mjs` — 6/6 pass (my edit did not shift
+  the assess-gate block).
+- `shellcheck -s sh` + `sh -n` on the extracted sync — clean.
+- End-to-end against the **real** public repo from an empty dir, with
+  `GITHUB_TOKEN`/`GH_TOKEN`/`GIT_ASKPASS`/`SSH_AUTH_SOCK` stripped and credential
+  helpers disabled: `SYNC_SELF_MATERIALIZED → SYNC_MATERIALIZED=ok →
+  SYNC_MODE=remote → SYNCED`, checked out `flow/drive-7b2f825e-…` off `main` HEAD
+  `7b2f825e`, all required paths present — the same state a synced `cloud run`
+  produces.
+
+**Platform note (option b), issue AgentWorkforce/relay#1791:** the self-heal
+works only because this repo is public. The general fix — letting a Cloud
+schedule reach a synced-run state for any (incl. private) repo — belongs in
+`agent-relay cloud schedule` / Cloud schedules (sync code at fire time, or launch
+a v2 repository-grant run). Flows-side part implemented here; platform part
+tracked upstream.
+
+**Not chased (noted):** the next failure after sync was `assess-1 … mcp-args
+--register … Max retries exceeded` — a separate agent-startup fault, out of scope
+for this fix.

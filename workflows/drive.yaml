@@ -53,12 +53,58 @@ workflows:
             [ -e "$required" ] || missing="$missing $required"
           done
           if [ -n "$missing" ]; then
-            echo "SYNC_FAIL_NOT_MATERIALIZED: the repo is not present in this execution environment." >&2
-            echo "  missing:$missing" >&2
-            echo "  cwd: $(pwd)" >&2
-            echo "  A cloud run must upload the working tree: \`agent-relay cloud run\`" >&2
-            echo "  syncs code by default; \`--no-sync-code\` produces exactly this state." >&2
-            exit 78
+            # SELF-MATERIALIZE when the platform did not. A synced
+            # `agent-relay cloud run` uploads the working tree (the CLI tars
+            # `git ls-files` and the bootstrap extracts it); a Cloud schedule
+            # does NOT. `agent-relay cloud schedule` stores only the workflow
+            # text, and Cloud rejects an s3CodeKey on a scheduled request
+            # (cloud packages/web/lib/workflow-schedules/request.ts: "scheduled
+            # workflows cannot provide s3CodeKey"), so a scheduled sandbox boots
+            # with an EMPTY tree and this check fails. Every tick of schedule
+            # flows-v2-lead-tick-0903 died right here (dev run 1c6179c9).
+            #
+            # A scheduled v1 sandbox also gets no GH_TOKEN, no repositoryGrant
+            # and no git credential: Cloud keeps raw GitHub tokens out of
+            # workflow sandboxes by design (orchestrator injects only S3 +
+            # workspace tokens; the credential proxy brokers LLM keys, not
+            # GitHub). But AgentWorkforce/flows is a PUBLIC repo, so it clones
+            # with no credential at all — which is exactly the GitHub credential
+            # a scheduled sandbox legitimately has: none. Cloning the default
+            # branch here reaches the same tree a synced `cloud run` produces,
+            # so the run proceeds instead of failing at the door.
+            echo "SYNC_SELF_MATERIALIZE: no working tree (a Cloud schedule uploads none) — cloning the public repo"
+            echo "  missing:$missing"
+            echo "  cwd: $(pwd)"
+            repo_url="${FLOWS_REPO_URL:-https://github.com/AgentWorkforce/flows.git}"
+            # Never prompt and never read a token: a public clone needs none,
+            # and a private-repo failure must surface loudly here rather than
+            # hang waiting for credentials that a sandbox will never supply.
+            export GIT_TERMINAL_PROMPT=0
+            git rev-parse --git-dir >/dev/null 2>&1 || git init -q
+            git remote get-url origin >/dev/null 2>&1 || git remote add origin "$repo_url"
+            if git fetch --quiet --depth=1 origin main; then
+              git checkout --quiet -f -B main FETCH_HEAD
+              echo "SYNC_SELF_MATERIALIZED: $repo_url@main -> $(git rev-parse --short HEAD)"
+            else
+              echo "SYNC_FAIL_NOT_MATERIALIZED: no working tree and could not fetch the repo." >&2
+              echo "  missing:$missing" >&2
+              echo "  cwd: $(pwd)" >&2
+              echo "  repo:$repo_url" >&2
+              echo "  A synced \`agent-relay cloud run\` uploads the tree; a Cloud schedule does" >&2
+              echo "  not, and a scheduled sandbox has no GitHub credential. This self-heal works" >&2
+              echo "  only because the repo is public — if it is private, launch a synced" >&2
+              echo "  \`agent-relay cloud run\` instead (see AgentWorkforce/relay tracking issue)." >&2
+              exit 78
+            fi
+            # Re-verify: a fetch that returned the wrong tree is still a failure.
+            missing=""
+            for required in AGENTS.md docs/RFC-0001-everything-is-a-relayflow.md ops/DIRECTIVES.md kernel packages/sdk; do
+              [ -e "$required" ] || missing="$missing $required"
+            done
+            if [ -n "$missing" ]; then
+              echo "SYNC_FAIL_NOT_MATERIALIZED: clone completed but required paths are still missing:$missing" >&2
+              exit 78
+            fi
           fi
           echo "SYNC_MATERIALIZED=ok"
 
