@@ -675,7 +675,14 @@ function firstCommandWordDetailed(command: string): FirstCommandWord | undefined
     const line = raw.trim();
     if (line === '' || line.startsWith('#')) continue;
     const remainder = stripShellPrefixes(line);
-    if (remainder === '') continue;
+    // A comment after a prefix (`FOO=1 # note`) is still a comment.
+    if (remainder === '' || remainder.startsWith('#')) {
+      // The lines after a heredoc opener or an unclosed quote are data, not
+      // commands: scanning on would probe (or refuse) words the shell never
+      // executes. That is "cannot be proven", not "missing".
+      if (/<<-?\s*['"]?\w/.test(line) || hasUnbalancedQuote(line)) return undefined;
+      continue;
+    }
     firstLine = remainder;
     break;
   }
@@ -688,6 +695,21 @@ function firstCommandWordDetailed(command: string): FirstCommandWord | undefined
   if (SHELL_SPECIAL_BUILTINS.has(bare)) return { word: bare, shell: true, kind: 'builtin' };
   if (SHELL_RESERVED_WORDS.has(bare)) return { word: bare, shell: true, kind: 'reserved word' };
   return { word, shell: false, kind: 'command' };
+}
+
+/** True when a `'` or `"` opened on this line is not closed on it. */
+function hasUnbalancedQuote(line: string): boolean {
+  let quote: string | undefined;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === '\\' && quote !== "'") { i += 1; continue; }
+    if (quote === undefined) {
+      if (char === '"' || char === "'") quote = char;
+    } else if (char === quote) {
+      quote = undefined;
+    }
+  }
+  return quote !== undefined;
 }
 
 function stripShellPrefixes(line: string): string {

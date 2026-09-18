@@ -366,6 +366,32 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     ]);
   });
 
+  it.each([
+    ['a comment after an assignment on the same line', 'FOO=1 # note\nprintf ok', 'printf'],
+    ['a comment after a redirection on the same line', '> out.log # keep\nprintf ok', 'printf'],
+  ])('skips %s', (_label, command, expected) => {
+    const probed: string[] = [];
+    preflight(flow({ id: 's', type: 'deterministic', command }), {
+      probes: probes({ command: (word) => { probed.push(word); return true; } }),
+    });
+    expect(probed).toEqual([expected]);
+  });
+
+  it.each([
+    ['a heredoc body', "> out <<EOF\n./missing\nEOF"],
+    ['a quoted multi-line assignment', 'MSG="first\n./missing"\nprintf ok'],
+  ])('never probes %s as a command: warns unprovable instead of refusing', (_label, command) => {
+    const probed: string[] = [];
+    const result = preflight(flow({ id: 's', type: 'deterministic', command }), {
+      probes: probes({ command: (word) => { probed.push(word); return false; } }),
+    });
+    expect(probed).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'warning', kind: 'command_unprovable', stepId: 's' }),
+    ]);
+  });
+
   it('still refuses a missing path-like command that follows a comment', () => {
     const result = preflight(flow({ id: 's', type: 'deterministic', command: '# run it\n./ops/nonexistent.sh' }), {
       probes: probes({ command: () => false }),
