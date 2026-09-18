@@ -64,7 +64,8 @@ export default flow<Input>("stale-issues", { budget: { dollars: 2, wallclock: "1
     `An issue is stale if it has had no update for ${staleDays}+ days and no clear owner or next step. ` +
     `An issue needs attention if it is recent but blocked, unanswered, or contradicts another. ` +
     `Return JSON { stale: [{number,title,reason}], attention: [{number,title,reason}] }; keep reasons to one sentence.`,
-    { output: { type: "object", required: ["stale", "attention"], additionalProperties: false, properties: {
+    { cli: "claude", // pinned: a Cloud sandbox has no flows.json to resolve the CLI from
+      output: { type: "object", required: ["stale", "attention"], additionalProperties: false, properties: {
       stale: { type: "array", maxItems: 50, items: FINDING_SCHEMA }, attention: { type: "array", maxItems: 50, items: FINDING_SCHEMA } } } },
   ) as Triage;
 
