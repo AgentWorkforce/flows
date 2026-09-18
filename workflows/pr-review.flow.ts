@@ -127,7 +127,7 @@ export default flow<PrReviewInput>(
     // tail. Evidence transcripts and lockfiles are noise for a reviewer.
     await f
       .run(
-        `git diff ${shellWord(range)} -- . ':!docs/evidence/**' ':!evidence/**' ':(glob)**/*.lock' ':!package-lock.json' > ${DIFF} && test -s ${DIFF}`,
+        `git diff ${shellWord(range)} -- . ':(exclude)docs/evidence/**' ':(exclude)evidence/**' ':(exclude,glob)**/*.lock' ':(exclude)package-lock.json' > ${DIFF} && test -s ${DIFF}`,
         { timeout: "2m" },
       );
 
@@ -161,7 +161,14 @@ export default flow<PrReviewInput>(
       .gate((r) => r.artifacts.includes(CONSENSUS), `the consensus step must write ${CONSENSUS}`);
 
     if (pr !== undefined) {
-      const body = await f.run(`cat ${CONSENSUS}`);
+      // f.run returns the kernel's stdout *tail* (64 KiB), which would drop the
+      // verdict at the top of a long review. Bound the body from the front
+      // instead, under GitHub's 65,536-char comment limit, and say so.
+      const body = await f.run(
+        `if [ "$(wc -c < ${CONSENSUS})" -gt 60000 ]; then head -c 60000 ${CONSENSUS}; `
+          + `printf '\n\n_…truncated; the full review is in the run artifacts (${CONSENSUS})._\n'; `
+          + `else cat ${CONSENSUS}; fi`,
+      );
       await postComment(f, pr, body);
     }
     f.done("success");
