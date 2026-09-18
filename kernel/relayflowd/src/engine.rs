@@ -32,6 +32,22 @@ pub struct RunTerminalError {
     pub run_id: String,
 }
 
+/// No registry row and no journal file: the run never existed here. Distinct
+/// from a journal that exists but cannot be opened, which stays a journal
+/// failure so a corrupt run is never reported as an absent one.
+#[derive(Debug)]
+pub struct RunNotFoundError {
+    pub run_id: String,
+}
+
+impl std::fmt::Display for RunNotFoundError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "run {} does not exist", self.run_id)
+    }
+}
+
+impl std::error::Error for RunNotFoundError {}
+
 impl std::fmt::Display for RunTerminalError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -92,7 +108,7 @@ mod wake;
 pub use channels::ChannelCommandError;
 pub use model::{RunOutcome, RunSnapshot, RunStatus, StepSnapshot, StepStatus};
 use model::{outcome_from_state, snapshot_from_state};
-pub use remote::OutOfBandCompletion;
+pub use remote::{OutOfBandCompletion, OutOfBandHumanWait};
 pub use wake::EventSubmitOutcome;
 
 #[derive(Debug, Clone, Default)]
@@ -643,9 +659,19 @@ impl<C: Clock> Engine<C> {
 
     fn open_run(&self, run_id: &str) -> Result<SqliteJournal> {
         let registered = self.registry()?.lookup(run_id)?;
-        let path = registered
-            .map(|record| record.file)
-            .unwrap_or_else(|| self.run_path(run_id));
+        let path = match registered {
+            Some(record) => record.file,
+            None => {
+                let path = self.run_path(run_id);
+                if !path.exists() {
+                    return Err(RunNotFoundError {
+                        run_id: run_id.to_owned(),
+                    }
+                    .into());
+                }
+                path
+            }
+        };
         SqliteJournal::open(&path).with_context(|| format!("open run journal {}", path.display()))
     }
 

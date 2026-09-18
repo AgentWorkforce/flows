@@ -123,6 +123,41 @@ f.done('success');`);
     const resumed = f.invoke(['resume', report.runId]); expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
   }, 90_000);
 
+  it('parks an f.human across the IPC boundary, answers it, and resumes the Node body with the answer', async () => {
+    const f = fixture(`await f.agent('worker',{task:'local fixture'});
+const ok = await f.human('Ship it?', { to: 'khaliq' });
+appendFileSync('answers', String(ok));
+f.done(ok ? 'success' : 'declined');`);
+    const first = f.run(); expect(first.status, first.stderr + first.stdout).toBe(3);
+    const parked = JSON.parse(first.stdout);
+    expect(parked).toMatchObject({ ok: false, status: 'parked', humanWait: { waitId: 'human-2', question: 'Ship it?', to: 'khaliq' } });
+    // The Bun parent, not the Node child, holds the lease: the park signal
+    // crossed the authenticated frame and became the kernel's wait.human.
+    const asked = await entries(f.directory, parked.runId);
+    expect(asked.filter(e => e.entry_type === 'wait.human').map(e => e.payload)).toEqual([
+      expect.objectContaining({ wait_id: 'human-2', prompt: 'Ship it?', requested_of: 'khaliq' }),
+    ]);
+    expect(asked.filter(e => e.entry_type === 'step.completed')).toHaveLength(0);
+    expect(existsSync(join(f.directory, 'answers'))).toBe(false);
+
+    // `answer` attaches no worker, so the worker flags do not apply to it.
+    const answered = spawnSync(cli, ['answer', parked.runId, 'human-2', 'yes', '--data-dir', join(f.directory, 'data'), '--json'],
+      { cwd: f.directory, env: f.env, encoding: 'utf8', timeout: 60_000 });
+    expect(answered.status, answered.stderr + answered.stdout).toBe(0);
+    const resumed = f.invoke(['resume', parked.runId]); expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+    expect(JSON.parse(resumed.stdout)).toMatchObject({ ok: true, runId: parked.runId, completionReason: 'success' });
+    // The agent ran once; the answer reached author code once; the human
+    // step is verified as a durable child like every other.
+    expect(readFileSync(join(f.directory, 'agent-effects'), 'utf8')).toBe('once\n');
+    expect(readFileSync(join(f.directory, 'answers'), 'utf8')).toBe('true');
+    const rootEntries = await entries(f.directory, parked.runId);
+    expect(rootEntries.filter(e => e.entry_type === 'step.attempt.started')).toHaveLength(2);
+    expect(rootEntries.find(e => e.entry_type === 'wait.completed')!.payload).toMatchObject({ wait_id: 'human-2', completionReason: 'human_responded', result: { answer: true } });
+    const output = rootEntries.find(e => e.entry_type === 'step.completed')!.payload['output'];
+    expect(output.executionRuntime).toMatchObject({ kind: 'node' });
+    expect(output.journalSteps.map((s: { id: string }) => s.id)).toEqual(['agent-1', 'human-2', 'complete-3']);
+  }, 120_000);
+
   it.each([
     ['SIGKILL', 'success'], ['SIGTERM', 'success'], ['blocked-SIGKILL', 'success'],
     ['SIGKILL', 'declined'],

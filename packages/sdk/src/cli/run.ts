@@ -2,7 +2,8 @@ import { parseDigestReference } from '../bundle-transport.js';
 import { prepareDigestRun } from './run-digest.js';
 import { reuseSummary } from './reuse.js';
 import { resumeHelperEffect } from '../authored-helper-effect.js';
-import { AuthoredFlowExecutionError } from '../authored-flow-error.js';
+import { AuthoredFlowExecutionError, AuthoredHumanParked, type AuthoredHumanWait } from '../authored-flow-error.js';
+import { answerCommand, resumeCommand } from '../authored-human.js';
 import { join, resolve } from 'node:path';
 import type { ProgressEvent } from '../progress.js';
 import { toKernelSpec } from '../compile.js';
@@ -29,7 +30,7 @@ import {
 } from './check.js';
 
 export type RunExitCode = 0 | 1 | 2 | 3;
-export type RunCommand = 'run' | 'resume';
+export type RunCommand = 'run' | 'resume' | 'answer';
 
 export interface ParkedStep {
   id: string;
@@ -53,6 +54,12 @@ export interface RunReport {
   completedSteps?: number;
   reuse?: { fromRunId: string; reusedSteps: number; executedSteps: number };
   parkedStep?: ParkedStep;
+  /** The open `f.human` question a parked authored run is waiting on. */
+  humanWait?: AuthoredHumanWait;
+  /** `flows answer` only: the answer it recorded. */
+  answer?: { waitId: string; answer: boolean; note?: string };
+  /** The invocation that continues this run, when one is known. */
+  next?: string;
   projectConfigPath?: string;
   resolutions: CheckReport['resolutions'];
   diagnostics: Array<CheckReport['diagnostics'][number] | RunDiagnostic>;
@@ -226,6 +233,9 @@ export async function resumeFlow(
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
       return authoredStepFailure('resume', base, socketPath, error, runId);
     }
+    if (error instanceof AuthoredHumanParked) {
+      return authoredHumanParked('resume', base, socketPath, error, { dataDir, localAgent: options.localAgent === true });
+    }
     if (!(error instanceof JournalProtocolError) || error.code !== 'run_not_found') {
       return protocolFailure('resume', base, socketPath, error, runId);
     }
@@ -293,6 +303,42 @@ export function authoredStepFailure(
         // The `step_failed: ` prefix `AuthoredFlowExecutionError` adds is
         // redundant once the diagnostic is labelled `[step_failed]`.
         message: error.message.replace(/^(?:step_failed|gate_failed): /, ''),
+      }],
+    },
+  };
+}
+
+/**
+ * An authored body parked on an unanswered `f.human`: exit 3, like every
+ * other park, but the diagnostic names the question, who it is for, and the
+ * exact `flows answer` invocation — the run is waiting on a person, not on a
+ * worker. Shared by `run` and `resume` so the two never drift.
+ */
+export function authoredHumanParked(
+  command: RunCommand,
+  base: CheckReport | RunReport,
+  socketPath: string,
+  error: AuthoredHumanParked,
+  where: { dataDir?: string; localAgent: boolean },
+): RunExecution {
+  const runId = error.runId!;
+  return {
+    exitCode: 3,
+    report: {
+      ...fromBase(command, base),
+      ok: false,
+      runId,
+      socketPath,
+      status: 'parked',
+      parkedStep: { id: 'authored-root', type: 'agent' },
+      humanWait: error.wait,
+      diagnostics: [...base.diagnostics, {
+        severity: 'parked',
+        kind: 'run_parked',
+        message: `Run "${runId}" is waiting for ${error.wait.to} to answer ${error.wait.waitId}: `
+          + `${JSON.stringify(error.wait.question)}\n`
+          + `Answer with: ${answerCommand(runId, error.wait.waitId, where.dataDir)}\n`
+          + `Then continue with: ${resumeCommand(runId, where.dataDir, where.localAgent)}`,
       }],
     },
   };

@@ -19,6 +19,7 @@ import {
   type RunProgress,
   type RunReport,
 } from './cli/run.js';
+import { answerFlow } from './cli/answer.js';
 import { checkAuthoredTriggers } from './cli/check-triggers.js';
 import { parseWebhookArgs, runServeWebhook } from './cli/serve-webhook.js';
 import { runDirectFlow } from './cli/direct-run.js';
@@ -66,6 +67,7 @@ type ParsedArgs =
   | { command: 'check'; json: boolean; watch: boolean; value: string }
   | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'resume'; localAgent: boolean; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'answer'; dataDir: string; json: boolean; spawn: boolean; note: string | undefined; by: string | undefined; runId: string; waitId: string; answer: boolean }
   | { command: 'observer'; dataDir: string }
   | { command: 'hn-monitor'; sub: 'start'; dataDir: string; specPath: string; pollIntervalMs: number | undefined }
   | { command: 'tick'; sub: 'start'; dataDir: string; specPath: string; scheduleId: string;
@@ -94,6 +96,7 @@ const USAGE = [
   'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <run-id>',
+  'flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>',
   'flows replay [--allow-human-influenced] [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
   'flows observer [--data-dir <dir>]',
   'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
@@ -143,6 +146,15 @@ export async function runCli(
   if (parsed.command === 'schedules') return runCloudSchedulesCli(parsed, io);
   if (parsed.command === 'unschedule') return runCloudUnscheduleCli(parsed, io);
   if (parsed.command === 'replay') return replayJournal(parsed, io);
+  if (parsed.command === 'answer') {
+    const execution = await answerFlow(parsed.runId, parsed.waitId, parsed.answer, parsed.dataDir, {
+      ...(parsed.note === undefined ? {} : { note: parsed.note }),
+      ...(parsed.by === undefined ? {} : { answeredBy: parsed.by }),
+      daemon: { spawn: parsed.spawn && spawnAllowedByEnv() },
+    });
+    emitRunReport(execution, parsed.json, io);
+    return execution.exitCode;
+  }
   if (parsed.command === 'build') return runBuild(parsed, io);
   if (parsed.command === 'deploy') return runDeploy(parsed, io);
 
@@ -483,6 +495,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (command === 'tick') return parseTickArgs(args.slice(1));
   if (command === 'observer') return parseObserverArgs(args.slice(1));
   if (command === 'sync') return parseSyncArgs(args.slice(1));
+  if (command === 'answer') return parseAnswerArgs(args.slice(1));
   if (command !== 'check' && command !== 'run' && command !== 'resume') return undefined;
 
   let json = false;
@@ -601,6 +614,66 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     : command === 'run'
       ? { command, bucket, reuseFromRunId, localAgent, dataDir, input, json, spawn, noObserverLink, allowHumanInfluenced, value: positionals[0]! }
       : { command, localAgent, dataDir, json, spawn, noObserverLink, allowHumanInfluenced, value: positionals[0]! };
+}
+
+/**
+ * `flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>`.
+ * The answer is a literal `yes`/`no` (also `true`/`false`) so a shell cannot
+ * hand the kernel an ambiguous word as a decision. `--by` records who answered
+ * when the invoker is relaying a person's decision (Cloud's answer route runs
+ * this inside the resumed sandbox with the caller's identity); it defaults to
+ * the OS user.
+ */
+function parseAnswerArgs(rest: readonly string[]): ParsedArgs | undefined {
+  let json = false;
+  let spawn = true;
+  let dataDir = DEFAULT_DATA_DIR;
+  let sawDataDir = false;
+  let note: string | undefined;
+  let by: string | undefined;
+  const positionals: string[] = [];
+  for (let index = 0; index < rest.length; index += 1) {
+    const argument = rest[index]!;
+    if (argument === '--json') {
+      if (json) return undefined;
+      json = true;
+      continue;
+    }
+    if (argument === '--no-spawn') {
+      if (!spawn) return undefined;
+      spawn = false;
+      continue;
+    }
+    if (argument === '--by') {
+      const value = rest[index + 1];
+      if (by !== undefined || value === undefined || value.startsWith('-') || value.trim() === '') return undefined;
+      by = value;
+      index += 1;
+      continue;
+    }
+    if (argument === '--data-dir') {
+      const value = rest[index + 1];
+      if (sawDataDir || value === undefined || value.startsWith('-')) return undefined;
+      dataDir = value;
+      sawDataDir = true;
+      index += 1;
+      continue;
+    }
+    if (argument === '--note') {
+      const value = rest[index + 1];
+      if (note !== undefined || value === undefined || value.startsWith('--')) return undefined;
+      note = value;
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith('-')) return undefined;
+    positionals.push(argument);
+  }
+  if (positionals.length !== 3) return undefined;
+  const [runId, waitId, word] = positionals as [string, string, string];
+  const answer = word === 'yes' || word === 'true' ? true : word === 'no' || word === 'false' ? false : undefined;
+  if (answer === undefined) return undefined;
+  return { command: 'answer', dataDir, json, spawn, note, by, runId, waitId, answer };
 }
 
 function parseHnMonitorArgs(rest: readonly string[]): ParsedArgs | undefined {
@@ -821,6 +894,15 @@ function emitRunReport(
     return;
   }
   if (report.runId === undefined) return;
+  if (report.answer !== undefined) {
+    io.stdout(`ANSWERED ${report.runId} ${report.answer.waitId} ${report.answer.answer ? 'yes' : 'no'}`
+      + (report.answer.note === undefined ? '' : ` (${report.answer.note})`));
+    if (report.next !== undefined) io.stdout(`Continue with: ${report.next}`);
+    return;
+  }
+  // A refused answer changed nothing about the run, so there is no run
+  // outcome to summarize; the refusal above is the whole report.
+  if (report.command === 'answer') return;
   const completed = report.completedSteps === undefined ? '' : ` (${report.completedSteps} ${report.completedSteps === 1 ? 'step' : 'steps'})`;
   const reason = report.completionReason === undefined
     ? ''

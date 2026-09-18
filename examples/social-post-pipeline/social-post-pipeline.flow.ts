@@ -8,13 +8,11 @@
 // substring of what it said — the same lesson examples/research/README.md
 // documents: "substring gates on model output are fail-open."
 //
-// STATUS: typechecks against the real `@relayflows/surface` package (see
-// ../tsconfig.json / `npm --prefix packages/surface run typecheck:examples`)
-// but does not run yet — `f.agent` parks without an attached worker, and
-// `f.human` throws `unsupported_verb` in the current authored-flow executor
-// (packages/sdk/src/authored-flow-executor.ts). This flow documents the
-// intended shape; see README.md for exactly what's real today vs. what gate
-// work this is waiting on.
+// STATUS: runs. `f.agent` needs a worker (`flows run --local-agent`, or
+// Cloud), and `f.human` parks the run durably on the kernel's `wait.human`:
+// `flows run` exits 3 naming the question, `flows answer <run> human-N yes|no`
+// records the decision, and `flows resume` continues from the same line with
+// it. See README.md.
 
 import { flow } from "@relayflows/surface";
 
@@ -89,7 +87,8 @@ export default flow<SocialPostInput>(
         `Fact-check: ${factCheck.summary}\nGraphic: drafts/graphic.png\n\nPublish?`,
       { to: input.approver },
     );
-    if (!approved) return f.done("canceled");
+    // A "no" is a decision the flow made, not a kernel cancellation.
+    if (!approved) return f.done("declined");
 
     f.done("success");
   },
