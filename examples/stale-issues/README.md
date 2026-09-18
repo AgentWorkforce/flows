@@ -1,5 +1,9 @@
 # stale-issues
 
+[![Deploy Flow](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https%3A%2F%2Fgithub.com%2FAgentWorkforce%2Fflows%2Fblob%2Fmain%2Fexamples%2Fstale-issues%2Fstale-issues.flow.ts)
+
+One click deploys this flow to [Agent Relay Cloud](https://agentrelay.com/cloud), running on a schedule — the wizard asks for the cron.
+
 A scheduled automation: fetch every open issue (deterministic, journaled), let
 one LLM step classify them as stale / needs-attention with a JSON schema gate,
 and post a single Slack digest.
