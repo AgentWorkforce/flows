@@ -500,6 +500,127 @@ fn stopped_heartbeats_past_the_deadline_journal_lease_expired_and_release_the_st
     assert_eq!(redispatch["data"]["attempt"], 2);
 }
 
+/// `step.wait` parks a leased attempt on a durable human question without
+/// completing it; `event.emit` keyed by the wait id closes it as
+/// `human_responded` and the step is dispatched again as a fresh attempt.
+#[test]
+fn step_wait_parks_the_attempt_and_a_human_answer_redispatches_it() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let (worker_writer, worker_peer) = shared_writer();
+    let attach = request(
+        data_dir,
+        &hub,
+        1,
+        &worker_writer,
+        r#"{"id":"attach","verb":"worker.attach","params":{"worker_id":"unit-stub","step_types":["llm"]}}"#,
+    );
+    assert!(attach.ok, "worker.attach failed: {:?}", attach.error);
+    let mut worker_reader = BufReader::new(worker_peer);
+    let run_id = start_llm_run(data_dir, &hub);
+
+    let dispatch = read_frame(&mut worker_reader);
+    assert_eq!(dispatch["event"], "step.dispatch");
+    assert_eq!(dispatch["data"]["attempt"], 1);
+    let idempotency_key = dispatch["data"]["idempotency_key"].as_str().unwrap().to_owned();
+    let wait = |connection: u64, wait_id: &str| {
+        request(
+            data_dir,
+            &hub,
+            connection,
+            &worker_writer,
+            &json!({"id": "wait", "verb": "step.wait", "params": {
+                "run_id": run_id, "step_id": "model", "attempt": 1,
+                "idempotency_key": idempotency_key, "wait_id": wait_id,
+                "prompt": "Ship this?", "requested_of": "khaliq",
+            }})
+            .to_string(),
+        )
+    };
+
+    // Only the lease holder may park the attempt.
+    let stranger = wait(9, "human-1");
+    assert!(!stranger.ok);
+    assert_eq!(stranger.error.unwrap().code, "lease_conflict");
+
+    let parked = wait(1, "human-1");
+    assert!(parked.ok, "step.wait failed: {:?}", parked.error);
+    assert_eq!(parked.result.unwrap()["status"], "parked");
+    // Nothing completed: the attempt asked a question, it did not fail.
+    assert!(step_completions(data_dir, &run_id).is_empty());
+    let (writer, _peer) = shared_writer();
+    let snapshot = request(
+        data_dir,
+        &hub,
+        2,
+        &writer,
+        &json!({"id": "get", "verb": "run.get", "params": {"run_id": run_id}}).to_string(),
+    );
+    let snapshot = snapshot.result.unwrap();
+    assert_eq!(snapshot["status"], "parked");
+    assert_eq!(snapshot["steps"]["model"]["state"], "needs_human");
+    // The lease is released, so the worker connection closing later is not a crash.
+    assert!(!hub.lease_active(&run_id, "model", 1, now_ms()));
+
+    // The same question cannot be asked twice under one id, and a released
+    // attempt holds no lease to park again anyway.
+    let again = wait(1, "human-1");
+    assert!(!again.ok);
+
+    // An answer to a different wait matches nothing and changes nothing.
+    let stray = request(
+        data_dir,
+        &hub,
+        2,
+        &writer,
+        &json!({"id": "emit", "verb": "event.emit", "params": {
+            "run_id": run_id, "event_key": "human-2", "payload": {"answer": true},
+        }})
+        .to_string(),
+    );
+    assert_eq!(stray.result.unwrap()["matched"], 0);
+
+    let answered = request(
+        data_dir,
+        &hub,
+        2,
+        &writer,
+        &json!({"id": "emit", "verb": "event.emit", "params": {
+            "run_id": run_id, "event_key": "human-1", "payload": {"answer": true},
+        }})
+        .to_string(),
+    );
+    assert!(answered.ok, "event.emit failed: {:?}", answered.error);
+    assert_eq!(answered.result.unwrap()["matched"], 1);
+    let redispatch = read_frame(&mut worker_reader);
+    assert_eq!(redispatch["event"], "step.dispatch");
+    assert_eq!(redispatch["data"]["attempt"], 2);
+
+    let entries = Engine::new(data_dir)
+        .journal_entries(&run_id, 1, usize::MAX)
+        .unwrap();
+    let completed = entries
+        .iter()
+        .find(|entry| entry.entry_type == EntryType::WaitCompleted)
+        .expect("wait.completed journaled");
+    assert_eq!(completed.payload["wait_id"], "human-1");
+    assert_eq!(completed.payload["completionReason"], "human_responded");
+    assert_eq!(completed.payload["result"]["answer"], true);
+    // Answering again matches nothing: the wait is closed.
+    let repeat = request(
+        data_dir,
+        &hub,
+        2,
+        &writer,
+        &json!({"id": "emit", "verb": "event.emit", "params": {
+            "run_id": run_id, "event_key": "human-1", "payload": {"answer": false},
+        }})
+        .to_string(),
+    );
+    assert_eq!(repeat.result.unwrap()["matched"], 0);
+}
+
 /// Finding 4: an entry committed before `run.watch` registration but whose
 /// hub notification is delayed is delivered exactly once. The run lock makes
 /// the journal commit and notification indivisible from watch registration.

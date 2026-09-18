@@ -83,6 +83,12 @@ pub(super) fn run_start_error(error: anyhow::Error) -> (&'static str, String) {
 }
 
 pub(super) fn internal_error(error: anyhow::Error) -> (&'static str, String) {
+    if error
+        .downcast_ref::<crate::engine::RunNotFoundError>()
+        .is_some()
+    {
+        return ("run_not_found", error.to_string());
+    }
     let journal_failure = error.chain().any(|cause| {
         cause.is::<relayflowd_core::JournalError>()
             || cause.is::<relayflowd_journal::JournalStoreError>()

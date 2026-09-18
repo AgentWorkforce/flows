@@ -113,6 +113,8 @@ export const RUN_FAILURE_KINDS = [
   'run_unavailable',
   /** A predicate `.gate(fn)` judged false; the verdict is journaled as `<step>.gate`. */
   'gate_failed',
+  /** `flows answer` named a wait the run is not asking: unknown, or already answered. */
+  'human_wait_unknown',
 ] as const;
 
 /**

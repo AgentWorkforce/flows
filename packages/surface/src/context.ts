@@ -63,7 +63,14 @@ export interface Ctx extends Helpers {
   /** JSON Schema validates the value at runtime; narrow unknown in author code. */
   llm(prompt: string, options: LlmOptions): Step<unknown>;
   agent(name: string, options: AgentOptions): Step<AgentResult>;
-  human(question: string, options: { to: string }): Promise<boolean>;
+  /**
+   * Ask a person a yes/no question and park until they answer. The run
+   * parks durably (kernel `wait.human`); `flows answer <run> <wait> yes|no`
+   * (or Cloud's answer route) records the answer and the resumed body
+   * continues from this line with it. `to` names who is asked and is
+   * recorded with the question; it is not a delivery address.
+   */
+  human(question: string, options: { to: string }): Step<boolean>;
   dispatch<T>(flow: string, input: unknown): Promise<T>;
   done(reason: FlowCompletionReason): void;
   cloud: CloudHelper;

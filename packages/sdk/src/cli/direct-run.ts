@@ -8,6 +8,7 @@ import {
   AuthoredFlowExecutionError,
 } from '../authored-flow-executor.js';
 import { executeDurableAuthoredFlow } from '../authored-root.js';
+import { AuthoredHumanParked } from '../authored-flow-error.js';
 import { AuthoredFlowLoadError } from '../authored-flow-loader.js';
 import { DirectInputError, parseDirectInput } from '../direct-input.js';
 import { JournalClient } from '../journal-client.js';
@@ -15,6 +16,7 @@ import { inputFailureReport } from './check.js';
 import { checkAuthoredTriggers } from './check-triggers.js';
 import {
   authoredCompletion,
+  authoredHumanParked,
   authoredStepFailure,
   connect,
   emptyReport,
@@ -174,6 +176,9 @@ export async function runDirectFlow(
     // terminal. `resumeFlow` takes the same branch, through the same helper.
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
       return authoredStepFailure('run', base, socketPath, error);
+    }
+    if (error instanceof AuthoredHumanParked) {
+      return authoredHumanParked('run', base, socketPath, error, { dataDir, localAgent: options.localAgent === true });
     }
     const runId = error instanceof AuthoredFlowExecutionError ? error.runId : undefined;
     return protocolFailure('run', base, socketPath, error, runId);
