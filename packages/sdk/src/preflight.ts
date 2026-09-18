@@ -731,7 +731,17 @@ function lexSimpleCommands(script: string): string[] | undefined {
     }
     if (char === '\n' || char === ';') { flush(); continue; }
     if ((char === '&' && script[i + 1] === '&') || (char === '|' && script[i + 1] === '|')) { flush(); i += 1; continue; }
-    if (char === '|' || char === '&') { flush(); continue; }
+    if (char === '|') { flush(); continue; }
+    if (char === '&') {
+      // `&` is a boundary only as a background operator. In `2>&1`, `>&2`,
+      // `<&0` and `&>file` it is part of a redirection: the `&` after a `>`
+      // or `<` (with an optional fd number before that), or the `&` that
+      // starts `&>`.
+      const afterRedirect = /[<>]\s*$/.test(current);
+      if (afterRedirect || script[i + 1] === '>') { current += char; continue; }
+      flush();
+      continue;
+    }
     current += char;
   }
   if (!heredoc && quote === undefined) flush();
@@ -756,7 +766,7 @@ function stripShellPrefixes(segment: string): string {
   // number). Neither is the command. Segments never contain `;`/newlines.
   let rest = segment;
   for (;;) {
-    const prefix = rest.match(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"(?:[^"\\]|\\.)*"|'[^']*'|[^\s]*)|[0-9]*[<>]{1,2}\s*[^\s]+)(?:\s+|$)/);
+    const prefix = rest.match(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"(?:[^"\\]|\\.)*"|'[^']*'|[^\s]*)|(?:[0-9]*[<>]{1,2}&?|&>>?)\s*[^\s]+)(?:\s+|$)/);
     if (prefix === null) break;
     rest = rest.slice(prefix[0].length);
   }

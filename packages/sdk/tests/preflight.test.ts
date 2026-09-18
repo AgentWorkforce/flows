@@ -416,6 +416,39 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     ]);
   });
 
+  it.each([
+    ['a trailing 2>&1', './ops/missing 2>&1'],
+    ['an &> prefix', '&> out.log ./ops/missing'],
+    ['a <&0 prefix', '<&0 ./ops/missing'],
+    ['a background & before it', 'FOO=1 & ./ops/missing'],
+  ])('keeps fd redirections whole and refuses the missing command: %s', (_label, command) => {
+    const probed: string[] = [];
+    const result = preflight(flow({ id: 's', type: 'deterministic', command }), {
+      probes: probes({ command: (word) => { probed.push(word); return false; } }),
+    });
+    expect(probed.at(-1)).toBe('./ops/missing');
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'refusal', kind: 'command_missing', stepId: 's' }),
+    ]);
+  });
+
+  it('does not split >&2 into a command named 2', () => {
+    const probed: string[] = [];
+    preflight(flow({ id: 's', type: 'deterministic', command: 'printf x >&2 && ./ops/next' }), {
+      probes: probes({ command: (word) => { probed.push(word); return true; } }),
+    });
+    expect(probed).toEqual(['printf']);
+  });
+
+  it('treats a standalone & as a command boundary', () => {
+    const probed: string[] = [];
+    preflight(flow({ id: 's', type: 'deterministic', command: 'sleep 1 & ./ops/next' }), {
+      probes: probes({ command: (word) => { probed.push(word); return true; } }),
+    });
+    expect(probed).toEqual(['sleep']);
+  });
+
   it('splits on unquoted operators only: a quoted && is data', () => {
     const probed: string[] = [];
     preflight(flow({ id: 's', type: 'deterministic', command: 'printf "a && b" && ./ops/next' }), {
