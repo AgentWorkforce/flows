@@ -433,7 +433,11 @@ export async function executeAuthoredFlow<Input = undefined>(
       }
       const id = `human-${nextStep++}`;
       const to = humanOptions.to;
-      return trackStep(authoredSteps, new AuthoredFlowOperation<boolean>(
+      // Hoisted like `llmOp`/`runOp`: the start closure reads the caller's
+      // `.gate(config)` at spec-build time, so a named gate on the answer is
+      // lowered into the `human-N` step's `verification` like any other step's.
+      let humanOp!: AuthoredFlowOperation<boolean>;
+      humanOp = new AuthoredFlowOperation<boolean>(
         id, 'human',
         () => assertOperationAllowed('human', definition.name, requestedCompletion),
         () => observeStep(id, 'deterministic', async () => {
@@ -448,13 +452,15 @@ export async function executeAuthoredFlow<Input = undefined>(
           if (recorded === undefined) throw new AuthoredHumanParked({ waitId: id, question, to }, rootRunId);
           const record = { human: id, to, answer: recorded.answer,
             ...(recorded.note === undefined ? {} : { note: recorded.note }),
-            ...(recorded.answeredBy === undefined ? {} : { answeredBy: recorded.answeredBy }) };
+            answeredBy: recorded.answeredBy,
+            ...(recorded.atMs === undefined ? {} : { at: new Date(recorded.atMs).toISOString() }) };
           const literal = `'${JSON.stringify(record).replaceAll("'", "'\\''")}'`;
-          await lowerDeterministic(id, `printf '%s' ${literal}`, false);
+          await lowerDeterministic(id, `printf '%s' ${literal}`, false, undefined, humanOp.namedGate);
           return recorded.answer;
         }, options.onProgress),
         lifecycle,
-      ));
+      );
+      return trackStep(authoredSteps, humanOp);
     },
     dispatch<T>() {
       assertOperationAllowed('dispatch', definition.name, requestedCompletion);

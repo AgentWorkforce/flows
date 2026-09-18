@@ -300,7 +300,7 @@ describe('durable authored root', () => {
       payload: { wait_id: 'human-1', prompt: 'Ship it?', requested_of: 'khaliq' },
     }, {
       entry_type: 'wait.completed', step_id: 'authored-root', attempt: 1,
-      payload: { wait_id: 'human-1', completionReason: 'human_responded', result: { answer: false } },
+      payload: { wait_id: 'human-1', completionReason: 'human_responded', result: { answer: false, answeredBy: 'khaliq', at_ms: 1, attribution: 'client_asserted' } },
     }];
     vi.mocked(loadAuthoredFlow).mockResolvedValue(loaded);
 

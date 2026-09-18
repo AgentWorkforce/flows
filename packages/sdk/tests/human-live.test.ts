@@ -127,7 +127,11 @@ describe('f.human against a real daemon', () => {
       'step.attempt.started@1', 'wait.human@1', 'wait.completed@1', 'step.attempt.started@2', 'step.completed@2',
     ]);
     expect(closed[2]!.payload).toMatchObject({ wait_id: 'human-2', completionReason: 'human_responded',
-      result: { answer: true, note: 'looks good', answeredBy: 'khaliq@agent-relay.com' } });
+      result: { answer: true, note: 'looks good', answeredBy: 'khaliq@agent-relay.com', attribution: 'client_asserted' } });
+    // The journal's clock says when; the client never supplies `at`.
+    const result = closed[2]!.payload.result as Record<string, unknown>;
+    expect(result).not.toHaveProperty('at');
+    expect(result.at_ms).toBe((closed[2] as { at_ms?: number }).at_ms);
     expect(closed[4]!.payload).toMatchObject({ completionReason: 'success' });
     // A resume after completion replays nothing and reports the durable result.
     const again = f.resume(runId);

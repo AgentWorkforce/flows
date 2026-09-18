@@ -581,13 +581,31 @@ fn step_wait_parks_the_attempt_and_a_human_answer_redispatches_it() {
     );
     assert_eq!(stray.result.unwrap()["matched"], 0);
 
-    let answered = request(
+    // An unattributed answer cannot close a human wait.
+    let anonymous = request(
         data_dir,
         &hub,
         2,
         &writer,
         &json!({"id": "emit", "verb": "event.emit", "params": {
             "run_id": run_id, "event_key": "human-1", "payload": {"answer": true},
+        }})
+        .to_string(),
+    );
+    assert!(!anonymous.ok);
+    assert!(
+        anonymous.error.unwrap().message.contains("answeredBy"),
+        "refusal names the missing attribution"
+    );
+
+    let answered = request(
+        data_dir,
+        &hub,
+        2,
+        &writer,
+        &json!({"id": "emit", "verb": "event.emit", "params": {
+            "run_id": run_id, "event_key": "human-1",
+            "payload": {"answer": true, "answeredBy": "khaliq", "at": "1999-01-01T00:00:00Z"},
         }})
         .to_string(),
     );
@@ -607,6 +625,12 @@ fn step_wait_parks_the_attempt_and_a_human_answer_redispatches_it() {
     assert_eq!(completed.payload["wait_id"], "human-1");
     assert_eq!(completed.payload["completionReason"], "human_responded");
     assert_eq!(completed.payload["result"]["answer"], true);
+    // The journal's clock, not the client's, says when; attribution is
+    // recorded as what it is.
+    assert_eq!(completed.payload["result"]["answeredBy"], "khaliq");
+    assert_eq!(completed.payload["result"]["attribution"], "client_asserted");
+    assert!(completed.payload["result"].get("at").is_none());
+    assert_eq!(completed.payload["result"]["at_ms"], completed.at_ms);
     // Answering again matches nothing: the wait is closed.
     let repeat = request(
         data_dir,
@@ -614,7 +638,8 @@ fn step_wait_parks_the_attempt_and_a_human_answer_redispatches_it() {
         2,
         &writer,
         &json!({"id": "emit", "verb": "event.emit", "params": {
-            "run_id": run_id, "event_key": "human-1", "payload": {"answer": false},
+            "run_id": run_id, "event_key": "human-1",
+            "payload": {"answer": false, "answeredBy": "khaliq"},
         }})
         .to_string(),
     );

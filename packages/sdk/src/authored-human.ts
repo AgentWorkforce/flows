@@ -2,19 +2,29 @@ import { AuthoredFlowExecutionError, type AuthoredHumanWait } from './authored-f
 import type { JournalClient } from './journal-client.js';
 
 /**
- * The answer contract for a parked `f.human`. This is the `payload` of the
+ * The answer contract for a parked `f.human`.
+ *
+ * The CLIENT sends `{ answer, note?, answeredBy }` as the `payload` of the
  * `event.emit` that closes the wait (kernel DESIGN.md §5: `event_key` is the
- * `wait_id`) and therefore the `result` of the journaled
- * `wait.completed{human_responded}` the resumed body reads back. `flows
- * answer` and Cloud's answer route both produce exactly this shape.
+ * `wait_id`); `answeredBy` is required — the kernel refuses an unattributed
+ * answer. The KERNEL journals it as the `result` of
+ * `wait.completed{human_responded}` with two fields of its own: `at_ms`, the
+ * entry's clock (any client `at` is dropped — the journal says when), and
+ * `attribution: "client_asserted"`, because the daemon socket, not the kernel,
+ * is what authenticated whoever said `answeredBy`. `flows answer` and Cloud's
+ * resumed sandbox both produce the client half; the body reads the kernel half.
  */
 export interface HumanAnswer {
   readonly answer: boolean;
   readonly note?: string;
-  readonly answeredBy?: string;
-  /** ISO-8601 instant the answer was given. */
-  readonly at?: string;
+  readonly answeredBy: string;
+  /** Kernel clock at the journaled `wait.completed`, epoch milliseconds. */
+  readonly atMs?: number;
+  /** How `answeredBy` was established. The kernel writes `client_asserted`. */
+  readonly attribution?: string;
 }
+
+export type HumanAnswerPayload = Pick<HumanAnswer, 'answer' | 'note' | 'answeredBy'>;
 
 /** An open `wait.human` on a run: asked, not yet answered. */
 export interface OpenHumanWait extends AuthoredHumanWait {
@@ -24,32 +34,36 @@ export interface OpenHumanWait extends AuthoredHumanWait {
 
 export const HUMAN_WAIT_ID = /^human-[1-9][0-9]*$/;
 
-export function humanAnswerPayload(answer: boolean, extra: { note?: string; answeredBy?: string } = {}): HumanAnswer {
+export function humanAnswerPayload(answer: boolean, extra: { note?: string; answeredBy: string }): HumanAnswerPayload {
+  if (extra.answeredBy.trim() === '') {
+    throw new AuthoredFlowExecutionError('human_answer_invalid', 'an answer must say who gave it (answeredBy)');
+  }
   return {
     answer,
     ...(extra.note === undefined || extra.note === '' ? {} : { note: extra.note }),
-    ...(extra.answeredBy === undefined || extra.answeredBy === '' ? {} : { answeredBy: extra.answeredBy }),
-    at: new Date().toISOString(),
+    answeredBy: extra.answeredBy,
   };
 }
 
 /** Narrow an untrusted journal `result` to the answer contract, or refuse it. */
 export function parseHumanAnswer(value: unknown, waitId: string): HumanAnswer {
-  const record = value as Partial<HumanAnswer> | null;
+  const record = value as { answer?: unknown; note?: unknown; answeredBy?: unknown; at_ms?: unknown; attribution?: unknown } | null;
   if (typeof record !== 'object' || record === null || typeof record.answer !== 'boolean'
     || (record.note !== undefined && typeof record.note !== 'string')
-    || (record.answeredBy !== undefined && typeof record.answeredBy !== 'string')
-    || (record.at !== undefined && typeof record.at !== 'string')) {
+    || typeof record.answeredBy !== 'string' || record.answeredBy.trim() === ''
+    || (record.at_ms !== undefined && !Number.isSafeInteger(record.at_ms))
+    || (record.attribution !== undefined && typeof record.attribution !== 'string')) {
     throw new AuthoredFlowExecutionError(
       'human_answer_invalid',
-      `the recorded answer to ${waitId} is not { answer: boolean }; answer it again with flows answer`,
+      `the recorded answer to ${waitId} is not { answer: boolean, answeredBy: string }; answer it again with flows answer`,
     );
   }
   return {
     answer: record.answer,
     ...(record.note === undefined ? {} : { note: record.note }),
-    ...(record.answeredBy === undefined ? {} : { answeredBy: record.answeredBy }),
-    ...(record.at === undefined ? {} : { at: record.at }),
+    answeredBy: record.answeredBy,
+    ...(record.at_ms === undefined ? {} : { atMs: record.at_ms as number }),
+    ...(record.attribution === undefined ? {} : { attribution: record.attribution }),
   };
 }
 

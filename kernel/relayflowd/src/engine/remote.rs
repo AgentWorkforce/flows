@@ -410,7 +410,38 @@ impl Engine<WallClock> {
                 open.retain(|(wait_id, _, _, _)| wait_id != &done.wait_id);
             }
         }
+        // A human response must say who gave it, and the journal — not the
+        // client — says when. The kernel cannot verify the identity a daemon
+        // client asserts (the socket is the trust boundary; Cloud's answer
+        // route authenticates the caller before it reaches here), so the
+        // result records the attribution as client-asserted and stamps the
+        // entry's own clock as `at_ms`, dropping any client-supplied time.
+        let answers_human = open
+            .iter()
+            .any(|(_, _, _, reason)| *reason == WaitCompletionReason::HumanResponded);
+        if answers_human {
+            let attributed = payload
+                .get("answeredBy")
+                .and_then(Value::as_str)
+                .is_some_and(|who| !who.trim().is_empty());
+            if !attributed {
+                bail!("a human response to {event_key} must carry a non-empty answeredBy")
+            }
+        }
         for (wait_id, step_id, attempt, completion_reason) in &open {
+            let now_ms = self.clock.now_ms();
+            let result = if *completion_reason == WaitCompletionReason::HumanResponded {
+                let mut answer = payload.as_object().cloned().unwrap_or_default();
+                answer.remove("at");
+                answer.insert("at_ms".to_owned(), Value::from(now_ms));
+                answer.insert(
+                    "attribution".to_owned(),
+                    Value::from("client_asserted"),
+                );
+                Value::Object(answer)
+            } else {
+                payload.clone()
+            };
             self.append(
                 &mut journal,
                 &JournalEntry::new(
@@ -418,11 +449,11 @@ impl Engine<WallClock> {
                     run_id,
                     step_id.clone(),
                     *attempt,
-                    self.clock.now_ms(),
+                    now_ms,
                     WaitCompletedPayload {
                         wait_id: wait_id.clone(),
                         completion_reason: *completion_reason,
-                        result: payload.clone(),
+                        result,
                     },
                 ),
             )?;

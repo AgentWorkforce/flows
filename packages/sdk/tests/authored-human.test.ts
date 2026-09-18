@@ -18,7 +18,9 @@ describe('f.human lowering', () => {
   let path: string;
   let server: Server;
   let rootEntries: Array<Record<string, unknown>> = [];
-  const started: Array<{ id: string; command: string; admissionKey?: string }> = [];
+  const started: Array<{ id: string; command: string; admissionKey?: string; gate?: { id: string; command: string } }> = [];
+  const failedRuns = new Set<string>();
+  let gateVerdict: 'pass' | 'fail' = 'pass';
   const outputs = new Map<string, string>();
   const stepOf = new Map<string, string>();
   let nextRun = 1;
@@ -31,12 +33,21 @@ describe('f.human lowering', () => {
         const spec = params.spec as { steps: Array<{ id: string; command: string }> };
         const step = spec.steps[0]!;
         const runId = `child-${nextRun++}`;
-        started.push({ id: step.id, command: step.command, ...(typeof params.admission_key === 'string' ? { admissionKey: params.admission_key } : {}) });
+        // A named gate lowers as a second `<id>.gate` step whose command embeds
+        // the pattern (named-gate-lowering.ts); record it so a test can prove
+        // the gate reached the spec.
+        const gateStep = spec.steps[1];
+        started.push({ id: step.id, command: step.command, ...(typeof params.admission_key === 'string' ? { admissionKey: params.admission_key } : {}),
+          ...(gateStep === undefined ? {} : { gate: { id: gateStep.id, command: gateStep.command } }) });
         // The fake "executes" printf '%s' '<literal>' by unquoting the literal.
         const printed = /^printf '%s' '((?:[^']|'\\'')*)'$/.exec(step.command)?.[1]?.replaceAll("'\\''", "'") ?? '';
         outputs.set(runId, printed);
         stepOf.set(runId, step.id);
-        sendResult(ctx, { run_id: runId, status: 'completed', completion_reason: 'success', completed_steps: 1 });
+        // The fake cannot run the gate's embedded engine; the test says how it judges.
+        const failed = gateStep !== undefined && gateVerdict === 'fail';
+        if (failed) failedRuns.add(runId);
+        sendResult(ctx, { run_id: runId, status: failed ? 'failed' : 'completed',
+          completion_reason: failed ? 'step_failed' : 'success', completed_steps: 1 });
       },
       'journal.read': (ctx, params) => {
         const runId = params.run_id as string;
@@ -45,10 +56,11 @@ describe('f.human lowering', () => {
           sendResult(ctx, { entries: rootEntries.map((entry, index) => ({ seq: index + 1, ...entry })).filter(entry => entry.seq >= from) });
           return;
         }
+        const failed = failedRuns.has(runId);
         sendResult(ctx, { entries: [{
           entry_type: 'step.completed', step_id: stepOf.get(runId),
-          payload: { completionReason: 'success', disposition: 'step_done',
-            output: { exit_code: 0, stdout_tail: outputs.get(runId) ?? '', stderr_tail: '' } },
+          payload: { completionReason: failed ? 'verification_failed' : 'success', disposition: 'step_done',
+            output: failed ? null : { exit_code: 0, stdout_tail: outputs.get(runId) ?? '', stderr_tail: '' } },
         }] });
       },
       'stream.read': (ctx) => sendResult(ctx, { messages: [], next_offset: 0 }),
@@ -60,7 +72,7 @@ describe('f.human lowering', () => {
     rmSync(path, { force: true });
   });
 
-  beforeEach(() => { rootEntries = []; started.length = 0; });
+  beforeEach(() => { rootEntries = []; started.length = 0; failedRuns.clear(); gateVerdict = 'pass'; });
 
   async function client(): Promise<JournalClient> {
     const journal = new JournalClient(path, { requestTimeoutMs: 2000 });
@@ -103,7 +115,7 @@ describe('f.human lowering', () => {
   });
 
   it('continues with the recorded answer, lowered as a memoized human-N step', async () => {
-    rootEntries = [asked, answered({ answer: true, note: 'lgtm', answeredBy: 'khaliq', at: '2026-09-18T00:00:00Z' })];
+    rootEntries = [asked, answered({ answer: true, note: 'lgtm', answeredBy: 'khaliq', at_ms: Date.UTC(2026, 8, 18), attribution: 'client_asserted' })];
     const journal = await client();
     try {
       const handle = flow('ask', async f => {
@@ -115,13 +127,37 @@ describe('f.human lowering', () => {
       expect(result.journalSteps.map(step => step.id)).toEqual(['human-1', 'complete-2']);
       expect(started[0]).toMatchObject({ id: 'human-1' });
       expect(started[0]!.admissionKey).toMatch(/^[a-z0-9:_-]+$/i);
-      expect(JSON.parse(outputs.get('child-1')!)).toEqual({ human: 'human-1', to: 'khaliq', answer: true, note: 'lgtm', answeredBy: 'khaliq' });
+      expect(JSON.parse(outputs.get('child-1')!)).toEqual({ human: 'human-1', to: 'khaliq', answer: true, note: 'lgtm', answeredBy: 'khaliq', at: '2026-09-18T00:00:00.000Z' });
       expect(await readOpenHumanWaits(journal, ROOT)).toEqual([]);
     } finally { journal.close(); }
   });
 
+  it('lowers a named gate on the answer into the human-N step, so a rejected answer can fail it', async () => {
+    const gate = { type: 'regex_match', pattern: '"answer":true' } as const;
+    // Approved: the gate is in the lowered spec, passes, and the body continues.
+    rootEntries = [asked, answered({ answer: true, answeredBy: 'khaliq' })];
+    let journal = await client();
+    try {
+      const handle = flow('gated', async f => { await f.human('Ship it?', { to: 'khaliq' }).gate(gate); f.done('success'); });
+      const result = await executeAuthoredFlow(handle, journal, undefined, { rootRunId: ROOT });
+      expect(result.completionReason).toBe('success');
+      expect(started[0]?.gate?.id).toBe('human-1.gate');
+      expect(started[0]?.gate?.command).toContain(JSON.stringify(gate.pattern));
+    } finally { journal.close(); }
+    // Rejected: the same gate is judged on the journaled answer and fails the step.
+    rootEntries = [asked, answered({ answer: false, answeredBy: 'khaliq' })];
+    started.length = 0;
+    gateVerdict = 'fail';
+    journal = await client();
+    try {
+      const handle = flow('gated', async f => { await f.human('Ship it?', { to: 'khaliq' }).gate(gate); f.done('success'); });
+      await expect(executeAuthoredFlow(handle, journal, undefined, { rootRunId: ROOT })).rejects.toMatchObject({ code: 'step_failed' });
+      expect(started[0]?.gate?.id).toBe('human-1.gate');
+    } finally { journal.close(); }
+  });
+
   it('a negative answer is a value, not a failure', async () => {
-    rootEntries = [asked, answered({ answer: false })];
+    rootEntries = [asked, answered({ answer: false, answeredBy: 'khaliq' })];
     const journal = await client();
     try {
       const handle = flow('ask', async f => {
@@ -133,7 +169,7 @@ describe('f.human lowering', () => {
   });
 
   it('asks the second question only after the first is answered, under its own id', async () => {
-    rootEntries = [asked, answered({ answer: true })];
+    rootEntries = [asked, answered({ answer: true, answeredBy: 'khaliq' })];
     const journal = await client();
     try {
       const handle = flow('ask-twice', async f => {
@@ -147,13 +183,15 @@ describe('f.human lowering', () => {
     } finally { journal.close(); }
   });
 
-  it('refuses a recorded answer that is not { answer: boolean }', async () => {
-    rootEntries = [asked, answered({ answer: 'yes' })];
-    const journal = await client();
-    try {
-      const handle = flow('ask', async f => { await f.human('Ship it?', { to: 'khaliq' }); f.done('success'); });
-      await expect(executeAuthoredFlow(handle, journal, undefined, { rootRunId: ROOT })).rejects.toMatchObject({ code: 'human_answer_invalid' });
-    } finally { journal.close(); }
+  it('refuses a recorded answer that is not { answer: boolean, answeredBy }', async () => {
+    for (const bad of [{ answer: 'yes', answeredBy: 'khaliq' }, { answer: true }, { answer: true, answeredBy: ' ' }]) {
+      rootEntries = [asked, answered(bad)];
+      const journal = await client();
+      try {
+        const handle = flow('ask', async f => { await f.human('Ship it?', { to: 'khaliq' }); f.done('success'); });
+        await expect(executeAuthoredFlow(handle, journal, undefined, { rootRunId: ROOT })).rejects.toMatchObject({ code: 'human_answer_invalid' });
+      } finally { journal.close(); }
+    }
   });
 
   it('refuses an empty question or an unnamed recipient before touching the journal', async () => {
@@ -175,7 +213,7 @@ describe('f.human lowering', () => {
   });
 
   it('an unawaited f.human is an unawaited step', async () => {
-    rootEntries = [asked, answered({ answer: true })];
+    rootEntries = [asked, answered({ answer: true, answeredBy: 'khaliq' })];
     const journal = await client();
     try {
       const handle = flow('fire-and-forget', async f => { f.human('Ship it?', { to: 'khaliq' }); f.done('success'); });
@@ -185,15 +223,17 @@ describe('f.human lowering', () => {
 });
 
 describe('the answer contract', () => {
-  it('is { answer, note?, answeredBy?, at }', () => {
+  it('the client sends { answer, note?, answeredBy }; the kernel adds at_ms and attribution', () => {
     const payload = humanAnswerPayload(true, { note: 'ok', answeredBy: 'khaliq' });
-    expect(payload).toMatchObject({ answer: true, note: 'ok', answeredBy: 'khaliq' });
-    expect(Date.parse(payload.at!)).not.toBeNaN();
-    expect(humanAnswerPayload(false, { note: '' })).not.toHaveProperty('note');
-    expect(parseHumanAnswer(payload, 'human-1')).toEqual(payload);
+    expect(payload).toEqual({ answer: true, note: 'ok', answeredBy: 'khaliq' });
+    expect(humanAnswerPayload(false, { note: '', answeredBy: 'khaliq' })).not.toHaveProperty('note');
+    expect(() => humanAnswerPayload(true, { answeredBy: '  ' })).toThrow(/human_answer_invalid/);
+    // What the journal hands back: the kernel's clock and its attribution note.
+    expect(parseHumanAnswer({ ...payload, at_ms: 1_800_000_000_000, attribution: 'client_asserted' }, 'human-1'))
+      .toEqual({ answer: true, note: 'ok', answeredBy: 'khaliq', atMs: 1_800_000_000_000, attribution: 'client_asserted' });
   });
   it('refuses every other shape', () => {
-    for (const bad of [null, 'yes', { answer: 'yes' }, { answer: true, note: 3 }, {}]) {
+    for (const bad of [null, 'yes', { answer: 'yes', answeredBy: 'k' }, { answer: true, note: 3, answeredBy: 'k' }, {}, { answer: true }, { answer: true, answeredBy: 'k', at_ms: 1.5 }]) {
       expect(() => parseHumanAnswer(bad, 'human-1')).toThrow(/human_answer_invalid/);
     }
   });

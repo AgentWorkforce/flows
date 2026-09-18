@@ -830,7 +830,10 @@ Then continue with: flows resume <run-id>
 
 No process waits. `flows answer <run-id> <wait-id> yes|no [--note <text>]
 [--by <identity>]` records the decision as the answer contract `{ answer:
-boolean, note?, answeredBy?, at }` (`answeredBy` is `--by`, else the OS user) — an `event.emit` keyed by the wait id, which the kernel
+boolean, note?, answeredBy }` (`answeredBy` is `--by`, else the OS user; the
+kernel refuses an unattributed answer, journals `attribution: client_asserted`
+because the socket — not the kernel — authenticated the caller, and stamps
+`at_ms` from its own clock, dropping any client-supplied time) — an `event.emit` keyed by the wait id, which the kernel
 journals as `wait.completed{human_responded}` and closes the wait once: a
 second answer is refused (`human_wait_unknown`), as is a wait the run is not
 asking. `flows resume` then re-runs the body; every step before the gate is

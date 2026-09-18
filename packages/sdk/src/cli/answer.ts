@@ -51,9 +51,16 @@ export async function answerFlow(
             + (others.length === 0 ? ' It has no open question.' : ` Open: ${others.join(', ')}.`),
       }] } };
     }
+    const answeredBy = options.answeredBy ?? safeUsername();
+    if (answeredBy === '') {
+      return { exitCode: 2, report: { ...base, runId, socketPath, diagnostics: [{
+        severity: 'refusal', kind: 'human_wait_unknown',
+        message: 'An answer must say who gave it and this environment has no OS user; pass --by <identity>.',
+      }] } };
+    }
     const payload = humanAnswerPayload(answer, {
       ...(options.note === undefined ? {} : { note: options.note }),
-      answeredBy: options.answeredBy ?? safeUsername(),
+      answeredBy,
     });
     const emitted = await client.eventEmit(runId, waitId, payload);
     if (emitted.matched !== 1) {
