@@ -52,6 +52,13 @@ const RUN_ID = '01JABCDEFGHJKMNPQRSTVWXYZ0';
  */
 const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: ParsedArgs['command'] }[] = [
   { verb: 'add', argv: ['add', 'my-helper'], variant: 'add' },
+  { verb: 'answer', argv: ['answer', RUN_ID, 'human-1', 'yes'], variant: 'answer' },
+  {
+    verb: 'answer',
+    argv: ['answer', '--json', '--no-spawn', '--data-dir', '.relayflowd',
+      '--note', 'approved on the call', '--by', 'someone', RUN_ID, 'human-1', 'no'],
+    variant: 'answer',
+  },
   { verb: 'build', argv: ['build', 'flow.yaml'], variant: 'build' },
   { verb: 'build', argv: ['build', '--out', 'dist', '--json', 'flow.yaml'], variant: 'build' },
   // `--verify` is a flag like any other: both orders help implies must parse.
@@ -70,7 +77,8 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   {
     verb: 'deploy',
     argv: ['deploy', 'review.flow.ts', '--repo', 'owner/name', '--on', 'github:label=review',
-      '--approver', 'someone', '--name', 'review-listener', '--agents', 'claude,codex', '--draft', '--json'],
+      '--approver', 'someone', '--name', 'review-listener', '--agents', 'claude,codex', '--draft',
+      '--no-connect', '--json'],
     variant: 'cloud-deploy',
   },
   { verb: 'deployments', argv: ['deployments', '--json'], variant: 'deployments' },
@@ -109,7 +117,20 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   { verb: 'run', argv: ['run', '--bucket', 'file:///tmp/bucket', DIGEST], variant: 'run' },
   // `--cloud` is the second variant of the same verb.
   { verb: 'run', argv: ['run', '--cloud', '--wait', 'flow.yaml'], variant: 'cloud-run' },
-  { verb: 'run', argv: ['run', '--cloud', '--sync-code', 'review.flow.ts'], variant: 'cloud-run' },
+  { verb: 'run', argv: ['run', '--cloud', '--sync-code', '--no-connect', 'review.flow.ts'], variant: 'cloud-run' },
+  // With neither --cron nor --every the flow's own `schedule.*` handler supplies
+  // the cron, so the bare form has to parse.
+  { verb: 'schedule', argv: ['schedule', 'review.flow.ts'], variant: 'schedule' },
+  { verb: 'schedule', argv: ['schedule', '--cron', '0 9 * * *', 'flow.yaml'], variant: 'schedule' },
+  {
+    verb: 'schedule',
+    // `--input` is the authored body's argument, so it travels with a .flow.ts.
+    argv: ['schedule', '--every', '15m', '--tz', 'America/New_York', '--name', 'nightly-review',
+      '--input', '{"a":1}', '--no-connect', '--json', 'review.flow.ts'],
+    variant: 'schedule',
+  },
+  { verb: 'schedules', argv: ['schedules'], variant: 'schedules' },
+  { verb: 'schedules', argv: ['schedules', '--json'], variant: 'schedules' },
   {
     verb: 'serve-webhook',
     argv: ['serve-webhook', '--data-dir', '/tmp/inbox', '--port', '8080', '--allow', 'review,triage'],
@@ -133,6 +154,8 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   },
   { verb: 'undeploy', argv: ['undeploy', 'dep_123'], variant: 'undeploy' },
   { verb: 'undeploy', argv: ['undeploy', '--json', 'dep_123'], variant: 'undeploy' },
+  { verb: 'unschedule', argv: ['unschedule', 'sched_123'], variant: 'unschedule' },
+  { verb: 'unschedule', argv: ['unschedule', '--json', 'sched_123'], variant: 'unschedule' },
 ];
 
 /** Every command in the declared tree, with the argv tokens that reach it. */

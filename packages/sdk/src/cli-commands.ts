@@ -72,6 +72,16 @@ const JSON_OPTION: CliOptionSpec = {
   description: 'Emit one machine-readable JSON object instead of text',
 };
 
+/**
+ * Shared by the verbs that hand a flow to Cloud. Each of them preflights what
+ * the source needs connected and offers to connect it; this refuses instead,
+ * which is what a non-interactive caller wants.
+ */
+const NO_CONNECT_OPTION: CliOptionSpec = {
+  flags: '--no-connect',
+  description: 'Refuse a missing integration instead of offering to connect it',
+};
+
 /** Flags shared by the two verbs that execute a flow locally. */
 const LOCAL_EXECUTION_OPTIONS = [
   JSON_OPTION,
@@ -96,6 +106,23 @@ export const CLI_VERBS = [
     description: 'Install a helper plugin into this project',
     args: [{ name: 'helper', description: 'Helper name or @flows/<helper-name>', required: true }],
     variants: ['add'],
+  },
+  {
+    name: 'answer',
+    description: 'Answer a run’s parked f.human question; `flows resume` then continues the body',
+    args: [
+      { name: 'run-id', description: 'Run parked on the question', required: true },
+      { name: 'wait-id', description: 'Which question to answer, named human-<n> in the order the body asked', required: true },
+      { name: 'answer', description: 'The decision, as yes or no (also true or false)', required: true },
+    ],
+    options: [
+      JSON_OPTION,
+      DATA_DIR_OPTION,
+      { flags: '--no-spawn', description: 'Require a running relayflowd rather than starting one' },
+      { flags: '--note <text>', description: 'Reason recorded on the journal alongside the answer' },
+      { flags: '--by <identity>', description: 'Who answered, when relaying a person’s decision; defaults to the OS user' },
+    ],
+    variants: ['answer'],
   },
   {
     name: 'build',
@@ -127,6 +154,7 @@ export const CLI_VERBS = [
       { flags: '--agents <list>', description: 'Agent harnesses to allow, as claude[,codex]' },
       { flags: '--name <name>', description: 'Name for the hosted listener' },
       { flags: '--draft', description: 'Create the listener without activating it' },
+      NO_CONNECT_OPTION,
       JSON_OPTION,
     ],
     variants: ['deploy', 'cloud-deploy'],
@@ -196,8 +224,36 @@ export const CLI_VERBS = [
         flags: '--sync-code',
         description: 'With --cloud, upload the working directory as the run’s tree; pull results back with `flows sync`',
       },
+      {
+        flags: '--no-connect',
+        description: 'With --cloud, refuse a missing integration instead of offering to connect it',
+      },
     ],
     variants: ['run', 'cloud-run'],
+  },
+  {
+    name: 'schedule',
+    description: 'Register a flow to run in Cloud on a cron or interval, or on the one it declares',
+    args: [{ name: 'flow', description: 'flow.yaml or flow.ts submitted on every fire', required: true }],
+    options: [
+      {
+        flags: '--cron <expr>',
+        description: 'Cron expression to fire on; with neither this nor --every, the flow’s own schedule.* handler supplies it',
+      },
+      { flags: '--every <duration>', description: 'Fixed cadence, as <n><s|m|h|d>; not valid with --cron' },
+      { flags: '--tz <iana>', description: 'IANA timezone the cron is read in' },
+      { flags: '--input <json-or-file>', description: 'Input for an authored .flow.ts, inline JSON or a file path' },
+      { flags: '--name <name>', description: 'Name for the schedule' },
+      NO_CONNECT_OPTION,
+      JSON_OPTION,
+    ],
+    variants: ['schedule'],
+  },
+  {
+    name: 'schedules',
+    description: 'List this workspace’s Cloud schedules',
+    options: [JSON_OPTION],
+    variants: ['schedules'],
   },
   {
     name: 'serve-webhook',
@@ -246,6 +302,13 @@ export const CLI_VERBS = [
     args: [{ name: 'deployment-id', description: 'Deployment id to remove', required: true }],
     options: [JSON_OPTION],
     variants: ['undeploy'],
+  },
+  {
+    name: 'unschedule',
+    description: 'Remove a Cloud schedule, so it stops firing',
+    args: [{ name: 'schedule-id', description: 'Schedule id to remove', required: true }],
+    options: [JSON_OPTION],
+    variants: ['unschedule'],
   },
 ] as const satisfies readonly CliVerbSpec[];
 
