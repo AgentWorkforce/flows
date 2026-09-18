@@ -36,6 +36,7 @@ import {
   type AuthoredFlowExecutionErrorCode,
 } from './authored-flow-error.js';
 import { readHumanAnswer } from './authored-human.js';
+import { parseHumanTo } from './human-to.js';
 import {
   AuthoredFlowOperation,
   stopAuthoredOperations,
@@ -430,6 +431,13 @@ export async function executeAuthoredFlow<Input = undefined>(
       }
       if (typeof humanOptions?.to !== 'string' || humanOptions.to.trim() === '') {
         throw new AuthoredFlowExecutionError('human_answer_invalid', 'f.human requires { to } naming who answers');
+      }
+      // Refused before an ordinal is consumed or anything is journaled: a
+      // malformed `to` would otherwise park the run on a question Cloud can
+      // deliver to no one (docs/SURFACE.md §5 lists the four forms).
+      const parsedTo = parseHumanTo(humanOptions.to);
+      if (!parsedTo.ok) {
+        throw new AuthoredFlowExecutionError('human_to_invalid', `f.human to ${parsedTo.reason}`);
       }
       const id = `human-${nextStep++}`;
       const to = humanOptions.to;

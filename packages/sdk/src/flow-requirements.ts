@@ -1,3 +1,4 @@
+import { humanRecipientProvider } from './human-to.js';
 import { helperProviders } from '@relayflows/surface/runtime';
 import type { TriggerSource } from '@relayflows/surface';
 import { providerDeclaration } from './provider-trigger-contract.js';
@@ -26,8 +27,8 @@ export interface FlowIntegrationRequirement {
   /** Cloud integration provider id (`slack`, `github`, `linear`, …). */
   provider: string;
   /** `tools`: a header declaration; `source`: a trigger or deploy target; `helper`: body use without a flag, or a YAML helper step. */
-  from: 'tools' | 'source' | 'helper';
-  /** The declaration that requires it, as a reader would name it: `tools.slack`, `--on github`, `f.slack`. */
+  from: 'tools' | 'source' | 'helper' | 'human';
+  /** The declaration that requires it, as a reader would name it: `tools.slack`, `--on github`, `f.slack`, `f.human to`. */
   detail: string;
 }
 
@@ -119,6 +120,14 @@ export function flowRequirements(
         if (helperReference(root, namespace).test(text)) declare({ provider, from: 'helper', detail: `f.${namespace}` });
       }
       for (const use of workerCalls(root, text)) need(use.cli === undefined ? fallback : harnessFromCli(use.cli), use.detail);
+      // `f.human(q, { to: "slack:#eng" })` is delivered by Cloud through that
+      // provider, so the deploy must have it connected. Only a literal `to`
+      // can be read here; a computed one (`input.approver`) is resolved by
+      // Cloud at park time against the run's own trigger channel.
+      for (const to of humanRecipients(root, text)) {
+        const provider = humanRecipientProvider(to);
+        if (provider !== undefined) declare({ provider, from: 'human', detail: 'f.human to' });
+      }
     }
   }
 
@@ -178,6 +187,138 @@ function contextParameter(body: string): string | undefined {
 /** Same recognition as `preflightHelpers`: `f.slack`, `f .slack`, `f["slack"]`. */
 function helperReference(root: string, namespace: string): RegExp {
   return new RegExp(`(?:^|[^\\w$.])${root}\\s*(?:\\.\\s*${namespace}\\b|\\[\\s*['"]${namespace}['"]\\s*\\])`, 'u');
+}
+
+/**
+ * The literal `to` of each `f.human(question, { to: "…" })` call in the body.
+ *
+ * Bounded to the call's OWN argument list — the text between its `(` and the
+ * matching `)`, string- and nesting-aware — and within that to the top level
+ * of its options object, so a `to:` in a later call, in a nested object, in
+ * the question string, or in an unrelated `{ to }` of the surrounding code is
+ * never read as this call's recipient. Only a plain string literal counts; a
+ * template with interpolation or an identifier is a computed `to`, resolved
+ * by Cloud at park time.
+ */
+function humanRecipients(root: string, body: string): string[] {
+  const call = new RegExp(`(?:^|[^\\w$.])${root}\\s*\\.\\s*human\\s*\\(`, 'gu');
+  const found: string[] = [];
+  for (const match of body.matchAll(call)) {
+    const open = match.index! + match[0].length - 1;
+    const close = matchingClose(body, open);
+    if (close === -1) continue;
+    const args = body.slice(open + 1, close);
+    const options = secondArgumentObject(args);
+    if (options === undefined) continue;
+    const to = topLevelStringProperty(options, 'to');
+    if (to !== undefined) found.push(to);
+  }
+  return found;
+}
+
+/**
+ * Skip the comment or string starting at `i`, returning the index just past
+ * it; `i` itself when nothing skippable starts there; -1 when unterminated.
+ * Every walker below steps through this, so a `,`, `to:` or bracket inside a
+ * comment or string is never read as syntax.
+ */
+function skipCommentOrString(text: string, i: number): number {
+  const ch = text[i]!;
+  const next = text[i + 1];
+  if (ch === '/' && next === '/') { const end = text.indexOf('\n', i); return end === -1 ? text.length : end + 1; }
+  if (ch === '/' && next === '*') { const end = text.indexOf('*/', i + 2); return end === -1 ? -1 : end + 2; }
+  if (ch === '"' || ch === "'" || ch === '`') { const end = stringEnd(text, i); return end === -1 ? -1 : end + 1; }
+  return i;
+}
+
+/** Index of the `)`/`}`/`]` closing the bracket at `open`, skipping strings, templates and comments; -1 if unbalanced. */
+function matchingClose(text: string, open: number): number {
+  const pairs: Record<string, string> = { '(': ')', '{': '}', '[': ']' };
+  const stack: string[] = [pairs[text[open]!]!];
+  let i = open + 1;
+  while (i < text.length && stack.length > 0) {
+    const skipped = skipCommentOrString(text, i);
+    if (skipped === -1) return -1;
+    if (skipped !== i) { i = skipped; continue; }
+    const ch = text[i]!;
+    if (ch in pairs) stack.push(pairs[ch]!);
+    else if (ch === ')' || ch === '}' || ch === ']') { if (stack.pop() !== ch) return -1; }
+    i += 1;
+  }
+  return stack.length === 0 ? i - 1 : -1;
+}
+
+/** Index of the quote closing the string opening at `start` (template `${…}` skipped); -1 if unterminated. */
+function stringEnd(text: string, start: number): number {
+  const quote = text[start]!;
+  let i = start + 1;
+  while (i < text.length) {
+    const ch = text[i]!;
+    if (ch === '\\') { i += 2; continue; }
+    if (ch === quote) return i;
+    if (quote === '`' && ch === '$' && text[i + 1] === '{') {
+      const end = matchingClose(text, i + 1);
+      if (end === -1) return -1;
+      i = end + 1;
+      continue;
+    }
+    i += 1;
+  }
+  return -1;
+}
+
+/** The `{ … }` that is the call's second top-level argument, or undefined. */
+function secondArgumentObject(args: string): string | undefined {
+  let depth = 0;
+  let i = 0;
+  let commas = 0;
+  while (i < args.length) {
+    const skipped = skipCommentOrString(args, i);
+    if (skipped === -1) return undefined;
+    if (skipped !== i) { i = skipped; continue; }
+    const ch = args[i]!;
+    if (ch === '(' || ch === '{' || ch === '[') {
+      if (depth === 0 && commas === 1 && ch === '{') {
+        const close = matchingClose(args, i);
+        return close === -1 ? undefined : args.slice(i, close + 1);
+      }
+      depth += 1;
+    } else if (ch === ')' || ch === '}' || ch === ']') depth -= 1;
+    else if (ch === ',' && depth === 0) commas += 1;
+    i += 1;
+  }
+  return undefined;
+}
+
+/** The plain string literal value of `name:` at the top level of an object literal, else undefined. */
+function topLevelStringProperty(object: string, name: string): string | undefined {
+  const key = new RegExp(`^(?:${name}|'${name}'|"${name}")\\s*:\\s*`, 'u');
+  let depth = 0;
+  let i = 1; // past the opening brace
+  const end = object.length - 1;
+  while (i < end) {
+    const skipped = skipCommentOrString(object, i);
+    if (skipped === -1) return undefined;
+    if (skipped !== i) { i = skipped; continue; }
+    const ch = object[i]!;
+    if (ch === '(' || ch === '{' || ch === '[') { depth += 1; i += 1; continue; }
+    if (ch === ')' || ch === '}' || ch === ']') { depth -= 1; i += 1; continue; }
+    if (depth === 0 && (i === 1 || /[\s,{/]/u.test(object[i - 1]!))) {
+      const match = key.exec(object.slice(i));
+      if (match !== null) {
+        const valueStart = i + match[0].length;
+        const quote = object[valueStart];
+        if (quote !== '"' && quote !== "'" && quote !== '`') return undefined;
+        const valueEnd = stringEnd(object, valueStart);
+        if (valueEnd === -1) return undefined;
+        const raw = object.slice(valueStart + 1, valueEnd);
+        // An interpolated template is computed; a plain one is a literal.
+        return quote === '`' && /\$\{/u.test(raw) ? undefined : raw.replace(/\\(.)/gu, '$1');
+      }
+    }
+    i += 1;
+  }
+  return undefined;
 }
 
 interface WorkerCall { detail: string; cli?: string }

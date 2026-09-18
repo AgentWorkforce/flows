@@ -1,3 +1,4 @@
+import type { HumanRecipient } from './human-to.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
@@ -28,6 +29,8 @@ export type AuthoredFlowExecutionErrorCode =
   | 'human_parked'
   /** A recorded answer to `f.human` was not `{ answer: boolean }`. */
   | 'human_answer_invalid'
+  /** `f.human`'s `to` is not one of the documented recipient forms (human-to.ts). */
+  | 'human_to_invalid'
   | 'unsupported_header'
   | 'unsettled_derived_work'
   | 'unsupported_promise_lifecycle'
@@ -52,6 +55,8 @@ export interface AuthoredHumanWait {
   readonly waitId: string;
   readonly question: string;
   readonly to: string;
+  /** `to` parsed into its delivery form (human-to.ts); Cloud delivers by it. */
+  readonly recipient?: HumanRecipient;
 }
 
 /**

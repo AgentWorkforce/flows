@@ -843,13 +843,37 @@ lowered as a `human-N` deterministic step carrying the answer on stdout, so it
 is journal evidence in the same shape as every other authored step. A `no` is
 a value the body decides on — `done("declined")` exits 0 — never a failure.
 
-`to` names who is asked and is recorded with the question; the local kit does
-not deliver it anywhere (that is the channel-delivery work in RFC covenant 3
-and `ops/BACKLOG.md`). Authority is the journal socket: whoever can reach the
-daemon can answer, and `answeredBy` records the OS user who did. On Cloud the
-same wait is answered through the run's answer route with the caller's
-identity. `timeout` is not yet enforced (DESIGN.md §1.4). `f.dispatch` still
-fails closed as `unsupported_verb`.
+`to` names who is asked. It is recorded with the question and reported as
+`humanWait.recipient`, parsed into one of four forms — the delivery contract
+Cloud acts on (the local kit records it and delivers nothing):
+
+| `to`              | Cloud delivers                                              | who may answer          |
+|-------------------|-------------------------------------------------------------|-------------------------|
+| `"slack:#eng"`    | a message in that channel                                   | anyone in the channel   |
+| `"slack:@khaliq"` | a DM to that Slack user                                     | that user               |
+| `"github:@khaliq"`| a comment on the triggering issue / PR, mentioning them     | that user               |
+| `"khaliq"`        | the deploy's approver, on the channel the run was triggered from (the Slack thread, or the GitHub issue / PR) | that user |
+
+Anything else — `slack:` with no target, `github:#eng`, an unknown provider,
+a handle with spaces — is refused at the call as `human_to_invalid`, before an
+ordinal is consumed or anything is journaled, rather than parking the run on a
+question that can reach no one.
+
+The person answers **where they were asked** — `yes` / `no` as a reply in the
+Slack thread (or ✅ / ❌ on the message), or `@relay yes` / `@relay no` as a
+comment on the issue — and Cloud records it as the run's answer and resumes
+the run; the dashboard is never required. A literal `slack:` or `github:` `to`
+is a requirement of the flow (`flows check` prints `slack (f.human to)`) and
+`flows deploy` asks to connect it before activating. A computed `to`
+(`input.approver`) is resolved by Cloud at park time.
+
+Locally, authority is the journal socket: whoever can reach the daemon can
+answer, and `answeredBy` records the OS user who did. On Cloud the same wait is
+answered through the run's answer route — by the delivered channel above, or
+`POST /api/v1/workflows/runs/<id>/answer` — with the answerer's identity
+(`slack:@handle`, `github:@login`, or the Cloud user). `timeout` is not yet
+enforced (DESIGN.md §1.4). `f.dispatch` still fails closed as
+`unsupported_verb`.
 
 `flows resume` reports `run_unavailable` only when relayflowd returns the
 typed `run_not_found` refusal. A dropped connection, request failure, or

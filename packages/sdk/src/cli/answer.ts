@@ -1,3 +1,4 @@
+import { parseHumanRecipient } from '../human-to.js';
 import { userInfo } from 'node:os';
 import { readAuthoredRootMetadata } from '../authored-root.js';
 import { HUMAN_WAIT_ID, humanAnswerPayload, readHumanAnswer, readOpenHumanWaits, resumeCommand } from '../authored-human.js';
@@ -75,7 +76,7 @@ export async function answerFlow(
       report: {
         ...base, ok: true, runId, socketPath, status: snapshot.status,
         answer: { waitId, answer, ...(options.note === undefined ? {} : { note: options.note }) },
-        humanWait: { waitId, question: wait.question, to: wait.to },
+        humanWait: { waitId, question: wait.question, to: wait.to, recipient: parseHumanRecipient(wait.to) },
         next: resumeCommand(runId, dataDir, root?.localAgentStream !== undefined),
         diagnostics: [],
       },

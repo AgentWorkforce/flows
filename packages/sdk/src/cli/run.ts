@@ -1,3 +1,4 @@
+import { parseHumanRecipient } from '../human-to.js';
 import { parseDigestReference } from '../bundle-transport.js';
 import { prepareDigestRun } from './run-digest.js';
 import { reuseSummary } from './reuse.js';
@@ -331,7 +332,7 @@ export function authoredHumanParked(
       socketPath,
       status: 'parked',
       parkedStep: { id: 'authored-root', type: 'agent' },
-      humanWait: error.wait,
+      humanWait: { ...error.wait, recipient: parseHumanRecipient(error.wait.to) },
       diagnostics: [...base.diagnostics, {
         severity: 'parked',
         kind: 'run_parked',
