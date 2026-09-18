@@ -88,6 +88,9 @@ subscriptions (`subscription.opened` / `subscription.closed` over a durable
 stream) and stream-backed waits with `settle_ms`, `idle_at_ms`, and
 `deadline_at_ms`. As of v2.0.14 no step produces `wait.event`, and
 `timeout_at_ms` is not yet enforced for either `wait.event` or `wait.human`.
+`wait.human` is produced by manual recovery (Appendix A) and by `step.wait`
+(§5), the verb an authored root uses to park its attempt on an `f.human`
+question.
 
 ### 1.5 `wait.human`
 Durable human await. Payload: `wait_id`, `prompt` (what is being asked),
@@ -387,7 +390,8 @@ Minimal verb set for gate 1:
 | `effect.record` | `{run_id, step_id, attempt, idempotency_key, surface_path, revision_before, revision_after}` → `{deduped}` | phase one: agent records a writeback before performing it; the journal boundary elects one provider-call winner. `deduped:false` means this attempt owes the call **and** the `effect.confirm` that closes it |
 | `effect.confirm` | `{run_id, step_id, attempt, idempotency_key, surface_path}` → `{confirmed}` | phase two: the elected attempt made the provider call. Until it lands the election is reclaimable by a later attempt, so a worker that dies mid-writeback loses nothing; only the election holder may confirm |
 | `step.complete` | `{run_id, step_id, attempt, idempotency_key, completionReason, output, usage, started_pins, end_pins, effects, trajectory_tail}` → `{}` | completes a dispatched step — **also the out-of-band path**: the lease holder reports its actual start/end pins and journaled effect refs; kernel verifies them, runs the gate, and decides the edge |
-| `event.emit` | `{run_id, event_key, payload}` → `{matched: n}` | satisfies `wait.event`; a human response arrives here too, closing `wait.human` with `completionReason: human_responded` |
+| `step.wait` | `{run_id, step_id, attempt, idempotency_key, wait_id, prompt, requested_of, options?, timeout_at_ms?}` → run outcome | the lease holder parks its attempt on a `wait.human` (§1.5) instead of completing it: no `step.completed`, no iteration charged, lease released, run `parked`. `wait_id` names the question for the life of the run; a reuse is refused. Only the lease holder may call it |
+| `event.emit` | `{run_id, event_key, payload}` → `{matched: n}` | satisfies `wait.event` by `event_key`; a human response arrives here too, with `event_key` = the `wait_id`, closing `wait.human` with `completionReason: human_responded` and `result` = the payload. The step folds to `Runnable` and is dispatched as a fresh attempt |
 | `stream.append` | `{run_id, stream, message}` → `{offset}` | durable channel write; journals `stream.appended` |
 | `stream.read` | `{run_id, stream, from_offset, limit}` → `{messages, next_offset}` | at-least-once replayable read; committing the consumer offset happens via the reader's step pins, not a verb |
 | `journal.read` | `{run_id, from_seq, limit}` → `{entries}` | raw journal access — replay, audit, the report step |

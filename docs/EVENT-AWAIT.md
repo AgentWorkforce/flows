@@ -39,15 +39,19 @@ Verified against `main` at `85e7e372`:
 - `relayflowd-core/src/state.rs` folds `wait.event` into `StepState::Waiting`,
   and `relayflowd/src/engine/remote.rs` `emit_event` closes every open wait
   whose `event_key` matches.
-- **No step produces `wait.event`.** Only `wait.human` is appended (manual
-  recovery, `machine/recovery.rs`).
+- **No step produces `wait.event`.** `wait.human` is appended by manual
+  recovery (`machine/recovery.rs`) and by the `step.wait` verb, which a lease
+  holder uses to park its attempt on an `f.human` question; `emit_event`
+  closes a `wait.human` whose `wait_id` equals the `event_key` with
+  `human_responded`.
 - **`timeout_at_ms` is never read.** A wait with a timeout would wait forever.
 - **An event with no open wait is dropped.** `emit_event` returns
   `matched: 0` and journals nothing, so an event that lands while the body is
   running a fix step is lost.
 - **The authored `Ctx` has no `on`.** `packages/surface/src/context.ts`
-  exposes `human`, `dispatch`, and `done`; the authored executor throws
-  `unsupported_verb` for `human` and `dispatch` (#400).
+  exposes `human`, `dispatch`, and `done`; `human` lowers to `wait.human`
+  (SURFACE.md §5 *Human gates*); the authored executor still throws
+  `unsupported_verb` for `dispatch`.
 
 ## 3. Surface
 
@@ -296,6 +300,7 @@ implementation proves:
 - **Pattern language.** v0 `wait.event` is exact-match; triggers already carry
   a recursive-subset `pattern`. Leaning: reuse `pattern` for subscriptions and
   keep `event_key` for exact-match waits.
-- **Relationship to `f.human`.** #400 needs a durable approval wait. Leaning:
-  `f.human(question, { to, timeout })` lowers to `wait.human` with the timers
-  from §5.5, and resolves to `false` on timeout.
+- **Relationship to `f.human`.** `f.human(question, { to })` lowers to
+  `wait.human` today (#400) and is answered by `event.emit` keyed by the wait
+  id. Open: `timeout` should reuse the timers from §5.5 and resolve to `false`
+  on timeout.

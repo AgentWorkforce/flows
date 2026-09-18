@@ -32,21 +32,24 @@ part isn't the agents — it's what each `.gate()` checks:
 - The human gate (`f.human`) is the last word. Everything upstream can pass
   every gate and the flow still won't publish without a yes.
 
-## Status: typechecks, does not run yet
+## Running it
 
 ```sh
-cd packages/surface && npm run typecheck:examples
+flows run --local-agent social-post-pipeline.flow.ts \
+  --input '{"brand":"acme","topic":"launch week","approver":"khaliq"}'
+# … agents run; the flow reaches f.human and parks:
+# PARKED [run_parked] Run "<run-id>" is waiting for khaliq to answer human-5: "Ready to publish …"
+# Answer with: flows answer <run-id> human-5 yes|no
+flows answer <run-id> human-5 yes --note "copy approved"
+flows resume --local-agent <run-id>
 ```
 
-- `f.agent(...)` builds a real step, but parks without a worker attached —
-  same as every other example in this repo today.
-- `f.human(...)` currently **throws** `unsupported_verb` in the SDK's
-  authored-flow executor (`packages/sdk/src/authored-flow-executor.ts`). The
-  human-approval gate is declared surface, not yet wired to any execution
-  path — it's sequenced behind gates 2-4 and the `f.human` channel-delivery
-  work tracked for gate 6 (`ops/BACKLOG.md`).
+`f.human` parks the run on the kernel's durable `wait.human` (exit 3, the same
+park code as every other wait). The question, who it is for, the answer, who
+gave it and when are all journal facts; the resumed body re-runs to the same
+line, finds the recorded answer, and every agent step before it is memoized —
+nothing upstream is repeated. A `no` is a flow decision (`done("declined")`,
+exit 0), not a failure. On Cloud the same wait is answered through the run's
+answer route instead of the CLI.
 
-This flow documents the intended shape so that when `f.human` and the agent
-worker land, this example starts working with no rewrite — just like
-`docs/SURFACE.md` §1 promises: *"a simple flow becomes a harness by
-accretion, never a rewrite."*
+`f.agent(...)` needs a worker: `--local-agent` locally, or run it on Cloud.
