@@ -197,7 +197,8 @@ async function postComment(f: Ctx, pr: Pr): Promise<void> {
       // Walk every page of comments (busy PRs exceed one page) before posting.
       + `page=1; while :; do out=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(`${api}?per_page=100&page=`)}"$page") || exit 1; `
       + `if printf '%s' "$out" | grep -qF ${shellWord(marker)}; then echo "already posted for ${pr.headSha}"; exit 0; fi; `
-      + `[ "$(printf '%s' "$out" | grep -c '"node_id"')" -ge 100 ] || break; page=$((page+1)); [ "$page" -le 50 ] || break; done; `
+      // The page is one JSON line: count occurrences, not lines.
+      + `[ "$(printf '%s' "$out" | grep -o '"node_id"' | wc -l)" -ge 100 ] || break; page=$((page+1)); [ "$page" -le 50 ] || break; done; `
       + `{ printf '%s\n' ${shellWord(marker)}; if [ "$(wc -c < ${CONSENSUS})" -gt 60000 ]; then head -c 60000 ${CONSENSUS}; printf '\n\n_…truncated; the full review is in the run artifacts (${CONSENSUS})._\n'; else cat ${CONSENSUS}; fi; } > review/comment.md && `
       + `node -e 'const fs=require("fs");process.stdout.write(JSON.stringify({body:fs.readFileSync("review/comment.md","utf8")}))' > review/comment.json && `
       + `curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(api)} --data-binary @review/comment.json > /dev/null`,
