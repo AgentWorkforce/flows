@@ -53,11 +53,19 @@ export default flow<PrReviewInput>(
       if (pr === undefined) {
         throw new Error("pr-review-pipeline needs diffRange (local) or input.pullRequest (a pull_request trigger)");
       }
-      await f.run(`git fetch --no-tags origin ${shellWord(pr.baseRef)}`);
+      // A shallow, tags-free fetch of just the base tip; the three-dot diff
+      // needs the merge base, so deepen until git finds one. Both get their
+      // own lease: f.run defaults to 30s, which a real base branch can exceed.
+      await f.run(
+        `git fetch --no-tags --depth=200 origin ${shellWord(pr.baseRef)} && `
+          + `until git merge-base FETCH_HEAD ${shellWord(pr.headSha)} >/dev/null 2>&1; do `
+          + `git fetch --no-tags --deepen=500 origin ${shellWord(pr.baseRef)} || exit 1; done`,
+        { timeout: "5m" },
+      );
       range = `FETCH_HEAD...${pr.headSha}`;
     }
     const diff = await f
-      .run(`git diff ${shellWord(range)}`)
+      .run(`git diff ${shellWord(range)}`, { timeout: "2m" })
       .gate((out) => out.trim().length > 0, "nothing to review — the diff is empty");
     await f.run("mkdir -p review");
 
