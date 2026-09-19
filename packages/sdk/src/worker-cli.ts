@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { diffWorkspaceFiles, snapshotWorkspaceFiles } from './agent-artifacts.js';
 import { claudeResultOutcome, decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
 import { openSidechannel, type SidechannelContext } from './pty-sidechannel.js';
-import { openTranscriptWriter, redactText, transcriptPath, type TranscriptDigest, type TranscriptWriter } from './agent-transcript.js';
+import { openTranscriptWriter, transcriptPath, type TranscriptDigest, type TranscriptFile, type TranscriptWriter } from './agent-transcript.js';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { childStop } from './child-stop.js';
@@ -21,6 +21,9 @@ import {
   type WrapperSessionLimits,
 } from './wrapper-session.js';
 import { wrapperEnvironment } from './wrapper-runtime.js';
+import { redactRelayError } from './redact.js';
+import { applyStepEnvironment } from './step-env.js';
+import { TAIL_CLOSE_TIMEOUT_MS, openTranscriptTail, transcriptTailPath, type TranscriptTailWriter } from './transcript-tail.js';
 import {
   runAgentRelayTask,
   AgentRelayTransportError,
@@ -107,29 +110,43 @@ export async function runAgentCli(
   // serialized around their snapshot-spawn-snapshot interval, so one agent's
   // writes are never attributed to a concurrent one in the same directory.
   //
-  // The attempt's transcript file is written during that interval by this
-  // process, not by the agent; when the data dir sits under the cwd (a local
-  // `--data-dir` inside the project) it is dropped from the diff by path.
+  // This process writes its own evidence during that interval — the attempt's
+  // transcript file and the two `flows status --tail` tails — and when the data
+  // dir sits under the cwd (a local `--data-dir` inside the project) they all
+  // land inside the scanned tree. None of them is agent-authored content, so
+  // every one is dropped from the diff by path. Missing any of them reports
+  // our own bookkeeping back to the kernel as the step's artifacts.
   const artifactRoot = mode === 'agent' ? resolve(cwd ?? process.cwd()) : undefined;
   return artifactRoot === undefined
     ? execute()
     : serializedByDirectory(artifactRoot, async () => {
       const before = await snapshotWorkspaceFiles(artifactRoot);
       const result = await execute();
-      const transcriptFile = realPath(result.transcript?.file?.path);
+      const ours = new Set<string>();
+      for (const path of [result.transcript?.file?.path, ...tailPaths(sidechannel)]) {
+        const real = realPath(path);
+        if (real !== undefined) ours.add(real);
+      }
       const artifacts = diffWorkspaceFiles(before, await snapshotWorkspaceFiles(artifactRoot))
-        .filter(path => transcriptFile === undefined || realPath(resolve(artifactRoot, path)) !== transcriptFile);
+        .filter(path => {
+          const real = realPath(resolve(artifactRoot, path));
+          return real === undefined || !ours.has(real);
+        });
       return { ...result, artifacts };
     });
 
   async function execute(): Promise<WorkerCliResult> {
   if (kind === 'relayflows-wrapper-v1') {
+    // The closed allowlist admits no ambient RELAYFLOW_* value; the four
+    // discovery names are set from this dispatch, exactly as for a direct spawn.
+    const wrapperEnv = wrapperEnvironment(process.env);
+    applyStepEnvironment(wrapperEnv, sidechannel);
     return requirePricedUsage(decodeWrapperResult(await runWrapperSession(
       cli,
       instruction,
       wakeContext,
       effectiveModel,
-      wrapperEnvironment(process.env),
+      wrapperEnv,
       wrapperLimits,
       signal,
       cwd,
@@ -139,6 +156,9 @@ export async function runAgentCli(
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env[WAKE_CONTEXT_ENV];
   delete env[MODEL_ENV];
+  // Where this attempt's journal is, so the agent can run `flows status` on
+  // itself. Only a worker with a data dir knows; an ad-hoc spawn exports nothing.
+  applyStepEnvironment(env, sidechannel);
   const invocation = mode === 'llm' ? llmExecution(kind, instruction, effectiveModel) : agentExecution(kind, instruction, effectiveModel);
 
   if (wakeContext !== undefined) {
@@ -161,6 +181,43 @@ export async function runAgentCli(
   args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'stream-json', '--verbose'] : ['--json']));
   const completion = kind === 'claude' ? claudeResultOutcome : undefined;
   return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion), kind, env), effectiveModel);
+  }
+}
+
+function openTails(context: SidechannelContext): { stdout: TranscriptTailWriter; stderr: TranscriptTailWriter } | undefined {
+  // Same rule as the per-attempt transcript file: no attempt, no tails.
+  const attempt = context.attempt;
+  if (attempt === undefined) return undefined;
+  const identity = { dataDir: context.dataDir, runId: context.runId, stepId: context.stepId, attempt };
+  try {
+    return { stdout: openTranscriptTail(identity, 'stdout'), stderr: openTranscriptTail(identity, 'stderr') };
+  } catch {
+    // An id the path cannot carry; the sidechannel declined it the same way.
+    return undefined;
+  }
+}
+
+/**
+ * Where this attempt's `--tail` files are, so the artifact diff can drop them.
+ * Empty when there is no sidechannel or no attempt to name, which is exactly
+ * when `openTails` declines to write any.
+ */
+function tailPaths(context: SidechannelContext | undefined): string[] {
+  const attempt = context?.attempt;
+  if (context === undefined || attempt === undefined) return [];
+  const identity = { dataDir: context.dataDir, runId: context.runId, stepId: context.stepId, attempt };
+  try {
+    // Both the finished file and the `.tmp` the writer stages and renames over
+    // (`transcript-tail.ts`): a close that timed out or a flush that failed can
+    // leave the staging file behind, and it is no more agent-authored than the
+    // file it was going to become.
+    return ['stdout', 'stderr'].flatMap((stream) => {
+      const path = transcriptTailPath(identity, stream as 'stdout' | 'stderr');
+      return [path, `${path}.tmp`];
+    });
+  } catch {
+    // An id the path cannot carry; no tails were written either.
+    return [];
   }
 }
 
@@ -216,14 +273,6 @@ async function runViaAgentRelay(
 }
 
 /**
- * `RELAY_AGENT_TOKEN` and `RELAY_API_KEY` are secret-named, so the shared
- * redactor scrubs their values by name and the relay token prefixes by shape.
- */
-function redactRelayError(message: string): string {
-  return redactText(message, process.env);
-}
-
-/**
  * How long a CLI that has reported its final result may take to exit. Claude
  * Code in print mode waits, after its result, for every background task it
  * started to finish; one that never finishes kept a finished step running
@@ -256,7 +305,15 @@ async function spawnInvocation(
     ...sidechannel,
     onDrive() { driven = true; sidechannel.onDrive(); },
   }, bytes => writeInput(bytes), () => canDrive());
-  if (signal?.aborted) { channel?.close(); void writer?.close(); signal.throwIfAborted(); }
+  // Tee the transcript into bounded tail files beside the socket. Evidence
+  // for `flows status --tail`, never the record; a failure here is a warning.
+  const tails = sidechannel === undefined ? undefined : openTails(sidechannel);
+  if (signal?.aborted) {
+    channel?.close();
+    void writer?.close();
+    void tails?.stdout.close(); void tails?.stderr.close();
+    signal.throwIfAborted();
+  }
   return new Promise((resolve) => {
     // Always a group of its own off Windows, so every stop — and
     // `reapOnExit` — reaches the whole agent tree, lease-bound or not.
@@ -297,15 +354,38 @@ async function spawnInvocation(
       if (timer !== undefined) clearTimeout(timer);
       if (graceTimer !== undefined) clearTimeout(graceTimer);
       signal?.removeEventListener('abort', onAbort);
-      if (writer === undefined) { resolve(result); return; }
-      const rest = partialLine + decoder.end();
-      if (rest.length > 0) writer.write(rest);
-      // The file is finished either way so it can be inspected locally; on
-      // abort the result carries no pointer to it, as it carries no buffers.
-      writer.close().then(
-        file => resolve(discardTranscript || file === undefined ? result : { ...result, transcript: { file } }),
-        () => resolve(result),
-      );
+      if (writer === undefined && tails === undefined) { resolve(result); return; }
+      if (writer !== undefined) {
+        const rest = partialLine + decoder.end();
+        if (rest.length > 0) writer.write(rest);
+      }
+      // Two independent pieces of evidence close here: the per-attempt
+      // transcript, whose descriptor rides back on the result as the digest's
+      // file pointer, and the `flows status --tail` tails, which nothing reads
+      // from the result.
+      //
+      // Neither may hold a step open. A stalled write would leave
+      // `runAgentCli` unresolved forever, and every later abort or timeout is
+      // already a no-op once `settled` is true — so the whole close is raced
+      // against a bounded deadline and the result stands either way. Past the
+      // deadline the transcript pointer is dropped rather than waited for: a
+      // completion without a pointer is recoverable, a step that never
+      // completes is not.
+      // The writer's result is recorded the moment it lands, not read out of
+      // the combined race: the two closes are independent, and a stalled tail
+      // must not throw away a transcript that finished and is on disk.
+      let transcriptFile: TranscriptFile | undefined;
+      const closedWriter = writer === undefined
+        ? Promise.resolve()
+        : writer.close().then((file) => { transcriptFile = file; }, () => {});
+      const closedTails = tails === undefined
+        ? Promise.resolve()
+        : Promise.all([tails.stdout.close(), tails.stderr.close()]).then(() => undefined, () => undefined);
+      const deadline = new Promise<void>((done) => setTimeout(done, TAIL_CLOSE_TIMEOUT_MS).unref?.());
+      void Promise.race([Promise.all([closedWriter, closedTails]), deadline]).then(() => {
+        resolve(discardTranscript || transcriptFile === undefined
+          ? result : { ...result, transcript: { file: transcriptFile } });
+      }, () => resolve(result));
     };
     const onAbort = (): void => {
       stop.kill();
@@ -346,6 +426,9 @@ async function spawnInvocation(
     child.stdout.on('data', (chunk: Buffer) => {
       stdout.push(chunk);
       channel?.publish(chunk);
+      // The tails take raw bytes, so they are fed before any line splitting
+      // and regardless of what the writer or the detector still wants.
+      tails?.stdout.append(chunk);
       // Lines are split whenever a writer or a completion detector wants
       // them; the detector stops looking once a result has been seen, the
       // writer keeps every line to the end.
@@ -359,7 +442,7 @@ async function spawnInvocation(
         if (outcome !== undefined) onResult(outcome);
       }
     });
-    child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk); channel?.publish(chunk); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk); channel?.publish(chunk); tails?.stderr.append(chunk); });
     child.once('error', (error) => finishOnChildExit({
       exit_code: null,
       stdout_tail: Buffer.concat(stdout).toString('utf8'),

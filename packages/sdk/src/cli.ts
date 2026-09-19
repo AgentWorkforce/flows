@@ -24,6 +24,8 @@ import { checkAuthoredTriggers } from './cli/check-triggers.js';
 import { parseWebhookArgs, runServeWebhook } from './cli/serve-webhook.js';
 import { runDirectFlow } from './cli/direct-run.js';
 import { parseReplayArgs, replayJournal, type ReplayArgs } from './cli/replay.js';
+import { parseStatusArgs, runStatus, type StatusArgs } from './cli/status.js';
+import { transcriptTailSource } from './transcript-tail.js';
 import { checkTypeScriptFlow } from './cli/check-typescript.js';
 import { runCloudCli } from './cli/cloud-run.js';
 import { runCloudSyncCli } from './cli/cloud-sync.js';
@@ -59,6 +61,7 @@ type CliExitCode = 0 | 1 | 2 | 3;
 export type ParsedArgs =
   | { command: 'add'; value: string }
   | ReplayArgs
+  | StatusArgs
   | BuildArgs
   | DeployArgs
   | { command: 'serve-webhook'; dataDir: string; port: number; admitted?: readonly string[] }
@@ -104,6 +107,7 @@ const USAGE = [
   'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <run-id>',
   'flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>',
   'flows replay [--allow-human-influenced] [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
+  'flows status [--json] [--data-dir <dir>] [--tail <n>] [<run-id>]',
   'flows observer [--data-dir <dir>]',
   'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
 ].join('\n');
@@ -195,6 +199,9 @@ export async function runCli(
   if (parsed.command === 'schedules') return runCloudSchedulesCli(parsed, io);
   if (parsed.command === 'unschedule') return runCloudUnscheduleCli(parsed, io);
   if (parsed.command === 'replay') return replayJournal(parsed, io);
+  // Daemon-free like `check`: reads one journal file and nothing else, so it
+  // works inside a step of a run whose daemon is gone (kernel/DAEMON-LIFECYCLE.md §4).
+  if (parsed.command === 'status') return runStatus(parsed, io, { tails: transcriptTailSource() });
   if (parsed.command === 'answer') {
     const execution = await answerFlow(parsed.runId, parsed.waitId, parsed.answer, parsed.dataDir, {
       ...(parsed.note === undefined ? {} : { note: parsed.note }),
@@ -498,6 +505,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (command === undefined || !CLI_VERB_NAMES.has(command)) return undefined;
   if (command === 'add') return args.length === 2 ? { command: 'add', value: args[1]! } : undefined;
   if (command === 'replay') return parseReplayArgs(args.slice(1));
+  if (command === 'status') return parseStatusArgs(args.slice(1));
   if (command === 'build') return parseBuildArgs(args.slice(1));
   if (command === 'deploy') {
     // The positional decides the form: an authored source deploys a hosted

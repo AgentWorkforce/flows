@@ -79,6 +79,101 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'default-model-ok'
   });
 });
 
+describe('step discovery environment', () => {
+  const NAMES = ['RELAYFLOW_DATA_DIR', 'RELAYFLOW_RUN_ID', 'RELAYFLOW_STEP_ID', 'RELAYFLOW_ATTEMPT', 'RELAYFLOW_WAKE_CONTEXT', 'RELAYFLOW_MODEL'];
+
+  function snapshotCli(directory: string): string {
+    return makeWrapper(directory, 'claude', `
+const names = ${JSON.stringify(NAMES)};
+process.stdout.write(JSON.stringify(Object.fromEntries(names.map(name => [name, process.env[name] ?? null]))));
+`);
+  }
+
+  it('names the run, step, attempt and an absolute data dir for a direct agent spawn', async () => {
+    const directory = makeDirectory();
+    const claude = snapshotCli(directory);
+    // A dotted path proves the agent sees a resolved absolute path, not what the worker was handed.
+    const dataDir = join(directory, 'scratch', '..', 'data');
+    const result = await withEnvironment({ RELAYFLOW_RUN_ID: 'ambient-run', RELAYFLOW_ATTEMPT: '9' }, () =>
+      runAgentCli(claude, 'look around', { wake: 1 }, 'unpriced-test-model', undefined, undefined, 'agent', {
+        dataDir, runId: 'run-1', stepId: 'analyze', attempt: 2, onDrive() {},
+      }));
+    expect(result.exit_code).toBe(0);
+    expect(JSON.parse(result.stdout_tail)).toEqual({
+      RELAYFLOW_DATA_DIR: join(directory, 'data'),
+      RELAYFLOW_RUN_ID: 'run-1',
+      RELAYFLOW_STEP_ID: 'analyze',
+      RELAYFLOW_ATTEMPT: '2',
+      RELAYFLOW_WAKE_CONTEXT: '{"wake":1}',
+      RELAYFLOW_MODEL: null,
+    });
+  });
+
+  it('exports none of the four without a data dir, even when the worker inherited them', async () => {
+    const directory = makeDirectory();
+    const claude = snapshotCli(directory);
+    const result = await withEnvironment({
+      RELAYFLOW_DATA_DIR: '/parent/data', RELAYFLOW_RUN_ID: 'parent-run', RELAYFLOW_STEP_ID: 'parent-step', RELAYFLOW_ATTEMPT: '3',
+    }, () => runAgentCli(claude, 'look around', undefined, 'unpriced-test-model'));
+    expect(result.exit_code).toBe(0);
+    expect(JSON.parse(result.stdout_tail)).toEqual({
+      RELAYFLOW_DATA_DIR: null, RELAYFLOW_RUN_ID: null, RELAYFLOW_STEP_ID: null, RELAYFLOW_ATTEMPT: null,
+      RELAYFLOW_WAKE_CONTEXT: null, RELAYFLOW_MODEL: null,
+    });
+  });
+});
+
+describe('wrapper discovery environment', () => {
+  const NAMES = ['RELAYFLOW_DATA_DIR', 'RELAYFLOW_RUN_ID', 'RELAYFLOW_STEP_ID', 'RELAYFLOW_ATTEMPT', 'FOO_TOKEN', 'PATH'];
+
+  function snapshotWrapper(directory: string): string {
+    return makeWrapper(directory, 'snapshot-wrapper', `
+const names = ${JSON.stringify(NAMES)};
+const snapshot = () => Object.fromEntries(names.map(name => [name, process.env[name] ?? null]));
+const identification = snapshot();
+process.stdout.write('relayflows-agent-cli-v1\\n');
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => { input += chunk; });
+process.stdin.on('end', () => {
+  process.stdout.write('relayflows-agent-cli-v1-execute\\n');
+  process.stdout.write(JSON.stringify({ identification, execution: snapshot() }));
+});
+`);
+  }
+
+  it('sets the four names from the dispatch and still refuses ambient values and other secrets', async () => {
+    const directory = makeDirectory();
+    const wrapper = snapshotWrapper(directory);
+    const dataDir = join(directory, 'data');
+    const result = await withEnvironment({
+      RELAYFLOW_DATA_DIR: '/parent/data', RELAYFLOW_RUN_ID: 'parent-run', RELAYFLOW_STEP_ID: 'parent-step', RELAYFLOW_ATTEMPT: '7',
+      FOO_TOKEN: 'ambient-secret',
+    }, () => runAgentCli(wrapper, 'instruction', undefined, undefined, undefined, undefined, 'agent', {
+      dataDir, runId: 'run-1', stepId: 'wrapped', attempt: 3, onDrive() {},
+    }));
+    expect(result).toMatchObject({ exit_code: 0, stderr_tail: '' });
+    const expected = {
+      RELAYFLOW_DATA_DIR: dataDir, RELAYFLOW_RUN_ID: 'run-1', RELAYFLOW_STEP_ID: 'wrapped', RELAYFLOW_ATTEMPT: '3',
+      FOO_TOKEN: null, PATH: process.env['PATH'] ?? null,
+    };
+    expect(JSON.parse(result.stdout_tail)).toEqual({ identification: expected, execution: expected });
+  });
+
+  it('exports none of the four to a wrapper without a data dir, even when the worker inherited them', async () => {
+    const directory = makeDirectory();
+    const wrapper = snapshotWrapper(directory);
+    const result = await withEnvironment({
+      RELAYFLOW_DATA_DIR: '/parent/data', RELAYFLOW_RUN_ID: 'parent-run', RELAYFLOW_STEP_ID: 'parent-step', RELAYFLOW_ATTEMPT: '7',
+    }, () => runAgentCli(wrapper, 'instruction', undefined));
+    expect(result).toMatchObject({ exit_code: 0, stderr_tail: '' });
+    const { identification, execution } = JSON.parse(result.stdout_tail);
+    for (const snapshot of [identification, execution]) {
+      expect(snapshot).toMatchObject({ RELAYFLOW_DATA_DIR: null, RELAYFLOW_RUN_ID: null, RELAYFLOW_STEP_ID: null, RELAYFLOW_ATTEMPT: null });
+    }
+  });
+});
+
 describe('custom wrapper execution identity', () => {
   it('passes an explicit safe environment at identification and execution', async () => {
     const directory = makeDirectory();

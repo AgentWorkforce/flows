@@ -138,6 +138,9 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   },
   // `--data-dir` carries a default in the tree, so the receiver has to start without it.
   { verb: 'serve-webhook', argv: ['serve-webhook', '--port', '8080'], variant: 'serve-webhook' },
+  // The run id is optional: inside a step the environment supplies it.
+  { verb: 'status', argv: ['status'], variant: 'status' },
+  { verb: 'status', argv: ['status', '--json', '--data-dir', '.relayflowd', '--tail', '5', RUN_ID], variant: 'status' },
   { verb: 'sync', argv: ['sync', RUN_ID], variant: 'sync' },
   { verb: 'sync', argv: ['sync', '--dry-run', '--json', '--dir', '.', RUN_ID], variant: 'sync' },
   {
@@ -353,16 +356,30 @@ describe('relay-cli surface: drift between `commands` and `run`', () => {
       if (command.subcommands?.length) continue;
 
       const required = (command.args ?? []).filter((arg) => arg.required).length;
+      const declared = (command.args ?? []).length;
       const variadic = (command.args ?? []).some((arg) => arg.variadic);
       const samples = INVOCATIONS.filter(({ argv }) => reaches(argv, path));
 
       expect(samples.length, `flows ${path.join(' ')} has a sample invocation`).toBeGreaterThan(0);
 
+      const arities = new Set<number>();
       for (const { argv } of samples) {
         const positionals = positionalIndices(command, argv, path.length);
         const rendered = `flows ${argv.join(' ')}`;
         if (variadic) expect(positionals.length, rendered).toBeGreaterThanOrEqual(required);
-        else expect(positionals.length, rendered).toBe(required);
+        else if (declared === required) expect(positionals.length, rendered).toBe(required);
+        else {
+          // An optional positional (`status [<run-id>]`): within the declared
+          // range, and the samples must exercise both ends of it, so an
+          // optional that the parser actually requires — or a required one
+          // it merely documents — is caught either way.
+          expect(positionals.length, rendered).toBeGreaterThanOrEqual(required);
+          expect(positionals.length, rendered).toBeLessThanOrEqual(declared);
+        }
+        arities.add(positionals.length);
+      }
+      if (!variadic && declared !== required) {
+        expect(arities, `flows ${path.join(' ')} samples both ${required} and ${declared} positionals`).toEqual(new Set([required, declared]));
       }
 
       if (required === 0) continue;

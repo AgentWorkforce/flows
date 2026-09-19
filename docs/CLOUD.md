@@ -311,6 +311,18 @@ declaration and its `flows.tick` lowering either way.
   deadline; this SDK does not override or claim to fix it.
 - Cloud must provision and preflight agent workers; this client performs spec
   compilation only and cannot prove hosted credentials or worker availability.
+- Inside a hosted sandbox, `flows status` (SURFACE.md §5) works unchanged: the
+  worker is the `--local-agent` of the CLI Cloud spawns with `--data-dir`, so
+  the agent's own journal is on its own disk and the four `RELAYFLOW_*`
+  discovery names are set by that worker with no Cloud env change. Cloud's one
+  obligation is to put the same pinned `flows` binary that wrote the journal on
+  the agent's PATH; today it is invoked by absolute path only. What the agent
+  cannot learn from disk is Cloud's alone and is not guessed: its Cloud run id
+  (a UUID Cloud may export separately; with it alone the agent can call
+  nothing), its sandbox, which listener launched it, and sibling runs. From
+  outside the sandbox nothing sees step state — the Cloud API exposes only
+  `status` and a terminal `completionReason`, and no journal-export endpoint
+  exists or is proposed.
 - `publishFlowRun` and the gallery are **design-only** under the revised WS-14
   scope, by Khaliq’s ruling. Publication needs a new endpoint in the Cloud
   repository, outside this lane, with no assigned owner. The written design is

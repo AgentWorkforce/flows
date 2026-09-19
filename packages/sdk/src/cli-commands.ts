@@ -266,6 +266,17 @@ export const CLI_VERBS = [
     variants: ['serve-webhook'],
   },
   {
+    name: 'status',
+    description: 'Show a run’s steps, attempts, leases and last verdicts from its journal; offline, no daemon',
+    args: [{ name: 'run-id', description: 'Run to inspect; defaults to RELAYFLOW_RUN_ID inside a step', required: false }],
+    options: [
+      JSON_OPTION,
+      DATA_DIR_OPTION,
+      { flags: '--tail <n>', description: 'Lines of each agent attempt’s transcript tail to show' },
+    ],
+    variants: ['status'],
+  },
+  {
     name: 'sync',
     description: 'Apply a hosted run’s code changes to a local tree (replaces `agent-relay cloud sync`)',
     args: [{ name: 'run-id', description: 'Hosted run id whose patch to apply', required: true }],

@@ -622,8 +622,9 @@ Deployment, remote upload, and execution by digest remain future slices.
 
 ## 5. Invocation: the gate-1 CLI
 
-Gate 1 ships three CLI verbs over the journal protocol, plus one out-of-band
-verb (`observer`) that mints an observer link without contacting the daemon:
+Gate 1 ships three CLI verbs over the journal protocol, plus two out-of-band
+verbs: `observer`, which mints an observer link without contacting the
+daemon, and `status`, which reads a run's journal without one:
 
 ```text
 flows check [--watch] [--json] <flow.yaml|spec.json>
@@ -632,6 +633,7 @@ flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-jso
 flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>
 flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>
 flows observer [--data-dir <dir>]
+flows status [--json] [--data-dir <dir>] [--tail <n>] [<run-id>]
 ```
 
 ### Agent sidechannel (initial byte-stream slice)
@@ -681,6 +683,76 @@ URL to stdout using the same mint used by `flows run`. It is daemon-free: no
 socket is opened, no `relayflowd` binary is invoked, the data dir is not
 touched. Refusals (`no workspace key configured`, mint failure) print
 `REFUSED [observer_link_unavailable] <reason>` on stderr and exit 2.
+
+### Run self-inspection: `flows status`
+
+`flows status` is what a step can see about its own run. By default it reads
+exactly one file — `<data-dir>/runs/<run-id>.sqlite3`, through the same
+copy-then-verify snapshot `flows replay` uses (`--tail` additionally reads the
+attempt transcript-tail files described below, and nothing else) — and folds it
+into the run's status, each step's
+state / attempt / lease / backoff / wait, the last completion's reason, gate
+verdict and (redacted, ≤ 1 KiB) detail, a summary of the attempt's journaled
+transcript digest, spend and step counts. It never opens the run
+registry, `connection.json`, the daemon socket or the network, never spawns
+a daemon, and holds no credential: the journal is on the same filesystem as
+the process asking. It does not inherit `replay`'s `human_influenced_run`
+refusal, since it re-executes nothing.
+
+The transcript summary comes from the digest the worker journals in
+`trajectory_tail.transcript` on every agent attempt: the model, turn and tool
+counts, the provider's own cost, and the path, size and truncation flag of the
+full per-attempt transcript file — plus the failure excerpt when the attempt
+failed. `flows status` never prints the transcript itself; it points at the
+file. The digest's strings were redacted when it was built and are redacted
+again here. An attempt that journaled no digest (an `llm` step, or a run that
+predates the digest) shows no transcript line and reports `null`.
+
+Discovery: an explicit `<run-id>` (with `--data-dir`, default `.relayflowd`),
+else `RELAYFLOW_RUN_ID` and `RELAYFLOW_DATA_DIR` from the environment, else
+`REFUSED [run_unknown]` and exit 2. Every direct or wrapper agent attempt that
+has a data dir is spawned with four non-secret names — `RELAYFLOW_DATA_DIR`
+(absolute), `RELAYFLOW_RUN_ID`, `RELAYFLOW_STEP_ID`, `RELAYFLOW_ATTEMPT` — so
+a bare `flows status` inside a step resolves that step's run and marks it
+`← this step`. Without a data dir the four are absent, not empty; an ambient
+value from an enclosing step never passes through. A spawn that names no
+attempt sets the other three and leaves `RELAYFLOW_ATTEMPT` absent rather than
+empty — the run and step are what resolve the view; the attempt only picks a
+transcript tail. With these an agent can
+open its journal and nothing else.
+
+Exit codes: 0 rendered; 1 rendered but a section could not be read (`partial`
+non-empty, e.g. `journal_read_failed` after a mid-journal parse error); 2
+refused (`run_unknown`, `run_not_found`, `journal_busy` after five 50 ms
+retries against a mid-flight writer, and the other `replay` refusals).
+
+`--json` emits one canonicalised object (`v: 1`). Its schema has no field for
+step instructions, input bindings, output bodies, wake contexts, pins or
+effect refs, so their absence is structural. `LEASE OVERDUE by <t>` in the
+text view is computed from the journaled lease deadline and the wall clock
+alone — a local dead-man that needs no daemon.
+
+`--tail <n>` renders the last *n* lines of this attempt's stdout and stderr
+after redaction. Every direct agent attempt with a data dir tees its
+transcript into `runs/<run-id>/steps/<step-id>/attempt-<n>.{stdout,stderr}.tail`:
+a 64 KiB ring, mode `0600`, rewritten whole at most four times a second, with
+a header line naming the run, step, attempt and start time so a file left by
+an earlier life of the data dir is never read as this attempt's. These files
+are evidence, not the record — a write failure is one process warning and the
+step completes exactly as before; the journal remains truth. They are not
+written for wrapper or relay transport. On disk they are raw; the same OS
+user can already read `pty.sock`.
+
+Redaction (`redact.ts`) applies to every free-text field the view prints:
+the value of any current env var whose name matches
+`TOKEN|SECRET|KEY|PASSWORD|PASSWD|CREDENTIAL|AUTH` and is ≥ 8 chars becomes
+`[redacted:<NAME>]`; relay, bearer, header, vendor and `NAME=value` token
+shapes become `[redacted]` with their name kept. Identifiers — run and step
+ids, hashes, env *names* — are never rewritten, so the view stays greppable.
+
+What `flows status` cannot tell a hosted run is Cloud's: its Cloud run id,
+sandbox and listener, and anything about sibling runs. See
+[CLOUD.md](CLOUD.md#current-limits-and-scope).
 
 Inside `flows run` and `flows resume` that same mint is fire-and-forget. It is
 issued **once per invocation**, before the run, and its outcome reaches nothing

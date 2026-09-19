@@ -1,9 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fsPromises from 'node:fs/promises';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { Socket } from 'node:net';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { DatabaseSync as Database } from 'node:sqlite';
@@ -11,13 +10,13 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.js';
 import { walkJournal, type JournalEvent } from '../src/journal-client.js';
+import { writeJournalFixture } from './journal-fixture.js';
 
 vi.mock('node:fs/promises', async (importOriginal) => ({
   ...await importOriginal<typeof import('node:fs/promises')>(),
 }));
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 const CLI = join(ROOT, 'packages/sdk/dist/cli.js');
 // Captured from a real completed kernel run; replay must not execute its
 // recorded agent command or its 35-second deterministic command.
@@ -39,26 +38,8 @@ function temporaryDirectory(): string {
 
 function fixture(events = EVENTS, wal = false): { dataDir: string; path: string; writer: Database } {
   const dataDir = temporaryDirectory();
-  mkdirSync(join(dataDir, 'runs'));
-  const path = join(dataDir, 'runs', `${RUN_ID}.sqlite3`);
-  const writer = new DatabaseSync(path);
-  if (wal) writer.exec('PRAGMA journal_mode = WAL');
   // Persist the real envelope using the schema in relayflowd-journal/src/lib.rs.
-  writer.exec(`
-    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
-    INSERT INTO meta VALUES ('run_id', '${RUN_ID}'), ('journal_version', '1');
-    CREATE TABLE segments (segment_id INTEGER PRIMARY KEY, journal_version INTEGER NOT NULL, opened_seq INTEGER NOT NULL);
-    INSERT INTO segments VALUES (1, 1, 1);
-    CREATE TABLE entries (
-      seq INTEGER PRIMARY KEY, segment_id INTEGER NOT NULL REFERENCES segments(segment_id),
-      entry_type TEXT NOT NULL, step_id TEXT, attempt INTEGER, at_ms INTEGER NOT NULL, payload TEXT NOT NULL
-    );
-  `);
-  const insert = writer.prepare('INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?)');
-  for (const event of events) {
-    insert.run(event.seq, event.segment_id, event.entry_type, event.step_id, event.attempt, event.at_ms, JSON.stringify(event.payload));
-  }
-  return { dataDir, path, writer };
+  return { dataDir, ...writeJournalFixture(dataDir, RUN_ID, events, wal) };
 }
 
 async function replay(dataDir: string, extra: string[] = [], runId = RUN_ID) {
@@ -264,7 +245,7 @@ describe('flows replay', () => {
     const output = await replay(dataDir);
     expect(output.code).toBe(2);
     expect(output.stdout).toEqual([]);
-    expect(output.stderr[0]).toContain('Journal changed while taking the replay snapshot');
+    expect(output.stderr[0]).toContain('Journal changed while taking the snapshot');
   });
 
   it('can stop at an unfinished step and release the walker early', async () => {
