@@ -1058,15 +1058,25 @@ the runtime itself writes. The worker's own per-attempt evidence lives under
 `attempt-<n>.<stream>.tail` files and the `.tmp` each tail is staged as), and a
 local `--data-dir` inside the project puts all of it inside the scanned tree.
 Every one of those paths is excluded from the diff by name in
-`packages/sdk/src/worker-cli.ts`, derived from the same identity that decides
-where they are written so the exclusion cannot drift from the files.
+`packages/sdk/src/worker-cli.ts`'s `ownEvidencePaths`, derived from the attempt
+identity — the same input that decides where each file is written, so the
+exclusion cannot drift from the files. Deriving it from anything the run
+*produces* is a mistake worth naming: an earlier version read the transcript's
+path off `result.transcript.file`, which `finish` omits when the close outruns
+its deadline or the attempt aborts, so the exclusion lapsed on exactly the paths
+where the file is slowest to finish and most likely to still be sitting there.
 
 Anyone adding a new runtime-written file under the run's data dir has to add it
-to that exclusion in the same change. Missing one does not degrade quietly: the
-worker reports its own bookkeeping as `output.artifacts`, and the kernel refuses
-the completion as `protocol_error` — the step fails, having succeeded. Dotfiles
-and dotdirs are skipped by the walk, so `.relayflowd` is already invisible; a
-data dir under any other name is not.
+to `ownEvidencePaths` in the same change. **Missing one is silent by default.**
+`step.complete` bounds `trajectory_tail` and passes `output` through verbatim
+(`kernel/relayflowd/src/server.rs`), so the kernel accepts the polluted list and
+the run succeeds with the worker's own bookkeeping journaled as the agent's
+`output.artifacts`. It only becomes loud where something reads that list: an
+`artifact_exists` gate on a path that is now crowded, or a flow body that
+asserts on `AgentResult.artifacts` — which is how this was caught at all, by
+`packages/sdk/tests/agent-transcript-live.test.ts` failing its own
+`artifacts.length !== 0` check. Dotfiles and dotdirs are skipped by the walk, so
+`.relayflowd` is already invisible; a data dir under any other name is not.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.

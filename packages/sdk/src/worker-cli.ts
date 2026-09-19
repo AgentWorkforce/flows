@@ -123,7 +123,7 @@ export async function runAgentCli(
       const before = await snapshotWorkspaceFiles(artifactRoot);
       const result = await execute();
       const ours = new Set<string>();
-      for (const path of [result.transcript?.file?.path, ...tailPaths(sidechannel)]) {
+      for (const path of ownEvidencePaths(sidechannel)) {
         const real = realPath(path);
         if (real !== undefined) ours.add(real);
       }
@@ -198,25 +198,37 @@ function openTails(context: SidechannelContext): { stdout: TranscriptTailWriter;
 }
 
 /**
- * Where this attempt's `--tail` files are, so the artifact diff can drop them.
+ * Every path this process may write under the workspace during an attempt, so
+ * the artifact diff can drop all of them.
+ *
+ * Derived from the attempt identity — the same input `openTranscriptWriter` and
+ * `openTails` use to decide where to write — and never from the result. The
+ * transcript pointer on the result is optional: `finish` drops it when the
+ * close outruns `TAIL_CLOSE_TIMEOUT_MS` and `discardTranscript` drops it on
+ * abort, and on both paths the file is already on disk. An exclusion built from
+ * that pointer therefore lost the transcript exactly when the close was slow,
+ * which is the moment the file is most likely to still be there.
+ *
  * Empty when there is no sidechannel or no attempt to name, which is exactly
- * when `openTails` declines to write any.
+ * when nothing is written.
  */
-function tailPaths(context: SidechannelContext | undefined): string[] {
+function ownEvidencePaths(context: SidechannelContext | undefined): string[] {
   const attempt = context?.attempt;
   if (context === undefined || attempt === undefined) return [];
   const identity = { dataDir: context.dataDir, runId: context.runId, stepId: context.stepId, attempt };
   try {
-    // Both the finished file and the `.tmp` the writer stages and renames over
-    // (`transcript-tail.ts`): a close that timed out or a flush that failed can
-    // leave the staging file behind, and it is no more agent-authored than the
-    // file it was going to become.
-    return ['stdout', 'stderr'].flatMap((stream) => {
-      const path = transcriptTailPath(identity, stream as 'stdout' | 'stderr');
-      return [path, `${path}.tmp`];
-    });
+    // For each tail, both the finished file and the `.tmp` the writer stages
+    // and renames over (`transcript-tail.ts`): a close that timed out or a
+    // flush that failed can leave the staging file behind, and it is no more
+    // agent-authored than the file it was going to become.
+    const paths = [transcriptPath(identity, attempt)];
+    for (const stream of ['stdout', 'stderr'] as const) {
+      const tail = transcriptTailPath(identity, stream);
+      paths.push(tail, `${tail}.tmp`);
+    }
+    return paths;
   } catch {
-    // An id the path cannot carry; no tails were written either.
+    // An id the path cannot carry; nothing was written under it either.
     return [];
   }
 }
