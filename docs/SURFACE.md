@@ -686,9 +686,11 @@ touched. Refusals (`no workspace key configured`, mint failure) print
 
 ### Run self-inspection: `flows status`
 
-`flows status` is what a step can see about its own run. It opens exactly one
-file — `<data-dir>/runs/<run-id>.sqlite3`, through the same copy-then-verify
-snapshot `flows replay` uses — and folds it into the run's status, each step's
+`flows status` is what a step can see about its own run. By default it reads
+exactly one file — `<data-dir>/runs/<run-id>.sqlite3`, through the same
+copy-then-verify snapshot `flows replay` uses (`--tail` additionally reads the
+attempt transcript-tail files described below, and nothing else) — and folds it
+into the run's status, each step's
 state / attempt / lease / backoff / wait, the last completion's gate verdict
 and (redacted, ≤ 1 KiB) detail, spend and step counts. It never opens the run
 registry, `connection.json`, the daemon socket or the network, never spawns

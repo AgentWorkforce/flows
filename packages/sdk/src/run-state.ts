@@ -59,6 +59,14 @@ export interface StepView {
   backoff_until_ms: number | null;
   wait: { wait_id: string; kind: 'human' | 'event' | 'timer'; timeout_at_ms: number | null } | null;
   last_attempt: LastAttempt | null;
+  /**
+   * Why this step finished, once it is `done`. Separate from `last_attempt`
+   * because an epoch summary carries `steps_done[id].completionReason`
+   * (kernel `entry.rs` `StepDoneSummary`) but no attempt record — so after a
+   * compaction this is the only place the fact survives. Dependency readiness
+   * and the failure glyph both read this, never `last_attempt`.
+   */
+  completion_reason: string | null;
   /** Paths the worker journaled for the last attempt, when its output carried them. */
   artifacts: { paths: string[]; journaled: boolean };
 }
@@ -97,17 +105,41 @@ function text(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
 }
 
-/** Sum two decimal dollar strings in microdollars; the journal never stores floats. */
-function addDollars(left: string, right: string): string {
-  const micro = (value: string): bigint | null => {
-    const match = /^(\d+)(?:\.(\d{1,6}))?$/.exec(value);
-    if (match === null) return null;
-    return BigInt(match[1]!) * 1_000_000n + BigInt((match[2] ?? '').padEnd(6, '0'));
-  };
-  const total = (micro(left) ?? 0n) + (micro(right) ?? 0n);
-  const whole = total / 1_000_000n;
-  const fraction = String(total % 1_000_000n).padStart(6, '0').replace(/0+$/, '');
-  return fraction.length === 0 ? String(whole) : `${whole}.${fraction}`;
+/**
+ * Sum two decimal dollar strings exactly, at whatever scale they carry — the
+ * kernel's budget fold (`relayflowd-core/src/state/budget.rs`) aligns every
+ * fractional digit before adding, and it accepts arbitrary precision. Scaling
+ * to a fixed six fractional digits dropped a charge of `0.0000001` to zero, so
+ * `flows status` underreported spend the kernel had totalled exactly.
+ *
+ * A value that is not a decimal number is left out of the sum rather than
+ * counted as zero, and the caller is told by `malformed`.
+ */
+export function addDollars(left: string, right: string): string {
+  const parsed = [left, right].map((value) => /^\d+(?:\.\d+)?$/.test(value) ? value : null);
+  const usable = parsed.filter((value): value is string => value !== null);
+  if (usable.length === 0) return '0';
+  if (usable.length === 1) return normalizeDollars(usable[0]!);
+  const scale = Math.max(...usable.map((value) => (value.split('.')[1] ?? '').length));
+  const scaled = usable.map((value) => {
+    const [whole, fraction = ''] = value.split('.');
+    return BigInt(`${whole}${fraction.padEnd(scale, '0')}`);
+  });
+  return fromScaled(scaled[0]! + scaled[1]!, scale);
+}
+
+/** `12.3400` -> `12.34`, `0.000` -> `0`; the journal's own spelling otherwise. */
+function normalizeDollars(value: string): string {
+  const [whole, fraction = ''] = value.split('.');
+  return fromScaled(BigInt(`${whole}${fraction}`), fraction.length);
+}
+
+function fromScaled(total: bigint, scale: number): string {
+  if (scale === 0) return String(total);
+  const digits = String(total).padStart(scale + 1, '0');
+  const whole = digits.slice(0, digits.length - scale);
+  const fraction = digits.slice(digits.length - scale).replace(/0+$/, '');
+  return fraction.length === 0 ? whole : `${whole}.${fraction}`;
 }
 
 function addSpend(total: Spend, charge: unknown): Spend {
@@ -133,7 +165,7 @@ function freshStep(id: string, type: string, maxIterations: number | null, depen
     view: {
       id, type, state: 'pending', attempt: 0, max_iterations: maxIterations,
       started_at_ms: null, elapsed_ms: null, lease: null, backoff_until_ms: null, wait: null,
-      last_attempt: null, artifacts: { paths: [], journaled: false },
+      last_attempt: null, completion_reason: null, artifacts: { paths: [], journaled: false },
     },
   };
 }
@@ -233,6 +265,7 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
           view.wait = { wait_id: `park-${view.id}-${attempt}`, kind: 'human', timeout_at_ms: null };
         } else {
           enter(view, 'done');
+          view.completion_reason = view.last_attempt.completion_reason;
         }
         break;
       }
@@ -262,6 +295,7 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
             attempt: view.attempt, completion_reason: 'canceled', disposition: 'step_done',
             verification: null, human_intervention: false, effects: 0, ended_at_ms: event.at_ms,
           };
+          view.completion_reason = 'canceled';
         } else {
           enter(view, 'runnable');
         }
@@ -276,10 +310,15 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
         }
         spend = addSpend(ZERO_SPEND, payload['budget_spent']);
         const done = payload['steps_done'] !== null && typeof payload['steps_done'] === 'object' ? payload['steps_done'] as Payload : {};
-        for (const id of Object.keys(done)) {
+        for (const [id, summary] of Object.entries(done)) {
           const view = steps.get(id)?.view;
           if (view === undefined) throw new RunStateError(`Epoch summary names unknown step ${JSON.stringify(id)}.`);
           enter(view, 'done');
+          // `StepDoneSummary` (kernel entry.rs) carries `completionReason` and
+          // nothing else about the attempt. Keep the reason, which dependency
+          // readiness and the glyph need; invent no attempt record around it.
+          const facts = summary !== null && typeof summary === 'object' ? summary as Payload : {};
+          view.completion_reason = text(facts['completionReason'], 'unknown');
         }
         const open = payload['steps_open'] !== null && typeof payload['steps_open'] === 'object' ? payload['steps_open'] as Payload : {};
         for (const [id, summary] of Object.entries(open)) {
@@ -290,7 +329,13 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
           const state = facts['state'];
           if (state === 'running') {
             enter(view, 'running');
-            view.started_at_ms = event.at_ms;
+            // The summary carries no original attempt start, and the kernel
+            // does not track one. Stamping the epoch's own time here made the
+            // live `attempt-<n>.*.tail` header look stale to
+            // `readTranscriptTail` and restarted elapsed at the compaction.
+            // Unknown is the honest value: elapsed goes unrendered and the
+            // tail's staleness check is skipped rather than failed.
+            view.started_at_ms = null;
             view.lease = { deadline_ms: integer(facts['lease_deadline_ms']) ?? event.at_ms, overdue_ms: 0 };
           } else if (state === 'backoff') {
             enter(view, 'backoff');
@@ -325,7 +370,7 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
     if (step.view.state !== 'pending') continue;
     const ready = step.depends_on.every((dependency) => {
       const upstream = steps.get(dependency)?.view;
-      return upstream?.state === 'done' && upstream.last_attempt?.completion_reason === 'success';
+      return upstream?.state === 'done' && upstream.completion_reason === 'success';
     });
     if (ready) step.view.state = 'runnable';
   }
@@ -334,8 +379,12 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
   const counts: StepCounts = { total: 0, done: 0, running: 0, pending: 0, backoff: 0, waiting: 0, needs_human: 0 };
   for (const { view } of steps.values()) {
     if (view.started_at_ms !== null) {
-      const end = view.state === 'running' ? now_ms : view.last_attempt?.ended_at_ms ?? now_ms;
-      view.elapsed_ms = Math.max(0, end - view.started_at_ms);
+      // `ended_at_ms` belongs to the attempt that ended. A retry, wait or
+      // sleep starts a newer attempt whose `started_at_ms` is later than that,
+      // and measuring to the older end clamped a live wait's elapsed to zero.
+      const ended = view.last_attempt?.ended_at_ms ?? null;
+      const end = ended === null || ended < view.started_at_ms ? now_ms : ended;
+      view.elapsed_ms = Math.max(0, (view.state === 'running' ? now_ms : end) - view.started_at_ms);
     }
     if (view.lease !== null) view.lease.overdue_ms = Math.max(0, now_ms - view.lease.deadline_ms);
     counts.total += 1;

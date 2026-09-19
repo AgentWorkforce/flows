@@ -4,7 +4,8 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runAgentCli } from '../src/worker-cli.js';
 import {
-  openTranscriptTail, readTranscriptTail, transcriptTailPath, TAIL_CAPACITY_BYTES, type TailHeader,
+  openTranscriptTail, readTranscriptTail, transcriptTailPath, transcriptTailSource,
+  TAIL_CAPACITY_BYTES, type TailHeader,
 } from '../src/transcript-tail.js';
 
 const directories: string[] = [];
@@ -147,5 +148,42 @@ process.stderr.write('err line 1\\n');
     // One warning: stdout had bytes to flush; stderr never did, so it never tried.
     expect(warnings.filter((message) => message.includes('could not be written'))).toHaveLength(1);
     expect(existsSync(join(dataDir, 'runs', 'run-9', 'steps'))).toBe(false);
+  });
+});
+
+// --- review findings on flows#492 ------------------------------------------
+
+describe('transcriptTailSource redaction', () => {
+  async function tailLines(text: string, env: NodeJS.ProcessEnv, lines = 10): Promise<string[]> {
+    const identity = { dataDir: dir(), ...IDENTITY };
+    const tail = openTranscriptTail(identity, 'stdout', 1000);
+    tail.append(Buffer.from(text));
+    await tail.close();
+    const step = { id: IDENTITY.stepId, type: 'agent', attempt: IDENTITY.attempt, started_at_ms: 1000 } as never;
+    const tails = await transcriptTailSource(env).read(identity.dataDir, IDENTITY.runId, step, lines);
+    return tails?.stdout?.lines ?? [];
+  }
+
+  it('redacts a multiline secret the agent printed across lines', async () => {
+    // `lastLines` split before it redacted, so no single line held the whole
+    // env value and `replaceAll` matched none of the pieces.
+    const env = { DEPLOY_PRIVATE_KEY: 'line-one\nline-two\nline-three' };
+    const lines = await tailLines(`before\n${env.DEPLOY_PRIVATE_KEY}\nafter\n`, env);
+    const joined = lines.join('\n');
+    expect(joined).not.toContain('line-two');
+    expect(joined).toContain('[redacted:DEPLOY_PRIVATE_KEY]');
+    expect(joined).toContain('before');
+    expect(joined).toContain('after');
+  });
+
+  it('still redacts a single-line secret and leaves ordinary text alone', async () => {
+    const env = { GH_TOKEN: 'abcdefghij' };
+    const lines = await tailLines('ok\nusing abcdefghij now\n', env);
+    expect(lines).toEqual(['ok', 'using [redacted:GH_TOKEN] now']);
+  });
+
+  it('keeps the last N lines after redacting the whole text', async () => {
+    const lines = await tailLines('a\nb\nc\nd\ne\n', {}, 2);
+    expect(lines).toEqual(['d', 'e']);
   });
 });

@@ -245,7 +245,7 @@ describe('flows replay', () => {
     const output = await replay(dataDir);
     expect(output.code).toBe(2);
     expect(output.stdout).toEqual([]);
-    expect(output.stderr[0]).toContain('Journal changed while taking the replay snapshot');
+    expect(output.stderr[0]).toContain('Journal changed while taking the snapshot');
   });
 
   it('can stop at an unfinished step and release the walker early', async () => {

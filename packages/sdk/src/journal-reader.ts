@@ -84,7 +84,7 @@ export async function* walkJournal(
     if (before.some((value, index) => value !== after[index])) {
       // Its own code: the journal is fine, a writer was mid-flight. A reader
       // that can wait (`flows status`) retries on this and nothing else.
-      throw new JournalReadError('journal_busy', `Cannot read journal for run "${runId}": Journal changed while taking the replay snapshot; retry replay.`);
+      throw new JournalReadError('journal_busy', `Cannot read journal for run "${runId}": Journal changed while taking the snapshot; retry the command.`);
     }
     const file = await open(snapshot, 'r');
     try {

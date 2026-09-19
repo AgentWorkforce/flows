@@ -69,3 +69,48 @@ describe('redactRelayError', () => {
     expect(redactRelayError('Bearer abc GITHUB_TOKEN=zzz', {})).toBe('Bearer [redacted] GITHUB_TOKEN=[redacted]');
   });
 });
+
+// --- review finding on flows#492: quoted JSON credential fields -------------
+
+describe('redact — JSON credential fields', () => {
+  it('redacts an opaque quoted value the environment does not carry', () => {
+    // No vendor token shape, and the value was never exported, so every other
+    // rule left `{"authToken":"opaque-secret"}` intact.
+    expect(redact('{"authToken":"opaque-secret"}', {})).toBe('{"authToken":"[redacted]"}');
+  });
+
+  for (const [name, value] of [
+    ['token', 'abcdefgh'],
+    ['authorization', 'Basic zzzzzzzz'],
+    ['api_key', 'xyz12345'],
+    ['refresh_token', 'rrrrrrrr'],
+    ['sessionCookie', 'cccccccc'],
+    ['X-Callback-Token', 'aaaabbbb'],
+    ['PASSWORD', 'hunter22'],
+  ] as const) {
+    it(`redacts "${name}"`, () => {
+      expect(redact(`{"${name}":"${value}"}`, {})).toBe(`{"${name}":"[redacted]"}`);
+    });
+  }
+
+  for (const name of ['monkey', 'keyboard', 'donkey', 'name', 'turkey']) {
+    it(`leaves "${name}" alone — containing a credential noun is not being one`, () => {
+      const text = `{"${name}":"banana-time"}`;
+      expect(redact(text, {})).toBe(text);
+    });
+  }
+
+  it('leaves non-string and short values alone', () => {
+    expect(redact('{"tokens":3}', {})).toBe('{"tokens":3}');
+    expect(redact('{"AUTH_MODE":"off"}', {})).toBe('{"AUTH_MODE":"off"}');
+  });
+
+  it('redacts one field without disturbing its neighbours', () => {
+    expect(redact('{"a":"keep this","secret":"ssssssss","b":"keep too"}', {}))
+      .toBe('{"a":"keep this","secret":"[redacted]","b":"keep too"}');
+  });
+
+  it('does not re-redact an already redacted value', () => {
+    expect(redact('{"token":"[redacted]"}', {})).toBe('{"token":"[redacted]"}');
+  });
+});

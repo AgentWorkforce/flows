@@ -21,6 +21,12 @@ import type { StepView } from './run-state.js';
 export const TAIL_CAPACITY_BYTES = 64 * 1024;
 /** At most four rewrites a second, however fast the agent talks. */
 export const TAIL_FLUSH_INTERVAL_MS = 250;
+/**
+ * How long a spawn's completion will wait for the final tail flush. Transcript
+ * evidence is best-effort, so a stalled filesystem must cost the step this
+ * much and no more — past it the invocation settles and the close runs on.
+ */
+export const TAIL_CLOSE_TIMEOUT_MS = 2_000;
 
 export type TailStream = 'stdout' | 'stderr';
 
@@ -160,10 +166,15 @@ export async function readTranscriptTail(
   return { header: claimed as TailHeader, bytes: body.length, text: body.toString('utf8') };
 }
 
+/**
+ * Redact the whole tail before splitting it. A direct agent inherits the
+ * worker's environment, so it can print a multiline secret; splitting first
+ * meant no line held the whole value and `replaceAll` matched none of them.
+ */
 function lastLines(text: string, count: number, env: NodeJS.ProcessEnv): string[] {
-  const lines = text.split('\n');
+  const lines = redact(text, env).split('\n');
   if (lines.at(-1) === '') lines.pop();
-  return lines.slice(Math.max(0, lines.length - count)).map((line) => redact(line, env));
+  return lines.slice(Math.max(0, lines.length - count));
 }
 
 /** The {@link TailSource} `flows status` uses: this step's latest attempt, redacted. */

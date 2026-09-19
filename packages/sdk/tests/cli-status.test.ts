@@ -116,8 +116,8 @@ describe('flows status', () => {
     });
     expect(view.steps).toHaveLength(3);
     expect(Object.keys(view.steps[0]).sort()).toEqual([
-      'artifacts', 'attempt', 'backoff_until_ms', 'elapsed_ms', 'id', 'last_attempt', 'lease',
-      'max_iterations', 'started_at_ms', 'state', 'tails', 'type', 'wait',
+      'artifacts', 'attempt', 'backoff_until_ms', 'completion_reason', 'elapsed_ms', 'id',
+      'last_attempt', 'lease', 'max_iterations', 'started_at_ms', 'state', 'tails', 'type', 'wait',
     ]);
     expect(view.steps[0].tails).toBeNull();
     // Canonical: sorted keys, no whitespace, so two invocations diff clean.
@@ -336,5 +336,46 @@ process.stdout.write(JSON.stringify({ status: child.status, stdout: child.stdout
     const text = await status(['--data-dir', dataDir, RUN_ID]);
     expect(text.code).toBe(1);
     expect(text.stdout[2]).toBe('partial: journal_read_failed');
+  });
+  // --- review findings on flows#492 ---------------------------------------
+
+  it('renders a step carried done by an epoch summary as a success, not a failure', async () => {
+    // `steps_done` discarded `completionReason`, so `last_attempt` was null and
+    // the glyph read that as failure while its dependent stayed pending.
+    const [spawned] = EVENTS as [JournalEvent];
+    const summary: JournalEvent = {
+      seq: 2, segment_id: 1, run_id: RUN_ID, step_id: null, attempt: null, at_ms: spawned.at_ms + 1000,
+      entry_type: 'epoch.summary',
+      payload: {
+        epoch: 2, prev_segment_id: 1, journal_version: 1,
+        steps_done: { implement: { completionReason: 'success', output: {} } },
+        steps_open: {}, budget_spent: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+      },
+    };
+    const { dataDir } = fixture([spawned, summary]);
+    const json = await status(['--json', '--data-dir', dataDir, RUN_ID]);
+    const view = JSON.parse(json.stdout[0]!);
+    expect(view.steps[0]).toMatchObject({ id: 'implement', state: 'done', completion_reason: 'success' });
+    expect(view.steps[1]!.state).toBe('runnable');
+    const text = await status(['--data-dir', dataDir, RUN_ID]);
+    const line = text.stdout.find((row) => row.includes('implement'))!;
+    expect(line).not.toContain('\u2717');
+    expect(line).toContain('\u2713');
+  });
+
+  it('still marks a genuinely failed done step with the failure glyph', async () => {
+    const [spawned] = EVENTS as [JournalEvent];
+    const summary: JournalEvent = {
+      seq: 2, segment_id: 1, run_id: RUN_ID, step_id: null, attempt: null, at_ms: spawned.at_ms + 1000,
+      entry_type: 'epoch.summary',
+      payload: {
+        epoch: 2, prev_segment_id: 1, journal_version: 1,
+        steps_done: { implement: { completionReason: 'worker_error', output: {} } },
+        steps_open: {}, budget_spent: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+      },
+    };
+    const { dataDir } = fixture([spawned, summary]);
+    const text = await status(['--data-dir', dataDir, RUN_ID]);
+    expect(text.stdout.find((row) => row.includes('implement'))!).toContain('\u2717');
   });
 });

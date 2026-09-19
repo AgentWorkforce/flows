@@ -233,7 +233,10 @@ function renderText(view: Presented, partial: string[], wantTails: boolean): str
 }
 
 function renderStep(step: PresentedStep, view: Presented, idWidth: number, wantTails: boolean): string[] {
-  const failed = step.state === 'done' && step.last_attempt?.completion_reason !== 'success';
+  // `completion_reason`, not `last_attempt`: an epoch summary carries the
+  // reason without an attempt record, and reading the latter marked every
+  // compacted success as a failure.
+  const failed = step.state === 'done' && step.completion_reason !== 'success';
   const glyph = failed ? '✗' : GLYPH[step.state];
   const cells = [safe(step.id).slice(0, 24).padEnd(idWidth), step.type.padEnd(13), step.state.padEnd(11)];
   const iterations = step.max_iterations === null ? '' : `/${step.max_iterations}`;
@@ -247,9 +250,12 @@ function renderStep(step: PresentedStep, view: Presented, idWidth: number, wantT
   }
   if (step.state === 'backoff' && step.backoff_until_ms !== null) cells.push(`backoff until ${instant(step.backoff_until_ms)}`);
   if (step.wait !== null) cells.push(`awaiting ${step.wait.kind}: ${safe(step.wait.wait_id)}`);
-  if (step.state === 'done' && step.last_attempt !== null) {
-    cells.push(step.last_attempt.completion_reason);
-    if (step.last_attempt.verification !== null) cells.push(`gate: ${step.last_attempt.verification.gate} ${step.last_attempt.verification.verdict}`);
+  if (step.state === 'done' && step.completion_reason !== null) {
+    // From the step, not the attempt: an epoch-carried step has the reason
+    // and no attempt record, and the reason is the thing worth printing.
+    cells.push(step.completion_reason);
+    const verification = step.last_attempt?.verification ?? null;
+    if (verification !== null) cells.push(`gate: ${verification.gate} ${verification.verdict}`);
   }
   if (step.id === view.this_step) cells.push('← this step');
   const lines = [`  ${glyph} ${cells.join('  ')}`.trimEnd()];

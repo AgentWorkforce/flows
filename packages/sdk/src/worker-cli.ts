@@ -21,7 +21,7 @@ import {
 import { wrapperEnvironment } from './wrapper-runtime.js';
 import { redactRelayError } from './redact.js';
 import { applyStepEnvironment } from './step-env.js';
-import { openTranscriptTail, type TranscriptTailWriter } from './transcript-tail.js';
+import { TAIL_CLOSE_TIMEOUT_MS, openTranscriptTail, type TranscriptTailWriter } from './transcript-tail.js';
 import {
   runAgentRelayTask,
   AgentRelayTransportError,
@@ -280,8 +280,15 @@ async function spawnInvocation(
       if (graceTimer !== undefined) clearTimeout(graceTimer);
       signal?.removeEventListener('abort', onAbort);
       if (tails === undefined) { resolve(result); return; }
+      // Transcript evidence is best-effort and must never hold a step open: a
+      // stalled write would leave `runAgentCli` unresolved forever, and every
+      // later abort or timeout is a no-op once `settled` is true. Give the
+      // flush a bounded window, then settle regardless and let the close
+      // finish on its own.
       const settle = (): void => resolve(result);
-      Promise.all([tails.stdout.close(), tails.stderr.close()]).then(settle, settle);
+      const closed = Promise.all([tails.stdout.close(), tails.stderr.close()]);
+      const deadline = new Promise<void>((done) => setTimeout(done, TAIL_CLOSE_TIMEOUT_MS).unref?.());
+      Promise.race([closed.then(() => undefined, () => undefined), deadline]).then(settle, settle);
     };
     const onAbort = (): void => {
       stop.kill();

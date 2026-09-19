@@ -216,6 +216,111 @@ describe('foldRunState', () => {
     expect(view.spend).toMatchObject({ tokens_in: 9, tokens_out: 1, dollars: '0.01' });
   });
 
+  // --- review findings on flows#492 -------------------------------------
+
+  it('carries each done step\'s completion reason across an epoch summary', () => {
+    // `steps_done[id].completionReason` was discarded, `last_attempt` stayed
+    // null, and the dependency check required `last_attempt.completion_reason
+    // === 'success'` — so `analyze` stayed pending after a compaction and
+    // `fetch` rendered with the failure glyph.
+    const view = foldRunState(journal(
+      spawned, started('fetch', 1, T0 + 30_000, T0 + 1000), completed('fetch', 1, T0 + 2000, {}),
+      { entry_type: 'epoch.summary', payload: {
+        epoch: 2, prev_segment_id: 1, journal_version: 1,
+        steps_done: { fetch: { completionReason: 'success', output: {} } },
+        steps_open: {},
+        budget_spent: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+      } },
+    ), T0 + 5000);
+    const [fetch, analyze, post] = view.steps;
+    expect(fetch).toMatchObject({ state: 'done', completion_reason: 'success' });
+    // The reason is carried; no attempt record is invented around it.
+    expect(fetch!.last_attempt).toBeNull();
+    expect(analyze!.state).toBe('runnable');
+    // `post` depends on `analyze`, which has not succeeded.
+    expect(post!.state).toBe('pending');
+  });
+
+  it('does not make a dependent runnable behind a failed carried step', () => {
+    const view = foldRunState(journal(
+      spawned,
+      { entry_type: 'epoch.summary', payload: {
+        epoch: 2, prev_segment_id: 1, journal_version: 1,
+        steps_done: { fetch: { completionReason: 'failed', output: {} } },
+        steps_open: {}, budget_spent: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+      } },
+    ), T0 + 5000);
+    expect(view.steps[0]).toMatchObject({ state: 'done', completion_reason: 'failed' });
+    expect(view.steps[1]!.state).toBe('pending');
+  });
+
+  it('leaves a carried running step\'s start time unknown rather than stamping the epoch', () => {
+    // Stamping `event.at_ms` made the live attempt tail header look stale to
+    // readTranscriptTail and restarted elapsed at the compaction.
+    const view = foldRunState(journal(
+      spawned,
+      { entry_type: 'epoch.summary', payload: {
+        epoch: 2, prev_segment_id: 1, journal_version: 1, steps_done: {},
+        steps_open: { fetch: { attempt: 3, state: 'running', lease_deadline_ms: T0 + 60_000 } },
+        budget_spent: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+      } },
+    ), T0 + 5000);
+    expect(view.steps[0]).toMatchObject({
+      state: 'running', attempt: 3, started_at_ms: null, elapsed_ms: null,
+      lease: { deadline_ms: T0 + 60_000, overdue_ms: 0 },
+    });
+  });
+
+  it('sets completion_reason on an ordinary completion too', () => {
+    const view = foldRunState(journal(
+      spawned, started('fetch', 1, T0 + 30_000, T0 + 1000),
+      completed('fetch', 1, T0 + 2000, { completionReason: 'failed' }),
+    ), T0 + 5000);
+    expect(view.steps[0]).toMatchObject({ state: 'done', completion_reason: 'failed' });
+    expect(view.steps[1]!.state).toBe('pending');
+  });
+
+  it('measures a live wait from the current attempt, not a previous one\'s end', () => {
+    // `ended_at_ms` belongs to the attempt that ended; after a retry it is
+    // older than the new attempt's start, and elapsed clamped to zero.
+    const view = foldRunState(journal(
+      spawned,
+      started('fetch', 1, T0 + 30_000, T0 + 1000),
+      completed('fetch', 1, T0 + 2000, { disposition: 'retry', completionReason: 'failed', next_attempt_at_ms: T0 + 3000 }),
+      started('fetch', 2, T0 + 40_000, T0 + 10_000),
+      { entry_type: 'sleep.until', step_id: 'fetch', attempt: 2, at_ms: T0 + 11_000, payload: { wake_at_ms: T0 + 90_000 } },
+    ), T0 + 20_000);
+    const fetch = view.steps[0]!;
+    expect(fetch.state).toBe('backoff');
+    expect(fetch.started_at_ms).toBe(T0 + 10_000);
+    expect(fetch.elapsed_ms).toBe(10_000);
+  });
+
+  it('adds decimal dollars at full precision, beyond six fractional digits', () => {
+    // Microdollar scaling returned null past six digits and the nullish
+    // fallback contributed zero, so `flows status` underreported spend.
+    const charge = (at: number, dollars: string) => ({
+      entry_type: 'step.completed', step_id: 'fetch', attempt: 1, at_ms: at,
+      payload: {
+        completionReason: 'success', disposition: 'step_done', output: {}, verification: null,
+        end_pins: null, effects: [], budget: { tokens_in: 0, tokens_out: 0, dollars },
+        completed_by: 'w', next_attempt_at_ms: null,
+      },
+    });
+    const view = foldRunState(journal(
+      spawned, started('fetch', 1, T0 + 30_000, T0 + 1000), charge(T0 + 2000, '0.0000001'),
+    ), T0 + 5000);
+    expect(view.spend.dollars).toBe('0.0000001');
+
+    const many = foldRunState(journal(
+      spawned,
+      started('fetch', 1, T0 + 30_000, T0 + 1000), charge(T0 + 2000, '0.0000001'),
+      started('analyze', 1, T0 + 30_000, T0 + 3000), charge(T0 + 4000, '1.23'),
+    ), T0 + 6000);
+    // Aligned at the wider scale, exactly, the way the kernel's fold adds them.
+    expect(many.spend.dollars).toBe('1.2300001');
+  });
+
   it('refuses a journal that does not begin with run.spawned or names an unknown step', () => {
     expect(() => foldRunState([], 0)).toThrow(RunStateError);
     expect(() => foldRunState(journal(spawned, started('ghost', 1, 1, 1)), 0)).toThrow(/unknown step "ghost"/);

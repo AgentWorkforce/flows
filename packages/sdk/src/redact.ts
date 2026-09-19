@@ -40,6 +40,28 @@ const NAMED_VALUE_PATTERNS: readonly RegExp[] = [
   /\b([A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD)=)(?!\[redacted)\S+/gi,
 ];
 
+/**
+ * Credential fields in serialized JSON. A gate detail or a transcript line
+ * often carries a request or config body, where the value is an opaque string
+ * that matches no vendor token shape and — for anything this process did not
+ * export — no environment value either: `{"authToken":"opaque-secret"}` went
+ * through untouched. The field name is kept, so the reader knows what was cut.
+ *
+ * Quoted string values only, and only where the field NAME ends in a
+ * credential noun. Containing one is not enough: `monkey` and `keyboard` are
+ * ordinary fields, so the name is split on separators and camelCase humps and
+ * the last word decides.
+ */
+const JSON_STRING_FIELD = /("([A-Za-z0-9_.\-]{1,64})"\s*:\s*")(?!\[redacted)([^"\\]{4,})(")/g;
+const CREDENTIAL_NOUN = /^(?:token|secret|key|password|passwd|credential|cookie)s?$/i;
+
+function isCredentialName(name: string): boolean {
+  if (name.toLowerCase() === 'authorization') return true;
+  const words = name.split(/[_\-.]+/).flatMap((word) => word.split(/(?<=[a-z0-9])(?=[A-Z])/u));
+  const last = words.at(-1);
+  return last !== undefined && CREDENTIAL_NOUN.test(last);
+}
+
 /** Secret env values, longest first so a value that contains another is replaced whole. */
 function secretEnvValues(env: NodeJS.ProcessEnv): Array<[name: string, value: string]> {
   const secrets: Array<[string, string]> = [];
@@ -62,6 +84,8 @@ export function redact(text: string, env: NodeJS.ProcessEnv = process.env): stri
   for (const [name, value] of secretEnvValues(env)) out = out.replaceAll(value, `[redacted:${name}]`);
   for (const pattern of TOKEN_PATTERNS) out = out.replace(pattern, '[redacted]');
   for (const pattern of NAMED_VALUE_PATTERNS) out = out.replace(pattern, '$1[redacted]');
+  out = out.replace(JSON_STRING_FIELD, (match, open: string, name: string, _value: string, close: string) =>
+    isCredentialName(name) ? `${open}[redacted]${close}` : match);
   return out;
 }
 
