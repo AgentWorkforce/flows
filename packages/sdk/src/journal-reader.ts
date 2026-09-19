@@ -28,7 +28,7 @@ export interface JournalEvent {
 }
 
 export type JournalReadFailure =
-  | 'invalid_run_id' | 'run_not_found' | 'step_not_found' | 'journal_read_failed';
+  | 'invalid_run_id' | 'run_not_found' | 'step_not_found' | 'journal_busy' | 'journal_read_failed';
 
 export class JournalReadError extends Error {
   constructor(readonly code: JournalReadFailure, message: string) {
@@ -82,7 +82,9 @@ export async function* walkJournal(
     if (before[1] !== undefined) await copyFile(`${source}-wal`, `${snapshot}-wal`, constants.COPYFILE_EXCL);
     const after = await Promise.all([fingerprint(source), fingerprint(`${source}-wal`)]);
     if (before.some((value, index) => value !== after[index])) {
-      throw new Error('Journal changed while taking the replay snapshot; retry replay.');
+      // Its own code: the journal is fine, a writer was mid-flight. A reader
+      // that can wait (`flows status`) retries on this and nothing else.
+      throw new JournalReadError('journal_busy', `Cannot read journal for run "${runId}": Journal changed while taking the replay snapshot; retry replay.`);
     }
     const file = await open(snapshot, 'r');
     try {

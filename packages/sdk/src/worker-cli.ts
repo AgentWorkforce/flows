@@ -19,6 +19,7 @@ import {
   type WrapperSessionLimits,
 } from './wrapper-session.js';
 import { wrapperEnvironment } from './wrapper-runtime.js';
+import { redactRelayError } from './redact.js';
 import {
   runAgentRelayTask,
   AgentRelayTransportError,
@@ -189,14 +190,6 @@ async function runViaAgentRelay(
       : error instanceof Error ? error.message : 'Relay task transport failed';
     return { exit_code: null, stdout_tail: '', stderr_tail: redactRelayError(detail) };
   }
-}
-
-function redactRelayError(message: string): string {
-  for (const key of ['RELAY_AGENT_TOKEN', 'RELAY_API_KEY']) {
-    const secret = process.env[key];
-    if (secret) message = message.replaceAll(secret, '[redacted]');
-  }
-  return message.replace(/\b(?:at|rk|nt|ot|br|arr)_(?:live_)?[A-Za-z0-9_-]+/g, '[redacted]');
 }
 
 /**
