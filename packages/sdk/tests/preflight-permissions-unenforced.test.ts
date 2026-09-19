@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -193,5 +193,37 @@ steps:
     expect(report.diagnostics).toContainEqual(expect.objectContaining({
       severity: 'warning', kind: UNENFORCED, stepId: 'review',
     }));
+  });
+});
+
+/**
+ * The boundary of the warning, pinned so it cannot drift from what
+ * `PermissionsSpec`'s doc comment promises. `flows check` on a `.flow.ts`
+ * preflights the flow header and never executes the body
+ * (`cli/check-typescript.ts`), so an `f.agent(..., { permissions })` call is not
+ * a step yet and nothing warns. If body inspection or gate-8 enforcement lands,
+ * this test fails and the doc comment is the thing to correct.
+ */
+describe('an authored TypeScript body is out of reach, and spec.ts says so', () => {
+  it('checks clean on a .flow.ts whose body declares permissions', async () => {
+    const directory = temporaryProject();
+    symlinkSync(join(process.cwd(), 'node_modules'), join(directory, 'node_modules'), 'dir');
+    const path = join(directory, 'sandboxed.flow.ts');
+    writeFileSync(path, `import { flow } from '@relayflows/surface';
+export default flow('sandboxed', async f => {
+  await f.agent('review', { task: 'Review.', cli: 'claude', permissions: { accessPreset: 'readonly' } });
+  f.done('success');
+});
+`);
+    const output = capture();
+    const code = await runCli(['check', '--json', path], output.io);
+    expect(code, output.stderr.join('\n')).toBe(0);
+    const report = JSON.parse(output.stdout[0]!) as CheckReport;
+    // The flow did load and the call was read — requirements name the agent —
+    // so the silence is preflight's blind spot, not a failure to find the flow.
+    expect(report.requirements?.harnessUses).toEqual([{ harness: 'claude', detail: 'agent "review"' }]);
+    expect(report.diagnostics.filter((d) => d.kind === UNENFORCED)).toEqual([]);
+    const comment = readFileSync(new URL('../src/spec.ts', import.meta.url), 'utf8');
+    expect(comment).toContain('A declaration inside an authored `.flow.ts` body is');
   });
 });

@@ -134,7 +134,12 @@ export interface AgentSurfaces {
  * gate 8 (#442). `accessPreset: 'readonly'` does not prevent writes today.
  *
  * `flows check` emits a `permissions_unenforced` warning for every agent step
- * that declares this block, so the gap is reported rather than silent.
+ * that declares this block in a declarative spec — YAML/JSON, or a `FlowSpec`
+ * handed to the check API. A declaration inside an authored `.flow.ts` body is
+ * **not** inspected: checking TypeScript preflights the flow header without
+ * executing the body, so those steps do not exist yet and the check passes
+ * silently. A clean check is not evidence that no unenforced declaration is
+ * present; the paragraph above is, for every dialect.
  */
 export interface PermissionsSpec {
   fileGlobs?: string[];
