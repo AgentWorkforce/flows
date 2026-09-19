@@ -110,6 +110,20 @@ describe('redact — JSON credential fields', () => {
       .toBe('{"a":"keep this","secret":"[redacted]","b":"keep too"}');
   });
 
+  it('redacts an escaped value — a serialized key or nested JSON', () => {
+    // The value class stopped at the first backslash, so every `\n` and `\"`
+    // form — which is how a private key or a nested body actually arrives —
+    // went through untouched.
+    expect(redact(String.raw`{"token":"-----BEGIN KEY-----\nabc\ndef\n-----END KEY-----"}`, {}))
+      .toBe('{"token":"[redacted]"}');
+    expect(redact(String.raw`{"authToken":"a\"b\"c"}`, {})).toBe('{"authToken":"[redacted]"}');
+    // The near-miss name is still left alone, escapes or not.
+    expect(redact(String.raw`{"monkey":"a\nb"}`, {})).toBe(String.raw`{"monkey":"a\nb"}`);
+    // An escaped neighbour is not swallowed into the redacted span.
+    expect(redact(String.raw`{"a":"x\ny","secret":"ssssssss"}`, {}))
+      .toBe(String.raw`{"a":"x\ny","secret":"[redacted]"}`);
+  });
+
   it('does not re-redact an already redacted value', () => {
     expect(redact('{"token":"[redacted]"}', {})).toBe('{"token":"[redacted]"}');
   });

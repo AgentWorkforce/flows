@@ -47,12 +47,14 @@ const NAMED_VALUE_PATTERNS: readonly RegExp[] = [
  * export — no environment value either: `{"authToken":"opaque-secret"}` went
  * through untouched. The field name is kept, so the reader knows what was cut.
  *
- * Quoted string values only, and only where the field NAME ends in a
- * credential noun. Containing one is not enough: `monkey` and `keyboard` are
+ * Quoted string values only — including escaped ones: a serialized private
+ * key or nested JSON reaches these fields as `\n` and `\"`, and a value
+ * class that stopped at the first backslash left every one of them intact.
+ * Only where the field NAME ends in a credential noun. Containing one is not enough: `monkey` and `keyboard` are
  * ordinary fields, so the name is split on separators and camelCase humps and
  * the last word decides.
  */
-const JSON_STRING_FIELD = /("([A-Za-z0-9_.\-]{1,64})"\s*:\s*")(?!\[redacted)([^"\\]{4,})(")/g;
+const JSON_STRING_FIELD = /("([A-Za-z0-9_.\-]{1,64})"\s*:\s*")(?!\[redacted)((?:[^"\\]|\\.){4,})(")/g;
 const CREDENTIAL_NOUN = /^(?:token|secret|key|password|passwd|credential|cookie)s?$/i;
 
 function isCredentialName(name: string): boolean {
