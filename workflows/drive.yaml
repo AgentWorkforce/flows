@@ -12,6 +12,17 @@ swarm:
   channel: flows-drive
   timeoutMs: 10800000
 
+# The legacy runner reads reliability policy from the document root. Per-step
+# errorHandling is not inherited, so it cannot extend an agent's admission
+# retry window. Keep `strategy: retry`: the runner then supplies its retry
+# budget, while this flow supplies the 60-second workspace_busy backoff.
+#
+# Deliberately omit maxRetries. That bound belongs to the runner; this policy
+# changes the time between attempts, not how many attempts it makes.
+errorHandling:
+  strategy: retry
+  retryDelayMs: 60000
+
 agents:
   - name: lead
     cli: claude

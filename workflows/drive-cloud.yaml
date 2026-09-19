@@ -19,6 +19,9 @@ swarm:
   pattern: dag
   channel: flows-drive-cloud
   timeoutMs: 3600000
+errorHandling:
+  strategy: retry
+  retryDelayMs: 60000
 agents:
 - name: lead
   cli: claude
