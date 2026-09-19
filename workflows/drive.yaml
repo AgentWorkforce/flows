@@ -53,11 +53,10 @@ workflows:
             [ -e "$required" ] || missing="$missing $required"
           done
           if [ -n "$missing" ]; then
-            echo "SYNC_FAIL_NOT_MATERIALIZED: the repo is not present in this execution environment." >&2
+            echo "SYNC_FAIL_NOT_MATERIALIZED: Cloud did not materialize the scheduled code snapshot." >&2
             echo "  missing:$missing" >&2
             echo "  cwd: $(pwd)" >&2
-            echo "  A cloud run must upload the working tree: \`agent-relay cloud run\`" >&2
-            echo "  syncs code by default; \`--no-sync-code\` produces exactly this state." >&2
+            echo "  Recreate the schedule with a current agent-relay CLI so Cloud stores its code snapshot." >&2
             exit 78
           fi
           echo "SYNC_MATERIALIZED=ok"
@@ -87,7 +86,14 @@ workflows:
             fi
           fi
 
-          git rev-parse --git-dir >/dev/null 2>&1 || git init -q
+          # The checkout must be rooted HERE: `git rev-parse --git-dir` also succeeds
+          # inside a parent repository, which would send fetch/checkout into the
+          # parent (scheduled steps run under /project/workflows/schedules/<id>), and
+          # a leftover `.git` gitfile would make `git init` fail.
+          if [ "$(git rev-parse --show-toplevel 2>/dev/null)" != "$(pwd -P)" ]; then
+            if [ -f .git ]; then mv .git ".git.stale.$$"; fi
+            git init -q
+          fi
           git config user.email "lead@relayflows.local"
           git config user.name "Relayflow Lead"
 
