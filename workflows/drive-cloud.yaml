@@ -47,45 +47,13 @@ workflows:
       \ and an unmaterialized sandbox fails closed and typed\n# rather than failing later as an unexplained\
       \ tool error.\nset -eu\necho \"SYNC_WORKDIR=$(pwd)\"\n\nmissing=\"\"\nfor required in AGENTS.md\
       \ docs/RFC-0001-everything-is-a-relayflow.md ops/DIRECTIVES.md kernel packages/sdk; do\n  [ -e \"\
-      $required\" ] || missing=\"$missing $required\"\ndone\nif [ -n \"$missing\" ]; then\n  # SELF-MATERIALIZE\
-      \ when the platform did not. A synced\n  # `agent-relay cloud run` uploads the working tree (the\
-      \ CLI tars\n  # `git ls-files` and the bootstrap extracts it); a Cloud schedule\n  # does NOT. `agent-relay\
-      \ cloud schedule` stores only the workflow\n  # text, and Cloud rejects an s3CodeKey on a scheduled\
-      \ request\n  # (cloud packages/web/lib/workflow-schedules/request.ts: \"scheduled\n  # workflows\
-      \ cannot provide s3CodeKey\"), so a scheduled sandbox boots\n  # with an EMPTY tree and this check\
-      \ fails. Every tick of schedule\n  # flows-v2-lead-tick-0903 died right here (dev run 1c6179c9).\n\
-      \  #\n  # A scheduled v1 sandbox also gets no GH_TOKEN, no repositoryGrant\n  # and no git credential:\
-      \ Cloud keeps raw GitHub tokens out of\n  # workflow sandboxes by design (orchestrator injects only\
-      \ S3 +\n  # workspace tokens; the credential proxy brokers LLM keys, not\n  # GitHub). But AgentWorkforce/flows\
-      \ is a PUBLIC repo, so it clones\n  # with no credential at all \u2014 which is exactly the GitHub\
-      \ credential\n  # a scheduled sandbox legitimately has: none. Cloning the default\n  # branch here\
-      \ reaches the same tree a synced `cloud run` produces,\n  # so the run proceeds instead of failing\
-      \ at the door.\n  echo \"SYNC_SELF_MATERIALIZE: no working tree (a Cloud schedule uploads none)\
-      \ \u2014 cloning the public repo\"\n  echo \"  missing:$missing\"\n  echo \"  cwd: $(pwd)\"\n  repo_url=\"\
-      ${FLOWS_REPO_URL:-https://github.com/AgentWorkforce/flows.git}\"\n  # Never prompt and never read\
-      \ a token: a public clone needs none,\n  # and a private-repo failure must surface loudly here rather\
-      \ than\n  # hang waiting for credentials that a sandbox will never supply.\n  export GIT_TERMINAL_PROMPT=0\n\
-      \  # The checkout must be rooted HERE: `git rev-parse --git-dir` also succeeds\n  # inside a parent\
-      \ repository, which would send fetch/checkout into the\n  # parent (scheduled steps run under /project/workflows/schedules/<id>),\
-      \ and\n  # a leftover `.git` gitfile would make `git init` fail.\n  if [ \"$(git rev-parse --show-toplevel\
-      \ 2>/dev/null)\" != \"$(pwd -P)\" ]; then\n    if [ -f .git ]; then mv .git \".git.stale.$$\"; fi\n\
-      \    git init -q\n  fi\n  git remote get-url origin >/dev/null 2>&1 || git remote add origin \"\
-      $repo_url\"\n  if git fetch --quiet --depth=1 origin main; then\n    git checkout --quiet -f -B\
-      \ main FETCH_HEAD\n    echo \"SYNC_SELF_MATERIALIZED: $repo_url@main -> $(git rev-parse --short\
-      \ HEAD)\"\n  else\n    echo \"SYNC_FAIL_NOT_MATERIALIZED: no working tree and could not fetch the\
-      \ repo.\" >&2\n    echo \"  missing:$missing\" >&2\n    echo \"  cwd: $(pwd)\" >&2\n    echo \"\
-      \  repo:$repo_url\" >&2\n    echo \"  A synced \\`agent-relay cloud run\\` uploads the tree; a Cloud\
-      \ schedule does\" >&2\n    echo \"  not, and a scheduled sandbox has no GitHub credential. This\
-      \ self-heal works\" >&2\n    echo \"  only because the repo is public \u2014 if it is private, launch\
-      \ a synced\" >&2\n    echo \"  \\`agent-relay cloud run\\` instead (see AgentWorkforce/relay tracking\
-      \ issue).\" >&2\n    exit 78\n  fi\n  # Re-verify: a fetch that returned the wrong tree is still\
-      \ a failure.\n  missing=\"\"\n  for required in AGENTS.md docs/RFC-0001-everything-is-a-relayflow.md\
-      \ ops/DIRECTIVES.md kernel packages/sdk; do\n    [ -e \"$required\" ] || missing=\"$missing $required\"\
-      \n  done\n  if [ -n \"$missing\" ]; then\n    echo \"SYNC_FAIL_NOT_MATERIALIZED: clone completed\
-      \ but required paths are still missing:$missing\" >&2\n    exit 78\n  fi\nfi\necho \"SYNC_MATERIALIZED=ok\"\
-      \n\n# Fail fast on a stale tree. A per-step sandbox can be seeded from an\n# older orchestrator\
-      \ archive, and five consecutive runs burned ~20\n# minutes each producing diffs that reverted merged\
-      \ work \u2014 a stale\n# tree diffed against fresh main looks like a wholesale revert. The\n# guards\
+      $required\" ] || missing=\"$missing $required\"\ndone\nif [ -n \"$missing\" ]; then\n  echo \"SYNC_FAIL_NOT_MATERIALIZED:\
+      \ Cloud did not materialize the scheduled code snapshot.\" >&2\n  echo \"  missing:$missing\" >&2\n\
+      \  echo \"  cwd: $(pwd)\" >&2\n  echo \"  Recreate the schedule with a current agent-relay CLI so\
+      \ Cloud stores its code snapshot.\" >&2\n  exit 78\nfi\necho \"SYNC_MATERIALIZED=ok\"\n\n# Fail\
+      \ fast on a stale tree. A per-step sandbox can be seeded from an\n# older orchestrator archive,\
+      \ and five consecutive runs burned ~20\n# minutes each producing diffs that reverted merged work\
+      \ \u2014 a stale\n# tree diffed against fresh main looks like a wholesale revert. The\n# guards\
       \ at delivery caught them, but only after the cost was paid.\n#\n# ops/FORBIDDEN_PATHS lists paths\
       \ that must NOT exist. Their presence\n# here means this sandbox is not the tree we uploaded, and\
       \ nothing\n# built on it can be trusted.\nif [ -f ops/FORBIDDEN_PATHS ]; then\n  stale=\"\"\n  while\
