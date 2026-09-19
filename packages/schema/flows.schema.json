@@ -569,7 +569,7 @@
     },
     "PermissionsSpec": {
       "title": "PermissionsSpec",
-      "description": "Permission model for an agent step (gate 8). `readonly` provably cannot write.",
+      "description": "Per-step permission declarations for an agent step.\n\nValidated by gate 1 and recorded in the compiled step spec (as `file_globs`,\n`network_allowlist` and `access_preset`), but **not currently enforced**:\nnothing reads these fields to gate a file or network access. Enforcement is\ngate 8 (#442). `accessPreset: 'readonly'` does not prevent writes today.\n\n`flows check` emits a `permissions_unenforced` warning for every agent step\nthat declares this block in a declarative spec — YAML/JSON, or a `FlowSpec`\nhanded to the check API. A declaration inside an authored `.flow.ts` body is\n**not** inspected: checking TypeScript preflights the flow header without\nexecuting the body, so those steps do not exist yet and the check passes\nsilently. A clean check is not evidence that no unenforced declaration is\npresent; the paragraph above is, for every dialect.",
       "type": "object",
       "properties": {
         "fileGlobs": {
