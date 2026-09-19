@@ -691,12 +691,22 @@ exactly one file — `<data-dir>/runs/<run-id>.sqlite3`, through the same
 copy-then-verify snapshot `flows replay` uses (`--tail` additionally reads the
 attempt transcript-tail files described below, and nothing else) — and folds it
 into the run's status, each step's
-state / attempt / lease / backoff / wait, the last completion's gate verdict
-and (redacted, ≤ 1 KiB) detail, spend and step counts. It never opens the run
+state / attempt / lease / backoff / wait, the last completion's reason, gate
+verdict and (redacted, ≤ 1 KiB) detail, a summary of the attempt's journaled
+transcript digest, spend and step counts. It never opens the run
 registry, `connection.json`, the daemon socket or the network, never spawns
 a daemon, and holds no credential: the journal is on the same filesystem as
 the process asking. It does not inherit `replay`'s `human_influenced_run`
 refusal, since it re-executes nothing.
+
+The transcript summary comes from the digest the worker journals in
+`trajectory_tail.transcript` on every agent attempt: the model, turn and tool
+counts, the provider's own cost, and the path, size and truncation flag of the
+full per-attempt transcript file — plus the failure excerpt when the attempt
+failed. `flows status` never prints the transcript itself; it points at the
+file. The digest's strings were redacted when it was built and are redacted
+again here. An attempt that journaled no digest (an `llm` step, or a run that
+predates the digest) shows no transcript line and reports `null`.
 
 Discovery: an explicit `<run-id>` (with `--data-dir`, default `.relayflowd`),
 else `RELAYFLOW_RUN_ID` and `RELAYFLOW_DATA_DIR` from the environment, else
@@ -705,7 +715,10 @@ has a data dir is spawned with four non-secret names — `RELAYFLOW_DATA_DIR`
 (absolute), `RELAYFLOW_RUN_ID`, `RELAYFLOW_STEP_ID`, `RELAYFLOW_ATTEMPT` — so
 a bare `flows status` inside a step resolves that step's run and marks it
 `← this step`. Without a data dir the four are absent, not empty; an ambient
-value from an enclosing step never passes through. With these an agent can
+value from an enclosing step never passes through. A spawn that names no
+attempt sets the other three and leaves `RELAYFLOW_ATTEMPT` absent rather than
+empty — the run and step are what resolve the view; the attempt only picks a
+transcript tail. With these an agent can
 open its journal and nothing else.
 
 Exit codes: 0 rendered; 1 rendered but a section could not be read (`partial`

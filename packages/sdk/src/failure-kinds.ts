@@ -157,8 +157,14 @@ export interface StepFailedDetails {
   stdoutTail?: string;
   /** Terminal-safe UTF-8 excerpt, at most 1,024 bytes. */
   stderrTail?: string;
-  /** The daemon's own account, when it was not a render of the fields above. */
+  /**
+   * The daemon's own account when it was not a render of the fields above, or
+   * — preferred when present — the failure excerpt from the worker's
+   * transcript digest (`trajectory_tail.transcript.failure`).
+   */
   detail?: string;
+  /** The attempt's redacted `stream-json` transcript on disk, when the worker wrote one. */
+  transcriptPath?: string;
   /** A runnable `flows replay` invocation for this run. */
   hint?: string;
   /** The on-disk journal for this run, when the data dir is known. */

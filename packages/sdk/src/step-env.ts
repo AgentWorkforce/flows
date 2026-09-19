@@ -20,7 +20,13 @@ export interface StepIdentity {
   dataDir: string;
   runId: string;
   stepId: string;
-  attempt: number;
+  /**
+   * Optional for the same reason it is optional on `SidechannelContext`: a
+   * spawn that names no attempt has none to export, and an absent
+   * `RELAYFLOW_ATTEMPT` is the honest form. `flows status` needs the run and
+   * the step to resolve itself; the attempt only picks a transcript tail.
+   */
+  attempt?: number;
 }
 
 /**
@@ -35,5 +41,7 @@ export function applyStepEnvironment(env: NodeJS.ProcessEnv, identity: StepIdent
   env[DATA_DIR_ENV] = resolve(identity.dataDir);
   env[RUN_ID_ENV] = identity.runId;
   env[STEP_ID_ENV] = identity.stepId;
-  env[ATTEMPT_ENV] = String(identity.attempt);
+  // Left unset rather than set to "undefined": the four names are deleted
+  // above, so an agent sees no attempt instead of a bogus one.
+  if (identity.attempt !== undefined) env[ATTEMPT_ENV] = String(identity.attempt);
 }

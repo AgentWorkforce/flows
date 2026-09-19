@@ -378,4 +378,48 @@ process.stdout.write(JSON.stringify({ status: child.status, stdout: child.stdout
     const text = await status(['--data-dir', dataDir, RUN_ID]);
     expect(text.stdout.find((row) => row.includes('implement'))!).toContain('\u2717');
   });
+  it('renders the transcript digest the worker journaled, redacted', async () => {
+    // #491 journals the digest in trajectory_tail; #492's `flows status` is the
+    // offline reader of that journal, so it surfaces it rather than duplicating it.
+    const [spawned, routed, started, done] = EVENTS.slice(0, 4) as [JournalEvent, JournalEvent, JournalEvent, JournalEvent];
+    const withDigest: JournalEvent = {
+      ...done,
+      payload: {
+        ...done.payload as Record<string, unknown>,
+        trajectory_tail: {
+          transcript: {
+            attempt: 1, exit_code: 0,
+            file: { path: 'runs/r/steps/implement/attempt-1.transcript.jsonl', bytes_kept: 4096, truncated: true },
+            result: { provider: 'claude', model: 'claude-opus-4', num_turns: 6, total_cost_usd: 0.42 },
+            tools: { counts: [], last_calls: [], total_calls: 3, shown_calls: 0, complete: true },
+            failure: { kind: 'stderr', excerpt: 'token ghp_' + 'a'.repeat(36) + ' rejected' },
+          },
+        },
+      },
+    };
+    const { dataDir } = fixture([spawned, routed, started, withDigest]);
+    const json = await status(['--json', '--data-dir', dataDir, RUN_ID]);
+    const view = JSON.parse(json.stdout[0]!);
+    expect(view.steps[0].last_attempt.transcript).toMatchObject({
+      path: 'runs/r/steps/implement/attempt-1.transcript.jsonl',
+      bytes: 4096, truncated: true, model: 'claude-opus-4',
+      num_turns: 6, total_cost_usd: 0.42, tool_calls: 3,
+    });
+    // Redacted again on the way out, by this module's rules.
+    expect(json.stdout[0]).not.toContain('ghp_');
+    expect(view.steps[0].last_attempt.transcript.failure.excerpt).toContain('[redacted]');
+
+    const text = await status(['--data-dir', dataDir, RUN_ID]);
+    const joined = text.stdout.join('\n');
+    expect(joined).toContain('transcript (attempt 1): claude-opus-4 \u00b7 6 turns \u00b7 3 tool calls \u00b7 $0.42');
+    expect(joined).toContain('runs/r/steps/implement/attempt-1.transcript.jsonl (4096 bytes, truncated)');
+    expect(joined).toContain('failed at stderr:');
+    expect(joined).not.toContain('ghp_');
+  });
+
+  it('prints no transcript line for an attempt that journaled no digest', async () => {
+    const { dataDir } = fixture();
+    const text = await status(['--data-dir', dataDir, RUN_ID]);
+    expect(text.stdout.join('\n')).not.toContain('transcript (attempt');
+  });
 });

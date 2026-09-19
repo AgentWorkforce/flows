@@ -59,6 +59,8 @@ describe('foldRunState', () => {
       attempt: 1, completion_reason: 'success', disposition: 'step_done',
       verification: { gate: 'output_contains', verdict: 'pass', detail: 'all gates passed' },
       human_intervention: false, effects: 0, ended_at_ms: COMPLETED[3]!.at_ms,
+      // The fixture predates the transcript digest (#491).
+      transcript: null,
     });
     expect(implement.elapsed_ms).toBe(COMPLETED[3]!.at_ms - COMPLETED[2]!.at_ms);
     expect(implement.lease).toBeNull();
@@ -319,6 +321,62 @@ describe('foldRunState', () => {
     ), T0 + 6000);
     // Aligned at the wider scale, exactly, the way the kernel's fold adds them.
     expect(many.spend.dollars).toBe('1.2300001');
+  });
+
+  // --- composition with the transcript digest (#491 x #492) --------------
+
+  it('surfaces the transcript digest the worker journals in trajectory_tail', () => {
+    const view = foldRunState(journal(
+      spawned, started('analyze', 1, T0 + 30_000, T0 + 1000),
+      completed('analyze', 1, T0 + 2000, {
+        trajectory_tail: {
+          transcript: {
+            attempt: 1, exit_code: 0,
+            file: { path: '.relayflowd/runs/r/steps/analyze/attempt-1.transcript.jsonl',
+              bytes_total: 4000, bytes_kept: 4000, frames_total: 14, frames_kept: 14,
+              truncated: false, sha256: 'a'.repeat(64) },
+            result: { provider: 'claude', model: 'claude-opus-4', num_turns: 6, total_cost_usd: 0.42 },
+            tools: { counts: [{ name: 'Bash', calls: 3, errors: 0 }], last_calls: [], total_calls: 3, shown_calls: 0, complete: true },
+          },
+        },
+      }),
+    ), T0 + 5000);
+    expect(view.steps[1]!.last_attempt!.transcript).toEqual({
+      path: '.relayflowd/runs/r/steps/analyze/attempt-1.transcript.jsonl',
+      bytes: 4000, truncated: false, model: 'claude-opus-4',
+      num_turns: 6, total_cost_usd: 0.42, tool_calls: 3, failure: null,
+    });
+  });
+
+  it('carries the digest\'s failure excerpt', () => {
+    const view = foldRunState(journal(
+      spawned, started('analyze', 1, T0 + 30_000, T0 + 1000),
+      completed('analyze', 1, T0 + 2000, {
+        completionReason: 'worker_error',
+        trajectory_tail: { transcript: { failure: { kind: 'stderr', excerpt: 'ECONNREFUSED', truncated: true } } },
+      }),
+    ), T0 + 5000);
+    expect(view.steps[1]!.last_attempt!.transcript).toMatchObject({
+      failure: { kind: 'stderr', excerpt: 'ECONNREFUSED' }, path: null, model: null,
+    });
+  });
+
+  it('is null when the attempt journaled no digest, and never throws on a malformed one', () => {
+    const none = foldRunState(journal(
+      spawned, started('analyze', 1, T0 + 30_000, T0 + 1000), completed('analyze', 1, T0 + 2000, {}),
+    ), T0 + 5000);
+    expect(none.steps[1]!.last_attempt!.transcript).toBeNull();
+    // A worker older or newer than this reader: every field is taken defensively.
+    const junk = foldRunState(journal(
+      spawned, started('analyze', 1, T0 + 30_000, T0 + 1000),
+      completed('analyze', 1, T0 + 2000, {
+        trajectory_tail: { transcript: { file: 'not-an-object', result: 7, tools: null, failure: [] } },
+      }),
+    ), T0 + 5000);
+    expect(junk.steps[1]!.last_attempt!.transcript).toEqual({
+      path: null, bytes: null, truncated: false, model: null,
+      num_turns: null, total_cost_usd: null, tool_calls: null, failure: null,
+    });
   });
 
   it('refuses a journal that does not begin with run.spawned or names an unknown step', () => {

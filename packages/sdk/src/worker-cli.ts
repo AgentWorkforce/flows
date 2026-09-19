@@ -1,7 +1,9 @@
+import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { diffWorkspaceFiles, snapshotWorkspaceFiles } from './agent-artifacts.js';
 import { claudeResultOutcome, decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
 import { openSidechannel, type SidechannelContext } from './pty-sidechannel.js';
+import { openTranscriptWriter, transcriptPath, type TranscriptDigest, type TranscriptFile, type TranscriptWriter } from './agent-transcript.js';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { childStop } from './child-stop.js';
@@ -55,6 +57,15 @@ export interface WorkerCliResult {
    * agent runs on another host.
    */
   artifacts?: string[];
+  /**
+   * The attempt's transcript digest (`agent-transcript.ts`): provider result
+   * metadata, tool calls summarized, final text, failure excerpt, and — when
+   * the spawn had a sidechannel context with an attempt — the pointer to the
+   * redacted, capped `stream-json` file. Journaled in `trajectory_tail`, never
+   * in `output`. Present for Claude/Codex executions; absent for wrappers and
+   * the relay transport, which stream no provider frames through this process.
+   */
+  transcript?: TranscriptDigest;
 }
 
 /**
@@ -98,13 +109,20 @@ export async function runAgentCli(
   // workspace to change. Executions sharing a working directory are
   // serialized around their snapshot-spawn-snapshot interval, so one agent's
   // writes are never attributed to a concurrent one in the same directory.
+  //
+  // The attempt's transcript file is written during that interval by this
+  // process, not by the agent; when the data dir sits under the cwd (a local
+  // `--data-dir` inside the project) it is dropped from the diff by path.
   const artifactRoot = mode === 'agent' ? resolve(cwd ?? process.cwd()) : undefined;
   return artifactRoot === undefined
     ? execute()
     : serializedByDirectory(artifactRoot, async () => {
       const before = await snapshotWorkspaceFiles(artifactRoot);
       const result = await execute();
-      return { ...result, artifacts: diffWorkspaceFiles(before, await snapshotWorkspaceFiles(artifactRoot)) };
+      const transcriptFile = realPath(result.transcript?.file?.path);
+      const artifacts = diffWorkspaceFiles(before, await snapshotWorkspaceFiles(artifactRoot))
+        .filter(path => transcriptFile === undefined || realPath(resolve(artifactRoot, path)) !== transcriptFile);
+      return { ...result, artifacts };
     });
 
   async function execute(): Promise<WorkerCliResult> {
@@ -152,17 +170,27 @@ export async function runAgentCli(
   const args = [...invocation.args];
   args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'stream-json', '--verbose'] : ['--json']));
   const completion = kind === 'claude' ? claudeResultOutcome : undefined;
-  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion), kind), effectiveModel);
+  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion), kind, env), effectiveModel);
   }
 }
 
 function openTails(context: SidechannelContext): { stdout: TranscriptTailWriter; stderr: TranscriptTailWriter } | undefined {
+  // Same rule as the per-attempt transcript file: no attempt, no tails.
+  const attempt = context.attempt;
+  if (attempt === undefined) return undefined;
+  const identity = { dataDir: context.dataDir, runId: context.runId, stepId: context.stepId, attempt };
   try {
-    return { stdout: openTranscriptTail(context, 'stdout'), stderr: openTranscriptTail(context, 'stderr') };
+    return { stdout: openTranscriptTail(identity, 'stdout'), stderr: openTranscriptTail(identity, 'stderr') };
   } catch {
     // An id the path cannot carry; the sidechannel declined it the same way.
     return undefined;
   }
+}
+
+/** Symlink-free form of a path, or the path itself when it cannot be resolved. */
+function realPath(path: string | undefined): string | undefined {
+  if (path === undefined) return undefined;
+  try { return realpathSync(path); } catch { return path; }
 }
 
 /** One agent at a time per canonical working directory, for the artifact interval. */
@@ -231,14 +259,27 @@ async function spawnInvocation(
   let writeInput: (bytes: Buffer) => Promise<boolean> = async () => false;
   let canDrive = () => false;
   let driven = false;
+  // The transcript file lives beside the PTY socket and is named by attempt.
+  // Its absence (no data dir, no attempt, unwritable dir) costs the step
+  // nothing: the digest is built from the buffered frames regardless. Opened
+  // BEFORE the sidechannel: once `onReady` has fired, a drive peer's HELLO may
+  // arrive at any time, and nothing may sit between that and the spawn that
+  // arms `canDrive`.
+  const writer: TranscriptWriter | undefined = sidechannel?.attempt === undefined ? undefined
+    : await openTranscriptWriter(transcriptPath(sidechannel, sidechannel.attempt), env);
   const channel = sidechannel === undefined ? undefined : await openSidechannel({
     ...sidechannel,
     onDrive() { driven = true; sidechannel.onDrive(); },
   }, bytes => writeInput(bytes), () => canDrive());
-  if (signal?.aborted) { channel?.close(); signal.throwIfAborted(); }
   // Tee the transcript into bounded tail files beside the socket. Evidence
   // for `flows status --tail`, never the record; a failure here is a warning.
   const tails = sidechannel === undefined ? undefined : openTails(sidechannel);
+  if (signal?.aborted) {
+    channel?.close();
+    void writer?.close();
+    void tails?.stdout.close(); void tails?.stderr.close();
+    signal.throwIfAborted();
+  }
   return new Promise((resolve) => {
     // Always a group of its own off Windows, so every stop — and
     // `reapOnExit` — reaches the whole agent tree, lease-bound or not.
@@ -271,7 +312,7 @@ async function spawnInvocation(
     let graceTimer: NodeJS.Timeout | undefined;
     const decoder = new StringDecoder('utf8');
     let partialLine = '';
-    const finish = (result: WorkerCliResult): void => {
+    const finish = (result: WorkerCliResult, discardTranscript = false): void => {
       if (settled) return;
       settled = true;
       if (inputTimer !== undefined) clearTimeout(inputTimer);
@@ -279,20 +320,41 @@ async function spawnInvocation(
       if (timer !== undefined) clearTimeout(timer);
       if (graceTimer !== undefined) clearTimeout(graceTimer);
       signal?.removeEventListener('abort', onAbort);
-      if (tails === undefined) { resolve(result); return; }
-      // Transcript evidence is best-effort and must never hold a step open: a
-      // stalled write would leave `runAgentCli` unresolved forever, and every
-      // later abort or timeout is a no-op once `settled` is true. Give the
-      // flush a bounded window, then settle regardless and let the close
-      // finish on its own.
-      const settle = (): void => resolve(result);
-      const closed = Promise.all([tails.stdout.close(), tails.stderr.close()]);
-      const deadline = new Promise<void>((done) => setTimeout(done, TAIL_CLOSE_TIMEOUT_MS).unref?.());
-      Promise.race([closed.then(() => undefined, () => undefined), deadline]).then(settle, settle);
+      if (writer === undefined && tails === undefined) { resolve(result); return; }
+      if (writer !== undefined) {
+        const rest = partialLine + decoder.end();
+        if (rest.length > 0) writer.write(rest);
+      }
+      // Two independent pieces of evidence close here: the per-attempt
+      // transcript, whose descriptor rides back on the result as the digest's
+      // file pointer, and the `flows status --tail` tails, which nothing reads
+      // from the result.
+      //
+      // Neither may hold a step open. A stalled write would leave
+      // `runAgentCli` unresolved forever, and every later abort or timeout is
+      // already a no-op once `settled` is true — so the whole close is raced
+      // against a bounded deadline and the result stands either way. Past the
+      // deadline the transcript pointer is dropped rather than waited for: a
+      // completion without a pointer is recoverable, a step that never
+      // completes is not.
+      const closedWriter: Promise<TranscriptFile | undefined> = writer === undefined
+        ? Promise.resolve(undefined)
+        : writer.close().catch(() => undefined);
+      const closedTails = tails === undefined
+        ? Promise.resolve()
+        : Promise.all([tails.stdout.close(), tails.stderr.close()]).then(() => undefined, () => undefined);
+      const deadline = new Promise<'deadline'>((done) => setTimeout(() => done('deadline'), TAIL_CLOSE_TIMEOUT_MS).unref?.());
+      void Promise.race([
+        Promise.all([closedWriter, closedTails]).then(([file]) => file),
+        deadline,
+      ]).then((outcome) => {
+        const file = outcome === 'deadline' ? undefined : outcome;
+        resolve(discardTranscript || file === undefined ? result : { ...result, transcript: { file } });
+      }, () => resolve(result));
     };
     const onAbort = (): void => {
       stop.kill();
-      finish({ exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.' });
+      finish({ exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.' }, true);
     };
     /**
      * Same invariant as `wrapper-session.ts`: `'close'` and `'error'` are
@@ -329,11 +391,18 @@ async function spawnInvocation(
     child.stdout.on('data', (chunk: Buffer) => {
       stdout.push(chunk);
       channel?.publish(chunk);
+      // The tails take raw bytes, so they are fed before any line splitting
+      // and regardless of what the writer or the detector still wants.
       tails?.stdout.append(chunk);
-      if (completion === undefined || graceTimer !== undefined) return;
+      // Lines are split whenever a writer or a completion detector wants
+      // them; the detector stops looking once a result has been seen, the
+      // writer keeps every line to the end.
+      if (writer === undefined && (completion === undefined || graceTimer !== undefined)) return;
       const lines = (partialLine + decoder.write(chunk)).split('\n');
       partialLine = lines.pop() ?? '';
       for (const line of lines) {
+        writer?.write(line);
+        if (completion === undefined || graceTimer !== undefined) continue;
         const outcome = completion(line);
         if (outcome !== undefined) onResult(outcome);
       }

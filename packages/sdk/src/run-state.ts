@@ -36,6 +36,26 @@ export interface StepCounts {
   needs_human: number;
 }
 
+/**
+ * The part of the attempt's journaled transcript digest (flows#491, written to
+ * `trajectory_tail.transcript`) that a status view shows. Not the whole digest:
+ * the tool roster and per-call excerpts are the transcript file's job, and this
+ * view has to stay small and greppable. Every string here was redacted when the
+ * digest was built and is redacted again on the way out.
+ */
+export interface AttemptTranscript {
+  /** Where the full per-attempt transcript is, so a reader can go and open it. */
+  path: string | null;
+  bytes: number | null;
+  truncated: boolean;
+  model: string | null;
+  num_turns: number | null;
+  total_cost_usd: number | null;
+  tool_calls: number | null;
+  /** Why the attempt failed, as the digest recorded it; already bounded. */
+  failure: { kind: string; excerpt: string } | null;
+}
+
 export interface LastAttempt {
   attempt: number;
   completion_reason: string;
@@ -45,6 +65,8 @@ export interface LastAttempt {
   /** Count only; the refs carry surface paths and idempotency keys. */
   effects: number;
   ended_at_ms: number;
+  /** Null when the attempt journaled no digest — an llm step, or a pre-#491 run. */
+  transcript: AttemptTranscript | null;
 }
 
 export interface StepView {
@@ -140,6 +162,39 @@ function fromScaled(total: bigint, scale: number): string {
   const whole = digits.slice(0, digits.length - scale);
   const fraction = digits.slice(digits.length - scale).replace(/0+$/, '');
   return fraction.length === 0 ? whole : `${whole}.${fraction}`;
+}
+
+/**
+ * Reduce `trajectory_tail.transcript` (the digest flows#491 journals) to the
+ * handful of facts a status view shows. Every field is taken defensively: the
+ * journal is evidence written by a worker that may predate this reader, so a
+ * missing or wrong-typed field becomes null rather than throwing.
+ */
+function attemptTranscript(trajectoryTail: unknown): AttemptTranscript | null {
+  // Arrays are objects too, and a malformed digest is exactly the shape that
+  // would otherwise reach the view as `{ kind: 'unknown', excerpt: '' }`.
+  const object = (value: unknown): Payload | null =>
+    value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Payload : null;
+  const digest = object(object(trajectoryTail)?.['transcript']);
+  if (digest === null) return null;
+  const file = object(digest['file']) ?? {};
+  const result = object(digest['result']) ?? {};
+  const tools = object(digest['tools']) ?? {};
+  const failure = object(digest['failure']);
+  return {
+    path: typeof file['path'] === 'string' ? file['path'] : null,
+    bytes: integer(file['bytes_kept']),
+    truncated: file['truncated'] === true,
+    model: typeof result['model'] === 'string' ? result['model'] : null,
+    num_turns: integer(result['num_turns']),
+    total_cost_usd: typeof result['total_cost_usd'] === 'number' && Number.isFinite(result['total_cost_usd'])
+      ? result['total_cost_usd'] : null,
+    tool_calls: integer(tools['total_calls']),
+    failure: failure === null ? null : {
+      kind: text(failure['kind'], 'unknown'),
+      excerpt: text(failure['excerpt']),
+    },
+  };
 }
 
 function addSpend(total: Spend, charge: unknown): Spend {
@@ -254,6 +309,7 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
           human_intervention: payload['human_intervention'] === true,
           effects: Array.isArray(payload['effects']) ? payload['effects'].length : 0,
           ended_at_ms: event.at_ms,
+          transcript: attemptTranscript(payload['trajectory_tail']),
         };
         view.artifacts = artifactsOf(payload['output']);
         const disposition = payload['disposition'];
@@ -294,6 +350,7 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
           view.last_attempt = view.last_attempt ?? {
             attempt: view.attempt, completion_reason: 'canceled', disposition: 'step_done',
             verification: null, human_intervention: false, effects: 0, ended_at_ms: event.at_ms,
+            transcript: null,
           };
           view.completion_reason = 'canceled';
         } else {

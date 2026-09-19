@@ -183,6 +183,21 @@ function present(view: RunView, thisStep: string | null, tails: Map<string, Step
           ...step.last_attempt.verification,
           detail: redact(step.last_attempt.verification.detail, env).slice(0, DETAIL_LIMIT),
         },
+        // The digest's strings were redacted when it was built (flows#491), by
+        // a redactor with a different rule set to this one. Redacting again on
+        // the way out costs nothing and closes the difference — this module is
+        // the one place that decides what reaches an agent-facing page.
+        transcript: step.last_attempt.transcript === null ? null : {
+          ...step.last_attempt.transcript,
+          path: step.last_attempt.transcript.path === null
+            ? null : redact(step.last_attempt.transcript.path, env),
+          model: step.last_attempt.transcript.model === null
+            ? null : redact(step.last_attempt.transcript.model, env),
+          failure: step.last_attempt.transcript.failure === null ? null : {
+            ...step.last_attempt.transcript.failure,
+            excerpt: redact(step.last_attempt.transcript.failure.excerpt, env).slice(0, DETAIL_LIMIT),
+          },
+        },
       },
       tails: tails.get(step.id) ?? null,
     })),
@@ -266,6 +281,24 @@ function renderStep(step: PresentedStep, view: Presented, idWidth: number, wantT
   }
   if (last?.verification !== null && last?.verification !== undefined && last.verification.verdict !== 'pass') {
     lines.push(`        gate: ${last.verification.gate} ${last.verification.verdict.toUpperCase()} — ${JSON.stringify(last.verification.detail)}`);
+  }
+  const transcript = last?.transcript ?? null;
+  if (transcript !== null) {
+    // One line of provenance: what ran, how much it cost, and where the full
+    // transcript is. `flows status` never prints the transcript itself — that
+    // is `--tail`'s job for the live attempt, and the file's for a finished one.
+    const facts = [
+      transcript.model === null ? null : safe(transcript.model),
+      transcript.num_turns === null ? null : `${transcript.num_turns} turn${transcript.num_turns === 1 ? '' : 's'}`,
+      transcript.tool_calls === null ? null : `${transcript.tool_calls} tool call${transcript.tool_calls === 1 ? '' : 's'}`,
+      transcript.total_cost_usd === null ? null : `$${transcript.total_cost_usd}`,
+    ].filter((fact): fact is string => fact !== null);
+    const size = transcript.bytes === null ? '' : ` (${transcript.bytes} bytes${transcript.truncated ? ', truncated' : ''})`;
+    lines.push(`      transcript (attempt ${last!.attempt})${facts.length === 0 ? '' : `: ${facts.join(' · ')}`}`);
+    if (transcript.path !== null) lines.push(`        ${safe(transcript.path)}${size}`);
+    if (transcript.failure !== null && transcript.failure.excerpt.length > 0) {
+      lines.push(`        failed at ${safe(transcript.failure.kind)}: ${JSON.stringify(transcript.failure.excerpt)}`);
+    }
   }
   if (step.type === 'agent' && last !== null) {
     const shown = step.artifacts.paths.slice(0, 10).map(safe).join(', ');
