@@ -108,6 +108,19 @@ jobs:
       - name: Override registry surface with local build
         run: npm install ./packages/surface --prefix packages/sdk --no-save --ignore-scripts
 
+      # `workflows/*.flow.ts` import `@relayflows/surface` from the repo root,
+      # where Node's resolution finds no node_modules at all in CI: everything
+      # above installs under packages/sdk. A workflow-driving test (e.g.
+      # tests/stuck-run-triage.test.ts) therefore cannot load its subject.
+      # Link the same local surface at the root, which is also what a checkout
+      # needs for `flows check` to run against a workflow file.
+      - name: Link the local surface at the repo root
+        run: |
+          mkdir -p node_modules/@relayflows
+          ln -sfn ../../packages/sdk/node_modules/@relayflows/surface \
+            node_modules/@relayflows/surface
+          node -e "console.log(require.resolve('@relayflows/surface'))"
+
       - name: Test SDK and type-level authoring contracts
         working-directory: packages/sdk
         env:
