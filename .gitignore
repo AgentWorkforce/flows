@@ -21,3 +21,6 @@ dist/
 # Legacy drive-local snapshots; the preparing launcher no longer executes them.
 .drive-gate/
 .flows/build.key
+
+# workflows/pr-review.flow.ts scratch dir (findings, diff, publisher script)
+review/
