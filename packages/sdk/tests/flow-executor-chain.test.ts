@@ -99,7 +99,7 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'default-model-age
     expect(modelScoped.every(args => args[args.indexOf('--model') + 1] === 'claude-opus-5')).toBe(true);
     expect(modelScoped.at(-1)).toEqual([
       '-p', '--dangerously-skip-permissions', '--model', 'claude-opus-5',
-      '--output-format', 'json', expect.stringContaining('Implement.'),
+      '--output-format', 'stream-json', '--verbose', expect.stringContaining('Implement.'),
     ]);
     expect(failures).toEqual([]);
   });

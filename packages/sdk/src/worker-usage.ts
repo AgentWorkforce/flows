@@ -31,6 +31,19 @@ export function decodeProviderResult(result: WorkerCliResult, kind: 'claude' | '
   return usageResult(result, terminal.usage, text);
 }
 
+/**
+ * Claude's terminal `stream-json` frame, recognised line by line as it
+ * streams. `failed` mirrors the exit status Claude gives that result: an
+ * error flag or a non-success subtype is a failed run.
+ */
+export function claudeResultOutcome(line: string): { failed: boolean } | undefined {
+  if (!line.includes('"result"')) return undefined;
+  let frame: unknown;
+  try { frame = JSON.parse(line); } catch { return undefined; }
+  if (!record(frame) || frame.type !== 'result') return undefined;
+  return { failed: frame.is_error === true || (typeof frame.subtype === 'string' && frame.subtype !== 'success') };
+}
+
 /** Optional wrapper result envelope; existing opaque text output stays valid. */
 export function decodeWrapperResult(result: WorkerCliResult): WorkerCliResult {
   let value: unknown;

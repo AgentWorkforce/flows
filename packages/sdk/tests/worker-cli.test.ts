@@ -74,7 +74,7 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'default-model-ok'
       tokens_input: 2, tokens_output: 1 });
     expect(JSON.parse(readFileSync(calls, 'utf8'))).toEqual([
       '-p', '--dangerously-skip-permissions', '--model', 'claude-opus-5',
-      '--output-format', 'json', 'do the task',
+      '--output-format', 'stream-json', '--verbose', 'do the task',
     ]);
   });
 });

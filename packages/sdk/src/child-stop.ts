@@ -1,4 +1,4 @@
-import type { ChildProcess } from 'node:child_process';
+import { execFileSync, type ChildProcess } from 'node:child_process';
 
 /**
  * Grace between the graceful signal and the force kill. A tree that ignores
@@ -95,8 +95,18 @@ export function childStop(
       return (error as NodeJS.ErrnoException).code !== 'ESRCH';
     }
   };
+  // Descendants that moved into process groups of their own, captured at the
+  // first stop. Claude Code runs a `run_in_background` Bash command that way,
+  // so a group signal alone leaves it running after the agent is gone. They
+  // must be found while the direct child is still their ancestor: once it
+  // dies they are reparented and no longer traceable to this spawn.
+  let escapedGroups: readonly number[] | undefined;
   const signalTree = (name: NodeJS.Signals): void => {
     if (ownsGroup && pid !== undefined) {
+      escapedGroups ??= descendantGroups(pid);
+      for (const group of escapedGroups) {
+        try { process.kill(-group, name); } catch { /* already gone */ }
+      }
       // `-pid` addresses the group this detached child leads, which is every
       // descendant that has not left it. It throws only once the whole group
       // is gone — the outcome we were asking for — so fall through and let the
@@ -135,4 +145,39 @@ export function childStop(
       return true;
     },
   };
+}
+
+/**
+ * Process groups, other than `rootPid`'s own and this process's, that hold a
+ * descendant of `rootPid`. Reads `ps` for pid, parent and group only — never a
+ * command line. Where `ps` cannot answer, the answer is none: the group signal
+ * still reaches everything that stayed in the group.
+ */
+function descendantGroups(rootPid: number): number[] {
+  let table: string;
+  try {
+    table = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,pgid='], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2_000,
+    });
+  } catch {
+    return [];
+  }
+  const children = new Map<number, number[]>();
+  const groupOf = new Map<number, number>();
+  for (const line of table.split('\n')) {
+    const fields = line.trim().split(/\s+/).map(Number);
+    if (fields.length !== 3 || !fields.every(Number.isSafeInteger)) continue;
+    const [row, parent, group] = fields as [number, number, number];
+    groupOf.set(row, group);
+    children.set(parent, [...(children.get(parent) ?? []), row]);
+  }
+  const spared = new Set([rootPid, groupOf.get(process.pid)]);
+  const groups = new Set<number>();
+  const pending = [...(children.get(rootPid) ?? [])];
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    const group = groupOf.get(next);
+    if (group !== undefined && group > 1 && !spared.has(group)) groups.add(group);
+    pending.push(...(children.get(next) ?? []));
+  }
+  return [...groups];
 }
