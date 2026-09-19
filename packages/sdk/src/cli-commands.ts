@@ -1,4 +1,5 @@
 import { DEFAULT_DATA_DIR } from './daemon-connection.js';
+import { DEFAULT_RUN_LIMIT } from './cli/cloud-read.js';
 import type { ParsedArgs } from './cli.js';
 
 /**
@@ -182,6 +183,17 @@ export const CLI_VERBS = [
     variants: ['hn-monitor'],
   },
   {
+    name: 'logs',
+    description: 'Read a hosted run’s runner log, or one agent step’s transcript, from Cloud',
+    args: [{ name: 'run-id', description: 'Hosted run id, as `flows runs` lists it', required: true }],
+    options: [
+      { flags: '--step <name>', description: 'Show that agent step’s transcript instead of the runner log' },
+      { flags: '--raw', description: 'Print the transcript JSONL unrendered (still redacted)' },
+      JSON_OPTION,
+    ],
+    variants: ['logs'],
+  },
+  {
     name: 'observer',
     description: 'Mint a read-only observer link without running a flow',
     options: [DATA_DIR_OPTION],
@@ -232,6 +244,15 @@ export const CLI_VERBS = [
     variants: ['run', 'cloud-run'],
   },
   {
+    name: 'runs',
+    description: 'List the hosted runs this Cloud credential can read, newest first',
+    options: [
+      { flags: '--limit <n>', description: 'How many runs to show', defaultValue: DEFAULT_RUN_LIMIT },
+      JSON_OPTION,
+    ],
+    variants: ['runs'],
+  },
+  {
     name: 'schedule',
     description: 'Register a flow to run in Cloud on a cron or interval, or on the one it declares',
     args: [{ name: 'flow', description: 'flow.yaml or flow.ts submitted on every fire', required: true }],
@@ -267,12 +288,13 @@ export const CLI_VERBS = [
   },
   {
     name: 'status',
-    description: 'Show a run’s steps, attempts, leases and last verdicts from its journal; offline, no daemon',
+    description: 'Show a run’s steps, attempts, leases and last verdicts from its journal, or from Cloud with --cloud',
     args: [{ name: 'run-id', description: 'Run to inspect; defaults to RELAYFLOW_RUN_ID inside a step', required: false }],
     options: [
       JSON_OPTION,
       DATA_DIR_OPTION,
       { flags: '--tail <n>', description: 'Lines of each agent attempt’s transcript tail to show' },
+      { flags: '--cloud', description: 'Read the run from Cloud instead of a local journal; needs the run id' },
     ],
     variants: ['status'],
   },

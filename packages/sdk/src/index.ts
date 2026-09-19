@@ -58,7 +58,16 @@ export type { HeaderBudget } from './budget.js';
 export type { StepSpend } from './protocol.js';
 export { SPEC_SCHEMA_VERSION } from './spec.js';
 
-export { CloudFlowError, type CloudConnectionOptions } from './cloud-http.js';
+export { CloudFlowError, type CloudConnectionOptions, type CloudConfigurationReason } from './cloud-http.js';
+export {
+  listCloudRuns, getCloudRunDetail, getCloudRunSteps, getCloudRunLog,
+  type CloudRunSummary, type CloudRunList, type CloudRunDetail, type CloudStep, type CloudStepAttempt,
+  type CloudStepTranscript, type CloudToolCall, type CloudToolCount, type CloudRunLog,
+} from './cloud-read.js';
+export {
+  parseAgentTranscript, renderAgentTranscript,
+  type ParsedTranscript, type TranscriptEntry,
+} from './cloud-transcript.js';
 export {
   runInCloud, getCloudFlowRun, waitForCloudFlowRun,
   type CloudFlowSource, type RunInCloudOptions, type CloudRunReceipt, type CloudRunState,

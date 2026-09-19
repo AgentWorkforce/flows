@@ -25,6 +25,10 @@ import { parseWebhookArgs, runServeWebhook } from './cli/serve-webhook.js';
 import { runDirectFlow } from './cli/direct-run.js';
 import { parseReplayArgs, replayJournal, type ReplayArgs } from './cli/replay.js';
 import { parseStatusArgs, runStatus, type StatusArgs } from './cli/status.js';
+import {
+  parseLogsArgs, parseRunsArgs, runCloudLogsCli, runCloudRunsCli, runCloudStatusCli,
+  type LogsArgs, type RunsArgs,
+} from './cli/cloud-read.js';
 import { transcriptTailSource } from './transcript-tail.js';
 import { checkTypeScriptFlow } from './cli/check-typescript.js';
 import { runCloudCli } from './cli/cloud-run.js';
@@ -77,6 +81,8 @@ export type ParsedArgs =
   | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'resume'; localAgent: boolean; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'answer'; dataDir: string; json: boolean; spawn: boolean; note: string | undefined; by: string | undefined; runId: string; waitId: string; answer: boolean }
+  | RunsArgs
+  | LogsArgs
   | { command: 'observer'; dataDir: string }
   | { command: 'hn-monitor'; sub: 'start'; dataDir: string; specPath: string; pollIntervalMs: number | undefined }
   | { command: 'tick'; sub: 'start'; dataDir: string; specPath: string; scheduleId: string;
@@ -108,6 +114,9 @@ const USAGE = [
   'flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>',
   'flows replay [--allow-human-influenced] [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
   'flows status [--json] [--data-dir <dir>] [--tail <n>] [<run-id>]',
+  'flows status --cloud [--json] <run-id>',
+  'flows runs [--limit <n>] [--json]',
+  'flows logs [--step <name>] [--raw] [--json] <run-id>',
   'flows observer [--data-dir <dir>]',
   'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
 ].join('\n');
@@ -201,7 +210,15 @@ export async function runCli(
   if (parsed.command === 'replay') return replayJournal(parsed, io);
   // Daemon-free like `check`: reads one journal file and nothing else, so it
   // works inside a step of a run whose daemon is gone (kernel/DAEMON-LIFECYCLE.md §4).
-  if (parsed.command === 'status') return runStatus(parsed, io, { tails: transcriptTailSource() });
+  if (parsed.command === 'status') {
+    // One verb, two sources. `--cloud` never reaches `runStatus`, so the
+    // offline reader stays offline (cli/status.ts).
+    return parsed.cloud === true
+      ? runCloudStatusCli(parsed, io)
+      : runStatus(parsed, io, { tails: transcriptTailSource() });
+  }
+  if (parsed.command === 'runs') return runCloudRunsCli(parsed, io);
+  if (parsed.command === 'logs') return runCloudLogsCli(parsed, io);
   if (parsed.command === 'answer') {
     const execution = await answerFlow(parsed.runId, parsed.waitId, parsed.answer, parsed.dataDir, {
       ...(parsed.note === undefined ? {} : { note: parsed.note }),
@@ -506,6 +523,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (command === 'add') return args.length === 2 ? { command: 'add', value: args[1]! } : undefined;
   if (command === 'replay') return parseReplayArgs(args.slice(1));
   if (command === 'status') return parseStatusArgs(args.slice(1));
+  if (command === 'runs') return parseRunsArgs(args.slice(1));
+  if (command === 'logs') return parseLogsArgs(args.slice(1));
   if (command === 'build') return parseBuildArgs(args.slice(1));
   if (command === 'deploy') {
     // The positional decides the form: an authored source deploys a hosted

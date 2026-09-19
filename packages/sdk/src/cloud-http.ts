@@ -21,7 +21,26 @@ export interface CloudRefusal {
   received?: { packageName?: string; version?: string };
 }
 
+/**
+ * Narrows a `configuration` failure to the thing that was wrong.
+ *
+ * `configuration` has always covered every local misconfiguration, and its
+ * message says which. A caller that must answer with a *code* — the read
+ * verbs print `REFUSED [cloud_auth_missing]` and name `agent-relay cloud
+ * login` — cannot get that from prose without matching on it. Optional and
+ * additive: every existing `catch` on `code === 'configuration'` is unchanged.
+ */
+export type CloudConfigurationReason =
+  | 'auth_missing'
+  | 'auth_expired'
+  | 'url_invalid'
+  | 'url_mismatch'
+  | 'timeout_invalid';
+
 export class CloudFlowError extends Error {
+  /** Set only for `configuration`; see {@link CloudConfigurationReason}. */
+  reason?: CloudConfigurationReason;
+
   constructor(
     readonly code: 'configuration' | 'unsupported_source' | 'invalid_input' | 'invalid_response' | 'http_error'
       | 'transport_error' | 'transient_error' | 'unsupported_storage_backend' | 'sync_too_large' | 'sync_unsupported'
@@ -33,6 +52,13 @@ export class CloudFlowError extends Error {
     super(message);
     this.name = 'CloudFlowError';
   }
+}
+
+/** A `configuration` refusal that also carries its {@link CloudConfigurationReason}. */
+function configurationError(reason: CloudConfigurationReason, message: string): CloudFlowError {
+  const error = new CloudFlowError('configuration', message);
+  error.reason = reason;
+  return error;
 }
 
 /**
@@ -79,7 +105,7 @@ export function cloudConnection(options: CloudConnectionOptions): { baseUrl: str
     if (login !== undefined) {
       const expiresAt = login.accessTokenExpiresAt === undefined ? Number.NaN : Date.parse(login.accessTokenExpiresAt);
       if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
-        throw new CloudFlowError('configuration',
+        throw configurationError('auth_expired',
           'The agent-relay cloud login has expired. Run `agent-relay cloud login` again, or set FLOWS_CLOUD_TOKEN.');
       }
       rawToken = login.accessToken;
@@ -88,7 +114,7 @@ export function cloudConnection(options: CloudConnectionOptions): { baseUrl: str
   }
   const token = rawToken?.trim();
   if (!token || /[\r\n]/u.test(rawToken!) || /^(?:rk|ot)_live_/u.test(token)) {
-    throw new CloudFlowError('configuration',
+    throw configurationError('auth_missing',
       'Set FLOWS_CLOUD_TOKEN to a scoped Cloud API token (workflow:invoke:write and workflow:runs:read), '
       + 'or sign in with `agent-relay cloud login`.');
   }
@@ -96,11 +122,11 @@ export function cloudConnection(options: CloudConnectionOptions): { baseUrl: str
   try {
     url = new URL(options.apiUrl ?? process.env['FLOWS_CLOUD_URL'] ?? loginApiUrl ?? 'https://agentrelay.com/cloud');
   } catch {
-    throw new CloudFlowError('configuration', 'FLOWS_CLOUD_URL must be an absolute Cloud application base URL.');
+    throw configurationError('url_invalid', 'FLOWS_CLOUD_URL must be an absolute Cloud application base URL.');
   }
   if (url.protocol !== 'https:'
     || url.username || url.password || url.search || url.hash || !/^\/[A-Za-z0-9/_-]*$/u.test(url.pathname)) {
-    throw new CloudFlowError('configuration', 'Cloud URL must use HTTPS and a plain base path.');
+    throw configurationError('url_invalid', 'Cloud URL must use HTTPS and a plain base path.');
   }
   const baseUrl = `${url.origin}${url.pathname.replace(/\/+$/u, '')}`;
   // A login-store token is bound to the deployment that issued it. An explicit
@@ -113,7 +139,7 @@ export function cloudConnection(options: CloudConnectionOptions): { baseUrl: str
       issued = `${login.origin}${login.pathname.replace(/\/+$/u, '')}`;
     } catch { issued = undefined; }
     if (issued !== baseUrl) {
-      throw new CloudFlowError('configuration',
+      throw configurationError('url_mismatch',
         `The agent-relay cloud login was issued for ${loginApiUrl}, not ${baseUrl}. `
         + 'Set FLOWS_CLOUD_TOKEN for that deployment, or unset FLOWS_CLOUD_URL to use the login.');
     }
@@ -159,7 +185,7 @@ export async function cloudFetch(
   const { baseUrl, token } = cloudConnection(options);
   const timeout = options.requestTimeoutMs ?? 30_000;
   if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2_147_483_647) {
-    throw new CloudFlowError('configuration', 'requestTimeoutMs must be a positive 32-bit integer.');
+    throw configurationError('timeout_invalid', 'requestTimeoutMs must be a positive 32-bit integer.');
   }
   const bearer = init.bearerToken ?? token;
   if (/[\r\n]/u.test(bearer) || !bearer.trim()) {

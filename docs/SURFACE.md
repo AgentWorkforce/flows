@@ -636,6 +636,15 @@ flows observer [--data-dir <dir>]
 flows status [--json] [--data-dir <dir>] [--tail <n>] [<run-id>]
 ```
 
+Three further verbs read a **hosted** run over the Cloud API rather than a
+journal. They are documented in [CLOUD.md](CLOUD.md#reading-a-hosted-run):
+
+```text
+flows runs [--limit <n>] [--json]
+flows logs [--step <name>] [--raw] [--json] <run-id>
+flows status --cloud [--json] <run-id>
+```
+
 ### Agent sidechannel (initial byte-stream slice)
 
 Local agent workers (`flows run --local-agent`) open
@@ -751,7 +760,11 @@ shapes become `[redacted]` with their name kept. Identifiers — run and step
 ids, hashes, env *names* — are never rewritten, so the view stays greppable.
 
 What `flows status` cannot tell a hosted run is Cloud's: its Cloud run id,
-sandbox and listener, and anything about sibling runs. See
+sandbox and listener, and anything about sibling runs. Given that run id,
+`flows status --cloud`, `flows runs` and `flows logs` answer the same
+questions from the Cloud API, under the caller's own Cloud credential and with
+the same redactor applied. See
+[CLOUD.md](CLOUD.md#reading-a-hosted-run) and
 [CLOUD.md](CLOUD.md#current-limits-and-scope).
 
 Inside `flows run` and `flows resume` that same mint is fire-and-forget. It is
