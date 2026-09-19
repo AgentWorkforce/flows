@@ -266,18 +266,28 @@ async function ours(knownLogins) {
   return all.filter((x) => (x.m.login && x.m.login !== "pending") ? x.c.user.login === x.m.login : logins.has(x.c.user.login));
 }
 async function committerDate(sha) { const c = await gh("GET", API + "/commits/" + sha, undefined, { soft: true }); return c ? Date.parse(c.commit.committer.date) : null; }
-/** Should the comment carrying \`theirSha\` stay as it is (i.e. is it not older than ours)? */
-async function theirsWins(theirSha) {
-  if (theirSha === headSha) return true;
-  const cmp = await gh("GET", API + "/compare/" + headSha + "..." + theirSha, undefined, { soft: true });
-  if (!cmp) return false; // a head the repo cannot resolve is not a newer head
+/** Does the head \`a\` outrank head \`b\` (a is not older than b)? Unresolvable heads lose. */
+async function headWins(a, b) {
+  if (a === b) return true;
+  const cmp = await gh("GET", API + "/compare/" + b + "..." + a, undefined, { soft: true });
+  if (!cmp) return false;
   if (cmp.status === "ahead" || cmp.status === "identical") return true;
   if (cmp.status === "behind") return false;
-  const [theirs, mine] = [await committerDate(theirSha), await committerDate(headSha)];
-  if (theirs === null || mine === null) return false;
-  return theirs >= mine;
+  const [da, db] = [await committerDate(a), await committerDate(b)];
+  if (da === null || db === null) return false;
+  return da >= db;
 }
-const byPreference = (a, b) => (a.m.sha === headSha ? -1 : b.m.sha === headSha ? 1 : Date.parse(b.c.updated_at) - Date.parse(a.c.updated_at));
+/** Should the comment carrying \`theirSha\` stay as it is (i.e. is it not older than ours)? */
+const theirsWins = (theirSha) => headWins(theirSha, headSha);
+/** Among our comments, the one whose head is newest; same head → lowest id. Never prefers ours by identity. */
+async function keeperOf(cands) {
+  let keep = cands[0];
+  for (const other of cands.slice(1)) {
+    if (other.m.sha === keep.m.sha) { if (other.c.id < keep.c.id) keep = other; }
+    else if (await headWins(other.m.sha, keep.m.sha)) keep = other;
+  }
+  return keep;
+}
 async function softDelete(id) { await gh("DELETE", API + "/issues/comments/" + id, undefined, { soft: true }); console.log("deleted duplicate comment " + id); }
 
 (async () => {
@@ -290,11 +300,11 @@ async function softDelete(id) { await gh("DELETE", API + "/issues/comments/" + i
   const me = await gh("GET", (process.env.GITHUB_API || "https://api.github.com") + "/user", undefined, { soft: true });
   let found = await ours(me && me.login ? [me.login] : []);
   if (found.length > 1) {
-    // Converge legacy duplicates to one comment without discarding a newer
-    // verdict: keep the one for our SHA, else the most recently updated.
-    found.sort(byPreference);
-    for (const dup of found.slice(1)) await softDelete(dup.c.id);
-    found = [found[0]];
+    // Converge duplicates to one comment without discarding a newer verdict:
+    // keep the one whose head is newest (never "ours" by identity).
+    const keep = await keeperOf(found);
+    for (const dup of found) if (dup.c.id !== keep.c.id) await softDelete(dup.c.id);
+    found = [keep];
   }
   const existing = found[0];
 
@@ -306,12 +316,7 @@ async function softDelete(id) { await gh("DELETE", API + "/issues/comments/" + i
     // orphans this login left) and converge on the comment whose head wins.
     const again = (await ours([login])).filter((x) => x.c.user.login === login);
     if (again.length > 1) {
-      let keep = again.find((x) => x.c.id === posted.id) || again[0];
-      for (const other of again) {
-        if (other.c.id === keep.c.id) continue;
-        if (other.m.sha === headSha) { if (other.c.id < keep.c.id) keep = other; }   // same head: lowest id wins
-        else if (await theirsWins(other.m.sha)) keep = other;                         // a newer head owns the comment
-      }
+      const keep = await keeperOf(again);
       for (const other of again) if (other.c.id !== keep.c.id) await softDelete(other.c.id);
       if (keep.c.id !== posted.id) { console.log("raced: kept " + keep.c.id + " (" + keep.m.sha.slice(0, 8) + "), deleted ours " + posted.id); return; }
     }
@@ -321,12 +326,12 @@ async function softDelete(id) { await gh("DELETE", API + "/issues/comments/" + i
   // Re-read right before writing; a vanished comment means "none exists".
   const fresh = await gh("GET", API + "/issues/comments/" + existing.c.id, undefined, { soft: true });
   if (fresh === null) {
-    const posted = await gh("POST", API + "/issues/" + number + "/comments", { body: markerFor(existing.m.login || existing.c.user.login) + "\n" + text });
+    const posted = await gh("POST", API + "/issues/" + number + "/comments", { body: markerFor(existing.c.user.login) + "\n" + text });
     console.log("re-posted comment " + posted.id + " for " + headSha + " (previous one vanished)"); return;
   }
   const cur = readMark(fresh);
   if (cur && (await theirsWins(cur.sha))) { console.log("comment already carries " + cur.sha + "; not overwriting with " + headSha); return; }
-  await gh("PATCH", API + "/issues/comments/" + existing.c.id, { body: markerFor(existing.m.login || existing.c.user.login) + "\n" + text });
+  await gh("PATCH", API + "/issues/comments/" + existing.c.id, { body: markerFor(existing.c.user.login) + "\n" + text });
   console.log("updated comment " + existing.c.id + " for " + headSha);
 })();
 `;

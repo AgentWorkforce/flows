@@ -159,6 +159,23 @@ describe('workflows/pr-review-post.cjs', () => {
     expect(r.out).toContain('updated comment'); expect(ours()).toHaveLength(1); expect(ours()[0].body).toBe(`${mark(SHA_B, 'relay[bot]')}\nverdict body\n`);
     expect(fake.log.filter((l) => l.startsWith('POST'))).toEqual([]);
   });
+  it('first-scan cleanup keeps the newest head even when an older wake runs last', async () => {
+    const newer = seed(SHA_B, { text: 'newer' }); seed(SHA_A, { text: 'older-dup' });
+    fake.compare[`${SHA_B}...${SHA_A}`] = 'behind'; fake.compare[`${SHA_A}...${SHA_B}`] = 'ahead';
+    const r = await run(SHA_A);
+    expect(ours()).toHaveLength(1); expect(ours()[0].id).toBe(newer.id); expect(ours()[0].body).toContain('\nnewer'); expect(r.out).toContain('not overwriting');
+  });
+  it('stamps the real author login when updating a by:pending comment (identity known)', async () => {
+    fake.user = { login: 'relay[bot]' };
+    seed(SHA_A, { login: 'pending' }); fake.compare[`${SHA_B}...${SHA_A}`] = 'behind';
+    const r = await run(SHA_B);
+    expect(r.out).toContain('updated comment'); expect(ours()).toHaveLength(1); expect(ours()[0].body.startsWith(mark(SHA_B, 'relay[bot]') + '\n')).toBe(true);
+  });
+  it('converges a by:pending orphan to one stamped comment with an installation token', async () => {
+    seed(SHA_A, { login: 'pending' }); fake.compare[`${SHA_B}...${SHA_A}`] = 'behind'; fake.compare[`${SHA_A}...${SHA_B}`] = 'ahead';
+    const r = await run(SHA_B);
+    expect(r.code).toBe(0); expect(ours()).toHaveLength(1); expect(ours()[0].body.startsWith(mark(SHA_B, 'relay[bot]') + '\n')).toBe(true);
+  });
   it('re-posts when the comment vanished between scan and write', async () => {
     const c = seed(SHA_A);
     // Delete it on the first re-read: emulate by removing after listing.
