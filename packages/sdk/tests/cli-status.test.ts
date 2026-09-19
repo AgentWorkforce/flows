@@ -10,6 +10,7 @@ import { canonicalize } from '../src/canonical.js';
 import { runCli } from '../src/cli.js';
 import { parseStatusArgs, runStatus, type StatusOptions } from '../src/cli/status.js';
 import type { JournalEvent } from '../src/journal-client.js';
+import { runAgentCli } from '../src/worker-cli.js';
 import { writeJournalFixture } from './journal-fixture.js';
 
 vi.mock('node:fs/promises', async (importOriginal) => ({
@@ -20,6 +21,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const EVENTS = readFileSync(join(ROOT, 'docs/evidence/journal-close-0909/completed.journal.jsonl'), 'utf8')
   .trim().split('\n').map((line) => JSON.parse(line) as JournalEvent);
 const RUN_ID = EVENTS[0]!.run_id;
+const CLI = join(ROOT, 'packages/sdk/dist/cli.js');
 const T_END = EVENTS.at(-1)!.at_ms;
 const directories: string[] = [];
 
@@ -258,6 +260,27 @@ describe('flows status', () => {
     expect(output.stdout).toEqual([]);
     expect(slept).toEqual([50, 50, 50, 50]);
     expect(output.stderr[0]).toMatch(/^REFUSED \[journal_busy\] .*retry/);
+  });
+
+  it('resolves the run with no arguments from inside a worker-spawned agent', async () => {
+    const { dataDir, writer } = fixture(inFlight('x'));
+    writer.close();
+    // The "agent" is the pinned CLI asking about itself: no arguments, no daemon, no credential.
+    const claude = join(dataDir, 'claude');
+    writeFileSync(claude, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const child = spawnSync(process.execPath, [${JSON.stringify(CLI)}, 'status', '--json'], { encoding: 'utf8', cwd: '/' });
+process.stdout.write(JSON.stringify({ status: child.status, stdout: child.stdout, stderr: child.stderr }));
+`, { mode: 0o755 });
+    const result = await runAgentCli(claude, 'inspect yourself', undefined, 'unpriced-test-model', undefined, undefined, 'agent', {
+      dataDir, runId: RUN_ID, stepId: 'implement', attempt: 2, onDrive() {},
+    });
+    expect(result.exit_code).toBe(0);
+    const inner = JSON.parse(result.stdout_tail);
+    // stderr carries only Node's experimental-SQLite notice, never a refusal.
+    expect(inner.stderr, inner.stderr).not.toMatch(/REFUSED|FAILED/);
+    expect(inner.status, inner.stderr).toBe(0);
+    expect(JSON.parse(inner.stdout)).toMatchObject({ run_id: RUN_ID, this_step: 'implement', status: 'running' });
   });
 
   it('renders what it could read, marks the section partial and exits 1 on a mid-journal parse error', async () => {

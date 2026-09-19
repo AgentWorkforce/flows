@@ -14,6 +14,7 @@ import { DEFAULT_DATA_DIR } from '../daemon-connection.js';
 import { JournalReadError, walkJournal, type JournalEvent } from '../journal-client.js';
 import { redact } from '../redact.js';
 import { foldRunState, RunStateError, type RunView, type StepView } from '../run-state.js';
+import { DATA_DIR_ENV, RUN_ID_ENV, STEP_ID_ENV } from '../step-env.js';
 
 export interface StatusArgs {
   command: 'status';
@@ -22,12 +23,6 @@ export interface StatusArgs {
   tail?: number;
   runId?: string;
 }
-
-/** Discovery env the worker sets for every direct agent attempt (worker-cli.ts). */
-export const RUN_ID_ENV = 'RELAYFLOW_RUN_ID';
-export const STEP_ID_ENV = 'RELAYFLOW_STEP_ID';
-export const ATTEMPT_ENV = 'RELAYFLOW_ATTEMPT';
-export const DATA_DIR_ENV = 'RELAYFLOW_DATA_DIR';
 
 export const DEFAULT_TAIL_LINES = 20;
 /** A gate's `detail` may be 2,000 chars (engine/remote.rs); the view shows the head. */

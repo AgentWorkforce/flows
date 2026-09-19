@@ -110,7 +110,7 @@ export class AgentWorker extends EventEmitter {
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       typeof spec.cli === 'string' && typeof spec.instruction === 'string'
         ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'agent', this.options.dataDir === undefined ? undefined : {
-          dataDir: this.options.dataDir, runId: dispatch.run_id, stepId: dispatch.step_id,
+          dataDir: this.options.dataDir, runId: dispatch.run_id, stepId: dispatch.step_id, attempt: dispatch.attempt,
           onReady: this.options.onPtyReady, onDrive: () => { humanIntervention = true; },
         }, typeof spec.cwd === 'string' ? spec.cwd : undefined,
           spec.transport === 'relay' ? 'relay' : 'direct',

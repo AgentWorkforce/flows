@@ -6,6 +6,8 @@ export interface SidechannelContext {
   dataDir: string;
   runId: string;
   stepId: string;
+  /** Which attempt this is; named in the agent's environment and its transcript tail. */
+  attempt: number;
   onReady?: (path: string) => void;
   onDrive: () => void;
 }

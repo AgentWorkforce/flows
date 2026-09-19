@@ -20,6 +20,7 @@ import {
 } from './wrapper-session.js';
 import { wrapperEnvironment } from './wrapper-runtime.js';
 import { redactRelayError } from './redact.js';
+import { applyStepEnvironment } from './step-env.js';
 import {
   runAgentRelayTask,
   AgentRelayTransportError,
@@ -122,6 +123,9 @@ export async function runAgentCli(
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env[WAKE_CONTEXT_ENV];
   delete env[MODEL_ENV];
+  // Where this attempt's journal is, so the agent can run `flows status` on
+  // itself. Only a worker with a data dir knows; an ad-hoc spawn exports nothing.
+  applyStepEnvironment(env, sidechannel);
   const invocation = mode === 'llm' ? llmExecution(kind, instruction, effectiveModel) : agentExecution(kind, instruction, effectiveModel);
 
   if (wakeContext !== undefined) {
