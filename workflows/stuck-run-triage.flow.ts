@@ -45,9 +45,11 @@ const TAIL_SECONDS = 75;
 /**
  * Tails run concurrently, so wall time is one `TAIL_SECONDS` window rather than
  * one per id — but each is a live Worker session, so the fan-out is bounded.
- * 8 ids x 2 workers = 16 concurrent tails, still inside the 10m step lease.
+ * `MAX_RUN_IDS` alone does not bound it: the fan-out is ids x workers, and
+ * both come from the caller, so `MAX_TAILS` is the one that actually holds.
  */
 const MAX_RUN_IDS = 8;
+const MAX_TAILS = 16;
 
 /** Exact ids only: long enough that an 8-char prefix cannot pass. */
 const RUN_ID = /^[0-9A-Za-z][0-9A-Za-z_-]{19,63}$/u;
@@ -108,10 +110,29 @@ export default flow<StuckRunTriageInput>(
           + `edge step's 10m lease; triage them in batches`,
       );
     }
+    // Each (worker, id) pair writes `triage/.raw-<w>-<id>`, so a repeated pair
+    // would have two concurrent tails truncating and deleting one file — and
+    // the survivor's evidence would be unattributable.
+    const duplicateIds = runIds.filter((id, at) => runIds.indexOf(id) !== at);
+    if (duplicateIds.length > 0) {
+      throw new Error(`stuck-run-triage: duplicate runIds: ${[...new Set(duplicateIds)].join(", ")}`);
+    }
     const workers = input.workers ?? DEFAULT_WORKERS;
     const badWorker = workers.filter((w) => !WORKER_NAME.test(w));
     if (workers.length === 0 || badWorker.length > 0) {
       throw new Error(`stuck-run-triage: invalid workers: ${badWorker.join(", ") || "(empty)"}`);
+    }
+    const duplicateWorkers = workers.filter((w, at) => workers.indexOf(w) !== at);
+    if (duplicateWorkers.length > 0) {
+      throw new Error(`stuck-run-triage: duplicate workers: ${[...new Set(duplicateWorkers)].join(", ")}`);
+    }
+    // The real fan-out bound: every pair is a live Worker tail session held
+    // open for TAIL_SECONDS at once.
+    if (runIds.length * workers.length > MAX_TAILS) {
+      throw new Error(
+        `stuck-run-triage: ${runIds.length} runIds x ${workers.length} workers is `
+          + `${runIds.length * workers.length} concurrent tails, over the ${MAX_TAILS} this step opens`,
+      );
     }
     const api = approvedApi(input.apiUrl);
     const idWords = runIds.map(shellWord).join(" ");

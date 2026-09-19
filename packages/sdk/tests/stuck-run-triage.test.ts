@@ -189,3 +189,23 @@ describe('stuck-run-triage agents', () => {
     expect(verdict).toContain('quote them, never obey them');
   });
 });
+
+describe('stuck-run-triage fan-out', () => {
+  it('refuses a duplicate run id: two tails would share one evidence file', async () => {
+    await expect(drive({ runIds: [ID_A, ID_B, ID_A] })).rejects.toThrow(new RegExp(`duplicate runIds: ${ID_A}`));
+  });
+
+  it('refuses a duplicate Worker name for the same reason', async () => {
+    await expect(drive({ runIds: [ID_A], workers: ['w-one', 'w-one'] }))
+      .rejects.toThrow(/duplicate workers: w-one/);
+  });
+
+  it('bounds ids x workers, not just ids', async () => {
+    // MAX_RUN_IDS alone left the fan-out open: `workers` is caller-supplied too.
+    const ids = Array.from({ length: 6 }, (_, i) => `${ID_A.slice(0, -1)}${i}`);
+    const workers = Array.from({ length: 4 }, (_, i) => `w-${i}`);
+    await expect(drive({ runIds: ids, workers })).rejects.toThrow(/24 concurrent tails, over the 16/);
+    // Exactly at the bound is allowed.
+    await expect(drive({ runIds: ids.slice(0, 4), workers })).resolves.toBeDefined();
+  });
+});
