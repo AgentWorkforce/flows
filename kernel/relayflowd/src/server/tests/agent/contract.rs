@@ -9,7 +9,9 @@ use serde_json::json;
 use tempfile::tempdir;
 
 use super::super::super::*;
-use super::super::{attach_llm_worker, read_frame, request, shared_writer, step_completions};
+use super::super::{
+    attach_llm_worker, read_frame, request, shared_writer, start_llm_run, step_completions,
+};
 
 /// `parked` means nothing is coming until something changes; `waiting_worker`
 /// means a worker holds this lease and `resume` should block for its
@@ -233,6 +235,77 @@ fn an_oversized_trajectory_tail_is_refused_at_step_complete() {
     let error = response.error.unwrap();
     assert_eq!(error.code, "bad_request");
     assert!(error.message.contains("trajectory_tail"));
+}
+
+/// The SDK journals a per-attempt transcript digest nested under
+/// `trajectory_tail.transcript` (packages/sdk/src/agent-transcript.ts), capped
+/// at 8 KiB so that it and the `relay_task` sibling fit under this boundary
+/// together. `step.complete` params are `deny_unknown_fields`, so nesting is
+/// the contract: a digest at its full budget, beside a sibling, is admitted
+/// with no kernel change and journaled verbatim.
+#[test]
+fn a_transcript_digest_at_its_budget_rides_trajectory_tail_verbatim() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let worker_peer = attach_llm_worker(data_dir, &hub, 1);
+    let mut worker_reader = BufReader::new(worker_peer);
+    let run_id = start_llm_run(data_dir, &hub);
+    let dispatch = read_frame(&mut worker_reader);
+    assert_eq!(dispatch["event"], "step.dispatch");
+    let idempotency_key = dispatch["data"]["idempotency_key"].as_str().unwrap().to_owned();
+
+    // The digest shape the SDK produces, padded to exactly its 8 KiB budget.
+    let mut transcript = json!({
+        "attempt": 1,
+        "exit_code": 0,
+        "file": {
+            "path": "/data/runs/r/steps/model/attempt-1.transcript.jsonl",
+            "bytes_total": 3_145_728, "bytes_kept": 1_048_576,
+            "frames_total": 3000, "frames_kept": 1010, "truncated": true,
+            "sha256": "0".repeat(64)
+        },
+        "result": {"provider": "claude", "model": "claude-haiku-4-5-20251001", "total_cost_usd": 0.0271,
+            "usage": {"input": 18, "output": 178, "cache_read": 38341, "cache_creation": 11177}},
+        "tools": {"counts": [{"name": "Bash", "calls": 1, "errors": 0}], "last_calls": [],
+            "total_calls": 1, "shown_calls": 0, "complete": true},
+        "failure": {"kind": "stderr", "excerpt": "", "truncated": true},
+        "final_text": ""
+    });
+    let budget = 8 * 1024;
+    let padding = budget - serde_json::to_vec(&transcript).unwrap().len();
+    transcript["final_text"] = json!("t".repeat(padding));
+    assert_eq!(serde_json::to_vec(&transcript).unwrap().len(), budget);
+    let tail = json!({
+        "relay_task": {"invocation_id": "inv-1", "status": "completed", "error": null,
+            "task_execution": {"accounting": {"tokens_input": 18, "tokens_output": 178}}},
+        "transcript": transcript
+    });
+    assert!(serde_json::to_vec(&tail).unwrap().len() <= TRAJECTORY_TAIL_MAX_BYTES);
+
+    let (writer, _peer) = shared_writer();
+    let response = request(
+        data_dir,
+        &hub,
+        1,
+        &writer,
+        &json!({"id": "complete", "verb": "step.complete", "params": {
+            "run_id": run_id, "step_id": "model", "attempt": 1,
+            "idempotency_key": idempotency_key, "completionReason": "success",
+            "output": {"answer": 42}, "trajectory_tail": tail,
+        }})
+        .to_string(),
+    );
+    assert!(response.ok, "step.complete refused the digest: {:?}", response.error);
+
+    let completions = step_completions(data_dir, &run_id);
+    assert_eq!(completions.len(), 1);
+    let completed = &completions[0];
+    assert_eq!(completed.completion_reason, CompletionReason::Success);
+    // Verbatim: the digest is evidence, and the journal stores what was admitted.
+    assert_eq!(completed.trajectory_tail, Some(tail));
+    // The digest is not the output: the authored value is untouched.
+    assert_eq!(completed.output, json!({"answer": 42}));
 }
 
 /// Pins are journaled from whichever worker `select_worker` returned; if that

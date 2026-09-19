@@ -108,26 +108,51 @@ export function inspectionHint(
  * it does not. A truncated render (the daemon caps at 2,000 chars and appends
  * a truncation note) will not parse; that falls through to the raw string,
  * which is still the account of what went wrong.
+ *
+ * An agent or llm completion now also carries `trajectory_tail.transcript`
+ * (agent-transcript.ts) on every attempt. That object is not process-shaped,
+ * so it must not shadow the render that is: the first candidate that carries
+ * an exit code or a tail wins. The digest contributes what only it has — the
+ * failure excerpt the worker picked out of the provider's frames, and the
+ * path of the transcript file.
  */
 function evidence(payload: Record<string, unknown>): Partial<StepFailedDetails> {
   const detail = record(payload['verification'])?.['detail'];
-  const structured = record(payload['output'])
-    ?? record(payload['trajectory_tail'])
-    ?? (typeof detail === 'string' ? parsed(detail) : undefined);
+  const candidates = [
+    record(payload['output']),
+    record(payload['trajectory_tail']),
+    typeof detail === 'string' ? parsed(detail) : undefined,
+  ].filter((candidate): candidate is Record<string, unknown> => candidate !== undefined);
+  const structured = candidates.find(processShaped) ?? candidates[0];
   const exitCode = structured?.['exit_code'];
   const stdout = structured?.['stdout_tail'];
   const stderr = structured?.['stderr_tail'];
-  const structuredShape = typeof exitCode === 'number'
-    || typeof stdout === 'string' || typeof stderr === 'string';
+  const structuredShape = structured !== undefined && processShaped(structured);
+  const transcript = record(record(payload['trajectory_tail'])?.['transcript']);
+  const failure = record(transcript?.['failure']);
+  const excerpt = failure?.['excerpt'];
+  const transcriptPath = record(transcript?.['file'])?.['path'];
+  // The excerpt is the worker's own pick of the failure; a `stderr` excerpt
+  // is the same bytes as `stderrTail`, so it is not printed twice.
+  const excerptDetail = typeof excerpt === 'string' && excerpt.length > 0
+    && !(failure?.['kind'] === 'stderr' && typeof stderr === 'string')
+    ? tail(excerpt) : undefined;
   return {
     ...(typeof exitCode === 'number' && Number.isSafeInteger(exitCode) ? { exitCode } : {}),
     ...(typeof stdout === 'string' && stdout.length > 0 ? { stdoutTail: tail(stdout) } : {}),
     ...(typeof stderr === 'string' ? { stderrTail: tail(stderr) } : {}),
     // Keep the daemon's account only when it was NOT just a render of the
     // fields above — otherwise the same bytes print twice.
-    ...(typeof detail === 'string' && detail.length > 0 && !structuredShape
-      ? { detail: tail(detail) } : {}),
+    ...(excerptDetail !== undefined ? { detail: excerptDetail }
+      : typeof detail === 'string' && detail.length > 0 && !structuredShape
+        ? { detail: tail(detail) } : {}),
+    ...(typeof transcriptPath === 'string' && transcriptPath.length > 0 ? { transcriptPath } : {}),
   };
+}
+
+function processShaped(value: Record<string, unknown>): boolean {
+  return typeof value['exit_code'] === 'number'
+    || typeof value['stdout_tail'] === 'string' || typeof value['stderr_tail'] === 'string';
 }
 
 function parsed(value: string): Record<string, unknown> | undefined {

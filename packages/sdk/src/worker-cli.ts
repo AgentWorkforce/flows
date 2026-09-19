@@ -1,7 +1,9 @@
+import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { diffWorkspaceFiles, snapshotWorkspaceFiles } from './agent-artifacts.js';
 import { claudeResultOutcome, decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
 import { openSidechannel, type SidechannelContext } from './pty-sidechannel.js';
+import { openTranscriptWriter, redactText, transcriptPath, type TranscriptDigest, type TranscriptWriter } from './agent-transcript.js';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { childStop } from './child-stop.js';
@@ -52,6 +54,15 @@ export interface WorkerCliResult {
    * agent runs on another host.
    */
   artifacts?: string[];
+  /**
+   * The attempt's transcript digest (`agent-transcript.ts`): provider result
+   * metadata, tool calls summarized, final text, failure excerpt, and — when
+   * the spawn had a sidechannel context with an attempt — the pointer to the
+   * redacted, capped `stream-json` file. Journaled in `trajectory_tail`, never
+   * in `output`. Present for Claude/Codex executions; absent for wrappers and
+   * the relay transport, which stream no provider frames through this process.
+   */
+  transcript?: TranscriptDigest;
 }
 
 /**
@@ -95,13 +106,20 @@ export async function runAgentCli(
   // workspace to change. Executions sharing a working directory are
   // serialized around their snapshot-spawn-snapshot interval, so one agent's
   // writes are never attributed to a concurrent one in the same directory.
+  //
+  // The attempt's transcript file is written during that interval by this
+  // process, not by the agent; when the data dir sits under the cwd (a local
+  // `--data-dir` inside the project) it is dropped from the diff by path.
   const artifactRoot = mode === 'agent' ? resolve(cwd ?? process.cwd()) : undefined;
   return artifactRoot === undefined
     ? execute()
     : serializedByDirectory(artifactRoot, async () => {
       const before = await snapshotWorkspaceFiles(artifactRoot);
       const result = await execute();
-      return { ...result, artifacts: diffWorkspaceFiles(before, await snapshotWorkspaceFiles(artifactRoot)) };
+      const transcriptFile = realPath(result.transcript?.file?.path);
+      const artifacts = diffWorkspaceFiles(before, await snapshotWorkspaceFiles(artifactRoot))
+        .filter(path => transcriptFile === undefined || realPath(resolve(artifactRoot, path)) !== transcriptFile);
+      return { ...result, artifacts };
     });
 
   async function execute(): Promise<WorkerCliResult> {
@@ -142,8 +160,14 @@ export async function runAgentCli(
   const args = [...invocation.args];
   args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'stream-json', '--verbose'] : ['--json']));
   const completion = kind === 'claude' ? claudeResultOutcome : undefined;
-  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion), kind), effectiveModel);
+  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion), kind, env), effectiveModel);
   }
+}
+
+/** Symlink-free form of a path, or the path itself when it cannot be resolved. */
+function realPath(path: string | undefined): string | undefined {
+  if (path === undefined) return undefined;
+  try { return realpathSync(path); } catch { return path; }
 }
 
 /** One agent at a time per canonical working directory, for the artifact interval. */
@@ -191,12 +215,12 @@ async function runViaAgentRelay(
   }
 }
 
+/**
+ * `RELAY_AGENT_TOKEN` and `RELAY_API_KEY` are secret-named, so the shared
+ * redactor scrubs their values by name and the relay token prefixes by shape.
+ */
 function redactRelayError(message: string): string {
-  for (const key of ['RELAY_AGENT_TOKEN', 'RELAY_API_KEY']) {
-    const secret = process.env[key];
-    if (secret) message = message.replaceAll(secret, '[redacted]');
-  }
-  return message.replace(/\b(?:at|rk|nt|ot|br|arr)_(?:live_)?[A-Za-z0-9_-]+/g, '[redacted]');
+  return redactText(message, process.env);
 }
 
 /**
@@ -220,11 +244,19 @@ async function spawnInvocation(
   let writeInput: (bytes: Buffer) => Promise<boolean> = async () => false;
   let canDrive = () => false;
   let driven = false;
+  // The transcript file lives beside the PTY socket and is named by attempt.
+  // Its absence (no data dir, no attempt, unwritable dir) costs the step
+  // nothing: the digest is built from the buffered frames regardless. Opened
+  // BEFORE the sidechannel: once `onReady` has fired, a drive peer's HELLO may
+  // arrive at any time, and nothing may sit between that and the spawn that
+  // arms `canDrive`.
+  const writer: TranscriptWriter | undefined = sidechannel?.attempt === undefined ? undefined
+    : await openTranscriptWriter(transcriptPath(sidechannel, sidechannel.attempt), env);
   const channel = sidechannel === undefined ? undefined : await openSidechannel({
     ...sidechannel,
     onDrive() { driven = true; sidechannel.onDrive(); },
   }, bytes => writeInput(bytes), () => canDrive());
-  if (signal?.aborted) { channel?.close(); signal.throwIfAborted(); }
+  if (signal?.aborted) { channel?.close(); void writer?.close(); signal.throwIfAborted(); }
   return new Promise((resolve) => {
     // Always a group of its own off Windows, so every stop — and
     // `reapOnExit` — reaches the whole agent tree, lease-bound or not.
@@ -257,7 +289,7 @@ async function spawnInvocation(
     let graceTimer: NodeJS.Timeout | undefined;
     const decoder = new StringDecoder('utf8');
     let partialLine = '';
-    const finish = (result: WorkerCliResult): void => {
+    const finish = (result: WorkerCliResult, discardTranscript = false): void => {
       if (settled) return;
       settled = true;
       if (inputTimer !== undefined) clearTimeout(inputTimer);
@@ -265,11 +297,19 @@ async function spawnInvocation(
       if (timer !== undefined) clearTimeout(timer);
       if (graceTimer !== undefined) clearTimeout(graceTimer);
       signal?.removeEventListener('abort', onAbort);
-      resolve(result);
+      if (writer === undefined) { resolve(result); return; }
+      const rest = partialLine + decoder.end();
+      if (rest.length > 0) writer.write(rest);
+      // The file is finished either way so it can be inspected locally; on
+      // abort the result carries no pointer to it, as it carries no buffers.
+      writer.close().then(
+        file => resolve(discardTranscript || file === undefined ? result : { ...result, transcript: { file } }),
+        () => resolve(result),
+      );
     };
     const onAbort = (): void => {
       stop.kill();
-      finish({ exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.' });
+      finish({ exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.' }, true);
     };
     /**
      * Same invariant as `wrapper-session.ts`: `'close'` and `'error'` are
@@ -306,10 +346,15 @@ async function spawnInvocation(
     child.stdout.on('data', (chunk: Buffer) => {
       stdout.push(chunk);
       channel?.publish(chunk);
-      if (completion === undefined || graceTimer !== undefined) return;
+      // Lines are split whenever a writer or a completion detector wants
+      // them; the detector stops looking once a result has been seen, the
+      // writer keeps every line to the end.
+      if (writer === undefined && (completion === undefined || graceTimer !== undefined)) return;
       const lines = (partialLine + decoder.write(chunk)).split('\n');
       partialLine = lines.pop() ?? '';
       for (const line of lines) {
+        writer?.write(line);
+        if (completion === undefined || graceTimer !== undefined) continue;
         const outcome = completion(line);
         if (outcome !== undefined) onResult(outcome);
       }

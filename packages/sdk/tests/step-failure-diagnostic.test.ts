@@ -171,6 +171,51 @@ describe('step failure diagnostic', () => {
     expect(diagnostic.message).toContain('exit=1');
   });
 
+  it('reads the transcript digest beside the daemon render, not instead of it', async () => {
+    // Every agent completion now carries `trajectory_tail.transcript`
+    // (agent-transcript.ts). It is not process-shaped, so the exit code and
+    // tails still come from the daemon's render; the digest adds the failure
+    // the worker picked out of the provider's frames and the file's path.
+    const { client } = stub([[{
+      seq: 1, entry_type: 'step.completed', step_id: 'fail-command',
+      payload: {
+        completionReason: 'worker_error', disposition: 'step_done', output: null,
+        trajectory_tail: { transcript: {
+          attempt: 2, exit_code: 1, failure: { kind: 'result', excerpt: 'Claude: budget exhausted' },
+          file: { path: '/data/runs/run-failed/steps/fail-command/attempt-2.transcript.jsonl' },
+        } },
+        verification: {
+          gate: 'execution', verdict: 'fail',
+          detail: '{"exit_code":1,"stdout_tail":"","stderr_tail":"process stderr"}',
+        },
+      },
+    }]], 'agent');
+    const diagnostic = (await classify(client)).report.diagnostics.at(-1) as RunDiagnostic;
+    expect(diagnostic).toMatchObject({
+      exitCode: 1, stderrTail: 'process stderr', detail: 'Claude: budget exhausted',
+      transcriptPath: '/data/runs/run-failed/steps/fail-command/attempt-2.transcript.jsonl',
+    });
+    expect(diagnostic.message).toContain('exit=1');
+    expect(diagnostic.message).toContain('Detail: Claude: budget exhausted');
+    expect(diagnostic.message).toContain('Transcript: /data/runs/run-failed/steps/fail-command/attempt-2.transcript.jsonl');
+  });
+
+  it('does not print a stderr excerpt twice', async () => {
+    const { client } = stub([[{
+      seq: 1, entry_type: 'step.completed', step_id: 'fail-command',
+      payload: {
+        completionReason: 'worker_error', disposition: 'step_done', output: null,
+        trajectory_tail: { transcript: { attempt: 1, exit_code: 1, failure: { kind: 'stderr', excerpt: 'no such model' } } },
+        verification: { gate: 'execution', verdict: 'fail', detail: '{"exit_code":1,"stdout_tail":"","stderr_tail":"no such model"}' },
+      },
+    }]], 'llm');
+    const diagnostic = (await classify(client)).report.diagnostics.at(-1) as RunDiagnostic;
+    expect(diagnostic).toMatchObject({ exitCode: 1, stderrTail: 'no such model' });
+    expect(diagnostic).not.toHaveProperty('detail');
+    expect(diagnostic).not.toHaveProperty('transcriptPath');
+    expect(diagnostic.message.split('no such model')).toHaveLength(2);
+  });
+
   it('keeps an unparseable daemon detail verbatim rather than dropping it', async () => {
     // `worker_failure_detail` renders a bare string as a bare string, and
     // truncates a long render past the point where it would still parse. Both

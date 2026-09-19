@@ -6,6 +6,8 @@ export interface SidechannelContext {
   dataDir: string;
   runId: string;
   stepId: string;
+  /** Names the per-attempt transcript file (`agent-transcript.ts`); no attempt, no file. */
+  attempt?: number;
   onReady?: (path: string) => void;
   onDrive: () => void;
 }
