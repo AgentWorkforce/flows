@@ -422,4 +422,45 @@ process.stdout.write(JSON.stringify({ status: child.status, stdout: child.stdout
     const text = await status(['--data-dir', dataDir, RUN_ID]);
     expect(text.stdout.join('\n')).not.toContain('transcript (attempt');
   });
+  it('prints no attempt count for a step carried done by an epoch summary', async () => {
+    // The summary has no attempt count, so the fold leaves it 0; printing
+    // "0 attempts" states a fact the journal no longer holds.
+    const [spawned] = EVENTS as [JournalEvent];
+    const summary: JournalEvent = {
+      seq: 2, segment_id: 1, run_id: RUN_ID, step_id: null, attempt: null, at_ms: spawned.at_ms + 1000,
+      entry_type: 'epoch.summary',
+      payload: {
+        epoch: 2, prev_segment_id: 1, journal_version: 1,
+        steps_done: { implement: { completionReason: 'success', output: {} } },
+        steps_open: {}, budget_spent: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+      },
+    };
+    const { dataDir } = fixture([spawned, summary]);
+    const text = await status(['--data-dir', dataDir, RUN_ID]);
+    const line = text.stdout.find((row) => row.includes('implement'))!;
+    expect(line).not.toContain('0 attempts');
+    expect(line).toContain('success');
+    // A real attempt count is still printed.
+    const normal = await status(['--data-dir', fixture().dataDir, RUN_ID]);
+    expect(normal.stdout.find((row) => row.includes('implement'))!).toContain('1 attempt');
+  });
+
+  it('redacts artifact paths, which the agent names', async () => {
+    // A direct agent inherits this process's environment, so a path is free
+    // text like any other thing an agent writes.
+    const [spawned, routed, started, done] = EVENTS.slice(0, 4) as [JournalEvent, JournalEvent, JournalEvent, JournalEvent];
+    const withPaths: JournalEvent = {
+      ...done,
+      payload: {
+        ...done.payload as Record<string, unknown>,
+        output: { exit_code: 0, artifacts: ['out/ghp_' + 'a'.repeat(36) + '.log', 'report.md'] },
+      },
+    };
+    const { dataDir } = fixture([spawned, routed, started, withPaths]);
+    const json = await status(['--json', '--data-dir', dataDir, RUN_ID]);
+    expect(json.stdout[0]).not.toContain('ghp_');
+    expect(JSON.parse(json.stdout[0]!).steps[0].artifacts.paths).toContain('report.md');
+    const text = await status(['--data-dir', dataDir, RUN_ID]);
+    expect(text.stdout.join('\n')).not.toContain('ghp_');
+  });
 });

@@ -152,6 +152,32 @@ process.stdout.write('done');
     for (const path of result.artifacts ?? []) expect(path).not.toContain('.tail');
   });
 
+  it('does not report a leftover .tail.tmp staging file either', async () => {
+    // The writer stages `<path>.tmp` and renames over; a close that timed out
+    // or a flush that failed leaves the staging file, which is no more
+    // agent-authored than the file it was going to become.
+    const workspace = dir();
+    const dataDir = join(workspace, 'data');
+    const identity = { dataDir, runId: 'run-9', stepId: 'analyze', attempt: 1 };
+    // stderr's staging file: the agent writes nothing to stderr, so our own
+    // writer never flushes that stream and never renames over the leftover.
+    const staging = `${transcriptTailPath(identity, 'stderr')}.tmp`;
+    const cli = join(workspace, 'claude');
+    writeFileSync(cli, `#!/usr/bin/env node
+const { mkdirSync, writeFileSync } = require('node:fs');
+mkdirSync(${JSON.stringify(dirname(staging))}, { recursive: true });
+writeFileSync(${JSON.stringify(staging)}, 'half-written\\n');
+writeFileSync('report.md', 'the real artifact\\n');
+process.stdout.write('done');
+`, { mode: 0o755 });
+    const result = await runAgentCli(cli, 'go', undefined, 'unpriced-test-model', undefined, undefined, 'agent', {
+      ...identity, onDrive() {},
+    }, workspace);
+    expect(result.exit_code).toBe(0);
+    expect(existsSync(staging)).toBe(true);
+    expect(result.artifacts).toEqual(['report.md']);
+  });
+
   it('completes the step when the tail directory cannot be created', async () => {
     const dataDir = dir();
     const cli = join(dataDir, 'claude');

@@ -207,7 +207,14 @@ function tailPaths(context: SidechannelContext | undefined): string[] {
   if (context === undefined || attempt === undefined) return [];
   const identity = { dataDir: context.dataDir, runId: context.runId, stepId: context.stepId, attempt };
   try {
-    return [transcriptTailPath(identity, 'stdout'), transcriptTailPath(identity, 'stderr')];
+    // Both the finished file and the `.tmp` the writer stages and renames over
+    // (`transcript-tail.ts`): a close that timed out or a flush that failed can
+    // leave the staging file behind, and it is no more agent-authored than the
+    // file it was going to become.
+    return ['stdout', 'stderr'].flatMap((stream) => {
+      const path = transcriptTailPath(identity, stream as 'stdout' | 'stderr');
+      return [path, `${path}.tmp`];
+    });
   } catch {
     // An id the path cannot carry; no tails were written either.
     return [];
@@ -364,19 +371,20 @@ async function spawnInvocation(
       // deadline the transcript pointer is dropped rather than waited for: a
       // completion without a pointer is recoverable, a step that never
       // completes is not.
-      const closedWriter: Promise<TranscriptFile | undefined> = writer === undefined
-        ? Promise.resolve(undefined)
-        : writer.close().catch(() => undefined);
+      // The writer's result is recorded the moment it lands, not read out of
+      // the combined race: the two closes are independent, and a stalled tail
+      // must not throw away a transcript that finished and is on disk.
+      let transcriptFile: TranscriptFile | undefined;
+      const closedWriter = writer === undefined
+        ? Promise.resolve()
+        : writer.close().then((file) => { transcriptFile = file; }, () => {});
       const closedTails = tails === undefined
         ? Promise.resolve()
         : Promise.all([tails.stdout.close(), tails.stderr.close()]).then(() => undefined, () => undefined);
-      const deadline = new Promise<'deadline'>((done) => setTimeout(() => done('deadline'), TAIL_CLOSE_TIMEOUT_MS).unref?.());
-      void Promise.race([
-        Promise.all([closedWriter, closedTails]).then(([file]) => file),
-        deadline,
-      ]).then((outcome) => {
-        const file = outcome === 'deadline' ? undefined : outcome;
-        resolve(discardTranscript || file === undefined ? result : { ...result, transcript: { file } });
+      const deadline = new Promise<void>((done) => setTimeout(done, TAIL_CLOSE_TIMEOUT_MS).unref?.());
+      void Promise.race([Promise.all([closedWriter, closedTails]), deadline]).then(() => {
+        resolve(discardTranscript || transcriptFile === undefined
+          ? result : { ...result, transcript: { file: transcriptFile } });
       }, () => resolve(result));
     };
     const onAbort = (): void => {

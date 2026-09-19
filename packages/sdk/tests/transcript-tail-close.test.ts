@@ -5,7 +5,7 @@
 //
 // The tail writers are built inside `runAgentCli`, so the stall is injected by
 // mocking the module it builds them from.
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -59,5 +59,25 @@ describe('a stalled transcript-tail close', () => {
     // Both closes were attempted and are still outstanding — best effort, not
     // abandoned: the step simply stopped waiting on them.
     expect(stalled.map((tail) => tail.closeCalled)).toEqual([true, true]);
+  }, 20_000);
+});
+
+describe('a stalled tail close beside a transcript that finished', () => {
+  it('still journals the transcript pointer', async () => {
+    // The two closes are independent. Coupling them through one `Promise.all`
+    // threw away a transcript that was finished and on disk because a tail
+    // had not returned.
+    const dataDir = dir();
+    const cli = join(dataDir, 'claude');
+    writeFileSync(cli, "#!/usr/bin/env node\nprocess.stdout.write('done');\n", { mode: 0o755 });
+    const result = await runAgentCli(cli, 'go', undefined, 'unpriced-test-model', undefined, undefined, 'agent', {
+      dataDir, runId: 'run-9', stepId: 'analyze', attempt: 1, onDrive() {},
+    });
+    expect(result.exit_code).toBe(0);
+    // The tails never closed (they are the stalled mock), but the transcript
+    // writer is real and its descriptor survived the deadline.
+    expect(stalled.map((tail) => tail.closeCalled)).toEqual([true, true]);
+    expect(result.transcript?.file?.path).toContain('attempt-1.transcript.jsonl');
+    expect(existsSync(result.transcript!.file!.path)).toBe(true);
   }, 20_000);
 });

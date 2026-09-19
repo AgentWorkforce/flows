@@ -177,6 +177,9 @@ function present(view: RunView, thisStep: string | null, tails: Map<string, Step
     this_step: thisStep,
     steps: view.steps.map((step) => ({
       ...step,
+      // An agent names the files it writes, and it inherits this process's
+      // environment, so a path is free text like any other here.
+      artifacts: { ...step.artifacts, paths: step.artifacts.paths.map((path) => redact(path, env)) },
       last_attempt: step.last_attempt === null ? null : {
         ...step.last_attempt,
         verification: step.last_attempt.verification === null ? null : {
@@ -255,7 +258,11 @@ function renderStep(step: PresentedStep, view: Presented, idWidth: number, wantT
   const glyph = failed ? '✗' : GLYPH[step.state];
   const cells = [safe(step.id).slice(0, 24).padEnd(idWidth), step.type.padEnd(13), step.state.padEnd(11)];
   const iterations = step.max_iterations === null ? '' : `/${step.max_iterations}`;
-  if (step.state === 'done') cells.push(`${step.attempt} attempt${step.attempt === 1 ? '' : 's'}`);
+  // `> 0` matters for a step carried done by an epoch summary: the summary
+  // has no attempt count, so the fold leaves it 0 and printing "0 attempts"
+  // would state a fact the journal no longer holds. Blank, like every other
+  // state does at 0.
+  if (step.state === 'done' && step.attempt > 0) cells.push(`${step.attempt} attempt${step.attempt === 1 ? '' : 's'}`);
   else if (step.attempt > 0) cells.push(`attempt ${step.attempt}${iterations}`);
   if (step.elapsed_ms !== null) cells.push(formatDuration(step.elapsed_ms));
   if (step.state === 'running' && step.lease !== null) {
