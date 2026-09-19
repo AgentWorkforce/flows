@@ -1,9 +1,11 @@
 import { resolve } from 'node:path';
 import { diffWorkspaceFiles, snapshotWorkspaceFiles } from './agent-artifacts.js';
-import { decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
+import { claudeResultOutcome, decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
 import { openSidechannel, type SidechannelContext } from './pty-sidechannel.js';
 import { spawn } from 'node:child_process';
-import { childStop, ownsProcessGroup } from './child-stop.js';
+import { StringDecoder } from 'node:string_decoder';
+import { childStop } from './child-stop.js';
+import { reapOnExit } from './agent-reaper.js';
 import {
   agentExecution,
   llmExecution,
@@ -134,10 +136,13 @@ export async function runAgentCli(
   }
 
   if (invocation.modelEnv !== undefined) env[MODEL_ENV] = invocation.modelEnv;
-  // Structured provider output carries the authoritative token counts.
+  // Structured provider output carries the authoritative token counts. Claude
+  // streams it, so its final result is seen when it is emitted rather than
+  // only once the process exits — which, after a background task, it may not.
   const args = [...invocation.args];
-  args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'json'] : ['--json']));
-  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd), kind), effectiveModel);
+  args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'stream-json', '--verbose'] : ['--json']));
+  const completion = kind === 'claude' ? claudeResultOutcome : undefined;
+  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion), kind), effectiveModel);
   }
 }
 
@@ -194,6 +199,15 @@ function redactRelayError(message: string): string {
   return message.replace(/\b(?:at|rk|nt|ot|br|arr)_(?:live_)?[A-Za-z0-9_-]+/g, '[redacted]');
 }
 
+/**
+ * How long a CLI that has reported its final result may take to exit. Claude
+ * Code in print mode waits, after its result, for every background task it
+ * started to finish; one that never finishes kept a finished step running
+ * until the whole run's deadline. Past this grace the result stands and the
+ * tree is stopped.
+ */
+export const RESULT_EXIT_GRACE_MS = 30_000;
+
 async function spawnInvocation(
   cli: string,
   invocation: CliInvocation,
@@ -201,6 +215,7 @@ async function spawnInvocation(
   signal?: AbortSignal,
   sidechannel?: SidechannelContext,
   cwd?: string,
+  completion?: (line: string) => { failed: boolean } | undefined,
 ): Promise<WorkerCliResult> {
   let writeInput: (bytes: Buffer) => Promise<boolean> = async () => false;
   let canDrive = () => false;
@@ -211,7 +226,9 @@ async function spawnInvocation(
   }, bytes => writeInput(bytes), () => canDrive());
   if (signal?.aborted) { channel?.close(); signal.throwIfAborted(); }
   return new Promise((resolve) => {
-    const ownsGroup = ownsProcessGroup(signal);
+    // Always a group of its own off Windows, so every stop — and
+    // `reapOnExit` — reaches the whole agent tree, lease-bound or not.
+    const ownsGroup = process.platform !== 'win32';
     const child = spawn(cli, invocation.args, {
       stdio: ['pipe', 'pipe', 'pipe'], env,
       detached: ownsGroup,
@@ -232,16 +249,21 @@ async function spawnInvocation(
       child.stdin.write(bytes, error => resolve(!error));
     });
     const stop = childStop(child, ownsGroup);
+    const release = ownsGroup ? reapOnExit(stop) : () => {};
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
+    let graceTimer: NodeJS.Timeout | undefined;
+    const decoder = new StringDecoder('utf8');
+    let partialLine = '';
     const finish = (result: WorkerCliResult): void => {
       if (settled) return;
       settled = true;
       if (inputTimer !== undefined) clearTimeout(inputTimer);
       channel?.close();
       if (timer !== undefined) clearTimeout(timer);
+      if (graceTimer !== undefined) clearTimeout(graceTimer);
       signal?.removeEventListener('abort', onAbort);
       resolve(result);
     };
@@ -263,13 +285,43 @@ async function spawnInvocation(
     };
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) onAbort();
-    child.stdout.on('data', (chunk: Buffer) => { stdout.push(chunk); channel?.publish(chunk); });
+    /**
+     * The CLI has reported its final result. A normal exit inside the grace
+     * settles through `'close'` exactly as before, with the real exit code.
+     * Past it, the result settles the step with the exit status that result
+     * would have carried, and the stop outlives the settle as the timeout's
+     * does.
+     */
+    const onResult = (outcome: { failed: boolean }): void => {
+      if (graceTimer !== undefined || settled) return;
+      graceTimer = setTimeout(() => {
+        stop.terminate();
+        finish({
+          exit_code: outcome.failed ? 1 : 0,
+          stdout_tail: Buffer.concat(stdout).toString('utf8'),
+          stderr_tail: `${Buffer.concat(stderr).toString('utf8')}\nCLI reported its final result but had not exited ${RESULT_EXIT_GRACE_MS}ms later; its process tree was stopped.`.trim(),
+        });
+      }, RESULT_EXIT_GRACE_MS);
+    };
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout.push(chunk);
+      channel?.publish(chunk);
+      if (completion === undefined || graceTimer !== undefined) return;
+      const lines = (partialLine + decoder.write(chunk)).split('\n');
+      partialLine = lines.pop() ?? '';
+      for (const line of lines) {
+        const outcome = completion(line);
+        if (outcome !== undefined) onResult(outcome);
+      }
+    });
     child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk); channel?.publish(chunk); });
     child.once('error', (error) => finishOnChildExit({
       exit_code: null,
       stdout_tail: Buffer.concat(stdout).toString('utf8'),
       stderr_tail: error.message,
     }));
+    child.once('error', () => { if (child.pid === undefined) release(); });
+    child.once('close', release);
     child.once('close', (code) => finishOnChildExit({
       exit_code: code,
       stdout_tail: Buffer.concat(stdout).toString('utf8'),
