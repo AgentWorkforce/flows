@@ -23,7 +23,7 @@ import {
 import { wrapperEnvironment } from './wrapper-runtime.js';
 import { redactRelayError } from './redact.js';
 import { applyStepEnvironment } from './step-env.js';
-import { TAIL_CLOSE_TIMEOUT_MS, openTranscriptTail, type TranscriptTailWriter } from './transcript-tail.js';
+import { TAIL_CLOSE_TIMEOUT_MS, openTranscriptTail, transcriptTailPath, type TranscriptTailWriter } from './transcript-tail.js';
 import {
   runAgentRelayTask,
   AgentRelayTransportError,
@@ -110,18 +110,28 @@ export async function runAgentCli(
   // serialized around their snapshot-spawn-snapshot interval, so one agent's
   // writes are never attributed to a concurrent one in the same directory.
   //
-  // The attempt's transcript file is written during that interval by this
-  // process, not by the agent; when the data dir sits under the cwd (a local
-  // `--data-dir` inside the project) it is dropped from the diff by path.
+  // This process writes its own evidence during that interval — the attempt's
+  // transcript file and the two `flows status --tail` tails — and when the data
+  // dir sits under the cwd (a local `--data-dir` inside the project) they all
+  // land inside the scanned tree. None of them is agent-authored content, so
+  // every one is dropped from the diff by path. Missing any of them reports
+  // our own bookkeeping back to the kernel as the step's artifacts.
   const artifactRoot = mode === 'agent' ? resolve(cwd ?? process.cwd()) : undefined;
   return artifactRoot === undefined
     ? execute()
     : serializedByDirectory(artifactRoot, async () => {
       const before = await snapshotWorkspaceFiles(artifactRoot);
       const result = await execute();
-      const transcriptFile = realPath(result.transcript?.file?.path);
+      const ours = new Set<string>();
+      for (const path of [result.transcript?.file?.path, ...tailPaths(sidechannel)]) {
+        const real = realPath(path);
+        if (real !== undefined) ours.add(real);
+      }
       const artifacts = diffWorkspaceFiles(before, await snapshotWorkspaceFiles(artifactRoot))
-        .filter(path => transcriptFile === undefined || realPath(resolve(artifactRoot, path)) !== transcriptFile);
+        .filter(path => {
+          const real = realPath(resolve(artifactRoot, path));
+          return real === undefined || !ours.has(real);
+        });
       return { ...result, artifacts };
     });
 
@@ -184,6 +194,23 @@ function openTails(context: SidechannelContext): { stdout: TranscriptTailWriter;
   } catch {
     // An id the path cannot carry; the sidechannel declined it the same way.
     return undefined;
+  }
+}
+
+/**
+ * Where this attempt's `--tail` files are, so the artifact diff can drop them.
+ * Empty when there is no sidechannel or no attempt to name, which is exactly
+ * when `openTails` declines to write any.
+ */
+function tailPaths(context: SidechannelContext | undefined): string[] {
+  const attempt = context?.attempt;
+  if (context === undefined || attempt === undefined) return [];
+  const identity = { dataDir: context.dataDir, runId: context.runId, stepId: context.stepId, attempt };
+  try {
+    return [transcriptTailPath(identity, 'stdout'), transcriptTailPath(identity, 'stderr')];
+  } catch {
+    // An id the path cannot carry; no tails were written either.
+    return [];
   }
 }
 

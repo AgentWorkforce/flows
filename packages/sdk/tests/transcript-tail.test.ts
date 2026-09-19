@@ -128,6 +128,30 @@ process.stderr.write('err line 1\\n');
     }
   });
 
+  it('does not report its own tail files as the agent\'s artifacts', async () => {
+    // A local `--data-dir` inside the working directory puts the tails and the
+    // transcript inside the tree the artifact diff scans. They are this
+    // process's bookkeeping, not agent-authored content, and reporting them
+    // sent the kernel an `artifacts` list of our own files.
+    const workspace = dir();
+    const cli = join(workspace, 'claude');
+    writeFileSync(cli, `#!/usr/bin/env node
+require('node:fs').writeFileSync('report.md', 'the real artifact\\n');
+process.stdout.write('done');
+`, { mode: 0o755 });
+    const result = await runAgentCli(cli, 'go', undefined, 'unpriced-test-model', undefined, undefined, 'agent', {
+      // Under the workspace, not beside it, and not a dotdir the walk skips.
+      dataDir: join(workspace, 'data'), runId: 'run-9', stepId: 'analyze', attempt: 1, onDrive() {},
+    }, workspace);
+    expect(result.exit_code).toBe(0);
+    // The tails were written — this is not passing by not writing them.
+    expect(existsSync(transcriptTailPath(
+      { dataDir: join(workspace, 'data'), runId: 'run-9', stepId: 'analyze', attempt: 1 }, 'stdout',
+    ))).toBe(true);
+    expect(result.artifacts).toEqual(['report.md']);
+    for (const path of result.artifacts ?? []) expect(path).not.toContain('.tail');
+  });
+
   it('completes the step when the tail directory cannot be created', async () => {
     const dataDir = dir();
     const cli = join(dataDir, 'claude');
