@@ -1,5 +1,6 @@
+import { constants as fsConstants } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { mkdir, open, type FileHandle } from 'node:fs/promises';
+import { mkdir, open, unlink, type FileHandle } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { ptySocketPath, type SidechannelContext } from './pty-sidechannel.js';
 
@@ -31,6 +32,20 @@ export const LLM_ERROR_MAX_BYTES = 4 * 1024;
 export const FINAL_TEXT_MAX_BYTES = 2 * 1024;
 export const FAILURE_EXCERPT_MAX_BYTES = 1024;
 export const TOOL_INPUT_EXCERPT_MAX_CHARS = 120;
+/**
+ * Cap on any single provider-supplied identifier copied into `result`
+ * (`model`, `session_id`, `stop_reason`, `subtype`, `claude_code_version`) and
+ * on a tool name. These are attacker-influenceable strings that no reduction
+ * step in `boundTranscriptDigest` trims, so they are bounded where they enter.
+ */
+export const DIGEST_LABEL_MAX_BYTES = 256;
+/**
+ * Bytes reserved inside `TRANSCRIPT_FILE_MAX_BYTES` for the
+ * `relayflow.truncated` marker, so a full head plus a full tail plus the
+ * marker still fits the stated per-attempt cap. The marker serializes to
+ * well under this even with 20-digit counters.
+ */
+export const TRUNCATION_MARKER_RESERVE = 256;
 export const TOOL_COUNTS_MAX = 32;
 export const TOOL_LAST_CALLS_MAX = 20;
 export const ARTIFACT_PATHS_MAX = 50;
@@ -88,6 +103,12 @@ export interface TranscriptDigest {
   final_text_truncated?: boolean;
   failure?: { kind: 'result' | 'tool_result' | 'stderr'; excerpt: string; truncated?: boolean };
   artifacts?: { count: number; paths: string[] };
+  /**
+   * Set when even the ordered reductions left the digest over its cap and it
+   * was cut back to fixed-size fields — every provider-supplied string but a
+   * bounded file path is gone. A reader is told rather than left guessing.
+   */
+  core_only?: boolean;
 }
 
 type RecordValue = Record<string, unknown>;
@@ -255,7 +276,18 @@ export async function openTranscriptWriter(
   let handle: FileHandle;
   try {
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    handle = await open(path, 'w', 0o600);
+    // The agent runs as this OS user, so it can plant a symlink at the
+    // transcript path; `open(path, 'w')` would follow it and truncate whatever
+    // it points at. Remove whatever is there without following it, then create
+    // the file exclusively so a re-planted symlink loses the race rather than
+    // being followed. O_NOFOLLOW is belt to O_EXCL's braces.
+    try { await unlink(path); } catch { /* absent, or not ours to remove */ }
+    handle = await open(
+      path,
+      // eslint-disable-next-line no-bitwise
+      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
+      0o600,
+    );
   } catch {
     return undefined;
   }
@@ -298,7 +330,13 @@ export async function openTranscriptWriter(
       }
       tail.push(bytes);
       tailBytes += bytes.length;
-      while (tailBytes > TRANSCRIPT_TAIL_BYTES && tail.length > 0) {
+      // Once anything has been dropped, `close` will write a truncation marker
+      // that is part of the file too, so the tail budget shrinks by its
+      // reservation — otherwise a full head plus a full tail plus the marker
+      // puts the file over TRANSCRIPT_FILE_MAX_BYTES.
+      const tailLimit = (): number =>
+        TRANSCRIPT_TAIL_BYTES - (bytesDropped > 0 ? TRUNCATION_MARKER_RESERVE : 0);
+      while (tailBytes > tailLimit() && tail.length > 0) {
         const dropped = tail.shift()!;
         tailBytes -= dropped.length;
         bytesDropped += dropped.length;
@@ -359,15 +397,19 @@ export function buildTranscriptDigest(
     const terminal = [...frames].reverse().find(f => f.type === 'result');
     const usage = record(terminal?.usage) ? terminal.usage : undefined;
     const details = record(usage?.output_tokens_details) ? usage.output_tokens_details : undefined;
-    const model = str(init?.model) ?? frames.flatMap(f => f.type === 'assistant' && record(f.message) ? [str(f.message.model)] : []).find(Boolean);
+    const model = label(str(init?.model) ?? frames.flatMap(f => f.type === 'assistant' && record(f.message) ? [str(f.message.model)] : []).find(Boolean));
+    const version = label(str(init?.claude_code_version));
+    const session = label(str(terminal?.session_id ?? init?.session_id));
+    const subtype = label(str(terminal?.subtype));
+    const stopReason = label(str(terminal?.stop_reason));
     digest.result = {
       provider: 'claude',
       ...(model === undefined ? {} : { model }),
-      ...(str(init?.claude_code_version) === undefined ? {} : { claude_code_version: str(init?.claude_code_version) }),
-      ...(str(terminal?.session_id ?? init?.session_id) === undefined ? {} : { session_id: str(terminal?.session_id ?? init?.session_id) }),
-      ...(str(terminal?.subtype) === undefined ? {} : { subtype: str(terminal?.subtype) }),
+      ...(version === undefined ? {} : { claude_code_version: version }),
+      ...(session === undefined ? {} : { session_id: session }),
+      ...(subtype === undefined ? {} : { subtype }),
       ...(typeof terminal?.is_error === 'boolean' ? { is_error: terminal.is_error } : {}),
-      ...(str(terminal?.stop_reason) === undefined ? {} : { stop_reason: str(terminal?.stop_reason) }),
+      ...(stopReason === undefined ? {} : { stop_reason: stopReason }),
       ...(num(terminal?.num_turns) === undefined ? {} : { num_turns: num(terminal?.num_turns) }),
       ...(num(terminal?.duration_ms) === undefined ? {} : { duration_ms: num(terminal?.duration_ms) }),
       ...(num(terminal?.duration_api_ms) === undefined ? {} : { duration_api_ms: num(terminal?.duration_api_ms) }),
@@ -392,7 +434,7 @@ export function buildTranscriptDigest(
         if (frame.type === 'assistant' && block.type === 'tool_use') {
           const excerpt = redact(block.input === undefined ? '' : JSON.stringify(block.input));
           const call: TranscriptToolCall & { id?: string } = {
-            seq: calls.length + 1, name: str(block.name) ?? '?',
+            seq: calls.length + 1, name: label(str(block.name)) ?? '?',
             input_excerpt: excerpt.length > TOOL_INPUT_EXCERPT_MAX_CHARS ? `${excerpt.slice(0, TOOL_INPUT_EXCERPT_MAX_CHARS - 1)}…` : excerpt,
           };
           calls.push(call);
@@ -435,7 +477,7 @@ export function buildTranscriptDigest(
       } else if (lastToolError !== undefined) {
         digest.failure = failure('tool_result', lastToolError, bounded);
       } else if (outcome.stderr_tail.length > 0) {
-        digest.failure = failure('stderr', utf8Tail(outcome.stderr_tail, FAILURE_EXCERPT_MAX_BYTES), bounded);
+        digest.failure = failure('stderr', stderrExcerpt(outcome.stderr_tail, redact), bounded);
       }
     }
     return digest;
@@ -458,7 +500,7 @@ export function buildTranscriptDigest(
   const texts: string[] = [];
   for (const frame of frames) {
     if (frame.type !== 'item.completed' || !record(frame.item)) continue;
-    const type = str(frame.item.type) ?? '?';
+    const type = label(str(frame.item.type)) ?? '?';
     if (type === 'agent_message') { if (typeof frame.item.text === 'string') texts.push(frame.item.text); continue; }
     const entry = counts.get(type) ?? { name: type, calls: 0, errors: 0 };
     entry.calls += 1;
@@ -477,9 +519,29 @@ export function buildTranscriptDigest(
     if (text.truncated) digest.final_text_truncated = true;
   }
   if (outcome.exit_code !== 0 && outcome.stderr_tail.length > 0) {
-    digest.failure = failure('stderr', utf8Tail(outcome.stderr_tail, FAILURE_EXCERPT_MAX_BYTES), bounded);
+    digest.failure = failure('stderr', stderrExcerpt(outcome.stderr_tail, redact), bounded);
   }
   return digest;
+}
+
+/**
+ * Redact the whole stderr tail *before* cutting it. Cutting first splits a
+ * secret that straddles the boundary, and neither `replaceAll` on a known
+ * value nor a token-prefix pattern matches half a secret — so the fragment
+ * reached the journal. The decoder-refusal path already ordered it this way.
+ */
+function stderrExcerpt(stderrTail: string, redact: Redactor): string {
+  return utf8Tail(redact(stderrTail), FAILURE_EXCERPT_MAX_BYTES);
+}
+
+/**
+ * Provider-supplied identifiers are copied into `result` verbatim and no
+ * reduction step in `boundTranscriptDigest` trims them, so an oversized one
+ * (a 20 KiB `model`, say) would push the digest past the kernel's
+ * `trajectory_tail` bound and fail the completion outright. Bound them here.
+ */
+function label(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : boundedText(value, DIGEST_LABEL_MAX_BYTES).text;
 }
 
 function failure(
@@ -520,7 +582,50 @@ export function boundTranscriptDigest(digest: TranscriptDigest): TranscriptDiges
     if (digestBytes(out) <= TRANSCRIPT_DIGEST_MAX_BYTES) return out;
     out = step(out);
   }
-  return out;
+  if (digestBytes(out) <= TRANSCRIPT_DIGEST_MAX_BYTES) return out;
+  // Last resort. Every step above trims a string this module produced; none of
+  // them touches a provider-supplied identifier, so a pathological `model`,
+  // `session_id` or set of tool names can still hold the digest over its cap —
+  // and the kernel refuses the whole completion when `trajectory_tail` is
+  // oversized (kernel/relayflowd/src/server.rs, step.complete). Falling back to
+  // fixed-size fields keeps the attempt recorded.
+  return coreDigest(out);
+}
+
+/**
+ * The digest reduced to fields whose size this module controls: numbers, the
+ * provider tag, a bounded path and a fixed-width hash. Nothing a provider can
+ * make arbitrarily long survives, so the result is bounded by construction.
+ */
+function coreDigest(d: TranscriptDigest): TranscriptDigest {
+  const core: TranscriptDigest = { core_only: true };
+  if (d.attempt !== undefined) core.attempt = d.attempt;
+  if (d.exit_code !== undefined) core.exit_code = d.exit_code;
+  if (d.file !== undefined) {
+    core.file = { ...d.file, path: utf8Head(d.file.path, DIGEST_LABEL_MAX_BYTES) };
+  }
+  if (d.result !== undefined) {
+    const { provider, usage, is_error, num_turns, duration_ms, duration_api_ms, total_cost_usd, permission_denials } = d.result;
+    core.result = {
+      provider,
+      ...(is_error === undefined ? {} : { is_error }),
+      ...(num_turns === undefined ? {} : { num_turns }),
+      ...(duration_ms === undefined ? {} : { duration_ms }),
+      ...(duration_api_ms === undefined ? {} : { duration_api_ms }),
+      ...(total_cost_usd === undefined ? {} : { total_cost_usd }),
+      ...(permission_denials === undefined ? {} : { permission_denials }),
+      ...(usage === undefined ? {} : { usage }),
+    };
+  }
+  if (d.tools !== undefined) {
+    core.tools = {
+      counts: [], last_calls: [], total_calls: d.tools.total_calls, shown_calls: 0, complete: d.tools.complete,
+    };
+  }
+  if (d.artifacts !== undefined) core.artifacts = { count: d.artifacts.count, paths: [] };
+  if (d.final_text !== undefined || d.final_text_truncated === true) core.final_text_truncated = true;
+  if (d.failure !== undefined) core.failure = { kind: d.failure.kind, excerpt: '', truncated: true };
+  return core;
 }
 
 function keepLastCalls(d: TranscriptDigest, n: number): TranscriptDigest {
