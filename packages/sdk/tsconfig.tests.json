@@ -6,10 +6,7 @@
     "lib": ["ES2022", "ES2024.Promise"],
     "noEmit": true,
     "allowImportingTsExtensions": true,
-    // Repo root, not packages/sdk: tests/stuck-run-triage.test.ts drives
-    // workflows/stuck-run-triage.flow.ts, which lives above this package.
-    // `noEmit` is on, so rootDir only bounds which files may be in the program.
-    "rootDir": "../..",
+    "rootDir": ".",
     "types": ["node", "vitest"]
   },
   "include": [
@@ -46,8 +43,7 @@
     "tests/adapters/codex.test.ts",
     "tests/adapters/registry.test.ts",
     "tests/relay-cli-surface.test.ts",
-    "tests/relay-cli-surface-live.test.ts",
-    "tests/stuck-run-triage.test.ts"
+    "tests/relay-cli-surface-live.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
