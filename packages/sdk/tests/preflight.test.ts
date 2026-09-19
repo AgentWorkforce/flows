@@ -503,6 +503,18 @@ describe('preflight: CLI resolution and refusal predicates', () => {
         { ...flow({ id: 'a', type: 'llm', cli: 'codex', prompt: 'x' } as never), budget: '$1/run' } as never,
         { probes: probes() },
       ),
+      // A declared `permissions` block is validated and recorded but not
+      // enforced, so accepting it in silence is the same covenant-2 silence.
+      preflight(
+        flow({
+          id: 'a',
+          type: 'agent',
+          cli: 'claude',
+          instruction: 'x',
+          permissions: { accessPreset: 'readonly' },
+        } as never),
+        { probes: probes() },
+      ),
     ];
     const warningKinds = scenarios.flatMap((result) => result.diagnostics)
       .filter((diagnostic) => diagnostic.severity === 'warning')
