@@ -10,6 +10,7 @@ import { canonicalize } from '../src/canonical.js';
 import { runCli } from '../src/cli.js';
 import { parseStatusArgs, runStatus, type StatusOptions } from '../src/cli/status.js';
 import type { JournalEvent } from '../src/journal-client.js';
+import { openTranscriptTail, transcriptTailSource } from '../src/transcript-tail.js';
 import { runAgentCli } from '../src/worker-cli.js';
 import { writeJournalFixture } from './journal-fixture.js';
 
@@ -193,11 +194,49 @@ describe('flows status', () => {
   it('--tail says when no transcript is on disk for the attempt', async () => {
     const { dataDir, writer } = fixture(inFlight('x'));
     writer.close();
-    const output = await status(['--tail', '5', '--data-dir', dataDir, RUN_ID]);
+    const output = await status(['--tail', '5', '--data-dir', dataDir, RUN_ID], { tails: transcriptTailSource({}) });
     expect(output.stdout).toContain('      stdout tail: no transcript on disk for attempt 2');
     expect(output.stdout).toContain('      stderr tail: no transcript on disk for attempt 2');
     // Deterministic steps have no agent transcript to speak of.
     expect(output.stdout.filter((line) => line.includes('tail:'))).toHaveLength(2);
+    const json = await status(['--json', '--data-dir', dataDir, RUN_ID], { tails: transcriptTailSource({}) });
+    expect(JSON.parse(json.stdout[0]!).steps.map((step: { tails: unknown }) => step.tails)).toEqual([{ stdout: null, stderr: null }, null, null]);
+  });
+
+  it('--tail renders the last n redacted lines of this attempt and ignores a stale file', async () => {
+    const events = inFlight('x');
+    const { dataDir, writer } = fixture(events);
+    writer.close();
+    const attemptStartedAt = events[4]!.at_ms;
+    const identity = { dataDir, runId: RUN_ID, stepId: 'implement', attempt: 2 };
+    const secret = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123';
+    const stdout = openTranscriptTail(identity, 'stdout', attemptStartedAt + 5);
+    stdout.append(Buffer.from(['one', 'two', 'three', 'four', 'five', 'six', `token ${secret}`, 'eight'].join('\n') + '\n'));
+    await stdout.close();
+    // Left by an earlier life of this data dir: same ids, written before this attempt began.
+    const stale = openTranscriptTail(identity, 'stderr', attemptStartedAt - 1);
+    stale.append(Buffer.from('old error\n'));
+    await stale.close();
+    const env = { GITHUB_TOKEN: secret };
+    const output = await status(['--tail', '5', '--data-dir', dataDir, RUN_ID], { env, tails: transcriptTailSource(env) });
+    expect(output.code).toBe(0);
+    expect(output.stdout.slice(7)).toEqual([
+      '      stdout tail (attempt 2, last 5 of 75 bytes):',
+      '        four',
+      '        five',
+      '        six',
+      '        token [redacted:GITHUB_TOKEN]',
+      '        eight',
+      '      stderr tail: no transcript on disk for attempt 2',
+      '  ○ verify     deterministic  pending',
+      '  ○ report     deterministic  pending',
+    ]);
+    const json = await status(['--json', '--tail', '2', '--data-dir', dataDir, RUN_ID], { env, tails: transcriptTailSource(env) });
+    expect(JSON.parse(json.stdout[0]!).steps[0].tails).toEqual({
+      stdout: { attempt: 2, bytes: 75, lines: ['token [redacted:GITHUB_TOKEN]', 'eight'] }, stderr: null,
+    });
+    expect(json.stdout[0]).not.toContain(secret);
+    expect(json.stdout[0]).not.toContain('old error');
   });
 
   it.each([

@@ -21,6 +21,7 @@ import {
 import { wrapperEnvironment } from './wrapper-runtime.js';
 import { redactRelayError } from './redact.js';
 import { applyStepEnvironment } from './step-env.js';
+import { openTranscriptTail, type TranscriptTailWriter } from './transcript-tail.js';
 import {
   runAgentRelayTask,
   AgentRelayTransportError,
@@ -155,6 +156,15 @@ export async function runAgentCli(
   }
 }
 
+function openTails(context: SidechannelContext): { stdout: TranscriptTailWriter; stderr: TranscriptTailWriter } | undefined {
+  try {
+    return { stdout: openTranscriptTail(context, 'stdout'), stderr: openTranscriptTail(context, 'stderr') };
+  } catch {
+    // An id the path cannot carry; the sidechannel declined it the same way.
+    return undefined;
+  }
+}
+
 /** One agent at a time per canonical working directory, for the artifact interval. */
 const directoryQueues = new Map<string, Promise<unknown>>();
 function serializedByDirectory<T>(directory: string, task: () => Promise<T>): Promise<T> {
@@ -226,6 +236,9 @@ async function spawnInvocation(
     onDrive() { driven = true; sidechannel.onDrive(); },
   }, bytes => writeInput(bytes), () => canDrive());
   if (signal?.aborted) { channel?.close(); signal.throwIfAborted(); }
+  // Tee the transcript into bounded tail files beside the socket. Evidence
+  // for `flows status --tail`, never the record; a failure here is a warning.
+  const tails = sidechannel === undefined ? undefined : openTails(sidechannel);
   return new Promise((resolve) => {
     // Always a group of its own off Windows, so every stop — and
     // `reapOnExit` — reaches the whole agent tree, lease-bound or not.
@@ -266,7 +279,9 @@ async function spawnInvocation(
       if (timer !== undefined) clearTimeout(timer);
       if (graceTimer !== undefined) clearTimeout(graceTimer);
       signal?.removeEventListener('abort', onAbort);
-      resolve(result);
+      if (tails === undefined) { resolve(result); return; }
+      const settle = (): void => resolve(result);
+      Promise.all([tails.stdout.close(), tails.stderr.close()]).then(settle, settle);
     };
     const onAbort = (): void => {
       stop.kill();
@@ -307,6 +322,7 @@ async function spawnInvocation(
     child.stdout.on('data', (chunk: Buffer) => {
       stdout.push(chunk);
       channel?.publish(chunk);
+      tails?.stdout.append(chunk);
       if (completion === undefined || graceTimer !== undefined) return;
       const lines = (partialLine + decoder.write(chunk)).split('\n');
       partialLine = lines.pop() ?? '';
@@ -315,7 +331,7 @@ async function spawnInvocation(
         if (outcome !== undefined) onResult(outcome);
       }
     });
-    child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk); channel?.publish(chunk); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk); channel?.publish(chunk); tails?.stderr.append(chunk); });
     child.once('error', (error) => finishOnChildExit({
       exit_code: null,
       stdout_tail: Buffer.concat(stdout).toString('utf8'),

@@ -25,6 +25,7 @@ import { parseWebhookArgs, runServeWebhook } from './cli/serve-webhook.js';
 import { runDirectFlow } from './cli/direct-run.js';
 import { parseReplayArgs, replayJournal, type ReplayArgs } from './cli/replay.js';
 import { parseStatusArgs, runStatus, type StatusArgs } from './cli/status.js';
+import { transcriptTailSource } from './transcript-tail.js';
 import { checkTypeScriptFlow } from './cli/check-typescript.js';
 import { runCloudCli } from './cli/cloud-run.js';
 import { runCloudSyncCli } from './cli/cloud-sync.js';
@@ -200,7 +201,7 @@ export async function runCli(
   if (parsed.command === 'replay') return replayJournal(parsed, io);
   // Daemon-free like `check`: reads one journal file and nothing else, so it
   // works inside a step of a run whose daemon is gone (kernel/DAEMON-LIFECYCLE.md §4).
-  if (parsed.command === 'status') return runStatus(parsed, io);
+  if (parsed.command === 'status') return runStatus(parsed, io, { tails: transcriptTailSource() });
   if (parsed.command === 'answer') {
     const execution = await answerFlow(parsed.runId, parsed.waitId, parsed.answer, parsed.dataDir, {
       ...(parsed.note === undefined ? {} : { note: parsed.note }),

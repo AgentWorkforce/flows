@@ -142,8 +142,11 @@ export async function runStatus(args: StatusArgs, io: CliIo, options: StatusOpti
     return 2;
   }
 
+  // Tails are read for JSON (bounded, and the schema carries them) and for
+  // text only on request; a plain `flows status` opens the journal and nothing else.
+  const wantTails = args.json || args.tail !== undefined;
   const tails = new Map<string, StepTails>();
-  if (options.tails !== undefined) {
+  if (options.tails !== undefined && wantTails) {
     for (const step of view.steps) {
       try {
         tails.set(step.id, await options.tails.read(dataDir, runId, step, args.tail ?? DEFAULT_TAIL_LINES));
@@ -158,7 +161,7 @@ export async function runStatus(args: StatusArgs, io: CliIo, options: StatusOpti
   if (args.json) {
     io.stdout(canonicalize({ v: 1, ...presented, partial: taken.partial }));
   } else {
-    for (const line of renderText(presented, taken.partial, args.tail !== undefined || options.tails !== undefined)) io.stdout(line);
+    for (const line of renderText(presented, taken.partial, args.tail !== undefined)) io.stdout(line);
   }
   if (taken.failure !== undefined) io.stderr(`FAILED [${taken.failure.code}] ${taken.failure.message}`);
   return taken.partial.length === 0 ? 0 : 1;
