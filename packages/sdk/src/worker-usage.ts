@@ -1,12 +1,21 @@
 import type { WorkerCliResult } from './worker-cli.js';
 import { MODEL_PRICING } from './model-pricing.js';
+import { FAILURE_EXCERPT_MAX_BYTES, buildTranscriptDigest, redactText, utf8Tail } from './agent-transcript.js';
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue => typeof value === 'object' && value !== null && !Array.isArray(value);
 const count = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 
+/**
+ * A completion this decoder refuses. The refusal is appended to stderr, and a
+ * digest already built from the frames gets it as its failure — otherwise the
+ * digest would still describe the attempt as the provider reported it.
+ */
 function invalid(result: WorkerCliResult, detail: string): WorkerCliResult {
-  return { ...result, exit_code: null, stderr_tail: `${result.stderr_tail}\n${detail}`.trim() };
+  const stderr_tail = `${result.stderr_tail}\n${detail}`.trim();
+  const transcript = result.transcript === undefined ? undefined : { ...result.transcript,
+    failure: { kind: 'stderr' as const, excerpt: utf8Tail(redactText(stderr_tail), FAILURE_EXCERPT_MAX_BYTES) } };
+  return { ...result, exit_code: null, stderr_tail, ...(transcript === undefined ? {} : { transcript }) };
 }
 
 function usageResult(result: WorkerCliResult, usage: unknown, output: unknown): WorkerCliResult {
@@ -18,12 +27,26 @@ function usageResult(result: WorkerCliResult, usage: unknown, output: unknown): 
     tokens_input: usage.input_tokens, tokens_output: usage.output_tokens };
 }
 
-/** Provider envelopes are execution metadata, never the authored output. */
-export function decodeProviderResult(result: WorkerCliResult, kind: 'claude' | 'codex'): WorkerCliResult {
+/**
+ * Provider envelopes are execution metadata, never the authored output. The
+ * same frames also yield the transcript digest (`agent-transcript.ts`): the
+ * metered `tokens_input/output` stay the budget source, and the provider's own
+ * cost, model, tool calls and failure ride beside them in `transcript`.
+ */
+export function decodeProviderResult(
+  result: WorkerCliResult,
+  kind: 'claude' | 'codex',
+  env: NodeJS.ProcessEnv = process.env,
+): WorkerCliResult {
   const frames: RecordValue[] = [];
   for (const line of result.stdout_tail.split('\n')) {
     try { const frame: unknown = JSON.parse(line); if (record(frame)) frames.push(frame); } catch { /* Plain text remains output. */ }
   }
+  const decoded = decodeUsage(result, frames, kind);
+  return { ...decoded, transcript: { ...result.transcript, ...buildTranscriptDigest(frames, kind, decoded, env) } };
+}
+
+function decodeUsage(result: WorkerCliResult, frames: RecordValue[], kind: 'claude' | 'codex'): WorkerCliResult {
   const terminal = [...frames].reverse().find(f => kind === 'claude' ? f.type === 'result' : f.type === 'turn.completed');
   if (terminal === undefined) return result;
   const text = kind === 'claude' ? terminal.result : frames

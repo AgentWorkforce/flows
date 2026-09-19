@@ -808,7 +808,8 @@ function renderStepEvidence(details: StepFailedDetails): string {
     + '.'
     + (details.detail === undefined ? '' : `\nDetail: ${details.detail}`)
     + (details.stdoutTail ? `\nStdout (last 1,024 bytes):\n${details.stdoutTail}` : '')
-    + (details.stderrTail ? `\nStderr (last 1,024 bytes):\n${details.stderrTail}` : '');
+    + (details.stderrTail ? `\nStderr (last 1,024 bytes):\n${details.stderrTail}` : '')
+    + (details.transcriptPath === undefined ? '' : `\nTranscript: ${details.transcriptPath}`);
 }
 
 function throwIfCanceled(signal: AbortSignal | undefined, stepId: string): void {

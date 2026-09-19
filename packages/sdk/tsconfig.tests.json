@@ -43,7 +43,11 @@
     "tests/adapters/codex.test.ts",
     "tests/adapters/registry.test.ts",
     "tests/relay-cli-surface.test.ts",
-    "tests/relay-cli-surface-live.test.ts"
+    "tests/relay-cli-surface-live.test.ts",
+    "tests/agent-transcript.test.ts",
+    "tests/agent-transcript-live.test.ts",
+    "tests/worker-transcript.test.ts",
+    "tests/step-failure-diagnostic.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

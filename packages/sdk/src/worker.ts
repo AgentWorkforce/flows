@@ -10,6 +10,7 @@ import { withWorkerLease } from './worker-lease.js';
 import { workerInstruction } from './worker-input.js';
 import { helperCall } from './yaml-helpers.js';
 import { completeHelperDispatch } from './yaml-helper-effect.js';
+import { ARTIFACT_PATHS_MAX, boundTranscriptDigest, type TranscriptDigest } from './agent-transcript.js';
 
 export { MODEL_ENV, WAKE_CONTEXT_ENV } from './worker-cli.js';
 
@@ -110,7 +111,7 @@ export class AgentWorker extends EventEmitter {
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       typeof spec.cli === 'string' && typeof spec.instruction === 'string'
         ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'agent', this.options.dataDir === undefined ? undefined : {
-          dataDir: this.options.dataDir, runId: dispatch.run_id, stepId: dispatch.step_id,
+          dataDir: this.options.dataDir, runId: dispatch.run_id, stepId: dispatch.step_id, attempt: dispatch.attempt,
           onReady: this.options.onPtyReady, onDrive: () => { humanIntervention = true; },
         }, typeof spec.cwd === 'string' ? spec.cwd : undefined,
           spec.transport === 'relay' ? 'relay' : 'direct',
@@ -142,8 +143,20 @@ export class AgentWorker extends EventEmitter {
     // or `summary` never asked for. An agent that answers with a JSON object
     // therefore journals no artifacts; gate such a step on a deterministic
     // check instead. The relay transport reports none (the agent ran elsewhere).
+    //
+    // `transcript` is not part of the wrapper either: it is evidence about the
+    // attempt, journaled in `trajectory_tail` below on success and failure
+    // alike, where the kernel already accepts and bounds it (16 KiB).
+    const { transcript, ...wrapper } = result;
     const output = result.relay_task?.status === 'completed' && result.exit_code === 0
-      ? result.relay_task.output : parseJsonOutput(result.stdout_tail) ?? result;
+      ? result.relay_task.output : parseJsonOutput(result.stdout_tail) ?? wrapper;
+    const trajectoryTail = {
+      ...(result.relay_task === undefined ? {} : { relay_task: {
+        invocation_id: result.relay_task.invocation_id, status: result.relay_task.status,
+        task_execution: result.relay_task.task_execution, error: result.relay_task.error,
+      } }),
+      ...(transcript === undefined ? {} : { transcript: transcriptDigest(transcript, dispatch.attempt, result) }),
+    };
 
     await this.client.stepComplete(
       dispatch.run_id,
@@ -153,10 +166,7 @@ export class AgentWorker extends EventEmitter {
       completionReason,
       {
         output,
-        ...(result.relay_task === undefined ? {} : { trajectory_tail: { relay_task: {
-          invocation_id: result.relay_task.invocation_id, status: result.relay_task.status,
-          task_execution: result.relay_task.task_execution, error: result.relay_task.error,
-        } } }),
+        ...(Object.keys(trajectoryTail).length === 0 ? {} : { trajectory_tail: trajectoryTail }),
         ...(humanIntervention ? { human_intervention: true } : {}),
         ...(usage !== undefined ? { usage } : {}),
         started_pins: dispatch.pins,
@@ -164,6 +174,22 @@ export class AgentWorker extends EventEmitter {
       },
     );
   }
+}
+
+/**
+ * The digest as journaled: the attempt and exit code (dropped from `output` on
+ * the JSON path by design) and the artifact paths folded in, then bounded to
+ * `TRANSCRIPT_DIGEST_MAX_BYTES` with every cut stated on the digest itself.
+ */
+function transcriptDigest(transcript: TranscriptDigest, attempt: number, result: WorkerCliResult): TranscriptDigest {
+  return boundTranscriptDigest({
+    attempt,
+    exit_code: result.exit_code,
+    ...transcript,
+    ...(result.artifacts === undefined ? {} : { artifacts: {
+      count: result.artifacts.length, paths: result.artifacts.slice(0, ARTIFACT_PATHS_MAX),
+    } }),
+  });
 }
 
 /**
