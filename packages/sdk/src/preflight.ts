@@ -4,6 +4,7 @@ import type { FlowSpec, StepSpec, TriggerSpec, McpServerConfig } from './spec.js
 import { McpError, openMcpSession, type McpDiagnostic } from './mcp-client.js';
 import { BudgetSyntaxError } from './budget.js';
 import { budgetDiagnostics } from './budget-preflight.js';
+import { permissionsDiagnostics } from './permissions-preflight.js';
 import type { TriggerSource } from '@relayflows/surface';
 import { acceptsAnyOutput, inspectStepGate, type StepGateInspection } from './gate-contract.js';
 import { compileSpec, CompileError } from './compile.js';
@@ -223,6 +224,11 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
   const resolutionByStep = new Map<string, CliResolution>();
   const cliProbeResults = new Map<string, CliProbeOutcome>();
 
+  // A pure fact about the compiled snapshot, collected before anything that
+  // can return early. An unresolved CLI, an unknown model or a bad scope all
+  // refuse below without probing, and the author should still be told that the
+  // permissions they declared on the same file are not enforced.
+  diagnostics.push(...permissionsDiagnostics(compiled));
   diagnostics.push(...scopeDiagnostics(compiled, options));
   for (const server of new Set(options.mcpServers ?? [])) {
     if (options.mcp !== undefined && Object.hasOwn(options.mcp, server)) continue;
