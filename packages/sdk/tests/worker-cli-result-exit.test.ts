@@ -40,7 +40,7 @@ const alive = (pid: number): boolean => {
 
 /**
  * A fake `claude` in `root/bin`. It records its pid, optionally starts a
- * background task in a process group of its own (as Claude's
+ * SIGTERM-deaf background task in a process group of its own (as Claude's
  * `run_in_background` Bash does), streams `frames` — the last one split across
  * two writes, mid multi-byte character — and then runs `tail`.
  */
@@ -54,7 +54,8 @@ function fakeClaude(root: string, frames: unknown[], tail: string, backgroundTas
   const claude = join(bin, 'claude');
   const claudePid = join(root, 'claude-pid');
   const taskPid = join(root, 'task-pid');
-  const task = `require('node:fs').writeFileSync(${JSON.stringify(taskPid)}, String(process.pid)); setInterval(() => {}, 1000);`;
+  // Deaf to SIGTERM, so only the escalation to SIGKILL can end it.
+  const task = `process.on('SIGTERM', () => {}); require('node:fs').writeFileSync(${JSON.stringify(taskPid)}, String(process.pid)); setInterval(() => {}, 1000);`;
   writeFileSync(claude, `#!/usr/bin/env node
 const { writeFileSync } = require('node:fs');
 const { spawn } = require('node:child_process');

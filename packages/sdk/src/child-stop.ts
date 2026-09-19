@@ -78,29 +78,34 @@ export function childStop(
     if (forceTimer !== undefined) clearTimeout(forceTimer);
     forceTimer = undefined;
   };
-  /** Whether anything is still in the group. See `maySettleOnChildExit`. */
-  const groupAnswers = (): boolean => {
-    // With no group of our own a stop never reached past the direct child, so
-    // that child's exit IS the whole of our reach and there is nothing left to
-    // ask about.
-    if (!ownsGroup || pid === undefined) return false;
-    try {
-      process.kill(-pid, 0);
-      return true;
-    } catch (error) {
-      // Only `ESRCH` proves the group is empty. `EPERM` proves the opposite —
-      // something is in there that we may not signal — and any other errno
-      // proves nothing at all, so both must read as alive: an unproven group is
-      // not a reason to spare a survivor.
-      return (error as NodeJS.ErrnoException).code !== 'ESRCH';
-    }
-  };
   // Descendants that moved into process groups of their own, captured at the
   // first stop. Claude Code runs a `run_in_background` Bash command that way,
   // so a group signal alone leaves it running after the agent is gone. They
   // must be found while the direct child is still their ancestor: once it
   // dies they are reparented and no longer traceable to this spawn.
   let escapedGroups: readonly number[] | undefined;
+  /**
+   * Whether anything the stop reaches is still alive: the child's own group or
+   * any group a descendant escaped into. See `maySettleOnChildExit`.
+   */
+  const groupAnswers = (): boolean => {
+    // With no group of our own a stop never reached past the direct child, so
+    // that child's exit IS the whole of our reach and there is nothing left to
+    // ask about.
+    if (!ownsGroup || pid === undefined) return false;
+    return [pid, ...(escapedGroups ?? [])].some(group => {
+      try {
+        process.kill(-group, 0);
+        return true;
+      } catch (error) {
+        // Only `ESRCH` proves the group is empty. `EPERM` proves the opposite
+        // — something is in there that we may not signal — and any other
+        // errno proves nothing at all, so both must read as alive: an unproven
+        // group is not a reason to spare a survivor.
+        return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+      }
+    });
+  };
   const signalTree = (name: NodeJS.Signals): void => {
     if (ownsGroup && pid !== undefined) {
       escapedGroups ??= descendantGroups(pid);
