@@ -331,6 +331,23 @@ describe('flows logs', () => {
     }
   });
 
+  it('does not claim a run has no agent step when the step list itself could not be read', async () => {
+    let seenLog = false;
+    cloud((path, query) => {
+      if (path.endsWith('/logs')) {
+        seenLog = query.get('sandboxId') !== null;
+        return { body: { content: '', offset: 0, totalSize: 0, done: true } };
+      }
+      return { status: 500, body: { error: 'Failed to read steps' } };
+    });
+    const out = io();
+    expect(await runCloudLogsCli(parseLogsArgs([RUN, '--step', 'agent-2'])!, out.io, CONNECTION)).toBe(2);
+    expect(seenLog).toBe(true);
+    expect(out.stderr[0]).toContain('REFUSED [cloud_step_no_transcript]');
+    expect(out.stderr[0]).toContain('the step list could not be read to say which steps have one');
+    expect(out.stderr[0]).not.toContain('has no step with its own transcript');
+  });
+
   it('refuses a step that has no transcript, and names the ones that do', async () => {
     wholeCloud();
     const missing = io();

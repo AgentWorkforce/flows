@@ -254,18 +254,22 @@ export async function runCloudLogsCli(
   // written nothing -- from this response alone. The step list distinguishes
   // them, and is only fetched on this path, so the happy path stays one request.
   if (args.step !== undefined && log.content.length === 0) {
-    let steps: CloudStep[] = [];
+    let steps: CloudStep[] | undefined;
     try {
       steps = await getCloudRunSteps(args.runId, options);
     } catch {
       // The step list is a courtesy here; its failure must not replace the
-      // refusal the reader actually needs.
+      // refusal the reader actually needs. `undefined` rather than `[]`, so
+      // "we could not look" is never printed as "there is nothing".
+      steps = undefined;
     }
-    const named = steps.some((step) => step.sandbox_id === args.step || step.step_name === args.step);
-    const withLogs = steps.filter((step) => step.sandbox_id.length > 0).map((step) => step.sandbox_id);
-    const available = withLogs.length === 0
-      ? 'this run has no step with its own transcript'
-      : `steps with a transcript: ${withLogs.map(safe).join(', ')}`;
+    const named = steps?.some((step) => step.sandbox_id === args.step || step.step_name === args.step) === true;
+    const withLogs = (steps ?? []).filter((step) => step.sandbox_id.length > 0).map((step) => step.sandbox_id);
+    const available = steps === undefined
+      ? 'the step list could not be read to say which steps have one'
+      : withLogs.length === 0
+        ? 'this run has no step with its own transcript'
+        : `steps with a transcript: ${withLogs.map(safe).join(', ')}`;
     return fail({
       code: 'cloud_step_no_transcript', exit: 2,
       message: named
