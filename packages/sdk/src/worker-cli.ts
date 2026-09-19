@@ -108,12 +108,16 @@ export async function runAgentCli(
 
   async function execute(): Promise<WorkerCliResult> {
   if (kind === 'relayflows-wrapper-v1') {
+    // The closed allowlist admits no ambient RELAYFLOW_* value; the four
+    // discovery names are set from this dispatch, exactly as for a direct spawn.
+    const wrapperEnv = wrapperEnvironment(process.env);
+    applyStepEnvironment(wrapperEnv, sidechannel);
     return requirePricedUsage(decodeWrapperResult(await runWrapperSession(
       cli,
       instruction,
       wakeContext,
       effectiveModel,
-      wrapperEnvironment(process.env),
+      wrapperEnv,
       wrapperLimits,
       signal,
       cwd,
