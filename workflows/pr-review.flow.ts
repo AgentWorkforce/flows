@@ -227,24 +227,29 @@ const API = (process.env.GITHUB_API || "https://api.github.com") + "/repos/" + o
 const MARK = "<!-- flows-pr-review";
 const headers = { Authorization: "Bearer " + token, Accept: "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "flows-pr-review" };
 
+// Soft calls never exit: they return { status } on failure so callers can tell
+// "gone" (404) from "transient" (5xx, network), and act conservatively on the
+// latter — a transient error must never turn into a POST, PATCH or DELETE.
+const TRANSIENT = Symbol("transient");
 async function gh(method, url, body, opts) {
   const soft = opts && opts.soft;
   let res;
   try {
     res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   } catch (error) {
-    if (soft) { console.log("soft-fail " + method + " " + url + ": " + (error && error.message)); return null; }
+    if (soft) { console.log("soft-fail " + method + " " + url + ": " + (error && error.message)); return { status: 0, [TRANSIENT]: true }; }
     console.error(method + " " + url + " failed: " + (error && error.message)); process.exit(1);
   }
   if (!res.ok) {
     const text = (await res.text()).slice(0, 300);
-    if (soft) { console.log("soft-fail " + method + " " + url + " -> " + res.status + " " + text); return null; }
+    if (soft) { console.log("soft-fail " + method + " " + url + " -> " + res.status + " " + text); return { status: res.status, [TRANSIENT]: res.status !== 404 && res.status !== 403 && res.status !== 422 }; }
     console.error(method + " " + url + " -> " + res.status + " " + text); process.exit(1);
   }
   const text = await res.text();
   return text ? JSON.parse(text) : null;
 }
-
+const failed = (v) => v && typeof v === "object" && "status" in v && Object.getOwnPropertySymbols(v).includes(TRANSIENT);
+const transient = (v) => failed(v) && v[TRANSIENT] === true;
 const markerFor = (login) => MARK + " " + headSha + " by:" + login + " -->";
 /** {sha, login|null} for any marker line (new or legacy form), else null. */
 function readMark(c) {
@@ -265,26 +270,47 @@ async function ours(knownLogins) {
   for (const x of all) if (x.m.login && x.m.login !== "pending" && x.c.user.login === x.m.login) logins.add(x.m.login);
   return all.filter((x) => (x.m.login && x.m.login !== "pending") ? x.c.user.login === x.m.login : logins.has(x.c.user.login));
 }
-async function committerDate(sha) { const c = await gh("GET", API + "/commits/" + sha, undefined, { soft: true }); return c ? Date.parse(c.commit.committer.date) : null; }
-/** Does the head \`a\` outrank head \`b\` (a is not older than b)? Unresolvable heads lose. */
+/** Committer date in ms; null when the commit is gone (404); undefined on a transient failure. */
+async function committerDate(sha) {
+  const c = await gh("GET", API + "/commits/" + sha, undefined, { soft: true });
+  if (failed(c)) return transient(c) ? undefined : null;
+  return Date.parse(c.commit.committer.date);
+}
+/**
+ * Does head \`a\` outrank head \`b\`? true / false, or "unknown" on a transient
+ * failure. A head the repo cannot resolve (404) loses; when compare fails
+ * for the pair, each head's existence decides.
+ */
 async function headWins(a, b) {
   if (a === b) return true;
   const cmp = await gh("GET", API + "/compare/" + b + "..." + a, undefined, { soft: true });
-  if (!cmp) return false;
+  if (failed(cmp)) {
+    if (transient(cmp)) return "unknown";
+    const [da, db] = [await committerDate(a), await committerDate(b)];
+    if (da === undefined || db === undefined) return "unknown";
+    if (da === null && db === null) return "unknown";
+    if (da === null) return false;
+    if (db === null) return true;
+    return da >= db;
+  }
   if (cmp.status === "ahead" || cmp.status === "identical") return true;
   if (cmp.status === "behind") return false;
   const [da, db] = [await committerDate(a), await committerDate(b)];
-  if (da === null || db === null) return false;
+  if (da === undefined || db === undefined) return "unknown";
+  if (da === null) return false;
+  if (db === null) return true;
   return da >= db;
 }
-/** Should the comment carrying \`theirSha\` stay as it is (i.e. is it not older than ours)? */
-const theirsWins = (theirSha) => headWins(theirSha, headSha);
-/** Among our comments, the one whose head is newest; same head → lowest id. Never prefers ours by identity. */
+/** Should the comment carrying \`theirSha\` stay? Unknown → yes (never overwrite on doubt). */
+async function theirsWins(theirSha) { const w = await headWins(theirSha, headSha); return w === true || w === "unknown"; }
+/** Among our comments, the one whose head is newest; same head → lowest id. Unknown → keep both (returns null). */
 async function keeperOf(cands) {
   let keep = cands[0];
   for (const other of cands.slice(1)) {
-    if (other.m.sha === keep.m.sha) { if (other.c.id < keep.c.id) keep = other; }
-    else if (await headWins(other.m.sha, keep.m.sha)) keep = other;
+    if (other.m.sha === keep.m.sha) { if (other.c.id < keep.c.id) keep = other; continue; }
+    const w = await headWins(other.m.sha, keep.m.sha);
+    if (w === "unknown") return null;
+    if (w === true) keep = other;
   }
   return keep;
 }
@@ -301,8 +327,10 @@ async function softDelete(id) { await gh("DELETE", API + "/issues/comments/" + i
   let found = await ours(me && me.login ? [me.login] : []);
   if (found.length > 1) {
     // Converge duplicates to one comment without discarding a newer verdict:
-    // keep the one whose head is newest (never "ours" by identity).
+    // keep the one whose head is newest (never "ours" by identity). If that
+    // cannot be decided right now, leave them all and try again next wake.
     const keep = await keeperOf(found);
+    if (keep === null) { console.log("could not order the existing comments (transient); leaving them"); process.exit(0); }
     for (const dup of found) if (dup.c.id !== keep.c.id) await softDelete(dup.c.id);
     found = [keep];
   }
@@ -317,6 +345,7 @@ async function softDelete(id) { await gh("DELETE", API + "/issues/comments/" + i
     const again = (await ours([login])).filter((x) => x.c.user.login === login);
     if (again.length > 1) {
       const keep = await keeperOf(again);
+      if (keep === null) { console.log("posted comment " + posted.id + " for " + headSha + " (duplicates left for the next wake: transient)"); return; }
       for (const other of again) if (other.c.id !== keep.c.id) await softDelete(other.c.id);
       if (keep.c.id !== posted.id) { console.log("raced: kept " + keep.c.id + " (" + keep.m.sha.slice(0, 8) + "), deleted ours " + posted.id); return; }
     }
@@ -325,7 +354,8 @@ async function softDelete(id) { await gh("DELETE", API + "/issues/comments/" + i
 
   // Re-read right before writing; a vanished comment means "none exists".
   const fresh = await gh("GET", API + "/issues/comments/" + existing.c.id, undefined, { soft: true });
-  if (fresh === null) {
+  if (transient(fresh)) { console.log("could not re-read comment " + existing.c.id + " (transient); not writing"); return; }
+  if (failed(fresh)) {
     const posted = await gh("POST", API + "/issues/" + number + "/comments", { body: markerFor(existing.c.user.login) + "\n" + text });
     console.log("re-posted comment " + posted.id + " for " + headSha + " (previous one vanished)"); return;
   }

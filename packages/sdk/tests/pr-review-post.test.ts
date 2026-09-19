@@ -18,7 +18,8 @@ interface Comment { id: number; body: string; user: { login: string; type: strin
 interface Fake {
   comments: Comment[];
   user: { login: string } | null;
-  compare: Record<string, 'ahead' | 'behind' | 'identical' | 'diverged' | 404>;
+  compare: Record<string, 'ahead' | 'behind' | 'identical' | 'diverged' | 404 | 500>;
+  rereadStatus: number | null;
   dates: Record<string, string>;
   log: string[];
   nextId: number;
@@ -30,7 +31,7 @@ function body(req: IncomingMessage): Promise<string> {
   return new Promise((res) => { let s = ''; req.on('data', (d) => { s += d; }); req.on('end', () => res(s)); });
 }
 beforeEach(async () => {
-  fake = { comments: [], user: null, compare: {}, dates: {}, log: [], nextId: 100 };
+  fake = { comments: [], user: null, compare: {}, dates: {}, log: [], nextId: 100, rereadStatus: null };
   dir = mkdtempSync(join(tmpdir(), 'pr-review-post-'));
   writeFileSync(join(dir, 'body.md'), 'verdict body\n');
   server = createServer(async (req, res) => {
@@ -52,12 +53,12 @@ beforeEach(async () => {
     if (one) {
       const c = fake.comments.find((x) => x.id === Number(one[1]));
       if (!c) return json(404, { message: 'Not Found' });
-      if (method === 'GET') return json(200, c);
+      if (method === 'GET') return fake.rereadStatus ? json(fake.rereadStatus, { message: 'x' }) : json(200, c);
       if (method === 'PATCH') { c.body = (JSON.parse(await body(req)) as { body: string }).body; c.updated_at = new Date().toISOString(); return json(200, c); }
       if (method === 'DELETE') { fake.comments = fake.comments.filter((x) => x.id !== c.id); return json(204, null); }
     }
     const cmp = path.match(/^\/repos\/o\/r\/compare\/([0-9a-f]{40})\.\.\.([0-9a-f]{40})$/);
-    if (cmp) { const st = fake.compare[`${cmp[1]}...${cmp[2]}`]; return st === undefined || st === 404 ? json(404, { message: 'Not Found' }) : json(200, { status: st }); }
+    if (cmp) { const st = fake.compare[`${cmp[1]}...${cmp[2]}`]; return st === undefined || st === 404 ? json(404, { message: 'Not Found' }) : st === 500 ? json(500, { message: 'boom' }) : json(200, { status: st }); }
     const commit = path.match(/^\/repos\/o\/r\/commits\/([0-9a-f]{40})$/);
     if (commit) { const d = fake.dates[commit[1]]; return d ? json(200, { commit: { committer: { date: d } } }) : json(404, { message: 'Not Found' }); }
     return json(500, { message: `unhandled ${method} ${path}` });
@@ -130,9 +131,34 @@ describe('workflows/pr-review-post.cjs', () => {
     fake.compare[`${SHA_A}...${SHA_C}`] = 'diverged'; fake.dates[SHA_A] = '2026-09-18T09:00:00Z';
     expect((await run(SHA_A)).out).toContain('not overwriting');
   });
-  it('treats an unresolvable head as older (compare 404) and overwrites', async () => {
-    seed(SHA_B); // no compare entry → 404
+  it('treats an unresolvable head as older (compare 404, commit gone) and overwrites', async () => {
+    seed(SHA_B); fake.dates[SHA_A] = '2026-09-18T09:00:00Z'; // SHA_B has no commit → gone
     expect((await run(SHA_A)).out).toContain('updated comment');
+  });
+  it('a transient compare failure never overwrites', async () => {
+    seed(SHA_B, { text: 'keep' }); fake.compare[`${SHA_A}...${SHA_B}`] = 500;
+    const r = await run(SHA_A);
+    expect(r.code).toBe(0); expect(r.out).toContain('not overwriting'); expect(ours()[0].body).toContain('\nkeep');
+  });
+  it('a transient re-read stops without POST or PATCH', async () => {
+    seed(SHA_A, { text: 'keep' }); fake.compare[`${SHA_B}...${SHA_A}`] = 'behind'; fake.rereadStatus = 502;
+    const r = await run(SHA_B);
+    expect(r.code).toBe(0); expect(r.out).toContain('transient'); expect(ours()).toHaveLength(1); expect(ours()[0].body).toContain('\nkeep');
+    expect(fake.log.filter((l) => /^(POST|PATCH)/.test(l))).toEqual([]);
+  });
+  it('an unresolvable leftover never wins the dedupe over the resolvable verdict', async () => {
+    fake.user = { login: 'relay[bot]' };
+    seed(SHA_C, { text: 'gone-head' }); const mine = seed(SHA_A, { text: 'mine' }); // SHA_C: no commit, no compare
+    fake.dates[SHA_A] = '2026-09-18T09:00:00Z';
+    const r = await run(SHA_A);
+    expect(ours()).toHaveLength(1); expect(ours()[0].id).toBe(mine.id); expect(r.out).toContain('not overwriting');
+  });
+  it('a transient failure while ordering duplicates leaves them for the next wake', async () => {
+    fake.user = { login: 'relay[bot]' };
+    seed(SHA_B, { text: 'x' }); seed(SHA_A, { text: 'y' }); fake.compare[`${SHA_B}...${SHA_A}`] = 500;
+    const r = await run(SHA_A);
+    expect(r.code).toBe(0); expect(r.out).toContain('leaving them'); expect(ours()).toHaveLength(2);
+    expect(fake.log.filter((l) => /^(DELETE|POST|PATCH)/.test(l))).toEqual([]);
   });
   it('ignores a spoofed marker from another author', async () => {
     const spoof = seed(SHA_A, { login: 'relay[bot]', author: 'mallory', text: 'spoof' });
@@ -144,7 +170,7 @@ describe('workflows/pr-review-post.cjs', () => {
   it('adopts legacy markers by the same login and converges duplicates, keeping the newest', async () => {
     seed(SHA_A, { login: null, updated: '2026-09-18T08:00:00Z', text: 'legacy-old' });
     const newer = seed(SHA_B, { login: null, updated: '2026-09-18T12:00:00Z', text: 'legacy-newer' });
-    fake.compare[`${SHA_A}...${SHA_B}`] = 'ahead';
+    fake.compare[`${SHA_A}...${SHA_B}`] = 'ahead'; fake.compare[`${SHA_B}...${SHA_A}`] = 'behind';
     // With an installation token the login is only known after posting, so
     // the script posts, adopts the legacy comments as the same login, and
     // converges on the newest — deleting its own just-posted older verdict.
@@ -200,9 +226,9 @@ describe('workflows/pr-review-post.cjs', () => {
       if (req.method === 'GET' && u.startsWith('/repos/o/r/issues/7/comments')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(comments)); return; }
       if (req.method === 'GET' && u.startsWith('/repos/o/r/issues/comments/')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(comments[1])); return; }
       if (req.method === 'PATCH') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(comments[1])); return; }
+      if (req.method === 'GET' && u.includes('/compare/')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ status: 'behind' })); return; }
       res.writeHead(500); res.end('{}');
     });
-    fake.compare[`${SHA_B}...${SHA_A}`] = 'behind';
     const r = await run(SHA_B);
     expect(r.code).toBe(0); expect(r.out).toContain('soft-fail DELETE'); expect(r.out).toContain('updated comment');
   });
