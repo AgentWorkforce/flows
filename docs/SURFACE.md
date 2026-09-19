@@ -1051,6 +1051,33 @@ whose final message is a JSON object owns its output shape and journals no
 artifacts; gate such a step on a deterministic check instead. The relay
 transport journals none, because the agent ran on another host.
 
+The diff is of the working directory, not of what the agent did, so anything
+written under it during the attempt is an artifact by default — including files
+the runtime itself writes. The worker's own per-attempt evidence lives under
+`<data-dir>/runs/<run-id>/steps/<step-id>/` (the transcript file, the
+`attempt-<n>.<stream>.tail` files and the `.tmp` each tail is staged as), and a
+local `--data-dir` inside the project puts all of it inside the scanned tree.
+Every one of those paths is excluded from the diff by name in
+`packages/sdk/src/worker-cli.ts`'s `ownEvidencePaths`, derived from the attempt
+identity — the same input that decides where each file is written, so the
+exclusion cannot drift from the files. Deriving it from anything the run
+*produces* is a mistake worth naming: an earlier version read the transcript's
+path off `result.transcript.file`, which `finish` omits when the close outruns
+its deadline or the attempt aborts, so the exclusion lapsed on exactly the paths
+where the file is slowest to finish and most likely to still be sitting there.
+
+Anyone adding a new runtime-written file under the run's data dir has to add it
+to `ownEvidencePaths` in the same change. **Missing one is silent by default.**
+`step.complete` bounds `trajectory_tail` and passes `output` through verbatim
+(`kernel/relayflowd/src/server.rs`), so the kernel accepts the polluted list and
+the run succeeds with the worker's own bookkeeping journaled as the agent's
+`output.artifacts`. It only becomes loud where something reads that list: an
+`artifact_exists` gate on a path that is now crowded, or a flow body that
+asserts on `AgentResult.artifacts` — which is how this was caught at all, by
+`packages/sdk/tests/agent-transcript-live.test.ts` failing its own
+`artifacts.length !== 0` check. Dotfiles and dotdirs are skipped by the walk, so
+`.relayflowd` is already invisible; a data dir under any other name is not.
+
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.
 - `on` inside a running body (subscribe after start, buffer events while a step runs, end on `idle`/`deadline`). Proposed in [`docs/EVENT-AWAIT.md`](EVENT-AWAIT.md); motivating case is a flow that babysits the PR it opened.
