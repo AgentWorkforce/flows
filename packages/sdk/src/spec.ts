@@ -125,7 +125,17 @@ export interface AgentSurfaces {
   external?: string[];
 }
 
-/** Permission model for an agent step (gate 8). `readonly` provably cannot write. */
+/**
+ * Per-step permission declarations for an agent step.
+ *
+ * Validated by gate 1 and recorded in the compiled step spec (as `file_globs`,
+ * `network_allowlist` and `access_preset`), but **not currently enforced**:
+ * nothing reads these fields to gate a file or network access. Enforcement is
+ * gate 8 (#442). `accessPreset: 'readonly'` does not prevent writes today.
+ *
+ * `flows check` emits a `permissions_unenforced` warning for every agent step
+ * that declares this block, so the gap is reported rather than silent.
+ */
 export interface PermissionsSpec {
   fileGlobs?: string[];
   networkAllowlist?: string[];
