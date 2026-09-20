@@ -142,16 +142,24 @@ function oneLine(text: string, limit = TARGET_MAX_CHARS): string {
   return flat.length <= limit ? flat : `${flat.slice(0, limit)}…`;
 }
 
-function toolTarget(input: unknown): string | null {
+/**
+ * `clean` runs before `oneLine`, not after, and the order is load-bearing.
+ *
+ * `redact` scrubs a secret by matching the whole value: an env value longer
+ * than the 160-character cap, truncated first, no longer matches anything and
+ * survives as a prefix — which for a credential is not a safer amount of it.
+ * Redact the full string, then bound what is left.
+ */
+function toolTarget(input: unknown, clean: (text: string) => string): string | null {
   if (!isRecord(input)) return null;
   for (const key of TARGET_KEYS) {
     const value = str(input[key]);
-    if (value !== null) return oneLine(value);
+    if (value !== null) return oneLine(clean(value));
   }
   // An unfamiliar tool still shows something rather than nothing.
   for (const value of Object.values(input)) {
     const text = str(value);
-    if (text !== null) return oneLine(text);
+    if (text !== null) return oneLine(clean(text));
   }
   return null;
 }
@@ -240,21 +248,26 @@ export function parseAgentTranscript(content: string, env: NodeJS.ProcessEnv = p
       streamJson = true;
       const tools = frame['tools'];
       const servers = frame['mcp_servers'];
+      // Every string here is the harness's, not this client's, and a harness
+      // reports what it was configured with. `clean` on all of them rather
+      // than on the ones that look like free text: which field a credential
+      // lands in is not something this parser gets to assume.
+      const cleanOrNull = (value: string | null): string | null => value === null ? null : clean(value);
       entries.push({
         kind: 'init',
-        model: str(frame['model']) === null ? null : clean(str(frame['model'])!),
-        version: str(frame['claude_code_version']) ?? str(frame['version']),
-        permission_mode: str(frame['permissionMode']) ?? str(frame['permission_mode']),
+        model: cleanOrNull(str(frame['model'])),
+        version: cleanOrNull(str(frame['claude_code_version']) ?? str(frame['version'])),
+        permission_mode: cleanOrNull(str(frame['permissionMode']) ?? str(frame['permission_mode'])),
         tools: Array.isArray(tools) ? tools.length : num(frame['tools_count']),
         mcp_servers: Array.isArray(servers) ? servers.length : num(frame['mcp_servers_count']),
-        session_id: str(frame['session_id']),
+        session_id: cleanOrNull(str(frame['session_id'])),
       });
       continue;
     }
     if (type === 'assistant' || type === 'user') {
       streamJson = true;
       const message = isRecord(frame['message']) ? frame['message'] : null;
-      if (message === null) { entries.push({ kind: 'unknown', type, chars: line.length }); continue; }
+      if (message === null) { entries.push({ kind: 'unknown', type: clean(type), chars: line.length }); continue; }
       const nested = frame['parent_tool_use_id'] !== undefined && frame['parent_tool_use_id'] !== null;
       const content = message['content'];
       if (!Array.isArray(content)) {
@@ -276,17 +289,18 @@ export function parseAgentTranscript(content: string, env: NodeJS.ProcessEnv = p
         } else if (blockType === 'tool_use') {
           const id = str(block['id']);
           const answer = id === null ? undefined : results.get(id);
-          const target = toolTarget(block['input']);
+          // The name is model-supplied too — a hallucinated or malformed call
+          // can carry anything there — so it is redacted like the target.
           entries.push({
             kind: 'tool',
-            name: str(block['name']) ?? 'unknown',
-            target: target === null ? null : clean(target),
+            name: clean(str(block['name']) ?? 'unknown'),
+            target: toolTarget(block['input'], clean),
             result_chars: answer === undefined ? null : answer.chars,
             is_error: answer?.isError === true,
             nested,
           });
         } else if (blockType !== 'tool_result') {
-          entries.push({ kind: 'unknown', type: blockType ?? 'block', chars: JSON.stringify(block).length });
+          entries.push({ kind: 'unknown', type: clean(blockType ?? 'block'), chars: JSON.stringify(block).length });
         }
       }
       continue;
@@ -297,7 +311,7 @@ export function parseAgentTranscript(content: string, env: NodeJS.ProcessEnv = p
       entries.push({
         kind: 'result',
         is_error: frame['is_error'] === true,
-        subtype: str(frame['subtype']),
+        subtype: str(frame['subtype']) === null ? null : clean(str(frame['subtype'])!),
         duration_ms: num(frame['duration_ms']),
         num_turns: num(frame['num_turns']),
         total_cost_usd: num(frame['total_cost_usd']),
@@ -308,7 +322,7 @@ export function parseAgentTranscript(content: string, env: NodeJS.ProcessEnv = p
       });
       continue;
     }
-    entries.push({ kind: 'unknown', type: type ?? 'frame', chars: line.length });
+    entries.push({ kind: 'unknown', type: clean(type ?? 'frame'), chars: line.length });
   }
   return { entries, truncated_attempts: truncatedAttempts, omitted_attempts: omittedAttempts, stream_json: streamJson };
 }

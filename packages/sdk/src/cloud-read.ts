@@ -150,6 +150,36 @@ export interface CloudRunList {
 /** A step name that can safely ride in a query string, and is worth asking about. */
 const STEP_NAME = /^[^\u0000-\u001F\u007F]{1,200}$/u;
 
+/**
+ * How many run-list pages one `flows runs` may fetch.
+ *
+ * `limit` bounds the rows, but only a *cooperative* server bounds the pages:
+ * an empty page carrying a cursor advances neither, and a cursor that repeats
+ * advances nothing at all. Neither is caught by the per-request timeout, which
+ * bounds one request and not the command. Twenty pages is 2,000 rows at the
+ * route's page size — past any `limit` this client accepts — so reaching it
+ * means the listing is not progressing, not that the caller asked for a lot.
+ */
+const RUN_LIST_MAX_PAGES = 20;
+
+/**
+ * A run id as the *caller* supplied it.
+ *
+ * `cloudRunId` applies the same shape rule to an id that came back from Cloud,
+ * where a violation means Cloud answered something this client cannot use, and
+ * `invalid_response` is right. Here the id is an argument someone typed: the
+ * same violation is a bad invocation, and the CLI has to exit 2 saying so
+ * rather than exit 1 blaming Cloud for a request it never sent.
+ */
+function callerRunId(value: string): string {
+  if (!/^[A-Za-z0-9_-]{1,128}$/u.test(value)) {
+    throw new CloudFlowError('invalid_input',
+      'A run id may contain only letters, digits, underscores and hyphens, and at most 128 of them. '
+      + '`flows runs` lists the ones this credential can read.');
+  }
+  return value;
+}
+
 function get(record: Record<string, unknown>, key: string): unknown {
   return record[key];
 }
@@ -206,9 +236,16 @@ function pullRequestUrl(value: unknown): string | null {
   return /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/u.test(raw) ? raw : null;
 }
 
-function runSummary(row: Record<string, unknown>): CloudRunSummary | null {
+/**
+ * One list row.
+ *
+ * A row with no `runId` is not a row this client can do anything with, and
+ * dropping it quietly would make `runs 3` mean "three of the four Cloud sent".
+ * A count a reader cannot trust is worse than a refusal, so it refuses.
+ */
+function runSummary(row: Record<string, unknown>): CloudRunSummary {
   const runId = str(get(row, 'runId'));
-  if (runId === null) return null;
+  if (runId === null) throw new CloudFlowError('invalid_response', 'Cloud run list carried a row with no runId.');
   return {
     run_id: runId,
     name: workflowName(get(row, 'workflow')),
@@ -240,14 +277,33 @@ export async function listCloudRuns(
   const runs: CloudRunSummary[] = [];
   let cursor: string | null = null;
   let more = false;
-  // Bounded by `limit`, and by the page size: a thousand rows is ten requests.
-  for (;;) {
+  // Two independent bounds, because `limit` alone is not one: a page that
+  // yields no rows leaves `runs.length` where it was, so the loop's own exit
+  // condition can never be reached by fetching more.
+  const requested = new Set<string>();
+  for (let page = 1; ; page += 1) {
+    if (page > RUN_LIST_MAX_PAGES) {
+      throw new CloudFlowError('invalid_response',
+        `Cloud served ${RUN_LIST_MAX_PAGES} run-list pages without reaching the requested limit; the listing is not advancing.`);
+    }
+    if (cursor !== null) {
+      if (requested.has(cursor)) {
+        throw new CloudFlowError('invalid_response', 'Cloud repeated a run-list cursor; the listing is not advancing.');
+      }
+      requested.add(cursor);
+    }
     const query = cursor === null ? '' : `?cursor=${encodeURIComponent(cursor)}`;
     const body = record(await cloudFetch(`/api/v1/workflows/runs${query}`, options, { method: 'GET', detail: true }));
     if (body === null) throw new CloudFlowError('invalid_response', 'Cloud returned no run list.');
-    for (const row of array(get(body, 'runs'))) {
-      const parsed = record(row) === null ? null : runSummary(record(row)!);
-      if (parsed === null) continue;
+    // A missing or non-array `runs` is not an empty page. Reading it as one
+    // would print `runs 0` — a claim about the workspace — for a response this
+    // client did not understand.
+    const rows = get(body, 'runs');
+    if (!Array.isArray(rows)) throw new CloudFlowError('invalid_response', 'Cloud run list carried no `runs` array.');
+    for (const row of rows) {
+      const object = record(row);
+      if (object === null) throw new CloudFlowError('invalid_response', 'Cloud run list carried a row that is not an object.');
+      const parsed = runSummary(object);
       if (runs.length === limit) { more = true; break; }
       runs.push(parsed);
     }
@@ -277,14 +333,29 @@ export async function getCloudRunDetail(
   runId: string,
   options: CloudConnectionOptions = {},
 ): Promise<CloudRunDetail> {
-  const body = record(await cloudFetch(`/api/v1/workflows/runs/${cloudRunId(runId)}`, options,
+  const asked = callerRunId(runId);
+  const body = record(await cloudFetch(`/api/v1/workflows/runs/${asked}`, options,
     { method: 'GET', detail: true }));
   if (body === null) throw new CloudFlowError('invalid_response', 'Cloud returned no run record.');
+  // The record has to be the record that was asked for, and it has to say what
+  // the run is doing. `getCloudFlowRun` (cloud-run.ts) already refuses a
+  // mismatched id for the same reason: a view headed `RUN <some other id>`, or
+  // one that invented `unknown` for an absent status, states a fact nobody
+  // established. What is *not* checked is the status vocabulary — Cloud owns
+  // that list and adds to it, and a CLI that refused an unfamiliar status would
+  // go blind on the next one it ships.
+  const answered = str(get(body, 'runId'));
+  if (answered === null) throw new CloudFlowError('invalid_response', 'Cloud run record carried no runId.');
+  if (answered !== asked) {
+    throw new CloudFlowError('invalid_response', `Cloud answered a different run than the one requested (${asked}).`);
+  }
+  const status = str(get(body, 'status'));
+  if (status === null) throw new CloudFlowError('invalid_response', 'Cloud run record carried no status.');
   const result = record(get(body, 'result'));
   return {
-    run_id: str(get(body, 'runId')) ?? runId,
+    run_id: answered,
     name: workflowName(get(body, 'workflow')),
-    status: str(get(body, 'status')) ?? 'unknown',
+    status,
     // On the detail route the reason is inside the run's `result`, not lifted
     // into a column the way the list's SQL lifts it.
     completion_reason: result === null ? null : str(get(result, 'completionReason')),
@@ -347,9 +418,10 @@ function transcript(value: unknown): CloudStepTranscript | null {
   };
 }
 
-function step(row: Record<string, unknown>): CloudStep | null {
+/** One step row. Nameless is unusable, and dropping it would shorten the run. */
+function step(row: Record<string, unknown>): CloudStep {
   const name = str(get(row, 'stepName'));
-  if (name === null) return null;
+  if (name === null) throw new CloudFlowError('invalid_response', 'Cloud step list carried a row with no stepName.');
   const detail = record(get(row, 'detail'));
   const verification = detail === null ? null : record(get(detail, 'verification'));
   return {
@@ -395,13 +467,17 @@ export async function getCloudRunSteps(
   runId: string,
   options: CloudConnectionOptions = {},
 ): Promise<CloudStep[]> {
-  const body = record(await cloudFetch(`/api/v1/workflows/runs/${cloudRunId(runId)}/steps`, options,
+  const body = record(await cloudFetch(`/api/v1/workflows/runs/${callerRunId(runId)}/steps`, options,
     { method: 'GET', detail: true }));
   if (body === null) throw new CloudFlowError('invalid_response', 'Cloud returned no step list.');
-  return array(get(body, 'steps')).flatMap((row) => {
-    const parsed = record(row);
-    const built = parsed === null ? null : step(parsed);
-    return built === null ? [] : [built];
+  // As with the run list: a step silently dropped is a run that looks shorter
+  // than it was, and `flows logs --step` would then name the wrong candidates.
+  const rows = get(body, 'steps');
+  if (!Array.isArray(rows)) throw new CloudFlowError('invalid_response', 'Cloud step list carried no `steps` array.');
+  return rows.map((row) => {
+    const object = record(row);
+    if (object === null) throw new CloudFlowError('invalid_response', 'Cloud step list carried a row that is not an object.');
+    return step(object);
   });
 }
 
@@ -425,7 +501,7 @@ export async function getCloudRunLog(
     throw new CloudFlowError('invalid_input', 'A step name must be 1-200 characters and carry no control characters.');
   }
   const query = step === undefined ? '' : `?sandboxId=${encodeURIComponent(step)}`;
-  const body = record(await cloudFetch(`/api/v1/workflows/runs/${cloudRunId(runId)}/logs${query}`, options,
+  const body = record(await cloudFetch(`/api/v1/workflows/runs/${callerRunId(runId)}/logs${query}`, options,
     { method: 'GET', detail: true }));
   if (body === null) throw new CloudFlowError('invalid_response', 'Cloud returned no log envelope.');
   const content = get(body, 'content');

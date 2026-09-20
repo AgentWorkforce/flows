@@ -254,22 +254,21 @@ export async function runCloudLogsCli(
   // written nothing -- from this response alone. The step list distinguishes
   // them, and is only fetched on this path, so the happy path stays one request.
   if (args.step !== undefined && log.content.length === 0) {
-    let steps: CloudStep[] | undefined;
+    let steps: CloudStep[];
     try {
       steps = await getCloudRunSteps(args.runId, options);
-    } catch {
-      // The step list is a courtesy here; its failure must not replace the
-      // refusal the reader actually needs. `undefined` rather than `[]`, so
-      // "we could not look" is never printed as "there is nothing".
-      steps = undefined;
+    } catch (error) {
+      // The step list is the only evidence for either message, so without it
+      // there is no finding to report. A 403 or a timed-out read must reach
+      // the caller as what it is — retryable, or a scope to fix — and never
+      // as `cloud_step_no_transcript`, which says the invocation was wrong.
+      return fail(refusalFor(error, `the steps of run ${args.runId}`, env), args.json, io);
     }
-    const named = steps?.some((step) => step.sandbox_id === args.step || step.step_name === args.step) === true;
-    const withLogs = (steps ?? []).filter((step) => step.sandbox_id.length > 0).map((step) => step.sandbox_id);
-    const available = steps === undefined
-      ? 'the step list could not be read to say which steps have one'
-      : withLogs.length === 0
-        ? 'this run has no step with its own transcript'
-        : `steps with a transcript: ${withLogs.map(safe).join(', ')}`;
+    const named = steps.some((step) => step.sandbox_id === args.step || step.step_name === args.step);
+    const withLogs = steps.filter((step) => step.sandbox_id.length > 0).map((step) => step.sandbox_id);
+    const available = withLogs.length === 0
+      ? 'this run has no step with its own transcript'
+      : `steps with a transcript: ${withLogs.map(safe).join(', ')}`;
     return fail({
       code: 'cloud_step_no_transcript', exit: 2,
       message: named

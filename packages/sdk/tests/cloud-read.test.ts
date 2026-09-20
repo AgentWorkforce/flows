@@ -331,21 +331,28 @@ describe('flows logs', () => {
     }
   });
 
-  it('does not claim a run has no agent step when the step list itself could not be read', async () => {
-    let seenLog = false;
-    cloud((path, query) => {
-      if (path.endsWith('/logs')) {
-        seenLog = query.get('sandboxId') !== null;
-        return { body: { content: '', offset: 0, totalSize: 0, done: true } };
-      }
-      return { status: 500, body: { error: 'Failed to read steps' } };
-    });
-    const out = io();
-    expect(await runCloudLogsCli(parseLogsArgs([RUN, '--step', 'agent-2'])!, out.io, CONNECTION)).toBe(2);
-    expect(seenLog).toBe(true);
-    expect(out.stderr[0]).toContain('REFUSED [cloud_step_no_transcript]');
-    expect(out.stderr[0]).toContain('the step list could not be read to say which steps have one');
-    expect(out.stderr[0]).not.toContain('has no step with its own transcript');
+  it('propagates a step-list failure instead of calling it a missing transcript', async () => {
+    // The empty log body alone cannot tell an unknown step from a step that
+    // has written nothing; the step list is the evidence for either. When that
+    // read fails there is no finding, so the caller gets the real failure —
+    // retryable or a scope to fix — not an invocation refusal.
+    for (const [status, code] of [[403, 'cloud_forbidden'], [500, 'cloud_http_error']] as const) {
+      let askedForLog = false;
+      cloud((path, query) => {
+        if (path.endsWith('/logs')) {
+          askedForLog = query.get('sandboxId') === 'agent-2';
+          return { body: { content: '', offset: 0, totalSize: 0, done: true } };
+        }
+        return { status, body: { error: 'nope' } };
+      });
+      const out = io();
+      const exit = await runCloudLogsCli(parseLogsArgs([RUN, '--step', 'agent-2'])!, out.io, CONNECTION);
+      expect(askedForLog).toBe(true);
+      expect(exit).toBe(status === 403 ? 2 : 1);
+      expect(out.stderr[0]).toContain(`REFUSED [${code}]`);
+      expect(out.stderr[0]).not.toContain('cloud_step_no_transcript');
+      if (status === 403) expect(out.stderr[0]).toContain(`the steps of run ${RUN}`);
+    }
   });
 
   it('refuses a step that has no transcript, and names the ones that do', async () => {
@@ -501,6 +508,144 @@ describe('refusals', () => {
     const out = io();
     await runCloudStatusCli({ runId: RUN, json: false }, out.io, { ...CONNECTION, token: secret });
     expect([...out.stdout, ...out.stderr].join('\n')).not.toContain(secret);
+  });
+});
+
+describe('malformed and hostile responses', () => {
+  it('refuses a run list whose `runs` is missing or not an array, rather than printing "runs 0"', async () => {
+    for (const body of [{ nextCursor: null }, { runs: 'nope', nextCursor: null }]) {
+      cloud(() => ({ body }));
+      const out = io();
+      expect(await runCloudRunsCli({ command: 'runs', limit: 5, json: false }, out.io, CONNECTION)).toBe(1);
+      expect(out.stdout).toEqual([]);
+      expect(out.stderr[0]).toContain('REFUSED [cloud_invalid_response]');
+      expect(out.stderr[0]).toContain('no `runs` array');
+    }
+  });
+
+  it('refuses a run-list row that is not an object, or has no runId', async () => {
+    cloud(() => ({ body: { runs: [runRow(RUN), 'not-an-object'], nextCursor: null } }));
+    const notObject = io();
+    expect(await runCloudRunsCli({ command: 'runs', limit: 5, json: false }, notObject.io, CONNECTION)).toBe(1);
+    expect(notObject.stderr[0]).toContain('a row that is not an object');
+
+    cloud(() => ({ body: { runs: [{ status: 'completed' }], nextCursor: null } }));
+    const nameless = io();
+    expect(await runCloudRunsCli({ command: 'runs', limit: 5, json: false }, nameless.io, CONNECTION)).toBe(1);
+    expect(nameless.stderr[0]).toContain('a row with no runId');
+  });
+
+  it('refuses a step list that is not an array, or a step row with no stepName', async () => {
+    cloud((path) => path.endsWith('/steps')
+      ? { body: { steps: { 'agent-2': {} } } }
+      : { body: RUN_DETAIL });
+    const notArray = io();
+    expect(await runCloudStatusCli({ runId: RUN, json: false }, notArray.io, CONNECTION)).toBe(1);
+    expect(notArray.stderr[0]).toContain('no `steps` array');
+
+    cloud((path) => path.endsWith('/steps')
+      ? { body: { steps: [{ status: 'completed' }] } }
+      : { body: RUN_DETAIL });
+    const nameless = io();
+    expect(await runCloudStatusCli({ runId: RUN, json: false }, nameless.io, CONNECTION)).toBe(1);
+    expect(nameless.stderr[0]).toContain('a row with no stepName');
+  });
+
+  it('refuses a run record for a different run, or one with no status', async () => {
+    cloud((path) => path.endsWith('/steps')
+      ? { body: STEPS }
+      : { body: { ...RUN_DETAIL, runId: 'some-other-run' } });
+    const mismatched = io();
+    expect(await runCloudStatusCli({ runId: RUN, json: false }, mismatched.io, CONNECTION)).toBe(1);
+    expect(mismatched.stderr[0]).toContain('a different run than the one requested');
+    expect(mismatched.stdout).toEqual([]);
+
+    cloud(() => ({ body: { runId: RUN } }));
+    const statusless = io();
+    expect(await runCloudStatusCli({ runId: RUN, json: false }, statusless.io, CONNECTION)).toBe(1);
+    expect(statusless.stderr[0]).toContain('carried no status');
+    // An unfamiliar status is Cloud's to add, not this client's to refuse.
+    cloud((path) => path.endsWith('/steps') ? { body: { steps: [] } } : { body: { ...RUN_DETAIL, status: 'cancelling' } });
+    const novel = io();
+    expect(await runCloudStatusCli({ runId: RUN, json: false }, novel.io, { ...CONNECTION, now: () => 0 })).toBe(0);
+    expect(novel.stdout[0]).toContain('cancelling');
+  });
+
+  it('stops a run listing whose cursor repeats, and one that never advances', async () => {
+    const repeated = cloud(() => ({ body: { runs: [], nextCursor: 'same-cursor' } }));
+    const looping = io();
+    expect(await runCloudRunsCli({ command: 'runs', limit: 5, json: false }, looping.io, CONNECTION)).toBe(1);
+    expect(looping.stderr[0]).toContain('repeated a run-list cursor');
+    // Two requests: the first page, then the one that repeats its cursor.
+    expect(repeated.requests).toHaveLength(2);
+
+    let page = 0;
+    const advancing = cloud(() => ({ body: { runs: [], nextCursor: `cursor-${page += 1}` } }));
+    const endless = io();
+    expect(await runCloudRunsCli({ command: 'runs', limit: 5, json: false }, endless.io, CONNECTION)).toBe(1);
+    expect(endless.stderr[0]).toContain('without reaching the requested limit');
+    expect(advancing.requests.length).toBeLessThanOrEqual(20);
+  });
+
+  it('treats a malformed run id as a bad invocation, and sends no request', async () => {
+    for (const bad of ['../../etc/passwd', 'run id with spaces', '']) {
+      const fetch = vi.spyOn(globalThis, 'fetch');
+      const logs = io();
+      expect(await runCloudLogsCli({ command: 'logs', runId: bad, step: undefined, raw: false, json: false },
+        logs.io, CONNECTION)).toBe(2);
+      expect(logs.stderr[0]).toContain('REFUSED [invalid_invocation]');
+      expect(logs.stderr[0]).toContain('`flows runs` lists the ones this credential can read');
+      expect(logs.stderr[0]).not.toContain('cloud_invalid_response');
+
+      const status = io();
+      expect(await runCloudStatusCli({ runId: bad || undefined, json: false }, status.io, CONNECTION)).toBe(2);
+      expect(fetch).not.toHaveBeenCalled();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('redacts the harness metadata a transcript frame carries, not just its prose', async () => {
+    const leaky = [
+      '{"type":"relayflow.attempt","attempt":1,"bytes":10,"truncated":false}',
+      '{"type":"system","subtype":"init","model":"claude-opus-5","claude_code_version":"rk_live_VERSIONLEAK1",'
+        + '"permissionMode":"rk_live_MODELEAK1","session_id":"rk_live_SESSIONLEAK1","tools_count":1}',
+      '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1",'
+        + '"name":"rk_live_TOOLNAMELEAK1","input":{"command":"echo rk_live_TARGETLEAK1"}}]}}',
+      '{"type":"assistant","message":{"role":"assistant","content":[{"type":"rk_live_BLOCKLEAK1","x":1}]}}',
+      '{"type":"rk_live_FRAMELEAK1","x":1}',
+      '{"type":"result","subtype":"rk_live_SUBTYPELEAK1","is_error":false,"num_turns":1}',
+      '',
+    ].join('\n');
+    wholeCloud({ transcript: leaky });
+    const rendered = io();
+    expect(await runCloudLogsCli(parseLogsArgs([RUN, '--step', 'agent-2'])!, rendered.io, CONNECTION)).toBe(0);
+    wholeCloud({ transcript: leaky });
+    const json = io();
+    expect(await runCloudLogsCli(parseLogsArgs([RUN, '--step', 'agent-2', '--json'])!, json.io, CONNECTION)).toBe(0);
+    for (const out of [rendered, json]) {
+      const text = out.stdout.join('\n');
+      for (const leak of ['VERSIONLEAK1', 'MODELEAK1', 'SESSIONLEAK1', 'TOOLNAMELEAK1', 'TARGETLEAK1',
+        'BLOCKLEAK1', 'FRAMELEAK1', 'SUBTYPELEAK1']) {
+        expect(text, `${leak} reached the page`).not.toContain(leak);
+      }
+      expect(text).toContain('[redacted]');
+    }
+  });
+
+  it('redacts a tool target longer than the display cap before truncating it', async () => {
+    // `redact` matches an env value whole. Truncating first would leave the
+    // first 160 characters of the secret on the page.
+    const secret = `secret-${'x'.repeat(400)}-tail`;
+    const leaky = '{"type":"relayflow.attempt","attempt":1,"bytes":10,"truncated":false}\n'
+      + '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1",'
+      + `"name":"Bash","input":{"command":"deploy --key ${secret}"}}]}}\n`;
+    wholeCloud({ transcript: leaky });
+    const out = io();
+    const env = { DEPLOY_TOKEN: secret };
+    expect(await runCloudLogsCli(parseLogsArgs([RUN, '--step', 'agent-2'])!, out.io, { ...CONNECTION, env })).toBe(0);
+    const text = out.stdout.join('\n');
+    expect(text).toContain('[redacted:DEPLOY_TOKEN]');
+    expect(text).not.toContain(secret.slice(0, 160));
   });
 });
 

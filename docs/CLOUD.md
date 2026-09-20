@@ -228,7 +228,18 @@ Every refusal is one `REFUSED [code] message` line naming what to do next:
 | `cloud_forbidden` | 403: authenticated, but not allowed to read that run or log |
 | `cloud_run_not_found` | 404: no such run for this credential; points at `flows runs` |
 | `cloud_step_no_transcript` | `--step` named a step with no transcript, or no such step; names the ones that have one |
+| `invalid_invocation` | the run id is not a run id (wrong characters, too long); refused before any request |
+| `cloud_invalid_response` | Cloud answered something this client cannot trust — a record for a different run, a list that is not a list, a row with no id, a pagination cursor that does not advance |
 | `cloud_unreachable` / `cloud_transport_failed` | the request never completed |
+
+A read never guesses to stay quiet. A run record whose `runId` is not the one
+asked for, a `runs` or `steps` field that is not an array, and a row with no
+`runId`/`stepName` are all refused rather than rendered — otherwise `runs 0`
+and a three-step run shown with two would be claims about the workspace that
+nobody established. A step-list read that fails while resolving `--step`
+surfaces *its* failure (403, transport) rather than becoming
+`cloud_step_no_transcript`, which would tell a caller to fix an invocation that
+was fine.
 
 Under `--json` the same refusal is one object on stdout
 (`{"v":1,"ok":false,"code":…,"message":…}`) and stderr stays empty.
