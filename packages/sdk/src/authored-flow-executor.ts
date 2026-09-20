@@ -44,6 +44,8 @@ import {
 } from './authored-flow-operation.js';
 import { AuthoredFlowLifecycle } from './authored-flow-lifecycle.js';
 import { JournalClient } from './journal-client.js';
+import { createHookEvaluator } from './authored-hooks.js';
+import type { LoadedFlowExtension } from './flow-extension-loader.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
@@ -148,6 +150,8 @@ export interface ExecuteAuthoredFlowOptions {
   readonly localAgentStream?: string;
   /** Durable kernel root that owns this body's child admission identities. */
   readonly rootRunId?: string;
+  /** Installed flow-extension plugins, in lock order, so `f.hook` can AND-compose them. */
+  readonly extensions?: readonly LoadedFlowExtension[];
 }
 
 export async function executeAuthoredFlow<Input = undefined>(
@@ -349,6 +353,14 @@ export async function executeAuthoredFlow<Input = undefined>(
     ));
   }
 
+  const evaluateHook = createHookEvaluator({
+    journal,
+    ...(options.rootRunId === undefined ? {} : { rootRunId: options.rootRunId }),
+    flowName: definition.name,
+    declared: definition.header.hooks ?? [],
+    extensions: options.extensions ?? [],
+  });
+
   const context: Ctx = {
     ...createHelpers(<T>(call: HelperCall): Step<T> => {
       const verb = `${call.provider}.${call.verb}`;
@@ -476,6 +488,23 @@ export async function executeAuthoredFlow<Input = undefined>(
     dispatch<T>() {
       assertOperationAllowed('dispatch', definition.name, requestedCompletion);
       throw unsupportedVerb('dispatch');
+    },
+    hook(name, input) {
+      assertOperationAllowed('hook', definition.name, requestedCompletion);
+      const id = `hook-${nextStep++}`;
+      const snapshot = snapshotJsonValue(input, 'f.hook input');
+      return trackStep(authoredSteps, new AuthoredFlowOperation<boolean>(
+        id, 'hook',
+        () => assertOperationAllowed('hook', definition.name, requestedCompletion),
+        async () => {
+          const verdict = await evaluateHook(id, name, snapshot, context);
+          const record = { hook: name, step: id, verdict: verdict ? 'pass' : 'fail' };
+          const literal = `'${JSON.stringify(record).replaceAll("'", "'\\''")}'`;
+          await observeStep(id, 'deterministic', () => lowerDeterministic(id, `printf '%s' ${literal}`, false), options.onProgress);
+          return verdict;
+        },
+        lifecycle,
+      ));
     },
     done(reason) {
       if (!isSurfaceFlowCompletionReason(reason)) {

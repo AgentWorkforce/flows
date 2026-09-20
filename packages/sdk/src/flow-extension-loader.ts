@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { Ctx } from '@relayflows/surface';
 import type { AuthoredFlowDefinition, FlowHandle } from './authored-flow.js';
 import { sha256 } from './bundle.js';
 import { assertBaseCompatible, assertCompatible, runtimeVersions, type RuntimeVersions } from './flow-extension-compat.js';
@@ -20,7 +21,7 @@ import { pluginStoreDirectory, verifyStoredPlugin } from './plugin-store.js';
  *      `.flows/plugins` is read as code before this passes;
  *   3. the manifest is validated, its compat checked against the runtime and
  *      the base flow, and anything this slice does not compose (hooks, `use`,
- *      schedule triggers, non-provider webhooks) is refused;
+ *      schedule triggers, non-provider webhooks, gates) is refused;
  *   4. only then is the entry imported, and its handlers are checked against
  *      the manifest's declared triggers — an entry cannot subscribe to more
  *      than it declared.
@@ -28,6 +29,8 @@ import { pluginStoreDirectory, verifyStoredPlugin } from './plugin-store.js';
  * reorders, or widens a base handler.
  */
 type TriggerHandler = AuthoredFlowDefinition['handlers'][number];
+
+export type FlowHook = (f: Ctx, input: unknown) => Promise<boolean>;
 
 export interface LoadedFlowExtension {
   readonly name: string;
@@ -41,12 +44,14 @@ export interface LoadedFlowExtension {
   /** Bound to the surface copy the entry itself imported; the base's accessor cannot see this handle's WeakMap entry. */
   readonly getDefinition: ImportedFlow<unknown>['getDefinition'];
   readonly handlers: readonly TriggerHandler[];
+  readonly hooks: Readonly<Record<string, FlowHook>>;
 }
 
 export interface ImportedFlow<Authority> {
   readonly handle: FlowHandle;
   readonly getDefinition: <Input = unknown>(handle: FlowHandle) => AuthoredFlowDefinition<Input>;
   readonly surfaceAuthority: Authority;
+  readonly hooks: Readonly<Record<string, FlowHook>>;
 }
 
 export interface LoadFlowExtensionsOptions<Authority> {
@@ -101,8 +106,7 @@ async function loadOne<Authority>(
   const manifest = validateFlowExtensionManifest(input);
   if (manifest.name !== lock.name || manifest.version !== lock.version) throw new PluginError('plugin_source_drift', `${ref}: manifest names ${manifest.name}@${manifest.version}, lockfile has ${lock.name}@${lock.version}.`);
   assertCompatible(manifest, options.versions ?? runtimeVersions());
-  assertBaseCompatible(manifest, { name: base.definition.name });
-  if (manifest.extends.hooks.length > 0) unsupported(manifest.name, `hooks (${manifest.extends.hooks.join(', ')})`);
+  assertBaseCompatible(manifest, { name: base.definition.name, version: base.definition.header.version });
   const baseBudget = base.definition.header.budget;
   const ceiling = manifest.permissions.budget;
   if (ceiling?.dollars !== undefined && typeof baseBudget === 'object' && baseBudget.dollars !== undefined && ceiling.dollars > baseBudget.dollars) {
@@ -125,10 +129,39 @@ async function loadOne<Authority>(
     throw new PluginError('plugin_manifest_invalid', `${manifest.name}: ${manifest.entry} declares handlers but extends.handlers is false.`);
   }
   definition.handlers.forEach((handler, index) => assertDeclaredSubscription(manifest.name, manifest, handler, index));
+  const hooks = imported.hooks;
+  const exported = Object.keys(hooks).sort();
+  const declared = [...manifest.extends.hooks].sort();
+  if (exported.join('\0') !== declared.join('\0')) {
+    throw new PluginError('plugin_manifest_invalid', `${manifest.name}: extends.hooks [${manifest.extends.hooks.join(', ')}] does not match exported hooks [${exported.join(', ')}].`);
+  }
+  const baseHooks = base.definition.header.hooks ?? [];
+  for (const hook of manifest.extends.hooks) {
+    if (!baseHooks.includes(hook)) {
+      throw new PluginError('plugin_incompatible', `${manifest.name}: hook ${hook} is not declared by the base flow.`);
+    }
+  }
   return Object.freeze({
     name: manifest.name, version: manifest.version, ref, digest: lock.digest, directory, entryPath, manifest,
     handle: imported.handle, getDefinition: imported.getDefinition, handlers: Object.freeze([...definition.handlers]),
+    hooks,
   });
+}
+
+export function parseHooksExport(module: Record<string, unknown>, name: string): Readonly<Record<string, FlowHook>> {
+  const exported = module['hooks'];
+  if (exported === undefined) return Object.freeze({});
+  if (typeof exported !== 'object' || exported === null || Array.isArray(exported)) {
+    throw new PluginError('plugin_manifest_invalid', `${name}: hooks export must be a record of functions.`);
+  }
+  const hooks: Record<string, FlowHook> = {};
+  for (const [key, value] of Object.entries(exported)) {
+    if (typeof value !== 'function') {
+      throw new PluginError('plugin_manifest_invalid', `${name}: hooks.${key} is not a function.`);
+    }
+    hooks[key] = value as FlowHook;
+  }
+  return Object.freeze(hooks);
 }
 
 /** Extensions declared by the project that owns `flowPath`, verified and loaded in lock order; empty when none are declared. */

@@ -72,6 +72,7 @@ try {
     request.metadata.inputPresent ? request.metadata.input : undefined, {
       getDefinition: loaded.getDefinition, dataDir: request.dataDir,
       flowPath: request.metadata.flowPath, rootRunId: request.rootRunId,
+      extensions: loaded.extensions,
       localAgentStream: request.localAgentStream, signal: controller.signal,
       onProgress: event => send({ type: 'progress', event }),
       onWait: event => send({ type: 'wait', event }),

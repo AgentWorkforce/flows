@@ -214,6 +214,7 @@ async function driveRoot(
           flowPath: metadata.flowPath,
           localAgentStream: options.localAgentStream,
           rootRunId: dispatch.run_id,
+          extensions: loaded.extensions,
           ...options.lifecycle,
           signal: callerSignal === undefined
             ? rootSignal

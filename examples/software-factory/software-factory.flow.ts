@@ -29,7 +29,11 @@ const WORK = ".relayflow";
 // test result, the exit code does. Skips honestly when there is nothing to run.
 const TEST = 'if [ -f package.json ] && node -e \'p=require("./package.json");process.exit(p.scripts&&p.scripts.test?0:1)\'; then npm ci --no-audit --no-fund && npm test; else echo "no test script; skipping"; fi';
 
-export default flow<Input>("software-factory", { budget: { dollars: 10, wallclock: "1h" } }, async (f, input) => {
+export default flow<Input>("software-factory", {
+  version: "2.0.22",
+  hooks: ["pre-implement", "post-review", "merge-gate"],
+  budget: { dollars: 10, wallclock: "1h" },
+}, async (f, input) => {
   const { issue } = input;
   if (!issue?.title?.trim()) {
     // Parked, not canceled: a body cannot declare a kernel outcome, and the
@@ -68,8 +72,21 @@ export default flow<Input>("software-factory", { budget: { dollars: 10, wallcloc
   await f.run("git push --set-upstream origin HEAD");
 
   // Deterministic step, not an agent decision: the PR is opened either way,
-  // but a blocked review opens it as a draft with the findings attached.
+  // but a blocked review or a false merge-gate opens it as a draft.
   if (verdict.trim() === "PASSED") {
+    const origin = (await f.run("git remote get-url origin")).trim();
+    const headSha = (await f.run("git rev-parse HEAD")).trim();
+    const matched = /github\.com[:/]([^/]+)\/([^/.]+)/.exec(origin);
+    const allowed = await f.hook("merge-gate", {
+      owner: matched?.[1] ?? "",
+      repo: matched?.[2] ?? "",
+      headSha,
+    });
+    if (!allowed) {
+      await f.run(`{ cat ${WORK}/summary.md; printf '\\n\\n## merge-gate: blocked\\n\\n'; } > ${WORK}/pr-body.md`);
+      await f.run(`gh pr create --draft --title ${shellWord(`[blocked] ${title}`)} --body-file ${WORK}/pr-body.md`);
+      return f.done("step_failed");
+    }
     await f.run(`gh pr create --title ${shellWord(title)} --body-file ${WORK}/summary.md`);
     return f.done("success");
   }

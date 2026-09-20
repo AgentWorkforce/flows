@@ -19,11 +19,8 @@ export function assertCompatible(manifest: FlowExtensionManifest, versions: Runt
 }
 
 /**
- * `compat.base` against the flow being extended. The surface's `FlowHeader`
- * carries no version field, so a base flow has no version to satisfy a range
- * with: only `*` can be met today, and anything narrower is refused rather
- * than assumed. When the header grows a `version`, this is the one place to
- * read it.
+ * `compat.base` against the flow being extended. `FlowHeader.version` is
+ * optional: a base without it matches only `"*"`.
  */
 export function assertBaseCompatible(manifest: FlowExtensionManifest, base: { readonly name: string; readonly version?: string }): void {
   const entry = manifest.compat.base.find(b => b.name === base.name);

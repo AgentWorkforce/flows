@@ -10,7 +10,7 @@ import {
   type FlowHandle,
 } from './authored-flow.js';
 import { canonicalize } from './canonical.js';
-import { composeDefinition, loadFlowExtensions, type LoadedFlowExtension } from './flow-extension-loader.js';
+import { composeDefinition, loadFlowExtensions, parseHooksExport, type ImportedFlow, type LoadedFlowExtension } from './flow-extension-loader.js';
 import type { RuntimeVersions } from './flow-extension-compat.js';
 
 export class AuthoredFlowLoadError extends Error {
@@ -145,7 +145,7 @@ export async function loadAuthoredFlow(path: string, options: LoadAuthoredFlowOp
     surfaceAuthority: root.surfaceAuthority, graph: Object.freeze(graph), extensions });
 }
 
-async function importAuthoredFlow(path: string): Promise<Pick<LoadedAuthoredFlow, 'handle' | 'getDefinition' | 'surfaceAuthority'>> {
+async function importAuthoredFlow(path: string): Promise<ImportedFlow<SurfaceModuleAuthority>> {
   const absolutePath = resolve(path);
   try {
     accessSync(absolutePath, constants.R_OK);
@@ -171,7 +171,7 @@ async function importAuthoredFlow(path: string): Promise<Pick<LoadedAuthoredFlow
       `Flow "${path}" must default-export flow(...): ${errorMessage(error)}`,
     );
   }
-  return { handle, getDefinition, surfaceAuthority };
+  return { handle, getDefinition, surfaceAuthority, hooks: parseHooksExport(authoredModule, path) };
 }
 
 /**

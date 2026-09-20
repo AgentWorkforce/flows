@@ -123,7 +123,7 @@ describe('composing flow extensions onto a base flow', () => {
     await install(p);
     const { report } = await checkAuthoredTriggers(p.flow);
     expect(report.ok).toBe(true);
-    expect(report.extensions).toEqual([{ name: 'babysitter', version: '0.1.0', ref: REF, digest: expect.stringMatching(/^[0-9a-f]{64}$/), handlers: 8 }]);
+    expect(report.extensions).toEqual([{ name: 'babysitter', version: '0.1.0', ref: REF, digest: expect.stringMatching(/^[0-9a-f]{64}$/), handlers: 8, hooks: [] }]);
     expect(report.requirements?.integrations.map(i => i.provider)).toContain('github');
     expect(await runCli(['check', p.flow], p.io)).toBe(0);
     expect(p.text()).toContain(`EXTENSION babysitter@0.1.0 ${REF} sha256:`);
@@ -157,11 +157,40 @@ describe('composition fails closed', () => {
     ['a base flow it does not extend', (m: Record<string, unknown>) => ({ ...m, compat: { ...(m.compat as object), base: [{ name: 'other-flow', version: '*' }] } }), 'plugin_incompatible', 'not "software-factory"'],
     ['a base version range the unversioned base cannot satisfy', (m: Record<string, unknown>) => ({ ...m, compat: { ...(m.compat as object), base: [{ name: 'software-factory', version: '^1.0.0' }] } }), 'plugin_incompatible', 'declares no version'],
     ['a budget ceiling above the base', (m: Record<string, unknown>) => ({ ...m, permissions: { ...(m.permissions as object), budget: { dollars: 11 } } }), 'plugin_incompatible', 'above the base flow'],
-    ['hooks, which this release does not compose', (m: Record<string, unknown>) => ({ ...m, extends: { handlers: true, hooks: ['merge-gate'] } }), 'plugin_unsupported', 'hooks (merge-gate)'],
   ])('refuses %s', async (_, patch, code, message) => {
     const p = project();
     await install(p, variant(patch));
     await expect(loadAuthoredFlow(p.flow, { versions })).rejects.toMatchObject({ code, message: expect.stringContaining(message) });
+  });
+  const HOOK_ENTRY = "import { flow, github } from '@relayflows/surface';\nexport const hooks = { 'merge-gate': async () => true };\nexport default flow('babysitter', async f => { f.done('success'); }).on(github.pull_request('opened'), async f => { f.done('success'); });\n";
+  it('refuses a hook export that the manifest does not declare', async () => {
+    const p = project();
+    await install(p, variant(m => m, HOOK_ENTRY));
+    await expect(loadAuthoredFlow(p.flow, { versions })).rejects.toMatchObject({
+      code: 'plugin_manifest_invalid', message: expect.stringContaining('does not match exported hooks'),
+    });
+  });
+  it('refuses a hook the base header does not declare', async () => {
+    const p = project();
+    await install(p, variant(m => ({ ...m, extends: { handlers: true, hooks: ['merge-gate'] } }), HOOK_ENTRY));
+    await expect(loadAuthoredFlow(p.flow, { versions })).rejects.toMatchObject({
+      code: 'plugin_incompatible', message: expect.stringContaining('hook merge-gate is not declared'),
+    });
+  });
+  it('composes a declared hook when the base header names it and reads header.version for compat', async () => {
+    const p = project(`
+      import { flow, github } from '@relayflows/surface';
+      export default flow('software-factory', { version: '2.0.22', hooks: ['merge-gate'], budget: { dollars: 10, wallclock: '1h' } }, async f => { f.done('success'); })
+        .on(github.issues({ action: 'opened' }), async f => { f.done('success'); });
+    `);
+    await install(p, variant(m => ({
+      ...m,
+      extends: { handlers: true, hooks: ['merge-gate'] },
+      compat: { ...(m.compat as object), base: [{ name: 'software-factory', version: '^2.0.0' }] },
+    }), HOOK_ENTRY));
+    const loaded = await loadAuthoredFlow(p.flow, { versions });
+    expect(Object.keys(loaded.extensions[0]!.hooks)).toEqual(['merge-gate']);
+    expect(loaded.getDefinition(loaded.handle).header).toMatchObject({ version: '2.0.22', hooks: ['merge-gate'] });
   });
   it.each([
     ['an entry subscribing beyond its manifest', undefined,

@@ -74,6 +74,8 @@ export interface ExtensionInspection {
   digest: string;
   /** How many `.on()` handlers it appends after the base flow's own. */
   handlers: number;
+  /** Hook names this extension implements, in manifest order. */
+  hooks?: readonly string[];
 }
 
 export interface ScheduleInspection {

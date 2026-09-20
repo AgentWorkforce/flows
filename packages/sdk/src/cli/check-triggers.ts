@@ -45,6 +45,7 @@ export async function checkAuthoredTriggers(path: string): Promise<{
     const extensions = (loaded.extensions ?? []).map(extension => ({
       name: extension.name, version: extension.version, ref: extension.ref, digest: extension.digest,
       handlers: extension.handlers.length,
+      hooks: Object.keys(extension.hooks ?? {}),
     }));
     return {
       loaded,
