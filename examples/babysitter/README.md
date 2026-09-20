@@ -123,6 +123,49 @@ an empty lens cannot erase another's dissent. Operator validation runs in
 READY sentinel, proposed semantic fix, or agent assertion can authorize a push,
 approval, merge or READY notification.
 
+## Deploying a hosted listener
+
+Cloud's listener launcher sends `{ approver, issue, pullRequest, event }`, with
+`event` containing only `{ provider, eventType, paths, deliveryId }`. It does
+not send a raw GitHub webhook or arbitrary policy inputs. Deploying the raw
+`babysitter.flow.ts` unchanged therefore refuses before the first live read.
+
+Use the hosted binding with a separate operator-owned policy JSON file in the
+shape shown above. It pins one repository and PR, snapshots policy into the
+deployed source, and refuses coordinates or event types outside that contract.
+Policy must contain no webhook `event` and no credentials. Keep `merge: false`
+for a read-only proof. Build and deploy with the CLI:
+
+```bash
+node examples/babysitter/build-hosted.mjs /path/to/operator-policy.json
+flows check examples/babysitter/dist/babysitter-hosted.flow.ts
+flows deploy examples/babysitter/dist/babysitter-hosted.flow.ts \
+  --repo acme/widgets --on github:events=pull_request \
+  --approver alice --name babysitter-proof --no-connect --json
+```
+
+`flows deploy` calls Cloud's `POST /api/v1/flows/deploy`, the same service the
+Cloud UI uses. This installs the resident listener; `flows run --cloud` is a
+one-shot invocation and does not install the `.on` declarations. Source must
+pass the deployed Cloud Surface compatibility check and the workspace needs
+real GitHub and declared harness connections. Cloud infrastructure changes
+deploy separately through that repository's CI.
+
+The hosted binding uses the same authoritative reread and decision body as the
+raw webhook entry point. It records the delivery ID with the subscription and
+live bound head, so a GitHub delivery can be correlated with Cloud ingress and
+the hosted run. The launcher's enriched head is only an observational hint.
+Delivered fields cannot override the pinned command, approvers or merge policy.
+Cloud currently omits the original comment directive, so an issue-comment wake
+rereads state then returns `needs_human`; it cannot authorize conflict repair
+from an invented or unrelated comment. Other PRs are refused, not retargeted.
+
+Capture the real GitHub delivery GUID, Cloud ingress/run IDs, deployed source
+digest and the run's live-read output before claiming E2E. A successful deploy,
+unit test or local GitHub read is insufficient. Remove a bounded proof listener
+with `flows undeploy <listener-id>` when its observation window ends; existing
+run journals remain. The platform effect blockers below still apply.
+
 ## Current dependencies (red tests, not implemented effects)
 
 - **Owned comment writeback:** `workflows/pr-review-post.cjs` historically uses

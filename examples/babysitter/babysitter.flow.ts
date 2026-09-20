@@ -7,7 +7,7 @@ import { readState } from './github.ts';
 import { capture, assertUntouched, validate } from './workspace.ts';
 import { capabilities, writeDependency } from './capabilities.ts';
 import { subscriptions } from './subscriptions.ts';
-import { bindHead, observation, wakeOf } from './wake.ts';
+import { bindHead, observation, wakeOf, type Wake } from './wake.ts';
 
 async function report(f: Ctx, message: string): Promise<void> {
   await f.run(`printf '%s\\n' ${shellWord(message)}`);
@@ -25,11 +25,16 @@ async function report(f: Ctx, message: string): Promise<void> {
 export async function babysit(f: Ctx, input: unknown): Promise<void> {
   const c = parseInput(input);
   const wake = wakeOf(c);
+  return babysitConfigured(f, c, wake);
+}
+
+/** Shared body for validated raw-webhook and operator-bound hosted inputs. */
+export async function babysitConfigured(f: Ctx, c: Config, wake: Wake, deliveryId?: string): Promise<void> {
   const live = await readState(f, c);
   const bound = bindHead(live, c);
   // One deterministic observability line per wake: which subscription fired,
   // which head it bound, and whether the delivered hint was already stale.
-  await report(f, observation(c, wake, bound));
+  await report(f, observation(c, wake, bound) + (deliveryId ? ` delivery=${deliveryId}` : ''));
   if ('refusal' in bound) return f.done('declined');
   const head = bound.head;
   // Lifecycle, skip labels and authorship all come from the reread. A `closed`
@@ -38,6 +43,10 @@ export async function babysit(f: Ctx, input: unknown): Promise<void> {
   const skip = eligible(live, c);
   if (skip) { await report(f, `${wake.id}: ${skip}`); return f.done('declined'); }
   if (wake.family === 'issue_comment') {
+    if (c.event === undefined) {
+      await report(f, 'Hosted wake has no original comment directive; conflict repair requires human review. No edits or push.');
+      return f.done('needs_human');
+    }
     const comment = record(c.event?.comment);
     const refusal = conflictAllowed(String(comment.body ?? ''), String(record(comment.user).login ?? ''), live, c);
     if (refusal) { await report(f, refusal); return f.done('declined'); }
