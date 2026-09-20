@@ -68,5 +68,17 @@
     "type": "git",
     "url": "git+https://github.com/AgentWorkforce/flows.git",
     "directory": "packages/sdk"
+  },
+  "peerDependencies": {
+    "@agent-relay/harness-driver": ">=12.3.1 <13",
+    "@agent-relay/sdk": ">=12.3.1 <13"
+  },
+  "peerDependenciesMeta": {
+    "@agent-relay/harness-driver": {
+      "optional": true
+    },
+    "@agent-relay/sdk": {
+      "optional": true
+    }
   }
 }

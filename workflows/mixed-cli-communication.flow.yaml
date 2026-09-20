@@ -1,0 +1,36 @@
+version: '0.1.0'
+name: mixed-cli-communication
+communication:
+  timeoutMs: 180000
+  links:
+    - { from: claude, to: codex }
+    - { from: codex, to: cursor }
+    - { from: cursor, to: claude }
+steps:
+  - id: claude
+    type: agent
+    cli: claude
+    maxIterations: 1
+    instruction: >-
+      Transport test only. Send codex message ID hello-v1 with exact text
+      HELLO-claude. Wait for the injected HELLO-cursor from cursor, acknowledge
+      its delivery_seq, then complete with the received text. Use the provided
+      helper with your shell tool. Do not inspect or modify repository files.
+  - id: codex
+    type: agent
+    cli: codex
+    maxIterations: 1
+    instruction: >-
+      Transport test only. Send cursor message ID hello-v1 with exact text
+      HELLO-codex. Wait for the injected HELLO-claude from claude, acknowledge
+      its delivery_seq, then complete with the received text. Use the provided
+      helper with your shell tool. Do not inspect or modify repository files.
+  - id: cursor
+    type: agent
+    cli: cursor-agent
+    maxIterations: 1
+    instruction: >-
+      Transport test only. Send claude message ID hello-v1 with exact text
+      HELLO-cursor. Wait for the injected HELLO-codex from codex, acknowledge
+      its delivery_seq, then complete with the received text. Use the provided
+      helper with your shell tool. Do not inspect or modify repository files.

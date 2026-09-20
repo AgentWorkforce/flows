@@ -1,0 +1,32 @@
+cwd: /tmp/flows-relay-communication
+$ bash /tmp/flows-pr500-review-live/run.sh
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "claude" (agent) is running under a worker lease until 1789893281261.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "claude" (agent) is running under a worker lease until 1789893291262.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "claude" (agent) is running under a worker lease until 1789893301263.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "claude" (agent) is running under a worker lease until 1789893311263.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "claude" (agent) is running under a worker lease until 1789893321264.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "claude" (agent) is running under a worker lease until 1789893331264.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "claude" (agent) is running under a worker lease until 1789893341265.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "claude" (agent) is running under a worker lease until 1789893351266.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "claude" (agent) is running under a worker lease until 1789893361266.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "claude" (agent) is running under a worker lease until 1789893371267.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "claude" (agent) is running under a worker lease until 1789893381267.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "claude" (agent) is running under a worker lease until 1789893391269.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "claude" (agent) is running under a worker lease until 1789893401272.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "claude" (agent) is running under a worker lease until 1789893411272.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "cursor" (agent) is running under a worker lease until 1789893411275.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "cursor" (agent) is running under a worker lease until 1789893421278.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "cursor" (agent) is running under a worker lease until 1789893431280.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "cursor" (agent) is running under a worker lease until 1789893441282.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "cursor" (agent) is running under a worker lease until 1789893451285.
+WAITING [worker_lease] Run "01M2YZ745P5BYGNWAKEJ33K4GX" step "cursor" (agent) is running under a worker lease until 1789893461286.
+[observer] token mint failed: mint API returned HTTP 429; continuing without an observer link (the run is unaffected)
+WARNING [managed_cli_unverified] Step "cursor" uses Relay's interactive CLI transport. The executable exists, but authentication could not be verified before startup. The managed session must execute its task and report completion; startup or task failure fails the step.
+WARNING [budget_unmetered] Managed communication sessions do not report token or dollar usage. Budget ceilings cannot bound their spend; communication.timeoutMs bounds their duration.
+FAILED [step_failed] Run "01M2YZ745P5BYGNWAKEJ33K4GX" failed with completionReason: step_failed. Step "cursor" (agent) completionReason: worker_error.
+Detail: {"error":"The operation was aborted due to timeout"}
+Inspect: flows replay 01M2YZ745P5BYGNWAKEJ33K4GX --at cursor --data-dir '/tmp/flows-pr500-review-live/data'
+Journal: /tmp/flows-pr500-review-live/data/runs/01M2YZ745P5BYGNWAKEJ33K4GX.sqlite3
+{"ok":false,"command":"run","path":"/tmp/flows-pr500-review-live/ring.json","resolutions":[{"stepId":"claude","cli":"claude","source":"step","model":"claude-opus-5","modelSource":"adapter"},{"stepId":"codex","cli":"codex","source":"step"},{"stepId":"cursor","cli":"cursor-agent","source":"step"}],"diagnostics":[{"severity":"warning","kind":"managed_cli_unverified","stepId":"cursor","message":"Step \"cursor\" uses Relay's interactive CLI transport. The executable exists, but authentication could not be verified before startup. The managed session must execute its task and report completion; startup or task failure fails the step."},{"severity":"warning","kind":"budget_unmetered","message":"Managed communication sessions do not report token or dollar usage. Budget ceilings cannot bound their spend; communication.timeoutMs bounds their duration."},{"severity":"failure","kind":"step_failed","message":"Run \"01M2YZ745P5BYGNWAKEJ33K4GX\" failed with completionReason: step_failed. Step \"cursor\" (agent) completionReason: worker_error.\nDetail: {\"error\":\"The operation was aborted due to timeout\"}\nInspect: flows replay 01M2YZ745P5BYGNWAKEJ33K4GX --at cursor --data-dir '/tmp/flows-pr500-review-live/data'\nJournal: /tmp/flows-pr500-review-live/data/runs/01M2YZ745P5BYGNWAKEJ33K4GX.sqlite3","stepId":"cursor","completionReason":"worker_error","stepType":"agent","detail":"{\"error\":\"The operation was aborted due to timeout\"}","hint":"flows replay 01M2YZ745P5BYGNWAKEJ33K4GX --at cursor --data-dir '/tmp/flows-pr500-review-live/data'","journalPath":"/tmp/flows-pr500-review-live/data/runs/01M2YZ745P5BYGNWAKEJ33K4GX.sqlite3"}],"runId":"01M2YZ745P5BYGNWAKEJ33K4GX","socketPath":"/run/user/1000/relayflowd-1cee14cb7faa.sock","status":"failed","completionReason":"step_failed","completedSteps":3}
+
+exit status: 1

@@ -1,3 +1,4 @@
+import { communicationInstruction } from './communication/spec.js';
 import { workerSpend } from './worker-spend.js';
 import type { WorkerCliResult } from './worker-cli.js';
 import { EventEmitter } from 'node:events';
@@ -18,6 +19,7 @@ export interface AgentWorkerOptions {
   workerId: string;
   pins: Pins;
   capacity?: number;
+  requiredStreams?: string[];
   dataDir?: string;
   onPtyReady?: (path: string) => void;
 }
@@ -60,6 +62,7 @@ export class AgentWorker extends EventEmitter {
         ['agent'],
         this.options.pins,
         this.options.capacity,
+        this.options.requiredStreams,
       );
       this.attached = true;
     } catch (error) {
@@ -104,6 +107,13 @@ export class AgentWorker extends EventEmitter {
     if (helper !== undefined) {
       if (this.options.dataDir === undefined) throw new Error('Helper worker requires a data directory for durable receipts');
       await completeHelperDispatch(this.client, dispatch, helper, this.options.dataDir);
+      return;
+    }
+    const communication = communicationInstruction(spec.instruction);
+    if (communication) {
+      if (!this.options.dataDir) throw new Error('Agent communication requires a worker data directory');
+      const { completeCommunicationDispatch } = await import('./communication/worker.js');
+      await completeCommunicationDispatch(this.client, dispatch, communication, this.options.dataDir);
       return;
     }
     let humanIntervention = false;

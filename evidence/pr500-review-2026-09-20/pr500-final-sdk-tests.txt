@@ -1,0 +1,59 @@
+cwd: /tmp/flows-relay-communication/packages/sdk
+$ env RELAYFLOWD_BIN=/tmp/flows-pr-cleanup/pr499/kernel/target/debug/relayflowd ./node_modules/.bin/vitest run communication preflight.test.ts yaml-local-agent-live.test.ts cli-progress-wait.test.ts cli.test.ts resume-failure.test.ts journal-client.test.ts journal-client-completion.test.ts
+
+ RUN  v2.1.9 /tmp/flows-relay-communication/packages/sdk
+
+ ✓ tests/communication-history.test.ts (1 test) 6ms
+ ✓ tests/communication-environment-preflight.test.ts (6 tests) 13ms
+ ✓ tests/communication-tools.test.ts (1 test) 83ms
+ ✓ tests/communication-review.test.ts (5 tests) 347ms
+ ✓ tests/communication.test.ts (10 tests) 17ms
+ ✓ tests/journal-client-completion.test.ts (4 tests) 105ms
+ ✓ tests/journal-client.test.ts (15 tests) 108ms
+ ✓ tests/budget-preflight.test.ts (25 tests) 33ms
+ ✓ tests/communication-lazy.test.ts (1 test) 6ms
+ ✓ tests/communication-preflight.test.ts (13 tests) 38ms
+ ✓ tests/resume-failure.test.ts (2 tests) 8ms
+ ✓ tests/communication-refusal.test.ts (1 test) 16ms
+ ✓ tests/communication-mixed-resume.test.ts (1 test) 189ms
+ ✓ tests/scope-preflight.test.ts (6 tests) 11ms
+ ✓ tests/preflight.test.ts (57 tests) 85ms
+ ✓ tests/bundle-preflight.test.ts (4 tests) 742ms
+   ✓ bundle execution preflight > ignores surrounding cache configuration on a verified cache hit 407ms
+   ✓ bundle execution preflight > uses the built alias for a nameless flow even in a digest-only cache directory 315ms
+ ✓ tests/communication-worker.test.ts (15 tests) 1503ms
+ ✓ tests/cli-progress-wait.test.ts (2 tests) 1089ms
+   ✓ run starts the wait clock on its first observed lease 592ms
+   ✓ resume starts the wait clock on its first observed lease 496ms
+ ✓ tests/yaml-local-agent-live.test.ts (7 tests) 3057ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked step CLI and model and journals done 690ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked named CLI and model and journals done 451ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked flow CLI and model and journals done 380ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked project CLI and model and journals done 389ms
+   ✓ YAML --local-agent through the built CLI and real daemon > still parks without --local-agent 309ms
+   ✓ YAML --local-agent through the built CLI and real daemon > reports the agent process failure 442ms
+   ✓ YAML --local-agent through the built CLI and real daemon > preserves declared workspace surfaces that the local worker cannot pin 394ms
+ ✓ tests/cli.test.ts (65 tests) 7791ms
+   ✓ flows check CLI > refuses a typo model before probing or contacting relayflowd 537ms
+   ✓ flows check CLI > maps every input refusal path to its declared kind without raw exceptions 1493ms
+   ✓ flows run/resume CLI over the journal protocol > parses run options, submits the kernel dialect, and exits 0 on success 501ms
+   ✓ flows run/resume CLI over the journal protocol > exits 3 and names the parked llm step 517ms
+   ✓ flows run/resume CLI over the journal protocol > reports a needs_human agent step as parked for human recovery 509ms
+   ✓ flows run/resume CLI over the journal protocol > classifies a typed hello refusal as a protocol error, not an unreachable daemon 492ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 528ms
+   ✓ flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 526ms
+   ✓ flows run/resume CLI over the journal protocol > resumes a parked run from snapshot step types without reading journal sequence one 478ms
+   ✓ flows run/resume CLI over the journal protocol > maps only run_not_found resumes to exit 2 1505ms
+ ✓ tests/worker-cli.test.ts (18 tests) 19409ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 1635ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 1633ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3311ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11319ms
+
+ Test Files  21 passed (21)
+      Tests  259 passed (259)
+   Start at  01:50:41
+   Duration  20.86s (transform 2.94s, setup 0ms, collect 17.93s, tests 34.66s, environment 4ms, prepare 2.39s)
+
+
+exit status: 0
