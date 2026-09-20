@@ -415,7 +415,7 @@ Expected: "1.4.0"
 Received: "1.4.2"
 
  ❯ tests/authored-node-runtime.test.ts:18:77
-     16| 
+     16|
      17| beforeAll(() => {
      18|   expect(spawnSync(bun, ['--version'], { encoding: 'utf8' }).stdout.tr…
        |                                                                             ^

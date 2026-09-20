@@ -1,0 +1,114 @@
+# Live probe of the installed Codex CLI through the direct unattended transport (stdin-ignored spawn from #501).
+$ which codex && codex --version
+/home/khaliqgant/.local/share/mise/installs/codex/latest/bin/codex
+codex-cli 0.154.0
+$ cat /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/codex-probe.flow.yaml
+version: '0.1.0'
+name: codex-stdin-probe
+description: >-
+  Bounded live probe of the installed Codex CLI through the direct
+  unattended transport: one output-only agent step in a disposable cwd.
+steps:
+  - id: say-ok
+    type: agent
+    cli: codex
+    cwd: /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/cwd
+    maxIterations: 1
+    transportRetries: 0
+    instruction: >-
+      Do not create, modify or delete any file and do not run any command.
+      Reply with exactly one line of text: RELAYFLOWS_CODEX_STDIN_OK
+    verification:
+      type: output_contains
+      value: RELAYFLOWS_CODEX_STDIN_OK
+
+$ cd packages/sdk && RELAYFLOWD_BIN=/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/relayflowd node dist/cli.js check /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/codex-probe.flow.yaml
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+GATE step "say-ok" output_contains from data (kernel, journal-replayable)
+RESOLVED step "say-ok" cli "codex" from step
+REQUIRES codex (step "say-ok")
+CHECK PASSED /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/codex-probe.flow.yaml
+exit_code=0
+
+$ cd packages/sdk && RELAYFLOWD_BIN=/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/relayflowd timeout 600 node dist/cli.js run --local-agent --no-observer-link --data-dir /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/data /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/codex-probe.flow.yaml
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+FAILED [protocol_error] relayflowd could not complete the run request: invalid_spec: unknown field "cwd" at steps[0] — refusing to guess (fail closed)
+exit_code=1
+
+# Attempt 2: `cwd:` removed from the flow (the kernel spec rejects it although flows check accepts it — pre-existing, see result file); the run is launched FROM the disposable directory so the CLI inherits it as cwd.
+$ cat /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/codex-probe.flow.yaml
+version: '0.1.0'
+name: codex-stdin-probe
+description: >-
+  Bounded live probe of the installed Codex CLI through the direct
+  unattended transport: one output-only agent step in a disposable cwd.
+steps:
+  - id: say-ok
+    type: agent
+    cli: codex
+    maxIterations: 1
+    transportRetries: 0
+    instruction: >-
+      Do not create, modify or delete any file and do not run any command.
+      Reply with exactly one line of text: RELAYFLOWS_CODEX_STDIN_OK
+    verification:
+      type: output_contains
+      value: RELAYFLOWS_CODEX_STDIN_OK
+$ cd /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/cwd && pwd && ls -la
+/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/cwd
+total 0
+drwxr-xr-x 2 khaliqgant khaliqgant  40 Sep 20 02:59 .
+drwxr-xr-x 4 khaliqgant khaliqgant 100 Sep 20 03:00 ..
+$ RELAYFLOWD_BIN=/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/relayflowd timeout 600 node /tmp/flows-fleet-501/packages/sdk/dist/cli.js run --local-agent --no-observer-link --data-dir /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/data /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/codex-probe.flow.yaml
+WAITING [worker_lease] Run "01M2Z44G4WB8BPC6JSMXT3NGZB" step "say-ok" (agent) is running under a worker lease until 1789898438097.
+↻ say-ok (agent) [agent: running] 0.00s
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+RUN 01M2Z44G4WB8BPC6JSMXT3NGZB completed (1 step) completionReason: success
+exit_code=0
+$ ls -la /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/cwd   # must be unchanged
+total 0
+drwxr-xr-x 2 khaliqgant khaliqgant  40 Sep 20 02:59 .
+drwxr-xr-x 4 khaliqgant khaliqgant 100 Sep 20 03:00 ..
+
+# Journal facts for the run
+$ node /tmp/flows-fleet-501/packages/sdk/dist/cli.js logs --json --data-dir /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/data 01M2Z44G4WB8BPC6JSMXT3NGZB | jq '.[] | select(.entry_type=="step.attempt.started" or .entry_type=="step.completed") | {entry_type, attempt, payload: (.payload | {step_type, executor, max_iterations, max_transport_retries, completionReason, disposition, verification, output: (.output | if type=="object" then {exit_code, stdout_tail} else . end), trajectory_tail: (.trajectory_tail | if type=="object" then {transport} else . end), spend})}'
+jq: parse error: Invalid numeric literal at line 1, column 8
+exit_code=5
+
+# Journal facts (read directly from /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/data/runs/01M2Z44G4WB8BPC6JSMXT3NGZB.sqlite3 with python3 sqlite3; 'flows logs' takes no --data-dir):
+step.attempt.started attempt 1 {"step_type": "agent", "executor": "local-agent-98587efa-bcbb-4c24-8869-26d03ac86eb2", "max_iterations": 1, "max_transport_retries": 0, "recovery_mode": "reset"}
+step.completed attempt 1 {
+ "completionReason": "success",
+ "disposition": "step_done",
+ "verification": {
+  "detail": "all gates passed",
+  "gate": "output_contains",
+  "verdict": "pass"
+ },
+ "output": {
+  "exit_code": 0,
+  "stdout_tail": "RELAYFLOWS_CODEX_STDIN_OK"
+ },
+ "transport": {
+  "cause": "exited",
+  "exit_code": 0,
+  "phase": "close",
+  "retryable": false,
+  "signal": null,
+  "stderr_tail": "Reading additional input from stdin...\n"
+ },
+ "transcript_model": null,
+ "spend": {
+  "dollars": 0,
+  "dollars_unmetered": true,
+  "tokens_input": 13963,
+  "tokens_output": 14,
+  "wallclock_ms": 3282
+ }
+}
+
+# Model: no model declared on the step and the codex adapter has no default (undefined below), so `codex exec` ran with NO --model flag: the model is whatever the installed Codex CLI's own configuration selects. The kernel journal does not record it for the direct transport.
+$ node -e "import('./dist/cli-adapter.js').then(m=>console.log(m.resolveCliModel('codex')))"
+undefined
+
+# Reading: exit 0, verified output, no retry. stderr_tail still shows the Codex 'Reading additional input from stdin...' line on codex-cli 0.154.0: with stdin ignored (EOF) the read returns at once and the process completes, so the lifecycle no longer strands it; the line itself is not gone. transport.retryable=false because exit was 0 (the retryable signature requires the nonzero exit + that stderr).

@@ -88,7 +88,7 @@ pub struct RunState {
 /// answer. The two are separate journal appends, so a process death between
 /// them leaves the step folded to this placeholder with nothing answerable;
 /// recovery recognises it and journals the missing wait (`recovery_actions`).
-pub fn park_placeholder_wait_id(step_id: &str, attempt: u32) -> String {
+pub(crate) fn park_placeholder_wait_id(step_id: &str, attempt: u32) -> String {
     format!("park-{step_id}-{attempt}")
 }
 

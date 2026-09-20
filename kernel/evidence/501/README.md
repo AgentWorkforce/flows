@@ -38,14 +38,20 @@ first — contradicting RFC-0001 Appendix A rule 4.
 
 | file | what |
 |---|---|
-| `red.txt` | both production changes mutated off (`manual_park = false && …`, repair guard `false && …`): 5 regression tests fail with the original symptom — `disposition: retry`, second dispatch |
-| `red-repair-only.txt` | repair alone mutated off: torn-park tests fail (0 `wait.human` where 1 expected) |
-| `green-targeted.txt` | files restored byte-for-byte (`sha256sum -c` OK), same commands pass |
+| `mutation-transcript.txt` | one literal transcript, every command echoed: pre-mutation `sha256sum` of `machine.rs` + `recovery.rs`; mutation A+B applied (`manual_park = false && …`, repair guard `false && …`, shown as `git diff -U0`); RED — 5 regression tests fail with the original symptom (`disposition: retry`, second dispatch); restore via `cp` and `sha256sum -c` → `OK` for both files; mutation B alone (repair off); RED — the two torn-park tests fail (0 `wait.human` where 1 expected); restore + `sha256sum -c` → `OK`; GREEN — same commands pass |
 | `green-kernel.txt` | `cargo test --workspace`, exit 0 |
 | `clippy.txt` | `cargo clippy --workspace --all-targets -- -D warnings`: exits 101 on pre-existing findings only (`schema.rs:125`, `spec.rs:77`, `memoization.rs:102` as in the PR body, plus pre-existing test-target findings); `clippy-all-targets-warn.txt` lists every warning location — none on lines this change added |
 | `sdk-typecheck-build.txt` | surface built + packed + installed `--no-save` into sdk (documented flow), then `npm run typecheck && npm run typecheck:tests && npm run build`, exit 0 |
 | `green-sdk.txt` | `RELAYFLOWD_BIN=<built relayflowd> npx vitest run`: 154 files / 2410 tests pass; 2 environmental failures explained below |
 | `green-sdk-bundle-pristine.txt` | `tests/bundle.test.ts` re-run from a pristine `npm ci`: 23/23 pass, exit 0 |
+| `green-sdk-authored-node-runtime.txt` | the standalone suite under an isolated `mise install bun@1.4.0` (global config untouched) + Node 22.23.2 via `mise exec`, `FLOWS_BUILD_BUN` / `FLOWS_AUTHORED_NODE` absolute: 14/14 pass, exit 0 |
+| `codex-live-probe.txt` | one bounded live run of the installed `codex-cli 0.154.0` through the direct unattended transport (`flows check` + `flows run --local-agent`, output-only instruction, disposable cwd verified unchanged): `success`, exit 0, verified output, journal facts incl. the transport evidence. First attempt refused by the kernel on `cwd` — pre-existing preflight/run mismatch, see below |
+
+
+Pre-existing defect observed while probing (not fixed here, out of scope):
+`flows check` accepts a step-level `cwd:` (compiled into the kernel spec since
+#358) but `relayflowd` rejects the spec at `run.start` with
+`invalid_spec: unknown field "cwd"` — a Covenant 2 preflight/run mismatch.
 
 The two failures in `green-sdk.txt` are environmental, not from this change:
 
@@ -60,10 +66,13 @@ The two failures in `green-sdk.txt` are environmental, not from this change:
 
 Regression tests added:
 
-- `relayflowd-core/src/machine/tests.rs`:
+- `relayflowd-core/src/machine/recovery_tests.rs` (focused module; owner asked
+  for it split out of the general `tests.rs`):
   `manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching`
   (crashed + lease_expired), `reset_recovery_still_retries_a_worker_reported_transport_loss`,
   `recovery_journals_the_wait_human_a_torn_manual_park_never_wrote` (both producers)
+- `relayflowd-core/src/machine/tests.rs`: `all_backing_off_steps_return_timers`
+  precondition restored (stays in the general file)
 - `relayflowd-core/src/entry.rs`: `max_transport_retries_is_always_journaled`,
   `a_pre_field_attempt_started_still_reads`
 - `relayflowd/tests/manual_recovery.rs` (in-process engine, mock worker):
@@ -78,3 +87,7 @@ Regression tests added:
 
 `rustfmt --check` drift is unchanged from the PR head (20 files, none touched
 by this change beyond formatting the lines it added).
+
+Captured logs are verbatim except that trailing whitespace on captured lines
+was stripped (`sed 's/[ \t]*$//'`) so `git diff --check` passes; no other
+byte was edited.
