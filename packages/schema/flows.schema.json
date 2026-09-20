@@ -1014,6 +1014,12 @@
           "description": "Semantic retry bound (kernel DESIGN.md §1.2 `max_iterations`). Default 1.",
           "type": "integer",
           "minimum": 1
+        },
+        "transportRetries": {
+          "title": "transportRetries",
+          "description": "Additional attempts after classified infrastructure loss. Default 1.",
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
@@ -1081,6 +1087,12 @@
           "description": "Semantic retry bound (kernel DESIGN.md §1.2 `max_iterations`). Default 1.",
           "type": "integer",
           "minimum": 1
+        },
+        "transportRetries": {
+          "title": "transportRetries",
+          "description": "Additional attempts after classified infrastructure loss. Default 1.",
+          "type": "integer",
+          "minimum": 0
         },
         "command": {
           "title": "command",
@@ -1190,6 +1202,12 @@
           "description": "Semantic retry bound (kernel DESIGN.md §1.2 `max_iterations`). Default 1.",
           "type": "integer",
           "minimum": 1
+        },
+        "transportRetries": {
+          "title": "transportRetries",
+          "description": "Additional attempts after classified infrastructure loss. Default 1.",
+          "type": "integer",
+          "minimum": 0
         },
         "prompt": {
           "title": "prompt",
@@ -1309,6 +1327,12 @@
           "description": "Semantic retry bound (kernel DESIGN.md §1.2 `max_iterations`). Default 1.",
           "type": "integer",
           "minimum": 1
+        },
+        "transportRetries": {
+          "title": "transportRetries",
+          "description": "Additional attempts after classified infrastructure loss. Default 1.",
+          "type": "integer",
+          "minimum": 0
         },
         "instruction": {
           "title": "instruction",
@@ -1861,6 +1885,12 @@
           "title": "jitter_percent",
           "description": "jitter_percent in the Relayflows spec.",
           "type": "number"
+        },
+        "max_transport_retries": {
+          "title": "max_transport_retries",
+          "description": "max_transport_retries in the Relayflows spec.",
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [

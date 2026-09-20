@@ -23,9 +23,11 @@ export function applyConstraints(defs, version) {
   }
   for (const type of ['BaseStepSpec', 'DeterministicStepSpec', 'LlmStepSpec', 'AgentStepSpec']) {
     property(type, 'maxIterations', positive);
+    property(type, 'transportRetries', integer);
     Object.assign(defs[type].properties.dependsOn.items, nonempty);
     property(type, 'input', { propertyNames: { type: 'string', pattern: '\\S' } });
   }
+  property('KernelRetryPolicy', 'max_transport_retries', integer);
   property('DeterministicStepSpec', 'timeoutMs', positive);
   for (const field of ['maxTokensIn', 'maxTokensOut']) property('BudgetSpec', field, integer);
   property('BudgetSpec', 'maxDollars', decimal);
