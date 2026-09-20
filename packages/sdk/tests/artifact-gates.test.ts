@@ -47,7 +47,7 @@ afterEach(() => { onSpawn = undefined; for (const d of dirs.splice(0)) rmSync(d,
 function tempDir(): string { const d = mkdtempSync(join(tmpdir(), 'artifact-gates-')); dirs.push(d); return d; }
 
 describe('worker-side artifacts', () => {
-  it('journals the files the CLI created or changed in its cwd, content-hashed, dotdirs and node_modules excluded', async () => {
+  it('journals the files the CLI created or changed in its cwd, content-hashed, including dot-directories, with .git and node_modules excluded', async () => {
     const cwd = tempDir();
     mkdirSync(join(cwd, 'review'));
     writeFileSync(join(cwd, 'review/existing.md'), 'v1');
@@ -56,14 +56,16 @@ describe('worker-side artifacts', () => {
       mkdirSync(join(dir!, 'review'), { recursive: true });
       writeFileSync(join(dir!, 'review/security.md'), 'findings');
       writeFileSync(join(dir!, 'review/existing.md'), 'v2');
-      mkdirSync(join(dir!, '.cache'), { recursive: true });
-      writeFileSync(join(dir!, '.cache/tmp'), 'x');
+      mkdirSync(join(dir!, '.workflow-artifacts/x'), { recursive: true });
+      writeFileSync(join(dir!, '.workflow-artifacts/x/y.md'), 'evidence');
+      mkdirSync(join(dir!, '.git/objects'), { recursive: true });
+      writeFileSync(join(dir!, '.git/objects/abc'), 'x');
       mkdirSync(join(dir!, 'node_modules/dep'), { recursive: true });
       writeFileSync(join(dir!, 'node_modules/dep/index.js'), 'x');
     };
     const result = await runAgentCli('claude', 'review', undefined, 'claude-opus-5', undefined, undefined, 'agent', undefined, cwd);
     expect(result.exit_code, result.stderr_tail).toBe(0);
-    expect(result.artifacts).toEqual(['review/existing.md', 'review/security.md']);
+    expect(result.artifacts).toEqual(['.workflow-artifacts/x/y.md', 'review/existing.md', 'review/security.md']);
   });
 
   it('reports an empty list when nothing changed, and none at all for llm mode', async () => {
@@ -98,6 +100,9 @@ describe('worker-side artifacts: concurrency', () => {
 describe('artifact_exists named gate', () => {
   it('validates a relative POSIX path and refuses escapes, absolute paths and NUL', () => {
     expect(namedGateErrors({ type: 'artifact_exists', path: 'review/security.md' }, undefined, 'g')).toEqual([]);
+    // The conventional artifact directory is a dot-directory; it is a legal
+    // gate path, and the scanner journals what an agent writes there.
+    expect(namedGateErrors({ type: 'artifact_exists', path: '.workflow-artifacts/x/y.md' }, undefined, 'g')).toEqual([]);
     for (const path of ['', '  ', '/etc/passwd', '../x', 'a/../b', './x', 'a//b', 'a\0b', 42]) {
       const errors = namedGateErrors({ type: 'artifact_exists', path }, undefined, 'g');
       expect(errors, String(path)).toHaveLength(1);
@@ -135,6 +140,26 @@ describe('artifact_exists named gate', () => {
     expect(() => run({ exit_code: 0, stdout_tail: '', artifacts: ['other.md'] })).toThrow();
     expect(() => run({ exit_code: 0, stdout_tail: '' })).toThrow();
     expect(() => run({ message: 'a JSON-speaking agent owns its output' })).toThrow();
+  });
+
+  it('judges a dot-directory path by the journal alone: present in input passes with no such file, absent fails with one on disk', () => {
+    const spec = compileSpec({ version: '0.1.0', name: 'x', steps: [
+      { id: 'shadow-rust', type: 'agent', instruction: 'i', cli: 'c',
+        verification: { type: 'artifact_exists', path: '.workflow-artifacts/reviews/shadow-rust.md' } },
+    ] });
+    const command = (lowerNamedGates(spec.steps)[1] as { command: string }).command;
+    const cwd = tempDir();
+    const run = (artifacts: unknown) => execFileSync('sh', ['-c', command], {
+      cwd, env: { ...process.env, FLOWS_INPUT: JSON.stringify({ output: { exit_code: 0, stdout_tail: '', artifacts } }) }, stdio: 'pipe',
+    });
+    // Journaled, never written here: the gate passes anyway.
+    expect(() => run(['.workflow-artifacts/reviews/shadow-rust.md'])).not.toThrow();
+    // On disk, absent from the journal: the gate still fails. This is the
+    // shape the ticket reported, and it stays correct — the fix is that the
+    // scanner now journals the path, not that the gate consults the disk.
+    mkdirSync(join(cwd, '.workflow-artifacts/reviews'), { recursive: true });
+    writeFileSync(join(cwd, '.workflow-artifacts/reviews/shadow-rust.md'), 'findings');
+    expect(() => run([])).toThrow();
   });
 
   it('is preflightable: flows check prints it as a kernel exit_code gate', () => {

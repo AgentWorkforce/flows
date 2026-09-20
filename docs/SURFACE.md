@@ -1126,32 +1126,55 @@ whose final message is a JSON object owns its output shape and journals no
 artifacts; gate such a step on a deterministic check instead. The relay
 transport journals none, because the agent ran on another host.
 
+What the scan reports is every **regular file** under the working directory
+that is new, or whose content changed, between the two snapshots — content
+(size + sha256), not mtime, so a rewrite inside the filesystem's timestamp
+resolution still counts. Symlinks are not followed. Three entry names are
+skipped, matched **exactly**, at any depth, before the entry's type is
+consulted: `.git` (a directory, or the regular file a linked worktree has),
+`.relayflowd` (the default data dir) and `node_modules`. Exact names, not
+prefixes — `.github`, `.relayflowd-notes` and every other author-chosen name
+that merely starts the same way is scanned normally.
+
+**Dot-directories are artifacts.** `.workflow-artifacts/` is the conventional
+place a flow tells its agents to write, so
+`.gate({ type: 'artifact_exists', path: '.workflow-artifacts/x/y.md' })` is an
+ordinary gate and the path appears verbatim in `output.artifacts`. An earlier
+scanner skipped every entry whose name began with a dot; that made a whole
+class of author-chosen paths invisible to the journal, and a gate naming one
+could never pass — it failed on a file that was sitting on disk, with nothing
+in the completion to say why (flows#512).
+
 The diff is of the working directory, not of what the agent did, so anything
 written under it during the attempt is an artifact by default — including files
-the runtime itself writes. The worker's own per-attempt evidence lives under
+the runtime itself writes, and writes by any unrelated process that happens to
+touch the tree. A content hash proves a change during the interval; it does not
+prove the agent made it. The worker's own per-attempt evidence lives under
 `<data-dir>/runs/<run-id>/steps/<step-id>/` (the transcript file, the
 `attempt-<n>.<stream>.tail` files and the `.tmp` each tail is staged as), and a
-local `--data-dir` inside the project puts all of it inside the scanned tree.
-Every one of those paths is excluded from the diff by name in
-`packages/sdk/src/worker-cli.ts`'s `ownEvidencePaths`, derived from the attempt
-identity — the same input that decides where each file is written, so the
-exclusion cannot drift from the files. Deriving it from anything the run
-*produces* is a mistake worth naming: an earlier version read the transcript's
-path off `result.transcript.file`, which `finish` omits when the close outruns
-its deadline or the attempt aborts, so the exclusion lapsed on exactly the paths
-where the file is slowest to finish and most likely to still be sitting there.
+local `--data-dir` inside the project puts all of it inside the scanned tree —
+under any name the caller chose, which is usually not one of the three skipped
+above. So `packages/sdk/src/worker-cli.ts` drops the **entire configured data
+directory subtree** from the diff, comparing symlink-resolved paths against the
+data dir the step was dispatched with. That is the attempt's own identity, the
+same input that decides where each file is written, so the exclusion cannot
+drift from the files. Deriving it from anything the run *produces* is a mistake
+worth naming: an earlier version listed each runtime-written file by name and
+read the transcript's path off `result.transcript.file`, which `finish` omits
+when the close outruns its deadline or the attempt aborts, so the exclusion
+lapsed on exactly the paths where the file is slowest to finish and most likely
+to still be sitting there. A subtree exclusion has nothing to enumerate and so
+nothing to forget.
 
-Anyone adding a new runtime-written file under the run's data dir has to add it
-to `ownEvidencePaths` in the same change. **Missing one is silent by default.**
-`step.complete` bounds `trajectory_tail` and passes `output` through verbatim
-(`kernel/relayflowd/src/server.rs`), so the kernel accepts the polluted list and
-the run succeeds with the worker's own bookkeeping journaled as the agent's
+Pollution of that list is silent by default. `step.complete` bounds
+`trajectory_tail` and passes `output` through verbatim
+(`kernel/relayflowd/src/server.rs`), so the kernel accepts whatever list the
+worker sends and the run succeeds with it journaled as the agent's
 `output.artifacts`. It only becomes loud where something reads that list: an
 `artifact_exists` gate on a path that is now crowded, or a flow body that
-asserts on `AgentResult.artifacts` — which is how this was caught at all, by
-`packages/sdk/tests/agent-transcript-live.test.ts` failing its own
-`artifacts.length !== 0` check. Dotfiles and dotdirs are skipped by the walk, so
-`.relayflowd` is already invisible; a data dir under any other name is not.
+asserts on `AgentResult.artifacts` — which is how the data-dir case was caught
+at all, by `packages/sdk/tests/agent-transcript-live.test.ts` failing its own
+`artifacts.length !== 0` check.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.
