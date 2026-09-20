@@ -53,9 +53,23 @@ function fixture(exitCode = 0, workspace?: string, delayMs = 0) {
   // Bound a stuck fixture process, allowing startup/preflight before the
   // kernel's independently enforced worker lease. UX timing is measured by
   // the separate empty-cache cold-start transcript, not this cleanup ceiling.
-  return { root, marker, invoke: (...flags: string[]) => spawnSync(process.execPath,
-    [cli, 'run', 'hello.flow.ts', '--input', '{}', '--local-agent', '--data-dir', join(root, 'data'), ...flags],
-    { cwd: root, encoding: 'utf8', timeout: 90000, env: { ...process.env, RELAYFLOWD_BIN: relayflowd } }) };
+  const spawn = (argv: string[]) => spawnSync(process.execPath, [cli, ...argv],
+    { cwd: root, encoding: 'utf8', timeout: 90000, env: { ...process.env, RELAYFLOWD_BIN: relayflowd } });
+  return {
+    root, marker,
+    invoke: (...flags: string[]) => spawn(
+      ['run', 'hello.flow.ts', '--input', '{}', '--local-agent', '--data-dir', join(root, 'data'), ...flags]),
+    /** The same flow, with a caller's `--input` and no worker offered: it parks. */
+    park: (input: string, ...flags: string[]) => spawn(
+      ['run', 'hello.flow.ts', '--input', input, '--data-dir', join(root, 'data'), ...flags]),
+    /**
+     * A shell line, run as written. Used to execute a printed remedy verbatim —
+     * the only assertion that actually proves "runnable", since it exercises the
+     * quoting, the flag order and the argument values all at once.
+     */
+    shell: (script: string) => spawnSync('sh', ['-c', script],
+      { cwd: root, encoding: 'utf8', timeout: 90000, env: { ...process.env, RELAYFLOWD_BIN: relayflowd } }),
+  };
 }
 
 describe('built CLI local agent against a real daemon', () => {
@@ -85,6 +99,44 @@ describe('built CLI local agent against a real daemon', () => {
     expect(result.stderr).toContain('✗ agent-1');
     expect(result.stderr).not.toContain('[agent: completed]');
   });
+  /**
+   * The headline complaint: an authored `.flow.ts` that parked at an `f.agent`
+   * step printed no remedy at all, because the bare `flows run --local-agent
+   * <path>` the spec path emitted would have been refused for want of
+   * `--input`. It read as "your infrastructure is missing a worker" when the
+   * actual fix was one flag away.
+   *
+   * "Runnable" is asserted by running it: the printed line goes back through a
+   * shell verbatim, so the flow path, the `--input` this run was started with
+   * and their quoting are all proven at once rather than string-matched.
+   */
+  it('prints a remedy that runs the parked authored flow to completion', () => {
+    const f = fixture();
+    // An input with a quote and a space: the two characters that make the
+    // difference between a copy-pasteable command and a broken one.
+    const input = '{"task":"it\'s a plan","n":1}';
+
+    const parked = f.park(input, '--json', '--no-observer-link');
+
+    expect(parked.status, parked.stderr + parked.stdout).toBe(3);
+    expect(JSON.parse(parked.stdout)).toMatchObject({ status: 'parked', parkCause: 'worker_unavailable' });
+    const message = JSON.parse(parked.stdout).diagnostics.at(-1).message as string;
+    const remedy = /: (flows run [^\n]*?)\. [A-Z]/.exec(message)?.[1];
+    expect(remedy, message).toBeDefined();
+    expect(remedy).toContain("--local-agent 'hello.flow.ts'");
+    expect(existsSync(f.marker)).toBe(false);
+
+    const rerun = f.shell(remedy!.replace(/^flows /,
+      `${JSON.stringify(process.execPath)} ${JSON.stringify(cli)} `) + ' --json --no-observer-link');
+
+    expect(rerun.status, rerun.stderr + rerun.stdout).toBe(0);
+    expect(JSON.parse(rerun.stdout)).toMatchObject({ ok: true, status: 'completed', completionReason: 'success' });
+    // The agent really ran. Exit 0 is also what proves the shell delivered the
+    // input unmangled: a quote lost in the round trip leaves invalid JSON, and
+    // a `.flow.ts` with unparseable `--input` is refused at exit 2.
+    expect(readFileSync(f.marker, 'utf8')).toBe('hello');
+  }, 90_000);
+
   it('refuses a workspace it cannot pin before invoking the agent', () => {
     const f = fixture(0, 'repo');
     const result = f.invoke();

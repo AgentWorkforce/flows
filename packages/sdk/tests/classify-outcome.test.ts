@@ -86,3 +86,58 @@ describe('classifyOutcome', () => {
     expect(execution.report.parkedStep).toBeUndefined();
   });
 });
+
+const parkedOnAgent: RunGetResult = {
+  run_id: RUN_ID,
+  status: 'parked',
+  steps: { work: { type: 'agent', state: 'runnable' } as never },
+  budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+};
+
+async function classifyPark(
+  command: 'run' | 'resume',
+  report: Partial<typeof base>,
+  options: Record<string, unknown>,
+): Promise<string> {
+  const { client } = clientReturning([parkedOnAgent]);
+  const execution = await classifyOutcome(
+    client, command, parked, { ...base, ...report } as never, '/tmp/sock', options);
+  expect(execution.exitCode).toBe(3);
+  expect(execution.report.parkCause).toBe('worker_unavailable');
+  return execution.report.diagnostics.at(-1)!.message;
+}
+
+describe('the remedy on a worker park', () => {
+  /// The reported defect: the `command === 'run'` guard meant a parked resume
+  /// printed "no worker is attached" and stopped there, so the obvious next
+  /// move — resume WITH a worker — went unsaid. A spec run is resumable, so
+  /// the remedy is this run, not a new one.
+  it('tells a parked declarative resume to continue this run with a worker', async () => {
+    const message = await classifyPark('resume', { specPath: 'spec.yaml' }, { dataDir: '/tmp/d' });
+    expect(message).toContain(`flows resume --data-dir /tmp/d --local-agent ${RUN_ID}`);
+    expect(message).not.toContain('flows run');
+  });
+
+  it('tells a parked declarative run to start a new one with a worker', async () => {
+    const message = await classifyPark('run', { path: 'flows/hello.flow.yaml' }, { dataDir: '/tmp/d' });
+    // The prefix that has always been emitted, unchanged, with the data dir
+    // this invocation actually used appended.
+    expect(message).toContain(`flows run --local-agent 'flows/hello.flow.yaml' --data-dir /tmp/d`);
+  });
+
+  /// An authored `.flow.ts` is silent HERE on purpose. This classifier runs
+  /// once per authored child run and has no access to the `--input` a new run
+  /// must repeat; `direct-run.ts` and `resumeFlow` render it once, where both
+  /// are known. Appending here as well would also double the clause on resume.
+  it('leaves the authored remedy to the boundary that knows the input', async () => {
+    const message = await classifyPark('run', { path: 'flows/hello.flow.ts' }, { dataDir: '/tmp/d' });
+    expect(message).not.toContain('--local-agent');
+  });
+
+  it('never tells someone who passed --local-agent to pass it again', async () => {
+    const message = await classifyPark(
+      'resume', { specPath: 'spec.yaml' }, { dataDir: '/tmp/d', localAgent: true });
+    expect(message).toContain('no attached worker was eligible');
+    expect(message).not.toMatch(/flows (run|resume)/);
+  });
+});

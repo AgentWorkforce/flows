@@ -14,6 +14,7 @@ import { DirectInputError, parseDirectInput } from '../direct-input.js';
 import { JournalClient } from '../journal-client.js';
 import { inputFailureReport } from './check.js';
 import { checkAuthoredTriggers } from './check-triggers.js';
+import { authoredWorkerRemedy, localAgentRemedy } from './local-agent-remedy.js';
 import {
   authoredCompletion,
   authoredHumanParked,
@@ -160,12 +161,22 @@ export async function runDirectFlow(
           ...base,
           ok: false,
           runId: error.runId,
+          rootRunId: error.rootRunId,
           socketPath,
           status: 'parked',
+          parkCause: error.parkCause,
           diagnostics: [...base.diagnostics, {
             severity: 'parked',
             kind: 'run_parked',
-            message: error.message,
+            // The remedy is rendered here rather than by the child's own
+            // `classifyOutcome`, which is deliberately silent for authored
+            // paths: this is the only frame that knows both the flow path and
+            // the `--input` argument a new run has to repeat, and it knows
+            // whether a worker was already attached.
+            message: error.message + localAgentRemedy(authoredWorkerRemedy(
+              error.parkCause, options.localAgent === true,
+              { path, input: inputArgument, dataDir },
+            )),
           }],
         },
       };
