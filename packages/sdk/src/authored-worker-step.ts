@@ -265,6 +265,8 @@ function stepDetails(
     ...(found.stderrTail === undefined ? {} : { stderrTail: found.stderrTail }),
     ...(found.detail === undefined ? {} : { detail: found.detail }),
     ...(found.transcriptPath === undefined ? {} : { transcriptPath: found.transcriptPath }),
+    ...(found.attempts === undefined ? {} : { attempts: found.attempts }),
+    ...(found.attemptEvidence === undefined ? {} : { attemptEvidence: found.attemptEvidence }),
     ...(found.hint === undefined ? {} : { hint: found.hint }),
     ...(found.journalPath === undefined ? {} : { journalPath: found.journalPath }),
   };

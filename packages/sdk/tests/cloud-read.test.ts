@@ -13,6 +13,7 @@ import { runCli } from '../src/cli.js';
 import {
   errorLines, parseLogsArgs, parseRunsArgs, runCloudLogsCli, runCloudRunsCli, runCloudStatusCli,
 } from '../src/cli/cloud-read.js';
+import { renderStepEvidence } from '../src/cli/step-failure.js';
 import { parseStatusArgs } from '../src/cli/status.js';
 
 const RUN = '20d04c99-3fa8-48c9-9286-92d364a5bc2e';
@@ -259,6 +260,33 @@ describe('flows logs', () => {
     expect(out.stdout[0]).toBe(`LOG ${RUN}  runner  ${RUNNER_LOG.length} bytes  complete`);
     expect(out.stdout[1]).toBe('[bootstrap] Starting workflow execution (per-step-sandbox)');
     expect(server.requests[0]!.query).toBe('');
+  });
+
+  it('prints every attempt of a retried step the runner log captured', async () => {
+    // `flows logs <run-id>` has no journal to read: Cloud keeps the runner's
+    // captured stderr and there is no journal-export endpoint. So every
+    // attempt reaches a hosted reader only if the CLI printed every attempt in
+    // the first place — which is why the log content here is built by the real
+    // producer, `renderStepEvidence`, rather than written out by hand.
+    const attempts = Array.from({ length: 7 }, (_unused, index) => ({
+      attempt: index + 1, completionReason: 'verification_failed', exitCode: 1,
+      stderrTail: `attempt ${index + 1} rejected by the pre-receive hook`,
+    }));
+    const diagnostic = renderStepEvidence({
+      stepId: 'commit-and-push', stepType: 'deterministic', completionReason: 'retries_exhausted',
+      attempt: 7, maxIterations: 7, exitCode: 1, attempts, attemptEvidence: 'differs',
+    });
+    const runner = `[bootstrap] Starting workflow execution (per-step-sandbox)\nFAILED [step_failed]${diagnostic}\n`;
+    wholeCloud({ runner });
+    const out = io();
+    expect(await runCloudLogsCli(parseLogsArgs([RUN])!, out.io, CONNECTION)).toBe(0);
+    const rendered = out.stdout.join('\n');
+    // Not one attempt elided: the runner log is printed line for line, so the
+    // first rejection is as readable here as the last.
+    for (let attempt = 1; attempt <= 7; attempt += 1) {
+      expect(rendered).toContain(`attempt ${attempt} rejected by the pre-receive hook`);
+    }
+    expect(rendered).toContain('An earlier attempt may have had side effects.');
   });
 
   it('renders an agent step’s transcript: session header, prose, one line per tool call, footer', async () => {

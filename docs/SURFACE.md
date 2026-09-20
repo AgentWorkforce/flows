@@ -702,6 +702,9 @@ uses the opening shown here; an authored child failure opens with
 ```text
 FAILED [step_failed] Run "<run-id>" failed with completionReason: step_failed.
  Step "<step-id>" (<type>) completionReason: <reason> attempt=<n>/<budget> exit=<code>.
+Attempts: <count> failed; <whether their recorded evidence agrees>
+  attempt 1: <reason> exit=<code> — stderr: <excerpt>
+  attempt 2: <reason> exit=<code> — stderr: <excerpt>
 Detail: <the worker's own account, when it left one>
 Stdout (last 1,024 bytes):
 <tail>
@@ -715,9 +718,43 @@ Journal: <data-dir>/runs/<run-id>.sqlite3
 Each clause is present only when the journal holds the fact behind it; nothing
 is defaulted. The same fields appear as named keys on the `--json` diagnostic
 (`stepId`, `stepType`, `completionReason`, `attempt`, `maxIterations`,
-`exitCode`, `stdoutTail`, `stderrTail`, `detail`, `transcriptPath`, `hint`,
-`journalPath`), so the rendered line and the machine-readable record carry the
-same facts rather than the message being the only copy.
+`exitCode`, `stdoutTail`, `stderrTail`, `detail`, `transcriptPath`, `attempts`,
+`attemptEvidence`, `hint`, `journalPath`), so the rendered line and the
+machine-readable record carry the same facts rather than the message being the
+only copy.
+
+The scalar clauses always describe the **terminal** attempt. `Attempts:` is
+additive and appears only when the journal held more than one failed attempt of
+that step, so a step that failed once renders exactly as it did before. Every
+failed attempt is listed, oldest first, from its own `step.completed` entry —
+the kernel appends one per attempt, so a retry that failed differently from the
+first attempt is a journaled fact rather than something the last attempt's
+output has to be read for. Each entry carries the attempt's reason, its exit
+code when it had one, and up to 256 bytes of whichever of `detail`, `stderr`
+and `stdout` that attempt actually recorded; `(excerpt truncated)` marks an
+account that was cut, and an attempt that recorded nothing says so rather than
+printing empty fields. Attempt excerpts are redacted before they are bounded.
+The corresponding `attempts` entries in `--json` use the keys `attempt`,
+`completionReason`, `disposition`, `exitCode`, `stdoutTail`, `stderrTail`,
+`detail` and `truncated`.
+
+`attemptEvidence` says whether the attempts failed for the same reason, and is
+one of:
+
+- `differs` — the journaled evidence is not the same across attempts. A retry
+  that fails differently usually means an earlier attempt already had a side
+  effect, so the message adds *An earlier attempt may have had side effects.*
+- `unchanged` — every attempt recorded evidence and all of it agrees.
+- `unknown` — at least one attempt journaled nothing about why it failed, or
+  its evidence reached the journal already truncated by the daemon, so whether
+  the causes differ cannot be decided.
+
+The comparison runs on the journal record before any display bound, and reads
+the verification gate, verdict and detail as well as the exit codes and output
+tails, so two attempts whose visible excerpts are identical are still reported
+as differing when the records behind them are not. `verification_failed` on a
+retry and `retries_exhausted` at the budget limit are the kernel's label for
+the same fallback, so that pair alone is not counted as a changed cause.
 
 `attempt=<n>/<budget>` is read from the journal, not from the spec: `n` is the
 `step.attempt.started` envelope's attempt number and `budget` is the
