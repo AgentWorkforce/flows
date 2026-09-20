@@ -23,10 +23,7 @@ import {
   type RunCompletionReason as SurfaceRunCompletionReason,
   type Step,
 } from '@relayflows/surface';
-import {
-  createHelpers, helperProviders, UnsupportedHelperMemberError,
-  type HelperCall, type FlowHandle,
-} from '@relayflows/surface/runtime';
+import { createHelpers, helperProviders, type HelperCall, type FlowHandle } from '@relayflows/surface/runtime';
 import { join } from 'node:path';
 import { observeStep, type ProgressEvent } from './progress.js';
 import { parseStepTimeout } from './compile.js';
@@ -545,7 +542,12 @@ export async function executeAuthoredFlow<Input = undefined>(
     // an unexplained body crash, so it is remapped onto the code preflight
     // already uses for the same refusal — the message is the surface's, not a
     // second wording. Every other failure is rethrown exactly as thrown.
-    bodyFailure = error instanceof UnsupportedHelperMemberError
+    //
+    // Recognised by `name`, not `instanceof`: an authored flow file resolves
+    // `@relayflows/surface` from its OWN node_modules, so the class that threw
+    // need not be the one this module imported — and a pinned surface older
+    // than the guard does not export the class at all.
+    bodyFailure = error instanceof Error && error.name === 'UnsupportedHelperMemberError'
       ? new AuthoredFlowExecutionError('helper_provider.unsupported', error.message)
       : error;
   }

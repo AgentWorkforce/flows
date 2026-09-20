@@ -10,6 +10,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, expect, it, vi } from 'vitest';
 import { flow, type Ctx } from '@relayflows/surface';
+import { createHelpers } from '@relayflows/surface/runtime';
 import { checkProviderHelpers } from '../src/slack-preflight.js';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { JournalClient } from '../src/journal-client.js';
@@ -35,6 +36,8 @@ function satisfied() {
 }
 const refusal = (body: Function) => checkProviderHelpers({ body }).diagnostics
   .filter(d => d.severity === 'refusal');
+/** A body whose `toString` is the given source verbatim, untouched by this file's transform. */
+const fromSource = (source: string): Function => new Function(`return ${source};`)() as Function;
 
 it('refuses a gitlab resource the helper does not carry, naming the ones it does', () => {
   satisfied();
@@ -77,6 +80,54 @@ it('accepts the resources gitlab does carry, and leaves github alone', () => {
   } }).ok).toBe(true);
 });
 
+it('admits every member the guarded helper still resolves', () => {
+  satisfied();
+  // The runtime guard refuses only what the bound object does not have, so
+  // inherited object behaviour, `then` and `toJSON` all still resolve. Static
+  // inspection has to admit exactly those, or `flows check` rejects feature
+  // detection that runs.
+  const gitlab = createHelpers(() => { throw new Error('a refusal must not dispatch'); })
+    .gitlab as unknown as Record<string, any>;
+  expect(gitlab.hasOwnProperty('comments')).toBe(true);
+  expect(gitlab.toJSON).toBeUndefined();
+  expect(gitlab.then).toBeUndefined();
+  expect(String(gitlab)).toBe('[object Object]');
+  for (const body of [
+    (f: any) => f.gitlab.hasOwnProperty('comments'),
+    (f: any) => f.gitlab.toJSON,
+    (f: any) => f.gitlab.then,
+    (f: any) => f.gitlab.toString(),
+    (f: any) => f.gitlab['propertyIsEnumerable']('discussions'),
+  ]) expect(refusal(body), body.toString()).toEqual([]);
+});
+
+it('does not read a regex literal as an access, and still reads a division as code', () => {
+  satisfied();
+  // `/f.gitlab.issues/` inspects text; it reaches no helper at all.
+  expect(refusal((f: any) => /f.gitlab.issues/.test(String(f.gitlab.comments)))).toEqual([]);
+  expect(refusal((f: any) => { if (f) /f.gitlab.mergeRequests/.test('x'); return f.gitlab.discussions; })).toEqual([]);
+  // A `/` that opens no literal is arithmetic, and the access after it stands.
+  const divided = (f: any) => { const half = 10 / 2; return [f.gitlab.issues, half]; };
+  expect(refusal(divided)[0]?.message).toBe(unavailable);
+});
+
+it('declines to judge a body that binds the context parameter name again', () => {
+  satisfied();
+  // Renaming a local callback parameter cannot decide whether a flow is
+  // admitted; an inner `f` is a record here, not the flow context. Built from
+  // source text because this file's own transform renames a shadowed binding,
+  // which would leave nothing shadowed for preflight to read.
+  for (const source of [
+    '(f) => [{ gitlab: { issues: [] } }].map(f => f.gitlab.issues)',
+    '(f) => [{ gitlab: { issues: [] } }].map(function (f) { return f.gitlab.issues; })',
+    '(f) => { const rows = [{ gitlab: { issues: 1 } }]; for (const f of rows) void f.gitlab.issues; }',
+    '(f) => { try { void f; } catch (f) { void f.gitlab.issues; } }',
+    '(f) => { f = { gitlab: { issues: 1 } }; return f.gitlab.issues; }',
+  ]) expect(refusal(fromSource(source)), source).toEqual([]);
+  // The unshadowed body each is distinguished from still refuses.
+  expect(refusal(fromSource('(f) => f.gitlab.issues'))[0]?.message).toBe(unavailable);
+});
+
 it('does not read a comment or a string literal as an access', () => {
   satisfied();
   // The body is read from `toString`, never executed; text that looks like an
@@ -105,6 +156,21 @@ it('refuses a computed member at the call site, as a typed helper_provider.unsup
   await expect(executeAuthoredFlow(handle, new JournalClient('/must-not-connect')))
     .rejects.toMatchObject({ code: 'helper_provider.unsupported', message: `helper_provider.unsupported: ${unavailable}` });
   expect(reached).toBe(true);
+});
+
+it('words the static refusal exactly as the surface words the runtime guard', async () => {
+  satisfied();
+  // The SDK cannot import the surface's wording function: this source is
+  // installed against a PUBLISHED surface, and a named import the pinned
+  // version has not shipped fails the module at load, before preflight can
+  // run. The two wordings are pinned equal here instead, against whichever
+  // surface this SDK actually resolves.
+  const runtime = await import('@relayflows/surface/runtime') as {
+    unsupportedHelperMemberMessage?: (provider: string, member: string, available: readonly string[]) => string;
+  };
+  const wording = runtime.unsupportedHelperMemberMessage;
+  expect(wording?.('gitlab', 'issues', ['comments', 'discussions']) ?? unavailable).toBe(unavailable);
+  expect(refusal(async (f: any) => { await f.gitlab.issues.list({}); })[0]?.message).toBe(unavailable);
 });
 
 it('leaves an unrelated body failure exactly as the body threw it', async () => {

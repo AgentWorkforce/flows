@@ -63,9 +63,16 @@ it('carries the refused member, its resource and the available names structurall
   }
 });
 
-it('words the refusal once, for preflight and the runtime guard alike', () => {
+it('words the refusal once, for the property guard and the authored envelope alike', async () => {
+  const expected = unsupportedHelperMemberMessage('gitlab', 'issues', ['comments', 'discussions']);
   const guarded = (() => { try { gitlab().issues; return ''; } catch (error) { return (error as Error).message; } })();
-  expect(guarded).toBe(unsupportedHelperMemberMessage('gitlab', 'issues', ['comments', 'discussions']));
+  expect(guarded).toBe(expected);
+  // The SDK's `flows check` restates this wording rather than importing it —
+  // it is installed against a published surface, which need not export the
+  // function yet — and pins the two equal in its own helper-partial-support test.
+  await expect(invokeHelper(helperClients['gitlab']!,
+    { type: 'effect', provider: 'gitlab', verb: 'issues.list', args: [] }, refusingTransport))
+    .rejects.toThrow(expected);
 });
 
 it('leaves ordinary object behavior on the guarded helper intact', async () => {
