@@ -121,6 +121,129 @@ A synced run and a Cloud repository grant are mutually exclusive on the
 server: `--sync-code` is the local-driven development loop, and
 webhook-triggered deployments keep cloning through the grant.
 
+## Reading a hosted run
+
+Three read-only verbs answer "what did that run do" from the Cloud API, so an
+agent holding its user's own Cloud credential does not have to hand-roll HTTP:
+
+```sh
+flows runs [--limit <n>] [--json]                         # recent runs
+flows logs <run-id> [--step <name>] [--raw] [--json]      # runner log, or a step's transcript
+flows status --cloud [--json] <run-id>                    # the run's steps, as `flows status` renders a local one
+```
+
+They resolve their credential exactly the way every other hosted verb does
+(see [Credentials](#credentials) below) and they write nothing. A workspace
+API token of purpose `workflow` is enough; the log route additionally wants
+`workflow:logs:read` or `workflow:invoke:read`, and a run-scoped *sandbox*
+token may only read its own run.
+
+`flows runs` lists the runs the credential can see, newest first, one line
+each: run id, flow name, status, completion reason, the started and updated
+instants, and the pull request the run opened when there is one. The route
+pages by opaque cursor and has no `limit` parameter of its own, so `--limit`
+is applied here — asking for ten makes one request, and the header says when
+Cloud had more.
+
+```text
+runs 2
+RUN 20d04c99-3fa8-48c9-9286-92d364a5bc2e  insight-proof-2022  completed  success  started 2026-09-19T20:34:58Z  updated 2026-09-19T20:37:42Z
+RUN 2c24c74d-ce49-5e0b-b7ca-d5ff64a19102  relay.ci.pr-proof   failed              started 2026-09-19T23:16:09Z  updated 2026-09-19T23:17:43Z
+      error relayflow_v2_repository_token_unavailable
+```
+
+`flows logs <run-id>` prints the sandbox's runner log. `--step <name>` selects
+one agent step's transcript instead — the step name is the `sandbox_id` the
+step list carries, and `flows status --cloud` prints the exact invocation
+under each step that has one. A transcript is JSONL (the harness's
+`stream-json`, wrapped in the `relayflow.attempt` markers the v2 executor
+interleaves), and it is rendered: a session header from the `system`/`init`
+frame, assistant text as prose, one line per tool call with its target and the
+size of its result, thinking blocks as a character count only, attempt and
+truncation markers as separators, and a footer with duration, turns, cost and
+tokens.
+
+```text
+LOG 20d04c99-3fa8-48c9-9286-92d364a5bc2e  step agent-2  5,945 bytes  complete
+── attempt 1 · 5,873 bytes ─────────────────────────────────────────────
+session  claude-opus-5 · v2.1.19 · bypassPermissions · 18 tools · 0 MCP servers
+assistant:
+  I'll read the file.
+  tool  Read  /project/workflows/runs/e4456951-.../notes.txt  → 385 chars
+  thinking  0 chars (not shown)
+assistant:
+  **Line count:** 3 (`alpha`, `beta`, `gamma` — ...)
+── result success · 6.2s · 2 turns · $0.108098 · 4 in / 248 out · 25,402 cache read · 25,638 cache write ──
+```
+
+`--raw` prints the JSONL unrendered. It does **not** print it unredacted:
+every string that reaches the terminal — rendered, raw, or `--json` — goes
+through `redact.ts`, the redactor the local `flows status` uses. That is a
+deliberate choice of one of the two redactors in the tree (flows#494): this is
+the status page extended to hosted runs, and a reader should meet the same
+rule set whether the run was local or hosted. No frame is ever dropped — a
+frame this vocabulary has no opinion about is reported as one line naming its
+type and size, and a line that is not JSON is printed as written, so `--raw`
+is never the only way to find out that something ran.
+
+`flows status --cloud <run-id>` is the local `flows status` view, sourced from
+the run record and the step list instead of a journal: the `RUN` header with
+status, completion reason and summed spend, a `steps N` count, and one
+glyph-led line per step with its state, attempts, timing and gate verdict.
+An agent step also gets its transcript digest — model, turns, tool calls,
+cost, frames and bytes kept, token and cache usage, the tool roster, the last
+calls, and its artifacts.
+
+```text
+RUN 20d04c99-3fa8-48c9-9286-92d364a5bc2e   insight-proof-2022   completed   started 2h49m ago   finished success   spend 4 in / 248 out / $0.108098
+steps 3: 3 completed
+authority surface 2.0.22 · artifact 9c361a2cbb0a · commit b4dd665eb433
+
+  ✓ run-1       deterministic  completed    1 attempt  0.0s  success  gate: exit_code pass
+  ✓ agent-2     agent          completed    1 attempt  9.3s  success  gate: completion pass
+      transcript (attempt 1): claude-opus-5 · 2 turns · 1 tool call · $0.108098
+        7 of 7 frames, 5,873 bytes
+        4 in / 248 out · 25,402 cache read · 25,638 cache write
+        tools: Read ×1
+        call 1 Read {"file_path":"/project/.../notes.txt"} → 393 bytes
+        artifacts: none
+      logs: flows logs 20d04c99-3fa8-48c9-9286-92d364a5bc2e --step agent-2
+  ✓ complete-3  deterministic  completed    1 attempt  0.0s  success  gate: exit_code pass
+```
+
+`--cloud` takes neither `--data-dir` nor `--tail`: both name things on this
+filesystem, which a hosted run has none of, so pairing them is refused as an
+invocation rather than quietly ignored. The spend total is summed from the
+step rows because the run record carries no total, and Cloud stores each
+step's cost as a float — unlike the local view, which adds the journal's
+decimal strings exactly (`run-state.ts`).
+
+Every refusal is one `REFUSED [code] message` line naming what to do next:
+
+| code | when |
+| --- | --- |
+| `cloud_auth_missing` | no credential anywhere; names `agent-relay cloud login` |
+| `cloud_auth_expired` | the stored login expired; refused before any request |
+| `cloud_auth_rejected` | Cloud answered 401: the token is unknown or revoked |
+| `cloud_forbidden` | 403: authenticated, but not allowed to read that run or log |
+| `cloud_run_not_found` | 404: no such run for this credential; points at `flows runs` |
+| `cloud_step_no_transcript` | `--step` named a step with no transcript, or no such step; names the ones that have one |
+| `invalid_invocation` | the run id is not a run id (wrong characters, too long); refused before any request |
+| `cloud_invalid_response` | Cloud answered something this client cannot trust — a record for a different run, a list that is not a list, a row with no id, a pagination cursor that does not advance |
+| `cloud_unreachable` / `cloud_transport_failed` | the request never completed |
+
+A read never guesses to stay quiet. A run record whose `runId` is not the one
+asked for, a `runs` or `steps` field that is not an array, and a row with no
+`runId`/`stepName` are all refused rather than rendered — otherwise `runs 0`
+and a three-step run shown with two would be claims about the workspace that
+nobody established. A step-list read that fails while resolving `--step`
+surfaces *its* failure (403, transport) rather than becoming
+`cloud_step_no_transcript`, which would tell a caller to fix an invocation that
+was fine.
+
+Under `--json` the same refusal is one object on stdout
+(`{"v":1,"ok":false,"code":…,"message":…}`) and stderr stays empty.
+
 ## Credentials
 
 Every hosted verb resolves its credential the same way: the `token` option,
@@ -318,11 +441,16 @@ declaration and its `flows.tick` lowering either way.
   obligation is to put the same pinned `flows` binary that wrote the journal on
   the agent's PATH; today it is invoked by absolute path only. What the agent
   cannot learn from disk is Cloud's alone and is not guessed: its Cloud run id
-  (a UUID Cloud may export separately; with it alone the agent can call
-  nothing), its sandbox, which listener launched it, and sibling runs. From
-  outside the sandbox nothing sees step state — the Cloud API exposes only
-  `status` and a terminal `completionReason`, and no journal-export endpoint
-  exists or is proposed.
+  (a UUID Cloud may export separately), its sandbox, and which listener
+  launched it.
+- From outside the sandbox, step state *is* readable — see
+  [Reading a hosted run](#reading-a-hosted-run). `GET /runs/<id>/steps`
+  answers per-step rows carrying state, attempts, timing, gate verdicts, spend
+  and the transcript digest, and `GET /runs/<id>/logs` answers the runner log
+  or one step's transcript. There is still no journal-export endpoint: what
+  these routes serve is Cloud's own record of the run, not the kernel journal,
+  so `flows status --cloud` renders the same facts in the same shape without
+  claiming to be a replay. `flows replay` remains local-journal only.
 - `publishFlowRun` and the gallery are **design-only** under the revised WS-14
   scope, by Khaliq’s ruling. Publication needs a new endpoint in the Cloud
   repository, outside this lane, with no assigned owner. The written design is

@@ -22,6 +22,15 @@ export interface StatusArgs {
   dataDir?: string;
   tail?: number;
   runId?: string;
+  /**
+   * `--cloud`: read the run from the Cloud API instead of a local journal.
+   *
+   * Parsed here because the verb is one verb — a reader should not have to
+   * know that a hosted run is a different command — but never *handled* here:
+   * `runCli` routes a `--cloud` invocation to `cli/cloud-read.ts`, so this
+   * module keeps its property of opening one file and no socket.
+   */
+  cloud?: true;
 }
 
 export const DEFAULT_TAIL_LINES = 20;
@@ -53,6 +62,7 @@ export interface StatusOptions {
 
 export function parseStatusArgs(args: readonly string[]): StatusArgs | undefined {
   let json = false;
+  let cloud = false;
   let dataDir: string | undefined;
   let tail: number | undefined;
   const positionals: string[] = [];
@@ -61,6 +71,9 @@ export function parseStatusArgs(args: readonly string[]): StatusArgs | undefined
     if (argument === '--json') {
       if (json) return undefined;
       json = true;
+    } else if (argument === '--cloud') {
+      if (cloud) return undefined;
+      cloud = true;
     } else if (argument === '--data-dir' || argument === '--tail') {
       const value = args[++index];
       if (value === undefined || value.length === 0 || value.startsWith('-')) return undefined;
@@ -78,8 +91,15 @@ export function parseStatusArgs(args: readonly string[]): StatusArgs | undefined
     }
   }
   if (positionals.length > 1) return undefined;
+  // `--data-dir` and `--tail` name things on this filesystem: a data directory
+  // to read a journal out of, and per-attempt tail files beside it. A hosted
+  // run has neither, so pairing them with `--cloud` is not a narrower request
+  // but a contradiction, and is refused as an invocation rather than silently
+  // ignored. A hosted run id is mandatory: there is no ambient one.
+  if (cloud && (dataDir !== undefined || tail !== undefined || positionals.length === 0)) return undefined;
   return {
     command: 'status', json,
+    ...(cloud ? { cloud: true as const } : {}),
     ...(dataDir === undefined ? {} : { dataDir }),
     ...(tail === undefined ? {} : { tail }),
     ...(positionals[0] === undefined ? {} : { runId: positionals[0] }),

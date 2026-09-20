@@ -88,6 +88,10 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
     argv: ['hn-monitor', 'start', '--data-dir', '.relayflowd', '--poll-interval-ms', '1000', 'spec.json'],
     variant: 'hn-monitor',
   },
+  // The hosted read verbs. `logs` takes the run id as its one positional;
+  // its flags are all optional, and the bare form is the runner log.
+  { verb: 'logs', argv: ['logs', RUN_ID], variant: 'logs' },
+  { verb: 'logs', argv: ['logs', '--step', 'agent-2', '--raw', '--json', RUN_ID], variant: 'logs' },
   { verb: 'observer', argv: ['observer'], variant: 'observer' },
   { verb: 'observer', argv: ['observer', '--data-dir', '.relayflowd'], variant: 'observer' },
   { verb: 'replay', argv: ['replay', RUN_ID], variant: 'replay' },
@@ -118,6 +122,8 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   // `--cloud` is the second variant of the same verb.
   { verb: 'run', argv: ['run', '--cloud', '--wait', 'flow.yaml'], variant: 'cloud-run' },
   { verb: 'run', argv: ['run', '--cloud', '--sync-code', '--no-connect', 'review.flow.ts'], variant: 'cloud-run' },
+  { verb: 'runs', argv: ['runs'], variant: 'runs' },
+  { verb: 'runs', argv: ['runs', '--limit', '5', '--json'], variant: 'runs' },
   // With neither --cron nor --every the flow's own `schedule.*` handler supplies
   // the cron, so the bare form has to parse.
   { verb: 'schedule', argv: ['schedule', 'review.flow.ts'], variant: 'schedule' },
@@ -141,6 +147,9 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   // The run id is optional: inside a step the environment supplies it.
   { verb: 'status', argv: ['status'], variant: 'status' },
   { verb: 'status', argv: ['status', '--json', '--data-dir', '.relayflowd', '--tail', '5', RUN_ID], variant: 'status' },
+  // `--cloud` is the same verb against the Cloud API; it takes neither of
+  // the two filesystem flags above, so it needs its own sample.
+  { verb: 'status', argv: ['status', '--cloud', '--json', RUN_ID], variant: 'status' },
   { verb: 'sync', argv: ['sync', RUN_ID], variant: 'sync' },
   { verb: 'sync', argv: ['sync', '--dry-run', '--json', '--dir', '.', RUN_ID], variant: 'sync' },
   {
