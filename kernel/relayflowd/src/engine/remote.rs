@@ -244,6 +244,7 @@ impl Engine<WallClock> {
             &step,
             attempt,
             runtime.semantic_executions,
+            runtime.last_start_pins.as_ref(),
             result,
             self.clock.now_ms(),
         ) {

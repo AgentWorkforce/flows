@@ -1,0 +1,54 @@
+# Production files restored byte-for-byte (sha256sum -c against pre-mutation copies: OK). Same commands as red.txt:
+$ cd kernel && cargo test -p relayflowd-core --lib -- machine::tests::manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching machine::tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote machine::tests::reset_recovery_still_retries_a_worker_reported_transport_loss
+   Compiling relayflowd-core v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.60s
+     Running unittests src/lib.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/relayflowd_core-82d87717b3255c51)
+
+running 3 tests
+test machine::tests::reset_recovery_still_retries_a_worker_reported_transport_loss ... ok
+test machine::tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote ... ok
+test machine::tests::manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+exit_code=0
+
+$ cd kernel && cargo test -p relayflowd --test manual_recovery
+   Compiling relayflowd-core v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-core)
+   Compiling relayflowd-journal v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.00s
+     Running tests/manual_recovery.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/manual_recovery-6793123a1244aad2)
+
+running 2 tests
+test a_park_torn_between_its_two_appends_is_repaired_on_resume ... ok
+test manual_park_of_a_worker_reported_loss_survives_reopen_and_answers_to_a_human ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+exit_code=0
+
+$ cd kernel && cargo test -p relayflowd --test crash_resume manual_recovery
+   Compiling relayflowd v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.40s
+     Running tests/crash_resume.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/crash_resume-d2d102ec3e89b705)
+
+running 1 test
+test manual_recovery::manual_recovery_parks_a_worker_reported_loss_across_daemon_restart_until_a_human_answers ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 40 filtered out; finished in 1.46s
+
+exit_code=0
+
+$ cd kernel && cargo test -p relayflowd-core --lib -- machine::tests::all_backing_off_steps_return_timers entry::attempt_started_tests
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running unittests src/lib.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/relayflowd_core-82d87717b3255c51)
+
+running 3 tests
+test entry::attempt_started_tests::a_pre_field_attempt_started_still_reads ... ok
+test entry::attempt_started_tests::max_transport_retries_is_always_journaled ... ok
+test machine::tests::all_backing_off_steps_return_timers ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+exit_code=0

@@ -205,7 +205,7 @@ mod tests {
             "command": "printf 'shakedown intentional failure' >&2; exit 7"
         }))
         .unwrap();
-        let actions = completion_actions("run", &step, 1, 0, execute(&step), 0);
+        let actions = completion_actions("run", &step, 1, 0, None, execute(&step), 0);
         let Action::Append(completed) = &actions[0] else {
             panic!("expected completion")
         };

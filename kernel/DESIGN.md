@@ -58,7 +58,7 @@ One per attempt. Payload:
 | `pins.workspace` | agent steps: `[{surface, revision_id}]` — relayfile revision id per declared mount surface, or `{worktree_base_commit}` |
 | `pins.streams` | `[{stream, read_offset}]` — consumer offsets at attempt start |
 | `max_iterations` | from spec, echoed for legibility |
-| `max_transport_retries` | additional attempts allowed after classified infrastructure loss; default one and omitted at that default |
+| `max_transport_retries` | from spec, echoed for legibility like `max_iterations`; additional attempts allowed after classified infrastructure loss (`crashed` / `lease_expired`). Always present — an explicit `0` is the value that explains why a lost process was not retried, so the journal never omits it (the spec's canonical form omits its default of one; the journal does not) |
 
 Deterministic/llm steps journal `pins.streams` only if they consume streams;
 `pins.workspace` is empty (no workspace).
@@ -299,6 +299,19 @@ single process loss remains resumable; set zero to disable).
 Only `crashed` and `lease_expired` consume it. `worker_error`, timeout, budget,
 cancellation, and an ordinary nonzero CLI exit are terminal regardless of the
 budget; semantic verification retry remains bounded only by `max_iterations`.
+
+The kernel learns of a dead attempt two ways, and the recovery mode applies to
+both: the kernel notices an abandoned lease (`abandonment_actions`), or the
+worker reports its own loss through `step.complete` with `crashed` /
+`lease_expired` (`completion_actions`). Under `manual` either path journals
+`step.completed` with `disposition: park` and then the `wait.human` a human
+answers, each its own append. A process death between the two leaves the step
+folded to the placeholder wait id `park-<step>-<attempt>` with nothing to
+answer; resume recognises that placeholder and journals the missing
+`wait.human` from the same journaled facts (last completion reason, start
+pins), once. The SDK decides *which* transport losses are `crashed`
+(`worker-cli.ts` classifies, `cli-transport-evidence.ts` maps to the reason);
+the kernel decides what a `crashed` completion *does* (budget, recovery mode).
 
 ### Memoized resume
 

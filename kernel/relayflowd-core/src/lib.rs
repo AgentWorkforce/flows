@@ -31,7 +31,7 @@ pub use machine::{
 pub use memory::{MemoryInjectedPayload, MemoryScope, MemorySpec};
 pub use placement::{ExecutionMode, PlacementRequirements, RoutingDecision};
 pub use spec::*;
-pub use state::{RunState, StateError, StepRuntime, StepState};
+pub use state::{RunState, StateError, StepRuntime, StepState, park_placeholder_wait_id};
 
 pub const JOURNAL_VERSION: u32 = 1;
 pub const PROTOCOL_VERSION: u32 = 0;

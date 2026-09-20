@@ -204,12 +204,12 @@ pub struct AttemptStartedPayload {
     pub recovery_mode: Option<RecoveryMode>,
     pub pins: Pins,
     pub max_iterations: u32,
-    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    /// Echoed from the spec beside `max_iterations`, and always written:
+    /// an explicit zero is the value a reader most needs to see (it is why a
+    /// lost process was NOT retried), so no value is omitted. `default` only
+    /// reads journals written before the field existed.
+    #[serde(default)]
     pub max_transport_retries: u32,
-}
-
-fn is_zero_u32(value: &u32) -> bool {
-    *value == 0
 }
 
 /// Runtime pins journaled per attempt (RFC Appendix A rules 2 and 6): the
@@ -332,6 +332,54 @@ mod completion_reason_tests {
             CompletionReason::ALL.len(),
             "ALL must list each variant exactly once"
         );
+    }
+}
+
+#[cfg(test)]
+mod attempt_started_tests {
+    use super::{AttemptStartedPayload, Pins, StepType};
+
+    fn payload(max_transport_retries: u32) -> AttemptStartedPayload {
+        AttemptStartedPayload {
+            step_type: StepType::Agent,
+            idempotency_key: "key".to_owned(),
+            lease_id: "lease".to_owned(),
+            lease_deadline_ms: 1,
+            executor: "unassigned".to_owned(),
+            recovery_mode: None,
+            pins: Pins::default(),
+            max_iterations: 1,
+            max_transport_retries,
+        }
+    }
+
+    /// The transport budget is journaled at every value, zero included: the
+    /// spec's canonical form may omit its default, the journal never does.
+    /// An earlier version skipped zero, which erased exactly the value that
+    /// explains why a lost process was not retried.
+    #[test]
+    fn max_transport_retries_is_always_journaled() {
+        for value in [0, 1, 4] {
+            let json = serde_json::to_value(payload(value)).unwrap();
+            assert_eq!(
+                json["max_transport_retries"],
+                serde_json::json!(value),
+                "the journal must carry the budget verbatim"
+            );
+            let back: AttemptStartedPayload = serde_json::from_value(json).unwrap();
+            assert_eq!(back.max_transport_retries, value);
+        }
+    }
+
+    /// Journals written before the field existed still fold.
+    #[test]
+    fn a_pre_field_attempt_started_still_reads() {
+        let mut json = serde_json::to_value(payload(1)).unwrap();
+        json.as_object_mut()
+            .unwrap()
+            .remove("max_transport_retries");
+        let back: AttemptStartedPayload = serde_json::from_value(json).unwrap();
+        assert_eq!(back.max_transport_retries, 0);
     }
 }
 

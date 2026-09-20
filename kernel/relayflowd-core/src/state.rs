@@ -83,6 +83,15 @@ pub struct RunState {
     pub routing: BTreeMap<String, crate::RoutingDecision>,
 }
 
+/// The wait id a parked step carries between its `step.completed` with
+/// `disposition: park` and the `wait.human` that names the wait a human can
+/// answer. The two are separate journal appends, so a process death between
+/// them leaves the step folded to this placeholder with nothing answerable;
+/// recovery recognises it and journals the missing wait (`recovery_actions`).
+pub fn park_placeholder_wait_id(step_id: &str, attempt: u32) -> String {
+    format!("park-{step_id}-{attempt}")
+}
+
 impl RunState {
     pub fn fold(
         run_id: impl Into<String>,
@@ -325,7 +334,7 @@ impl RunState {
                 wake_at_ms: payload.next_attempt_at_ms.unwrap_or(entry.at_ms),
             },
             Disposition::Park => StepState::NeedsHuman {
-                wait_id: format!("park-{step_id}-{attempt}"),
+                wait_id: park_placeholder_wait_id(&step_id, attempt),
             },
         };
         if payload.disposition == Disposition::StepDone

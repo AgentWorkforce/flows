@@ -66,11 +66,13 @@ impl<C: Clock> Engine<C> {
         let mut result = AttemptResult::successful(serde_json::Value::Null, "kernel");
         result.failure_reason = Some(reason);
         result.failure_detail = Some(detail);
+        let runtime = &state.steps[&step.id];
         for action in completion_actions(
             journal.run_id(),
             step,
             attempt,
-            state.steps[&step.id].semantic_executions,
+            runtime.semantic_executions,
+            runtime.last_start_pins.as_ref(),
             result,
             self.clock.now_ms(),
         ) {

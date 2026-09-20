@@ -129,7 +129,7 @@ fn end_pin_chain_is_enforced_and_a_broken_chain_is_a_hard_error() {
     let mut result = crate::AttemptResult::successful(json!({"edited": true}), "worker");
     result.end_pins = Some(end_pin.clone());
     let crate::Action::Append(first_completed) =
-        crate::completion_actions("run", &spec.steps[0], 1, 0, result, 2).remove(0)
+        crate::completion_actions("run", &spec.steps[0], 1, 0, None, result, 2).remove(0)
     else {
         panic!("first agent completion")
     };
@@ -214,7 +214,7 @@ fn a_completion_that_omits_a_surface_does_not_drop_it_from_the_pin_chain() {
         let mut result = crate::AttemptResult::successful(json!({"done": true}), "worker");
         result.end_pins = Some(end_pins);
         let crate::Action::Append(entry) =
-            crate::completion_actions("run", &spec.steps[index], 1, 0, result, 2).remove(0)
+            crate::completion_actions("run", &spec.steps[index], 1, 0, None, result, 2).remove(0)
         else {
             panic!("the agent step completes")
         };

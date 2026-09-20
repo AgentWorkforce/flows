@@ -155,7 +155,7 @@ fn daily_windows_reset_and_exact_limits_do_not_refuse() {
             dollars_unmetered: false,
         };
         entries.extend(
-            completion_actions("run", &spec.steps[0], 1, 0, result, 1)
+            completion_actions("run", &spec.steps[0], 1, 0, None, result, 1)
                 .into_iter()
                 .filter_map(|a| {
                     if let Action::Append(e) = a {

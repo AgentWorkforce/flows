@@ -1,0 +1,255 @@
+$ cd kernel && cargo clippy --workspace --all-targets   # warnings not denied, to reach every crate; filtered below to files this change touches
+    Checking relayflowd-core v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-core)
+warning: this `if` statement can be collapsed
+   --> relayflowd-core/src/schema.rs:125:13
+    |
+125 | /             if let Some(target) = resolve(base_uri, reference, &resources, &anchors) {
+126 | |                 if schema.pointer(&target).is_some() {
+127 | |                     here.push(target);
+128 | |                 }
+129 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+    = note: `#[warn(clippy::collapsible_if)]` on by default
+help: collapse nested if block
+    |
+125 ~             if let Some(target) = resolve(base_uri, reference, &resources, &anchors)
+126 ~                 && schema.pointer(&target).is_some() {
+127 |                     here.push(target);
+128 ~                 }
+    |
+
+warning: this `if` statement can be collapsed
+  --> relayflowd-core/src/spec.rs:77:9
+   |
+77 | /         if let Some(budget) = &self.budget {
+78 | |             if budget
+79 | |                 .max_dollars
+80 | |                 .as_deref()
+...  |
+91 | |         }
+   | |_________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+77 ~         if let Some(budget) = &self.budget
+78 ~             && (budget
+79 |                 .max_dollars
+...
+84 |                     .as_ref()
+85 ~                     .is_some_and(|p| !crate::memory::valid_decimal(&p.dollars)))
+86 |             {
+...
+89 |                 ));
+90 ~             }
+   |
+
+warning: this `if` statement can be collapsed
+   --> relayflowd-core/src/memoization.rs:102:9
+    |
+102 | /         if let Action::Append(start) = &action {
+103 | |             if start.entry_type == EntryType::StepAttemptStarted && start.attempt == Some(1) {
+104 | |                 let step = state
+105 | |                     .spec
+...   |
+138 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+102 ~         if let Action::Append(start) = &action
+103 ~             && start.entry_type == EntryType::StepAttemptStarted && start.attempt == Some(1) {
+104 |                 let step = state
+...
+136 |                 }
+137 ~             }
+    |
+
+warning: using `chunks_exact` with a constant chunk size
+   --> relayflowd-core/src/machine/parallel_tests.rs:118:42
+    |
+118 |     for (pair, expected_step) in actions.chunks_exact(2).zip(["lane-b", "lane-a"]) {
+    |                                          ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+    = note: `#[warn(clippy::chunks_exact_to_as_chunks)]` on by default
+
+warning: using `chunks_exact` with a constant chunk size
+   --> relayflowd-core/src/machine/parallel_tests.rs:226:44
+    |
+226 |     for (pair, expected_step) in restarted.chunks_exact(2).zip(["lane-b", "lane-a"]) {
+    |                                            ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+
+warning: `relayflowd-core` (lib) generated 3 warnings (run `cargo clippy --fix --lib -p relayflowd-core -- ` to apply 3 suggestions)
+    Checking relayflowd-journal v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-journal)
+warning: items after a test module
+   --> relayflowd-core/src/state/budget.rs:88:1
+    |
+ 88 | mod tests {
+    | ^^^^^^^^^
+...
+139 | impl RunState {
+    | ^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#items_after_test_module
+    = note: `#[warn(clippy::items_after_test_module)]` on by default
+    = help: move the items to before the test module was defined
+
+warning: unnecessary use of `clone` to create a slice from a reference
+  --> relayflowd-core/tests/memoization.rs:81:52
+   |
+81 |     let folded = RunState::fold("new", state.spec, &[entry.clone()]).unwrap();
+   |                                                    ^^^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(entry)`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#cloned_ref_to_slice_refs
+   = note: `#[warn(clippy::cloned_ref_to_slice_refs)]` on by default
+
+warning: `relayflowd-core` (test "memoization") generated 1 warning (run `cargo clippy --fix --test "memoization" -p relayflowd-core -- ` to apply 1 suggestion)
+warning: `relayflowd-core` (lib test) generated 6 warnings (3 duplicates) (run `cargo clippy --fix --lib -p relayflowd-core --tests -- ` to apply 3 suggestions)
+    Checking relayflowd v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd)
+warning: match can be simplified with `.unwrap_or_default()`
+   --> relayflowd/src/engine/remote.rs:612:13
+    |
+612 | /             match String::from_utf8(writer.buf) {
+613 | |                 Ok(text) => text,
+614 | |                 Err(_) => String::new(),
+615 | |             }
+    | |_____________^ help: replace it with: `String::from_utf8(writer.buf).unwrap_or_default()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#manual_unwrap_or_default
+    = note: `#[warn(clippy::manual_unwrap_or_default)]` on by default
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+  --> relayflowd/src/engine/wake.rs:62:23
+   |
+62 |         inbox_resume: Option<&dyn Fn(&str) -> Result<RunOutcome>>,
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+   = note: `#[warn(clippy::type_complexity)]` on by default
+
+warning: this `if` statement can be collapsed
+   --> relayflowd/src/engine.rs:319:9
+    |
+319 | /         if started.is_err() {
+320 | |             if let Some(key) = admission_key {
+...   |
+332 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+    = note: `#[warn(clippy::collapsible_if)]` on by default
+help: collapse nested if block
+    |
+319 ~         if started.is_err()
+320 ~             && let Some(key) = admission_key {
+321 |                 // Once registered, this run is the durable receipt even if a
+...
+330 |                 }
+331 ~             }
+    |
+
+warning: file opened with `create`, but `truncate` behavior not defined
+  --> relayflowd/src/server/lifecycle.rs:47:10
+   |
+47 |         .create(true)
+   |          ^^^^^^^^^^^^- help: add: `.truncate(true)`
+   |
+   = help: if you intend to overwrite an existing file entirely, call `.truncate(true)`
+   = help: if you instead know that you may want to keep some parts of the old file, call `.truncate(false)`
+   = help: alternatively, use `.append(true)` to append to the file instead of overwriting it
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#suspicious_open_options
+   = note: `#[warn(clippy::suspicious_open_options)]` on by default
+
+warning: this function has too many arguments (8/7)
+   --> relayflowd/src/server/session.rs:113:5
+    |
+113 | /     pub fn attach_worker(
+114 | |         &self,
+115 | |         connection_id: u64,
+116 | |         worker_id: String,
+...   |
+121 | |         writer: Writer,
+122 | |     ) {
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+    = note: `#[warn(clippy::too_many_arguments)]` on by default
+
+warning: `relayflowd` (lib test) generated 5 warnings (run `cargo clippy --fix --lib -p relayflowd --tests -- ` to apply 2 suggestions)
+warning: `relayflowd` (lib) generated 5 warnings (5 duplicates)
+warning: this `if` statement can be collapsed
+  --> relayflowd/tests/daemon_lifecycle.rs:62:9
+   |
+62 | /         if path.exists() {
+63 | |             if let Ok(bytes) = std::fs::read(&path) {
+64 | |                 if let Ok(connection) = serde_json::from_slice::<Value>(&bytes) {
+65 | |                     if connection["pid"].as_i64() != Some(excluding_pid as i64) {
+...  |
+73 | |         }
+   | |_________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+   = note: `#[warn(clippy::collapsible_if)]` on by default
+help: collapse nested if block
+   |
+62 ~         if path.exists()
+63 ~             && let Ok(bytes) = std::fs::read(&path) {
+64 |                 if let Ok(connection) = serde_json::from_slice::<Value>(&bytes) {
+...
+71 |                 }
+72 ~             }
+   |
+
+warning: this `if` statement can be collapsed
+  --> relayflowd/tests/daemon_lifecycle.rs:63:13
+   |
+63 | /             if let Ok(bytes) = std::fs::read(&path) {
+64 | |                 if let Ok(connection) = serde_json::from_slice::<Value>(&bytes) {
+65 | |                     if connection["pid"].as_i64() != Some(excluding_pid as i64) {
+66 | |                         let socket = connection["socket_path"].as_str().unwrap();
+...  |
+72 | |             }
+   | |_____________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+63 ~             if let Ok(bytes) = std::fs::read(&path)
+64 ~                 && let Ok(connection) = serde_json::from_slice::<Value>(&bytes) {
+65 |                     if connection["pid"].as_i64() != Some(excluding_pid as i64) {
+...
+70 |                     }
+71 ~                 }
+   |
+
+warning: this `if` statement can be collapsed
+  --> relayflowd/tests/daemon_lifecycle.rs:64:17
+   |
+64 | /                 if let Ok(connection) = serde_json::from_slice::<Value>(&bytes) {
+65 | |                     if connection["pid"].as_i64() != Some(excluding_pid as i64) {
+66 | |                         let socket = connection["socket_path"].as_str().unwrap();
+67 | |                         UnixStream::connect(socket)
+...  |
+71 | |                 }
+   | |_________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+64 ~                 if let Ok(connection) = serde_json::from_slice::<Value>(&bytes)
+65 ~                     && connection["pid"].as_i64() != Some(excluding_pid as i64) {
+66 |                         let socket = connection["socket_path"].as_str().unwrap();
+...
+69 |                         return connection;
+70 ~                     }
+   |
+
+warning: `relayflowd` (test "daemon_lifecycle") generated 3 warnings (run `cargo clippy --fix --test "daemon_lifecycle" -p relayflowd -- ` to apply 3 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.96s
+exit_code=0

@@ -95,7 +95,7 @@ fn agent_success(
         }],
         streams: Vec::new(),
     });
-    completion_actions("run", step, 1, 0, result, now_ms)
+    completion_actions("run", step, 1, 0, None, result, now_ms)
         .into_iter()
         .find_map(|action| match action {
             Action::Append(entry) if entry.entry_type == EntryType::StepCompleted => Some(entry),
@@ -142,6 +142,7 @@ fn parallel_lanes_do_not_cross_the_dependency_barrier_early() {
             step,
             1,
             0,
+            None,
             AttemptResult::successful(json!({"answer": answer}), "worker"),
             20,
         )
@@ -398,6 +399,7 @@ fn failed_run_drains_open_siblings_before_terminal_entry() {
         &spec.steps[0],
         1,
         0,
+        None,
         failed,
         20,
     )));
@@ -413,6 +415,7 @@ fn failed_run_drains_open_siblings_before_terminal_entry() {
             &spec.steps[2],
             1,
             0,
+            None,
             AttemptResult::successful(json!({"answer": "a"}), "worker"),
             21,
         )

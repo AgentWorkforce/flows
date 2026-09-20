@@ -1,0 +1,64 @@
+# MUTATION (repair only): recovery.rs `if false && *wait_id == park_placeholder_wait_id(..)`; machine.rs park branch intact. Diff applied:
+51c51
+<                 if *wait_id == park_placeholder_wait_id(&spec.id, runtime.attempts) =>
+---
+>                 if false && *wait_id == park_placeholder_wait_id(&spec.id, runtime.attempts) =>
+
+$ cd kernel && cargo test -p relayflowd-core --lib -- machine::tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote
+   Compiling relayflowd-core v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.67s
+     Running unittests src/lib.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/relayflowd_core-82d87717b3255c51)
+
+running 1 test
+test machine::tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote ... FAILED
+
+failures:
+
+---- machine::tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote stdout ----
+
+thread 'machine::tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote' (2313987) panicked at relayflowd-core/src/machine/tests.rs:843:9:
+assertion `left == right` failed: worker-reported: recovery journals exactly the missing wait: []
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    machine::tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 71 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p relayflowd-core --lib`
+exit_code=101
+
+$ cd kernel && cargo test -p relayflowd --test manual_recovery a_park_torn_between_its_two_appends_is_repaired_on_resume
+   Compiling relayflowd-core v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-core)
+   Compiling relayflowd-journal v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.17s
+     Running tests/manual_recovery.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/manual_recovery-6793123a1244aad2)
+
+running 1 test
+test a_park_torn_between_its_two_appends_is_repaired_on_resume ... FAILED
+
+failures:
+
+---- a_park_torn_between_its_two_appends_is_repaired_on_resume stdout ----
+
+thread 'a_park_torn_between_its_two_appends_is_repaired_on_resume' (2314845) panicked at relayflowd/tests/manual_recovery.rs:66:13:
+injected crash between the park completion and its wait.human
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'a_park_torn_between_its_two_appends_is_repaired_on_resume' (2314845) panicked at relayflowd/tests/manual_recovery.rs:144:5:
+assertion `left == right` failed: exactly one wait.human: []
+  left: 0
+ right: 1
+
+
+failures:
+    a_park_torn_between_its_two_appends_is_repaired_on_resume
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p relayflowd --test manual_recovery`
+exit_code=101
