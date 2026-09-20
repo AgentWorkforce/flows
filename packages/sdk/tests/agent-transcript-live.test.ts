@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { TRANSCRIPT_DIGEST_MAX_BYTES, type TranscriptDigest } from '../src/agent-transcript.js';
 import { JournalClient } from '../src/journal-client.js';
 import { socketPathFor } from '../src/daemon-connection.js';
+import { readAuthoredStepIndex } from '../src/authored-step-index.js';
+import type { RunDiagnostic } from '../src/cli/run.js';
 
 /**
  * The digest through the real kernel: the built CLI runs an authored flow with
@@ -121,6 +123,31 @@ function runIdsIn(report: { runId?: string; diagnostics: Array<{ message: string
 }
 
 describe('the transcript digest through the built CLI, a real daemon and the local agent', () => {
+  it.each(['agent', 'llm'] as const)('preserves structured %s failure details and its completed root index', async kind => {
+    const operation = kind === 'agent'
+      ? "f.agent('prober', { task: 'probe', model: 'claude-haiku-4-5-20251001' })"
+      : "f.llm('probe', { output: {}, model: 'claude-haiku-4-5-20251001' })";
+    const f = fixture(`await ${operation}; f.done('success');`, 'probe failed', 1);
+    const result = f.invoke();
+    expect(result.status, result.stderr + result.stdout).toBe(1);
+    const report = JSON.parse(result.stdout) as { runId: string; rootRunId: string; diagnostics: RunDiagnostic[] };
+    expect(report.rootRunId).toBeTruthy();
+    expect(report.rootRunId).not.toBe(report.runId);
+    const failure = report.diagnostics.find(diagnostic => diagnostic.kind === 'step_failed');
+    expect(failure).toMatchObject({ stepId: `${kind}-1`, stepType: kind, attempt: 1, maxIterations: 1 });
+    if (kind === 'agent') expect(failure).toMatchObject({ exitCode: 1, stderrTail: 'stderr mentions \n' });
+    expect(failure?.completionReason).toBeTruthy();
+    const journal = new JournalClient(socketPathFor(join(f.root, 'data')));
+    await journal.connect();
+    await journal.hello('worker-failure-index-test');
+    try {
+      expect(await readAuthoredStepIndex(journal, report.rootRunId)).toEqual([{
+        index: 'relayflows.authored-step.v1', step: `${kind}-1`, runId: report.runId,
+        state: 'completed', completionReason: failure!.completionReason,
+      }]);
+    } finally { journal.close(); }
+  }, 120_000);
+
   it('journals the digest in trajectory_tail on a successful agent step and writes the file it points at', async () => {
     const f = fixture(`
   const out = await f.agent('prober', { task: 'probe', model: 'claude-haiku-4-5-20251001' });
