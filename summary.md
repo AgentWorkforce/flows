@@ -1,4 +1,13 @@
-# A failing named gate now says why (#507)
+# A failing named gate now says why (#511)
+
+**Correction:** the ticket implemented here is **#511** ("A failing
+`subprocess_gate` journals empty stdout/stderr"). The first commit on this
+branch, `f308f95`, and the PR title and body cite **#507**, which is a
+different open issue (`f.gitlab` is comment-only while `f.github` has full
+writeback). That commit is already pushed and is not amended here; the number
+is corrected in this report and in `evidence/511-named-gate-diagnostics/`. The
+PR body needs the same correction, which is a remote write this change does not
+make.
 
 ## What the ticket reported, and what the evidence actually shows
 
@@ -128,63 +137,156 @@ only that the renderer prints what it is given — it could not show the gate's
 stderr was ever published. The missing integration is the **Cloud runner /
 harness that writes runner logs**, which lives outside this repository. I have
 not substituted `flows replay` (local-journal only) or added a new local logs
-command; both would be scope the ticket did not ask for. This criterion should
-be tracked against the Cloud repository.
+command; both would be scope the ticket did not ask for.
+
+**Tracking, stated precisely.** The work item is: *the Cloud runner (or the
+harness that wraps it) must publish a deterministic step's `stdout_tail` and
+`stderr_tail` into the body served by `GET
+/api/v1/workflows/runs/<id>/logs`.* Closing it requires end-to-end evidence
+from that producer — a real Cloud run whose lowered gate fails, and the
+`flows logs <run-id>` output showing the gate's stderr — which cannot be
+produced from this repository, because no code here writes that route.
+Until that evidence exists, **#511 is not fully closed by this PR**; merging
+it leaves that one acceptance bullet open. No follow-up issue was filed:
+filing one is a remote write, and this change makes none. A maintainer should
+open it against the Cloud repository and link it from #511.
 
 ## Validation
 
-Run from `packages/sdk`. The kernel target lives outside the tree
-(`ops/cargo.sh` redirects `CARGO_TARGET_DIR`), and `test:prep` exports
-`RELAYFLOWD_BIN` inside a subshell that does not reach vitest, so it is passed
-explicitly here.
+Every run below is in `evidence/511-named-gate-diagnostics/`, as the captured
+output of the command that heads the file, ending in its exit status. The
+earlier revision of this report quoted excerpts without the transcripts, the
+full daemon path, or a baseline invocation; that is what these runs replace.
+The runs are re-executions, not the earlier session's logs.
 
-Mutation verification — production file reverted with `git stash push
-packages/sdk/src/named-gate-lowering.ts`, rebuilt, both new files run:
+All commands run from `packages/sdk` with the same explicit environment —
+`test:prep` exports `RELAYFLOWD_BIN` inside a subshell that never reaches
+vitest, and the kernel target lives outside the tree because `ops/cargo.sh`
+redirects `CARGO_TARGET_DIR`:
 
-```
- ❯ tests/named-gate-diagnostics.test.ts (17 tests | 12 failed) 569ms
- ❯ tests/named-gate-journal.test.ts (5 tests | 1 failed) 1798ms
- Test Files  2 failed (2)
-      Tests  13 failed | 9 passed (22)
-```
-
-The 9 that pass are the honest baseline: stream capture already worked.
-Restored byte-for-byte with `git stash pop`, rebuilt, re-run:
-
-```
- ✓ tests/named-gate-diagnostics.test.ts (17 tests) 545ms
- ✓ tests/named-gate-journal.test.ts (5 tests) 1629ms
- Test Files  2 passed (2)
-      Tests  22 passed (22)
+```sh
+RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd
 ```
 
-Required package command — `RELAYFLOWD_BIN=... npm test` (kernel build,
-typecheck, build, test typecheck, vitest):
+### The required package command — [head-package-test.txt](evidence/511-named-gate-diagnostics/head-package-test.txt)
+
+```sh
+RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd npm test
+```
+
+Kernel build, typecheck, build, test typecheck, vitest. Exit 1:
 
 ```
- ✓ tests/named-gate-diagnostics.test.ts (17 tests) 575ms
- ✓ tests/named-gate-journal.test.ts (5 tests) 1840ms
- ...
+ ✓ tests/named-gate-diagnostics.test.ts (17 tests) 532ms
+ ✓ tests/named-gate-journal.test.ts (5 tests) 1959ms
  Test Files  3 failed | 155 passed | 1 skipped (159)
       Tests  30 failed | 2393 passed | 17 skipped (2440)
 ```
 
-**The 30 failures are pre-existing and unrelated.** Verified by running the
-same files against the reverted production code: identical counts, identical
-line numbers.
+**The package is not green in this sandbox.** The transcript is complete —
+every failure's assertion and stack is in it, not summarized.
 
+### Mutation verification — [mutation-reverted.txt](evidence/511-named-gate-diagnostics/mutation-reverted.txt), [mutation-restored.txt](evidence/511-named-gate-diagnostics/mutation-restored.txt)
+
+Red half: revert the only production file to the parent revision, rebuild,
+re-run both new files.
+
+```sh
+git checkout e21caad -- src/named-gate-lowering.ts
+git hash-object src/named-gate-lowering.ts        # 479136c2… = e21caad's blob
+npm run build && npx vitest run tests/named-gate-diagnostics.test.ts tests/named-gate-journal.test.ts
+```
+
+```
+ ❯ tests/named-gate-diagnostics.test.ts (17 tests | 12 failed) 626ms
+ ❯ tests/named-gate-journal.test.ts (5 tests | 1 failed) 1808ms
+ Test Files  2 failed (2)
+      Tests  13 failed | 9 passed (22)
+EXIT=1
+```
+
+The 9 that pass are the honest baseline: stream capture already worked before
+this change. Green half, with the restore identity checked rather than
+asserted:
+
+```sh
+git checkout HEAD -- src/named-gate-lowering.ts
+git hash-object src/named-gate-lowering.ts        # 8a4ac50391d95c95693eb20cdbc69869a5d02060
+git rev-parse HEAD:packages/sdk/src/named-gate-lowering.ts
+                                                  # 8a4ac50391d95c95693eb20cdbc69869a5d02060
+git status --porcelain -- src tests tsconfig.tests.json   # empty
+npm run build && npx vitest run tests/named-gate-diagnostics.test.ts tests/named-gate-journal.test.ts
+```
+
+```
+ ✓ tests/named-gate-diagnostics.test.ts (17 tests) 685ms
+ ✓ tests/named-gate-journal.test.ts (5 tests) 1929ms
+ Test Files  2 passed (2)
+      Tests  22 passed (22)
+EXIT=0
+```
+
+Equal hashes and an empty `git status` are what makes "byte-for-byte" a
+checkable statement rather than a claim.
+
+### The 30 failures, with a baseline — [head-isolated-three-files.txt](evidence/511-named-gate-diagnostics/head-isolated-three-files.txt), [baseline-in-place-e21caad.txt](evidence/511-named-gate-diagnostics/baseline-in-place-e21caad.txt)
+
+The three failing files, run alone at head and then again with `packages/sdk`
+reverted to `e21caad` **in the same working directory**, so the revision is the
+only variable:
+
+```sh
+# head (f308f95)
+npx vitest run tests/live-kernel.test.ts tests/stuck-run-triage.test.ts tests/authored-node-runtime.test.ts
+#   Test Files  3 failed (3)
+#        Tests  30 failed | 23 passed | 14 skipped (67)
+
+# baseline (e21caad), same directory:
+git checkout e21caad -- packages/sdk
+rm packages/sdk/tests/named-gate-diagnostics.test.ts packages/sdk/tests/named-gate-journal.test.ts
+git diff --stat e21caad -- packages/sdk            # empty
+npm run build && npx vitest run tests/live-kernel.test.ts tests/stuck-run-triage.test.ts tests/authored-node-runtime.test.ts
+#   Test Files  3 failed (3)
+#        Tests  30 failed | 23 passed | 14 skipped (67)
+```
+
+Same counts, same cases, same assertion line numbers, at both revisions. That
+is the evidence for "pre-existing"; the tree was then restored and the identity
+re-checked ([restore-identity.txt](evidence/511-named-gate-diagnostics/restore-identity.txt):
+all four changed blobs hash-equal to `HEAD`, `git status --porcelain` empty).
+
+Why each fails here:
+
+- `tests/stuck-run-triage.test.ts` — 22 cases throwing "expected an
+  `@relayflows/surface` flow handle". Two installs of that package are
+  reachable from this checkout, and node resolves the test and the workflow
+  under test to different ones, so the handle is absent from the `WeakMap` the
+  test's copy of `getFlowDefinition` consults
+  (`packages/surface/src/flow.ts:137-143`). Literal resolution output is in
+  [unrelated-failure-cause.txt](evidence/511-named-gate-diagnostics/unrelated-failure-cause.txt):
+  the test resolves inside the checkout, the workflow resolves to
+  `/home/daytona/.relayflow-v2-supervisor/durable/node_modules`, an ancestor of
+  it. A sandbox layout defect.
+- `tests/live-kernel.test.ts` — 8 cases needing agent CLIs unavailable here.
 - `tests/authored-node-runtime.test.ts` — suite-level failure at line 18,
   `expected '1.3.6' to be '1.4.0'`: this sandbox's bun is older than the
-  version the test pins. All 14 cases skip. This is the file that exercises
+  version the test pins, so all 14 cases skip. This is the file that exercises
   `word_count_bounds` end-to-end, so it was checked first and specifically; it
-  does not run here for want of a prerequisite, not because of this change.
-- `tests/live-kernel.test.ts` — 8 cases needing agent CLIs unavailable here.
-- `tests/stuck-run-triage.test.ts` — 22 cases failing in
-  `getFlowDefinition` with "expected an @relayflows/surface flow handle", a
-  surface module-resolution problem in this checkout.
+  does not run here for want of a prerequisite.
 
-No kernel code changed, so the Rust suite was not run.
+A third run, [baseline-e21caad.txt](evidence/511-named-gate-diagnostics/baseline-e21caad.txt),
+ran the same three files at `e21caad` in a `/tmp` worktree and saw only 1
+failure. It is reported but **not** used as the baseline: `/tmp` has no
+ancestor `@relayflows` install, so it changes the resolution above and does not
+hold the environment fixed.
+
+### Not run
+
+The Rust suite: no kernel code changed
+(`git diff --stat e21caad HEAD -- kernel` is empty). Any Cloud runner-log
+publication: no producer exists here, as recorded above. The reported macOS
+incident: not replayed, on Linux or anywhere.
 
 `tsconfig.tests.json` gains the two new files so `typecheck:tests` covers them;
-it passes clean. No file under `docs/evidence` and no generated file was
-edited.
+it passes inside the `npm test` transcript. No file under `docs/evidence` and
+no generated file was edited.
