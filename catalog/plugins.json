@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "plugins": [
+    {
+      "name": "babysitter",
+      "description": "Live-state PR babysitter: parallel review lenses, deterministic reconciliation, exact-head merge gate. Fail-closed: GitHub pull_request.ready_for_review, labeled, and unlabeled are not in the surface registry, so a manifest that declares them is refused plugin_event_unroutable until the relayfile adapter catalog grows.",
+      "source": { "owner": "AgentWorkforce", "repo": "flows", "path": "examples/babysitter" },
+      "ref": "05c3dff138883322e80cb793b1f5a097ad510572",
+      "digest": "ae6af3335eb6d4e54559327acc1465419244b47911d8ff356850b61f6228d862",
+      "compat": { "surface": "^2.0.22", "sdk": "^2.0.22", "base": ["software-factory"] },
+      "tier": "community",
+      "base": ["software-factory"]
+    }
+  ]
+}
