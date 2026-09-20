@@ -13,8 +13,9 @@ import { runCli } from '../src/cli.js';
 import {
   errorLines, parseLogsArgs, parseRunsArgs, runCloudLogsCli, runCloudRunsCli, runCloudStatusCli,
 } from '../src/cli/cloud-read.js';
-import { renderStepEvidence } from '../src/cli/step-failure.js';
+import { renderStepEvidence, stepFailureDetails } from '../src/cli/step-failure.js';
 import { parseStatusArgs } from '../src/cli/status.js';
+import type { JournalClient } from '../src/journal-client.js';
 
 const RUN = '20d04c99-3fa8-48c9-9286-92d364a5bc2e';
 const CONNECTION = { apiUrl: 'https://cloud-contract.example', token: 'test-scoped-cloud-token', env: {} };
@@ -287,6 +288,45 @@ describe('flows logs', () => {
       expect(rendered).toContain(`attempt ${attempt} rejected by the pre-receive hook`);
     }
     expect(rendered).toContain('An earlier attempt may have had side effects.');
+  });
+
+  it('carries a first attempt whose only account is a gate verdict', async () => {
+    // An attempt refused by a gate exits 0 with empty tails: the verdict is
+    // the whole account of it. Read here with the production reader and
+    // rendered with the production renderer, because a gate error dropped at
+    // extraction is a gate error no hosted log can recover — Cloud keeps the
+    // printed bytes and nothing else.
+    const completion = (seq: number, attempt: number, payload: unknown) => ({
+      seq, entry_type: 'step.completed', step_id: 'check', attempt, payload,
+    });
+    const entries = [
+      completion(1, 1, {
+        completionReason: 'verification_failed', disposition: 'retry',
+        output: { exit_code: 0, stdout_tail: '', stderr_tail: '' },
+        verification: {
+          gate: 'output_contains', verdict: 'fail', detail: 'output did not contain "READY"',
+        },
+      }),
+      completion(2, 2, {
+        completionReason: 'retries_exhausted', disposition: 'step_done',
+        output: { exit_code: 1, stdout_tail: '', stderr_tail: 'nothing staged in the declared scope' },
+        verification: { gate: 'exit_code', verdict: 'fail', detail: 'exit code was 1' },
+      }),
+    ];
+    const client = {
+      runGet: async () => ({ steps: { check: { type: 'deterministic', state: 'done' } } }),
+      journalRead: async (_run: string, from: number) => ({
+        entries: entries.filter(entry => entry.seq >= from),
+      }),
+    } as unknown as JournalClient;
+    const details = await stepFailureDetails(client, RUN);
+    const runner = `FAILED [step_failed]${renderStepEvidence(details!)}\n`;
+    wholeCloud({ runner });
+    const out = io();
+    expect(await runCloudLogsCli(parseLogsArgs([RUN])!, out.io, CONNECTION)).toBe(0);
+    const rendered = out.stdout.join('\n');
+    expect(rendered).toContain('output did not contain "READY"');
+    expect(rendered).toContain('nothing staged in the declared scope');
   });
 
   it('renders an agent step’s transcript: session header, prose, one line per tool call, footer', async () => {

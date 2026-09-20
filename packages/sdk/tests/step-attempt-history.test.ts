@@ -144,23 +144,81 @@ describe('attempt history in a retried step failure', () => {
     expect(diagnostic.message).toContain('(excerpt truncated)');
   });
 
-  it('sees a changed gate verdict behind identical process output', async () => {
+  it('shows the changed gate verdict behind identical process output', async () => {
     const output = captured(1, 'build failed');
     const gate = (detail: string) => ({ gate: 'exit_code+output_contains', verdict: 'fail', detail });
     const { diagnostic } = await diagnose([[
       completed({
         seq: 1, attempt: 1, disposition: 'retry', output,
-        verification: gate('exit_code: expected 0, got 1'),
+        verification: gate('output did not contain "done"'),
       }),
       completed({
         seq: 2, attempt: 2, reason: 'retries_exhausted', output,
-        verification: gate('output_contains: missing "done"'),
+        verification: gate('JSON schema rejected output: 123 is not of type "string"'),
       }),
     ]]);
-    // The render is suppressed for display because the output is process
-    // shaped — it is still read for the comparison.
-    expect(diagnostic.attempts![0]).not.toHaveProperty('detail');
+    // The verdict is the only thing that changed, so it is the only account of
+    // why these two attempts were not the same failure. Suppressing it because
+    // `output` happened to be process-shaped left the message asserting the
+    // evidence differs while printing two identical-looking attempts.
+    expect(diagnostic.attempts![0]).toMatchObject({ detail: 'output did not contain "done"' });
+    expect(diagnostic.message).toContain('detail: output did not contain "done"');
+    expect(diagnostic.message).toContain('detail: JSON schema rejected output:');
     expect(diagnostic.attemptEvidence).toBe('differs');
+  });
+
+  it('rejects a first attempt on a gate alone and still names the reason', async () => {
+    // The shape that hid a first error even with the history in place: the
+    // gate refused output the command produced happily, so that attempt's
+    // process report is exit 0 with empty tails and the verdict is the whole
+    // diagnosis. The retry then failed for an entirely different reason.
+    const { diagnostic } = await diagnose([[
+      completed({
+        seq: 1, attempt: 1, disposition: 'retry', output: captured(0, ''),
+        verification: {
+          gate: 'output_contains', verdict: 'fail', detail: 'output did not contain "READY"',
+        },
+      }),
+      completed({
+        seq: 2, attempt: 2, reason: 'retries_exhausted', output: captured(1, NOTHING_STAGED),
+        verification: {
+          gate: 'exit_code+output_contains', verdict: 'fail',
+          detail: 'exit code was 1; output did not contain "READY"',
+        },
+      }),
+    ]]);
+    expect(diagnostic.attempts![0]).toMatchObject({
+      attempt: 1, exitCode: 0, detail: 'output did not contain "READY"',
+    });
+    // Both actual errors, each attributed to the attempt that produced it.
+    expect(diagnostic.message).toContain(
+      '  attempt 1: verification_failed exit=0 — detail: output did not contain "READY"');
+    expect(diagnostic.message).not.toContain('no failure evidence recorded');
+    expect(diagnostic.message).toContain(NOTHING_STAGED);
+    expect(diagnostic.attemptEvidence).toBe('differs');
+  });
+
+  it('prints an account the process report already made exactly once', async () => {
+    // Two shapes restate what is printed beside them: the `exit_code` gate's
+    // bare verdict (verify.rs), and the daemon's JSON render of a worker
+    // failure (`worker_failure_detail`), which a deterministic step journals
+    // beside the preserved output that render was made from.
+    const { diagnostic } = await diagnose([[
+      completed({
+        seq: 1, attempt: 1, disposition: 'retry', output: captured(1, REJECTION),
+        verification: { gate: 'exit_code', verdict: 'fail', detail: 'exit code was 1' },
+      }),
+      completed({
+        seq: 2, attempt: 2, reason: 'worker_error', output: captured(1, NOTHING_STAGED),
+        verification: render(NOTHING_STAGED),
+      }),
+    ]]);
+    expect(diagnostic.attempts![0]).not.toHaveProperty('detail');
+    expect(diagnostic.attempts![1]).not.toHaveProperty('detail');
+    expect(diagnostic.message)
+      .toContain(`attempt 1: verification_failed exit=1 — stderr: ${REJECTION}`);
+    expect(diagnostic.message).toContain(`attempt 2: worker_error exit=1 — stderr: ${NOTHING_STAGED}`);
+    expect(diagnostic.message).not.toContain('exit code was 1');
   });
 
   it('keeps stdout when stderr is empty rather than reporting nothing', async () => {
@@ -242,6 +300,24 @@ describe('attempt history in a retried step failure', () => {
     // disagree, and `unchanged` would be an assertion about what was lost.
     expect(diagnostic.attemptEvidence).toBe('unknown');
     expect(diagnostic.message).toContain('attempt ?: crashed — no failure evidence recorded');
+  });
+
+  it('does not call a missing account a changed cause', async () => {
+    // One attempt journaled nothing and the next journaled an error. The
+    // records are not equal, but an attempt that said nothing about why it
+    // failed cannot establish that the causes differ — and `differs` carries
+    // "an earlier attempt may have had side effects", which this does not
+    // support. The attempt is still listed; only the verdict is withheld.
+    const { diagnostic } = await diagnose([[
+      completed({ seq: 1, attempt: 1, reason: 'crashed', disposition: 'retry' }),
+      completed({
+        seq: 2, attempt: 2, reason: 'retries_exhausted', output: captured(1, NOTHING_STAGED),
+      }),
+    ]]);
+    expect(diagnostic.attemptEvidence).toBe('unknown');
+    expect(diagnostic.message).toContain('whether the causes differ is unknown');
+    expect(diagnostic.message).not.toContain('side effects');
+    expect(diagnostic.attempts).toMatchObject([{ attempt: 1 }, { attempt: 2 }]);
   });
 
   it('records a parked attempt as a failure of that attempt', async () => {

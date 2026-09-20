@@ -58,16 +58,16 @@ export interface SelectedEvidence {
  */
 export function selectEvidence(payload: Record<string, unknown>): SelectedEvidence {
   const detail = record(payload['verification'])?.['detail'];
+  const rendered = typeof detail === 'string' ? parsed(detail) : undefined;
   const candidates = [
     record(payload['output']),
     record(payload['trajectory_tail']),
-    typeof detail === 'string' ? parsed(detail) : undefined,
+    rendered,
   ].filter((candidate): candidate is Record<string, unknown> => candidate !== undefined);
   const structured = candidates.find(processShaped) ?? candidates[0];
   const exitCode = structured?.['exit_code'];
   const stdout = structured?.['stdout_tail'];
   const stderr = structured?.['stderr_tail'];
-  const structuredShape = structured !== undefined && processShaped(structured);
   const transcript = record(record(payload['trajectory_tail'])?.['transcript']);
   const failure = record(transcript?.['failure']);
   const excerpt = failure?.['excerpt'];
@@ -81,13 +81,37 @@ export function selectEvidence(payload: Record<string, unknown>): SelectedEviden
     ...(typeof exitCode === 'number' && Number.isSafeInteger(exitCode) ? { exitCode } : {}),
     ...(typeof stdout === 'string' && stdout.length > 0 ? { stdoutTail: stdout } : {}),
     ...(typeof stderr === 'string' ? { stderrTail: stderr } : {}),
-    // Keep the daemon's account only when it was NOT just a render of the
-    // fields above — otherwise the same bytes print twice.
     ...(excerptDetail !== undefined ? { detail: excerptDetail }
-      : typeof detail === 'string' && detail.length > 0 && !structuredShape
+      : typeof detail === 'string' && detail.length > 0 && !duplicates(detail, rendered, exitCode)
         ? { detail } : {}),
     ...(typeof transcriptPath === 'string' && transcriptPath.length > 0 ? { transcriptPath } : {}),
   };
+}
+
+/**
+ * Whether printing `verification.detail` would print bytes already printed.
+ *
+ * Only two shapes do. The daemon's render of a worker failure IS the
+ * `{exit_code, stdout_tail, stderr_tail}` report (`worker_failure_detail`,
+ * relayflowd/src/engine/remote.rs), which a deterministic step journals
+ * alongside its preserved `output`; and the `exit_code` gate's verdict on its
+ * own is the exit code that is already reported beside it (`exit code was 1`,
+ * relayflowd-core/src/verify.rs).
+ *
+ * Every other verdict is the ONLY account of its failure. `output did not
+ * contain "READY"` accompanies exit 0 and empty tails, so suppressing the
+ * detail whenever some field happened to be process-shaped left the attempt
+ * saying `exit=0 — no failure evidence recorded` while the journal held the
+ * gate error — the first attempt hidden again, inside the diagnostic that
+ * exists to surface it.
+ */
+function duplicates(
+  detail: string,
+  rendered: Record<string, unknown> | undefined,
+  exitCode: unknown,
+): boolean {
+  if (rendered !== undefined && processShaped(rendered)) return true;
+  return typeof exitCode === 'number' && detail === `exit code was ${exitCode}`;
 }
 
 /** The `StepFailedDetails` scalars for one completion, at the terminal bound. */
@@ -191,9 +215,20 @@ export interface AttemptCause {
   readonly producerTruncated: boolean;
 }
 
+/**
+ * Only attempts that recorded something can establish a difference.
+ *
+ * An attempt that journaled no account of itself differs from every other one
+ * on paper while saying nothing about why it failed, and reporting that as
+ * `differs` would put "an earlier attempt may have had side effects" on a
+ * crash that is evidence of nothing. Truncation is not the same case: two
+ * renders the daemon already cut can only look MORE alike than they were, so
+ * surviving bytes that disagree still prove the causes disagreed.
+ */
 export function compareAttempts(causes: readonly AttemptCause[]): AttemptEvidenceComparison {
-  if (new Set(causes.map(cause => cause.key)).size > 1) return 'differs';
-  return causes.every(cause => cause.recorded && !cause.producerTruncated)
+  const recorded = causes.filter(cause => cause.recorded);
+  if (new Set(recorded.map(cause => cause.key)).size > 1) return 'differs';
+  return recorded.length === causes.length && causes.every(cause => !cause.producerTruncated)
     ? 'unchanged' : 'unknown';
 }
 

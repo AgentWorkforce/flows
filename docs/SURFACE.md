@@ -705,7 +705,7 @@ FAILED [step_failed] Run "<run-id>" failed with completionReason: step_failed.
 Attempts: <count> failed; <whether their recorded evidence agrees>
   attempt 1: <reason> exit=<code> — stderr: <excerpt>
   attempt 2: <reason> exit=<code> — stderr: <excerpt>
-Detail: <the worker's own account, when it left one>
+Detail: <the gate's verdict, or the worker's own account>
 Stdout (last 1,024 bytes):
 <tail>
 Stderr (last 1,024 bytes):
@@ -738,16 +738,33 @@ The corresponding `attempts` entries in `--json` use the keys `attempt`,
 `completionReason`, `disposition`, `exitCode`, `stdoutTail`, `stderrTail`,
 `detail` and `truncated`.
 
+`detail` — on the terminal clause and on each attempt — is the verification
+record's account: the gate's verdict for a deterministic step (`output did not
+contain "READY"`), or what the worker reported for an agent or llm step. A gate
+can refuse output that a command produced happily, so an attempt can report
+exit 0, empty tails and a verdict that is the entire reason it failed. It is
+withheld only when it would repeat bytes already printed beside it: the
+daemon's `{exit_code, stdout_tail, stderr_tail}` render of a worker failure,
+and the `exit_code` gate's bare `exit code was <code>` next to the exit code
+it restates.
+
 `attemptEvidence` says whether the attempts failed for the same reason, and is
 one of:
 
-- `differs` — the journaled evidence is not the same across attempts. A retry
-  that fails differently usually means an earlier attempt already had a side
-  effect, so the message adds *An earlier attempt may have had side effects.*
+- `differs` — two attempts that each recorded evidence recorded different
+  evidence. A retry that fails differently usually means an earlier attempt
+  already had a side effect, so the message adds *An earlier attempt may have
+  had side effects.*
 - `unchanged` — every attempt recorded evidence and all of it agrees.
 - `unknown` — at least one attempt journaled nothing about why it failed, or
   its evidence reached the journal already truncated by the daemon, so whether
   the causes differ cannot be decided.
+
+Only attempts that recorded something are compared: an attempt that journaled
+no account of itself is unequal to every other one on paper while establishing
+nothing, and would otherwise put the side-effect warning on a crash that is
+evidence of nothing. A render the daemon truncated is compared, because
+truncation can only make two accounts look more alike than they were.
 
 The comparison runs on the journal record before any display bound, and reads
 the verification gate, verdict and detail as well as the exit codes and output
