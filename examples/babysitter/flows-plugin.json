@@ -10,7 +10,7 @@
     "base": [{ "name": "software-factory", "version": "*" }]
   },
   "entry": "babysitter.flow.ts",
-  "extends": { "handlers": true, "hooks": [] },
+  "extends": { "handlers": true, "hooks": ["merge-gate"] },
   "triggers": [
     { "provider": "github", "event": "pull_request", "actions": ["opened", "synchronize", "reopened", "ready_for_review", "closed", "labeled", "unlabeled"] },
     { "provider": "github", "event": "pull_request_review", "actions": ["submitted", "dismissed"] },

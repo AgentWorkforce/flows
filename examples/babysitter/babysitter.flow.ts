@@ -1,5 +1,5 @@
 import { flow, type Ctx } from '@relayflows/surface';
-import { parseInput, record, shellWord, type Config } from './input.ts';
+import { parseInput, record, shaValid, shellWord, type Config } from './input.ts';
 import { eligible, ready, mergeAllowed } from './state.ts';
 import { conflictAllowed } from './safety.ts';
 import { lenses, reconcile } from './artifacts.ts';
@@ -93,3 +93,33 @@ const babysitter = subscriptions.reduce<ReturnType<typeof flow>>(
   flow<unknown>('Babysitter', { budget: { dollars: 8, wallclock: '45m' } }, babysit),
 );
 export default babysitter;
+
+/**
+ * Software Garden calls `f.hook("merge-gate", { owner, repo, headSha })` before
+ * `gh pr create` on the PASSED path. Reread live state; never invent a receipt.
+ * No open PR at that head → nothing to gate (return true). A held gate throws
+ * the refusal reason so the journal records which plugin blocked.
+ */
+export async function mergeGate(f: Ctx, input: unknown): Promise<boolean> {
+  const x = record(input);
+  if (typeof x.owner !== 'string' || typeof x.repo !== 'string' || !shaValid(x.headSha)) {
+    throw new Error('merge-gate requires owner, repo, and a 40-hex headSha');
+  }
+  const head = x.headSha;
+  const listing = await f.run(`gh pr list --repo ${shellWord(`${x.owner}/${x.repo}`)} --state open --json number,headRefOid --limit 50`);
+  const rows = JSON.parse(listing) as { number: number; headRefOid: string }[];
+  if (!Array.isArray(rows)) throw new Error('merge-gate: gh pr list did not return a list');
+  const match = rows.find(row => row.headRefOid === head);
+  if (match === undefined) return true;
+  const config = parseInput({
+    ...x, number: match.number,
+    testCommand: typeof x.testCommand === 'string' ? x.testCommand : 'true',
+    botLogin: typeof x.botLogin === 'string' ? x.botLogin : 'none',
+  });
+  const live = await readState(f, config);
+  const refusal = mergeAllowed(live, config, head);
+  if (refusal) throw new Error(refusal);
+  return true;
+}
+
+export const hooks = { 'merge-gate': mergeGate };
