@@ -1,0 +1,5 @@
+cwd: /tmp/flows-relay-communication
+$ python /tmp/flows-pr-cleanup/pr500-repeat-boundary.py
+200 repetitions passed
+
+exit status: 0
