@@ -38,6 +38,8 @@ export interface LoadedFlowExtension {
   readonly entryPath: string;
   readonly manifest: FlowExtensionManifest;
   readonly handle: FlowHandle;
+  /** Bound to the surface copy the entry itself imported; the base's accessor cannot see this handle's WeakMap entry. */
+  readonly getDefinition: ImportedFlow<unknown>['getDefinition'];
   readonly handlers: readonly TriggerHandler[];
 }
 
@@ -125,7 +127,7 @@ async function loadOne<Authority>(
   definition.handlers.forEach((handler, index) => assertDeclaredSubscription(manifest.name, manifest, handler, index));
   return Object.freeze({
     name: manifest.name, version: manifest.version, ref, digest: lock.digest, directory, entryPath, manifest,
-    handle: imported.handle, handlers: Object.freeze([...definition.handlers]),
+    handle: imported.handle, getDefinition: imported.getDefinition, handlers: Object.freeze([...definition.handlers]),
   });
 }
 

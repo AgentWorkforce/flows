@@ -136,7 +136,9 @@ export async function loadAuthoredFlow(path: string, options: LoadAuthoredFlowOp
   const getDefinition: GetFlowDefinition = <Input = unknown>(handle: FlowHandle) =>
     (handle === root.handle ? composed : root.getDefinition(handle)) as AuthoredFlowDefinition<Input>;
   for (const extension of extensions) {
-    graph.push(Object.freeze({ path: extension.entryPath, handle: extension.handle, getDefinition: root.getDefinition,
+    // The node carries the accessor the entry's own surface copy handed back:
+    // the root's accessor answers for the root's WeakMap only.
+    graph.push(Object.freeze({ path: extension.entryPath, handle: extension.handle, getDefinition: extension.getDefinition,
       surfaceAuthority: root.surfaceAuthority, use: Object.freeze([]) }));
   }
   return Object.freeze({ sourcePath: root.path, handle: root.handle, getDefinition,

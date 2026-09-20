@@ -84,6 +84,11 @@ describe('composing flow extensions onto a base flow', () => {
     expect(preflightProviderTriggers(composed.handlers.map(h => h.trigger))).toEqual([]);
     // The extension's own handle is not the root: asking for its definition goes to the surface, not the composition.
     expect(loaded.getDefinition(loaded.extensions[0]!.handle).handlers).toHaveLength(8);
+    // Its graph node resolves through the accessor its own entry import returned, not the root's.
+    const node = loaded.graph[1]!;
+    expect(node.getDefinition).toBe(loaded.extensions[0]!.getDefinition);
+    expect(node.getDefinition(node.handle).name).toBe('babysitter');
+    expect(node.getDefinition(node.handle).handlers).toHaveLength(8);
   });
   it('loads the root alone with extensions: none, and helper loading ignores extension entries', async () => {
     const p = project();
