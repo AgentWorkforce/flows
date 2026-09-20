@@ -40,6 +40,8 @@ export type AuthoredFlowExecutionErrorCode =
   | 'unsupported_verb';
 
 export class AuthoredFlowExecutionError extends Error {
+  /** Set by the durable root driver after the child error crosses any IPC boundary. */
+  rootRunId?: string;
   constructor(
     readonly code: AuthoredFlowExecutionErrorCode,
     message: string,

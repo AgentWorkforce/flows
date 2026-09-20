@@ -49,6 +49,8 @@ export interface RunReport {
   command: RunCommand;
   path?: string;
   runId?: string;
+  /** Authored root to resume/collect when runId identifies a failed child. */
+  rootRunId?: string;
   socketPath?: string;
   status?: RunStatus;
   completionReason?: RunCompletionReason;
@@ -287,12 +289,14 @@ export function authoredStepFailure(
   // The failing step runs as its own kernel run, so the error's run id is the
   // one whose journal holds the evidence. The resume target is the fallback.
   const runId = error.runId ?? fallbackRunId;
+  const rootRunId = error.rootRunId ?? fallbackRunId;
   return {
     exitCode: 1,
     report: {
       ...fromBase(command, base),
       ok: false,
       ...(runId === undefined ? {} : { runId }),
+      ...(rootRunId === undefined ? {} : { rootRunId }),
       socketPath,
       status: 'failed',
       completionReason: 'step_failed',

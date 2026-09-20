@@ -745,6 +745,11 @@ child. Helper-provider, MCP and plugin-effect children are not yet included
 in this index. Once appended, the index survives process exit and is readable from
 the journal on disk, including after a cooperative nonzero exit.
 
+An authored step-failure JSON report keeps the child in `runId` and adds
+`rootRunId` for the durable authored root. Consumers must use `rootRunId` for
+the resume pointer and root index, and `runId` for the failing child's evidence.
+The root driver assigns this field after any Node-child IPC boundary.
+
 Cloud must separately collect these journals before tearing down a failed
 sandbox. The index alone does not persist Cloud step rows or provide a
 deterministic command's Cloud log endpoint.

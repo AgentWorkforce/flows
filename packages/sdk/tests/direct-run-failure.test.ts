@@ -64,3 +64,10 @@ it('uses the worker cause when the authored executor only saw a generic disconne
   expect(result.exitCode).toBe(1);
   expect(JSON.stringify(result.report)).toContain('worker transport closed');
 });
+it('reports the root separately from the child holding failure evidence', async () => {
+  const error = new AuthoredFlowExecutionError('step_failed', 'child failed', undefined, 'child-run');
+  error.rootRunId = 'root-run';
+  vi.mocked(executeDurableAuthoredFlow).mockRejectedValueOnce(error);
+  const result = await runDirectFlow('flow.ts', '{}', '/tmp/unused');
+  expect(result.report).toMatchObject({ runId: 'child-run', rootRunId: 'root-run', status: 'failed' });
+});
