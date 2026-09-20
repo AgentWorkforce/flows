@@ -73,7 +73,16 @@ class JournalActivity implements OpenActivity {
 
   async close(reason: CloseReason): Promise<void> {
     if (this.closed) return;
-    await this.ensureOpen();
+    try {
+      await this.ensureOpen();
+    } catch (error) {
+      // Failure cleanup has no active binding to close before activation.
+      // Re-throwing this handoff would disguise a real body failure as a
+      // normal suspension. Root termination fences any later activation.
+      if (reason !== 'closed' && error instanceof AuthoredFlowExecutionError
+        && error.code === 'subscription_suspended' && error.suspension?.kind === 'activation') return;
+      throw error;
+    }
     await this.journal.subscriptionClose({
       run_id: this.runId,
       subscription_id: this.subscriptionId,

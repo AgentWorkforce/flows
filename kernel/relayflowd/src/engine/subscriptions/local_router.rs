@@ -1,4 +1,4 @@
-//! Local test router adapter; Cloud supplies its own authorized ingress.
+//! The local daemon's event.emit ingress; Cloud supplies its own authorized router.
 use super::*;
 
 impl<C: Clock> Engine<C> {

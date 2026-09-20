@@ -146,3 +146,51 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 exit status: 0
 ```
+
+## Build provenance and cleanup regression
+
+The original targeted SDK run followed this build. The later cleanup regression
+command also rebuilds the SDK before testing it.
+
+```text
+cwd: /tmp/flows-pr-followup/pr441/kernel
+$ sh -c 'cargo build --locked -p relayflowd && npm run build --prefix ../packages/sdk'
+   Compiling relayflowd v0.1.0 (/tmp/flows-pr-followup/pr441/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.34s
+
+> @relayflows/sdk@2.0.22 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+exit status: 0
+```
+
+```text
+cwd: /tmp/flows-pr-followup/pr441/kernel
+$ cargo build --locked -p relayflowd
+   Compiling relayflowd v0.1.0 (/tmp/flows-pr-followup/pr441/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.16s
+
+exit status: 0
+```
+
+```text
+cwd: /tmp/flows-pr-followup/pr441/packages/sdk
+$ sh -c 'npm run build && npx vitest run tests/authored-activity.test.ts'
+
+> @relayflows/sdk@2.0.22 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+ RUN  v2.1.9 /tmp/flows-pr-followup/pr441/packages/sdk
+
+ ✓ tests/authored-activity.test.ts (15 tests) 79ms
+
+ Test Files  1 passed (1)
+      Tests  15 passed (15)
+   Start at  20:56:03
+   Duration  1.13s (transform 467ms, setup 0ms, collect 837ms, tests 79ms, environment 0ms, prepare 78ms)
+
+
+exit status: 0
+```

@@ -159,6 +159,21 @@ describe('authored event activities', () => {
     } finally { journal.close(); }
   });
 
+  it.each(['throws', 'missing-completion'])('preserves a body failure before activation: %s', async failure => {
+    calls.length = 0;
+    const journal = new JournalClient(path, { requestTimeoutMs: 2_000 });
+    await journal.connect();
+    await journal.hello('authored-activity-failure-before-activation');
+    try {
+      const execution = executeAuthoredFlow(flow('failed-before-activation', async f => {
+        f.on(webhook('pull_request'), { idle: '1h', deadline: '1d' });
+        if (failure === 'throws') throw new Error('original body failure');
+      }), journal, undefined, { rootRunId: 'root-prepared' });
+      await expect(execution).rejects.toThrow(failure === 'throws' ? 'original body failure' : 'missing_completion');
+      expect(calls.map(call => call.verb)).toEqual(['subscription.open']);
+    } finally { journal.close(); }
+  });
+
   it('acknowledges a normal wake only with the following pull', async () => {
     calls.length = 0;
     const journal = new JournalClient(path, { requestTimeoutMs: 2_000 });
