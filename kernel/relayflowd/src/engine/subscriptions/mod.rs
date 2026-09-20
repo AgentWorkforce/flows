@@ -201,12 +201,11 @@ impl<C: Clock> Engine<C> {
         if state.closed.is_some() || state.overflow_fence.is_some() { return Ok(false); }
         let entries = journal.scan_all()?;
         let unread = unread_frames(&entries, state)?;
-        if unread.iter().any(|(_, append)| append.provider_delivery_id.as_deref() == Some(delivery_id))
-            || entries.iter().filter(|entry| entry.entry_type == EntryType::StreamAppended).any(|entry| {
-                serde_json::from_value::<StreamAppendedPayload>(entry.payload.clone()).ok()
-                    .is_some_and(|append| append.stream == state.stream() && append.provider_delivery_id.as_deref() == Some(delivery_id))
-            }) {
-            return Ok(false);
+        for entry in entries.iter().filter(|entry| entry.entry_type == EntryType::StreamAppended) {
+            let append: StreamAppendedPayload = serde_json::from_value(entry.payload.clone())?;
+            if append.stream == state.stream() && append.provider_delivery_id.as_deref() == Some(delivery_id) {
+                return Ok(false);
+            }
         }
         let encoded = serde_json::to_vec(&frame).context("encode subscription frame")?;
         let unread_bytes = unread.iter().try_fold(0usize, |sum, (_, append)| {
@@ -220,7 +219,7 @@ impl<C: Clock> Engine<C> {
             self.complete_fenced_overflows_in_journal(&mut journal, self.clock.now_ms())?;
             return Ok(false);
         }
-        let offset = next_stream_offset(&entries, state.stream());
+        let offset = next_stream_offset(&entries, state.stream())?;
         self.append(&mut journal, &JournalEntry::new(
             EntryType::StreamAppended, run_id, None, None, self.clock.now_ms(),
             StreamAppendedPayload { stream: state.stream().to_owned(), offset, producer: "event-router".to_owned(), message: frame, provider_delivery_id: Some(delivery_id.to_owned()) },
@@ -430,11 +429,11 @@ impl<C: Clock> Engine<C> {
                 SubscriptionAcknowledgedPayload { subscription_id: state.opened.subscription_id.clone(), wait_id: wait_id.to_owned(), next_offset: completed.result.get("next_offset").and_then(Value::as_u64) }))?;
             return Ok(());
         }
-        let already_acknowledged = journal.scan_all()?.into_iter().any(|entry| {
-            entry.entry_type == EntryType::SubscriptionAcknowledged
-                && serde_json::from_value::<SubscriptionAcknowledgedPayload>(entry.payload)
-                    .is_ok_and(|ack| ack.subscription_id == state.opened.subscription_id && ack.wait_id == wait_id)
-        });
+        let mut already_acknowledged = false;
+        for entry in journal.scan_all()?.into_iter().filter(|entry| entry.entry_type == EntryType::SubscriptionAcknowledged) {
+            let ack: SubscriptionAcknowledgedPayload = serde_json::from_value(entry.payload)?;
+            already_acknowledged |= ack.subscription_id == state.opened.subscription_id && ack.wait_id == wait_id;
+        }
         if !already_acknowledged {
             bail!("subscription {} has no normal wake {} to acknowledge", state.opened.subscription_id, wait_id);
         }

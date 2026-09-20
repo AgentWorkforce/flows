@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use relayflowd_core::{
     EntryType, JournalEntry, StreamAppendedPayload, SubscriptionAcknowledgedPayload,
     SubscriptionClosedPayload, SubscriptionOpenedPayload, SubscriptionOverflowFencedPayload,
@@ -152,17 +152,23 @@ pub(super) fn unread_frames(
     Ok(unread)
 }
 
-pub(super) fn next_stream_offset(entries: &[JournalEntry], stream: &str) -> u64 {
-    entries
+pub(super) fn next_stream_offset(entries: &[JournalEntry], stream: &str) -> Result<u64> {
+    let mut next = 0;
+    for entry in entries
         .iter()
         .filter(|entry| entry.entry_type == EntryType::StreamAppended)
-        .filter_map(|entry| {
-            serde_json::from_value::<StreamAppendedPayload>(entry.payload.clone()).ok()
-        })
-        .filter(|append| append.stream == stream)
-        .map(|append| append.offset.saturating_add(1))
-        .max()
-        .unwrap_or(0)
+    {
+        let append: StreamAppendedPayload = serde_json::from_value(entry.payload.clone())?;
+        if append.stream == stream {
+            next = next.max(
+                append
+                    .offset
+                    .checked_add(1)
+                    .context("subscription offset overflow")?,
+            );
+        }
+    }
+    Ok(next)
 }
 
 pub(super) fn events_wake(
@@ -199,11 +205,14 @@ pub(super) fn wake_from_completed(
         Some("idle") => return Ok(SubscriptionWake::Idle),
         Some("deadline") => {
             return Ok(SubscriptionWake::Deadline {
-                pending: completed
-                    .result
-                    .get("pending")
-                    .cloned()
-                    .and_then(|value| serde_json::from_value(value).ok()),
+                pending: serde_json::from_value(
+                    completed
+                        .result
+                        .get("pending")
+                        .context("deadline completion lacks pending range")?
+                        .clone(),
+                )
+                .context("decode deadline pending range")?,
             });
         }
         _ => {}
@@ -218,16 +227,27 @@ pub(super) fn wake_from_completed(
         .get("next_offset")
         .and_then(Value::as_u64)
         .context("activity event completion lacks next_offset")?;
-    let events = journal
+    if next <= from {
+        bail!("activity completion has an invalid cursor range");
+    }
+    let mut events = Vec::new();
+    for entry in journal
         .scan_all()?
         .into_iter()
         .filter(|entry| entry.entry_type == EntryType::StreamAppended)
-        .filter_map(|entry| serde_json::from_value::<StreamAppendedPayload>(entry.payload).ok())
-        .filter(|append| {
-            append.stream == state.stream() && append.offset >= from && append.offset < next
-        })
-        .map(|append| append.message)
-        .collect();
+    {
+        let append: StreamAppendedPayload = serde_json::from_value(entry.payload)
+            .context("decode stream.appended while replaying wake")?;
+        if append.stream == state.stream() && append.offset >= from && append.offset < next {
+            if append.offset != from + events.len() as u64 {
+                bail!("activity wake has missing or unordered frames");
+            }
+            events.push(append.message);
+        }
+    }
+    if next - from != events.len() as u64 {
+        bail!("activity wake is missing journaled frames");
+    }
     Ok(SubscriptionWake::Events {
         events,
         offset: next,
@@ -236,8 +256,7 @@ pub(super) fn wake_from_completed(
 pub(super) fn unread_bytes(unread: &[(JournalEntry, StreamAppendedPayload)]) -> usize {
     unread
         .iter()
-        .filter_map(|(_, append)| serde_json::to_vec(&append.message).ok())
-        .map(|bytes| bytes.len())
+        .map(|(_, append)| append.message.to_string().len())
         .sum()
 }
 pub(super) fn pending(unread: &[(JournalEntry, StreamAppendedPayload)]) -> Option<PendingRange> {
