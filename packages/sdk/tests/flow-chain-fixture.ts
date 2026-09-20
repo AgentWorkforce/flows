@@ -52,6 +52,20 @@ if (request) {
       }
       throw new Error('chain fixture daemon failed to start');
     },
+    /**
+     * Stop the daemon and start a new one over the same data dir, returning a
+     * client to it. What survives this is exactly what is on disk — which is
+     * the question a run whose sandbox went away is asking.
+     */
+    async restart() {
+      client?.close();
+      if (daemon !== undefined && daemon.exitCode === null) {
+        const exited = new Promise<void>(resolve => daemon!.once('exit', () => resolve()));
+        daemon.kill('SIGTERM');
+        await exited;
+      }
+      return this.connect();
+    },
     async close() {
       client?.close();
       if (daemon !== undefined && daemon.exitCode === null) {

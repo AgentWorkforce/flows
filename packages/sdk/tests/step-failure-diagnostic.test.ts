@@ -270,6 +270,43 @@ describe('step failure diagnostic', () => {
     expect(diagnostic.message).toContain('Inspect: flows replay run-failed');
   });
 
+  it('reads the attempt and the budget it was spent against from the journal', async () => {
+    // `retries_exhausted` on a flow that asked for no retries read as if
+    // retries had happened. They had not: the kernel's budget is
+    // `max_iterations`, which it journals on every attempt start. Printing
+    // the budget beside the reason is what makes the word unambiguous —
+    // `attempt=1/1` cannot be read as "it retried".
+    const { client } = stub([[
+      { seq: 1, entry_type: 'step.attempt.started', step_id: 'fail-command', attempt: 1, payload: { max_iterations: 1 } },
+      { ...completion(2), attempt: 1 },
+    ]]);
+    const diagnostic = (await classify(client)).report.diagnostics.at(-1) as RunDiagnostic;
+    expect(diagnostic).toMatchObject({ attempt: 1, maxIterations: 1 });
+    expect(diagnostic.message).toContain('attempt=1/1');
+  });
+
+  it('reports the last attempt of a genuinely retried step, not the first', async () => {
+    const { client } = stub([[
+      { seq: 1, entry_type: 'step.attempt.started', step_id: 'fail-command', attempt: 1, payload: { max_iterations: 3 } },
+      { ...completion(2, 'first', 8, 'fail-command', 'retry'), attempt: 1 },
+      { seq: 3, entry_type: 'step.attempt.started', step_id: 'fail-command', attempt: 3, payload: { max_iterations: 3 } },
+      { ...completion(4, 'last'), attempt: 3 },
+    ]]);
+    expect((await classify(client)).report.diagnostics.at(-1)).toMatchObject({
+      attempt: 3, maxIterations: 3, stderrTail: 'last',
+      message: expect.stringContaining('attempt=3/3'),
+    });
+  });
+
+  it('claims no attempt facts when the journal carries none', async () => {
+    // An older daemon journals no `max_iterations`. Defaulting the budget to
+    // 1 would assert a retry policy nobody recorded.
+    const diagnostic = await diagnosticFor('no attempt envelope');
+    expect(diagnostic).not.toHaveProperty('attempt');
+    expect(diagnostic).not.toHaveProperty('maxIterations');
+    expect(diagnostic.message).not.toContain('attempt=');
+  });
+
   it('stops on non-advancing journal pages', async () => {
     const { client } = stub([[completion(1)], [completion(1)]]);
     expect((await classify(client)).report.diagnostics.at(-1)).toMatchObject({

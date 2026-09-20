@@ -1,4 +1,5 @@
 import type { HumanRecipient } from './human-to.js';
+import type { StepFailedDetails } from './failure-kinds.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
@@ -43,7 +44,21 @@ export class AuthoredFlowExecutionError extends Error {
     readonly code: AuthoredFlowExecutionErrorCode,
     message: string,
     readonly completionReason?: ProtocolCompletionReason | ProtocolRunCompletionReason,
+    /**
+     * The CHILD run whose journal holds the evidence — an authored operation
+     * is its own single-step kernel run. Unchanged by `details`: the root run
+     * identity and the failing child identity stay distinct fields.
+     */
     readonly runId?: string,
+    /**
+     * What the failed step left in its journal, already extracted and bounded
+     * by `cli/step-failure.ts`. Carried structurally, not only rendered into
+     * `message`, so `authoredStepFailure` can lift it into the machine-readable
+     * `RunDiagnostic` (which already `extends StepFailedDetails`) and so every
+     * wrapper on the way out — the `lease_exceeded` remap, the authenticated
+     * Node-child error frame — can forward it instead of dropping it.
+     */
+    readonly details?: StepFailedDetails,
   ) {
     super(`${code}: ${message}`);
     this.name = 'AuthoredFlowExecutionError';

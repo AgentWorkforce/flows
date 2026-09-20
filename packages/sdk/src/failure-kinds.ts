@@ -160,6 +160,21 @@ export interface StepFailedDetails {
   stepType?: string;
   /** The kernel's per-step reason, e.g. `worker_error`, `retries_exhausted`. */
   completionReason?: string;
+  /**
+   * The attempt this failure was recorded on, from the journal entry envelope.
+   * Absent when the journal did not name one — never defaulted to 1, because
+   * "how many attempts ran is unknown" and "exactly one ran" are different
+   * answers and only the second is evidence.
+   */
+  attempt?: number;
+  /**
+   * The step's attempt budget, from `step.attempt.started`'s `max_iterations`.
+   * Reported beside `retries_exhausted` so that reason cannot be read as
+   * "retries happened": a deterministic step's default budget is 1, so a
+   * single failed attempt with no retry at all terminates as
+   * `retries_exhausted`.
+   */
+  maxIterations?: number;
   exitCode?: number;
   /** Terminal-safe UTF-8 excerpt, at most 1,024 bytes. */
   stdoutTail?: string;

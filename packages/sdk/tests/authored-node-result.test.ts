@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { verifyAuthoredNodeResult } from '../src/authored-node-runner.js';
+import { stepFailedFrame, verifyAuthoredNodeResult } from '../src/authored-node-runner.js';
 import { parseAuthoredParentPid } from '../src/authored-runtime-capability.js';
 import type { AuthoredFlowExecutionResult } from '../src/authored-flow-executor.js';
 import type { AuthoredRootMetadata } from '../src/authored-root.js';
@@ -128,6 +128,57 @@ describe('authored IPC result durable verification',()=>{
       if(kind==='missing-terminal-fact')records.set('child-2',entries().slice(0,-1));
       await expect(verifyAuthoredNodeResult(claimed,metadata,'root','socket')).rejects.toThrow('no matching durable completion');
     });
+});
+describe('step evidence crossing the authored IPC boundary', () => {
+  it('carries every declared field through, so the parent reports what the child saw', () => {
+    // These are the facts the four indistinguishable causes are told apart by.
+    // If the hop drops them the parent can only re-render the message.
+    expect(stepFailedFrame({
+      stepId: 'run-1', stepType: 'deterministic', completionReason: 'retries_exhausted',
+      attempt: 1, maxIterations: 1, exitCode: 7,
+      stdoutTail: 'out', stderrTail: 'boom on stderr', detail: 'why',
+      transcriptPath: '/t.jsonl', hint: 'flows replay r', journalPath: '/j.sqlite3',
+    })).toEqual({
+      stepId: 'run-1', stepType: 'deterministic', completionReason: 'retries_exhausted',
+      attempt: 1, maxIterations: 1, exitCode: 7,
+      stdoutTail: 'out', stderrTail: 'boom on stderr', detail: 'why',
+      transcriptPath: '/t.jsonl', hint: 'flows replay r', journalPath: '/j.sqlite3',
+    });
+  });
+  it('drops a field whose type is not the declared one, and keeps its siblings', () => {
+    // A string exit code would render as `exit=1` and read as a real exit
+    // code. Dropping it says "not known" instead of asserting something false.
+    expect(stepFailedFrame({
+      stepId: 'run-1', exitCode: '7', attempt: 1.5, maxIterations: null, stderrTail: 42,
+      completionReason: 'retries_exhausted',
+    })).toEqual({ stepId: 'run-1', completionReason: 'retries_exhausted' });
+  });
+  it.each([
+    ['nothing at all', undefined], ['a null', null], ['an array', [{ stepId: 'run-1' }]],
+    ['a bare string', 'run-1 failed'], ['a number', 42],
+    ['an object with no declared field', { severity: 'failure', kind: 'step_failed' }],
+  ] as const)('yields no details for %s rather than an empty object', (_label, frame) => {
+    // `undefined` and `{}` are different claims downstream: `...error.details`
+    // of `{}` still marks the diagnostic as carrying evidence it does not have.
+    expect(stepFailedFrame(frame)).toBeUndefined();
+  });
+  it('bounds a tail the child did not bound', () => {
+    const details = stepFailedFrame({ stderrTail: 'x'.repeat(20_000) });
+    expect(details?.stderrTail).toHaveLength(8192);
+  });
+  it('never throws on anything the wire can deliver', () => {
+    // Anything that throws here reaches the `catch` around the frame reader
+    // and is reported as `invalid authored runtime message`, replacing the
+    // failure the operator came for with one about its own evidence. The
+    // domain is exactly what `JSON.parse` yields, so that is what is covered.
+    for (const frame of JSON.parse(`[
+      null, true, 0, -1e308, "", {}, [], [[]], {"stepId":null}, {"attempt":1e308},
+      {"stepId":{"nested":"object"}}, {"stderrTail":["not","a","string"]},
+      {"exitCode":true}, {"maxIterations":"1"}, {"__proto__":{"stepId":"injected"}}
+    ]`) as unknown[]) {
+      expect(() => stepFailedFrame(frame)).not.toThrow();
+    }
+  });
 });
 describe('authored parent identity',()=>{
   it('accepts a container PID 1 parent',()=>expect(parseAuthoredParentPid('1')).toBe(1));

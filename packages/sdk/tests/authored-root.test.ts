@@ -79,6 +79,7 @@ class RootJournal {
   resumeCalls = 0;
   entries: Array<Record<string, unknown>> = [];
   readonly childEntries = new Map<string, Array<Record<string, unknown>>>();
+  readonly streamed = new Map<string, unknown[]>();
 
   createPeer(): JournalClient { return this.peer as unknown as JournalClient; }
   async runStart(spec: unknown, _reuse?: string, admissionKey?: string): Promise<RunOutcome> {
@@ -111,6 +112,20 @@ class RootJournal {
     const entries = (this.childEntries.get(runId) ?? this.entries)
       .map((entry, index) => ({ seq: index + 1, ...entry }));
     return { entries: entries.filter(entry => entry.seq >= fromSeq) };
+  }
+  // Dense per-stream offsets, as `engine/remote.rs` `read_stream` gives them.
+  // The authored child index is written here, so a fake root that cannot
+  // append is a root whose children could never be named.
+  async streamAppend(runId: string, stream: string, message: unknown): Promise<{ offset: number }> {
+    const list = this.streamed.get(`${runId}\u0000${stream}`) ?? [];
+    this.streamed.set(`${runId}\u0000${stream}`, list);
+    list.push(message);
+    return { offset: list.length - 1 };
+  }
+  async streamRead(runId: string, stream: string, fromOffset: number, limit: number) {
+    const list = this.streamed.get(`${runId}\u0000${stream}`) ?? [];
+    const messages = list.slice(fromOffset, fromOffset + limit);
+    return { messages, next_offset: fromOffset + messages.length };
   }
 }
 

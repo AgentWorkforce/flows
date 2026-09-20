@@ -13,7 +13,7 @@ import { ensureDaemon, type EnsureDaemonOptions } from '../daemon-lifecycle.js';
 import { isAuthoredFlowPath } from '../direct-input.js';
 import { daemonRefusal } from './daemon-refusal.js';
 import type { RunFailureKind, RunWarningKind, StepFailedDetails } from '../failure-kinds.js';
-import { inspectionHint, stepFailureDetails } from './step-failure.js';
+import { inspectionHint, renderInspection, renderStepEvidence, stepFailureDetails } from './step-failure.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
 import { attachLocalAgent } from '../local-agent.js';
 import { LlmWorker } from '../llm-worker.js';
@@ -297,6 +297,11 @@ export function authoredStepFailure(
       status: 'failed',
       completionReason: 'step_failed',
       diagnostics: [...base.diagnostics, {
+        // The structured evidence the failing step left in its own journal.
+        // `RunDiagnostic extends StepFailedDetails`, so `--json` gains the
+        // fields it already declares instead of leaving them to be re-parsed
+        // out of the rendered message.
+        ...error.details,
         severity: 'failure',
         // A predicate gate that judged false is a run failure with its own
         // name, so the report says which kind of check the body did not pass.
@@ -603,8 +608,7 @@ export async function classifyOutcome(
       // must still end with somewhere to go rather than with a dead end.
       const where = inspectionHint(current.run_id, details?.stepId, options.dataDir);
       Object.assign(diagnostic, where);
-      diagnostic.message += `\nInspect: ${where.hint}`
-        + (where.journalPath === undefined ? '' : `\nJournal: ${where.journalPath}`);
+      diagnostic.message += renderInspection(where);
     }
     return {
       exitCode: 1,
@@ -791,25 +795,6 @@ export function socketFor(dataDir: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'unknown protocol error';
-}
-
-/**
- * The evidence half of a `step_failed` diagnostic; `inspectionHint` adds the
- * rest. Each field is printed only when the journal actually carried it — an
- * agent step has no exit code to report, and inventing `exit=undefined` (which
- * is what the deterministic-only version printed for one) is worse than
- * silence on that field.
- */
-function renderStepEvidence(details: StepFailedDetails): string {
-  return ` Step ${JSON.stringify(details.stepId)}`
-    + (details.stepType === undefined ? '' : ` (${details.stepType})`)
-    + ` completionReason: ${details.completionReason}`
-    + (details.exitCode === undefined ? '' : ` exit=${details.exitCode}`)
-    + '.'
-    + (details.detail === undefined ? '' : `\nDetail: ${details.detail}`)
-    + (details.stdoutTail ? `\nStdout (last 1,024 bytes):\n${details.stdoutTail}` : '')
-    + (details.stderrTail ? `\nStderr (last 1,024 bytes):\n${details.stderrTail}` : '')
-    + (details.transcriptPath === undefined ? '' : `\nTranscript: ${details.transcriptPath}`);
 }
 
 function throwIfCanceled(signal: AbortSignal | undefined, stepId: string): void {
