@@ -484,6 +484,9 @@ describe('preflight: CLI resolution and refusal predicates', () => {
 
   it('reaches every declared warning kind and leaks no probe exception text', () => {
     const scenarios = [
+      preflight({ version: '0.1.0', cli: 'gemini', communication: { links: [{ from: 'a', to: 'b' }] },
+        steps: [{ id: 'a', type: 'agent', instruction: 'send' }, { id: 'b', type: 'agent', instruction: 'receive' }] },
+      { probes: probes({ cli: () => ({ exists: true, supported: true, authenticated: 'unverified' }) }) }),
       preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), { probes: probes() }),
       preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), { probes: probes({ command: () => false }) }),
       preflight(flow({ id: 'a', type: 'deterministic', command: 'x' }), { probes: probes({ command: () => { throw new Error('raw secret'); } }) }),

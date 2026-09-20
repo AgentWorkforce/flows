@@ -237,8 +237,8 @@ export class JournalClient extends EventEmitter {
   }
 
   /** Connection becomes a worker; receives `step.dispatch` events. */
-  workerAttach(workerId: string, stepTypes: StepType[], pins?: Pins, capacity?: number): Promise<VerbContract['worker.attach']['result']> {
-    return this.request('worker.attach', { worker_id: workerId, step_types: stepTypes, pins, capacity });
+  workerAttach(workerId: string, stepTypes: StepType[], pins?: Pins, capacity?: number, requiredStreams?: string[]): Promise<VerbContract['worker.attach']['result']> {
+    return this.request('worker.attach', { worker_id: workerId, step_types: stepTypes, pins, capacity, required_streams: requiredStreams });
   }
 
   /**
@@ -419,6 +419,16 @@ export class JournalClient extends EventEmitter {
    */
   eventSubmit(spec: unknown, event: EventSubmitParams['event']): Promise<VerbContract['event.submit']['result']> {
     return this.request('event.submit', { spec, event });
+  }
+
+  channelAppend(params: VerbContract['channel.append']['params']): Promise<VerbContract['channel.append']['result']> {
+    return this.request('channel.append', params);
+  }
+  channelReceive(params: VerbContract['channel.receive']['params']): Promise<VerbContract['channel.receive']['result']> {
+    return this.request('channel.receive', params);
+  }
+  channelAck(params: VerbContract['channel.ack']['params']): Promise<VerbContract['channel.ack']['result']> {
+    return this.request('channel.ack', params);
   }
 
   /** Durable channel write; journals `stream.appended`. */

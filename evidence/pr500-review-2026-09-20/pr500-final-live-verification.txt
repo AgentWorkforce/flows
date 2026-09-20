@@ -1,0 +1,17 @@
+cwd: /tmp/flows-relay-communication
+$ python scripts/verify-mixed-cli-communication.py /tmp/flows-pr500-review-live/data-final/runs/01M2Z04VN15G7ATCGZBH2CM785.sqlite3
+{
+  "run_id": "01M2Z04VN15G7ATCGZBH2CM785",
+  "clis": {
+    "claude": "claude",
+    "codex": "codex",
+    "cursor": "cursor-agent"
+  },
+  "appends": 3,
+  "deliveries": 3,
+  "processing_acks": 3,
+  "successful_agents": 3,
+  "completionReason": "success"
+}
+
+exit status: 0

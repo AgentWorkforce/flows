@@ -1,0 +1,44 @@
+cwd: /tmp/flows-relay-communication/packages/sdk
+$ env RELAYFLOWD_BIN=/tmp/flows-pr-cleanup/pr499/kernel/target/debug/relayflowd ./node_modules/.bin/vitest run tests/communication-mixed-resume.test.ts
+
+ RUN  v2.1.9 /tmp/flows-relay-communication/packages/sdk
+
+ ❯ tests/communication-mixed-resume.test.ts (1 test | 1 failed) 116ms
+   × resumes mixed ordinary and linked agents through the real daemon without stealing peer capacity 116ms
+     → {"ok":false,"command":"resume","resolutions":[],"diagnostics":[{"severity":"parked","kind":"run_parked","message":"Run \"01M2YZZ51PDVK2F07DQV6AXS2S\" parked at step \"ordinary2\" (agent): no worker is attached for step type \"agent\"."}],"runId":"01M2YZZ51PDVK2F07DQV6AXS2S","socketPath":"/run/user/1000/relayflowd-4527793ccb2c.sock","status":"parked","completedSteps":0,"parkedStep":{"id":"ordinary2","type":"agent"}}: expected { ok: false, command: 'resume', …(7) } to match object { status: 'completed', …(2) }
+(9 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/communication-mixed-resume.test.ts > resumes mixed ordinary and linked agents through the real daemon without stealing peer capacity
+AssertionError: {"ok":false,"command":"resume","resolutions":[],"diagnostics":[{"severity":"parked","kind":"run_parked","message":"Run \"01M2YZZ51PDVK2F07DQV6AXS2S\" parked at step \"ordinary2\" (agent): no worker is attached for step type \"agent\"."}],"runId":"01M2YZZ51PDVK2F07DQV6AXS2S","socketPath":"/run/user/1000/relayflowd-4527793ccb2c.sock","status":"parked","completedSteps":0,"parkedStep":{"id":"ordinary2","type":"agent"}}: expected { ok: false, command: 'resume', …(7) } to match object { status: 'completed', …(2) }
+(9 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "completedSteps": 4,
+-   "completionReason": "success",
+-   "status": "completed",
++   "completedSteps": 0,
++   "status": "parked",
+  }
+
+ ❯ tests/communication-mixed-resume.test.ts:48:60
+     46|     expect(parked.status).toBe('parked');
+     47|     const resumed = await resumeFlow(parked.run_id, dataDir, { localAg…
+     48|     expect(resumed.report, JSON.stringify(resumed.report)).toMatchObje…
+       |                                                            ^
+     49|     expect(state.started).toEqual(new Set(['a', 'b']));
+     50|     const entries = (await client.journalRead(parked.run_id, 1)).entri…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  01:47:17
+   Duration  1.30s (transform 487ms, setup 0ms, collect 939ms, tests 116ms, environment 0ms, prepare 86ms)
+
+
+exit status: 1

@@ -323,12 +323,23 @@ fn handle_request(
                     "an agent worker must attach with the pins of the surfaces it holds".to_owned(),
                 ));
             }
+            if params
+                .required_streams
+                .iter()
+                .any(|stream| !params.pins.streams.iter().any(|pin| &pin.stream == stream))
+            {
+                return Err((
+                    "bad_request",
+                    "worker required streams must be held in its pins".to_owned(),
+                ));
+            }
             hub.attach_worker(
                 connection_id,
                 params.worker_id.clone(),
                 params.step_types,
                 params.capacity,
                 params.pins,
+                params.required_streams,
                 writer.clone(),
             );
             Ok(json!({"worker_id": params.worker_id}))

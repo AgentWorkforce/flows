@@ -376,6 +376,8 @@ export interface TriggerSpec {
  * is this spec mapped to the kernel dialect (`toKernelSpec`).
  */
 export interface FlowSpec {
+  /** Opt-in live messaging between independent agent steps; compiled into journal channels. */
+  communication?: { links: Array<{ from: string; to: string }>; timeoutMs?: number };
   /** Spec schema semver (RFC §7). Compilers always emit latest. */
   version: string;
   name?: string;

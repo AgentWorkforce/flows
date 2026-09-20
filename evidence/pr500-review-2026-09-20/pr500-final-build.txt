@@ -1,0 +1,8 @@
+cwd: /tmp/flows-relay-communication/packages/sdk
+$ npm run build
+
+> @relayflows/sdk@2.0.22 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+exit status: 0

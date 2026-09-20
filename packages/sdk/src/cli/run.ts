@@ -1,3 +1,5 @@
+import { communicationInstruction } from '../communication/spec.js';
+import { checkCommunicationEnvironment, CommunicationEnvironmentError } from '../communication/preflight.js';
 import { parseHumanRecipient } from '../human-to.js';
 import { parseDigestReference } from '../bundle-transport.js';
 import { prepareDigestRun } from './run-digest.js';
@@ -131,16 +133,26 @@ async function executeCheckedFlow(
   // Carry the preflight's diagnostics as a RunReport from here on, so the
   // attach step has one accumulator to append to (see `connect`).
   const base = fromCheckReport('run', checked.report);
+  if (options.localAgent) {
+    try { checkCommunicationEnvironment(checked.flow!); }
+    catch (error) { return { exitCode: 2, report: { ...base, diagnostics: [...base.diagnostics,
+      { severity: 'refusal', kind: 'probe_failed', message: error instanceof Error ? error.message : 'Communication environment could not be checked.' }] } }; }
+  }
   const client = new JournalClient(socketPath);
   const connected = await connect(client, 'run', dataDir, base, options);
   if (connected !== undefined) return connected;
 
+  let communicationWorkers: Awaited<ReturnType<typeof import('../communication/local.js').attachCommunicationWorkers>> | undefined;
   let localAgent: Awaited<ReturnType<typeof attachLocalAgent>> | undefined;
   try {
     const spec = toKernelSpec(checked.flow!);
     // Use the checked CLI/model and declared surfaces unchanged. The worker
     // advertises its existing pins; the daemon still owns surface matching.
     if (options.localAgent) localAgent = await attachLocalAgent(client, dataDir, options.onPtyReady);
+    if (options.localAgent && spec.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
+      const { attachCommunicationWorkers } = await import('../communication/local.js');
+      communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
+    }
     const outcome = await client.runStart(spec, options.reuseFromRunId);
     const execution = await classifyOutcome(client, 'run', outcome, base, socketPath, { ...options, dataDir });
     if (options.reuseFromRunId !== undefined) {
@@ -148,6 +160,8 @@ async function executeCheckedFlow(
     }
     return execution;
   } catch (error) {
+    if (error instanceof CommunicationEnvironmentError) return { exitCode: 2, report: { ...base,
+      diagnostics: [...base.diagnostics, { severity: 'refusal', kind: 'probe_failed', message: error.message }] } };
     if (error instanceof JournalProtocolError && (
       error.code === 'reuse_spec_mismatch' || error.code === 'reuse_run_not_found'
       || error.code === 'reuse_journal_read_failed'
@@ -157,9 +171,9 @@ async function executeCheckedFlow(
         diagnostics: [...base.diagnostics, { severity: failed ? 'failure' : 'refusal',
           kind: error.code, message: error.message }] } };
     }
-    return protocolFailure('run', base, socketPath, localAgent?.failure ?? error);
+    return protocolFailure('run', base, socketPath, communicationWorkers?.failure ?? localAgent?.failure ?? error);
   } finally {
-    try { await localAgent?.close(); } finally { client.close(); }
+    try { await communicationWorkers?.close(); } finally { try { await localAgent?.close(); } finally { client.close(); } }
   }
 }
 
@@ -174,6 +188,7 @@ export async function resumeFlow(
   const connected = await connect(client, 'resume', dataDir, base, options);
   if (connected !== undefined) return connected;
 
+  let communicationWorkers: Awaited<ReturnType<typeof import('../communication/local.js').attachCommunicationWorkers>> | undefined;
   let authoredAgent: Awaited<ReturnType<typeof attachLocalAgent>> | undefined;
   let authoredLlm: LlmWorker | undefined;
   let authoredLlmClient: JournalClient | undefined;
@@ -208,12 +223,23 @@ export async function resumeFlow(
     // slack effect resume plus every other provider from N's codegen. The
     // second call the earlier rebase left is a stale reference from before
     // the helper fanout renamed the API.
+    if (options.localAgent) {
+      authoredAgent = await attachLocalAgent(client, dataDir, options.onPtyReady);
+      const entries = (await client.journalRead(runId, 1)).entries as Array<{ entry_type: string; payload?: { spec?: import('../spec.js').KernelRunSpec } }>;
+      const spec = entries.find(entry => entry.entry_type === 'run.spawned')?.payload?.spec;
+      if (spec?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
+        const { attachCommunicationWorkers } = await import('../communication/local.js');
+        communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
+      }
+    }
     let outcome = await client.runResume(runId, options.allowHumanInfluenced);
     if (await resumeHelperEffect(client, runId, dataDir)) {
       outcome = await client.runResume(runId, options.allowHumanInfluenced);
     }
     return await classifyOutcome(client, 'resume', outcome, base, socketPath, { ...options, dataDir });
   } catch (error) {
+    if (error instanceof CommunicationEnvironmentError) return { exitCode: 2, report: { ...base, runId, socketPath,
+      diagnostics: [...base.diagnostics, { severity: 'refusal', kind: 'probe_failed', message: error.message }] } };
     if (error instanceof JournalProtocolError && error.code === 'human_influenced_run') {
       return { exitCode: 2, report: { ...base, runId, socketPath,
         diagnostics: [{ severity: 'refusal', kind: 'human_influenced_run', message: error.message.replace(/^human_influenced_run: /, '') }] } };
@@ -257,6 +283,7 @@ export async function resumeFlow(
     };
   } finally {
     try {
+      await communicationWorkers?.close();
       await authoredLlm?.close();
       authoredLlmClient?.close();
       await authoredAgent?.close();
@@ -531,7 +558,9 @@ export async function classifyOutcome(
   let unclassifiedPolls = 0;
   while (current.status === 'parked') {
     const inspection = await inspectOutOfBandStep(client, current.run_id);
-    if (inspection?.parkedStep !== undefined) {
+    // A runnable sibling may only be waiting for capacity held by a live
+    // attempt. Keep driving until that lease releases before declaring a park.
+    if (inspection?.parkedStep !== undefined && (inspection.needsHuman || inspection.runningStep === undefined)) {
       parkedStep = inspection.parkedStep;
       needsHuman = inspection.needsHuman;
       break;
