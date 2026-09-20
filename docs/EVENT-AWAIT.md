@@ -20,6 +20,13 @@ Completed wakes replay by that ordinal, including after acknowledgment; a body
 re-executing from the beginning must not receive its second wake at its first
 call. Replaying a closed handle does not reopen provider ingress.
 
+Subscription handles are run-scoped call ordinals (`activity-1`, `activity-2`,
+...). Authors must keep `f.on()` call order stable on replay, just as child
+step call order must be stable. These ids are not derived from source locations:
+reordering declarations or branching on unjournaled external state does not
+preserve an activity's identity. The pinned body and replayed results provide
+the supported deterministic ordering.
+
 Cloud's durable binding registry, ingress fencing, suspended-result handling,
 and wake scheduling remain integration work. The CLI integration probe uses a
 local router adapter, not a deployed provider webhook. It lives at
@@ -200,8 +207,8 @@ No new step kind or surface verb. The daemon adds the internal
 `subscription.activate` handoff verb; the kernel's step vocabulary stays
 closed (decision 13).
 
-1. **`subscription.prepared`** — `subscription_id` (deterministic from run id,
-   step id and declaration), `event_types`, `pattern` (the recursive-subset
+1. **`subscription.prepared`** — `subscription_id` (the run-scoped `f.on()` call
+   ordinal, whose order must remain stable on replay), `event_types`, `pattern` (the recursive-subset
    match already used by `TriggerSpec.pattern`), `stream`
    (`subscription/<subscription_id>`), `settle_ms`, `idle_ms`,
    `deadline_at_ms`, and `include_self`. It is an immutable request, never an
