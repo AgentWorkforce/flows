@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler",
+    "strict": true, "noUncheckedIndexedAccess": true, "noEmit": true,
+    "allowImportingTsExtensions": true, "skipLibCheck": true,
+    "baseUrl": ".", "paths": { "@relayflows/surface": ["../../packages/surface/src/index.ts"] },
+    "typeRoots": ["../../packages/sdk/node_modules/@types"], "types": ["node"]
+  },
+  "include": ["*.ts", "tests/*.ts"]
+}
