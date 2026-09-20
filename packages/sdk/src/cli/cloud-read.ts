@@ -179,25 +179,34 @@ function safe(text: string): string {
  *
  * Cloud stores the runner's terminal output in this field, newlines and all, so
  * passing it through `safe()` alone turns a 200-line tail into a single line of
- * `?` separators. Long runs are dominated by lease-renewal chatter — one line
- * every 10s for the life of every agent step — which is worth counting, not
- * reading, so consecutive lines sharing a prefix collapse into one. What
- * matters is almost always the last few lines: the failure itself.
+ * `?` separators. Long runs are dominated by lease renewals — one line every
+ * 10s for the life of every agent step, differing only in the deadline — which
+ * are worth counting, not reading.
+ *
+ * Collapsing is deliberately narrow: two adjacent lines merge only when they
+ * are character-for-character identical once a trailing integer is masked. A
+ * shared prefix is NOT line identity — runner lines put the step name, reason
+ * or message after a long fixed prefix, so collapsing on a prefix would hide
+ * distinct diagnostics behind a similarity count. The final line never
+ * collapses into an earlier one, because that is where the failure is.
  */
+const TRAILING_NUMBER = /\d+(?=\D{0,2}$)/u;
+
 export function errorLines(text: string, indent: string): string[] {
   const raw = text.split(/\r\n|\r|\n/u).map((line) => line.trimEnd()).filter((line) => line !== '');
   if (raw.length === 0) return [];
 
-  // Collapse consecutive lines that differ only past their first 48 characters.
+  const key = (line: string): string => line.replace(TRAILING_NUMBER, '#');
   const collapsed: { line: string; count: number }[] = [];
-  for (const line of raw) {
+  raw.forEach((line, index) => {
     const previous = collapsed.at(-1);
-    if (previous !== undefined && previous.line.slice(0, 48) === line.slice(0, 48)) previous.count += 1;
+    const isLast = index === raw.length - 1;
+    if (previous !== undefined && !isLast && key(previous.line) === key(line)) previous.count += 1;
     else collapsed.push({ line, count: 1 });
-  }
+  });
 
   const rendered = collapsed.map(({ line, count }) =>
-    count === 1 ? safe(line) : `${safe(line)}  (×${count} similar)`);
+    count === 1 ? safe(line) : `${safe(line)}  (${count} times, differing only in a number)`);
 
   const HEAD = 2;
   const TAIL = 12;

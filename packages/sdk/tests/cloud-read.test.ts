@@ -697,8 +697,42 @@ describe('errorLines', () => {
 
     expect(lines.length).toBeLessThan(10);
     expect(lines.every((line) => line.startsWith('  '))).toBe(true);
-    expect(lines.some((line) => line.includes('(×140 similar)'))).toBe(true);
+    expect(lines.some((line) => line.includes('(140 times, differing only in a number)'))).toBe(true);
     expect(lines.at(-1)).toContain('retries_exhausted');
+  });
+
+  it('keeps distinct lines that merely share a long prefix', () => {
+    const prefix = 'WAITING [worker_lease] Run "01M2Y03JWY9GE8K074KC2XMERR" step ';
+    const lines = errorLines([
+      `${prefix}"agent-1" (agent) is running under a worker lease.`,
+      `${prefix}"agent-2" (agent) is running under a worker lease.`,
+      `${prefix}"agent-3" (agent) failed to acquire a worker lease.`,
+    ].join('\n'), '');
+
+    expect(lines).toHaveLength(3);
+    expect(lines.some((line) => line.includes('times, differing only in a number'))).toBe(false);
+    expect(lines.at(-1)).toContain('failed to acquire');
+  });
+
+  it('never collapses the final line into the repetition above it', () => {
+    const lines = errorLines([
+      'waiting for the lease until 10.',
+      'waiting for the lease until 11.',
+      'waiting for the lease until 12.',
+    ].join('\n'), '');
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('(2 times, differing only in a number)');
+    expect(lines.at(-1)).toBe('waiting for the lease until 12.');
+  });
+
+  it('leaves lines that differ mid-message alone, even by only a number', () => {
+    // Only a TRAILING counter collapses. `step 1 failed` and `step 2 failed`
+    // are two distinct diagnostics, and a renderer that merged them would be
+    // hiding exactly what the reader came for.
+    const lines = errorLines(['step 1 failed', 'step 2 failed'].join('\n'), '');
+
+    expect(lines).toEqual(['step 1 failed', 'step 2 failed']);
   });
 
   it('keeps a short error whole and strips control characters', () => {
@@ -706,10 +740,10 @@ describe('errorLines', () => {
   });
 
   it('elides the middle of a long run of distinct lines, keeping the tail', () => {
-    const lines = errorLines(Array.from({ length: 60 }, (_, i) => `line ${i} ${'x'.repeat(50)}`).join('\n'), '');
+    const lines = errorLines(Array.from({ length: 60 }, (_, i) => `line ${'x'.repeat(50)} ${i} end`).join('\n'), '');
 
     expect(lines.some((line) => line.includes('more lines (full text: --json)'))).toBe(true);
-    expect(lines.at(-1)).toContain('line 59');
+    expect(lines.at(-1)).toContain('59');
     expect(lines).toHaveLength(15);
   });
 
