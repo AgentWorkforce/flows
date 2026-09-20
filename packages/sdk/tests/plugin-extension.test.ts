@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { addPlugin } from '../src/cli/add.js';
 import { addExtensionPlugin } from '../src/cli/add-extension.js';
-import { runPluginCommand, verifyPlugins } from '../src/cli/plugin.js';
+import { parsePluginArgs, runPluginCommand, verifyPlugins } from '../src/cli/plugin.js';
 import { runCli } from '../src/cli.js';
 import { validateFlowExtensionManifest } from '../src/flow-extension-manifest.js';
 import { fetchGithubPlugin, resolveGithubSha } from '../src/plugin-github.js';
@@ -262,6 +262,106 @@ describe('flows plugin list / verify', () => {
     expect(() => parsePluginLock({ version: 2, plugins: [entry] })).toThrow(expect.objectContaining({ code: 'plugin_lock_invalid', message: expect.stringContaining('plugins[0]') }));
     expect(parsePluginLock({ version: 2, plugins: [{ ...entry, order: 1 }] }).plugins[0]!.order).toBe(1);
     expect(() => parsePluginLock({ version: 2, plugins: [{ ...entry, order: 1 }, { ...entry, order: 2 }] })).toThrow(expect.objectContaining({ message: expect.stringContaining('twice') }));
+  });
+});
+
+describe('flows plugin remove / update', () => {
+  async function installed(entries: FakeEntry[] = babysitter) {
+    const gh = github(entries); const p = project();
+    expect(await addExtensionPlugin(REF, p.io, { cwd: p.cwd, fetch: gh.fetch, now, versions })).toBe(0);
+    p.messages.length = 0;
+    return { gh, p, digest: readPluginLock(p.cwd).plugins[0]!.digest };
+  }
+  it('drops the declaration, rebuilds lock order, and deletes the store directory', async () => {
+    const sitter = babysitter.map(e => e.path.endsWith('flows-plugin.json')
+      ? { ...e, path: e.path.replace('examples/babysitter', 'examples/sitter'), data: Buffer.from(JSON.stringify({ ...manifestJson, name: 'sitter' })) }
+      : { ...e, path: e.path.replace('examples/babysitter', 'examples/sitter') });
+    const gh = fakeGithub({
+      'AgentWorkforce/flows': {
+        refs: { 'feat/babysitter-v2': SHA_A, main: SHA_A },
+        commits: { [SHA_A]: { entries: [...babysitter, ...sitter] } },
+      },
+    });
+    const p = project();
+    expect(await addExtensionPlugin(REF, p.io, { cwd: p.cwd, fetch: gh.fetch, now, versions })).toBe(0);
+    const sitterRef = `github:AgentWorkforce/flows@${SHA_A}#examples/sitter`;
+    expect(await addExtensionPlugin(sitterRef, p.io, { cwd: p.cwd, fetch: gh.fetch, now, versions })).toBe(0);
+    const before = readPluginLock(p.cwd);
+    expect(before.plugins.map(e => [e.order, e.name])).toEqual([[1, 'babysitter'], [2, 'sitter']]);
+    const babysitterDir = pluginStoreDirectory(p.cwd, 'babysitter', before.plugins[0]!.digest);
+    const sitterDir = pluginStoreDirectory(p.cwd, 'sitter', before.plugins[1]!.digest);
+    p.messages.length = 0;
+    expect(await runPluginCommand({ command: 'plugin', sub: 'remove', json: false, name: 'babysitter' }, p.io, { cwd: p.cwd })).toBe(0);
+    expect(p.text()).toContain(`Removed babysitter@0.1.0  ${REF}`);
+    expect(JSON.parse(readFileSync(join(p.cwd, 'flows.json'), 'utf8')).plugins).toEqual([sitterRef]);
+    const after = readPluginLock(p.cwd);
+    expect(after.plugins.map(e => [e.order, e.name])).toEqual([[1, 'sitter']]);
+    expect(existsSync(babysitterDir)).toBe(false);
+    expect(existsSync(sitterDir)).toBe(true);
+  });
+  it('refuses to remove a name that is not installed', async () => {
+    const { p } = await installed();
+    expect(await runPluginCommand({ command: 'plugin', sub: 'remove', json: false, name: 'nope' }, p.io, { cwd: p.cwd })).toBe(2);
+    expect(p.text()).toContain('REFUSED [plugin_manifest_invalid] No flow-extension plugin named nope.');
+    expect(JSON.parse(readFileSync(join(p.cwd, 'flows.json'), 'utf8')).plugins).toEqual([REF]);
+  });
+  it('shows the permissions/events/budget diff and writes nothing without --yes', async () => {
+    const { p, digest } = await installed();
+    const updated = github(withManifest(m => ({
+      ...m,
+      version: '0.2.0',
+      permissions: { ...(m.permissions as object), writes: ['github:pull_request:comment', 'github:issue:comment'], budget: { dollars: 12, wallclock: '1h' } },
+    })));
+    updated.repos['AgentWorkforce/flows']!.commits[SHA_B] = updated.repos['AgentWorkforce/flows']!.commits[SHA_A]!;
+    updated.repos['AgentWorkforce/flows']!.refs.main = SHA_B;
+    const to = `github:AgentWorkforce/flows@${SHA_B}#examples/babysitter`;
+    expect(await runPluginCommand({ command: 'plugin', sub: 'update', json: false, yes: false, name: 'babysitter', to }, p.io, {
+      cwd: p.cwd, fetch: updated.fetch, now, versions,
+    })).toBe(2);
+    expect(p.text()).toContain(`Update babysitter  ${REF} → ${to}`);
+    expect(p.text()).toContain('version: 0.1.0 → 0.2.0');
+    expect(p.text()).toContain('+github:issue:comment');
+    expect(p.text()).toContain('budget: $8 / 45m → $12 / 1h');
+    expect(p.text()).toContain('REFUSED [plugin_manifest_invalid] Re-run with --yes to apply this update.');
+    expect(JSON.parse(readFileSync(join(p.cwd, 'flows.json'), 'utf8')).plugins).toEqual([REF]);
+    expect(readPluginLock(p.cwd).plugins[0]!.digest).toBe(digest);
+    expect(existsSync(pluginStoreDirectory(p.cwd, 'babysitter', digest))).toBe(true);
+  });
+  it('applies --to with --yes, rewrites store/lock/flows.json, and drops the old store', async () => {
+    const { p, digest } = await installed();
+    const updated = github(withManifest(m => ({ ...m, version: '0.2.0', description: 'next' })));
+    updated.repos['AgentWorkforce/flows']!.commits[SHA_B] = updated.repos['AgentWorkforce/flows']!.commits[SHA_A]!;
+    updated.repos['AgentWorkforce/flows']!.refs.main = SHA_B;
+    const to = `github:AgentWorkforce/flows@main#examples/babysitter`;
+    const canonical = `github:AgentWorkforce/flows@${SHA_B}#examples/babysitter`;
+    p.messages.length = 0;
+    expect(await runPluginCommand({ command: 'plugin', sub: 'update', json: false, yes: true, name: 'babysitter', to }, p.io, {
+      cwd: p.cwd, fetch: updated.fetch, now, versions,
+    })).toBe(0);
+    const lock = readPluginLock(p.cwd);
+    expect(lock.plugins).toHaveLength(1);
+    expect(lock.plugins[0]).toMatchObject({ name: 'babysitter', version: '0.2.0', order: 1, source: { sha: SHA_B } });
+    expect(lock.plugins[0]!.digest).not.toBe(digest);
+    expect(JSON.parse(readFileSync(join(p.cwd, 'flows.json'), 'utf8')).plugins).toEqual([canonical]);
+    expect(existsSync(pluginStoreDirectory(p.cwd, 'babysitter', digest))).toBe(false);
+    expect(existsSync(pluginStoreDirectory(p.cwd, 'babysitter', lock.plugins[0]!.digest))).toBe(true);
+    expect(p.text()).toContain(`Updated babysitter  ${canonical}`);
+  });
+  it('reports already-at when re-resolving the locked commit', async () => {
+    const { gh, p, digest } = await installed();
+    expect(await runPluginCommand({ command: 'plugin', sub: 'update', json: true, yes: false, name: undefined, to: undefined }, p.io, {
+      cwd: p.cwd, fetch: gh.fetch, now, versions,
+    })).toBe(0);
+    expect(JSON.parse(p.text())).toMatchObject({ ok: true, plugins: [{ name: 'babysitter', changed: false, digest }] });
+  });
+  it('parses the new subcommands and refuses a malformed invocation', () => {
+    expect(parsePluginArgs(['remove', 'babysitter'])).toEqual({ command: 'plugin', sub: 'remove', json: false, name: 'babysitter' });
+    expect(parsePluginArgs(['update', '--yes'])).toEqual({ command: 'plugin', sub: 'update', json: false, yes: true, name: undefined, to: undefined });
+    expect(parsePluginArgs(['update', 'babysitter', '--to', 'github:o/r@main#x', '--yes', '--json']))
+      .toEqual({ command: 'plugin', sub: 'update', json: true, yes: true, name: 'babysitter', to: 'github:o/r@main#x' });
+    expect(parsePluginArgs(['remove'])).toBeUndefined();
+    expect(parsePluginArgs(['update', '--to'])).toBeUndefined();
+    expect(parsePluginArgs(['update', '--yes', '--yes'])).toBeUndefined();
   });
 });
 

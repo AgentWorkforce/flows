@@ -201,13 +201,29 @@ export const CLI_VERBS = [
   },
   {
     name: 'plugin',
-    description: 'Inspect the flow-extension plugins recorded in flows.lock.json',
+    description: 'Inspect, remove, or update the flow-extension plugins recorded in flows.lock.json',
     subcommands: [
       { name: 'list', description: 'List installed flow extensions in composition order', options: [JSON_OPTION] },
       {
         name: 'verify',
         description: 'Re-hash .flows/plugins against the lockfile and, unless --offline, against the pinned commit on GitHub',
         options: [JSON_OPTION, { flags: '--offline', description: 'Skip the GitHub re-fetch; check only the local store against the lockfile' }],
+      },
+      {
+        name: 'remove',
+        description: 'Drop a flow-extension plugin from flows.json, the lockfile, and the local store',
+        args: [{ name: 'name', description: 'Plugin name as recorded in the lockfile', required: true }],
+        options: [JSON_OPTION],
+      },
+      {
+        name: 'update',
+        description: 'Re-resolve a flow-extension plugin, show the permissions/events/budget diff, and rewrite the lock with --yes',
+        args: [{ name: 'name', description: 'Plugin name; omit to update every installed flow extension', required: false }],
+        options: [
+          JSON_OPTION,
+          { flags: '--to <ref>', description: 'GitHub reference to resolve instead of the locked commit' },
+          { flags: '--yes', description: 'Apply the update; without this flag the diff is printed and the lock is left unchanged' },
+        ],
       },
     ],
     variants: ['plugin'],

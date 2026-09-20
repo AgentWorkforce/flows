@@ -79,19 +79,26 @@ export function writePluginLock(root: string, lock: PluginLock): void {
 /**
  * Rebuild the entry list in `flows.json.plugins` order: `order` is derived from
  * the declaration list, never stored independently, so the two cannot disagree.
+ * Lock entries that are no longer declared are dropped; a declaration with no
+ * matching lock entry is a refusal.
  */
+export function lockForDeclared(lock: PluginLock, declared: readonly string[]): PluginLock {
+  const byRef = new Map(lock.plugins.map(p => [canonicalPluginRef({ ...p.source, ref: p.source.sha }), p]));
+  const plugins = declared.filter(isGithubPluginRef).map((ref, index) => {
+    const found = byRef.get(ref);
+    if (found === undefined) return invalid(`flows.json declares ${ref} but the lockfile has no entry for it; run flows add ${ref}.`);
+    return Object.freeze({ ...found, order: index + 1 });
+  });
+  return Object.freeze({ version: PLUGIN_LOCK_VERSION, plugins: Object.freeze(plugins) });
+}
+
 export function lockWithPlugin(
   lock: PluginLock, declared: readonly string[],
   entry: Omit<PluginLockEntry, 'kind' | 'order'>,
 ): PluginLock {
   const byRef = new Map(lock.plugins.map(p => [canonicalPluginRef({ ...p.source, ref: p.source.sha }), p]));
   byRef.set(canonicalPluginRef({ ...entry.source, ref: entry.source.sha }), { ...entry, kind: 'flow-extension', order: 0 });
-  const plugins = declared.filter(ref => ref.startsWith('github:')).map((ref, index) => {
-    const found = byRef.get(ref);
-    if (found === undefined) return invalid(`flows.json declares ${ref} but the lockfile has no entry for it; run flows add ${ref}.`);
-    return Object.freeze({ ...found, order: index + 1 });
-  });
-  return Object.freeze({ version: PLUGIN_LOCK_VERSION, plugins: Object.freeze(plugins) });
+  return lockForDeclared({ version: PLUGIN_LOCK_VERSION, plugins: Object.freeze([...byRef.values()]) }, declared);
 }
 
 /** Lock entries paired with their declared reference, in declaration order. */

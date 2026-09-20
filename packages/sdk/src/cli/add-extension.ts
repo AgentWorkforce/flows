@@ -30,15 +30,48 @@ export function extensionManifestOf(plugin: FetchedPlugin): { manifest: FlowExte
   return { manifest, manifestSha256: sha256(file.data) };
 }
 
+function eventKeys(manifest: FlowExtensionManifest): readonly string[] {
+  return manifest.triggers.map(t => `${t.provider} ${t.event}[${t.actions.join(',')}]`);
+}
+
+function formatBudget(budget: FlowExtensionManifest['permissions']['budget']): string {
+  if (budget === undefined) return 'inherits base';
+  return [budget.dollars === undefined ? '' : `$${budget.dollars}`, budget.wallclock ?? ''].filter(Boolean).join(' / ') || 'inherits base';
+}
+
 export function describeExtension(manifest: FlowExtensionManifest): string[] {
   const p = manifest.permissions;
   return [
     `  integrations: ${p.integrations.join(', ') || 'none'}; harnesses: ${p.harnesses.join(', ') || 'none'}; mcp: ${p.mcp.join(', ') || 'none'}`,
-    `  events: ${manifest.triggers.map(t => `${t.provider} ${t.event}[${t.actions.join(',')}]`).join('; ') || 'none'}`,
+    `  events: ${eventKeys(manifest).join('; ') || 'none'}`,
     `  hooks: ${manifest.extends.hooks.join(', ') || 'none'}; handlers: ${manifest.extends.handlers ? 'yes' : 'no'}`,
     `  writes (declared, unenforced): ${p.writes.join(', ') || 'none'}`,
-    `  budget: ${p.budget === undefined ? 'inherits base' : [p.budget.dollars === undefined ? '' : `$${p.budget.dollars}`, p.budget.wallclock ?? ''].filter(Boolean).join(' / ')}`,
+    `  budget: ${formatBudget(p.budget)}`,
   ];
+}
+
+/** Permissions / events / budget (and version/hooks) changes between two manifests. */
+export function diffExtension(before: FlowExtensionManifest, after: FlowExtensionManifest): string[] {
+  const lines: string[] = [];
+  const change = (label: string, oldValue: string, newValue: string): void => {
+    if (oldValue !== newValue) lines.push(`  ${label}: ${oldValue} → ${newValue}`);
+  };
+  const setDiff = (label: string, oldList: readonly string[], newList: readonly string[]): void => {
+    const removed = oldList.filter(x => !newList.includes(x));
+    const added = newList.filter(x => !oldList.includes(x));
+    if (removed.length === 0 && added.length === 0) return;
+    lines.push(`  ${label}: ${[...removed.map(x => `-${x}`), ...added.map(x => `+${x}`)].join(', ')}`);
+  };
+  change('version', before.version, after.version);
+  setDiff('integrations', before.permissions.integrations, after.permissions.integrations);
+  setDiff('harnesses', before.permissions.harnesses, after.permissions.harnesses);
+  setDiff('mcp', before.permissions.mcp, after.permissions.mcp);
+  setDiff('writes', before.permissions.writes, after.permissions.writes);
+  setDiff('events', eventKeys(before), eventKeys(after));
+  setDiff('hooks', before.extends.hooks, after.extends.hooks);
+  change('budget', formatBudget(before.permissions.budget), formatBudget(after.permissions.budget));
+  if (lines.length === 0) lines.push('  (no permissions/events/budget changes)');
+  return lines;
 }
 
 export interface AddExtensionOptions {

@@ -97,6 +97,8 @@ const USAGE = [
   'flows add <github:owner/repo@ref#path|https://github.com/owner/repo/tree/ref/path>',
   'flows plugin list [--json]',
   'flows plugin verify [--json] [--offline]',
+  'flows plugin remove [--json] <name>',
+  'flows plugin update [--json] [--yes] [--to <ref>] [<name>]',
   'flows build [--out <dir>] <flow.yaml|flow.ts>',
   'flows build --verify <bundle-dir>',
   'flows deploy <flow.ts> --repo <owner/name> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--no-connect] [--json]',

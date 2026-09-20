@@ -81,6 +81,11 @@ export async function verifyStoredPlugin(directory: string, expectedDigest: stri
   await rejectExtras(directory, '', new Set([...paths, 'manifest.json']), drift);
 }
 
+/** Drop a materialized plugin directory. Missing is a no-op. */
+export async function removeStoredPlugin(directory: string): Promise<void> {
+  await rm(directory, { recursive: true, force: true });
+}
+
 async function rejectExtras(root: string, prefix: string, paths: Set<string>, drift: (m: string) => never): Promise<void> {
   for (const entry of await readdir(join(root, prefix), { withFileTypes: true })) {
     const path = prefix + entry.name;
