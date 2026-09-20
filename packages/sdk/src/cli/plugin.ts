@@ -1,7 +1,6 @@
-import { readFileSync } from 'node:fs';
 import type { CliIo } from '../cli.js';
 import { fetchGithubPlugin, type FetchLike } from '../plugin-github.js';
-import { lockedPlugins, readPluginLock, type PluginLockEntry } from '../plugin-lock.js';
+import { lockedPlugins, readPluginLock, reconcileDeclaredExtensions, type PluginLockEntry } from '../plugin-lock.js';
 import { findPluginProject } from '../plugin-loader.js';
 import { PluginError } from '../plugin-manifest.js';
 import { pluginStoreDirectory, verifyStoredPlugin } from '../plugin-store.js';
@@ -24,30 +23,14 @@ export function parsePluginArgs(args: readonly string[]): PluginArgs | undefined
   return sub === 'list' ? { command: 'plugin', sub, json } : { command: 'plugin', sub, json, offline };
 }
 
-function declaredRefs(root: string): readonly string[] {
-  let config: { plugins?: unknown };
-  try { config = JSON.parse(readFileSync(`${root}/flows.json`, 'utf8')); }
-  catch { throw new PluginError('plugin_manifest_invalid', 'Invalid flows.json.'); }
-  if (config === null || typeof config !== 'object' || (config.plugins !== undefined && (!Array.isArray(config.plugins) || !config.plugins.every(p => typeof p === 'string')))) {
-    throw new PluginError('plugin_manifest_invalid', 'flows.json plugins must be strings.');
-  }
-  return (config.plugins as string[] | undefined) ?? [];
-}
-
 /**
  * Cross-check the three records that must agree: `flows.json.plugins`
  * (declaration), `flows.lock.json` (provenance), and `.flows/plugins` (bytes).
  * With the network, the pinned commit is re-fetched and re-hashed too.
  */
 export async function verifyPlugins(root: string, options: { offline: boolean; fetch?: FetchLike }): Promise<{ entry: PluginLockEntry; ref: string; directory: string; remote: 'verified' | 'skipped' }[]> {
-  const declared = declaredRefs(root).filter(ref => ref.startsWith('github:'));
-  const locked = lockedPlugins(readPluginLock(root));
-  const lockedRefs = locked.map(p => p.ref);
-  for (const ref of declared) if (!lockedRefs.includes(ref)) throw new PluginError('plugin_lock_invalid', `flows.json declares ${ref} but flows.lock.json has no entry for it.`);
-  for (const ref of lockedRefs) if (!declared.includes(ref)) throw new PluginError('plugin_lock_invalid', `flows.lock.json records ${ref} but flows.json does not declare it.`);
-  if (declared.some((ref, index) => lockedRefs[index] !== ref)) throw new PluginError('plugin_lock_invalid', 'flows.lock.json order differs from flows.json.plugins.');
   const results = [];
-  for (const { ref, entry, source } of locked) {
+  for (const { ref, entry, source } of reconcileDeclaredExtensions(root)) {
     const directory = pluginStoreDirectory(root, entry.name, entry.digest);
     await verifyStoredPlugin(directory, entry.digest);
     let remote: 'verified' | 'skipped' = 'skipped';

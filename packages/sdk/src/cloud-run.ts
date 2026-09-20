@@ -122,6 +122,10 @@ export async function prepareCloudSubmission(
             `${flow.path} is not a loadable authored flow: ${error instanceof Error ? error.message : String(error)}. `
             + 'Run `flows check` on it from the same directory.');
         }
+        if (loaded.extensions.length > 0) {
+          throw new CloudFlowError('unsupported_source',
+            `Cloud authored submission does not yet accept flow extensions (${loaded.extensions.map(e => e.name).join(', ')} composed by flows.json).`);
+        }
         if (loaded.graph.length !== 1) {
           throw new CloudFlowError('unsupported_source',
             'Cloud authored submission currently accepts one self-contained .flow.ts source without use dependencies.');

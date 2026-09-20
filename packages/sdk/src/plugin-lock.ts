@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PluginError } from './plugin-manifest.js';
-import { SHA, canonicalPluginRef, parseCanonicalPluginRef, type PluginSourceRef } from './plugin-source.js';
+import { SHA, canonicalPluginRef, isGithubPluginRef, parseCanonicalPluginRef, type PluginSourceRef } from './plugin-source.js';
 
 /**
  * `flows.lock.json` — the project's plugin provenance. `flows.json.plugins`
@@ -23,7 +23,11 @@ export interface PluginLockEntry {
   readonly digest: string;
   /** sha256 of the `flows-plugin.json` bytes as installed. */
   readonly manifestSha256: string;
-  /** 1-based position in `flows.json.plugins`; the deterministic composition order. */
+  /**
+   * 1-based position among the flow-extension (`github:`) entries of
+   * `flows.json.plugins`, in declaration order. Helper entries interspersed in
+   * that list do not count, so the order is the composition order exactly.
+   */
   readonly order: number;
   readonly resolvedAt: string;
 }
@@ -96,4 +100,32 @@ export function lockedPlugins(lock: PluginLock): readonly { ref: string; entry: 
     const source = { ...entry.source, ref: entry.source.sha };
     return { ref: canonicalPluginRef(source), entry, source };
   });
+}
+
+/** The `github:` entries of `flows.json.plugins`, in declaration order; helper entries are left out. */
+export function declaredExtensionRefs(root: string): readonly string[] {
+  let config: { plugins?: unknown };
+  try { config = JSON.parse(readFileSync(join(root, 'flows.json'), 'utf8')); }
+  catch { throw new PluginError('plugin_manifest_invalid', 'Invalid flows.json.'); }
+  if (config === null || typeof config !== 'object' || (config.plugins !== undefined && (!Array.isArray(config.plugins) || !config.plugins.every(p => typeof p === 'string')))) {
+    throw new PluginError('plugin_manifest_invalid', 'flows.json plugins must be strings.');
+  }
+  return Object.freeze(((config.plugins as string[] | undefined) ?? []).filter(isGithubPluginRef));
+}
+
+/**
+ * The three records that must agree before an extension is trusted:
+ * `flows.json.plugins` (declaration), `flows.lock.json` (provenance), and —
+ * checked by the caller against the returned digests — `.flows/plugins`
+ * (bytes). Any declaration without a lock entry, lock entry without a
+ * declaration, or order disagreement is `plugin_lock_invalid`.
+ */
+export function reconcileDeclaredExtensions(root: string): readonly { ref: string; entry: PluginLockEntry; source: PluginSourceRef }[] {
+  const declared = declaredExtensionRefs(root);
+  const locked = lockedPlugins(readPluginLock(root));
+  const lockedRefs = locked.map(p => p.ref);
+  for (const ref of declared) if (!lockedRefs.includes(ref)) throw new PluginError('plugin_lock_invalid', `flows.json declares ${ref} but flows.lock.json has no entry for it.`);
+  for (const ref of lockedRefs) if (!declared.includes(ref)) throw new PluginError('plugin_lock_invalid', `flows.lock.json records ${ref} but flows.json does not declare it.`);
+  if (declared.some((ref, index) => lockedRefs[index] !== ref)) throw new PluginError('plugin_lock_invalid', 'flows.lock.json order differs from flows.json.plugins.');
+  return locked;
 }

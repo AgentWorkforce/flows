@@ -598,10 +598,27 @@ composition order. `flows plugin verify` re-hashes the store against the lock
 and, unless `--offline`, re-fetches the pinned commit; any difference is
 `plugin_source_drift`, exit 2.
 
-Installing records a declaration; it does not enable execution. A project that
-declares a flow extension is refused at run time with `plugin_unsupported`
-until the handlers/hooks slice lands, so a base flow never silently runs
-without the extension it was told it had.
+**Composition.** `loadAuthoredFlow` (the path under `flows check`, `flows run`,
+and the authored root) composes the project's extensions onto the base flow
+(`packages/sdk/src/flow-extension-loader.ts`), in this fixed order: the
+declaration and the lockfile must agree; the store is re-hashed against the
+lock's digest and the manifest bytes against its manifest hash — nothing under
+`.flows/plugins` is read as code before that passes; the manifest is validated
+and its `compat` checked against the runtime and the base flow (the base has no
+version field yet, so only `*` is satisfiable; a budget ceiling above the base
+is `plugin_incompatible`); only then is the entry imported, its handlers
+checked against the manifest's declared triggers (an entry cannot subscribe to
+more than it declared), and appended **after** the base's own handlers in
+lockfile order. Nothing replaces, reorders, or widens a base handler, and the
+base's definition object is untouched. `flows check` prints one `EXTENSION`
+line per composed extension. Not composed by this release, and refused with
+`plugin_unsupported` rather than ignored: hooks, an entry `use:` header,
+schedule triggers, and gates; a generic `webhook(...)` handler is refused as
+undeclared. Cloud deploy and hosted runs refuse a project with extensions
+(`unsupported_source`) because the deploy body carries one source file and
+would silently lose them. Handler bodies still execute nowhere (#301); what
+composition changes today is the declared trigger set that `flows check`,
+requirements, and future dispatch read.
 
 ## 4. Build: the immutable bundle
 

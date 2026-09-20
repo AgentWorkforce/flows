@@ -170,6 +170,12 @@ export async function deployToCloud(
     throw new CloudFlowError('unsupported_source',
       `${input.path} is not a loadable authored flow: ${error instanceof Error ? error.message : String(error)}`);
   }
+  if (loaded.extensions.length > 0) {
+    // The deploy body carries one source file; a composed handler set has no
+    // wire form yet, so a deployment would silently lose the extensions.
+    throw new CloudFlowError('unsupported_source',
+      `Cloud deploy does not yet accept flow extensions (${loaded.extensions.map(e => e.name).join(', ')} composed by flows.json); deploy the base flow from a project without them.`);
+  }
   if (loaded.graph.length !== 1) {
     throw new CloudFlowError('unsupported_source',
       'Cloud deploys one self-contained .flow.ts source without use dependencies.');

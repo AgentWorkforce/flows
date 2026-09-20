@@ -5,6 +5,7 @@ import { preflightProviderTriggers } from '../provider-trigger-contract.js';
 import { scheduleLowering } from '../schedule-trigger.js';
 import { checkSlackHelpers } from '../slack-preflight.js';
 import { flowRequirements } from '../flow-requirements.js';
+import { PluginError } from '../plugin-manifest.js';
 import { inputFailureReport, readProjectConfig, type CheckReport } from './check.js';
 
 /**
@@ -40,6 +41,11 @@ export async function checkAuthoredTriggers(path: string): Promise<{
       const lowering = scheduleLowering(definition.name, trigger);
       return [{ handler, ...lowering }];
     });
+    // `?? []` tolerates the partial loader doubles the direct-run tests install.
+    const extensions = (loaded.extensions ?? []).map(extension => ({
+      name: extension.name, version: extension.version, ref: extension.ref, digest: extension.digest,
+      handlers: extension.handlers.length,
+    }));
     return {
       loaded,
       report: {
@@ -47,11 +53,16 @@ export async function checkAuthoredTriggers(path: string): Promise<{
         ok: !diagnostics.some(diagnostic => diagnostic.severity === 'refusal'),
         path, gates: [], resolutions: [], diagnostics,
         ...(schedules.length === 0 ? {} : { schedules }),
+        ...(extensions.length === 0 ? {} : { extensions }),
         requirements: flowRequirements(definition, { projectCli: config.cli }),
         ...(config.path === undefined ? {} : { projectConfigPath: config.path }),
       },
     };
   } catch (error) {
+    // A flow-extension refusal keeps its own code (plugin_source_drift,
+    // plugin_incompatible, …): the operator needs to know which record
+    // disagreed, not that "the spec is invalid".
+    if (error instanceof PluginError) return { report: inputFailureReport({ kind: error.code, message: error.message }, path) };
     return { report: inputFailureReport({
       kind: typeof error === 'object' && error !== null && 'kind' in error && error.kind === 'config_invalid'
         ? 'config_invalid' : 'invalid_spec',

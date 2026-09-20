@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CliIo } from '../cli.js';
 import { sha256 } from '../bundle.js';
+import { assertCompatible, runtimeVersions, type RuntimeVersions } from '../flow-extension-compat.js';
 import { validateFlowExtensionManifest, type FlowExtensionManifest } from '../flow-extension-manifest.js';
 import { fetchGithubPlugin, resolveGithubSha, type FetchLike, type FetchedPlugin } from '../plugin-github.js';
 import { PLUGIN_LOCK_FILE, lockWithPlugin, readPluginLock, writePluginLock } from '../plugin-lock.js';
@@ -9,19 +10,8 @@ import { findPluginProject } from '../plugin-loader.js';
 import { PluginError } from '../plugin-manifest.js';
 import { canonicalPluginRef, parsePluginSource } from '../plugin-source.js';
 import { materializePlugin } from '../plugin-store.js';
-import { satisfiesRange } from '../semver-range.js';
 
-/** The versions a plugin's `compat` is checked against: this SDK and the surface it pins. */
-export function runtimeVersions(): { sdk: string; surface: string } {
-  const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string; dependencies: Record<string, string> };
-  return { sdk: pkg.version, surface: pkg.dependencies['@relayflows/surface']! };
-}
-
-export function assertCompatible(manifest: FlowExtensionManifest, versions: { sdk: string; surface: string }): void {
-  for (const [what, range, actual] of [['surface', manifest.compat.surface, versions.surface], ['sdk', manifest.compat.sdk, versions.sdk]] as const) {
-    if (!satisfiesRange(actual, range)) throw new PluginError('plugin_incompatible', `${manifest.name} requires ${what} ${range}; this runtime has ${actual}.`);
-  }
-}
+export { assertCompatible, runtimeVersions };
 
 /** Parse and validate the manifest inside a fetched plugin, checking that any self-declared source is the one it came from. */
 export function extensionManifestOf(plugin: FetchedPlugin): { manifest: FlowExtensionManifest; manifestSha256: string } {
@@ -55,7 +45,7 @@ export interface AddExtensionOptions {
   cwd?: string;
   fetch?: FetchLike;
   now?: () => Date;
-  versions?: { sdk: string; surface: string };
+  versions?: RuntimeVersions;
 }
 
 /**

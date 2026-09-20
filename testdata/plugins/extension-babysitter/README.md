@@ -2,9 +2,14 @@
 
 The worked schema-2 `kind: "flow-extension"` manifest for Babysitter on
 Software Garden, served to the SDK tests by a fake GitHub (see
-`packages/sdk/tests/plugin-extension.test.ts`). It is a fixture, not an
-installable example: the entry is a stub, and runtime composition of flow
-extensions is refused with `plugin_unsupported` in this release.
+`packages/sdk/tests/plugin-extension.test.ts` and
+`tests/flow-extension-compose.test.ts`). It is a fixture, not an installable
+example: the entry carries Babysitter's handler surface — one `.on()` per
+declared subscription — over a body that only declines, so composition onto a
+base flow can be proven without the real review body. `extends.hooks` is empty
+because hooks are not composed by this release (a manifest declaring one is
+refused with `plugin_unsupported`); the `merge-gate` hook from the design is a
+later slice.
 
 Babysitter's own subscription contract (branch `feat/babysitter-v2`) names
 eleven GitHub subscriptions. Three of them — `pull_request.ready_for_review`,

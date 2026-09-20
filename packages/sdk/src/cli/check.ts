@@ -61,7 +61,19 @@ export interface CheckReport {
   schedules?: ScheduleInspection[];
   /** Integrations, harnesses and MCP servers the flow declares it needs (`flow-requirements.ts`). */
   requirements?: FlowRequirements;
+  /** Schema-2 flow extensions composed onto the authored flow, in lock order (`flow-extension-loader.ts`). */
+  extensions?: ExtensionInspection[];
   diagnostics: Array<PreflightDiagnostic | CheckInputDiagnostic | CheckWarningDiagnostic>;
+}
+
+export interface ExtensionInspection {
+  name: string;
+  version: string;
+  /** Canonical `github:<owner>/<repo>@<sha>#<path>`. */
+  ref: string;
+  digest: string;
+  /** How many `.on()` handlers it appends after the base flow's own. */
+  handlers: number;
 }
 
 export interface ScheduleInspection {

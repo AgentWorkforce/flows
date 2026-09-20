@@ -353,6 +353,7 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
     report: {
       ...mcp.report,
       ...(triggers?.report.schedules === undefined ? {} : { schedules: triggers.report.schedules }),
+      ...(triggers?.report.extensions === undefined ? {} : { extensions: triggers.report.extensions }),
       // The authored definition sees helper flags, body use and `cli:`
       // declarations; the compiled view underneath knows only its steps.
       ...(triggers?.report.requirements === undefined ? {} : { requirements: triggers.report.requirements }),
@@ -943,6 +944,9 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
       ? `Cloud only: ${schedule.localUnsupported}`
       : `local: flows tick start --schedule-id ${schedule.scheduleId} --interval-ms ${schedule.intervalMs} --epoch-ms ${schedule.epochMs}`;
     io.stdout(`SCHEDULE handler ${schedule.handler} ${declared} -> flows.tick schedule_id ${schedule.scheduleId} [${local}]`);
+  }
+  for (const extension of report.extensions ?? []) {
+    io.stdout(`EXTENSION ${extension.name}@${extension.version} ${extension.ref} sha256:${extension.digest} -> ${extension.handlers} handler(s) composed after the base flow`);
   }
   for (const resolution of report.resolutions) {
     const config = resolution.source === 'project' && report.projectConfigPath !== undefined

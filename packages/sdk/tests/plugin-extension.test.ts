@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -175,7 +175,7 @@ describe('bounded, verified fetches', () => {
 describe('schema-2 manifest validation', () => {
   it('accepts the worked Babysitter manifest and freezes it', () => {
     const m = validateFlowExtensionManifest(manifestJson);
-    expect(m).toMatchObject({ schema: 2, kind: 'flow-extension', name: 'babysitter', entry: 'babysitter.flow.ts', extends: { handlers: true, hooks: ['merge-gate'] } });
+    expect(m).toMatchObject({ schema: 2, kind: 'flow-extension', name: 'babysitter', entry: 'babysitter.flow.ts', extends: { handlers: true, hooks: [] } });
     expect(m.triggers).toHaveLength(4);
     expect(Object.isFrozen(m) && Object.isFrozen(m.permissions) && Object.isFrozen(m.triggers)).toBe(true);
   });
@@ -274,11 +274,17 @@ describe('legacy helper plugins are untouched', () => {
     expect(gh.calls).toEqual([]);
     expect(p.text()).toContain('plugin_install_failed');
   });
-  it('refuses runtime composition of a declared flow extension, fail closed, before loading helpers', async () => {
+  it('keeps the helper loader helper-only: extension entries are neither helpers nor unlisted packages', async () => {
     const gh = github(); const p = project();
     await addExtensionPlugin(REF, p.io, { cwd: p.cwd, fetch: gh.fetch, now, versions });
-    await expect(loadPlugins(p.cwd)).rejects.toMatchObject({ code: 'plugin_unsupported', message: expect.stringContaining(REF) });
-    expect(await loadPlugins(project().cwd)).toEqual([]);
+    // Extensions are composed by the authored flow loader (flow-extension-compose.test.ts); here they are simply not helpers.
+    expect(await loadPlugins(p.cwd)).toEqual([]);
+    vi.stubEnv('DATADOG_API_KEY', 'test');
+    cpSync(join(fixtureRoot, 'helper-datadog'), join(p.cwd, 'node_modules/@flows/helper-datadog'), { recursive: true });
+    const config = JSON.parse(readFileSync(join(p.cwd, 'flows.json'), 'utf8'));
+    writeFileSync(join(p.cwd, 'flows.json'), JSON.stringify({ ...config, plugins: ['helper-datadog', ...config.plugins] }));
+    expect((await loadPlugins(p.cwd)).map(plugin => plugin.manifest.name)).toEqual(['helper-datadog']);
+    expect(readPluginLock(p.cwd).plugins.map(e => [e.order, e.name])).toEqual([[1, 'babysitter']]);
   });
   it('dispatches through the CLI: add refuses a bad reference offline, plugin list and verify run', async () => {
     const p = project();
