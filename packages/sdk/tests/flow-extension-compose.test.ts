@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -77,7 +77,9 @@ describe('composing flow extensions onto a base flow', () => {
     expect(composed.name).toBe('software-factory');
     expect(composed.header).toBe(loaded.graph[0]!.getDefinition(loaded.handle).header);
     expect(loaded.graph.map(node => node.handle.name)).toEqual(['software-factory', 'babysitter']);
-    expect(loaded.graph[1]!.path).toBe(join(pluginStoreDirectory(p.cwd, 'babysitter', loaded.extensions[0]!.digest), 'babysitter.flow.ts'));
+    // Compare canonical paths: the loader realpaths the root (macOS tmpdir is a
+    // symlink, /var → /private/var), and the store path derives from that root.
+    expect(realpathSync(loaded.graph[1]!.path)).toBe(realpathSync(join(pluginStoreDirectory(p.cwd, 'babysitter', loaded.extensions[0]!.digest), 'babysitter.flow.ts')));
     // Every composed subscription is one the surface registry can lower.
     expect(preflightProviderTriggers(composed.handlers.map(h => h.trigger))).toEqual([]);
     // The extension's own handle is not the root: asking for its definition goes to the surface, not the composition.
