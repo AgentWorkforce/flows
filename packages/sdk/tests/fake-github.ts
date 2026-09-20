@@ -36,7 +36,7 @@ export function fakeGithub(repos: Record<string, FakeRepo>): FakeGithub {
   const fetch: FetchLike = async (url) => {
     calls.push(url);
     const u = new URL(url);
-    const respond = (status: number, body: BodyInit | null = null, type = 'text/plain'): Response => new Response(body, { status, headers: { 'content-type': type } });
+    const respond = (status: number, body: string | Uint8Array | null = null, type = 'text/plain'): Response => new Response(body, { status, headers: { 'content-type': type } });
     if (u.host === 'api.github.com') {
       let m = /^\/repos\/([^/]+)\/([^/]+)\/commits\/(.+)$/.exec(u.pathname);
       if (m) {
