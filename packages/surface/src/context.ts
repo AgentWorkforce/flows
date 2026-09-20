@@ -42,6 +42,46 @@ export interface AgentOptions {
   transport?: 'direct' | 'relay';
 }
 
+/**
+ * What `f.run` resolves to under `onNonZero: 'record'`.
+ *
+ * Every field is read back from the step's journaled output envelope, never
+ * re-measured: `ok` is the recorded exit code, not a second execution. This is
+ * the point of the policy — `<command> || true` discards the code, so the
+ * branch below it can only ever be taken on faith.
+ */
+export interface RunResult {
+  /** Exactly `exitCode === 0`. */
+  ok: boolean;
+  /** The exit code the kernel journaled for this command. */
+  exitCode: number;
+  /**
+   * `stdout` then `stderr`, joined by a newline when both are nonempty — the
+   * string to hand an agent asked to repair what the command reported. It is a
+   * diagnostic convenience, not a reconstruction of the real interleaving: the
+   * two streams were captured separately and their true ordering is not
+   * journaled. Read `stdout` when you need to parse the command's own output.
+   */
+  output: string;
+  /** stdout tail — the same string the default `f.run` resolves to. */
+  stdout: string;
+  /** stderr tail, where a failing check usually explains itself. */
+  stderr: string;
+}
+
+export interface RunOptions {
+  /** Command lease: milliseconds or a duration such as "5m"; default 30s, maximum 15m. */
+  timeout?: string | number;
+  /**
+   * What a nonzero exit means. `'fail'` (the default) throws, ending the flow
+   * at this line. `'record'` journals the exit code and output and resolves to
+   * a `RunResult`, so the body can hand a red check's own output to whatever is
+   * built to repair it. A timeout, a signal, or a step that never ran still
+   * throws under either policy: those produced no verdict to record.
+   */
+  onNonZero?: 'fail' | 'record';
+}
+
 export interface LlmOptions {
   /** JSON Schema checked before the result is accepted by the journal. */
   output: Record<string, unknown>;
@@ -57,8 +97,20 @@ export interface LlmOptions {
  */
 export interface Ctx extends Helpers {
   readonly mcp: Readonly<Record<string, Readonly<Record<string, (args: unknown) => Step<unknown>>>>>;
-  /** Command lease: milliseconds or a duration such as "5m"; default 30s, maximum 15m. */
-  run(command: string, options?: { timeout?: string | number }): Step<string>;
+  /**
+   * Run a command. Resolves to its stdout tail, and a nonzero exit ends the
+   * flow — unless `onNonZero: 'record'` is declared, which resolves to a
+   * `RunResult` carrying the journaled exit code instead.
+   *
+   * The literal overloads come first so the default stays the common case: an
+   * omitted or `'fail'` policy keeps the `Step<string>` every existing body is
+   * written against, and only the literal `'record'` widens the result. The
+   * third is for a policy held in a variable, where neither literal applies and
+   * the author has to narrow the union themselves.
+   */
+  run(command: string, options?: RunOptions & { onNonZero?: 'fail' }): Step<string>;
+  run(command: string, options: RunOptions & { onNonZero: 'record' }): Step<RunResult>;
+  run(command: string, options: RunOptions): Step<string | RunResult>;
   llm(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
   /** JSON Schema validates the value at runtime; narrow unknown in author code. */
   llm(prompt: string, options: LlmOptions): Step<unknown>;

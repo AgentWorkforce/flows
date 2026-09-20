@@ -475,6 +475,128 @@ the kernel kills the command's process group and journals `completionReason: tim
 `f.run` refuses with code `lease_exceeded`. The override applies only to that
 invocation; calls without options retain the default.
 
+### Repair before failure: `onNonZero: 'record'`
+
+A deterministic step is gated on its exit code by default: a nonzero exit fails
+the step and ends the flow. That is the right default, and it is the wrong one
+for the single most common shape in practice — run a check, let it be red, and
+hand its output to whatever is built to answer it.
+
+`onNonZero: 'record'` is the opt-in for that shape. The command still runs, its
+exit code and output tails are still journaled, and the step still completes;
+what changes is that a positive exit code satisfies the exit check instead of
+failing it, so dependents run. In TypeScript the result is a value rather than
+a throw:
+
+```ts
+const tests = await f.run('npm test', { onNonZero: 'record' });
+if (!tests.ok) {
+  await f.agent('fixer', { task: `Fix these failures:\n${tests.output}` });
+}
+```
+
+`RunResult` is `{ ok, exitCode, stdout, stderr, output }`. Every field is read
+back from the step's journaled outcome, never re-measured — `ok` is exactly
+`exitCode === 0`. `stdout` and `stderr` are the journal's **bounded tails**, not
+complete transcripts; `output` is `stdout` then `stderr` joined by a newline
+when both are nonempty, a reading convenience rather than a reconstruction of
+the real interleaving. Without the policy, `f.run` still resolves to the stdout
+string, so existing bodies are unchanged.
+
+This is what `<command> || true` cannot do. `|| true` throws the exit code
+away, so nothing downstream can tell a passing check from a failing one, and a
+flow that forgets a later gate ships red work silently. `onNonZero: 'record'`
+keeps the code, which is the whole point: the branch below it is a fact, not a
+guess.
+
+**The policy covers exit codes only.** A timeout, a signal or a command that
+never started produced no verdict to record, and still fails the step under
+either policy. Declared `output_contains` and `json_schema` gates are still
+enforced in record mode, as are budgets and journal-append failures. Recording
+is not a retry policy and does not trigger semantic retries.
+
+**Recording makes red allowed, not invisible.** `flows check` annotates a
+recording step with `[onNonZero: record]`, and the kernel labels the satisfied
+check `exit_code:recorded` with the numeric code in its detail, so a recorded
+red outcome reads as red in the journal. A flow that records without ever
+asserting green may still finish successfully — that outcome is inspectable,
+not forbidden.
+
+**Asserting green again.** To demand that recorded commands were green, use the
+declarative `steps_green` gate, which reads the journaled outcomes and never
+re-runs anything:
+
+```yaml
+version: '0.1.0'
+steps:
+  - id: tests
+    type: deterministic
+    command: npm test
+    onNonZero: record
+  - id: lint
+    type: deterministic
+    command: npm run lint
+    onNonZero: record
+  - id: gate
+    type: deterministic
+    command: 'true'
+    verification:
+      type: steps_green
+      ids: [tests, lint]
+```
+
+`steps_green` is deterministic-hosts-only: a worker step records no exit code.
+The ids it names must be deterministic steps that precede it; unknown, forward,
+self and non-deterministic references are refused at compile time, as are empty
+and duplicate id lists. The host keeps its own command and its own exit policy —
+the assertion is lowered to a separate, always-fatal gate step that every
+dependent of the host waits on.
+
+A recorded outcome is immutable, so repair does not turn an old red step green.
+A flow that repairs must produce **new** post-repair evidence and gate on that
+distinct step:
+
+```yaml
+version: '0.1.0'
+steps:
+  - id: tests
+    type: deterministic
+    command: npm test
+    onNonZero: record
+    # Declaring the envelope schema is what lets a later step bind the evidence.
+    verification:
+      type: json_schema
+      schema:
+        type: object
+        properties:
+          exit_code: { type: integer }
+          stdout_tail: { type: string }
+          stderr_tail: { type: string }
+  - id: repair
+    type: agent
+    dependsOn: [tests]
+    input:
+      failures: { step: tests }
+    instruction: Read input.failures and fix the failing tests.
+  - id: retest
+    type: deterministic
+    dependsOn: [repair]
+    command: npm test
+  - id: gate
+    type: deterministic
+    command: 'true'
+    verification:
+      type: steps_green
+      ids: [retest]
+```
+
+`retest` is an ordinary gated step, so the final `steps_green` over it is what
+decides the run. Binding a recorded outcome as input requires the source to
+declare an output schema, as every input binding does (see *Declarative output
+binding*); an `output_contains` source is refused, because that gate cannot also
+carry the envelope schema the binding reads — declare the constraint as a JSON
+Schema instead.
+
 ### The authored operation lifecycle
 
 An authored TypeScript body reaches `done()` only if every step it created was

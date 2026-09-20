@@ -19,6 +19,7 @@ import { parseBudget, toKernelBudget } from './budget.js';
 import { bindingDependencies } from './input-binding.js';
 import { namedGateFailure } from './named-gates.js';
 import { lowerNamedGates } from './named-gate-lowering.js';
+import { lowerStepsGreenGates } from './steps-green.js';
 import type {
   AgentStepSpec,
   DeterministicStepSpec,
@@ -208,6 +209,10 @@ function compileStep(step: StepSpec): StepSpec {
         // their dispatch timeout. It must be spread HERE and nowhere in `base`.
         ...(s.timeoutMs !== undefined ? { timeoutMs: s.timeoutMs } : {}),
         ...(s.lease_ms !== undefined ? { lease_ms: parseStepTimeout(s.lease_ms) } : {}),
+        // Normalized away when it names the default, so an author who spells
+        // out `fail` gets the same canonical spec — and the same hash — as one
+        // who omits the field entirely.
+        ...(s.onNonZero !== undefined && s.onNonZero !== 'fail' ? { onNonZero: s.onNonZero } : {}),
       };
     }
     case 'llm': {
@@ -258,6 +263,11 @@ function outputGate(gate: VerificationSpec, stepId: string): OutputVerificationS
     throw new CompileError([
       `step "${stepId}": exit_code is supported only on deterministic steps`,
     ]);
+  }
+  if (gate.type === 'steps_green') {
+    throw new CompileError([
+      `step "${stepId}": gate_host_unsupported: steps_green is supported only on deterministic steps`,
+    ], 'gate_host_unsupported');
   }
   return gate;
 }
@@ -331,7 +341,13 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
     // reverts the other, and `validateSpec` and `flows check` would both still
     // look correct. See ops/reviews/20260903-pr139-repair-0903.md section 10.
     ...(compiled.triggers?.length ? { triggers: compiled.triggers.map(toKernelTrigger) } : {}),
-    steps: lowerNamedGates(compiled.steps).map((step) => toKernelStep(resolveNamedAgent(step, compiled.agents))),
+    // `steps_green` lowers FIRST: it rewrites the steps it reads to the
+    // permissive envelope schema its bindings need, and the named-gate pass
+    // then adds each source's own gate barrier to the generated step. The
+    // reverse order would hand the green gate a source whose barrier it does
+    // not wait for.
+    steps: lowerNamedGates(lowerStepsGreenGates(compiled.steps))
+      .map((step) => toKernelStep(resolveNamedAgent(step, compiled.agents))),
     ...(compiled.budget !== undefined ? { budget: toKernelBudget(compiled.budget) } : {}),
   };
 }
@@ -426,14 +442,14 @@ function kernelTriggerToAuthoring(value: unknown, at: string): unknown {
 function kernelStepToAuthoring(value: unknown, at: string): unknown {
   const unionKeys = [
     'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input',
-    'command', 'timeout_ms', 'lease_ms', 'prompt', 'model', 'cli', 'instruction',
+    'command', 'timeout_ms', 'lease_ms', 'on_non_zero', 'prompt', 'model', 'cli', 'instruction',
     'recovery_mode', 'surfaces', 'permissions',
   ] as const;
   const step = requireKernelObject(value, unionKeys, at);
   const type = step['type'];
   const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input'] as const;
   const typeKeys = type === 'deterministic'
-    ? ['command', 'timeout_ms', 'lease_ms'] as const
+    ? ['command', 'timeout_ms', 'lease_ms', 'on_non_zero'] as const
     : type === 'llm'
       ? ['prompt', 'model', 'cli'] as const
       : type === 'agent'
@@ -460,6 +476,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
       command: step['command'],
       ...(step['timeout_ms'] !== undefined ? { timeoutMs: step['timeout_ms'] } : {}),
       ...(step['lease_ms'] !== undefined ? { lease_ms: step['lease_ms'] } : {}),
+      ...(step['on_non_zero'] !== undefined ? { onNonZero: step['on_non_zero'] } : {}),
     };
   }
   if (type === 'llm') {
@@ -610,6 +627,11 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
         command: step.command,
         ...(step.timeoutMs !== undefined ? { timeout_ms: step.timeoutMs } : {}),
         ...(step.lease_ms !== undefined ? { lease_ms: parseStepTimeout(step.lease_ms) } : {}),
+        // Omitted for the default, exactly as the kernel skips serializing it:
+        // a spec written before this field existed keeps its canonical bytes
+        // and therefore its spec hash.
+        ...(step.onNonZero !== undefined && step.onNonZero !== 'fail'
+          ? { on_non_zero: step.onNonZero } : {}),
       };
     case 'llm': {
       return {

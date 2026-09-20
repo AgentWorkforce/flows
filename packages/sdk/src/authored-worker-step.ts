@@ -8,7 +8,7 @@ import type { PreflightDiagnostic } from './preflight.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import type { JournalClient } from './journal-client.js';
 import { SPEC_SCHEMA_VERSION, type FlowSpec, type PermissionsSpec, type StepSpec } from './spec.js';
-import { isSurfaceCompletionReason, readCompletedStepOutput, readSuccessfulOutput, type AuthoredStepContext } from './authored-step-output.js';
+import { isSurfaceCompletionReason, readCompletedStepOutput, readRecordedOutcome, readSuccessfulOutput, type AuthoredStepContext, type RecordedRunOutcome } from './authored-step-output.js';
 import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import { snapshotJsonValue } from './json-value.js';
 import { authoredChildAdmissionKey } from './authored-admission.js';
@@ -217,24 +217,41 @@ export function authoredDeterministicRunner(
   context: AuthoredStepContext = {},
 ) {
   const rootRunId = context.rootRunId;
-  return async (id: string, command: string, terminal = false, leaseMs?: number, verification?: NamedGate): Promise<string> => {
+  // One lowering, two readers. `record` changes what the child run's verdict
+  // MEANS, so the reader changes with it; everything before the read — spec,
+  // admission key, budget, child index — is deliberately shared, because a
+  // recorded red command is still an ordinary child run.
+  function lower<T>(
+    id: string, command: string, terminal: boolean, leaseMs: number | undefined,
+    verification: NamedGate | undefined, onNonZero: 'record' | undefined,
+    read: (outcome: import('./protocol.js').RunOutcome) => Promise<T>,
+  ): Promise<T> {
     const spec = toKernelSpec(compileSpec({
       version: SPEC_SCHEMA_VERSION,
       name: `${name}/${id}`,
       steps: [{
         id, type: 'deterministic', command,
         ...(leaseMs === undefined ? {} : { lease_ms: leaseMs }),
+        ...(onNonZero === undefined ? {} : { onNonZero }),
         ...(verification === undefined ? {} : { verification }),
       }],
     }));
     const admissionKey = authoredChildAdmissionKey(rootRunId, id);
-    const consume = async (outcome: import('./protocol.js').RunOutcome): Promise<string> => {
+    const consume = async (outcome: import('./protocol.js').RunOutcome): Promise<T> => {
       await recordAuthoredChild(journal, rootRunId, { step: id, runId: outcome.run_id, state: 'admitted' });
-      return readSuccessfulOutput(journal, outcome, id, journalSteps, context);
+      return read(outcome);
     };
-    if (terminal) return consume(await journal.runStart(spec, undefined, admissionKey));
+    if (terminal) return journal.runStart(spec, undefined, admissionKey).then(consume);
     return budget.execute(journal, spec, consume, admissionKey);
-  };
+  }
+  const lowerRun = (id: string, command: string, terminal = false, leaseMs?: number, verification?: NamedGate): Promise<string> =>
+    lower(id, command, terminal, leaseMs, verification, undefined,
+      outcome => readSuccessfulOutput(journal, outcome, id, journalSteps, context));
+  /** `f.run(..., { onNonZero: 'record' })`: the exit code is the result, not a throw. */
+  lowerRun.recording = (id: string, command: string, leaseMs?: number, verification?: NamedGate): Promise<RecordedRunOutcome> =>
+    lower(id, command, false, leaseMs, verification, 'record',
+      outcome => readRecordedOutcome(journal, outcome, id, journalSteps, context));
+  return lowerRun;
 }
 
 /**

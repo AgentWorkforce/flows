@@ -23,6 +23,7 @@ import { unknownKeyErrors } from './unknown-keys.js';
 import { stepDependencyErrors } from './step-dependencies.js';
 import { inputBindingErrors } from './input-binding.js';
 import { NAMED_GATE_KEYS, namedGateErrors } from './named-gates.js';
+import { STEPS_GREEN_KEYS, stepsGreenErrors, stepsGreenReferenceErrors } from './steps-green.js';
 import {
   AGENT_DECLARATION_FIELDS,
   FLOW_FIELDS,
@@ -74,6 +75,7 @@ const BUDGET_KEYS = ['maxTokensIn', 'maxTokensOut', 'maxDollars', 'maxTokens', '
 const VERIFICATION_KEYS: Record<string, readonly string[]> = {
   ...NAMED_GATE_KEYS,
   exit_code: ['type', 'expect'],
+  steps_green: STEPS_GREEN_KEYS,
   output_contains: ['type', 'value'],
   json_schema: ['type', 'schema'],
 };
@@ -195,6 +197,9 @@ class Validator {
     // Dependents must reference real step ids and form a DAG (no cycles).
     for (const error of stepDependencyErrors(steps, this.ids)) this.fail(error);
     for (const error of inputBindingErrors(steps)) this.fail(error);
+    // A steps_green gate that names nothing readable is the `|| true` failure
+    // it replaces, so its references are refused at the flow level, not lowered.
+    for (const error of stepsGreenReferenceErrors(steps)) this.fail(error);
     return this.result();
   }
 
@@ -443,10 +448,14 @@ class Validator {
       } catch (error) {
         this.fail(error instanceof Error ? error.message : `${at}.schema: expected JSON-compatible data`);
       }
+    // Below here are the gates the COMPILER lowers; above are the three the
+    // kernel evaluates itself. The enumeration follows the same split.
+    } else if (gate.type === 'steps_green') {
+      for (const error of stepsGreenErrors(v, at, stepType)) this.fail(error);
     } else if (Object.hasOwn(NAMED_GATE_KEYS, gate.type)) {
       for (const error of namedGateErrors(v, input, at)) this.fail(error);
     } else {
-      this.fail(`${at}.type: unknown_gate_kind: expected exit_code | output_contains | json_schema | references_input | subprocess_gate | word_count_bounds | regex_match | artifact_exists`);
+      this.fail(`${at}.type: unknown_gate_kind: expected exit_code | output_contains | json_schema | steps_green | references_input | subprocess_gate | word_count_bounds | regex_match | artifact_exists`);
     }
   }
 
@@ -459,6 +468,12 @@ class Validator {
     }
     if (st.timeoutMs !== undefined && !isPosInt(st.timeoutMs)) {
       this.fail(`${at}.timeoutMs: expected a positive integer`);
+    }
+    // Only the two policies the kernel enum names. A third spelling would
+    // deserialize-fail in the kernel, so it is refused where the author can
+    // still read the error.
+    if (st.onNonZero !== undefined && st.onNonZero !== 'fail' && st.onNonZero !== 'record') {
+      this.fail(`${at}.onNonZero: expected fail | record`);
     }
   }
 

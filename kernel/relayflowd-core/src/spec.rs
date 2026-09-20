@@ -307,7 +307,7 @@ const STEP_COMMON_FIELDS: &[&str] = &[
     "memory",
     "requirements",
 ];
-const STEP_DETERMINISTIC_FIELDS: &[&str] = &["command", "timeout_ms", "lease_ms"];
+const STEP_DETERMINISTIC_FIELDS: &[&str] = &["command", "timeout_ms", "lease_ms", "on_non_zero"];
 const STEP_LLM_FIELDS: &[&str] = &["prompt", "model", "cli"];
 const STEP_AGENT_FIELDS: &[&str] = &[
     "instruction",
@@ -397,6 +397,29 @@ impl StepSpec {
     }
 }
 
+/// What a deterministic step's nonzero exit code means.
+///
+/// `Fail` is the kernel's long-standing implicit gate: `exit_code == 0` or the
+/// step failed. `Record` is the repair-before-failure shape — the command is
+/// allowed to be red, its exit code and output tails stay in the journal
+/// exactly as executed, dependents run, and a later step reads the recorded
+/// outcome instead of re-running the command. It is a policy for the step's
+/// own exit code only; timeouts, worker errors, and declared content or schema
+/// gates keep their existing fatal semantics.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OnNonZero {
+    #[default]
+    Fail,
+    Record,
+}
+
+impl OnNonZero {
+    fn is_default(&self) -> bool {
+        matches!(self, OnNonZero::Fail)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StepKind {
@@ -406,6 +429,11 @@ pub enum StepKind {
         timeout_ms: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         lease_ms: Option<u64>,
+        /// What a nonzero command exit means. Omitted on serialization when
+        /// it is the default, so every spec written before this field exists
+        /// keeps its exact canonical bytes and its exact hash.
+        #[serde(default, skip_serializing_if = "OnNonZero::is_default")]
+        on_non_zero: OnNonZero,
     },
     Llm {
         prompt: String,
