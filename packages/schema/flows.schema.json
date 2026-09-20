@@ -1703,6 +1703,49 @@
       "description": "A Relayflow spec in the authoring shape — the composable unit (RFC settled\ndecision #5). Schema-validated, diffable, signable (gate 8), and emittable\nby a step (gate 9 self-authoring). What the kernel inlines in `run.spawned`\nis this spec mapped to the kernel dialect (`toKernelSpec`).",
       "type": "object",
       "properties": {
+        "communication": {
+          "title": "communication",
+          "description": "Opt-in live messaging between independent agent steps; compiled into journal channels.",
+          "type": "object",
+          "properties": {
+            "links": {
+              "title": "links",
+              "description": "links in the Relayflows spec.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "title": "from",
+                    "description": "from in the Relayflows spec.",
+                    "type": "string"
+                  },
+                  "to": {
+                    "title": "to",
+                    "description": "to in the Relayflows spec.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "additionalProperties": false,
+                "title": "links items",
+                "description": "links items value."
+              }
+            },
+            "timeoutMs": {
+              "title": "timeoutMs",
+              "description": "timeoutMs in the Relayflows spec.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "links"
+          ],
+          "additionalProperties": false
+        },
         "version": {
           "title": "version",
           "description": "Spec schema semver (RFC §7). Compilers always emit latest.",
