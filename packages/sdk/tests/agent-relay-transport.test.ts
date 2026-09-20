@@ -407,9 +407,18 @@ describe("Relay completion at the journal boundary", () => {
     f.setStatus("running");
     const w = await workerFixture(f);
     w.client.stepHeartbeat
-      .mockResolvedValueOnce({ lease_deadline_ms: Date.now() + 150 })
+      // 3s lease, so worker-lease.ts renews at ~1s: after the durable claim's
+      // three fsyncs (agent-relay-state.ts `claimRelayTask`) and the POST,
+      // while `runAgentRelayTask` sits in its 1s poll delay. The old 150ms
+      // lease renewed at ~50ms and raced those fsyncs, which a loaded CI
+      // runner loses. `mockImplementationOnce` also reads the clock at the
+      // heartbeat rather than at mock setup, so the window is the stated one.
+      .mockImplementationOnce(async () => ({ lease_deadline_ms: Date.now() + 3_000 }))
       .mockRejectedValueOnce(new Error("lease replaced"));
     w.client.emit("step.dispatch", w.dispatch);
+    // The POST is the precondition for the abort being mid-poll, not a
+    // side effect of the timing: wait for it rather than assuming it landed.
+    await vi.waitFor(() => { expect(f.posts()).toHaveLength(1); });
     await w.worker.close();
     expect(w.client.stepComplete).not.toHaveBeenCalled();
     expect(String(w.errors[0])).toContain("lease replaced");

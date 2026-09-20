@@ -38,7 +38,7 @@ describe('flows deploy file buckets', () => {
       return copy(source, target, digest);
     });
     const stdout: string[] = []; const stderr: string[] = [];
-    expect(await runDeploy({ command: 'deploy', value: f.reference, to: f.bucket }, {
+    expect(await runDeploy({ command: 'deploy', value: f.reference, to: f.bucket, json: false }, {
       stdout: line => stdout.push(line), stderr: line => stderr.push(line),
     })).toBe(0);
     expect(await verifyBundle(f.target, f.digest)).toBe(f.digest);
@@ -46,6 +46,31 @@ describe('flows deploy file buckets', () => {
     expect(stdout.join('\n')).not.toContain('DEPLOYED');
     expect(stderr.join('\n')).toContain('deploy_noop');
   });
+  it('answers --json with one object per outcome', async () => {
+    // `--json` is declared on the shared `deploy` verb; only the hosted-listener
+    // parser accepted it, so help promised JSON the bundle form refused (#451).
+    const f = await setup();
+    const first = f.invoke(['deploy', f.reference, '--to', f.bucket, '--json']);
+    expect(first.status, first.stderr).toBe(0);
+    expect(JSON.parse(first.stdout))
+      .toEqual({ ok: true, bundle: f.reference, to: f.bucket, status: 'deployed' });
+
+    const second = f.invoke(['deploy', '--json', f.reference, '--to', f.bucket]);
+    expect(second.status, second.stderr).toBe(0);
+    expect(JSON.parse(second.stdout))
+      .toEqual({ ok: true, bundle: f.reference, to: f.bucket, status: 'already-present' });
+  });
+
+  it('reports a refusal as JSON under --json', async () => {
+    const f = await setup();
+    await rm(f.bundle, { recursive: true });
+    const result = f.invoke(['deploy', f.reference, '--to', f.bucket, '--json']);
+    expect(result.status).toBe(2);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: false, code: 'bundle_missing_locally', bundle: f.reference, to: f.bucket,
+    });
+  });
+
   it('refuses a missing local bundle before creating the bucket', async () => {
     const f = await setup();
     await rm(f.bundle, { recursive: true });

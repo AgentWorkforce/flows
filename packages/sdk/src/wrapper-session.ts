@@ -49,6 +49,8 @@ export function runWrapperSession(
   env: NodeJS.ProcessEnv,
   overrides: Partial<WrapperSessionLimits> = {},
   signal?: AbortSignal,
+  /** Working directory for the wrapper process; the artifact scanner uses the same root. */
+  cwd?: string,
 ): Promise<WrapperSessionResult> {
   if (signal?.aborted) return Promise.reject(signal.reason);
   if (signal !== undefined && process.platform === 'win32') {
@@ -77,7 +79,7 @@ export function runWrapperSession(
     ));
   }
 
-  return executePinnedWrapper(cli, identity, request, env, limits, signal);
+  return executePinnedWrapper(cli, identity, request, env, limits, signal, cwd);
 }
 
 function executePinnedWrapper(
@@ -87,6 +89,7 @@ function executePinnedWrapper(
   env: NodeJS.ProcessEnv,
   limits: WrapperSessionLimits,
   signal?: AbortSignal,
+  cwd?: string,
 ): Promise<WrapperSessionResult> {
   return new Promise((resolve) => {
     const ownsGroup = ownsProcessGroup(signal);
@@ -94,6 +97,7 @@ function executePinnedWrapper(
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
       detached: ownsGroup,
+      ...(cwd === undefined ? {} : { cwd }),
     });
     const stop = childStop(child, ownsGroup);
     const stdout: string[] = [];

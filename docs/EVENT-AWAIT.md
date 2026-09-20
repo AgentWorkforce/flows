@@ -4,6 +4,30 @@
 proposed, 2026-09-17. Governs the resident verb `on` when it is used inside a
 running flow body rather than as the flow's entry condition.*
 
+### Implementation boundary (2026-09-19)
+
+The local SDK/daemon path implements preparation, explicit router activation,
+durable root suspension, wake replay, and CLI resume. `subscription.park` is a
+lease-holder-only protocol call with `run_id`, `step_id`, `attempt`,
+`idempotency_key`, `subscription_id`, and `phase` (`activation` or `event_wait`).
+It journals a step-scoped `wait.event` and releases the worker lease; it does
+not record a crash or charge a retry. `run.resume` checks the subscription's
+journaled readiness before dispatching the root again. Resuming an unchanged
+wait returns the same CLI suspension report without running the body.
+
+Each authored `next()` supplies a stable call `sequence` to `subscription.next`.
+Completed wakes replay by that ordinal, including after acknowledgment; a body
+re-executing from the beginning must not receive its second wake at its first
+call. Replaying a closed handle does not reopen provider ingress.
+
+Cloud's durable binding registry, ingress fencing, suspended-result handling,
+and wake scheduling remain integration work. The CLI integration probe uses a
+local router adapter, not a deployed provider webhook. It lives at
+`packages/sdk/tests/fixtures/event-await-cli-probe.mjs`; the associated test
+exercises repeated resume, daemon SIGKILL/restart, two ordered wakes, duplicate
+delivery, and memoized child effects. This is not evidence for Cloud routing,
+provider authorization, or epoch-compaction acceptance below.
+
 ## 1. The problem
 
 A flow that opens a pull request is not finished when the PR exists. CI fails,
@@ -39,15 +63,19 @@ Verified against `main` at `85e7e372`:
 - `relayflowd-core/src/state.rs` folds `wait.event` into `StepState::Waiting`,
   and `relayflowd/src/engine/remote.rs` `emit_event` closes every open wait
   whose `event_key` matches.
-- **No step produces `wait.event`.** Only `wait.human` is appended (manual
-  recovery, `machine/recovery.rs`).
+- **No step produces `wait.event`.** `wait.human` is appended by manual
+  recovery (`machine/recovery.rs`) and by the `step.wait` verb, which a lease
+  holder uses to park its attempt on an `f.human` question; `emit_event`
+  closes a `wait.human` whose `wait_id` equals the `event_key` with
+  `human_responded`.
 - **`timeout_at_ms` is never read.** A wait with a timeout would wait forever.
 - **An event with no open wait is dropped.** `emit_event` returns
   `matched: 0` and journals nothing, so an event that lands while the body is
   running a fix step is lost.
 - **The authored `Ctx` has no `on`.** `packages/surface/src/context.ts`
-  exposes `human`, `dispatch`, and `done`; the authored executor throws
-  `unsupported_verb` for `human` and `dispatch` (#400).
+  exposes `human`, `dispatch`, and `done`; `human` lowers to `wait.human`
+  (SURFACE.md §5 *Human gates*); the authored executor still throws
+  `unsupported_verb` for `dispatch`.
 
 ## 3. Surface
 
@@ -306,6 +334,7 @@ implementation proves:
 - **Pattern language.** v0 `wait.event` is exact-match; triggers already carry
   a recursive-subset `pattern`. Leaning: reuse `pattern` for subscriptions and
   keep `event_key` for exact-match waits.
-- **Relationship to `f.human`.** #400 needs a durable approval wait. Leaning:
-  `f.human(question, { to, timeout })` lowers to `wait.human` with the timers
-  from §5.5, and resolves to `false` on timeout.
+- **Relationship to `f.human`.** `f.human(question, { to })` lowers to
+  `wait.human` today (#400) and is answered by `event.emit` keyed by the wait
+  id. Open: `timeout` should reuse the timers from §5.5 and resolve to `false`
+  on timeout.

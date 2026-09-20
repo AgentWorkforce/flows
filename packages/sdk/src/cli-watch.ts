@@ -9,24 +9,23 @@ const DEBOUNCE_MS = 150;
 type ExitCode = 0 | 1 | 2 | 3;
 
 /** A runner around the ordinary CLI, with a fresh module cache for every check. */
-export async function watchCheck(path: string, json: boolean, io: CliIo): Promise<ExitCode> {
-  const controller = new AbortController();
-  const stop = (): void => controller.abort();
-  process.once('SIGINT', stop);
-  process.once('SIGTERM', stop);
+export async function watchCheck(
+  path: string,
+  json: boolean,
+  io: CliIo,
+  /** Cancellation, owned by the caller; this function installs no signal handler. */
+  signal: AbortSignal,
+): Promise<ExitCode> {
   try {
     return await watchChecks({
       path,
-      signal: controller.signal,
+      signal,
       check: () => checkOnce(path, json, io),
       clear: () => { if (!json) io.stdout('\x1b[2J\x1b[H'); },
     });
   } catch (error) {
     io.stderr(`REFUSED [input_unreadable] Could not watch "${path}": ${error instanceof Error ? error.message : String(error)}`);
     return 2;
-  } finally {
-    process.off('SIGINT', stop);
-    process.off('SIGTERM', stop);
   }
 }
 

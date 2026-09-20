@@ -82,7 +82,18 @@ export interface RegexMatchGate {
   flags?: string;
 }
 
-export type NamedDataGate = ReferencesInputGate | SubprocessGate | WordCountBoundsGate | RegexMatchGate;
+/**
+ * Passes when the step's journaled `output.artifacts` lists `path`: a file the
+ * agent's worker measured as created or changed under its working directory.
+ * Reads the journal, never the disk, so replay and resume see the same verdict.
+ */
+export interface ArtifactExistsGate {
+  type: 'artifact_exists';
+  /** Working-directory-relative POSIX path, as the worker journals it. */
+  path: string;
+}
+
+export type NamedDataGate = ReferencesInputGate | SubprocessGate | WordCountBoundsGate | RegexMatchGate | ArtifactExistsGate;
 export type OutputVerificationSpec = OutputContainsGate | JsonSchemaGate | NamedDataGate;
 export type VerificationSpec = ExitCodeGate | OutputVerificationSpec;
 
@@ -114,7 +125,22 @@ export interface AgentSurfaces {
   external?: string[];
 }
 
-/** Permission model for an agent step (gate 8). `readonly` provably cannot write. */
+/**
+ * Per-step permission declarations for an agent step.
+ *
+ * Validated by gate 1 and recorded in the compiled step spec (as `file_globs`,
+ * `network_allowlist` and `access_preset`), but **not currently enforced**:
+ * nothing reads these fields to gate a file or network access. Enforcement is
+ * gate 8 (#442). `accessPreset: 'readonly'` does not prevent writes today.
+ *
+ * `flows check` emits a `permissions_unenforced` warning for every agent step
+ * that declares this block in a declarative spec — YAML/JSON, or a `FlowSpec`
+ * handed to the check API. A declaration inside an authored `.flow.ts` body is
+ * **not** inspected: checking TypeScript preflights the flow header without
+ * executing the body, so those steps do not exist yet and the check passes
+ * silently. A clean check is not evidence that no unenforced declaration is
+ * present; the paragraph above is, for every dialect.
+ */
 export interface PermissionsSpec {
   fileGlobs?: string[];
   networkAllowlist?: string[];

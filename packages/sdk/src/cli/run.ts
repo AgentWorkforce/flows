@@ -1,8 +1,10 @@
+import { parseHumanRecipient } from '../human-to.js';
 import { parseDigestReference } from '../bundle-transport.js';
 import { prepareDigestRun } from './run-digest.js';
 import { reuseSummary } from './reuse.js';
 import { resumeHelperEffect } from '../authored-helper-effect.js';
-import { AuthoredFlowExecutionError } from '../authored-flow-error.js';
+import { AuthoredFlowExecutionError, AuthoredHumanParked, type AuthoredHumanWait } from '../authored-flow-error.js';
+import { answerCommand, resumeCommand } from '../authored-human.js';
 import { join, resolve } from 'node:path';
 import type { ProgressEvent } from '../progress.js';
 import { toKernelSpec } from '../compile.js';
@@ -23,13 +25,14 @@ import type {
   RunStatus,
 } from '../protocol.js';
 import type { StepType } from '../spec.js';
+import type { LoweredCompletionReason } from '../authored-flow-executor.js';
 import {
   checkFlow,
   type CheckReport,
 } from './check.js';
 
 export type RunExitCode = 0 | 1 | 2 | 3 | 4;
-export type RunCommand = 'run' | 'resume';
+export type RunCommand = 'run' | 'resume' | 'answer';
 
 export interface ParkedStep {
   id: string;
@@ -37,7 +40,7 @@ export interface ParkedStep {
 }
 
 export interface RunDiagnostic extends StepFailedDetails {
-  severity: 'refusal' | 'failure' | 'parked' | 'warning';
+  severity: 'refusal' | 'failure' | 'parked' | 'warning' | 'declined';
   kind: RunFailureKind | RunWarningKind | RunCompletionReason | 'subscription_suspended';
   message: string;
 }
@@ -55,6 +58,12 @@ export interface RunReport {
   completedSteps?: number;
   reuse?: { fromRunId: string; reusedSteps: number; executedSteps: number };
   parkedStep?: ParkedStep;
+  /** The open `f.human` question a parked authored run is waiting on. */
+  humanWait?: AuthoredHumanWait;
+  /** `flows answer` only: the answer it recorded. */
+  answer?: { waitId: string; answer: boolean; note?: string };
+  /** The invocation that continues this run, when one is known. */
+  next?: string;
   projectConfigPath?: string;
   resolutions: CheckReport['resolutions'];
   diagnostics: Array<CheckReport['diagnostics'][number] | RunDiagnostic>;
@@ -217,21 +226,7 @@ export async function resumeFlow(
       if (result.state === 'suspended') {
         return suspendedExecution('resume', base, socketPath, runId, result);
       }
-      return {
-        exitCode: result.completionReason === 'needs_human' ? 3 : 0,
-        report: {
-          ...base,
-          ok: result.completionReason === 'success',
-          runId,
-          socketPath,
-          status: result.completionReason === 'needs_human' ? 'parked' : 'completed',
-          ...(result.completionReason === 'success'
-            ? { completionReason: 'success' as const }
-            : { diagnostics: [{ severity: 'parked' as const, kind: 'run_parked' as const,
-              message: `Flow "${result.name}" needs_human; see the journal for accumulated blockers.` }] }),
-          completedSteps: result.journalSteps.length,
-        },
-      };
+      return authoredCompletion('resume', base, socketPath, result, runId);
     }
     // resumeHelperEffect subsumes the old resumeSlackEffect: it handles the
     // slack effect resume plus every other provider from N's codegen. The
@@ -262,8 +257,11 @@ export async function resumeFlow(
     // leaving it on `protocolFailure` meant `flows run` printed the evidence
     // while `flows resume` still printed `protocol_error` and
     // `RUN <id> unknown` for the identical failure.
-    if (error instanceof AuthoredFlowExecutionError && error.code === 'step_failed') {
+    if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
       return authoredStepFailure('resume', base, socketPath, error, runId);
+    }
+    if (error instanceof AuthoredHumanParked) {
+      return authoredHumanParked('resume', base, socketPath, error, { dataDir, localAgent: options.localAgent === true });
     }
     if (!(error instanceof JournalProtocolError) || error.code !== 'run_not_found') {
       return protocolFailure('resume', base, socketPath, error, runId);
@@ -326,13 +324,134 @@ export function authoredStepFailure(
       completionReason: 'step_failed',
       diagnostics: [...base.diagnostics, {
         severity: 'failure',
-        kind: 'step_failed',
+        // A predicate gate that judged false is a run failure with its own
+        // name, so the report says which kind of check the body did not pass.
+        kind: error.code === 'gate_failed' ? 'gate_failed' : 'step_failed',
         // The `step_failed: ` prefix `AuthoredFlowExecutionError` adds is
         // redundant once the diagnostic is labelled `[step_failed]`.
-        message: error.message.replace(/^step_failed: /, ''),
+        message: error.message.replace(/^(?:step_failed|gate_failed): /, ''),
       }],
     },
   };
+}
+
+/**
+ * An authored body parked on an unanswered `f.human`: exit 3, like every
+ * other park, but the diagnostic names the question, who it is for, and the
+ * exact `flows answer` invocation — the run is waiting on a person, not on a
+ * worker. Shared by `run` and `resume` so the two never drift.
+ */
+export function authoredHumanParked(
+  command: RunCommand,
+  base: CheckReport | RunReport,
+  socketPath: string,
+  error: AuthoredHumanParked,
+  where: { dataDir?: string; localAgent: boolean },
+): RunExecution {
+  const runId = error.runId!;
+  return {
+    exitCode: 3,
+    report: {
+      ...fromBase(command, base),
+      ok: false,
+      runId,
+      socketPath,
+      status: 'parked',
+      parkedStep: { id: 'authored-root', type: 'agent' },
+      humanWait: { ...error.wait, recipient: parseHumanRecipient(error.wait.to) },
+      diagnostics: [...base.diagnostics, {
+        severity: 'parked',
+        kind: 'run_parked',
+        message: `Run "${runId}" is waiting for ${error.wait.to} to answer ${error.wait.waitId}: `
+          + `${JSON.stringify(error.wait.question)}\n`
+          + `Answer with: ${answerCommand(runId, error.wait.waitId, where.dataDir)}\n`
+          + `Then continue with: ${resumeCommand(runId, where.dataDir, where.localAgent)}`,
+      }],
+    },
+  };
+}
+
+/**
+ * An authored body that returned its own terminal verdict, reported as that verdict.
+ *
+ * Shared by `runDirectFlow` and `resumeFlow` for the reason `authoredStepFailure`
+ * is shared: the run and resume paths had already drifted once, and the
+ * `needs_human` report was duplicated verbatim in both files.
+ *
+ * This is NOT `authoredStepFailure`, even though a `step_failed` verdict lands
+ * on the same exit code and report shape. That function describes a step that
+ * ran and failed, and carries the failing step's evidence. Here every step
+ * succeeded and the BODY declared the outcome, so there is no failing step to
+ * name — routing this through the other helper would invent one.
+ */
+export function authoredCompletion(
+  command: RunCommand,
+  base: RunReport,
+  socketPath: string,
+  result: { name: string; completionReason: LoweredCompletionReason; journalSteps: readonly unknown[] },
+  runId: string | undefined,
+): RunExecution {
+  const common: RunReport = {
+    ...fromBase(command, base),
+    ...(runId === undefined ? {} : { runId }),
+    socketPath,
+    completedSteps: result.journalSteps.length,
+  };
+  switch (result.completionReason) {
+    case 'success':
+      return {
+        exitCode: 0,
+        report: { ...common, ok: true, status: 'completed', completionReason: 'success' },
+      };
+    case 'declined':
+      return {
+        exitCode: 0,
+        report: {
+          ...common, ok: true, status: 'completed', completionReason: 'success',
+          diagnostics: [...base.diagnostics, {
+            severity: 'declined', kind: 'run_declined',
+            message: 'Flow deliberately chose not to act on this input.',
+          }],
+        },
+      };
+    case 'needs_human':
+      return {
+        exitCode: 3,
+        report: {
+          ...common, ok: false, status: 'parked',
+          diagnostics: [...base.diagnostics, {
+            severity: 'parked', kind: 'run_parked',
+            message: `Flow "${result.name}" needs_human; see the journal for accumulated blockers.`,
+          }],
+        },
+      };
+    case 'step_failed':
+      // A declared run failure. Exit 1, not the parked 3: nothing here is
+      // waiting for a human to recover it, and exit 3 is the local kit's
+      // manual-approval stop. `status: failed` with this `completionReason` is
+      // also the only terminal shape Cloud accepts for a non-success run
+      // (see cloud-run.ts).
+      return {
+        exitCode: 1,
+        report: {
+          ...common, ok: false, status: 'failed', completionReason: 'step_failed',
+          diagnostics: [...base.diagnostics, {
+            severity: 'failure', kind: 'step_failed',
+            message: `Flow "${result.name}" declared done("step_failed"): its own checks did not pass. `
+              + 'No step failed, so there is no step-level evidence to inspect; the journal holds '
+              + 'every step the flow ran before it decided.',
+          }],
+        },
+      };
+  }
+  // Exhaustive by construction. A new lowered completion has to choose its
+  // own exit code and wording here; it must not inherit "its own checks did not
+  // pass", which would state something the body never declared. Letting an
+  // unlisted reason fall through to the failure branch is how a reporting-side
+  // copy of the same vocabulary drifts from the executor's — the defect this
+  // change exists to close — so it is a compile error, not a wrong report.
+  const unreachable: never = result.completionReason;
+  throw new Error(`unreachable authored completion: ${String(unreachable)}`);
 }
 
 /**
@@ -715,7 +834,8 @@ function renderStepEvidence(details: StepFailedDetails): string {
     + '.'
     + (details.detail === undefined ? '' : `\nDetail: ${details.detail}`)
     + (details.stdoutTail ? `\nStdout (last 1,024 bytes):\n${details.stdoutTail}` : '')
-    + (details.stderrTail ? `\nStderr (last 1,024 bytes):\n${details.stderrTail}` : '');
+    + (details.stderrTail ? `\nStderr (last 1,024 bytes):\n${details.stderrTail}` : '')
+    + (details.transcriptPath === undefined ? '' : `\nTranscript: ${details.transcriptPath}`);
 }
 
 function throwIfCanceled(signal: AbortSignal | undefined, stepId: string): void {

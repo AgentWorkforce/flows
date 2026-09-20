@@ -9,6 +9,7 @@ import { resolveCliModel } from './cli-adapter.js';
 import { withWorkerLease } from './worker-lease.js';
 import { workerInstruction } from './worker-input.js';
 import { jsonSchemaOutputError } from './json-schema.js';
+import { LLM_ERROR_MAX_BYTES, boundTranscriptDigest, boundedText, redactText } from './agent-transcript.js';
 
 /** Bare value-producing LLM dispatch, without agent workspace/recovery pins. */
 export class LlmWorker extends EventEmitter {
@@ -74,11 +75,21 @@ export class LlmWorker extends EventEmitter {
     }
     // Never submit schema-invalid JSON as a successful completion. The kernel
     // also runs its own gate before making output available to dependents.
+    //
+    // `error` is redacted and bounded: unbounded stderr in the tail made the
+    // kernel refuse the whole completion past 16 KiB. The digest rides beside
+    // it on every completion; an llm step has no data dir, so it has no file.
+    const transcript = completed.transcript === undefined ? undefined
+      : boundTranscriptDigest({ attempt: dispatch.attempt, exit_code: result.exit_code, ...completed.transcript });
+    const trajectoryTail = {
+      ...(reason === 'success' ? {} : { error: boundedText(redactText(detail), LLM_ERROR_MAX_BYTES).text }),
+      ...(transcript === undefined ? {} : { transcript }),
+    };
     await this.client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,
       dispatch.idempotency_key, reason, {
         output,
         ...(usage !== undefined ? { usage } : {}),
-        ...(reason === 'success' ? {} : { trajectory_tail: { error: detail } }),
+        ...(Object.keys(trajectoryTail).length === 0 ? {} : { trajectory_tail: trajectoryTail }),
       });
   }
 }

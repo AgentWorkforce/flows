@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { canonicalize } from './canonical.js';
 import { compileSpec, toKernelSpec } from './compile.js';
-import { executeAuthoredFlow, type AuthoredFlowExecutionResult, type AuthoredFlowSuspendedResult } from './authored-flow-executor.js';
+import { executeAuthoredFlow, isLoweredCompletion, type AuthoredFlowExecutionResult, type AuthoredFlowSuspendedResult } from './authored-flow-executor.js';
 import {
   loadAuthoredFlow,
   type LoadedAuthoredFlow,
@@ -15,8 +15,11 @@ import type { RunOutcome, StepDispatchEvent } from './protocol.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import type { RunLifecycleOptions } from './cli/run.js';
 import { withWorkerLease } from './worker-lease.js';
+import { AuthoredHumanParked } from './authored-flow-error.js';
+import { readOpenHumanWaits } from './authored-human.js';
 import { isSurfaceCompletionReason } from './authored-step-output.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
+import { readSubscriptionPark } from './authored-subscription-park.js';
 
 export type DurableAuthoredFlowResult =
   | (AuthoredFlowExecutionResult & { readonly rootRunId: string })
@@ -99,7 +102,11 @@ export async function executeDurableAuthoredFlow(
     // active run but receives no second dispatch from start itself. Resume is
     // safe for the first caller too: the daemon preserves a live lease and
     // redelivers only when the former worker connection is gone.
-    await journal.runResume(outcome.run_id);
+    const resumed = await journal.runResume(outcome.run_id);
+    await assertNoOpenHumanWait(journal, resumed);
+    const parked = await readSubscriptionPark(journal, outcome.run_id);
+    if (parked !== undefined) return { state: 'suspended', name: metadata.flowName,
+      suspension: parked, journalSteps: [], rootRunId: outcome.run_id };
     const dispatch = await dispatchWait.promise;
     return await driveRoot(loaded, metadata, journal, peer, dispatch, options);
   } finally {
@@ -138,12 +145,27 @@ export async function resumeDurableAuthoredFlow(
       return await completedRootResult(journal, rootRunId);
     }
     assertRootCanDispatch(outcome);
+    await assertNoOpenHumanWait(journal, outcome);
+    const parked = await readSubscriptionPark(journal, rootRunId);
+    if (parked !== undefined) return { state: 'suspended', name: metadata.flowName,
+      suspension: parked, journalSteps: [], rootRunId };
     const dispatch = await dispatchWait.promise;
     return await driveRoot(loaded, metadata, journal, peer, dispatch, options);
   } finally {
     cancelDispatch();
     peer.close();
   }
+}
+
+/**
+ * A root parked on an unanswered `f.human` will not be dispatched: the
+ * kernel holds it in `needs_human` until `event.emit` closes the wait. Report
+ * the open question instead of waiting for a dispatch that cannot arrive.
+ */
+async function assertNoOpenHumanWait(journal: JournalClient, outcome: RunOutcome): Promise<void> {
+  if (outcome.status !== 'parked') return;
+  const [open] = await readOpenHumanWaits(journal, outcome.run_id);
+  if (open !== undefined) throw new AuthoredHumanParked(open, outcome.run_id);
 }
 
 export async function readAuthoredRootMetadata(
@@ -214,11 +236,23 @@ async function driveRoot(
     if (error instanceof AuthoredFlowExecutionError
       && error.code === 'subscription_suspended'
       && error.suspension !== undefined) {
-      // Do not complete the root step: its durable running state is the
-      // resume token.  The worker lease ends with this process, and Cloud
-      // publishes the journal before activating or waking it.
+      await peer.subscriptionPark({ run_id: dispatch.run_id, step_id: dispatch.step_id,
+        attempt: dispatch.attempt, idempotency_key: dispatch.idempotency_key,
+        subscription_id: error.suspension.subscriptionId, phase: error.suspension.kind });
       return Object.freeze({ state: 'suspended' as const, name: metadata.flowName,
         suspension: error.suspension, journalSteps: Object.freeze([]), rootRunId: dispatch.run_id });
+    }
+    if (error instanceof AuthoredHumanParked) {
+      // Not a failure: the body reached a question nobody has answered. Park
+      // THIS attempt on the kernel's `wait.human` under the body's own wait
+      // id, so the answer (`event.emit` keyed by it) re-dispatches the root
+      // and the re-run body finds it. The lease is released by the verb; the
+      // signal propagates so the CLI reports the question with exit 3.
+      await peer.stepWait(dispatch.run_id, dispatch.step_id, dispatch.attempt, dispatch.idempotency_key, {
+        wait_id: error.wait.waitId, prompt: error.wait.question, requested_of: error.wait.to,
+        options: ['yes', 'no'],
+      });
+      throw error;
     }
     await terminalizeRootFailure(peer, dispatch, error);
     throw error;
@@ -354,7 +388,7 @@ function isCompletedRootOutput(value: unknown): value is Omit<AuthoredFlowExecut
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const output = value as Partial<AuthoredFlowExecutionResult>;
   return typeof output.name === 'string'
-    && (output.completionReason === 'success' || output.completionReason === 'needs_human')
+    && isLoweredCompletion(output.completionReason)
     && Array.isArray(output.journalSteps)
     && output.journalSteps.every(step => typeof step === 'object' && step !== null
       && typeof step.id === 'string' && typeof step.runId === 'string'

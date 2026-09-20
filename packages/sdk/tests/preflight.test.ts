@@ -324,6 +324,149 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     ]);
   });
 
+  // A leading comment is not a command named "#", `set -e` is the shell's, and
+  // a script that opens with `if` names no executable at all. Each of these
+  // tripped `command_unresolved` on every step of a real flow (cloud#3777).
+  it.each([
+    ['a leading comment line', '# sync the tree\ngit fetch origin', 'git'],
+    ['blank lines before the command', '\n\n  npm test', 'npm'],
+    ['an assignment then a comment then the command', 'FOO=1\n# note\nprintf ok', 'printf'],
+  ])('probes the first real command word past %s', (_label, command, expected) => {
+    const probed: string[] = [];
+    const result = preflight(flow({ id: 's', type: 'deterministic', command }), {
+      probes: probes({ command: (word) => { probed.push(word); return true; } }),
+    });
+    expect(probed).toEqual([expected]);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'warning', kind: 'unprovable_effects', stepId: 's' }),
+    ]);
+  });
+
+  it.each([
+    ['set -e\nnpm test', 'set', 'builtin'],
+    ['export FOO=1; ./run.sh', 'export', 'builtin'],
+    ['cd packages/sdk && npm test', 'cd', 'builtin'],
+    ['if [ -f x ]; then echo y; fi', 'if', 'reserved word'],
+    ['for f in *.md; do cat "$f"; done', 'for', 'reserved word'],
+    ['{ printf a; printf b; } > out', '{', 'reserved word'],
+    ['! test -e missing', '!', 'reserved word'],
+    ['( cd sub && make )', '(', 'reserved word'],
+  ])('treats a shell-provided first word as unprovable, never unresolved: %s', (command, word, kind) => {
+    const probed: string[] = [];
+    const result = preflight(flow({ id: 's', type: 'deterministic', command }), {
+      probes: probes({ command: (name) => { probed.push(name); return false; } }),
+    });
+    expect(probed).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning', kind: 'unprovable_effects', stepId: 's',
+        message: expect.stringContaining(`shell ${kind} "${word}"`),
+      }),
+    ]);
+  });
+
+  it.each([
+    ['a comment after an assignment on the same line', 'FOO=1 # note\nprintf ok', 'printf'],
+    ['a comment after a redirection on the same line', '> out.log # keep\nprintf ok', 'printf'],
+  ])('skips %s', (_label, command, expected) => {
+    const probed: string[] = [];
+    preflight(flow({ id: 's', type: 'deterministic', command }), {
+      probes: probes({ command: (word) => { probed.push(word); return true; } }),
+    });
+    expect(probed).toEqual([expected]);
+  });
+
+  it('reads through a quoted multi-line assignment to the real command', () => {
+    const probed: string[] = [];
+    preflight(flow({ id: 's', type: 'deterministic', command: 'MSG="first\n./missing"\nprintf ok' }), {
+      probes: probes({ command: (word) => { probed.push(word); return true; } }),
+    });
+    expect(probed).toEqual(['printf']);
+  });
+
+  it.each([
+    ['a heredoc body', "> out <<EOF\n./missing\nEOF"],
+    ['an unclosed quote', 'MSG="first\n./missing'],
+  ])('never probes %s as a command: warns unprovable instead of refusing', (_label, command) => {
+    const probed: string[] = [];
+    const result = preflight(flow({ id: 's', type: 'deterministic', command }), {
+      probes: probes({ command: (word) => { probed.push(word); return false; } }),
+    });
+    expect(probed).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'warning', kind: 'command_unprovable', stepId: 's' }),
+    ]);
+  });
+
+  it.each([
+    ['an apostrophe in a trailing comment', "FOO=1 # don't\n./ops/missing"],
+    ['a heredoc marker inside a quoted assignment value', "VALUE='<<EOF'\n./ops/missing"],
+    ['an && after an assignment', 'FOO=1 && ./ops/missing'],
+    ['a ; directly after an assignment', 'FOO=1;./ops/missing'],
+    ['a || after a redirection', '> out.log || ./ops/missing'],
+  ])('reaches the path-like command through %s and refuses it', (_label, command) => {
+    const result = preflight(flow({ id: 's', type: 'deterministic', command }), {
+      probes: probes({ command: () => false }),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'refusal', kind: 'command_missing', stepId: 's' }),
+    ]);
+  });
+
+  it.each([
+    ['a trailing 2>&1', './ops/missing 2>&1'],
+    ['an &> prefix', '&> out.log ./ops/missing'],
+    ['a <&0 prefix', '<&0 ./ops/missing'],
+    ['a background & before it', 'FOO=1 & ./ops/missing'],
+  ])('keeps fd redirections whole and refuses the missing command: %s', (_label, command) => {
+    const probed: string[] = [];
+    const result = preflight(flow({ id: 's', type: 'deterministic', command }), {
+      probes: probes({ command: (word) => { probed.push(word); return false; } }),
+    });
+    expect(probed.at(-1)).toBe('./ops/missing');
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'refusal', kind: 'command_missing', stepId: 's' }),
+    ]);
+  });
+
+  it('does not split >&2 into a command named 2', () => {
+    const probed: string[] = [];
+    preflight(flow({ id: 's', type: 'deterministic', command: 'printf x >&2 && ./ops/next' }), {
+      probes: probes({ command: (word) => { probed.push(word); return true; } }),
+    });
+    expect(probed).toEqual(['printf']);
+  });
+
+  it('treats a standalone & as a command boundary', () => {
+    const probed: string[] = [];
+    preflight(flow({ id: 's', type: 'deterministic', command: 'sleep 1 & ./ops/next' }), {
+      probes: probes({ command: (word) => { probed.push(word); return true; } }),
+    });
+    expect(probed).toEqual(['sleep']);
+  });
+
+  it('splits on unquoted operators only: a quoted && is data', () => {
+    const probed: string[] = [];
+    preflight(flow({ id: 's', type: 'deterministic', command: 'printf "a && b" && ./ops/next' }), {
+      probes: probes({ command: (word) => { probed.push(word); return true; } }),
+    });
+    expect(probed).toEqual(['printf']);
+  });
+
+  it('still refuses a missing path-like command that follows a comment', () => {
+    const result = preflight(flow({ id: 's', type: 'deterministic', command: '# run it\n./ops/nonexistent.sh' }), {
+      probes: probes({ command: () => false }),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ severity: 'refusal', kind: 'command_missing', stepId: 's' }),
+    ]);
+  });
+
   // Covenant 2 permits refusing *or* warning, but not silence. A deterministic
   // step that resolves, one that does not, and one that cannot be probed must
   // each leave a declared warning behind — and none of them may refuse.
@@ -358,6 +501,18 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       // Pricing is light enforcement: an unmetered step under a dollar budget warns.
       preflight(
         { ...flow({ id: 'a', type: 'llm', cli: 'codex', prompt: 'x' } as never), budget: '$1/run' } as never,
+        { probes: probes() },
+      ),
+      // A declared `permissions` block is validated and recorded but not
+      // enforced, so accepting it in silence is the same covenant-2 silence.
+      preflight(
+        flow({
+          id: 'a',
+          type: 'agent',
+          cli: 'claude',
+          instruction: 'x',
+          permissions: { accessPreset: 'readonly' },
+        } as never),
         { probes: probes() },
       ),
     ];
@@ -422,6 +577,8 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x',
         verification: { type: 'subprocess_gate', command: '/nonexistent-gate-binary-xxx' } }),
         { probes: probes({ command: (c) => c !== '/nonexistent-gate-binary-xxx' }) }),
+      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x',
+        verification: { type: 'artifact_exists', path: '../escape.md' } }), { probes: probes() }),
       // `scope_syntax_invalid`: grant string doesn't match "mount/path: mode".
       preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }),
         workspace: 'not-a-grant' } as FlowSpec, { probes: probes() }),

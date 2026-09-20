@@ -1,0 +1,8 @@
+version: "0.1.0"
+name: pin-proof
+steps:
+  - id: exec
+    type: deterministic
+    command: "./run.sh"
+    verification:
+      output_contains: "published-cli-ok"

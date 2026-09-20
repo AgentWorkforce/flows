@@ -1,11 +1,23 @@
 # pr-review-pipeline
 
-**BLOCKED — not runnable on the current authored executor.** The candidate
-CLI refuses the `budget` header before any step runs (exit 2, 3.539s).
-[Exact command and captured output](../../docs/evidence/ws13/review/gallery/gallery-pr-review-pipeline.txt).
-The SDK/kernel capability owner must supply budget-header support, postfix
-artifact gates, and the declared workspace behavior before this example can
-be advertised as working. Its existing requirements remain intact.
+[![Deploy Flow](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https%3A%2F%2Fgithub.com%2FAgentWorkforce%2Fflows%2Fblob%2Fmain%2Fexamples%2Fpr-review-pipeline%2Fpr-review-pipeline.flow.ts&on=github%3Aevents%3Dpull_request)
+
+One click deploys this flow to [Agent Relay Cloud](https://agentrelay.com/cloud), running on every pull request.
+
+Runs locally and on Cloud. From a checkout with a `flows.json` naming the
+agent CLI, or none at all — the agents pin `cli: "claude"`, which is what a Cloud sandbox (no `flows.json`) needs:
+
+```sh
+flows run pr-review-pipeline.flow.ts --local-agent --input '{"diffRange":"origin/main...HEAD"}'
+```
+
+To have it review every pull request of a repo on Cloud (no `diffRange` needed:
+a `pull_request` run checks out the PR head and passes `input.pullRequest`, and
+the flow fetches the base and diffs `FETCH_HEAD...<headSha>`):
+
+```sh
+flows deploy pr-review-pipeline.flow.ts --repo acme/api --on github:events=pull_request --approver you
+```
 
 **Like I'm 5:** Instead of one reviewer reading your whole pull request,
 three little reviewers each look for one thing — one only checks for
@@ -36,18 +48,27 @@ mechanism — My Senior Dev's multi-agent PR review — in two layers:
   `looksLikeFalsePositiveDispute`) rather than just concatenating three
   reports into one.
 
-## Status: refused before execution
+## Running it
 
-WS-13 invoked this example with the packed CLI and `--local-agent`. It
-refused the unsupported `budget` header before entering the body. See the
-[gallery](../README.md) for the exact command, output, and elapsed time.
-The remaining limitations below describe what still needs to land after that
-first refusal is resolved.
+`flows.json` selects the CLI for the agent steps; `{"cli": "claude"}` (or
+`codex`) is all it needs. A `flows.json` without a `models` list is **not** a
+model registry — the adapter's default model is used, exactly as with no
+`flows.json` at all. Add `"models": [...]` only when you want to pin an exact
+allowlist (an empty list then refuses everything, on purpose).
+
+Proven 2026-09-18 against a fresh directory with `@relayflows/surface@2.0.17`
+and a local `claude`: 9 steps completed, the three lens gates passed on the
+journaled `review/<lens>.json` artifacts, the consensus predicate gate passed,
+`review/consensus.json` written — 74s wall clock. Before the SDK fix in the
+same change, the exact same setup was refused with `agent_cli_unresolved:
+... model "claude-opus-5" ... is not listed in project model registry`,
+because a `flows.json` that only named the CLI was treated as an empty
+allowlist. That is what the earlier "BLOCKED" status in this file recorded.
 
 ```sh
 cd packages/surface && npm run typecheck:examples
 ```
 
-`--local-agent` attaches a stream-only worker. Budget headers, postfix gates
-and workspace permission annotations are still refused by the authored
-executor, even though the surface package can represent their types.
+`--local-agent` attaches a stream-only worker on this machine: no workspace
+isolation, the CLI's own access. Workspace permission annotations
+(`"...: readwrite"`) are still refused because nothing enforces them yet.

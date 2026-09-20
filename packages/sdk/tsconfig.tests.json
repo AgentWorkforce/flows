@@ -28,6 +28,8 @@
     "tests/authored-activity.test.ts",
     "tests/activity-preflight.test.ts",
     "tests/live-event-activities.test.ts",
+    "tests/event-await-cli.test.ts",
+    "tests/authored-agent-permissions.test.ts",
     "tests/flow-executor-chain.test.ts",
     "tests/input-binding.test.ts",
     "tests/journal-client-loopback.ts",
@@ -43,7 +45,13 @@
     "tests/webhook-hardening.test.ts",
     "tests/adapters/claude.test.ts",
     "tests/adapters/codex.test.ts",
-    "tests/adapters/registry.test.ts"
+    "tests/adapters/registry.test.ts",
+    "tests/relay-cli-surface.test.ts",
+    "tests/relay-cli-surface-live.test.ts",
+    "tests/agent-transcript.test.ts",
+    "tests/agent-transcript-live.test.ts",
+    "tests/worker-transcript.test.ts",
+    "tests/step-failure-diagnostic.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

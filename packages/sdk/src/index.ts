@@ -58,11 +58,44 @@ export type { HeaderBudget } from './budget.js';
 export type { StepSpend } from './protocol.js';
 export { SPEC_SCHEMA_VERSION } from './spec.js';
 
-export { CloudFlowError, type CloudConnectionOptions } from './cloud-http.js';
+export { CloudFlowError, type CloudConnectionOptions, type CloudConfigurationReason } from './cloud-http.js';
+export {
+  listCloudRuns, getCloudRunDetail, getCloudRunSteps, getCloudRunLog,
+  type CloudRunSummary, type CloudRunList, type CloudRunDetail, type CloudStep, type CloudStepAttempt,
+  type CloudStepTranscript, type CloudToolCall, type CloudToolCount, type CloudRunLog,
+} from './cloud-read.js';
+export {
+  parseAgentTranscript, renderAgentTranscript,
+  type ParsedTranscript, type TranscriptEntry,
+} from './cloud-transcript.js';
 export {
   runInCloud, getCloudFlowRun, waitForCloudFlowRun,
   type CloudFlowSource, type RunInCloudOptions, type CloudRunReceipt, type CloudRunState,
 } from './cloud-run.js';
+export {
+  downloadCloudPatch, downloadCloudPatchSet, applyCloudPatch, packWorkingTree, patchedPaths,
+  excludedPatchPaths, CLOUD_SYNC_PATCH_EXCLUDES, MAX_SYNC_BYTES,
+  type CloudPatch, type CloudPathPatch, type CloudPatchSet, type PackedTree,
+  type ApplyCloudPatchOptions, type AppliedCloudPatch,
+} from './cloud-sync.js';
+export {
+  scheduleInCloud, listCloudSchedules, unscheduleInCloud, everyToCron, declaredScheduleCron,
+  type ScheduleInCloudInput, type CloudSchedule,
+} from './cloud-schedule.js';
+export { prepareCloudSubmission, cloudSubmissionBody, type CloudSubmission } from './cloud-run.js';
+export {
+  deployToCloud, listCloudDeployments, undeployFromCloud, parseRepository, parseTriggerSource, FLOW_TRIGGER_PROVIDERS,
+  type DeployToCloudInput, type CloudDeployment, type CloudDeploymentSummary, type FlowTriggerSource, type FlowTriggerProvider,
+} from './cloud-deploy.js';
+export {
+  ensureIntegrationsConnected, integrationConnected, providerLabel,
+  type ConnectPrompt, type EnsureConnectionsOptions, type ConnectionsOutcome,
+} from './cloud-connect.js';
+export {
+  flowRequirements, describeFlowRequirements, harnessFromCli, FLOW_HARNESSES,
+  type FlowRequirements, type FlowRequirementsContext, type FlowIntegrationRequirement, type FlowHarnessRequirement, type FlowHarness,
+} from './flow-requirements.js';
+export { parseHumanTo, parseHumanRecipient, humanRecipientProvider, type HumanRecipient, type HumanRecipientParse } from './human-to.js';
 
 export { canonicalize, specHash } from './canonical.js';
 export {
@@ -231,3 +264,4 @@ export { createFlow, type CreateFlowOptions, type CreatedFlow } from './create-f
 
 export { renderProgress, type ProgressEvent } from './progress.js';
 export { webhookTriggerSpec } from './trigger-executor.js';
+export { scheduleTriggerSpec, scheduleLowering, SCHEDULE_EXECUTOR, type ScheduleLowering } from './schedule-trigger.js';

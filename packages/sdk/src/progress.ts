@@ -1,8 +1,10 @@
 import type { CompletionReason } from './protocol.js';
 import type { StepType } from './spec.js';
+import { AuthoredHumanParked } from './authored-flow-error.js';
 
 export interface ProgressEvent {
-  type: 'step.started' | 'step.running' | 'step.completed' | 'step.failed';
+  /** `step.parked`: an `f.human` reached without an answer; the run parks, nothing failed. */
+  type: 'step.started' | 'step.running' | 'step.completed' | 'step.failed' | 'step.parked';
   stepId: string;
   stepType: StepType;
   elapsedMs: number;
@@ -12,13 +14,15 @@ export interface ProgressEvent {
 /** Pure terminal rendering: caller owns the event source, clock, and output. */
 export function renderProgress(events: Iterable<ProgressEvent>): string[] {
   return Array.from(events, event => {
-    const icon = { 'step.started': '○', 'step.running': '↻', 'step.completed': '✓', 'step.failed': '✗' }[event.type];
+    const icon = { 'step.started': '○', 'step.running': '↻', 'step.completed': '✓', 'step.failed': '✗', 'step.parked': '⏸' }[event.type];
     const state = event.type.slice('step.'.length);
+    // A parked `f.human` is a question, not a step type the kernel ran.
+    const kind = event.type === 'step.parked' ? 'human' : event.stepType;
     const agent = event.stepType === 'agent' ? ` [agent: ${state === 'started' ? 'preparing' : state}]` : '';
     const reason = event.completionReason ? ` completionReason: ${event.completionReason}` : '';
     // Agent-authored names cannot inject terminal control sequences.
     const name = event.stepId.replace(/[\x00-\x1f\x7f-\x9f]/g, '?');
-    return `${icon} ${name} (${event.stepType})${agent} ${(Math.max(0, event.elapsedMs) / 1000).toFixed(2)}s${reason}`;
+    return `${icon} ${name} (${kind})${agent} ${(Math.max(0, event.elapsedMs) / 1000).toFixed(2)}s${reason}`;
   });
 }
 
@@ -45,7 +49,10 @@ export async function observeStep<T>(
     publish({ type: 'step.completed', stepId, stepType, elapsedMs: performance.now() - started, completionReason: 'success' });
     return result;
   } catch (error) {
-    publish({ type: 'step.failed', stepId, stepType, elapsedMs: performance.now() - started });
+    publish({
+      type: error instanceof AuthoredHumanParked ? 'step.parked' : 'step.failed',
+      stepId, stepType, elapsedMs: performance.now() - started,
+    });
     throw error;
   }
 }

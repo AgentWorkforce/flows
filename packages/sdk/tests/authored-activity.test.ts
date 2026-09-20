@@ -1,7 +1,7 @@
 import { rmSync } from 'node:fs';
 import type { Server } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { flow, webhook } from '@relayflows/surface';
+import { flow, schedule, webhook } from '@relayflows/surface';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { AuthoredFlowExecutionError } from '../src/authored-flow-error.js';
 import { decodeWake } from '../src/authored-activity.js';
@@ -32,6 +32,11 @@ describe('authored event activities', () => {
       },
       'subscription.next': (ctx, params) => {
         calls.push({ verb: 'subscription.next', params });
+        if (params.run_id === 'root-waiting') {
+          sendResult(ctx, { kind: 'suspended', subscription_id: params.subscription_id,
+            stream: 'subscription/activity-1', deadline_at_ms: 99 });
+          return;
+        }
         sendResult(ctx, { kind: 'events', events: [{ type: 'pull_request', payload: { number: 42 } }], offset: 1 });
       },
       'subscription.close': (ctx, params) => {
@@ -73,7 +78,7 @@ describe('authored event activities', () => {
           run_id: 'root-activity', subscription_id: 'activity-1', event_types: ['pull_request'],
           settle_ms: 120_000, idle_ms: 259_200_000, deadline_ms: 1_209_600_000, include_self: false,
         } },
-        { verb: 'subscription.next', params: { run_id: 'root-activity', subscription_id: 'activity-1' } },
+        { verb: 'subscription.next', params: { run_id: 'root-activity', subscription_id: 'activity-1', sequence: 0 } },
         { verb: 'subscription.close', params: { run_id: 'root-activity', subscription_id: 'activity-1', completion_reason: 'run_completed' } },
       ]);
     } finally { journal.close(); }
@@ -85,6 +90,31 @@ describe('authored event activities', () => {
       f.on(webhook('pull_request'), { idle: '1h' } as never);
       f.done('success');
     }), journal, undefined, { rootRunId: 'root-unbounded' })).rejects.toMatchObject({ code: 'unbounded_subscription' });
+  });
+
+  it('refuses schedule triggers as body event sources before journal contact', async () => {
+    const journal = new JournalClient('/journal-must-not-be-contacted');
+    await expect(executeAuthoredFlow(flow('schedule-activity', async (f) => {
+      f.on(schedule.every('1h'), { idle: '1h', deadline: '1d' });
+      f.done('success');
+    }), journal, undefined, { rootRunId: 'root-schedule' }))
+      .rejects.toMatchObject({ code: 'unsupported_header' });
+  });
+
+  it('keeps an active subscription open when the body suspends for an event', async () => {
+    calls.length = 0;
+    const journal = new JournalClient(path, { requestTimeoutMs: 2_000 });
+    await journal.connect();
+    await journal.hello('authored-activity-wait-test');
+    try {
+      await expect(executeAuthoredFlow(flow('waiting-activity', async (f) => {
+        const activity = f.on(webhook('pull_request'), { idle: '1h', deadline: '1d' });
+        await activity.next();
+        f.done('success');
+      }), journal, undefined, { rootRunId: 'root-waiting' }))
+        .rejects.toMatchObject({ code: 'subscription_suspended', suspension: { kind: 'event_wait' } });
+      expect(calls.map(call => call.verb)).toEqual(['subscription.open', 'subscription.next']);
+    } finally { journal.close(); }
   });
 
   it('surfaces the prepare handoff before the body can await an event', async () => {
@@ -146,9 +176,9 @@ describe('authored event activities', () => {
           run_id: 'root-ack', subscription_id: 'activity-1', event_types: ['pull_request'],
           settle_ms: 0, idle_ms: 3_600_000, deadline_ms: 86_400_000, include_self: false,
         } },
-        { verb: 'subscription.next', params: { run_id: 'root-ack', subscription_id: 'activity-1' } },
+        { verb: 'subscription.next', params: { run_id: 'root-ack', subscription_id: 'activity-1', sequence: 0 } },
         { verb: 'subscription.next', params: {
-          run_id: 'root-ack', subscription_id: 'activity-1', acknowledge_wait_id: 'activity-1/next/0',
+          run_id: 'root-ack', subscription_id: 'activity-1', sequence: 1, acknowledge_wait_id: 'activity-1/next/0',
         } },
         { verb: 'subscription.close', params: {
           run_id: 'root-ack', subscription_id: 'activity-1', completion_reason: 'run_completed',

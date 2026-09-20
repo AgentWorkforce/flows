@@ -67,6 +67,13 @@ export const CHECK_FAILURE_KINDS = [
  * `dollars_unmetered: true`, and cannot cross `maxDollars`; token limits still
  * apply. It replaced the `budget_missing_price` refusal (#421), which older
  * `flows check` reports may still show.
+ *
+ * `permissions_unenforced` names an agent step that declares `permissions`.
+ * Gate 1 validates the declaration and the compiled step spec records it, but
+ * nothing reads it to gate a file or network access — enforcement is gate 8
+ * (#442). Warning-only by design: the declaration stays legal and the flow
+ * still runs, but an author who wrote one must not be left believing it
+ * sandboxes the step.
  */
 export const PREFLIGHT_WARNING_KINDS = [
   'unprovable_effects',
@@ -74,6 +81,7 @@ export const PREFLIGHT_WARNING_KINDS = [
   'command_unprovable',
   'vacuous_gate',
   'budget_unmetered',
+  'permissions_unenforced',
 ] as const;
 
 /**
@@ -85,6 +93,13 @@ export const PREFLIGHT_WARNING_KINDS = [
  * serving and this invocation was told not to start one" (`--no-spawn`), while
  * a spawn that was attempted and did not produce a serving daemon names which
  * step failed. All of them are still exit 2 — refused before a journal write.
+ *
+ * Despite the name, this list is the run-outcome diagnostic vocabulary rather
+ * than failures alone. `run_parked` has always sat here and exits 3 under
+ * severity `parked`; `run_declined` joins it, exiting 0 under severity
+ * `declined`. The mismatch between the constant's name and its non-failure
+ * members is pre-existing — renaming it is a separate change, and neither this
+ * list nor `RunDiagnostic` is exported from the package index.
  */
 export const RUN_FAILURE_KINDS = [
   'bucket_unconfigured',
@@ -102,7 +117,12 @@ export const RUN_FAILURE_KINDS = [
   'relayflowd_not_found',
   'protocol_error',
   'run_parked',
+  'run_declined',
   'run_unavailable',
+  /** A predicate `.gate(fn)` judged false; the verdict is journaled as `<step>.gate`. */
+  'gate_failed',
+  /** `flows answer` named a wait the run is not asking: unknown, or already answered. */
+  'human_wait_unknown',
 ] as const;
 
 /**
@@ -145,8 +165,14 @@ export interface StepFailedDetails {
   stdoutTail?: string;
   /** Terminal-safe UTF-8 excerpt, at most 1,024 bytes. */
   stderrTail?: string;
-  /** The daemon's own account, when it was not a render of the fields above. */
+  /**
+   * The daemon's own account when it was not a render of the fields above, or
+   * — preferred when present — the failure excerpt from the worker's
+   * transcript digest (`trajectory_tail.transcript.failure`).
+   */
   detail?: string;
+  /** The attempt's redacted `stream-json` transcript on disk, when the worker wrote one. */
+  transcriptPath?: string;
   /** A runnable `flows replay` invocation for this run. */
   hint?: string;
   /** The on-disk journal for this run, when the data dir is known. */

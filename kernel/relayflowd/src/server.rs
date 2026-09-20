@@ -5,7 +5,7 @@ use relayflowd_core::{CompletionReason, PROTOCOL_VERSION, RunSpec, StepType};
 use serde_json::{Value, json};
 
 use crate::engine::SubscriptionNext;
-use crate::{Engine, OutOfBandCompletion};
+use crate::{Engine, OutOfBandCompletion, OutOfBandHumanWait};
 
 #[cfg(unix)]
 mod cancel;
@@ -408,6 +408,45 @@ fn handle_request(
             }
             to_value(outcome)
         }
+        "step.wait" => {
+            let params: StepWaitParams = decode_params(request.params)?;
+            let key = (
+                params.run_id.clone(),
+                params.step_id.clone(),
+                params.attempt,
+            );
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            ensure_mutable(&engine, &params.run_id)?;
+            // Only the lease holder may park its attempt, exactly as only it
+            // may complete it.
+            hub.completion_worker(connection_id, &key)
+                .map_err(protocol_conflict)?;
+            let outcome = engine
+                .wait_human_out_of_band(
+                    &params.run_id,
+                    &params.step_id,
+                    OutOfBandHumanWait {
+                        attempt: params.attempt,
+                        idempotency_key: params.idempotency_key,
+                        wait_id: params.wait_id,
+                        prompt: params.prompt,
+                        requested_of: params.requested_of,
+                        options: params.options,
+                        timeout_at_ms: params.timeout_at_ms,
+                    },
+                )
+                .map_err(internal_error)?;
+            // The wait is durable; the in-memory lease is released so the
+            // connection closing later is not read as a crashed attempt.
+            hub.finish(&key);
+            if let Some(deadline) = hub.earliest_lease_deadline(&params.run_id) {
+                engine
+                    .renew_lease(&params.run_id, deadline)
+                    .map_err(internal_error)?;
+            }
+            to_value(outcome)
+        }
         "effect.record" => {
             let params: EffectRecordParams = decode_params(request.params)?;
             let key = (
@@ -499,6 +538,20 @@ fn handle_request(
                 .map_err(internal_error)?;
             to_value(opened)
         }
+        "subscription.park" => {
+            let params: SubscriptionParkParams = decode_params(request.params)?;
+            let key = (params.run_id.clone(), params.step_id.clone(), params.attempt);
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            ensure_mutable(&engine, &params.run_id)?;
+            hub.completion_worker(connection_id, &key).map_err(protocol_conflict)?;
+            let outcome = engine.park_subscription_step(
+                &params.run_id, &params.step_id, params.attempt, &params.idempotency_key,
+                crate::engine::SubscriptionPark { subscription_id: params.subscription_id, phase: params.phase },
+            ).map_err(internal_error)?;
+            hub.finish(&key);
+            to_value(outcome)
+        }
         "subscription.activate" => {
             let params: SubscriptionActivateParams = decode_params(request.params)?;
             let lock = hub.run_lock(&params.run_id);
@@ -510,13 +563,20 @@ fn handle_request(
         }
         "subscription.next" => {
             let params: SubscriptionNextParams = decode_params(request.params)?;
-            // Do not hold the per-run mutex while parked: a router append on a
-            // second connection must be able to commit and wake this request.
-            let (outcome, acknowledge_wait_id) = engine.next_subscription_outcome(
+            // This verb returns at the durable boundary; it never sleeps.
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            ensure_mutable(&engine, &params.run_id)?;
+            let replay = params.sequence.map(|sequence| engine.replay_subscription_wake(
+                &params.run_id, &params.subscription_id, sequence,
+            )).transpose().map_err(internal_error)?.flatten();
+            let (outcome, acknowledge_wait_id) = if let Some((wake, receipt)) = replay {
+                (SubscriptionNext::Wake(wake), receipt)
+            } else { engine.next_subscription_outcome(
                 &params.run_id,
                 &params.subscription_id,
                 params.acknowledge_wait_id.as_deref(),
-            ).map_err(internal_error)?;
+            ).map_err(internal_error)? };
             let mut result = match outcome {
                 SubscriptionNext::Wake(wake) => to_value(wake)?,
                 SubscriptionNext::Suspended { subscription_id, stream, deadline_at_ms } =>

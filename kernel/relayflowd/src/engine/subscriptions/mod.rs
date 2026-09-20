@@ -21,6 +21,9 @@ use super::Engine;
 
 mod state;
 use state::*;
+mod parking;
+mod replay;
+pub use parking::{SubscriptionPark, SubscriptionWaitPhase};
 
 const MAX_UNREAD_FRAMES: usize = 1_000;
 const MAX_UNREAD_BYTES: usize = 1_024 * 1_024;
@@ -136,10 +139,9 @@ impl<C: Clock> Engine<C> {
         let mut current = subscriptions(&journal)?;
         let existing = current.remove(subscription_id);
         if let Some(existing) = existing {
-            if existing.closed.is_none() {
-                return Ok(SubscriptionOpen::Active { subscription_id: subscription_id.to_owned(), stream: existing.opened.stream, deadline_at_ms: existing.opened.deadline_at_ms });
-            }
-            bail!("subscription {subscription_id} is closed")
+            // Replaying an authored handle is legal after close. The durable
+            // closed fact still refuses ingress and new nonterminal wakes.
+            return Ok(SubscriptionOpen::Active { subscription_id: subscription_id.to_owned(), stream: existing.opened.stream, deadline_at_ms: existing.opened.deadline_at_ms });
         }
         if let Some(prepared) = prepared_subscriptions(&journal)?.remove(subscription_id) {
             return Ok(SubscriptionOpen::Prepared {
@@ -280,6 +282,7 @@ impl<C: Clock> Engine<C> {
             }
         }
         claimed += self.claim_non_activity_wait_timeouts_in_journal(&mut journal, now)?;
+        claimed += self.wake_subscription_steps(&mut journal, now)?;
         Ok(claimed)
     }
 

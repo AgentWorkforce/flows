@@ -14,6 +14,7 @@ import {
 } from '../src/authored-root.js';
 import type { JournalClient } from '../src/journal-client.js';
 import type { RunOutcome, StepDispatchEvent } from '../src/protocol.js';
+import { AuthoredHumanParked } from '../src/authored-flow-error.js';
 
 vi.mock('../src/authored-flow-loader.js', async importOriginal => ({
   ...await importOriginal<typeof import('../src/authored-flow-loader.js')>(),
@@ -30,6 +31,7 @@ const surface = Object.freeze({
 
 class RootPeer extends EventEmitter {
   readonly completions: Array<{ attempt: number; reason: string }> = [];
+  readonly waits: Array<{ attempt: number; wait: Record<string, unknown> }> = [];
   heartbeats = 0;
 
   async connect() {}
@@ -40,6 +42,17 @@ class RootPeer extends EventEmitter {
     return { lease_deadline_ms: Date.now() + 30 };
   }
   close() {}
+
+  async stepWait(
+    runId: string,
+    _stepId: string,
+    attempt: number,
+    _idempotencyKey: string,
+    wait: Record<string, unknown>,
+  ): Promise<RunOutcome> {
+    this.waits.push({ attempt, wait });
+    return outcome(runId, 'parked', null);
+  }
 
   async stepComplete(
     runId: string,
@@ -92,8 +105,12 @@ class RootJournal {
     }
     return this.resumeStatus;
   }
-  async journalRead(runId: string): Promise<{ entries: Array<Record<string, unknown>> }> {
-    return { entries: this.childEntries.get(runId) ?? this.entries };
+  async journalRead(runId: string, fromSeq = 1): Promise<{ entries: Array<Record<string, unknown>> }> {
+    // Numbered like the kernel's `journal.read`, so paginating readers
+    // (`readOpenHumanWaits`) terminate against the fake too.
+    const entries = (this.childEntries.get(runId) ?? this.entries)
+      .map((entry, index) => ({ seq: index + 1, ...entry }));
+    return { entries: entries.filter(entry => entry.seq >= fromSeq) };
   }
 }
 
@@ -142,6 +159,20 @@ describe('durable authored root', () => {
     );
 
     expect(result).toMatchObject({ rootRunId: 'root-run', name: 'flagship', completionReason: 'success' });
+    expect(journal.peer.completions).toEqual([]);
+  });
+
+  it('recovers declined from the completed root without executing the body', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    journal.startStatus = outcome(journal.runId, 'completed', 'success');
+    journal.entries = [completedEntry('declined')];
+    const result = await executeDurableAuthoredFlow(
+      loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'declined' },
+    );
+    expect(result).toMatchObject({ rootRunId: 'root-run', completionReason: 'declined' });
+    expect(journal.starts).toHaveLength(1);
     expect(journal.peer.completions).toEqual([]);
   });
 
@@ -218,6 +249,71 @@ describe('durable authored root', () => {
     expect(journal.peer.completions).toEqual([{ attempt: 2, reason: 'success' }]);
   });
 
+  it('parks the root attempt on an unanswered f.human instead of completing it', async () => {
+    const loaded = await fixture(false, 0, async f => { await f.human('Ship it?', { to: 'khaliq' }); f.done('success'); });
+    const journal = new RootJournal();
+
+    const failure = await executeDurableAuthoredFlow(
+      loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'ask' },
+    ).catch(error => error);
+
+    expect(failure).toBeInstanceOf(AuthoredHumanParked);
+    expect((failure as AuthoredHumanParked).wait).toEqual({ waitId: 'human-1', question: 'Ship it?', to: 'khaliq' });
+    // The attempt asked a question: `step.wait` under the body's own wait id,
+    // never `step.complete`, and never the worker_error retry ladder.
+    expect(journal.peer.waits).toEqual([{ attempt: 1, wait: {
+      wait_id: 'human-1', prompt: 'Ship it?', requested_of: 'khaliq', options: ['yes', 'no'],
+    } }]);
+    expect(journal.peer.completions).toEqual([]);
+  });
+
+  it('reports the open question on resume instead of waiting for a dispatch that cannot come', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    journal.entries = [spawnedEntry(loaded), {
+      entry_type: 'wait.human', step_id: 'authored-root', attempt: 1,
+      payload: { wait_id: 'human-1', prompt: 'Ship it?', requested_of: 'khaliq' },
+    }];
+    journal.resumeStatus = outcome(journal.runId, 'parked', null);
+    // A parked root is not dispatched by the kernel; the fake must not either.
+    journal.runResume = async function (this: RootJournal) { this.resumeCalls += 1; return this.resumeStatus; };
+    vi.mocked(loadAuthoredFlow).mockResolvedValue(loaded);
+
+    const failure = await resumeDurableAuthoredFlow(
+      journal.runId, journal as unknown as JournalClient, { dataDir: '/unused' },
+    ).catch(error => error);
+
+    expect(failure).toBeInstanceOf(AuthoredHumanParked);
+    expect((failure as AuthoredHumanParked).wait).toMatchObject({ waitId: 'human-1', question: 'Ship it?', to: 'khaliq' });
+    expect(journal.peer.completions).toEqual([]);
+  });
+
+  it('resumes past an answered question: the wait is closed, the body re-runs and completes', async () => {
+    const loaded = await fixture(false, 0, async f => {
+      const ok = await f.human('Ship it?', { to: 'khaliq' });
+      f.done(ok ? 'success' : 'declined');
+    });
+    const journal = new RootJournal();
+    journal.entries = [spawnedEntry(loaded), {
+      entry_type: 'wait.human', step_id: 'authored-root', attempt: 1,
+      payload: { wait_id: 'human-1', prompt: 'Ship it?', requested_of: 'khaliq' },
+    }, {
+      entry_type: 'wait.completed', step_id: 'authored-root', attempt: 1,
+      payload: { wait_id: 'human-1', completionReason: 'human_responded', result: { answer: false, answeredBy: 'khaliq', at_ms: 1, attribution: 'client_asserted' } },
+    }];
+    vi.mocked(loadAuthoredFlow).mockResolvedValue(loaded);
+
+    const result = await resumeDurableAuthoredFlow(
+      journal.runId, journal as unknown as JournalClient, { dataDir: '/unused' },
+    );
+
+    expect(result).toMatchObject({ rootRunId: 'root-run', completionReason: 'declined' });
+    expect(result!.journalSteps.map(step => step.id)).toEqual(['human-1', 'complete-2']);
+    expect(journal.peer.waits).toEqual([]);
+    expect(journal.peer.completions).toEqual([{ attempt: 2, reason: 'success' }]);
+  });
+
   it('fails closed on malformed metadata under the reserved authored-root stream', async () => {
     const journal = new RootJournal();
     journal.entries = [{
@@ -232,17 +328,23 @@ describe('durable authored root', () => {
   });
 });
 
-async function fixture(fails = false, delayMs = 0): Promise<LoadedAuthoredFlow> {
+async function fixture(
+  fails = false,
+  delayMs = 0,
+  body?: Parameters<typeof flow>[1],
+): Promise<LoadedAuthoredFlow> {
   const directory = await mkdtemp(join(tmpdir(), 'authored-root-'));
   directories.push(directory);
   const sourcePath = join(directory, 'flagship.flow.ts');
   await writeFile(sourcePath, 'export default "exact source";\n');
-  const handle = fails
-    ? flow('flagship', async () => { throw new Error('child failed'); })
-    : flow('flagship', async f => {
-      if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
-      f.done('success');
-    });
+  const handle = body !== undefined
+    ? flow('flagship', body)
+    : fails
+      ? flow('flagship', async () => { throw new Error('child failed'); })
+      : flow('flagship', async f => {
+        if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
+        f.done('success');
+      });
   const getDefinition = getFlowDefinition as LoadedAuthoredFlow['getDefinition'];
   return {
     sourcePath, handle, getDefinition, surfaceAuthority: surface,
@@ -288,11 +390,11 @@ function spawnedEntry(loaded: LoadedAuthoredFlow): Record<string, unknown> {
   };
 }
 
-function completedEntry(): Record<string, unknown> {
+function completedEntry(reason = 'success'): Record<string, unknown> {
   return {
     entry_type: 'step.completed', step_id: 'authored-root',
     payload: { completionReason: 'success', output: {
-      name: 'flagship', completionReason: 'success', journalSteps: [],
+      name: 'flagship', completionReason: reason, journalSteps: [],
     } },
   };
 }

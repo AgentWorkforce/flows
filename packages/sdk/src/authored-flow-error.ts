@@ -1,3 +1,4 @@
+import type { HumanRecipient } from './human-to.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
@@ -23,6 +24,13 @@ export type AuthoredFlowExecutionErrorCode =
   | 'lease_exceeded'
   | 'unsupported_completion'
   | 'unsupported_gate'
+  | 'gate_failed'
+  /** The body reached an unanswered `f.human`; the root parked on it. */
+  | 'human_parked'
+  /** A recorded answer to `f.human` was not `{ answer: boolean }`. */
+  | 'human_answer_invalid'
+  /** `f.human`'s `to` is not one of the documented recipient forms (human-to.ts). */
+  | 'human_to_invalid'
   | 'unsupported_header'
   | 'unsettled_derived_work'
   | 'unsupported_promise_lifecycle'
@@ -71,3 +79,29 @@ export type AuthoredFlowSuspension =
     readonly stream: string;
     readonly deadlineAtMs: number;
   };
+/** The question an authored body parked on, as the kernel journals it. */
+export interface AuthoredHumanWait {
+  readonly waitId: string;
+  readonly question: string;
+  readonly to: string;
+  /** `to` parsed into its delivery form (human-to.ts); Cloud delivers by it. */
+  readonly recipient?: HumanRecipient;
+}
+
+/**
+ * Thrown by `f.human` when no answer is journaled yet. Not a failure: the
+ * durable root catches it, parks its attempt on the kernel's `wait.human`, and
+ * the CLI reports exit 3 naming the question and the command that answers it.
+ * A resumed body re-runs to the same call and finds the recorded answer.
+ */
+export class AuthoredHumanParked extends AuthoredFlowExecutionError {
+  constructor(readonly wait: AuthoredHumanWait, rootRunId: string) {
+    super(
+      'human_parked',
+      `flow is waiting for ${wait.to} to answer ${JSON.stringify(wait.question)} (${wait.waitId})`,
+      undefined,
+      rootRunId,
+    );
+    this.name = 'AuthoredHumanParked';
+  }
+}

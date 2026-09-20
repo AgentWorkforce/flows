@@ -12,7 +12,7 @@ import { buildMcpProxy, runMcpEffect } from './authored-mcp.js';
 import { AuthoredBudget } from './authored-budget.js';
 import { assertMemoryReachable, authoredMemory, scriptMemoryScope } from './authored-memory.js';
 import { authoredDeterministicRunner, authoredWorkerRunner } from './authored-worker-step.js';
-import { isSurfaceRunCompletionReason } from './authored-step-output.js';
+import { isSurfaceFlowCompletionReason, isSurfaceRunCompletionReason } from './authored-step-output.js';
 import {
   type AgentResult,
   type LlmOptions,
@@ -33,8 +33,11 @@ import type { RunLifecycleOptions } from './cli/run.js';
 import {
   AuthoredFlowExecutionError,
   type AuthoredFlowSuspension,
+  AuthoredHumanParked,
   type AuthoredFlowExecutionErrorCode,
 } from './authored-flow-error.js';
+import { readHumanAnswer } from './authored-human.js';
+import { parseHumanTo } from './human-to.js';
 import {
   AuthoredFlowOperation,
   stopAuthoredOperations,
@@ -86,7 +89,7 @@ export interface AuthoredFlowExecutionResult {
   readonly executionRuntime?: AuthoredExecutionRuntime;
   readonly rootRunId?: string;
   readonly name: string;
-  readonly completionReason: FlowCompletionReason;
+  readonly completionReason: LoweredCompletionReason;
   readonly journalSteps: readonly AuthoredFlowJournalStep[];
 }
 
@@ -98,8 +101,18 @@ export interface AuthoredFlowSuspendedResult {
   readonly journalSteps: readonly AuthoredFlowJournalStep[];
 }
 
-type ExecutionResultUsesFlowCompletionReason = Assert<
-  Equal<AuthoredFlowExecutionResult['completionReason'], FlowCompletionReason>
+// The authoring SURFACE stays wide: `done()` accepts every
+// `FlowCompletionReason` and refuses the kernel-owned ones at runtime with a
+// diagnostic that names the alternative. The RESULT is narrow, because `done()`
+// cannot store a reason this executor does not lower.
+//
+// Pinning the narrow type here is load-bearing, not cosmetic. Every reader of
+// this result — the CLI report, the durable root, the IPC verifier — would
+// otherwise have to re-derive "can this really be `canceled`?" and answer it
+// by hand. Those hand-written answers disagreeing is the exact defect this
+// change exists to close; a widening here re-opens it at compile time instead.
+type ExecutionResultUsesLoweredCompletionReason = Assert<
+  Equal<AuthoredFlowExecutionResult['completionReason'], LoweredCompletionReason>
 >;
 type JournalStepUsesStepCompletionReason = Assert<
   Equal<AuthoredFlowJournalStep['completionReason'], ProtocolCompletionReason>
@@ -111,7 +124,8 @@ type JournalStepUsesStepCompletionReason = Assert<
  * This is deliberately not exported by the SDK package: without a durable
  * authored root, it is not a resumable public runner. The seam is narrow: an
  * flow with an optional budget may await `f.run`, `f.llm`, and `f.agent` steps and must
- * finish with `f.done("success")` or `f.done("needs_human")`. Each step and the terminal marker is
+ * finish with one of the lowered completions — `f.done("success")`,
+ * `f.done("needs_human")`, `f.done("step_failed")` or `f.done("declined")`. Each step and the terminal marker is
  * a compiled spec submitted through
  * `JournalClient`; values are read back from `step.completed` journal entries.
  * Unsupported headers, verbs, gates, or completion lowering fail closed.
@@ -201,7 +215,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   const lifecycle = new AuthoredFlowLifecycle();
   const activities = new AuthoredActivities(journal, options.rootRunId);
   let nextStep = 1;
-  let requestedCompletion: FlowCompletionReason | undefined;
+  let requestedCompletion: LoweredCompletionReason | undefined;
 
   const lowerDeterministic = authoredDeterministicRunner(
     definition.name, journal, journalSteps, budget, options.rootRunId,
@@ -211,6 +225,93 @@ export async function executeAuthoredFlow<Input = undefined>(
     definition, journal, flowPath, journalSteps, waitOptions,
     localAgentStream, budget, definition.header.budget, options.rootRunId,
   );
+
+  /**
+   * Predicate gates (docs/SURFACE.md §6). The closure runs here, once, on the
+   * value the journal handed back; the VERDICT is then journaled as a lowered
+   * `<id>.gate` deterministic step that succeeds or fails, so a resume or
+   * replay reads the recorded verdict and never re-runs author code. A false
+   * verdict fails the step as `gate_failed`, carrying the author's reason.
+   *
+   * Durability across a resume: the verdict is appended to the root run's
+   * `predicate-gates` stream BEFORE the gate run is opened. A resumed body
+   * re-executes and reaches the same gate; it finds the recorded verdict and
+   * reuses it, so the gate run's spec (which embeds the verdict) is identical
+   * under its admission key and the closure is never re-run. Without a root
+   * run there is nothing to resume, and the closure simply runs.
+   */
+  const PREDICATE_STREAM = 'predicate-gates';
+  interface PredicateRecord { gate: 'predicate'; step: string; verdict: 'pass' | 'fail'; because?: string; threw?: string }
+  // The stream is read once per execution; concurrent gates (Promise.all)
+  // share the single in-flight load, so none of them can observe an empty
+  // map while the read is still pending and re-run a closure whose verdict
+  // was already recorded.
+  let recordedVerdicts: Promise<Map<string, PredicateRecord>> | undefined;
+  async function loadRecordedVerdicts(rootRunId: string): Promise<Map<string, PredicateRecord>> {
+    const verdicts = new Map<string, PredicateRecord>();
+    let offset = 0;
+    for (;;) {
+      const page = await journal.streamRead(rootRunId, PREDICATE_STREAM, offset, 1000);
+      for (const message of page.messages) {
+        const record = (message as { message?: unknown }).message ?? message;
+        if (typeof record === 'object' && record !== null && (record as PredicateRecord).gate === 'predicate'
+          && typeof (record as PredicateRecord).step === 'string'
+          && ((record as PredicateRecord).verdict === 'pass' || (record as PredicateRecord).verdict === 'fail')) {
+          verdicts.set((record as PredicateRecord).step, record as PredicateRecord);
+        }
+      }
+      if (page.messages.length === 0 || page.next_offset <= offset) break;
+      offset = page.next_offset;
+    }
+    return verdicts;
+  }
+  async function recordedVerdict(id: string): Promise<PredicateRecord | undefined> {
+    if (options.rootRunId === undefined) return undefined;
+    recordedVerdicts ??= loadRecordedVerdicts(options.rootRunId);
+    return (await recordedVerdicts).get(id);
+  }
+  async function applyPredicateGate<T>(operation: { id: string; predicateGate: unknown }, value: T): Promise<T> {
+    const gate = operation.predicateGate as { predicate: (value: T) => boolean; because?: string } | undefined;
+    if (gate === undefined) return value;
+    const id = operation.id;
+    let record = await recordedVerdict(id);
+    if (record === undefined) {
+      let verdict: boolean;
+      let detail: string | undefined;
+      try {
+        verdict = gate.predicate(value) === true;
+      } catch (error) {
+        verdict = false;
+        detail = error instanceof Error ? error.message : String(error);
+      }
+      record = {
+        gate: 'predicate', step: id, verdict: verdict ? 'pass' : 'fail',
+        ...(gate.because === undefined ? {} : { because: gate.because }),
+        ...(detail === undefined ? {} : { threw: detail }),
+      };
+      if (options.rootRunId !== undefined) {
+        await journal.streamAppend(options.rootRunId, PREDICATE_STREAM, record);
+        (await recordedVerdicts)?.set(id, record);
+      }
+    }
+    const literal = `'${JSON.stringify(record).replaceAll("'", "'\\''")}'`;
+    const command = record.verdict === 'pass' ? `printf '%s' ${literal}` : `printf '%s' ${literal} >&2; exit 1`;
+    try {
+      await observeStep(`${id}.gate`, 'deterministic', () => lowerDeterministic(`${id}.gate`, command, false), options.onProgress);
+    } catch (error) {
+      if (record.verdict === 'pass') throw error;
+      throw new AuthoredFlowExecutionError(
+        'gate_failed',
+        `step "${id}" failed its predicate gate`
+          + (record.because === undefined ? '' : `: ${record.because}`)
+          + (record.threw === undefined ? '' : ` (predicate threw: ${record.threw})`),
+        'verification_failed',
+        error instanceof AuthoredFlowExecutionError ? error.runId : undefined,
+      );
+    }
+    return value;
+  }
+  lifecycle.applyPredicateGate = applyPredicateGate;
 
   function llmOperation(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
   function llmOperation(prompt: string, options: LlmOptions): Step<unknown>;
@@ -324,16 +425,73 @@ export async function executeAuthoredFlow<Input = undefined>(
       assertOperationAllowed('on', definition.name, requestedCompletion);
       return activities.open(source, activityOptions);
     },
-    human() {
+    /**
+     * `f.human` (docs/SURFACE.md §1, §7). The question is not a child run: it
+     * is the ROOT attempt parking on the kernel's `wait.human`. The body
+     * cannot park itself — it holds no lease — so when no answer is journaled
+     * it throws `AuthoredHumanParked`, the durable root turns that into
+     * `step.wait`, and the CLI reports the question with exit 3.
+     *
+     * The wait id is the operation's ordinal (`human-N`), so a resumed body
+     * re-executes to the same call and finds the recorded
+     * `wait.completed{human_responded}`. The ANSWER is then lowered as a
+     * `human-N` deterministic step carrying `{"answer":…}` on stdout: the
+     * boolean the author's code branches on is a journaled, memoized fact in
+     * the same shape as every other authored step, so the IPC verifier and a
+     * later replay hold it to the same evidence.
+     */
+    human(question, humanOptions) {
       assertOperationAllowed('human', definition.name, requestedCompletion);
-      throw unsupportedVerb('human');
+      if (typeof question !== 'string' || question.trim() === '') {
+        throw new AuthoredFlowExecutionError('human_answer_invalid', 'f.human requires a non-empty question');
+      }
+      if (typeof humanOptions?.to !== 'string' || humanOptions.to.trim() === '') {
+        throw new AuthoredFlowExecutionError('human_answer_invalid', 'f.human requires { to } naming who answers');
+      }
+      // Refused before an ordinal is consumed or anything is journaled: a
+      // malformed `to` would otherwise park the run on a question Cloud can
+      // deliver to no one (docs/SURFACE.md §5 lists the four forms).
+      const parsedTo = parseHumanTo(humanOptions.to);
+      if (!parsedTo.ok) {
+        throw new AuthoredFlowExecutionError('human_to_invalid', `f.human to ${parsedTo.reason}`);
+      }
+      const id = `human-${nextStep++}`;
+      const to = humanOptions.to;
+      // Hoisted like `llmOp`/`runOp`: the start closure reads the caller's
+      // `.gate(config)` at spec-build time, so a named gate on the answer is
+      // lowered into the `human-N` step's `verification` like any other step's.
+      let humanOp!: AuthoredFlowOperation<boolean>;
+      humanOp = new AuthoredFlowOperation<boolean>(
+        id, 'human',
+        () => assertOperationAllowed('human', definition.name, requestedCompletion),
+        () => observeStep(id, 'deterministic', async () => {
+          const rootRunId = options.rootRunId;
+          if (rootRunId === undefined) {
+            throw new AuthoredFlowExecutionError(
+              'unsupported_verb',
+              `f.human needs a durable root to park in; "${id}" has no run to wait on. Run the flow with flows run.`,
+            );
+          }
+          const recorded = await readHumanAnswer(journal, rootRunId, id);
+          if (recorded === undefined) throw new AuthoredHumanParked({ waitId: id, question, to }, rootRunId);
+          const record = { human: id, to, answer: recorded.answer,
+            ...(recorded.note === undefined ? {} : { note: recorded.note }),
+            answeredBy: recorded.answeredBy,
+            ...(recorded.atMs === undefined ? {} : { at: new Date(recorded.atMs).toISOString() }) };
+          const literal = `'${JSON.stringify(record).replaceAll("'", "'\\''")}'`;
+          await lowerDeterministic(id, `printf '%s' ${literal}`, false, undefined, humanOp.namedGate);
+          return recorded.answer;
+        }, options.onProgress),
+        lifecycle,
+      );
+      return trackStep(authoredSteps, humanOp);
     },
     dispatch<T>() {
       assertOperationAllowed('dispatch', definition.name, requestedCompletion);
       throw unsupportedVerb('dispatch');
     },
     done(reason) {
-      if (reason !== 'needs_human' && !isSurfaceRunCompletionReason(reason)) {
+      if (!isSurfaceFlowCompletionReason(reason)) {
         throw new AuthoredFlowExecutionError(
           'unsupported_completion',
           `unknown completion reason: ${String(reason)}`,
@@ -345,10 +503,23 @@ export async function executeAuthoredFlow<Input = undefined>(
           `flow "${definition.name}" called done() more than once`,
         );
       }
-      if (reason !== 'success' && reason !== 'needs_human') {
+      // `step_failed` is a verdict about the flow's OWN work — "the checks I
+      // ran did not pass" — and an authored body is authoritative about that.
+      // `canceled` and `budget_exceeded` are control-plane facts the kernel
+      // owns: cancellation arrives through `run.cancel`, budget exhaustion
+      // through the enforced budget (authored-budget.ts). A body that declared
+      // either would be asserting a kernel fact that never happened, so they
+      // stay refused — with a reason, not with "this executor cannot yet".
+      // `canceled` has no terminal shape to lower into either: there is no
+      // `cancelled` RunStatus in the local protocol, and Cloud accepts that
+      // completionReason only under a `cancelled` status this CLI never reports.
+      if (!isLoweredCompletion(reason)) {
         throw new AuthoredFlowExecutionError(
           'unsupported_completion',
-          `the initial authored executor cannot lower done("${reason}")`,
+          `done("${reason}") is a kernel outcome, not an authored verdict: the kernel `
+            + 'records it when it cancels a run or exhausts its budget, so a flow body '
+            + 'cannot declare it. Use done("step_failed") to declare that the flow\'s own '
+            + 'checks did not pass, or done("declined") to deliberately choose not to act.',
           reason,
         );
       }
@@ -384,7 +555,11 @@ export async function executeAuthoredFlow<Input = undefined>(
   if (bodyFailed) {
     try {
       await stopAuthoredOperations(authoredSteps, bodyFailure);
-      await activities.closeAll('canceled');
+      // A durable wait hands execution back to the control plane. Its
+      // subscriptions must keep receiving events while no body is running.
+      const parked = bodyFailure instanceof AuthoredFlowExecutionError
+        && (bodyFailure.code === 'subscription_suspended' || bodyFailure.code === 'human_parked');
+      if (!parked) await activities.closeAll('canceled');
     } finally {
       lifecycle.close();
     }
@@ -433,11 +608,12 @@ export async function executeAuthoredFlow<Input = undefined>(
     lifecycle.close();
   }
 
-  // The authored runner has no durable root yet. Record the handoff as a
-  // successful effect containing the authored outcome, not a fabricated kernel
-  // run.completed reason. The CLI reports this outcome as parked (exit 3).
-  await lowerDeterministic(`complete-${nextStep}`, requestedCompletion === 'needs_human'
-    ? `printf '%s' '{"completionReason":"needs_human"}'` : ':', true);
+  // Record the authored verdict as a SUCCESSFUL effect carrying that verdict,
+  // not as a fabricated kernel run.completed reason. The marker step reports
+  // what the body decided; it is not itself a step that failed. The CLI turns
+  // the verdict into the exit code (success/declined 0, needs_human 3, step_failed 1).
+  await lowerDeterministic(`complete-${nextStep}`,
+    completionMarker(requestedCompletion), true);
   return Object.freeze({
     ...(options.rootRunId === undefined ? {} : { rootRunId: options.rootRunId }),
     name: definition.name,
@@ -461,6 +637,43 @@ function unsupportedVerb(verb: string): AuthoredFlowExecutionError {
   );
 }
 
+/**
+ * The completion reasons an authored body may declare and this executor lowers.
+ *
+ * `FlowCompletionReason` is wider than this on purpose — it is the journal's
+ * run vocabulary plus authored verdicts — but the two sets drifting silently is
+ * exactly what made a type-valid `done("step_failed")` die at runtime as
+ * `unsupported_completion`. Every gate that asks "is this a completion this
+ * runtime can lower?" now asks this one function, so a reason cannot be
+ * accepted in one place and rejected in another.
+ *
+ * These three are internal cross-module helpers for the authored seam (the
+ * executor, the durable root, the IPC verifier and the CLI report), NOT public
+ * SDK surface. `src/index.ts` deliberately re-exports nothing from this module
+ * — keep it that way, or the whole authored seam leaks with them.
+ */
+export const LOWERED_COMPLETIONS = ['success', 'needs_human', 'step_failed', 'declined'] as const;
+export type LoweredCompletionReason = (typeof LOWERED_COMPLETIONS)[number];
+
+export function isLoweredCompletion(value: unknown): value is LoweredCompletionReason {
+  return typeof value === 'string' && (LOWERED_COMPLETIONS as readonly string[]).includes(value);
+}
+
+/**
+ * The deterministic command that carries an authored verdict into the journal.
+ *
+ * `success` lowers to `:` because success needs no marker: the marker run's own
+ * kernel `success` already IS that record. Every other lowered verdict is
+ * something the kernel's completion vocabulary cannot express on a step that
+ * *succeeded*, so it travels as data on stdout and is read back from
+ * `step.completed`. It is deliberately not lowered as a failing command: no
+ * step failed here, and a fabricated failure would put bogus evidence in the
+ * journal for a flow whose steps all ran correctly.
+ */
+export function completionMarker(reason: LoweredCompletionReason): string {
+  return reason === 'success' ? ':' : `printf '%s' '{"completionReason":"${reason}"}'`;
+}
+
 function assertOperationAllowed(
   verb: string,
   flowName: string,
@@ -470,7 +683,7 @@ function assertOperationAllowed(
     throw new AuthoredFlowExecutionError(
       'operation_after_completion',
       `flow "${flowName}" called f.${verb} after done()`,
-      completion === 'needs_human' ? undefined : completion,
+      isSurfaceRunCompletionReason(completion) ? completion : undefined,
     );
   }
 }

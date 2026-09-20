@@ -52,6 +52,8 @@ export type Verb =
   | 'effect.record'
   | 'effect.confirm'
   | 'step.complete'
+  | 'step.wait'
+  | 'subscription.park'
   | 'event.emit'
   | 'event.submit'
   | 'subscription.open'
@@ -333,6 +335,27 @@ export interface StepCompleteParams {
 }
 export type StepCompleteResult = RunOutcome;
 
+/**
+ * Park a leased attempt on a durable human question (`wait.human`, kernel
+ * DESIGN.md §1.5). The attempt is not completed and no iteration is charged;
+ * the lease is released once the wait is journaled. The answer arrives through
+ * `event.emit` with `event_key` = `wait_id`, which closes the wait as
+ * `human_responded` and makes the step runnable for a fresh attempt.
+ */
+export interface StepWaitParams {
+  run_id: string;
+  step_id: string;
+  attempt: number;
+  idempotency_key: string;
+  /** Names the question for the life of the run; the kernel refuses a reuse. */
+  wait_id: string;
+  prompt: string;
+  requested_of: string;
+  options?: string[];
+  timeout_at_ms?: number;
+}
+export type StepWaitResult = RunOutcome;
+
 export interface EventEmitParams {
   run_id: string;
   event_key: string;
@@ -417,6 +440,8 @@ export interface SubscriptionNextParams {
   subscription_id: string;
   /** Internal durable receipt for the prior normal wake, supplied with the next pull. */
   acknowledge_wait_id?: string;
+  /** Body call ordinal: replay this pull's durable wake across process restarts. */
+  sequence?: number;
 }
 export type SubscriptionNextResult =
   | { kind: 'suspended'; subscription_id: string; stream: string; deadline_at_ms: number }
@@ -476,6 +501,12 @@ export interface VerbContract {
   'effect.record': { params: EffectRecordParams; result: EffectRecordResult };
   'effect.confirm': { params: EffectConfirmParams; result: EffectConfirmResult };
   'step.complete': { params: StepCompleteParams; result: StepCompleteResult };
+  'step.wait': { params: StepWaitParams; result: StepWaitResult };
+  'subscription.park': {
+    params: { run_id: string; step_id: string; attempt: number; idempotency_key: string;
+      subscription_id: string; phase: 'activation' | 'event_wait' };
+    result: RunOutcome;
+  };
   'event.emit': { params: EventEmitParams; result: EventEmitResult };
   'event.submit': { params: EventSubmitParams; result: EventSubmitResult };
   'subscription.open': { params: SubscriptionOpenParams; result: SubscriptionOpenResult };

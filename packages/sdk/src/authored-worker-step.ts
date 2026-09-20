@@ -7,7 +7,7 @@ import { classifyOutcome, type RunLifecycleOptions } from './cli/run.js';
 import type { PreflightDiagnostic } from './preflight.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import type { JournalClient } from './journal-client.js';
-import { SPEC_SCHEMA_VERSION, type FlowSpec, type StepSpec } from './spec.js';
+import { SPEC_SCHEMA_VERSION, type FlowSpec, type PermissionsSpec, type StepSpec } from './spec.js';
 import { isSurfaceCompletionReason, readCompletedStepOutput, readSuccessfulOutput } from './authored-step-output.js';
 import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import { snapshotJsonValue } from './json-value.js';
@@ -96,13 +96,10 @@ export function authoredWorkerRunner(
       if (options.workspace !== undefined && WORKSPACE_PERMISSION_ANNOTATION.test(options.workspace)) {
         throw new AuthoredFlowExecutionError(
           'unsupported_workspace_permission',
-          `flow "${definition.name}" step "${id}": workspace "${options.workspace}" declares a `
-            + 'permission annotation ("...: readonly" / "...: readwrite"), but nothing enforces it — '
-            + 'no parser anywhere in this package turns that annotation into a real restriction '
-            + '(kernel/DAEMON-LIFECYCLE.md\'s permission model is untouched by f.agent). '
-            + 'Silently accepting and ignoring it would let a flow believe a restriction is in effect '
-            + "when it is not. Declare a bare surface name (no trailing \": readonly\"/\": readwrite\") "
-            + 'if you do not need enforcement, or use the declarative spec\'s `permissions` field, which is real.',
+          `flow "${definition.name}" step "${id}": workspace "${options.workspace}": `
+            + "Workspace permission suffixes are unsupported. Use a bare workspace name and f.agent's "
+            + "permissions option, for example permissions: { fileGlobs: ['src/**'], accessPreset: 'readonly' }. "
+            + 'This declaration is validated and recorded with the step spec; it is not currently enforced (gate 8 / #442).',
         );
       }
       if (options.cli !== undefined && typeof options.cli !== 'string') {
@@ -129,8 +126,12 @@ export function authoredWorkerRunner(
           `f.agent options.transport must be 'direct' or 'relay' (got ${JSON.stringify(options.transport)}).`,
         );
       }
+      const permissions = options.permissions;
+      const permissionsSnapshot = permissions === undefined ? undefined
+        : snapshotJsonValue(permissions, 'f.agent options.permissions') as unknown as PermissionsSpec;
       const output = await run({
         id, type: 'agent', instruction: options.task,
+        ...(permissionsSnapshot === undefined ? {} : { permissions: permissionsSnapshot }),
         ...(localAgentStream === undefined ? {} : { surfaces: { streams: [{ stream: localAgentStream }] } }),
         ...(options.workspace === undefined ? {} : { surfaces: { workspace: [{ surface: options.workspace }] } }),
         ...(options.cli === undefined ? {} : { cli: options.cli }),
@@ -143,7 +144,13 @@ export function authoredWorkerRunner(
         throw new AuthoredFlowExecutionError('journal_protocol_violation', `step "${id}" produced a non-object output`);
       }
       const stdout = 'stdout_tail' in output ? output.stdout_tail : undefined;
-      return { summary: typeof stdout === 'string' ? stdout : JSON.stringify(output), artifacts: [] };
+      // The worker that ran the CLI measured the artifacts and journaled them
+      // in the step's output; read that fact back rather than re-scanning a
+      // directory this process may not even share with the agent.
+      const journaled = 'artifacts' in output ? output.artifacts : undefined;
+      const artifacts = Array.isArray(journaled) && journaled.every(entry => typeof entry === 'string')
+        ? [...journaled] : [];
+      return { summary: typeof stdout === 'string' ? stdout : JSON.stringify(output), artifacts };
     },
     async llm(id: string, prompt: string, options?: LlmOptions, verification?: NamedGate): Promise<unknown> {
       if (options !== undefined && (typeof options !== 'object' || options === null || options.output === undefined)) {

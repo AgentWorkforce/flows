@@ -38,15 +38,16 @@ export default flow("chief", {
 .on(slack.mention("#exec"), async (f, event) => {          // gate 2 — trigger = entry condition
   const intent = await f.llm`Extract the work request, if any: ${event.text}`
     .gate(isActionable);
-  if (!intent) return f.done("success"); // no work is an outcome; execution succeeded
+  if (!intent) return f.done("declined"); // nothing actionable to act on; the run still succeeds
 
   const plan = await f.agent("planner", {
     task: `Research and plan: ${intent}`,
-    workspace: "acme/api: readonly",          // compiles to relayauth path scopes
+    workspace: "acme/api",
+    permissions: { accessPreset: "readonly" }, // validated declaration; currently unenforced
   });
 
   const ok = await f.human(`Ship this?\n${plan.summary}`, { to: "khaliq" });
-  if (!ok) return f.done("canceled");
+  if (!ok) return f.done("declined"); // choose not to proceed after a negative answer
 
   const pr = await f.dispatch("garden/implement", plan);   // gate 3 — child flow
   await f.slack.reply(event, `Shipped: ${pr.url}`);
@@ -247,8 +248,11 @@ No process runs between events: the handler wakes, executes to its next await, p
    **Accepted deterministic-command limitation (Codex P1):** `flows check`
    warns with `command_unresolved`, rather than refusing, when a deterministic
    command's first word cannot be resolved. A bare word is not provably absent
-   under `/bin/sh -c` because it may be a shell builtin, function, or
-   assignment. The narrower path-like missing-command refusal is also not yet
+   under `/bin/sh -c` because it may be a shell function. The probe looks past
+   blank lines, `#` comments, `NAME=value` assignments and redirections to the
+   first real command word; a POSIX special builtin or reserved word there
+   (`set`, `export`, `cd`, `if`, `for`, `{`, `!`, …) is the shell's own and
+   warns `unprovable_effects` instead, never `command_unresolved`. The narrower path-like missing-command refusal is also not yet
    implemented; it is tracked in `ops/BACKLOG.md` under “Close the
    deterministic-command preflight gap.” Consequently, `cli_missing` applies
    to declared `llm` and `agent` CLIs, not deterministic command words.
@@ -289,6 +293,33 @@ returns `unknown`, which author code narrows after runtime verification.
 The authoring surface deliberately narrows `steps: []`: `flows check` refuses
 it as `invalid_spec`, while the kernel accepts it. This is a chosen
 authoring-time narrowing, not a kernel guarantee.
+
+### Per-agent permissions in TypeScript
+
+Supported `f.agent` calls accept an optional `permissions` declaration:
+
+```ts
+const draft = await f.agent("writer", {
+  task: "Write drafts/post.md.",
+  permissions: { fileGlobs: ["drafts/**"], accessPreset: "readwrite" },
+});
+const review = await f.agent("reviewer", {
+  task: "Review drafts/post.md and flag issues; do not edit it.",
+  permissions: { fileGlobs: ["drafts/**"], accessPreset: "readonly" },
+});
+```
+
+The exported `PermissionsSpec` has three optional camelCase fields:
+`fileGlobs?: string[]`, `networkAllowlist?: string[]`, and
+`accessPreset?: "readonly" | "readwrite"`. Array elements must be nonempty
+strings. Empty or partial declarations are accepted without inferred defaults;
+no workspace is required. Workspace names must not carry permission suffixes.
+
+These per-step permissions are validated and recorded in the compiled step spec
+but are **not currently enforced** (gate 8 / #442). They are separate from
+flow-wide `FlowHeader.workspace` / `tools.fs` scopes. The chief harness above
+remains an aspirational example; this option does not make that entire harness
+executable today.
 
 ### Supported TypeScript LLM calls
 
@@ -460,8 +491,9 @@ vocabulary:
    source text is never treated as proof of anything.
 2. **A step's failure is yours whether or not you catch it.** A root failure is
    recorded before author code can reach the operation, so a `catch` cannot hide
-   it. At this gate the executor only lowers `done("success")`, so there is no
-   expressible recovery from a failed step yet.
+   it. `done("step_failed")` does not change that: it declares a verdict about
+   checks the body ran and read for itself, and is not a way to continue past a
+   step that failed.
 3. **Finish your derived work before `done()`.** If a handler chained onto a step
    is still in flight when the body returns, the run is refused with
    `unsettled_derived_work` rather than recorded as a success nobody can prove.
@@ -590,15 +622,27 @@ Deployment, remote upload, and execution by digest remain future slices.
 
 ## 5. Invocation: the gate-1 CLI
 
-Gate 1 ships three CLI verbs over the journal protocol, plus one out-of-band
-verb (`observer`) that mints an observer link without contacting the daemon:
+Gate 1 ships three CLI verbs over the journal protocol, plus two out-of-band
+verbs: `observer`, which mints an observer link without contacting the
+daemon, and `status`, which reads a run's journal without one:
 
 ```text
 flows check [--watch] [--json] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>
 flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>
+flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>
 flows observer [--data-dir <dir>]
+flows status [--json] [--data-dir <dir>] [--tail <n>] [<run-id>]
+```
+
+Three further verbs read a **hosted** run over the Cloud API rather than a
+journal. They are documented in [CLOUD.md](CLOUD.md#reading-a-hosted-run):
+
+```text
+flows runs [--limit <n>] [--json]
+flows logs [--step <name>] [--raw] [--json] <run-id>
+flows status --cloud [--json] <run-id>
 ```
 
 ### Agent sidechannel (initial byte-stream slice)
@@ -648,6 +692,80 @@ URL to stdout using the same mint used by `flows run`. It is daemon-free: no
 socket is opened, no `relayflowd` binary is invoked, the data dir is not
 touched. Refusals (`no workspace key configured`, mint failure) print
 `REFUSED [observer_link_unavailable] <reason>` on stderr and exit 2.
+
+### Run self-inspection: `flows status`
+
+`flows status` is what a step can see about its own run. By default it reads
+exactly one file — `<data-dir>/runs/<run-id>.sqlite3`, through the same
+copy-then-verify snapshot `flows replay` uses (`--tail` additionally reads the
+attempt transcript-tail files described below, and nothing else) — and folds it
+into the run's status, each step's
+state / attempt / lease / backoff / wait, the last completion's reason, gate
+verdict and (redacted, ≤ 1 KiB) detail, a summary of the attempt's journaled
+transcript digest, spend and step counts. It never opens the run
+registry, `connection.json`, the daemon socket or the network, never spawns
+a daemon, and holds no credential: the journal is on the same filesystem as
+the process asking. It does not inherit `replay`'s `human_influenced_run`
+refusal, since it re-executes nothing.
+
+The transcript summary comes from the digest the worker journals in
+`trajectory_tail.transcript` on every agent attempt: the model, turn and tool
+counts, the provider's own cost, and the path, size and truncation flag of the
+full per-attempt transcript file — plus the failure excerpt when the attempt
+failed. `flows status` never prints the transcript itself; it points at the
+file. The digest's strings were redacted when it was built and are redacted
+again here. An attempt that journaled no digest (an `llm` step, or a run that
+predates the digest) shows no transcript line and reports `null`.
+
+Discovery: an explicit `<run-id>` (with `--data-dir`, default `.relayflowd`),
+else `RELAYFLOW_RUN_ID` and `RELAYFLOW_DATA_DIR` from the environment, else
+`REFUSED [run_unknown]` and exit 2. Every direct or wrapper agent attempt that
+has a data dir is spawned with four non-secret names — `RELAYFLOW_DATA_DIR`
+(absolute), `RELAYFLOW_RUN_ID`, `RELAYFLOW_STEP_ID`, `RELAYFLOW_ATTEMPT` — so
+a bare `flows status` inside a step resolves that step's run and marks it
+`← this step`. Without a data dir the four are absent, not empty; an ambient
+value from an enclosing step never passes through. A spawn that names no
+attempt sets the other three and leaves `RELAYFLOW_ATTEMPT` absent rather than
+empty — the run and step are what resolve the view; the attempt only picks a
+transcript tail. With these an agent can
+open its journal and nothing else.
+
+Exit codes: 0 rendered; 1 rendered but a section could not be read (`partial`
+non-empty, e.g. `journal_read_failed` after a mid-journal parse error); 2
+refused (`run_unknown`, `run_not_found`, `journal_busy` after five 50 ms
+retries against a mid-flight writer, and the other `replay` refusals).
+
+`--json` emits one canonicalised object (`v: 1`). Its schema has no field for
+step instructions, input bindings, output bodies, wake contexts, pins or
+effect refs, so their absence is structural. `LEASE OVERDUE by <t>` in the
+text view is computed from the journaled lease deadline and the wall clock
+alone — a local dead-man that needs no daemon.
+
+`--tail <n>` renders the last *n* lines of this attempt's stdout and stderr
+after redaction. Every direct agent attempt with a data dir tees its
+transcript into `runs/<run-id>/steps/<step-id>/attempt-<n>.{stdout,stderr}.tail`:
+a 64 KiB ring, mode `0600`, rewritten whole at most four times a second, with
+a header line naming the run, step, attempt and start time so a file left by
+an earlier life of the data dir is never read as this attempt's. These files
+are evidence, not the record — a write failure is one process warning and the
+step completes exactly as before; the journal remains truth. They are not
+written for wrapper or relay transport. On disk they are raw; the same OS
+user can already read `pty.sock`.
+
+Redaction (`redact.ts`) applies to every free-text field the view prints:
+the value of any current env var whose name matches
+`TOKEN|SECRET|KEY|PASSWORD|PASSWD|CREDENTIAL|AUTH` and is ≥ 8 chars becomes
+`[redacted:<NAME>]`; relay, bearer, header, vendor and `NAME=value` token
+shapes become `[redacted]` with their name kept. Identifiers — run and step
+ids, hashes, env *names* — are never rewritten, so the view stays greppable.
+
+What `flows status` cannot tell a hosted run is Cloud's: its Cloud run id,
+sandbox and listener, and anything about sibling runs. Given that run id,
+`flows status --cloud`, `flows runs` and `flows logs` answer the same
+questions from the Cloud API, under the caller's own Cloud credential and with
+the same redactor applied. See
+[CLOUD.md](CLOUD.md#reading-a-hosted-run) and
+[CLOUD.md](CLOUD.md#current-limits-and-scope).
 
 Inside `flows run` and `flows resume` that same mint is fire-and-forget. It is
 issued **once per invocation**, before the run, and its outcome reaches nothing
@@ -713,26 +831,134 @@ JavaScript control flow observes the output read from `step.completed`.
 Unsupported headers, verbs, gates, and completion reasons fail closed rather
 than running through a second speculative compiler.
 
+An authored body ends at one of four lowered completions. `done("success")`
+completes the run; `done("needs_human")` parks it for a human; and
+`done("step_failed")` declares that the flow's own checks did not pass — the
+adversary review found problems, the tests did not go green — and reports a
+failed run. `done("declined")` deliberately chooses not to act on the input.
+The first lowers to a no-op terminal marker, because the marker
+run's own `success` is already the record; the other three lower to a
+deterministic step that writes `{"completionReason":"<reason>"}` to stdout, so
+the verdict is a durable journal fact rather than an inference. All four
+terminal markers are steps that SUCCEED: `done("step_failed")` is the body's
+verdict, not a step that failed, so the terminal marker does not fabricate a
+failing step. Actual step failures still take precedence over authored verdicts.
+
+`canceled` and `budget_exceeded` are in the type but are refused with
+`unsupported_completion`. They are kernel outcomes, not authored verdicts: the
+kernel records them when it cancels a run or exhausts its budget, and a body
+that declared one would be asserting a kernel fact that never happened.
+
+Use `if (!input.ticket) return f.done("declined")` for a no-input guard.
+Declination describes a decision, not a promise of zero prior effects: inspection
+or notification may already have happened. It cannot conceal an actual failed step.
+
+Declination exits 0 with a completed, ok report and kernel
+`completionReason: success`. The local report adds severity `declined`, kind
+`run_declined` (text: `DECLINED [run_declined]`). The marker stdout and
+authored-root output retain `completionReason: declined`; kernel step and run
+reasons remain `success`. Cloud's client validator accepts this report shape,
+but its current projection drops diagnostics: `getCloudFlowRun`,
+`waitForCloudFlowRun`, and `--cloud --wait --json` cannot distinguish it from
+ordinary success. This is not verification of a deployed Cloud runtime.
+
+Consumer examples must wait for matching Surface/SDK releases, updated consumer
+pins, and a Cloud runtime artifact that executes this vocabulary. The onboarding
+guards in agentrelay.com require a separate rollout and verification.
+
 The exit codes are part of the surface contract:
 
 | Exit | Outcome |
 |---:|---|
-| `0` | The run completed with `completionReason: success`. |
-| `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. |
+| `0` | The run completed with `completionReason: success`; deliberate declination also carries a `run_declined` diagnostic locally. |
+| `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. An authored `done("step_failed")` exits `1` as well, and says so without naming a step, because no step failed — the body declared the verdict. |
 | `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
-| `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. |
+| `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. An authored body parked on `f.human` reports the question, who it is for, and the `flows answer` invocation that records the decision (see *Human gates* below). |
 
 Without an attached worker, reaching an `llm` or `agent` step returns a durable
 parked outcome. For authored TypeScript, `--local-agent` attaches both local
-workers as described above. Event, schedule, deployed-digest, HTTP, SDK-call, and
+workers as described above. Event, deployed-digest, HTTP, SDK-call, and
 flow-to-flow invocation remain later-gate surface work; they are not shipped
-by this CLI.
+by this CLI. Schedules are: `schedule.cron(...)` / `schedule.every(...)` are
+declared on a flow, lowered to the `flows.tick` subscription, printed by
+`flows check` with the `flows tick start` invocation that drives a fixed
+interval locally, and registered on Cloud by `flows schedule` (see
+[`packages/surface/src/triggers/README.md`](../packages/surface/src/triggers/README.md)
+and [CLOUD.md](CLOUD.md#schedules)). Dispatching the authored handler body
+itself, locally or hosted, is still #301: the hosted fire runs the default body.
 
 When a worker is attached, the CLI follows the typed snapshot while its lease
 is live and prints `WAITING [worker_lease]` with the step and lease deadline.
 If the lease expires without a completion, the command fails closed instead of
 polling forever. A manual-recovery agent whose worker dies parks in
 `needs_human`; the same exit-3 report says it is waiting for human recovery.
+
+### Human gates: `f.human`
+
+```ts
+const ok = await f.human(`Ship this?\n${plan.summary}`, { to: "khaliq" });
+if (!ok) return f.done("declined");
+```
+
+`f.human(question, { to })` is the declared approval gate of RFC covenant 3.
+It is not a child run. When the body reaches it with no answer on record, the
+ROOT attempt parks on the kernel's durable `wait.human` (DESIGN.md §1.5) under
+the call's own ordinal (`human-N`, counted with every other authored
+operation), the lease is released, and the run is `parked` — exit 3, with a
+`humanWait` field in the JSON report and a diagnostic that reads:
+
+```
+PARKED [run_parked] Run "<run-id>" is waiting for khaliq to answer human-2: "Ship this?\n…"
+Answer with: flows answer <run-id> human-2 yes|no
+Then continue with: flows resume <run-id>
+```
+
+No process waits. `flows answer <run-id> <wait-id> yes|no [--note <text>]
+[--by <identity>]` records the decision as the answer contract `{ answer:
+boolean, note?, answeredBy }` (`answeredBy` is `--by`, else the OS user; the
+kernel refuses an unattributed answer, journals `attribution: client_asserted`
+because the socket — not the kernel — authenticated the caller, and stamps
+`at_ms` from its own clock, dropping any client-supplied time) — an `event.emit` keyed by the wait id, which the kernel
+journals as `wait.completed{human_responded}` and closes the wait once: a
+second answer is refused (`human_wait_unknown`), as is a wait the run is not
+asking. `flows resume` then re-runs the body; every step before the gate is
+memoized under its admission key, so nothing upstream repeats, and `f.human`
+resolves from the journaled answer. The boolean the author branches on is
+lowered as a `human-N` deterministic step carrying the answer on stdout, so it
+is journal evidence in the same shape as every other authored step. A `no` is
+a value the body decides on — `done("declined")` exits 0 — never a failure.
+
+`to` names who is asked. It is recorded with the question and reported as
+`humanWait.recipient`, parsed into one of four forms — the delivery contract
+Cloud acts on (the local kit records it and delivers nothing):
+
+| `to`              | Cloud delivers                                              | who may answer          |
+|-------------------|-------------------------------------------------------------|-------------------------|
+| `"slack:#eng"`    | a message in that channel                                   | anyone in the channel   |
+| `"slack:@khaliq"` | a DM to that Slack user                                     | that user               |
+| `"github:@khaliq"`| a comment on the triggering issue / PR, mentioning them     | that user               |
+| `"khaliq"`        | the deploy's approver, on the channel the run was triggered from (the Slack thread, or the GitHub issue / PR) | that user |
+
+Anything else — `slack:` with no target, `github:#eng`, an unknown provider,
+a handle with spaces — is refused at the call as `human_to_invalid`, before an
+ordinal is consumed or anything is journaled, rather than parking the run on a
+question that can reach no one.
+
+The person answers **where they were asked** — `yes` / `no` as a reply in the
+Slack thread (or ✅ / ❌ on the message), or `@relay yes` / `@relay no` as a
+comment on the issue — and Cloud records it as the run's answer and resumes
+the run; the dashboard is never required. A literal `slack:` or `github:` `to`
+is a requirement of the flow (`flows check` prints `slack (f.human to)`) and
+`flows deploy` asks to connect it before activating. A computed `to`
+(`input.approver`) is resolved by Cloud at park time.
+
+Locally, authority is the journal socket: whoever can reach the daemon can
+answer, and `answeredBy` records the OS user who did. On Cloud the same wait is
+answered through the run's answer route — by the delivered channel above, or
+`POST /api/v1/workflows/runs/<id>/answer` — with the answerer's identity
+(`slack:@handle`, `github:@login`, or the Cloud user). `timeout` is not yet
+enforced (DESIGN.md §1.4). `f.dispatch` still fails closed as
+`unsupported_verb`.
 
 `flows resume` reports `run_unavailable` only when relayflowd returns the
 typed `run_not_found` refusal. A dropped connection, request failure, or
@@ -809,15 +1035,61 @@ author predicate. The v1 `verification:` shape remains supported and compiles
 to the same kernel fields; no kernel verb or verification field is added by
 this decision.
 
-TypeScript may additionally accept a callback such as
+TypeScript additionally accepts a callback such as
 `.gate(value => value.length < 200, "keep the summary short")`. That callback
 is author code: `flows check` cannot prove it, YAML cannot serialize it, and
-the journal cannot replay the closure. A TypeScript runtime must execute it as
-runtime control flow and journal the resulting step outcome before dependents
-continue. It must never stringify the function into a spec or silently label
-it preflightable. Authors who need portable, inspectable gates use a named data
-check; plugins may contribute named checks only by compiling them to existing
-kernel primitives.
+the journal cannot replay the closure. The authored runtime executes it as
+runtime control flow — once, in the authoring process, on the value read back
+from the step's `step.completed` — and journals the verdict as a lowered
+`<step>.gate` deterministic step: a passing predicate journals
+`{"gate":"predicate","step":"<id>","verdict":"pass","because":…}` as that
+step's stdout with exit 0; a failing one (or one that throws) journals
+`"verdict":"fail"` on stderr with exit 1, and the run fails as `gate_failed`
+naming the step and the author's reason. Dependents therefore wait on a
+journaled fact, and resume/replay read that fact rather than re-running the
+closure. The function is never stringified into a spec, and `flows check`
+prints no gate line for it — a predicate is runtime-only and unprovable
+before execution, by construction. A step takes one `.gate()`. Authors who
+need portable, inspectable gates use a named data check; plugins may
+contribute named checks only by compiling them to existing kernel primitives.
+
+`artifact_exists` is the named gate for "the agent wrote this file":
+`.gate({ type: 'artifact_exists', path: 'review/security.md' })`. The worker
+that spawned the agent CLI snapshots the agent's working directory before the
+run and content-diffs it after, and journals the changed paths as
+`output.artifacts` on the agent's `step.completed`; `AgentResult.artifacts`
+is read from that journal entry, never from a later look at the disk, and the
+gate lowers to a deterministic step that checks the journaled list. An agent
+whose final message is a JSON object owns its output shape and journals no
+artifacts; gate such a step on a deterministic check instead. The relay
+transport journals none, because the agent ran on another host.
+
+The diff is of the working directory, not of what the agent did, so anything
+written under it during the attempt is an artifact by default — including files
+the runtime itself writes. The worker's own per-attempt evidence lives under
+`<data-dir>/runs/<run-id>/steps/<step-id>/` (the transcript file, the
+`attempt-<n>.<stream>.tail` files and the `.tmp` each tail is staged as), and a
+local `--data-dir` inside the project puts all of it inside the scanned tree.
+Every one of those paths is excluded from the diff by name in
+`packages/sdk/src/worker-cli.ts`'s `ownEvidencePaths`, derived from the attempt
+identity — the same input that decides where each file is written, so the
+exclusion cannot drift from the files. Deriving it from anything the run
+*produces* is a mistake worth naming: an earlier version read the transcript's
+path off `result.transcript.file`, which `finish` omits when the close outruns
+its deadline or the attempt aborts, so the exclusion lapsed on exactly the paths
+where the file is slowest to finish and most likely to still be sitting there.
+
+Anyone adding a new runtime-written file under the run's data dir has to add it
+to `ownEvidencePaths` in the same change. **Missing one is silent by default.**
+`step.complete` bounds `trajectory_tail` and passes `output` through verbatim
+(`kernel/relayflowd/src/server.rs`), so the kernel accepts the polluted list and
+the run succeeds with the worker's own bookkeeping journaled as the agent's
+`output.artifacts`. It only becomes loud where something reads that list: an
+`artifact_exists` gate on a path that is now crowded, or a flow body that
+asserts on `AgentResult.artifacts` — which is how this was caught at all, by
+`packages/sdk/tests/agent-transcript-live.test.ts` failing its own
+`artifacts.length !== 0` check. Dotfiles and dotdirs are skipped by the walk, so
+`.relayflowd` is already invisible; a data dir under any other name is not.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.

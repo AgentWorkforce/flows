@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { Server } from 'node:http';
 import { startWebhookServer, parseWebhookArgs } from '../src/cli/serve-webhook.js';
+import { DEFAULT_DATA_DIR } from '../src/daemon-connection.js';
 import { preflightWebhookTriggers } from '../src/preflight.js';
 import { webhook, slack, github } from '@relayflows/surface';
 import { webhookTriggerSpec } from '../src/trigger-executor.js';
@@ -135,9 +136,13 @@ describe('webhook ingress', () => {
   });
   it('parses CLI options strictly', () => {
     expect(parseWebhookArgs(['--data-dir', 'data', '--port', '0'])).toEqual({ command: 'serve-webhook', dataDir: 'data', port: 0 });
+    // The command surface advertises `--data-dir` with a default, so omitting
+    // it starts the receiver on that default rather than exiting 2 (#451).
+    expect(parseWebhookArgs(['--port', '0']))
+      .toEqual({ command: 'serve-webhook', dataDir: DEFAULT_DATA_DIR, port: 0 });
     expect(parseWebhookArgs(['--data-dir', 'data', '--port', '0', '--allow', 'release,push']))
       .toEqual({ command: 'serve-webhook', dataDir: 'data', port: 0, admitted: ['release', 'push'] });
-    for (const args of [[], ['--port', '80'], ['--data-dir', 'x', '--port', '65536'],
+    for (const args of [[], ['--data-dir', 'x'], ['--data-dir', 'x', '--port', '65536'],
       ['--data-dir', 'x', '--port', '1', '--port', '2'], ['--data-dir', 'x', '--port', '3.1'],
       // #303 admission: empty --allow list and invalid names refuse at parse time
       ['--data-dir', 'x', '--port', '0', '--allow', ''],

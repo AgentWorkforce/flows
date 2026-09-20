@@ -4,6 +4,7 @@ import type {
   ActivityOptions,
   EventFrame,
   TriggerSource,
+  WebhookTriggerSource,
   Wake,
 } from '@relayflows/surface';
 import type { SubscriptionNextResult } from './protocol.js';
@@ -27,6 +28,10 @@ export class AuthoredActivities {
   ) {}
 
   open(source: TriggerSource, options: ActivityOptions): Activity {
+    if (source?.kind !== 'webhook') {
+      throw new AuthoredFlowExecutionError('unsupported_header',
+        'f.on() requires an event source; schedule triggers start runs and cannot be awaited inside a body');
+    }
     if (this.runId === undefined) {
       throw new AuthoredFlowExecutionError('journal_protocol_violation', 'f.on() requires a durable authored root run');
     }
@@ -52,7 +57,7 @@ class JournalActivity implements OpenActivity {
     private readonly journal: JournalClient,
     private readonly runId: string,
     private readonly subscriptionId: string,
-    private readonly source: TriggerSource,
+    private readonly source: WebhookTriggerSource,
     private readonly options: NormalizedActivityOptions,
   ) {
     this.activity = Object.freeze({
@@ -83,6 +88,7 @@ class JournalActivity implements OpenActivity {
     const result = await this.journal.subscriptionNext({
       run_id: this.runId,
       subscription_id: this.subscriptionId,
+      sequence: this.nextSequence,
       ...(this.acknowledgeWaitId === undefined ? {} : { acknowledge_wait_id: this.acknowledgeWaitId }),
     });
     if (result.kind === 'suspended') {
@@ -95,7 +101,7 @@ class JournalActivity implements OpenActivity {
     if (wake.kind === 'deadline' || wake.kind === 'overflow') {
       this.closed = true;
     } else {
-      this.acknowledgeWaitId = receiptId(result) ?? `${this.subscriptionId}/next/${this.nextSequence++}`;
+      this.acknowledgeWaitId = receiptId(result) ?? `${this.subscriptionId}/next/${this.nextSequence}`;
       this.nextSequence += 1;
     }
     return wake;

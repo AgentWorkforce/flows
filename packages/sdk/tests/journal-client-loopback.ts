@@ -35,6 +35,7 @@ export interface LoopbackHandlers {
   'effect.record'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'effect.confirm'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'step.complete'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'step.wait'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'event.emit'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'subscription.open'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'subscription.next'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
