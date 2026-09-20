@@ -15,7 +15,7 @@ import type { RunOutcome, StepDispatchEvent } from './protocol.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import type { RunLifecycleOptions } from './cli/run.js';
 import { withWorkerLease } from './worker-lease.js';
-import { AuthoredHumanParked } from './authored-flow-error.js';
+import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow-error.js';
 import { readOpenHumanWaits } from './authored-human.js';
 import { isSurfaceCompletionReason } from './authored-step-output.js';
 
@@ -234,6 +234,7 @@ async function driveRoot(
       throw error;
     }
     await terminalizeRootFailure(peer, dispatch, error);
+    if (error instanceof AuthoredFlowExecutionError) error.rootRunId = dispatch.run_id;
     throw error;
   }
 }

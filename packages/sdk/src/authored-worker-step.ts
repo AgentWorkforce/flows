@@ -3,15 +3,17 @@ import { parseBudget } from './budget.js';
 import type { AgentOptions, AgentResult, LlmOptions, NamedGate } from '@relayflows/surface';
 import { compileSpec, toKernelSpec } from './compile.js';
 import { checkAuthoredFlow } from './cli/check.js';
-import { classifyOutcome, type RunLifecycleOptions } from './cli/run.js';
+import { classifyOutcome, type RunLifecycleOptions, type RunReport } from './cli/run.js';
 import type { PreflightDiagnostic } from './preflight.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import type { JournalClient } from './journal-client.js';
 import { SPEC_SCHEMA_VERSION, type FlowSpec, type PermissionsSpec, type StepSpec } from './spec.js';
-import { isSurfaceCompletionReason, readCompletedStepOutput, readSuccessfulOutput } from './authored-step-output.js';
+import { isSurfaceCompletionReason, readCompletedStepOutput, readSuccessfulOutput, type AuthoredStepContext } from './authored-step-output.js';
 import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import { snapshotJsonValue } from './json-value.js';
 import { authoredChildAdmissionKey } from './authored-admission.js';
+import { alsoRecord, recordAuthoredChild } from './authored-step-index.js';
+import type { StepFailedDetails } from './failure-kinds.js';
 
 const WORKSPACE_PERMISSION_ANNOTATION = /:\s*(readonly|readwrite)\s*$/i;
 
@@ -22,6 +24,10 @@ export function authoredWorkerRunner(
   localAgentStream?: string, budget?: AuthoredBudget, headerBudget?: unknown,
   rootRunId?: string,
 ) {
+  const context: AuthoredStepContext = {
+    ...(rootRunId === undefined ? {} : { rootRunId }),
+    ...(waitOptions.dataDir === undefined ? {} : { dataDir: waitOptions.dataDir }),
+  };
   async function run(step: StepSpec): Promise<unknown> {
     const id = step.id;
     const authoring: FlowSpec = { version: SPEC_SCHEMA_VERSION, name: `${definition.name}/${id}`, steps: [step], ...(headerBudget === undefined ? {} : { budget: parseBudget(headerBudget) }) };
@@ -46,6 +52,10 @@ export function authoredWorkerRunner(
     }
     const spec = toKernelSpec(resolved);
     const consume = async (outcome: import('./protocol.js').RunOutcome) => {
+    // Written BEFORE the wait, not after it. An agent runs for as long as its
+    // lease allows; if this process dies mid-step, this record is the only
+    // thing that still names the child run holding the evidence.
+    await recordAuthoredChild(journal, rootRunId, { step: id, runId: outcome.run_id, state: 'admitted' });
     // Reuse the declarative CLI's own wait/classification (cli/run.ts) rather
     // than a hand-rolled poll: `step.completed` and the run's own terminal
     // state are appended as two SEPARATE actions (kernel/relayflowd-core/src/machine.rs
@@ -69,17 +79,38 @@ export function authoredWorkerRunner(
       );
     }
     if (execution.exitCode !== 0) {
+      // `execution.report.completionReason` is the RUN's reason (normally
+      // `step_failed`), not the step's. The step's terminal facts are the
+      // ones `classifyOutcome` already extracted with `stepFailureDetails`
+      // and assigned onto this diagnostic — read them from there rather than
+      // re-walking the journal or mislabelling the run reason as a step one.
+      const diagnostic = execution.report.diagnostics.at(-1);
+      const details = stepDetails(diagnostic);
       const reason = execution.report.completionReason;
+      let message = diagnostic?.message
+        ?? `flow "${definition.name}" step "${id}" did not complete successfully `
+          + `(status: ${execution.report.status ?? 'unknown'})`;
+      // Only a reason the journal actually recorded for a step is indexed;
+      // an unfinished or unreadable child is left as `admitted`, never given
+      // a manufactured completion.
+      if (isSurfaceCompletionReason(details?.completionReason)) {
+        journalSteps.push(Object.freeze({
+          id, runId: outcome.run_id, completionReason: details.completionReason,
+        }));
+        message += await alsoRecord(journal, rootRunId, {
+          step: id, runId: outcome.run_id, state: 'completed',
+          completionReason: details.completionReason,
+          ...(details.stepId === undefined ? {} : { kernelStep: details.stepId }),
+        });
+      }
       throw new AuthoredFlowExecutionError(
-        'step_failed',
-        execution.report.diagnostics.at(-1)?.message
-          ?? `flow "${definition.name}" step "${id}" did not complete successfully `
-            + `(status: ${execution.report.status ?? 'unknown'})`,
+        'step_failed', message,
         isSurfaceCompletionReason(reason) ? reason : undefined,
         outcome.run_id,
+        details,
       );
     }
-    return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps);
+    return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, context);
     };
     const admissionKey = authoredChildAdmissionKey(rootRunId, id);
     return budget === undefined
@@ -173,11 +204,19 @@ export function authoredWorkerRunner(
   };
 }
 
-/** Deterministic commands execute inline under their per-invocation lease. */
+/**
+ * Deterministic commands execute inline under their per-invocation lease.
+ *
+ * `context` carries the root run (so each child is indexed on it) and the
+ * data dir (so a failure can name the journal on disk). It is the same object
+ * the worker runner builds; a failed `f.run` and a failed `f.agent` now report
+ * through one grammar.
+ */
 export function authoredDeterministicRunner(
   name: string, journal: JournalClient, journalSteps: AuthoredFlowJournalStep[], budget: AuthoredBudget,
-  rootRunId?: string,
+  context: AuthoredStepContext = {},
 ) {
+  const rootRunId = context.rootRunId;
   return async (id: string, command: string, terminal = false, leaseMs?: number, verification?: NamedGate): Promise<string> => {
     const spec = toKernelSpec(compileSpec({
       version: SPEC_SCHEMA_VERSION,
@@ -189,11 +228,45 @@ export function authoredDeterministicRunner(
       }],
     }));
     const admissionKey = authoredChildAdmissionKey(rootRunId, id);
-    if (terminal) return readSuccessfulOutput(
-      journal, await journal.runStart(spec, undefined, admissionKey), id, journalSteps,
-    );
-    return budget.execute(
-      journal, spec, outcome => readSuccessfulOutput(journal, outcome, id, journalSteps), admissionKey,
-    );
+    const consume = async (outcome: import('./protocol.js').RunOutcome): Promise<string> => {
+      await recordAuthoredChild(journal, rootRunId, { step: id, runId: outcome.run_id, state: 'admitted' });
+      return readSuccessfulOutput(journal, outcome, id, journalSteps, context);
+    };
+    if (terminal) return consume(await journal.runStart(spec, undefined, admissionKey));
+    return budget.execute(journal, spec, consume, admissionKey);
   };
+}
+
+/**
+ * Lift the step-shaped fields off a run diagnostic.
+ *
+ * `RunDiagnostic extends StepFailedDetails`, so `classifyOutcome`'s
+ * `Object.assign(diagnostic, details)` leaves the extraction right there. The
+ * fields are picked explicitly rather than spread, so `severity`, `kind` and
+ * `message` — which describe the RUN, not the step — cannot leak into
+ * something typed as the step's evidence.
+ */
+function stepDetails(
+  diagnostic: RunReport['diagnostics'][number] | undefined,
+): StepFailedDetails | undefined {
+  if (diagnostic === undefined) return undefined;
+  // `RunDiagnostic` is the only member of this union that extends
+  // `StepFailedDetails`; the check-report shapes carry none of these fields,
+  // so reading them as optionals yields `undefined` and contributes nothing.
+  const found = diagnostic as Partial<StepFailedDetails>;
+  const details: StepFailedDetails = {
+    ...(found.stepId === undefined ? {} : { stepId: found.stepId }),
+    ...(found.stepType === undefined ? {} : { stepType: found.stepType }),
+    ...(found.completionReason === undefined ? {} : { completionReason: found.completionReason }),
+    ...(found.attempt === undefined ? {} : { attempt: found.attempt }),
+    ...(found.maxIterations === undefined ? {} : { maxIterations: found.maxIterations }),
+    ...(found.exitCode === undefined ? {} : { exitCode: found.exitCode }),
+    ...(found.stdoutTail === undefined ? {} : { stdoutTail: found.stdoutTail }),
+    ...(found.stderrTail === undefined ? {} : { stderrTail: found.stderrTail }),
+    ...(found.detail === undefined ? {} : { detail: found.detail }),
+    ...(found.transcriptPath === undefined ? {} : { transcriptPath: found.transcriptPath }),
+    ...(found.hint === undefined ? {} : { hint: found.hint }),
+    ...(found.journalPath === undefined ? {} : { journalPath: found.journalPath }),
+  };
+  return Object.keys(details).length === 0 ? undefined : details;
 }

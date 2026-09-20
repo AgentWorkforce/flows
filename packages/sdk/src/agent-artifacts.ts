@@ -15,8 +15,10 @@ const SKIPPED_DIR_NAMES = new Set(['node_modules']);
  * resolution must still count as a change — the same rule
  * `examples/research/shims/agent-cli.ts`'s `snapshot()` uses for the same
  * "did the agent actually write something" question. Dotfiles/dotdirs
- * (`.git`, the kernel's own `.relayflowd` data dir, editor swap files, ...)
- * are never agent-authored content and are skipped, as is `node_modules`.
+ * (`.git`, a default `.relayflowd` data dir, editor swap files, ...) are never
+ * agent-authored content and are skipped, as is `node_modules`. A data dir the
+ * caller named explicitly is not a dotdir and so is not covered here; the
+ * caller excludes it from the diff instead (`worker-cli.ts`).
  * A missing `dir` (an agent step whose cwd does not exist yet) yields an
  * empty snapshot rather than throwing. Only a vanished path (`ENOENT`) is
  * ever swallowed this way; any other filesystem error (permissions,

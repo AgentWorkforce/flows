@@ -3,6 +3,21 @@ import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import type { JournalClient } from './journal-client.js';
 import type { CompletionReason as ProtocolCompletionReason, RunCompletionReason as ProtocolRunCompletionReason, RunOutcome } from './protocol.js';
 import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
+import type { StepFailedDetails } from './failure-kinds.js';
+import { inspectionHint, renderInspection, renderStepEvidence, stepFailureDetails } from './cli/step-failure.js';
+import { alsoRecord, recordAuthoredChild } from './authored-step-index.js';
+
+/**
+ * What an authored operation needs in order to leave readable evidence:
+ * the root run its child index belongs to, and the data dir whose journals
+ * a reader would open. Both optional — the non-durable executor seam has no
+ * root, and a caller that did not name a data dir still gets the `flows
+ * replay <run-id>` hint, just without the on-disk path.
+ */
+export interface AuthoredStepContext {
+  readonly rootRunId?: string;
+  readonly dataDir?: string;
+}
 
 /**
  * Shared by every `f.*` verb that lowers to one kernel step run in isolation:
@@ -18,12 +33,23 @@ import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
  * terminal state. Given that, a single read from the start of this run's
  * (small, single-step) journal is enough — no polling here, and no run
  * outcome ever needs re-checking.
+ *
+ * A non-success completion used to throw `journal step "run-1" completed with
+ * retries_exhausted` and stop there, discarding the evidence it was holding:
+ * the kernel PRESERVES a failed deterministic step's `output`
+ * (`preserve_failure_output`, relayflowd-core/src/machine.rs), so
+ * `{exit_code, stdout_tail, stderr_tail}` — the answer to "which command
+ * failed and what did it print" — was in hand and dropped. Four different
+ * causes produced that one identical line. It now reads the same extractor
+ * `f.agent`/`f.llm` already reach through `classifyOutcome`, so both step
+ * families report one grammar instead of two divergent ones.
  */
 export async function readCompletedStepOutput(
   journal: JournalClient,
   runId: string,
   stepId: string,
   journalSteps: AuthoredFlowJournalStep[],
+  context: AuthoredStepContext = {},
 ): Promise<unknown> {
   const entries = (await journal.journalRead(runId, 1)).entries;
   const completed = entries.find((entry) => isStepCompleted(entry, stepId));
@@ -34,13 +60,29 @@ export async function readCompletedStepOutput(
   const reason = completed.payload.completionReason;
   journalSteps.push(Object.freeze({ id: stepId, runId, completionReason: reason }));
   if (reason !== 'success') {
-    throw new AuthoredFlowExecutionError(
-      'step_failed',
-      `journal step "${stepId}" completed with ${reason}`,
-      reason,
-      runId,
-    );
+    let message = `journal step "${stepId}" completed with ${reason}`;
+    let details: StepFailedDetails | undefined;
+    try {
+      details = await stepFailureDetails(journal, runId);
+    } catch (error) {
+      // Inspection must not erase the already known step failure; the two
+      // failures stay separately visible, as in classifyOutcome.
+      message += ` Could not inspect the failed step: ${errorMessage(error)}`;
+    }
+    if (details !== undefined) message += renderStepEvidence(details);
+    // Appended whatever inspection found — including nothing. A failure shape
+    // this reader does not recognise must still end with somewhere to go.
+    const where = inspectionHint(runId, details?.stepId ?? stepId, context.dataDir);
+    message += renderInspection(where);
+    message += await alsoRecord(journal, context.rootRunId, {
+      step: stepId, runId, state: 'completed', completionReason: reason,
+      ...(details?.stepId === undefined ? {} : { kernelStep: details.stepId }),
+    });
+    throw new AuthoredFlowExecutionError('step_failed', message, reason, runId, { ...details, ...where });
   }
+  await recordAuthoredChild(journal, context.rootRunId, {
+    step: stepId, runId, state: 'completed', completionReason: reason,
+  });
   return completed.payload.output;
 }
 
@@ -49,15 +91,21 @@ export async function readSuccessfulOutput(
   outcome: RunOutcome,
   stepId: string,
   journalSteps: AuthoredFlowJournalStep[],
+  context: AuthoredStepContext = {},
 ): Promise<string> {
-  const output = await readCompletedStepOutput(journal, outcome.run_id, stepId, journalSteps).catch(error => {
-    if (error instanceof AuthoredFlowExecutionError
-      && (error.completionReason === 'timeout' || error.completionReason === 'lease_expired')) {
-      throw new AuthoredFlowExecutionError('lease_exceeded',
-        `f.run step "${stepId}" exceeded its command timeout.`, error.completionReason, error.runId);
-    }
-    throw error;
-  });
+  const output = await readCompletedStepOutput(journal, outcome.run_id, stepId, journalSteps, context)
+    .catch(error => {
+      if (error instanceof AuthoredFlowExecutionError
+        && (error.completionReason === 'timeout' || error.completionReason === 'lease_expired')) {
+        // A timeout is still a failed command, and the evidence extracted for
+        // it is the same evidence. Re-labelling the error must not delete it.
+        throw new AuthoredFlowExecutionError('lease_exceeded',
+          `f.run step "${stepId}" exceeded its command timeout.`
+            + ` ${error.message.slice(`${error.code}: `.length)}`,
+          error.completionReason, error.runId, error.details);
+      }
+      throw error;
+    });
   if (!isRecord(output) || typeof output['stdout_tail'] !== 'string') {
     throw protocolViolation(outcome.run_id, `step "${stepId}" has no string stdout_tail`);
   }
@@ -100,6 +148,10 @@ export function isSurfaceFlowCompletionReason(value: unknown): value is FlowComp
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function protocolViolation(runId: string, detail: string): AuthoredFlowExecutionError {
