@@ -53,8 +53,12 @@ steps:
       { attempt: 2, disposition: 'step_done', exitCode: 1, stderrTail: NOTHING_STAGED },
     ]);
     // The account of what actually went wrong is in the rendered message, not
-    // only in a field a machine reader has to know to ask for.
-    expect(diagnostic.message).toContain(REJECTION);
+    // only in a field a machine reader has to know to ask for. The line is
+    // pinned whole: the real kernel journals `exit code was 1` as this step's
+    // verdict, which is the exit code printed two words to its left, so it is
+    // the one account the attempt does NOT repeat.
+    expect(diagnostic.message)
+      .toContain(`  attempt 1: verification_failed exit=1 — stderr: ${REJECTION}`);
     expect(diagnostic.message).toContain('An earlier attempt may have had side effects.');
 
     // The kernel journals each attempt's own captured output. Nothing above is
