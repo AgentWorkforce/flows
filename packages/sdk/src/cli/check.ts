@@ -1,3 +1,4 @@
+import { communicationInstruction } from '../communication/spec.js';
 import { accessSync, constants, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -159,6 +160,10 @@ export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConf
           config.directory,
         )
       : undefined;
+    if (flow?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
+      result.diagnostics.push({ severity: 'warning', kind: 'budget_unmetered',
+        message: 'Managed communication sessions do not report token or dollar usage. Budget ceilings cannot bound their spend; communication.timeoutMs bounds their duration.' });
+    }
     return {
       report: {
         ok: result.ok,

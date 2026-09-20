@@ -421,6 +421,16 @@ export class JournalClient extends EventEmitter {
     return this.request('event.submit', { spec, event });
   }
 
+  channelAppend(params: VerbContract['channel.append']['params']): Promise<VerbContract['channel.append']['result']> {
+    return this.request('channel.append', params);
+  }
+  channelReceive(params: VerbContract['channel.receive']['params']): Promise<VerbContract['channel.receive']['result']> {
+    return this.request('channel.receive', params);
+  }
+  channelAck(params: VerbContract['channel.ack']['params']): Promise<VerbContract['channel.ack']['result']> {
+    return this.request('channel.ack', params);
+  }
+
   /** Durable channel write; journals `stream.appended`. */
   streamAppend(runId: string, stream: string, message: unknown): Promise<VerbContract['stream.append']['result']> {
     return this.request('stream.append', { run_id: runId, stream, message });
