@@ -75,7 +75,30 @@ $ node /tmp/flows-fleet-501/packages/sdk/dist/cli.js logs --json --data-dir /tmp
 jq: parse error: Invalid numeric literal at line 1, column 8
 exit_code=5
 
-# Journal facts (read directly from /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/data/runs/01M2Z44G4WB8BPC6JSMXT3NGZB.sqlite3 with python3 sqlite3; 'flows logs' takes no --data-dir):
+# Journal facts, read directly from the run's SQLite journal ('flows logs' takes no --data-dir). Script used, then the literal invocation and its output:
+$ cat /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/journal-facts.py
+import sqlite3, sys, json
+db = sys.argv[1]
+cur = sqlite3.connect(db).cursor()
+cols = [r[1] for r in cur.execute("pragma table_info(entries)")]
+for row in cur.execute("select * from entries order by seq"):
+    e = dict(zip(cols, row))
+    t = e["entry_type"]
+    if t not in ("step.attempt.started", "step.completed"):
+        continue
+    p = json.loads(e["payload"])
+    if t == "step.attempt.started":
+        keep = ("step_type", "executor", "max_iterations", "max_transport_retries", "recovery_mode")
+        print(t, "attempt", e["attempt"], json.dumps({k: p.get(k) for k in keep}))
+    else:
+        out = p.get("output"); tail = p.get("trajectory_tail") or {}
+        print(t, "attempt", e["attempt"], json.dumps({
+            "completionReason": p.get("completionReason"), "disposition": p.get("disposition"),
+            "verification": p.get("verification"),
+            "output": out if not isinstance(out, dict) else {k: out.get(k) for k in ("exit_code", "stdout_tail")},
+            "transport": tail.get("transport") if isinstance(tail, dict) else None,
+            "spend": p.get("spend")}, indent=1))
+$ python3 /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/journal-facts.py /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/codex-probe/data/runs/01M2Z44G4WB8BPC6JSMXT3NGZB.sqlite3
 step.attempt.started attempt 1 {"step_type": "agent", "executor": "local-agent-98587efa-bcbb-4c24-8869-26d03ac86eb2", "max_iterations": 1, "max_transport_retries": 0, "recovery_mode": "reset"}
 step.completed attempt 1 {
  "completionReason": "success",
@@ -97,7 +120,6 @@ step.completed attempt 1 {
   "signal": null,
   "stderr_tail": "Reading additional input from stdin...\n"
  },
- "transcript_model": null,
  "spend": {
   "dollars": 0,
   "dollars_unmetered": true,
@@ -106,6 +128,7 @@ step.completed attempt 1 {
   "wallclock_ms": 3282
  }
 }
+exit_code=0
 
 # Model: no model declared on the step and the codex adapter has no default (undefined below), so `codex exec` ran with NO --model flag: the model is whatever the installed Codex CLI's own configuration selects. The kernel journal does not record it for the direct transport.
 $ node -e "import('./dist/cli-adapter.js').then(m=>console.log(m.resolveCliModel('codex')))"
