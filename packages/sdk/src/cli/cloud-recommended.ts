@@ -1,5 +1,5 @@
 import { CloudFlowError } from '../cloud-http.js';
-import { parseAgentHarnesses, parseRepository } from '../cloud-deploy.js';
+import { parseRepository } from '../cloud-deploy.js';
 import {
   activateRecommendedFlow, getRecommendedFlow, listRecommendedFlows,
   type RecommendedFlowActivation, type RecommendedFlowDetail,
@@ -9,7 +9,7 @@ import type { CliIo } from '../cli.js';
 export type CloudRecommendedArgs =
   | { command: 'recommended-list'; json: boolean }
   | { command: 'recommended-show'; flowId: string; json: boolean }
-  | { command: 'recommended-activate'; flowId: string; label: string; repositories: string[]; approver: string; agents: string | undefined; json: boolean };
+  | { command: 'recommended-activate'; flowId: string; label: string; repositories: string[]; approver: string; json: boolean };
 
 export function parseCloudRecommendedArgs(args: readonly string[]): CloudRecommendedArgs | undefined {
   const subcommand = args[0];
@@ -24,28 +24,24 @@ export function parseCloudRecommendedArgs(args: readonly string[]): CloudRecomme
   let flowId: string | undefined;
   let label: string | undefined;
   let approver: string | undefined;
-  let agents: string | undefined;
   let json = false;
   const repositories: string[] = [];
   for (let index = 1; index < args.length; index += 1) {
     const arg = args[index]!;
     if (arg === '--json') { if (json) return undefined; json = true; continue; }
-    if (arg === '--label' || arg === '--approver' || arg === '--agents' || arg === '--repository') {
+    if (arg === '--label' || arg === '--approver' || arg === '--repository') {
       const value = args[index + 1];
       if (value === undefined || value.startsWith('-')) return undefined;
       index += 1;
       if (arg === '--repository') { repositories.push(value); continue; }
       if (arg === '--label') { if (label !== undefined) return undefined; label = value; continue; }
       if (arg === '--approver') { if (approver !== undefined) return undefined; approver = value; continue; }
-      if (agents !== undefined) return undefined;
-      agents = value;
-      continue;
     }
     if (arg.startsWith('-') || flowId !== undefined) return undefined;
     flowId = arg;
   }
   return flowId === undefined || label === undefined || approver === undefined || repositories.length === 0 ? undefined
-    : { command: 'recommended-activate', flowId, label, repositories, approver, agents, json };
+    : { command: 'recommended-activate', flowId, label, repositories, approver, json };
 }
 
 export async function runCloudRecommendedCli(args: CloudRecommendedArgs, io: CliIo): Promise<0 | 1 | 2> {
@@ -63,10 +59,9 @@ export async function runCloudRecommendedCli(args: CloudRecommendedArgs, io: Cli
       else renderFlow(flow, io);
       return 0;
     }
-    const agents = args.agents === undefined ? undefined : parseAgentHarnesses(args.agents);
     const activation = await activateRecommendedFlow({
       flowId: args.flowId, label: args.label, approver: args.approver,
-      repositories: args.repositories.map(parseRepository), ...(agents === undefined ? {} : { agents }),
+      repositories: args.repositories.map(parseRepository),
     });
     if (args.json) io.stdout(JSON.stringify({ ok: true, ...activation }));
     else renderActivation(activation, io);
@@ -91,7 +86,8 @@ function renderFlow(flow: RecommendedFlowDetail, io: CliIo): void {
   io.stdout(`  required inputs: ${flow.inputs.required.join(', ') || 'none'}`);
   const agents = flow.inputs.defaults['agents'];
   if (Array.isArray(agents) && agents.every(agent => typeof agent === 'string')) io.stdout(`  default agents: ${agents.join(', ')}`);
-  if (flow.sourceParameters !== undefined) io.stdout(`  source parameters: ${Object.keys(flow.sourceParameters).join(', ')}`);
+  io.stdout(`  source: ${flow.source.owner}/${flow.source.repo}@${flow.source.ref}:${flow.source.path}`);
+  io.stdout(`  source sha256: ${flow.source.sha256}`);
 }
 
 function renderActivation(activation: RecommendedFlowActivation, io: CliIo): void {

@@ -177,19 +177,18 @@ export const CLI_VERBS = [
       },
       {
         name: 'show',
-        description: 'Inspect a recommended flow’s trigger, inputs, and source parameters',
-        args: [{ name: 'flow-id', description: 'Stable catalog flow id, such as software-garden', required: true }],
+        description: 'Inspect a recommended flow’s trigger, inputs, and immutable source provenance',
+        args: [{ name: 'flow-id', description: 'Stable catalog flow id, such as software-factory', required: true }],
         options: [JSON_OPTION],
       },
       {
         name: 'activate',
         description: 'Activate a recommended flow for one or more repositories in Cloud',
-        args: [{ name: 'flow-id', description: 'Stable catalog flow id, such as software-garden', required: true }],
+        args: [{ name: 'flow-id', description: 'Stable catalog flow id, such as software-factory', required: true }],
         options: [
           { flags: '--label <label>', description: 'Human-readable label for this activation' },
           { flags: '--repository <owner/name>', description: 'Repository to activate for; repeat for more repositories' },
           { flags: '--approver <handle>', description: 'Handle delivered to the flow for required human approvals' },
-          { flags: '--agents <list>', description: 'Override catalog default agents, as claude[,codex]' },
           JSON_OPTION,
         ],
       },

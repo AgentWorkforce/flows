@@ -9,6 +9,21 @@ export interface RecommendedFlowInputs {
   allowedAgents: string[];
 }
 
+/** Immutable provenance for a catalog flow; the CLI never fetches or copies it. */
+export interface RecommendedFlowSource {
+  kind: 'github';
+  owner: string;
+  repo: string;
+  path: string;
+  /** Full released Git commit SHA, never a mutable branch such as main. */
+  ref: string;
+  url: string;
+  rawUrl: string;
+  release: string;
+  mediaType: string;
+  sha256: string;
+}
+
 export interface RecommendedFlowSummary {
   id: string;
   version: number;
@@ -16,18 +31,18 @@ export interface RecommendedFlowSummary {
   summary: string;
   description: string;
   workflow: string;
-  sourceUrl: string;
+  source: RecommendedFlowSource;
   defaultLabel: string;
   supportedRepositoryHosts: string[];
   defaultTrigger: { provider: string; settings: Record<string, string> };
   inputs: RecommendedFlowInputs;
-  sourceParameters?: Record<string, unknown>;
 }
 
 export type RecommendedFlowDetail = RecommendedFlowSummary;
 
 export interface RecommendedFlowCatalog {
   schemaVersion: number;
+  catalogVersion: number;
   flows: RecommendedFlowSummary[];
 }
 
@@ -42,7 +57,6 @@ export interface RecommendedFlowActivationInput {
   label: string;
   repositories: RecommendedRepository[];
   approver: string;
-  agents?: string[];
 }
 
 export interface RecommendedFlowActivation {
@@ -65,28 +79,33 @@ function repository(value: unknown): RecommendedRepository | undefined {
 }
 
 function flow(value: unknown): RecommendedFlowSummary {
+  const source = isCloudRecord(value) ? value.source : undefined;
   if (!isCloudRecord(value)
     || !FLOW_ID.test(String(value.id ?? ''))
     || !Number.isSafeInteger(value.version) || (value.version as number) < 1
-    || !['name', 'summary', 'description', 'workflow', 'sourceUrl', 'defaultLabel'].every(key => typeof value[key] === 'string')
+    || !['name', 'summary', 'description', 'workflow', 'defaultLabel'].every(key => typeof value[key] === 'string')
     || !isCloudRecord(value.defaultTrigger) || typeof value.defaultTrigger.provider !== 'string' || !isCloudRecord(value.defaultTrigger.settings)
-    || !isCloudRecord(value.inputs)) {
+    || !isCloudRecord(value.inputs) || !isCloudRecord(source)) {
     throw new CloudFlowError('invalid_response', 'Cloud returned a malformed recommended-flow entry.');
   }
   const hosts = stringArray(value.supportedRepositoryHosts);
   const required = stringArray(value.inputs.required);
   const allowedAgents = stringArray(value.inputs.allowedAgents);
   if (hosts === undefined || required === undefined || allowedAgents === undefined || !isCloudRecord(value.inputs.defaults)
-    || !Object.values(value.defaultTrigger.settings).every(setting => typeof setting === 'string')) {
+    || !Object.values(value.defaultTrigger.settings).every(setting => typeof setting === 'string')
+    || source.kind !== 'github'
+    || !['owner', 'repo', 'path', 'release', 'ref', 'url', 'rawUrl', 'mediaType', 'sha256'].every(key => typeof source[key] === 'string')
+    || !/^[a-f0-9]{40}$/iu.test(source.ref as string)
+    || !/^[a-f0-9]{64}$/iu.test(source.sha256 as string)) {
     throw new CloudFlowError('invalid_response', 'Cloud returned malformed recommended-flow metadata.');
   }
   return {
     id: value.id as string, version: value.version as number, name: value.name as string, summary: value.summary as string,
-    description: value.description as string, workflow: value.workflow as string, sourceUrl: value.sourceUrl as string,
+    description: value.description as string, workflow: value.workflow as string,
     defaultLabel: value.defaultLabel as string, supportedRepositoryHosts: hosts,
     defaultTrigger: { provider: value.defaultTrigger.provider, settings: value.defaultTrigger.settings as Record<string, string> },
     inputs: { required, defaults: value.inputs.defaults, allowedAgents },
-    ...(isCloudRecord(value.sourceParameters) ? { sourceParameters: value.sourceParameters } : {}),
+    source: source as unknown as RecommendedFlowSource,
   };
 }
 
@@ -97,10 +116,10 @@ function flowId(value: string): string {
 
 export async function listRecommendedFlows(options: CloudConnectionOptions = {}): Promise<RecommendedFlowCatalog> {
   const result = await cloudFetch('/api/v1/flows/catalog', options, { method: 'GET', detail: true });
-  if (!isCloudRecord(result) || result.schemaVersion !== 1 || !Array.isArray(result.flows)) {
+  if (!isCloudRecord(result) || result.schemaVersion !== 1 || !Number.isSafeInteger(result.catalogVersion) || !Array.isArray(result.flows)) {
     throw new CloudFlowError('invalid_response', 'Cloud did not return a recommended-flow catalog.');
   }
-  return { schemaVersion: 1, flows: result.flows.map(flow) };
+  return { schemaVersion: 1, catalogVersion: result.catalogVersion as number, flows: result.flows.map(flow) };
 }
 
 export async function getRecommendedFlow(id: string, options: CloudConnectionOptions = {}): Promise<RecommendedFlowDetail> {
@@ -128,7 +147,7 @@ export async function activateRecommendedFlow(
   }
   const result = await cloudFetch('/api/v1/flows/activations', options, { method: 'POST', detail: true, body: JSON.stringify({
     workspaceId: workspace.id, flowId: id, label, repositories: input.repositories,
-    inputs: { approver, ...(input.agents === undefined ? {} : { agents: input.agents }) },
+    inputs: { approver },
   }) });
   if (!isCloudRecord(result) || typeof result.activationId !== 'string' || typeof result.flowId !== 'string'
     || typeof result.label !== 'string' || typeof result.status !== 'string' || !Array.isArray(result.repositories)

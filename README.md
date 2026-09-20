@@ -62,17 +62,19 @@ repositories:
 
 ```bash
 flows recommended list
-flows recommended show software-garden
-flows recommended activate software-garden \
+flows recommended show software-factory
+flows recommended activate software-factory \
   --label "Platform garden" \
   --repository acme/api \
   --repository acme/web \
   --approver you
 ```
 
-`--repository` is repeatable. The first catalog item, `software-garden`, is a
-GitHub-only canonical Cloud source; the CLI never copies or uploads it.
-`--agents claude,codex` optionally overrides its catalog default. Existing
+`--repository` is repeatable. The initial catalog item, `software-factory`, is
+displayed as Software Garden. Its catalog entry contains a SHA-pinned
+`AgentWorkforce/flows` source reference; the CLI
+never fetches, copies, or uploads that source.
+Software Garden v1 uses its catalog-pinned Claude configuration. Existing
 single-repository `flows deploy ... --repo ...` commands are unchanged.
 
 `--on` takes `github`, `linear`, `jira`, `shortcut` or `slack` with optional filters

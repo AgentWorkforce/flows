@@ -100,7 +100,7 @@ const USAGE = [
   'flows deployments [--json]',
   'flows recommended list [--json]',
   'flows recommended show <flow-id> [--json]',
-  'flows recommended activate <flow-id> --label <label> --repository <owner/name> [--repository <owner/name> ...] --approver <handle> [--agents claude[,codex]] [--json]',
+  'flows recommended activate <flow-id> --label <label> --repository <owner/name> [--repository <owner/name> ...] --approver <handle> [--json]',
   'flows undeploy [--json] <deployment-id>',
   'flows schedule <flow.yaml|flow.ts> [--cron "<expr>" | --every <n><s|m|h|d>] [--tz <IANA>] [--input <inline-json-or-file>] [--name <name>] [--no-connect] [--json]',
   'flows schedules [--json]',

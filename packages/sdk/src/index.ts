@@ -90,7 +90,7 @@ export {
 export {
   listRecommendedFlows, getRecommendedFlow, activateRecommendedFlow,
   type RecommendedFlowCatalog, type RecommendedFlowSummary, type RecommendedFlowDetail,
-  type RecommendedFlowInputs, type RecommendedRepository, type RecommendedFlowActivationInput, type RecommendedFlowActivation,
+  type RecommendedFlowInputs, type RecommendedFlowSource, type RecommendedRepository, type RecommendedFlowActivationInput, type RecommendedFlowActivation,
 } from './cloud-recommended.js';
 export {
   ensureIntegrationsConnected, integrationConnected, providerLabel,
