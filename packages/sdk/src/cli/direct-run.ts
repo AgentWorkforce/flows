@@ -89,6 +89,7 @@ export async function runDirectFlow(
       {
         dataDir,
         admissionKey: admissionIdentity,
+        onAdmitted: runId => { base.rootRunId = runId; },
         localAgentStream: localAgent?.stream,
         lifecycle: {
           onProgress: options.onProgress,

@@ -559,7 +559,37 @@ fn handle_request(
             ensure_mutable(&engine, &params.run_id)?;
             to_value(engine.activate_subscription(
                 &params.run_id, &params.subscription_id, params.ingress_offset, params.router_binding,
-            ).map_err(internal_error)?)
+            ).map_err(subscription_router_error)?)
+        }
+        "subscription.deliver" => {
+            let params: SubscriptionDeliverParams = decode_params(request.params)?;
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            ensure_mutable(&engine, &params.run_id)?;
+            let appended = engine.deliver_subscription_frame(
+                &params.run_id, &params.subscription_id, &params.router_binding,
+                &params.delivery_id, params.frame,
+            ).map_err(subscription_router_error)?;
+            if appended { return Ok(json!({"appended": true})); }
+            let snapshots = engine.inspect_subscriptions(&params.run_id).map_err(internal_error)?;
+            let overflow = snapshots.iter().any(|s| s["subscriptionId"] == params.subscription_id
+                && s["completionReason"] == "overflow");
+            Ok(json!({"appended": false, "reason": if overflow { "overflow" } else { "duplicate" }}))
+        }
+        "subscription.inspect" => {
+            let params: SubscriptionInspectParams = decode_params(request.params)?;
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            Ok(json!({"subscriptions": engine.inspect_subscriptions(&params.run_id).map_err(internal_error)?}))
+        }
+        "subscription.fence_overflow" => {
+            let params: SubscriptionFenceOverflowParams = decode_params(request.params)?;
+            let lock = hub.run_lock(&params.run_id);
+            let _guard = lock.lock().expect("run lock");
+            engine.fence_router_subscription_overflow(
+                &params.run_id, &params.subscription_id, &params.router_binding,
+            ).map_err(subscription_router_error)?;
+            Ok(json!({"fenced": true}))
         }
         "subscription.next" => {
             let params: SubscriptionNextParams = decode_params(request.params)?;

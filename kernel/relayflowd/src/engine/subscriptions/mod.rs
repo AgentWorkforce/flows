@@ -24,6 +24,8 @@ use state::*;
 mod parking;
 mod replay;
 mod local_router;
+mod router_delivery;
+pub use router_delivery::SubscriptionRouterError;
 mod wait_timers;
 pub use parking::{SubscriptionPark, SubscriptionWaitPhase};
 pub(super) use parking::PARK_PREFIX;
@@ -155,6 +157,9 @@ impl<C: Clock> Engine<C> {
     ) -> Result<SubscriptionOpen> {
         let mut journal = self.open_run(run_id)?;
         if let Some(active) = subscriptions(&journal)?.remove(subscription_id) {
+            if active.opened.router_binding != router_binding || active.opened.ingress_offset != ingress_offset {
+                return Err(SubscriptionRouterError("subscription_binding_mismatch").into());
+            }
             return Ok(SubscriptionOpen::Active { subscription_id: subscription_id.to_owned(), stream: active.opened.stream, deadline_at_ms: active.opened.deadline_at_ms });
         }
         let prepared = prepared_subscriptions(&journal)?.remove(subscription_id)

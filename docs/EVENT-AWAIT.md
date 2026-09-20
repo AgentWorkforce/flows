@@ -290,6 +290,35 @@ tenant-unaware).
   sleeping cell wakes the cell.
 - The router never decides whether the flow is done. It only delivers.
 
+### Targeted router protocol
+
+Cloud delivers through `subscription.deliver`, supplying `run_id`,
+`subscription_id`, the exact immutable `router_binding`, a stable `delivery_id`,
+and the authorized `frame`. This targets only that subscription. The local
+`event.emit` adapter broadcasts to matching subscriptions and is not the Cloud
+router boundary. The kernel refuses unknown, prepared, closed, and stale-binding
+recipients. Duplicates return `{ appended: false, reason: "duplicate" }`; an
+append that triggers the unread limit returns `reason: "overflow"` after the
+journaled overflow close. A successful append returns `{ appended: true }`.
+Provider installation, resource scope, event matching, and self-actor checks
+remain Cloud's responsibility before this call; the receipt is a fence, not an
+authorization credential.
+
+An activation retry must carry the same ingress cursor and complete binding
+receipt as the original journal entry. Changing either is
+`subscription_binding_mismatch`, never a replacement of the active binding.
+`subscription.fence_overflow` carries the same receipt and completes Cloud's
+persisted overflow fence idempotently under the per-run sequencer.
+
+`subscription.inspect` takes `run_id` and returns a read-only `subscriptions`
+projection: identity, prepared/active/closed state, closing reason, binding and
+activation cursor, unread frame/byte counts, settle duration, and absolute idle
+and deadline instants. Idle is taken from the durable wait or the last journaled
+wake, never the time of this query. This gives Cloud a protocol surface for
+scheduling and cleanup without reading sandbox SQLite files. A delivery response
+alone does not authorize Cloud to advance its durable ingress acknowledgment:
+the containing journal must first cross the durable publication barrier.
+
 ## 7. Acceptance
 
 The crash-injection suite is the gate (AGENTS.md standard 5). A conforming

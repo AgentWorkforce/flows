@@ -232,6 +232,30 @@ pub(super) struct SubscriptionActivateParams {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(super) struct SubscriptionInspectParams {
+    pub run_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SubscriptionFenceOverflowParams {
+    pub run_id: String,
+    pub subscription_id: String,
+    pub router_binding: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SubscriptionDeliverParams {
+    pub run_id: String,
+    pub subscription_id: String,
+    pub router_binding: Value,
+    pub delivery_id: String,
+    pub frame: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct SubscriptionCloseParams {
     pub run_id: String,
     pub subscription_id: String,

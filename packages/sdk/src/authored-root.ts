@@ -46,6 +46,8 @@ export interface AuthoredRootSourceAuthority {
 }
 
 export interface DurableAuthoredOptions {
+  /** Preserve root authority even if a child later fails or parks. */
+  readonly onAdmitted?: (runId: string) => void;
   readonly dataDir: string;
   readonly admissionKey?: string;
   readonly localAgentStream?: string;
@@ -92,6 +94,7 @@ export async function executeDurableAuthoredFlow(
       workspace: [], streams: [{ stream, read_offset: 0 }],
     });
     const outcome = await journal.runStart(spec, undefined, admissionKey);
+    options.onAdmitted?.(outcome.run_id);
     if (outcome.status === 'completed') {
       dispatchWait.cancel();
       return await completedRootResult(journal, outcome.run_id);

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { withSubscriptionMetadata } from './cli/subscription-report.js';
 import { addPlugin } from './cli/add.js';
 import { watchCheck } from './cli-watch.js';
 import { checkHelperBody } from './cli/check-helper-body.js';
@@ -318,9 +319,10 @@ export async function runCli(
   // preflight) is worse than printing `Observer:` on a later line, so we
   // emit the run report immediately and finalize the observer link after.
   if (parsed.json) {
+    const reported = await withSubscriptionMetadata(execution);
     const observerUrl = await observerUrlFrom(observerMint, io);
-    emitRunReport(execution, parsed.json, io, observerUrl);
-    return execution.exitCode;
+    emitRunReport(reported, parsed.json, io, observerUrl);
+    return reported.exitCode;
   }
   emitRunReport(execution, parsed.json, io);
   await finalizeObserverLine(observerMint, io);

@@ -60,6 +60,21 @@ function diskState(directory: string): unknown {
 }
 
 describe('flows replay', () => {
+  it('replays subscription records without dropping subsequent step telemetry', async () => {
+    const kinds = ['subscription.prepared', 'subscription.opened', 'subscription.acknowledged',
+      'subscription.overflow.fenced', 'subscription.closed'];
+    const subscriptionEvents = kinds.map((entry_type, index) => ({ ...EVENTS[0]!, seq: index + 2,
+      entry_type, payload: { subscription_id: 'activity-1' } }));
+    const events = [EVENTS[0]!, ...subscriptionEvents,
+      ...EVENTS.slice(1).map((event, index) => ({ ...event, seq: kinds.length + index + 2 }))];
+    const { dataDir, writer } = fixture(events);
+    writer.close();
+    const result = await replay(dataDir, ['--json']);
+    expect(result.code).toBe(0);
+    expect(result.stdout.map(line => JSON.parse(line).event)).toEqual(events);
+    expect(result.stdout.some(line => JSON.parse(line).kind === 'step.completed')).toBe(true);
+  });
+
   it('full walk emits every journal event in order through the terminal event without a daemon or writes', async () => {
     const { dataDir, writer } = fixture(EVENTS, true);
     writer.close();

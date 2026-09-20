@@ -440,6 +440,21 @@ export class JournalClient extends EventEmitter {
     return this.request('subscription.activate', params, null);
   }
 
+  /** Append to one activated subscription under its immutable router receipt. */
+  subscriptionDeliver(params: VerbContract['subscription.deliver']['params']): Promise<VerbContract['subscription.deliver']['result']> {
+    return this.request('subscription.deliver', params, null);
+  }
+
+  /** Read durable subscription state without changing timers or ingress. */
+  subscriptionInspect(params: VerbContract['subscription.inspect']['params']): Promise<VerbContract['subscription.inspect']['result']> {
+    return this.request('subscription.inspect', params);
+  }
+
+  /** Fence the exact activated receipt after router-side overflow. */
+  subscriptionFenceOverflow(params: VerbContract['subscription.fence_overflow']['params']): Promise<VerbContract['subscription.fence_overflow']['result']> {
+    return this.request('subscription.fence_overflow', params, null);
+  }
+
   /** Return a durable wake, or an explicit suspension with no daemon-side sleep. */
   subscriptionNext(params: VerbContract['subscription.next']['params']): Promise<VerbContract['subscription.next']['result']> {
     return this.request('subscription.next', params, null);

@@ -105,7 +105,7 @@ mod model;
 mod placement;
 mod remote;
 mod subscriptions;
-pub use subscriptions::{PendingRange, SubscriptionNext, SubscriptionOpen, SubscriptionWake, SubscriptionPark, SubscriptionWaitPhase};
+pub use subscriptions::{SubscriptionRouterError, PendingRange, SubscriptionNext, SubscriptionOpen, SubscriptionWake, SubscriptionPark, SubscriptionWaitPhase};
 mod wake;
 pub use channels::ChannelCommandError;
 pub use model::{RunOutcome, RunSnapshot, RunStatus, StepSnapshot, StepStatus};

@@ -24,6 +24,9 @@ export interface FrameCtx {
 }
 
 export interface LoopbackHandlers {
+  'subscription.inspect'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'subscription.deliver'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'subscription.fence_overflow'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   hello?: (ctx: FrameCtx) => void;
   'run.start'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'run.resume'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;

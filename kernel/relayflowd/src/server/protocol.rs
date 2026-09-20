@@ -82,6 +82,14 @@ pub(super) fn run_start_error(error: anyhow::Error) -> (&'static str, String) {
     }
 }
 
+pub(super) fn subscription_router_error(error: anyhow::Error) -> (&'static str, String) {
+    if let Some(refusal) = error.downcast_ref::<crate::engine::SubscriptionRouterError>() {
+        (refusal.0, refusal.to_string())
+    } else {
+        internal_error(error)
+    }
+}
+
 pub(super) fn internal_error(error: anyhow::Error) -> (&'static str, String) {
     if error
         .downcast_ref::<crate::engine::RunNotFoundError>()

@@ -58,6 +58,9 @@ export type Verb =
   | 'event.submit'
   | 'subscription.open'
   | 'subscription.activate'
+  | 'subscription.deliver'
+  | 'subscription.inspect'
+  | 'subscription.fence_overflow'
   | 'subscription.next'
   | 'subscription.close'
   | 'stream.append'
@@ -435,6 +438,42 @@ export interface SubscriptionActivateResult {
   deadline_at_ms: number;
 }
 
+/** Targeted Cloud ingress; receipt must equal the journaled activation receipt. */
+export interface SubscriptionDeliverParams {
+  run_id: string;
+  subscription_id: string;
+  router_binding: Record<string, unknown>;
+  delivery_id: string;
+  frame: unknown;
+}
+export interface SubscriptionDeliverResult {
+  /** False for an idempotent duplicate or a frame that closes on overflow. */
+  appended: boolean;
+  reason?: 'duplicate' | 'overflow';
+}
+
+/** Read-only projection of the kernel's durable subscription records. */
+export interface SubscriptionSnapshot {
+  subscriptionId: string;
+  state: 'prepared' | 'active' | 'closed';
+  completionReason?: 'closed' | 'run_completed' | 'canceled' | 'deadline' | 'overflow';
+  routerBinding?: Record<string, unknown>;
+  ingressOffset?: number;
+  unreadFrames: number;
+  unreadBytes: number;
+  settleMs: number;
+  idleAtMs?: number;
+  deadlineAtMs: number;
+}
+export interface SubscriptionInspectParams { run_id: string }
+export interface SubscriptionInspectResult { subscriptions: SubscriptionSnapshot[] }
+export interface SubscriptionFenceOverflowParams {
+  run_id: string;
+  subscription_id: string;
+  router_binding: Record<string, unknown>;
+}
+export interface SubscriptionFenceOverflowResult { fenced: true }
+
 export interface SubscriptionNextParams {
   run_id: string;
   subscription_id: string;
@@ -511,6 +550,9 @@ export interface VerbContract {
   'event.submit': { params: EventSubmitParams; result: EventSubmitResult };
   'subscription.open': { params: SubscriptionOpenParams; result: SubscriptionOpenResult };
   'subscription.activate': { params: SubscriptionActivateParams; result: SubscriptionActivateResult };
+  'subscription.deliver': { params: SubscriptionDeliverParams; result: SubscriptionDeliverResult };
+  'subscription.inspect': { params: SubscriptionInspectParams; result: SubscriptionInspectResult };
+  'subscription.fence_overflow': { params: SubscriptionFenceOverflowParams; result: SubscriptionFenceOverflowResult };
   'subscription.next': { params: SubscriptionNextParams; result: SubscriptionNextResult };
   'subscription.close': { params: SubscriptionCloseParams; result: SubscriptionCloseResult };
   'stream.append': { params: StreamAppendParams; result: StreamAppendResult };

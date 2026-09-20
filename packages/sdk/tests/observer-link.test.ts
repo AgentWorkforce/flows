@@ -705,6 +705,7 @@ describe('flows run: observer link integration', () => {
     const dataDir = temporaryProject();
     await startCliLoopback(dataDir, {
       hello: sendOk,
+      'subscription.inspect': (ctx) => sendResult(ctx, { subscriptions: [] }),
       'run.start': (ctx) => sendResult(ctx, {
         run_id: 'run-observer-json',
         status: 'completed',

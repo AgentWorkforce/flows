@@ -88,7 +88,7 @@ fn prepared_binding_stays_invisible_across_a_crash_until_activation_then_next_su
         &run_id, "handoff", 41, json!({"binding_id": "binding-1", "generation": 7}),
     ).unwrap(), SubscriptionOpen::Active { .. }));
     assert!(matches!(resumed.activate_subscription(
-        &run_id, "handoff", 41, json!({"binding_id": "ignored-on-retry"}),
+        &run_id, "handoff", 41, json!({"binding_id": "binding-1", "generation": 7}),
     ).unwrap(), SubscriptionOpen::Active { .. }));
 
     assert!(matches!(resumed.next_subscription_outcome(&run_id, "handoff", None).unwrap().0,

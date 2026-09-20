@@ -23,6 +23,7 @@ import type {
   RunCompletionReason,
   RunOutcome,
   RunStatus,
+  SubscriptionSnapshot,
 } from '../protocol.js';
 import type { StepType } from '../spec.js';
 import type { LoweredCompletionReason } from '../authored-flow-executor.js';
@@ -50,10 +51,14 @@ export interface RunReport {
   command: RunCommand;
   path?: string;
   runId?: string;
+  /** Subscription owner; runId may name a failed child for diagnostics. */
+  rootRunId?: string;
   socketPath?: string;
   status?: RunStatus | 'suspended';
   /** Cloud consumes this exact durable boundary before launching a resume. */
-  suspension?: AuthoredFlowSuspendedResult['suspension'];
+  suspension?: AuthoredFlowSuspendedResult['suspension'] & { settleMs?: number; idleAtMs?: number };
+  /** Durable subscription projection for Cloud routing and cleanup. */
+  subscriptions?: SubscriptionSnapshot[];
   completionReason?: RunCompletionReason;
   completedSteps?: number;
   reuse?: { fromRunId: string; reusedSteps: number; executedSteps: number };
@@ -201,6 +206,7 @@ export async function resumeFlow(
   try {
     const authoredRoot = await readAuthoredRootMetadata(client, runId);
     if (authoredRoot !== undefined) {
+      base.rootRunId = runId;
       if (authoredRoot.localAgentStream !== undefined && !options.localAgent) {
         throw new Error('authored root requires --local-agent to resume its pinned worker surface');
       }
