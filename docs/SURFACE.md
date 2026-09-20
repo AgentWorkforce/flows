@@ -192,22 +192,47 @@ No process runs between events: the handler wakes, executes to its next await, p
 
    **Declared wrapper bounds.** A wrapper author writes against four bounds,
    all enforced by the reader so that no wrapper can defeat one by withholding
-   an event. Each is a refusal with `exit_code: null` and a diagnostic naming
-   the bound it exceeded, which the worker completes as `worker_error`.
+   an event. Exceeding an armed bound is a refusal with `exit_code: null` and a
+   diagnostic naming the bound, which the worker completes as `worker_error`.
+   Three are always armed; the execution deadline is off unless a caller sets a
+   positive one.
 
    | Bound | Default | Applies to | On exceeding |
    |---|---|---|---|
    | Handshake deadline | 10 s | From spawn until the wrapper has emitted both `relayflows-agent-cli-v1` and `relayflows-agent-cli-v1-execute` | Session refused: "did not identify as `relayflows-agent-cli-v1` within *N*ms" |
    | Handshake byte limit | 8192 bytes | Only the **un-terminated** residue of the handshake buffer — bytes not yet ended by a newline while the handshake is still open. Complete lines are drained first, so the execute token always ends the handshake before this is measured, and a result payload behind it is execution output governed by `maxOutputBytes`, not by this bound | Session refused: "exceeded the wrapper handshake limit of 8192 bytes before completing the `relayflows-agent-cli-v1` handshake" |
-   | Execution deadline | 300 s | From the execute token until the wrapper's output is complete | `SIGTERM`, then `SIGKILL` 1 s later; the reader settles on its own deadline whether or not the process closes its pipes. Refused: "execution timed out after *N*ms" |
+   | Execution deadline | **none** | From the execute token until the wrapper's output is complete. Off by default, so a wrapper-backed step gets the same duration a native `claude` or `codex` step gets, which is no constant of its own. A positive programmatic `executionTimeoutMs` arms it; `0` means no deadline and is not coerced back to a default | `SIGTERM`, then `SIGKILL` 1 s later; the reader settles on its own deadline whether or not the process closes its pipes. Refused: "execution timed out after *N*ms" |
    | `maxOutputBytes` | 1 MiB | Total captured stdout **plus** stderr after the execute token. Inclusive: exactly at the limit is accepted, one byte over is refused. Enforced on arrival, so an unbounded or newline-free flood is cut off by the reader rather than buffered | Session refused: "exceeded the captured output limit of *N* bytes" |
 
-   Because the deadlines are reader-owned, a wrapper that exits while leaving a
+   Because the bounds are reader-owned, a wrapper that exits while leaving a
    descendant holding an inherited stdio pipe — which withholds Node's `'close'`
-   event forever — is still bounded and still journals a `completionReason`. It
-   is bounded at the *execution deadline* rather than at the wrapper's own exit,
-   so a wrapper that leaks a pipe pays the full 300 s. Wrappers should not leave
-   descendants holding stdout or stderr.
+   event forever — is still bounded and still journals a `completionReason`.
+   With no execution deadline the bound is the wrapper's **own exit**, not a
+   constant: once the direct child has exited *and* the execute token has been
+   consumed, the reader drains for 250 ms, finalizes the output it has, stops
+   the wrapper's process group (`SIGTERM`, `SIGKILL` 1 s later) and settles on
+   its own deadline whether or not `'close'` ever arrives. That settlement is a
+   real result — the wrapper's own exit code and output, including a `null` code
+   for a signalled death — not a refusal, because the wrapper did finish. Bytes
+   arriving after settlement are discarded, and a protocol violation, an
+   exceeded output limit, or an aborted lease during that window still outranks
+   a successful exit. A descendant that had already detached into its own
+   process group is reparented when the wrapper dies and is out of reach: the
+   session is still bounded, but that process is not signalled and is not
+   reaped. Wrappers should not leave descendants holding stdout or stderr.
+
+   A positive programmatic `executionTimeoutMs` is unchanged by any of this: the
+   session is bounded at that deadline and refuses, and the post-exit drain does
+   not apply. The same session backs both `agent` and `llm` wrapper steps, so
+   neither carries a wrapper-specific duration cap.
+
+   What does bound a wrapper's duration is the same thing that bounds a native
+   `claude` or `codex` step. The step's worker lease is *renewable ownership*,
+   not a duration budget: a live worker keeps renewing it and never ages out of
+   one, while a worker that dies stops renewing and the lease expires. The run's
+   wallclock budget is separate and stops *new* work, draining whatever is
+   already running rather than cancelling a step mid-flight. A wrapper step and
+   a native step therefore get the same duration.
 
    `flows check` resolves the binary (a path is relative to the declaring flow
    or project config; a bare name resolves via `PATH`) and caches each resolved
