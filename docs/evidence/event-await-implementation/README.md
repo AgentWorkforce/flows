@@ -241,3 +241,60 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 exit status: 0
 ```
+
+## CLI startup and unchanged watcher checks
+
+The activity checker now loads only for authored TypeScript checks. These are
+one-shot import measurements, not a statistical benchmark. The watcher test
+limits and assertions are unchanged.
+
+```text
+cwd: /tmp/flows-pr-followup/pr441/packages/sdk
+$ /tmp/flows-pr-cleanup/toolchain/node_modules/node/bin/node --input-type=module -e 'const start = performance.now(); await import("./dist/cli.js"); console.log(JSON.stringify({cliImportMs: performance.now() - start, rssBytes: process.memoryUsage().rss}));'
+{"cliImportMs":480.42877,"rssBytes":172797952}
+
+exit status: 0
+```
+
+```text
+cwd: /tmp/flows-pr-followup/pr441/packages/sdk
+$ /tmp/flows-pr-cleanup/toolchain/node_modules/node/bin/node --input-type=module -e 'const start = performance.now(); await import("./dist/cli.js"); console.log(JSON.stringify({cliImportMs: performance.now() - start, rssBytes: process.memoryUsage().rss}));'
+{"cliImportMs":261.441739,"rssBytes":121061376}
+
+exit status: 0
+```
+
+```text
+cwd: /tmp/flows-pr-followup/pr441/packages/sdk
+$ sh -c 'export PATH=/tmp/flows-pr-cleanup/toolchain/node_modules/node/bin:/tmp/flows-pr-cleanup/toolchain/node_modules/.bin:$PATH; npm run build && npm run typecheck && npx vitest run tests/cli-watch.test.ts tests/activity-preflight.test.ts'
+
+> @relayflows/sdk@2.0.22 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+> @relayflows/sdk@2.0.22 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+ RUN  v2.1.9 /tmp/flows-pr-followup/pr441/packages/sdk
+
+ ✓ tests/activity-preflight.test.ts (1 test) 9ms
+ ✓ tests/cli-watch.test.ts (10 tests) 12411ms
+   ✓ flows check --watch > rechecks syntax errors, clears once, and returns the last refusal on Ctrl-C 958ms
+   ✓ flows check --watch > streams JSON lines without ANSI, recovers after atomic saves, and exits zero after repair 1339ms
+   ✓ flows check --watch > coalesces 20 concurrent saves into at most two rechecks 1516ms
+   ✓ flows check --watch > watches transitive relative use imports, cycles, and nearest config changes 1815ms
+   ✓ flows check --watch > refreshes the import graph and notices missing imports being created 1860ms
+   ✓ flows check --watch > reloads authored TypeScript instead of reusing the first imported definition 1418ms
+   ✓ flows check --watch > detects a nearer config appearing and falls back after it is deleted 1368ms
+   ✓ flows check --watch > keeps watching after the target is deleted and recreated 1361ms
+   ✓ flows check --watch > queues changes during a slow check without overlapping checks 772ms
+
+ Test Files  2 passed (2)
+      Tests  11 passed (11)
+   Start at  21:23:28
+   Duration  13.83s (transform 765ms, setup 0ms, collect 1.98s, tests 12.42s, environment 0ms, prepare 104ms)
+
+
+exit status: 0
+```

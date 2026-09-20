@@ -2,7 +2,6 @@
 import { addPlugin } from './cli/add.js';
 import { watchCheck } from './cli-watch.js';
 import { checkHelperBody } from './cli/check-helper-body.js';
-import { checkAuthoredActivities } from './cli/check-activities.js';
 import { describeFlowRequirements } from './flow-requirements.js';
 
 import { renderProgress, type ProgressEvent } from './progress.js';
@@ -338,6 +337,9 @@ export async function runCli(
 async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckReport }> {
   const helper = await checkHelperBody(path);
   if (!helper.report.ok) return helper;
+  // The activity checker loads the TypeScript compiler. YAML checks and
+  // unrelated CLI commands should not pay that startup cost on every run.
+  const { checkAuthoredActivities } = await import('./cli/check-activities.js');
   const activities = await checkAuthoredActivities(path);
   if (!activities.report.ok) return activities;
   const mcp = await checkTypeScriptFlow(path);
