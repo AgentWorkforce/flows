@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.js';
 import {
-  parseLogsArgs, parseRunsArgs, runCloudLogsCli, runCloudRunsCli, runCloudStatusCli,
+  errorLines, parseLogsArgs, parseRunsArgs, runCloudLogsCli, runCloudRunsCli, runCloudStatusCli,
 } from '../src/cli/cloud-read.js';
 import { parseStatusArgs } from '../src/cli/status.js';
 
@@ -200,7 +200,8 @@ describe('flows runs', () => {
     expect(out.stdout[1]).toContain('updated 2026-09-19T20:37:42Z');
     expect(out.stdout[2]).toBe('      pr https://github.com/AgentWorkforce/flows/pull/12');
     expect(out.stdout[3]).toContain('failed');
-    expect(out.stdout.at(-1)).toBe('      error Relayflow v2 CLI failed with exit code 1');
+    expect(out.stdout.at(-2)).toBe('      error');
+    expect(out.stdout.at(-1)).toBe('        Relayflow v2 CLI failed with exit code 1');
     expect(server.requests).toEqual([{ path: '/api/v1/workflows/runs', query: '', auth: 'Bearer test-scoped-cloud-token' }]);
   });
 
@@ -680,5 +681,39 @@ describe('argv', () => {
     expect(help.stdout[0]).toContain('flows runs [--limit <n>] [--json]');
     expect(help.stdout[0]).toContain('flows logs [--step <name>] [--raw] [--json] <run-id>');
     expect(help.stdout[0]).toContain('flows status --cloud [--json] <run-id>');
+  });
+});
+
+describe('errorLines', () => {
+  it('collapses the lease-renewal chatter that dominates a long run', () => {
+    const text = [
+      'Relayflow v2 CLI failed with exit code 1',
+      ...Array.from({ length: 140 }, (_, i) =>
+        `WAITING [worker_lease] Run "01M2Y03JWY9GE8K074KC2XMERR" step "agent-1" (agent) is running under a worker lease until ${1789860659414 + i}.`),
+      'FAILED [step_failed] journal step "run-8" completed with retries_exhausted',
+    ].join('\n');
+
+    const lines = errorLines(text, '  ');
+
+    expect(lines.length).toBeLessThan(10);
+    expect(lines.every((line) => line.startsWith('  '))).toBe(true);
+    expect(lines.some((line) => line.includes('(×140 similar)'))).toBe(true);
+    expect(lines.at(-1)).toContain('retries_exhausted');
+  });
+
+  it('keeps a short error whole and strips control characters', () => {
+    expect(errorLines('one\r\ntwothree', '')).toEqual(['one', 'two?three']);
+  });
+
+  it('elides the middle of a long run of distinct lines, keeping the tail', () => {
+    const lines = errorLines(Array.from({ length: 60 }, (_, i) => `line ${i} ${'x'.repeat(50)}`).join('\n'), '');
+
+    expect(lines.some((line) => line.includes('more lines (full text: --json)'))).toBe(true);
+    expect(lines.at(-1)).toContain('line 59');
+    expect(lines).toHaveLength(15);
+  });
+
+  it('renders nothing for an error that is only whitespace', () => {
+    expect(errorLines('\n\r\n  \n', '')).toEqual([]);
   });
 });

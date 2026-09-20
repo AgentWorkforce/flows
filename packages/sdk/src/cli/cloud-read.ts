@@ -174,6 +174,42 @@ function safe(text: string): string {
   return text.replace(/[\u0000-\u001F\u007F-\u009F]/gu, '?');
 }
 
+/**
+ * Render a run's `error` as readable lines rather than one control-char smear.
+ *
+ * Cloud stores the runner's terminal output in this field, newlines and all, so
+ * passing it through `safe()` alone turns a 200-line tail into a single line of
+ * `?` separators. Long runs are dominated by lease-renewal chatter — one line
+ * every 10s for the life of every agent step — which is worth counting, not
+ * reading, so consecutive lines sharing a prefix collapse into one. What
+ * matters is almost always the last few lines: the failure itself.
+ */
+export function errorLines(text: string, indent: string): string[] {
+  const raw = text.split(/\r\n|\r|\n/u).map((line) => line.trimEnd()).filter((line) => line !== '');
+  if (raw.length === 0) return [];
+
+  // Collapse consecutive lines that differ only past their first 48 characters.
+  const collapsed: { line: string; count: number }[] = [];
+  for (const line of raw) {
+    const previous = collapsed.at(-1);
+    if (previous !== undefined && previous.line.slice(0, 48) === line.slice(0, 48)) previous.count += 1;
+    else collapsed.push({ line, count: 1 });
+  }
+
+  const rendered = collapsed.map(({ line, count }) =>
+    count === 1 ? safe(line) : `${safe(line)}  (×${count} similar)`);
+
+  const HEAD = 2;
+  const TAIL = 12;
+  if (rendered.length <= HEAD + TAIL + 1) return rendered.map((line) => `${indent}${line}`);
+  const elided = rendered.length - HEAD - TAIL;
+  return [
+    ...rendered.slice(0, HEAD),
+    `… ${elided} more line${elided === 1 ? '' : 's'} (full text: --json)`,
+    ...rendered.slice(-TAIL),
+  ].map((line) => `${indent}${line}`);
+}
+
 /** ISO-8601 to the second: a list column, not a timestamp to do arithmetic on. */
 function instant(value: string | null): string {
   if (value === null) return 'unknown';
@@ -228,7 +264,10 @@ export async function runCloudRunsCli(
     ].filter((cell): cell is string => cell !== null);
     io.stdout(`RUN ${cells.join('  ')}`);
     if (run.pull_request_url !== null) io.stdout(`      pr ${run.pull_request_url}`);
-    if (run.error !== null) io.stdout(`      error ${safe(run.error)}`);
+    if (run.error !== null) {
+      io.stdout('      error');
+      for (const line of errorLines(run.error, '        ')) io.stdout(line);
+    }
   }
   return 0;
 }
@@ -413,7 +452,7 @@ function renderCloudStatus(run: CloudRunDetail, steps: readonly CloudStep[], now
     if (facts.length > 0) lines.push(`authority ${facts.join(' · ')}`);
   }
   if (run.pull_request_url !== null) lines.push(`pr ${run.pull_request_url}`);
-  if (run.error !== null) lines.push(`error ${safe(run.error)}`);
+  if (run.error !== null) lines.push('error', ...errorLines(run.error, '  '));
   lines.push('');
   const idWidth = Math.max(4, ...steps.map((step) => Math.min(24, step.step_name.length)));
   for (const step of steps) lines.push(...renderStep(step, run.run_id, idWidth));
