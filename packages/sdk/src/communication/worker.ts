@@ -11,6 +11,7 @@ import { channelName, type CommunicationInstruction } from './spec.js';
 import { acquireRelayRuntime, type RelayHandle } from './relay.js';
 import { CommunicationSession } from './session.js';
 import { openCommunicationTools } from './tools.js';
+import { agentEnvironment } from './environment.js';
 
 export function requireCommunicationCli(cli: string | undefined): void {
   if (!cli?.trim()) throw new Error('Agent communication requires a declared CLI executable');
@@ -71,7 +72,8 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
     handle = await relay.broker.spawnPty({ name, cli: basename(spec.cli!).replace(/\.exe$/i, ''), task: prompt, channels: [], skipRelayPrompt: true,
       model: resolveCliModel(spec.cli!, spec.model), cwd: spec.cwd ?? process.cwd(),
       harnessConfig: { runtime: 'pty', command: quote(spec.cli!), args: [],
-        cwd: spec.cwd ?? process.cwd(), env: { RELAYFLOW_COMMUNICATION_SOCKET: tools.path },
+        cwd: spec.cwd ?? process.cwd(), env: { ...agentEnvironment(spec.cli!),
+          RELAYFLOW_COMMUNICATION_SOCKET: tools.path, RELAYFLOW_COMMUNICATION_TOKEN: tools.token },
         delivery: { mode: 'pty-injection', format: 'relay-block' } } });
     const ready = await handle.waitForReady(Math.min(instruction.timeoutMs, 90_000));
     if (ready.reason !== 'ready') throw new Error(`Communication agent did not become ready: ${ready.reason}`);

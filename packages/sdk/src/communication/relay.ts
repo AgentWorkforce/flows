@@ -1,6 +1,8 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createProjection } from './projection.js';
+import { brokerEnvironment } from './environment.js';
 
 export interface RelayEvent { kind: string; name?: string; event_id?: string; delivery_id?: string; verification?: string; [key: string]: unknown }
 export interface RelayHandle {
@@ -47,6 +49,7 @@ export interface RelayRuntime {
   messaging: RelayMessaging;
   prefix: string;
   channel: string;
+  project: ReturnType<typeof createProjection>;
   close(): Promise<void>;
 }
 const runtimes = new Map<string, { references: number; runtime: Promise<RelayRuntime> }>();
@@ -84,19 +87,12 @@ async function createRuntime(dataDir: string, runId: string): Promise<RelayRunti
   let broker: RelayBroker | undefined;
   try {
     const messaging = new RelaycastMessagingClient({ ...options, agentToken: registration.token });
-    try { await messaging.channels.create({ name: channel }); }
-    catch (error) {
-      // Only an existing channel justifies recovering a failed create.
-      // A failed get or join is still fatal; no projection is silently dropped.
-      await messaging.channels.get(channel);
-      await messaging.channels.join(channel);
-    }
     const cwd = join(dataDir, 'communication', prefix);
     await mkdir(cwd, { recursive: true, mode: 0o700 });
     broker = await HarnessDriverClient.spawn({ workspaceKey, brokerName: prefix, cwd, channels: [],
       ...(process.env.RELAYFLOW_RELAY_BROKER_BIN ? { binaryPath: process.env.RELAYFLOW_RELAY_BROKER_BIN } : {}),
-      env: { ...process.env, RELAY_API_KEY: workspaceKey, RELAY_WORKSPACE_KEY: workspaceKey } });
-    return { broker, messaging, prefix, channel, close: async () => {
+      env: brokerEnvironment(process.env) });
+    return { broker, messaging, prefix, channel, project: createProjection(messaging, channel, runId), close: async () => {
       try { await broker!.shutdown(); } finally { await workspace.agents.delete(publisher); }
     } };
   } catch (error) {

@@ -25,6 +25,12 @@ Set `RELAY_API_KEY` to the existing workspace key and run:
 flows run workflows/agent-communication.flow.yaml --local-agent
 ```
 
+`flows check` verifies the workspace-key format, optional package resolution,
+Node availability, and executable broker before submission. These are local
+checks; they do not prove the workspace key is accepted by the service.
+Missing prerequisites produce a `probe_failed` refusal, rather than a daemon
+protocol error. Ordinary flows do not perform these probes.
+
 Use the canonical workspace setup in `scripts/run-workflow.sh` when running a
 watchable conversation. The run report includes a scoped observer URL; readable
 conversation projections go to `wf-<run-id>`. Workspace keys never belong in URLs.
@@ -35,6 +41,11 @@ receiving worker records a durable delivery and forwards it through Relaycast.
 The existing Relay broker injects it into the declared CLI's managed PTY session. Agents
 do not call a receive/poll tool. They explicitly acknowledge processing and call
 complete. Injection/verification receipts do **not** acknowledge processing.
+Observer channel creation and publication run independently. Their failures emit
+`communication_projection_failed` diagnostics without failing or blocking the
+conversation. A failed observer publication can be absent from the workspace;
+the journal still holds the message. Direct injection and journal failures
+remain execution failures.
 
 Sends use stable semantic message IDs. A reset attempt receives its conversation
 history from the journal; unacknowledged messages are injected again. Injection
@@ -59,6 +70,27 @@ on PATH for the helper. Interactive sessions report unmetered usage: dollar and
 token ceilings cannot bound their spend. Preflight warns; `timeoutMs` bounds the
 session (default five minutes, maximum fifteen). Each attempt releases its owned
 agent identity; the last session closes the run's broker and publisher.
+
+The broker receives a filtered environment. Managed CLIs receive their known
+provider authentication variables (multi-provider tools receive the supported
+provider variables), plus a unique helper session token; unrelated ambient
+credentials and broker administration keys are excluded. Custom CLIs can use
+their own login/configuration files. Arbitrary environment variables are not
+forwarded. Helper requests without the matching token are rejected before any
+journal operation. Tokens are never included in the prompt or journal.
+
+Local agents share the operator's OS user and home directory. This is a trusted
+local execution mode, not a sandbox: environment filtering and session tokens
+do not prevent a hostile same-user process from reading accessible credentials
+or another process's environment. Declared permissions remain advisory until
+the separate permission-enforcement work lands.
+
+Communication workers opt into the journal protocol's `worker.attach.required_streams`
+filter using their step's receipt stream. Holding extra pins alone is not enough
+to reserve them for unrelated work. Resume reattaches both the ordinary local
+worker and the linked workers, so mixed flows retain capacity for each peer.
+Use the matching daemon build with this SDK; an older daemon refuses the new
+attach field rather than silently ignoring the eligibility constraint.
 
 After the example completes, verify its recorded exchange:
 

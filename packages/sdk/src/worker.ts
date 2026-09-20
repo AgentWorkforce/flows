@@ -19,6 +19,7 @@ export interface AgentWorkerOptions {
   workerId: string;
   pins: Pins;
   capacity?: number;
+  requiredStreams?: string[];
   dataDir?: string;
   onPtyReady?: (path: string) => void;
 }
@@ -61,6 +62,7 @@ export class AgentWorker extends EventEmitter {
         ['agent'],
         this.options.pins,
         this.options.capacity,
+        this.options.requiredStreams,
       );
       this.attached = true;
     } catch (error) {

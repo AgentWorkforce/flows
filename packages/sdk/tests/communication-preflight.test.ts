@@ -1,11 +1,13 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { checkAuthoredFlow } from '../src/cli/check.js';
 import type { FlowSpec } from '../src/spec.js';
+// These tests isolate CLI authentication; environment refusal has its own suite.
+vi.mock('../src/communication/preflight.js', () => ({ checkCommunicationEnvironment: vi.fn() }));
 const roots: string[] = [];
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { vi.unstubAllEnvs(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture(cli: string) {
   const root = mkdtempSync(join(tmpdir(), 'communication-preflight-')); roots.push(root);
   const executable = join(root, cli);
@@ -17,6 +19,12 @@ function fixture(cli: string) {
   return { spec, check: (flow = spec) => checkAuthoredFlow(flow, join(root, 'flow.yaml'), config) };
 }
 describe('managed CLI preflight', () => {
+  it('probes known CLIs with the same filtered credentials as execution', () => {
+    vi.stubEnv('GITHUB_TOKEN', 'unrelated'); vi.stubEnv('OPENAI_API_KEY', 'provider');
+    const f = fixture('codex');
+    writeFileSync(f.spec.cli!, '#!/bin/sh\n[ -z "$GITHUB_TOKEN" ] && [ "$OPENAI_API_KEY" = provider ]\n');
+    expect(f.check().report.ok).toBe(true);
+  });
   it.each(['gemini', 'opencode', 'cursor-agent', 'droid', 'aider', 'goose', 'grok', 'pi', 'deepagents', 'custom-interactive-agent'])('allows %s through Relay with an honest unverified-auth warning', cli => {
     const f = fixture(cli); const result = f.check();
     expect(result.report.ok).toBe(true);

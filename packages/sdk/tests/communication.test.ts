@@ -47,7 +47,7 @@ function fixture() {
   const dispatch = { run_id: 'run-1', step_id: 'a', attempt: 1, idempotency_key: 'attempt-key' } as StepDispatchEvent;
   const session = new CommunicationSession(client as unknown as JournalClient, dispatch,
     { type: 'relayflows.communication.v1', instruction: '', incoming: ['b'], outgoing: ['b'], timeoutMs: 1000 },
-    { prefix: 'run-prefix', channel: 'wf-run-1', messaging } as unknown as RelayRuntime, complete, fatal);
+    { prefix: 'run-prefix', channel: 'wf-run-1', messaging, project: () => { void messaging.messages.send(); } } as unknown as RelayRuntime, complete, fatal);
   return { client, messaging, complete, session, order, fatal };
 }
 describe('journal to managed-agent bridge', () => {

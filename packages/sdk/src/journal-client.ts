@@ -237,8 +237,8 @@ export class JournalClient extends EventEmitter {
   }
 
   /** Connection becomes a worker; receives `step.dispatch` events. */
-  workerAttach(workerId: string, stepTypes: StepType[], pins?: Pins, capacity?: number): Promise<VerbContract['worker.attach']['result']> {
-    return this.request('worker.attach', { worker_id: workerId, step_types: stepTypes, pins, capacity });
+  workerAttach(workerId: string, stepTypes: StepType[], pins?: Pins, capacity?: number, requiredStreams?: string[]): Promise<VerbContract['worker.attach']['result']> {
+    return this.request('worker.attach', { worker_id: workerId, step_types: stepTypes, pins, capacity, required_streams: requiredStreams });
   }
 
   /**

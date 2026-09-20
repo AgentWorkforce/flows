@@ -2,14 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { JournalClient } from '../journal-client.js';
 import { AgentWorker } from '../worker.js';
 import type { KernelRunSpec } from '../spec.js';
-import { communicationInstruction } from './spec.js';
-import { loadRelayModules, relayWorkspaceKey } from './relay.js';
+import { channelName, communicationInstruction } from './spec.js';
+import { loadRelayModules } from './relay.js';
+import { checkCommunicationEnvironment, CommunicationEnvironmentError } from './preflight.js';
 import { requireCommunicationCli } from './worker.js';
 
 export async function attachCommunicationWorkers(spec: KernelRunSpec, socketPath: string, dataDir: string) {
   const steps = spec.steps.filter(step => step.type === 'agent' && communicationInstruction(step.instruction));
-  relayWorkspaceKey();
-  await loadRelayModules();
+  checkCommunicationEnvironment(spec);
+  try { await loadRelayModules(); }
+  catch (error) { throw new CommunicationEnvironmentError(error instanceof Error ? error.message : 'Communication runtime could not be loaded.'); }
   const workers: Array<{ client: JournalClient; worker: AgentWorker }> = [];
   let failure: unknown;
   const close = async () => {
@@ -26,6 +28,7 @@ export async function attachCommunicationWorkers(spec: KernelRunSpec, socketPath
       if (step.surfaces?.workspace?.length) throw new Error('Local communication workers support stream surfaces only');
       const client = new JournalClient(socketPath);
       const worker = new AgentWorker(client, { workerId: `communication-${randomUUID()}`, dataDir,
+        requiredStreams: [channelName(step.id, '$receipts')],
         pins: { workspace: [], streams: step.surfaces?.streams?.map(({ stream }) => ({ stream, read_offset: 0 })) ?? [] } });
       workers.push({ client, worker });
       worker.on('error', error => { failure = error; client.close(); });

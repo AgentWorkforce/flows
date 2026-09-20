@@ -29,6 +29,7 @@ struct Worker {
     step_types: Vec<StepType>,
     capacity: usize,
     pins: Pins,
+    required_streams: Vec<String>,
     writer: Writer,
 }
 
@@ -116,6 +117,7 @@ impl ProtocolHub {
         step_types: Vec<StepType>,
         capacity: usize,
         pins: Pins,
+        required_streams: Vec<String>,
         writer: Writer,
     ) {
         let mut sessions = self.sessions.lock().expect("protocol sessions lock");
@@ -128,6 +130,7 @@ impl ProtocolHub {
             step_types,
             capacity,
             pins,
+            required_streams,
             writer,
         });
     }

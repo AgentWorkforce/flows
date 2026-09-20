@@ -13,7 +13,7 @@ vi.mock('../src/communication/relay.js', () => ({ acquireRelayRuntime: async () 
 }) }));
 vi.mock('../src/communication/tools.js', () => ({ openCommunicationTools: async (invoke: typeof mocks.invoke) => {
   mocks.invoke = invoke;
-  return { path: '/tmp/test.sock', helperPath: '/tmp/tool.mjs', close: mocks.toolClose };
+  return { path: '/tmp/test.sock', token: 'test-session-token', helperPath: '/tmp/tool.mjs', close: mocks.toolClose };
 } }));
 beforeEach(() => {
   vi.clearAllMocks();
@@ -53,7 +53,7 @@ it.each(['claude', 'codex', 'gemini', 'cursor-agent', 'droid', 'opencode', 'aide
   expect(mocks.spawn).toHaveBeenCalledWith(expect.objectContaining({
     cli: cli.split('/').at(-1),
     harnessConfig: expect.objectContaining({ command: `'${cli}'`, args: [], runtime: 'pty',
-      env: { RELAYFLOW_COMMUNICATION_SOCKET: '/tmp/test.sock' },
+      env: expect.objectContaining({ RELAYFLOW_COMMUNICATION_SOCKET: '/tmp/test.sock', RELAYFLOW_COMMUNICATION_TOKEN: 'test-session-token' }),
       delivery: { mode: 'pty-injection', format: 'relay-block' } }),
   }));
   expect(f.client.stepComplete).toHaveBeenCalledWith('run', 'agent', 1, 'key', 'success', expect.anything());

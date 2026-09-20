@@ -10,7 +10,7 @@ it('runs the standalone helper and reports journal errors to its caller', async 
     if (request.operation === 'ack') throw new Error('journal write failed');
     return { seq: 12 };
   });
-  const env = { ...process.env, RELAYFLOW_COMMUNICATION_SOCKET: tools.path };
+  const env = { ...process.env, RELAYFLOW_COMMUNICATION_SOCKET: tools.path, RELAYFLOW_COMMUNICATION_TOKEN: tools.token };
   try {
     const result = await exec(process.execPath, [tools.helperPath, 'send', 'reviewer', 'v1', 'hello'], { env });
     expect(JSON.parse(result.stdout)).toEqual({ seq: 12 });

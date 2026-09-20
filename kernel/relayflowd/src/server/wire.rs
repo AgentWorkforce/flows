@@ -66,6 +66,9 @@ pub(super) struct WorkerAttachParams {
     pub capacity: usize,
     #[serde(default)]
     pub pins: Pins,
+    /// Opt-in eligibility: dispatch only agent steps declaring every named stream.
+    #[serde(default)]
+    pub required_streams: Vec<String>,
 }
 
 fn default_worker_capacity() -> usize {

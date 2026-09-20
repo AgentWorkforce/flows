@@ -74,10 +74,10 @@ export class CommunicationSession {
         // A successful injection is not a processing acknowledgement.
         await this.relay.messaging.messages.direct({ to: `${this.relay.prefix}-${this.dispatch.step_id}`,
           text, metadata, idempotencyKey: key, mode: 'wait' });
-        await this.relay.messaging.messages.send({ channel: this.relay.channel,
+        this.pending.set(peer, entry.seq);
+        this.relay.project({
           text: `${peer} -> ${this.dispatch.step_id}: ${JSON.stringify(entry.payload.message)}`,
           metadata, idempotencyKey: `${key}-projection` });
-        this.pending.set(peer, entry.seq);
       }
     });
   }

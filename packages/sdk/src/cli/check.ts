@@ -1,4 +1,6 @@
 import { communicationInstruction } from '../communication/spec.js';
+import { checkCommunicationEnvironment } from '../communication/preflight.js';
+import { agentEnvironment, brokerEnvironment } from '../communication/environment.js';
 import { accessSync, constants, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -161,6 +163,12 @@ export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConf
         )
       : undefined;
     if (flow?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
+      try { checkCommunicationEnvironment(flow); }
+      catch (error) {
+        result.ok = false;
+        result.diagnostics.push({ severity: 'refusal', kind: 'probe_failed',
+          message: error instanceof Error ? error.message : 'Communication environment could not be checked.' });
+      }
       result.diagnostics.push({ severity: 'warning', kind: 'budget_unmetered',
         message: 'Managed communication sessions do not report token or dollar usage. Budget ceilings cannot bound their spend; communication.timeoutMs bounds their duration.' });
     }
@@ -174,7 +182,7 @@ export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConf
         diagnostics: result.diagnostics,
         requirements: safeRequirements(authoring, config.cli),
       },
-      ...(flow !== undefined ? { flow } : {}),
+      ...(result.ok && flow !== undefined ? { flow } : {}),
     };
   } catch (error) {
     const failure = error instanceof CheckFailure
@@ -432,8 +440,11 @@ function probeCli(
   if (execution === 'managed' && kind === 'relayflows-wrapper-v1') {
     return { exists: true, supported: true, authenticated: 'unverified' };
   }
+  const environment = execution === 'managed'
+    ? { ...brokerEnvironment(process.env), ...agentEnvironment(executable) } : process.env;
+  const probe = (invocation: CliInvocation) => runProbe(executable, directory, invocation, environment);
   const identification = adapterIdentification(kind);
-  const identified = runProbe(executable, directory, identification.invocation);
+  const identified = probe(identification.invocation);
   if (
     identified.status !== 0
     || (identification.expectedStdout !== undefined
@@ -447,7 +458,7 @@ function probeCli(
     return {
       exists: true,
       supported: true,
-      authenticated: runProbe(executable, directory, auth).status === 0,
+      authenticated: probe(auth).status === 0,
       authCommand,
     };
   }
@@ -457,7 +468,7 @@ function probeCli(
   // A successful real provider round trip (or identified wrapper probe)
   // proves both auth and exact-model access. On failure, run the adapter's
   // actual auth command solely to classify auth vs model access truthfully.
-  if (runProbe(executable, directory, scoped).status === 0) {
+  if (probe(scoped).status === 0) {
     return {
       exists: true,
       supported: true,
@@ -467,7 +478,7 @@ function probeCli(
       modelCommand,
     };
   }
-  const authStatus = runProbe(executable, directory, auth).status;
+  const authStatus = probe(auth).status;
   return {
     exists: true,
     supported: true,
@@ -482,8 +493,9 @@ function runProbe(
   executable: string,
   directory: string,
   invocation: CliInvocation,
+  environment: NodeJS.ProcessEnv = process.env,
 ): { status: number | null; stdout: string } {
-  const env = { ...process.env };
+  const env = { ...environment };
   delete env[MODEL_ENV];
   if (invocation.modelEnv !== undefined) env[MODEL_ENV] = invocation.modelEnv;
   const result = spawnSync(executable, invocation.args, {
