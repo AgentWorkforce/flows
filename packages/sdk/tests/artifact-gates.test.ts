@@ -6,8 +6,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // A fake `claude` whose "work" is whatever the test's `onSpawn` hook writes
 // into the cwd it was spawned in, so artifact detection is exercised without
-// a real CLI.
+// a real CLI. `claudeResult` is the text of its final result frame; set it to
+// JSON to take the worker's JSON-output path.
 let onSpawn: ((cwd: string | undefined) => void) | undefined;
+let claudeResult = 'done';
 vi.mock('node:child_process', async () => {
   const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
   return {
@@ -25,7 +27,7 @@ vi.mock('node:child_process', async () => {
       setImmediate(() => {
         onSpawn?.(options['cwd'] as string | undefined);
         stdout.emit('data', Buffer.from(cli === 'claude'
-          ? JSON.stringify({ type: 'result', result: 'done', usage: { input_tokens: 1, output_tokens: 1 }, total_cost_usd: 0 })
+          ? JSON.stringify({ type: 'result', result: claudeResult, usage: { input_tokens: 1, output_tokens: 1 }, total_cost_usd: 0 })
           : JSON.stringify({ type: 'usage', usage: { input_tokens: 1, output_tokens: 1, total_cost_usd: 0 } })));
         child.emit('close', 0);
       });
@@ -35,6 +37,8 @@ vi.mock('node:child_process', async () => {
 });
 
 import { runAgentCli } from '../src/worker-cli.js';
+import { AgentWorker } from '../src/worker.js';
+import type { JournalClient } from '../src/journal-client.js';
 import { compileSpec } from '../src/compile.js';
 import { lowerNamedGates } from '../src/named-gate-lowering.js';
 import { namedGateErrors, namedGateFailure } from '../src/named-gates.js';
@@ -46,7 +50,7 @@ import { snapshotWorkspaceFiles } from '../src/agent-artifacts.js';
 import { execFileSync } from 'node:child_process';
 
 const dirs: string[] = [];
-afterEach(() => { onSpawn = undefined; for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+afterEach(() => { onSpawn = undefined; claudeResult = 'done'; for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
 function tempDir(): string { const d = mkdtempSync(join(tmpdir(), 'artifact-gates-')); dirs.push(d); return d; }
 
 describe('worker-side artifacts', () => {
@@ -153,11 +157,12 @@ describe('artifact_exists named gate', () => {
 
 /**
  * #513: the gate reads the worker's journaled `artifacts` list, and the
- * bundled worker's scan never puts a dot-named or `node_modules` path in it.
- * That makes such a gate statically unsatisfiable, which preflight now refuses
- * rather than letting a run discover it. Retire this block with the module.
+ * bundled worker's *scan* never puts a dot-named or `node_modules` path in it.
+ * The scan is not the only writer of that list, so preflight warns instead of
+ * refusing — the last case here is the run that proves why. Retire this block
+ * with the module.
  */
-describe('artifact_exists named gate: static reachability', () => {
+describe('artifact_exists named gate: static scan coverage', () => {
   const probes = () => ({ cli: () => ({ exists: true, authenticated: true }), executor: () => true, command: () => true });
   const gated = (path: string) => ({
     version: '0.1.0', name: 'x',
@@ -174,13 +179,13 @@ describe('artifact_exists named gate: static reachability', () => {
     // The whole prefix, not the offending segment alone: that prefix is the
     // directory the author has to move the artifact out of.
     ['a/b/.c/d/e.md', 'a/b/.c'],
-  ])('refuses %s and names the excluded prefix %s', (path, prefix) => {
+  ])('warns on %s and names the excluded prefix %s, without refusing', (path, prefix) => {
     const result = preflight(gated(path) as never, { probes: probes() });
-    expect(result.ok).toBe(false);
-    const refusal = result.diagnostics.find(d => d.kind === 'gate_path_unreachable');
-    expect(refusal, JSON.stringify(result.diagnostics)).toMatchObject({ severity: 'refusal', stepId: 'review' });
-    expect(refusal!.message).toContain(`"${prefix}"`);
-    expect(refusal!.message).toContain(path);
+    const warning = result.diagnostics.find(d => d.kind === 'gate_path_unscanned');
+    expect(warning, JSON.stringify(result.diagnostics)).toMatchObject({ severity: 'warning', stepId: 'review' });
+    expect(warning!.message).toContain(`"${prefix}"`);
+    expect(warning!.message).toContain(path);
+    expect(result.ok).toBe(true);
   });
 
   it.each([
@@ -194,9 +199,9 @@ describe('artifact_exists named gate: static reachability', () => {
     // A backslash is an ordinary filename character in a POSIX path, never a
     // separator: `readdir` reports one entry whose name starts with "d".
     String.raw`dir\.hidden.md`,
-  ])('accepts %s, which the scan does record', (path) => {
+  ])('says nothing about %s, which the scan does record', (path) => {
     const result = preflight(gated(path) as never, { probes: probes() });
-    expect(result.diagnostics.filter(d => d.kind === 'gate_path_unreachable')).toEqual([]);
+    expect(result.diagnostics.filter(d => d.kind === 'gate_path_unscanned')).toEqual([]);
     expect(result.ok).toBe(true);
   });
 
@@ -216,7 +221,7 @@ describe('artifact_exists named gate: static reachability', () => {
     const scanned = new Set((await snapshotWorkspaceFiles(cwd)).keys());
     // The predicate is the scan's rule, so "excluded by the predicate" and
     // "absent from the scan" must be the same set. A drift in either
-    // direction would make the refusal lie.
+    // direction would make the warning lie.
     for (const path of paths) {
       expect(scanned.has(path), path).toBe(unscannedArtifactPrefix(path) === undefined);
     }
@@ -224,18 +229,18 @@ describe('artifact_exists named gate: static reachability', () => {
 
   it('is reported even when an unrelated environment refusal returns first', () => {
     // `cli_unresolved` returns from preflight before any probe runs. The
-    // author fixes the CLI, reruns, and would otherwise meet the dead gate
-    // only on the pass after that — or at run time.
+    // author fixes the CLI, reruns, and would otherwise meet the unscanned
+    // path only on the pass after that — or at run time.
     const result = preflight({
       version: '0.1.0', name: 'x',
       steps: [{ id: 'review', type: 'agent', instruction: 'i',
         verification: { type: 'artifact_exists', path: '.out/review.md' } }],
     } as never, { probes: probes() });
 
-    expect(result.diagnostics.map(d => d.kind)).toEqual(['gate_path_unreachable', 'cli_unresolved']);
+    expect(result.diagnostics.map(d => d.kind)).toEqual(['gate_path_unscanned', 'cli_unresolved']);
   });
 
-  it('refuses through flows check, naming the step and the prefix', () => {
+  it('warns through flows check, naming the step, and refuses nothing for it', () => {
     const dir = tempDir();
     writeFileSync(join(dir, 'flows.json'), JSON.stringify({ cli: 'true' }));
     writeFileSync(join(dir, 'flow.yaml'), JSON.stringify({ version: '0.1.0', name: 'gated', steps: [
@@ -245,9 +250,69 @@ describe('artifact_exists named gate: static reachability', () => {
 
     const report = checkFlow(join(dir, 'flow.yaml')).report;
 
-    expect(report.ok).toBe(false);
     expect(report.diagnostics).toContainEqual(expect.objectContaining({
-      severity: 'refusal', kind: 'gate_path_unreachable', stepId: 'review',
+      severity: 'warning', kind: 'gate_path_unscanned', stepId: 'review',
     }));
+    // `true` is a real binary that is not an agent CLI, so this report does
+    // refuse — for that, and only that. The gate adds no refusal of its own.
+    expect(report.diagnostics.filter(d => d.severity === 'refusal').map(d => d.kind)).toEqual(['cli_unsupported']);
+  });
+
+  /**
+   * Why it may not refuse. The scan is one writer of `output.artifacts`; the
+   * same bundled worker promotes an agent's object-shaped JSON stdout to
+   * `output` verbatim (`worker.ts`), hidden paths included. This runs the real
+   * `AgentWorker` over a dispatch whose fake `claude` writes the dot-directory
+   * file AND reports it, then runs the real lowered gate command over exactly
+   * what the worker journaled. A refusal would have rejected this spec before
+   * submission.
+   */
+  it('does not refuse a gate the bundled worker itself can satisfy through JSON output', async () => {
+    const cwd = tempDir();
+    const path = '.workflow-artifacts/review.md';
+    onSpawn = (dir) => {
+      mkdirSync(join(dir!, '.workflow-artifacts'), { recursive: true });
+      writeFileSync(join(dir!, '.workflow-artifacts/review.md'), 'findings');
+    };
+    claudeResult = JSON.stringify({ artifacts: [path] });
+    const authored = { version: '0.1.0', name: 'x', steps: [{ id: 'review', type: 'agent', instruction: 'i',
+      cli: 'claude', cwd, verification: { type: 'artifact_exists', path } }] };
+
+    // `claude` carries a default model, so its probe has to answer the
+    // model-scoped readiness question too; nothing else about it matters here.
+    const checked = preflight(authored as never, { probes: { ...probes(),
+      cli: () => ({ exists: true, authenticated: true, modelAvailable: true }) } });
+    expect(checked.diagnostics.map(d => d.kind)).toEqual(['gate_path_unscanned']);
+    expect(checked.ok).toBe(true);
+
+    const lowered = lowerNamedGates(compileSpec(authored).steps);
+    const client = new EventEmitter() as EventEmitter & Record<string, unknown>;
+    client.workerAttach = async () => ({});
+    client.stepHeartbeat = async () => ({ lease_deadline_ms: Date.now() + 30_000 });
+    const completed = new Promise<Record<string, unknown>>((resolve, reject) => {
+      client.stepComplete = async (...args: unknown[]) => { resolve(args[5] as Record<string, unknown>); return {}; };
+      client.once('worker-error', reject);
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'w', pins: { workspace: [], streams: [] },
+    });
+    worker.on('error', (error: unknown) => client.emit('worker-error', error));
+    await worker.attach();
+    client.emit('step.dispatch', {
+      run_id: 'r', step_id: 'review', step_type: 'agent', attempt: 1, idempotency_key: 'k',
+      lease_id: 'l', lease_deadline_ms: Date.now() + 30_000, pins: { workspace: [], streams: [] },
+      spec: lowered[0],
+    });
+    const completion = await completed;
+    await worker.close();
+
+    // The scan recorded nothing (the file is under a dot-directory); the
+    // agent's own JSON is the journaled output, and the gate reads it.
+    expect(await snapshotWorkspaceFiles(cwd)).toEqual(new Map());
+    expect(completion['output']).toEqual({ artifacts: [path] });
+    const command = (lowered[1] as { command: string }).command;
+    expect(() => execFileSync('sh', ['-c', command], {
+      env: { ...process.env, FLOWS_INPUT: JSON.stringify({ output: completion['output'] }) }, stdio: 'pipe',
+    })).not.toThrow();
   });
 });

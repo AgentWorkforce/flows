@@ -1,29 +1,32 @@
 import { unscannedArtifactPrefix } from './artifact-scan-policy.js';
 import { isNamedGate } from './named-gates.js';
 import type { StepSpec } from './spec.js';
-import type { PreflightRefusal } from './preflight.js';
+import type { PreflightWarning } from './preflight.js';
 
 /**
- * Static named-gate reachability, decided from the compiled snapshot alone.
+ * Static named-gate scan coverage, decided from the compiled snapshot alone.
  *
  * An `artifact_exists` gate lowers to a deterministic step that asks whether
  * the producer's journaled `output.artifacts` list contains the literal path
- * (`named-gate-lowering.ts`). The bundled agent worker builds that list by
- * walking the step's cwd under the policy in `artifact-scan-policy.ts`, which
- * records nothing under a dot-named or `node_modules` entry. A path inside one
- * of those prefixes therefore cannot pass under that worker, on any host, in
- * any environment — so it is refused here rather than after a run.
+ * (`named-gate-lowering.ts`). One writer of that list is the bundled agent
+ * worker's filesystem scan, which walks the step's cwd under the policy in
+ * `artifact-scan-policy.ts` and records nothing under a dot-named or
+ * `node_modules` entry. A path inside one of those prefixes can never come
+ * from that scan, on any host, in any environment.
  *
- * Scoped to the bundled worker on purpose. The journal protocol lets a custom
- * worker submit any `output`, and the gate does not reject a hidden path in
- * such a list. The refusal names the policy it applies so the scope is legible
- * in the message, and applies wherever public preflight runs: `flows check`,
- * `flows run`, `flows build` and SDK submissions all share that path.
+ * A warning rather than a refusal, because the scan is not the only writer.
+ * The same bundled worker promotes object-shaped JSON stdout — and a completed
+ * Relay task's output — straight to the journaled `output` (`worker.ts`), so
+ * an agent that reports its own `artifacts` array makes a hidden path pass;
+ * the journal protocol lets a custom worker do the same. Which of those an
+ * `agent` step will take is not decidable from the spec, so this reports the
+ * scan's limitation and leaves the verdict to the run rather than declaring a
+ * satisfiable gate impossible.
  *
  * Temporary: this describes #513. When the scan stops excluding these paths,
  * delete this module and its call site.
  */
-export function namedGateReachabilityDiagnostics(step: StepSpec): PreflightRefusal[] {
+export function namedGateScanCoverageDiagnostics(step: StepSpec): PreflightWarning[] {
   const gate = step.verification;
   if (!isNamedGate(gate) || gate.type !== 'artifact_exists') return [];
   // A malformed path is already `gate_path_invalid` from compilation; only
@@ -31,12 +34,14 @@ export function namedGateReachabilityDiagnostics(step: StepSpec): PreflightRefus
   const prefix = unscannedArtifactPrefix(gate.path);
   if (prefix === undefined) return [];
   return [{
-    severity: 'refusal',
-    kind: 'gate_path_unreachable',
+    severity: 'warning',
+    kind: 'gate_path_unscanned',
     stepId: step.id,
     message: `Step "${step.id}" gates on artifact_exists path "${gate.path}", but the bundled agent worker's `
-      + `artifact scan never records anything under "${prefix}": it skips entries whose name starts with "." `
-      + 'and entries named "node_modules". The path can never appear in the journaled output.artifacts this '
-      + 'gate reads, so the gate cannot pass. Write the artifact to a scanned path.',
+      + `artifact scan records nothing under "${prefix}": it skips entries whose name starts with "." and `
+      + 'entries named "node_modules". The gate reads the journaled output.artifacts and never the disk, so '
+      + 'writing the file is not enough: the step has to report the path itself — as object-shaped JSON stdout '
+      + 'carrying its own "artifacts" array, as a completed Relay task output, or from a custom worker. If the '
+      + 'gate is meant to rest on the scan, write the artifact to a path the scan records.',
   }];
 }

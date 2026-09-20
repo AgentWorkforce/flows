@@ -2,22 +2,10 @@ import { PLUGIN_FAILURE_KINDS } from './plugin-manifest.js';
 import { NAMED_GATE_FAILURE_KINDS } from './named-gates.js';
 const SHARED_SPEC_FAILURE_KINDS = ['invalid_spec'] as const;
 
-/**
- * Environment refusal kinds produced after spec validation succeeds.
- *
- * `gate_path_unreachable` is the one member decided from the compiled
- * snapshot alone: an `artifact_exists` path inside a prefix the bundled agent
- * worker's artifact scan excludes can never appear in the journaled
- * `output.artifacts` the gate reads, so the gate is unsatisfiable rather than
- * merely unproven. It lives in this list because it is the list both
- * `PREFLIGHT_FAILURE_KINDS` and `CHECK_FAILURE_KINDS` draw from. Temporary:
- * it describes #513, and retires with `named-gate-preflight.ts` when the scan
- * stops excluding those paths.
- */
+/** Environment refusal kinds produced after spec validation succeeds. */
 const PREFLIGHT_ENVIRONMENT_FAILURE_KINDS = [
   ...NAMED_GATE_FAILURE_KINDS,
   ...PLUGIN_FAILURE_KINDS,
-  'gate_path_unreachable',
   'helper_provider.mount_required',
   'helper_provider.unsupported',
   'helper_slack.credential_missing',
@@ -86,6 +74,15 @@ export const CHECK_FAILURE_KINDS = [
  * (#442). Warning-only by design: the declaration stays legal and the flow
  * still runs, but an author who wrote one must not be left believing it
  * sandboxes the step.
+ *
+ * `gate_path_unscanned` names an `artifact_exists` path inside a prefix the
+ * bundled agent worker's artifact scan excludes, so the scan can never put it
+ * in the journaled `output.artifacts` the gate reads. It warns rather than
+ * refuses because the scan is not the only writer of that list — the same
+ * worker promotes JSON stdout and completed Relay task output verbatim, and a
+ * custom worker may journal anything — so such a gate is unproven, not
+ * unsatisfiable. Temporary: it describes #513, and retires with
+ * `named-gate-preflight.ts` when the scan stops excluding those paths.
  */
 export const PREFLIGHT_WARNING_KINDS = [
   'unprovable_effects',
@@ -95,6 +92,7 @@ export const PREFLIGHT_WARNING_KINDS = [
   'vacuous_gate',
   'budget_unmetered',
   'permissions_unenforced',
+  'gate_path_unscanned',
 ] as const;
 
 /**

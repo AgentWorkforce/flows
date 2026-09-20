@@ -1168,19 +1168,25 @@ asserts on `AgentResult.artifacts` — which is how this was caught at all, by
 
 That exclusion cuts both ways. A gate reads the journaled list and nothing else,
 so an `artifact_exists` path inside a prefix the walk skips — any segment
-starting with `.`, or a segment named exactly `node_modules` — can never match,
-however faithfully the agent writes the file. The gate is unsatisfiable rather
-than merely unproven, so preflight **refuses** it as `gate_path_unreachable`,
-naming the excluded prefix the artifact has to move out of. Segments are
-compared exactly: `node_modules-copy/out.md` and `reports/v1.2/review.md` are
-fine. The rule lives in `packages/sdk/src/artifact-scan-policy.ts` and the walk
-itself consumes it, so the refusal cannot drift from the scan it describes.
-The refusal is collected before any environment probe can return early, so a
-dead gate is not hidden behind an unresolved CLI for a pass or two. It is a
-property of the *bundled* worker, not of the protocol — `step.complete` accepts
-any `output`, so a custom worker may journal a hidden path — and it retires
-with the exclusion: when the scan stops skipping those prefixes, the kind and
-`packages/sdk/src/named-gate-preflight.ts` are deleted together.
+starting with `.`, or a segment named exactly `node_modules` — is a path the
+scan can never contribute, however faithfully the agent writes the file.
+Preflight **warns** `gate_path_unscanned`, naming the excluded prefix. Segments
+are compared exactly: `node_modules-copy/out.md` and `reports/v1.2/review.md`
+are fine. The rule lives in `packages/sdk/src/artifact-scan-policy.ts` and the
+walk itself consumes it, so the warning cannot drift from the scan it
+describes, and it is collected before any environment probe can return early,
+so it is not hidden behind an unresolved CLI for a pass or two.
+
+It warns rather than refuses because the scan is not the only writer of that
+list, which makes such a gate unproven rather than unsatisfiable. The *bundled*
+worker journals object-shaped JSON stdout — and a completed Relay task's output
+— verbatim in place of the scanned wrapper, so an agent that answers with its
+own `{"artifacts": [...]}` puts exactly what it names in the list, a hidden path
+included, and the gate passes. `step.complete` accepts any `output`, so a custom
+worker may do the same. Which route a step takes is a run-time fact, so
+preflight reports the scan's limitation and leaves the verdict to the run. The
+warning retires with the exclusion: when the scan stops skipping those prefixes,
+the kind and `packages/sdk/src/named-gate-preflight.ts` are deleted together.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.

@@ -518,6 +518,11 @@ describe('preflight: CLI resolution and refusal predicates', () => {
         } as never),
         { probes: probes() },
       ),
+      // An artifact_exists path the bundled worker's artifact scan never
+      // records. Another writer of `output.artifacts` may still produce it,
+      // so the gate is unproven rather than unsatisfiable: warn, never refuse.
+      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x',
+        verification: { type: 'artifact_exists', path: '.workflow-artifacts/review.md' } }), { probes: probes() }),
     ];
     const warningKinds = scenarios.flatMap((result) => result.diagnostics)
       .filter((diagnostic) => diagnostic.severity === 'warning')
@@ -582,10 +587,6 @@ describe('preflight: CLI resolution and refusal predicates', () => {
         { probes: probes({ command: (c) => c !== '/nonexistent-gate-binary-xxx' }) }),
       preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x',
         verification: { type: 'artifact_exists', path: '../escape.md' } }), { probes: probes() }),
-      // `gate_path_unreachable`: a well-formed path the bundled worker's
-      // artifact scan can never journal, so the gate is unsatisfiable.
-      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x',
-        verification: { type: 'artifact_exists', path: '.workflow-artifacts/review.md' } }), { probes: probes() }),
       // `scope_syntax_invalid`: grant string doesn't match "mount/path: mode".
       preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }),
         workspace: 'not-a-grant' } as FlowSpec, { probes: probes() }),

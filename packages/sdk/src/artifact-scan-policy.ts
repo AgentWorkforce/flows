@@ -3,15 +3,20 @@
  *
  * `agent-artifacts.ts` walks an agent step's cwd and records every regular
  * file it finds, except entries whose name starts with `.` and entries named
- * exactly `node_modules` — files as well as directories, in both cases. That
- * walk decides what lands in the journaled `output.artifacts` list, which is
- * the only thing an `artifact_exists` gate reads (`named-gate-lowering.ts`
- * tests exact membership in that list and never touches disk).
+ * exactly `node_modules` — files as well as directories, in both cases. What
+ * that walk records is one source of the journaled `output.artifacts` list,
+ * which is the only thing an `artifact_exists` gate reads
+ * (`named-gate-lowering.ts` tests exact membership in that list and never
+ * touches disk).
  *
  * Static analysis needs the same rule without importing filesystem traversal,
- * so the rule lives here and both consume it. This is a property of the
- * bundled worker, not of the journal protocol: `JournalClient.stepComplete`
- * accepts any `output`, so a custom worker is free to journal a hidden path.
+ * so the rule lives here and both consume it. It bounds the *scan*, not the
+ * list: `worker.ts` journals object-shaped JSON stdout and completed Relay
+ * task output verbatim instead of the scanned wrapper, and
+ * `JournalClient.stepComplete` accepts any `output` from any worker — so a
+ * path this predicate excludes can still reach the list by those routes
+ * (`named-gate-preflight.ts` warns rather than refusing for exactly that
+ * reason).
  */
 
 /** Entry names the walk never descends into or records. */
