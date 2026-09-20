@@ -9,6 +9,7 @@ for (const [name, dependency] of Object.entries({
   journaledCiObservation: 'Journal-backed script-memory write/recall across runs (memory.learn currently refuses)',
   enforcedAgentWriteScope: 'Enforced readonly agent workspace and credential scopes (gate 8 / #442)',
   selectiveAgentExitRetry: 'Typed agent exit-code/retry policy in authored Step; AgentResult only has summary/artifacts',
+  durableSubscriptionLiveness: 'Durable cross-run wake records for the liveness sweep; a subscription that stops firing is currently indistinguishable from a quiet one',
 })) {
   test(name, { todo: dependency }, () => assert.equal(capabilities[name as keyof typeof capabilities], true));
 }

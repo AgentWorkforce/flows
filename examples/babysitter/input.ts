@@ -1,9 +1,19 @@
+import { actionsFor, subscriptionFor, type Family } from './subscriptions.ts';
+
 /** Operator configuration is separate from untrusted webhook data. */
 export interface Config {
-  owner: string; repo: string; number: number; headSha: string; testCommand: string;
+  owner: string; repo: string; number: number; testCommand: string;
   approvers: string[]; organizations: string[]; merge: boolean;
   reviewAuthors: string[]; skipLabels: string[]; requiredChecks: string[];
-  botLogin: string; reviewerCli?: string; event?: Record<string, unknown>;
+  botLogin: string; reviewerCli?: string;
+  /**
+   * Optional operator pin. Present, it *constrains* the run to one head: the
+   * run declines when live state has moved past it. Absent — the resident
+   * default — every wake binds to whatever the live read says the head is.
+   * It is never a source of truth, and a webhook can never set it.
+   */
+  headSha?: string;
+  event?: Record<string, unknown>;
 }
 export const record = (x: unknown): Record<string, unknown> => x !== null && typeof x === 'object' && !Array.isArray(x) ? x as Record<string, unknown> : {};
 export const shaValid = (x: unknown): x is string => typeof x === 'string' && /^[a-f0-9]{40}$/.test(x);
@@ -13,40 +23,79 @@ const list = (x: unknown, fallback: string[] = []): string[] => {
   if (!Array.isArray(x) || !x.every(text)) throw new Error('Babysitter lists must contain nonempty strings');
   return [...new Set(x.map(s => s.trim().toLowerCase()))];
 };
+/**
+ * Which subscription family a payload belongs to, read from its shape rather
+ * than from a header. Order is significant: a review and a check-run payload
+ * both carry `pull_request` references, so the narrower shapes are tested
+ * first. An unrecognised shape throws — Babysitter has no "some other event"
+ * branch, because a branch it cannot name is a branch it cannot gate.
+ */
+export function classify(event: Record<string, unknown>): { family: Family; action: string } {
+  const action = typeof event.action === 'string' ? event.action : '';
+  if (record(event.check_run).head_sha !== undefined) return { family: 'check_run', action };
+  if (event.review !== undefined) return { family: 'pull_request_review', action };
+  if (event.comment !== undefined && event.issue !== undefined) return { family: 'issue_comment', action };
+  if (event.pull_request !== undefined) return { family: 'pull_request', action };
+  throw new Error('Event matches no declared Babysitter subscription family');
+}
+
+/** The head a payload claimed, when it carries one. Advisory: it never binds. */
+export function hintedHead(event: Record<string, unknown>, family: Family): string | undefined {
+  const value = family === 'check_run'
+    ? record(event.check_run).head_sha
+    : record(record(event.pull_request).head).sha;
+  return shaValid(value) ? value : undefined;
+}
+
 export function parseInput(value: unknown): Config {
   const x = record(value);
   if (typeof x.owner !== 'string' || !/^[a-zA-Z0-9-]{1,39}$/.test(x.owner)
     || typeof x.repo !== 'string' || !/^[a-zA-Z0-9_.-]{1,100}$/.test(x.repo) || ['.', '..'].includes(x.repo)
-    || !Number.isSafeInteger(x.number) || Number(x.number) <= 0 || !shaValid(x.headSha)
+    || !Number.isSafeInteger(x.number) || Number(x.number) <= 0
+    || (x.headSha !== undefined && !shaValid(x.headSha))
     || !text(x.testCommand) || /[\0\r\n]/.test(x.testCommand)
     || !text(x.botLogin) || (x.merge !== undefined && typeof x.merge !== 'boolean')
-    || (x.reviewerCli !== undefined && !text(x.reviewerCli))) throw new Error('Invalid Babysitter configuration: pin repository, PR, full head SHA, bot identity and validation command');
+    || (x.reviewerCli !== undefined && !text(x.reviewerCli))) throw new Error('Invalid Babysitter configuration: pin repository, PR, bot identity and validation command');
   const config: Config = {
-    owner: x.owner, repo: x.repo, number: Number(x.number), headSha: x.headSha,
+    owner: x.owner, repo: x.repo, number: Number(x.number),
     testCommand: x.testCommand, botLogin: x.botLogin, merge: x.merge === true,
     approvers: list(x.approvers), organizations: list(x.organizations), reviewAuthors: list(x.reviewAuthors),
     skipLabels: list(x.skipLabels, ['no-agent-relay-review']), requiredChecks: list(x.requiredChecks),
+    ...(typeof x.headSha === 'string' ? { headSha: x.headSha } : {}),
     ...(typeof x.reviewerCli === 'string' ? { reviewerCli: x.reviewerCli } : {}),
   };
-  if (x.event !== undefined) {
-    const event = record(x.event);
-    const repository = record(event.repository);
-    if (repository.full_name !== `${config.owner}/${config.repo}`) throw new Error('Event repository differs from pinned repository');
-    const pr = record(event.pull_request), issue = record(event.issue), check = record(event.check_run);
-    const refs = Array.isArray(check.pull_requests) ? check.pull_requests : [];
-    const ref = record(refs.find(p => record(p).number === config.number));
-    const number = pr.number ?? (issue.pull_request ? issue.number : undefined) ?? ref.number;
-    if (number !== config.number) throw new Error('Event does not identify the pinned PR');
-    const eventSha = record(pr.head).sha ?? check.head_sha;
-    if (eventSha !== undefined && eventSha !== config.headSha) throw new Error('Event head differs from pinned head');
-    if (event.action !== 'opened' && event.action !== 'synchronize' && event.action !== 'reopened'
-      && event.action !== 'ready_for_review' && event.action !== 'submitted' && event.action !== 'completed'
-      && event.action !== 'created') throw new Error('Unsupported event action');
-    if ((event.action === 'submitted' && !text(record(event.review).state))
-      || (event.action === 'completed' && !shaValid(check.head_sha))
-      || (event.action === 'created' && (!issue.pull_request || !text(record(event.comment).body)))) throw new Error('Malformed event');
-    config.event = event;
-  }
+  if (x.event !== undefined) config.event = parseEvent(x.event, config);
   return config;
+}
+
+/**
+ * Validate a delivery as a *wake hint*.
+ *
+ * Two classes of check, and the difference matters. **Routing** is enforced:
+ * an event naming another repository or another PR is misrouted, not stale, and
+ * throwing is the only honest answer. **Content** is not: the payload's head,
+ * state, labels, review verdict and check conclusion are all read later from
+ * live state, so this function never rejects a delivery for disagreeing with a
+ * pin. A synchronize that arrives after two more pushes is an ordinary late
+ * hint — it still means "look now", and looking is exactly what the body does.
+ */
+function parseEvent(value: unknown, config: Config): Record<string, unknown> {
+  const event = record(value);
+  if (record(event.repository).full_name !== `${config.owner}/${config.repo}`) throw new Error('Event repository differs from pinned repository');
+  const { family, action } = classify(event);
+  if (subscriptionFor(family, action) === undefined) {
+    throw new Error(`Unsubscribed ${family} action "${action}"; declared: ${actionsFor(family).join(', ')}`);
+  }
+  const pr = record(event.pull_request), issue = record(event.issue), check = record(event.check_run);
+  const refs = Array.isArray(check.pull_requests) ? check.pull_requests : [];
+  const number = family === 'check_run'
+    ? record(refs.find(p => record(p).number === config.number)).number
+    : family === 'issue_comment' ? (issue.pull_request ? issue.number : undefined) : pr.number;
+  if (number !== config.number) throw new Error('Event does not identify the pinned PR');
+  if ((family === 'pull_request_review' && !text(record(event.review).state))
+    || (family === 'check_run' && !shaValid(check.head_sha))
+    || (family === 'pull_request' && (action === 'labeled' || action === 'unlabeled') && !text(record(event.label).name))
+    || (family === 'issue_comment' && !text(record(event.comment).body))) throw new Error('Malformed event');
+  return event;
 }
 export const shellWord = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;

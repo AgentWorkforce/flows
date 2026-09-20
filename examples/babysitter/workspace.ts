@@ -2,12 +2,12 @@ import type { Ctx } from '@relayflows/surface';
 import { shellWord, type Config } from './input.ts';
 import type { State } from './state.ts';
 /** Worktree is outside the PR so its scratch cannot be supplied as a symlink by the PR. */
-export async function capture(f: Ctx, c: Config, s: State): Promise<string> {
+export async function capture(f: Ctx, c: Config, s: State, head: string): Promise<string> {
   const dir = (await f.run('mktemp -d /tmp/babysitter.XXXXXXXX')).trim();
   if (!/^\/tmp\/babysitter\.[A-Za-z0-9]+$/.test(dir)) throw new Error('Invalid scratch directory');
-  const head = shellWord(c.headSha), base = shellWord(String(s.baseSha));
+  const pinned = shellWord(head), base = shellWord(String(s.baseSha));
   // Explicit repository URL: never trust a PR-controlled remote configuration.
-  await f.run(`git -c core.hooksPath=/dev/null clone --no-checkout --no-local ${shellWord(`https://github.com/${c.owner}/${c.repo}.git`)} ${shellWord(`${dir}/repo`)} && cd ${shellWord(`${dir}/repo`)} && git -c core.hooksPath=/dev/null fetch --no-tags origin ${head} ${base} && git -c core.hooksPath=/dev/null checkout --detach ${head} && test "$(git rev-parse HEAD)" = ${head} && git diff --no-ext-diff --no-textconv ${base}...${head} > ${shellWord(`${dir}/diff.patch`)} && git log --format='%H %s' -30 ${head} > ${shellWord(`${dir}/history.txt`)}`, { timeout: '5m' });
+  await f.run(`git -c core.hooksPath=/dev/null clone --no-checkout --no-local ${shellWord(`https://github.com/${c.owner}/${c.repo}.git`)} ${shellWord(`${dir}/repo`)} && cd ${shellWord(`${dir}/repo`)} && git -c core.hooksPath=/dev/null fetch --no-tags origin ${pinned} ${base} && git -c core.hooksPath=/dev/null checkout --detach ${pinned} && test "$(git rev-parse HEAD)" = ${pinned} && git diff --no-ext-diff --no-textconv ${base}...${pinned} > ${shellWord(`${dir}/diff.patch`)} && git log --format='%H %s' -30 ${pinned} > ${shellWord(`${dir}/history.txt`)}`, { timeout: '5m' });
   return dir;
 }
 export async function assertUntouched(f: Ctx, dir: string, sha: string): Promise<void> {

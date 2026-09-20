@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseInput, eligible, ready, mergeAllowed, conflictAllowed, editAllowed, reconcile, attribution, notificationKey, retryInfra, publicationDecision } from '../policy.ts';
 const sha = 'a'.repeat(40), newer = 'b'.repeat(40);
-const config = { owner: 'acme', repo: 'widgets', number: 7, headSha: sha, testCommand: 'npm test', approvers: ['alice'], organizations: ['acme'], merge: true, reviewAuthors: ['author'], skipLabels: ['skip'], requiredChecks: ['unit'], botLogin: 'babysitter[bot]' };
+const config = { owner: 'acme', repo: 'widgets', number: 7, testCommand: 'npm test', approvers: ['alice'], organizations: ['acme'], merge: true, reviewAuthors: ['author'], skipLabels: ['skip'], requiredChecks: ['unit'], botLogin: 'babysitter[bot]' };
 const state = () => ({ state: 'open', merged: false, draft: false, headSha: sha, baseSha: newer, headRepo: 'acme/widgets', headRef: 'topic', author: 'author', labels: [], mergeable: true, mergeState: 'clean', checks: [{ name: 'unit', sha, status: 'completed', conclusion: 'success' }], reviews: [{ login: 'alice', sha, state: 'APPROVED', id: 1 }], requestedReviewers: [] });
 test('malformed external inputs fail before shell or API', () => {
   for (const value of [null, [], {}, { ...config, number: -1 }, { ...config, number: '7' }, { ...config, owner: 'a/b' }, { ...config, headSha: 'abc' }, { ...config, merge: 'true' }, { ...config, approvers: 'alice' }, { ...config, event: null }, { ...config, event: { action: 'opened', repository: { full_name: 'evil/repo' } } }]) assert.throws(() => parseInput(value), JSON.stringify(value));
-  assert.equal(parseInput(config).headSha, sha);
+  // The head is an optional operator constraint, not a required coordinate:
+  // a resident deployment binds whatever head the live read reports.
+  assert.equal(parseInput(config).headSha, undefined);
+  assert.equal(parseInput({ ...config, headSha: sha }).headSha, sha);
 });
 test('live skip and author rules fail closed', () => {
   assert.equal(eligible(state(), config), undefined);

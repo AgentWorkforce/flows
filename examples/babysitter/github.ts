@@ -1,10 +1,24 @@
-/// <reference types="node" />
 import type { Ctx } from '@relayflows/surface';
 import { shellWord, type Config } from './input.ts';
 import type { State } from './state.ts';
 
+// `githubRead` is stringified by `nodeCommand` and executed by `node -e` inside
+// an `f.run` step — never in this process. These declarations describe the
+// runtime the source lands in, scoped to this module. Referencing @types/node
+// instead would push node's ambient globals onto every project that reaches
+// this file transitively, and `examples/tsconfig.json` compiles with
+// `types: []` on purpose.
+declare const process: {
+  env: Record<string, string | undefined>;
+  stdout: { write(chunk: string): void };
+};
+declare const Buffer: { byteLength(value: string): number };
+declare function fetch(url: string, init: { headers: Record<string, string> }): Promise<{
+  ok: boolean; status: number; json(): Promise<any>;
+}>;
+
 /** Runs entirely inside f.run. Bound output prevents the worker stdout tail hiding state. */
-async function githubRead(c: { owner: string; repo: string; number: number; headSha: string }): Promise<void> {
+async function githubRead(c: { owner: string; repo: string; number: number }): Promise<void> {
   const api = `https://api.github.com/repos/${c.owner}/${c.repo}`;
   async function get(path: string): Promise<any> {
     if (!process.env.GH_TOKEN) throw new Error('GH_TOKEN required');
@@ -55,10 +69,12 @@ export function nodeCommand(fn: Function, value: unknown): string {
   return `node -e ${shellWord(`(${fn.toString()})(${JSON.stringify(value)}).catch(e => { console.error(e.message); process.exit(1); })`)}`;
 }
 export async function readState(f: Ctx, c: Config): Promise<State> {
-  return JSON.parse(await f.run(nodeCommand(githubRead, { owner: c.owner, repo: c.repo, number: c.number, headSha: c.headSha }), { timeout: '2m' }));
+  // No head is passed in: the read discovers the live head, which is the only
+  // thing allowed to bind a wake. Passing a pin here would invite trusting it.
+  return JSON.parse(await f.run(nodeCommand(githubRead, { owner: c.owner, repo: c.repo, number: c.number }), { timeout: '2m' }));
 }
 /** SHA guard is enforced by GitHub, not an agent assertion. Caller must just have gated live state. */
-export async function mergeExact(f: Ctx, c: Config): Promise<void> {
-  const response = await f.run(`curl --fail-with-body -sS -X PUT -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'Content-Type: application/json' ${shellWord(`https://api.github.com/repos/${c.owner}/${c.repo}/pulls/${c.number}/merge`)} --data ${shellWord(JSON.stringify({ sha: c.headSha, merge_method: 'squash' }))}`, { timeout: '2m' });
+export async function mergeExact(f: Ctx, c: Config, head: string): Promise<void> {
+  const response = await f.run(`curl --fail-with-body -sS -X PUT -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'Content-Type: application/json' ${shellWord(`https://api.github.com/repos/${c.owner}/${c.repo}/pulls/${c.number}/merge`)} --data ${shellWord(JSON.stringify({ sha: head, merge_method: 'squash' }))}`, { timeout: '2m' });
   if (JSON.parse(response).merged !== true) throw new Error('GitHub did not confirm exact-head merge');
 }
