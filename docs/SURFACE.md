@@ -695,8 +695,9 @@ touched. Refusals (`no workspace key configured`, mint failure) print
 
 ### Reading a failed step
 
-Every `step_failed` message is assembled from journal facts in one grammar,
-whichever verb produced it and whichever kind of step failed:
+Step-failure messages share the evidence clauses below. A declarative run
+uses the opening shown here; an authored child failure opens with
+`journal step "<step-id>" completed with <reason>` before the same evidence.
 
 ```text
 FAILED [step_failed] Run "<run-id>" failed with completionReason: step_failed.
