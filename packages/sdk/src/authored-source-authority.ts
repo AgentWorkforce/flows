@@ -35,6 +35,12 @@ export async function loadPinnedAuthoredSource(metadata: AuthoredRootMetadata, i
   if (canonicalize(loadedSources) !== canonicalize(metadata.sources)) {
     throw new Error('authored root declared source graph authority mismatch');
   }
+  const loadedExtensions = (loaded.extensions ?? []).map(extension => ({
+    name: extension.name, digest: extension.digest, ref: extension.ref,
+  }));
+  if (canonicalize(loadedExtensions) !== canonicalize(metadata.extensions ?? [])) {
+    throw new Error('authored root declared extension authority mismatch');
+  }
   return loaded;
 }
 

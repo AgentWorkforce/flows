@@ -81,6 +81,16 @@ export async function verifyStoredPlugin(directory: string, expectedDigest: stri
   await rejectExtras(directory, '', new Set([...paths, 'manifest.json']), drift);
 }
 
+/** Re-verify, then return every stored file including the payload `manifest.json`. */
+export async function readStoredPluginFiles(directory: string, expectedDigest: string): Promise<readonly { path: string; data: Buffer }[]> {
+  await verifyStoredPlugin(directory, expectedDigest);
+  const manifest = await regularFile(directory, 'manifest.json');
+  const entries = JSON.parse(manifest.toString('utf8')) as { path: string }[];
+  const files = [{ path: 'manifest.json', data: manifest }];
+  for (const entry of entries) files.push({ path: entry.path, data: await regularFile(directory, entry.path) });
+  return files;
+}
+
 /** Drop a materialized plugin directory. Missing is a no-op. */
 export async function removeStoredPlugin(directory: string): Promise<void> {
   await rm(directory, { recursive: true, force: true });

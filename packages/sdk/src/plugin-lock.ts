@@ -7,9 +7,8 @@ import { SHA, canonicalPluginRef, isGithubPluginRef, parseCanonicalPluginRef, ty
  * `flows.lock.json` — the project's plugin provenance. `flows.json.plugins`
  * says *what* is declared; the lockfile says exactly which bytes that meant:
  * the commit, the content digest, the manifest hash, and the order the
- * operator declared. Version 2 because the sealed bundle's `lockfile.json`
- * is version 1 and the two will converge on this shape when bundles carry
- * plugins (RFC-0001 decision 14).
+ * operator declared. Version 2 is also the sealed bundle `lockfile.json`
+ * shape when the bundle carries plugins (RFC-0001 decision 14).
  */
 export const PLUGIN_LOCK_FILE = 'flows.lock.json';
 export const PLUGIN_LOCK_VERSION = 2;
