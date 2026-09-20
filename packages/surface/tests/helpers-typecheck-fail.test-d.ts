@@ -15,4 +15,8 @@ export function rejectedHelpers(f: Ctx): void {
   f.notarealprovider.anything();
   // @ts-expect-error resource clients do not have runtime dispatch yet.
   f.slack.messages.list();
+  // @ts-expect-error f.gitlab carries comments and discussions only.
+  f.gitlab.issues.list({ projectPath: 'g/p' });
+  // @ts-expect-error merge requests are not in gitlab's writeback catalog.
+  f.gitlab.mergeRequests.write({ projectPath: 'g/p' }, { title: 'x' });
 }

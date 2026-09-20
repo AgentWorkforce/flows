@@ -4,6 +4,11 @@
 import { gitlabClient } from "@relayfile/relay-helpers";
 import { bindHelper, type EffectDispatcher, type JournalHelper } from "../effect-transport.js";
 
+/**
+ * Partial support. Comments and discussions only. Issue list/read/create and merge-request list/read/create are unavailable through f.gitlab.
+ *
+ * Available resources: comments, discussions.
+ */
 export type GitlabHelper = JournalHelper<ReturnType<typeof gitlabClient>>;
 
 export const createGitlabHelper = (dispatch: EffectDispatcher): GitlabHelper =>

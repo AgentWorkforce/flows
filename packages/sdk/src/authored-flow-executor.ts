@@ -23,7 +23,10 @@ import {
   type RunCompletionReason as SurfaceRunCompletionReason,
   type Step,
 } from '@relayflows/surface';
-import { createHelpers, helperProviders, type HelperCall, type FlowHandle } from '@relayflows/surface/runtime';
+import {
+  createHelpers, helperProviders, UnsupportedHelperMemberError,
+  type HelperCall, type FlowHandle,
+} from '@relayflows/surface/runtime';
 import { join } from 'node:path';
 import { observeStep, type ProgressEvent } from './progress.js';
 import { parseStepTimeout } from './compile.js';
@@ -537,7 +540,14 @@ export async function executeAuthoredFlow<Input = undefined>(
     await bodyPromise;
   } catch (error) {
     bodyFailed = true;
-    bodyFailure = error;
+    // The surface refuses an absent helper resource structurally, naming the
+    // ones that dispatch. Carrying that out as a bare Error would report it as
+    // an unexplained body crash, so it is remapped onto the code preflight
+    // already uses for the same refusal — the message is the surface's, not a
+    // second wording. Every other failure is rethrown exactly as thrown.
+    bodyFailure = error instanceof UnsupportedHelperMemberError
+      ? new AuthoredFlowExecutionError('helper_provider.unsupported', error.message)
+      : error;
   }
   if (bodyFailed) {
     try {

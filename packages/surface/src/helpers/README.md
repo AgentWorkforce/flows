@@ -32,11 +32,28 @@ Use `--out-dir /tmp/generated-helpers` to inspect output without changing source
 CI regenerates from the installed pinned package and compares every generated
 TypeScript file byte-for-byte, including the namespace index.
 
-Follow-up for the full slice N: add GitHub, Notion, Linear, and Stripe once their
-methods have runtime dispatch support; consume mapping/discovery resources and
-generate the remaining providers. The current runtime implements only Slack.
-The uniform upstream clients expose resource `read`/`list`/`write` methods,
-not `stripe.createInvoice` or `notion.appendBlock`; those aliases need an agreed
-runtime contract before this types-only generator can expose them. GitHub's
-bespoke `createIssue` also requires `owner` in addition to `repo`, `title`, and
-`body`. No new provider methods or resource methods are advertised in this proof.
+Runtime dispatch is no longer Slack-only: every provider in `providers.ts` whose
+`supported` is not `false` binds its upstream client's resource
+`read`/`list`/`write` methods plus the bespoke aliases the generator knows
+(`stripe.createInvoice`, `notion.appendBlock`, GitHub's `createIssue`, which
+requires `owner` in addition to `repo`, `title`, and `body`). `path` stays a
+synchronous path builder and is never dispatched.
+
+`supported` answers one question only — how much of the namespace dispatches:
+
+- `true`: the upstream writeback client exists and every resource in
+  `resources` dispatches. It is **not** a claim that the whole vendor API is
+  reachable.
+- `'partial'`: usable, but known to omit workflows the namespace suggests.
+  `note` says which, and `resources` is the whole of what dispatches. Reaching
+  for anything else refuses at the call site naming what is available, rather
+  than failing as `undefined is not a function`.
+- `false`: no upstream writeback client at all.
+
+`f.gitlab` is the current `'partial'` entry: it carries `comments` and
+`discussions` only, so issue list/read/create and merge-request
+list/read/create are unavailable through it, while `f.github` carries issues,
+pull-requests, reviews, refs, merge, and close-pull-request. The note lives in
+`PARTIAL_SUPPORT` in `scripts/generate-helpers.mjs`; a later upstream release
+must revisit it deliberately, since a larger resource count is not by itself a
+promotion.

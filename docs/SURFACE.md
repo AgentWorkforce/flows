@@ -115,6 +115,22 @@ No process runs between events: the handler wakes, executes to its next await, p
    and the other provider namespaces remain follow-up work; see
    [the generator notes](../packages/surface/src/helpers/README.md).
 
+   A namespace is not a promise of a whole vendor API. The generated catalog
+   records `supported` as `true` (every resource in `resources` dispatches),
+   `'partial'` (usable, but known to omit workflows the namespace suggests —
+   `note` says which), or `false` (no upstream writeback client). `f.gitlab` is
+   `'partial'`: it carries `comments` and `discussions` only, so issue
+   list/read/create and merge-request list/read/create are unavailable through
+   it, where `f.github` carries issues, pull-requests, reviews, refs, merge, and
+   close-pull-request. Reaching for an absent resource does not fail as
+   `undefined is not a function`. `flows check` refuses statically evident
+   access with `helper_provider.unsupported`, and a dynamically computed name
+   reaches the surface's property guard, which throws
+   `f.gitlab.issues is unavailable; available resources: comments, discussions.`
+   followed by the catalog note — the same wording from both, and mapped at the
+   body boundary onto `helper_provider.unsupported`. Neither path performs
+   provider I/O to refuse.
+
    The initial local memory slice supports `recall` and `why` in authored flows,
    with no journal step for either read. Script scope is stable across runs of
    the same flow file and name; reads cannot widen it to another flow. The
