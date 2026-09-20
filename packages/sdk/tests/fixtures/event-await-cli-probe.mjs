@@ -27,8 +27,11 @@ export default flow('event-await-cli', async f => {
 });`);
 
 function invoke(...args) {
+  return invokeWithin(30_000, args);
+}
+function invokeWithin(timeout, args) {
   const result = spawnSync(process.execPath, [join(repo, 'packages/sdk/dist/cli.js'), ...args,
-    '--data-dir', data, '--json', '--no-observer-link'], { cwd: root, encoding: 'utf8', timeout: 30_000 });
+    '--data-dir', data, '--json', '--no-observer-link'], { cwd: root, encoding: 'utf8', timeout });
   console.log(JSON.stringify({ args, status: result.status, stdout: result.stdout, stderr: result.stderr }));
   if (result.error) throw result.error;
   return { status: result.status, report: JSON.parse(result.stdout) };
@@ -114,11 +117,20 @@ export default flow('${name}-subscription-report', async f => {
     await client.subscriptionDeliver({run_id:rootId,subscription_id:'activity-1',
       router_binding:{generation:name, transport:'local-test-router'},delivery_id:name,
       frame:{type:'metadata_event',payload:{}}});
-    const boundary = invoke('resume', rootId);
+    // Two subscription parks shift raw attempts to 3..10. Seven semantic
+    // retries sleep at most 60,960ms including 20% jitter. Keep ordinary
+    // invocations at 30s; this new failure case needs its full retry budget.
+    const boundary = name === 'failed'
+      ? invokeWithin(75_000, ['resume', rootId]) : invoke('resume', rootId);
     assert.equal(boundary.status, expectedStatus);
     assert.equal(boundary.report.rootRunId, rootId);
     assert.equal(boundary.report.subscriptions.length, 1);
     assert.equal(boundary.report.subscriptions[0].state, name === 'failed' ? 'closed' : 'active');
+    if (name === 'failed') {
+      const { entries: failureEntries } = await client.journalRead(rootId, 1, 500);
+      assert.equal(failureEntries.filter(entry => entry.entry_type === 'step.completed'
+        && entry.payload.completionReason === 'worker_error').length, 8);
+    }
   }
   console.log('E2E_PASS: repeated park, SIGKILL/restart, two wakes replayed in order, deduped delivery, exactly-once child effects, zero crash retries');
 } finally {

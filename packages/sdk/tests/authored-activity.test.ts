@@ -17,6 +17,7 @@ describe('authored event activities', () => {
     path = sockPath();
     server = startLoopback(path, {
       hello: (ctx) => sendOk(ctx),
+      'stream.append': (ctx) => sendResult(ctx, { offset: 0 }),
       'subscription.open': (ctx, params) => {
         calls.push({ verb: 'subscription.open', params });
         if (params.run_id === 'root-prepared') {
