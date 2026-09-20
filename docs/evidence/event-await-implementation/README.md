@@ -1,141 +1,110 @@
-# Event-await local implementation evidence
+# Event-await verification, 2026-09-19
 
-Implementation commits: `ec4345a8c474bbe16b9727e5a0d2dd874e399569` and
-`6e8c3cb697e911ddcba89999bd58bf3b0f603228`.
+This replaces the earlier implementation notes and inconsistent test transcript.
+The current protocol and its Cloud integration boundary are specified in
+[EVENT-AWAIT.md](../../EVENT-AWAIT.md).
 
-## Scope and acceptance map
+The handshake is `subscription.open` → `subscription.prepared` → Cloud persists
+its binding/cursor → `subscription.activate` → `subscription.opened`.
+`subscription.park` releases the root lease on a durable wait. A local router
+adapter supplies events for the CLI probe; it does not establish a deployed
+Cloud provider path. Cloud binding/authorization, wake scheduling, and epoch
+compaction acceptance remain unverified. No complete acceptance claim is made.
 
-`kernel/relayflowd/tests/event_activities.rs` is the deterministic SQLite
-journal harness. It covers cases 1–8 and 10–15 from `docs/EVENT-AWAIT.md`;
-case 9 is the SDK preflight test named below. The live SDK test uses the real
-daemon socket and includes an actual `SIGKILL` / restart boundary after
-`stream.appended`.
-
-| Acceptance case | Test |
-| --- | --- |
-| 1, 3–5, 7, 8, 10–12, 15 | `remaining_event_await_acceptance_cases_use_the_real_journal` |
-| 2, 6 | `accepted_append_is_buffered_deduplicated_and_survives_a_restart_before_next` (plus the SDK SIGKILL test) |
-| 8 | `cancel_closes_an_open_activity_before_the_terminal_run_record` |
-| 9 | `packages/sdk/tests/activity-preflight.test.ts` |
-| 13 | `exact_deadline_tie_wins_and_reports_unread_range` |
-| 14 | `overflow_closes_before_the_1001st_unread_frame_and_recovery_never_reopens_it` |
-
-## Kernel acceptance command
-
-Command (exit 0):
-
-```sh
-PATH=/Users/khaliqgant/.relayflows-toolchain/rustup/toolchains/local/bin:$PATH CARGO_HOME=/Users/khaliqgant/.relayflows-toolchain/cargo RUSTUP_HOME=/Users/khaliqgant/.relayflows-toolchain/rustup RUSTUP_TOOLCHAIN=local CARGO_TARGET_DIR=/Users/khaliqgant/.relayflows-toolchain/target/1398563233 /Users/khaliqgant/.relayflows-toolchain/rustup/toolchains/local/bin/cargo test --manifest-path kernel/Cargo.toml -p relayflowd --test event_activities
-```
-
-Captured output:
+## Kernel parking and replay
 
 ```text
-Compiling relayflowd-core, relayflowd-journal, and relayflowd
-Finished `test` profile [unoptimized + debuginfo] target(s) in 3.82s
-Running tests/event_activities.rs (/Users/khaliqgant/.relayflows-toolchain/target/1398563233/debug/deps/event_activities-54b0211a77a95d2a)
+cwd: /tmp/flows-pr-followup/pr441/kernel
+$ cargo test --locked -p relayflowd --test event_activity_parking
+   Compiling relayflowd v0.1.0 (/tmp/flows-pr-followup/pr441/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.48s
+     Running tests/event_activity_parking.rs (target/debug/deps/event_activity_parking-d8e0d6eeb684776f)
 
-running 6 tests
-test exact_deadline_tie_wins_and_reports_unread_range ... ok
-test cancel_closes_an_open_activity_before_the_terminal_run_record ... ok
-test exact_deadline_tie_wins_and_reports_unread_range ... ok
-test idle_wait_is_durable_and_fires_without_an_event ... ok
-test accepted_append_is_buffered_deduplicated_and_survives_a_restart_before_next ... ok
-test remaining_event_await_acceptance_cases_use_the_real_journal ... ok
-test overflow_closes_before_the_1001st_unread_frame_and_recovery_never_reopens_it ... ok
+running 3 tests
+test replay_keeps_each_acknowledged_batch_addressable_by_body_call_ordinal ... ok
+test activation_and_delivery_racing_the_lease_handoff_are_not_lost ... ok
+test parked_attempt_survives_restart_and_only_a_ready_subscription_redispatches_it ... ok
 
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.91s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
 
-EXIT=0
+
+exit status: 0
+
 ```
 
-## SDK command
-
-Command (exit 0):
-
-```sh
-cd packages/sdk && /Users/khaliqgant/.bun/bin/bun run typecheck && /Users/khaliqgant/.bun/bin/bun run build && /Users/khaliqgant/.bun/bin/bun run typecheck:tests && RELAYFLOWD_BIN=/Users/khaliqgant/.relayflows-toolchain/target/1398563233/debug/relayflowd /Users/khaliqgant/.bun/bin/bun x vitest run tests/authored-activity.test.ts tests/activity-preflight.test.ts tests/live-event-activities.test.ts
-```
-
-Captured output:
+## SDK types and targeted integration/runtime tests
 
 ```text
-$ tsc --noEmit && tsc -p tsconfig.type-tests.json
-$ tsc && node scripts/make-cli-executable.mjs
-$ tsc -p tsconfig.tests.json
+cwd: /tmp/flows-pr-followup/pr441/packages/sdk
+$ sh -c 'export PATH=/tmp/flows-pr-cleanup/toolchain/node_modules/node/bin:/tmp/flows-pr-cleanup/toolchain/node_modules/.bin:$PATH RELAYFLOWD_BIN=/tmp/flows-pr-followup/pr441/kernel/target/debug/relayflowd; npm run typecheck && npm run typecheck:tests && npx vitest run tests/authored-activity.test.ts tests/activity-preflight.test.ts tests/live-event-activities.test.ts tests/event-await-cli.test.ts tests/authored-root.test.ts tests/authored-human.test.ts tests/authored-node-runtime.test.ts tests/journal-client.test.ts'
 
- RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/.worktrees/flows-v2-lead-0913/event-await-flows-overnight-0917/packages/sdk
+> @relayflows/sdk@2.0.22 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
 
- ✓ tests/activity-preflight.test.ts (1 test) 6ms
- ✓ tests/authored-activity.test.ts (8 tests) 19ms
- ✓ tests/live-event-activities.test.ts (2 tests) 629ms
-   ✓ runs surface f.on through the local daemon event path and journals its buffered wake 570ms
 
- Test Files  3 passed (3)
-      Tests  11 passed (11)
-   Start at  08:04:53
-   Duration  2.40s (transform 839ms, setup 0ms, collect 4.48s, tests 655ms, environment 0ms, prepare 208ms)
+> @relayflows/sdk@2.0.22 typecheck:tests
+> tsc -p tsconfig.tests.json
 
-EXIT=0
+
+ RUN  v2.1.9 /tmp/flows-pr-followup/pr441/packages/sdk
+
+ ✓ tests/journal-client.test.ts (15 tests) 90ms
+ ✓ tests/activity-preflight.test.ts (1 test) 9ms
+ ✓ tests/authored-activity.test.ts (13 tests) 93ms
+ ✓ tests/authored-human.test.ts (13 tests) 115ms
+ ✓ tests/authored-root.test.ts (12 tests) 174ms
+ ✓ tests/live-event-activities.test.ts (2 tests) 186ms
+ ✓ tests/event-await-cli.test.ts (1 test) 9603ms
+   ✓ parks, restarts, and replays two event wakes through the actual CLI 9602ms
+ ✓ tests/authored-node-runtime.test.ts (14 tests) 73430ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > serializes the immutable prepared binding facts through the Node and CLI boundary 1284ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > awaits agent plus three run steps and resumes without repeating effects 1899ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > accepts a predicate-gated flow: the `<step>.gate` child is journaled, verified, and not counted as an authored step 1918ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > parks an f.human across the IPC boundary, answers it, and resumes the Node body with the answer 2976ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before success 2388ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGTERM and replays completed children before success 2502ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent blocked-SIGKILL and replays completed children before success 2469ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before declined 2294ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses unawaited rather than reporting terminal success 13458ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses manual then rather than reporting terminal success 14316ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > loads captured graph bytes before preserving the unsupported-use refusal 13186ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > rejects a forged result frame without durable completion 12851ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses missing Node before body effects or root admission 412ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses an old Node candidate before body effects 462ms
+
+ Test Files  8 passed (8)
+      Tests  71 passed (71)
+   Start at  20:41:12
+   Duration  74.60s (transform 1.12s, setup 0ms, collect 6.05s, tests 83.70s, environment 2ms, prepare 545ms)
+
+
+exit status: 0
+
 ```
 
-## Surface command
-
-Command (exit 0):
-
-```sh
-cd packages/surface && PATH=/Users/khaliqgant/.bun/bin:$PATH /Users/khaliqgant/.bun/bin/bun run test
-```
-
-Captured output:
+## Actual CLI restart and replay probe
 
 ```text
-$ bun run build && tsc -p tsconfig.test.json && vitest run
-$ tsc
+cwd: /tmp/flows-pr-followup/pr441
+$ env RELAYFLOWD_BIN=/tmp/flows-pr-followup/pr441/kernel/target/debug/relayflowd /tmp/flows-pr-cleanup/toolchain/node_modules/node/bin/node packages/sdk/tests/fixtures/event-await-cli-probe.mjs /tmp/flows-pr-followup/pr441
+{"args":["run","await.flow.ts","--input","{}"],"status":4,"stdout":"{\"ok\":false,\"command\":\"run\",\"resolutions\":[],\"diagnostics\":[{\"severity\":\"warning\",\"kind\":\"subscription_suspended\",\"message\":\"Flow \\\"event-await-cli\\\" suspended for activation.\"}],\"path\":\"await.flow.ts\",\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"status\":\"suspended\",\"suspension\":{\"kind\":\"activation\",\"subscriptionId\":\"activity-1\",\"eventTypes\":[\"e2e_event\"],\"stream\":\"subscription/activity-1\",\"settleMs\":0,\"idleMs\":3600000,\"deadlineAtMs\":1789962028741,\"includeSelf\":false},\"completedSteps\":0}\n","stderr":"WARNING [subscription_suspended] Flow \"event-await-cli\" suspended for activation.\n"}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":4,"stdout":"{\"ok\":false,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[{\"severity\":\"warning\",\"kind\":\"subscription_suspended\",\"message\":\"Flow \\\"event-await-cli\\\" suspended for activation.\"}],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"status\":\"suspended\",\"suspension\":{\"kind\":\"activation\",\"subscriptionId\":\"activity-1\",\"stream\":\"subscription/activity-1\",\"deadlineAtMs\":1789962028741,\"eventTypes\":[\"e2e_event\"],\"settleMs\":0,\"idleMs\":3600000,\"includeSelf\":false},\"completedSteps\":0}\n","stderr":"WARNING [subscription_suspended] Flow \"event-await-cli\" suspended for activation.\n"}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":4,"stdout":"{\"ok\":false,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[{\"severity\":\"warning\",\"kind\":\"subscription_suspended\",\"message\":\"Flow \\\"event-await-cli\\\" suspended for activation.\"}],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"status\":\"suspended\",\"suspension\":{\"kind\":\"activation\",\"subscriptionId\":\"activity-1\",\"stream\":\"subscription/activity-1\",\"deadlineAtMs\":1789962028741,\"eventTypes\":[\"e2e_event\"],\"settleMs\":0,\"idleMs\":3600000,\"includeSelf\":false},\"completedSteps\":0}\n","stderr":"WARNING [subscription_suspended] Flow \"event-await-cli\" suspended for activation.\n"}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":4,"stdout":"{\"ok\":false,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[{\"severity\":\"warning\",\"kind\":\"subscription_suspended\",\"message\":\"Flow \\\"event-await-cli\\\" suspended for activation.\"}],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"status\":\"suspended\",\"suspension\":{\"kind\":\"activation\",\"subscriptionId\":\"activity-1\",\"stream\":\"subscription/activity-1\",\"deadlineAtMs\":1789962028741,\"eventTypes\":[\"e2e_event\"],\"settleMs\":0,\"idleMs\":3600000,\"includeSelf\":false},\"completedSteps\":0}\n","stderr":"WARNING [subscription_suspended] Flow \"event-await-cli\" suspended for activation.\n"}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":4,"stdout":"{\"ok\":false,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[{\"severity\":\"warning\",\"kind\":\"subscription_suspended\",\"message\":\"Flow \\\"event-await-cli\\\" suspended for activation.\"}],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"status\":\"suspended\",\"suspension\":{\"kind\":\"activation\",\"subscriptionId\":\"activity-1\",\"stream\":\"subscription/activity-1\",\"deadlineAtMs\":1789962028741,\"eventTypes\":[\"e2e_event\"],\"settleMs\":0,\"idleMs\":3600000,\"includeSelf\":false},\"completedSteps\":0}\n","stderr":"WARNING [subscription_suspended] Flow \"event-await-cli\" suspended for activation.\n"}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":4,"stdout":"{\"ok\":false,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[{\"severity\":\"warning\",\"kind\":\"subscription_suspended\",\"message\":\"Flow \\\"event-await-cli\\\" suspended for activation.\"}],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"status\":\"suspended\",\"suspension\":{\"kind\":\"activation\",\"subscriptionId\":\"activity-1\",\"stream\":\"subscription/activity-1\",\"deadlineAtMs\":1789962028741,\"eventTypes\":[\"e2e_event\"],\"settleMs\":0,\"idleMs\":3600000,\"includeSelf\":false},\"completedSteps\":0}\n","stderr":"WARNING [subscription_suspended] Flow \"event-await-cli\" suspended for activation.\n"}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":4,"stdout":"{\"ok\":false,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[{\"severity\":\"warning\",\"kind\":\"subscription_suspended\",\"message\":\"Flow \\\"event-await-cli\\\" suspended for activation.\"}],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"status\":\"suspended\",\"suspension\":{\"kind\":\"activation\",\"subscriptionId\":\"activity-1\",\"stream\":\"subscription/activity-1\",\"deadlineAtMs\":1789962028741,\"eventTypes\":[\"e2e_event\"],\"settleMs\":0,\"idleMs\":3600000,\"includeSelf\":false},\"completedSteps\":0}\n","stderr":"WARNING [subscription_suspended] Flow \"event-await-cli\" suspended for activation.\n"}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":4,"stdout":"{\"ok\":false,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[{\"severity\":\"warning\",\"kind\":\"subscription_suspended\",\"message\":\"Flow \\\"event-await-cli\\\" suspended for activation.\"}],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"status\":\"suspended\",\"suspension\":{\"kind\":\"activation\",\"subscriptionId\":\"activity-1\",\"stream\":\"subscription/activity-1\",\"deadlineAtMs\":1789962028741,\"eventTypes\":[\"e2e_event\"],\"settleMs\":0,\"idleMs\":3600000,\"includeSelf\":false},\"completedSteps\":0}\n","stderr":"WARNING [subscription_suspended] Flow \"event-await-cli\" suspended for activation.\n"}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":4,"stdout":"{\"ok\":false,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[{\"severity\":\"warning\",\"kind\":\"subscription_suspended\",\"message\":\"Flow \\\"event-await-cli\\\" suspended for activation.\"}],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"status\":\"suspended\",\"suspension\":{\"kind\":\"activation\",\"subscriptionId\":\"activity-1\",\"stream\":\"subscription/activity-1\",\"deadlineAtMs\":1789962028741,\"eventTypes\":[\"e2e_event\"],\"settleMs\":0,\"idleMs\":3600000,\"includeSelf\":false},\"completedSteps\":0}\n","stderr":"WARNING [subscription_suspended] Flow \"event-await-cli\" suspended for activation.\n"}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":4,"stdout":"{\"ok\":false,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[{\"severity\":\"warning\",\"kind\":\"subscription_suspended\",\"message\":\"Flow \\\"event-await-cli\\\" suspended for activation.\"}],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"status\":\"suspended\",\"suspension\":{\"kind\":\"activation\",\"subscriptionId\":\"activity-1\",\"stream\":\"subscription/activity-1\",\"deadlineAtMs\":1789962028741,\"eventTypes\":[\"e2e_event\"],\"settleMs\":0,\"idleMs\":3600000,\"includeSelf\":false},\"completedSteps\":0}\n","stderr":"WARNING [subscription_suspended] Flow \"event-await-cli\" suspended for activation.\n"}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":4,"stdout":"{\"ok\":false,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[{\"severity\":\"warning\",\"kind\":\"subscription_suspended\",\"message\":\"Flow \\\"event-await-cli\\\" suspended for activation.\"}],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"status\":\"suspended\",\"suspension\":{\"kind\":\"activation\",\"subscriptionId\":\"activity-1\",\"stream\":\"subscription/activity-1\",\"deadlineAtMs\":1789962028741,\"eventTypes\":[\"e2e_event\"],\"settleMs\":0,\"idleMs\":3600000,\"includeSelf\":false},\"completedSteps\":0}\n","stderr":"WARNING [subscription_suspended] Flow \"event-await-cli\" suspended for activation.\n"}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":4,"stdout":"{\"ok\":false,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[{\"severity\":\"warning\",\"kind\":\"subscription_suspended\",\"message\":\"Flow \\\"event-await-cli\\\" suspended for event_wait.\"}],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"status\":\"suspended\",\"suspension\":{\"kind\":\"event_wait\",\"subscriptionId\":\"activity-1\",\"stream\":\"subscription/activity-1\",\"deadlineAtMs\":1789962028741},\"completedSteps\":0}\n","stderr":"WARNING [subscription_suspended] Flow \"event-await-cli\" suspended for event_wait.\n"}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":4,"stdout":"{\"ok\":false,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[{\"severity\":\"warning\",\"kind\":\"subscription_suspended\",\"message\":\"Flow \\\"event-await-cli\\\" suspended for event_wait.\"}],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"status\":\"suspended\",\"suspension\":{\"kind\":\"event_wait\",\"subscriptionId\":\"activity-1\",\"stream\":\"subscription/activity-1\",\"deadlineAtMs\":1789962028741},\"completedSteps\":0}\n","stderr":"WARNING [subscription_suspended] Flow \"event-await-cli\" suspended for event_wait.\n"}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":4,"stdout":"{\"ok\":false,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[{\"severity\":\"warning\",\"kind\":\"subscription_suspended\",\"message\":\"Flow \\\"event-await-cli\\\" suspended for event_wait.\"}],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"status\":\"suspended\",\"suspension\":{\"kind\":\"event_wait\",\"subscriptionId\":\"activity-1\",\"stream\":\"subscription/activity-1\",\"deadlineAtMs\":1789962028741},\"completedSteps\":0}\n","stderr":"WARNING [subscription_suspended] Flow \"event-await-cli\" suspended for event_wait.\n"}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":0,"stdout":"{\"ok\":true,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"completedSteps\":4,\"status\":\"completed\",\"completionReason\":\"success\"}\n","stderr":""}
+{"args":["resume","01M2YEDANJN68QR2M0HYGBQSC5"],"status":0,"stdout":"{\"ok\":true,\"command\":\"resume\",\"resolutions\":[],\"diagnostics\":[],\"runId\":\"01M2YEDANJN68QR2M0HYGBQSC5\",\"socketPath\":\"/run/user/1000/relayflowd-048d675f69db.sock\",\"completedSteps\":4,\"status\":\"completed\",\"completionReason\":\"success\"}\n","stderr":""}
+E2E_PASS: repeated park, SIGKILL/restart, two wakes replayed in order, deduped delivery, exactly-once child effects, zero crash retries
 
- RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/.worktrees/flows-v2-lead-0913/event-await-flows-overnight-0917/packages/surface
+exit status: 0
 
- ✓ tests/activity.test.ts (1 test) 1ms
- ✓ tests/triggers.test.ts (4 tests) 4ms
- ✓ tests/slack-block-kit.test.ts (5 tests) 3ms
- ✓ tests/provider-triggers.test.ts (3 tests) 4ms
- ✓ tests/flow.test.ts (20 tests) 9ms
- ✓ tests/helpers.snapshot.test.ts (1 test) 475ms
-   ✓ regenerates helpers byte-identically from the pinned adapter 475ms
-
- Test Files  6 passed (6)
-      Tests  34 passed (34)
-   Start at  08:05:02
-   Duration  810ms (transform 189ms, setup 0ms, collect 644ms, tests 495ms, environment 1ms, prepare 583ms)
-
-EXIT=0
 ```
-
-## Cloud handoff
-
-No Cloud credentials, remote configuration, or deployment was touched. The
-repository-owned local adapter deliberately uses `event.emit` with a provider
-delivery id and actor, and the kernel records only the tenant-neutral facts.
-Production router work still outside this repository is:
-
-1. Before acknowledging `subscription.open`, durably create the fenced Cloud
-   binding for `(run_id, subscription_id, generation, ingress_offset)` with
-   the installation, canonical resource scope, authorization snapshot, event
-   types, pattern, and run identity. Persist that binding receipt and ingress
-   offset in `subscription.opened`.
-2. On recovery, remove a prepared binding lacking `subscription.opened`; for
-   an opened binding replay ingress strictly after its saved offset before
-   making it visible. If the binding is `closing: overflow`, submit the same
-   idempotent overflow-close command and never reopen or replay it.
-3. Authenticate every provider frame against the bound installation and
-   canonical scope, apply the actor/self filter, and pass its provider delivery
-   id to the per-subscription journal sequencer. A user pattern must not widen
-   installation or resource authorization.
-4. On a would-exceed frame, first durably fence the Cloud binding and refuse
-   later appends; then submit the overflow close to the same sequencer as
-   appends and timer claims. Remove the binding only after the close commits.
-
-There is no local blocker. The only intentionally unimplemented portion is
-that Cloud-owned provider binding/ingress handoff above; its absence is why the
-local acceptance case proves the journal side of the post-open handoff rather
-than claiming a real provider-router crash test.
