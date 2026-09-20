@@ -395,7 +395,9 @@ impl Engine<WallClock> {
         for entry in &entries {
             if entry.entry_type == EntryType::WaitEvent {
                 let wait: WaitEventPayload = serde_json::from_value(entry.payload.clone())?;
-                if wait.event_key == event_key {
+                if wait.stream.is_none()
+                    && !wait.event_key.starts_with(super::subscriptions::PARK_PREFIX)
+                    && wait.event_key == event_key {
                     open.push((
                         wait.wait_id,
                         entry.step_id.clone(),

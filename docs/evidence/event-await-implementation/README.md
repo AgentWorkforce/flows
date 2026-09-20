@@ -108,3 +108,41 @@ E2E_PASS: repeated park, SIGKILL/restart, two wakes replayed in order, deduped d
 exit status: 0
 
 ```
+
+## Review regressions: event isolation and close reasons
+
+```text
+cwd: /tmp/flows-pr-followup/pr441/kernel
+$ cargo test --locked -p relayflowd --test event_activity_parking --test event_activities
+   Compiling relayflowd v0.1.0 (/tmp/flows-pr-followup/pr441/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.60s
+     Running tests/event_activities.rs (target/debug/deps/event_activities-ed1739dfa94f36b5)
+
+running 11 tests
+test prepared_open_response_replays_the_immutable_binding_snapshot ... ok
+test exact_deadline_tie_wins_and_reports_unread_range ... ok
+test cancel_closes_an_open_activity_before_the_terminal_run_record ... ok
+test overflow_of_a_parked_next_returns_overflow_after_recovery ... ok
+test accepted_append_is_buffered_deduplicated_and_survives_a_restart_before_next ... ok
+test idle_wait_is_durable_and_fires_without_an_event ... ok
+test immediate_event_wakes_have_durable_distinct_wait_boundaries ... ok
+test normal_wake_is_not_acknowledged_until_the_following_next ... ok
+test prepared_binding_stays_invisible_across_a_crash_until_activation_then_next_suspends ... ok
+test remaining_event_await_acceptance_cases_use_the_real_journal ... ok
+test overflow_closes_before_the_1001st_unread_frame_and_recovery_never_reopens_it ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.73s
+
+     Running tests/event_activity_parking.rs (target/debug/deps/event_activity_parking-d8e0d6eeb684776f)
+
+running 4 tests
+test replay_keeps_each_acknowledged_batch_addressable_by_body_call_ordinal ... ok
+test intentional_close_cancels_the_pending_pull_without_claiming_a_timeout ... ok
+test activation_and_delivery_racing_the_lease_handoff_are_not_lost ... ok
+test parked_attempt_survives_restart_and_only_a_ready_subscription_redispatches_it ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+
+exit status: 0
+```

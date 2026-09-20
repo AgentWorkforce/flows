@@ -90,6 +90,24 @@ fn check_parking(race: bool) {
         engine.snapshot(&id).unwrap().steps["body"].lease_deadline_ms,
         None
     );
+    let reserved_key = format!(
+        "subscription.park:{}",
+        serde_json::to_string(&SubscriptionPark {
+            subscription_id: "events".into(),
+            phase: SubscriptionWaitPhase::Activation,
+        })
+        .unwrap()
+    );
+    assert_eq!(
+        engine
+            .emit_event(&id, &reserved_key, json!({"forged":true}), None, None)
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        engine.snapshot(&id).unwrap().steps["body"].state,
+        StepStatus::Waiting
+    );
     drop(engine);
     let engine = Engine::with_runtime(directory.path(), worker.clone(), worker.clone());
     if !race {
@@ -106,6 +124,12 @@ fn check_parking(race: bool) {
     engine
         .next_subscription_outcome(&id, "events", None)
         .unwrap();
+    assert_eq!(
+        engine
+            .emit_event(&id, "events", json!({"forged":true}), None, None)
+            .unwrap(),
+        0
+    );
     if race {
         engine
             .append_subscription_frame(&id, "events", "first", json!({"payload":1}))
@@ -198,4 +222,52 @@ fn replay_keeps_each_acknowledged_batch_addressable_by_body_call_ordinal() {
         json!([{"payload":2}])
     );
     assert!(engine.replay_subscription_wake(&id, "events", 99).is_err());
+}
+
+#[test]
+fn intentional_close_cancels_the_pending_pull_without_claiming_a_timeout() {
+    use relayflowd_core::SubscriptionCompletionReason;
+    let directory = tempfile::tempdir().unwrap();
+    let engine = Engine::with_clock(directory.path(), SimClock::new(0));
+    let id = engine.start(spec(), "test", None).unwrap().run_id;
+    for (index, reason) in [
+        SubscriptionCompletionReason::Closed,
+        SubscriptionCompletionReason::RunCompleted,
+        SubscriptionCompletionReason::Canceled,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let subscription = format!("close-{index}");
+        engine
+            .open_subscription(
+                &id,
+                &subscription,
+                vec!["test".into()],
+                None,
+                0,
+                60_000,
+                3_600_000,
+                false,
+            )
+            .unwrap();
+        engine
+            .activate_subscription(&id, &subscription, 0, json!({"generation":1}))
+            .unwrap();
+        engine
+            .next_subscription_outcome(&id, &subscription, None)
+            .unwrap();
+        engine
+            .close_subscription(&id, &subscription, reason)
+            .unwrap();
+        let entries = engine.journal_entries(&id, 1, 500).unwrap();
+        let completion = entries
+            .iter()
+            .find(|entry| {
+                entry.entry_type == EntryType::WaitCompleted
+                    && entry.payload["wait_id"] == format!("{subscription}/next/0")
+            })
+            .unwrap();
+        assert_eq!(completion.payload["completionReason"], "canceled");
+    }
 }
