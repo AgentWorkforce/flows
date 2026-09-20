@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { JournalClient } from './journal-client.js';
 import { AgentWorker } from './worker.js';
+import type { KernelRunSpec } from './spec.js';
+import { communicationInstruction } from './communication/spec.js';
 
 /** A local worker for stream-only steps; no workspace recovery is claimed. */
 export async function attachLocalAgent(
@@ -8,19 +10,23 @@ export async function attachLocalAgent(
   dataDir?: string,
   onPtyReady?: (path: string) => void,
   requestedStream?: string,
+  declaredStreams: readonly string[] = [],
 ): Promise<{
   stream: string;
   readonly failure: unknown;
   close(): Promise<void>;
 }> {
-  // A fresh, unconsumed stream has offset zero. The executor declares exactly
-  // this stream on its agent steps. No worktree revision is invented.
+  // This worker has consumed no messages: its read offsets are zero, including
+  // named declarative streams. The kernel retains ownership of dispatch pins
+  // and rejects a resume whose required offsets this worker does not hold.
+  // No worktree revision is invented.
   const stream = requestedStream ?? `local-agent-${randomUUID()}`;
   const worker = new AgentWorker(client, {
     workerId: stream,
     capacity: 1,
     dataDir, onPtyReady,
-    pins: { workspace: [], streams: [{ stream, read_offset: 0 }] },
+    pins: { workspace: [], streams: [...new Set([stream, ...declaredStreams])]
+      .map(stream => ({ stream, read_offset: 0 })) },
   });
   let failure: unknown;
   worker.on('error', error => { failure = error; client.close(); });
@@ -32,4 +38,12 @@ export async function attachLocalAgent(
       await worker.close();
     },
   };
+}
+
+/** Conversation workers own their streams and registration; do not steal their dispatches. */
+export function declaredLocalAgentStreams(spec: KernelRunSpec): string[] {
+  return [...new Set(spec.steps.flatMap(step =>
+    step.type === 'agent' && !communicationInstruction(step.instruction)
+      ? step.surfaces?.streams?.map(({ stream }) => stream) ?? []
+      : []))];
 }

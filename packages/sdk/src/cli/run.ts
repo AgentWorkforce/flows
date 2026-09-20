@@ -17,7 +17,7 @@ import { daemonRefusal } from './daemon-refusal.js';
 import type { RunFailureKind, RunWarningKind, StepFailedDetails } from '../failure-kinds.js';
 import { inspectionHint, renderInspection, renderStepEvidence, stepFailureDetails } from './step-failure.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
-import { attachLocalAgent } from '../local-agent.js';
+import { attachLocalAgent, declaredLocalAgentStreams } from '../local-agent.js';
 import { LlmWorker } from '../llm-worker.js';
 import { readAuthoredRootMetadata, resumeDurableAuthoredFlow } from '../authored-root.js';
 import type { AuthoredFlowSuspendedResult } from '../authored-flow-executor.js';
@@ -174,7 +174,9 @@ async function executeCheckedFlow(
     const spec = toKernelSpec(checked.flow!);
     // Use the checked CLI/model and declared surfaces unchanged. The worker
     // advertises its existing pins; the daemon still owns surface matching.
-    if (options.localAgent) localAgent = await attachLocalAgent(client, dataDir, options.onPtyReady);
+    if (options.localAgent) localAgent = await attachLocalAgent(
+      client, dataDir, options.onPtyReady, undefined, declaredLocalAgentStreams(spec),
+    );
     if (options.localAgent && spec.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
       const { attachCommunicationWorkers } = await import('../communication/local.js');
       communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
@@ -254,9 +256,12 @@ export async function resumeFlow(
     // second call the earlier rebase left is a stale reference from before
     // the helper fanout renamed the API.
     if (options.localAgent) {
-      authoredAgent = await attachLocalAgent(client, dataDir, options.onPtyReady);
       const entries = (await client.journalRead(runId, 1)).entries as Array<{ entry_type: string; payload?: { spec?: import('../spec.js').KernelRunSpec } }>;
       const spec = entries.find(entry => entry.entry_type === 'run.spawned')?.payload?.spec;
+      if (!spec) throw new Error('Cannot attach a local worker: the journaled run spec is missing');
+      authoredAgent = await attachLocalAgent(
+        client, dataDir, options.onPtyReady, undefined, declaredLocalAgentStreams(spec),
+      );
       if (spec?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
         const { attachCommunicationWorkers } = await import('../communication/local.js');
         communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
