@@ -12,6 +12,7 @@ import { compileSpec, CompileError } from './compile.js';
 import { helperCall } from './yaml-helpers.js';
 import { resolveCliModelSelection, type CliModelSource } from './cli-adapter.js';
 import { isNamedGate, NAMED_GATE_FAILURE_KINDS, type NamedGateFailureKind } from './named-gates.js';
+import { namedGateReachabilityDiagnostics } from './named-gate-preflight.js';
 import { compileScopes, type ScopeInput, type MountRegistry } from './scope-compiler.js';
 import { readMountRegistry } from './mount-registry.js';
 import type {
@@ -231,6 +232,11 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
   // permissions they declared on the same file are not enforced.
   diagnostics.push(...permissionsDiagnostics(compiled));
   diagnostics.push(...scopeDiagnostics(compiled, options));
+  // Same rule, same reason: an `artifact_exists` path the bundled worker's
+  // scan can never journal is decidable from the snapshot, so it is collected
+  // here rather than beside `probeNamedGate` below — which CLI resolution, an
+  // unknown model, a bad scope or a budget refusal can all return before.
+  diagnostics.push(...compiled.steps.flatMap(namedGateReachabilityDiagnostics));
   for (const server of new Set(options.mcpServers ?? [])) {
     if (options.mcp !== undefined && Object.hasOwn(options.mcp, server)) continue;
     diagnostics.push({ severity: 'refusal', kind: 'mcp_undeclared_server', server,

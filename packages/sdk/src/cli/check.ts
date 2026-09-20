@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:pat
 import { spawnSync } from 'node:child_process';
 import { parse as parseYaml } from 'yaml';
 import { CompileError, compileSpec, kernelToAuthoring } from '../compile.js';
+import { agentWorkerDiagnostics } from './check-worker-surface.js';
 import { helperReady } from '../yaml-helper-effect.js';
 import { flowRequirements, type FlowRequirements } from '../flow-requirements.js';
 import {
@@ -94,6 +95,24 @@ export interface CheckExecution {
   flow?: FlowSpec;
 }
 
+/**
+ * Facts about the *caller*, not about the spec, that change which diagnostics
+ * apply. Preflight stays a pure function of the spec plus environment probes;
+ * anything that depends on how the flow is about to be invoked opts in here.
+ */
+export interface CheckInvocation {
+  /**
+   * Report `agent_worker_unresolved` when the spec has `agent` steps.
+   *
+   * Only `flows check` sets this. `flows run` attaches its own worker under
+   * `--local-agent` and knows the answer, `flows build` and `flows deploy`
+   * check a spec that will run elsewhere, and an SDK caller that reaches
+   * `checkAuthoredFlow` directly is generally running a worker already —
+   * warning any of them would be noise about a question they have answered.
+   */
+  warnUnresolvedAgentWorker?: boolean;
+}
+
 export class CheckFailure extends Error {
   constructor(readonly kind: CheckFailureKind, message: string) {
     super(message);
@@ -101,7 +120,7 @@ export class CheckFailure extends Error {
 }
 
 /** Validate and preflight one working-tree spec without starting a run. */
-export function checkFlow(path: string): CheckExecution {
+export function checkFlow(path: string, invocation: CheckInvocation = {}): CheckExecution {
   const absolutePath = resolve(path);
   try {
     const source = readFlowSource(absolutePath);
@@ -111,7 +130,7 @@ export function checkFlow(path: string): CheckExecution {
       : [];
     let execution: CheckExecution;
     try {
-      execution = checkAuthoredFlow(readFlow(source, absolutePath), path);
+      execution = checkAuthoredFlow(readFlow(source, absolutePath), path, undefined, invocation);
     } catch (error) {
       if (!(error instanceof CheckFailure)) throw error;
       execution = { report: inputFailureReport(error, path) };
@@ -141,7 +160,12 @@ function safeRequirements(authoring: FlowSpec, projectCli: string | undefined): 
 }
 
 /** Preflight a validated authored flow through the same path as YAML/JSON. */
-export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConfig?: ProjectConfig): CheckExecution {
+export function checkAuthoredFlow(
+  authoring: FlowSpec,
+  path: string,
+  projectConfig?: ProjectConfig,
+  invocation: CheckInvocation = {},
+): CheckExecution {
   const absolutePath = resolve(path);
   try {
     const config = projectConfig ?? readProjectConfig(dirname(absolutePath));
@@ -172,6 +196,13 @@ export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConf
       result.diagnostics.push({ severity: 'warning', kind: 'budget_unmetered',
         message: 'Managed communication sessions do not report token or dollar usage. Budget ceilings cannot bound their spend; communication.timeoutMs bounds their duration.' });
     }
+    // Reported whatever preflight concluded. An environment refusal (a missing
+    // CLI, an unknown model) is fixed and rerun; the worker question is still
+    // open on the next pass, and staying silent about it here is what made an
+    // author meet it one dead run at a time.
+    const workerSurface = invocation.warnUnresolvedAgentWorker === true
+      ? agentWorkerDiagnostics(authoring)
+      : [];
     return {
       report: {
         ok: result.ok,
@@ -179,7 +210,7 @@ export function checkAuthoredFlow(authoring: FlowSpec, path: string, projectConf
         ...(config.path !== undefined ? { projectConfigPath: config.path } : {}),
         gates: result.gates,
         resolutions: result.resolutions,
-        diagnostics: result.diagnostics,
+        diagnostics: [...result.diagnostics, ...workerSurface],
         requirements: safeRequirements(authoring, config.cli),
       },
       ...(result.ok && flow !== undefined ? { flow } : {}),

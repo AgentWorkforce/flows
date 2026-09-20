@@ -848,6 +848,19 @@ existing run from its journal. The data directory defaults to `.relayflowd`.
 `--json` writes one report-shaped object to stdout while diagnostics remain on
 stderr.
 
+`check`'s `REQUIRES` line names the harnesses a flow needs; a spec with `agent`
+steps also needs a *worker attached for step type `agent`*, and without one the
+run parks at the first such step rather than failing. `flows check` cannot see
+whether one is attached — it is daemon-free by construction — so it warns
+`agent_worker_unresolved` instead of guessing, naming the steps and pointing at
+`flows run --local-agent`. The warning is emitted in the `REQUIRES` position,
+because it is a footnote to that line. It never refuses, and it is scoped to
+`agent` steps: `--local-agent` attaches no `llm` worker, so naming it for an
+`llm` step would be false. Only `flows check` opts in. `run` knows the answer,
+`build` and `deploy` check a spec that will run elsewhere, and an authored
+`.flow.ts` is checked through its header without compiling step bodies, so it
+has no agent steps to count.
+
 `flows check --watch` checks once, then watches the target, its reachable
 relative `use:` imports, and the nearest `flows.json` walking up from the
 flow directory. Saves are debounced for 150 ms; a change during a check
@@ -1152,6 +1165,22 @@ asserts on `AgentResult.artifacts` — which is how this was caught at all, by
 `packages/sdk/tests/agent-transcript-live.test.ts` failing its own
 `artifacts.length !== 0` check. Dotfiles and dotdirs are skipped by the walk, so
 `.relayflowd` is already invisible; a data dir under any other name is not.
+
+That exclusion cuts both ways. A gate reads the journaled list and nothing else,
+so an `artifact_exists` path inside a prefix the walk skips — any segment
+starting with `.`, or a segment named exactly `node_modules` — can never match,
+however faithfully the agent writes the file. The gate is unsatisfiable rather
+than merely unproven, so preflight **refuses** it as `gate_path_unreachable`,
+naming the excluded prefix the artifact has to move out of. Segments are
+compared exactly: `node_modules-copy/out.md` and `reports/v1.2/review.md` are
+fine. The rule lives in `packages/sdk/src/artifact-scan-policy.ts` and the walk
+itself consumes it, so the refusal cannot drift from the scan it describes.
+The refusal is collected before any environment probe can return early, so a
+dead gate is not hidden behind an unresolved CLI for a pass or two. It is a
+property of the *bundled* worker, not of the protocol — `step.complete` accepts
+any `output`, so a custom worker may journal a hidden path — and it retires
+with the exclusion: when the scan stops skipping those prefixes, the kind and
+`packages/sdk/src/named-gate-preflight.ts` are deleted together.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.

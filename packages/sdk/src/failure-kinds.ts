@@ -2,10 +2,22 @@ import { PLUGIN_FAILURE_KINDS } from './plugin-manifest.js';
 import { NAMED_GATE_FAILURE_KINDS } from './named-gates.js';
 const SHARED_SPEC_FAILURE_KINDS = ['invalid_spec'] as const;
 
-/** Environment refusal kinds produced after spec validation succeeds. */
+/**
+ * Environment refusal kinds produced after spec validation succeeds.
+ *
+ * `gate_path_unreachable` is the one member decided from the compiled
+ * snapshot alone: an `artifact_exists` path inside a prefix the bundled agent
+ * worker's artifact scan excludes can never appear in the journaled
+ * `output.artifacts` the gate reads, so the gate is unsatisfiable rather than
+ * merely unproven. It lives in this list because it is the list both
+ * `PREFLIGHT_FAILURE_KINDS` and `CHECK_FAILURE_KINDS` draw from. Temporary:
+ * it describes #513, and retires with `named-gate-preflight.ts` when the scan
+ * stops excluding those paths.
+ */
 const PREFLIGHT_ENVIRONMENT_FAILURE_KINDS = [
   ...NAMED_GATE_FAILURE_KINDS,
   ...PLUGIN_FAILURE_KINDS,
+  'gate_path_unreachable',
   'helper_provider.mount_required',
   'helper_provider.unsupported',
   'helper_slack.credential_missing',
@@ -136,8 +148,17 @@ export const RUN_WARNING_KINDS = [
   'connection_file_stale',
 ] as const;
 
-/** File-level editor hints emitted by flows check, outside pure preflight. */
-export const CHECK_WARNING_KINDS = ['editor_schema_missing'] as const;
+/**
+ * Warnings emitted by flows check, outside pure preflight.
+ *
+ * `editor_schema_missing` is a file-level editor hint. `agent_worker_unresolved`
+ * is a property of the *invocation*, not of the spec: a spec with `agent`
+ * steps needs a worker attached for step type `agent`, and only the caller
+ * knows whether it attaches one. `flows check` attaches none and, being
+ * daemon-free, can see none either — so it opts in, while `flows run`, `flows
+ * build` and SDK submissions do not (cli/check-worker-surface.ts).
+ */
+export const CHECK_WARNING_KINDS = ['editor_schema_missing', 'agent_worker_unresolved'] as const;
 export type CheckWarningKind = (typeof CHECK_WARNING_KINDS)[number];
 
 export type PreflightFailureKind = (typeof PREFLIGHT_FAILURE_KINDS)[number];

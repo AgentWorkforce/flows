@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // A fake `claude` whose "work" is whatever the test's `onSpawn` hook writes
@@ -40,6 +40,9 @@ import { lowerNamedGates } from '../src/named-gate-lowering.js';
 import { namedGateErrors, namedGateFailure } from '../src/named-gates.js';
 import { validateSpec } from '../src/validate.js';
 import { checkFlow } from '../src/cli/check.js';
+import { preflight } from '../src/preflight.js';
+import { unscannedArtifactPrefix } from '../src/artifact-scan-policy.js';
+import { snapshotWorkspaceFiles } from '../src/agent-artifacts.js';
 import { execFileSync } from 'node:child_process';
 
 const dirs: string[] = [];
@@ -145,5 +148,106 @@ describe('artifact_exists named gate', () => {
     ] }));
     const report = checkFlow(join(dir, 'flow.yaml')).report;
     expect(report.gates).toContainEqual(expect.objectContaining({ stepId: 'review', checks: ['exit_code'], preflightable: true, replayable: true }));
+  });
+});
+
+/**
+ * #513: the gate reads the worker's journaled `artifacts` list, and the
+ * bundled worker's scan never puts a dot-named or `node_modules` path in it.
+ * That makes such a gate statically unsatisfiable, which preflight now refuses
+ * rather than letting a run discover it. Retire this block with the module.
+ */
+describe('artifact_exists named gate: static reachability', () => {
+  const probes = () => ({ cli: () => ({ exists: true, authenticated: true }), executor: () => true, command: () => true });
+  const gated = (path: string) => ({
+    version: '0.1.0', name: 'x',
+    steps: [{ id: 'review', type: 'agent' as const, instruction: 'i', cli: 'x',
+      verification: { type: 'artifact_exists' as const, path } }],
+  });
+
+  it.each([
+    ['.workflow-artifacts/rust/review.md', '.workflow-artifacts'],
+    ['.hidden.md', '.hidden.md'],
+    ['node_modules/pkg/out.md', 'node_modules'],
+    ['reports/.drafts/review.md', 'reports/.drafts'],
+    ['reports/node_modules/out.md', 'reports/node_modules'],
+    // The whole prefix, not the offending segment alone: that prefix is the
+    // directory the author has to move the artifact out of.
+    ['a/b/.c/d/e.md', 'a/b/.c'],
+  ])('refuses %s and names the excluded prefix %s', (path, prefix) => {
+    const result = preflight(gated(path) as never, { probes: probes() });
+    expect(result.ok).toBe(false);
+    const refusal = result.diagnostics.find(d => d.kind === 'gate_path_unreachable');
+    expect(refusal, JSON.stringify(result.diagnostics)).toMatchObject({ severity: 'refusal', stepId: 'review' });
+    expect(refusal!.message).toContain(`"${prefix}"`);
+    expect(refusal!.message).toContain(path);
+  });
+
+  it.each([
+    'review/security.md',
+    // Exact segment comparison, so a similar name is not an exclusion.
+    'node_modules-copy/out.md',
+    'reports/node_modules.md',
+    // A dot inside a segment is not a dot-named entry.
+    'review.md',
+    'reports/v1.2/review.md',
+    // A backslash is an ordinary filename character in a POSIX path, never a
+    // separator: `readdir` reports one entry whose name starts with "d".
+    String.raw`dir\.hidden.md`,
+  ])('accepts %s, which the scan does record', (path) => {
+    const result = preflight(gated(path) as never, { probes: probes() });
+    expect(result.diagnostics.filter(d => d.kind === 'gate_path_unreachable')).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it('agrees with what the real scan records, for every case above', async () => {
+    const cwd = tempDir();
+    const paths = [
+      '.workflow-artifacts/rust/review.md', '.hidden.md', 'node_modules/pkg/out.md',
+      'reports/.drafts/review.md', 'reports/node_modules/out.md', 'a/b/.c/d/e.md',
+      'review/security.md', 'node_modules-copy/out.md', 'reports/node_modules.md',
+      'review.md', 'reports/v1.2/review.md', String.raw`dir\.hidden.md`,
+    ];
+    for (const path of paths) {
+      const full = join(cwd, ...path.split('/'));
+      mkdirSync(dirname(full), { recursive: true });
+      writeFileSync(full, 'x');
+    }
+    const scanned = new Set((await snapshotWorkspaceFiles(cwd)).keys());
+    // The predicate is the scan's rule, so "excluded by the predicate" and
+    // "absent from the scan" must be the same set. A drift in either
+    // direction would make the refusal lie.
+    for (const path of paths) {
+      expect(scanned.has(path), path).toBe(unscannedArtifactPrefix(path) === undefined);
+    }
+  });
+
+  it('is reported even when an unrelated environment refusal returns first', () => {
+    // `cli_unresolved` returns from preflight before any probe runs. The
+    // author fixes the CLI, reruns, and would otherwise meet the dead gate
+    // only on the pass after that — or at run time.
+    const result = preflight({
+      version: '0.1.0', name: 'x',
+      steps: [{ id: 'review', type: 'agent', instruction: 'i',
+        verification: { type: 'artifact_exists', path: '.out/review.md' } }],
+    } as never, { probes: probes() });
+
+    expect(result.diagnostics.map(d => d.kind)).toEqual(['gate_path_unreachable', 'cli_unresolved']);
+  });
+
+  it('refuses through flows check, naming the step and the prefix', () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, 'flows.json'), JSON.stringify({ cli: 'true' }));
+    writeFileSync(join(dir, 'flow.yaml'), JSON.stringify({ version: '0.1.0', name: 'gated', steps: [
+      { id: 'review', type: 'agent', instruction: 'i', cli: 'true',
+        verification: { type: 'artifact_exists', path: '.workflow-artifacts/rust/review.md' } },
+    ] }));
+
+    const report = checkFlow(join(dir, 'flow.yaml')).report;
+
+    expect(report.ok).toBe(false);
+    expect(report.diagnostics).toContainEqual(expect.objectContaining({
+      severity: 'refusal', kind: 'gate_path_unreachable', stepId: 'review',
+    }));
   });
 });

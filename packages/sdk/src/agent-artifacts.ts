@@ -1,12 +1,11 @@
 import { createHash } from 'node:crypto';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
+import { isUnscannedEntryName } from './artifact-scan-policy.js';
 
 function isEnoent(error: unknown): boolean {
   return error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT';
 }
-
-const SKIPPED_DIR_NAMES = new Set(['node_modules']);
 
 /**
  * A recursive snapshot of every regular file under `dir`, keyed by its
@@ -41,7 +40,7 @@ async function walk(root: string, current: string, out: Map<string, string>): Pr
     throw error;
   }
   for (const entry of entries) {
-    if (entry.name.startsWith('.') || SKIPPED_DIR_NAMES.has(entry.name)) continue;
+    if (isUnscannedEntryName(entry.name)) continue;
     const path = join(current, entry.name);
     if (entry.isDirectory()) {
       await walk(root, path, out);
