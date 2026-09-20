@@ -62,6 +62,14 @@ function fixture(exitCode = 0, workspace?: string, delayMs = 0) {
     /** The same flow, with a caller's `--input` and no worker offered: it parks. */
     park: (input: string, ...flags: string[]) => spawn(
       ['run', 'hello.flow.ts', '--input', input, '--data-dir', join(root, 'data'), ...flags]),
+    resume: (runId: string, ...flags: string[]) => spawn(
+      ['resume', runId, '--data-dir', join(root, 'data'), ...flags]),
+    /** An input document on disk, named by the path this returns. */
+    inputFile: (contents: string) => {
+      const path = join(root, 'input.json');
+      writeFileSync(path, contents);
+      return path;
+    },
     /**
      * A shell line, run as written. Used to execute a printed remedy verbatim —
      * the only assertion that actually proves "runnable", since it exercises the
@@ -134,6 +142,48 @@ describe('built CLI local agent against a real daemon', () => {
     // The agent really ran. Exit 0 is also what proves the shell delivered the
     // input unmangled: a quote lost in the round trip leaves invalid JSON, and
     // a `.flow.ts` with unparseable `--input` is refused at exit 2.
+    expect(readFileSync(f.marker, 'utf8')).toBe('hello');
+  }, 90_000);
+
+  /**
+   * The same acceptance, one process further on: the run was started from an
+   * input FILE, so the resume refusal can only render the recorded input back
+   * inline — the journal keeps the document, not the word that carried it.
+   *
+   * A 300-byte document is ordinary and its inline form is not a legal
+   * filename: no path component may exceed 255 bytes, so `parseDirectInput`'s
+   * opening `stat` failed ENAMETOOLONG. Read as "could not be inspected", that
+   * turned the printed recovery command into an exit-2 `input_unreadable`, and
+   * a remedy that cannot be run is the same dead end as no remedy at all.
+   */
+  it('prints a remedy that runs, for a run started from an input file too long to be one', () => {
+    const f = fixture();
+    const task = 'x'.repeat(300);
+    const inputPath = f.inputFile(JSON.stringify({ task }));
+
+    const parked = f.park(inputPath, '--json', '--no-observer-link');
+
+    expect(parked.status, parked.stderr + parked.stdout).toBe(3);
+    const rootRunId = JSON.parse(parked.stdout).rootRunId as string;
+
+    // The obvious recovery, and the one the field report tried: resume the
+    // parked root with the flag. An authored root admits its worker at run
+    // start, so this is refused — with the new run to start instead.
+    const refused = f.resume(rootRunId, '--local-agent', '--json', '--no-observer-link');
+
+    expect(refused.status, refused.stderr + refused.stdout).toBe(2);
+    const message = JSON.parse(refused.stdout).diagnostics.at(-1).message as string;
+    const remedy = /: (flows run [^\n]*?)\. [A-Z]/.exec(message)?.[1];
+    expect(remedy, message).toBeDefined();
+    // Inline, because that is all the journal can give back — and longer than
+    // any filename, which is the whole of this regression.
+    expect(remedy).toContain(`--input '${JSON.stringify({ task })}'`);
+
+    const rerun = f.shell(remedy!.replace(/^flows /,
+      `${JSON.stringify(process.execPath)} ${JSON.stringify(cli)} `) + ' --json --no-observer-link');
+
+    expect(rerun.status, rerun.stderr + rerun.stdout).toBe(0);
+    expect(JSON.parse(rerun.stdout)).toMatchObject({ ok: true, status: 'completed', completionReason: 'success' });
     expect(readFileSync(f.marker, 'utf8')).toBe('hello');
   }, 90_000);
 

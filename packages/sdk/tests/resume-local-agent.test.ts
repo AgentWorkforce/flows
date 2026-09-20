@@ -136,6 +136,29 @@ describe('flows resume --local-agent against an authored root', () => {
     }
   });
 
+  /**
+   * The refusal renders the recorded input back inline, because the journal
+   * keeps the document and not the `--input` word that carried it. An input
+   * this run may legitimately have been started with — `parseDirectInput`
+   * admits a mebibyte — can exceed what `execve` carries in one argument
+   * (`MAX_ARG_STRLEN`, 128KiB), and a printed command that dies with
+   * `Argument list too long` is no remedy. State the requirement instead.
+   */
+  it('states the input requirement when the recorded input outgrows a shell argument', async () => {
+    const daemon = daemonWithAuthoredRoot({ input: { task: 'x'.repeat(200_000) } });
+
+    const result = await resumeFlow(RUN_ID, daemon.dataDir, { localAgent: true });
+
+    expect(result.exitCode).toBe(2);
+    const message = result.report.diagnostics.at(-1)!.message;
+    expect(message).toContain('--local-agent is admitted at run start; start a new run');
+    expect(message).toContain('bytes of input, more than a shell can carry in one argument');
+    // No command rather than an unrunnable one — and the refusal must not
+    // itself grow to the size of the input it is describing.
+    expect(message).not.toMatch(/--input '/);
+    expect(message.length).toBeLessThan(1_000);
+  });
+
   it('states the input requirement when the root recorded no input to repeat', async () => {
     const daemon = daemonWithAuthoredRoot({ inputPresent: false });
 

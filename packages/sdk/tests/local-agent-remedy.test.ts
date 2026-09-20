@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
-import { authoredWorkerRemedy, localAgentRemedy } from '../src/cli/local-agent-remedy.js';
+import { authoredInput, authoredWorkerRemedy, localAgentRemedy } from '../src/cli/local-agent-remedy.js';
+import { parseDirectInput } from '../src/direct-input.js';
 
 /**
  * A rendered remedy is only worth printing if a shell reproduces the exact
@@ -52,14 +53,39 @@ describe('localAgentRemedy', () => {
   });
 
   it('carries the authored --input through the shell unchanged', () => {
-    const input = '{"plan":"v2","note":"it\'s fine","shell":"$(rm -rf /)"}';
-    const clause = localAgentRemedy({ kind: 'authored-run', path: "my flows/a b's.flow.ts", input });
+    const argument = '{"plan":"v2","note":"it\'s fine","shell":"$(rm -rf /)"}';
+    const clause = localAgentRemedy({
+      kind: 'authored-run', path: "my flows/a b's.flow.ts", input: { kind: 'inline', argument },
+    });
     expect(argv(command(clause)))
-      .toEqual(['flows', 'run', '--local-agent', "my flows/a b's.flow.ts", '--input', input]);
+      .toEqual(['flows', 'run', '--local-agent', "my flows/a b's.flow.ts", '--input', argument]);
+  });
+
+  /**
+   * A resume renders the recorded input back as inline JSON, and the journal
+   * keeps everything the run was started with — so this clause routinely
+   * carries far more than a filename's worth of bytes. `parseDirectInput`
+   * `stat`s the argument first, and a `stat` of a 300-byte word fails
+   * ENAMETOOLONG rather than ENOENT; treating that as "could not be inspected"
+   * made the printed remedy fail at exit 2 instead of attaching a worker.
+   */
+  it('renders an input longer than a filename as a word both the shell and the parser accept', () => {
+    const argument = JSON.stringify({ task: 'x'.repeat(300) });
+    expect(argument.length).toBeGreaterThan(255);
+
+    const clause = localAgentRemedy({
+      kind: 'authored-run', path: 'a.flow.ts', input: { kind: 'inline', argument },
+    });
+
+    const words = argv(command(clause));
+    expect(words).toEqual(['flows', 'run', '--local-agent', 'a.flow.ts', '--input', argument]);
+    // The parser the printed command actually reaches, on the word the shell
+    // actually delivers: it must read as inline JSON, not as an unreadable file.
+    expect(parseDirectInput(words.at(-1)!)).toEqual({ task: 'x'.repeat(300) });
   });
 
   it('states the requirement rather than inventing an input it does not have', () => {
-    const clause = localAgentRemedy({ kind: 'authored-run', path: 'a.flow.ts' });
+    const clause = localAgentRemedy({ kind: 'authored-run', path: 'a.flow.ts', input: { kind: 'absent' } });
     expect(clause).toContain('no input argument to repeat here');
     // It names `--input` as a requirement but never supplies a value: `{}`
     // would start a different invocation than the one that parked, and a
@@ -68,10 +94,48 @@ describe('localAgentRemedy', () => {
     expect(clause).not.toMatch(/--input '/);
     expect(clause).not.toContain('flows run');
   });
+
+  /**
+   * `MAX_DIRECT_INPUT_BYTES` admits a mebibyte; Linux `execve` admits 128KiB
+   * in one argument. An input file between the two is ordinary, and printing
+   * its contents back inline yields a command that dies with `Argument list
+   * too long` before the CLI is reached.
+   */
+  it('refuses to print an input larger than a shell argument, and says so', () => {
+    const clause = localAgentRemedy({
+      kind: 'authored-run', path: 'a.flow.ts', input: { kind: 'oversized', bytes: 200_000 },
+    });
+    expect(clause).toContain('200000 bytes of input');
+    expect(clause).toContain('pass the input file this run was started from');
+    expect(clause).not.toMatch(/--input '/);
+    expect(clause).not.toContain('flows run --local-agent');
+  });
+});
+
+describe('authoredInput', () => {
+  it('keeps an argument a shell can carry', () => {
+    expect(authoredInput('{"plan":"v2"}')).toEqual({ kind: 'inline', argument: '{"plan":"v2"}' });
+  });
+
+  it('reports an absent argument as absent rather than empty', () => {
+    expect(authoredInput(undefined)).toEqual({ kind: 'absent' });
+  });
+
+  /**
+   * The boundary is measured in bytes, not characters: `execve` counts bytes,
+   * so a multi-byte document has to be weighed the way the kernel weighs it.
+   */
+  it('classifies by encoded bytes at the execve limit', () => {
+    expect(authoredInput('x'.repeat(131_071))).toMatchObject({ kind: 'inline' });
+    expect(authoredInput('x'.repeat(131_072))).toEqual({ kind: 'oversized', bytes: 131_072 });
+    // 65_536 two-byte characters is 131_072 bytes: over the limit despite
+    // being half its length in UTF-16 code units.
+    expect(authoredInput('é'.repeat(65_536))).toEqual({ kind: 'oversized', bytes: 131_072 });
+  });
 });
 
 describe('authoredWorkerRemedy', () => {
-  const run = { path: 'a.flow.ts', input: '{}', dataDir: '/tmp/d' };
+  const run = { path: 'a.flow.ts', input: { kind: 'inline', argument: '{}' } as const, dataDir: '/tmp/d' };
 
   it('answers a worker park with a new run', () => {
     expect(authoredWorkerRemedy('worker_unavailable', false, run))
@@ -90,6 +154,7 @@ describe('authoredWorkerRemedy', () => {
   });
 
   it('says nothing when the flow path is unknown', () => {
-    expect(authoredWorkerRemedy('worker_unavailable', false, { input: '{}' })).toEqual({ kind: 'none' });
+    expect(authoredWorkerRemedy('worker_unavailable', false, { input: { kind: 'absent' } }))
+      .toEqual({ kind: 'none' });
   });
 });

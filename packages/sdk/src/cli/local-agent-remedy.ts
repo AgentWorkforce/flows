@@ -18,13 +18,43 @@ export type LocalAgentRemedy =
   | { kind: 'attached' }
   | { kind: 'spec-run'; path: string; dataDir?: string }
   | { kind: 'spec-resume'; runId: string; dataDir?: string }
-  /**
-   * `input` is the `--input` argument this run was started with, rendered back
-   * verbatim. Absent means the journal did not record one — which is a
-   * different sentence, never `{}`: fabricating an input would hand over a
-   * command that runs a different flow invocation than the one that parked.
-   */
-  | { kind: 'authored-run'; path: string; input?: string; dataDir?: string };
+  | { kind: 'authored-run'; path: string; input: AuthoredInput; dataDir?: string };
+
+/**
+ * The `--input` argument a new run of an authored flow would have to repeat.
+ *
+ * Three outcomes, not an optional string, because each is a different sentence
+ * and only one of them ends in a command. None of them is `{}`: fabricating an
+ * input would hand over a command that runs a different flow invocation than
+ * the one that parked.
+ */
+export type AuthoredInput =
+  /** The argument this run was started with, rendered back verbatim. */
+  | { kind: 'inline'; argument: string }
+  /** The journal recorded no input argument to repeat. */
+  | { kind: 'absent' }
+  /** Recorded, but too many bytes to hand a shell as one word. */
+  | { kind: 'oversized'; bytes: number };
+
+/**
+ * The largest `--input` value worth printing inline, in bytes.
+ *
+ * Linux caps a single `execve` argument at `MAX_ARG_STRLEN` — 32 pages,
+ * 131072 bytes including the terminating NUL — independently of the much
+ * larger `ARG_MAX` total. `MAX_DIRECT_INPUT_BYTES` admits a full mebibyte, so
+ * a run started from a perfectly ordinary input file can have recorded more
+ * input than any shell can pass back. Printing it anyway yields a command that
+ * dies with `Argument list too long` before the CLI is even reached, which is
+ * no better than the park it was meant to answer.
+ */
+const MAX_INLINE_INPUT_BYTES = 131_071;
+
+/** How a recorded input argument should be rendered, given its size. */
+export function authoredInput(argument: string | undefined): AuthoredInput {
+  if (argument === undefined) return { kind: 'absent' };
+  const bytes = Buffer.byteLength(argument, 'utf8');
+  return bytes > MAX_INLINE_INPUT_BYTES ? { kind: 'oversized', bytes } : { kind: 'inline', argument };
+}
 
 /**
  * The declared-surface caveat, stated as the condition it is.
@@ -58,16 +88,34 @@ export function localAgentRemedy(remedy: LocalAgentRemedy): string {
       return ` To continue this run with a local agent worker: ${
         resumeCommand(remedy.runId, remedy.dataDir, true)}. ${PINS}`;
     case 'authored-run':
-      return remedy.input === undefined
-        // No command: a `.flow.ts` invocation without its `--input` is refused
-        // (`input_missing`), and a placeholder in its place is not runnable.
-        ? ' A local agent worker is admitted at run start, so this run needs a new one.'
-          + ` Starting one needs --local-agent, the flow path ${shellQuote(remedy.path)}, and the same`
-          + ' --input this flow takes; the journal recorded no input argument to repeat here.'
-          + ` ${PINS}`
-        : ` To start a new run with a local agent worker: ${
-          newRunCommand(remedy.path, remedy.input, remedy.dataDir)}. ${PINS}`;
+      return authoredRunRemedy(remedy);
   }
+}
+
+/**
+ * Either a runnable new run, or the requirement stated in prose.
+ *
+ * Prose, not a command, whenever the `--input` cannot be printed as something
+ * a shell would deliver intact: a `.flow.ts` invocation without its `--input`
+ * is refused (`input_missing`), and a placeholder or a truncation in its place
+ * is worse than a sentence, because it looks runnable.
+ */
+function authoredRunRemedy(remedy: Extract<LocalAgentRemedy, { kind: 'authored-run' }>): string {
+  if (remedy.input.kind === 'inline') {
+    return ` To start a new run with a local agent worker: ${
+      newRunCommand(remedy.path, remedy.input.argument, remedy.dataDir)}. ${PINS}`;
+  }
+  const requirement = ' A local agent worker is admitted at run start, so this run needs a new one.'
+    + ` Starting one needs --local-agent, the flow path ${shellQuote(remedy.path)}, and the same`
+    + ' --input this flow takes; ';
+  return requirement + (remedy.input.kind === 'absent'
+    ? 'the journal recorded no input argument to repeat here.'
+    // Naming the size says which input, and says why this clause is prose:
+    // the recorded value is larger than one `execve` argument may be, so a
+    // printed `--input '<json>'` would fail before the CLI ran at all.
+    : `the journal recorded ${remedy.input.bytes} bytes of input, more than a shell`
+      + ' can carry in one argument, so pass the input file this run was started from.')
+    + ` ${PINS}`;
 }
 
 /**
@@ -86,7 +134,7 @@ export function localAgentRemedy(remedy: LocalAgentRemedy): string {
 export function authoredWorkerRemedy(
   parkCause: ParkCause | undefined,
   attached: boolean,
-  run: { path?: string; input?: string; dataDir?: string },
+  run: { path?: string; input: AuthoredInput; dataDir?: string },
 ): LocalAgentRemedy {
   if (parkCause !== 'worker_unavailable') return { kind: 'none' };
   if (attached) return { kind: 'attached' };

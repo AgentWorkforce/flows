@@ -975,6 +975,16 @@ would name a different invocation of the flow than the one that parked. Every
 line carries the standing caveat that declared workspace or stream surfaces
 require a worker holding their pins.
 
+A park reported by `flows run` repeats the `--input` word that invocation was
+given, so a run started from a file names that file. A resume has only the
+journal, which records the input document and not the word that carried it, so
+it renders the input inline — accepted, because an argument that cannot be a
+filename is read as inline JSON rather than as an unreadable path. A recorded
+input larger than one `execve` argument (`MAX_ARG_STRLEN`, 128KiB, against the
+1MiB `--input` ceiling) is stated in prose with its size, naming the input file
+to pass: a printed command that dies with `Argument list too long` is no
+better than the park it answers.
+
 Two parks print no remedy, on purpose. A `needs_human` recovery wait says
 nothing about workers, because attaching one does not clear it. And when
 `--local-agent` was already passed, the report says a worker is attached and

@@ -14,7 +14,10 @@ import { socketPathFor } from '../daemon-connection.js';
 import { ensureDaemon, type EnsureDaemonOptions } from '../daemon-lifecycle.js';
 import { isAuthoredFlowPath } from '../direct-input.js';
 import { daemonRefusal } from './daemon-refusal.js';
-import { authoredWorkerRemedy, localAgentRemedy, type LocalAgentRemedy } from './local-agent-remedy.js';
+import {
+  authoredInput, authoredWorkerRemedy, localAgentRemedy,
+  type AuthoredInput, type LocalAgentRemedy,
+} from './local-agent-remedy.js';
 import type { ParkCause, RunFailureKind, RunWarningKind, StepFailedDetails } from '../failure-kinds.js';
 import { inspectionHint, renderInspection, renderStepEvidence, stepFailureDetails } from './step-failure.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
@@ -371,16 +374,22 @@ function localAgentRefusal(
  * The `--input` argument a new run of this authored root would have to repeat,
  * rendered back from the journaled metadata.
  *
- * `undefined` when the root recorded no input, and also when the recorded input
- * is something `JSON.stringify` cannot render — the remedy formatter then says
- * an input is required instead of printing a command that would be refused as
+ * `absent` when the root recorded no input, and also when the recorded input is
+ * something `JSON.stringify` cannot render — the remedy formatter then says an
+ * input is required instead of printing a command that would be refused as
  * `input_invalid`. What it must never do is substitute `{}`: that is a
  * different invocation of the flow than the one that parked.
+ *
+ * Unlike `runDirectFlow`, this side has only the decoded value: the journal
+ * records the input, not the `--input` word that carried it, so a run started
+ * from a file comes back as inline JSON. `authoredInput` is what keeps that
+ * honest about its own size — a recorded input can be larger than a shell
+ * argument even when the file that supplied it was unremarkable.
  */
-function authoredInputArgument(metadata: AuthoredRootMetadata | undefined): string | undefined {
-  if (metadata === undefined || !metadata.inputPresent) return undefined;
+function authoredInputArgument(metadata: AuthoredRootMetadata | undefined): AuthoredInput {
+  if (metadata === undefined || !metadata.inputPresent) return { kind: 'absent' };
   const rendered = JSON.stringify(metadata.input);
-  return typeof rendered === 'string' ? rendered : undefined;
+  return authoredInput(typeof rendered === 'string' ? rendered : undefined);
 }
 
 /**
