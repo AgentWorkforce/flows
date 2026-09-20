@@ -47,6 +47,11 @@ export async function checkAuthoredTriggers(path: string): Promise<{
       handlers: extension.handlers.length,
       hooks: Object.keys(extension.hooks ?? {}),
     }));
+    const declaredHooks = definition.header.hooks ?? [];
+    const implementations = (loaded.extensions ?? []).flatMap(extension =>
+      Object.keys(extension.hooks ?? {}).map(hook => ({ hook, plugin: extension.name })));
+    const hooks = declaredHooks.length > 0 || implementations.length > 0
+      ? { declared: declaredHooks, implementations } : undefined;
     return {
       loaded,
       report: {
@@ -55,6 +60,7 @@ export async function checkAuthoredTriggers(path: string): Promise<{
         path, gates: [], resolutions: [], diagnostics,
         ...(schedules.length === 0 ? {} : { schedules }),
         ...(extensions.length === 0 ? {} : { extensions }),
+        ...(hooks === undefined ? {} : { hooks }),
         requirements: flowRequirements(definition, { projectCli: config.cli }),
         ...(config.path === undefined ? {} : { projectConfigPath: config.path }),
       },

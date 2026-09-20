@@ -101,7 +101,7 @@ const USAGE = [
   'flows plugin update [--json] [--yes] [--to <ref>] [<name>]',
   'flows build [--out <dir>] <flow.yaml|flow.ts>',
   'flows build --verify <bundle-dir>',
-  'flows deploy <flow.ts> --repo <owner/name> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--no-connect] [--json]',
+  'flows deploy <flow.ts> --repo <owner/name> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--plugin <ref>] [--no-connect] [--json]',
   'flows deployments [--json]',
   'flows undeploy [--json] <deployment-id>',
   'flows schedule <flow.yaml|flow.ts> [--cron "<expr>" | --every <n><s|m|h|d>] [--tz <IANA>] [--input <inline-json-or-file>] [--name <name>] [--no-connect] [--json]',
@@ -948,7 +948,15 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
     io.stdout(`SCHEDULE handler ${schedule.handler} ${declared} -> flows.tick schedule_id ${schedule.scheduleId} [${local}]`);
   }
   for (const extension of report.extensions ?? []) {
-    io.stdout(`EXTENSION ${extension.name}@${extension.version} ${extension.ref} sha256:${extension.digest} -> ${extension.handlers} handler(s) composed after the base flow`);
+    const hookList = (extension.hooks ?? []).length === 0 ? '' : `, hooks: ${extension.hooks!.join(', ')}`;
+    io.stdout(`EXTENSION ${extension.name}@${extension.version} ${extension.ref} sha256:${extension.digest} -> ${extension.handlers} handler(s) composed after the base flow${hookList}`);
+  }
+  if (report.hooks !== undefined) {
+    io.stdout(`HOOKS declared: ${report.hooks.declared.join(', ') || '(none)'}`);
+    for (const row of report.hooks.implementations) io.stdout(`HOOK ${row.hook} <- ${row.plugin}`);
+    for (const name of report.hooks.declared) {
+      if (!report.hooks.implementations.some(row => row.hook === name)) io.stdout(`HOOK ${name} <- (none)`);
+    }
   }
   for (const resolution of report.resolutions) {
     const config = resolution.source === 'project' && report.projectConfigPath !== undefined

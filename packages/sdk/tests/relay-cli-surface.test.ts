@@ -79,7 +79,7 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
     verb: 'deploy',
     argv: ['deploy', 'review.flow.ts', '--repo', 'owner/name', '--on', 'github:label=review',
       '--approver', 'someone', '--name', 'review-listener', '--agents', 'claude,codex', '--draft',
-      '--no-connect', '--json'],
+      '--plugin', 'github:o/r@main#path', '--no-connect', '--json'],
     variant: 'cloud-deploy',
   },
   { verb: 'deployments', argv: ['deployments', '--json'], variant: 'deployments' },

@@ -43,6 +43,17 @@ An authored `.flow.ts` takes `--input` exactly as a local direct run does (an
 existing JSON file, otherwise inline JSON), and travels as one self-contained
 source with its pinned Surface authority.
 
+Flow-extension plugins declared in `flows.json` (and extra `--plugin <github
+ref>` on `flows deploy`) travel in the deploy/run body as `extensions[]`:
+name, version, canonical ref, digest, manifest, and the plugin files (UTF-8
+or base64). The extensions field is capped at 2 MB separately from the 256 KB
+source cap. Cloud must materialize them at `.flows/plugins/<name>@sha256:<digest>/`
+before the hosted CLI loads the source; until that Cloud slice lands, a
+deployment that includes plugins is accepted by this CLI but not yet executed
+as a composed graph on the hosted runner. Private repositories are
+unsupported. `permissions.writes` is a reviewed declaration, unenforced
+until gate 8.
+
 ## Code sync
 
 ```sh

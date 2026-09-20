@@ -8,6 +8,7 @@ import {
 } from './cloud-http.js';
 import { flowRequirements, type FlowRequirements } from './flow-requirements.js';
 import { readProjectConfig } from './cli/check.js';
+import { assertNoUseDependencies, collectExtensionSubmissions } from './flow-extension-submit.js';
 
 /**
  * Hosted listener deployment: the CLI form of the agentrelay.com onboarding's
@@ -67,6 +68,11 @@ export interface DeployToCloudInput {
   connect?: ConnectPrompt;
   /** Skip the pre-submission integration check entirely (Cloud still checks on activation). */
   checkConnections?: boolean;
+  /**
+   * Extra GitHub plugin refs resolved send-only (same path as `flows add`,
+   * without writing flows.json). Project-declared extensions are always sent.
+   */
+  plugins?: readonly string[];
 }
 
 export const FLOW_AGENT_HARNESSES = ['claude', 'codex'] as const;
@@ -170,16 +176,8 @@ export async function deployToCloud(
     throw new CloudFlowError('unsupported_source',
       `${input.path} is not a loadable authored flow: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (loaded.extensions.length > 0) {
-    // The deploy body carries one source file; a composed handler set has no
-    // wire form yet, so a deployment would silently lose the extensions.
-    throw new CloudFlowError('unsupported_source',
-      `Cloud deploy does not yet accept flow extensions (${loaded.extensions.map(e => e.name).join(', ')} composed by flows.json); deploy the base flow from a project without them.`);
-  }
-  if (loaded.graph.length !== 1) {
-    throw new CloudFlowError('unsupported_source',
-      'Cloud deploys one self-contained .flow.ts source without use dependencies.');
-  }
+  assertNoUseDependencies(loaded);
+  const extensions = await collectExtensionSubmissions(loaded, input.plugins ?? []);
   let projectCli: string | undefined;
   try {
     projectCli = readProjectConfig(dirname(resolve(input.path))).cli;
@@ -243,6 +241,7 @@ export async function deployToCloud(
     inputs: { approver, agents },
     repository: input.repository,
     sources,
+    ...(extensions.length === 0 ? {} : { extensions }),
     requirements: {
       integrations: requirements.integrations.map(i => i.provider),
       harnesses: requirements.harnesses,

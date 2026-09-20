@@ -155,6 +155,7 @@ export const CLI_VERBS = [
       { flags: '--agents <list>', description: 'Agent harnesses to allow, as claude[,codex]' },
       { flags: '--name <name>', description: 'Name for the hosted listener' },
       { flags: '--draft', description: 'Create the listener without activating it' },
+      { flags: '--plugin <ref>', description: 'Send-only GitHub flow-extension ref; repeatable. Does not write flows.json' },
       NO_CONNECT_OPTION,
       JSON_OPTION,
     ],

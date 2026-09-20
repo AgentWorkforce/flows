@@ -63,6 +63,8 @@ export interface CheckReport {
   requirements?: FlowRequirements;
   /** Schema-2 flow extensions composed onto the authored flow, in lock order (`flow-extension-loader.ts`). */
   extensions?: ExtensionInspection[];
+  /** Base hook points and which plugins implement them. */
+  hooks?: HookInspection;
   diagnostics: Array<PreflightDiagnostic | CheckInputDiagnostic | CheckWarningDiagnostic>;
 }
 
@@ -76,6 +78,13 @@ export interface ExtensionInspection {
   handlers: number;
   /** Hook names this extension implements, in manifest order. */
   hooks?: readonly string[];
+}
+
+export interface HookInspection {
+  /** Names the base flow header declares. */
+  declared: readonly string[];
+  /** Plugin implementations in lock order. */
+  implementations: readonly { hook: string; plugin: string }[];
 }
 
 export interface ScheduleInspection {

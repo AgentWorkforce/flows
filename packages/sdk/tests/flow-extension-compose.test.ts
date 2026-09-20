@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadAuthoredFlow } from '../src/authored-flow-loader.js';
+import { collectExtensionSubmissions } from '../src/flow-extension-submit.js';
 import { addExtensionPlugin } from '../src/cli/add-extension.js';
 import { checkAuthoredTriggers } from '../src/cli/check-triggers.js';
 import { runCli } from '../src/cli.js';
@@ -128,6 +129,12 @@ describe('composing flow extensions onto a base flow', () => {
     expect(await runCli(['check', p.flow], p.io)).toBe(0);
     expect(p.text()).toContain(`EXTENSION babysitter@0.1.0 ${REF} sha256:`);
     expect(p.text()).toContain('8 handler(s) composed after the base flow');
+    const loaded = await loadAuthoredFlow(p.flow, { versions });
+    const submissions = await collectExtensionSubmissions(loaded);
+    expect(submissions).toHaveLength(1);
+    expect(submissions[0]).toMatchObject({ name: 'babysitter', ref: REF });
+    expect(submissions[0]!.files.some(f => f.path === 'babysitter.flow.ts' && f.encoding === 'utf8')).toBe(true);
+    expect(submissions[0]!.files.reduce((n, f) => n + f.bytes, 0)).toBeGreaterThan(0);
   });
 });
 

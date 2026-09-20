@@ -581,6 +581,8 @@ the base flows it extends), and the same mandatory `preflight`. Validation is
 flows add github:<owner>/<repo>@<ref>#<path>      # or https://github.com/<owner>/<repo>/tree/<ref>/<path>
 flows plugin list [--json]
 flows plugin verify [--json] [--offline]
+flows plugin remove [--json] <name>
+flows plugin update [--json] [--yes] [--to <ref>] [<name>]
 ```
 
 `flows add` resolves the branch, tag, or commit to a 40-hex sha through
@@ -616,11 +618,17 @@ the base's definition object is untouched. `flows check` prints one `EXTENSION`
 line per composed extension. Not composed by this release, and refused with
 `plugin_unsupported` rather than ignored: an entry `use:` header, schedule
 triggers, and gates; a generic `webhook(...)` handler is refused as
-undeclared. Cloud deploy and hosted runs refuse a project with extensions
-(`unsupported_source`) because the deploy body carries one source file and
-would silently lose them. Handler bodies still execute nowhere (#301); what
-composition changes today is the declared trigger set that `flows check`,
-requirements, and future dispatch read.
+undeclared. Cloud deploy and hosted runs send composed extensions in the request body
+(`extensions[]`, 2 MB cap, `--plugin` is send-only). Handler bodies still
+execute nowhere (#301); what composition changes today is the declared
+trigger set that `flows check`, requirements, and future dispatch read.
+
+GitHub `pull_request.ready_for_review`, `pull_request.labeled`, and
+`pull_request.unlabeled` are **not** in the surface registry. The registry is
+generated from the pinned relayfile adapter mappings (`scripts/generate-triggers.mjs`);
+this repo cannot add those actions without an adapter-package change. A
+Babysitter manifest that declares them is refused `plugin_event_unroutable`
+until that upstream catalog grows.
 
 ## 4. Build: the immutable bundle
 
