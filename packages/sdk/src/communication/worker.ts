@@ -13,7 +13,7 @@ import { CommunicationSession } from './session.js';
 import { openCommunicationTools } from './tools.js';
 
 export function requireCommunicationCli(cli: string | undefined): void {
-  if (!cli || !/^claude(?:\.exe)?$/.test(basename(cli))) throw new Error('Agent communication currently requires the Claude CLI');
+  if (!cli?.trim()) throw new Error('Agent communication requires a declared CLI executable');
 }
 export async function completeCommunicationDispatch(client: JournalClient, dispatch: StepDispatchEvent,
   instruction: CommunicationInstruction, dataDir: string): Promise<void> {
@@ -55,7 +55,7 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
     const quote = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
     const helper = `node ${quote(tools.helperPath)}`;
     const history = await communicationHistory(client, dispatch, instruction);
-    const prompt = `${workerInstruction(instruction.instruction, dispatch)}${history}\n\nYou are flow agent ${dispatch.step_id}. Concurrent peers send messages automatically into your session through Relay. Do not poll for messages. Use Bash with ${helper} for flow communication:\n- send PEER STABLE_ID 'message text' (outgoing peers: ${instruction.outgoing.join(', ') || 'none'})\n- ack PEER DELIVERY_SEQ only after processing that message (incoming peers: ${instruction.incoming.join(', ') || 'none'})\n- complete 'summary' when your task and conversation are finished.\nUse these helpers for all peer communication; do not use Relay MCP messaging tools. Stay available for injected messages until the conversation is complete. Use stable semantic message IDs so retries deduplicate sends.`;
+    const prompt = `${workerInstruction(instruction.instruction, dispatch)}${history}\n\nYou are flow agent ${dispatch.step_id}. Concurrent peers send messages automatically into your session through Relay. Do not poll for messages. Use your shell/terminal execution tool with ${helper} for flow communication:\n- send PEER STABLE_ID 'message text' (outgoing peers: ${instruction.outgoing.join(', ') || 'none'})\n- ack PEER DELIVERY_SEQ only after processing that message (incoming peers: ${instruction.incoming.join(', ') || 'none'})\n- complete 'summary' when your task and conversation are finished.\nUse these helpers for all peer communication; do not use Relay MCP messaging tools. Stay available for injected messages until the conversation is complete. Use stable semantic message IDs so retries deduplicate sends.`;
     const name = `${relay.prefix}-${dispatch.step_id}`;
     unsubscribe = relay.broker.onEvent(event => {
       if (event.name !== name || !['delivery_injected', 'delivery_verified'].includes(event.kind)) return;
@@ -67,9 +67,10 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
       });
       void receipts.catch(reject);
     });
-    handle = await relay.broker.spawnPty({ name, cli: 'claude', task: prompt, channels: [], skipRelayPrompt: true,
+    // Relay supplies each CLI's launch flags and injection behavior.
+    handle = await relay.broker.spawnPty({ name, cli: basename(spec.cli!).replace(/\.exe$/i, ''), task: prompt, channels: [], skipRelayPrompt: true,
       model: resolveCliModel(spec.cli!, spec.model), cwd: spec.cwd ?? process.cwd(),
-      harnessConfig: { runtime: 'pty', command: spec.cli, args: ['--dangerously-skip-permissions'],
+      harnessConfig: { runtime: 'pty', command: quote(spec.cli!), args: [],
         cwd: spec.cwd ?? process.cwd(), env: { RELAYFLOW_COMMUNICATION_SOCKET: tools.path },
         delivery: { mode: 'pty-injection', format: 'relay-block' } } });
     const ready = await handle.waitForReady(Math.min(instruction.timeoutMs, 90_000));

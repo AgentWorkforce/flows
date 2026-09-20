@@ -380,7 +380,7 @@ function findConfig(start: string): string | undefined {
 function systemProbes(flowDirectory: string, config: ProjectConfig): PreflightProbes {
   return {
     helper: helperReady,
-    cli: (cli, source, model) => probeCli(cli, source === 'project' ? config.directory : flowDirectory, model),
+    cli: (cli, source, model, execution) => probeCli(cli, source === 'project' ? config.directory : flowDirectory, model, execution),
     executor: (trigger) => config.executors.includes(trigger.executor),
     // A deterministic step runs in the daemon's working directory — the
     // directory `flows run` was invoked from, or Cloud's code mount — not in
@@ -421,10 +421,17 @@ function probeCli(
   cli: string,
   directory: string,
   model?: string,
+  execution?: 'managed',
 ): CliProbeResult {
   const executable = resolveExecutable(cli, directory);
   if (executable === undefined) return { exists: false, authenticated: false };
   const kind = cliAdapterKind(executable);
+  // Relay owns interactive CLI launch/injection. Its generic PTY path is not
+  // the headless wrapper protocol; do not demand that protocol from Gemini,
+  // Cursor, OpenCode, or other interactive tools. Never invent an auth pass.
+  if (execution === 'managed' && kind === 'relayflows-wrapper-v1') {
+    return { exists: true, supported: true, authenticated: 'unverified' };
+  }
   const identification = adapterIdentification(kind);
   const identified = runProbe(executable, directory, identification.invocation);
   if (

@@ -1,3 +1,5 @@
+> The Claude-only scope below describes the initial implementation. See [the multi-CLI follow-up](multi-cli-communication-2026-09-20.md) for current behavior and coverage.
+
 # Opt-in managed agent communication: captured evidence
 
 The implementation uses the existing Relay broker and Relaycast delivery. No kernel or review gate changes.

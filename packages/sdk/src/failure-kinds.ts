@@ -77,6 +77,7 @@ export const CHECK_FAILURE_KINDS = [
  */
 export const PREFLIGHT_WARNING_KINDS = [
   'unprovable_effects',
+  'managed_cli_unverified',
   'command_unresolved',
   'command_unprovable',
   'vacuous_gate',

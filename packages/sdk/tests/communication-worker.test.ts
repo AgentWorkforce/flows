@@ -23,11 +23,11 @@ beforeEach(() => {
     return { name: 'managed-agent', generation: 'generation', release: mocks.release, waitForReady: mocks.ready };
   });
 });
-function fixture() {
+function fixture(cli = 'claude') {
   const client = { stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30000 })),
     stepComplete: vi.fn(async () => ({})), channelReceive: vi.fn(async () => null) };
   const dispatch = { run_id: 'run', step_id: 'agent', attempt: 1, idempotency_key: 'key', pins: {},
-    lease_id: 'lease', lease_deadline_ms: Date.now() + 30000, spec: { type: 'agent', cli: 'claude', instruction: '' } } as StepDispatchEvent;
+    lease_id: 'lease', lease_deadline_ms: Date.now() + 30000, spec: { type: 'agent', cli, instruction: '' } } as StepDispatchEvent;
   return { client, execute: () => completeCommunicationDispatch(client as unknown as JournalClient, dispatch,
     { type: 'relayflows.communication.v1', instruction: 'test', incoming: ['peer'], outgoing: [], timeoutMs: 1000 }, '/tmp/data') };
 }
@@ -46,4 +46,20 @@ it('journals readiness failure and still releases all acquired resources', async
   expect(f.client.stepComplete).toHaveBeenCalledWith('run', 'agent', 1, 'key', 'worker_error', expect.objectContaining({ output: { error: 'Communication agent did not become ready: timeout' } }));
   expect(mocks.release).toHaveBeenCalledTimes(1);
   expect(mocks.close).toHaveBeenCalledTimes(1);
+});
+
+it.each(['claude', 'codex', 'gemini', 'cursor-agent', 'droid', 'opencode', 'aider', 'goose', 'grok', 'pi', 'deepagents', '/opt/custom/tool'])('delegates %s launch and injection to Relay without Claude-only flags', async cli => {
+  const f = fixture(cli); await f.execute();
+  expect(mocks.spawn).toHaveBeenCalledWith(expect.objectContaining({
+    cli: cli.split('/').at(-1),
+    harnessConfig: expect.objectContaining({ command: `'${cli}'`, args: [], runtime: 'pty',
+      env: { RELAYFLOW_COMMUNICATION_SOCKET: '/tmp/test.sock' },
+      delivery: { mode: 'pty-injection', format: 'relay-block' } }),
+  }));
+  expect(f.client.stepComplete).toHaveBeenCalledWith('run', 'agent', 1, 'key', 'success', expect.anything());
+});
+
+it('quotes an executable path as one command without losing spaces or apostrophes', async () => {
+  const f = fixture("/opt/agent tools/tool's cli"); await f.execute();
+  expect(mocks.spawn.mock.calls[0]![0].harnessConfig.command).toBe("'/opt/agent tools/tool'\"'\"'s cli'");
 });
