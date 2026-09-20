@@ -30,7 +30,6 @@ export interface RecommendedFlowSummary {
   name: string;
   summary: string;
   description: string;
-  workflow: string;
   source: RecommendedFlowSource;
   defaultLabel: string;
   supportedRepositoryHosts: string[];
@@ -44,6 +43,14 @@ export interface RecommendedFlowCatalog {
   schemaVersion: number;
   catalogVersion: number;
   flows: RecommendedFlowSummary[];
+}
+
+/** Public catalog transport: deliberately separate from authenticated Cloud APIs. */
+export interface CatalogConnectionOptions {
+  /** Catalog origin, defaulting to https://agentrelay.com; HTTP is loopback-only for local tests. */
+  catalogUrl?: string;
+  signal?: AbortSignal;
+  requestTimeoutMs?: number;
 }
 
 export interface RecommendedRepository {
@@ -83,7 +90,7 @@ function flow(value: unknown): RecommendedFlowSummary {
   if (!isCloudRecord(value)
     || !FLOW_ID.test(String(value.id ?? ''))
     || !Number.isSafeInteger(value.version) || (value.version as number) < 1
-    || !['name', 'summary', 'description', 'workflow', 'defaultLabel'].every(key => typeof value[key] === 'string')
+    || !['name', 'summary', 'description', 'defaultLabel'].every(key => typeof value[key] === 'string')
     || !isCloudRecord(value.defaultTrigger) || typeof value.defaultTrigger.provider !== 'string' || !isCloudRecord(value.defaultTrigger.settings)
     || !isCloudRecord(value.inputs) || !isCloudRecord(source)) {
     throw new CloudFlowError('invalid_response', 'Cloud returned a malformed recommended-flow entry.');
@@ -101,7 +108,7 @@ function flow(value: unknown): RecommendedFlowSummary {
   }
   return {
     id: value.id as string, version: value.version as number, name: value.name as string, summary: value.summary as string,
-    description: value.description as string, workflow: value.workflow as string,
+    description: value.description as string,
     defaultLabel: value.defaultLabel as string, supportedRepositoryHosts: hosts,
     defaultTrigger: { provider: value.defaultTrigger.provider, settings: value.defaultTrigger.settings as Record<string, string> },
     inputs: { required, defaults: value.inputs.defaults, allowedAgents },
@@ -114,19 +121,64 @@ function flowId(value: string): string {
   return value;
 }
 
-export async function listRecommendedFlows(options: CloudConnectionOptions = {}): Promise<RecommendedFlowCatalog> {
-  const result = await cloudFetch('/api/v1/flows/catalog', options, { method: 'GET', detail: true });
+export async function listRecommendedFlows(options: CatalogConnectionOptions = {}): Promise<RecommendedFlowCatalog> {
+  const result = await catalogFetch('/api/v1/flows/catalog', options);
   if (!isCloudRecord(result) || result.schemaVersion !== 1 || !Number.isSafeInteger(result.catalogVersion) || !Array.isArray(result.flows)) {
     throw new CloudFlowError('invalid_response', 'Cloud did not return a recommended-flow catalog.');
   }
   return { schemaVersion: 1, catalogVersion: result.catalogVersion as number, flows: result.flows.map(flow) };
 }
 
-export async function getRecommendedFlow(id: string, options: CloudConnectionOptions = {}): Promise<RecommendedFlowDetail> {
-  const result = await cloudFetch(`/api/v1/flows/catalog/${encodeURIComponent(flowId(id))}`, options, { method: 'GET', detail: true });
+export async function getRecommendedFlow(id: string, options: CatalogConnectionOptions = {}): Promise<RecommendedFlowDetail> {
+  const result = await catalogFetch(`/api/v1/flows/catalog/${encodeURIComponent(flowId(id))}`, options);
   const parsed = flow(result);
   if (parsed.id !== id) throw new CloudFlowError('invalid_response', 'Cloud returned a different recommended flow than requested.');
   return parsed;
+}
+
+function catalogBaseUrl(options: CatalogConnectionOptions): string {
+  let url: URL;
+  try {
+    url = new URL(options.catalogUrl ?? process.env['FLOWS_CATALOG_URL'] ?? 'https://agentrelay.com');
+  } catch {
+    throw new CloudFlowError('configuration', 'FLOWS_CATALOG_URL must be an absolute catalog origin.');
+  }
+  const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+  if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback))
+    || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
+    throw new CloudFlowError('configuration', 'Catalog URL must be an HTTPS origin (HTTP is allowed only on literal loopback).');
+  }
+  return url.origin;
+}
+
+/** Fetch public catalog metadata without reading, requiring, or sending Cloud credentials. */
+async function catalogFetch(path: string, options: CatalogConnectionOptions): Promise<unknown> {
+  const timeout = options.requestTimeoutMs ?? 30_000;
+  if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2_147_483_647) {
+    throw new CloudFlowError('configuration', 'requestTimeoutMs must be a positive 32-bit integer.');
+  }
+  // Configuration failures must remain configuration failures; do not fold
+  // them into the transport catch below.
+  const baseUrl = catalogBaseUrl(options);
+  const deadline = AbortSignal.timeout(timeout);
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      method: 'GET', headers: { accept: 'application/json' },
+      signal: options.signal ? AbortSignal.any([options.signal, deadline]) : deadline,
+      redirect: 'error',
+    });
+  } catch (error) {
+    options.signal?.throwIfAborted();
+    throw new CloudFlowError('transport_error', deadline.aborted
+      ? 'Catalog request timed out.' : 'Catalog request failed; check TLS and the configured URL.');
+  }
+  if (!response.ok) throw new CloudFlowError('http_error', `Catalog request failed with HTTP ${response.status}.`, response.status);
+  try {
+    return await response.json();
+  } catch {
+    throw new CloudFlowError('invalid_response', 'Catalog returned a non-JSON response.');
+  }
 }
 
 export async function activateRecommendedFlow(

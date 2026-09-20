@@ -79,7 +79,6 @@ export async function runCloudRecommendedCli(args: CloudRecommendedArgs, io: Cli
 function renderFlow(flow: RecommendedFlowDetail, io: CliIo): void {
   io.stdout(`${flow.id} v${flow.version} ${JSON.stringify(flow.name)}`);
   io.stdout(flow.description);
-  io.stdout(`  workflow: ${flow.workflow}`);
   io.stdout(`  default label: ${flow.defaultLabel}`);
   io.stdout(`  repository hosts: ${flow.supportedRepositoryHosts.join(', ')}`);
   io.stdout(`  trigger: ${flow.defaultTrigger.provider}`);

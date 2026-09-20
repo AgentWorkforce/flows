@@ -2,12 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.js';
 import { activateRecommendedFlow, getRecommendedFlow, listRecommendedFlows } from '../src/cloud-recommended.js';
 
-interface Call { method: string; path: string; body: unknown }
+interface Call { method: string; url: string; path: string; authorization: string | null; body: unknown }
 function cloud(routes: Record<string, unknown | ((call: Call) => unknown)>) {
   const calls: Call[] = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const path = new URL(String(input)).pathname;
-    const call = { method: init?.method ?? 'GET', path, body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined };
+    const call = { method: init?.method ?? 'GET', url: String(input), path,
+      authorization: new Headers(init?.headers).get('authorization'), body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined };
     calls.push(call);
     const route = routes[path];
     if (route === undefined) return new Response('{"error":"not found"}', { status: 404 });
@@ -16,12 +17,13 @@ function cloud(routes: Record<string, unknown | ((call: Call) => unknown)>) {
   });
   vi.stubEnv('FLOWS_CLOUD_URL', 'https://catalog.example');
   vi.stubEnv('FLOWS_CLOUD_TOKEN', 'catalog-token');
+  vi.stubEnv('FLOWS_CATALOG_URL', 'https://catalog.example');
   return calls;
 }
 
 const SOFTWARE_GARDEN = {
   id: 'software-factory', version: 1, name: 'Software Garden', summary: 'Turns GitHub issues into reviewed pull requests.',
-  description: 'A canonical GitHub Software Garden flow.', workflow: 'traditional',
+  description: 'A canonical GitHub Software Garden flow.',
   defaultLabel: 'Software Garden',
   supportedRepositoryHosts: ['github'], defaultTrigger: { provider: 'github', settings: {} },
   inputs: { required: ['approver'], defaults: { agents: ['claude'] }, allowedAgents: ['claude'] },
@@ -40,7 +42,7 @@ afterEach(() => {
 });
 
 describe('recommended-flow catalog', () => {
-  it('lists and reads the versioned catalog through the Cloud connection', async () => {
+  it('reads the public catalog origin without Cloud credentials or an authorization header', async () => {
     const calls = cloud({
       '/api/v1/flows/catalog': { schemaVersion: 1, catalogVersion: 1, flows: [SOFTWARE_GARDEN] },
       '/api/v1/flows/catalog/software-factory': SOFTWARE_GARDEN,
@@ -50,6 +52,10 @@ describe('recommended-flow catalog', () => {
     expect(calls.map(call => [call.method, call.path])).toEqual([
       ['GET', '/api/v1/flows/catalog'], ['GET', '/api/v1/flows/catalog/software-factory'],
     ]);
+    expect(calls.map(call => call.url)).toEqual([
+      'https://catalog.example/api/v1/flows/catalog', 'https://catalog.example/api/v1/flows/catalog/software-factory',
+    ]);
+    expect(calls.map(call => call.authorization)).toEqual([null, null]);
   });
 
   it('refuses malformed or mutable-source catalog data and invalid ids before treating it as usable', async () => {
@@ -61,6 +67,12 @@ describe('recommended-flow catalog', () => {
     } });
     await expect(listRecommendedFlows()).rejects.toMatchObject({ code: 'invalid_response' });
     await expect(getRecommendedFlow('../software-factory')).rejects.toMatchObject({ code: 'invalid_input' });
+  });
+
+  it('allows only HTTPS catalog origins except literal loopback HTTP', async () => {
+    await expect(listRecommendedFlows({ catalogUrl: 'http://catalog.example' })).rejects.toMatchObject({ code: 'configuration' });
+    cloud({ '/api/v1/flows/catalog': { schemaVersion: 1, catalogVersion: 1, flows: [SOFTWARE_GARDEN] } });
+    await expect(listRecommendedFlows({ catalogUrl: 'http://127.0.0.1:3210' })).resolves.toMatchObject({ catalogVersion: 1 });
   });
 });
 
@@ -84,6 +96,7 @@ describe('recommended-flow activation', () => {
     expect(calls.map(call => [call.method, call.path])).toEqual([
       ['GET', '/api/v1/auth/whoami'], ['POST', '/api/v1/flows/activations'],
     ]);
+    expect(calls.map(call => call.authorization)).toEqual(['Bearer catalog-token', 'Bearer catalog-token']);
     expect(calls[1]!.body).toEqual({
       workspaceId: 'ws-1', flowId: 'software-factory', label: 'Platform garden',
       repositories: [{ owner: 'acme', name: 'api' }, { owner: 'acme', name: 'web' }],

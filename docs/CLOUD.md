@@ -311,9 +311,13 @@ names them (`flow_repository_not_connected`, `flow_name_taken`, …).
 
 ## Recommended-flow catalog
 
-`flows recommended list` reads Cloud's versioned catalog from
-`GET /api/v1/flows/catalog`; `flows recommended show <id>` reads that item's
-detail route. Both use the same Cloud base URL and credential as `flows deploy`.
+`flows recommended list` reads the public versioned catalog from
+`https://agentrelay.com/api/v1/flows/catalog`; `flows recommended show <id>`
+reads that item's detail route. Catalog reads send no credentials or
+authorization header. Set `FLOWS_CATALOG_URL` to an explicit HTTPS catalog
+origin for a test deployment (literal loopback HTTP is allowed for local tests).
+Activation still uses the authenticated Cloud base URL and credential from
+`flows deploy`.
 The catalog's initial stable item is `software-factory` (version 1), displayed
 as Software Garden. It is GitHub-only and its metadata includes
 an immutable GitHub source reference (owner, repository, path, released commit
