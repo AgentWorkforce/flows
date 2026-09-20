@@ -1,6 +1,6 @@
 //! Rejected agent evidence cannot advance either durable or live pin state.
 
-use relayflowd_core::{CompletionReason, EntryType, StepCompletedPayload};
+use relayflowd_core::{CompletionReason, Disposition, EntryType, StepCompletedPayload};
 use serde_json::json;
 
 use super::{
@@ -9,7 +9,7 @@ use super::{
 };
 
 #[test]
-fn rejected_completion_cannot_forge_inspect_retry_pins_over_the_real_socket() {
+fn rejected_completion_cannot_forge_pins_or_trigger_a_blind_retry() {
     let fixture = LlmFixture::parallel("rejected-pin-projection");
     let _server = ServerGuard::start(&fixture);
     let socket = fixture.socket();
@@ -66,12 +66,7 @@ fn rejected_completion_cannot_forge_inspect_retry_pins_over_the_real_socket() {
             }),
         )
         .unwrap();
-    assert_eq!(rejected["status"], "parked");
-
-    let retry = worker.event("step.dispatch").unwrap();
-    assert_eq!(retry["attempt"], 2);
-    assert_eq!(retry["pins"], first["pins"]);
-    assert_eq!(retry["recovery"]["mode"], "inspect");
+    assert_eq!(rejected["status"], "failed");
 
     let rejected_fact = journal_entries(&fixture.data_dir)
         .unwrap()
@@ -84,5 +79,6 @@ fn rejected_completion_cannot_forge_inspect_retry_pins_over_the_real_socket() {
         .unwrap();
     let payload: StepCompletedPayload = serde_json::from_value(rejected_fact.payload).unwrap();
     assert_eq!(payload.completion_reason, CompletionReason::WorkerError);
+    assert_eq!(payload.disposition, Disposition::StepDone);
     assert_eq!(payload.end_pins, None);
 }

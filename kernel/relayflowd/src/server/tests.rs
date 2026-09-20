@@ -57,7 +57,8 @@ fn start_llm_run(data_dir: &Path, hub: &Arc<ProtocolHub>) -> String {
                 "initial_backoff_ms": 10,
                 "max_backoff_ms": 10,
                 "multiplier": 1,
-                "jitter_percent": 0
+                "jitter_percent": 0,
+                "max_transport_retries": 1
             }
         }]
     });

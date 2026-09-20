@@ -85,13 +85,16 @@ pub fn abandonment_actions(
             ..
         }
     );
-    let may_retry = runtime.semantic_executions < spec.max_iterations;
+    let transport_failures = runtime.attempts.saturating_sub(runtime.semantic_executions);
+    let may_retry = transport_failures <= spec.retry.max_transport_retries;
     // No retry delay for a dead leased attempt. This function records an
     // attempt that died WITHOUT producing a result a gate could judge -- which
     // is why, as the doc comment above says, it does not charge a semantic
-    // iteration either. Rate-limiting it is the same category error: the
-    // backoff curve exists to damp a step that keeps failing on its own merits,
-    // not one whose worker was killed.
+    // iteration. It is still bounded by the explicit transport retry budget;
+    // otherwise a permanently broken worker can redispatch forever while its
+    // semantic counter stays at zero. Rate-limiting remains a separate
+    // category: the backoff curve damps a step that keeps failing on its own
+    // merits, not one whose worker was killed.
     //
     // Leaving the delay in place also made recovery order a race, which is
     // issue #155. The dead lane sat in `Backoff` with `wake_at_ms` a few

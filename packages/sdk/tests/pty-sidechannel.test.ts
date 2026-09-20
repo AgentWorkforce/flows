@@ -97,6 +97,34 @@ process.stdin.on('end', () => { clearTimeout(watchdog); process.stdout.write('eo
   } finally { peer?.destroy(); }
 });
 
+it('unattended Codex receives closed stdin before startup instead of entering its additional-input lifecycle', async () => {
+  const dataDir = dir();
+  const cli = join(dataDir, 'codex');
+  writeFileSync(cli, `#!/usr/bin/env node
+let ended = false;
+process.stdin.resume();
+process.stdin.on('end', () => {
+  ended = true;
+  process.stdout.write('stdin-closed-before-startup');
+});
+setTimeout(() => {
+  if (ended) process.exit(0);
+  process.stderr.write('Reading additional input from stdin...');
+  process.exit(1);
+}, 50);
+`, { mode: 0o755 });
+
+  const result = await runAgentCli(cli, 'test', undefined, 'pty-test-model', undefined, undefined, 'agent', {
+    dataDir, runId: 'r', stepId: 's', attempt: 1, onDrive() {},
+  });
+
+  expect(result).toMatchObject({
+    exit_code: 0,
+    stdout_tail: 'stdin-closed-before-startup',
+    transport: { phase: 'close', cause: 'exited', exit_code: 0, signal: null, retryable: false },
+  });
+});
+
 it('rejects drive after EOF without marking human intervention', async () => {
   const dataDir = dir();
   const cli = join(dataDir, 'claude');

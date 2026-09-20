@@ -101,6 +101,21 @@ process.stdout.write('unused');
     expect(step.permissions).toEqual({ access_preset: 'readonly' });
   });
 
+  it('lowers explicit semantic, transport, and recovery controls without changing defaults', async () => {
+    const declared = await capture({
+      task: 'x', maxIterations: 3, transportRetries: 2, recoveryMode: 'inspect',
+    });
+    expect(declared).toMatchObject({
+      max_iterations: 3,
+      retry: { max_transport_retries: 2 },
+      recovery_mode: 'inspect',
+    });
+
+    const defaults = await capture({ task: 'x' });
+    expect(defaults).toMatchObject({ max_iterations: 1, recovery_mode: 'reset' });
+    expect(defaults.retry).not.toHaveProperty('max_transport_retries');
+  });
+
   it('reads the outer permissions property once', async () => {
     const getter = vi.fn(() => ({ fileGlobs: ['drafts/**'] }));
     const step = await capture({ task: 'x', get permissions() { return getter(); } });

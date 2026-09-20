@@ -674,6 +674,14 @@ pub struct RetryPolicy {
     pub multiplier: u32,
     #[serde(default = "default_jitter_percent")]
     pub jitter_percent: u8,
+    /// Additional attempts allowed only after infrastructure loss
+    /// (`crashed`/`lease_expired`). Semantic failures never consume this
+    /// budget, and ordinary worker nonzero exits never qualify for it.
+    #[serde(
+        default = "default_max_transport_retries",
+        skip_serializing_if = "is_default_max_transport_retries"
+    )]
+    pub max_transport_retries: u32,
 }
 
 impl Default for RetryPolicy {
@@ -683,6 +691,7 @@ impl Default for RetryPolicy {
             max_backoff_ms: default_max_backoff_ms(),
             multiplier: default_multiplier(),
             jitter_percent: default_jitter_percent(),
+            max_transport_retries: default_max_transport_retries(),
         }
     }
 }
@@ -713,6 +722,14 @@ fn default_multiplier() -> u32 {
 
 fn default_jitter_percent() -> u8 {
     20
+}
+
+fn default_max_transport_retries() -> u32 {
+    1
+}
+
+fn is_default_max_transport_retries(value: &u32) -> bool {
+    *value == default_max_transport_retries()
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]

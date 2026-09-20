@@ -32,6 +32,9 @@ export async function openSidechannel(
 ) {
   const peers = new Map<Socket, boolean>();
   let closed = false;
+  let driveConnected = false;
+  let announceDrive!: () => void;
+  const driveConnection = new Promise<void>(resolve => { announceDrive = resolve; });
   const server = createServer(socket => {
     if (peers.size >= 16) { socket.destroy(); return; }
     peers.set(socket, false);
@@ -52,7 +55,11 @@ export async function openSidechannel(
         socket.setTimeout(0);
         peers.set(socket, true);
         // Passthrough is a passive raw-byte view in this initial slice.
-        if (mode === 'drive') context.onDrive();
+        if (mode === 'drive') {
+          driveConnected = true;
+          announceDrive();
+          context.onDrive();
+        }
         bytes = hello.subarray(end + 1);
         hello = Buffer.alloc(0);
       }
@@ -88,6 +95,25 @@ export async function openSidechannel(
       for (const [peer, ready] of peers) {
         if (ready && !peer.write(bytes)) peer.destroy();
       }
+    },
+    /**
+     * Wait for a drive peer before the CLI is spawned.
+     *
+     * A direct headless CLI must not be handed a pipe merely because a
+     * sidechannel exists: Codex treats any non-TTY stdin as an additional
+     * prompt source and waits for its lifecycle. The caller uses this bounded
+     * enrollment window to choose `pipe` only when a driver actually joined;
+     * view and passthrough peers never change the child's stdin contract.
+     */
+    async waitForDrive(timeoutMs: number): Promise<boolean> {
+      if (driveConnected) return true;
+      let timer: NodeJS.Timeout | undefined;
+      await Promise.race([
+        driveConnection,
+        new Promise<void>(resolve => { timer = setTimeout(resolve, timeoutMs); }),
+      ]);
+      if (timer !== undefined) clearTimeout(timer);
+      return driveConnected;
     },
     close() {
       if (closed) return;

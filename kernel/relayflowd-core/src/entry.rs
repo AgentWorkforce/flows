@@ -204,6 +204,12 @@ pub struct AttemptStartedPayload {
     pub recovery_mode: Option<RecoveryMode>,
     pub pins: Pins,
     pub max_iterations: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub max_transport_retries: u32,
+}
+
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
 }
 
 /// Runtime pins journaled per attempt (RFC Appendix A rules 2 and 6): the
@@ -317,8 +323,10 @@ mod completion_reason_tests {
     /// skip `ALL`.
     #[test]
     fn all_covers_every_serialized_label() {
-        let labels: std::collections::HashSet<&str> =
-            CompletionReason::ALL.iter().map(|r| r.journal_label()).collect();
+        let labels: std::collections::HashSet<&str> = CompletionReason::ALL
+            .iter()
+            .map(|r| r.journal_label())
+            .collect();
         assert_eq!(
             labels.len(),
             CompletionReason::ALL.len(),

@@ -240,11 +240,10 @@ async function driveRoot(
 }
 
 /**
- * A returned body failure is deterministic for this root attempt. Complete
- * every kernel retry with the same declared failure so the run reaches its
- * durable `step_failed` terminal instead of being stranded waiting for a
- * worker after the CLI has already returned. A process crash never enters
- * this path: the running attempt remains recoverable by `run.resume`.
+ * A returned body failure is deterministic for this root attempt and is
+ * completed once as terminal `worker_error`. A process crash never enters
+ * this path: the running attempt remains recoverable by `run.resume` under
+ * the root's separate transport retry budget.
  */
 async function terminalizeRootFailure(
   peer: JournalClient,
@@ -290,7 +289,7 @@ function rootSpec(metadata: AuthoredRootMetadata, stream: string) {
       id: 'authored-root', type: 'agent',
       instruction: canonicalize(metadata),
       surfaces: { streams: [{ stream }] },
-      recoveryMode: 'reset', maxIterations: 8,
+      recoveryMode: 'reset', maxIterations: 1, transportRetries: 7,
     }],
   }));
 }

@@ -79,6 +79,97 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'default-model-ok'
   });
 });
 
+describe('direct transport lifecycle evidence', () => {
+  it('classifies only the exact Codex stdin lifecycle signature as retryable', async () => {
+    const directory = makeDirectory();
+    const codex = makeWrapper(directory, 'codex', `
+process.stderr.write('Reading additional input from stdin...');
+process.exit(1);
+`);
+
+    const result = await runAgentCli(codex, 'do the task', undefined, 'unpriced-test-model');
+
+    expect(result).toMatchObject({
+      exit_code: 1,
+      transport: {
+        phase: 'close', cause: 'codex_stdin_lifecycle', exit_code: 1,
+        signal: null, retryable: true,
+      },
+    });
+    expect(result.stderr_tail).toBe('Reading additional input from stdin...');
+  });
+
+  it('records a signal close separately from an ordinary nonzero exit', async () => {
+    const directory = makeDirectory();
+    const signaled = makeWrapper(directory, 'codex', `process.kill(process.pid, 'SIGTERM');`);
+    const signaledResult = await runAgentCli(signaled, 'task', undefined, 'unpriced-test-model');
+    expect(signaledResult).toMatchObject({
+      exit_code: null,
+      transport: { phase: 'close', cause: 'signal', signal: 'SIGTERM', retryable: true },
+    });
+
+    const rejected = makeWrapper(directory, 'claude', `process.stderr.write('bad request ' + process.env.TRANSPORT_TEST_TOKEN); process.exit(7);`);
+    const rejectedResult = await withEnvironment({ TRANSPORT_TEST_TOKEN: 'transport-secret-123' }, () =>
+      runAgentCli(rejected, 'task', undefined, 'unpriced-test-model'));
+    expect(rejectedResult).toMatchObject({
+      exit_code: 7,
+      transport: { phase: 'close', cause: 'nonzero_exit', signal: null, retryable: false },
+    });
+    expect(rejectedResult.stderr_tail).toContain('[redacted:TRANSPORT_TEST_TOKEN]');
+    expect(rejectedResult.stderr_tail).not.toContain('transport-secret-123');
+  });
+
+  it('records a spawn error code without treating a missing executable as transient', async () => {
+    const directory = makeDirectory();
+    const result = await runAgentCli(join(directory, 'codex'), 'task', undefined, 'unpriced-test-model');
+    expect(result).toMatchObject({
+      exit_code: null,
+      transport: {
+        phase: 'spawn', cause: 'spawn_error', error_code: 'ENOENT',
+        signal: null, retryable: false,
+      },
+    });
+  });
+
+  it('journals classified lifecycle evidence and reports crashed instead of generic worker_error', async () => {
+    const directory = makeDirectory();
+    const codex = makeWrapper(directory, 'codex', `
+process.stderr.write('Reading additional input from stdin...');
+process.exit(1);
+`);
+    const client = new EventEmitter() as EventEmitter & Record<string, unknown>;
+    client.workerAttach = async () => ({});
+    client.stepHeartbeat = async () => ({ lease_deadline_ms: Date.now() + 30_000 });
+    let complete!: (args: unknown[]) => void;
+    const completed = new Promise<unknown[]>(resolve => { complete = resolve; });
+    client.stepComplete = async (...args: unknown[]) => { complete(args); return {}; };
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker', pins: { workspace: [], streams: [] }, dataDir: join(directory, 'data'),
+    });
+    const errors: unknown[] = [];
+    worker.on('error', error => errors.push(error));
+    await worker.attach();
+    client.emit('step.dispatch', {
+      run_id: 'run', step_id: 'agent', step_type: 'agent', attempt: 1,
+      idempotency_key: 'stable', lease_id: 'lease', lease_deadline_ms: Date.now() + 30_000,
+      pins: { workspace: [], streams: [] },
+      spec: { cli: codex, instruction: 'task', model: 'unpriced-test-model' },
+    });
+    const args = await completed;
+    await worker.close();
+    expect(errors).toEqual([]);
+    expect(args[4]).toBe('crashed');
+    expect(args[5]).toMatchObject({
+      trajectory_tail: {
+        transport: {
+          phase: 'close', cause: 'codex_stdin_lifecycle', exit_code: 1,
+          signal: null, retryable: true,
+        },
+      },
+    });
+  });
+});
+
 describe('step discovery environment', () => {
   const NAMES = ['RELAYFLOW_DATA_DIR', 'RELAYFLOW_RUN_ID', 'RELAYFLOW_STEP_ID', 'RELAYFLOW_ATTEMPT', 'RELAYFLOW_WAKE_CONTEXT', 'RELAYFLOW_MODEL'];
 

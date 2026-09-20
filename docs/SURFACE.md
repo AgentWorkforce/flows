@@ -321,6 +321,37 @@ flow-wide `FlowHeader.workspace` / `tools.fs` scopes. The chief harness above
 remains an aspirational example; this option does not make that entire harness
 executable today.
 
+### Agent retry and recovery controls
+
+`f.agent` separates semantic iteration from infrastructure recovery:
+
+```ts
+await f.agent("reviewer", {
+  task: "Review the current change and write the verdict file.",
+  maxIterations: 2,       // verification may reject one semantic result
+  transportRetries: 1,    // one additional classified infrastructure attempt
+  recoveryMode: "inspect", // reset | inspect | manual
+});
+```
+
+The compatibility defaults are `maxIterations: 1`, `transportRetries: 1`, and
+`recoveryMode: "reset"`. The bounded one-retry default preserves the existing
+single-crash resume contract while removing the old unbounded infrastructure
+loop; set `transportRetries: 0` to disable transport recovery. The SDK omits an
+undeclared budget so legacy canonical specs and hashes stay unchanged, while
+an explicit zero is retained.
+
+Transport retry is deliberately narrow. A signal close, a close without a
+status, a bounded set of transient spawn errors, or the exact historical Codex
+stdin-lifecycle failure is reported as `crashed` and may consume the transport
+budget. An ordinary nonzero CLI exit remains `worker_error` and is terminal;
+`maxIterations` never turns every nonzero exit into a retry. Every replacement
+attempt reuses the step idempotency key. `reset` restores declared start pins,
+`inspect` carries the dirty pins plus the prior transport trajectory, and
+`manual` parks rather than redispatching. Journaled direct-transport evidence
+includes bounded/redacted phase, cause, exit code, signal, OS error code, and
+stderr tail.
+
 ### Supported TypeScript LLM calls
 
 The local authored executor supports these signatures:
@@ -656,10 +687,12 @@ kernel dispatch, including for authored `f.agent` calls.
 A subscriber sends `HELLO view\n`, `HELLO drive\n`, or
 `HELLO passthrough\n`, then receives live stdout/stderr bytes. View and
 passthrough are passive. Only drive forwards subsequent bytes to child stdin.
-In this pipe-based slice, a drive greeting must arrive within 100ms of child
-startup. Without one, the worker closes stdin so unattended and passive-view
-agents receive EOF. Later drive greetings are rejected without marking human
-intervention; a closed stdin pipe cannot be reopened. Supporting drive attachment
+In this pipe-based slice, a drive greeting must arrive during a 100ms bounded
+enrollment window **before** child startup. Only then is the child spawned with
+a writable stdin pipe. Without one, the worker spawns with stdin ignored, so
+unattended Codex never enters its "additional input from stdin" lifecycle and
+passive viewers cannot change the input contract. Later drive greetings are
+rejected without marking human intervention. Supporting drive attachment
 at arbitrary times requires a future terminal/session transport. Drive readers
 pause while child stdin writes flush, preserving input under backpressure.
 There is no backlog, terminal resize, or framing after the greeting. Socket
@@ -715,8 +748,9 @@ Journal: <data-dir>/runs/<run-id>.sqlite3
 Each clause is present only when the journal holds the fact behind it; nothing
 is defaulted. The same fields appear as named keys on the `--json` diagnostic
 (`stepId`, `stepType`, `completionReason`, `attempt`, `maxIterations`,
-`exitCode`, `stdoutTail`, `stderrTail`, `detail`, `transcriptPath`, `hint`,
-`journalPath`), so the rendered line and the machine-readable record carry the
+`transportRetries`, `exitCode`, `transportPhase`, `transportCause`, `signal`,
+`errorCode`, `retryableTransport`, `stdoutTail`, `stderrTail`, `detail`,
+`transcriptPath`, `hint`, `journalPath`), so the rendered line and the machine-readable record carry the
 same facts rather than the message being the only copy.
 
 `attempt=<n>/<budget>` is read from the journal, not from the spec: `n` is the

@@ -206,6 +206,8 @@ export interface BaseStepSpec {
   dependsOn?: string[];
   /** Semantic retry bound (kernel DESIGN.md §1.2 `max_iterations`). Default 1. */
   maxIterations?: number;
+  /** Additional attempts after classified infrastructure loss. Default 1. */
+  transportRetries?: number;
 }
 
 export interface OutputBinding {
@@ -410,6 +412,7 @@ export interface KernelRetryPolicy {
   max_backoff_ms: number;
   multiplier: number;
   jitter_percent: number;
+  max_transport_retries?: number;
 }
 
 /**

@@ -303,6 +303,7 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
             recovery_mode,
             pins: pins.clone(),
             max_iterations: step.max_iterations,
+            max_transport_retries: step.retry.max_transport_retries,
         },
     );
     let execute = match step.step_type() {
@@ -363,7 +364,23 @@ pub fn completion_actions(
     let verified = verification
         .as_ref()
         .is_some_and(|record| record.verdict == crate::entry::VerificationVerdict::Pass);
-    let may_retry = semantic_executions.saturating_add(1) < step.max_iterations;
+    let may_retry_semantic = semantic_executions.saturating_add(1) < step.max_iterations;
+    // `attempt` counts every start while `semantic_executions` counts only
+    // results a gate could judge. Their difference is therefore the number of
+    // infrastructure failures including this attempt. Keep that budget
+    // separate: a generic nonzero worker exit is not infrastructure, and a
+    // crash must not get an unbounded free loop merely because it consumed no
+    // semantic iteration.
+    let transport_failures = attempt.saturating_sub(semantic_executions);
+    let may_retry_transport = transport_failures <= step.retry.max_transport_retries;
+    let semantic_failure = matches!(
+        result.failure_reason,
+        None | Some(CompletionReason::VerificationFailed)
+    );
+    let transport_failure = matches!(
+        result.failure_reason,
+        Some(CompletionReason::Crashed | CompletionReason::LeaseExpired)
+    );
     // Preserve `result.output` for successful completions, and for FAILED
     // deterministic completions specifically — deterministic attempts journal
     // `{exit_code, stdout_tail, stderr_tail}` so the CLI can render the
@@ -378,7 +395,8 @@ pub fn completion_actions(
             result.output,
             None,
         )
-    } else if may_retry {
+    } else if (semantic_failure && may_retry_semantic) || (transport_failure && may_retry_transport)
+    {
         let key = idempotency_key(run_id, &step.id);
         let delay = backoff_delay_ms(&step.retry, &key, attempt);
         (
@@ -386,7 +404,11 @@ pub fn completion_actions(
                 .failure_reason
                 .unwrap_or(CompletionReason::VerificationFailed),
             Disposition::Retry,
-            if preserve_failure_output { result.output } else { Value::Null },
+            if preserve_failure_output {
+                result.output
+            } else {
+                Value::Null
+            },
             Some(now_ms.saturating_add(delay as i64)),
         )
     } else {
@@ -395,7 +417,11 @@ pub fn completion_actions(
                 .failure_reason
                 .unwrap_or(CompletionReason::RetriesExhausted),
             Disposition::StepDone,
-            if preserve_failure_output { result.output } else { Value::Null },
+            if preserve_failure_output {
+                result.output
+            } else {
+                Value::Null
+            },
             None,
         )
     };

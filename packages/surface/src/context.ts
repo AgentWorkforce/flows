@@ -40,6 +40,12 @@ export interface AgentOptions {
    * as a first-class workspace participant that DMs can steer.
    */
   transport?: 'direct' | 'relay';
+  /** Semantic executions allowed when verification rejects output. Default 1. */
+  maxIterations?: number;
+  /** Additional attempts allowed only after classified transport loss. Default 1. */
+  transportRetries?: number;
+  /** Appendix A workspace recovery for a transport retry. Default `reset`. */
+  recoveryMode?: 'reset' | 'inspect' | 'manual';
 }
 
 export interface LlmOptions {

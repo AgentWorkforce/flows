@@ -58,6 +58,7 @@ One per attempt. Payload:
 | `pins.workspace` | agent steps: `[{surface, revision_id}]` — relayfile revision id per declared mount surface, or `{worktree_base_commit}` |
 | `pins.streams` | `[{stream, read_offset}]` — consumer offsets at attempt start |
 | `max_iterations` | from spec, echoed for legibility |
+| `max_transport_retries` | additional attempts allowed after classified infrastructure loss; default one and omitted at that default |
 
 Deterministic/llm steps journal `pins.streams` only if they consume streams;
 `pins.workspace` is empty (no workspace).
@@ -74,7 +75,7 @@ Payload:
 | `verification` | `{gate, verdict: pass\|fail, detail}` or null |
 | `end_pins` | agent steps: `{workspace: [{surface, revision_id}], streams: [{stream, read_offset}]}` — Appendix A rule 6: the next step's starting state **is** this |
 | `effects` | list of `{surface_path, idempotency_key}` dedupe keys recorded this attempt |
-| `trajectory_tail` | agent failure only: worker-supplied tail injected into an `inspect` retry; `step.complete` rejects one over 16 KiB of canonical JSON |
+| `trajectory_tail` | agent failure only: worker-supplied tail injected into an `inspect` retry; direct workers add bounded/redacted `transport{phase,cause,exit_code,signal,error_code?,retryable,stderr_tail}` evidence; `step.complete` rejects one over 16 KiB of canonical JSON |
 | `budget` | `{tokens_in, tokens_out, dollars, dollars_unmetered?}` — exact; zero for memoized replay by construction (no entry is written on replay). `dollars_unmetered: true` (omitted when false) marks tokens of unknown dollar cost: `dollars` is then metered cost only, dollar ceilings ignore the unknown part, token ceilings count it |
 | `completed_by` | `kernel` \| worker id — out-of-band completion uses the same entry, same discipline |
 | `next_attempt_at_ms` | when `disposition=retry`: computed backoff+jitter wake time |
@@ -290,9 +291,14 @@ attempt's `budget` field.
 under the attempt's idempotency key; every writeback is a journaled
 `effect.recorded` deduped by `(step_id, idempotency_key, surface_path)`;
 `step.completed` pins end state, which defines the next step's start. Dead
-attempt ⇒ recovery mode: `reset` restores pinned revisions and retries;
-`inspect` retries inside the dirty workspace with the failed attempt's tail
-injected; `manual` parks as `wait.human` with `diff_ref`.
+attempt ⇒ recovery mode: `reset` restores pinned revisions before a permitted
+retry; `inspect` resumes inside the dirty workspace with the failed attempt's
+tail injected; `manual` parks as `wait.human` with `diff_ref`. Infrastructure retry
+is a separate, explicit budget (`retry.max_transport_retries`, default one so a
+single process loss remains resumable; set zero to disable).
+Only `crashed` and `lease_expired` consume it. `worker_error`, timeout, budget,
+cancellation, and an ordinary nonzero CLI exit are terminal regardless of the
+budget; semantic verification retry remains bounded only by `max_iterations`.
 
 ### Memoized resume
 

@@ -23,7 +23,8 @@ async function openRoot(journal: JournalClient): Promise<string> {
     steps: [{
       id: 'authored-root', type: 'agent', instruction: '{}',
       surfaces: { streams: [{ stream: 'evidence-root-stream' }] },
-      recovery_mode: 'reset', max_iterations: 8,
+      recovery_mode: 'reset', max_iterations: 1,
+      retry: { max_transport_retries: 7 },
     }],
   } as never);
   return outcome.run_id;

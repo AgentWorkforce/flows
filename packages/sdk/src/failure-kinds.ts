@@ -175,7 +175,14 @@ export interface StepFailedDetails {
    * `retries_exhausted`.
    */
   maxIterations?: number;
+  /** Additional classified infrastructure retries declared for the step. */
+  transportRetries?: number;
   exitCode?: number;
+  transportPhase?: string;
+  transportCause?: string;
+  signal?: string;
+  errorCode?: string;
+  retryableTransport?: boolean;
   /** Terminal-safe UTF-8 excerpt, at most 1,024 bytes. */
   stdoutTail?: string;
   /** Terminal-safe UTF-8 excerpt, at most 1,024 bytes. */

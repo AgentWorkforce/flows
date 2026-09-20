@@ -41,6 +41,7 @@ export async function stepFailureDetails(
   // enforcing (relayflowd-core/src/entry.rs `AttemptStartedPayload`). They are
   // collected on the same walk and reported only when the journal held them.
   const budgets = new Map<string, number>();
+  const transportBudgets = new Map<string, number>();
   while (true) {
     const { entries } = await client.journalRead(runId, fromSeq, 100);
     if (entries.length === 0) break;
@@ -57,6 +58,10 @@ export async function stepFailureDetails(
         const maxIterations = record(entry['payload'])?.['max_iterations'];
         if (typeof maxIterations === 'number' && Number.isSafeInteger(maxIterations) && maxIterations > 0) {
           budgets.set(stepId, maxIterations);
+        }
+        const transportRetries = record(entry['payload'])?.['max_transport_retries'];
+        if (typeof transportRetries === 'number' && Number.isSafeInteger(transportRetries) && transportRetries >= 0) {
+          transportBudgets.set(stepId, transportRetries);
         }
         continue;
       }
@@ -76,12 +81,14 @@ export async function stepFailureDetails(
       const stepType = snapshot.steps[stepId]?.type;
       const attempt = entry['attempt'];
       const maxIterations = budgets.get(stepId);
+      const transportRetries = transportBudgets.get(stepId);
       failures.set(stepId, {
         stepId,
         completionReason,
         ...(stepType === undefined ? {} : { stepType }),
         ...(typeof attempt === 'number' && Number.isSafeInteger(attempt) && attempt > 0 ? { attempt } : {}),
         ...(maxIterations === undefined ? {} : { maxIterations }),
+        ...(transportRetries === undefined ? {} : { transportRetries }),
         ...evidence(payload),
       });
     }
@@ -114,7 +121,13 @@ export function renderStepEvidence(details: StepFailedDetails): string {
     + (details.stepType === undefined ? '' : ` (${details.stepType})`)
     + ` completionReason: ${details.completionReason}`
     + renderAttempt(details)
+    + (details.transportRetries === undefined ? '' : ` transportRetries=${details.transportRetries}`)
     + (details.exitCode === undefined ? '' : ` exit=${details.exitCode}`)
+    + (details.signal === undefined ? '' : ` signal=${details.signal}`)
+    + (details.transportCause === undefined ? '' : ` transport=${details.transportCause}`)
+    + (details.transportPhase === undefined ? '' : ` phase=${details.transportPhase}`)
+    + (details.errorCode === undefined ? '' : ` error_code=${details.errorCode}`)
+    + (details.retryableTransport === undefined ? '' : ` retryable=${details.retryableTransport}`)
     + '.'
     + (details.detail === undefined ? '' : `\nDetail: ${details.detail}`)
     + (details.stdoutTail ? `\nStdout (last 1,024 bytes):\n${details.stdoutTail}` : '')
@@ -189,9 +202,10 @@ function evidence(payload: Record<string, unknown>): Partial<StepFailedDetails> 
     typeof detail === 'string' ? parsed(detail) : undefined,
   ].filter((candidate): candidate is Record<string, unknown> => candidate !== undefined);
   const structured = candidates.find(processShaped) ?? candidates[0];
-  const exitCode = structured?.['exit_code'];
+  const transport = record(record(payload['trajectory_tail'])?.['transport']);
+  const exitCode = structured?.['exit_code'] ?? transport?.['exit_code'];
   const stdout = structured?.['stdout_tail'];
-  const stderr = structured?.['stderr_tail'];
+  const stderr = structured?.['stderr_tail'] ?? transport?.['stderr_tail'];
   const structuredShape = structured !== undefined && processShaped(structured);
   const transcript = record(record(payload['trajectory_tail'])?.['transcript']);
   const failure = record(transcript?.['failure']);
@@ -204,6 +218,11 @@ function evidence(payload: Record<string, unknown>): Partial<StepFailedDetails> 
     ? tail(excerpt) : undefined;
   return {
     ...(typeof exitCode === 'number' && Number.isSafeInteger(exitCode) ? { exitCode } : {}),
+    ...(typeof transport?.['phase'] === 'string' ? { transportPhase: tail(transport['phase']) } : {}),
+    ...(typeof transport?.['cause'] === 'string' ? { transportCause: tail(transport['cause']) } : {}),
+    ...(typeof transport?.['signal'] === 'string' ? { signal: tail(transport['signal']) } : {}),
+    ...(typeof transport?.['error_code'] === 'string' ? { errorCode: tail(transport['error_code']) } : {}),
+    ...(typeof transport?.['retryable'] === 'boolean' ? { retryableTransport: transport['retryable'] } : {}),
     ...(typeof stdout === 'string' && stdout.length > 0 ? { stdoutTail: tail(stdout) } : {}),
     ...(typeof stderr === 'string' ? { stderrTail: tail(stderr) } : {}),
     // Keep the daemon's account only when it was NOT just a render of the

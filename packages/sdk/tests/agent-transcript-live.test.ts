@@ -197,7 +197,7 @@ describe('the transcript digest through the built CLI, a real daemon and the loc
     // `attempt=1/1` is read off the journal, not the spec: this step had one
     // attempt against a budget of one, which is what `retries_exhausted`-style
     // reasons mean and what the bare reason could not say.
-    expect(failed.message).toContain('Step "agent-1" (agent) completionReason: worker_error attempt=1/1 exit=1.');
+    expect(failed.message).toContain('Step "agent-1" (agent) completionReason: worker_error attempt=1/1 transportRetries=1 exit=1');
     expect(failed.message).toContain('\nDetail: gave up: [redacted:FAKE_TOKEN]\n');
     const transcriptPath = /\nTranscript: (\S+attempt-1\.transcript\.jsonl)\n/.exec(failed.message)?.[1];
     expect(transcriptPath).toBe(join(f.root, 'data', 'runs', report.runId, 'steps', 'agent-1', 'attempt-1.transcript.jsonl'));

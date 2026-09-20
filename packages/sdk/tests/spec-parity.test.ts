@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   compileAndHash,
+  compileSpec,
   compileYaml,
   compileYamlToCanonicalJson,
   toKernelSpec,
@@ -58,6 +59,24 @@ describe('spec parity: one dialect at the SDK<->kernel boundary', () => {
     const kernel = toKernelSpec(flow);
     kernel.steps[0]!.retry.initial_backoff_ms = 5;
     expect(() => kernelToAuthoring(kernel)).toThrow('retry.initial_backoff_ms');
+  });
+
+  it('round-trips the explicit transport retry budget without changing legacy defaults', () => {
+    const flow = compileYaml(fixture('hello-ladder.flow.yaml'));
+    const agent = flow.steps.find(step => step.type === 'agent')!;
+    agent.transportRetries = 2;
+    const kernel = toKernelSpec(flow);
+    expect(kernel.steps.find(step => step.type === 'agent')!.retry.max_transport_retries).toBe(2);
+    expect(kernelToAuthoring(kernel)).toEqual(compileSpec(flow));
+  });
+
+  it('preserves an explicit zero transport retry budget', () => {
+    const flow = compileYaml(fixture('hello-ladder.flow.yaml'));
+    const agent = flow.steps.find(step => step.type === 'agent')!;
+    agent.transportRetries = 0;
+    const kernel = toKernelSpec(flow);
+    expect(kernel.steps.find(step => step.type === 'agent')!.retry.max_transport_retries).toBe(0);
+    expect(kernelToAuthoring(kernel).steps.find(step => step.type === 'agent')!.transportRetries).toBe(0);
   });
 
   // The trigger dialect. `toKernelSpec` used to spread `flow.triggers` through

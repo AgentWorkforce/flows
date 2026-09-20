@@ -13,7 +13,7 @@ fn parallel_spec() -> crate::RunSpec {
                 "id": "lane-b",
                 "type": "llm",
                 "prompt": "research b",
-                "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0}
+                "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0, "max_transport_retries": 1}
             },
             {
                 "id": "join",
@@ -25,7 +25,7 @@ fn parallel_spec() -> crate::RunSpec {
                 "id": "lane-a",
                 "type": "llm",
                 "prompt": "research a",
-                "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0}
+                "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0, "max_transport_retries": 1}
             }
         ]
     }))
@@ -50,18 +50,21 @@ fn parallel_agent_spec(overlapping: bool) -> crate::RunSpec {
                 "id": "lane-b",
                 "type": "agent",
                 "instruction": "b",
+                "retry": {"max_transport_retries": 1},
                 "surfaces": {"workspace": [{"surface": "repo-b"}]}
             },
             {
                 "id": "lane-a",
                 "type": "agent",
                 "instruction": "a",
+                "retry": {"max_transport_retries": 1},
                 "surfaces": {"workspace": [{"surface": lane_a_surface}]}
             },
             {
                 "id": "join",
                 "type": "agent",
                 "instruction": "join",
+                "retry": {"max_transport_retries": 1},
                 "depends_on": ["lane-b", "lane-a"],
                 "surfaces": {"workspace": [
                     {"surface": "repo-b"},

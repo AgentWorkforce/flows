@@ -182,6 +182,7 @@ function compileStep(step: StepSpec): StepSpec {
       ? { dependsOn: step.input === undefined ? step.dependsOn : [...new Set([...(step.dependsOn ?? []), ...bindingDependencies(step.input)])] } : {}),
     ...(step.input !== undefined ? { input: step.input } : {}),
     maxIterations,
+    ...(step.transportRetries !== undefined ? { transportRetries: step.transportRetries } : {}),
     ...(step.memory !== undefined ? { memory: step.memory } : {}),
     ...(step.requirements !== undefined ? { requirements: step.requirements } : {}),
   };
@@ -424,7 +425,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
   const unionKeys = [
     'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input',
     'command', 'timeout_ms', 'lease_ms', 'prompt', 'model', 'cli', 'instruction',
-    'recovery_mode', 'surfaces', 'permissions',
+    'recovery_mode', 'surfaces', 'permissions', 'cwd', 'transport',
   ] as const;
   const step = requireKernelObject(value, unionKeys, at);
   const type = step['type'];
@@ -434,10 +435,11 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
     : type === 'llm'
       ? ['prompt', 'model', 'cli'] as const
       : type === 'agent'
-        ? ['instruction', 'cli', 'model', 'recovery_mode', 'surfaces', 'permissions'] as const
+        ? ['instruction', 'cli', 'model', 'recovery_mode', 'surfaces', 'permissions', 'cwd', 'transport'] as const
         : [];
   assertKernelKeys(step, [...commonKeys, ...typeKeys], at);
-  if (step['retry'] !== undefined) validateAuthoringRetryDefaults(step['retry'], `${at}.retry`);
+  const transportRetries = step['retry'] === undefined
+    ? undefined : validateAuthoringRetryDefaults(step['retry'], `${at}.retry`);
   const dependsOn = step['depends_on'];
   const common = {
     id: step['id'],
@@ -448,6 +450,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
       ? { dependsOn }
       : {}),
     ...(step['max_iterations'] !== undefined ? { maxIterations: step['max_iterations'] } : {}),
+    ...(transportRetries === undefined ? {} : { transportRetries }),
     ...kernelVerificationToAuthoring(type, step['verification'], `${at}.verification`),
     ...(step['memory'] !== undefined ? { memory: kernelMemoryToAuthoring(step['memory'], `${at}.memory`) } : {}),
   };
@@ -467,7 +470,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
       ...common,
       instruction: step['instruction'],
       ...(step['recovery_mode'] !== undefined ? { recoveryMode: step['recovery_mode'] } : {}),
-      ...copyDefined(step, ['cli', 'model', 'surfaces']),
+      ...copyDefined(step, ['cli', 'model', 'surfaces', 'cwd', 'transport']),
       ...(step['permissions'] !== undefined
         ? { permissions: kernelPermissionsToAuthoring(step['permissions'], `${at}.permissions`) }
         : {}),
@@ -476,9 +479,9 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
   return common;
 }
 
-function validateAuthoringRetryDefaults(value: unknown, at: string): void {
+function validateAuthoringRetryDefaults(value: unknown, at: string): number | undefined {
   const retry = requireKernelObject(value, [
-    'initial_backoff_ms', 'max_backoff_ms', 'multiplier', 'jitter_percent',
+    'initial_backoff_ms', 'max_backoff_ms', 'multiplier', 'jitter_percent', 'max_transport_retries',
   ], at);
   for (const [field, expected] of Object.entries(KERNEL_RETRY_DEFAULTS)) {
     if (retry[field] !== expected) {
@@ -487,6 +490,12 @@ function validateAuthoringRetryDefaults(value: unknown, at: string): void {
       ]);
     }
   }
+  const transportRetries = retry['max_transport_retries'];
+  if (transportRetries === undefined) return undefined;
+  if (typeof transportRetries !== 'number' || !Number.isSafeInteger(transportRetries) || transportRetries < 0) {
+    throw new CompileError([`${at}.max_transport_retries must be a non-negative integer`]);
+  }
+  return transportRetries;
 }
 
 function kernelVerificationToAuthoring(
@@ -583,7 +592,11 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
       : [...new Set([...(step.dependsOn ?? []), ...bindingDependencies(step.input)])],
     ...(step.input !== undefined ? { input: step.input } : {}),
     max_iterations: step.maxIterations ?? 1,
-    retry: { ...KERNEL_RETRY_DEFAULTS },
+    retry: {
+      ...KERNEL_RETRY_DEFAULTS,
+      ...(step.transportRetries !== undefined
+        ? { max_transport_retries: step.transportRetries } : {}),
+    },
     verification: toKernelVerification(step),
     ...(step.requirements !== undefined ? { requirements: {
       ...Object.fromEntries(Object.entries(step.requirements).filter(([key]) => key !== 'expectedDurationMs')),
