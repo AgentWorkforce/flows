@@ -81,17 +81,29 @@ export function parseInput(value: unknown): Config {
  */
 function parseEvent(value: unknown, config: Config): Record<string, unknown> {
   const event = record(value);
-  if (record(event.repository).full_name !== `${config.owner}/${config.repo}`) throw new Error('Event repository differs from pinned repository');
+  // GitHub owner and repository names are case-insensitive, and every other
+  // comparison in this flow already lowercases them. An exact-case compare here
+  // rejects every delivery for a repository the operator spelled differently.
+  const delivered = record(event.repository).full_name;
+  if (typeof delivered !== 'string' || delivered.toLowerCase() !== `${config.owner}/${config.repo}`.toLowerCase()) throw new Error('Event repository differs from pinned repository');
   const { family, action } = classify(event);
   if (subscriptionFor(family, action) === undefined) {
     throw new Error(`Unsubscribed ${family} action "${action}"; declared: ${actionsFor(family).join(', ')}`);
   }
   const pr = record(event.pull_request), issue = record(event.issue), check = record(event.check_run);
-  const refs = Array.isArray(check.pull_requests) ? check.pull_requests : [];
-  const number = family === 'check_run'
-    ? record(refs.find(p => record(p).number === config.number)).number
-    : family === 'issue_comment' ? (issue.pull_request ? issue.number : undefined) : pr.number;
-  if (number !== config.number) throw new Error('Event does not identify the pinned PR');
+  if (family === 'check_run') {
+    // GitHub leaves `check_run.pull_requests` empty for pull requests from
+    // forks. Repository routing has already succeeded, so an unattributed check
+    // is an ordinary hint: the reread decides whether its head is this PR's.
+    // Refusing it here is precisely how fork CI would go unnoticed forever.
+    const refs = Array.isArray(check.pull_requests) ? check.pull_requests : [];
+    if (refs.length > 0 && !refs.some(p => record(p).number === config.number)) {
+      throw new Error('Event does not identify the pinned PR');
+    }
+  } else {
+    const number = family === 'issue_comment' ? (issue.pull_request ? issue.number : undefined) : pr.number;
+    if (number !== config.number) throw new Error('Event does not identify the pinned PR');
+  }
   if ((family === 'pull_request_review' && !text(record(event.review).state))
     || (family === 'check_run' && !shaValid(check.head_sha))
     || (family === 'pull_request' && (action === 'labeled' || action === 'unlabeled') && !text(record(event.label).name))

@@ -49,6 +49,13 @@ check conclusion are all re-read, so:
 - A `labeled` hint cannot add a skip label that live labels do not carry, and an
   `unlabeled` hint cannot remove one that they do.
 
+Routing compares owner and repository **case-insensitively**, as GitHub does. A
+`check_run` whose `pull_requests` array is empty — which is what GitHub sends
+for a pull request from a fork — still wakes: repository routing has already
+succeeded, and whether that check belongs to this PR is a live-state question.
+Only a `check_run` that names other PRs and not this one is treated as
+misrouted.
+
 **Duplicate delivery** therefore repeats a decision rather than adding one: two
 deliveries of the same event produce byte-identical command streams and one
 decision key. **Out-of-order delivery** decides about the head that exists now:
@@ -85,7 +92,9 @@ no-op success.
 Live reads include paginated checks, statuses and reviews, and a final head
 recheck. Unknown state, missing metadata/checks, pending mergeability, red CI,
 changes requests and requested reviewers without live-head approvals all hold
-the gate. Empty check lists do not pass even when GitHub says CLEAN. Merge also
+the gate. A reviewer's verdict stands until they file another one or it is
+dismissed: `COMMENTED` and `PENDING` reviews carry no verdict and cannot mask an
+outstanding change request or a live approval. Empty check lists do not pass even when GitHub says CLEAN. Merge also
 requires opt-in and an independent configured approver at the full live SHA.
 The transport retains GitHub's server-side SHA merge guard, but the flow does
 not call it until a live-head durable review receipt can be published.

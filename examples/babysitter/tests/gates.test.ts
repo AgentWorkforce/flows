@@ -19,6 +19,31 @@ test('READY rejects missing pending red conflicts stale heads and missing state'
   assert.equal(ready(state(), config, sha), undefined);
   for (const change of [{ checks: [] }, { checks: undefined }, { mergeable: null }, { mergeable: false }, { mergeState: 'unknown' }, { headSha: newer }, { reviews: undefined }, { requestedReviewers: ['review-bot'] }, { checks: [{ name: 'unit', sha, status: 'in_progress', conclusion: null }] }, { checks: [{ name: 'unit', sha, status: 'completed', conclusion: 'failure' }] }, { checks: [{ name: 'unit', sha: newer, status: 'completed', conclusion: 'success' }] }, { reviews: [{ login: 'alice', sha, state: 'CHANGES_REQUESTED', id: 2 }] }]) assert.ok(ready({ ...state(), ...change }, config, sha), JSON.stringify(change));
 });
+test('a later comment or pending review cannot hide a standing verdict', () => {
+  // GitHub leaves APPROVED and CHANGES_REQUESTED in force until the same
+  // reviewer files another verdict or it is dismissed. COMMENTED and PENDING
+  // decide nothing and must not supersede the verdict still standing —
+  // otherwise a reviewer's follow-up comment silently opens a gate their
+  // change request was holding closed.
+  const blocked = [{ login: 'alice', sha, state: 'CHANGES_REQUESTED', id: 1 }, { login: 'alice', sha, state: 'COMMENTED', id: 2 }];
+  assert.equal(ready({ ...state(), reviews: blocked }, config, sha), 'Changes requested');
+  assert.ok(mergeAllowed({ ...state(), reviews: blocked }, config, sha));
+  assert.equal(ready({ ...state(), reviews: [...blocked, { login: 'alice', sha, state: 'PENDING', id: 3 }] }, config, sha), 'Changes requested');
+  // The same rule in the other direction: a live approval survives its author's
+  // later comment, for the merge gate and for a requested reviewer alike.
+  const approved = [{ login: 'alice', sha, state: 'APPROVED', id: 1 }, { login: 'alice', sha, state: 'COMMENTED', id: 2 }];
+  assert.equal(mergeAllowed({ ...state(), reviews: approved }, config, sha), undefined);
+  assert.equal(ready({ ...state(), reviews: approved, requestedReviewers: ['alice'] }, config, sha), undefined);
+  // A real later verdict does supersede, both ways, and a dismissal withdraws.
+  assert.equal(mergeAllowed({ ...state(), reviews: [...approved, { login: 'alice', sha, state: 'CHANGES_REQUESTED', id: 4 }] }, config, sha), 'Changes requested');
+  assert.equal(mergeAllowed({ ...state(), reviews: [...blocked, { login: 'alice', sha, state: 'APPROVED', id: 5 }] }, config, sha), undefined);
+  assert.ok(mergeAllowed({ ...state(), reviews: [...approved, { login: 'alice', sha, state: 'DISMISSED', id: 6 }] }, config, sha));
+  // A reviewer who only ever commented carries no verdict at all.
+  assert.ok(ready({ ...state(), reviews: [{ login: 'alice', sha, state: 'COMMENTED', id: 1 }], requestedReviewers: ['alice'] }, config, sha));
+  // Malformed rows still fail closed: an unknown state invalidates the list.
+  assert.equal(ready({ ...state(), reviews: [{ login: 'alice', sha, state: 'ENDORSED', id: 1 }] }, config, sha), 'Missing or malformed reviews');
+  assert.equal(ready({ ...state(), reviews: [{ login: 'alice', state: 'COMMENTED', id: 1 }] }, config, sha), 'Missing or malformed reviews');
+});
 test('merge requires opt in org and configured independent approver at exact SHA', () => {
   assert.equal(mergeAllowed(state(), config, sha), undefined);
   for (const c of [{ ...config, merge: false }, { ...config, organizations: [] }, { ...config, approvers: [] }, { ...config, organizations: ['other'] }]) assert.ok(mergeAllowed(state(), c, sha));

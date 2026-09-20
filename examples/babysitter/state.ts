@@ -13,12 +13,24 @@ export function eligible(s: State, c: Config): string | undefined {
   if (!shaValid(s.headSha) || !shaValid(s.baseSha)) return 'Missing live head/base SHA';
   return undefined;
 }
+const REVIEW_STATES = ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED', 'PENDING'];
+/**
+ * States that decide. GitHub leaves an APPROVED or CHANGES_REQUESTED verdict in
+ * force until the same reviewer files another one or it is dismissed; COMMENTED
+ * and PENDING carry no verdict at all. Ranking reviews by id alone would let a
+ * reviewer's follow-up comment mask their own outstanding change request, which
+ * opens `ready` — the failure direction that matters.
+ */
+const VERDICT_STATES = ['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'];
+/** The verdict standing per reviewer: the newest verdict-bearing review, if any. */
 function latest(value: unknown): Map<string, Record<string, unknown>> | undefined {
   if (!Array.isArray(value)) return undefined;
   const result = new Map<string, Record<string, unknown>>();
   for (const item of value) {
     const r = record(item);
-    if (!text(r.login) || !Number.isSafeInteger(r.id) || Number(r.id) <= 0 || !['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED', 'PENDING'].includes(String(r.state)) || !shaValid(r.sha)) return undefined;
+    if (!text(r.login) || !Number.isSafeInteger(r.id) || Number(r.id) <= 0 || !REVIEW_STATES.includes(String(r.state)) || !shaValid(r.sha)) return undefined;
+    // Every row is still validated; only a verdict-bearing one can supersede.
+    if (!VERDICT_STATES.includes(String(r.state))) continue;
     const name = r.login.toLowerCase(), prior = result.get(name);
     if (!prior || Number(r.id) > Number(prior.id)) result.set(name, r);
   }

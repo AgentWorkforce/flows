@@ -151,6 +151,39 @@ test('a delivery is accepted as a hint; only routing is enforced', () => {
   ]) assert.throws(() => parseInput({ ...config, event }), JSON.stringify(event));
 });
 
+test('a fork check_run with no PR attribution still wakes and rereads', async () => {
+  // GitHub leaves `check_run.pull_requests` empty for pull requests from forks.
+  // Repository routing has already succeeded at that point; whether the check
+  // belongs to the pinned PR is a live-state question, and refusing the wake is
+  // exactly how fork CI goes unnoticed forever.
+  const forked = { action: 'completed', repository, check_run: { head_sha: sha, pull_requests: [] } };
+  assert.equal(parseInput({ ...config, event: forked }).event, forked);
+  assert.equal(wakeOf(parseInput({ ...config, event: forked })).id, 'check_run.completed');
+  assert.doesNotThrow(() => parseInput({ ...config, event: { action: 'completed', repository, check_run: { head_sha: sha } } }));
+  // It is a hint, so the decision still comes from the reread and nothing else.
+  const x = context(open(sha));
+  await babysit(x.f, { ...config, skipLabels: [], event: forked });
+  assert.ok(x.commands[0]!.startsWith('node -e'));
+  assert.ok(x.commands[1]!.includes(`wake check_run.completed`) && x.commands[1]!.includes(`bind=${sha}`));
+  assert.deepEqual(x.reasons, ['needs_human']);
+  // A check_run that names other PRs and not ours is genuinely misrouted.
+  assert.throws(() => parseInput({ ...config, event: { action: 'completed', repository, check_run: { head_sha: sha, pull_requests: [{ number: 9 }] } } }), /does not identify/);
+});
+
+test('repository routing compares owner and repository case-insensitively', () => {
+  // GitHub owner and repository names are case-insensitive, and every other
+  // babysitter comparison already lowercases them. An exact-case compare here
+  // rejects every delivery for a repository the operator spelled differently.
+  for (const full_name of ['AcMe/Widgets', 'ACME/WIDGETS', 'acme/widgets']) {
+    assert.doesNotThrow(() => parseInput({ ...config, event: { ...events.opened, repository: { full_name } } }), full_name);
+  }
+  assert.doesNotThrow(() => parseInput({ ...config, owner: 'AcMe', repo: 'Widgets', event: events.opened }));
+  // A different repository is still refused, whatever its casing.
+  for (const full_name of ['acme/gadgets', 'other/widgets', 'acmewidgets', '']) {
+    assert.throws(() => parseInput({ ...config, event: { ...events.opened, repository: { full_name } } }), /differs from pinned repository/, full_name);
+  }
+});
+
 test('a stale hinted head is recorded, never enforced, and never binds', () => {
   // The delivery was born on an older head; live state has moved on.
   const c = parseInput({ ...config, event: events.synchronize(older) });
