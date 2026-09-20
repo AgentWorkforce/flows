@@ -30,6 +30,10 @@ function cloud(routes: Record<string, (call: Call) => { status?: number; body: u
       body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined };
     calls.push(call);
     const route = routes[path];
+    // Unless a test says otherwise, every integration the workspace is asked about is connected.
+    if (!route && /\/integrations\/[^/]+\/status$/u.test(path)) {
+      return new Response(JSON.stringify({ ready: true, state: 'ready' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     if (!route) return new Response('{"error":"not found"}', { status: 404 });
     const answer = route(call);
     const { status, body } = answer !== null && typeof answer === 'object' && 'status' in answer && 'body' in answer
@@ -59,11 +63,13 @@ describe('trigger source and repository parsing', () => {
     ['github:labels=agent,contains=urgent', { provider: 'github', settings: { labels: 'agent', contains: 'urgent' } }],
     ['slack:channel=#eng', { provider: 'slack', settings: { channel: '#eng' } }],
     ['linear:team=ENG', { provider: 'linear', settings: { team: 'ENG' } }],
+    ['github:events=pull_request,labels=agent', { provider: 'github', settings: { events: 'pull_request', labels: 'agent' } }],
+    ['github:events=PULL_REQUEST', { provider: 'github', settings: { events: 'pull_request' } }],
   ])('parses %s', (value, expected) => {
     expect(parseTriggerSource(value)).toEqual(expected);
   });
 
-  it.each(['gitlab', 'github:channel=x', 'github:labels=', 'github:labels=a,labels=b', 'slack:labels=x'])
+  it.each(['gitlab', 'github:channel=x', 'github:labels=', 'github:labels=a,labels=b', 'slack:labels=x', 'github:events=releases'])
   ('refuses %s', (value) => {
     expect(() => parseTriggerSource(value)).toThrow(expect.objectContaining({ code: 'invalid_input' }));
   });
@@ -89,8 +95,18 @@ describe('deployToCloud', () => {
       sources: [parseTriggerSource('github:labels=agent'), parseTriggerSource('slack:channel=C123')],
       approver: 'khaliqgant',
     });
-    expect(calls.map(c => [c.method, c.path])).toEqual([['GET', '/api/v1/auth/whoami'], ['POST', '/api/v1/flows/deploy']]);
-    const body = calls[1]!.body as Record<string, unknown>;
+    // The workspace first, then each required integration's status (the
+    // deploy target's GitHub and the Slack source), then the deploy itself.
+    expect(calls.map(c => [c.method, c.path])).toEqual([
+      ['GET', '/api/v1/auth/whoami'],
+      ['GET', '/api/v1/workspaces/ws-1/integrations/github/status'],
+      ['GET', '/api/v1/workspaces/ws-1/integrations/slack/status'],
+      ['POST', '/api/v1/flows/deploy'],
+    ]);
+    expect(new URL(String(vi.mocked(fetch).mock.calls[1]![0])).searchParams.get('scope')).toBe('workspace');
+    const body = calls[3]!.body as Record<string, unknown>;
+    // The serialized body carries Cloud's lowercase enum whatever the shell typed.
+    expect(parseTriggerSource('github:events=Pull_Request').settings.events).toBe('pull_request');
     expect(body).toMatchObject({
       workspaceId: 'ws-1', mode: 'activate', name: 'issue-triage', workflow: 'flows-cli',
       inputs: { approver: 'khaliqgant', agents: ['claude'] }, repository: { owner: 'AgentWorkforce', name: 'flows' },
@@ -98,11 +114,48 @@ describe('deployToCloud', () => {
         { provider: 'github', settings: { labels: 'agent', repository: 'AgentWorkforce/flows' } },
         { provider: 'slack', settings: { channel: 'C123' } },
       ],
+      requirements: { integrations: ['github', 'slack'], harnesses: [], mcp: [] },
     });
     expect(body.handoffId).toMatch(/^flows-cli-[a-f0-9]{16}$/u);
     expect(body.source).toContain("flow<{ issue: { title: string }; approver: string }>('issue-triage'");
-    expect(deployment).toMatchObject({ agentId: 'agent-1', status: 'listening', name: 'issue-triage' });
+    expect(deployment).toMatchObject({ agentId: 'agent-1', status: 'listening', name: 'issue-triage', connected: [] });
+    expect(deployment.requirements.integrations.map(i => `${i.provider} (${i.detail})`)).toEqual(['github (--on github)', 'slack (--on slack)']);
     expect(deployment.sourceSha256).toMatch(/^[a-f0-9]{64}$/u);
+  });
+
+  it('refuses a declared harness Cloud cannot run instead of substituting Claude, unless --agents says so', async () => {
+    const dir = await tempDir('cloud-deploy-gemini-');
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'gemini.flow.ts');
+    await writeFile(path, "import { flow } from '@relayflows/surface';\n"
+      + "export default flow('gemini', async (f) => { await f.agent('review', { task: 't', cli: 'gemini' }); f.done('success'); });\n");
+    const calls = cloud({
+      '/api/v1/auth/whoami': () => WHOAMI,
+      '/api/v1/flows/deploy': () => ({ status: 201, body: { agentId: 'agent-1', status: 'listening' } }),
+    });
+    const base = { path, repository: { owner: 'o', name: 'r' }, sources: [parseTriggerSource('github')], approver: 'k' };
+    await expect(deployToCloud(base)).rejects.toMatchObject({
+      code: 'unsupported_source', message: expect.stringContaining('gemini (agent "review")'),
+    });
+    expect(calls.filter(c => c.path === '/api/v1/flows/deploy')).toEqual([]);
+    await deployToCloud({ ...base, agents: ['claude'] });
+    expect((calls.at(-1)!.body as { inputs: { agents: string[] } }).inputs.agents).toEqual(['claude']);
+  });
+
+  it('defaults --agents to the harnesses the source declares', async () => {
+    const dir = await tempDir('cloud-deploy-codex-');
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'codex.flow.ts');
+    await writeFile(path, "import { flow } from '@relayflows/surface';\n"
+      + "export default flow('codex', async (f) => { await f.agent('review', { task: 't', cli: 'codex' }); await f.llm('x', { output: {}, cli: 'claude' }); f.done('success'); });\n");
+    const calls = cloud({
+      '/api/v1/auth/whoami': () => WHOAMI,
+      '/api/v1/flows/deploy': () => ({ status: 201, body: { agentId: 'agent-1', status: 'listening' } }),
+    });
+    await deployToCloud({ path, repository: { owner: 'o', name: 'r' }, sources: [parseTriggerSource('github')], approver: 'k' });
+    const body = calls.at(-1)!.body as { inputs: { agents: string[] }; requirements: { harnesses: string[] } };
+    expect(body.inputs.agents).toEqual(['codex', 'claude']);
+    expect(body.requirements.harnesses).toEqual(['codex', 'claude']);
   });
 
   it('reports a missing or unloadable source as an input refusal (exit 2), before HTTP', async () => {

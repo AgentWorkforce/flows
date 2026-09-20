@@ -8,7 +8,10 @@ import { gunzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.js';
 import { runInCloud } from '../src/cloud-run.js';
-import { applyCloudPatch, packWorkingTree, patchedPaths, prepareCloudSync } from '../src/cloud-sync.js';
+import {
+  CLOUD_SYNC_PATCH_EXCLUDES, applyCloudPatch, excludedPatchPaths, packWorkingTree, patchedPaths,
+  prepareCloudSync,
+} from '../src/cloud-sync.js';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -316,6 +319,7 @@ describe('flows run --cloud --sync-code / flows sync', () => {
     ['run', '--cloud', '--sync-code', '--sync-code', 'flow.yaml'],
     ['run', '--cloud', '--input', '{}', 'flow.yaml'],
     ['sync'], ['sync', 'a', 'b'], ['sync', '--dir'], ['sync', '--json', '--json', 'r'],
+    ['sync', '--dry-run', '--dry-run', 'r'], ['sync', '--dry', 'r'],
   ])('refuses argv %j before any request', async (...args) => {
     const fetch = vi.spyOn(globalThis, 'fetch');
     expect(await runCli(args, { stdout: () => {}, stderr: () => {} })).toBe(2);
@@ -337,7 +341,8 @@ describe('flows run --cloud --sync-code / flows sync', () => {
     cloud({ '/api/v1/workflows/runs/done-run/patch': () => ({ patch, hasChanges: true }) });
     const output: string[] = [];
     expect(await runCli(['sync', '--json', '--dir', root, 'done-run'], { stdout: line => output.push(line), stderr: line => output.push(line) })).toBe(0);
-    expect(JSON.parse(output[0]!)).toEqual({ ok: true, runId: 'done-run', hasChanges: true, applied: true, files: ['a.txt', 'b.txt', 'gone.txt'] });
+    expect(JSON.parse(output[0]!)).toEqual({ ok: true, runId: 'done-run', hasChanges: true, applied: true,
+      files: ['a.txt', 'b.txt', 'gone.txt'], excluded: [] });
     expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('one\ntwo\n');
     expect(await readFile(join(root, 'b.txt'), 'utf8')).toBe('fresh\n');
     await expect(stat(join(root, 'gone.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
@@ -372,6 +377,36 @@ describe('flows run --cloud --sync-code / flows sync', () => {
     expect(output).toEqual(['NO CHANGES quiet']);
   });
 
+  it('reports no changes for an empty single-tree patch the server flags as changed', async () => {
+    // A single-tree run can answer hasChanges: true with an empty body. The
+    // multi-path branch discounts those, and so did `agent-relay cloud sync`;
+    // without the same guard the empty patch reaches `git apply` and fails as
+    // patch_conflict instead of reporting NO CHANGES.
+    const root = await tempDir('cloud-sync-empty-');
+    git(root, 'init', '-q');
+    cloud({ '/api/v1/workflows/runs/empty/patch': () => ({ patch: '  \n', hasChanges: true }) });
+    const output: string[] = [];
+    const errors: string[] = [];
+    expect(await runCli(['sync', '--dir', root, 'empty'],
+      { stdout: line => output.push(line), stderr: line => errors.push(line) })).toBe(0);
+    expect(output).toEqual(['NO CHANGES empty']);
+    expect(errors).toEqual([]);
+  });
+
+  it('reports an empty single-tree patch as no changes under --json and --dry-run', async () => {
+    const root = await tempDir('cloud-sync-empty-json-');
+    cloud({ '/api/v1/workflows/runs/empty/patch': () => ({ patch: '', hasChanges: true }) });
+    const output: string[] = [];
+    const io = { stdout: (line: string) => output.push(line), stderr: () => {} };
+
+    expect(await runCli(['sync', '--json', '--dir', root, 'empty'], io)).toBe(0);
+    expect(JSON.parse(output[0]!)).toEqual({ ok: true, runId: 'empty', hasChanges: false, applied: false });
+
+    output.length = 0;
+    expect(await runCli(['sync', '--dry-run', '--dir', root, 'empty'], io)).toBe(0);
+    expect(output).toEqual(['NO CHANGES empty']);
+  });
+
   it('refuses multi-path patches and conflicting patches without partial application', async () => {
     const root = await tempDir('cloud-sync-conflict-');
     git(root, 'init', '-q');
@@ -385,5 +420,315 @@ describe('flows run --cloud --sync-code / flows sync', () => {
     expect(() => applyCloudPatch(root, 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-nope\n+two\n'))
       .toThrow(expect.objectContaining({ code: 'patch_conflict' }));
     expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('one\n');
+  });
+});
+
+/**
+ * The patch a real synced run produces: source changes the user wants, and the
+ * agent runtime's own bookkeeping, which they do not. Every excluded pattern
+ * appears, plus the two near misses that must survive -- a nested
+ * `.agent-bin` belonging to a different tree, and a state file whose name only
+ * resembles the temporaries.
+ */
+const RUNTIME_ARTEFACT_PATCH = [
+  'diff --git a/src/keep.ts b/src/keep.ts',
+  '--- a/src/keep.ts',
+  '+++ b/src/keep.ts',
+  '@@ -1 +1 @@',
+  '-export const kept = 1;',
+  '+export const kept = 2;',
+  'diff --git a/.trajectories/run.jsonl b/.trajectories/run.jsonl',
+  'new file mode 100644',
+  '--- /dev/null',
+  '+++ b/.trajectories/run.jsonl',
+  '@@ -0,0 +1 @@',
+  '+{"step":"leaked"}',
+  'diff --git a/.agent-bin/nested/helper b/.agent-bin/nested/helper',
+  'new file mode 100644',
+  '--- /dev/null',
+  '+++ b/.agent-bin/nested/helper',
+  '@@ -0,0 +1 @@',
+  '+#!/bin/sh',
+  'diff --git a/.relayfile.acl b/.relayfile.acl',
+  '--- a/.relayfile.acl',
+  '+++ b/.relayfile.acl',
+  '@@ -1 +1 @@',
+  '-allow: nobody',
+  '+allow: everybody',
+  'diff --git a/.relayfile-mount-state.json b/.relayfile-mount-state.json',
+  '--- a/.relayfile-mount-state.json',
+  '+++ b/.relayfile-mount-state.json',
+  '@@ -1 +1 @@',
+  '-{"mounted":false}',
+  '+{"mounted":true}',
+  'diff --git a/.relayfile-mount-state.json.tmp-9911 b/.relayfile-mount-state.json.tmp-9911',
+  'new file mode 100644',
+  '--- /dev/null',
+  '+++ b/.relayfile-mount-state.json.tmp-9911',
+  '@@ -0,0 +1 @@',
+  '+half-written',
+  'diff --git a/.workflow-context/ctx.json b/.workflow-context/ctx.json',
+  'new file mode 100644',
+  '--- /dev/null',
+  '+++ b/.workflow-context/ctx.json',
+  '@@ -0,0 +1 @@',
+  '+{"run":"x"}',
+  'diff --git a/packages/x/.agent-bin/tool b/packages/x/.agent-bin/tool',
+  '--- a/packages/x/.agent-bin/tool',
+  '+++ b/packages/x/.agent-bin/tool',
+  '@@ -1 +1 @@',
+  '-vendored',
+  '+vendored twice',
+  'diff --git a/.relayfile-mount-state.json.backup b/.relayfile-mount-state.json.backup',
+  '--- a/.relayfile-mount-state.json.backup',
+  '+++ b/.relayfile-mount-state.json.backup',
+  '@@ -1 +1 @@',
+  '-old',
+  '+new',
+  '',
+].join('\n');
+
+/** The tree that patch was cut against, committed so `git apply` has its baseline. */
+async function artefactCheckout(): Promise<string> {
+  const root = await tempDir('cloud-sync-exclude-');
+  git(root, 'init', '-q');
+  await mkdir(join(root, 'src'));
+  await mkdir(join(root, 'packages/x/.agent-bin'), { recursive: true });
+  await writeFile(join(root, 'src/keep.ts'), 'export const kept = 1;\n');
+  await writeFile(join(root, '.relayfile.acl'), 'allow: nobody\n');
+  await writeFile(join(root, '.relayfile-mount-state.json'), '{"mounted":false}\n');
+  await writeFile(join(root, '.relayfile-mount-state.json.backup'), 'old\n');
+  await writeFile(join(root, 'packages/x/.agent-bin/tool'), 'vendored\n');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'baseline');
+  return root;
+}
+
+const KEPT_PATHS = [
+  'src/keep.ts', 'packages/x/.agent-bin/tool', '.relayfile-mount-state.json.backup',
+];
+const DROPPED_PATHS = [
+  '.trajectories/run.jsonl', '.agent-bin/nested/helper', '.relayfile.acl',
+  '.relayfile-mount-state.json', '.relayfile-mount-state.json.tmp-9911', '.workflow-context/ctx.json',
+];
+
+describe('applyCloudPatch path exclusions', () => {
+  it('writes the run’s source changes and never the agent runtime artefacts it touched', async () => {
+    const root = await artefactCheckout();
+
+    const { files, excluded } = applyCloudPatch(root, RUNTIME_ARTEFACT_PATCH);
+
+    expect(files).toEqual(KEPT_PATHS);
+    expect(excluded).toEqual(DROPPED_PATHS);
+    // The point of the whole exercise: the files are not on disk.
+    expect(await readFile(join(root, 'src/keep.ts'), 'utf8')).toBe('export const kept = 2;\n');
+    expect(await readFile(join(root, 'packages/x/.agent-bin/tool'), 'utf8')).toBe('vendored twice\n');
+    expect(await readFile(join(root, '.relayfile-mount-state.json.backup'), 'utf8')).toBe('new\n');
+    await expect(stat(join(root, '.trajectories'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(join(root, '.agent-bin'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(join(root, '.workflow-context'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(join(root, '.relayfile-mount-state.json.tmp-9911'))).rejects.toMatchObject({ code: 'ENOENT' });
+    // Modifications to tracked runtime files are dropped too, not just creations.
+    expect(await readFile(join(root, '.relayfile.acl'), 'utf8')).toBe('allow: nobody\n');
+    expect(await readFile(join(root, '.relayfile-mount-state.json'), 'utf8')).toBe('{"mounted":false}\n');
+  });
+
+  it('reports exactly the paths git itself drops for the same patterns', async () => {
+    const root = await artefactCheckout();
+
+    // `git apply --numstat` lists what an apply with these excludes would
+    // write. The SDK's own matcher has to agree with it, or every `files` and
+    // `excluded` it reports is fiction.
+    const numstat = execFileSync('git', [
+      '-C', root, 'apply', '--numstat',
+      ...CLOUD_SYNC_PATCH_EXCLUDES.map(pattern => `--exclude=${pattern}`),
+    ], { input: RUNTIME_ARTEFACT_PATCH, encoding: 'utf8' });
+    const gitWould = numstat.trim().split('\n').filter(Boolean).map(line => line.split('\t')[2]!);
+
+    expect(gitWould.sort()).toEqual([...KEPT_PATHS].sort());
+    expect(excludedPatchPaths(RUNTIME_ARTEFACT_PATCH).sort()).toEqual([...DROPPED_PATHS].sort());
+  });
+
+  it('checks with the same excludes it applies with, so an excluded conflict is not a refusal', async () => {
+    const root = await artefactCheckout();
+    // The excluded hunk's context does not match the tree at all. With the
+    // excludes on `--check` this is irrelevant -- the hunk is never applied.
+    // Without them, `--check` fails and the clean source change is lost.
+    const patch = 'diff --git a/src/keep.ts b/src/keep.ts\n--- a/src/keep.ts\n+++ b/src/keep.ts\n'
+      + '@@ -1 +1 @@\n-export const kept = 1;\n+export const kept = 3;\n'
+      + 'diff --git a/.trajectories/run.jsonl b/.trajectories/run.jsonl\n'
+      + '--- a/.trajectories/run.jsonl\n+++ b/.trajectories/run.jsonl\n'
+      + '@@ -1 +1 @@\n-a line this tree has never held\n+replaced\n';
+
+    expect(applyCloudPatch(root, patch)).toEqual({ files: ['src/keep.ts'], excluded: ['.trajectories/run.jsonl'] });
+    expect(await readFile(join(root, 'src/keep.ts'), 'utf8')).toBe('export const kept = 3;\n');
+  });
+
+  it('applies the patch whole when the caller opts out, and is a clean no-op when everything is excluded', async () => {
+    const root = await artefactCheckout();
+
+    const applied = applyCloudPatch(root, RUNTIME_ARTEFACT_PATCH, { exclude: [] });
+    expect(applied.excluded).toEqual([]);
+    expect(applied.files).toEqual([...KEPT_PATHS.slice(0, 1), ...DROPPED_PATHS, ...KEPT_PATHS.slice(1)]);
+    expect(await readFile(join(root, '.trajectories/run.jsonl'), 'utf8')).toBe('{"step":"leaked"}\n');
+
+    // A patch that touches nothing but excluded paths is not a conflict.
+    const only = await artefactCheckout();
+    const runtimeOnly = 'diff --git a/.trajectories/run.jsonl b/.trajectories/run.jsonl\nnew file mode 100644\n'
+      + '--- /dev/null\n+++ b/.trajectories/run.jsonl\n@@ -0,0 +1 @@\n+{"step":"leaked"}\n';
+    expect(applyCloudPatch(only, runtimeOnly)).toEqual({ files: [], excluded: ['.trajectories/run.jsonl'] });
+    await expect(stat(join(only, '.trajectories'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
+describe('flows sync --dry-run', () => {
+  it('prints the patch, names what it would skip, and writes nothing', async () => {
+    const root = await artefactCheckout();
+    cloud({ '/api/v1/workflows/runs/dry/patch': () => ({ patch: RUNTIME_ARTEFACT_PATCH, hasChanges: true }) });
+    const output: string[] = [];
+
+    const code = await runCli(['sync', '--dry-run', '--dir', root, 'dry'],
+      { stdout: line => output.push(line), stderr: line => output.push(line) });
+
+    expect(code, output.join('\n')).toBe(0);
+    const text = output.join('\n');
+    expect(output[0]).toMatch(/^DRY RUN dry: 3 files would be written\n {2}src\/keep\.ts\n/u);
+    expect(text).toContain('src/keep.ts');
+    expect(text).toContain('Would skip agent runtime paths: 6');
+    // The whole diff is on stdout, verbatim enough to pipe into `git apply`.
+    expect(text).toContain('diff --git a/src/keep.ts b/src/keep.ts');
+    expect(text).toContain('+export const kept = 2;');
+    // And the tree is untouched.
+    expect(await readFile(join(root, 'src/keep.ts'), 'utf8')).toBe('export const kept = 1;\n');
+    await expect(stat(join(root, '.trajectories'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('carries the patch in the JSON payload rather than beside it', async () => {
+    const root = await artefactCheckout();
+    cloud({ '/api/v1/workflows/runs/dry/patch': () => ({ patch: RUNTIME_ARTEFACT_PATCH, hasChanges: true }) });
+    const output: string[] = [];
+
+    expect(await runCli(['sync', '--dry-run', '--json', '--dir', root, 'dry'],
+      { stdout: line => output.push(line), stderr: line => output.push(line) })).toBe(0);
+
+    // Exactly one line, and it parses: the diff is a field, not loose stdout.
+    expect(output).toHaveLength(1);
+    expect(JSON.parse(output[0]!)).toEqual({
+      ok: true, runId: 'dry', hasChanges: true, applied: false, dryRun: true,
+      files: KEPT_PATHS, excluded: DROPPED_PATHS, patch: RUNTIME_ARTEFACT_PATCH,
+    });
+    expect(await readFile(join(root, 'src/keep.ts'), 'utf8')).toBe('export const kept = 1;\n');
+  });
+
+  it('shows every path-scoped patch of a multi-path run without applying any of them', async () => {
+    const root = await artefactCheckout();
+    const api = 'diff --git a/api/handler.ts b/api/handler.ts\n--- a/api/handler.ts\n+++ b/api/handler.ts\n'
+      + '@@ -1 +1 @@\n-old\n+new\n';
+    const web = 'diff --git a/web/page.tsx b/web/page.tsx\n--- a/web/page.tsx\n+++ b/web/page.tsx\n'
+      + '@@ -1 +1 @@\n-old\n+new\n';
+    cloud({ '/api/v1/workflows/runs/multi/patch': () => ({ patches: {
+      api: { patch: api, hasChanges: true },
+      web: { patch: web, hasChanges: true },
+      docs: { patch: '', hasChanges: false },
+    } }) });
+    const output: string[] = [];
+
+    expect(await runCli(['sync', '--dry-run', '--dir', root, 'multi'],
+      { stdout: line => output.push(line), stderr: line => output.push(line) })).toBe(0);
+
+    const text = output.join('\n');
+    expect(output[0]).toBe('DRY RUN multi: 2 path-scoped patches');
+    expect(text).toContain('--- patch for path "api" ---');
+    expect(text).toContain('--- patch for path "web" ---');
+    // The path with no changes is not presented as something to apply.
+    expect(text).not.toContain('"docs"');
+    expect(text).toContain('+++ b/api/handler.ts');
+    expect(text).toContain('+++ b/web/page.tsx');
+    await expect(stat(join(root, 'api'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(join(root, 'web'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('keys a multi-path --json dry run by path name', async () => {
+    const root = await artefactCheckout();
+    const api = 'diff --git a/api/handler.ts b/api/handler.ts\n--- a/api/handler.ts\n+++ b/api/handler.ts\n'
+      + '@@ -1 +1 @@\n-old\n+new\n';
+    cloud({ '/api/v1/workflows/runs/multi/patch': () => ({ patches: { api: { patch: api, hasChanges: true } } }) });
+    const output: string[] = [];
+
+    expect(await runCli(['sync', '--dry-run', '--json', '--dir', root, 'multi'],
+      { stdout: line => output.push(line), stderr: () => {} })).toBe(0);
+
+    expect(JSON.parse(output[0]!)).toEqual({
+      ok: true, runId: 'multi', hasChanges: true, applied: false, dryRun: true, multiPath: true,
+      patches: [{ name: 'api', files: ['api/handler.ts'], excluded: [], patch: api }],
+    });
+  });
+
+  it('refuses to apply a multi-path run and points at --dry-run', async () => {
+    const root = await artefactCheckout();
+    cloud({ '/api/v1/workflows/runs/multi/patch': () => ({ patches: {
+      api: { patch: 'diff --git a/api/x b/api/x\n', hasChanges: true },
+      web: { patch: 'diff --git a/web/y b/web/y\n', hasChanges: true },
+    } }) });
+    const errors: string[] = [];
+
+    expect(await runCli(['sync', '--dir', root, 'multi'],
+      { stdout: () => {}, stderr: line => errors.push(line) })).toBe(2);
+
+    expect(errors[0]).toContain('sync_unsupported');
+    expect(errors[0]).toContain('2 path-scoped patches (api, web)');
+    expect(errors[0]).toContain('--dry-run');
+  });
+
+  it('reports no changes for a multi-path run whose every path is quiet', async () => {
+    const root = await artefactCheckout();
+    cloud({ '/api/v1/workflows/runs/quiet/patch': () => ({ patches: {
+      api: { patch: '', hasChanges: false }, web: { patch: '', hasChanges: false },
+    } }) });
+    const output: string[] = [];
+
+    expect(await runCli(['sync', '--dir', root, 'quiet'],
+      { stdout: line => output.push(line), stderr: line => output.push(line) })).toBe(0);
+    expect(output).toEqual(['NO CHANGES quiet']);
+  });
+
+  it('refuses a patch map whose entry is not a patch', async () => {
+    cloud({ '/api/v1/workflows/runs/bad/patch': () => ({ patches: { api: { patch: 7, hasChanges: true } } }) });
+    const errors: string[] = [];
+
+    expect(await runCli(['sync', 'bad'], { stdout: () => {}, stderr: line => errors.push(line) })).toBe(1);
+    expect(errors[0]).toContain('invalid_response');
+    expect(errors[0]).toContain('"api"');
+  });
+});
+
+describe('flows sync reporting', () => {
+  it('names the runtime artefacts it dropped alongside what it applied', async () => {
+    const root = await artefactCheckout();
+    cloud({ '/api/v1/workflows/runs/real/patch': () => ({ patch: RUNTIME_ARTEFACT_PATCH, hasChanges: true }) });
+    const output: string[] = [];
+
+    expect(await runCli(['sync', '--json', '--dir', root, 'real'],
+      { stdout: line => output.push(line), stderr: line => output.push(line) })).toBe(0);
+
+    expect(JSON.parse(output[0]!)).toEqual({
+      ok: true, runId: 'real', hasChanges: true, applied: true,
+      files: KEPT_PATHS, excluded: DROPPED_PATHS,
+    });
+    await expect(stat(join(root, '.trajectories'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('says so on the human path too', async () => {
+    const root = await artefactCheckout();
+    cloud({ '/api/v1/workflows/runs/real/patch': () => ({ patch: RUNTIME_ARTEFACT_PATCH, hasChanges: true }) });
+    const output: string[] = [];
+
+    expect(await runCli(['sync', '--dir', root, 'real'],
+      { stdout: line => output.push(line), stderr: line => output.push(line) })).toBe(0);
+
+    expect(output[0]).toMatch(/^APPLIED real: 3 files\n {2}src\/keep\.ts\n/u);
+    expect(output.join('\n')).toContain('SKIPPED agent runtime paths: 6');
+    expect(output.join('\n')).toContain('.trajectories/run.jsonl');
+    expect(output.at(-1)).toContain('review with git diff');
   });
 });

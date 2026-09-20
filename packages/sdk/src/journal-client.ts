@@ -386,6 +386,26 @@ export class JournalClient extends EventEmitter {
   }
 
   /** Satisfy `wait.event`; a human response arrives here too. */
+  /**
+   * Park the dispatched attempt this connection holds on a human question.
+   * Releases the lease; the caller must not heartbeat or complete afterwards.
+   */
+  stepWait(
+    runId: string,
+    stepId: string,
+    attempt: number,
+    idempotencyKey: string,
+    wait: { wait_id: string; prompt: string; requested_of: string; options?: string[]; timeout_at_ms?: number },
+  ): Promise<VerbContract['step.wait']['result']> {
+    return this.request('step.wait', {
+      run_id: runId,
+      step_id: stepId,
+      attempt,
+      idempotency_key: idempotencyKey,
+      ...wait,
+    });
+  }
+
   eventEmit(runId: string, eventKey: string, payload: unknown): Promise<VerbContract['event.emit']['result']> {
     return this.request('event.emit', { run_id: runId, event_key: eventKey, payload });
   }

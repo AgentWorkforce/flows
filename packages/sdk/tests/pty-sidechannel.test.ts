@@ -61,7 +61,7 @@ setTimeout(() => process.exit(0), 450);
 });
 
 it('broken handshake and occupied socket do not affect the sidechannel owner', async () => {
-  const context = { dataDir: dir(), runId: 'r', stepId: 's', onDrive: () => { throw new Error('must not drive'); } };
+  const context = { dataDir: dir(), runId: 'r', stepId: 's', attempt: 1, onDrive: () => { throw new Error('must not drive'); } };
   let path = '';
   const first = await openSidechannel({ ...context, onReady: value => { path = value; } }, () => true);
   expect(first).toBeDefined();
@@ -85,7 +85,7 @@ process.stdin.on('end', () => { clearTimeout(watchdog); process.stdout.write('eo
   let driven = false;
   try {
     const result = await runAgentCli(cli, 'test', undefined, 'pty-test-model', undefined, undefined, 'agent', {
-      dataDir, runId: 'r', stepId: 's', onDrive: () => { driven = true; },
+      dataDir, runId: 'r', stepId: 's', attempt: 1, onDrive: () => { driven = true; },
       onReady(path) {
         if (mode === 'none') return;
         peer = connect(path, () => peer!.write(mode === 'incomplete' ? 'HELLO dri' : `HELLO ${mode}\n`));
@@ -113,7 +113,7 @@ process.stdin.on('end', () => {
   let rejectedBeforeExit = false;
   try {
     const result = await runAgentCli(cli, 'test', undefined, 'pty-test-model', undefined, undefined, 'agent', {
-      dataDir, runId: 'r', stepId: 's', onDrive: () => { driven = true; },
+      dataDir, runId: 'r', stepId: 's', attempt: 1, onDrive: () => { driven = true; },
       onReady(path) {
         peer = connect(path, () => peer!.write('HELLO view\n'));
         peer.once('data', () => {
@@ -155,7 +155,7 @@ setTimeout(() => {
   const timeout = setTimeout(() => controller.abort(), 4000);
   try {
     const result = await runAgentCli(cli, 'test', undefined, 'pty-test-model', undefined, controller.signal, 'agent', {
-      dataDir, runId: 'r', stepId: 's', onDrive() {},
+      dataDir, runId: 'r', stepId: 's', attempt: 1, onDrive() {},
       onReady(path) {
         peer = connect(path, () => { peer!.write('HELLO drive\n'); peer!.write(payload); });
         peer.on('error', () => {});

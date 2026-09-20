@@ -89,13 +89,160 @@ pointing at a tree Cloud does not hold.
 and every touched path is listed, deletions included: what the run changed —
 it is your own flow's output, but it is agent output — is reviewed with
 `git diff` before any of it is kept, the same contract v1's `cloud sync` had.
-Runs that declared several mounted paths carry one patch per path and are
-refused here (`sync_unsupported`). `--dir <path>` targets a checkout other
-than the current directory.
+`--dir <path>` targets a checkout other than the current directory.
+
+The agent runtime's own bookkeeping inside the synced tree is never written.
+The sandbox commits its baseline before the run, so `.agent-bin/**`,
+`.relayfile.acl`, `.relayfile-mount-state.json` and its `.tmp-*` temporaries,
+`.trajectories/**` and `.workflow-context/**` all show up in the post-run diff;
+applying them verbatim would drag trajectory records and mount state into your
+checkout, and overwrite the mount state of the tree being synced into. They are
+dropped with `git apply --exclude`, listed as `SKIPPED` (`excluded` under
+`--json`), and — because the exclusions are a property of the patch that lands —
+the `--check` pass carries the identical arguments: a conflict in a hunk that is
+never applied is not a refusal. The patterns are anchored at the patch root, so
+a vendored `packages/x/.agent-bin/tool` belongs to a different tree and rides
+along. `CLOUD_SYNC_PATCH_EXCLUDES` is the list's single home; `applyCloudPatch`
+takes an `exclude` option, and `[]` applies a patch whole.
+
+`--dry-run` prints the patch and applies nothing, reporting which paths it would
+write and which it would skip. Under `--json` the diff travels in the payload's
+`patch` field rather than loose on stdout beside it, so one object still parses.
+
+A run that declared several mounted paths carries one patch per path, keyed by
+path name. `flows sync --dry-run` shows each of them; applying is refused
+(`sync_unsupported`, exit 2), because they target different repositories and no
+single `--dir` is the right destination — inspect them, then apply each in its
+own repository. This is not a v1 shape: the `/patch` route branches on the run's
+`paths`, not on `relayflowVersion`, so a v2 `--sync-code` run that submits
+several paths answers the same way.
 
 A synced run and a Cloud repository grant are mutually exclusive on the
 server: `--sync-code` is the local-driven development loop, and
 webhook-triggered deployments keep cloning through the grant.
+
+## Reading a hosted run
+
+Three read-only verbs answer "what did that run do" from the Cloud API, so an
+agent holding its user's own Cloud credential does not have to hand-roll HTTP:
+
+```sh
+flows runs [--limit <n>] [--json]                         # recent runs
+flows logs <run-id> [--step <name>] [--raw] [--json]      # runner log, or a step's transcript
+flows status --cloud [--json] <run-id>                    # the run's steps, as `flows status` renders a local one
+```
+
+They resolve their credential exactly the way every other hosted verb does
+(see [Credentials](#credentials) below) and they write nothing. A workspace
+API token of purpose `workflow` is enough; the log route additionally wants
+`workflow:logs:read` or `workflow:invoke:read`, and a run-scoped *sandbox*
+token may only read its own run.
+
+`flows runs` lists the runs the credential can see, newest first, one line
+each: run id, flow name, status, completion reason, the started and updated
+instants, and the pull request the run opened when there is one. The route
+pages by opaque cursor and has no `limit` parameter of its own, so `--limit`
+is applied here — asking for ten makes one request, and the header says when
+Cloud had more.
+
+```text
+runs 2
+RUN 20d04c99-3fa8-48c9-9286-92d364a5bc2e  insight-proof-2022  completed  success  started 2026-09-19T20:34:58Z  updated 2026-09-19T20:37:42Z
+RUN 2c24c74d-ce49-5e0b-b7ca-d5ff64a19102  relay.ci.pr-proof   failed              started 2026-09-19T23:16:09Z  updated 2026-09-19T23:17:43Z
+      error relayflow_v2_repository_token_unavailable
+```
+
+`flows logs <run-id>` prints the sandbox's runner log. `--step <name>` selects
+one agent step's transcript instead — the step name is the `sandbox_id` the
+step list carries, and `flows status --cloud` prints the exact invocation
+under each step that has one. A transcript is JSONL (the harness's
+`stream-json`, wrapped in the `relayflow.attempt` markers the v2 executor
+interleaves), and it is rendered: a session header from the `system`/`init`
+frame, assistant text as prose, one line per tool call with its target and the
+size of its result, thinking blocks as a character count only, attempt and
+truncation markers as separators, and a footer with duration, turns, cost and
+tokens.
+
+```text
+LOG 20d04c99-3fa8-48c9-9286-92d364a5bc2e  step agent-2  5,945 bytes  complete
+── attempt 1 · 5,873 bytes ─────────────────────────────────────────────
+session  claude-opus-5 · v2.1.19 · bypassPermissions · 18 tools · 0 MCP servers
+assistant:
+  I'll read the file.
+  tool  Read  /project/workflows/runs/e4456951-.../notes.txt  → 385 chars
+  thinking  0 chars (not shown)
+assistant:
+  **Line count:** 3 (`alpha`, `beta`, `gamma` — ...)
+── result success · 6.2s · 2 turns · $0.108098 · 4 in / 248 out · 25,402 cache read · 25,638 cache write ──
+```
+
+`--raw` prints the JSONL unrendered. It does **not** print it unredacted:
+every string that reaches the terminal — rendered, raw, or `--json` — goes
+through `redact.ts`, the redactor the local `flows status` uses. That is a
+deliberate choice of one of the two redactors in the tree (flows#494): this is
+the status page extended to hosted runs, and a reader should meet the same
+rule set whether the run was local or hosted. No frame is ever dropped — a
+frame this vocabulary has no opinion about is reported as one line naming its
+type and size, and a line that is not JSON is printed as written, so `--raw`
+is never the only way to find out that something ran.
+
+`flows status --cloud <run-id>` is the local `flows status` view, sourced from
+the run record and the step list instead of a journal: the `RUN` header with
+status, completion reason and summed spend, a `steps N` count, and one
+glyph-led line per step with its state, attempts, timing and gate verdict.
+An agent step also gets its transcript digest — model, turns, tool calls,
+cost, frames and bytes kept, token and cache usage, the tool roster, the last
+calls, and its artifacts.
+
+```text
+RUN 20d04c99-3fa8-48c9-9286-92d364a5bc2e   insight-proof-2022   completed   started 2h49m ago   finished success   spend 4 in / 248 out / $0.108098
+steps 3: 3 completed
+authority surface 2.0.22 · artifact 9c361a2cbb0a · commit b4dd665eb433
+
+  ✓ run-1       deterministic  completed    1 attempt  0.0s  success  gate: exit_code pass
+  ✓ agent-2     agent          completed    1 attempt  9.3s  success  gate: completion pass
+      transcript (attempt 1): claude-opus-5 · 2 turns · 1 tool call · $0.108098
+        7 of 7 frames, 5,873 bytes
+        4 in / 248 out · 25,402 cache read · 25,638 cache write
+        tools: Read ×1
+        call 1 Read {"file_path":"/project/.../notes.txt"} → 393 bytes
+        artifacts: none
+      logs: flows logs 20d04c99-3fa8-48c9-9286-92d364a5bc2e --step agent-2
+  ✓ complete-3  deterministic  completed    1 attempt  0.0s  success  gate: exit_code pass
+```
+
+`--cloud` takes neither `--data-dir` nor `--tail`: both name things on this
+filesystem, which a hosted run has none of, so pairing them is refused as an
+invocation rather than quietly ignored. The spend total is summed from the
+step rows because the run record carries no total, and Cloud stores each
+step's cost as a float — unlike the local view, which adds the journal's
+decimal strings exactly (`run-state.ts`).
+
+Every refusal is one `REFUSED [code] message` line naming what to do next:
+
+| code | when |
+| --- | --- |
+| `cloud_auth_missing` | no credential anywhere; names `agent-relay cloud login` |
+| `cloud_auth_expired` | the stored login expired; refused before any request |
+| `cloud_auth_rejected` | Cloud answered 401: the token is unknown or revoked |
+| `cloud_forbidden` | 403: authenticated, but not allowed to read that run or log |
+| `cloud_run_not_found` | 404: no such run for this credential; points at `flows runs` |
+| `cloud_step_no_transcript` | `--step` named a step with no transcript, or no such step; names the ones that have one |
+| `invalid_invocation` | the run id is not a run id (wrong characters, too long); refused before any request |
+| `cloud_invalid_response` | Cloud answered something this client cannot trust — a record for a different run, a list that is not a list, a row with no id, a pagination cursor that does not advance |
+| `cloud_unreachable` / `cloud_transport_failed` | the request never completed |
+
+A read never guesses to stay quiet. A run record whose `runId` is not the one
+asked for, a `runs` or `steps` field that is not an array, and a row with no
+`runId`/`stepName` are all refused rather than rendered — otherwise `runs 0`
+and a three-step run shown with two would be claims about the workspace that
+nobody established. A step-list read that fails while resolving `--step`
+surfaces *its* failure (403, transport) rather than becoming
+`cloud_step_no_transcript`, which would tell a caller to fix an invocation that
+was fine.
+
+Under `--json` the same refusal is one object on stdout
+(`{"v":1,"ok":false,"code":…,"message":…}`) and stderr stays empty.
 
 ## Credentials
 
@@ -122,7 +269,7 @@ flows undeploy <deployment-id>
 ```
 
 Optional flags: `--agents claude,codex`, `--name "Issue triage"`, `--draft`,
-`--json`, and further `--on` sources.
+`--no-connect`, `--json`, and further `--on` sources.
 
 `flows deploy <flow.ts>` is the CLI form of the agentrelay.com onboarding's
 deploy wizard: `POST /api/v1/flows/deploy` stores one self-contained authored
@@ -135,11 +282,17 @@ listener's rules match them there. The digest form,
 decides which form is meant.
 
 `--on <provider>[:key=value,…]` takes `github` (`repository`, `labels`,
-`contains`), `slack` (`channel`, `contains`), `linear` (`team`, `contains`),
-`jira` (`project`, `contains`) or `shortcut` (`workspace`, `contains`), each
-at most once. A GitHub source without `repository` is scoped to `--repo`.
-Today a GitHub listener wakes on `issues.opened` and `issues.labeled` only;
-pull-request and comment events are filtered out before launch.
+`contains`, `events`), `slack` (`channel`, `contains`), `linear` (`team`,
+`contains`), `jira` (`project`, `contains`) or `shortcut` (`workspace`,
+`contains`), each at most once. A GitHub source without `repository` is
+scoped to `--repo`. `events` is `issues` (the default: `issues.opened` and
+`issues.labeled`) or `pull_request`, which wakes on a pull request being
+opened, receiving commits, being reopened, or being reviewed; a
+pull-request run checks out the pull request's own head and receives
+`input.pullRequest` (`number`, `title`, `body`, `headRef`, `headSha`,
+`baseRef`, `author`, `draft`, `labels`, `url`, and `review` for a submitted
+review) beside `input.issue` and `input.event`. Comment and check-run
+events are not wake sources yet.
 
 Each matching ticket launches one run of the stored source. Cloud clones
 `--repo` at its default branch onto a fresh `relayflow/<name>-<id>` branch,
@@ -148,11 +301,59 @@ runs `flows run --local-agent` there, and passes the flow body
 as its input. The flow must therefore be the default body,
 `flow<Input>(name, header, async (f, input) => …)`; `.on(github.issues(…))`
 handlers are checked but are not what Cloud dispatches. `--agents` names the
-coding-agent harnesses the flow uses (default `claude`); activation checks
+coding-agent harnesses the flow uses; it defaults to the `cli:` declarations
+the source carries (`flowRequirements`), else `claude`. Activation checks
 their credentials are connected and refuses with `flow_model_not_connected`
-otherwise. `--draft` saves the flow without activating it and skips those
+otherwise, and the CLI appends the remedy (`agent-relay cloud connect
+<harness>`). `--draft` saves the flow without activating it and skips those
 checks. The deploy routes answer refusals as `{ code, error }`, and the CLI
 names them (`flow_repository_not_connected`, `flow_name_taken`, …).
+
+## Integrations a flow requires
+
+`flows check` prints what a flow needs from the workspace it will run in:
+
+```
+REQUIRES slack (tools.slack), github (deploy target), claude (agent "review")
+```
+
+The list is derived from inert declarations only (`flowRequirements` in the
+SDK; the same function reads a compiled YAML spec, where a helper step such as
+`slack: { post: … }` names its provider): `tools.<helper>: true` flags and
+`tools.relayfile` mounts in the header, `f.<helper>` use in the default body
+(recognised exactly as helper preflight recognises it), provider triggers
+(`.on(github.issues())`), the `--on` sources and the deploy target (every
+launched run lands in `--repo`, so GitHub is always required), the `cli:` of
+each `f.agent`/`f.llm` call in the default body (else the nearest `flows.json`
+`cli`, else `claude`), and `tools.mcp`. Handler bodies are not scanned: hosted
+dispatch runs the default body (flows #301), so only a handler's trigger is a
+requirement. The deploy body carries the same list as `requirements` for
+Cloud to cross-check, and a declared harness Cloud cannot run yet (`gemini`)
+refuses the deploy unless `--agents` overrides it.
+
+Before `flows deploy`, `flows schedule` and `flows run --cloud` submit anything,
+each required integration is checked against the workspace
+(`GET /api/v1/workspaces/<id>/integrations/<provider>/status?scope=workspace`).
+A missing one is offered in the terminal, the way `agentworkforce deploy`
+connects a proactive agent's integrations:
+
+```
+This flow needs Slack (tools.slack), which is not connected to this workspace.
+Connect Slack now? (opens browser) [Y/n]
+Opening https://agentrelay.com/cloud/…/connect
+Slack connected.
+```
+
+Yes opens a relayfile connect session (`POST …/integrations/connect-session`
+with `{ allowedIntegrations: ["slack"], scope: { kind: "workspace" } }`) in
+the browser and polls the status until it is ready (five minutes at most);
+`FLOWS_NO_BROWSER=1` prints the link instead of opening it. No answer, `--json`,
+a non-interactive stdin, or `--no-connect` refuses with
+`integration_not_connected` (exit 2), naming the provider, the declaration that
+needs it, and the two ways to connect it. `--draft` deploys skip the check,
+as Cloud does. Coding-agent credentials have no status route; Cloud refuses
+them on activation or launch and the CLI names `agent-relay cloud connect
+<harness>` then. A flow that requires no integration contacts nothing extra.
 
 Without `--wait`, exit 0 means the server accepted the run. With `--wait`, it
 means Cloud reported `completed` with a validated `success` completion reason.
@@ -186,6 +387,41 @@ cancellation without a journal report; those records cannot supply an attested
 execution outcome through this API. Step-level journal evidence is not exposed
 by this endpoint and is not synthesized by the SDK.
 
+## Schedules
+
+```sh
+flows schedule nightly.flow.ts --input '{"topic":"release"}'          # uses the flow's schedule.* declaration
+flows schedule monitor.flow.yaml --every 15m
+flows schedule report.flow.ts --cron "0 9 * * 1-5" --tz Europe/Oslo --input '{}' --name "Morning report"
+flows schedules
+flows unschedule <schedule-id>
+```
+
+`flows schedule` registers a cron on Cloud: `POST /api/v1/workflows/schedules`
+with `schedule_type: cron`, `cron_expression`, `timezone` and, as
+`workflowRequest`, **exactly the body `flows run --cloud` would send** —
+`workflow`, `fileType`, `relayflowVersion: v2`, and for an authored flow its
+pinned `authoredAuthority` and the `--input` value. Each fire replays that
+stored request through the same run admission a CLI submission takes, so what
+runs on the cron is the source you scheduled, not a re-read of your checkout.
+Nothing runs at schedule time. Code sync and repository grants are refused on
+schedules: both name one specific upload or base commit, which a second fire
+would find stale.
+
+The cron comes from, in order: `--cron`, `--every` (only intervals cron can
+express exactly — divisors of an hour, `1h`, divisors of a day, `1d`), or the
+flow's own `schedule.cron(...)` / `schedule.every(...)` handler when it
+declares exactly one. Both the expression and `--tz` are validated before any
+request. The routes need the interactive `cli:auth` login, as deployments do.
+`--every` and `schedule.every` are refused where no exact cron exists (`7m`):
+say what you mean with `--cron`.
+
+Authored `.on(schedule.*, body)` handlers are the declaration; the hosted fire
+runs the flow's **default body** with `input`, as deployments do. Until
+handler dispatch lands (flows #301), write the scheduled work in the default
+body and use the handler to declare when — `flows check` prints the
+declaration and its `flows.tick` lowering either way.
+
 ## Current limits and scope
 
 - An authored `.flow.ts` is submitted as one self-contained source. Local
@@ -198,6 +434,23 @@ by this endpoint and is not synthesized by the SDK.
   deadline; this SDK does not override or claim to fix it.
 - Cloud must provision and preflight agent workers; this client performs spec
   compilation only and cannot prove hosted credentials or worker availability.
+- Inside a hosted sandbox, `flows status` (SURFACE.md §5) works unchanged: the
+  worker is the `--local-agent` of the CLI Cloud spawns with `--data-dir`, so
+  the agent's own journal is on its own disk and the four `RELAYFLOW_*`
+  discovery names are set by that worker with no Cloud env change. Cloud's one
+  obligation is to put the same pinned `flows` binary that wrote the journal on
+  the agent's PATH; today it is invoked by absolute path only. What the agent
+  cannot learn from disk is Cloud's alone and is not guessed: its Cloud run id
+  (a UUID Cloud may export separately), its sandbox, and which listener
+  launched it.
+- From outside the sandbox, step state *is* readable — see
+  [Reading a hosted run](#reading-a-hosted-run). `GET /runs/<id>/steps`
+  answers per-step rows carrying state, attempts, timing, gate verdicts, spend
+  and the transcript digest, and `GET /runs/<id>/logs` answers the runner log
+  or one step's transcript. There is still no journal-export endpoint: what
+  these routes serve is Cloud's own record of the run, not the kernel journal,
+  so `flows status --cloud` renders the same facts in the same shape without
+  claiming to be a replay. `flows replay` remains local-journal only.
 - `publishFlowRun` and the gallery are **design-only** under the revised WS-14
   scope, by Khaliq’s ruling. Publication needs a new endpoint in the Cloud
   repository, outside this lane, with no assigned owner. The written design is

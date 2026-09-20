@@ -25,7 +25,13 @@ export interface WrapperIdentity {
   fingerprint: string;
 }
 
-/** Build a wrapper environment from a closed list; ambient credentials never cross. */
+/**
+ * Build a wrapper environment from a closed list; ambient credentials never
+ * cross. The step discovery names (`RELAYFLOW_DATA_DIR`, `RELAYFLOW_RUN_ID`,
+ * `RELAYFLOW_STEP_ID`, `RELAYFLOW_ATTEMPT`) are deliberately not on the list:
+ * an ambient value is a parent step's identity, not this one's, so the worker
+ * sets them from the dispatch after this filter (step-env.ts).
+ */
 export function wrapperEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const name of WRAPPER_ENV_ALLOWLIST) {

@@ -36,6 +36,54 @@ beforeEach(()=>{
   }));
 });
 describe('authored IPC result durable verification',()=>{
+  it('accepts a predicate-gated flow: the `<step>.gate` child is verified but does not consume an ordinal',async()=>{
+    const claimed:AuthoredFlowExecutionResult={rootRunId:'root',name:'example',completionReason:'success',journalSteps:[
+      {id:'run-1',runId:'child-1',completionReason:'success'},
+      {id:'run-1.gate',runId:'child-gate',completionReason:'success'},
+      {id:'complete-2',runId:'child-2',completionReason:'success'},
+    ]};
+    records.set('child-gate',entries(`printf '%s' '{"gate":"predicate","step":"run-1","verdict":"pass"}'`,'run-1.gate'));
+    mocks.runGet.mockImplementation(async (run_id:string)=>({run_id,status:'completed',steps:{
+      [run_id==='child-1'?'run-1':run_id==='child-gate'?'run-1.gate':'complete-2']:{state:'done'},
+    }}));
+    await verifyAuthoredNodeResult(claimed,metadata,'root','socket');
+    expect(mocks.runGet).toHaveBeenCalledTimes(3);
+    expect(mocks.journalRead).toHaveBeenCalledWith('child-gate',1,100);
+  });
+  it.each([
+    ['an orphan gate whose parent was not claimed', [{id:'run-9.gate',runId:'child-gate',completionReason:'success'}]],
+    ['a gate claimed without a success completion', [{id:'run-1.gate',runId:'child-gate',completionReason:'step_failed'}]],
+    ['a gate whose child run has no durable completion', [{id:'run-1.gate',runId:'child-missing',completionReason:'success'}]],
+  ] as const)('refuses %s',async(_label,gateSteps)=>{
+    const base=result();
+    const claimed:AuthoredFlowExecutionResult={...base,journalSteps:[base.journalSteps[0]!,...gateSteps,base.journalSteps[1]!]};
+    records.set('child-gate',entries(':','run-1.gate'));
+    mocks.runGet.mockImplementation(async (run_id:string)=>{
+      if(run_id==='child-missing') return {run_id,status:'running',steps:{}};
+      return {run_id,status:'completed',steps:{[run_id==='child-1'?'run-1':run_id==='child-gate'?'run-1.gate':'complete-2']:{state:'done'}}};
+    });
+    await expect(verifyAuthoredNodeResult(claimed,metadata,'root','socket')).rejects.toThrow('no matching durable completion');
+  });
+  it('accepts a child spec that carries its lowered named gate as a second, completed step — and refuses one where the gate did not complete',async()=>{
+    const namedGated=(gateReason:string)=>[
+      {entry_type:'run.spawned',payload:{spec:{name:'example/run-1',steps:[{id:'run-1',type:'deterministic',command:':'},{id:'run-1.gate',type:'deterministic',command:'node -e 1'}]}}},
+      {entry_type:'step.completed',step_id:'run-1',payload:{completionReason:'success'}},
+      {entry_type:'step.completed',step_id:'run-1.gate',payload:{completionReason:gateReason}},
+      {entry_type:'run.completed',payload:{completionReason:'success'}},
+    ];
+    records.set('child-1',namedGated('success'));
+    await verifyAuthoredNodeResult(result(),metadata,'root','socket');
+    records.set('child-1',namedGated('verification_failed'));
+    await expect(verifyAuthoredNodeResult(result(),metadata,'root','socket')).rejects.toThrow('no matching durable completion');
+    records.set('child-1',[{entry_type:'run.spawned',payload:{spec:{name:'example/run-1',steps:[{id:'run-1',type:'deterministic',command:':'},{id:'other',type:'deterministic',command:':'}]}}},
+      {entry_type:'step.completed',step_id:'run-1',payload:{completionReason:'success'}},{entry_type:'run.completed',payload:{completionReason:'success'}}]);
+    await expect(verifyAuthoredNodeResult(result(),metadata,'root','socket')).rejects.toThrow('no matching durable completion');
+  });
+  it('refuses a gate id as the terminal marker, and a count that includes gates',async()=>{
+    const base=result();
+    await expect(verifyAuthoredNodeResult({...base,journalSteps:[base.journalSteps[0]!,{id:'complete-2.gate',runId:'x',completionReason:'success'}]},metadata,'root','socket')).rejects.toThrow('no matching durable completion');
+    await expect(verifyAuthoredNodeResult({...base,journalSteps:[base.journalSteps[0]!,{id:'run-1.gate',runId:'child-gate',completionReason:'success'},{id:'complete-3',runId:'child-2',completionReason:'success'}]},metadata,'root','socket')).rejects.toThrow('no matching durable completion');
+  });
   it('requires independently read completed children and exact terminal marker',async()=>{
     await verifyAuthoredNodeResult(result(),metadata,'root','socket');
     expect(mocks.runGet).toHaveBeenCalledTimes(2);expect(mocks.journalRead).toHaveBeenCalledWith('child-2',1,100);

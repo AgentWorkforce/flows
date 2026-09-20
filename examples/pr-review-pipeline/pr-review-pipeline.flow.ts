@@ -9,11 +9,16 @@
 // looks specifically for conflicting verdicts rather than just concatenating
 // opinions.
 //
-// STATUS: typechecks against the real `@relayflows/surface` package (see
-// ../tsconfig.json / `npm --prefix packages/surface run typecheck:examples`)
-// but does not run yet — `f.agent` parks without an attached worker. Unlike
-// the other two examples, this one never calls `f.human`, so nothing here
-// depends on that verb being wired up.
+// STATUS: runs with `flows run pr-review-pipeline.flow.ts --local-agent
+// --input '{"diffRange":"main...HEAD"}'` from a checkout with a `flows.json`
+// naming the agent CLI. Each lens is gated on a journaled `artifact_exists`
+// check — the worker that spawned the agent journals the files it wrote, and
+// the gate reads that journal — and the consensus step on a predicate whose
+// verdict is journaled as `agent-N.gate`. The steps run in the invoking
+// directory (no `workspace:` scoping: the local agent worker accepts
+// stream-only steps, and a "...: readwrite" annotation is refused because
+// nothing enforces it). Unlike the other two examples, this one never calls
+// `f.human`, so nothing here depends on that verb being wired up.
 
 import { flow } from "@relayflows/surface";
 
@@ -21,9 +26,16 @@ const LENSES = ["security", "correctness", "performance"] as const;
 type Lens = (typeof LENSES)[number];
 
 export interface PrReviewInput {
-  /** e.g. "origin/main...HEAD", or a PR's merge-base range. */
-  diffRange: string;
+  /**
+   * Local runs: e.g. "origin/main...HEAD". A Cloud `--on github:events=pull_request`
+   * run passes no diffRange; it checks out the pull request's head and passes
+   * `pullRequest` (docs/CLOUD.md), from which the range is derived.
+   */
+  diffRange?: string;
+  pullRequest?: { baseRef: string; headSha: string };
 }
+
+const shellWord = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 
 function findingsPath(lens: Lens): string {
   return `review/${lens}.json`;
@@ -33,24 +45,44 @@ export default flow<PrReviewInput>(
   "pr-review-pipeline",
   { budget: "$3/run" },
   async (f, input) => {
+    // Cloud clones the repo at the pull request's head, so the base is only
+    // reachable after a fetch; FETCH_HEAD...<head> is the PR's merge-base diff.
+    let range = input.diffRange;
+    if (range === undefined) {
+      const pr = input.pullRequest;
+      if (pr === undefined) {
+        throw new Error("pr-review-pipeline needs diffRange (local) or input.pullRequest (a pull_request trigger)");
+      }
+      // A shallow, tags-free fetch of just the base tip; the three-dot diff
+      // needs the merge base, so deepen until git finds one. Both get their
+      // own lease: f.run defaults to 30s, which a real base branch can exceed.
+      await f.run(
+        `git fetch --no-tags --depth=200 origin ${shellWord(pr.baseRef)} && `
+          + `until git merge-base FETCH_HEAD ${shellWord(pr.headSha)} >/dev/null 2>&1; do `
+          + `git fetch --no-tags --deepen=500 origin ${shellWord(pr.baseRef)} || exit 1; done`,
+        { timeout: "5m" },
+      );
+      range = `FETCH_HEAD...${pr.headSha}`;
+    }
     const diff = await f
-      .run(`git diff ${input.diffRange}`)
+      .run(`git diff ${shellWord(range)}`, { timeout: "2m" })
       .gate((out) => out.trim().length > 0, "nothing to review — the diff is empty");
+    await f.run("mkdir -p review");
 
     await Promise.all(
       LENSES.map((lens) =>
         f
           .agent(`${lens}-reviewer`, {
+            // Pinned: a Cloud sandbox has no flows.json to resolve the CLI from.
+            cli: "claude",
             task:
               `Review this diff for ${lens} issues ONLY — ignore everything else. ` +
               `Write every finding, or an explicit "no issues found", to ` +
               `${findingsPath(lens)}.\n\n${diff}`,
-            workspace: "review/: readwrite",
           })
-          .gate(
-            (r) => r.artifacts.includes(findingsPath(lens)),
-            `the ${lens} reviewer must write ${findingsPath(lens)}, even to report nothing`,
-          ),
+          // A named gate: preflightable by `flows check`, evaluated against
+          // the artifacts the worker journaled for this step, never the disk.
+          .gate({ type: "artifact_exists", path: findingsPath(lens) }),
       ),
     );
 
@@ -60,13 +92,15 @@ export default flow<PrReviewInput>(
     // whichever verdict is read first silently win.
     const consensus = await f
       .agent("consensus", {
+        cli: "claude",
         task:
           `Read ${LENSES.map(findingsPath).join(", ")}. Where two reviewers ` +
           `reached opposite verdicts on the same spot in the diff, resolve it ` +
           `or mark it UNRESOLVED with both positions. Write your reconciled ` +
           `verdict to review/consensus.json.`,
-        workspace: "review/: readwrite",
       })
+      // A predicate gate: author code, run once on the journaled result; its
+      // verdict is journaled as `agent-N.gate` so resume/replay never re-run it.
       .gate(
         (r) => r.artifacts.includes("review/consensus.json"),
         "the consensus step must write review/consensus.json",

@@ -5,7 +5,7 @@ import { JournalClient } from './journal-client.js';
 import { executeAuthoredFlow } from './authored-flow-executor.js';
 import { loadPinnedAuthoredSource } from './authored-source-authority.js';
 import { assertAuthoredNodeVersion, parseAuthoredParentPid } from './authored-runtime-capability.js';
-import { AuthoredFlowExecutionError } from './authored-flow-error.js';
+import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow-error.js';
 import type { AuthoredRootMetadata } from './authored-root.js';
 
 let channelKey: string | undefined, sequence = 0;
@@ -82,7 +82,8 @@ try {
   const prefix = error instanceof AuthoredFlowExecutionError ? `${error.code}: ` : '';
   send({ type: 'error', message: prefix && message.startsWith(prefix) ? message.slice(prefix.length) : message,
     ...(error instanceof AuthoredFlowExecutionError ? { code: error.code,
-      completionReason: error.completionReason, runId: error.runId } : {}) });
+      completionReason: error.completionReason, runId: error.runId } : {}),
+    ...(error instanceof AuthoredHumanParked ? { wait: error.wait } : {}) });
   process.exitCode = 1;
 } finally {
   finished = true; await watchdog.terminate(); client?.close(); process.stdin.destroy();

@@ -12,14 +12,20 @@ import type { FlowSpec } from '../spec.js';
 
 export interface BuildArgs { command: 'build'; value: string; out?: string; verify: boolean; json: boolean }
 
+/**
+ * `--verify` is an ordinary flag, not a leading mode token: the command surface
+ * lists it beside `--out` and `--json`, so every order the help implies has to
+ * parse (`build --verify --json <dir>` and `build <dir> --verify` alike).
+ *
+ * `--out` is the one combination genuinely refused: it names where a build
+ * writes, and a verify builds nothing, so accepting the pair would silently
+ * ignore the destination. The surface says so in the option's description.
+ */
 export function parseBuildArgs(args: readonly string[]): BuildArgs | undefined {
-  if (args[0] === '--verify') {
-    return args.length === 2 && !args[1]!.startsWith('-')
-      ? { command: 'build', value: args[1]!, verify: true, json: false } : undefined;
-  }
   let out: string | undefined;
   let value: string | undefined;
   let json = false;
+  let verify = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--out') {
@@ -28,10 +34,14 @@ export function parseBuildArgs(args: readonly string[]): BuildArgs | undefined {
     } else if (arg === '--json') {
       if (json) return undefined;
       json = true;
+    } else if (arg === '--verify') {
+      if (verify) return undefined;
+      verify = true;
     } else if (arg.startsWith('-') || value !== undefined) return undefined;
     else value = arg;
   }
-  return value === undefined ? undefined : { command: 'build', value, out, verify: false, json };
+  if (value === undefined || (verify && out !== undefined)) return undefined;
+  return { command: 'build', value, out, verify, json };
 }
 
 /**
@@ -49,7 +59,11 @@ function emitBuildCheckReport(report: CheckReport, json: boolean, io: CliIo): vo
 export async function runBuild(args: BuildArgs, io: CliIo): Promise<0 | 2> {
   try {
     if (args.verify) {
-      io.stdout(`VERIFIED sha256:${await verifyBundle(args.value)}`);
+      const digest = `sha256:${await verifyBundle(args.value)}`;
+      // `--json` is declared on the verb, not on one of its forms: a verify
+      // under it emits the same single object a `--json` consumer parses.
+      if (args.json) io.stdout(JSON.stringify({ ok: true, verified: true, bundle: args.value, digest }));
+      else io.stdout(`VERIFIED ${digest}`);
       return 0;
     }
     // Gate the build on the same preflight pipeline `flows check` uses.
@@ -112,7 +126,7 @@ export async function buildFlow(path: string, out: string, warn: (line: string) 
     ...(config.path !== undefined ? { projectConfigPath: config.path } : {}),
     projectSearchStart: directory,
     models: config.models,
-    ...(config.path !== undefined ? { modelRegistryPath: config.path } : {}),
+    ...(config.modelRegistryPath !== undefined ? { modelRegistryPath: config.modelRegistryPath } : {}),
     probes: {
       cli: () => { throw new Error('deferred to deployment'); },
       executor: () => { throw new Error('deferred to deployment'); },
