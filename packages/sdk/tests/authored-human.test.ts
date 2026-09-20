@@ -24,6 +24,7 @@ describe('f.human lowering', () => {
   const outputs = new Map<string, string>();
   const stepOf = new Map<string, string>();
   let nextRun = 1;
+  let streamAppends = 0;
 
   beforeAll(() => {
     path = sockPath();
@@ -64,6 +65,10 @@ describe('f.human lowering', () => {
         }] });
       },
       'stream.read': (ctx) => sendResult(ctx, { messages: [], next_offset: 0 }),
+      // Every authored operation indexes its child run on the root's
+      // `authored-steps` stream before awaiting it, so a journal that cannot
+      // append is a journal that cannot record evidence.
+      'stream.append': (ctx) => sendResult(ctx, { offset: streamAppends++ }),
     });
   });
 

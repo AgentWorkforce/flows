@@ -63,6 +63,9 @@ export type Verb =
   | 'subscription.fence_overflow'
   | 'subscription.next'
   | 'subscription.close'
+  | 'channel.append'
+  | 'channel.receive'
+  | 'channel.ack'
   | 'stream.append'
   | 'stream.read'
   | 'journal.read';
@@ -168,6 +171,8 @@ export interface WorkerAttachParams {
   step_types: StepType[];
   /** Maximum concurrent assignments. Omitted means the conservative default 1. */
   capacity?: number;
+  /** Accept only agent steps declaring every named stream (must also be pinned). */
+  required_streams?: string[];
   /**
    * The surfaces this worker holds, as opaque revisions/offsets. Required when
    * `step_types` includes `agent` — an agent attempt's start pins come from
@@ -528,7 +533,17 @@ export interface JournalReadResult {
 }
 
 /** Typed map of verb -> { params, result }. Used by the client for type-safety. */
+export interface ChannelIdentity {
+  run_id: string; step_id: string; attempt: number; idempotency_key: string; channel: string;
+}
+export interface ChannelEntry {
+  seq: number;
+  payload: { channel: string; offset: number; message?: unknown; producer?: string; consumer?: string; message_id?: string; delivery_seq?: number };
+}
 export interface VerbContract {
+  'channel.append': { params: ChannelIdentity & { message_id: string; message: unknown }; result: ChannelEntry };
+  'channel.receive': { params: ChannelIdentity; result: ChannelEntry | null };
+  'channel.ack': { params: ChannelIdentity & { delivery_seq: number }; result: ChannelEntry };
   hello: { params: HelloParams; result: HelloResult };
   'run.start': { params: RunStartParams; result: RunStartResult };
   'run.resume': { params: RunResumeParams; result: RunResumeResult };

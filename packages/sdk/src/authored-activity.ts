@@ -149,6 +149,7 @@ function suspended(value: AuthoredFlowSuspension, runId: string): AuthoredFlowEx
     `subscription ${value.subscriptionId} is durably suspended for ${value.kind}`,
     undefined,
     runId,
+    undefined,
     value,
   );
 }

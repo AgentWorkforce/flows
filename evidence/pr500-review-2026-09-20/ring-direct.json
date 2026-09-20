@@ -1,0 +1,44 @@
+{
+  "version": "0.1.0",
+  "name": "multi-cli-communication",
+  "communication": {
+    "timeoutMs": 180000,
+    "links": [
+      {
+        "from": "claude",
+        "to": "codex"
+      },
+      {
+        "from": "codex",
+        "to": "cursor"
+      },
+      {
+        "from": "cursor",
+        "to": "claude"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "id": "claude",
+      "type": "agent",
+      "cli": "/home/khaliqgant/.local/share/mise/installs/claude/latest/claude",
+      "maxIterations": 1,
+      "instruction": "First run `node /tmp/flows-pr500-review-live/check-env.mjs claude` using your shell. If it fails, do not send messages or complete. Transport test only. Immediately send codex message ID hello-v1 with exact text HELLO-claude. Wait for injected HELLO-cursor from cursor, ack its delivery_seq, then complete with the message text. Use the provided helper with your shell tool. Do not inspect or modify repository files."
+    },
+    {
+      "id": "codex",
+      "type": "agent",
+      "cli": "/home/khaliqgant/.local/share/mise/installs/codex/latest/bin/codex",
+      "maxIterations": 1,
+      "instruction": "First run `node /tmp/flows-pr500-review-live/check-env.mjs codex` using your shell. If it fails, do not send messages or complete. Transport test only. Immediately send cursor message ID hello-v1 with exact text HELLO-codex. Wait for injected HELLO-claude from claude, ack its delivery_seq, then complete with the message text. Use the provided helper with your shell tool. Do not inspect or modify repository files."
+    },
+    {
+      "id": "cursor",
+      "type": "agent",
+      "cli": "cursor-agent",
+      "maxIterations": 1,
+      "instruction": "First run `node /tmp/flows-pr500-review-live/check-env.mjs cursor` using your shell. If it fails, do not send messages or complete. Transport test only. Immediately send claude message ID hello-v1 with exact text HELLO-cursor. Wait for injected HELLO-codex from codex, ack its delivery_seq, then complete with the message text. Use the provided helper with your shell tool. Do not inspect or modify repository files."
+    }
+  ]
+}

@@ -196,13 +196,19 @@ describe('predicate verdicts recorded on the root run', () => {
     server = startLoopback(path, {
       hello: ctx => sendOk(ctx),
       'stream.read': (ctx, params) => {
+        if (params.stream !== 'predicate-gates') { sendResult(ctx, { messages: [], next_offset: 0 }); return; }
         streamReads += 1;
         const from = params.from_offset as number;
         setTimeout(() => sendResult(ctx, from === 0
           ? { messages: recorded.map(message => ({ message })), next_offset: recorded.length }
           : { messages: [], next_offset: from }), 50);
       },
-      'stream.append': (ctx, params) => { appended.push(params.message); sendResult(ctx, { offset: appended.length }); },
+      // Recorded per stream: the authored child index writes to its own stream
+      // on every operation, and this test is about the verdict stream.
+      'stream.append': (ctx, params) => {
+        if (params.stream === 'predicate-gates') appended.push(params.message);
+        sendResult(ctx, { offset: appended.length });
+      },
       'run.start': (ctx, params) => {
         const spec = params.spec as { steps: Array<{ id: string; command?: string }> };
         const runId = `resume-run-${nextRun++}`;

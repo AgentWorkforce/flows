@@ -81,8 +81,12 @@ try {
   const message = error instanceof Error ? error.message : 'authored body failed';
   const prefix = error instanceof AuthoredFlowExecutionError ? `${error.code}: ` : '';
   send({ type: 'error', message: prefix && message.startsWith(prefix) ? message.slice(prefix.length) : message,
+    // `details` is the failing child step's journal evidence. Without it the
+    // parent can only re-render the message, and the machine-readable
+    // diagnostic loses the command's exit code and output tails.
     ...(error instanceof AuthoredFlowExecutionError ? { code: error.code,
       completionReason: error.completionReason, runId: error.runId,
+      details: error.details,
       ...(error.suspension === undefined ? {} : { suspension: error.suspension }) } : {}),
     ...(error instanceof AuthoredHumanParked ? { wait: error.wait } : {}) });
   process.exitCode = 1;

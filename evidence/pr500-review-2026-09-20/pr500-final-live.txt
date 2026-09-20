@@ -1,0 +1,17 @@
+cwd: /tmp/flows-relay-communication
+$ bash /tmp/flows-pr500-review-live/run-final.sh
+WAITING [worker_lease] Run "01M2Z04VN15G7ATCGZBH2CM785" step "claude" (agent) is running under a worker lease until 1789894255581.
+WAITING [worker_lease] Run "01M2Z04VN15G7ATCGZBH2CM785" step "claude" (agent) is running under a worker lease until 1789894265583.
+WAITING [worker_lease] Run "01M2Z04VN15G7ATCGZBH2CM785" step "claude" (agent) is running under a worker lease until 1789894275585.
+WAITING [worker_lease] Run "01M2Z04VN15G7ATCGZBH2CM785" step "claude" (agent) is running under a worker lease until 1789894285586.
+WAITING [worker_lease] Run "01M2Z04VN15G7ATCGZBH2CM785" step "claude" (agent) is running under a worker lease until 1789894295587.
+WAITING [worker_lease] Run "01M2Z04VN15G7ATCGZBH2CM785" step "claude" (agent) is running under a worker lease until 1789894305592.
+WAITING [worker_lease] Run "01M2Z04VN15G7ATCGZBH2CM785" step "claude" (agent) is running under a worker lease until 1789894315595.
+WAITING [worker_lease] Run "01M2Z04VN15G7ATCGZBH2CM785" step "claude" (agent) is running under a worker lease until 1789894325596.
+WAITING [worker_lease] Run "01M2Z04VN15G7ATCGZBH2CM785" step "claude" (agent) is running under a worker lease until 1789894335597.
+[observer] token mint failed: network error: The operation was aborted due to timeout; continuing without an observer link (the run is unaffected)
+WARNING [managed_cli_unverified] Step "cursor" uses Relay's interactive CLI transport. The executable exists, but authentication could not be verified before startup. The managed session must execute its task and report completion; startup or task failure fails the step.
+WARNING [budget_unmetered] Managed communication sessions do not report token or dollar usage. Budget ceilings cannot bound their spend; communication.timeoutMs bounds their duration.
+{"ok":true,"command":"run","path":"/tmp/flows-pr500-review-live/ring-direct.json","resolutions":[{"stepId":"claude","cli":"/home/khaliqgant/.local/share/mise/installs/claude/latest/claude","source":"step","model":"claude-opus-5","modelSource":"adapter"},{"stepId":"codex","cli":"/home/khaliqgant/.local/share/mise/installs/codex/latest/bin/codex","source":"step"},{"stepId":"cursor","cli":"cursor-agent","source":"step"}],"diagnostics":[{"severity":"warning","kind":"managed_cli_unverified","stepId":"cursor","message":"Step \"cursor\" uses Relay's interactive CLI transport. The executable exists, but authentication could not be verified before startup. The managed session must execute its task and report completion; startup or task failure fails the step."},{"severity":"warning","kind":"budget_unmetered","message":"Managed communication sessions do not report token or dollar usage. Budget ceilings cannot bound their spend; communication.timeoutMs bounds their duration."}],"runId":"01M2Z04VN15G7ATCGZBH2CM785","socketPath":"/run/user/1000/relayflowd-cf1d95bba016.sock","status":"completed","completionReason":"success","completedSteps":3}
+
+exit status: 0

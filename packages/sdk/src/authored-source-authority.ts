@@ -46,7 +46,20 @@ function installPinnedSourceLoader(sources: Map<string, string>): void {
   pinnedSourceLoaderInstalled = true;
   // Node >=22.14 supports register and stripTypeScriptTypes. A loader thread
   // receives the captured bytes, never reopening mutable authored paths.
+  // The `stripTypeScriptTypes` call below makes Node emit
+  // `ExperimentalWarning: stripTypeScriptTypes …` on the child's inherited
+  // stderr, where a bootstrap that reads the CLI's stderr takes it for the
+  // error text. It is emitted on this loader thread, so a listener on the
+  // main thread cannot intercept it, and `--disable-warning` on the child
+  // would silence every ExperimentalWarning the authored body raises too.
+  // Dropping it by its own text, on this thread only, is the narrow form:
+  // Node's own printer still handles every other warning.
   const loader = `
+    const emitWarning = process.emitWarning.bind(process);
+    process.emitWarning = (warning, ...rest) => {
+      if (rest[0] === 'ExperimentalWarning' && String(warning).startsWith('stripTypeScriptTypes')) return;
+      emitWarning(warning, ...rest);
+    };
     import {stripTypeScriptTypes} from 'node:module';
     let sources;
     export function initialize(data){sources=new Map(data);}

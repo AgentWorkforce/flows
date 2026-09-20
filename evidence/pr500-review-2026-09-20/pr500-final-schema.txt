@@ -1,0 +1,5 @@
+cwd: /tmp/flows-relay-communication
+$ sh -c 'node scripts/generate-json-schema.mjs && git diff --exit-code -- packages/schema/flows.schema.json'
+Generated packages/schema/flows.schema.json (72 definitions)
+
+exit status: 0

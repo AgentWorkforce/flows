@@ -693,6 +693,68 @@ socket is opened, no `relayflowd` binary is invoked, the data dir is not
 touched. Refusals (`no workspace key configured`, mint failure) print
 `REFUSED [observer_link_unavailable] <reason>` on stderr and exit 2.
 
+### Reading a failed step
+
+Step-failure messages share the evidence clauses below. A declarative run
+uses the opening shown here; an authored child failure opens with
+`journal step "<step-id>" completed with <reason>` before the same evidence.
+
+```text
+FAILED [step_failed] Run "<run-id>" failed with completionReason: step_failed.
+ Step "<step-id>" (<type>) completionReason: <reason> attempt=<n>/<budget> exit=<code>.
+Detail: <the worker's own account, when it left one>
+Stdout (last 1,024 bytes):
+<tail>
+Stderr (last 1,024 bytes):
+<tail>
+Transcript: <path>
+Inspect: flows replay <run-id> --at <step-id>
+Journal: <data-dir>/runs/<run-id>.sqlite3
+```
+
+Each clause is present only when the journal holds the fact behind it; nothing
+is defaulted. The same fields appear as named keys on the `--json` diagnostic
+(`stepId`, `stepType`, `completionReason`, `attempt`, `maxIterations`,
+`exitCode`, `stdoutTail`, `stderrTail`, `detail`, `transcriptPath`, `hint`,
+`journalPath`), so the rendered line and the machine-readable record carry the
+same facts rather than the message being the only copy.
+
+`attempt=<n>/<budget>` is read from the journal, not from the spec: `n` is the
+`step.attempt.started` envelope's attempt number and `budget` is the
+`max_iterations` that attempt was started against. It is printed beside the
+completion reason because `retries_exhausted` is the kernel's word for
+"the attempt budget is spent" and does not imply that any retry happened — a
+step with the default budget exhausts it on its first failure, and reads
+`attempt=1/1`.
+
+`Inspect:` is derived from the run id alone, so it is still printed when the
+evidence itself could not be read. In that case the message says so —
+`Could not inspect the failed step: <reason>` — beside the step failure rather
+than in place of it.
+
+**Authored bodies.** Each `f.run`, `f.agent` and `f.llm` operation creates a
+child kernel run with its own journal, so `Inspect:` names the child, not the
+authored root. These operations and lowered predicate gates are indexed on the root's
+`authored-steps` durable stream as it happens: one
+`relayflows.authored-step.v1` record naming the authored step id, the child
+run id and its state, appended when the child is admitted and again when it
+completes. Admission is indexed once `run.start` returns the child's id,
+before waiting for an agent or LLM child. Deterministic children execute
+inline, so their admission is indexed after that execution returns. A crash
+before the `run.start` response or index append can still leave an unindexed
+child. Helper-provider, MCP and plugin-effect children are not yet included
+in this index. Once appended, the index survives process exit and is readable from
+the journal on disk, including after a cooperative nonzero exit.
+
+An authored step-failure JSON report keeps the child in `runId` and adds
+`rootRunId` for the durable authored root. Consumers must use `rootRunId` for
+the resume pointer and root index, and `runId` for the failing child's evidence.
+The root driver assigns this field after any Node-child IPC boundary.
+
+Cloud must separately collect these journals before tearing down a failed
+sandbox. The index alone does not persist Cloud step rows or provide a
+deterministic command's Cloud log endpoint.
+
 ### Run self-inspection: `flows status`
 
 `flows status` is what a step can see about its own run. By default it reads

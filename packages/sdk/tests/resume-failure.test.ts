@@ -68,6 +68,7 @@ it('reports an authored resume step failure as step_failed, not protocol_error',
   // A report with no status is precisely what printed `RUN <id> unknown`.
   expect(result.report.status).toBe('failed');
   expect(result.report.completionReason).toBe('step_failed');
+  expect(result.report.rootRunId).toBe(RUN_ID);
   const kinds = result.report.diagnostics.map(diagnostic => diagnostic.kind);
   expect(kinds).toContain('step_failed');
   expect(kinds).not.toContain('protocol_error');
