@@ -191,3 +191,139 @@ fn router_snapshots_keep_absolute_timers_and_overflow_fence_across_restart() {
         1
     );
 }
+
+/// An overflow close is two appends — `subscription.overflow_fenced`, then
+/// `subscription.closed` — and each append is its own transaction. Die
+/// between them and the fence stands alone. The kernel must then refuse
+/// ingress, complete the close exactly once whichever way it is next asked
+/// (a Cloud fence retry or a plain resume), and hand the body `Overflow`.
+/// `Engine::fence_subscription_overflow` writes only the fence, which is the
+/// torn state without needing a crash injection.
+#[test]
+fn a_fence_torn_from_its_close_refuses_ingress_and_is_completed_once_on_retry_or_resume() {
+    let spec =
+        || RunSpec::parse(&json!({"steps":[{"id":"body","type":"llm","prompt":"body"}]})).unwrap();
+    let receipt = json!({"generation": 7});
+    let frame = json!({"type":"github","payload":{"n":1}});
+    let count = |engine: &Engine<SimClock>, id: &str, entry_type: EntryType| {
+        engine
+            .journal_entries(id, 1, 500)
+            .unwrap()
+            .iter()
+            .filter(|entry| entry.entry_type == entry_type)
+            .count()
+    };
+    let torn = |dir: &std::path::Path| {
+        let engine = Engine::with_clock(dir, SimClock::new(100));
+        let id = engine.start(spec(), "router-test", Some(0)).unwrap().run_id;
+        engine
+            .open_subscription(&id, "one", vec!["github".into()], None, 0, 100, 1000, false)
+            .unwrap();
+        engine
+            .activate_subscription(&id, "one", 0, receipt.clone())
+            .unwrap();
+        // The body is parked on its first `next()`: a durable wait.event exists.
+        assert!(matches!(
+            engine
+                .next_subscription_outcome(&id, "one", None)
+                .unwrap()
+                .0,
+            relayflowd::engine::SubscriptionNext::Suspended { .. }
+        ));
+        assert!(
+            engine
+                .deliver_subscription_frame(&id, "one", &receipt, "event-1", frame.clone())
+                .unwrap()
+        );
+        engine.fence_subscription_overflow(&id, "one").unwrap();
+        assert_eq!(
+            count(&engine, &id, EntryType::SubscriptionOverflowFenced),
+            1
+        );
+        assert_eq!(count(&engine, &id, EntryType::SubscriptionClosed), 0);
+        // Ingress is refused on the fence alone, and the refusal appends nothing.
+        let before = engine.journal_entries(&id, 1, 500).unwrap().len();
+        let refused = engine
+            .deliver_subscription_frame(&id, "one", &receipt, "event-2", frame.clone())
+            .unwrap_err();
+        assert_eq!(refused.to_string(), "subscription_closed");
+        assert_eq!(engine.journal_entries(&id, 1, 500).unwrap().len(), before);
+        id
+    };
+
+    // Path 1: the cell died after the fence; Cloud retries the fence.
+    let dir = tempfile::tempdir().unwrap();
+    let id = torn(dir.path());
+    let restored = Engine::with_clock(dir.path(), SimClock::new(120));
+    restored
+        .fence_router_subscription_overflow(&id, "one", &receipt)
+        .unwrap();
+    assert_eq!(
+        count(&restored, &id, EntryType::SubscriptionOverflowFenced),
+        1
+    );
+    assert_eq!(count(&restored, &id, EntryType::SubscriptionClosed), 1);
+    let snapshot = restored.inspect_subscriptions(&id).unwrap();
+    assert_eq!(snapshot[0]["state"], "closed");
+    assert_eq!(snapshot[0]["completionReason"], "overflow");
+    assert!(matches!(
+        restored
+            .next_subscription_outcome(&id, "one", None)
+            .unwrap()
+            .0,
+        relayflowd::engine::SubscriptionNext::Wake(
+            relayflowd::engine::SubscriptionWake::Overflow {
+                retained: 1,
+                from: 0,
+                ..
+            }
+        )
+    ));
+    // A second retry adds nothing.
+    restored
+        .fence_router_subscription_overflow(&id, "one", &receipt)
+        .unwrap();
+    assert_eq!(count(&restored, &id, EntryType::SubscriptionClosed), 1);
+    assert!(
+        restored
+            .deliver_subscription_frame(&id, "one", &receipt, "event-3", frame.clone())
+            .is_err()
+    );
+
+    // Path 2: nobody retries the fence; a plain resume completes the close
+    // and settles the parked wait with the overflow wake.
+    let dir = tempfile::tempdir().unwrap();
+    let id = torn(dir.path());
+    let resumed = Engine::with_clock(dir.path(), SimClock::new(130));
+    assert_eq!(
+        resumed.resume(&id, None).unwrap().status,
+        relayflowd::RunStatus::Parked
+    );
+    assert_eq!(
+        count(&resumed, &id, EntryType::SubscriptionOverflowFenced),
+        1
+    );
+    assert_eq!(count(&resumed, &id, EntryType::SubscriptionClosed), 1);
+    let settled = resumed
+        .journal_entries(&id, 1, 500)
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry.entry_type == EntryType::WaitCompleted)
+        .collect::<Vec<_>>();
+    assert_eq!(settled.len(), 1, "{settled:?}");
+    assert_eq!(settled[0].payload["result"]["wake"], "overflow");
+    assert!(matches!(
+        resumed
+            .next_subscription_outcome(&id, "one", None)
+            .unwrap()
+            .0,
+        relayflowd::engine::SubscriptionNext::Wake(
+            relayflowd::engine::SubscriptionWake::Overflow { retained: 1, .. }
+        )
+    ));
+    assert!(
+        resumed
+            .deliver_subscription_frame(&id, "one", &receipt, "event-4", frame)
+            .is_err()
+    );
+}

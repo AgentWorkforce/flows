@@ -1,0 +1,41 @@
+# Regression test for the fence torn from its close, added at a217c3f6 (test file only; uncommitted per sf-frame).
+$ cd /tmp/flows-pr-followup/pr441 && git rev-parse HEAD && git status --short
+a217c3f65fef4d9e9883b3c8e1ff3ce702934efb
+ M kernel/relayflowd/src/server.rs
+ M kernel/relayflowd/src/server/tests/subscription_router.rs
+ M kernel/relayflowd/tests/subscription_router_delivery.rs
+$ git -C /tmp/flows-pr-followup/pr441 diff --stat -- kernel
+ kernel/relayflowd/src/server.rs                    |   3 +
+ .../src/server/tests/subscription_router.rs        |   3 +
+ .../tests/subscription_router_delivery.rs          | 136 +++++++++++++++++++++
+ 3 files changed, 142 insertions(+)
+$ cd kernel && rustfmt --edition 2024 --check relayflowd/tests/subscription_router_delivery.rs; echo fmt_exit=$?
+fmt_exit=0
+$ cd kernel && cargo test -p relayflowd --test subscription_router_delivery
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.80s
+     Running tests/subscription_router_delivery.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target-pr441/debug/deps/subscription_router_delivery-1e0031de1ef580ec)
+
+running 3 tests
+test targeted_ingress_is_fenced_deduplicated_and_isolated_after_restart ... ok
+test router_snapshots_keep_absolute_timers_and_overflow_fence_across_restart ... ok
+test a_fence_torn_from_its_close_refuses_ingress_and_is_completed_once_on_retry_or_resume ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+exit_code=0
+$ cd kernel && cargo test -p relayflowd --test subscription_router_delivery a_fence_torn -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/subscription_router_delivery.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target-pr441/debug/deps/subscription_router_delivery-1e0031de1ef580ec)
+
+running 1 test
+test a_fence_torn_from_its_close_refuses_ingress_and_is_completed_once_on_retry_or_resume ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.03s
+
+exit_code=0
+
+# Attribution note: `git status` above shows two files I did not touch (`server.rs`, `server/tests/subscription_router.rs`)
+# carrying someone else's uncommitted change — the F2 `delivery_id must not be empty` -> bad_request fix (server layer only).
+# The new test is engine-level (`Engine::{deliver_subscription_frame, fence_subscription_overflow,
+# fence_router_subscription_overflow, resume, next_subscription_outcome, inspect_subscriptions}`) and does not exercise server.rs;
+# its outcome is independent of that change. My only edit in the worktree: kernel/relayflowd/tests/subscription_router_delivery.rs (appended one test).

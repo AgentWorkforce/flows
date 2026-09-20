@@ -574,6 +574,9 @@ fn handle_request(
         }
         "subscription.deliver" => {
             let params: SubscriptionDeliverParams = decode_params(request.params)?;
+            if params.delivery_id.is_empty() {
+                return Err(("bad_request", "delivery_id must not be empty".to_owned()));
+            }
             let lock = hub.run_lock(&params.run_id);
             let _guard = lock.lock().expect("run lock");
             ensure_mutable(&engine, &params.run_id)?;

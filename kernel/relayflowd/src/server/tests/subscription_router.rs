@@ -32,6 +32,9 @@ fn targeted_router_verbs_validate_receipts_and_preserve_wire_metadata() {
     }
     let mut delivery = json!({"run_id":run_id,"subscription_id":"a","router_binding":receipt,
         "delivery_id":"frame-1","frame":{"type":"github","payload":{"number":1}}});
+    let mut invalid = delivery.clone();
+    invalid["delivery_id"] = json!("");
+    assert_eq!(call("subscription.deliver", invalid).error.unwrap().code, "bad_request");
     let response = call("subscription.deliver", delivery.clone());
     assert!(response.ok, "{:?}", response.error);
     assert_eq!(response.result.unwrap(), json!({"appended":true}));
