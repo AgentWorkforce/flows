@@ -2,6 +2,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { addPlugin } from '../src/cli/add.js';
+import { runPluginCommand } from '../src/cli/plugin.js';
+import { SHA_A, fakeGithub, type FakeEntry } from './fake-github.js';
 import type { PreflightFailureKind } from '../src/failure-kinds.js';
 import { preflightHelpers } from '../src/preflight.js';
 import { describe, expect, it } from 'vitest';
@@ -621,6 +623,49 @@ describe('preflight: CLI resolution and refusal predicates', () => {
             refusalKinds.push(line.match(/\[([^\]]+)\]/)![1] as PreflightFailureKind);
           } }, { cwd: root, install() { throw { stderr }; } });
         }
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    }
+    // Flow-extension refusals (schema 2) exercise `flows add <github ref>` and
+    // `flows plugin verify` against an offline fake GitHub — the same public
+    // boundary a user hits, never a synthesized diagnostic.
+    {
+      const manifest = {
+        schema: 2, kind: 'flow-extension', name: 'ext', version: '0.1.0', entry: 'ext.flow.ts',
+        compat: { surface: '*', sdk: '*', base: [{ name: 'base', version: '*' }] },
+        extends: { handlers: true, hooks: [] }, triggers: [],
+        permissions: { integrations: [], harnesses: [], mcp: [], writes: [] },
+        preflight: { credentials: [], servers: [] },
+      };
+      const files = (m: unknown): FakeEntry[] => [
+        { path: 'ext/flows-plugin.json', data: Buffer.from(JSON.stringify(m)) },
+        { path: 'ext/ext.flow.ts', data: Buffer.from('export default 1;') },
+      ];
+      const repo = (entries: FakeEntry[]) => fakeGithub({ 'o/r': { refs: { main: SHA_A }, commits: { [SHA_A]: { entries } } } }).fetch;
+      const extensionCases: { ref: string; fetch: import('../src/plugin-github.js').FetchLike }[] = [
+        { ref: 'github:o/r@main#../x', fetch: repo(files(manifest)) },
+        { ref: 'github:o/r@nope#ext', fetch: repo(files(manifest)) },
+        { ref: 'github:o/r@main#ext', fetch: async () => { throw new Error('offline'); } },
+        { ref: 'github:o/r@main#ext', fetch: repo([...files(manifest), { path: 'ext/link', data: Buffer.from('x'), mode: '120000' }]) },
+        { ref: 'github:o/r@main#ext', fetch: repo([...files(manifest), { path: 'ext/big', data: Buffer.alloc(256_001) }]) },
+        { ref: 'github:o/r@main#ext', fetch: repo(files({ ...manifest, kind: 'banana' })) },
+        { ref: 'github:o/r@main#ext', fetch: repo(files({ ...manifest, triggers: [{ provider: 'github', event: 'pull_request', actions: ['ready_for_review'] }] })) },
+        { ref: 'github:o/r@main#ext', fetch: repo(files({ ...manifest, compat: { ...manifest.compat, surface: '^1.0.0' } })) },
+        { ref: 'github:o/r@main#ext', fetch: repo(files({ ...manifest, source: { host: 'github', owner: 'someone', repo: 'else', path: 'ext' } })) },
+      ];
+      for (const { ref, fetch } of extensionCases) {
+        const root = mkdtempSync(join(tmpdir(), 'plugin-extension-taxonomy-'));
+        try {
+          writeFileSync(join(root, 'flows.json'), '{}');
+          const io = { stdout() {}, stderr(line: string) { refusalKinds.push(line.match(/\[([^\]]+)\]/)![1] as PreflightFailureKind); } };
+          expect(await addPlugin(ref, io, { cwd: root, extension: { fetch, versions: { sdk: '2.0.22', surface: '2.0.22' } } })).toBe(2);
+        } finally { rmSync(root, { recursive: true, force: true }); }
+      }
+      // `plugin_lock_invalid`: a declaration with no lockfile entry behind it.
+      const root = mkdtempSync(join(tmpdir(), 'plugin-lock-taxonomy-'));
+      try {
+        writeFileSync(join(root, 'flows.json'), JSON.stringify({ plugins: [`github:o/r@${SHA_A}#ext`] }));
+        const io = { stdout() {}, stderr(line: string) { refusalKinds.push(line.match(/\[([^\]]+)\]/)![1] as PreflightFailureKind); } };
+        expect(await runPluginCommand({ command: 'plugin', sub: 'verify', json: false, offline: true }, io, { cwd: root })).toBe(2);
       } finally { rmSync(root, { recursive: true, force: true }); }
     }
     // `plugin_unlisted` fires when a @flows/helper-* package is present in

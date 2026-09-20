@@ -18,10 +18,22 @@ export function sha256(data: Uint8Array | string): string {
   return createHash('sha256').update(data).digest('hex');
 }
 
-function safePath(path: string): boolean {
+/** A bundle-relative path: no empty, `.`, or `..` component, no backslash, NUL, or drive colon. */
+export function safePath(path: string): boolean {
   return path.length > 0 && !path.includes('\\') && !path.includes('\0')
     && path.split('/').every(part => part !== '' && part !== '.' && part !== '..')
     && !path.includes(':');
+}
+
+/**
+ * The canonical entry list whose sha256 is a payload's content digest. Shared
+ * by sealed flow bundles and materialized plugins so `@sha256:` means one
+ * thing everywhere: the digest of `[{bytes,path,sha256}]`, sorted by path.
+ */
+export function payloadManifest(files: readonly { path: string; data: Uint8Array }[]): string {
+  return canonicalize([...files]
+    .sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
+    .map(file => ({ path: file.path, sha256: sha256(file.data), bytes: file.data.length })));
 }
 
 /** Manifest and identity are envelopes, excluded to avoid circular hashing. */
@@ -41,9 +53,7 @@ export async function sealBundle(options: BundleOptions): Promise<string> {
   for (const required of ['spec.canonical.json', 'preflight.json', 'lockfile.json']) {
     if (!paths.has(required)) throw new Error(`${required}: missing bundle file`);
   }
-  const manifest = canonicalize(files.map(file => ({
-    path: file.path, sha256: sha256(file.data), bytes: file.data.length,
-  })));
+  const manifest = payloadManifest(files);
   const digest = sha256(manifest);
   const out = resolve(options.out);
   const target = join(out, `${options.name}@sha256:${digest}`);

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { addPlugin } from './cli/add.js';
+import { parsePluginArgs, runPluginCommand, type PluginArgs } from './cli/plugin.js';
 import { watchCheck } from './cli-watch.js';
 import { checkHelperBody } from './cli/check-helper-body.js';
 import { describeFlowRequirements } from './flow-requirements.js';
@@ -64,6 +65,7 @@ type CliExitCode = 0 | 1 | 2 | 3;
  */
 export type ParsedArgs =
   | { command: 'add'; value: string }
+  | PluginArgs
   | ReplayArgs
   | StatusArgs
   | BuildArgs
@@ -92,6 +94,9 @@ export type ParsedArgs =
 const USAGE = [
   'Usage:',
   'flows add <helper-name|@flows/helper-name>',
+  'flows add <github:owner/repo@ref#path|https://github.com/owner/repo/tree/ref/path>',
+  'flows plugin list [--json]',
+  'flows plugin verify [--json] [--offline]',
   'flows build [--out <dir>] <flow.yaml|flow.ts>',
   'flows build --verify <bundle-dir>',
   'flows deploy <flow.ts> --repo <owner/name> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--no-connect] [--json]',
@@ -192,6 +197,7 @@ export async function runCli(
   }
 
   if (parsed.command === 'add') return addPlugin(parsed.value, io);
+  if (parsed.command === 'plugin') return runPluginCommand(parsed, io);
 
   if (parsed.command === 'serve-webhook') {
     return withInterrupt(options.signal, (signal) => runServeWebhook(parsed, io, signal));
@@ -521,6 +527,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   // parser, so the declared tree and the dispatched tree cannot drift apart.
   if (command === undefined || !CLI_VERB_NAMES.has(command)) return undefined;
   if (command === 'add') return args.length === 2 ? { command: 'add', value: args[1]! } : undefined;
+  if (command === 'plugin') return parsePluginArgs(args.slice(1));
   if (command === 'replay') return parseReplayArgs(args.slice(1));
   if (command === 'status') return parseStatusArgs(args.slice(1));
   if (command === 'runs') return parseRunsArgs(args.slice(1));

@@ -52,6 +52,7 @@ const RUN_ID = '01JABCDEFGHJKMNPQRSTVWXYZ0';
  */
 const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: ParsedArgs['command'] }[] = [
   { verb: 'add', argv: ['add', 'my-helper'], variant: 'add' },
+  { verb: 'add', argv: ['add', 'github:AgentWorkforce/flows@main#examples/babysitter'], variant: 'add' },
   { verb: 'answer', argv: ['answer', RUN_ID, 'human-1', 'yes'], variant: 'answer' },
   {
     verb: 'answer',
@@ -164,6 +165,10 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
       '--poll-interval-ms', '1000', 'spec.json'],
     variant: 'tick',
   },
+  { verb: 'plugin', argv: ['plugin', 'list'], variant: 'plugin' },
+  { verb: 'plugin', argv: ['plugin', 'list', '--json'], variant: 'plugin' },
+  { verb: 'plugin', argv: ['plugin', 'verify'], variant: 'plugin' },
+  { verb: 'plugin', argv: ['plugin', 'verify', '--json', '--offline'], variant: 'plugin' },
   { verb: 'undeploy', argv: ['undeploy', 'dep_123'], variant: 'undeploy' },
   { verb: 'undeploy', argv: ['undeploy', '--json', 'dep_123'], variant: 'undeploy' },
   { verb: 'unschedule', argv: ['unschedule', 'sched_123'], variant: 'unschedule' },

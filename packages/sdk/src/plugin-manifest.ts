@@ -5,6 +5,10 @@ export const PLUGIN_FAILURE_KINDS = [
   'plugin_unknown', 'plugin_unlisted', 'plugin_install_failed', 'plugin_manifest_missing',
   'plugin_manifest_invalid', 'plugin_preflight_missing', 'plugin_verb_unknown_primitive',
   'plugin_unsupported', 'plugin_credential_missing', 'plugin_server_unreachable',
+  // schema 2 flow extensions (see flow-extension-manifest.ts, plugin-source.ts, plugin-github.ts)
+  'plugin_kind_invalid', 'plugin_incompatible', 'plugin_event_unroutable', 'plugin_source_invalid',
+  'plugin_source_unresolved', 'plugin_fetch_failed', 'plugin_path_invalid', 'plugin_too_large',
+  'plugin_source_drift', 'plugin_lock_invalid',
 ] as const;
 export type PluginFailureKind = typeof PLUGIN_FAILURE_KINDS[number];
 export class PluginError extends Error {
@@ -16,6 +20,15 @@ export interface PluginVerb {
   lowersTo: 'run' | 'llm' | 'agent' | 'effect' | 'wait';
   args: Record<string, unknown>;
 }
+/** The kind a `flows-plugin.json` declares; absent means the schema-1 helper plugin. */
+export type PluginKind = 'helper' | 'flow-extension';
+export function pluginKindOf(input: unknown): PluginKind {
+  const kind = typeof input === 'object' && input !== null && !Array.isArray(input) ? (input as { kind?: unknown }).kind : undefined;
+  if (kind === undefined || kind === 'helper') return 'helper';
+  if (kind === 'flow-extension') return 'flow-extension';
+  throw new PluginError('plugin_kind_invalid', `Unknown plugin kind ${JSON.stringify(kind)}; expected "helper" or "flow-extension".`);
+}
+/** A schema-1 helper plugin: verbs that lower to kernel primitives. */
 export interface PluginManifest {
   name: string;
   version: string;
@@ -41,6 +54,10 @@ export function validatePluginManifest(input: unknown, packageName?: string): Pl
   catch { throw new PluginError('plugin_manifest_invalid', 'Plugin manifest must be JSON data.'); }
   const invalid = (message: string): never => { throw new PluginError('plugin_manifest_invalid', message); };
   if (!object(v)) return invalid('Expected a plugin manifest object.');
+  if (pluginKindOf(v) !== 'helper') {
+    throw new PluginError('plugin_kind_invalid', 'A flow-extension manifest installs from a GitHub reference (flows add github:<owner>/<repo>@<ref>#<path>), not as a helper package.');
+  }
+  if (v.schema !== undefined && v.schema !== 1) return invalid('Helper plugin manifests are schema 1.');
   if (!Object.hasOwn(v, 'preflight')) throw new PluginError('plugin_preflight_missing', 'Plugin must declare preflight.');
   if (typeof v.name !== 'string' || typeof v.version !== 'string' || !v.version.trim()) return invalid('Plugin name and version are required.');
   const resolved = pluginPackageName(v.name);

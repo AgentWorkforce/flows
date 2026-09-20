@@ -5,6 +5,7 @@ import { Ajv } from 'ajv';
 import type { Step } from '@relayflows/surface';
 import { snapshotJsonValue } from './json-value.js';
 import { assertSupportedPlugin, PluginError, pluginPackageName, validatePluginManifest, type PluginManifest, type PluginVerb } from './plugin-manifest.js';
+import { isGithubPluginRef } from './plugin-source.js';
 
 export interface LoadedPlugin { readonly directory: string; readonly manifest: PluginManifest }
 export function findPluginProject(start: string): string | undefined {
@@ -47,6 +48,11 @@ export async function loadPlugins(start: string): Promise<readonly LoadedPlugin[
   if (config === null || typeof config !== 'object' || (config.plugins !== undefined && (!Array.isArray(config.plugins) || !config.plugins.every(p => typeof p === 'string')))) {
     throw new PluginError('plugin_manifest_invalid', 'flows.json plugins must be package names.');
   }
+  // Flow extensions (github:… entries) are declared and locked by `flows add`
+  // but not yet composed at run time. Refuse before any helper loads rather
+  // than silently running the base flow without them.
+  const extension = (config.plugins as string[] | undefined)?.find(isGithubPluginRef);
+  if (extension !== undefined) throw new PluginError('plugin_unsupported', `${extension} is a flow-extension plugin; runtime composition of flow extensions is not supported by this release.`);
   const scope = join(root, 'node_modules/@flows');
   const names = new Set<string>((config.plugins as string[] | undefined)?.map(pluginPackageName));
   if (existsSync(scope)) for (const name of readdirSync(scope).sort()) {

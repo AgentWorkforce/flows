@@ -1,0 +1,42 @@
+{
+  "schema": 2,
+  "kind": "flow-extension",
+  "name": "babysitter",
+  "version": "0.1.0",
+  "description": "Live-state PR babysitter: parallel review lenses, deterministic reconciliation, exact-head merge gate. Worked schema-2 example; the real flow lives on the babysitter branch of AgentWorkforce/flows.",
+  "compat": {
+    "surface": "^2.0.22",
+    "sdk": "^2.0.22",
+    "base": [{ "name": "software-factory", "version": "*" }]
+  },
+  "entry": "babysitter.flow.ts",
+  "extends": { "handlers": true, "hooks": ["merge-gate"] },
+  "triggers": [
+    { "provider": "github", "event": "pull_request", "actions": ["opened", "synchronize", "reopened", "closed"] },
+    { "provider": "github", "event": "pull_request_review", "actions": ["submitted", "dismissed"] },
+    { "provider": "github", "event": "check_run", "actions": ["completed"] },
+    { "provider": "github", "event": "issue_comment", "actions": ["created"] }
+  ],
+  "permissions": {
+    "integrations": ["github"],
+    "harnesses": ["claude"],
+    "mcp": [],
+    "writes": ["github:pull_request:comment"],
+    "budget": { "dollars": 8, "wallclock": "45m" }
+  },
+  "preflight": { "credentials": [], "servers": ["https://api.github.com"] },
+  "config": {
+    "type": "object",
+    "properties": {
+      "testCommand": { "type": "string" },
+      "botLogin": { "type": "string" },
+      "approvers": { "type": "array", "items": { "type": "string" } },
+      "organizations": { "type": "array", "items": { "type": "string" } },
+      "merge": { "type": "boolean", "default": false },
+      "skipLabels": { "type": "array", "items": { "type": "string" }, "default": ["no-agent-relay-review"] },
+      "requiredChecks": { "type": "array", "items": { "type": "string" } }
+    },
+    "required": ["testCommand", "approvers"],
+    "additionalProperties": false
+  }
+}

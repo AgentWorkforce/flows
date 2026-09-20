@@ -562,6 +562,47 @@ plugin code bundling/pinning, declarative-flow plugin preflight, and restart
 recovery of an interrupted plugin effect. Plugin effects currently inherit the
 internal authored executor's child-run lifecycle, not a resumable authored root.
 
+### Flow extensions: schema 2, `kind: "flow-extension"`
+
+The same `flows-plugin.json` file carries a second kind. A **helper** plugin
+(`kind` absent) extends `Ctx` with verbs and installs from npm as above. A
+**flow extension** (`"schema": 2, "kind": "flow-extension"`) is a directory in
+a public GitHub repository whose `entry` default-exports `flow()` and declares
+what it will contribute to a base flow — `extends.handlers` (its `.on()`
+pairs), `extends.hooks` (named points the base calls), `triggers` (validated
+against the surface event registry, refused with `plugin_event_unroutable`
+otherwise), `permissions` (integrations, harnesses, mcp, declared-but-unenforced
+`writes`, a budget ceiling), `compat` (semver ranges for surface and sdk, and
+the base flows it extends), and the same mandatory `preflight`. Validation is
+`packages/sdk/src/flow-extension-manifest.ts`; the worked Babysitter manifest is
+`testdata/plugins/extension-babysitter/flows-plugin.json`.
+
+```text
+flows add github:<owner>/<repo>@<ref>#<path>      # or https://github.com/<owner>/<repo>/tree/<ref>/<path>
+flows plugin list [--json]
+flows plugin verify [--json] [--offline]
+```
+
+`flows add` resolves the branch, tag, or commit to a 40-hex sha through
+unauthenticated public GitHub reads (a private repository answers 404 and is
+reported as `plugin_source_unresolved`), enumerates the tree at that commit —
+refusing symlinks, submodules, traversal, a truncated listing, files over
+256 KB, or plugins over 2 MB — downloads each blob pinned to the sha, checks
+byte counts, and computes the content digest as the sha256 of the same
+canonical `[{bytes,path,sha256}]` manifest a sealed bundle uses. The bytes are
+materialized under `.flows/plugins/<name>@sha256:<digest>/`; `flows.json.plugins`
+gains the canonical `github:<owner>/<repo>@<sha>#<path>` (a branch or tag is
+never persisted); and `flows.lock.json` (version 2) records name, version,
+source, digest, manifest hash, and the declaration order that will be the
+composition order. `flows plugin verify` re-hashes the store against the lock
+and, unless `--offline`, re-fetches the pinned commit; any difference is
+`plugin_source_drift`, exit 2.
+
+Installing records a declaration; it does not enable execution. A project that
+declares a flow extension is refused at run time with `plugin_unsupported`
+until the handlers/hooks slice lands, so a base flow never silently runs
+without the extension it was told it had.
+
 ## 4. Build: the immutable bundle
 
 `flows build` seals a flow into a content-addressed, immutable bundle: canonical spec JSON, compiled TS with pinned deps, helper/plugin lockfile, assets, preflight declaration, identity signature — `flow@sha256:…`, pushed to a bucket/registry. `flows deploy` points a trigger at a digest; `flows run flow@sha256:…` executes from the bucket on any cell, no checkout. Preflight runs at build time for everything build-provable and again at deploy time for environment facts (credentials, workers, MCP servers). The working tree is for authoring; **production only ever runs digests.**

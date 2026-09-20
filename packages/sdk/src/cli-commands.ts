@@ -104,8 +104,8 @@ const LOCAL_EXECUTION_OPTIONS = [
 export const CLI_VERBS = [
   {
     name: 'add',
-    description: 'Install a helper plugin into this project',
-    args: [{ name: 'helper', description: 'Helper name or @flows/<helper-name>', required: true }],
+    description: 'Install a helper plugin, or a flow-extension plugin from a public GitHub repository, into this project',
+    args: [{ name: 'plugin', description: 'Helper name, @flows/<helper-name>, github:<owner>/<repo>@<ref>#<path>, or a github.com tree URL', required: true }],
     variants: ['add'],
   },
   {
@@ -198,6 +198,19 @@ export const CLI_VERBS = [
     description: 'Mint a read-only observer link without running a flow',
     options: [DATA_DIR_OPTION],
     variants: ['observer'],
+  },
+  {
+    name: 'plugin',
+    description: 'Inspect the flow-extension plugins recorded in flows.lock.json',
+    subcommands: [
+      { name: 'list', description: 'List installed flow extensions in composition order', options: [JSON_OPTION] },
+      {
+        name: 'verify',
+        description: 'Re-hash .flows/plugins against the lockfile and, unless --offline, against the pinned commit on GitHub',
+        options: [JSON_OPTION, { flags: '--offline', description: 'Skip the GitHub re-fetch; check only the local store against the lockfile' }],
+      },
+    ],
+    variants: ['plugin'],
   },
   {
     name: 'replay',

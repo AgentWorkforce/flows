@@ -4,11 +4,18 @@ import { join } from 'node:path';
 import type { CliIo } from '../cli.js';
 import { findPluginProject, probePlugin, readPlugin } from '../plugin-loader.js';
 import { PluginError, pluginPackageName } from '../plugin-manifest.js';
+import { isGithubPluginRef } from '../plugin-source.js';
+import { addExtensionPlugin, type AddExtensionOptions } from './add-extension.js';
 
 export async function addPlugin(name: string, io: CliIo, options: {
   cwd?: string;
   install?: (packageName: string, root: string) => void;
+  /** GitHub-sourced flow extensions only; ignored for helper packages. */
+  extension?: Omit<AddExtensionOptions, 'cwd'>;
 } = {}): Promise<0 | 2> {
+  // A GitHub reference is a schema-2 flow extension; everything else is the
+  // helper-package path below, which this branch leaves exactly as it was.
+  if (isGithubPluginRef(name)) return addExtensionPlugin(name, io, { ...options.extension, ...(options.cwd === undefined ? {} : { cwd: options.cwd }) });
   try {
     const packageName = pluginPackageName(name);
     const root = findPluginProject(options.cwd ?? process.cwd());
