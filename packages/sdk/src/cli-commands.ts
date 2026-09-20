@@ -167,6 +167,36 @@ export const CLI_VERBS = [
     variants: ['deployments'],
   },
   {
+    name: 'recommended',
+    description: 'Browse agentrelay.com’s recommended flows and activate one in Cloud',
+    subcommands: [
+      {
+        name: 'list',
+        description: 'List the versioned recommended-flow catalog',
+        options: [JSON_OPTION],
+      },
+      {
+        name: 'show',
+        description: 'Inspect a recommended flow’s trigger, inputs, and source parameters',
+        args: [{ name: 'flow-id', description: 'Stable catalog flow id, such as software-garden', required: true }],
+        options: [JSON_OPTION],
+      },
+      {
+        name: 'activate',
+        description: 'Activate a recommended flow for one or more repositories in Cloud',
+        args: [{ name: 'flow-id', description: 'Stable catalog flow id, such as software-garden', required: true }],
+        options: [
+          { flags: '--label <label>', description: 'Human-readable label for this activation' },
+          { flags: '--repository <owner/name>', description: 'Repository to activate for; repeat for more repositories' },
+          { flags: '--approver <handle>', description: 'Handle delivered to the flow for required human approvals' },
+          { flags: '--agents <list>', description: 'Override catalog default agents, as claude[,codex]' },
+          JSON_OPTION,
+        ],
+      },
+    ],
+    variants: ['recommended-list', 'recommended-show', 'recommended-activate'],
+  },
+  {
     name: 'hn-monitor',
     description: 'Hacker News monitor: poll for matching stories and launch a flow per hit',
     subcommands: [

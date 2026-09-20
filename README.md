@@ -54,6 +54,27 @@ flows deploy examples/software-factory/software-factory.flow.ts \
 
 One-click deploy buttons for these live at the top of [`examples/`](examples/).
 
+## Recommended flows
+
+Cloud also offers a versioned catalog of prebuilt flows. Browse it, inspect the
+inputs and source parameters, then activate one label across one or more
+repositories:
+
+```bash
+flows recommended list
+flows recommended show software-garden
+flows recommended activate software-garden \
+  --label "Platform garden" \
+  --repository acme/api \
+  --repository acme/web \
+  --approver you
+```
+
+`--repository` is repeatable. The first catalog item, `software-garden`, is a
+GitHub-only canonical Cloud source; the CLI never copies or uploads it.
+`--agents claude,codex` optionally overrides its catalog default. Existing
+single-repository `flows deploy ... --repo ...` commands are unchanged.
+
 `--on` takes `github`, `linear`, `jira`, `shortcut` or `slack` with optional filters
 (`github:labels=agent`, `jira:project=OPS`, `slack:channel=#eng`). `flows deployments` lists what is
 listening; `flows undeploy <id>` stops it. Sign in once with `agent-relay cloud login`.

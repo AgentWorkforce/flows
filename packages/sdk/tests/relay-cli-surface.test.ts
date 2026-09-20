@@ -82,6 +82,15 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
     variant: 'cloud-deploy',
   },
   { verb: 'deployments', argv: ['deployments', '--json'], variant: 'deployments' },
+  { verb: 'recommended', argv: ['recommended', 'list'], variant: 'recommended-list' },
+  { verb: 'recommended', argv: ['recommended', 'list', '--json'], variant: 'recommended-list' },
+  { verb: 'recommended', argv: ['recommended', 'show', 'software-garden', '--json'], variant: 'recommended-show' },
+  {
+    verb: 'recommended',
+    argv: ['recommended', 'activate', 'software-garden', '--label', 'Garden', '--repository', 'owner/api',
+      '--repository', 'owner/web', '--approver', 'someone', '--agents', 'claude,codex', '--json'],
+    variant: 'recommended-activate',
+  },
   { verb: 'hn-monitor', argv: ['hn-monitor', 'start', 'spec.json'], variant: 'hn-monitor' },
   {
     verb: 'hn-monitor',

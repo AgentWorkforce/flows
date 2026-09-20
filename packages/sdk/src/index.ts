@@ -88,6 +88,11 @@ export {
   type DeployToCloudInput, type CloudDeployment, type CloudDeploymentSummary, type FlowTriggerSource, type FlowTriggerProvider,
 } from './cloud-deploy.js';
 export {
+  listRecommendedFlows, getRecommendedFlow, activateRecommendedFlow,
+  type RecommendedFlowCatalog, type RecommendedFlowSummary, type RecommendedFlowDetail,
+  type RecommendedFlowInputs, type RecommendedRepository, type RecommendedFlowActivationInput, type RecommendedFlowActivation,
+} from './cloud-recommended.js';
+export {
   ensureIntegrationsConnected, integrationConnected, providerLabel,
   type ConnectPrompt, type EnsureConnectionsOptions, type ConnectionsOutcome,
 } from './cloud-connect.js';

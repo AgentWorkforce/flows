@@ -34,6 +34,7 @@ import { checkTypeScriptFlow } from './cli/check-typescript.js';
 import { runCloudCli } from './cli/cloud-run.js';
 import { runCloudSyncCli } from './cli/cloud-sync.js';
 import { parseCloudDeployArgs, runCloudDeployCli, runCloudDeploymentsCli, runCloudUndeployCli, type CloudDeployArgs } from './cli/cloud-deploy.js';
+import { parseCloudRecommendedArgs, runCloudRecommendedCli, type CloudRecommendedArgs } from './cli/cloud-recommended.js';
 import { parseCloudScheduleArgs, runCloudScheduleCli, runCloudSchedulesCli, runCloudUnscheduleCli, type CloudScheduleArgs } from './cli/cloud-schedule.js';
 import { isAuthoredFlowPath } from './direct-input.js';
 import { parseDeployArgs, runDeploy, type DeployArgs } from './cli/deploy.js';
@@ -72,6 +73,7 @@ export type ParsedArgs =
   | { command: 'cloud-run'; value: string; json: boolean; wait: boolean; input: string | undefined; syncCode: boolean; noConnect: boolean }
   | { command: 'sync'; runId: string; json: boolean; root: string; dryRun: boolean }
   | CloudDeployArgs
+  | CloudRecommendedArgs
   | { command: 'deployments'; json: boolean }
   | { command: 'undeploy'; agentId: string; json: boolean }
   | CloudScheduleArgs
@@ -96,6 +98,9 @@ const USAGE = [
   'flows build --verify <bundle-dir>',
   'flows deploy <flow.ts> --repo <owner/name> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--no-connect] [--json]',
   'flows deployments [--json]',
+  'flows recommended list [--json]',
+  'flows recommended show <flow-id> [--json]',
+  'flows recommended activate <flow-id> --label <label> --repository <owner/name> [--repository <owner/name> ...] --approver <handle> [--agents claude[,codex]] [--json]',
   'flows undeploy [--json] <deployment-id>',
   'flows schedule <flow.yaml|flow.ts> [--cron "<expr>" | --every <n><s|m|h|d>] [--tz <IANA>] [--input <inline-json-or-file>] [--name <name>] [--no-connect] [--json]',
   'flows schedules [--json]',
@@ -203,6 +208,9 @@ export async function runCli(
   if (parsed.command === 'sync') return runCloudSyncCli(parsed, io);
   if (parsed.command === 'cloud-deploy') return runCloudDeployCli(parsed, io);
   if (parsed.command === 'deployments') return runCloudDeploymentsCli(parsed, io);
+  if (parsed.command === 'recommended-list' || parsed.command === 'recommended-show' || parsed.command === 'recommended-activate') {
+    return runCloudRecommendedCli(parsed, io);
+  }
   if (parsed.command === 'undeploy') return runCloudUndeployCli(parsed, io);
   if (parsed.command === 'schedule') return runCloudScheduleCli(parsed, io);
   if (parsed.command === 'schedules') return runCloudSchedulesCli(parsed, io);
@@ -555,6 +563,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     if (rest.length > 1 || (rest.length === 1 && rest[0] !== '--json')) return undefined;
     return { command: 'deployments', json: rest.length === 1 };
   }
+  if (command === 'recommended') return parseCloudRecommendedArgs(args.slice(1));
   if (command === 'serve-webhook') return parseWebhookArgs(args.slice(1));
   if (command === 'hn-monitor') return parseHnMonitorArgs(args.slice(1));
   if (command === 'tick') return parseTickArgs(args.slice(1));
