@@ -6,6 +6,7 @@ import { checkAuthoredFlow } from './cli/check.js';
 import { classifyOutcome, type RunLifecycleOptions, type RunReport } from './cli/run.js';
 import type { PreflightDiagnostic } from './preflight.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
+import { agentCwdDeclarationError, agentCwdTransportError } from './agent-cwd.js';
 import type { JournalClient } from './journal-client.js';
 import { SPEC_SCHEMA_VERSION, type FlowSpec, type PermissionsSpec, type StepSpec } from './spec.js';
 import { isSurfaceCompletionReason, readCompletedStepOutput, readSuccessfulOutput, type AuthoredStepContext } from './authored-step-output.js';
@@ -145,10 +146,14 @@ export function authoredWorkerRunner(
           `f.agent options.model must be a string when set (got ${typeof options.model}).`,
         );
       }
-      if (options.cwd !== undefined && typeof options.cwd !== 'string') {
+      // The same lexical rule the kernel and `flows check` apply, raised here
+      // so an authored body is refused before a run exists rather than at
+      // dispatch. Whether the directory is there is the worker's question.
+      const cwdProblem = options.cwd === undefined ? undefined : agentCwdDeclarationError(options.cwd);
+      if (cwdProblem !== undefined) {
         throw new AuthoredFlowExecutionError(
           'agent_cli_unresolved',
-          `f.agent options.cwd must be a string when set (got ${typeof options.cwd}).`,
+          `f.agent options.cwd: ${cwdProblem}.`,
         );
       }
       if (options.transport !== undefined && options.transport !== 'direct' && options.transport !== 'relay') {
@@ -156,6 +161,10 @@ export function authoredWorkerRunner(
           'agent_cli_unresolved',
           `f.agent options.transport must be 'direct' or 'relay' (got ${JSON.stringify(options.transport)}).`,
         );
+      }
+      const cwdTransport = agentCwdTransportError(options.cwd, options.transport);
+      if (cwdTransport !== undefined) {
+        throw new AuthoredFlowExecutionError('agent_cli_unresolved', `f.agent options.${cwdTransport}.`);
       }
       const permissions = options.permissions;
       const permissionsSnapshot = permissions === undefined ? undefined

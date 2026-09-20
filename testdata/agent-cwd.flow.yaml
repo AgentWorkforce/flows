@@ -1,0 +1,27 @@
+# The multi-checkout shape flows#357 was filed from: one flow driving agents
+# in two sibling directories of the run's own tree. `cwd` is declared on the
+# agent steps only, and survives the whole boundary — SDK authoring ->
+# compiler -> canonical JSON -> kernel parse -> kernel re-serialize -> the
+# same sha256. A declaration that cannot make that trip is one the daemon
+# refuses after `flows check` has already passed.
+version: '0.1.0'
+name: agent-cwd
+description: Two agents run in two checkouts beneath the run root.
+steps:
+  - id: prepare
+    type: deterministic
+    command: "printf ready"
+  - id: edit-service-a
+    type: agent
+    dependsOn: [prepare]
+    instruction: "Apply the change in service A."
+    cwd: checkouts/service-a
+  - id: edit-service-b
+    type: agent
+    dependsOn: [prepare]
+    instruction: "Apply the change in service B."
+    cwd: checkouts/service-b
+  - id: review-root
+    type: agent
+    dependsOn: [edit-service-a, edit-service-b]
+    instruction: "Review both checkouts from the run root."

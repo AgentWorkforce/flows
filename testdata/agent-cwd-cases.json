@@ -1,0 +1,122 @@
+[
+  {
+    "name": "nested checkout",
+    "cwd": "checkouts/service-a",
+    "valid": true
+  },
+  {
+    "name": "single component",
+    "cwd": "worktree",
+    "valid": true
+  },
+  {
+    "name": "hidden component",
+    "cwd": ".worktrees/service-a",
+    "valid": true
+  },
+  {
+    "name": "a component that only looks like a traversal",
+    "cwd": "..data/checkout",
+    "valid": true
+  },
+  {
+    "name": "a component containing a space",
+    "cwd": "checkouts/service a",
+    "valid": true
+  },
+  {
+    "name": "deeply nested",
+    "cwd": "a/b/c/d/e",
+    "valid": true
+  },
+  {
+    "name": "absolute",
+    "cwd": "/srv/checkouts/service-a",
+    "valid": false
+  },
+  {
+    "name": "absolute root",
+    "cwd": "/",
+    "valid": false
+  },
+  {
+    "name": "parent traversal",
+    "cwd": "../sibling",
+    "valid": false
+  },
+  {
+    "name": "interior traversal",
+    "cwd": "checkouts/../../etc",
+    "valid": false
+  },
+  {
+    "name": "current directory",
+    "cwd": ".",
+    "valid": false
+  },
+  {
+    "name": "interior current directory",
+    "cwd": "checkouts/./service-a",
+    "valid": false
+  },
+  {
+    "name": "empty",
+    "cwd": "",
+    "valid": false
+  },
+  {
+    "name": "trailing separator",
+    "cwd": "checkouts/service-a/",
+    "valid": false
+  },
+  {
+    "name": "doubled separator",
+    "cwd": "checkouts//service-a",
+    "valid": false
+  },
+  {
+    "name": "leading space",
+    "cwd": " checkouts/service-a",
+    "valid": false
+  },
+  {
+    "name": "trailing tab",
+    "cwd": "checkouts/service-a\t",
+    "valid": false
+  },
+  {
+    "name": "leading no-break space",
+    "cwd": "\u00a0checkouts",
+    "valid": false
+  },
+  {
+    "name": "trailing next line",
+    "cwd": "checkouts\u0085",
+    "valid": false
+  },
+  {
+    "name": "leading byte order mark",
+    "cwd": "\ufeffcheckouts",
+    "valid": false
+  },
+  {
+    "name": "embedded NUL",
+    "cwd": "checkouts/service\u0000a",
+    "valid": false
+  },
+  {
+    "name": "URI-like mount identity",
+    "cwd": "s3://bucket/checkout",
+    "valid": false
+  },
+  {
+    "name": "URI-like below a component",
+    "cwd": "checkouts/s3://bucket",
+    "valid": false
+  },
+  {
+    "name": "scheme separator alone",
+    "cwd": "://checkouts",
+    "valid": false
+  }
+]

@@ -427,7 +427,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
   const unionKeys = [
     'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input',
     'command', 'timeout_ms', 'lease_ms', 'prompt', 'model', 'cli', 'instruction',
-    'recovery_mode', 'surfaces', 'permissions',
+    'cwd', 'recovery_mode', 'surfaces', 'permissions',
   ] as const;
   const step = requireKernelObject(value, unionKeys, at);
   const type = step['type'];
@@ -437,7 +437,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
     : type === 'llm'
       ? ['prompt', 'model', 'cli'] as const
       : type === 'agent'
-        ? ['instruction', 'cli', 'model', 'recovery_mode', 'surfaces', 'permissions'] as const
+        ? ['instruction', 'cli', 'model', 'cwd', 'recovery_mode', 'surfaces', 'permissions'] as const
         : [];
   assertKernelKeys(step, [...commonKeys, ...typeKeys], at);
   if (step['retry'] !== undefined) validateAuthoringRetryDefaults(step['retry'], `${at}.retry`);
@@ -470,7 +470,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
       ...common,
       instruction: step['instruction'],
       ...(step['recovery_mode'] !== undefined ? { recoveryMode: step['recovery_mode'] } : {}),
-      ...copyDefined(step, ['cli', 'model', 'surfaces']),
+      ...copyDefined(step, ['cli', 'model', 'cwd', 'surfaces']),
       ...(step['permissions'] !== undefined
         ? { permissions: kernelPermissionsToAuthoring(step['permissions'], `${at}.permissions`) }
         : {}),

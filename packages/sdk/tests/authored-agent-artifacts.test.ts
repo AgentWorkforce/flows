@@ -103,7 +103,7 @@ describe('f.agent artifacts (local-agent path)', () => {
     await client.hello('authored-artifacts-test');
     try {
       const handle = flow('artifact-test', async (f) => {
-        const result = await f.agent('writer', { task: 'write research/notes.md', cwd: root! });
+        const result = await f.agent('writer', { task: 'write research/notes.md' });
         expect(result.artifacts).toEqual(['research/notes.md']);
         f.done('success');
       });
@@ -130,7 +130,7 @@ describe('f.agent artifacts (local-agent path)', () => {
         // effect for any agent-type step, but a relay-transport step ran on
         // a remote host — this process's filesystem is not where it wrote,
         // so the local snapshot must not be trusted here.
-        const result = await f.agent('writer', { task: 'write research/notes.md', cwd: root!, transport: 'relay' });
+        const result = await f.agent('writer', { task: 'write research/notes.md', transport: 'relay' });
         expect(result.artifacts).toEqual([]);
         f.done('success');
       });
@@ -156,9 +156,9 @@ describe('f.agent artifacts (local-agent path)', () => {
     await client.hello('authored-artifacts-test-2');
     try {
       const handle = flow('artifact-test-no-local', async (f) => {
-        const first = await f.agent('writer', { task: 'write research/notes.md', cwd: root!, workspace: 'research' });
+        const first = await f.agent('writer', { task: 'write research/notes.md', workspace: 'research' });
         expect(first.artifacts).toEqual(['research/notes.md']);
-        const second = await f.agent('writer-again', { task: 'write nothing', cwd: root!, workspace: 'research' });
+        const second = await f.agent('writer-again', { task: 'write nothing', workspace: 'research' });
         expect(second.artifacts).toEqual([]);
         f.done('success');
       });

@@ -92,13 +92,15 @@ describe('the agent worker journals the digest in trajectory_tail on every compl
     // The data dir is outside the agent's cwd, as it is in Cloud's sandbox
     // (`join(stateDir, "journal")`): the transcript file is not an artifact.
     mkdirSync(join(root, 'workspace'));
-    const worker = new AgentWorker(client, { workerId: 'w', pins, dataDir: join(root, 'data') });
+    // `cwd` is run-root-relative (flows#357), so the root the worker measures
+    // it against is named here rather than being this process's directory.
+    const worker = new AgentWorker(client, { workerId: 'w', pins, dataDir: join(root, 'data'), runRoot: root });
     const errors: unknown[] = [];
     worker.on('error', error => errors.push(error));
     await worker.attach();
     (client as unknown as EventEmitter).emit('step.dispatch', {
       run_id: 'run-a', step_id: 'agent-1', attempt, step_type: 'agent',
-      spec: { cli: claude, instruction: 'probe', cwd: join(root, 'workspace') }, pins,
+      spec: { cli: claude, instruction: 'probe', cwd: 'workspace' }, pins,
       lease_id: 'lease', lease_deadline_ms: Date.now() + 30_000, idempotency_key: 'k',
     });
     await worker.close();

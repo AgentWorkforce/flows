@@ -274,7 +274,17 @@ export interface AgentStepSpec extends BaseStepSpec {
   surfaces?: AgentSurfaces;
   recoveryMode?: RecoveryMode;
   permissions?: PermissionsSpec;
-  /** Working directory for the CLI subprocess; defaults to the flow-runner's cwd. */
+  /**
+   * Directory the declared CLI is spawned in, as a path relative to the run
+   * root — the flow-runner's working directory, which is also where the CLI
+   * runs when this is absent. Absolute paths, `.`, `..` and empty components
+   * are refused lexically by `flows check` and by the kernel; the worker that
+   * spawns the CLI additionally requires the symlink-free directory to exist
+   * inside the symlink-free run root. A declaration, not a sandbox: nothing
+   * stops a CLI from writing outside it. Not supported with
+   * `transport: 'relay'`, where the agent runs on a host this process cannot
+   * resolve. See docs/SURFACE.md.
+   */
   cwd?: string;
   /**
    * Dispatch transport (flows#385). `'direct'` (default) spawns the CLI as
@@ -469,7 +479,11 @@ export interface KernelAgentStep extends KernelStepCommon {
   recovery_mode: RecoveryMode;
   surfaces?: KernelAgentSurfaces;
   permissions?: KernelPermissionsSpec;
-  /** Working directory for the CLI subprocess; kernel passes through untouched. */
+  /**
+   * Run-root-relative directory the attached worker spawns the CLI in. The
+   * kernel checks the shape and does no I/O: existence and containment are
+   * decided by the worker, on the host that shares the agent's filesystem.
+   */
   cwd?: string;
   /**
    * Dispatch transport (flows#385). Kernel passes through untouched;

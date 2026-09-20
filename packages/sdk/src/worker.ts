@@ -6,6 +6,7 @@ import type { JournalClient } from './journal-client.js';
 import type { Pins, StepDispatchEvent } from './protocol.js';
 import type { KernelAgentStep } from './spec.js';
 import { runAgentCli } from './worker-cli.js';
+import { agentStepCwd } from './agent-cwd.js';
 import { resolveCliModel } from './cli-adapter.js';
 import { withWorkerLease } from './worker-lease.js';
 import { workerInstruction } from './worker-input.js';
@@ -22,6 +23,14 @@ export interface AgentWorkerOptions {
   requiredStreams?: string[];
   dataDir?: string;
   onPtyReady?: (path: string) => void;
+  /**
+   * The run root a step's declared `cwd` is resolved against and held inside.
+   * Defaults to this process's working directory, which is what the run root
+   * is: `flows run` attaches the worker from the directory it was invoked in,
+   * and that directory is the uploaded tree on the Cloud path. Named here so
+   * the root a dispatch is measured against is a value, not an assumption.
+   */
+  runRoot?: string;
 }
 
 /**
@@ -113,21 +122,28 @@ export class AgentWorker extends EventEmitter {
     if (communication) {
       if (!this.options.dataDir) throw new Error('Agent communication requires a worker data directory');
       const { completeCommunicationDispatch } = await import('./communication/worker.js');
-      await completeCommunicationDispatch(this.client, dispatch, communication, this.options.dataDir);
+      await completeCommunicationDispatch(this.client, dispatch, communication, this.options.dataDir, this.options.runRoot);
       return;
     }
     let humanIntervention = false;
     const effectiveModel = typeof spec.cli === 'string' ? resolveCliModel(spec.cli, spec.model) : spec.model;
+    // Resolved here, before the lease, because this is the process that shares
+    // the agent's filesystem. A refusal completes the step the way a missing
+    // CLI does — journaled as `worker_error` with the reason — rather than
+    // spawning into a directory nobody established is inside the run root.
+    const cwd = agentStepCwd(spec, dispatch.step_id, this.options.runRoot);
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
-      typeof spec.cli === 'string' && typeof spec.instruction === 'string'
-        ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'agent', this.options.dataDir === undefined ? undefined : {
-          dataDir: this.options.dataDir, runId: dispatch.run_id, stepId: dispatch.step_id, attempt: dispatch.attempt,
-          onReady: this.options.onPtyReady, onDrive: () => { humanIntervention = true; },
-        }, typeof spec.cwd === 'string' ? spec.cwd : undefined,
-          spec.transport === 'relay' ? 'relay' : 'direct',
-          { runId: dispatch.run_id, stepId: dispatch.step_id, idempotencyKey: dispatch.idempotency_key,
-            dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema })
-        : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
+      'refusal' in cwd
+        ? Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: cwd.refusal })
+        : typeof spec.cli === 'string' && typeof spec.instruction === 'string'
+          ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'agent', this.options.dataDir === undefined ? undefined : {
+            dataDir: this.options.dataDir, runId: dispatch.run_id, stepId: dispatch.step_id, attempt: dispatch.attempt,
+            onReady: this.options.onPtyReady, onDrive: () => { humanIntervention = true; },
+          }, cwd.directory,
+            spec.transport === 'relay' ? 'relay' : 'direct',
+            { runId: dispatch.run_id, stepId: dispatch.step_id, idempotencyKey: dispatch.idempotency_key,
+              dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema })
+          : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
     const { result, usage } = workerSpend(completed, effectiveModel);
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
 

@@ -97,7 +97,9 @@ process.stdout.write('unused');
   });
 
   it('accepts permissions without workspace on the local stream path', async () => {
-    const step = await capture({ task: 'x', cwd: root, permissions: { accessPreset: 'readonly' } }, true);
+    // `cwd` is run-root-relative (flows#357); it rides beside permissions here
+    // and is never resolved, because no worker is attached to this fake kernel.
+    const step = await capture({ task: 'x', cwd: 'checkout', permissions: { accessPreset: 'readonly' } }, true);
     expect(step.permissions).toEqual({ access_preset: 'readonly' });
   });
 

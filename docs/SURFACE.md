@@ -321,6 +321,61 @@ flow-wide `FlowHeader.workspace` / `tools.fs` scopes. The chief harness above
 remains an aspirational example; this option does not make that entire harness
 executable today.
 
+### Per-agent working directory
+
+`AgentOptions.cwd` — and the `cwd:` key on a declarative `type: agent` step —
+names the directory the agent's CLI is spawned in. It is how one flow drives
+agents in several checkouts:
+
+```ts
+const api = await f.agent("api", {
+  task: "Apply the rename in the API checkout.",
+  cwd: "checkouts/service-a",
+});
+const web = await f.agent("web", {
+  task: "Apply the matching rename in the web checkout.",
+  cwd: "checkouts/service-b",
+});
+```
+
+**The path is relative to the run root** — the working directory `flows run`
+was invoked from, which is also the directory an agent runs in when `cwd` is
+absent, and the uploaded tree on the Cloud path (docs/CLOUD.md, "Code sync").
+A relative declaration is the same declaration on every host; an absolute one
+names a place a different machine does not have, so absolute paths are refused
+rather than resolved.
+
+Two checks answer two different questions:
+
+- **The declaration** is checked lexically, with no filesystem access, by
+  `flows check`, by the authored runner, and by the kernel — the same rule in
+  all three, so a spec that passes the first is not refused by the last. A
+  `cwd` must be a nonempty string, must not be absolute or URI-like, must not
+  carry surrounding whitespace or a NUL, and must have no empty, `.` or `..`
+  components. `cwd: null` is a refusal, not "no directory". `cwd` is an agent
+  field: a `deterministic` or `llm` step that declares it is `invalid_spec`.
+- **The target** is resolved at dispatch by the worker that spawns the CLI,
+  the one process that provably shares the agent's filesystem. It must be an
+  existing directory whose symlink-free path lies inside the symlink-free run
+  root. A symlink out of the tree, and a sibling whose name merely starts with
+  the run root's, are both outside it. A step whose directory does not resolve
+  completes `worker_error` with the reason journaled, and no CLI is spawned.
+
+`AgentResult.artifacts` are reported relative to this directory, so each agent
+above reports paths within its own checkout.
+
+`cwd` is **not supported with `transport: "relay"`** and is refused when both
+are declared: the relay agent runs on another host, where this process can
+neither resolve the directory nor hold it inside the run root.
+
+This is a declaration of where an agent starts, not a sandbox. Nothing stops a
+CLI from reading or writing outside the directory it was spawned in. Per-step
+scoping is `permissions`, which is recorded and not enforced (gate 8 / #442).
+
+Workspace surfaces are a different thing and are not a directory selector:
+`surfaces.workspace` names the revisions a step pins and writes back to, not a
+path on the host running the CLI.
+
 ### Supported TypeScript LLM calls
 
 The local authored executor supports these signatures:

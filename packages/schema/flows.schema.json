@@ -1364,7 +1364,7 @@
         },
         "cwd": {
           "title": "cwd",
-          "description": "Working directory for the CLI subprocess; defaults to the flow-runner's cwd.",
+          "description": "Directory the declared CLI is spawned in, as a path relative to the run\nroot — the flow-runner's working directory, which is also where the CLI\nruns when this is absent. Absolute paths, `.`, `..` and empty components\nare refused lexically by `flows check` and by the kernel; the worker that\nspawns the CLI additionally requires the symlink-free directory to exist\ninside the symlink-free run root. A declaration, not a sandbox: nothing\nstops a CLI from writing outside it. Not supported with\n`transport: 'relay'`, where the agent runs on a host this process cannot\nresolve. See docs/SURFACE.md.",
           "type": "string"
         },
         "transport": {
@@ -2378,7 +2378,7 @@
         },
         "cwd": {
           "title": "cwd",
-          "description": "Working directory for the CLI subprocess; kernel passes through untouched.",
+          "description": "Run-root-relative directory the attached worker spawns the CLI in. The\nkernel checks the shape and does no I/O: existence and containment are\ndecided by the worker, on the host that shares the agent's filesystem.",
           "type": "string"
         },
         "transport": {
