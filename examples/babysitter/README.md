@@ -160,6 +160,18 @@ Cloud currently omits the original comment directive, so an issue-comment wake
 rereads state then returns `needs_human`; it cannot authorize conflict repair
 from an invented or unrelated comment. Other PRs are refused, not retargeted.
 
+Two hosted-path limits are Cloud's, not this flow's, and they are checked
+against Cloud's launcher rather than assumed. `flowPullRequestFromEvent`
+attributes a `check_run` delivery by the **first** entry in
+`check_run.pull_requests`, and skips the delivery as `not_a_pull_request` when
+that array is empty. So on the hosted path a fork PR's CI never wakes the
+listener at all, and a head commit shared by several PRs wakes for whichever
+GitHub lists first — the hosted binding then refuses the delivery as another
+PR's rather than retargeting it. The raw-webhook entry point has no such gap:
+an unattributed `check_run` is an ordinary hint there and reaches the reread.
+Closing this needs a change in Cloud's attribution, not a relaxation here, and
+until it lands a hosted proof must not be read as covering fork CI.
+
 Capture the real GitHub delivery GUID, Cloud ingress/run IDs, deployed source
 digest and the run's live-read output before claiming E2E. A successful deploy,
 unit test or local GitHub read is insufficient. Remove a bounded proof listener
