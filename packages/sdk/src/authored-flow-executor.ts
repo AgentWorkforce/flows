@@ -19,6 +19,7 @@ import {
   normalizeCompletionDetail,
   type LoweredCompletionReason,
 } from './authored-completion.js';
+import { commitAuthoredVerdict } from './authored-completion-record.js';
 import {
   type AgentResult,
   type LlmOptions,
@@ -636,13 +637,27 @@ export async function executeAuthoredFlow<Input = undefined>(
   // not as a fabricated kernel run.completed reason. The marker step reports
   // what the body decided; it is not itself a step that failed. The CLI turns
   // the verdict into the exit code (success/declined 0, needs_human 3, step_failed 1).
-  await lowerDeterministic(`complete-${nextStep}`,
-    completionMarker(requestedCompletion, requestedDetail), true);
+  //
+  // The verdict is committed to the root BEFORE the marker run is opened, and
+  // a resumed body reuses what was committed rather than recomputing it
+  // (authored-completion-record.ts). A detail is redacted against
+  // `process.env`, so a credential rotated while this process was down would
+  // otherwise re-normalize the same authored sentence differently, retry the
+  // marker's stable admission key with a drifted spec, and lose the
+  // explanation the root had already journaled to `run_admission_conflict`.
+  // With no detail there is no environment in the command and nothing to
+  // commit, so that path is untouched.
+  const terminalId = `complete-${nextStep}`;
+  const verdict = await commitAuthoredVerdict(journal, options.rootRunId, terminalId, {
+    reason: requestedCompletion,
+    ...(requestedDetail === undefined ? {} : { detail: requestedDetail }),
+  });
+  await lowerDeterministic(terminalId, completionMarker(verdict.reason, verdict.detail), true);
   return Object.freeze({
     ...(options.rootRunId === undefined ? {} : { rootRunId: options.rootRunId }),
     name: definition.name,
-    completionReason: requestedCompletion,
-    ...(requestedDetail === undefined ? {} : { completionDetail: requestedDetail }),
+    completionReason: verdict.reason,
+    ...(verdict.detail === undefined ? {} : { completionDetail: verdict.detail }),
     journalSteps: Object.freeze([...journalSteps]),
   });
 }

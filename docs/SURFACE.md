@@ -1025,6 +1025,12 @@ The detail is normalized once, at `done()`, before anything durable is written:
 - **Normalized to absence** when it is empty or whitespace-only. No options,
   `{}`, `{ detail: undefined }` and `{ detail: "  " }` all mean the same thing
   as the one-argument call, down to a byte-identical marker command.
+- **Made well-formed**: every lone UTF-16 surrogate becomes U+FFFD. A JS
+  string is code units, not text, and `(prose + "\u{1F642}").slice(0, -1)` —
+  ordinary trimming of an agent's output — leaves a high surrogate with no
+  partner. The journal protocol's JSON decoder refuses such a value, and the
+  refusal carries no request id to answer, so the call never returns. One code
+  unit is substituted for one, so the bound still counts what a reader counts.
 
 A `detail` that is present and not a string, or options that are not an
 object, are refused with `unsupported_completion`. The refusal names the type
@@ -1044,13 +1050,27 @@ authored done("step_failed"): review found 1 P2: `review.clean` was not created
 steps 1: 1 done
 ```
 
+A verdict that carries a detail is **committed before the marker run is
+opened**, on a stream of the flow's own root, exactly as a predicate gate's
+verdict is. That is what makes it survive a resume: redaction reads the
+process environment, so a credential rotated while the process was down would
+otherwise re-normalize the same authored sentence into a different marker
+command — and the marker's admission key is stable, so the kernel would refuse
+the drifted spec as `run_admission_conflict` and the run would lose the
+explanation it had already journaled. A resumed body reuses the committed
+verdict instead of recomputing one. A `done()` with no detail commits nothing:
+its marker command is a function of the reason alone, so there is nothing that
+can drift and nothing to recover.
+
 The kernel facts on the first line do not move: an authored `step_failed` run
 completes with a root step that succeeded, and that stays true and stays
-printed. In the diagnostic *message* — the string Cloud stores as a run's
-`error` — the detail is folded onto one line, with `\n`, `\r`, `\t` and
-`\uXXXX` standing in for control characters, because Cloud's error view
-elides the middle of a long multi-line error. The unescaped text is in
-`completionDetail` and in the diagnostic's `detail` beside it.
+printed. In the diagnostic *message* — the string a Cloud run's `error` is
+expected to carry — the detail is folded onto one line, with `\n`, `\r`, `\t`
+and `\uXXXX` standing in for control characters, because Cloud's error view
+elides the middle of a long multi-line error. (That projection is the
+server's; see docs/CLOUD.md for what this repository does and does not
+establish about it.) The unescaped text is in `completionDetail` and in the
+diagnostic's `detail` beside it.
 
 `canceled` and `budget_exceeded` are in the type but are refused with
 `unsupported_completion`. They are kernel outcomes, not authored verdicts: the

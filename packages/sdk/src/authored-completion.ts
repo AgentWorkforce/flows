@@ -70,6 +70,9 @@ export const COMPLETION_DETAIL_TRUNCATED_SUFFIX = '… (truncated)';
  * is the SDK's existing policy — known token shapes, named credential fields,
  * and the values of secret-looking environment variables (`redact.ts`) — not a
  * guarantee to recognise every possible secret.
+ *
+ * Lone surrogates are substituted here too, so what leaves this function is a
+ * well-formed string the journal protocol can carry — see {@link wellFormed}.
  */
 export function normalizeCompletionDetail(
   options: unknown,
@@ -90,8 +93,40 @@ export function normalizeCompletionDetail(
       `done() detail must be a string; received ${typeName(detail)}`,
     );
   }
-  const redacted = redact(detail, env).trim();
+  const redacted = wellFormed(redact(detail, env)).trim();
   return redacted.length === 0 ? undefined : bound(redacted);
+}
+
+/**
+ * Lone UTF-16 surrogates, as code points.
+ *
+ * Under `u` a subject string is iterated by CODE POINT, so a well-formed pair
+ * is one code point above U+FFFF and never enters this class. What the class
+ * matches is exactly a surrogate with no partner.
+ */
+const LONE_SURROGATE = /[\uD800-\uDFFF]/u;
+const LONE_SURROGATES = /[\uD800-\uDFFF]/gu;
+
+/**
+ * Replace every lone surrogate with U+FFFD, the replacement character.
+ *
+ * A JavaScript string is UTF-16 code units, not text. Slicing a character off
+ * the end of an agent's output — `(prose + '\u{1F642}').slice(0, -1)` — leaves
+ * a high surrogate with no partner, and the type system calls the result a
+ * `string`. Nothing downstream does.
+ * `JSON.stringify` escapes it, so the marker COMMAND is admitted; the raw
+ * detail then travels in the root's `step.complete` output, where the kernel's
+ * JSON decoder refuses it ("unexpected end of hex escape") and answers with a
+ * `bad_request` carrying a null request id — which resolves no pending
+ * request, so the call hangs and the authored explanation never lands.
+ *
+ * Substituting is right here where refusing is not: the flow has already done
+ * its work and reached a verdict, and losing the whole explanation over one
+ * broken code unit destroys more than it protects. One code unit in, one code
+ * unit out, so the bound below still counts what a reader would count.
+ */
+function wellFormed(text: string): string {
+  return LONE_SURROGATE.test(text) ? text.replace(LONE_SURROGATES, '\uFFFD') : text;
 }
 
 /**
@@ -105,6 +140,7 @@ export function normalizeCompletionDetail(
 export function isDurableCompletionDetail(value: unknown): value is string {
   return typeof value === 'string'
     && value.length > 0
+    && !LONE_SURROGATE.test(value)
     && [...value].length <= COMPLETION_DETAIL_MAX_CODE_POINTS;
 }
 

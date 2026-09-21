@@ -158,6 +158,26 @@ describe('normalizing done()\'s optional detail', () => {
     expect(normalized.endsWith(COMPLETION_DETAIL_TRUNCATED_SUFFIX)).toBe(false);
   });
 
+  it.each([
+    ['a high surrogate left by slicing an emoji off the end', `${FINDING} \u{1F642}`.slice(0, -1), `${FINDING} \uFFFD`],
+    ['a low surrogate left by slicing one off the front', '\u{1F642} tail'.slice(1), '\uFFFD tail'],
+    ['a lone surrogate in the middle of prose', 'P2 \uD800 remains', 'P2 \uFFFD remains'],
+  ])('substitutes %s', (_label, raw, expected) => {
+    // `('review found 1 P2: ' + '\u{1F642}').slice(0, -1)` is ordinary JS string
+    // trimming of reviewer output, and it produces a `string` that is not
+    // text. `JSON.stringify` escapes it, so the marker COMMAND is admitted —
+    // and then the raw detail in the root's `step.complete` output is refused
+    // by the kernel's JSON decoder with a null-id `bad_request` that resolves
+    // no pending request, so the call never returns and the explanation is lost.
+    expect(normalizeCompletionDetail({ detail: raw }, {})).toBe(expected);
+  });
+
+  it('leaves well-formed text alone, surrogate pairs included', () => {
+    for (const detail of [FINDING, '\u{1F642} kept whole', '検査は \u{1F642} で終わった']) {
+      expect(normalizeCompletionDetail({ detail }, {})).toBe(detail);
+    }
+  });
+
   it('gates a durable value on the same bound it wrote', () => {
     expect(isDurableCompletionDetail(FINDING)).toBe(true);
     expect(isDurableCompletionDetail('a'.repeat(COMPLETION_DETAIL_MAX_CODE_POINTS))).toBe(true);
@@ -167,6 +187,17 @@ describe('normalizing done()\'s optional detail', () => {
     expect(isDurableCompletionDetail('')).toBe(false);
     expect(isDurableCompletionDetail(7)).toBe(false);
     expect(isDurableCompletionDetail(undefined)).toBe(false);
+  });
+
+  it('refuses a durable value the journal protocol cannot carry', () => {
+    // The same invariant normalization enforces, enforced again at every read
+    // boundary: a lone surrogate is a string the kernel's JSON decoder
+    // rejects, so it is not a value a durable record may claim to hold.
+    expect(isDurableCompletionDetail(`${FINDING} \u{1F642}`.slice(0, -1))).toBe(false);
+    expect(isDurableCompletionDetail('\uDC00 orphan low')).toBe(false);
+    expect(isDurableCompletionDetail(`${FINDING} \u{1F642}`)).toBe(true);
+    expect(isDurableCompletionDetail(normalizeCompletionDetail(
+      { detail: `${FINDING} \u{1F642}`.slice(0, -1) }, {}))).toBe(true);
   });
 
   it('folds a multiline detail onto one line without losing a character of it', () => {
@@ -198,6 +229,13 @@ describe('the terminal marker that carries the detail', () => {
     expect(JSON.parse(stdout)).toEqual({ completionReason: 'step_failed', detail });
     // One line, so the journaled command stays greppable.
     expect(command).not.toContain('\n');
+  });
+
+  it('carries a normalized sliced-emoji detail through the shell unchanged', () => {
+    const detail = normalizeCompletionDetail({ detail: `${FINDING} \u{1F642}`.slice(0, -1) }, {})!;
+    const stdout = execFileSync('/bin/sh', ['-c', completionMarker('step_failed', detail)], { encoding: 'utf8' });
+    expect(JSON.parse(stdout)).toEqual({ completionReason: 'step_failed', detail });
+    expect(detail).toBe(`${FINDING} \uFFFD`);
   });
 });
 

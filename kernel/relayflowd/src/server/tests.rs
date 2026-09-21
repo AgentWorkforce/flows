@@ -199,6 +199,52 @@ fn deterministic_marker_carrying_json_survives_reopen_and_refuses_changed_detail
     assert_eq!(drifted.error.unwrap().code, "run_admission_conflict");
 }
 
+/// flows#545: a lone UTF-16 surrogate is refused at the line, with no id.
+///
+/// This is the kernel property the SDK's detail normalization exists for. A
+/// JavaScript string is code units, not text, so trimming an agent's output —
+/// `(prose + "\u{1F642}").slice(0, -1)` — produces a `string` whose last half
+/// of a surrogate pair has no partner. `JSON.stringify` escapes it, so the
+/// frame is syntactically sendable; this decoder is where it stops. The
+/// refusal carries `"id": null`, because the id is inside the frame that did
+/// not parse — so it resolves no pending client request, and a caller that is
+/// waiting on one waits forever. Normalizing before the write
+/// (`packages/sdk/src/authored-completion.ts`) is the only place that can
+/// keep an authored explanation out of this.
+#[test]
+fn a_lone_surrogate_in_a_request_is_refused_with_no_request_id() {
+    let directory = tempdir().unwrap();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, _peer) = shared_writer();
+
+    let refused = request(
+        directory.path(),
+        &hub,
+        1,
+        &writer,
+        r#"{"id":"probe","verb":"hello","params":{"protocol":0,"client":"review found 1 P2: \ud83d"}}"#,
+    );
+
+    assert!(!refused.ok);
+    assert_eq!(
+        refused.id,
+        Value::Null,
+        "a refusal no pending request can be matched to"
+    );
+    assert_eq!(refused.error.unwrap().code, "bad_request");
+
+    // The complete pair is ordinary text and is accepted, so what the decoder
+    // refuses above is the lone half, not the emoji.
+    let paired = request(
+        directory.path(),
+        &hub,
+        1,
+        &writer,
+        r#"{"id":"probe","verb":"hello","params":{"protocol":0,"client":"review found 1 P2: \ud83d\ude42"}}"#,
+    );
+    assert!(paired.ok, "a well-formed pair was refused: {:?}", paired.error);
+}
+
 #[test]
 fn run_start_refuses_invalid_admission_keys() {
     let directory = tempdir().unwrap();

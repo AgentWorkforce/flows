@@ -82,6 +82,33 @@ export default flow('software-factory', async (f) => {
   expect(await client.journalRead(report.runId, 1)).toEqual(root);
 }, 60_000);
 
+it('reports a detail a caller sliced through an emoji, instead of hanging on it', async () => {
+  // `(prose + '\u{1F642}').slice(0, -1)` is ordinary JS trimming of reviewer
+  // output, and it leaves a high surrogate with no partner. Before
+  // normalization the marker command was admitted (JSON.stringify escapes it)
+  // and the raw detail then went out in the root's `step.complete` output,
+  // where the kernel's JSON decoder answered `bad_request` with a null request
+  // id — which resolves no pending request, so the CLI produced no report at
+  // all: no stdout, no stderr, and a wait that only a timeout ended.
+  const runtime = chainFixture();
+  cleanups.push(() => runtime.close());
+  await runtime.connect();
+  writeFileSync(runtime.flowPath, `import { flow } from '@relayflows/surface';
+export default flow('split-emoji', async (f) => {
+  f.done('step_failed', { detail: ('review found 1 P2: ' + '\u{1F642}').slice(0, -1) });
+});
+`);
+
+  const run = runtime.invoke('run', runtime.flowPath, '--input', '{}',
+    '--data-dir', runtime.data, '--no-observer-link', '--json');
+
+  expect(run.status, run.stderr + run.stdout).toBe(1);
+  const report = JSON.parse(run.stdout);
+  expect(report.completionDetail).toBe('review found 1 P2: \uFFFD');
+  expect(report.diagnostics.at(-1).message)
+    .toBe('Flow "split-emoji" declared done("step_failed"): review found 1 P2: \uFFFD');
+}, 60_000);
+
 it('leaves a one-argument done("step_failed") reporting exactly as it always did', async () => {
   const runtime = chainFixture();
   cleanups.push(() => runtime.close());
