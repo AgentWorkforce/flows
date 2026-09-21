@@ -104,8 +104,8 @@ const LOCAL_EXECUTION_OPTIONS = [
 export const CLI_VERBS = [
   {
     name: 'add',
-    description: 'Install a helper plugin into this project',
-    args: [{ name: 'helper', description: 'Helper name or @flows/<helper-name>', required: true }],
+    description: 'Install a helper plugin, or a flow-extension plugin from a public GitHub repository, into this project',
+    args: [{ name: 'plugin', description: 'Helper name, @flows/<helper-name>, github:<owner>/<repo>@<ref>#<path>, or a github.com tree URL', required: true }],
     variants: ['add'],
   },
   {
@@ -155,6 +155,7 @@ export const CLI_VERBS = [
       { flags: '--agents <list>', description: 'Agent harnesses to allow, as claude[,codex]' },
       { flags: '--name <name>', description: 'Name for the hosted listener' },
       { flags: '--draft', description: 'Create the listener without activating it' },
+      { flags: '--plugin <ref>', description: 'Send-only GitHub flow-extension ref; repeatable. Does not write flows.json' },
       NO_CONNECT_OPTION,
       JSON_OPTION,
     ],
@@ -198,6 +199,35 @@ export const CLI_VERBS = [
     description: 'Mint a read-only observer link without running a flow',
     options: [DATA_DIR_OPTION],
     variants: ['observer'],
+  },
+  {
+    name: 'plugin',
+    description: 'Inspect, remove, or update the flow-extension plugins recorded in flows.lock.json',
+    subcommands: [
+      { name: 'list', description: 'List installed flow extensions in composition order', options: [JSON_OPTION] },
+      {
+        name: 'verify',
+        description: 'Re-hash .flows/plugins against the lockfile and, unless --offline, against the pinned commit on GitHub',
+        options: [JSON_OPTION, { flags: '--offline', description: 'Skip the GitHub re-fetch; check only the local store against the lockfile' }],
+      },
+      {
+        name: 'remove',
+        description: 'Drop a flow-extension plugin from flows.json, the lockfile, and the local store',
+        args: [{ name: 'name', description: 'Plugin name as recorded in the lockfile', required: true }],
+        options: [JSON_OPTION],
+      },
+      {
+        name: 'update',
+        description: 'Re-resolve a flow-extension plugin, show the permissions/events/budget diff, and rewrite the lock with --yes',
+        args: [{ name: 'name', description: 'Plugin name; omit to update every installed flow extension', required: false }],
+        options: [
+          JSON_OPTION,
+          { flags: '--to <ref>', description: 'GitHub reference to resolve instead of the locked commit' },
+          { flags: '--yes', description: 'Apply the update; without this flag the diff is printed and the lock is left unchanged' },
+        ],
+      },
+    ],
+    variants: ['plugin'],
   },
   {
     name: 'replay',

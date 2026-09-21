@@ -140,6 +140,12 @@ describe('authored flow journal executor', () => {
       async (f) => f.done('success'),
     ), disconnectedJournal)).rejects.toMatchObject({ code: 'unsupported_header' });
 
+    await expect(executeAuthoredFlow(flow(
+      'versioned-hooks',
+      { version: '2.0.22', hooks: ['merge-gate'], budget: { dollars: 1 } },
+      async (f) => f.done('success'),
+    ), disconnectedJournal)).rejects.not.toMatchObject({ code: 'unsupported_header' });
+
     // Predicate .gate(fn) is accepted (its VERDICT is journaled as a lowered
     // `<step>.gate` run once the step completes), so with a disconnected
     // journal it refuses on the run.start path like any other step. What is

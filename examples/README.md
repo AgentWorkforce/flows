@@ -11,6 +11,14 @@ flow straight from this repo, shows its steps, and asks you to connect whatever 
 
 Or from a checkout: `flows deploy <flow.ts> --repo <owner/name> --on <provider[:k=v]> --approver <you>`.
 
+Install a plugin onto a base flow (Babysitter on Software Garden):
+
+```text
+flows add github:AgentWorkforce/flows@<sha>#examples/babysitter
+```
+
+The plugin is recorded in `flows.json` / `flows.lock.json` and composed at load time. Hosted deploy accepts `--plugin <github ref>` as a send-only extra. Private repositories are unsupported. `permissions.writes` is declared, not enforced.
+
 ## Gallery status
 
 **3 of 4 gallery entries pass; one is blocked.** The blocked entry fails

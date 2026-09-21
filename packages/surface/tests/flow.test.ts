@@ -62,6 +62,22 @@ describe("flow", () => {
     expect(Object.isFrozen(getFlowDefinition(definition).header.tools?.mcp)).toBe(true);
   });
 
+  it("freezes version and hooks on the header", () => {
+    const hooks = ["pre-implement", "merge-gate"];
+    const handle = flow("software-factory", { version: "2.0.22", hooks, budget: { dollars: 10 } }, async () => undefined);
+    hooks.push("later");
+    expect(getFlowDefinition(handle).header).toMatchObject({ version: "2.0.22", hooks: ["pre-implement", "merge-gate"] });
+    expect(Object.isFrozen(getFlowDefinition(handle).header.hooks)).toBe(true);
+  });
+
+  it.each([
+    [{ hooks: ["MergeGate"] }, "header.hooks: expected kebab-case names"],
+    [{ hooks: ["merge-gate", "merge-gate"] }, "header.hooks: expected unique nonempty names"],
+    [{ version: "" }, "header.version: expected a nonempty version string"],
+  ])("refuses malformed version/hooks: %j", (header, message) => {
+    expect(() => flow("software-factory", header as FlowHeader, async () => undefined)).toThrow(message);
+  });
+
   it("validates raw header keys and nested values before cloning", () => {
     const invalidHeaders: { value: unknown; message: string }[] = [
       {

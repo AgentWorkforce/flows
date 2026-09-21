@@ -21,6 +21,12 @@ import { isSurfaceCompletionReason } from './authored-step-output.js';
 
 const ROOT_KIND = 'relayflows.authored-root.v1';
 
+export interface AuthoredRootExtension {
+  readonly name: string;
+  readonly digest: string;
+  readonly ref: string;
+}
+
 export interface AuthoredRootMetadata {
   readonly kind: typeof ROOT_KIND;
   readonly flowName: string;
@@ -28,6 +34,8 @@ export interface AuthoredRootMetadata {
   readonly sourceSha256: string;
   readonly surface: SurfaceModuleAuthority;
   readonly sources: readonly AuthoredRootSourceAuthority[];
+  /** Plugin-level provenance in lock order; empty when the project declares none. */
+  readonly extensions: readonly AuthoredRootExtension[];
   readonly localAgentStream?: string;
   readonly inputPresent: boolean;
   readonly input?: unknown;
@@ -68,6 +76,9 @@ export async function executeDurableAuthoredFlow(
     sourceSha256: sha256(source),
     surface: loaded.surfaceAuthority,
     sources: Object.freeze(sources),
+    extensions: Object.freeze((loaded.extensions ?? []).map(extension => Object.freeze({
+      name: extension.name, digest: extension.digest, ref: extension.ref,
+    }))),
     ...(options.localAgentStream === undefined ? {} : { localAgentStream: options.localAgentStream }),
     inputPresent: input !== undefined,
     ...(input === undefined ? {} : { input: jsonSnapshot(input, 'authored root input') }),
@@ -172,7 +183,7 @@ export async function readAuthoredRootMetadata(
   if (!isRootMetadata(value)) {
     throw new Error('authored root journal has malformed authority metadata');
   }
-  return value;
+  return Object.freeze({ ...value, extensions: value.extensions ?? [] });
 }
 
 async function driveRoot(
@@ -203,6 +214,7 @@ async function driveRoot(
           flowPath: metadata.flowPath,
           localAgentStream: options.localAgentStream,
           rootRunId: dispatch.run_id,
+          extensions: loaded.extensions,
           ...options.lifecycle,
           signal: callerSignal === undefined
             ? rootSignal
@@ -409,8 +421,17 @@ function isRootMetadata(value: unknown): value is AuthoredRootMetadata {
     && typeof surface.version === 'string' && /^[a-f0-9]{64}$/.test(surface.packageSha256 ?? '')
     && /^[a-f0-9]{64}$/.test(surface.runtimeSha256 ?? '')
     && Array.isArray(sources) && sources.length > 0 && sources.every(isRootSourceAuthority)
+    && (root.extensions === undefined || (Array.isArray(root.extensions) && root.extensions.every(isRootExtension)))
     && (root.localAgentStream === undefined
       || /^local-agent-[a-f0-9-]+$/.test(root.localAgentStream));
+}
+
+function isRootExtension(value: unknown): value is AuthoredRootExtension {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const extension = value as Partial<AuthoredRootExtension>;
+  return typeof extension.name === 'string' && extension.name.length > 0
+    && /^[a-f0-9]{64}$/.test(extension.digest ?? '')
+    && typeof extension.ref === 'string' && extension.ref.startsWith('github:');
 }
 
 function isRootSourceAuthority(value: unknown): value is AuthoredRootSourceAuthority {

@@ -2,6 +2,7 @@ import type { LoadedPlugin } from '../plugin-loader.js';
 import { dirname, resolve } from 'node:path';
 import type { AuthoredFlowDefinition } from '../authored-flow.js';
 import { loadAuthoredFlow } from '../authored-flow-loader.js';
+import { PluginError } from '../plugin-manifest.js';
 import { preflight } from '../preflight.js';
 import { SPEC_SCHEMA_VERSION, type McpServerConfig } from '../spec.js';
 import { inputFailureReport, readProjectConfig, type CheckReport } from './check.js';
@@ -18,6 +19,9 @@ export async function checkTypeScriptFlow(path: string): Promise<{ report: Check
     const { handle, getDefinition } = await loadAuthoredFlow(path);
     return await checkMcpHeader(getDefinition(handle), path);
   } catch (error) {
+    if (error instanceof PluginError) {
+      return { report: inputFailureReport({ kind: error.code, message: error.message }, path) };
+    }
     return { report: inputFailureReport({ kind: 'invalid_spec', message: (error as Error).message }, path) };
   }
 }
@@ -28,7 +32,7 @@ export async function checkMcpHeader(
   path: string,
 ): Promise<CheckedMcp> {
   const empty = { servers: Object.freeze({}), inventory: Object.freeze({}) };
-  const KNOWN_HEADER_FIELDS = new Set(['tools', 'budget', 'identity', 'memory', 'workspace', 'use']);
+  const KNOWN_HEADER_FIELDS = new Set(['tools', 'budget', 'identity', 'memory', 'workspace', 'use', 'version', 'hooks']);
   const header = definition.header ?? {};
   const unsupported = Object.keys(header).filter(key => !KNOWN_HEADER_FIELDS.has(key));
   if (header.tools?.relayfile !== undefined) unsupported.push('tools.relayfile');

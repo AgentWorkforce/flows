@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { addPlugin } from './cli/add.js';
+import { parsePluginArgs, runPluginCommand, type PluginArgs } from './cli/plugin.js';
 import { watchCheck } from './cli-watch.js';
 import { checkHelperBody } from './cli/check-helper-body.js';
 import { describeFlowRequirements } from './flow-requirements.js';
@@ -64,6 +65,7 @@ type CliExitCode = 0 | 1 | 2 | 3;
  */
 export type ParsedArgs =
   | { command: 'add'; value: string }
+  | PluginArgs
   | ReplayArgs
   | StatusArgs
   | BuildArgs
@@ -92,9 +94,14 @@ export type ParsedArgs =
 const USAGE = [
   'Usage:',
   'flows add <helper-name|@flows/helper-name>',
+  'flows add <github:owner/repo@ref#path|https://github.com/owner/repo/tree/ref/path>',
+  'flows plugin list [--json]',
+  'flows plugin verify [--json] [--offline]',
+  'flows plugin remove [--json] <name>',
+  'flows plugin update [--json] [--yes] [--to <ref>] [<name>]',
   'flows build [--out <dir>] <flow.yaml|flow.ts>',
   'flows build --verify <bundle-dir>',
-  'flows deploy <flow.ts> --repo <owner/name> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--no-connect] [--json]',
+  'flows deploy <flow.ts> --repo <owner/name> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--plugin <ref>] [--no-connect] [--json]',
   'flows deployments [--json]',
   'flows undeploy [--json] <deployment-id>',
   'flows schedule <flow.yaml|flow.ts> [--cron "<expr>" | --every <n><s|m|h|d>] [--tz <IANA>] [--input <inline-json-or-file>] [--name <name>] [--no-connect] [--json]',
@@ -192,6 +199,7 @@ export async function runCli(
   }
 
   if (parsed.command === 'add') return addPlugin(parsed.value, io);
+  if (parsed.command === 'plugin') return runPluginCommand(parsed, io);
 
   if (parsed.command === 'serve-webhook') {
     return withInterrupt(options.signal, (signal) => runServeWebhook(parsed, io, signal));
@@ -347,6 +355,8 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
     report: {
       ...mcp.report,
       ...(triggers?.report.schedules === undefined ? {} : { schedules: triggers.report.schedules }),
+      ...(triggers?.report.extensions === undefined ? {} : { extensions: triggers.report.extensions }),
+      ...(triggers?.report.hooks === undefined ? {} : { hooks: triggers.report.hooks }),
       // The authored definition sees helper flags, body use and `cli:`
       // declarations; the compiled view underneath knows only its steps.
       ...(triggers?.report.requirements === undefined ? {} : { requirements: triggers.report.requirements }),
@@ -521,6 +531,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   // parser, so the declared tree and the dispatched tree cannot drift apart.
   if (command === undefined || !CLI_VERB_NAMES.has(command)) return undefined;
   if (command === 'add') return args.length === 2 ? { command: 'add', value: args[1]! } : undefined;
+  if (command === 'plugin') return parsePluginArgs(args.slice(1));
   if (command === 'replay') return parseReplayArgs(args.slice(1));
   if (command === 'status') return parseStatusArgs(args.slice(1));
   if (command === 'runs') return parseRunsArgs(args.slice(1));
@@ -936,6 +947,17 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
       ? `Cloud only: ${schedule.localUnsupported}`
       : `local: flows tick start --schedule-id ${schedule.scheduleId} --interval-ms ${schedule.intervalMs} --epoch-ms ${schedule.epochMs}`;
     io.stdout(`SCHEDULE handler ${schedule.handler} ${declared} -> flows.tick schedule_id ${schedule.scheduleId} [${local}]`);
+  }
+  for (const extension of report.extensions ?? []) {
+    const hookList = (extension.hooks ?? []).length === 0 ? '' : `, hooks: ${extension.hooks!.join(', ')}`;
+    io.stdout(`EXTENSION ${extension.name}@${extension.version} ${extension.ref} sha256:${extension.digest} -> ${extension.handlers} handler(s) composed after the base flow${hookList}`);
+  }
+  if (report.hooks !== undefined) {
+    io.stdout(`HOOKS declared: ${report.hooks.declared.join(', ') || '(none)'}`);
+    for (const row of report.hooks.implementations) io.stdout(`HOOK ${row.hook} <- ${row.plugin}`);
+    for (const name of report.hooks.declared) {
+      if (!report.hooks.implementations.some(row => row.hook === name)) io.stdout(`HOOK ${name} <- (none)`);
+    }
   }
   for (const resolution of report.resolutions) {
     const config = resolution.source === 'project' && report.projectConfigPath !== undefined

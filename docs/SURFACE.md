@@ -587,6 +587,74 @@ plugin code bundling/pinning, declarative-flow plugin preflight, and restart
 recovery of an interrupted plugin effect. Plugin effects currently inherit the
 internal authored executor's child-run lifecycle, not a resumable authored root.
 
+### Flow extensions: schema 2, `kind: "flow-extension"`
+
+The same `flows-plugin.json` file carries a second kind. A **helper** plugin
+(`kind` absent) extends `Ctx` with verbs and installs from npm as above. A
+**flow extension** (`"schema": 2, "kind": "flow-extension"`) is a directory in
+a public GitHub repository whose `entry` default-exports `flow()` and declares
+what it will contribute to a base flow — `extends.handlers` (its `.on()`
+pairs), `extends.hooks` (named points the base calls), `triggers` (validated
+against the surface event registry, refused with `plugin_event_unroutable`
+otherwise), `permissions` (integrations, harnesses, mcp, declared-but-unenforced
+`writes`, a budget ceiling), `compat` (semver ranges for surface and sdk, and
+the base flows it extends), and the same mandatory `preflight`. Validation is
+`packages/sdk/src/flow-extension-manifest.ts`; the worked Babysitter manifest is
+`testdata/plugins/extension-babysitter/flows-plugin.json`.
+
+```text
+flows add github:<owner>/<repo>@<ref>#<path>      # or https://github.com/<owner>/<repo>/tree/<ref>/<path>
+flows plugin list [--json]
+flows plugin verify [--json] [--offline]
+flows plugin remove [--json] <name>
+flows plugin update [--json] [--yes] [--to <ref>] [<name>]
+```
+
+`flows add` resolves the branch, tag, or commit to a 40-hex sha through
+unauthenticated public GitHub reads (a private repository answers 404 and is
+reported as `plugin_source_unresolved`), enumerates the tree at that commit —
+refusing symlinks, submodules, traversal, a truncated listing, files over
+256 KB, or plugins over 2 MB — downloads each blob pinned to the sha, checks
+byte counts, and computes the content digest as the sha256 of the same
+canonical `[{bytes,path,sha256}]` manifest a sealed bundle uses. The bytes are
+materialized under `.flows/plugins/<name>@sha256:<digest>/`; `flows.json.plugins`
+gains the canonical `github:<owner>/<repo>@<sha>#<path>` (a branch or tag is
+never persisted); and `flows.lock.json` (version 2) records name, version,
+source, digest, manifest hash, and the declaration order that will be the
+composition order. `flows plugin verify` re-hashes the store against the lock
+and, unless `--offline`, re-fetches the pinned commit; any difference is
+`plugin_source_drift`, exit 2.
+
+**Composition.** `loadAuthoredFlow` (the path under `flows check`, `flows run`,
+and the authored root) composes the project's extensions onto the base flow
+(`packages/sdk/src/flow-extension-loader.ts`), in this fixed order: the
+declaration and the lockfile must agree; the store is re-hashed against the
+lock's digest and the manifest bytes against its manifest hash — nothing under
+`.flows/plugins` is read as code before that passes; the manifest is validated
+and its `compat` checked against the runtime and the base flow (`FlowHeader.version`
+is matched when present; without it only `*` is satisfiable; a budget ceiling
+above the base is `plugin_incompatible`); only then is the entry imported, its
+handlers checked against the manifest's declared triggers (an entry cannot
+subscribe to more than it declared), and appended **after** the base's own
+handlers in lockfile order. Named `hooks` exports are matched to
+`extends.hooks` and to the base header's `hooks` list; `f.hook` AND-composes
+them in lock order. Nothing replaces, reorders, or widens a base handler, and
+the base's definition object is untouched. `flows check` prints one `EXTENSION`
+line per composed extension. Not composed by this release, and refused with
+`plugin_unsupported` rather than ignored: an entry `use:` header, schedule
+triggers, and gates; a generic `webhook(...)` handler is refused as
+undeclared. Cloud deploy and hosted runs send composed extensions in the request body
+(`extensions[]`, 2 MB cap, `--plugin` is send-only). Handler bodies still
+execute nowhere (#301); what composition changes today is the declared
+trigger set that `flows check`, requirements, and future dispatch read.
+
+GitHub `pull_request.ready_for_review`, `pull_request.labeled`, and
+`pull_request.unlabeled` are **not** in the surface registry. The registry is
+generated from the pinned relayfile adapter mappings (`scripts/generate-triggers.mjs`);
+this repo cannot add those actions without an adapter-package change. A
+Babysitter manifest that declares them is refused `plugin_event_unroutable`
+until that upstream catalog grows.
+
 ## 4. Build: the immutable bundle
 
 `flows build` seals a flow into a content-addressed, immutable bundle: canonical spec JSON, compiled TS with pinned deps, helper/plugin lockfile, assets, preflight declaration, identity signature — `flow@sha256:…`, pushed to a bucket/registry. `flows deploy` points a trigger at a digest; `flows run flow@sha256:…` executes from the bucket on any cell, no checkout. Preflight runs at build time for everything build-provable and again at deploy time for environment facts (credentials, workers, MCP servers). The working tree is for authoring; **production only ever runs digests.**

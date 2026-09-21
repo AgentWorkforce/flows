@@ -26,9 +26,9 @@ export type FlowHarness = (typeof FLOW_HARNESSES)[number];
 export interface FlowIntegrationRequirement {
   /** Cloud integration provider id (`slack`, `github`, `linear`, …). */
   provider: string;
-  /** `tools`: a header declaration; `source`: a trigger or deploy target; `helper`: body use without a flag, or a YAML helper step. */
-  from: 'tools' | 'source' | 'helper' | 'human';
-  /** The declaration that requires it, as a reader would name it: `tools.slack`, `--on github`, `f.slack`, `f.human to`. */
+  /** Where this need was declared: a header/source/helper/human route, or an extension manifest. */
+  from: 'tools' | 'source' | 'helper' | 'human' | 'extension';
+  /** The declaration that requires it, as a reader would name it: `tools.slack`, `--on github`, `f.slack`, or `plugin "name"`. */
   detail: string;
 }
 
@@ -54,6 +54,47 @@ export interface FlowRequirementsContext {
   repository?: boolean | { owner: string; name: string };
   /** The nearest `flows.json` `cli`, when one applies. */
   projectCli?: string;
+}
+
+export interface FlowExtensionRequirements {
+  readonly name: string;
+  readonly permissions: {
+    readonly integrations: readonly string[];
+    readonly harnesses: readonly string[];
+    readonly mcp: readonly string[];
+  };
+}
+
+/** Add manifest-only needs without replacing the base flow's first declaration. */
+export function mergeFlowExtensionRequirements(
+  base: FlowRequirements,
+  extensions: readonly FlowExtensionRequirements[],
+): FlowRequirements {
+  const integrations = [...base.integrations];
+  const integrationNames = new Set(integrations.map(entry => entry.provider));
+  const harnessUses = [...base.harnessUses];
+  const harnessNames = new Set<string>(base.harnesses);
+  const mcp = [...base.mcp];
+  const mcpNames = new Set(mcp);
+
+  for (const extension of extensions) {
+    for (const provider of extension.permissions.integrations) {
+      if (integrationNames.has(provider)) continue;
+      integrationNames.add(provider);
+      integrations.push({ provider, from: 'extension', detail: `plugin "${extension.name}"` });
+    }
+    for (const harness of extension.permissions.harnesses) {
+      if (harnessNames.has(harness)) continue;
+      harnessNames.add(harness);
+      harnessUses.push({ harness: harness as FlowHarness, detail: `plugin "${extension.name}"` });
+    }
+    for (const server of extension.permissions.mcp) {
+      if (mcpNames.has(server)) continue;
+      mcpNames.add(server);
+      mcp.push(server);
+    }
+  }
+  return { integrations, harnesses: harnessUses.map(use => use.harness), harnessUses, mcp };
 }
 
 /** The inert subset of an authored definition this module reads. */

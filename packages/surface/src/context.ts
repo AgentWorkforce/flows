@@ -72,6 +72,12 @@ export interface Ctx extends Helpers {
    */
   human(question: string, options: { to: string }): Step<boolean>;
   dispatch<T>(flow: string, input: unknown): Promise<T>;
+  /**
+   * Run every installed implementation of a named hook in lock order and
+   * AND-compose the booleans. With no implementations this is a journaled
+   * no-op that returns true. A name must appear in the flow header's `hooks`.
+   */
+  hook(name: string, input: unknown): Step<boolean>;
   done(reason: FlowCompletionReason): void;
   cloud: CloudHelper;
   memory: MemoryHelper;

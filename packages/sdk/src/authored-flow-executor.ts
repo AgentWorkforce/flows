@@ -44,6 +44,8 @@ import {
 } from './authored-flow-operation.js';
 import { AuthoredFlowLifecycle } from './authored-flow-lifecycle.js';
 import { JournalClient } from './journal-client.js';
+import { createHookEvaluator } from './authored-hooks.js';
+import { probeFlowExtension, type LoadedFlowExtension } from './flow-extension-loader.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
@@ -148,6 +150,8 @@ export interface ExecuteAuthoredFlowOptions {
   readonly localAgentStream?: string;
   /** Durable kernel root that owns this body's child admission identities. */
   readonly rootRunId?: string;
+  /** Installed flow-extension plugins, in lock order, so `f.hook` can AND-compose them. */
+  readonly extensions?: readonly LoadedFlowExtension[];
 }
 
 export async function executeAuthoredFlow<Input = undefined>(
@@ -171,7 +175,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
   };
   const definition = getDefinition<Input>(handle);
-  const headerFields = Object.keys(definition.header).filter(key => key !== 'tools' && key !== 'budget' && key !== 'memory');
+  const headerFields = Object.keys(definition.header).filter(key => key !== 'tools' && key !== 'budget' && key !== 'memory' && key !== 'version' && key !== 'hooks');
   if (definition.header.tools && Object.keys(definition.header.tools).some(key => !['mcp', ...helperProviders.map(p => p.namespace)].includes(key))) headerFields.push('tools');
   if (definition.header.tools?.relayfile !== undefined) headerFields.push('tools.relayfile');
   const helperPreflight = checkSlackHelpers(definition);
@@ -188,6 +192,9 @@ export async function executeAuthoredFlow<Input = undefined>(
 
   const checkedMcp = await checkMcpHeader(definition, flowPath);
   if (!checkedMcp.report.ok) throw new McpPreflightError(checkedMcp.report);
+  for (const extension of options.extensions ?? []) {
+    if (extension.manifest !== undefined) await probeFlowExtension(extension.manifest);
+  }
 
   const budget = new AuthoredBudget(definition.header.budget);
   if (definition.header.memory?.agent === true) {
@@ -349,6 +356,17 @@ export async function executeAuthoredFlow<Input = undefined>(
     ));
   }
 
+  const evaluateHook = createHookEvaluator({
+    journal,
+    ...(options.rootRunId === undefined ? {} : { rootRunId: options.rootRunId }),
+    flowName: definition.name,
+    declared: definition.header?.hooks ?? [],
+    extensions: options.extensions ?? [],
+    peekStep: () => nextStep,
+    restoreStep: (step) => { nextStep = step; },
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+  });
+
   const context: Ctx = {
     ...createHelpers(<T>(call: HelperCall): Step<T> => {
       const verb = `${call.provider}.${call.verb}`;
@@ -476,6 +494,23 @@ export async function executeAuthoredFlow<Input = undefined>(
     dispatch<T>() {
       assertOperationAllowed('dispatch', definition.name, requestedCompletion);
       throw unsupportedVerb('dispatch');
+    },
+    hook(name, input) {
+      assertOperationAllowed('hook', definition.name, requestedCompletion);
+      const id = `hook-${nextStep++}`;
+      const snapshot = snapshotJsonValue(input, 'f.hook input');
+      return trackStep(authoredSteps, new AuthoredFlowOperation<boolean>(
+        id, 'hook',
+        () => assertOperationAllowed('hook', definition.name, requestedCompletion),
+        async () => {
+          const verdict = await evaluateHook(id, name, snapshot, context);
+          const record = { hook: name, step: id, verdict: verdict ? 'pass' : 'fail' };
+          const literal = `'${JSON.stringify(record).replaceAll("'", "'\\''")}'`;
+          await observeStep(id, 'deterministic', () => lowerDeterministic(id, `printf '%s' ${literal}`, false), options.onProgress);
+          return verdict;
+        },
+        lifecycle,
+      ));
     },
     done(reason) {
       if (!isSurfaceFlowCompletionReason(reason)) {
