@@ -111,18 +111,26 @@ export function formatStepExcerpt(value: string, budget: number = EXCERPT_BYTES)
   // highlight, so the ranges stay disjoint and in source order.
   const spare = headShare - size(head)
     + highlightShare - highlights.reduce((sum, highlight) => sum + size(highlight.range), 0);
-  const tail = tailRange(source, tailShare + spare, highlights.at(-1)?.range.end ?? head.end);
+  let tail = tailRange(source, tailShare + spare, highlights.at(-1)?.range.end ?? head.end);
+  // A highlight the tail resumes at the very byte it ends is not a range of
+  // its own: the two are one unbroken run of source, so the tail starts at
+  // the highlight instead. The same bytes either way, with no marker between
+  // them claiming a cut the reader can see did not happen.
+  while (highlights.length > 0 && highlights.at(-1)!.range.end === tail.start) {
+    tail = { start: highlights.pop()!.range.start, end: tail.end };
+  }
 
   const selected = [head, ...highlights.map(highlight => highlight.range), tail]
     .filter(range => size(range) > 0);
   const elided = source.length - selected.reduce((sum, range) => sum + size(range), 0);
   // Positional, not textual: two identical failing lines at two positions are
   // two observations, and one of them may be visible while the other is not.
-  // A line shown in part — a truncated highlight, or one the tail starts in
-  // the middle of — was not omitted, so only a line with nothing on screen is
-  // counted here.
+  // Shown means the line's own start is on screen, because the start is what
+  // names the failing case: a highlight cut short still reports it, while a
+  // range that begins in the middle of the line — a tail whose cut landed
+  // there — shows only the part after the name and reports nothing.
   const omitted = matches.filter(match =>
-    !selected.some(range => match.start < range.end && match.end > range.start)).length;
+    !selected.some(range => range.start <= match.start && range.end > match.start)).length;
 
   const parts: string[] = [];
   const terminated = (chunk: string): string => chunk.endsWith('\n') ? chunk : `${chunk}\n`;
@@ -177,6 +185,12 @@ function markerReserve(sourceBytes: number, matches: number): number {
  * not fit at all, a code-point-safe prefix of it is shown under a truncation
  * marker, because a cut failing line still names the failing case and no
  * highlight at all does not.
+ *
+ * The middle ends where the tail begins, but a line the tail begins in the
+ * middle of belongs to the middle: the tail shows its tail, and the marker
+ * that names the failing case is ahead of the cut. Such a line is a candidate
+ * like any other, and the caller keeps the ranges disjoint by starting the
+ * tail after whatever prefix is kept.
  */
 function selectHighlights(
   source: Buffer, matches: readonly Range[], share: number, from: number, to: number,
@@ -184,9 +198,10 @@ function selectHighlights(
   const selected: Array<{ range: Range; truncated: boolean }> = [];
   let remaining = share;
   for (const match of matches) {
-    // Already visible in the head or the tail, or straddling one of them: a
-    // line is reported once, at its own position.
-    if (match.start < from || match.end > to) continue;
+    // Reported once, at its own position: a line whose own start is already
+    // on screen — inside the head, or at or after the start of the tail —
+    // needs no highlight.
+    if (match.start < from || match.start >= to) continue;
     if (selected.length >= MAX_HIGHLIGHT_LINES) break;
     if (size(match) <= remaining) {
       selected.push({ range: match, truncated: false });

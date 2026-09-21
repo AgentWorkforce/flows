@@ -163,6 +163,67 @@ describe('formatStepExcerpt: which lines it highlights', () => {
     expect(bytes(excerpt)).toBeLessThanOrEqual(EXCERPT_BYTES);
   });
 
+  it('names a failing case that the tail cut lands in the middle of', () => {
+    // The tail is cut at a byte offset, not at a line boundary. A failing
+    // line longer than the tail's share therefore keeps its uninformative
+    // rest on screen while its marker and its name sit ahead of the cut —
+    // the reported bug, one layout further in.
+    const failure = 'not ok 5 - pty-exit: child reaped twice';
+    const stream = 'ok - passing\n'.repeat(400) + failure + ' D'.repeat(2_000) + '\n# fail 1\n';
+    const excerpt = formatStepExcerpt(stream);
+    expect(excerpt).toContain(failure);
+    expect(excerpt).toMatch(/… [\d,]+ bytes elided; 1 line matched a failure marker …/u);
+    expect(excerpt).toContain('# fail 1');
+    expect(bytes(excerpt)).toBeLessThanOrEqual(EXCERPT_BYTES);
+  });
+
+  it('keeps naming it wherever the cut lands, including exactly on its first byte', () => {
+    // One byte of padding at a time slides the failing line across the tail
+    // boundary, so the sweep covers every alignment there is: wholly in the
+    // middle, cut anywhere inside, starting exactly at the tail, and wholly
+    // inside the tail. It is named once in all of them — once, because a
+    // line reported twice is two failures to the reader.
+    const failure = 'not ok 5 - pty-exit: child reaped twice';
+    for (const rest of [' D'.repeat(1_000), ' D'.repeat(2_000)]) {
+      for (let pad = 0; pad < 200; pad++) {
+        const stream = 'ok - passing\n'.repeat(400)
+          + failure + rest + '\n' + 'x'.repeat(pad) + '\n# fail 1\n';
+        const excerpt = formatStepExcerpt(stream);
+        expect(excerpt.split(failure)).toHaveLength(2);
+        expect(excerpt).toContain('# fail 1');
+        expect(bytes(excerpt)).toBeLessThanOrEqual(EXCERPT_BYTES);
+      }
+    }
+  });
+
+  it('does not claim a truncation when the tail resumes the line at the cut', () => {
+    // A kept prefix the tail picks up at the very byte it ended is one
+    // unbroken run of source: the tail starts at the line instead, and the
+    // excerpt shows the whole of it with no marker in the middle.
+    const failing = 'not ok 5 - pty-exit: child reaped twice' + ' D'.repeat(1_000) + '\n';
+    const excerpt = formatStepExcerpt('ok - passing\n'.repeat(400) + failing + '# fail 1\n');
+    expect(excerpt).toContain(failing);
+    expect(excerpt).not.toContain('… line truncated …');
+    expect(excerpt.endsWith('# fail 1\n')).toBe(true);
+    expect(bytes(excerpt)).toBeLessThanOrEqual(EXCERPT_BYTES);
+  });
+
+  it('counts a failing line the cut hides and the share could not fit', () => {
+    // Thirty short matches spend the highlight share, so the long line the
+    // tail cuts into gets no prefix of its own. What the tail shows of it
+    // names nothing, so it is reported as omitted rather than as seen.
+    const filler = 'ok - a passing case with a realistically long name\n';
+    const middle = Array.from({ length: 30 },
+      (_, index) => `not ok ${index + 1} - a middle failure with a realistically long name\n`).join('');
+    const excerpt = formatStepExcerpt(filler.repeat(40) + middle + filler.repeat(20)
+      + 'not ok 99 - crosses the tail cut' + ' D'.repeat(2_000) + '\n# fail 31\n');
+    expect(excerpt).not.toContain('not ok 99 - crosses the tail cut');
+    const shown = Number(/([\d,]+) lines matched a failure marker/u.exec(excerpt)![1]!.replaceAll(',', ''));
+    const more = Number(/\+([\d,]+) more matching lines/u.exec(excerpt)![1]!.replaceAll(',', ''));
+    expect(shown + more).toBe(31);
+    expect(bytes(excerpt)).toBeLessThanOrEqual(EXCERPT_BYTES);
+  });
+
   it('reports matches it had no room to show at all', () => {
     // One very long matching line consumes the highlight share; the rest of
     // the middle matches are counted rather than silently dropped.
