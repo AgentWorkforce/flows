@@ -1,0 +1,44 @@
+{
+  "schema": 2,
+  "kind": "flow-extension",
+  "name": "babysitter",
+  "version": "0.1.0",
+  "description": "Live-state PR babysitter for Software Garden: parallel review lenses, deterministic reconciliation, exact-head merge gate; every wake rereads live state and binds to the live head SHA.",
+  "compat": {
+    "surface": "^2.0.22",
+    "sdk": "^2.0.22",
+    "base": [{ "name": "software-factory", "version": "*" }]
+  },
+  "entry": "babysitter.flow.ts",
+  "extends": { "handlers": true, "hooks": ["merge-gate"] },
+  "triggers": [
+    { "provider": "github", "event": "pull_request", "actions": ["opened", "synchronize", "reopened", "ready_for_review", "closed", "labeled", "unlabeled"] },
+    { "provider": "github", "event": "pull_request_review", "actions": ["submitted", "dismissed"] },
+    { "provider": "github", "event": "check_run", "actions": ["completed"] },
+    { "provider": "github", "event": "issue_comment", "actions": ["created"] }
+  ],
+  "permissions": {
+    "integrations": ["github"],
+    "harnesses": ["claude"],
+    "mcp": [],
+    "writes": ["github:pull_request:comment"],
+    "budget": { "dollars": 8, "wallclock": "45m" }
+  },
+  "preflight": { "credentials": [], "servers": ["https://api.github.com"] },
+  "config": {
+    "type": "object",
+    "properties": {
+      "testCommand": { "type": "string", "minLength": 1 },
+      "botLogin": { "type": "string", "minLength": 1 },
+      "approvers": { "type": "array", "items": { "type": "string" } },
+      "organizations": { "type": "array", "items": { "type": "string" } },
+      "reviewAuthors": { "type": "array", "items": { "type": "string" } },
+      "skipLabels": { "type": "array", "items": { "type": "string" }, "default": ["no-agent-relay-review"] },
+      "requiredChecks": { "type": "array", "items": { "type": "string" } },
+      "merge": { "type": "boolean", "default": false },
+      "reviewerCli": { "type": "string" }
+    },
+    "required": ["testCommand", "botLogin", "approvers"],
+    "additionalProperties": false
+  }
+}
