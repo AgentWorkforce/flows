@@ -173,15 +173,38 @@ function errorText(value: unknown): string | null {
   return isRecord(value) ? str(value['message']) : null;
 }
 
+/**
+ * Redact every string an argument value carries, while each one is still the
+ * string the provider decoded.
+ *
+ * `redact` matches an environment value literally, and `JSON.stringify` escapes
+ * a quote, backslash, newline or tab inside one -- so a secret containing any
+ * of them no longer matches its own value once serialized, and reached the page
+ * escaped but complete. Keys are provider strings too: an argument object built
+ * out of an environment dump carries the value in the name.
+ */
+function redactLeaves(value: unknown, clean: (text: string) => string): unknown {
+  if (typeof value === 'string') return clean(value);
+  if (Array.isArray(value)) return value.map((element) => redactLeaves(element, clean));
+  if (!isRecord(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, element] of Object.entries(value)) out[clean(key)] = redactLeaves(element, clean);
+  return out;
+}
+
 function mcpEntry(item: Record<string, unknown>, complete: boolean, context: Context,
   seq: number): TranscriptEntry | null {
   const server = str(item['server']);
   const name = str(item['tool']);
   if (server === null && name === null) return null;
   const args = item['arguments'];
-  // Serialized with its field names intact: `redact` recognises a credential
-  // field by its name, so flattening the object first would hide it.
-  const rendered = args === undefined || args === null ? '' : ` ${JSON.stringify(args)}`;
+  // Redacted twice, bounded once, and in that order. The leaves go first,
+  // before serialization can escape a secret out of its own match; the
+  // serialized form is redacted again by the `bounded` call below, because
+  // `redact` recognises a credential field by its name and a leaf standing on
+  // its own has no name left to recognise. Only then is the line cut.
+  const rendered = args === undefined || args === null
+    ? '' : ` ${JSON.stringify(redactLeaves(args, context.clean))}`;
   const result = isRecord(item['result']) ? item['result'] : null;
   const structured = result === null ? null : result['structured_content'];
   const failure = errorText(item['error']);

@@ -393,6 +393,37 @@ describe('redaction', () => {
     expect(rendered).toContain('"apiKey":"[redacted]"');
   });
 
+  it('redacts an MCP argument secret that JSON escaping would hide, at every depth', () => {
+    // `redact` matches an env value literally, and `JSON.stringify` escapes a
+    // quote, backslash, newline or tab inside it. Serializing before redacting
+    // left the whole credential on the line -- escaped, and recoverable by
+    // anyone who can call `JSON.parse`. The field names here are ordinary
+    // (`text`, `note`, `items`), so the credential-field rule cannot help.
+    const secret = 'opaque"review\\secret\nvalue\ttail';
+    const env = { DEPLOY_TOKEN: secret };
+    const escaped = JSON.stringify(secret).slice(1, -1);
+    const call = (id: string, args: unknown): Record<string, unknown> => ({
+      type: 'item.completed',
+      item: { id, type: 'mcp_tool_call', server: 'demo', tool: 'echo', arguments: args,
+        result: null, error: null, status: 'completed' },
+    });
+    const jsonl = frames(
+      call('i1', { text: secret, nested: { note: { deep: secret } } }),
+      call('i2', [secret, { items: [secret] }]),
+      call('i3', secret),
+      call('i4', { [secret]: 'in the name, not the value' }),
+    );
+    // The rendered page and the `--json` entries, which bypass the renderer.
+    for (const text of [render(jsonl, env), JSON.stringify(parse(jsonl, env))]) {
+      expect(text, 'the secret reached the page').not.toContain(secret);
+      expect(text, 'the escaped secret reached the page').not.toContain(escaped);
+      expect(text).toContain('[redacted:DEPLOY_TOKEN]');
+    }
+    expect(render(jsonl, env)).toContain('  tool 1  mcp_tool_call  demo/echo'
+      + ' {"text":"[redacted:DEPLOY_TOKEN]","nested":{"note":{"deep":"[redacted:DEPLOY_TOKEN]"}}}'
+      + '  → no result · completed');
+  });
+
   it('redacts a secret longer than each display cap before bounding it', () => {
     // `redact` matches an env value whole. Bounding first would leave the
     // first 160 (or 200, or 1,000) characters of the secret on the page.
