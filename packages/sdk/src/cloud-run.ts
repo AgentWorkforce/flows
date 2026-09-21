@@ -187,7 +187,11 @@ export async function prepareCloudSubmission(
     ...(authored.extensions.length === 0 ? {} : { extensions: authored.extensions }),
     specHash: createHash('sha256').update(canonicalize({
       authority: authored.authority, input: authoredInput,
-      extensions: authored.extensions.map(extension => ({ name: extension.name, digest: extension.digest, ref: extension.ref })),
+      ...(authored.extensions.length === 0 ? {} : {
+        extensions: authored.extensions.map(extension => ({
+          name: extension.name, digest: extension.digest, ref: extension.ref,
+        })),
+      }),
     })).digest('hex'),
   };
 }

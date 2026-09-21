@@ -95,6 +95,11 @@ export function createHookEvaluator(options: {
         try {
           verdict = await boundHook(extension.hooks[name]!(context, input), options.signal) === true;
         } catch (error) {
+          // Cancellation is control-plane state, not a plugin verdict. The
+          // shared execution signal also stops tracked f.run/f.agent work;
+          // rethrow so a later resume may run the hook again instead of
+          // replaying a permanent decline caused by an interrupted attempt.
+          if (options.signal?.aborted) throw error;
           verdict = false;
           because = error instanceof Error ? error.message : String(error);
         }
@@ -114,18 +119,18 @@ export function createHookEvaluator(options: {
   };
 }
 
-const HOOK_DEADLINE_MS = 15 * 60 * 1000;
-
 async function boundHook(run: Promise<boolean>, signal?: AbortSignal): Promise<boolean> {
-  const timeout = AbortSignal.timeout(HOOK_DEADLINE_MS);
-  const abort = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
-  if (abort.aborted) throw new Error('hook cancelled');
+  // The parent run's wallclock budget owns the deadline. A second timer here
+  // would not be the signal captured by the hook's Ctx operations, allowing
+  // those operations to continue after this wrapper returned.
+  if (signal === undefined) return await run;
+  if (signal.aborted) throw signal.reason ?? new Error('hook cancelled');
   return await new Promise<boolean>((resolve, reject) => {
-    const onAbort = () => reject(new Error('hook cancelled'));
-    abort.addEventListener('abort', onAbort, { once: true });
+    const onAbort = () => reject(signal.reason ?? new Error('hook cancelled'));
+    signal.addEventListener('abort', onAbort, { once: true });
     run.then(
-      value => { abort.removeEventListener('abort', onAbort); resolve(value); },
-      error => { abort.removeEventListener('abort', onAbort); reject(error); },
+      value => { signal.removeEventListener('abort', onAbort); resolve(value); },
+      error => { signal.removeEventListener('abort', onAbort); reject(error); },
     );
   });
 }

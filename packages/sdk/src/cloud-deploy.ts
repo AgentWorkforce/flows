@@ -6,7 +6,9 @@ import { ensureIntegrationsConnected, type ConnectPrompt } from './cloud-connect
 import {
   CloudFlowError, cloudFetch, cloudRequest, isCloudRecord, type CloudConnectionOptions,
 } from './cloud-http.js';
-import { flowRequirements, type FlowRequirements } from './flow-requirements.js';
+import {
+  flowRequirements, mergeFlowExtensionRequirements, type FlowRequirements,
+} from './flow-requirements.js';
 import { readProjectConfig } from './cli/check.js';
 import { assertNoUseDependencies, collectExtensionSubmissions } from './flow-extension-submit.js';
 
@@ -208,9 +210,12 @@ export async function deployToCloud(
   }
   // Every launched run lands in the deployment's repository, so GitHub is
   // required even when no GitHub source wakes it.
-  const requirements = flowRequirements(definition, {
-    sources, repository: input.repository, ...(projectCli === undefined ? {} : { projectCli }),
-  });
+  const requirements = mergeFlowExtensionRequirements(
+    flowRequirements(definition, {
+      sources, repository: input.repository, ...(projectCli === undefined ? {} : { projectCli }),
+    }),
+    extensions.map(extension => ({ name: extension.name, permissions: extension.manifest.permissions })),
+  );
   // The declared harnesses become `inputs.agents`; one Cloud cannot run is
   // refused here rather than silently replaced by Claude, which activation
   // would then check while the deployed runs still call the declared CLI.
@@ -243,18 +248,9 @@ export async function deployToCloud(
     sources,
     ...(extensions.length === 0 ? {} : { extensions }),
     requirements: {
-      integrations: [...new Set([
-        ...requirements.integrations.map(i => i.provider),
-        ...extensions.flatMap(extension => extension.manifest.permissions.integrations),
-      ])],
-      harnesses: [...new Set([
-        ...requirements.harnesses,
-        ...extensions.flatMap(extension => extension.manifest.permissions.harnesses),
-      ])],
-      mcp: [...new Set([
-        ...requirements.mcp,
-        ...extensions.flatMap(extension => extension.manifest.permissions.mcp),
-      ])],
+      integrations: requirements.integrations.map(i => i.provider),
+      harnesses: requirements.harnesses,
+      mcp: requirements.mcp,
     },
   }) });
   if (!isCloudRecord(result) || typeof result.agentId !== 'string' || typeof result.status !== 'string') {

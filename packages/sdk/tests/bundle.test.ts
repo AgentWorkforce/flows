@@ -31,7 +31,8 @@ function invoke(args: string[], cwd = repo, env: NodeJS.ProcessEnv = {}) {
 async function seal(out: string, env: NodeJS.ProcessEnv = { FLOWS_BUILD_KEY: key }, warn = (_: string) => {}) {
   return sealBundle({ name: 'example', repo: out, out, env, warn, files: [
     { path: 'spec.canonical.json', data: canonicalize({ name: 'example' }) },
-    { path: 'preflight.json', data: '{}' }, { path: 'lockfile.json', data: '{}' },
+    { path: 'preflight.json', data: '{}' },
+    { path: 'lockfile.json', data: canonicalize({ version: 2, plugins: [] }) },
   ] });
 }
 afterEach(async () => { await Promise.all(temporary.splice(0).map(path => rm(path, { force: true, recursive: true }))); });

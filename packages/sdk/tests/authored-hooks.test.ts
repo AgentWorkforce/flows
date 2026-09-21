@@ -78,6 +78,21 @@ describe('hook AND composition', () => {
     expect(streams.get('hooks')).toHaveLength(1);
   });
 
+  it('does not persist cancellation as a failed plugin verdict', async () => {
+    const { journal, streams } = fakeJournal();
+    const controller = new AbortController();
+    const evaluate = createHookEvaluator({
+      journal, rootRunId: 'root-1', flowName: 'software-factory',
+      declared: ['merge-gate'],
+      extensions: [extension('first', async () => await new Promise<boolean>(() => {}))],
+      signal: controller.signal,
+    });
+    const pending = evaluate('hook-1', 'merge-gate', {}, ctx);
+    controller.abort(new Error('run cancelled'));
+    await expect(pending).rejects.toThrow('run cancelled');
+    expect(streams.get('hooks')).toBeUndefined();
+  });
+
   it('refuses a hook the base header does not declare', async () => {
     const { journal } = fakeJournal();
     const evaluate = createHookEvaluator({

@@ -6,7 +6,7 @@ import { extensionManifestOf } from './cli/add-extension.js';
 import { assertCompatible, runtimeVersions } from './flow-extension-compat.js';
 import type { LoadedAuthoredFlow } from './authored-flow-loader.js';
 import type { FlowExtensionManifest } from './flow-extension-manifest.js';
-import type { LoadedFlowExtension } from './flow-extension-loader.js';
+import { probeFlowExtension, type LoadedFlowExtension } from './flow-extension-loader.js';
 import { fetchGithubPlugin, MAX_PLUGIN_TOTAL_BYTES, resolveGithubSha, type FetchLike } from './plugin-github.js';
 import { PluginError } from './plugin-manifest.js';
 import { canonicalPluginRef, parsePluginSource } from './plugin-source.js';
@@ -101,6 +101,12 @@ export async function collectExtensionSubmissions(
   const total = Buffer.byteLength(JSON.stringify(submissions), 'utf8');
   if (total > MAX_EXTENSIONS_BYTES) {
     throw new CloudFlowError('invalid_input', `Flow extensions exceed Cloud's ${MAX_EXTENSIONS_BYTES}-byte extensions cap.`);
+  }
+  try {
+    for (const submission of submissions) await probeFlowExtension(submission.manifest);
+  } catch (error) {
+    if (error instanceof PluginError) throw new CloudFlowError('invalid_input', error.message);
+    throw error;
   }
   return submissions;
 }

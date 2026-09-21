@@ -1,10 +1,11 @@
 import { dirname, resolve } from 'node:path';
 import { loadAuthoredFlow, type LoadedAuthoredFlow } from '../authored-flow-loader.js';
+import { probeFlowExtension } from '../flow-extension-loader.js';
 import { preflightWebhookTriggers } from '../preflight.js';
 import { preflightProviderTriggers } from '../provider-trigger-contract.js';
 import { scheduleLowering } from '../schedule-trigger.js';
 import { checkSlackHelpers } from '../slack-preflight.js';
-import { flowRequirements } from '../flow-requirements.js';
+import { flowRequirements, mergeFlowExtensionRequirements } from '../flow-requirements.js';
 import { PluginError } from '../plugin-manifest.js';
 import { inputFailureReport, readProjectConfig, type CheckReport } from './check.js';
 
@@ -23,6 +24,7 @@ export async function checkAuthoredTriggers(path: string): Promise<{
     const loaded = await loadAuthoredFlow(path);
     const definition = loaded.getDefinition(loaded.handle);
     const config = readProjectConfig(dirname(resolve(path)));
+    for (const extension of loaded.extensions ?? []) await probeFlowExtension(extension.manifest);
     const triggers = (definition.handlers ?? []).map(handler => handler.trigger);
     const triggerDiagnostics = preflightWebhookTriggers(triggers, config.executors);
     // Registration answers "may this inbox run here"; the provider contract
@@ -61,7 +63,12 @@ export async function checkAuthoredTriggers(path: string): Promise<{
         ...(schedules.length === 0 ? {} : { schedules }),
         ...(extensions.length === 0 ? {} : { extensions }),
         ...(hooks === undefined ? {} : { hooks }),
-        requirements: flowRequirements(definition, { projectCli: config.cli }),
+        requirements: mergeFlowExtensionRequirements(
+          flowRequirements(definition, { projectCli: config.cli }),
+          (loaded.extensions ?? []).map(extension => ({
+            name: extension.name, permissions: extension.manifest.permissions,
+          })),
+        ),
         ...(config.path === undefined ? {} : { projectConfigPath: config.path }),
       },
     };

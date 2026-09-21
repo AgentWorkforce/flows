@@ -1,8 +1,9 @@
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadAuthoredFlow } from '../src/authored-flow-loader.js';
+import { deployToCloud, parseTriggerSource } from '../src/cloud-deploy.js';
 import { collectExtensionSubmissions } from '../src/flow-extension-submit.js';
 import { addExtensionPlugin } from '../src/cli/add-extension.js';
 import { checkAuthoredTriggers } from '../src/cli/check-triggers.js';
@@ -20,7 +21,11 @@ const REF = `github:AgentWorkforce/flows@${SHA_A}#examples/babysitter`;
 const versions = { sdk: '2.0.22', surface: '2.0.22' };
 const now = () => new Date('2026-09-20T12:00:00Z');
 const dirs: string[] = [];
-afterEach(() => { dirs.splice(0).forEach(p => rmSync(p, { recursive: true, force: true })); });
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+  dirs.splice(0).forEach(p => rmSync(p, { recursive: true, force: true }));
+});
 
 const BASE = `
   import { flow, github } from '@relayflows/surface';
@@ -126,6 +131,7 @@ describe('composing flow extensions onto a base flow', () => {
     expect(report.ok).toBe(true);
     expect(report.extensions).toEqual([{ name: 'babysitter', version: '0.1.0', ref: REF, digest: expect.stringMatching(/^[0-9a-f]{64}$/), handlers: 8, hooks: [] }]);
     expect(report.requirements?.integrations.map(i => i.provider)).toContain('github');
+    expect(report.requirements?.harnessUses).toContainEqual({ harness: 'claude', detail: 'plugin "babysitter"' });
     expect(await runCli(['check', p.flow], p.io)).toBe(0);
     expect(p.text()).toContain(`EXTENSION babysitter@0.1.0 ${REF} sha256:`);
     expect(p.text()).toContain('8 handler(s) composed after the base flow');
@@ -135,6 +141,69 @@ describe('composing flow extensions onto a base flow', () => {
     expect(submissions[0]).toMatchObject({ name: 'babysitter', ref: REF });
     expect(submissions[0]!.files.some(f => f.path === 'babysitter.flow.ts' && f.encoding === 'utf8')).toBe(true);
     expect(submissions[0]!.files.reduce((n, f) => n + f.bytes, 0)).toBeGreaterThan(0);
+  });
+  it('flows check probes extension preflight before reporting the project healthy', async () => {
+    const p = project();
+    await install(p, variant(m => ({
+      ...m,
+      preflight: { credentials: ['FLOWS_TEST_MISSING_EXTENSION_CREDENTIAL'], servers: [] },
+    })));
+    const { report } = await checkAuthoredTriggers(p.flow);
+    expect(report.ok).toBe(false);
+    expect(report.diagnostics[0]).toMatchObject({
+      kind: 'plugin_credential_missing',
+      message: expect.stringContaining('FLOWS_TEST_MISSING_EXTENSION_CREDENTIAL'),
+    });
+    const loaded = await loadAuthoredFlow(p.flow, { versions });
+    await expect(collectExtensionSubmissions(loaded)).rejects.toMatchObject({
+      code: 'invalid_input',
+      message: expect.stringContaining('FLOWS_TEST_MISSING_EXTENSION_CREDENTIAL'),
+    });
+  });
+  it('uses extension permissions for hosted deploy preflight and the deploy body', async () => {
+    const p = project();
+    await install(p, variant(m => ({
+      ...m,
+      permissions: { ...(m.permissions as object), integrations: ['linear'], harnesses: ['codex'], mcp: ['filesystem'] },
+      preflight: { credentials: [], servers: [] },
+    })));
+    const calls: Array<{ path: string; body: unknown }> = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      calls.push({ path, body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined });
+      if (path === '/api/v1/auth/whoami') {
+        return new Response(JSON.stringify({ currentWorkspace: { id: 'ws-1' } }), { status: 200 });
+      }
+      if (path.endsWith('/integrations/github/status')) return new Response('{"ready":true}', { status: 200 });
+      if (path.endsWith('/integrations/linear/status')) return new Response('{"ready":false}', { status: 200 });
+      if (path === '/api/v1/flows/deploy') {
+        return new Response(JSON.stringify({ agentId: 'agent-1', status: 'draft' }), { status: 201 });
+      }
+      return new Response('{}', { status: 404 });
+    });
+    vi.stubEnv('FLOWS_CLOUD_URL', 'https://cloud-contract.example');
+    vi.stubEnv('FLOWS_CLOUD_TOKEN', 'test-token');
+    const input = {
+      path: p.flow, repository: { owner: 'AgentWorkforce', name: 'flows' },
+      sources: [parseTriggerSource('github')], approver: 'reviewer',
+    };
+    await expect(deployToCloud(input)).rejects.toMatchObject({
+      code: 'integration_not_connected', message: expect.stringContaining('plugin "babysitter"'),
+    });
+    expect(calls.some(call => call.path === '/api/v1/flows/deploy')).toBe(false);
+
+    const deployed = await deployToCloud({ ...input, draft: true });
+    const body = calls.findLast(call => call.path === '/api/v1/flows/deploy')!.body;
+    expect(body).toMatchObject({
+      requirements: { integrations: ['github', 'linear'], harnesses: ['codex'], mcp: ['filesystem'] },
+    });
+    expect(deployed.requirements).toMatchObject({
+      integrations: [
+        { provider: 'github', from: 'source' },
+        { provider: 'linear', from: 'extension', detail: 'plugin "babysitter"' },
+      ],
+      harnesses: ['codex'], mcp: ['filesystem'],
+    });
   });
 });
 
