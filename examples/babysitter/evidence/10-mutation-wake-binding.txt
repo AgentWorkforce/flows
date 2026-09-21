@@ -1,0 +1,79 @@
+=== M1: revert the wake contract — bind to the delivered hint instead of live state ===
+
+$ git diff --stat -- wake.ts   # before mutation (clean)
+$ # bindHead now prefers the webhook hint over live state
+
+$ node --experimental-strip-types --test tests/wake.test.ts
+✔ the declared subscription contract is exactly the required resident set (3.841458ms)
+✔ every declared subscription registers one handler bound to the one body (0.77575ms)
+✔ each trigger filters to its own provider, type and action (0.60375ms)
+✔ compatibility entry points still resolve to this one implementation (0.927416ms)
+✔ subscription preflight passes the declared contract and has teeth (0.854042ms)
+✔ preflight refuses an undeliverable subscription rather than deploying it (0.454167ms)
+✔ a delivery is accepted as a hint; only routing is enforced (3.213375ms)
+✖ a stale hinted head is recorded, never enforced, and never binds (2.881958ms)
+✔ an operator pin constrains the run; it never substitutes for live state (0.518625ms)
+✔ every wake rereads live state before it decides anything (3.559958ms)
+✔ a payload that disagrees with live state loses: closed hint, open PR (0.592833ms)
+✔ a payload that disagrees with live state loses: open hint, closed PR (0.444791ms)
+✔ a label hint is re-read from live state in both directions (0.696167ms)
+✔ a review hint cannot assert an approval live state does not show (0.589959ms)
+✔ a check hint cannot assert a conclusion live state does not show (0.306292ms)
+✔ duplicate delivery repeats a decision instead of adding one (0.90675ms)
+✖ out-of-order delivery decides about the head that exists now (11.857292ms)
+✔ the decision key names the subscription and the live head, never the hint (0.386083ms)
+✖ each wake emits one deterministic observation line (1.142084ms)
+✔ the sweep separates a quiet subscription from a dead one (0.864916ms)
+✔ a young subscription is pending, an old silent one is never (0.476ms)
+✔ the sweep refuses impossible windows and clock-faulted records (0.48975ms)
+✔ the sweep expects exactly the subscriptions the flow registers (0.139875ms)
+ℹ tests 23
+ℹ suites 0
+ℹ pass 20
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 523.069375
+✖ failing tests:
+✖ a stale hinted head is recorded, never enforced, and never binds (2.881958ms)
+✖ out-of-order delivery decides about the head that exists now (11.857292ms)
+✖ each wake emits one deterministic observation line (1.142084ms)
+
+=== restore byte-for-byte ===
+$ git diff --stat -- wake.ts   # restored
+$ cmp
+identical
+
+$ node --experimental-strip-types --test tests/wake.test.ts
+✔ the declared subscription contract is exactly the required resident set (2.518666ms)
+✔ every declared subscription registers one handler bound to the one body (0.560917ms)
+✔ each trigger filters to its own provider, type and action (0.595709ms)
+✔ compatibility entry points still resolve to this one implementation (2.189667ms)
+✔ subscription preflight passes the declared contract and has teeth (0.727708ms)
+✔ preflight refuses an undeliverable subscription rather than deploying it (0.35525ms)
+✔ a delivery is accepted as a hint; only routing is enforced (2.282042ms)
+✔ a stale hinted head is recorded, never enforced, and never binds (0.804708ms)
+✔ an operator pin constrains the run; it never substitutes for live state (0.482084ms)
+✔ every wake rereads live state before it decides anything (2.985125ms)
+✔ a payload that disagrees with live state loses: closed hint, open PR (0.391583ms)
+✔ a payload that disagrees with live state loses: open hint, closed PR (0.234542ms)
+✔ a label hint is re-read from live state in both directions (0.281417ms)
+✔ a review hint cannot assert an approval live state does not show (0.309ms)
+✔ a check hint cannot assert a conclusion live state does not show (0.94475ms)
+✔ duplicate delivery repeats a decision instead of adding one (0.732333ms)
+✔ out-of-order delivery decides about the head that exists now (0.33975ms)
+✔ the decision key names the subscription and the live head, never the hint (0.279042ms)
+✔ each wake emits one deterministic observation line (0.769084ms)
+✔ the sweep separates a quiet subscription from a dead one (0.713ms)
+✔ a young subscription is pending, an old silent one is never (0.428209ms)
+✔ the sweep refuses impossible windows and clock-faulted records (0.457333ms)
+✔ the sweep expects exactly the subscriptions the flow registers (0.177833ms)
+ℹ tests 23
+ℹ suites 0
+ℹ pass 23
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 337.169125

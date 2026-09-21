@@ -1,0 +1,19 @@
+$ node --experimental-strip-types --test examples/babysitter/tests/gates.test.ts
+✔ malformed external inputs fail before shell or API (1.313054ms)
+✔ live skip and author rules fail closed (0.328524ms)
+✔ READY rejects missing pending red conflicts stale heads and missing state (0.342941ms)
+✔ merge requires opt in org and configured independent approver at exact SHA (0.266579ms)
+✔ conflict command is explicit authorized and same repository only (0.279353ms)
+✔ edits fail closed for semantic changes, fork, protected paths, tests and unresolved conflicts (0.713163ms)
+✔ artifacts are nonempty schema validated exact head and reconcile deterministically (0.896366ms)
+✔ publication refuses stale post race newer verdict spoof and absent atomic capability (0.13909ms)
+✔ once per head keys and sticky CI attribution survive duplicate wake decisions (0.175408ms)
+✔ one bounded infra retry only for 137/143 (0.274864ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 89.760651

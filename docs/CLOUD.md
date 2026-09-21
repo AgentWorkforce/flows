@@ -289,10 +289,14 @@ scoped to `--repo`. `events` is `issues` (the default: `issues.opened` and
 `issues.labeled`) or `pull_request`, which wakes on a pull request being
 opened, receiving commits, being reopened, or being reviewed; a
 pull-request run checks out the pull request's own head and receives
-`input.pullRequest` (`number`, `title`, `body`, `headRef`, `headSha`,
+`input.pullRequest` (`owner`, `repo`, `number`, `action`, `title`, `body`, `headRef`, `headSha`,
 `baseRef`, `author`, `draft`, `labels`, `url`, and `review` for a submitted
 review) beside `input.issue` and `input.event`. Comment and check-run
-events are not wake sources yet.
+events additionally require Cloud's expanded change-request routing release.
+`input.event` is a normalized descriptor, not the raw webhook: it carries
+`provider`, dotted `eventType` (for example `pull_request.synchronize` or
+`pull_request_review.submitted`), `paths`, and `deliveryId`. The repository
+coordinates also appear in `issue.repository`; they are not exclusive to it.
 
 Each matching ticket launches one run of the stored source. Cloud clones
 `--repo` at its default branch onto a fresh `relayflow/<name>-<id>` branch,
