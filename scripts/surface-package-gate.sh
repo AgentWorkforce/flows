@@ -19,7 +19,18 @@ if [[ -z "$tarball" ]]; then
   exit 1
 fi
 
-npm ci --prefix "$repo_root/packages/sdk" --ignore-scripts
+# --force: the SDK's lockfile carries the LAST-PUBLISHED surface,
+# whose peer range pins an exact @relayfile/relay-helpers. Whenever that pin
+# moves, the published surface and the freshly-packed one below disagree and
+# npm refuses both orderings (old pin vs. new tarball, new pin vs. old
+# registry copy). The registry copy is a placeholder that the next command
+# overwrites, so its peer range is not a constraint worth enforcing here.
+# --legacy-peer-deps only relaxes CONFLICTS; it also stops npm resolving peers
+# on the fly, so the committed lockfile must already carry them (adapter-core
+# 0.6 added a @relayfile/sdk peer that 0.5 did not have). The lockfile is
+# generated with `npm install --force`, which records peers and overrides the
+# same conflict, so `npm ci` here only has to install what is already pinned.
+npm ci --prefix "$repo_root/packages/sdk" --ignore-scripts --legacy-peer-deps
 
 # Override the registry-installed @relayflows/surface with the freshly-packed
 # local tarball. Without this the SDK's typecheck reads the last-published
@@ -27,7 +38,7 @@ npm ci --prefix "$repo_root/packages/sdk" --ignore-scripts
 # published surface that hasn't shipped it yet, keeping the SDK PR draft
 # forever. `--no-save` keeps package.json / package-lock.json unchanged so
 # this override does not leak into the committed manifest.
-npm install "$tarball" --prefix "$repo_root/packages/sdk" --no-save --ignore-scripts
+npm install "$tarball" --prefix "$repo_root/packages/sdk" --no-save --ignore-scripts --force
 
 npm run typecheck --prefix "$repo_root/packages/sdk"
 
