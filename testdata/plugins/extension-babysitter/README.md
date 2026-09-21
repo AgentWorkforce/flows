@@ -7,9 +7,9 @@ Software Garden, served to the SDK tests by a fake GitHub (see
 example: the entry carries Babysitter's handler surface — one `.on()` per
 declared subscription — over a body that only declines, so composition onto a
 base flow can be proven without the real review body. `extends.hooks` is empty
-because hooks are not composed by this release (a manifest declaring one is
-refused with `plugin_unsupported`); the `merge-gate` hook from the design is a
-later slice.
+because this fixture does not declare a hook; declared hooks are composed when
+the base flow names them. The `merge-gate` hook from the design is not included
+in this fixture.
 
 Babysitter's own subscription contract (branch `feat/babysitter-v2`) names
 eleven GitHub subscriptions. Three of them — `pull_request.ready_for_review`,
