@@ -796,14 +796,43 @@ uses the opening shown here; an authored child failure opens with
 FAILED [step_failed] Run "<run-id>" failed with completionReason: step_failed.
  Step "<step-id>" (<type>) completionReason: <reason> attempt=<n>/<budget> exit=<code>.
 Detail: <the worker's own account, when it left one>
-Stdout (last 1,024 bytes):
-<tail>
-Stderr (last 1,024 bytes):
-<tail>
+Stdout (captured excerpt):
+<excerpt>
+Stderr (captured excerpt):
+<excerpt>
 Transcript: <path>
 Inspect: flows replay <run-id> --at <step-id>
 Journal: <data-dir>/runs/<run-id>.sqlite3
 ```
+
+An excerpt is at most 4,096 UTF-8 bytes of the stream the journal carried. A
+stream that fits is printed whole and carries no marker; one that does not is
+printed as a head, the lines from the elided middle that match a built-in
+failure marker (TAP `not ok`, `FAIL`/`FAILED`, a vitest or jest failure glyph,
+cargo's `... FAILED` and `---- <case> stdout ----` headings, and Rust's
+`panicked at`), and a tail — with the elision stated in band:
+
+```text
+Stdout (captured excerpt):
+TAP version 13
+ok 1 - pty: spawns
+… 61,204 bytes elided; 2 lines matched a failure marker …
+not ok 5 - pty-exit: child reaped twice
+not ok 9 - pty-exit: fd leak
+… end of elided region …
+1..14
+# tests 14
+# fail 2
+```
+
+The markers are hints, not a parser: an unrecognised format still gets head and
+tail context, and prose can match one. Two limits bound what any excerpt can
+show. The absence of an elision marker means the field the journal carried fit
+whole, not that the command printed nothing more: a deterministic step's
+capture is itself the last 64 KiB of each stream, and an `agent` or `llm`
+step's evidence survives only as the daemon's bounded render in
+`verification.detail`. A failure printed before those windows is not in the
+journal to be excerpted.
 
 Each clause is present only when the journal holds the fact behind it; nothing
 is defaulted. The same fields appear as named keys on the `--json` diagnostic
