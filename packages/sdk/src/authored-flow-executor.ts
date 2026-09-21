@@ -360,7 +360,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     journal,
     ...(options.rootRunId === undefined ? {} : { rootRunId: options.rootRunId }),
     flowName: definition.name,
-    declared: definition.header.hooks ?? [],
+    declared: definition.header?.hooks ?? [],
     extensions: options.extensions ?? [],
     peekStep: () => nextStep,
     restoreStep: (step) => { nextStep = step; },

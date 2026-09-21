@@ -45,11 +45,11 @@ export async function checkAuthoredTriggers(path: string): Promise<{
     const extensions = (loaded.extensions ?? []).map(extension => ({
       name: extension.name, version: extension.version, ref: extension.ref, digest: extension.digest,
       handlers: extension.handlers.length,
-      hooks: extension.manifest.extends.hooks,
+      hooks: extension.manifest?.extends.hooks ?? [],
     }));
-    const declaredHooks = definition.header.hooks ?? [];
+    const declaredHooks = definition.header?.hooks ?? [];
     const implementations = (loaded.extensions ?? []).flatMap(extension =>
-      extension.manifest.extends.hooks.map(hook => ({ hook, plugin: extension.name })));
+      (extension.manifest?.extends.hooks ?? []).map(hook => ({ hook, plugin: extension.name })));
     const hooks = declaredHooks.length > 0 || implementations.length > 0
       ? { declared: declaredHooks, implementations } : undefined;
     return {
