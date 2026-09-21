@@ -233,8 +233,12 @@ run journals remain. The platform effect blockers below still apply.
   line is the only signal. `durableSubscriptionLiveness` stays false.
 
 `tests/platform.test.ts` contains executable, deliberately failing TODO
-assertions for the five missing capabilities. A test runner exit code of zero
-with those TODOs does **not** mean the workload is accepted. No live workload or
+assertions for all six missing capabilities, one per `false` entry in
+`capabilities.ts`. The suite reports **seven** todos, not six: the seventh is
+`live-head end-to-end review and merge acceptance remains RED` in
+`tests/flow.test.ts`, which stays red because a passing merge-transport unit
+test is not end-to-end acceptance. A test runner exit code of zero with those
+TODOs does **not** mean the workload is accepted. No live workload or
 cross-run exactly-once effect is claimed. See `evidence/` for literal commands
 and output — including three mutation verifications of the wake contract
 (`10-`, `11-`), which revert a specific behavior, capture the failure, restore
